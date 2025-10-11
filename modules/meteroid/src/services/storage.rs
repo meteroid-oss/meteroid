@@ -40,7 +40,7 @@ impl Prefix {
     }
 }
 
-pub type Result<T> = error_stack::Result<T, ObjectStoreError>;
+pub type Result<T> = core::result::Result<T, Report<ObjectStoreError>>;
 
 #[async_trait]
 pub trait ObjectStoreService: Send + Sync {

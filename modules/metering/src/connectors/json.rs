@@ -16,10 +16,10 @@ impl JsonFieldExtractor for serde_json::Value {
     fn get_string(&self, field: &str) -> Option<String> {
         self.get(field)
             .and_then(|v| v.as_str())
-            .map(|s| s.to_string())
+            .map(std::string::ToString::to_string)
     }
 
     fn get_f64(&self, field: &str) -> Option<f64> {
-        self.get(field).and_then(|v| v.as_f64())
+        self.get(field).and_then(serde_json::Value::as_f64)
     }
 }

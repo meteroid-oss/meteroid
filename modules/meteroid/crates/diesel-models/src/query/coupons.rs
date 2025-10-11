@@ -25,7 +25,7 @@ impl CouponRowNew {
         query
             .get_result(conn)
             .await
-            .attach_printable("Error while inserting coupon")
+            .attach("Error while inserting coupon")
             .into_db_result()
     }
 }
@@ -47,7 +47,7 @@ impl CouponRow {
         query
             .first(conn)
             .await
-            .attach_printable("Error while getting coupon")
+            .attach("Error while getting coupon")
             .into_db_result()
     }
 
@@ -65,7 +65,7 @@ impl CouponRow {
             .into_boxed();
 
         if let Some(search) = search {
-            query = query.filter(c_dsl::code.ilike(format!("%{}%", search)));
+            query = query.filter(c_dsl::code.ilike(format!("%{search}%")));
         }
 
         let is_expired = c_dsl::expires_at
@@ -105,7 +105,7 @@ impl CouponRow {
         query
             .load_and_count_pages(conn)
             .await
-            .attach_printable("Error while listing coupons")
+            .attach("Error while listing coupons")
             .into_db_result()
     }
 
@@ -121,7 +121,7 @@ impl CouponRow {
         query
             .execute(conn)
             .await
-            .attach_printable("Error while deleting coupon")
+            .attach("Error while deleting coupon")
             .into_db_result()
     }
 
@@ -141,8 +141,8 @@ impl CouponRow {
         query
             .get_results(conn)
             .await
-            .tap_err(|e| log::error!("Error while fetching coupons: {:?}", e))
-            .attach_printable("Error while fetching coupons")
+            .tap_err(|e| log::error!("Error while fetching coupons: {e:?}"))
+            .attach("Error while fetching coupons")
             .into_db_result()
     }
 
@@ -163,7 +163,7 @@ impl CouponRow {
         query
             .get_results(conn)
             .await
-            .attach_printable("Error while fetching coupons for update")
+            .attach("Error while fetching coupons for update")
             .into_db_result()
     }
 
@@ -183,7 +183,7 @@ impl CouponRow {
         query
             .get_result(conn)
             .await
-            .attach_printable("Error while incrementing coupon redemption count")
+            .attach("Error while incrementing coupon redemption count")
             .into_db_result()
     }
 
@@ -203,7 +203,7 @@ impl CouponRow {
         query
             .load::<(CouponId, i64)>(conn)
             .await
-            .attach_printable("Error while counting customers for coupons")
+            .attach("Error while counting customers for coupons")
             .into_db_result()
             .map(|rows: Vec<(CouponId, i64)>| rows.into_iter().collect())
     }
@@ -225,7 +225,7 @@ impl CouponRow {
             .execute(conn)
             .await
             .map(|_| ())
-            .attach_printable("Error while updating coupon last redemption at")
+            .attach("Error while updating coupon last redemption at")
             .into_db_result()
     }
 
@@ -245,7 +245,7 @@ impl CouponRow {
         query
             .load(conn)
             .await
-            .attach_printable("Error while listing coupons by codes")
+            .attach("Error while listing coupons by codes")
             .into_db_result()
     }
 }
@@ -264,7 +264,7 @@ impl CouponRowPatch {
         query
             .get_result(conn)
             .await
-            .attach_printable("Error while updating coupon")
+            .attach("Error while updating coupon")
             .into_db_result()
     }
 }
@@ -282,7 +282,7 @@ impl CouponStatusRowPatch {
         query
             .get_result(conn)
             .await
-            .attach_printable("Error while updating coupon status")
+            .attach("Error while updating coupon status")
             .into_db_result()
     }
 }

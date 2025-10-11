@@ -17,7 +17,7 @@ pub trait DealsApi {
 
 #[async_trait::async_trait]
 impl DealsApi for HubspotClient {
-    /// https://developers.hubspot.com/docs/reference/api/crm/objects/deals#post-%2Fcrm%2Fv3%2Fobjects%2Fdeals%2Fbatch%2Fupsert
+    /// <https://developers.hubspot.com/docs/reference/api/crm/objects/deals#post-%2Fcrm%2Fv3%2Fobjects%2Fdeals%2Fbatch%2Fupsert>
     async fn upsert_deals(
         &self,
         deals: Vec<NewDeal>,

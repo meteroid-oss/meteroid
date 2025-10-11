@@ -8,9 +8,9 @@ pub fn init(cfg: &TelemetryConfig) {
         crate::otel::init_otel_tracing_and_logging();
     } else {
         init_regular_logging();
-    };
+    }
 
     if cfg.metrics_enabled {
-        crate::otel::init_meter_provider(cfg);
+        let _ = crate::otel::init_meter_provider(cfg);
     }
 }

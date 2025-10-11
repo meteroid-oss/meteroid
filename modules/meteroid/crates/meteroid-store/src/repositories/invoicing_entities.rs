@@ -70,7 +70,7 @@ impl InvoicingEntityInterface for Store {
             .await
             .map_err(Into::<Report<StoreError>>::into)?
             .into_iter()
-            .map(|v| v.into())
+            .map(std::convert::Into::into)
             .collect();
 
         Ok(invoicing_entities)
@@ -86,7 +86,7 @@ impl InvoicingEntityInterface for Store {
             .await
             .map_err(Into::<Report<StoreError>>::into)?
             .into_iter()
-            .map(|v| v.into())
+            .map(std::convert::Into::into)
             .collect();
 
         Ok(invoicing_entities)

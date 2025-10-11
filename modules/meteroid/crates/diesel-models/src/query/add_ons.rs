@@ -19,7 +19,7 @@ impl AddOnRowNew {
         query
             .get_result(conn)
             .await
-            .attach_printable("Error while inserting add-on")
+            .attach("Error while inserting add-on")
             .into_db_result()
     }
 }
@@ -41,7 +41,7 @@ impl AddOnRow {
         query
             .first(conn)
             .await
-            .attach_printable("Error while getting add-on")
+            .attach("Error while getting add-on")
             .into_db_result()
     }
 
@@ -58,7 +58,7 @@ impl AddOnRow {
             .into_boxed();
 
         if let Some(search) = search {
-            query = query.filter(ao_dsl::name.ilike(format!("%{}%", search)));
+            query = query.filter(ao_dsl::name.ilike(format!("%{search}%")));
         }
 
         let query = query.select(AddOnRow::as_select());
@@ -70,8 +70,8 @@ impl AddOnRow {
         query
             .load_and_count_pages(conn)
             .await
-            .tap_err(|e| log::error!("Error while listing add-ons: {:?}", e))
-            .attach_printable("Error while listing add-ons")
+            .tap_err(|e| log::error!("Error while listing add-ons: {e:?}"))
+            .attach("Error while listing add-ons")
             .into_db_result()
     }
 
@@ -87,8 +87,8 @@ impl AddOnRow {
         query
             .execute(conn)
             .await
-            .tap_err(|e| log::error!("Error while deleting add-on: {:?}", e))
-            .attach_printable("Error while deleting add-on")
+            .tap_err(|e| log::error!("Error while deleting add-on: {e:?}"))
+            .attach("Error while deleting add-on")
             .into_db_result()?;
 
         Ok(())
@@ -110,8 +110,8 @@ impl AddOnRow {
         query
             .get_results(conn)
             .await
-            .tap_err(|e| log::error!("Error while fetching add-ons: {:?}", e))
-            .attach_printable("Error while fetching add-ons")
+            .tap_err(|e| log::error!("Error while fetching add-ons: {e:?}"))
+            .attach("Error while fetching add-ons")
             .into_db_result()
     }
 }
@@ -130,7 +130,7 @@ impl AddOnRowPatch {
         query
             .get_result(conn)
             .await
-            .attach_printable("Error while updating add-on")
+            .attach("Error while updating add-on")
             .into_db_result()
     }
 }

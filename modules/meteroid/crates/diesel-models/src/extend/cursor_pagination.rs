@@ -49,7 +49,7 @@ impl<T> CursorPaginate for T {
     where
         S: Into<Cow<'static, str>>,
     {
-        let per_page = pagination.limit.unwrap_or(DEFAULT_PER_PAGE) as i64;
+        let per_page = i64::from(pagination.limit.unwrap_or(DEFAULT_PER_PAGE));
 
         CursorPaginated {
             query: self,
@@ -66,8 +66,8 @@ const DEFAULT_PER_PAGE: u32 = 25;
 impl<T> CursorPaginated<T> {
     pub fn per_page(self, per_page: u32) -> Self {
         CursorPaginated {
-            per_page: per_page as i64,
-            per_page_plus_one: per_page as i64 + 1,
+            per_page: i64::from(per_page),
+            per_page_plus_one: i64::from(per_page) + 1,
             ..self
         }
     }

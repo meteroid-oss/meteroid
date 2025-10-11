@@ -93,9 +93,7 @@ where
 
         let (res, grpc_status_code) = match res {
             Ok(result) => {
-                let code = Status::from_header_map(result.headers())
-                    .map(|s| s.code())
-                    .unwrap_or(Code::Ok);
+                let code = Status::from_header_map(result.headers()).map_or(Code::Ok, |s| s.code());
                 (Ok(result), code)
             }
             Err(err) => {

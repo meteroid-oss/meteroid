@@ -16,7 +16,7 @@ use error_stack::ResultExt;
 
 impl QuoteRowNew {
     pub async fn insert(&self, conn: &mut PgConn) -> DbResult<QuoteRow> {
-        use crate::schema::quote::dsl::*;
+        use crate::schema::quote::dsl::quote;
         use diesel_async::RunQueryDsl;
 
         let query = diesel::insert_into(quote).values(self);
@@ -26,12 +26,12 @@ impl QuoteRowNew {
         query
             .get_result(conn)
             .await
-            .attach_printable("Error while inserting quote")
+            .attach("Error while inserting quote")
             .into_db_result()
     }
 
     pub async fn insert_batch(rows: &[QuoteRowNew], conn: &mut PgConn) -> DbResult<Vec<QuoteRow>> {
-        use crate::schema::quote::dsl::*;
+        use crate::schema::quote::dsl::quote;
         use diesel_async::RunQueryDsl;
 
         let query = diesel::insert_into(quote).values(rows);
@@ -41,7 +41,7 @@ impl QuoteRowNew {
         query
             .get_results(conn)
             .await
-            .attach_printable("Error while batch inserting quotes")
+            .attach("Error while batch inserting quotes")
             .into_db_result()
     }
 }
@@ -52,7 +52,7 @@ impl QuoteRow {
         param_tenant_id: TenantId,
         param_quote_id: QuoteId,
     ) -> DbResult<QuoteRow> {
-        use crate::schema::quote::dsl::*;
+        use crate::schema::quote::dsl::{id, quote, tenant_id};
         use diesel_async::RunQueryDsl;
 
         let query = quote
@@ -64,7 +64,7 @@ impl QuoteRow {
         query
             .first(conn)
             .await
-            .attach_printable("Error while finding quote by id")
+            .attach("Error while finding quote by id")
             .into_db_result()
     }
 
@@ -88,7 +88,7 @@ impl QuoteRow {
         query
             .first(conn)
             .await
-            .attach_printable("Error while finding quote with customer by id")
+            .attach("Error while finding quote with customer by id")
             .into_db_result()
     }
 
@@ -118,7 +118,7 @@ impl QuoteRow {
         }
 
         if let Some(search_str) = search {
-            let search_pattern = format!("%{}%", search_str);
+            let search_pattern = format!("%{search_str}%");
             query = query.filter(
                 q_dsl::quote_number
                     .ilike(search_pattern.clone())
@@ -143,12 +143,12 @@ impl QuoteRow {
             .paginate(pagination)
             .load_and_count_pages(conn)
             .await
-            .attach_printable("Error while listing quotes")
+            .attach("Error while listing quotes")
             .into_db_result()
     }
 
     pub async fn list_by_ids(conn: &mut PgConn, ids: Vec<QuoteId>) -> DbResult<Vec<QuoteRow>> {
-        use crate::schema::quote::dsl::*;
+        use crate::schema::quote::dsl::{id, quote};
         use diesel_async::RunQueryDsl;
 
         let query = quote.filter(id.eq_any(ids));
@@ -158,7 +158,7 @@ impl QuoteRow {
         query
             .load(conn)
             .await
-            .attach_printable("Error while listing quotes by ids")
+            .attach("Error while listing quotes by ids")
             .into_db_result()
     }
 
@@ -168,7 +168,7 @@ impl QuoteRow {
         param_quote_id: QuoteId,
         update: QuoteRowUpdate,
     ) -> DbResult<QuoteRow> {
-        use crate::schema::quote::dsl::*;
+        use crate::schema::quote::dsl::{id, quote, tenant_id};
         use diesel_async::RunQueryDsl;
 
         let query = diesel::update(quote)
@@ -181,7 +181,7 @@ impl QuoteRow {
         query
             .get_result(conn)
             .await
-            .attach_printable("Error while updating quote")
+            .attach("Error while updating quote")
             .into_db_result()
     }
 
@@ -192,7 +192,9 @@ impl QuoteRow {
         pdf_id: StoredDocumentId,
         param_sharing_key: String,
     ) -> DbResult<()> {
-        use crate::schema::quote::dsl::*;
+        use crate::schema::quote::dsl::{
+            id, pdf_document_id, quote, sharing_key, tenant_id, updated_at,
+        };
         use diesel_async::RunQueryDsl;
 
         let query = diesel::update(quote)
@@ -209,7 +211,7 @@ impl QuoteRow {
         query
             .execute(conn)
             .await
-            .attach_printable("Error while updating quote documents")
+            .attach("Error while updating quote documents")
             .into_db_result()
             .map(|_| ())
     }
@@ -220,7 +222,9 @@ impl QuoteRow {
         param_tenant_id: TenantId,
         subscription_id: common_domain::ids::SubscriptionId,
     ) -> DbResult<()> {
-        use crate::schema::quote::dsl::*;
+        use crate::schema::quote::dsl::{
+            converted_at, converted_to_subscription_id, id, quote, status, tenant_id, updated_at,
+        };
         use diesel_async::RunQueryDsl;
 
         let now = chrono::Utc::now().naive_utc();
@@ -240,7 +244,7 @@ impl QuoteRow {
         query
             .execute(conn)
             .await
-            .attach_printable("Error while converting quote to subscription")
+            .attach("Error while converting quote to subscription")
             .into_db_result()
             .map(|_| ())
     }
@@ -248,7 +252,7 @@ impl QuoteRow {
 
 impl QuoteSignatureRowNew {
     pub async fn insert(&self, conn: &mut PgConn) -> DbResult<QuoteSignatureRow> {
-        use crate::schema::quote_signature::dsl::*;
+        use crate::schema::quote_signature::dsl::quote_signature;
         use diesel_async::RunQueryDsl;
 
         let query = diesel::insert_into(quote_signature).values(self);
@@ -258,7 +262,7 @@ impl QuoteSignatureRowNew {
         query
             .get_result(conn)
             .await
-            .attach_printable("Error while inserting quote signature")
+            .attach("Error while inserting quote signature")
             .into_db_result()
     }
 }
@@ -268,7 +272,7 @@ impl QuoteSignatureRow {
         conn: &mut PgConn,
         param_quote_id: QuoteId,
     ) -> DbResult<Vec<QuoteSignatureRow>> {
-        use crate::schema::quote_signature::dsl::*;
+        use crate::schema::quote_signature::dsl::{quote_id, quote_signature, signed_at};
         use diesel_async::RunQueryDsl;
 
         let query = quote_signature
@@ -280,14 +284,14 @@ impl QuoteSignatureRow {
         query
             .load(conn)
             .await
-            .attach_printable("Error while listing quote signatures")
+            .attach("Error while listing quote signatures")
             .into_db_result()
     }
 }
 
 impl QuoteActivityRowNew {
     pub async fn insert(&self, conn: &mut PgConn) -> DbResult<QuoteActivityRow> {
-        use crate::schema::quote_activity::dsl::*;
+        use crate::schema::quote_activity::dsl::quote_activity;
         use diesel_async::RunQueryDsl;
 
         let query = diesel::insert_into(quote_activity).values(self);
@@ -297,7 +301,7 @@ impl QuoteActivityRowNew {
         query
             .get_result(conn)
             .await
-            .attach_printable("Error while inserting quote activity")
+            .attach("Error while inserting quote activity")
             .into_db_result()
     }
 }
@@ -308,7 +312,7 @@ impl QuoteActivityRow {
         param_quote_id: QuoteId,
         limit: Option<i64>,
     ) -> DbResult<Vec<QuoteActivityRow>> {
-        use crate::schema::quote_activity::dsl::*;
+        use crate::schema::quote_activity::dsl::{created_at, quote_activity, quote_id};
         use diesel_async::RunQueryDsl;
 
         let mut query = quote_activity
@@ -325,7 +329,7 @@ impl QuoteActivityRow {
         query
             .load(conn)
             .await
-            .attach_printable("Error while listing quote activities")
+            .attach("Error while listing quote activities")
             .into_db_result()
     }
 }
@@ -335,7 +339,7 @@ impl QuoteComponentRow {
         conn: &mut PgConn,
         param_quote_id: QuoteId,
     ) -> DbResult<Vec<QuoteComponentRow>> {
-        use crate::schema::quote_component::dsl::*;
+        use crate::schema::quote_component::dsl::{id, quote_component, quote_id};
         use diesel_async::RunQueryDsl;
 
         let query = quote_component
@@ -347,14 +351,14 @@ impl QuoteComponentRow {
         query
             .load(conn)
             .await
-            .attach_printable("Error while listing quote components")
+            .attach("Error while listing quote components")
             .into_db_result()
     }
 }
 
 impl QuoteComponentRowNew {
     pub async fn insert(&self, conn: &mut PgConn) -> DbResult<QuoteComponentRow> {
-        use crate::schema::quote_component::dsl::*;
+        use crate::schema::quote_component::dsl::quote_component;
         use diesel_async::RunQueryDsl;
 
         let query = diesel::insert_into(quote_component).values(self);
@@ -364,7 +368,7 @@ impl QuoteComponentRowNew {
         query
             .get_result(conn)
             .await
-            .attach_printable("Error while inserting quote component")
+            .attach("Error while inserting quote component")
             .into_db_result()
     }
 
@@ -372,7 +376,7 @@ impl QuoteComponentRowNew {
         rows: &[QuoteComponentRowNew],
         conn: &mut PgConn,
     ) -> DbResult<Vec<QuoteComponentRow>> {
-        use crate::schema::quote_component::dsl::*;
+        use crate::schema::quote_component::dsl::quote_component;
         use diesel_async::RunQueryDsl;
 
         let query = diesel::insert_into(quote_component).values(rows);
@@ -382,7 +386,7 @@ impl QuoteComponentRowNew {
         query
             .get_results(conn)
             .await
-            .attach_printable("Error while batch inserting quote components")
+            .attach("Error while batch inserting quote components")
             .into_db_result()
     }
 }

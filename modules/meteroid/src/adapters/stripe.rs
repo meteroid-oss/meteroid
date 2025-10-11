@@ -1,5 +1,4 @@
 use error_stack::Report;
-use error_stack::Result;
 use hyper::StatusCode;
 use secrecy::ExposeSecret;
 use secrecy::SecretString;
@@ -46,7 +45,7 @@ impl WebhookAdapter for Stripe {
         &self,
         request: &ParsedRequest,
         security: &SecretString,
-    ) -> Result<bool, errors::AdapterWebhookError> {
+    ) -> Result<bool, Report<errors::AdapterWebhookError>> {
         let sig = request
             .headers
             .get("Stripe-Signature")
@@ -80,7 +79,7 @@ impl WebhookAdapter for Stripe {
         request: &ParsedRequest,
         connector: &Connector,
         store: Store,
-    ) -> Result<bool, errors::AdapterWebhookError> {
+    ) -> Result<bool, Report<errors::AdapterWebhookError>> {
         log::info!(
             "Processing webhook Event: {:?}",
             request.json_body.to_string().as_str()
@@ -97,7 +96,8 @@ impl WebhookAdapter for Stripe {
                     .await
             }
             EventObject::PaymentIntent(data) => {
-                let payment_intent: Result<PaymentIntent, PaymentProviderError> = data.try_into();
+                let payment_intent: Result<PaymentIntent, Report<PaymentProviderError>> =
+                    data.try_into();
                 let payment_intent =
                     payment_intent.change_context(errors::AdapterWebhookError::ProviderError)?;
                 self.process_payment_intent_events(parsed, payment_intent, connector, store)
@@ -122,15 +122,15 @@ impl Stripe {
         data: SetupIntent,
         connector: &Connector,
         store: Store,
-    ) -> Result<bool, errors::AdapterWebhookError> {
+    ) -> Result<bool, Report<errors::AdapterWebhookError>> {
         let event_type_clone = parsed.event_type.clone();
 
         if event_type_clone != event_type::SETUP_INTENT_SUCCEEDED {
-            log::info!("Ignoring webhook event type: {}", event_type_clone);
+            log::info!("Ignoring webhook event type: {event_type_clone}");
             return Ok(false);
         }
 
-        log::info!("Processing webhook event type: {}", event_type_clone);
+        log::info!("Processing webhook event type: {event_type_clone}");
 
         let connection_id = data.metadata.get("meteroid.connection_id").ok_or(
             errors::AdapterWebhookError::MissingMetadata("meteroid.connection_id".to_string()),
@@ -222,7 +222,7 @@ impl Stripe {
         data: PaymentIntent,
         _connector: &Connector,
         store: Store,
-    ) -> Result<bool, errors::AdapterWebhookError> {
+    ) -> Result<bool, Report<errors::AdapterWebhookError>> {
         let event_type_clone = parsed.event_type.clone();
 
         // TODO the partially funded case
@@ -230,11 +230,11 @@ impl Stripe {
             || event_type_clone != event_type::PAYMENT_INTENT_FAILED
             || event_type_clone != event_type::PAYMENT_INTENT_PARTIALLY_FUNDED
         {
-            log::info!("Ignoring webhook event type: {}", event_type_clone);
+            log::info!("Ignoring webhook event type: {event_type_clone}");
             return Ok(false);
         }
 
-        log::info!("Processing webhook event type: {}", event_type_clone);
+        log::info!("Processing webhook event type: {event_type_clone}");
 
         // we fetch the related transaction then we consolidate the transaction with the new intent event
         store

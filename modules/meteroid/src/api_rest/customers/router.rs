@@ -52,7 +52,7 @@ pub(crate) async fn list_customers(
         )
         .await
         .map_err(|e| {
-            log::error!("Error handling list_customers: {}", e);
+            log::error!("Error handling list_customers: {e}");
             RestApiError::from(e)
         })?;
 
@@ -96,7 +96,7 @@ pub(crate) async fn get_customer(
         .find_customer_by_id_or_alias(id_or_alias, authorized_state.tenant_id)
         .await
         .map_err(|e| {
-            log::error!("Error handling get_customer: {}", e);
+            log::error!("Error handling get_customer: {e}");
             RestApiError::from(e)
         })
         .and_then(domain_to_rest)
@@ -133,7 +133,7 @@ pub(crate) async fn create_customer(
         )
         .await
         .map_err(|e| {
-            log::error!("Error handling insert_customer: {}", e);
+            log::error!("Error handling insert_customer: {e}");
             RestApiError::from(e)
         })?;
 
@@ -142,7 +142,7 @@ pub(crate) async fn create_customer(
         .find_customer_by_id_or_alias(AliasOr::Id(created.id), authorized_state.tenant_id)
         .await
         .map_err(|e| {
-            log::error!("Error handling get_customer: {}", e);
+            log::error!("Error handling get_customer: {e}");
             RestApiError::from(e)
         })
         .and_then(domain_to_rest)
@@ -184,7 +184,7 @@ pub(crate) async fn update_customer(
         )
         .await
         .map_err(|e| {
-            log::error!("Error handling update_customer: {}", e);
+            log::error!("Error handling update_customer: {e}");
             RestApiError::from(e)
         })
         .and_then(domain_to_rest)
@@ -223,8 +223,8 @@ pub(crate) async fn delete_customer(
         )
         .await
         .map_err(|e| {
-            log::error!("Error handling delete_customer: {}", e);
+            log::error!("Error handling delete_customer: {e}");
             RestApiError::from(e)
         })
-        .map(|_| StatusCode::NO_CONTENT)
+        .map(|()| StatusCode::NO_CONTENT)
 }

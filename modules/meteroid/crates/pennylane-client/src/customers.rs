@@ -36,7 +36,7 @@ pub trait CustomersApi {
 
 #[async_trait::async_trait]
 impl CustomersApi for PennylaneClient {
-    /// https://pennylane.readme.io/v2.0/reference/postcompanycustomer
+    /// <https://pennylane.readme.io/v2.0/reference/postcompanycustomer>
     async fn create_company_customer(
         &self,
         company: &NewCompany,
@@ -52,7 +52,7 @@ impl CustomersApi for PennylaneClient {
         .await
     }
 
-    /// https://pennylane.readme.io/v2.0/reference/putcompanycustomer
+    /// <https://pennylane.readme.io/v2.0/reference/putcompanycustomer>
     async fn update_company_customer(
         &self,
         id: i64,
@@ -95,7 +95,7 @@ impl CustomersApi for PennylaneClient {
         }
     }
 
-    /// https://pennylane.readme.io/v2.0/reference/getcustomers
+    /// <https://pennylane.readme.io/v2.0/reference/getcustomers>
     async fn get_company_customer(
         &self,
         external_reference: &str,

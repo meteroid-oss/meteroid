@@ -11,7 +11,7 @@ use error_stack::ResultExt;
 
 impl BillableMetricRowNew {
     pub async fn insert(&self, conn: &mut PgConn) -> DbResult<BillableMetricRow> {
-        use crate::schema::billable_metric::dsl::*;
+        use crate::schema::billable_metric::dsl::billable_metric;
         use diesel_async::RunQueryDsl;
 
         let query = diesel::insert_into(billable_metric).values(self);
@@ -21,7 +21,7 @@ impl BillableMetricRowNew {
         query
             .get_result(conn)
             .await
-            .attach_printable("Error while inserting billable metric")
+            .attach("Error while inserting billable metric")
             .into_db_result()
     }
 }
@@ -32,7 +32,7 @@ impl BillableMetricRow {
         param_billable_metric_id: BillableMetricId,
         param_tenant_id: TenantId,
     ) -> DbResult<BillableMetricRow> {
-        use crate::schema::billable_metric::dsl::*;
+        use crate::schema::billable_metric::dsl::{billable_metric, id, tenant_id};
         use diesel_async::RunQueryDsl;
 
         let query = billable_metric
@@ -43,7 +43,7 @@ impl BillableMetricRow {
         query
             .first(conn)
             .await
-            .attach_printable("Error while finding billable metric by id")
+            .attach("Error while finding billable metric by id")
             .into_db_result()
     }
 
@@ -52,7 +52,7 @@ impl BillableMetricRow {
         metric_ids: &[BillableMetricId],
         tenant_id_param: &TenantId,
     ) -> DbResult<Vec<BillableMetricRow>> {
-        use crate::schema::billable_metric::dsl::*;
+        use crate::schema::billable_metric::dsl::{billable_metric, id, tenant_id};
         use diesel_async::RunQueryDsl;
 
         billable_metric
@@ -60,7 +60,7 @@ impl BillableMetricRow {
             .filter(tenant_id.eq(tenant_id_param))
             .get_results(conn)
             .await
-            .attach_printable("Error while fetching billable metrics")
+            .attach("Error while fetching billable metrics")
             .into_db_result()
     }
 
@@ -99,7 +99,7 @@ impl BillableMetricRow {
         paginated_query
             .load_and_count_pages(conn)
             .await
-            .attach_printable("Error while fetching billable metrics")
+            .attach("Error while fetching billable metrics")
             .into_db_result()
     }
 
@@ -108,7 +108,7 @@ impl BillableMetricRow {
         tenant_id_param: &TenantId,
         code_param: &str,
     ) -> DbResult<Vec<BillableMetricRow>> {
-        use crate::schema::billable_metric::dsl::*;
+        use crate::schema::billable_metric::dsl::{billable_metric, code, tenant_id};
         use diesel_async::RunQueryDsl;
 
         billable_metric
@@ -116,7 +116,7 @@ impl BillableMetricRow {
             .filter(code.eq(code_param))
             .get_results(conn)
             .await
-            .attach_printable("Error while listing billable metrics by code")
+            .attach("Error while listing billable metrics by code")
             .into_db_result()
     }
 
@@ -125,7 +125,7 @@ impl BillableMetricRow {
         param_billable_metric_id: BillableMetricId,
         param_tenant_id: TenantId,
     ) -> DbResult<()> {
-        use crate::schema::billable_metric::dsl::*;
+        use crate::schema::billable_metric::dsl::{archived_at, billable_metric, id, tenant_id};
         use chrono::Utc;
         use diesel_async::RunQueryDsl;
 
@@ -139,7 +139,7 @@ impl BillableMetricRow {
         query
             .execute(conn)
             .await
-            .attach_printable("Error while archiving billable metric")
+            .attach("Error while archiving billable metric")
             .into_db_result()?;
 
         Ok(())
@@ -150,7 +150,7 @@ impl BillableMetricRow {
         param_billable_metric_id: BillableMetricId,
         param_tenant_id: TenantId,
     ) -> DbResult<()> {
-        use crate::schema::billable_metric::dsl::*;
+        use crate::schema::billable_metric::dsl::{archived_at, billable_metric, id, tenant_id};
         use diesel_async::RunQueryDsl;
 
         let query = diesel::update(billable_metric)
@@ -163,7 +163,7 @@ impl BillableMetricRow {
         query
             .execute(conn)
             .await
-            .attach_printable("Error while unarchiving billable metric")
+            .attach("Error while unarchiving billable metric")
             .into_db_result()?;
 
         Ok(())

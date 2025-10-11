@@ -1,6 +1,9 @@
 use crate::StoreResult;
 use crate::constants::{Currencies, Currency};
-use crate::domain::*;
+use crate::domain::{
+    ComponentPeriods, CouponLineItem, Customer, Invoice, InvoicingEntity, LineItem,
+    SubscriptionDetails, SubscriptionFeeInterface, TaxBreakdownItem, TaxResolverEnum,
+};
 use chrono::NaiveDate;
 use itertools::Itertools;
 use std::cmp::min;
@@ -70,7 +73,7 @@ impl Services {
             .billing_start_date
             // TODO should we return empty ?
             .ok_or(Report::new(StoreError::BillingError))
-            .attach_printable("No billing_start_date is present")?;
+            .attach("No billing_start_date is present")?;
 
         let currency = Currencies::resolve_currency(&subscription_details.subscription.currency)
             .ok_or(Report::new(StoreError::ValueNotFound(format!(
@@ -279,12 +282,12 @@ impl Services {
     ) -> StoreResult<(Vec<LineItem>, Vec<TaxBreakdownItem>)> {
         let customer_address = match &customer.billing_address {
             Some(address) => address.clone(),
-            None => return Ok((invoice_lines.to_vec(), Vec::new())),
+            None => return Ok((invoice_lines.clone(), Vec::new())),
         };
 
         let tax_engine: Box<dyn TaxEngine + Send + Sync> = match invoicing_entity.tax_resolver {
             TaxResolverEnum::None => {
-                return Ok((invoice_lines.to_vec(), Vec::new()));
+                return Ok((invoice_lines.clone(), Vec::new()));
             }
             TaxResolverEnum::Manual => Box::new(ManualTaxEngine {}),
             TaxResolverEnum::MeteroidEuVat => Box::new(MeteroidTaxEngine {}),
@@ -377,7 +380,7 @@ impl Services {
         let breakdown = res
             .breakdown
             .into_iter()
-            .map(|item| item.into())
+            .map(std::convert::Into::into)
             .collect::<Vec<_>>();
 
         Ok((updated_invoice_lines, breakdown))
@@ -411,7 +414,7 @@ impl Services {
                     &billing_period,
                     billing_start_or_resume_date,
                     cycle_index,
-                    subscription_details.subscription.billing_day_anchor as u32,
+                    u32::from(subscription_details.subscription.billing_day_anchor),
                     subscription_details
                         .subscription
                         .current_period_end

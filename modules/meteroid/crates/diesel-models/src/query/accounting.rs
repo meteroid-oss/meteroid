@@ -21,7 +21,7 @@ impl CustomTaxRow {
             .first::<InvoicingEntityId>(conn)
             .await
             .optional()
-            .attach_printable("Error while checking invoicing entity tenant")
+            .attach("Error while checking invoicing entity tenant")
             .into_db_result()?;
 
         if invoicing_entity_exists.is_none() {
@@ -47,7 +47,7 @@ impl CustomTaxRow {
         query
             .get_result(conn)
             .await
-            .attach_printable("Error while inserting custom_tax")
+            .attach("Error while inserting custom_tax")
             .into_db_result()
     }
 
@@ -74,7 +74,7 @@ impl CustomTaxRow {
         query
             .execute(conn)
             .await
-            .attach_printable("Error while deleting custom_tax with tenant check")
+            .attach("Error while deleting custom_tax with tenant check")
             .into_db_result()
     }
 
@@ -101,9 +101,7 @@ impl CustomTaxRow {
         query
             .get_results(conn)
             .await
-            .attach_printable(
-                "Error while fetching custom_tax by invoicing entity id with tenant check",
-            )
+            .attach("Error while fetching custom_tax by invoicing entity id with tenant check")
             .into_db_result()
     }
 }
@@ -123,7 +121,7 @@ impl ProductAccountingRow {
             .select(ie_dsl::id)
             .first::<InvoicingEntityId>(conn)
             .await
-            .attach_printable("Invoicing entity not found or does not belong to tenant")
+            .attach("Invoicing entity not found or does not belong to tenant")
             .into_db_result()?;
 
         let query = diesel::insert_into(pa_dsl::product_accounting)
@@ -141,7 +139,7 @@ impl ProductAccountingRow {
         query
             .get_result(conn)
             .await
-            .attach_printable("Error while inserting product_accounting")
+            .attach("Error while inserting product_accounting")
             .into_db_result()
     }
 }
@@ -165,7 +163,7 @@ impl ProductAccountingWithTaxRow {
         query
             .get_results(conn)
             .await
-            .attach_printable("Error while fetching api token by id")
+            .attach("Error while fetching api token by id")
             .into_db_result()
     }
 
@@ -198,7 +196,7 @@ impl ProductAccountingWithTaxRow {
         query
             .get_results(conn)
             .await
-            .attach_printable("Error while fetching product accounting with tenant check")
+            .attach("Error while fetching product accounting with tenant check")
             .into_db_result()
     }
 }

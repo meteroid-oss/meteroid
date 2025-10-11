@@ -19,7 +19,7 @@ use error_stack::ResultExt;
 
 impl SubscriptionRowNew {
     pub async fn insert(&self, conn: &mut PgConn) -> DbResult<SubscriptionRow> {
-        use crate::schema::subscription::dsl::*;
+        use crate::schema::subscription::dsl::subscription;
 
         let query = diesel::insert_into(subscription).values(self);
 
@@ -28,7 +28,7 @@ impl SubscriptionRowNew {
         query
             .get_result(conn)
             .await
-            .attach_printable("Error while inserting subscription")
+            .attach("Error while inserting subscription")
             .into_db_result()
     }
 }
@@ -38,7 +38,7 @@ impl SubscriptionRow {
         conn: &mut PgConn,
         batch: Vec<&SubscriptionRowNew>,
     ) -> DbResult<Vec<SubscriptionRow>> {
-        use crate::schema::subscription::dsl::*;
+        use crate::schema::subscription::dsl::subscription;
 
         let query = diesel::insert_into(subscription).values(batch);
 
@@ -47,7 +47,7 @@ impl SubscriptionRow {
         query
             .get_results(conn)
             .await
-            .attach_printable("Error while inserting subscription batch")
+            .attach("Error while inserting subscription batch")
             .into_db_result()
     }
 
@@ -56,7 +56,7 @@ impl SubscriptionRow {
         tenant_id_param: &TenantId,
         subscription_id_param: SubscriptionId,
     ) -> DbResult<SubscriptionForDisplayRow> {
-        use crate::schema::subscription::dsl::*;
+        use crate::schema::subscription::dsl::{id, subscription, tenant_id};
 
         use crate::schema::plan::dsl as p_dsl;
         use crate::schema::plan_version::dsl as pv_dsl;
@@ -75,7 +75,7 @@ impl SubscriptionRow {
         query
             .get_result::<SubscriptionForDisplayRow>(conn)
             .await
-            .attach_printable("Error while fetching subscription by ID")
+            .attach("Error while fetching subscription by ID")
             .into_db_result()
     }
 
@@ -84,7 +84,7 @@ impl SubscriptionRow {
         tenant_id_param: &TenantId,
         subscription_id_param: SubscriptionId,
     ) -> DbResult<Option<CustomerPaymentMethodId>> {
-        use crate::schema::subscription::dsl::*;
+        use crate::schema::subscription::dsl::{id, payment_method, subscription, tenant_id};
 
         let query = subscription
             .filter(id.eq(subscription_id_param))
@@ -96,7 +96,7 @@ impl SubscriptionRow {
         query
             .get_result::<Option<CustomerPaymentMethodId>>(conn)
             .await
-            .attach_printable("Error while fetching subscription by ID")
+            .attach("Error while fetching subscription by ID")
             .into_db_result()
     }
 
@@ -107,7 +107,7 @@ impl SubscriptionRow {
     ) -> DbResult<Vec<SubscriptionForDisplayRow>> {
         use crate::schema::plan::dsl as p_dsl;
         use crate::schema::plan_version::dsl as pv_dsl;
-        use crate::schema::subscription::dsl::*;
+        use crate::schema::subscription::dsl::{id, subscription, tenant_id};
 
         let query = subscription
             .filter(id.eq_any(subscription_ids))
@@ -124,7 +124,7 @@ impl SubscriptionRow {
         query
             .get_results(conn)
             .await
-            .attach_printable("Error while fetching subscriptions by IDs")
+            .attach("Error while fetching subscriptions by IDs")
             .into_db_result()
     }
 
@@ -151,7 +151,7 @@ impl SubscriptionRow {
         query
             .get_results(conn)
             .await
-            .attach_printable("Error while fetching subscriptions by customer IDs")
+            .attach("Error while fetching subscriptions by customer IDs")
             .into_db_result()
     }
 
@@ -176,7 +176,7 @@ impl SubscriptionRow {
         query
             .get_results(conn)
             .await
-            .attach_printable("Error while fetching subscriptions by IDs")
+            .attach("Error while fetching subscriptions by IDs")
             .into_db_result()
     }
 
@@ -200,7 +200,7 @@ impl SubscriptionRow {
             .get_result::<SubscriptionId>(conn)
             .await
             .optional()
-            .attach_printable("Error while fetching subscription by invoice ID")
+            .attach("Error while fetching subscription by invoice ID")
             .into_db_result()
     }
 
@@ -213,7 +213,7 @@ impl SubscriptionRow {
     ) -> DbResult<PaginatedVec<SubscriptionForDisplayRow>> {
         use crate::schema::plan::dsl as p_dsl;
         use crate::schema::plan_version::dsl as pv_dsl;
-        use crate::schema::subscription::dsl::*;
+        use crate::schema::subscription::dsl::{customer_id, id, subscription, tenant_id};
 
         let mut query = subscription
             .filter(tenant_id.eq(tenant_id_param))
@@ -249,7 +249,7 @@ impl SubscriptionRow {
         paginated_query
             .load_and_count_pages::<SubscriptionForDisplayRow>(conn)
             .await
-            .attach_printable("Error while fetching subscriptions")
+            .attach("Error while fetching subscriptions")
             .into_db_result()
     }
 

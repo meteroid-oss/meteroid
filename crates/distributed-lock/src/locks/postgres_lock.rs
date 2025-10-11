@@ -32,7 +32,7 @@ impl DistributedLock for PostgresLock<'_> {
             .await
             .map(|row| row.acquired)
             .map_err(|e| {
-                log::error!("Failed to acquire lock: {:?}", e);
+                log::error!("Failed to acquire lock: {e:?}");
                 LockError::AcquireError
             })
     }
@@ -44,7 +44,7 @@ impl DistributedLock for PostgresLock<'_> {
             .await
             .map(|_| ())
             .map_err(|e| {
-                log::error!("Failed to release lock: {:?}", e);
+                log::error!("Failed to release lock: {e:?}");
                 LockError::ReleaseError
             })
     }

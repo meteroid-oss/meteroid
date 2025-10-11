@@ -11,7 +11,7 @@ use error_stack::ResultExt;
 
 impl SubscriptionEventRow {
     pub async fn insert(&self, conn: &mut PgConn) -> DbResult<SubscriptionEventRow> {
-        use crate::schema::subscription_event::dsl::*;
+        use crate::schema::subscription_event::dsl::subscription_event;
         use diesel_async::RunQueryDsl;
 
         let query = diesel::insert_into(subscription_event).values(self);
@@ -21,7 +21,7 @@ impl SubscriptionEventRow {
         query
             .get_result(conn)
             .await
-            .attach_printable("Error while inserting slot transaction")
+            .attach("Error while inserting slot transaction")
             .into_db_result()
     }
 
@@ -29,7 +29,7 @@ impl SubscriptionEventRow {
         conn: &mut PgConn,
         events: Vec<&SubscriptionEventRow>,
     ) -> DbResult<Vec<SubscriptionEventRow>> {
-        use crate::schema::subscription_event::dsl::*;
+        use crate::schema::subscription_event::dsl::subscription_event;
         use diesel_async::RunQueryDsl;
 
         let query = diesel::insert_into(subscription_event).values(events);
@@ -39,7 +39,7 @@ impl SubscriptionEventRow {
         query
             .get_results(conn)
             .await
-            .attach_printable("Error while inserting slot transaction")
+            .attach("Error while inserting slot transaction")
             .into_db_result()
     }
 
@@ -48,7 +48,9 @@ impl SubscriptionEventRow {
         subscription_uid: SubscriptionId,
         date: NaiveDate,
     ) -> DbResult<Vec<SubscriptionEventRow>> {
-        use crate::schema::subscription_event::dsl::*;
+        use crate::schema::subscription_event::dsl::{
+            applies_to, subscription_event, subscription_id,
+        };
         use diesel_async::RunQueryDsl;
 
         let query = subscription_event
@@ -60,7 +62,7 @@ impl SubscriptionEventRow {
         query
             .get_results(conn)
             .await
-            .attach_printable("Error while fetching subscription events")
+            .attach("Error while fetching subscription events")
             .into_db_result()
     }
 }

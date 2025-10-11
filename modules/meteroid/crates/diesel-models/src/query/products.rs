@@ -13,7 +13,7 @@ use error_stack::ResultExt;
 
 impl ProductRowNew {
     pub async fn insert(&self, conn: &mut PgConn) -> DbResult<ProductRow> {
-        use crate::schema::product::dsl::*;
+        use crate::schema::product::dsl::product;
         use diesel_async::RunQueryDsl;
 
         let query = diesel::insert_into(product).values(self);
@@ -23,7 +23,7 @@ impl ProductRowNew {
         query
             .get_result(conn)
             .await
-            .attach_printable("Error while inserting product")
+            .attach("Error while inserting product")
             .into_db_result()
     }
 }
@@ -46,7 +46,7 @@ impl ProductRow {
         query
             .first(conn)
             .await
-            .attach_printable("Error while finding product by id and tenant id")
+            .attach("Error while finding product by id and tenant id")
             .into_db_result()
     }
 
@@ -66,7 +66,7 @@ impl ProductRow {
             .into_boxed();
 
         if let Some(family_id) = family_id {
-            query = query.filter(pf_dsl::id.eq(family_id))
+            query = query.filter(pf_dsl::id.eq(family_id));
         }
 
         let mut query = query.select(ProductRow::as_select());
@@ -87,7 +87,7 @@ impl ProductRow {
         paginated_query
             .load_and_count_pages(conn)
             .await
-            .attach_printable("Error while fetching products")
+            .attach("Error while fetching products")
             .into_db_result()
     }
 
@@ -105,11 +105,11 @@ impl ProductRow {
         let mut query = p_dsl::product
             .inner_join(pf_dsl::product_family.on(p_dsl::product_family_id.eq(pf_dsl::id)))
             .filter(p_dsl::tenant_id.eq(tenant_id))
-            .filter(p_dsl::name.ilike(format!("%{}%", query)))
+            .filter(p_dsl::name.ilike(format!("%{query}%")))
             .into_boxed();
 
         if let Some(family_id) = family_id {
-            query = query.filter(pf_dsl::id.eq(family_id))
+            query = query.filter(pf_dsl::id.eq(family_id));
         }
 
         let mut query = query.select(ProductRow::as_select());
@@ -130,7 +130,7 @@ impl ProductRow {
         paginated_query
             .load_and_count_pages(conn)
             .await
-            .attach_printable("Error while fetching products")
+            .attach("Error while fetching products")
             .into_db_result()
     }
 }

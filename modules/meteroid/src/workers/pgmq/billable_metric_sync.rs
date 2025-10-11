@@ -52,7 +52,7 @@ impl PgmqHandler for BillableMetricSync {
                         usage_client
                             .register_meter(tenant_id, &metric)
                             .await
-                            .attach_printable("Failed to register meter")
+                            .attach("Failed to register meter")
                             .change_context(PgmqError::HandleMessages)?;
                         Ok::<MessageId, Report<PgmqError>>(msg_id)
                     }

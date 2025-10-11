@@ -102,43 +102,40 @@ where
                 // source details error only on server side
                 let _ = response.headers_mut().remove(HEADER_SOURCE_DETAILS);
 
-                match maybe_status {
-                    Some(status) => {
-                        if status.code() != Code::Ok {
-                            let maybe_header_source_details =
-                                metadata_map.get_bin(HEADER_SOURCE_DETAILS);
+                if let Some(status) = maybe_status {
+                    if status.code() != Code::Ok {
+                        let maybe_header_source_details =
+                            metadata_map.get_bin(HEADER_SOURCE_DETAILS);
 
-                            if let Some(header_source_details) = maybe_header_source_details {
-                                let bytes = header_source_details.to_bytes().unwrap();
-                                let source_details: SourceDetails =
-                                    serde_json::from_slice(&bytes).unwrap();
+                        if let Some(header_source_details) = maybe_header_source_details {
+                            let bytes = header_source_details.to_bytes().unwrap();
+                            let source_details: SourceDetails =
+                                serde_json::from_slice(&bytes).unwrap();
 
-                                logger().log(
-                                    &Record::builder()
-                                        .metadata(
-                                            MetadataBuilder::new()
-                                                .target(source_details.location_file.as_str())
-                                                .level(Level::Error)
-                                                .build(),
-                                        )
-                                        .args(format_args!(
-                                            "Failed to process gRPC {}/{} due to {} : {}",
-                                            this.sm.service,
-                                            this.sm.method,
-                                            source_details.msg,
-                                            source_details.source
-                                        ))
-                                        .file(Some(source_details.location_file.as_str()))
-                                        .line(Some(source_details.location_line))
-                                        .build(),
-                                )
-                            }
+                            logger().log(
+                                &Record::builder()
+                                    .metadata(
+                                        MetadataBuilder::new()
+                                            .target(source_details.location_file.as_str())
+                                            .level(Level::Error)
+                                            .build(),
+                                    )
+                                    .args(format_args!(
+                                        "Failed to process gRPC {}/{} due to {} : {}",
+                                        this.sm.service,
+                                        this.sm.method,
+                                        source_details.msg,
+                                        source_details.source
+                                    ))
+                                    .file(Some(source_details.location_file.as_str()))
+                                    .line(Some(source_details.location_line))
+                                    .build(),
+                            );
                         }
                     }
-                    None => {
-                        // not gRPC request?
-                        // ignoring
-                    }
+                } else {
+                    // not gRPC request?
+                    // ignoring
                 }
 
                 Ok(response)

@@ -27,7 +27,11 @@ impl From<CustomTax> for meteroid_tax::CustomTax {
         meteroid_tax::CustomTax {
             reference: tax.id.to_string(),
             name: tax.name,
-            tax_rules: tax.rules.into_iter().map(|rule| rule.into()).collect(),
+            tax_rules: tax
+                .rules
+                .into_iter()
+                .map(std::convert::Into::into)
+                .collect(),
         }
     }
 }

@@ -58,7 +58,7 @@ pub(crate) async fn list_subscriptions(
         )
         .await
         .map_err(|e| {
-            log::error!("Error handling list_subscriptions: {}", e);
+            log::error!("Error handling list_subscriptions: {e}");
             RestApiError::from(e)
         })?;
 
@@ -102,7 +102,7 @@ pub(crate) async fn subscription_details(
         .get_subscription_details(authorized_state.tenant_id, id)
         .await
         .map_err(|e| {
-            log::error!("Error handling subscription_details: {}", e);
+            log::error!("Error handling subscription_details: {e}");
             RestApiError::from(e)
         })
         .and_then(domain_to_rest_details)?;
@@ -153,7 +153,7 @@ pub(crate) async fn create_subscription(
                 .list_coupons_by_codes(authorized_state.tenant_id, codes)
                 .await
                 .map_err(|e| {
-                    log::error!("Error resolving coupon codes: {}", e);
+                    log::error!("Error resolving coupon codes: {e}");
                     RestApiError::from(e)
                 })?
                 .into_iter()
@@ -176,7 +176,7 @@ pub(crate) async fn create_subscription(
         )
         .await
         .map_err(|e| {
-            log::error!("Error handling create subscription request: {}", e);
+            log::error!("Error handling create subscription request: {e}");
             RestApiError::from(e)
         })?;
 
@@ -185,7 +185,7 @@ pub(crate) async fn create_subscription(
         .get_subscription_details(authorized_state.tenant_id, created.id)
         .await
         .map_err(|e| {
-            log::error!("Error handling subscription_details: {}", e);
+            log::error!("Error handling subscription_details: {e}");
             RestApiError::from(e)
         })
         .and_then(domain_to_rest_details)?;

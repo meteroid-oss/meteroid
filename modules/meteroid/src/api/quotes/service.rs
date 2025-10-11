@@ -357,7 +357,7 @@ fn process_quote_components(
                     &parameterized.parameters.billing_period,
                     &parameterized.parameters.committed_capacity,
                 )
-                .map_err(|e| Status::internal(format!("Failed to process component fee: {}", e)))?;
+                .map_err(|e| Status::internal(format!("Failed to process component fee: {e}")))?;
 
             processed_components.push(QuotePriceComponentNew {
                 name: price_component.name.clone(),
@@ -425,7 +425,7 @@ fn process_quote_components(
         }
 
         let (period, fee) = price_component.fee.to_subscription_fee().map_err(|e| {
-            Status::internal(format!("Failed to process default component fee: {}", e))
+            Status::internal(format!("Failed to process default component fee: {e}"))
         })?;
 
         processed_components.push(QuotePriceComponentNew {

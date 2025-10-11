@@ -16,7 +16,7 @@ pub trait FileAttachmentsApi {
 
 #[async_trait::async_trait]
 impl FileAttachmentsApi for PennylaneClient {
-    /// https://pennylane.readme.io/v2.0/reference/postfileattachments
+    /// <https://pennylane.readme.io/v2.0/reference/postfileattachments>
     async fn create_attachment(
         &self,
         attachment: NewAttachment,

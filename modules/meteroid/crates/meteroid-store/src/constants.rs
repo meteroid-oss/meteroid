@@ -1,4 +1,3 @@
-use once_cell::sync::Lazy;
 use serde::Deserialize;
 
 #[derive(Deserialize, Debug, Clone)]
@@ -19,7 +18,7 @@ pub struct Currency {
 
 const COUNTRIES_JSON: &str = include_str!("../static/countries.json");
 
-pub static COUNTRIES: Lazy<&'static [Country]> = Lazy::new(|| {
+pub static COUNTRIES: std::sync::LazyLock<&'static [Country]> = std::sync::LazyLock::new(|| {
     Box::leak(
         serde_json::from_str::<Vec<Country>>(COUNTRIES_JSON)
             .unwrap()
@@ -35,7 +34,7 @@ impl Countries {
 }
 
 const CURRENCIES_JSON: &str = include_str!("../static/currencies.json");
-pub static CURRENCIES: Lazy<&'static [Currency]> = Lazy::new(|| {
+pub static CURRENCIES: std::sync::LazyLock<&'static [Currency]> = std::sync::LazyLock::new(|| {
     Box::leak(
         serde_json::from_str::<Vec<Currency>>(CURRENCIES_JSON)
             .unwrap()
@@ -49,6 +48,7 @@ impl Currencies {
     pub fn resolve_currency(currency: &str) -> Option<&Currency> {
         CURRENCIES.iter().find(|c| c.code == currency)
     }
+
     pub fn resolve_currency_precision(currency: &str) -> Option<u8> {
         Self::resolve_currency(currency).map(|c| c.precision)
     }

@@ -111,7 +111,10 @@ pub enum MRRBreakdownScope {
 
 impl MRRBreakdownScope {
     pub fn to_date_range(&self, now: NaiveDate) -> (NaiveDate, NaiveDate) {
-        use crate::utils::datetime::*;
+        use crate::utils::datetime::{
+            end_of_month, end_of_quarter, end_of_week, end_of_year, start_of_month,
+            start_of_quarter, start_of_week, start_of_year, sub_months,
+        };
 
         match self {
             MRRBreakdownScope::ThisWeek => (start_of_week(now), now),

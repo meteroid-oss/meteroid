@@ -15,7 +15,12 @@ use common_grpc::middleware::server::auth::RequestExt;
 use common_utils::integers::ToNonNegativeU64;
 use error_stack::ResultExt;
 use meteroid_grpc::meteroid::portal::checkout::v1::portal_checkout_service_server::PortalCheckoutService;
-use meteroid_grpc::meteroid::portal::checkout::v1::*;
+use meteroid_grpc::meteroid::portal::checkout::v1::{
+    AddPaymentMethodRequest, AddPaymentMethodResponse, AppliedCoupon, Checkout,
+    ConfirmCheckoutRequest, ConfirmCheckoutResponse, GetSubscriptionCheckoutRequest,
+    GetSubscriptionCheckoutResponse, SetupIntent, SetupIntentRequest, SetupIntentResponse,
+    TaxBreakdownItem, UpdateCustomerRequest, UpdateCustomerResponse,
+};
 use meteroid_store::domain::{CustomerPatch, CustomerPaymentMethodNew, PaymentMethodTypeEnum};
 use meteroid_store::errors::StoreError;
 use meteroid_store::repositories::customer_connection::CustomerConnectionInterface;

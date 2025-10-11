@@ -5,7 +5,7 @@ use secrecy::{ExposeSecret, SecretString};
 use serde_with::skip_serializing_none;
 // todo reuse in common-grpc as well
 
-#[derive(Debug, serde::Deserialize, serde::Serialize)]
+#[derive(Debug, serde::Deserialize, serde::Serialize, Clone)]
 pub enum ResourceAccess {
     SubscriptionCheckout(SubscriptionId),
     // OneTimeCheckout
@@ -18,7 +18,7 @@ pub enum ResourceAccess {
 }
 
 #[skip_serializing_none]
-#[derive(Debug, serde::Deserialize, serde::Serialize)]
+#[derive(Debug, serde::Deserialize, serde::Serialize, Clone)]
 pub struct PortalJwtClaims {
     iat: usize,
     pub exp: Option<usize>,

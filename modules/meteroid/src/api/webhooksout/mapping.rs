@@ -66,7 +66,7 @@ pub mod endpoint {
         req: CreateWebhookEndpointRequest,
     ) -> Result<WebhookOutEndpointNew, WebhookApiError> {
         let url = url::Url::parse(req.url.as_str())
-            .map_err(|e| WebhookApiError::InvalidArgument(format!("Invalid URL: {}", e)))?;
+            .map_err(|e| WebhookApiError::InvalidArgument(format!("Invalid URL: {e}")))?;
 
         let events_to_listen: Vec<WebhookOutEventTypeEnum> = req
             .events_to_listen()

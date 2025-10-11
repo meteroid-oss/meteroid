@@ -21,11 +21,11 @@ pub async fn upsert(
         .to_string();
 
     let raw_query = format!(
-        r#"
+        r"
     UPDATE {table_name}
     SET conn_meta = jsonb_set(
-        COALESCE(conn_meta, jsonb_build_object('{integration_key}', '[]'::jsonb)),
-        '{{{integration_key}}}',  -- JSON path literal
+        COALESCE(conn_meta, jsonb_build_object('{integration_name}', '[]'::jsonb)),
+        '{{{integration_name}}}',  -- JSON path literal
         (
             SELECT jsonb_agg(elem)
             FROM (
@@ -39,7 +39,7 @@ pub async fn upsert(
                         )
                         ELSE elem
                     END AS elem
-                FROM jsonb_array_elements(conn_meta->'{integration_key}') elem
+                FROM jsonb_array_elements(conn_meta->'{integration_name}') elem
 
                 UNION ALL
 
@@ -51,16 +51,14 @@ pub async fn upsert(
                 )
                 WHERE NOT EXISTS (
                     SELECT 1
-                    FROM jsonb_array_elements(conn_meta->'{integration_key}') e
+                    FROM jsonb_array_elements(conn_meta->'{integration_name}') e
                     WHERE e->>'connector_id' = $1::text
                 )
             ) sub
         )
     )
     WHERE id = $5;
-    "#,
-        table_name = table_name,
-        integration_key = integration_name,
+    ",
     );
     diesel::sql_query(raw_query)
         .bind::<Uuid, _>(connector_id)
@@ -70,6 +68,6 @@ pub async fn upsert(
         .bind::<Uuid, _>(record_id)
         .execute(conn)
         .await
-        .attach_printable("Error while upserting connection metadata")
+        .attach("Error while upserting connection metadata")
         .into_db_result()
 }

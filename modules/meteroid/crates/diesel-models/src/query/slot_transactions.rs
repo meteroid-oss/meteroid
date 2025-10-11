@@ -11,7 +11,7 @@ use error_stack::ResultExt;
 
 impl SlotTransactionRow {
     pub async fn insert(&self, conn: &mut PgConn) -> DbResult<SlotTransactionRow> {
-        use crate::schema::slot_transaction::dsl::*;
+        use crate::schema::slot_transaction::dsl::slot_transaction;
         use diesel_async::RunQueryDsl;
 
         let query = diesel::insert_into(slot_transaction).values(self);
@@ -21,12 +21,12 @@ impl SlotTransactionRow {
         query
             .get_result(conn)
             .await
-            .attach_printable("Error while inserting slot transaction")
+            .attach("Error while inserting slot transaction")
             .into_db_result()
     }
 
     pub async fn insert_batch(conn: &mut PgConn, items: Vec<&SlotTransactionRow>) -> DbResult<()> {
-        use crate::schema::slot_transaction::dsl::*;
+        use crate::schema::slot_transaction::dsl::slot_transaction;
         use diesel_async::RunQueryDsl;
 
         if items.is_empty() {
@@ -40,7 +40,7 @@ impl SlotTransactionRow {
         query
             .execute(conn)
             .await
-            .attach_printable("Error while inserting slot transaction")
+            .attach("Error while inserting slot transaction")
             .into_db_result()
             .map(|_| ())
     }
@@ -56,7 +56,7 @@ impl SlotTransactionRow {
 
         let ts = at_ts.unwrap_or_else(|| chrono::Utc::now().naive_utc());
 
-        let raw_sql = r#"
+        let raw_sql = r"
 WITH RankedSlotTransactions AS (
     SELECT
         st.*,
@@ -78,7 +78,7 @@ WHERE
     X.row_num = 1
 GROUP BY
     X.prev_active_slots;
-"#;
+";
 
         let query = diesel::sql_query(raw_sql)
             .bind::<sql_types::Uuid, _>(subscription_uid)
@@ -97,7 +97,7 @@ GROUP BY
                     current_active_slots: 0,
                 })
             })
-            .attach_printable("Error while fetching slot transaction by id")
+            .attach("Error while fetching slot transaction by id")
             .into_db_result()
     }
 }

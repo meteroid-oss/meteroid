@@ -1,3 +1,5 @@
+use error_stack::Report;
+
 mod billable_metric_sync;
 mod error;
 mod hubspot_sync;
@@ -12,4 +14,4 @@ mod webhook_out;
 
 mod invoice_orchestration;
 
-type PgmqResult<T> = error_stack::Result<T, error::PgmqError>;
+type PgmqResult<T> = Result<T, Report<error::PgmqError>>;

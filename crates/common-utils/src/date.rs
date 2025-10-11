@@ -17,7 +17,7 @@ impl NaiveDateExt for chrono::NaiveDate {
                     28
                 }
             }
-            _ => panic!("Invalid month: {}", month),
+            _ => panic!("Invalid month: {month}"),
         }
     }
 }

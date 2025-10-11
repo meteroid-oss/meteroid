@@ -36,7 +36,9 @@ pub fn calculate_component_period_for_invoice_date(
             arrear: None,
         }),
         Some(billing_period) => {
-            let (advance_period, proration_factor) = if !is_completed {
+            let (advance_period, proration_factor) = if is_completed {
+                (None, None)
+            } else {
                 let advance_period = calculate_advance_period_range(
                     invoice_date,
                     billing_day,
@@ -49,8 +51,6 @@ pub fn calculate_component_period_for_invoice_date(
                     None
                 };
                 (Some(advance_period), proration_factor)
-            } else {
-                (None, None)
             };
 
             let arrear_period = if cycle_index == 0 {
@@ -75,8 +75,8 @@ pub fn calculate_component_period_for_invoice_date(
 
 fn calculate_proration_factor(period: &Period) -> Option<f64> {
     let days_in_period = period.end.signed_duration_since(period.start).num_days() as u64; // +1 ?
-    let days_in_month_from = period.start.days_in_month() as u64;
-    let days_in_month_to = period.end.days_in_month() as u64;
+    let days_in_month_from = u64::from(period.start.days_in_month());
+    let days_in_month_to = u64::from(period.end.days_in_month());
 
     // if from is end of month and from.day <= to.day. Ex: 2023-02-28 -> 2023-03-28+
     if period.start.day() == days_in_month_from as u32 && period.end.day() >= period.start.day() {

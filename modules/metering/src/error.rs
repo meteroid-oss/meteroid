@@ -13,7 +13,7 @@ pub enum MeteringApiError {
 
 impl From<Report<ConnectorError>> for MeteringApiError {
     fn from(value: Report<ConnectorError>) -> Self {
-        log::error!("{:?}", value);
+        log::error!("{value:?}");
 
         let err = Box::new(value.into_error());
         Self::ConnectorError(err)

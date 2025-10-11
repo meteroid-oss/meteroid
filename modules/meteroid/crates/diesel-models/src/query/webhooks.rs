@@ -15,7 +15,7 @@ impl WebhookInEventRowNew {
         query
             .get_result(conn)
             .await
-            .attach_printable("Error while inserting webhook_in_event")
+            .attach("Error while inserting webhook_in_event")
             .into_db_result()
     }
 }

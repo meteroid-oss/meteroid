@@ -21,7 +21,7 @@ futures = { workspace = true, optional = true }
 futures-util = { workspace = true, optional = true }
 
 uuid = { workspace = true, features = ["serde"], optional = true }
-jsonwebtoken = { workspace = true, optional = true }
+jsonwebtoken = { workspace = true, optional = true, features = ["aws_lc_rs"] }
 chrono = { workspace = true }
 tap = { workspace = true }
 async-trait = { workspace = true }

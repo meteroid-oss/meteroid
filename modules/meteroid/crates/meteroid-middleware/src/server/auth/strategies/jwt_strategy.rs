@@ -63,32 +63,29 @@ async fn resolve_slugs_cached(
     organization_slug: String,
     tenant_slug: Option<String>,
 ) -> Result<(OrganizationId, Option<TenantId>), Status> {
-    let org_and_tenant_ids = match tenant_slug {
-        Some(tenant_slug) => {
-            let res = store
-                .find_tenant_by_slug_and_organization_slug(
-                    tenant_slug.clone(),
-                    organization_slug.clone(),
-                )
-                .await
-                .map_err(|_| {
-                    Status::permission_denied(format!(
-                        "Failed to retrieve tenant for slug {} and organization slug {}",
-                        &tenant_slug, &organization_slug
-                    ))
-                })?;
+    let org_and_tenant_ids = if let Some(tenant_slug) = tenant_slug {
+        let res = store
+            .find_tenant_by_slug_and_organization_slug(
+                tenant_slug.clone(),
+                organization_slug.clone(),
+            )
+            .await
+            .map_err(|_| {
+                Status::permission_denied(format!(
+                    "Failed to retrieve tenant for slug {} and organization slug {}",
+                    &tenant_slug, &organization_slug
+                ))
+            })?;
 
-            (res.organization_id, Some(res.id))
-        }
-        None => {
-            let org_id = store
-                .get_organizations_by_slug(organization_slug)
-                .await
-                .map_err(|_| Status::permission_denied("Failed to retrieve organization"))?
-                .id;
+        (res.organization_id, Some(res.id))
+    } else {
+        let org_id = store
+            .get_organizations_by_slug(organization_slug)
+            .await
+            .map_err(|_| Status::permission_denied("Failed to retrieve organization"))?
+            .id;
 
-            (org_id, None)
-        }
+        (org_id, None)
     };
 
     Ok(org_and_tenant_ids)
@@ -119,8 +116,7 @@ async fn get_user_role_oss_cached(
         .await
         .map_err(|_| {
             Status::permission_denied(format!(
-                "Failed to retrieve user role for organization {} and user {}",
-                user_id, org_id
+                "Failed to retrieve user role for organization {user_id} and user {org_id}"
             ))
         })
         .map(|x| x.role)?;

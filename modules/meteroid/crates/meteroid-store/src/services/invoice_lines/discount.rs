@@ -27,7 +27,7 @@ pub fn distribute_discount(line_items: Vec<LineItem>, discount: u64) -> Vec<Line
 
     let mut line_items = line_items.clone();
 
-    for item in line_items.iter_mut() {
+    for item in &mut line_items {
         if item.amount_subtotal <= 0 {
             continue;
         }

@@ -14,7 +14,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     }?;
 
     let build_info = BuildInfo::set(env!("CARGO_BIN_NAME"));
-    println!("Starting {}", build_info);
+    println!("Starting {build_info}");
 
     let config = Config::init_from_env()?;
 
@@ -25,7 +25,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     let exit = signal::ctrl_c();
 
     tokio::select! {
-          _ = private_server => {},
+          () = private_server => {},
         _ = exit => {
               log::info!("Interrupted");
         }

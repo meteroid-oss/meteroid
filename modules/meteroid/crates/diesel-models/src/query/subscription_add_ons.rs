@@ -21,7 +21,7 @@ impl SubscriptionAddOnRow {
         query
             .get_results(conn)
             .await
-            .attach_printable("Error while inserting SubscriptionAddOn batch")
+            .attach("Error while inserting SubscriptionAddOn batch")
             .into_db_result()
     }
 
@@ -44,7 +44,7 @@ impl SubscriptionAddOnRow {
         query
             .get_results(conn)
             .await
-            .attach_printable("Error while listing SubscriptionAddOn by subscription_id")
+            .attach("Error while listing SubscriptionAddOn by subscription_id")
             .into_db_result()
     }
 }

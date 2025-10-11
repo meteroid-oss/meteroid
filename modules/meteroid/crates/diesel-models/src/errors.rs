@@ -4,7 +4,7 @@ use error_stack::Report;
 
 #[derive(Debug)]
 pub struct DatabaseErrorContainer {
-    pub error: error_stack::Report<DatabaseError>,
+    pub error: Report<DatabaseError>,
 }
 
 impl From<Report<DatabaseError>> for DatabaseErrorContainer {
@@ -85,7 +85,7 @@ impl<T> IntoDbResult for Result<T, DieselError> {
     }
 }
 
-impl<T> IntoDbResult for error_stack::Result<T, DieselError> {
+impl<T> IntoDbResult for Result<T, Report<DieselError>> {
     type Ok = T;
     fn into_db_result(self) -> DbResult<T> {
         match self {
@@ -98,13 +98,13 @@ impl<T> IntoDbResult for error_stack::Result<T, DieselError> {
     }
 }
 
-impl<E> From<DatabaseErrorContainer> for error_stack::Report<E>
+impl<E> From<DatabaseErrorContainer> for Report<E>
 where
     E: Send + Sync + std::error::Error + 'static,
     E: From<DatabaseError>,
 {
     fn from(container: DatabaseErrorContainer) -> Self {
-        let new_error: E = (container.error.current_context().clone()).into();
+        let new_error: E = container.error.current_context().clone().into();
         container.error.change_context(new_error)
     }
 }

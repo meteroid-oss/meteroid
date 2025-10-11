@@ -12,13 +12,13 @@ use serde::de::DeserializeOwned;
 use std::num::NonZeroU32;
 use std::time::Duration;
 
-/// Note: we might want to generate the client from the https://api.hubspot.com/public/api/spec/v1/specs in the future,
+/// Note: we might want to generate the client from the <https://api.hubspot.com/public/api/spec/v1/specs> in the future,
 /// currently swagger-codegen is not flexible enough to generate a client from multiple specs.
 ///
-/// We might also consider https://github.com/oxidecomputer/progenitor after https://github.com/oxidecomputer/progenitor/issues/344 is fixed.
+/// We might also consider <https://github.com/oxidecomputer/progenitor> after <https://github.com/oxidecomputer/progenitor/issues/344> is fixed.
 ///
 /// Rate limits: 110 requests per 10 seconds per app installed (tenant)
-/// https://developers.hubspot.com/docs/guides/apps/api-usage/usage-details#public-apps
+/// <https://developers.hubspot.com/docs/guides/apps/api-usage/usage-details#public-apps>
 #[derive(Debug, Clone)]
 #[allow(dead_code)]
 pub struct HubspotClient {

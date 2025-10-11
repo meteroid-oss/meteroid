@@ -33,7 +33,7 @@ use diesel_models::subscription_components::{
 };
 use diesel_models::subscription_events::SubscriptionEventRow;
 use diesel_models::subscriptions::{SubscriptionRow, SubscriptionRowNew};
-use error_stack::{Report, Result, ResultExt};
+use error_stack::{Report, ResultExt};
 use futures::TryFutureExt;
 use secrecy::SecretString;
 use std::sync::Arc;
@@ -83,7 +83,7 @@ impl Services {
                     .iter()
                     .find(|c| c.id == subscription.customer_id)
                     .ok_or(Report::new(StoreError::InsertError))
-                    .attach_printable("Customer not found")?;
+                    .attach("Customer not found")?;
 
                 let plan = context
                     .plans
@@ -97,7 +97,7 @@ impl Services {
 
                 let currency = Currencies::resolve_currency(subscription_currency)
                     .ok_or(StoreError::InsertError)
-                    .attach_printable("Failed to resolve currency")?
+                    .attach("Failed to resolve currency")?
                     .clone();
 
                 let components =
@@ -197,15 +197,15 @@ impl Services {
                     current_period_start = billing_start_date;
                     current_period_end = Some(
                         current_period_start
-                            + chrono::Duration::days(
-                                sub.subscription.trial_duration.unwrap() as i64
-                            ),
+                            + chrono::Duration::days(i64::from(
+                                sub.subscription.trial_duration.unwrap(),
+                            )),
                     );
                     next_cycle_action = Some(CycleActionEnum::EndTrial);
                 } else {
                     let range = calculate_advance_period_range(
                         billing_start_date,
-                        billing_day_anchor as u32,
+                        u32::from(billing_day_anchor),
                         true,
                         &period,
                     );
@@ -274,7 +274,7 @@ impl Services {
                 }
                 .try_into()
             })
-            .collect::<std::result::Result<Vec<_>, StoreErrorReport>>()?;
+            .collect::<Result<Vec<_>, StoreErrorReport>>()?;
 
         let slot_transactions = sub
             .slot_transactions
@@ -308,7 +308,7 @@ impl Services {
         components: &Option<CreateSubscriptionComponents>,
         subscription: &SubscriptionNew,
         context: &SubscriptionCreationContext,
-    ) -> Result<Vec<SubscriptionComponentNewInternal>, StoreError> {
+    ) -> Result<Vec<SubscriptionComponentNewInternal>, StoreErrorReport> {
         process_create_subscription_components(
             components,
             &context.price_components_by_plan_version,
@@ -320,7 +320,7 @@ impl Services {
         &self,
         add_ons: &Option<CreateSubscriptionAddOns>,
         context: &SubscriptionCreationContext,
-    ) -> Result<Vec<SubscriptionAddOnNewInternal>, StoreError> {
+    ) -> Result<Vec<SubscriptionAddOnNewInternal>, StoreErrorReport> {
         process_create_subscription_add_ons(add_ons, &context.all_add_ons)
     }
 
@@ -328,7 +328,7 @@ impl Services {
         &self,
         subscription: &SubscriptionRowNew,
         coupons: &[Coupon],
-    ) -> Result<Vec<AppliedCouponRowNew>, StoreError> {
+    ) -> Result<Vec<AppliedCouponRowNew>, StoreErrorReport> {
         process_create_subscription_coupons(subscription, coupons)
     }
 
@@ -339,7 +339,7 @@ impl Services {
         add_ons: &[SubscriptionAddOnNewInternal],
         _coupons: &[Coupon],
         precision: u8,
-    ) -> Result<SubscriptionEventRow, StoreError> {
+    ) -> Result<SubscriptionEventRow, StoreErrorReport> {
         let cmrr: i64 = components
             .iter()
             .map(|c| calculate_mrr(&c.fee, &c.period, precision))
@@ -407,13 +407,13 @@ fn process_slot_transactions(
 
     for component in components {
         if let Some(tx) = fee_to_tx(&component.fee, start_date) {
-            transactions.push(tx)
+            transactions.push(tx);
         }
     }
 
     for addon in addons {
         if let Some(tx) = fee_to_tx(&addon.fee, start_date) {
-            transactions.push(tx)
+            transactions.push(tx);
         }
     }
 
@@ -540,11 +540,7 @@ impl Services {
 
         for (idx, res) in results.into_iter().enumerate() {
             if let Err(e) = res {
-                log::error!(
-                    "Failed to publish subscription event for subscription {}: {}",
-                    idx,
-                    e
-                );
+                log::error!("Failed to publish subscription event for subscription {idx}: {e}");
             }
         }
 

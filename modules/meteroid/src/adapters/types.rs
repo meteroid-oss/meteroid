@@ -1,5 +1,5 @@
 use crate::errors;
-use error_stack::Result;
+use error_stack::Report;
 use meteroid_store::Store;
 use meteroid_store::domain::connectors::Connector;
 use secrecy::SecretString;
@@ -28,7 +28,7 @@ pub trait WebhookAdapter: AdapterCommon + Sync {
         &self,
         request: &ParsedRequest,
         security: &SecretString,
-    ) -> Result<bool, errors::AdapterWebhookError>;
+    ) -> Result<bool, Report<errors::AdapterWebhookError>>;
 
     fn get_optimistic_webhook_response(&self) -> axum::response::Response;
 
@@ -37,7 +37,7 @@ pub trait WebhookAdapter: AdapterCommon + Sync {
         request: &ParsedRequest,
         connector: &Connector,
         store: Store,
-    ) -> Result<bool, errors::AdapterWebhookError>;
+    ) -> Result<bool, Report<errors::AdapterWebhookError>>;
 }
 
 pub trait Adapter: Send + Debug + WebhookAdapter {}

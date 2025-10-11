@@ -20,26 +20,23 @@ use mockall::automock;
 #[cfg_attr(feature = "test-utils", automock)]
 #[async_trait]
 pub trait MailerService: Send + Sync {
-    async fn send(&self, email: Email) -> error_stack::Result<(), MailerServiceError>;
+    async fn send(&self, email: Email) -> Result<(), Report<MailerServiceError>>;
     async fn send_reset_password_link(
         &self,
         link: ResetPasswordLink,
-    ) -> error_stack::Result<(), MailerServiceError>;
+    ) -> Result<(), Report<MailerServiceError>>;
 
     async fn send_email_validation_link(
         &self,
         link: EmailValidationLink,
-    ) -> error_stack::Result<(), MailerServiceError>;
+    ) -> Result<(), Report<MailerServiceError>>;
 
     async fn send_invoice_ready_for_payment(
         &self,
         link: InvoiceReady,
-    ) -> error_stack::Result<(), MailerServiceError>;
+    ) -> Result<(), Report<MailerServiceError>>;
 
-    async fn send_invoice_paid(
-        &self,
-        link: InvoicePaid,
-    ) -> error_stack::Result<(), MailerServiceError>;
+    async fn send_invoice_paid(&self, link: InvoicePaid) -> Result<(), Report<MailerServiceError>>;
 }
 
 pub struct LettreMailerService<T: AsyncTransport> {
@@ -52,7 +49,7 @@ impl<T: AsyncTransport + Send + Sync> MailerService for LettreMailerService<T>
 where
     T::Error: Into<MailerServiceError>,
 {
-    async fn send(&self, email: Email) -> error_stack::Result<(), MailerServiceError> {
+    async fn send(&self, email: Email) -> Result<(), Report<MailerServiceError>> {
         // if the email is fake, we just skip sending it
         if email
             .to
@@ -84,7 +81,7 @@ where
     async fn send_reset_password_link(
         &self,
         link: ResetPasswordLink,
-    ) -> error_stack::Result<(), MailerServiceError> {
+    ) -> Result<(), Report<MailerServiceError>> {
         let tpl = ResetPasswordLinkTemplate::from(link.clone());
 
         let body_html = tpl.render_once().map_err(|e| Report::new(e.into()))?;
@@ -103,7 +100,7 @@ where
     async fn send_email_validation_link(
         &self,
         link: EmailValidationLink,
-    ) -> error_stack::Result<(), MailerServiceError> {
+    ) -> Result<(), Report<MailerServiceError>> {
         let tpl = EmailValidationLinkTemplate::from(link.clone()).tpl;
 
         let body_html = tpl.render_once().map_err(|e| Report::new(e.into()))?;
@@ -122,7 +119,7 @@ where
     async fn send_invoice_ready_for_payment(
         &self,
         data: InvoiceReady,
-    ) -> error_stack::Result<(), MailerServiceError> {
+    ) -> Result<(), Report<MailerServiceError>> {
         let tpl = InvoiceReadyTemplate::from(data.clone()).tpl;
 
         let title = tpl.title.clone();
@@ -140,10 +137,7 @@ where
         self.send(email).await
     }
 
-    async fn send_invoice_paid(
-        &self,
-        data: InvoicePaid,
-    ) -> error_stack::Result<(), MailerServiceError> {
+    async fn send_invoice_paid(&self, data: InvoicePaid) -> Result<(), Report<MailerServiceError>> {
         let tpl = InvoicePaidTemplate::from(data.clone()).tpl;
 
         let title = tpl.title.clone();
@@ -177,7 +171,7 @@ pub fn mailer_service(cfg: MailerConfig) -> Arc<dyn MailerService> {
         );
 
         let transport = if cfg.smtp_tls {
-            log::info!("Starting mailer service with TLS to host {}", host);
+            log::info!("Starting mailer service with TLS to host {host}");
             // TODO pool ?
             AsyncSmtpTransport::<Tokio1Executor>::starttls_relay(host)
                 .unwrap()
@@ -185,7 +179,7 @@ pub fn mailer_service(cfg: MailerConfig) -> Arc<dyn MailerService> {
                 .timeout(Some(std::time::Duration::from_secs(10)))
                 .build()
         } else {
-            log::info!("Starting unsecure mailer service to host {}", host);
+            log::info!("Starting unsecure mailer service to host {host}");
             AsyncSmtpTransport::<Tokio1Executor>::builder_dangerous(host.to_string())
                 .credentials(creds)
                 .timeout(Some(std::time::Duration::from_secs(10)))

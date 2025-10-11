@@ -57,7 +57,7 @@ impl BuildInfo {
                 BuildInfo::get()
             }
             Some(v) => {
-                panic!("BuildInfo value is already set {:?}", v);
+                panic!("BuildInfo value is already set {v:?}");
             }
         }
     }

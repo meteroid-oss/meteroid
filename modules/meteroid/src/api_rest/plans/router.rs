@@ -50,7 +50,7 @@ pub(crate) async fn list_plans(
     .await
     .map(Json)
     .map_err(|e| {
-        log::error!("Error handling list_plans: {}", e);
+        log::error!("Error handling list_plans: {e}");
         e
     })
 }
@@ -76,7 +76,7 @@ async fn list_plans_handler(
         )
         .await
         .map_err(|e| {
-            log::error!("Error handling list_plans: {}", e);
+            log::error!("Error handling list_plans: {e}");
             RestApiError::StoreError
         })?;
 

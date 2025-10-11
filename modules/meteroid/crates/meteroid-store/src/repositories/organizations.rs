@@ -171,19 +171,18 @@ impl OrganizationsInterface for Store {
             .await
             .map_err(Into::<Report<StoreError>>::into)?;
 
-        match org.invite_link_hash {
-            Some(hash) => Ok(hash),
-            None => {
-                log::warn!("Organization invite link is not set - creating new one");
+        if let Some(hash) = org.invite_link_hash {
+            Ok(hash)
+        } else {
+            log::warn!("Organization invite link is not set - creating new one");
 
-                let invite_hash = nanoid::nanoid!(32, &BASE62_ALPHABET);
+            let invite_hash = nanoid::nanoid!(32, &BASE62_ALPHABET);
 
-                let _ = OrganizationRow::update_invite_link(&mut conn, org.id, &invite_hash)
-                    .await
-                    .map_err(Into::<Report<StoreError>>::into)?;
+            let _ = OrganizationRow::update_invite_link(&mut conn, org.id, &invite_hash)
+                .await
+                .map_err(Into::<Report<StoreError>>::into)?;
 
-                Ok(invite_hash)
-            }
+            Ok(invite_hash)
         }
     }
 

@@ -36,9 +36,10 @@ where
     /// Create a new golden test instance
     #[inline]
     pub fn new() -> Self {
-        let manifest_dir = env::var("CARGO_MANIFEST_DIR")
-            .map(PathBuf::from)
-            .unwrap_or_else(|_| panic!("CARGO_MANIFEST_DIR not set. Are you running with cargo?"));
+        let manifest_dir = env::var("CARGO_MANIFEST_DIR").map_or_else(
+            |_| panic!("CARGO_MANIFEST_DIR not set. Are you running with cargo?"),
+            PathBuf::from,
+        );
         Self {
             manifest_dir,
             _phantom: PhantomData,
@@ -73,14 +74,11 @@ where
                 .get(&name)
                 .is_some_and(|contents| contents.contains(&json))
             {
-                println!(
-                    "Golden file for '{}' already exists with identical content",
-                    name
-                );
+                println!("Golden file for '{name}' already exists with identical content");
                 continue;
             }
 
-            let file_path = test_folder.join(format!("{}_{}.json", version_tag, name));
+            let file_path = test_folder.join(format!("{version_tag}_{name}.json"));
             File::create(&file_path)
                 .and_then(|mut file| file.write_all(json.as_bytes()))
                 .unwrap_or_else(|e| {
@@ -103,7 +101,7 @@ where
             let entry = match entry {
                 Ok(entry) => entry,
                 Err(e) => {
-                    eprintln!("Warning: Could not read directory entry: {}", e);
+                    eprintln!("Warning: Could not read directory entry: {e}");
                     continue;
                 }
             };
@@ -142,12 +140,11 @@ where
 
     /// Verify golden files against test instances
     fn verify_golden_files(&self, test_folder: &Path) {
-        if !test_folder.exists() {
-            panic!(
-                "No golden files found in {}. Try running with UPDATE_GOLDEN=1",
-                test_folder.display()
-            );
-        }
+        assert!(
+            test_folder.exists(),
+            "No golden files found in {}. Try running with UPDATE_GOLDEN=1",
+            test_folder.display()
+        );
 
         let mut tested_any = false;
 

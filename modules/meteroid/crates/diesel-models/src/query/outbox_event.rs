@@ -18,7 +18,7 @@ impl OutboxEventRowNew {
         query
             .execute(conn)
             .await
-            .attach_printable("Error while inserting outbox events")
+            .attach("Error while inserting outbox events")
             .into_db_result()
             .map(|_| ())
     }

@@ -55,7 +55,7 @@ impl KafkaSink {
     fn kafka_send(&self, event: &RawEvent) -> Result<DeliveryFuture, IngestError> {
         // TODO proto
         let payload = serde_json::to_string(&event).map_err(|e| {
-            error!("failed to serialize event: {}", e);
+            error!("failed to serialize event: {e}");
             IngestError::NonRetryableSinkError
         })?;
 
@@ -68,17 +68,16 @@ impl KafkaSink {
             headers: None,
         }) {
             Ok(ack) => Ok(ack),
-            Err((e, _)) => match e.rdkafka_error_code() {
-                Some(RDKafkaErrorCode::MessageSizeTooLarge) => {
+            Err((e, _)) => {
+                if let Some(RDKafkaErrorCode::MessageSizeTooLarge) = e.rdkafka_error_code() {
                     // report_dropped_events("kafka_message_size", 1);
                     Err(IngestError::EventTooBig)
-                }
-                _ => {
+                } else {
                     // report_dropped_events("kafka_write_error", 1);
-                    error!("failed to produce event: {}", e);
+                    error!("failed to produce event: {e}");
                     Err(IngestError::RetryableSinkError)
                 }
-            },
+            }
         }
     }
 
@@ -97,7 +96,7 @@ impl KafkaSink {
                 Err(IngestError::EventTooBig)
             }
             Ok(Err((err, _))) => {
-                error!("failed to produce to Kafka: {}", err);
+                error!("failed to produce to Kafka: {err}");
                 Err(IngestError::RetryableSinkError)
             }
             Ok(Ok(_)) => {
@@ -152,7 +151,7 @@ impl Sink for KafkaSink {
                 }
                 Err(err) => {
                     set.abort_all();
-                    error!("Join error while waiting on Kafka ACK: {:?}", err);
+                    error!("Join error while waiting on Kafka ACK: {err:?}");
                     return Err(IngestError::RetryableSinkError);
                 }
             }

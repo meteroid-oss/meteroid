@@ -1,5 +1,5 @@
 use crate::errors::InvoicingResult;
-use crate::model::*;
+use crate::model::Invoice;
 
 // Function to attach Factur-X XML to a PDF
 #[allow(unused)]

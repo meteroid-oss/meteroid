@@ -92,10 +92,9 @@ impl PgmqHandler for InvoiceOrchestration {
                             //
                             // },
                             _ => {
-                                return Err(PgmqError::HandleMessages)
-                                    .attach_printable("Invalid event type");
+                                return Err(PgmqError::HandleMessages).attach("Invalid event type");
                             }
-                        };
+                        }
 
                         Ok::<MessageId, Report<PgmqError>>(msg_id)
                     }

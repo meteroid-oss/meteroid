@@ -19,32 +19,26 @@ pub fn query_meter_view_sql(params: QueryMeterParams) -> Result<String, String> 
         match window_size {
             WindowSize::Minute => {
                 select_columns.push(format!(
-                    "tumbleStart(windowstart, toIntervalMinute(1), '{}') AS window_start",
-                    tz
+                    "tumbleStart(windowstart, toIntervalMinute(1), '{tz}') AS window_start"
                 ));
                 select_columns.push(format!(
-                    "tumbleEnd(windowstart, toIntervalMinute(1), '{}') AS window_end",
-                    tz
+                    "tumbleEnd(windowstart, toIntervalMinute(1), '{tz}') AS window_end"
                 ));
             }
             WindowSize::Hour => {
                 select_columns.push(format!(
-                    "tumbleStart(windowstart, toIntervalHour(1), '{}') AS window_start",
-                    tz
+                    "tumbleStart(windowstart, toIntervalHour(1), '{tz}') AS window_start"
                 ));
                 select_columns.push(format!(
-                    "tumbleEnd(windowstart, toIntervalHour(1), '{}') AS window_end",
-                    tz
+                    "tumbleEnd(windowstart, toIntervalHour(1), '{tz}') AS window_end"
                 ));
             }
             WindowSize::Day => {
                 select_columns.push(format!(
-                    "tumbleStart(windowstart, toIntervalDay(1), '{}') AS window_start",
-                    tz
+                    "tumbleStart(windowstart, toIntervalDay(1), '{tz}') AS window_start"
                 ));
                 select_columns.push(format!(
-                    "tumbleEnd(windowstart, toIntervalDay(1), '{}') AS window_end",
-                    tz
+                    "tumbleEnd(windowstart, toIntervalDay(1), '{tz}') AS window_end"
                 ));
             }
         }
@@ -96,10 +90,10 @@ pub fn query_meter_view_sql(params: QueryMeterParams) -> Result<String, String> 
         let subjects_condition = params
             .customer_ids
             .iter()
-            .map(|id| format!("customer_id = '{}'", id)) // TODO config for id/ext/custom field
+            .map(|id| format!("customer_id = '{id}'")) // TODO config for id/ext/custom field
             .collect::<Vec<_>>()
             .join(" OR ");
-        where_clauses.push(format!("({})", subjects_condition));
+        where_clauses.push(format!("({subjects_condition})"));
         select_columns.push("customer_id".to_string());
     }
 
@@ -109,14 +103,14 @@ pub fn query_meter_view_sql(params: QueryMeterParams) -> Result<String, String> 
                 // Independent filters are ANDed together
                 for (column, values) in filters {
                     if values.is_empty() {
-                        return Err(format!("Empty filter for dimension: {}", column));
+                        return Err(format!("Empty filter for dimension: {column}"));
                     }
                     let column_condition = values
                         .iter()
-                        .map(|value| format!("{} = '{}'", column, value))
+                        .map(|value| format!("{column} = '{value}'"))
                         .collect::<Vec<_>>()
                         .join(" OR ");
-                    where_clauses.push(format!("({})", column_condition));
+                    where_clauses.push(format!("({column_condition})"));
                     group_by_columns.push(column.clone());
                     select_columns.push(column.clone());
                 }
@@ -132,17 +126,16 @@ pub fn query_meter_view_sql(params: QueryMeterParams) -> Result<String, String> 
                 for (dim1_value, dim2_values) in values {
                     if dim2_values.is_empty() {
                         // If no dim2 values, just filter on dim1
-                        linked_conditions.push(format!("{} = '{}'", dimension1_key, dim1_value));
+                        linked_conditions.push(format!("{dimension1_key} = '{dim1_value}'"));
                     } else {
                         // Create condition: (dim1 = 'val1' AND dim2 IN ('val2a', 'val2b'))
                         let dim2_condition = dim2_values
                             .iter()
-                            .map(|v| format!("'{}'", v))
+                            .map(|v| format!("'{v}'"))
                             .collect::<Vec<_>>()
                             .join(", ");
                         linked_conditions.push(format!(
-                            "({} = '{}' AND {} IN ({}))",
-                            dimension1_key, dim1_value, dimension2_key, dim2_condition
+                            "({dimension1_key} = '{dim1_value}' AND {dimension2_key} IN ({dim2_condition}))"
                         ));
                     }
                 }

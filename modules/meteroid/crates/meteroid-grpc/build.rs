@@ -1,16 +1,16 @@
-use error_stack::{Result, ResultExt};
+use error_stack::{Report, ResultExt};
 use std::env;
 use std::path::{Path, PathBuf};
 use thiserror::Error;
 
-fn main() -> Result<(), BuildError> {
+fn main() -> Result<(), Report<BuildError>> {
     let root = PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("../..");
     generate_grpc_types(&root)?;
 
     Ok(())
 }
 
-fn generate_grpc_types(root: &Path) -> Result<(), BuildError> {
+fn generate_grpc_types(root: &Path) -> Result<(), Report<BuildError>> {
     let services = vec![
         "addons",
         "apitokens",
@@ -40,8 +40,8 @@ fn generate_grpc_types(root: &Path) -> Result<(), BuildError> {
 
     let mut proto_files = Vec::new();
     for service in services {
-        let service_path = root.join(format!("proto/api/{}/v1", service));
-        proto_files.push(service_path.join(format!("{}.proto", service))); // main service file
+        let service_path = root.join(format!("proto/api/{service}/v1"));
+        proto_files.push(service_path.join(format!("{service}.proto"))); // main service file
     }
     // Add additional paths as needed
     proto_files.push(root.join("proto/internal/v1/internal.proto"));
@@ -55,12 +55,17 @@ fn generate_grpc_types(root: &Path) -> Result<(), BuildError> {
     let out_dir = PathBuf::from(
         env::var("OUT_DIR")
             .change_context(BuildError)
-            .attach_printable("Failed to retrieve OUT_DIR environment variable")?,
+            .attach("Failed to retrieve OUT_DIR environment variable")?,
     );
 
     let descriptor_path = out_dir.join("meteroid-grpc.protoset.bin");
 
-    tonic_build::configure()
+    let proto_root = root.join("proto");
+    let common_proto_root = root.join("../../crates/common-grpc/proto");
+
+    let proto_file_refs: Vec<&str> = proto_files.iter().map(|p| p.to_str().unwrap()).collect();
+
+    tonic_prost_build::configure()
         .build_server(true)
         .build_client(true)
         .client_mod_attribute(".", r#"#[cfg(feature = "client")]"#)
@@ -69,15 +74,15 @@ fn generate_grpc_types(root: &Path) -> Result<(), BuildError> {
         .file_descriptor_set_path(descriptor_path.clone())
         .protoc_arg("--experimental_allow_proto3_optional")
         .compile_protos(
-            &proto_files,
+            &proto_file_refs,
             &[
-                root,
-                &root.join("proto"),
-                &root.join("../../crates/common-grpc/proto"),
+                root.to_str().unwrap(),
+                proto_root.to_str().unwrap(),
+                common_proto_root.to_str().unwrap(),
             ],
         )
         .change_context(BuildError)
-        .attach_printable("Failed to compile protobuf files")?;
+        .attach("Failed to compile protobuf files")?;
 
     let serde_paths = &[
         ".meteroid.api.billablemetrics.v1.segmentation_matrix",

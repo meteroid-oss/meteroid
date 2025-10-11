@@ -14,7 +14,7 @@ use error_stack::ResultExt;
 
 impl PlanVersionRowNew {
     pub async fn insert(&self, conn: &mut PgConn) -> DbResult<PlanVersionRow> {
-        use crate::schema::plan_version::dsl::*;
+        use crate::schema::plan_version::dsl::plan_version;
         use diesel_async::RunQueryDsl;
 
         let query = diesel::insert_into(plan_version).values(self);
@@ -24,7 +24,7 @@ impl PlanVersionRowNew {
         query
             .get_result(conn)
             .await
-            .attach_printable("Error while inserting plan version")
+            .attach("Error while inserting plan version")
             .into_db_result()
     }
 }
@@ -46,7 +46,7 @@ impl PlanVersionRow {
         query
             .first(conn)
             .await
-            .attach_printable("Error while finding plan version by id")
+            .attach("Error while finding plan version by id")
             .into_db_result()
     }
 
@@ -78,7 +78,7 @@ impl PlanVersionRow {
             .first(conn)
             .await
             .optional()
-            .attach_printable("Error while finding latest plan version")
+            .attach("Error while finding latest plan version")
             .into_db_result()
     }
 
@@ -102,7 +102,7 @@ impl PlanVersionRow {
         query
             .first(conn)
             .await
-            .attach_printable("Error while finding latest plan version")
+            .attach("Error while finding latest plan version")
             .into_db_result()
     }
 
@@ -126,7 +126,7 @@ impl PlanVersionRow {
         paginated_query
             .load_and_count_pages(conn)
             .await
-            .attach_printable("Error while listing plan versions")
+            .attach("Error while listing plan versions")
             .into_db_result()
     }
 
@@ -152,7 +152,7 @@ impl PlanVersionRow {
         query
             .execute(conn)
             .await
-            .attach_printable("Error while deleting draft plan versions")
+            .attach("Error while deleting draft plan versions")
             .into_db_result()
     }
 
@@ -175,7 +175,7 @@ impl PlanVersionRow {
         query
             .get_result(conn)
             .await
-            .attach_printable("Error while finding plan version by id")
+            .attach("Error while finding plan version by id")
             .into_db_result()
     }
 
@@ -197,7 +197,7 @@ impl PlanVersionRow {
         query
             .execute(conn)
             .await
-            .attach_printable("Error while deleting plan version")
+            .attach("Error while deleting plan version")
             .into_db_result()
     }
 }
@@ -230,7 +230,7 @@ impl PlanVersionRowOverview {
         query
             .get_results(conn)
             .await
-            .attach_printable("Error while listing plans")
+            .attach("Error while listing plans")
             .into_db_result()
     }
 }
@@ -251,7 +251,7 @@ impl PlanVersionRowPatch {
         query
             .get_result(conn)
             .await
-            .attach_printable("Error while updating plan version")
+            .attach("Error while updating plan version")
             .into_db_result()
     }
 }
@@ -271,7 +271,7 @@ impl PlanVersionTrialRowPatch {
         query
             .get_result(conn)
             .await
-            .attach_printable("Error while updating plan version trial")
+            .attach("Error while updating plan version trial")
             .into_db_result()
     }
 }

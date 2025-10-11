@@ -9,9 +9,10 @@ pub mod services;
 pub mod store;
 pub mod utils;
 
+use error_stack::Report;
 pub use store::Store;
 
-pub type StoreResult<T> = error_stack::Result<T, errors::StoreError>;
+pub type StoreResult<T> = Result<T, Report<errors::StoreError>>;
 
 pub use crate::services::ServicesEdge as Services;
 pub use crate::services::clients;

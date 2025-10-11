@@ -41,7 +41,7 @@ impl PdfGenerator for TypstPdfGenerator {
         };
 
         let pdf = typst_pdf::pdf(&result, &pdf_options).map_err(|e| {
-            InvoicingError::PdfGenerationError(format!("Failed to generate PDF: {:?}", e))
+            InvoicingError::PdfGenerationError(format!("Failed to generate PDF: {e:?}"))
         })?;
 
         Ok(Bytes::from(pdf))

@@ -44,7 +44,7 @@ fn create_meter_view_to_select_sql(meter: Meter) -> String {
         }
         None => {
             if matches!(meter.aggregation, MeterAggregation::Count) {
-                selects.push(format!("{}(*) AS value", agg_state_fn));
+                selects.push(format!("{agg_state_fn}(*) AS value"));
             } else {
                 // TODO should only allow for Count
                 unimplemented!("Only Count aggregation is supported without value property")
@@ -64,7 +64,7 @@ fn create_meter_view_to_select_sql(meter: Meter) -> String {
         let column_name = escape_sql_identifier(k);
         order_by.push(escape_sql_identifier(&column_name));
         // selects.push(format!("JSON_VALUE(data, '{}') as {}", escape_sql_identifier(v), escape_sql_identifier(k)));
-        selects.push(format!("properties['{}'] as {}", column_name, column_name));
+        selects.push(format!("properties['{column_name}'] as {column_name}"));
     }
 
     let events_table_name = get_events_table_name();
@@ -122,7 +122,7 @@ pub fn create_meter_view(meter: Meter, populate: bool) -> String {
     }
 
     // Construct SQL
-    let mut sql = format!("CREATE MATERIALIZED VIEW IF NOT EXISTS {} (\n", view_name);
+    let mut sql = format!("CREATE MATERIALIZED VIEW IF NOT EXISTS {view_name} (\n");
     for col in &columns {
         sql.push_str(&format!("    {} {},\n", col.name, col.col_type));
     }
@@ -140,7 +140,7 @@ pub fn create_meter_view(meter: Meter, populate: bool) -> String {
     let select_query = create_meter_view_to_select_sql(meter);
 
     // Add SELECT statement
-    sql.push_str(&format!("AS {}\n", select_query)); // Add your select statement here
+    sql.push_str(&format!("AS {select_query}\n")); // Add your select statement here
 
     sql
 }

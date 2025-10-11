@@ -75,7 +75,7 @@ async-trait.workspace = true
 url.workspace = true
 csv = "1.3"
 typetag = { workspace = true }
-jsonwebtoken.workspace = true
+jsonwebtoken = { workspace = true, features = ["aws_lc_rs"] }
 once_cell.workspace = true
 tower-layer.workspace = true
 image = { workspace = true }

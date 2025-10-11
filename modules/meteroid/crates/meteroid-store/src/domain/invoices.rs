@@ -302,8 +302,12 @@ impl DetailedInvoice {
         self.transactions = transactions;
         self
     }
+
     pub fn with_transaction_rows(mut self, transactions: Vec<PaymentTransactionRow>) -> Self {
-        self.transactions = transactions.into_iter().map(|x| x.into()).collect();
+        self.transactions = transactions
+            .into_iter()
+            .map(std::convert::Into::into)
+            .collect();
         self
     }
 }
@@ -315,7 +319,7 @@ impl TryFrom<DetailedInvoiceRow> for DetailedInvoice {
         Ok(DetailedInvoice {
             invoice: value.invoice.try_into()?,
             customer: value.customer.try_into()?,
-            plan: value.plan.map(|x| x.into()),
+            plan: value.plan.map(std::convert::Into::into),
             transactions: vec![],
         })
     }

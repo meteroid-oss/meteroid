@@ -1,12 +1,14 @@
 use chrono::{Datelike, Days, NaiveDate, NaiveTime};
-use error_stack::ResultExt;
+use error_stack::{Report, ResultExt};
 use fake::Fake;
 use meteroid_store::domain::enums::{
     BillingMetricAggregateEnum, BillingPeriodEnum, InvoiceStatusEnum, InvoiceType, PlanStatusEnum,
     PlanTypeEnum, SubscriptionActivationCondition, TenantEnvironmentEnum,
 };
 
-use meteroid_store::repositories::*;
+use meteroid_store::repositories::{
+    CustomersInterface, InvoiceInterface, PlansInterface, ProductFamilyInterface, TenantInterface,
+};
 use meteroid_store::{Services, domain as store_domain};
 use uuid::Uuid;
 
@@ -44,7 +46,7 @@ pub async fn run(
     scenario: super::domain::Scenario,
     organization_id: OrganizationId,
     user_id: Uuid,
-) -> error_stack::Result<(), SeederError> {
+) -> Result<(), Report<SeederError>> {
     // create an org, tenant, user (if standalone mode)
     // const setup_res = setup();
 
@@ -246,10 +248,10 @@ pub async fn run(
             .checked_add_days(Days::new(version.trial_duration_days.unwrap_or(0) as u64))
             .unwrap_or(customer_created_at_date);
 
-        let _activated_at = if plan.plan_type != PlanTypeEnum::Free {
-            billing_start_date.and_hms_opt(0, 0, 0)
-        } else {
+        let _activated_at = if plan.plan_type == PlanTypeEnum::Free {
             None
+        } else {
+            billing_start_date.and_hms_opt(0, 0, 0)
         };
 
         log::info!("Creating subscription for plan '{}'", plan.name);
@@ -389,7 +391,7 @@ pub async fn run(
 
         let billing_start_date = subscription.billing_start_date.unwrap_or(
             subscription.start_date
-                + chrono::Duration::days(subscription.trial_duration.unwrap_or(0) as i64),
+                + chrono::Duration::days(i64::from(subscription.trial_duration.unwrap_or(0))),
         );
 
         // Add some variations (cancellations, reactivations, upgrades, downgrades, switch, trial conversions TODO)
@@ -405,7 +407,8 @@ pub async fn run(
 
             if rng.random::<f64>() < churn_probability {
                 let end_month = rng.random_range(0..=months_since_start);
-                let end_date = billing_start_date + chrono::Duration::days(end_month as i64 * 30);
+                let end_date =
+                    billing_start_date + chrono::Duration::days(i64::from(end_month) * 30);
 
                 if end_date < now {
                     service

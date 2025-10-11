@@ -29,7 +29,7 @@ pub trait PaymentTransactionInterface {
         conn: &mut PgConn,
         transaction: PaymentTransaction,
         payment_intent: PaymentIntent,
-    ) -> error_stack::Result<PaymentTransaction, StoreError>;
+    ) -> Result<PaymentTransaction, Report<StoreError>>;
 
     async fn get_payment_tx_by_id_for_update(
         &self,
@@ -52,7 +52,7 @@ impl PaymentTransactionInterface for Store {
             .map_err(Into::<Report<StoreError>>::into)
             .map(|rows| {
                 rows.into_iter()
-                    .map(|row| row.into())
+                    .map(std::convert::Into::into)
                     .collect::<Vec<PaymentTransactionWithMethod>>()
             })
     }
@@ -66,7 +66,7 @@ impl PaymentTransactionInterface for Store {
         PaymentTransactionRow::last_settled_by_invoice_id(&mut conn, invoice_id, tenant_id)
             .await
             .map_err(Into::<Report<StoreError>>::into)
-            .map(|row_opt| row_opt.map(|row| row.into()))
+            .map(|row_opt| row_opt.map(std::convert::Into::into))
     }
 
     async fn consolidate_intent_and_transaction_tx(
@@ -74,7 +74,7 @@ impl PaymentTransactionInterface for Store {
         conn: &mut PgConn,
         transaction: PaymentTransaction,
         payment_intent: PaymentIntent,
-    ) -> error_stack::Result<PaymentTransaction, StoreError> {
+    ) -> Result<PaymentTransaction, Report<StoreError>> {
         // Skip processing if the transaction is already in a terminal state
         if transaction.status != domain::enums::PaymentStatusEnum::Pending
             && transaction.status != domain::enums::PaymentStatusEnum::Ready
@@ -146,6 +146,6 @@ impl PaymentTransactionInterface for Store {
         PaymentTransactionRow::get_by_id_for_update(conn, id, tenant_id)
             .await
             .map_err(Into::<Report<StoreError>>::into)
-            .map(|row| row.into())
+            .map(std::convert::Into::into)
     }
 }

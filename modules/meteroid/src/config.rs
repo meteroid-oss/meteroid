@@ -96,7 +96,7 @@ impl Config {
                 Config::get()
             }
             Some(v) => {
-                panic!("Config value is already set {:?}", v);
+                panic!("Config value is already set {v:?}");
             }
         }
     }
