@@ -90,3 +90,13 @@ pub enum SubLineAttributes {
         dimension2_value: Option<String>,
     },
 }
+
+pub struct LineItemUpdate {
+    pub local_id: String,
+    pub name: String,
+    pub start_date: chrono::NaiveDate,
+    pub end_date: chrono::NaiveDate,
+    pub quantity: Decimal,
+    pub unit_price: Decimal,
+    pub tax_rate: Decimal,
+}
