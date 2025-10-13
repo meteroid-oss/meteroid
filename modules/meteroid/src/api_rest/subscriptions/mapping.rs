@@ -69,6 +69,7 @@ pub fn rest_to_domain_create_request(
             invoice_threshold: sub.invoice_threshold,
             billing_start_date: None,   // todo
             charge_automatically: true, // todo
+            purchase_order: None,
         },
         price_components: sub
             .price_components

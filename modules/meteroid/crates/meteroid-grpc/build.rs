@@ -60,11 +60,6 @@ fn generate_grpc_types(root: &Path) -> Result<(), Report<BuildError>> {
 
     let descriptor_path = out_dir.join("meteroid-grpc.protoset.bin");
 
-    let proto_root = root.join("proto");
-    let common_proto_root = root.join("../../crates/common-grpc/proto");
-
-    let proto_file_refs: Vec<&str> = proto_files.iter().map(|p| p.to_str().unwrap()).collect();
-
     tonic_prost_build::configure()
         .build_server(true)
         .build_client(true)
@@ -74,11 +69,11 @@ fn generate_grpc_types(root: &Path) -> Result<(), Report<BuildError>> {
         .file_descriptor_set_path(descriptor_path.clone())
         .protoc_arg("--experimental_allow_proto3_optional")
         .compile_protos(
-            &proto_file_refs,
+            &proto_files,
             &[
-                root.to_str().unwrap(),
-                proto_root.to_str().unwrap(),
-                common_proto_root.to_str().unwrap(),
+                root.to_path_buf(),
+                root.join("proto"),
+                root.join("../../crates/common-grpc/proto"),
             ],
         )
         .change_context(BuildError)

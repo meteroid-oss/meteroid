@@ -67,7 +67,7 @@ impl Services {
             subtotal: invoice_content.subtotal,
             subtotal_recurring: invoice_content.subtotal_recurring,
             reference: None,
-            purchase_order: None,
+            purchase_order: subscription.purchase_order.clone(),
             memo: None,
             due_at: Some(due_date),
             plan_name: Some(subscription.plan_name.clone()),

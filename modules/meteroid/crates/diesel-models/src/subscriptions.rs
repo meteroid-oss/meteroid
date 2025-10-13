@@ -57,6 +57,7 @@ pub struct SubscriptionRow {
     pub next_retry: Option<NaiveDateTime>,
     pub auto_advance_invoices: bool,
     pub charge_automatically: bool,
+    pub purchase_order: Option<String>,
 }
 
 #[derive(Insertable, Debug)]
@@ -94,6 +95,7 @@ pub struct SubscriptionRowNew {
     pub next_cycle_action: Option<CycleActionEnum>,
     pub auto_advance_invoices: bool,
     pub charge_automatically: bool,
+    pub purchase_order: Option<String>,
 }
 
 pub struct CancelSubscriptionParams {

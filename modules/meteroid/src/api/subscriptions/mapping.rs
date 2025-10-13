@@ -70,6 +70,7 @@ pub mod subscriptions {
             card_connection_id: s.card_connection_id.map(|id| id.as_proto()),
             direct_debit_connection_id: s.direct_debit_connection_id.map(|id| id.as_proto()),
             connection_metadata: s.conn_meta.as_ref().map(connection_metadata_to_server),
+            purchase_order: s.purchase_order,
         })
     }
 
@@ -97,6 +98,7 @@ pub mod subscriptions {
             payment_strategy: None,
             auto_advance_invoices: true, // TODO
             charge_automatically: true,  // TODO
+            purchase_order: param.purchase_order,
         };
 
         let res = domain::CreateSubscription {
@@ -142,6 +144,7 @@ pub mod subscriptions {
             activated_at: sub.activated_at.as_proto(),
             mrr_cents: sub.mrr_cents.to_non_negative_u64(),
             checkout_token: sub.checkout_token,
+            purchase_order: sub.purchase_order,
         })
     }
 
@@ -180,6 +183,7 @@ pub mod subscriptions {
                 card_connection_id: sub.card_connection_id.map(|id| id.as_proto()),
                 direct_debit_connection_id: sub.direct_debit_connection_id.map(|id| id.as_proto()),
                 connection_metadata: sub.conn_meta.as_ref().map(connection_metadata_to_server),
+                purchase_order: sub.purchase_order,
             }),
             schedules: vec![], // TODO
             price_components: details

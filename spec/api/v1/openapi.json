@@ -648,7 +648,7 @@
             "description": "Filter by a product family",
             "required": false,
             "schema": {
-              "type": "string"
+              "$ref": "#/components/schemas/ProductFamilyId"
             },
             "example": "default"
           }
