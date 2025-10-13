@@ -2042,16 +2042,14 @@
       "PaginationResponse": {
         "type": "object",
         "required": [
+          "page",
           "per_page",
           "total_items",
           "total_pages"
         ],
         "properties": {
           "page": {
-            "type": [
-              "integer",
-              "null"
-            ],
+            "type": "integer",
             "format": "int32",
             "minimum": 0
           },

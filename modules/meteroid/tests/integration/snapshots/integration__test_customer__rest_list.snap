@@ -60,7 +60,7 @@ expression: "&list"
     }
   ],
   "pagination_meta": {
-    "page": null,
+    "page": 0,
     "per_page": 10,
     "total_items": 3,
     "total_pages": 1
