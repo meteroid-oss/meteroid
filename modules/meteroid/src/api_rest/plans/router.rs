@@ -3,9 +3,9 @@ use super::AppState;
 use axum::extract::Query;
 use axum::{Json, extract::State, response::IntoResponse};
 
-use crate::api_rest::model::{PaginatedRequest, PaginatedResponse};
+use crate::api_rest::model::{PaginatedRequest, PaginationExt};
 use crate::api_rest::plans::mapping::plan_to_rest;
-use crate::api_rest::plans::model::{Plan, PlanListRequest};
+use crate::api_rest::plans::model::{Plan, PlanListRequest, PlanListResponse};
 use crate::errors::RestApiError;
 use axum::Extension;
 use axum::extract::Path;
@@ -21,13 +21,12 @@ use meteroid_store::repositories::PlansInterface;
     tag = "plan",
     path = "/api/v1/plans",
     params(
-        ("offset" = usize, Query, description = "Specifies the starting position of the results", example = 0, minimum = 0),
-        ("limit" = usize, Query, description = "The maximum number of objects to return", example = 10, minimum = 1),
-        ("product_family_id" = String, Query, description = "Product family ID", example = "default"),
-        ("search" = String, Query, description = "Filtering criteria", example = "abc"),
+        ("page" = usize, Query, description = "Specifies the starting position of the results", example = 0, minimum = 0),
+        ("per_page" = usize, Query, description = "The maximum number of objects to return", example = 10, minimum = 1, maximum = 100),
+        ("product_family_id" = Option<String>, Query, description = "Filter by a product family", example = "default"),
     ),
     responses(
-        (status = 200, description = "List of plans", body = PaginatedResponse<Plan>),
+        (status = 200, description = "List of plans", body = PlanListResponse),
         (status = 401, description = "Unauthorized"),
         (status = 500, description = "Internal error"),
     ),
@@ -60,7 +59,7 @@ async fn list_plans_handler(
     pagination: PaginatedRequest,
     tenant_id: TenantId,
     product_family_id: Option<ProductFamilyId>,
-) -> Result<PaginatedResponse<Plan>, RestApiError> {
+) -> Result<PlanListResponse, RestApiError> {
     let res = store
         .list_full_plans(
             tenant_id,
@@ -87,9 +86,9 @@ async fn list_plans_handler(
         })
         .collect::<Vec<_>>();
 
-    Ok(PaginatedResponse {
+    Ok(PlanListResponse {
         data: rest_models,
-        total: res.total_results,
+        pagination_meta: pagination.into_response(res.total_pages, res.total_results),
     })
 }
 
@@ -98,7 +97,7 @@ async fn list_plans_handler(
     tag = "plan",
     path = "/api/v1/plans/{plan_id}",
     params(
-        ("plan_id" = String, Path, description = "Plan ID"),
+        ("plan_id" = PlanId, Path, description = "Plan ID"),
     ),
     responses(
         (status = 200, description = "Plan details", body = Plan),

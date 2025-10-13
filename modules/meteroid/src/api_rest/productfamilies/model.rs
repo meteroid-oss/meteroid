@@ -1,4 +1,4 @@
-use crate::api_rest::model::PaginatedRequest;
+use crate::api_rest::model::{PaginatedRequest, PaginationResponse};
 use common_domain::ids::{ProductFamilyId, string_serde};
 use utoipa::ToSchema;
 use validator::Validate;
@@ -15,7 +15,13 @@ pub struct ProductFamilyListRequest {
     pub pagination: PaginatedRequest,
     #[serde(flatten)]
     #[validate(nested)]
-    pub plan_filters: ProductFamilyFilters,
+    pub filters: ProductFamilyFilters,
+}
+
+#[derive(ToSchema, serde::Serialize, serde::Deserialize)]
+pub struct ProductFamilyListResponse {
+    pub data: Vec<ProductFamily>,
+    pub pagination_meta: PaginationResponse,
 }
 
 #[derive(Clone, ToSchema, serde::Serialize, serde::Deserialize)]

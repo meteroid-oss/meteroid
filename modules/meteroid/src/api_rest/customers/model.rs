@@ -1,6 +1,6 @@
 use crate::api_rest::addresses::model::{Address, ShippingAddress};
 use crate::api_rest::currencies::model::Currency;
-use crate::api_rest::model::PaginatedRequest;
+use crate::api_rest::model::{PaginatedRequest, PaginationResponse};
 use common_domain::ids::{BankAccountId, CustomerId};
 use common_domain::ids::{InvoicingEntityId, string_serde, string_serde_opt};
 use utoipa::ToSchema;
@@ -82,3 +82,9 @@ pub struct CustomerUpdateRequest {
 
 // TODO : allow importing from stripe
 // => Allow providing a stripe customer id and load the customer methods from stripe
+
+#[derive(ToSchema, serde::Serialize, serde::Deserialize)]
+pub struct CustomerListResponse {
+    pub data: Vec<Customer>,
+    pub pagination_meta: PaginationResponse,
+}

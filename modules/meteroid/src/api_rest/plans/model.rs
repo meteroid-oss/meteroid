@@ -1,4 +1,5 @@
 use crate::api_rest::model::PaginatedRequest;
+use crate::api_rest::model::PaginationResponse;
 use chrono::NaiveDateTime;
 use common_domain::ids::{
     BillableMetricId, PlanId, PlanVersionId, PriceComponentId, ProductFamilyId, ProductId,
@@ -215,4 +216,10 @@ pub enum BillingPeriodEnum {
 pub enum BillingType {
     Advance,
     Arrears,
+}
+
+#[derive(ToSchema, serde::Serialize, serde::Deserialize)]
+pub struct PlanListResponse {
+    pub data: Vec<Plan>,
+    pub pagination_meta: PaginationResponse,
 }
