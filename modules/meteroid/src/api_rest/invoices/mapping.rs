@@ -1,34 +1,54 @@
-use meteroid_store::domain;
 use crate::api_rest::currencies;
 use crate::api_rest::invoices::model::{
-    Invoice, TaxBreakdownItem, TaxExemptionType, Transaction, PaymentStatusEnum,
-    PaymentTypeEnum, InvoicePaymentStatus,
-    CustomerDetails, Address, CouponLineItem, InvoiceType, SubLineItem,
+    Address, CouponLineItem, CustomerDetails, Invoice, InvoicePaymentStatus, InvoiceType,
+    PaymentStatusEnum, PaymentTypeEnum, SubLineItem, TaxBreakdownItem, TaxExemptionType,
+    Transaction,
 };
 use crate::errors::RestApiError;
+use meteroid_store::domain;
 
-
-
-pub fn map_status_from_rest(s: crate::api_rest::invoices::model::InvoiceStatus) -> domain::enums::InvoiceStatusEnum {
+pub fn map_status_from_rest(
+    s: crate::api_rest::invoices::model::InvoiceStatus,
+) -> domain::enums::InvoiceStatusEnum {
     match s {
-        crate::api_rest::invoices::model::InvoiceStatus::Draft => domain::enums::InvoiceStatusEnum::Draft,
-        crate::api_rest::invoices::model::InvoiceStatus::Finalized => domain::enums::InvoiceStatusEnum::Finalized,
-        crate::api_rest::invoices::model::InvoiceStatus::Uncollectible => domain::enums::InvoiceStatusEnum::Uncollectible,
-        crate::api_rest::invoices::model::InvoiceStatus::Void => domain::enums::InvoiceStatusEnum::Void,
+        crate::api_rest::invoices::model::InvoiceStatus::Draft => {
+            domain::enums::InvoiceStatusEnum::Draft
+        }
+        crate::api_rest::invoices::model::InvoiceStatus::Finalized => {
+            domain::enums::InvoiceStatusEnum::Finalized
+        }
+        crate::api_rest::invoices::model::InvoiceStatus::Uncollectible => {
+            domain::enums::InvoiceStatusEnum::Uncollectible
+        }
+        crate::api_rest::invoices::model::InvoiceStatus::Void => {
+            domain::enums::InvoiceStatusEnum::Void
+        }
     }
 }
 
-pub fn map_status_to_rest(s: domain::enums::InvoiceStatusEnum) -> crate::api_rest::invoices::model::InvoiceStatus {
+pub fn map_status_to_rest(
+    s: domain::enums::InvoiceStatusEnum,
+) -> crate::api_rest::invoices::model::InvoiceStatus {
     match s {
-        domain::enums::InvoiceStatusEnum::Draft => crate::api_rest::invoices::model::InvoiceStatus::Draft,
-        domain::enums::InvoiceStatusEnum::Finalized => crate::api_rest::invoices::model::InvoiceStatus::Finalized,
-        domain::enums::InvoiceStatusEnum::Uncollectible => crate::api_rest::invoices::model::InvoiceStatus::Uncollectible,
-        domain::enums::InvoiceStatusEnum::Void => crate::api_rest::invoices::model::InvoiceStatus::Void,
+        domain::enums::InvoiceStatusEnum::Draft => {
+            crate::api_rest::invoices::model::InvoiceStatus::Draft
+        }
+        domain::enums::InvoiceStatusEnum::Finalized => {
+            crate::api_rest::invoices::model::InvoiceStatus::Finalized
+        }
+        domain::enums::InvoiceStatusEnum::Uncollectible => {
+            crate::api_rest::invoices::model::InvoiceStatus::Uncollectible
+        }
+        domain::enums::InvoiceStatusEnum::Void => {
+            crate::api_rest::invoices::model::InvoiceStatus::Void
+        }
     }
 }
 
-
-pub fn domain_to_rest(d: domain::Invoice, transactions: Vec<domain::PaymentTransaction>) -> Result<Invoice, RestApiError> {
+pub fn domain_to_rest(
+    d: domain::Invoice,
+    transactions: Vec<domain::PaymentTransaction>,
+) -> Result<Invoice, RestApiError> {
     Ok(Invoice {
         id: d.id,
         currency: currencies::mapping::from_str(d.currency.as_str())?,
@@ -44,22 +64,33 @@ pub fn domain_to_rest(d: domain::Invoice, transactions: Vec<domain::PaymentTrans
         total: d.total,
         amount_due: d.amount_due,
         memo: d.memo,
-        line_items: d.line_items.into_iter().map(|li| {
-            Ok(crate::api_rest::invoices::model::InvoiceLineItem {
-                name: li.name,
-                description: li.description,
-                quantity: li.quantity,
-                unit_price: li.unit_price,
-                amount_total: li.amount_total,
-                start_date: li.start_date,
-                end_date: li.end_date,
-                tax_rate: li.tax_rate,
-                sub_line_items: li.sub_lines.into_iter().map(map_subline_to_rest).collect(),
+        line_items: d
+            .line_items
+            .into_iter()
+            .map(|li| {
+                Ok(crate::api_rest::invoices::model::InvoiceLineItem {
+                    name: li.name,
+                    description: li.description,
+                    quantity: li.quantity,
+                    unit_price: li.unit_price,
+                    amount_total: li.amount_total,
+                    start_date: li.start_date,
+                    end_date: li.end_date,
+                    tax_rate: li.tax_rate,
+                    sub_line_items: li.sub_lines.into_iter().map(map_subline_to_rest).collect(),
+                })
             })
-        }).collect::<Result<Vec<_>, RestApiError>>()?,
+            .collect::<Result<Vec<_>, RestApiError>>()?,
         paid_at: d.paid_at,
-        tax_breakdown: d.tax_breakdown.into_iter().map(map_tax_breakdown_to_rest).collect(),
-        transactions: transactions.into_iter().map(map_transaction_to_rest).collect(),
+        tax_breakdown: d
+            .tax_breakdown
+            .into_iter()
+            .map(map_tax_breakdown_to_rest)
+            .collect(),
+        transactions: transactions
+            .into_iter()
+            .map(map_transaction_to_rest)
+            .collect(),
         payment_status: map_payment_status_to_rest(d.payment_status),
         customer_details: map_customer_details_to_rest(d.customer_details),
         applied_credits: d.applied_credits,

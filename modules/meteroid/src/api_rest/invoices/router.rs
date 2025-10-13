@@ -1,18 +1,22 @@
-use std::str::FromStr;
 use crate::api_rest::AppState;
-use crate::api_rest::invoices::model::{Invoice, InvoiceListRequest, InvoiceListResponse, InvoiceStatus};
 use crate::api_rest::error::RestErrorResponse;
+use crate::api_rest::invoices::mapping::{domain_to_rest, map_status_from_rest};
+use crate::api_rest::invoices::model::{
+    Invoice, InvoiceListRequest, InvoiceListResponse, InvoiceStatus,
+};
 use crate::api_rest::model::PaginationExt;
 use crate::errors::RestApiError;
+use crate::services::storage::Prefix;
 use axum::extract::{Path, Query, State};
-use axum::response::IntoResponse;
+use axum::response::{IntoResponse, Response};
 use axum::{Extension, Json};
 use axum_valid::Valid;
-use common_grpc::middleware::server::auth::AuthorizedAsTenant;
 use common_domain::ids::{CustomerId, InvoiceId, SubscriptionId};
+use common_grpc::middleware::server::auth::AuthorizedAsTenant;
+use hyper::StatusCode;
 use meteroid_store::repositories::InvoiceInterface;
 use meteroid_store::repositories::payment_transactions::PaymentTransactionInterface;
-use crate::api_rest::invoices::mapping::{domain_to_rest,  map_status_from_rest};
+use std::str::FromStr;
 
 #[utoipa::path(
     get,
@@ -40,18 +44,22 @@ pub(crate) async fn list_invoices(
     Valid(Query(request)): Valid<Query<InvoiceListRequest>>,
     State(app_state): State<AppState>,
 ) -> Result<impl IntoResponse, RestApiError> {
-    let res = app_state.store.list_full_invoices(
-        authorized_state.tenant_id,
-        request.customer_id,
-        request.subscription_id,
-        request.status.clone().map(map_status_from_rest),
-        None,
-        meteroid_store::domain::OrderByRequest::IdDesc,
-        request.pagination.into(),
-    ).await.map_err(|e| {
-        log::error!("Error listing full invoices: {}", e);
-        RestApiError::from(e)
-    })?;
+    let res = app_state
+        .store
+        .list_full_invoices(
+            authorized_state.tenant_id,
+            request.customer_id,
+            request.subscription_id,
+            request.status.clone().map(map_status_from_rest),
+            None,
+            meteroid_store::domain::OrderByRequest::IdDesc,
+            request.pagination.into(),
+        )
+        .await
+        .map_err(|e| {
+            log::error!("Error listing full invoices: {}", e);
+            RestApiError::from(e)
+        })?;
 
     let items = res
         .items
@@ -61,9 +69,9 @@ pub(crate) async fn list_invoices(
 
     Ok(Json(InvoiceListResponse {
         data: items,
-        pagination_meta: request.pagination.into_response(
-            res.total_pages, res.total_results
-        )
+        pagination_meta: request
+            .pagination
+            .into_response(res.total_pages, res.total_results),
     }))
 }
 
@@ -90,11 +98,10 @@ pub(crate) async fn get_invoice_by_id(
     Path(invoice_id): Path<String>,
     State(app_state): State<AppState>,
 ) -> Result<impl IntoResponse, RestApiError> {
-    let invoice_id = InvoiceId::from_str(&invoice_id)
-        .map_err(|e| {
-            log::error!("Invalid invoice id: {}", e);
-            RestApiError::InvalidInput
-        })?;
+    let invoice_id = InvoiceId::from_str(&invoice_id).map_err(|e| {
+        log::error!("Invalid invoice id: {}", e);
+        RestApiError::InvalidInput
+    })?;
 
     let res = app_state
         .store
@@ -120,6 +127,65 @@ pub(crate) async fn get_invoice_by_id(
     let rest_model = domain_to_rest(res, transactions)?;
 
     Ok(Json(rest_model))
-
 }
 
+#[utoipa::path(
+    get,
+    tag = "invoice",
+    path = "/api/v1/invoices/{invoice_id}/download",
+    params(
+        ("invoice_id" = InvoiceId, Path, description = "Invoice ID", example = "inv_123"),
+    ),
+    responses(
+        (status = 200, description = "Invoice PDF", content_type = "application/pdf", body = [u8]),
+        (status = 401, description = "Unauthorized", body = RestErrorResponse),
+        (status = 404, description = "Invoice not found or PDF not available", body = RestErrorResponse),
+        (status = 500, description = "Internal error", body = RestErrorResponse),
+    ),
+    security(
+        ("bearer_auth" = [])
+    )
+)]
+#[axum::debug_handler]
+pub(crate) async fn download_invoice_pdf(
+    Extension(authorized_state): Extension<AuthorizedAsTenant>,
+    Path(invoice_id): Path<InvoiceId>,
+    State(app_state): State<AppState>,
+) -> Result<Response, RestApiError> {
+    let invoice = app_state
+        .store
+        .get_invoice_by_id(authorized_state.tenant_id, invoice_id)
+        .await
+        .map_err(|e| {
+            log::error!("Error getting invoice by id: {}", e);
+            RestApiError::StoreError
+        })?;
+
+    match invoice.pdf_document_id {
+        Some(id) => {
+            let data = app_state
+                .object_store
+                .retrieve(id, Prefix::InvoicePdf)
+                .await
+                .map_err(|e| {
+                    log::error!("Error getting invoice file by id: {}", e);
+                    RestApiError::ObjectStoreError
+                })?;
+
+            Ok((
+                StatusCode::OK,
+                [
+                    ("Content-Type", "application/pdf"),
+                    ("Content-Disposition", "inline"),
+                ],
+                data,
+            )
+                .into_response())
+        }
+        None => Ok((
+            StatusCode::NOT_FOUND,
+            "No attached PDF. Generation may be pending",
+        )
+            .into_response()),
+    }
+}

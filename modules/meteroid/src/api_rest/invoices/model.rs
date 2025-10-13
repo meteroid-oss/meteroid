@@ -1,12 +1,14 @@
+use crate::api_rest::currencies::model::Currency;
+use crate::api_rest::model::{PaginatedRequest, PaginationResponse};
 use chrono::{NaiveDate, NaiveDateTime};
+use common_domain::country::CountryCode;
+use common_domain::ids::{
+    CustomerId, CustomerPaymentMethodId, InvoiceId, PaymentTransactionId, SubscriptionId,
+};
+use common_domain::ids::{string_serde, string_serde_opt};
 use serde::{Deserialize, Serialize};
 use utoipa::ToSchema;
 use validator::Validate;
-use common_domain::ids::{CustomerId, InvoiceId, SubscriptionId, PaymentTransactionId, CustomerPaymentMethodId};
-use crate::api_rest::currencies::model::Currency;
-use crate::api_rest::model::{PaginatedRequest, PaginationResponse};
-use common_domain::ids::{ string_serde, string_serde_opt};
-use common_domain::country::CountryCode;
 
 #[derive(Debug, Clone, Serialize, Deserialize, ToSchema)]
 pub struct Invoice {
@@ -57,7 +59,7 @@ pub struct InvoiceLineItem {
     #[schema(nullable = false)]
     pub unit_price: Option<rust_decimal::Decimal>,
     pub amount_total: i64,
-    pub start_date:  NaiveDate,
+    pub start_date: NaiveDate,
     pub end_date: NaiveDate,
     #[schema(value_type = String, format = "decimal")]
     pub tax_rate: rust_decimal::Decimal,
@@ -87,7 +89,7 @@ pub struct InvoiceListRequest {
 #[derive(ToSchema, Serialize, Deserialize)]
 pub struct InvoiceListResponse {
     pub data: Vec<Invoice>,
-    pub pagination_meta: PaginationResponse
+    pub pagination_meta: PaginationResponse,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, ToSchema)]

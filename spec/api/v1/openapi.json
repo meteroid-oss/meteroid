@@ -18,26 +18,29 @@
         "operationId": "list_customers",
         "parameters": [
           {
-            "name": "offset",
+            "name": "per_page",
             "in": "query",
-            "description": "Specifies the starting position of the results",
-            "required": true,
+            "description": "Specifies the max number of results in a page",
+            "required": false,
             "schema": {
               "type": "integer",
+              "format": "int32",
+              "maximum": 100,
+              "minimum": 1
+            },
+            "example": 20
+          },
+          {
+            "name": "page",
+            "in": "query",
+            "description": "The page to return, starting at index 0",
+            "required": false,
+            "schema": {
+              "type": "integer",
+              "format": "int32",
               "minimum": 0
             },
             "example": 0
-          },
-          {
-            "name": "limit",
-            "in": "query",
-            "description": "The maximum number of objects to return",
-            "required": true,
-            "schema": {
-              "type": "integer",
-              "minimum": 1
-            },
-            "example": 10
           },
           {
             "name": "search",
@@ -537,6 +540,78 @@
         ]
       }
     },
+    "/api/v1/invoices/{invoice_id}/download": {
+      "get": {
+        "tags": [
+          "invoice"
+        ],
+        "operationId": "download_invoice_pdf",
+        "parameters": [
+          {
+            "name": "invoice_id",
+            "in": "path",
+            "description": "Invoice ID",
+            "required": true,
+            "schema": {
+              "$ref": "#/components/schemas/InvoiceId"
+            },
+            "example": "inv_123"
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Invoice PDF",
+            "content": {
+              "application/pdf": {
+                "schema": {
+                  "type": "array",
+                  "items": {
+                    "type": "integer",
+                    "format": "int32",
+                    "minimum": 0
+                  }
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Unauthorized",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/RestErrorResponse"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "Invoice not found or PDF not available",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/RestErrorResponse"
+                }
+              }
+            }
+          },
+          "500": {
+            "description": "Internal error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/RestErrorResponse"
+                }
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "bearer_auth": []
+          }
+        ]
+      }
+    },
     "/api/v1/plans": {
       "get": {
         "tags": [
@@ -656,26 +731,29 @@
         "operationId": "list_product_families",
         "parameters": [
           {
-            "name": "offset",
+            "name": "per_page",
             "in": "query",
-            "description": "Specifies the starting position of the results",
-            "required": true,
+            "description": "Specifies the max number of results in a page",
+            "required": false,
             "schema": {
               "type": "integer",
+              "format": "int32",
+              "maximum": 100,
+              "minimum": 1
+            },
+            "example": 20
+          },
+          {
+            "name": "page",
+            "in": "query",
+            "description": "The page to return, starting at index 0",
+            "required": false,
+            "schema": {
+              "type": "integer",
+              "format": "int32",
               "minimum": 0
             },
             "example": 0
-          },
-          {
-            "name": "limit",
-            "in": "query",
-            "description": "The maximum number of objects to return",
-            "required": true,
-            "schema": {
-              "type": "integer",
-              "minimum": 1
-            },
-            "example": 10
           },
           {
             "name": "search",

@@ -19,8 +19,8 @@ use common_domain::ids::{
 };
 use diesel::dsl::IntervalDsl;
 use diesel::{
-    BelongingToDsl, BoolExpressionMethods, JoinOnDsl, NullableExpressionMethods, PgTextExpressionMethods,
-    SelectableHelper, debug_query,
+    BelongingToDsl, BoolExpressionMethods, JoinOnDsl, NullableExpressionMethods,
+    PgTextExpressionMethods, SelectableHelper, debug_query,
 };
 use diesel::{ExpressionMethods, QueryDsl};
 use error_stack::ResultExt;
@@ -266,12 +266,13 @@ impl InvoiceRow {
             .map(|row| &row.invoice)
             .collect();
 
-        let transactions: Vec<PaymentTransactionRow> = PaymentTransactionRow::belonging_to(&invoices)
-            .select(PaymentTransactionRow::as_select())
-            .load(conn)
-            .await
-            .attach("Error while listing payment transactions for invoices")
-            .into_db_result()?;
+        let transactions: Vec<PaymentTransactionRow> =
+            PaymentTransactionRow::belonging_to(&invoices)
+                .select(PaymentTransactionRow::as_select())
+                .load(conn)
+                .await
+                .attach("Error while listing payment transactions for invoices")
+                .into_db_result()?;
 
         // Group transactions by invoice
         let items: Vec<(InvoiceWithCustomerRow, Vec<PaymentTransactionRow>)> = paginated_rows

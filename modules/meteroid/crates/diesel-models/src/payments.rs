@@ -4,7 +4,7 @@ use chrono::NaiveDateTime;
 use common_domain::ids::{
     CustomerPaymentMethodId, InvoiceId, PaymentTransactionId, StoredDocumentId, TenantId,
 };
-²use diesel::{AsChangeset, Associations, Identifiable, Insertable, Queryable, Selectable};
+use diesel::{AsChangeset, Associations, Identifiable, Insertable, Queryable, Selectable};
 
 #[derive(Queryable, Debug, Identifiable, Selectable, Clone, Associations)]
 #[diesel(table_name = crate::schema::payment_transaction)]

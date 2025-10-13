@@ -222,10 +222,8 @@ impl InvoiceInterface for Store {
             .into_iter()
             .map(|(invoice_row, txs)| {
                 let invoice: InvoiceWithCustomer = invoice_row.try_into()?;
-                let transactions: Vec<domain::PaymentTransaction> = txs
-                    .into_iter()
-                    .map(Into::into)
-                    .collect();
+                let transactions: Vec<domain::PaymentTransaction> =
+                    txs.into_iter().map(Into::into).collect();
                 Ok((invoice, transactions))
             })
             .collect::<Result<Vec<_>, Report<StoreError>>>()?;

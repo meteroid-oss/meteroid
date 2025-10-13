@@ -125,14 +125,14 @@ async fn get_invoice_pdf_handler(
 
     let invoice = app_state
         .store
-        .get_detailed_invoice_by_id(claims.tenant_id, claims.entity_id.into())
+        .get_invoice_by_id(claims.tenant_id, claims.entity_id.into())
         .await
         .change_context(errors::RestApiError::StoreError)?;
 
-    if invoice.invoice.id != invoice_uid {
+    if invoice.id != invoice_uid {
         return Err(Report::new(errors::RestApiError::Forbidden));
     }
-    match invoice.invoice.pdf_document_id {
+    match invoice.pdf_document_id {
         Some(id) => {
             let data = app_state
                 .object_store
