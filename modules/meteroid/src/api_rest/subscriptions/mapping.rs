@@ -23,6 +23,7 @@ pub fn domain_to_rest(s: domain::Subscription) -> Result<Subscription, RestApiEr
         status: s.status.into(),
         current_period_start: s.current_period_start,
         current_period_end: s.current_period_end,
+        purchase_order: s.purchase_order,
     })
 }
 
@@ -43,6 +44,7 @@ pub fn domain_to_rest_details(
         status: s.subscription.status.into(),
         current_period_start: s.subscription.current_period_start,
         current_period_end: s.subscription.current_period_end,
+        purchase_order: s.subscription.purchase_order,
     })
 }
 
@@ -69,7 +71,7 @@ pub fn rest_to_domain_create_request(
             invoice_threshold: sub.invoice_threshold,
             billing_start_date: None,   // todo
             charge_automatically: true, // todo
-            purchase_order: None,
+            purchase_order: sub.purchase_order,
         },
         price_components: sub
             .price_components
