@@ -35,7 +35,7 @@ pub struct PaginatedResponse<T> {
 
 #[derive(ToSchema, serde::Serialize, serde::Deserialize, Debug)]
 pub struct PaginationResponse {
-    pub page: Option<u32>,
+    pub page: u32,
     pub per_page: u32,
     pub total_items: u64,
     pub total_pages: u32,
@@ -49,7 +49,7 @@ pub trait PaginationExt {
 impl PaginationExt for PaginatedRequest {
     fn into_response(&self, total_pages: u32, total_items: u64) -> PaginationResponse {
         PaginationResponse {
-            page: self.page,
+            page: self.page.unwrap_or(0),
             per_page: self.per_page.unwrap_or(10),
             total_items,
             total_pages,
