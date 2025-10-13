@@ -50,6 +50,8 @@ pub fn decrypt(key: &SecretString, value: &str) -> Result<SecretString, Report<E
 }
 
 fn generate_nonce(key: &SecretString) -> &Nonce {
+    // https://github.com/RustCrypto/AEADs/issues/730
+    #[allow(deprecated)]
     Nonce::from_slice(&key.expose_secret().as_bytes()[0..NONCE_SIZE])
 }
 
