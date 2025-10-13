@@ -59,5 +59,10 @@ expression: "&list"
       "vat_number": "VAT123456"
     }
   ],
-  "total": 3
+  "pagination_meta": {
+    "page": null,
+    "per_page": 10,
+    "total_items": 3,
+    "total_pages": 1
+  }
 }
