@@ -369,6 +369,174 @@
         ]
       }
     },
+    "/api/v1/invoices": {
+      "get": {
+        "tags": [
+          "invoice"
+        ],
+        "operationId": "list_invoices",
+        "parameters": [
+          {
+            "name": "per_page",
+            "in": "query",
+            "description": "Specifies the max number of results in a page",
+            "required": false,
+            "schema": {
+              "type": "integer",
+              "format": "int32",
+              "maximum": 100,
+              "minimum": 1
+            },
+            "example": 20
+          },
+          {
+            "name": "page",
+            "in": "query",
+            "description": "The page to return, starting at index 0",
+            "required": false,
+            "schema": {
+              "type": "integer",
+              "format": "int32",
+              "minimum": 0
+            },
+            "example": 0
+          },
+          {
+            "name": "customer_id",
+            "in": "query",
+            "description": "Filter by customer ID",
+            "required": true,
+            "schema": {
+              "$ref": "#/components/schemas/CustomerId"
+            },
+            "example": "cust_123"
+          },
+          {
+            "name": "subscription_id",
+            "in": "query",
+            "description": "Filter by subscription ID",
+            "required": false,
+            "schema": {
+              "$ref": "#/components/schemas/SubscriptionId"
+            },
+            "example": "sub_123"
+          },
+          {
+            "name": "status",
+            "in": "query",
+            "description": "Filter by invoice status",
+            "required": true,
+            "schema": {
+              "$ref": "#/components/schemas/InvoiceStatus"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "List of invoices",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/InvoiceListResponse"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Unauthorized",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/RestErrorResponse"
+                }
+              }
+            }
+          },
+          "500": {
+            "description": "Internal error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/RestErrorResponse"
+                }
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "bearer_auth": []
+          }
+        ]
+      }
+    },
+    "/api/v1/invoices/{invoice_id}": {
+      "get": {
+        "tags": [
+          "invoice"
+        ],
+        "operationId": "get_invoice_by_id",
+        "parameters": [
+          {
+            "name": "invoice_id",
+            "in": "path",
+            "description": "Invoice ID",
+            "required": true,
+            "schema": {
+              "$ref": "#/components/schemas/InvoiceId"
+            },
+            "example": "inv_123"
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Invoice details",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Invoice"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Unauthorized",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/RestErrorResponse"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "Invoice not found",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/RestErrorResponse"
+                }
+              }
+            }
+          },
+          "500": {
+            "description": "Internal error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/RestErrorResponse"
+                }
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "bearer_auth": []
+          }
+        ]
+      }
+    },
     "/api/v1/plans": {
       "get": {
         "tags": [
@@ -1173,6 +1341,26 @@
           "FR"
         ]
       },
+      "CouponLineItem": {
+        "type": "object",
+        "required": [
+          "coupon_id",
+          "name",
+          "total"
+        ],
+        "properties": {
+          "coupon_id": {
+            "type": "string"
+          },
+          "name": {
+            "type": "string"
+          },
+          "total": {
+            "type": "integer",
+            "format": "int64"
+          }
+        }
+      },
       "CreateSubscriptionAddOn": {
         "type": "object",
         "required": [
@@ -1589,6 +1777,54 @@
           }
         }
       },
+      "CustomerDetails": {
+        "type": "object",
+        "required": [
+          "id",
+          "name",
+          "snapshot_at"
+        ],
+        "properties": {
+          "alias": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "billing_address": {
+            "oneOf": [
+              {
+                "type": "null"
+              },
+              {
+                "$ref": "#/components/schemas/Address"
+              }
+            ]
+          },
+          "email": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "id": {
+            "$ref": "#/components/schemas/CustomerId"
+          },
+          "name": {
+            "type": "string"
+          },
+          "snapshot_at": {
+            "type": "string",
+            "format": "date-time"
+          },
+          "vat_number": {
+            "type": [
+              "string",
+              "null"
+            ]
+          }
+        }
+      },
       "CustomerId": {
         "type": "string",
         "format": "MeteroidId",
@@ -1613,6 +1849,13 @@
             "$ref": "#/components/schemas/PaginationResponse"
           }
         }
+      },
+      "CustomerPaymentMethodId": {
+        "type": "string",
+        "format": "MeteroidId",
+        "examples": [
+          "pm_7n42DGM5Tflk9n8mt7Fhc7"
+        ]
       },
       "CustomerUpdateRequest": {
         "type": "object",
@@ -1906,6 +2149,292 @@
           }
         ]
       },
+      "Invoice": {
+        "type": "object",
+        "required": [
+          "id",
+          "invoice_number",
+          "status",
+          "customer_id",
+          "currency",
+          "invoice_date",
+          "subtotal",
+          "subtotal_recurring",
+          "tax_amount",
+          "total",
+          "amount_due",
+          "line_items",
+          "tax_breakdown",
+          "transactions",
+          "payment_status",
+          "customer_details",
+          "applied_credits",
+          "coupons",
+          "invoice_type",
+          "net_terms",
+          "created_at"
+        ],
+        "properties": {
+          "amount_due": {
+            "type": "integer",
+            "format": "int64"
+          },
+          "applied_credits": {
+            "type": "integer",
+            "format": "int64"
+          },
+          "coupons": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/CouponLineItem"
+            }
+          },
+          "created_at": {
+            "type": "string",
+            "format": "date-time"
+          },
+          "currency": {
+            "$ref": "#/components/schemas/Currency"
+          },
+          "customer_details": {
+            "$ref": "#/components/schemas/CustomerDetails"
+          },
+          "customer_id": {
+            "$ref": "#/components/schemas/CustomerId"
+          },
+          "due_date": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "format": "date"
+          },
+          "finalized_at": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "format": "date-time"
+          },
+          "id": {
+            "$ref": "#/components/schemas/InvoiceId"
+          },
+          "invoice_date": {
+            "type": "string",
+            "format": "date"
+          },
+          "invoice_number": {
+            "type": "string"
+          },
+          "invoice_type": {
+            "$ref": "#/components/schemas/InvoiceType"
+          },
+          "line_items": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/InvoiceLineItem"
+            }
+          },
+          "marked_as_uncollectible_at": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "format": "date-time"
+          },
+          "memo": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "net_terms": {
+            "type": "integer",
+            "format": "int32"
+          },
+          "paid_at": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "format": "date-time"
+          },
+          "payment_status": {
+            "$ref": "#/components/schemas/InvoicePaymentStatus"
+          },
+          "purchase_order": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "reference": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "status": {
+            "$ref": "#/components/schemas/InvoiceStatus"
+          },
+          "subscription_id": {
+            "oneOf": [
+              {
+                "type": "null"
+              },
+              {
+                "$ref": "#/components/schemas/SubscriptionId"
+              }
+            ]
+          },
+          "subtotal": {
+            "type": "integer",
+            "format": "int64"
+          },
+          "subtotal_recurring": {
+            "type": "integer",
+            "format": "int64"
+          },
+          "tax_amount": {
+            "type": "integer",
+            "format": "int64"
+          },
+          "tax_breakdown": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/TaxBreakdownItem"
+            }
+          },
+          "total": {
+            "type": "integer",
+            "format": "int64"
+          },
+          "transactions": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/Transaction"
+            }
+          },
+          "updated_at": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "format": "date-time"
+          },
+          "voided_at": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "format": "date-time"
+          }
+        }
+      },
+      "InvoiceId": {
+        "type": "string",
+        "format": "MeteroidId",
+        "examples": [
+          "inv_7n42DGM5Tflk9n8mt7Fhc7"
+        ]
+      },
+      "InvoiceLineItem": {
+        "type": "object",
+        "required": [
+          "name",
+          "amount_total",
+          "start_date",
+          "end_date",
+          "tax_rate",
+          "sub_line_items"
+        ],
+        "properties": {
+          "amount_total": {
+            "type": "integer",
+            "format": "int64"
+          },
+          "description": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "end_date": {
+            "type": "string",
+            "format": "date"
+          },
+          "name": {
+            "type": "string"
+          },
+          "quantity": {
+            "type": "string",
+            "format": "decimal"
+          },
+          "start_date": {
+            "type": "string",
+            "format": "date"
+          },
+          "sub_line_items": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/SubLineItem"
+            }
+          },
+          "tax_rate": {
+            "type": "string",
+            "format": "decimal"
+          },
+          "unit_price": {
+            "type": "string",
+            "format": "decimal"
+          }
+        }
+      },
+      "InvoiceListResponse": {
+        "type": "object",
+        "required": [
+          "data",
+          "pagination_meta"
+        ],
+        "properties": {
+          "data": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/Invoice"
+            }
+          },
+          "pagination_meta": {
+            "$ref": "#/components/schemas/PaginationResponse"
+          }
+        }
+      },
+      "InvoicePaymentStatus": {
+        "type": "string",
+        "enum": [
+          "Unpaid",
+          "PartiallyPaid",
+          "Paid",
+          "Errored"
+        ]
+      },
+      "InvoiceStatus": {
+        "type": "string",
+        "enum": [
+          "Draft",
+          "Finalized",
+          "Uncollectible",
+          "Void"
+        ]
+      },
+      "InvoiceType": {
+        "type": "string",
+        "enum": [
+          "Recurring",
+          "OneOff",
+          "Adjustment",
+          "UsageThreshold"
+        ]
+      },
       "InvoicingEntityId": {
         "type": "string",
         "format": "MeteroidId",
@@ -2069,6 +2598,68 @@
             "minimum": 0
           }
         }
+      },
+      "PaymentMethodInfo": {
+        "type": "object",
+        "required": [
+          "payment_method_type"
+        ],
+        "properties": {
+          "account_number_hint": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "card_brand": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "card_last4": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "payment_method_type": {
+            "$ref": "#/components/schemas/PaymentMethodTypeEnum"
+          }
+        }
+      },
+      "PaymentMethodTypeEnum": {
+        "type": "string",
+        "enum": [
+          "Card",
+          "BankTransfer",
+          "Wallet",
+          "Other"
+        ]
+      },
+      "PaymentStatusEnum": {
+        "type": "string",
+        "enum": [
+          "Ready",
+          "Pending",
+          "Settled",
+          "Cancelled",
+          "Failed"
+        ]
+      },
+      "PaymentTransactionId": {
+        "type": "string",
+        "format": "MeteroidId",
+        "examples": [
+          "pay_7n42DGM5Tflk9n8mt7Fhc7"
+        ]
+      },
+      "PaymentTypeEnum": {
+        "type": "string",
+        "enum": [
+          "Payment",
+          "Refund"
+        ]
       },
       "Plan": {
         "type": "object",
@@ -2323,6 +2914,36 @@
           },
           "same_as_billing": {
             "type": "boolean"
+          }
+        }
+      },
+      "SubLineItem": {
+        "type": "object",
+        "required": [
+          "id",
+          "name",
+          "total",
+          "quantity",
+          "unit_price"
+        ],
+        "properties": {
+          "id": {
+            "type": "string"
+          },
+          "name": {
+            "type": "string"
+          },
+          "quantity": {
+            "type": "string",
+            "format": "decimal"
+          },
+          "total": {
+            "type": "integer",
+            "format": "int64"
+          },
+          "unit_price": {
+            "type": "string",
+            "format": "decimal"
           }
         }
       },
@@ -2916,6 +3537,77 @@
           "SUPERSEDED"
         ]
       },
+      "TaxBreakdownItem": {
+        "type": "object",
+        "required": [
+          "taxable_amount",
+          "tax_amount",
+          "tax_rate",
+          "name"
+        ],
+        "properties": {
+          "exemption_type": {
+            "oneOf": [
+              {
+                "type": "null"
+              },
+              {
+                "$ref": "#/components/schemas/TaxExemptionType"
+              }
+            ]
+          },
+          "name": {
+            "type": "string"
+          },
+          "tax_amount": {
+            "type": "integer",
+            "format": "int64",
+            "minimum": 0
+          },
+          "tax_rate": {
+            "type": "string",
+            "format": "decimal"
+          },
+          "taxable_amount": {
+            "type": "integer",
+            "format": "int64",
+            "minimum": 0
+          }
+        }
+      },
+      "TaxExemptionType": {
+        "oneOf": [
+          {
+            "type": "string",
+            "enum": [
+              "ReverseCharge"
+            ]
+          },
+          {
+            "type": "string",
+            "enum": [
+              "TaxExempt"
+            ]
+          },
+          {
+            "type": "string",
+            "enum": [
+              "NotRegistered"
+            ]
+          },
+          {
+            "type": "object",
+            "required": [
+              "Other"
+            ],
+            "properties": {
+              "Other": {
+                "type": "string"
+              }
+            }
+          }
+        ]
+      },
       "TermRate": {
         "type": "object",
         "required": [
@@ -2957,6 +3649,74 @@
           "rate": {
             "type": "string",
             "format": "decimal"
+          }
+        }
+      },
+      "Transaction": {
+        "type": "object",
+        "required": [
+          "id",
+          "amount",
+          "currency",
+          "status",
+          "payment_type"
+        ],
+        "properties": {
+          "amount": {
+            "type": "integer",
+            "format": "int64",
+            "minimum": 0
+          },
+          "currency": {
+            "type": "string"
+          },
+          "error": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "id": {
+            "$ref": "#/components/schemas/PaymentTransactionId"
+          },
+          "payment_method_id": {
+            "oneOf": [
+              {
+                "type": "null"
+              },
+              {
+                "$ref": "#/components/schemas/CustomerPaymentMethodId"
+              }
+            ]
+          },
+          "payment_method_info": {
+            "oneOf": [
+              {
+                "type": "null"
+              },
+              {
+                "$ref": "#/components/schemas/PaymentMethodInfo"
+              }
+            ]
+          },
+          "payment_type": {
+            "$ref": "#/components/schemas/PaymentTypeEnum"
+          },
+          "processed_at": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "format": "date-time"
+          },
+          "provider_transaction_id": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "status": {
+            "$ref": "#/components/schemas/PaymentStatusEnum"
           }
         }
       },
