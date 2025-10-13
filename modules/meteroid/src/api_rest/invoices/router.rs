@@ -16,7 +16,6 @@ use common_grpc::middleware::server::auth::AuthorizedAsTenant;
 use hyper::StatusCode;
 use meteroid_store::repositories::InvoiceInterface;
 use meteroid_store::repositories::payment_transactions::PaymentTransactionInterface;
-use std::str::FromStr;
 
 #[utoipa::path(
     get,
@@ -95,14 +94,9 @@ pub(crate) async fn list_invoices(
 #[axum::debug_handler]
 pub(crate) async fn get_invoice_by_id(
     Extension(authorized_state): Extension<AuthorizedAsTenant>,
-    Path(invoice_id): Path<String>,
+    Path(invoice_id): Path<InvoiceId>,
     State(app_state): State<AppState>,
 ) -> Result<impl IntoResponse, RestApiError> {
-    let invoice_id = InvoiceId::from_str(&invoice_id).map_err(|e| {
-        log::error!("Invalid invoice id: {}", e);
-        RestApiError::InvalidInput
-    })?;
-
     let res = app_state
         .store
         .get_invoice_by_id(authorized_state.tenant_id, invoice_id)
