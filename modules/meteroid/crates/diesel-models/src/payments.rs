@@ -4,11 +4,12 @@ use chrono::NaiveDateTime;
 use common_domain::ids::{
     CustomerPaymentMethodId, InvoiceId, PaymentTransactionId, StoredDocumentId, TenantId,
 };
-use diesel::{AsChangeset, Identifiable, Insertable, Queryable, Selectable};
+use diesel::{AsChangeset, Associations, Identifiable, Insertable, Queryable, Selectable};
 
-#[derive(Queryable, Debug, Identifiable, Selectable, Clone)]
+#[derive(Queryable, Debug, Identifiable, Selectable, Clone, Associations)]
 #[diesel(table_name = crate::schema::payment_transaction)]
 #[diesel(check_for_backend(diesel::pg::Pg))]
+#[diesel(belongs_to(crate::invoices::InvoiceRow, foreign_key=invoice_id))]
 pub struct PaymentTransactionRow {
     pub id: PaymentTransactionId,
     pub tenant_id: TenantId,

@@ -22,8 +22,8 @@ use meteroid_store::repositories::ProductFamilyInterface;
     tag = "product_family",
     path = "/api/v1/product_families",
     params(
-        ("offset" = usize, Query, description = "Specifies the starting position of the results", example = 0, minimum = 0),
-        ("limit" = usize, Query, description = "The maximum number of objects to return", example = 10, minimum = 1),
+        ("per_page" = Option<u32>, Query, description = "Specifies the max number of results in a page", example = 20, minimum = 1, maximum = 100),
+        ("page" = Option<u32>, Query, description = "The page to return, starting at index 0", example = 0, minimum = 0),
         ("search" = String, Query, description = "Filtering criteria", example = "abc"),
     ),
     responses(

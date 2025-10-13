@@ -13,13 +13,14 @@ use crate::extend::cursor_pagination::{
 };
 use crate::extend::order::OrderByRequest;
 use crate::extend::pagination::{Paginate, PaginatedVec, PaginationRequest};
+use crate::payments::PaymentTransactionRow;
 use common_domain::ids::{
     BaseId, ConnectorId, CustomerId, InvoiceId, StoredDocumentId, SubscriptionId, TenantId,
 };
 use diesel::dsl::IntervalDsl;
 use diesel::{
-    BoolExpressionMethods, JoinOnDsl, NullableExpressionMethods, PgTextExpressionMethods,
-    SelectableHelper, debug_query,
+    BelongingToDsl, BoolExpressionMethods, JoinOnDsl, NullableExpressionMethods,
+    PgTextExpressionMethods, SelectableHelper, debug_query,
 };
 use diesel::{ExpressionMethods, QueryDsl};
 use error_stack::ResultExt;
@@ -190,6 +191,108 @@ impl InvoiceRow {
             .await
             .attach("Error while fetching invoices")
             .into_db_result()
+    }
+
+    #[allow(clippy::too_many_arguments)]
+    pub async fn list_with_transactions(
+        conn: &mut PgConn,
+        param_tenant_id: TenantId,
+        param_customer_id: Option<CustomerId>,
+        param_subscription_id: Option<SubscriptionId>,
+        param_status: Option<InvoiceStatusEnum>,
+        param_query: Option<String>,
+        order_by: OrderByRequest,
+        pagination: PaginationRequest,
+    ) -> DbResult<PaginatedVec<(InvoiceWithCustomerRow, Vec<PaymentTransactionRow>)>> {
+        use crate::schema::customer::dsl as c_dsl;
+        use crate::schema::invoice::dsl as i_dsl;
+        use diesel_async::RunQueryDsl;
+
+        let mut query = i_dsl::invoice
+            .inner_join(c_dsl::customer.on(i_dsl::customer_id.eq(c_dsl::id)))
+            .filter(i_dsl::tenant_id.eq(param_tenant_id))
+            .select(InvoiceWithCustomerRow::as_select())
+            .into_boxed();
+
+        if let Some(param_customer_id) = param_customer_id {
+            query = query.filter(i_dsl::customer_id.eq(param_customer_id));
+        }
+
+        if let Some(param_subscription_id) = param_subscription_id {
+            query = query.filter(i_dsl::subscription_id.eq(param_subscription_id));
+        }
+
+        if let Some(param_status) = param_status {
+            query = query.filter(i_dsl::status.eq(param_status));
+        }
+
+        if let Some(param_query) = param_query
+            && !param_query.trim().is_empty()
+        {
+            query = query.filter(c_dsl::name.ilike(format!("%{param_query}%")));
+        }
+
+        match order_by {
+            OrderByRequest::IdAsc => query = query.order(i_dsl::id.asc()),
+            OrderByRequest::IdDesc => query = query.order(i_dsl::id.desc()),
+            OrderByRequest::DateAsc => {
+                query = query.order((i_dsl::invoice_date.asc(), i_dsl::id.asc()));
+            }
+            OrderByRequest::DateDesc => {
+                query = query.order((i_dsl::invoice_date.desc(), i_dsl::id.desc()));
+            }
+            OrderByRequest::NameAsc => {
+                query = query.order((i_dsl::invoice_number.asc(), i_dsl::id.asc()));
+            }
+            OrderByRequest::NameDesc => {
+                query = query.order((i_dsl::invoice_number.desc(), i_dsl::id.desc()));
+            }
+        }
+
+        let paginated_query = query.paginate(pagination);
+
+        log::debug!("{}", debug_query::<diesel::pg::Pg, _>(&paginated_query));
+
+        let paginated_rows: PaginatedVec<InvoiceWithCustomerRow> = paginated_query
+            .load_and_count_pages(conn)
+            .await
+            .attach("Error while fetching invoices")
+            .into_db_result()?;
+
+        // Fetch transactions using belonging_to
+        let invoices: Vec<&InvoiceRow> = paginated_rows
+            .items
+            .iter()
+            .map(|row| &row.invoice)
+            .collect();
+
+        let transactions: Vec<PaymentTransactionRow> =
+            PaymentTransactionRow::belonging_to(&invoices)
+                .select(PaymentTransactionRow::as_select())
+                .load(conn)
+                .await
+                .attach("Error while listing payment transactions for invoices")
+                .into_db_result()?;
+
+        // Group transactions by invoice
+        let items: Vec<(InvoiceWithCustomerRow, Vec<PaymentTransactionRow>)> = paginated_rows
+            .items
+            .into_iter()
+            .map(|invoice_row| {
+                let txs: Vec<PaymentTransactionRow> = transactions
+                    .iter()
+                    .filter(|tx| tx.invoice_id == invoice_row.invoice.id)
+                    .cloned()
+                    .collect();
+                (invoice_row, txs)
+            })
+            .collect();
+
+        Ok(PaginatedVec {
+            total_results: paginated_rows.total_results,
+            total_pages: paginated_rows.total_pages,
+            items,
+        })
     }
 
     pub async fn list_by_ids(

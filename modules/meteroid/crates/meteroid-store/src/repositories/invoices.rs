@@ -53,6 +53,18 @@ pub trait InvoiceInterface {
         pagination: PaginationRequest,
     ) -> StoreResult<PaginatedVec<InvoiceWithCustomer>>;
 
+    #[allow(clippy::too_many_arguments)]
+    async fn list_full_invoices(
+        &self,
+        tenant_id: TenantId,
+        customer_id: Option<CustomerId>,
+        subscription_id: Option<SubscriptionId>,
+        status: Option<domain::enums::InvoiceStatusEnum>,
+        query: Option<String>,
+        order_by: OrderByRequest,
+        pagination: PaginationRequest,
+    ) -> StoreResult<PaginatedVec<(InvoiceWithCustomer, Vec<domain::PaymentTransaction>)>>;
+
     async fn insert_invoice(&self, invoice: InvoiceNew) -> StoreResult<Invoice>;
 
     async fn insert_invoice_batch(&self, invoice: Vec<InvoiceNew>) -> StoreResult<Vec<Invoice>>;
@@ -178,6 +190,49 @@ impl InvoiceInterface for Store {
         };
 
         Ok(res)
+    }
+
+    async fn list_full_invoices(
+        &self,
+        tenant_id: TenantId,
+        customer_id: Option<CustomerId>,
+        subscription_id: Option<SubscriptionId>,
+        status: Option<domain::enums::InvoiceStatusEnum>,
+        query: Option<String>,
+        order_by: OrderByRequest,
+        pagination: PaginationRequest,
+    ) -> StoreResult<PaginatedVec<(InvoiceWithCustomer, Vec<domain::PaymentTransaction>)>> {
+        let mut conn = self.get_conn().await?;
+
+        let rows = InvoiceRow::list_with_transactions(
+            &mut conn,
+            tenant_id,
+            customer_id,
+            subscription_id,
+            status.map(Into::into),
+            query,
+            order_by.into(),
+            pagination.into(),
+        )
+        .await
+        .map_err(Into::<Report<StoreError>>::into)?;
+
+        let items: Vec<(InvoiceWithCustomer, Vec<domain::PaymentTransaction>)> = rows
+            .items
+            .into_iter()
+            .map(|(invoice_row, txs)| {
+                let invoice: InvoiceWithCustomer = invoice_row.try_into()?;
+                let transactions: Vec<domain::PaymentTransaction> =
+                    txs.into_iter().map(Into::into).collect();
+                Ok((invoice, transactions))
+            })
+            .collect::<Result<Vec<_>, Report<StoreError>>>()?;
+
+        Ok(PaginatedVec {
+            total_results: rows.total_results,
+            total_pages: rows.total_pages,
+            items,
+        })
     }
 
     async fn insert_invoice(&self, invoice: InvoiceNew) -> StoreResult<Invoice> {
