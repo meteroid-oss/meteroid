@@ -3,6 +3,7 @@ use std::io::Cursor;
 
 use axum::extract::Query;
 use axum::{
+    Json,
     extract::{Path, State},
     response::{IntoResponse, Response},
 };
@@ -11,6 +12,7 @@ use hyper::StatusCode;
 use crate::errors;
 
 use crate::api::sharable::ShareableEntityClaims;
+use crate::api_rest::error::{ErrorCode, RestErrorResponse};
 use crate::services::storage::Prefix;
 use common_domain::ids::{InvoiceId, StoredDocumentId};
 use error_stack::{Report, ResultExt};
@@ -152,7 +154,10 @@ async fn get_invoice_pdf_handler(
         }
         None => Ok((
             StatusCode::NOT_FOUND,
-            "No attached PDF. Generation may be pending",
+            Json(RestErrorResponse {
+                code: ErrorCode::NotFound,
+                message: "No attached PDF. Generation may be pending".to_string(),
+            }),
         )
             .into_response()),
     }

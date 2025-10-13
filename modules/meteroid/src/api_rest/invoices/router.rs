@@ -1,5 +1,5 @@
 use crate::api_rest::AppState;
-use crate::api_rest::error::RestErrorResponse;
+use crate::api_rest::error::{ErrorCode, RestErrorResponse};
 use crate::api_rest::invoices::mapping::{domain_to_rest, map_status_from_rest};
 use crate::api_rest::invoices::model::{
     Invoice, InvoiceListRequest, InvoiceListResponse, InvoiceStatus,
@@ -184,7 +184,10 @@ pub(crate) async fn download_invoice_pdf(
         }
         None => Ok((
             StatusCode::NOT_FOUND,
-            "No attached PDF. Generation may be pending",
+            Json(RestErrorResponse {
+                code: ErrorCode::NotFound,
+                message: "No attached PDF. Generation may be pending".to_string(),
+            }),
         )
             .into_response()),
     }
