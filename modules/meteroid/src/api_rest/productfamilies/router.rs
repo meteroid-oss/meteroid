@@ -2,10 +2,10 @@ use super::AppState;
 
 use axum::{Json, extract::State, response::IntoResponse};
 
-use crate::api_rest::model::PaginatedResponse;
+use crate::api_rest::model::PaginationExt;
 use crate::api_rest::productfamilies::mapping::{create_req_to_domain, domain_to_rest};
 use crate::api_rest::productfamilies::model::{
-    ProductFamily, ProductFamilyCreateRequest, ProductFamilyListRequest,
+    ProductFamily, ProductFamilyCreateRequest, ProductFamilyListRequest, ProductFamilyListResponse,
 };
 use crate::errors::RestApiError;
 use axum::Extension;
@@ -27,7 +27,7 @@ use meteroid_store::repositories::ProductFamilyInterface;
         ("search" = String, Query, description = "Filtering criteria", example = "abc"),
     ),
     responses(
-        (status = 200, description = "List of product families", body = PaginatedResponse<ProductFamily>),
+        (status = 200, description = "List of product families", body = ProductFamilyListResponse),
         (status = 400, description = "Bad request"),
         (status = 401, description = "Unauthorized"),
         (status = 500, description = "Internal error"),
@@ -48,19 +48,21 @@ pub(crate) async fn list_product_families(
             authorized_state.tenant_id,
             request.pagination.into(),
             OrderByRequest::IdAsc,
-            request.plan_filters.search,
+            request.filters.search,
         )
         .await
         .map_err(|e| {
-            log::error!("Error handling list_product_families: {e}");
+            log::error!("Error handling list_product_families: {}", e);
             RestApiError::StoreError
         })?;
 
     let items = res.items.into_iter().map(domain_to_rest).collect();
 
-    Ok(Json(PaginatedResponse {
+    Ok(Json(ProductFamilyListResponse {
         data: items,
-        total: res.total_results,
+        pagination_meta: request
+            .pagination
+            .into_response(res.total_pages, res.total_results),
     }))
 }
 
@@ -94,7 +96,7 @@ pub(crate) async fn create_product_family(
         .await
         .map(|x| (StatusCode::CREATED, Json(domain_to_rest(x))))
         .map_err(|e| {
-            log::error!("Error handling insert_product_family: {e}");
+            log::error!("Error handling insert_product_family: {}", e);
             RestApiError::from(e)
         })
 }
@@ -133,7 +135,7 @@ pub(crate) async fn get_product_family_by_id_or_alias(
         .find_product_family_by_id(id, authorized_state.tenant_id)
         .await
         .map_err(|e| {
-            log::error!("Error handling get_customer_by_id_or_alias: {e}");
+            log::error!("Error handling get_customer_by_id_or_alias: {}", e);
             RestApiError::from(e)
         })
         .map(domain_to_rest)

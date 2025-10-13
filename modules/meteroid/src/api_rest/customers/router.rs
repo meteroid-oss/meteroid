@@ -3,10 +3,11 @@ use crate::api_rest::customers::mapping::{
     create_req_to_domain, domain_to_rest, update_req_to_domain,
 };
 use crate::api_rest::customers::model::{
-    Customer, CustomerCreateRequest, CustomerListRequest, CustomerUpdateRequest,
+    Customer, CustomerCreateRequest, CustomerListRequest, CustomerListResponse,
+    CustomerUpdateRequest,
 };
 use crate::api_rest::error::RestErrorResponse;
-use crate::api_rest::model::PaginatedResponse;
+use crate::api_rest::model::PaginationExt;
 use crate::errors::RestApiError;
 use axum::extract::{Path, Query, State};
 use axum::response::IntoResponse;
@@ -28,7 +29,7 @@ use meteroid_store::repositories::CustomersInterface;
         ("search" = String, Query, description = "Filtering criteria", example = "abc"),
     ),
     responses(
-        (status = 200, description = "List of customers", body = PaginatedResponse<Customer>),
+        (status = 200, description = "List of customers", body = CustomerListResponse),
         (status = 401, description = "Unauthorized", body = RestErrorResponse),
         (status = 500, description = "Internal error", body = RestErrorResponse),
     ),
@@ -62,9 +63,11 @@ pub(crate) async fn list_customers(
         .map(domain_to_rest)
         .collect::<Result<Vec<_>, _>>()?;
 
-    Ok(Json(PaginatedResponse {
+    Ok(Json(CustomerListResponse {
         data: items,
-        total: res.total_results,
+        pagination_meta: request
+            .pagination
+            .into_response(res.total_pages, res.total_results),
     }))
 }
 
@@ -125,6 +128,8 @@ pub(crate) async fn create_customer(
     State(app_state): State<AppState>,
     Valid(Json(payload)): Valid<Json<CustomerCreateRequest>>,
 ) -> Result<impl IntoResponse, RestApiError> {
+    log::info!("Creating customer with payload: {:?}", payload);
+
     let created = app_state
         .store
         .insert_customer(

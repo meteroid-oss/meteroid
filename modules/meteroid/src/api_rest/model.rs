@@ -5,7 +5,7 @@ use utoipa::ToSchema;
 use validator::Validate;
 
 #[serde_as]
-#[derive(ToSchema, serde::Serialize, serde::Deserialize, Validate)]
+#[derive(ToSchema, serde::Serialize, serde::Deserialize, Validate, Copy, Clone)]
 pub struct PaginatedRequest {
     #[serde_as(as = "Option<DisplayFromStr>")]
     #[validate(range(min = 0))]
@@ -24,10 +24,37 @@ impl From<PaginatedRequest> for domain::PaginationRequest {
     }
 }
 
+// this cause the internal schema to be duplicated, we cannot use generic as of https://github.com/juhaku/utoipa/issues/1148
+// use dedicated types instead
+// TODO drop after updating subscription api
 #[derive(ToSchema, serde::Serialize, serde::Deserialize)]
 pub struct PaginatedResponse<T> {
     pub data: Vec<T>,
     pub total: u64,
+}
+
+#[derive(ToSchema, serde::Serialize, serde::Deserialize, Debug)]
+pub struct PaginationResponse {
+    pub page: Option<u32>,
+    pub per_page: u32,
+    pub total_items: u64,
+    pub total_pages: u32,
+}
+
+pub trait PaginationExt {
+    #[allow(clippy::wrong_self_convention)]
+    fn into_response(&self, total_pages: u32, total_items: u64) -> PaginationResponse;
+}
+
+impl PaginationExt for PaginatedRequest {
+    fn into_response(&self, total_pages: u32, total_items: u64) -> PaginationResponse {
+        PaginationResponse {
+            page: self.page,
+            per_page: self.per_page.unwrap_or(10),
+            total_items,
+            total_pages,
+        }
+    }
 }
 
 #[derive(o2o, ToSchema, serde::Serialize, serde::Deserialize, Clone, Debug)]
