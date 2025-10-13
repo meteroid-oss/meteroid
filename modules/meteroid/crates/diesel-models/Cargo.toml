@@ -9,7 +9,7 @@ repository.workspace = true
 # See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
 
 [dependencies]
-chrono.workspace = true
+chrono = { workspace = true, features = [ "serde"] }
 diesel = { workspace = true, features = ["64-column-tables", "chrono"] }
 diesel-derive-enum.workspace = true
 diesel-async.workspace = true

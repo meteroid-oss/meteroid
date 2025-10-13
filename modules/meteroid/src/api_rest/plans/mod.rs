@@ -7,5 +7,7 @@ mod model;
 pub mod router;
 
 pub fn plan_routes() -> OpenApiRouter<AppState> {
-    OpenApiRouter::new().routes(routes!(router::list_plans))
+    OpenApiRouter::new()
+        .routes(routes!(router::list_plans))
+        .routes(routes!(router::get_plan_details))
 }

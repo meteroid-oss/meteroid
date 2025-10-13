@@ -232,6 +232,7 @@ pub async fn run(
             plan,
             version,
             price_components,
+            product_family: _,
         } = created_plans
             .iter()
             .find(|f| f.plan.name == _plan.name)

@@ -1,5 +1,6 @@
 use chrono::NaiveDateTime;
 use common_domain::ids::{BaseId, ProductFamilyId, TenantId};
+use diesel_models::product_families::ProductFamilyOverviewRow;
 use diesel_models::product_families::ProductFamilyRow;
 use diesel_models::product_families::ProductFamilyRowNew;
 use o2o::o2o;
@@ -14,6 +15,14 @@ pub struct ProductFamily {
     pub updated_at: Option<NaiveDateTime>,
     pub archived_at: Option<NaiveDateTime>,
     pub tenant_id: TenantId,
+}
+
+#[derive(Clone, Debug, o2o)]
+#[from_owned(ProductFamilyOverviewRow)]
+#[from_owned(ProductFamilyRow)]
+pub struct ProductFamilyOverview {
+    pub id: ProductFamilyId,
+    pub name: String,
 }
 
 #[derive(Clone, Debug, o2o)]

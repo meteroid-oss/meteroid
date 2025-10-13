@@ -444,6 +444,51 @@
         ]
       }
     },
+    "/api/v1/plans/{plan_id}": {
+      "get": {
+        "tags": [
+          "plan"
+        ],
+        "operationId": "get_plan_details",
+        "parameters": [
+          {
+            "name": "plan_id",
+            "in": "path",
+            "description": "Plan ID",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Plan details with pricing",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Plan"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Unauthorized"
+          },
+          "404": {
+            "description": "Plan not found"
+          },
+          "500": {
+            "description": "Internal error"
+          }
+        },
+        "security": [
+          {
+            "bearer_auth": []
+          }
+        ]
+      }
+    },
     "/api/v1/product_families": {
       "get": {
         "tags": [
@@ -968,6 +1013,46 @@
           }
         }
       },
+      "AvailableParameters": {
+        "type": "object",
+        "properties": {
+          "billing_periods": {
+            "type": "object",
+            "description": "Map of component_id -> available billing periods (e.g., \"MONTHLY\", \"ANNUAL\")",
+            "additionalProperties": {
+              "type": "array",
+              "items": {
+                "$ref": "#/components/schemas/BillingPeriodEnum"
+              }
+            },
+            "propertyNames": {
+              "type": "string"
+            }
+          },
+          "capacity_thresholds": {
+            "type": "object",
+            "description": "Map of component_id -> available capacity values",
+            "additionalProperties": {
+              "type": "array",
+              "items": {
+                "type": "integer",
+                "format": "int64",
+                "minimum": 0
+              }
+            },
+            "propertyNames": {
+              "type": "string"
+            }
+          },
+          "slot_components": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            },
+            "description": "List of component_ids that support slot parametrization (initial slot count)"
+          }
+        }
+      },
       "BankAccountId": {
         "type": "string",
         "format": "MeteroidId",
@@ -990,12 +1075,42 @@
           "ANNUAL"
         ]
       },
+      "BillingType": {
+        "type": "string",
+        "enum": [
+          "ADVANCE",
+          "ARREARS"
+        ]
+      },
       "BillingTypeEnum": {
         "type": "string",
         "enum": [
           "ADVANCE",
           "ARREARS"
         ]
+      },
+      "CapacityThreshold": {
+        "type": "object",
+        "required": [
+          "included_amount",
+          "price",
+          "per_unit_overage"
+        ],
+        "properties": {
+          "included_amount": {
+            "type": "integer",
+            "format": "int64",
+            "minimum": 0
+          },
+          "per_unit_overage": {
+            "type": "number",
+            "format": "double"
+          },
+          "price": {
+            "type": "number",
+            "format": "double"
+          }
+        }
       },
       "ComponentOverride": {
         "type": "object",
@@ -1605,6 +1720,183 @@
           }
         }
       },
+      "Fee": {
+        "oneOf": [
+          {
+            "type": "object",
+            "description": "Recurring rate fee (e.g., monthly subscription)",
+            "required": [
+              "rates",
+              "fee_type"
+            ],
+            "properties": {
+              "fee_type": {
+                "type": "string",
+                "enum": [
+                  "rate"
+                ]
+              },
+              "rates": {
+                "type": "array",
+                "items": {
+                  "$ref": "#/components/schemas/TermRate"
+                }
+              }
+            }
+          },
+          {
+            "type": "object",
+            "description": "Slot-based fee (e.g., per-seat pricing)",
+            "required": [
+              "rates",
+              "slot_unit_name",
+              "fee_type"
+            ],
+            "properties": {
+              "fee_type": {
+                "type": "string",
+                "enum": [
+                  "slot"
+                ]
+              },
+              "minimum_count": {
+                "type": [
+                  "integer",
+                  "null"
+                ],
+                "format": "int32",
+                "minimum": 0
+              },
+              "quota": {
+                "type": [
+                  "integer",
+                  "null"
+                ],
+                "format": "int32",
+                "minimum": 0
+              },
+              "rates": {
+                "type": "array",
+                "items": {
+                  "$ref": "#/components/schemas/TermRate"
+                }
+              },
+              "slot_unit_name": {
+                "type": "string"
+              }
+            }
+          },
+          {
+            "type": "object",
+            "description": "Capacity-based fee with included committed usage and overage",
+            "required": [
+              "metric_id",
+              "thresholds",
+              "fee_type"
+            ],
+            "properties": {
+              "fee_type": {
+                "type": "string",
+                "enum": [
+                  "capacity"
+                ]
+              },
+              "metric_id": {
+                "$ref": "#/components/schemas/BillableMetricId"
+              },
+              "thresholds": {
+                "type": "array",
+                "items": {
+                  "$ref": "#/components/schemas/CapacityThreshold"
+                }
+              }
+            }
+          },
+          {
+            "type": "object",
+            "description": "Usage-based fee",
+            "required": [
+              "metric_id",
+              "pricing",
+              "fee_type"
+            ],
+            "properties": {
+              "fee_type": {
+                "type": "string",
+                "enum": [
+                  "usage"
+                ]
+              },
+              "metric_id": {
+                "$ref": "#/components/schemas/BillableMetricId"
+              },
+              "pricing": {
+                "$ref": "#/components/schemas/UsagePricingModel"
+              }
+            }
+          },
+          {
+            "type": "object",
+            "description": "Extra recurring fee",
+            "required": [
+              "unit_price",
+              "quantity",
+              "billing_type",
+              "cadence",
+              "fee_type"
+            ],
+            "properties": {
+              "billing_type": {
+                "$ref": "#/components/schemas/BillingType"
+              },
+              "cadence": {
+                "$ref": "#/components/schemas/BillingPeriodEnum"
+              },
+              "fee_type": {
+                "type": "string",
+                "enum": [
+                  "extra_recurring"
+                ]
+              },
+              "quantity": {
+                "type": "integer",
+                "format": "int32",
+                "minimum": 0
+              },
+              "unit_price": {
+                "type": "number",
+                "format": "double"
+              }
+            }
+          },
+          {
+            "type": "object",
+            "description": "One-time fee",
+            "required": [
+              "unit_price",
+              "quantity",
+              "fee_type"
+            ],
+            "properties": {
+              "fee_type": {
+                "type": "string",
+                "enum": [
+                  "one_time"
+                ]
+              },
+              "quantity": {
+                "type": "integer",
+                "format": "int32",
+                "minimum": 0
+              },
+              "unit_price": {
+                "type": "number",
+                "format": "double"
+              }
+            }
+          }
+        ]
+      },
       "InvoicingEntityId": {
         "type": "string",
         "format": "MeteroidId",
@@ -1772,20 +2064,31 @@
             "type": "array",
             "items": {
               "type": "object",
+              "description": "Detailed plan with pricing information, suitable for displaying in embedded pricing pages",
               "required": [
                 "id",
                 "name",
                 "created_at",
                 "plan_type",
                 "status",
-                "product_family_name",
-                "product_family_id",
-                "has_draft_version"
+                "product_family",
+                "version_id",
+                "version",
+                "currency",
+                "net_terms",
+                "price_components",
+                "available_parameters"
               ],
               "properties": {
+                "available_parameters": {
+                  "$ref": "#/components/schemas/AvailableParameters"
+                },
                 "created_at": {
                   "type": "string",
                   "format": "date-time"
+                },
+                "currency": {
+                  "type": "string"
                 },
                 "description": {
                   "type": [
@@ -1793,33 +2096,47 @@
                     "null"
                   ]
                 },
-                "has_draft_version": {
-                  "type": "boolean"
-                },
                 "id": {
                   "$ref": "#/components/schemas/PlanId"
                 },
                 "name": {
                   "type": "string"
                 },
+                "net_terms": {
+                  "type": "integer",
+                  "format": "int32"
+                },
                 "plan_type": {
                   "$ref": "#/components/schemas/PlanTypeEnum"
                 },
-                "product_family_id": {
-                  "$ref": "#/components/schemas/ProductFamilyId"
+                "price_components": {
+                  "type": "array",
+                  "items": {
+                    "$ref": "#/components/schemas/PriceComponent"
+                  }
                 },
-                "product_family_name": {
-                  "type": "string"
+                "product_family": {
+                  "$ref": "#/components/schemas/ProductFamily"
                 },
                 "status": {
                   "$ref": "#/components/schemas/PlanStatusEnum"
                 },
-                "subscription_count": {
-                  "type": [
-                    "integer",
-                    "null"
-                  ],
-                  "format": "int64"
+                "trial": {
+                  "oneOf": [
+                    {
+                      "type": "null"
+                    },
+                    {
+                      "$ref": "#/components/schemas/TrialConfig"
+                    }
+                  ]
+                },
+                "version": {
+                  "type": "integer",
+                  "format": "int32"
+                },
+                "version_id": {
+                  "$ref": "#/components/schemas/PlanVersionId"
                 }
               }
             }
@@ -1950,20 +2267,31 @@
       },
       "Plan": {
         "type": "object",
+        "description": "Detailed plan with pricing information, suitable for displaying in embedded pricing pages",
         "required": [
           "id",
           "name",
           "created_at",
           "plan_type",
           "status",
-          "product_family_name",
-          "product_family_id",
-          "has_draft_version"
+          "product_family",
+          "version_id",
+          "version",
+          "currency",
+          "net_terms",
+          "price_components",
+          "available_parameters"
         ],
         "properties": {
+          "available_parameters": {
+            "$ref": "#/components/schemas/AvailableParameters"
+          },
           "created_at": {
             "type": "string",
             "format": "date-time"
+          },
+          "currency": {
+            "type": "string"
           },
           "description": {
             "type": [
@@ -1971,33 +2299,47 @@
               "null"
             ]
           },
-          "has_draft_version": {
-            "type": "boolean"
-          },
           "id": {
             "$ref": "#/components/schemas/PlanId"
           },
           "name": {
             "type": "string"
           },
+          "net_terms": {
+            "type": "integer",
+            "format": "int32"
+          },
           "plan_type": {
             "$ref": "#/components/schemas/PlanTypeEnum"
           },
-          "product_family_id": {
-            "$ref": "#/components/schemas/ProductFamilyId"
+          "price_components": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/PriceComponent"
+            }
           },
-          "product_family_name": {
-            "type": "string"
+          "product_family": {
+            "$ref": "#/components/schemas/ProductFamily"
           },
           "status": {
             "$ref": "#/components/schemas/PlanStatusEnum"
           },
-          "subscription_count": {
-            "type": [
-              "integer",
-              "null"
-            ],
-            "format": "int64"
+          "trial": {
+            "oneOf": [
+              {
+                "type": "null"
+              },
+              {
+                "$ref": "#/components/schemas/TrialConfig"
+              }
+            ]
+          },
+          "version": {
+            "type": "integer",
+            "format": "int32"
+          },
+          "version_id": {
+            "$ref": "#/components/schemas/PlanVersionId"
           }
         }
       },
@@ -2031,6 +2373,35 @@
         "examples": [
           "plv_7n42DGM5Tflk9n8mt7Fhc7"
         ]
+      },
+      "PriceComponent": {
+        "type": "object",
+        "required": [
+          "id",
+          "name",
+          "fee"
+        ],
+        "properties": {
+          "fee": {
+            "$ref": "#/components/schemas/Fee"
+          },
+          "id": {
+            "$ref": "#/components/schemas/PriceComponentId"
+          },
+          "name": {
+            "type": "string"
+          },
+          "product_id": {
+            "oneOf": [
+              {
+                "type": "null"
+              },
+              {
+                "$ref": "#/components/schemas/ProductId"
+              }
+            ]
+          }
+        }
       },
       "PriceComponentId": {
         "type": "string",
@@ -2705,6 +3076,22 @@
           "SUPERSEDED"
         ]
       },
+      "TermRate": {
+        "type": "object",
+        "required": [
+          "term",
+          "price"
+        ],
+        "properties": {
+          "price": {
+            "type": "number",
+            "format": "double"
+          },
+          "term": {
+            "$ref": "#/components/schemas/BillingPeriodEnum"
+          }
+        }
+      },
       "TierRow": {
         "type": "object",
         "required": [
@@ -2730,6 +3117,33 @@
           "rate": {
             "type": "string",
             "format": "decimal"
+          }
+        }
+      },
+      "TrialConfig": {
+        "type": "object",
+        "required": [
+          "duration_days",
+          "is_free"
+        ],
+        "properties": {
+          "duration_days": {
+            "type": "integer",
+            "format": "int32",
+            "minimum": 0
+          },
+          "is_free": {
+            "type": "boolean"
+          },
+          "trialing_plan_id": {
+            "oneOf": [
+              {
+                "type": "null"
+              },
+              {
+                "$ref": "#/components/schemas/PlanId"
+              }
+            ]
           }
         }
       },

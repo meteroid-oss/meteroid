@@ -3,8 +3,9 @@ use crate::store::Store;
 
 use crate::domain::{
     FullPlan, FullPlanNew, OrderByRequest, PaginatedVec, PaginationRequest, Plan,
-    PlanAndVersionPatch, PlanFilters, PlanOverview, PlanPatch, PlanVersion, PlanVersionFilter,
-    PlanVersionNew, PlanWithVersion, PriceComponent, PriceComponentNew, TrialPatch,
+    PlanAndVersionPatch, PlanFilters, PlanOverview, PlanPatch, PlanStatusEnum, PlanTypeEnum,
+    PlanVersion, PlanVersionFilter, PlanVersionNew, PlanWithVersion, PriceComponentNew,
+    ProductFamilyOverview, TrialPatch,
 };
 use crate::errors::StoreError;
 use common_domain::ids::{BaseId, PlanId, PlanVersionId, ProductFamilyId, TenantId};
@@ -13,7 +14,7 @@ use diesel_async::scoped_futures::ScopedFutureExt;
 use diesel_models::plan_versions::{
     PlanVersionRow, PlanVersionRowNew, PlanVersionRowPatch, PlanVersionTrialRowPatch,
 };
-use diesel_models::plans::{PlanRow, PlanRowNew, PlanRowOverview, PlanRowPatch};
+use diesel_models::plans::{FullPlanRow, PlanRow, PlanRowNew, PlanRowOverview, PlanRowPatch};
 use diesel_models::price_components::PriceComponentRow;
 use diesel_models::product_families::ProductFamilyRow;
 use diesel_models::tenants::TenantRow;
@@ -45,10 +46,7 @@ pub trait PlansInterface {
         auth_tenant_id: TenantId,
     ) -> StoreResult<PlanOverview>;
 
-    /**
-     * Find a plan by local id and version, including pricing components
-     */
-    async fn get_detailed_plan(
+    async fn get_full_plan(
         &self,
         id: PlanId,
         auth_tenant_id: TenantId,
@@ -63,6 +61,14 @@ pub trait PlansInterface {
         pagination: PaginationRequest,
         order_by: OrderByRequest,
     ) -> StoreResult<PaginatedVec<PlanOverview>>;
+
+    async fn list_full_plans(
+        &self,
+        auth_tenant_id: TenantId,
+        product_family_id: Option<ProductFamilyId>,
+        pagination: PaginationRequest,
+        order_by: OrderByRequest,
+    ) -> StoreResult<PaginatedVec<FullPlan>>;
 
     async fn get_plan_version_by_id(
         &self,
@@ -118,10 +124,11 @@ impl PlansInterface for Store {
             price_components,
         } = full_plan;
 
-        let product_family =
+        let product_family: ProductFamilyOverview =
             ProductFamilyRow::find_by_id(&mut conn, plan.product_family_id, plan.tenant_id)
                 .await
-                .map_err(|err| StoreError::DatabaseError(err.error))?;
+                .map_err(|err| StoreError::DatabaseError(err.error))?
+                .into();
 
         let tenant = TenantRow::find_by_id(&mut conn, plan.tenant_id)
             .await
@@ -199,6 +206,7 @@ impl PlansInterface for Store {
                         price_components: inserted_price_components,
                         plan: updated,
                         version: inserted_plan_version_new,
+                        product_family,
                     })
                 }
                 .scope_boxed()
@@ -257,7 +265,7 @@ impl PlansInterface for Store {
             .map(Into::into)
     }
 
-    async fn get_detailed_plan(
+    async fn get_full_plan(
         &self,
         id: PlanId,
         auth_tenant_id: TenantId,
@@ -265,36 +273,10 @@ impl PlansInterface for Store {
     ) -> StoreResult<FullPlan> {
         let mut conn = self.get_conn().await?;
 
-        let plan_with_version: PlanWithVersion =
-            PlanRow::get_with_version_by_id(&mut conn, id, auth_tenant_id, version_filter.into())
-                .await
-                .map(Into::into)
-                .map_err(|err| StoreError::DatabaseError(err.error))?;
-
-        match plan_with_version.version {
-            Some(version) => {
-                let price_components: Vec<PriceComponent> =
-                    PriceComponentRow::list_by_plan_version_id(
-                        &mut conn,
-                        auth_tenant_id,
-                        version.id,
-                    )
-                    .await
-                    .map_err(|err| StoreError::DatabaseError(err.error))?
-                    .into_iter()
-                    .map(TryInto::try_into)
-                    .collect::<Result<Vec<_>, _>>()?;
-
-                Ok(FullPlan {
-                    plan: plan_with_version.plan,
-                    version,
-                    price_components,
-                })
-            }
-            None => {
-                Err(StoreError::ValueNotFound("Plan version was not resolved".to_string()).into())
-            }
-        }
+        FullPlanRow::get_by_id(&mut conn, id, auth_tenant_id, version_filter.into())
+            .await
+            .map_err(Into::into)
+            .and_then(TryInto::try_into)
     }
 
     async fn list_plans(
@@ -325,6 +307,42 @@ impl PlansInterface for Store {
         };
 
         Ok(res)
+    }
+
+    async fn list_full_plans(
+        &self,
+        auth_tenant_id: TenantId,
+        product_family_id: Option<ProductFamilyId>,
+        pagination: PaginationRequest,
+        order_by: OrderByRequest,
+    ) -> StoreResult<PaginatedVec<FullPlan>> {
+        let mut conn = self.get_conn().await?;
+
+        let rows = FullPlanRow::list(
+            &mut conn,
+            auth_tenant_id,
+            product_family_id,
+            PlanFilters {
+                filter_status: vec![PlanStatusEnum::Active],
+                filter_type: vec![PlanTypeEnum::Free, PlanTypeEnum::Standard],
+                search: None,
+            }
+            .into(),
+            pagination.into(),
+            order_by.into(),
+        )
+        .await
+        .map_err(Into::<Report<StoreError>>::into)?;
+
+        Ok(PaginatedVec {
+            items: rows
+                .items
+                .into_iter()
+                .map(TryInto::try_into)
+                .collect::<StoreResult<Vec<_>>>()?,
+            total_pages: rows.total_pages,
+            total_results: rows.total_results,
+        })
     }
 
     async fn get_plan_version_by_id(
