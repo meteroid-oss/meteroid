@@ -463,7 +463,7 @@
         ],
         "responses": {
           "200": {
-            "description": "Plan details with pricing",
+            "description": "Plan details",
             "content": {
               "application/json": {
                 "schema": {
@@ -2064,7 +2064,6 @@
             "type": "array",
             "items": {
               "type": "object",
-              "description": "Detailed plan with pricing information, suitable for displaying in embedded pricing pages",
               "required": [
                 "id",
                 "name",
@@ -2267,7 +2266,6 @@
       },
       "Plan": {
         "type": "object",
-        "description": "Detailed plan with pricing information, suitable for displaying in embedded pricing pages",
         "required": [
           "id",
           "name",

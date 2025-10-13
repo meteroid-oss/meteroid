@@ -19,8 +19,8 @@ use uuid::Uuid;
 use super::enums::{ActionAfterTrialEnum, PlanStatusEnum, PlanTypeEnum};
 
 use crate::StoreResult;
+use crate::domain::ProductFamilyOverview;
 use crate::domain::price_components::{PriceComponent, PriceComponentNewInternal};
-use crate::domain::{ProductFamily, ProductFamilyOverview};
 use crate::errors::StoreErrorReport;
 
 #[derive(Debug, Clone)]

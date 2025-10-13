@@ -345,7 +345,7 @@ impl FullPlanRow {
         let paginated_rows: PaginatedVec<_FullPlanRowEmbed> = paginated_query
             .load_and_count_pages(conn)
             .await
-            .attach_printable("Error while listing full plans")
+            .attach("Error while listing full plans")
             .into_db_result()?;
 
         let versions: Vec<&PlanVersionRow> = paginated_rows
@@ -358,7 +358,7 @@ impl FullPlanRow {
             .select(PriceComponentRow::as_select())
             .load(conn)
             .await
-            .attach_printable("Error while listing price components for plans")
+            .attach("Error while listing price components for plans")
             .into_db_result()?;
 
         let full_rows: Vec<FullPlanRow> = paginated_rows
@@ -426,7 +426,7 @@ impl FullPlanRow {
             .select(_FullPlanRowEmbed::as_select())
             .first(conn)
             .await
-            .attach_printable("Error while getting full plan by id")
+            .attach("Error while getting full plan by id")
             .into_db_result()?;
 
         let price_components: Vec<PriceComponentRow> =
@@ -434,7 +434,7 @@ impl FullPlanRow {
                 .select(PriceComponentRow::as_select())
                 .load(conn)
                 .await
-                .attach_printable("Error while listing price components for plan")
+                .attach("Error while listing price components for plan")
                 .into_db_result()?;
 
         Ok(FullPlanRow {
