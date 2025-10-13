@@ -1,9 +1,10 @@
 use common_domain::ids::{BillableMetricId, PlanVersionId, PriceComponentId, ProductId};
-use diesel::{AsChangeset, Identifiable, Insertable, Queryable, Selectable};
+use diesel::{AsChangeset, Associations, Identifiable, Insertable, Queryable, Selectable};
 
-#[derive(Queryable, Debug, Identifiable, AsChangeset, Selectable)]
+#[derive(Queryable, Debug, Identifiable, AsChangeset, Selectable, Associations, Clone)]
 #[diesel(table_name = crate::schema::price_component)]
 #[diesel(check_for_backend(diesel::pg::Pg))]
+#[diesel(belongs_to(crate::plan_versions::PlanVersionRow, foreign_key=plan_version_id))]
 pub struct PriceComponentRow {
     pub id: PriceComponentId,
     pub name: String,

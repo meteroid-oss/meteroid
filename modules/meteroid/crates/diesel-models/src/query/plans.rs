@@ -1,8 +1,8 @@
 use crate::errors::IntoDbResult;
-use crate::plan_versions::PlanVersionFilter;
+use crate::plan_versions::{PlanVersionFilter, PlanVersionRow};
 use crate::plans::{
-    PlanFilters, PlanRow, PlanRowForSubscription, PlanRowNew, PlanRowOverview, PlanRowPatch,
-    PlanWithVersionRow,
+    _FullPlanRowEmbed, FullPlanRow, PlanFilters, PlanRow, PlanRowForSubscription, PlanRowNew,
+    PlanRowOverview, PlanRowPatch, PlanWithVersionRow,
 };
 
 use crate::{DbResult, PgConn};
@@ -11,11 +11,12 @@ use crate::enums::{PlanStatusEnum, PlanTypeEnum};
 use crate::extend::order::OrderByRequest;
 use crate::extend::pagination::{Paginate, PaginatedVec, PaginationRequest};
 
+use crate::price_components::PriceComponentRow;
 use common_domain::ids::{PlanId, PlanVersionId, ProductFamilyId, TenantId};
 use diesel::NullableExpressionMethods;
 use diesel::{
-    BoolExpressionMethods, ExpressionMethods, JoinOnDsl, PgTextExpressionMethods, QueryDsl,
-    SelectableHelper, alias, debug_query,
+    BelongingToDsl, BoolExpressionMethods, ExpressionMethods, JoinOnDsl, PgTextExpressionMethods,
+    QueryDsl, SelectableHelper, alias, debug_query,
 };
 use error_stack::ResultExt;
 
@@ -289,6 +290,159 @@ impl PlanRow {
             .into_db_result()?;
 
         Ok(())
+    }
+}
+
+impl FullPlanRow {
+    pub async fn list(
+        conn: &mut PgConn,
+        tenant_id: TenantId,
+        product_family_id: Option<ProductFamilyId>,
+        filters: PlanFilters,
+        pagination: PaginationRequest,
+        order_by: OrderByRequest,
+    ) -> DbResult<PaginatedVec<FullPlanRow>> {
+        use crate::schema::plan::dsl as p_dsl;
+        use crate::schema::plan_version::dsl as pv_dsl;
+        use crate::schema::product_family::dsl as pf_dsl;
+        use diesel_async::RunQueryDsl;
+
+        let mut query = p_dsl::plan
+            .inner_join(pv_dsl::plan_version.on(p_dsl::id.eq(pv_dsl::plan_id)))
+            .inner_join(pf_dsl::product_family.on(p_dsl::product_family_id.eq(pf_dsl::id)))
+            .filter(p_dsl::tenant_id.eq(tenant_id))
+            .select(_FullPlanRowEmbed::as_select())
+            .into_boxed();
+
+        if let Some(product_family_id) = product_family_id {
+            query = query.filter(pf_dsl::id.eq(product_family_id))
+        }
+
+        if !filters.filter_status.is_empty() {
+            query = query.filter(p_dsl::status.eq_any(filters.filter_status));
+        }
+
+        if !filters.filter_type.is_empty() {
+            query = query.filter(p_dsl::plan_type.eq_any(filters.filter_type));
+        }
+
+        if let Some(search) = filters.search.filter(|s| !s.is_empty()) {
+            query = query.filter(p_dsl::name.ilike(format!("%{}%", search)));
+        }
+
+        match order_by {
+            OrderByRequest::NameAsc => query = query.order(p_dsl::name.asc()),
+            OrderByRequest::NameDesc => query = query.order(p_dsl::name.desc()),
+            OrderByRequest::DateAsc => query = query.order(p_dsl::created_at.asc()),
+            OrderByRequest::DateDesc => query = query.order(p_dsl::created_at.desc()),
+            _ => query = query.order(p_dsl::created_at.desc()),
+        }
+
+        let paginated_query = query.paginate(pagination);
+
+        log::debug!("{}", debug_query::<diesel::pg::Pg, _>(&paginated_query));
+
+        let paginated_rows: PaginatedVec<_FullPlanRowEmbed> = paginated_query
+            .load_and_count_pages(conn)
+            .await
+            .attach("Error while listing full plans")
+            .into_db_result()?;
+
+        let versions: Vec<&PlanVersionRow> = paginated_rows
+            .items
+            .iter()
+            .map(|row| &row.version)
+            .collect();
+
+        let price_components: Vec<PriceComponentRow> = PriceComponentRow::belonging_to(&versions)
+            .select(PriceComponentRow::as_select())
+            .load(conn)
+            .await
+            .attach("Error while listing price components for plans")
+            .into_db_result()?;
+
+        let full_rows: Vec<FullPlanRow> = paginated_rows
+            .items
+            .into_iter()
+            .map(|base| {
+                let pcs: Vec<PriceComponentRow> = price_components
+                    .iter()
+                    .filter(|pc| pc.plan_version_id == base.version.id)
+                    .cloned()
+                    .collect();
+                FullPlanRow {
+                    plan: base.plan,
+                    version: base.version,
+                    product_family: base.product_family,
+                    price_components: pcs,
+                }
+            })
+            .collect();
+
+        Ok(PaginatedVec {
+            total_results: paginated_rows.total_results,
+            total_pages: paginated_rows.total_pages,
+            items: full_rows,
+        })
+    }
+
+    pub async fn get_by_id(
+        conn: &mut PgConn,
+        id: PlanId,
+        tenant_id: TenantId,
+        version_filter: PlanVersionFilter,
+    ) -> DbResult<FullPlanRow> {
+        use crate::schema::plan::dsl as p_dsl;
+        use crate::schema::plan_version::dsl as pv_dsl;
+        use crate::schema::product_family::dsl as pf_dsl;
+        use diesel_async::RunQueryDsl;
+
+        let mut query = p_dsl::plan
+            .inner_join(pv_dsl::plan_version.on(p_dsl::id.eq(pv_dsl::plan_id)))
+            .inner_join(pf_dsl::product_family.on(p_dsl::product_family_id.eq(pf_dsl::id)))
+            .filter(p_dsl::id.eq(id))
+            .filter(p_dsl::tenant_id.eq(tenant_id))
+            .into_boxed();
+
+        match version_filter {
+            PlanVersionFilter::Draft => {
+                query = query
+                    .filter(p_dsl::draft_version_id.is_not_null())
+                    .filter(pv_dsl::id.nullable().eq(p_dsl::draft_version_id));
+            }
+            PlanVersionFilter::Active => {
+                query = query
+                    .filter(p_dsl::active_version_id.is_not_null())
+                    .filter(pv_dsl::id.nullable().eq(p_dsl::active_version_id));
+            }
+            PlanVersionFilter::Version(v) => {
+                query = query.filter(pv_dsl::version.eq(v));
+            }
+        }
+
+        log::debug!("{}", debug_query::<diesel::pg::Pg, _>(&query));
+
+        let base: _FullPlanRowEmbed = query
+            .select(_FullPlanRowEmbed::as_select())
+            .first(conn)
+            .await
+            .attach("Error while getting full plan by id")
+            .into_db_result()?;
+
+        let price_components: Vec<PriceComponentRow> =
+            PriceComponentRow::belonging_to(&base.version)
+                .select(PriceComponentRow::as_select())
+                .load(conn)
+                .await
+                .attach("Error while listing price components for plan")
+                .into_db_result()?;
+
+        Ok(FullPlanRow {
+            plan: base.plan,
+            version: base.version,
+            product_family: base.product_family,
+            price_components,
+        })
     }
 }
 

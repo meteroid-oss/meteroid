@@ -3,7 +3,6 @@ use diesel_models::plan_versions::PlanVersionRow;
 use diesel_models::plan_versions::PlanVersionRowNew;
 use diesel_models::plan_versions::PlanVersionRowOverview;
 use diesel_models::plan_versions::PlanVersionRowPatch;
-use diesel_models::plans::PlanFilters as PlanFiltersDb;
 use diesel_models::plans::PlanRow;
 use diesel_models::plans::PlanRowForSubscription;
 use diesel_models::plans::PlanRowNew;
@@ -11,6 +10,7 @@ use diesel_models::plans::PlanRowOverview;
 use diesel_models::plans::PlanRowPatch;
 use diesel_models::plans::PlanVersionRowInfo;
 use diesel_models::plans::PlanWithVersionRow;
+use diesel_models::plans::{FullPlanRow, PlanFilters as PlanFiltersDb};
 
 use common_domain::ids::{BaseId, PlanId, PlanVersionId, ProductFamilyId, TenantId};
 use o2o::o2o;
@@ -18,7 +18,10 @@ use uuid::Uuid;
 // TODO duplicate as well
 use super::enums::{ActionAfterTrialEnum, PlanStatusEnum, PlanTypeEnum};
 
+use crate::StoreResult;
+use crate::domain::ProductFamilyOverview;
 use crate::domain::price_components::{PriceComponent, PriceComponentNewInternal};
+use crate::errors::StoreErrorReport;
 
 #[derive(Debug, Clone)]
 pub enum PlanVersionFilter {
@@ -179,12 +182,6 @@ pub struct PlanVersion {
     pub trial_duration_days: Option<i32>,
 }
 
-pub struct FullPlan {
-    pub plan: Plan,
-    pub version: PlanVersion,
-    pub price_components: Vec<PriceComponent>,
-}
-
 #[derive(Clone, Debug, o2o)]
 #[from_owned(PlanRowOverview)]
 pub struct PlanOverview {
@@ -280,6 +277,19 @@ pub struct PlanWithVersion {
     pub plan: Plan,
     #[from(~.map(| v | v.into()))]
     pub version: Option<PlanVersion>,
+}
+
+#[derive(Debug, Clone, o2o)]
+#[try_from_owned(FullPlanRow, StoreErrorReport)]
+pub struct FullPlan {
+    #[from(~.into())]
+    pub plan: Plan,
+    #[from(~.into())]
+    pub version: PlanVersion,
+    #[from(~.into_iter().map(| v | v.try_into()).collect::<StoreResult<Vec<_>>>()?)]
+    pub price_components: Vec<PriceComponent>,
+    #[from(~.into())]
+    pub product_family: ProductFamilyOverview,
 }
 
 pub struct TrialPatch {

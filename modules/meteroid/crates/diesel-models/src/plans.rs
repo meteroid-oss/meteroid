@@ -3,6 +3,8 @@ use uuid::Uuid;
 
 use crate::enums::{PlanStatusEnum, PlanTypeEnum};
 use crate::plan_versions::PlanVersionRow;
+use crate::price_components::PriceComponentRow;
+use crate::product_families::ProductFamilyOverviewRow;
 use common_domain::ids::{PlanId, PlanVersionId, ProductFamilyId, TenantId};
 use diesel::{AsChangeset, Identifiable, Insertable, Queryable, Selectable};
 
@@ -77,6 +79,25 @@ pub struct PlanWithVersionRow {
     pub plan: PlanRow,
     #[diesel(embed)]
     pub version: Option<PlanVersionRow>,
+}
+
+// used to build FullPlanRow
+#[derive(Debug, Queryable, Selectable)]
+#[diesel(check_for_backend(diesel::pg::Pg))]
+pub(super) struct _FullPlanRowEmbed {
+    #[diesel(embed)]
+    pub plan: PlanRow,
+    #[diesel(embed)]
+    pub version: PlanVersionRow,
+    #[diesel(embed)]
+    pub product_family: ProductFamilyOverviewRow,
+}
+
+pub struct FullPlanRow {
+    pub plan: PlanRow,
+    pub version: PlanVersionRow,
+    pub product_family: ProductFamilyOverviewRow,
+    pub price_components: Vec<PriceComponentRow>,
 }
 
 #[derive(Debug, AsChangeset)]

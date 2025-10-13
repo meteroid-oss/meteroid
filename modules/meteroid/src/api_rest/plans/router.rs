@@ -4,16 +4,17 @@ use axum::extract::Query;
 use axum::{Json, extract::State, response::IntoResponse};
 
 use crate::api_rest::model::{PaginatedRequest, PaginatedResponse};
-use crate::api_rest::plans::mapping::domain_to_rest;
-use crate::api_rest::plans::model::{Plan, PlanFilters, PlanListRequest};
+use crate::api_rest::plans::mapping::plan_to_rest;
+use crate::api_rest::plans::model::{Plan, PlanListRequest};
 use crate::errors::RestApiError;
 use axum::Extension;
+use axum::extract::Path;
 use axum_valid::Valid;
-use common_domain::ids::{ProductFamilyId, TenantId};
+use common_domain::ids::{PlanId, ProductFamilyId, TenantId};
 use common_grpc::middleware::server::auth::AuthorizedAsTenant;
-use meteroid_store::domain::OrderByRequest;
+use meteroid_store::Store;
+use meteroid_store::domain::{OrderByRequest, PlanVersionFilter};
 use meteroid_store::repositories::PlansInterface;
-use meteroid_store::{Store, domain};
 
 #[utoipa::path(
     get,
@@ -45,7 +46,6 @@ pub(crate) async fn list_plans(
         request.pagination,
         authorized_state.tenant_id,
         request.product_family_id,
-        request.plan_filters,
     )
     .await
     .map(Json)
@@ -60,17 +60,11 @@ async fn list_plans_handler(
     pagination: PaginatedRequest,
     tenant_id: TenantId,
     product_family_id: Option<ProductFamilyId>,
-    plan_filters: PlanFilters,
 ) -> Result<PaginatedResponse<Plan>, RestApiError> {
     let res = store
-        .list_plans(
+        .list_full_plans(
             tenant_id,
             product_family_id,
-            domain::PlanFilters {
-                search: plan_filters.search,
-                filter_status: Vec::new(),
-                filter_type: Vec::new(),
-            },
             pagination.into(),
             OrderByRequest::IdAsc,
         )
@@ -83,11 +77,71 @@ async fn list_plans_handler(
     let rest_models: Vec<Plan> = res
         .items
         .into_iter()
-        .map(domain_to_rest)
+        .map(|full_plan| {
+            plan_to_rest(
+                full_plan.plan,
+                full_plan.version,
+                full_plan.price_components,
+                full_plan.product_family.name,
+            )
+        })
         .collect::<Vec<_>>();
 
     Ok(PaginatedResponse {
         data: rest_models,
         total: res.total_results,
     })
+}
+
+#[utoipa::path(
+    get,
+    tag = "plan",
+    path = "/api/v1/plans/{plan_id}",
+    params(
+        ("plan_id" = String, Path, description = "Plan ID"),
+    ),
+    responses(
+        (status = 200, description = "Plan details", body = Plan),
+        (status = 401, description = "Unauthorized"),
+        (status = 404, description = "Plan not found"),
+        (status = 500, description = "Internal error"),
+    ),
+    security(
+        ("bearer_auth" = [])
+    )
+)]
+#[axum::debug_handler]
+pub(crate) async fn get_plan_details(
+    Extension(authorized_state): Extension<AuthorizedAsTenant>,
+    Path(plan_id): Path<PlanId>,
+    State(app_state): State<AppState>,
+) -> Result<impl IntoResponse, RestApiError> {
+    get_plan_details_handler(app_state.store, authorized_state.tenant_id, plan_id)
+        .await
+        .map(Json)
+        .map_err(|e| {
+            log::error!("Error handling get_plan_details: {}", e);
+            e
+        })
+}
+
+async fn get_plan_details_handler(
+    store: Store,
+    tenant_id: TenantId,
+    plan_id: PlanId,
+) -> Result<Plan, RestApiError> {
+    let full_plan = store
+        .get_full_plan(plan_id, tenant_id, PlanVersionFilter::Active)
+        .await
+        .map_err(|e| {
+            log::error!("Error fetching plan details: {}", e);
+            RestApiError::StoreError
+        })?;
+
+    Ok(plan_to_rest(
+        full_plan.plan,
+        full_plan.version,
+        full_plan.price_components,
+        full_plan.product_family.name,
+    ))
 }
