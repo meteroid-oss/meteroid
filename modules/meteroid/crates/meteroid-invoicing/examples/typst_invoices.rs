@@ -1,6 +1,6 @@
 use chrono::NaiveDate;
 use common_domain::country::CountryCode;
-use meteroid_invoicing::model::{Coupon, Flags, PaymentStatus, TaxBreakdownItem};
+use meteroid_invoicing::model::{Coupon, Flags, PaymentStatus, TaxBreakdownItem, TaxExemptionType};
 use meteroid_invoicing::pdf::PdfGenerator;
 use meteroid_invoicing::{
     model::{
@@ -21,7 +21,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     println!("Starting invoice generation benchmark...");
 
     let generator = TypstPdfGenerator::new()?;
-    let iterations = 10;
+    let iterations = 1;
     let mut generation_times = Vec::with_capacity(iterations);
     let invoice = create_test_invoice();
 
@@ -206,9 +206,9 @@ fn create_test_invoice() -> Invoice {
         tax_breakdown: vec![
             TaxBreakdownItem {
                 name: "VAT 20%".to_string(),
-                rate: Decimal::from_str("20.0").unwrap(),
+                rate: Decimal::from_str("0.2").unwrap(),
                 amount: Money::from_major(200, eur),
-                exemption_type: None
+                exemption_type: Some(TaxExemptionType::ReverseCharge)
             },
         ],
     }

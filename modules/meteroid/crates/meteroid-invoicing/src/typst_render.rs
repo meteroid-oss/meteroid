@@ -342,7 +342,10 @@ impl From<&Invoice> for TypstInvoiceContent {
             "eu_vat_directive_notice" => invoice_l10n.eu_vat_directive_notice().into_value(),
             "company_registration" => invoice_l10n.company_registration().into_value(),
             "discount" => invoice_l10n.discount().into_value(),
-            "purchase_order" => invoice_l10n.purchase_order().into_value()
+            "purchase_order" => invoice_l10n.purchase_order().into_value(),
+            "tax_included_text" => invoice_l10n.tax_included_text(invoice.metadata.currency.name).into_value(),
+            "tax_reverse_charge" => invoice_l10n.tax_reverse_charge().into_value(),
+            "reverse_charge_label" => invoice_l10n.reverse_charge_label().into_value()
         };
 
         if let Some(exchange_rate) = invoice.organization.exchange_rate {

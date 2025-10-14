@@ -297,7 +297,15 @@ mod mapper {
             discount: rusty_money::Money::from_minor(invoice.discount, currency),
             memo: invoice.memo.clone(),
             payment_url: None, // TODO
-            flags: Flags::default(),
+            flags: Flags {
+                show_payment_status: Some(true),
+                show_payment_info: Some(true),
+                show_terms: Some(true),
+                show_tax_info: Some(true),
+                show_legal_info: Some(true),
+                show_footer_custom_info: Some(true),
+                whitelabel: Some(false),
+            },
             purchase_order: invoice.purchase_order.clone(),
         };
 
