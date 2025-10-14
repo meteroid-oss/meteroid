@@ -373,9 +373,24 @@ async fn test_compute_invoice_with_reverse_charge(
         result.total, 3500,
         "Total should equal subtotal for reverse charge"
     );
-    assert!(
-        result.tax_breakdown.len() > 0,
-        "Should have tax breakdown indicating reverse charge"
+    assert_eq!(
+        result.tax_breakdown.len(),
+        1,
+        "Should have exactly one tax breakdown item for reverse charge"
+    );
+
+    assert_eq!(
+        result.tax_breakdown[0].exemption_type,
+        Some(meteroid_store::domain::TaxExemptionType::ReverseCharge),
+        "Tax breakdown should have ReverseCharge exemption type"
+    );
+    assert_eq!(
+        result.tax_breakdown[0].tax_amount, 0,
+        "Tax amount should be 0 for reverse charge"
+    );
+    assert_eq!(
+        result.tax_breakdown[0].taxable_amount, 3500,
+        "Taxable amount should be 3500"
     );
 }
 

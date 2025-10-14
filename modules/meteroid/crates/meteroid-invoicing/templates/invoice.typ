@@ -170,9 +170,10 @@
       #text(fill: color.heading, weight: "medium", size: 10pt, organization.name)
       #v(6pt)
       #text(fill: color.accent, [
-        #organization.address.line1 #linebreak()
-        #if organization.address.line2 != none [#organization.address.line2 #linebreak()]
-        #organization.address.zipcode #organization.address.city #linebreak()
+        #if organization.address.line1 != none and organization.address.line1 != "" [#organization.address.line1 #linebreak()]
+        #if organization.address.line2 != none and organization.address.line2 != "" [#organization.address.line2 #linebreak()]
+        #if organization.address.zipcode != none and organization.address.zipcode != "" [#organization.address.zipcode]
+        #if organization.address.city != none and organization.address.city != "" [#organization.address.city #linebreak()]
         #if organization.address.country != none [#organization.address.country #linebreak()]
         #if organization.email != none [#organization.email]
       ])
@@ -184,11 +185,15 @@
       #v(6pt)
       #text(fill: color.accent, [
         #customer.name #linebreak()
-        #customer.address.line1 #linebreak()
-        #if customer.address.line2 != none [#customer.address.line2 #linebreak()]
-        #customer.address.zipcode #customer.address.city #linebreak()
-        #if customer.address.country != none [#customer.address.country #linebreak()]
-        #if customer.email != none [#customer.email]
+        #if customer.address.line1 != none and customer.address.line1 != "" [#customer.address.line1 #linebreak()]
+        #if customer.address.line2 != none and customer.address.line2 != "" [#customer.address.line2 #linebreak()]
+        #if (customer.address.zipcode != none and customer.address.zipcode != "") or (customer.address.city != none and customer.address.city != "") [
+          #if customer.address.zipcode != none and customer.address.zipcode != "" [#customer.address.zipcode ]
+          #if customer.address.city != none and customer.address.city != "" [#customer.address.city]
+          #linebreak()
+        ]
+        #if customer.address.country != none and customer.address.country != "" [#customer.address.country #linebreak()]
+        #if customer.email != none and customer.email != "" [#customer.email]
       ])
     ],
 
