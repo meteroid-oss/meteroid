@@ -3,7 +3,8 @@ use tonic::{Request, Response, Status};
 use common_grpc::middleware::server::auth::RequestExt;
 use meteroid_grpc::meteroid::api::apitokens::v1::{
     CreateApiTokenRequest, CreateApiTokenResponse, GetApiTokenByIdRequest, GetApiTokenByIdResponse,
-    ListApiTokensRequest, ListApiTokensResponse, api_tokens_service_server::ApiTokensService,
+    ListApiTokensRequest, ListApiTokensResponse, RevokeApiTokenRequest, RevokeApiTokenResponse,
+    api_tokens_service_server::ApiTokensService,
 };
 use meteroid_store::domain;
 use meteroid_store::repositories::api_tokens::ApiTokensInterface;
@@ -95,5 +96,27 @@ impl ApiTokensService for ApiTokensServiceComponents {
             tenant_id: result.tenant_id.to_string(),
             hash: result.hash,
         }))
+    }
+
+    #[tracing::instrument(skip_all)]
+    async fn revoke_api_token(
+        &self,
+        request: Request<RevokeApiTokenRequest>,
+    ) -> Result<Response<RevokeApiTokenResponse>, Status> {
+        let tenant_id = request.tenant()?;
+        let actor = request.actor()?;
+        let req = request.into_inner();
+
+        self.store
+            .delete_api_token(&parse_uuid!(&req.id)?, tenant_id, actor)
+            .await
+            .map_err(|e| {
+                ApiTokenApiError::StoreError(
+                    "Unable to revoke api token".to_string(),
+                    Box::new(e.into_error()),
+                )
+            })?;
+
+        Ok(Response::new(RevokeApiTokenResponse {}))
     }
 }

@@ -55,6 +55,29 @@ impl ApiTokenRow {
             .attach("Error while fetching api tokens by tenant id")
             .into_db_result()
     }
+
+    pub async fn delete_by_id(
+        conn: &mut PgConn,
+        param_id: &uuid::Uuid,
+        param_tenant_id: TenantId,
+    ) -> DbResult<usize> {
+        use crate::schema::api_token::dsl::{api_token, id, tenant_id};
+        use diesel_async::RunQueryDsl;
+
+        let query = diesel::delete(
+            api_token
+                .filter(id.eq(param_id))
+                .filter(tenant_id.eq(param_tenant_id)),
+        );
+
+        log::debug!("{}", debug_query::<diesel::pg::Pg, _>(&query));
+
+        query
+            .execute(conn)
+            .await
+            .attach("Error while deleting api token by id")
+            .into_db_result()
+    }
 }
 
 impl ApiTokenValidationRow {

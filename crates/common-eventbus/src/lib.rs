@@ -40,10 +40,21 @@ impl Event {
         }
     }
 
-    pub fn api_token_created(actor: Uuid, api_token_id: Uuid) -> Self {
+    pub fn api_token_created(actor: Uuid, api_token_id: Uuid, tenant_id: Uuid) -> Self {
         Self::new(
-            EventData::ApiTokenCreated(EventDataDetails {
+            EventData::ApiTokenCreated(TenantEventDataDetails {
                 entity_id: api_token_id,
+                tenant_id,
+            }),
+            Some(actor),
+        )
+    }
+
+    pub fn api_token_revoked(actor: Uuid, api_token_id: Uuid, tenant_id: Uuid) -> Self {
+        Self::new(
+            EventData::ApiTokenRevoked(TenantEventDataDetails {
+                entity_id: api_token_id,
+                tenant_id,
             }),
             Some(actor),
         )
@@ -266,7 +277,8 @@ impl Event {
 
 #[derive(Debug, Clone)]
 pub enum EventData {
-    ApiTokenCreated(EventDataDetails),
+    ApiTokenCreated(TenantEventDataDetails),
+    ApiTokenRevoked(TenantEventDataDetails),
     BankAccountCreated(TenantEventDataDetails),
     BankAccountEdited(TenantEventDataDetails),
     BillableMetricCreated(TenantEventDataDetails),

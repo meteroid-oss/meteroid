@@ -17,7 +17,6 @@ use common_eventbus::{EventBusError, EventHandler};
 use common_logging::unwrapper::UnwrapLogger;
 use meteroid_store::Store;
 use meteroid_store::domain::DetailedInvoice;
-use meteroid_store::repositories::api_tokens::ApiTokensInterface;
 use meteroid_store::repositories::billable_metrics::BillableMetricInterface;
 use meteroid_store::repositories::price_components::PriceComponentInterface;
 use meteroid_store::repositories::subscriptions::SubscriptionInterfaceAuto;
@@ -87,20 +86,33 @@ impl AnalyticsHandler {
     async fn api_token_created(
         &self,
         event: &Event,
-        event_data_details: &EventDataDetails,
+        event_data_details: &TenantEventDataDetails,
     ) -> Result<(), EventBusError> {
-        let api_token = self
-            .store
-            .get_api_token_by_id(&event_data_details.entity_id)
-            .await
-            .map_err(|e| EventBusError::EventHandlerFailed(e.to_string()))?;
-
         self.send_track(
             "api-token-created".to_string(),
             event.actor,
             serde_json::json!({
                 "api_token_id": event_data_details.entity_id,
-                "tenant_id": api_token.tenant_id,
+                "tenant_id": event_data_details.tenant_id,
+            }),
+        )
+        .await;
+
+        Ok(())
+    }
+
+    #[tracing::instrument(skip_all)]
+    async fn api_token_revoked(
+        &self,
+        event: &Event,
+        event_data_details: &TenantEventDataDetails,
+    ) -> Result<(), EventBusError> {
+        self.send_track(
+            "api-token-revoked".to_string(),
+            event.actor,
+            serde_json::json!({
+                "api_token_id": event_data_details.entity_id,
+                "tenant_id": event_data_details.tenant_id,
             }),
         )
         .await;
@@ -597,6 +609,7 @@ impl EventHandler<Event> for AnalyticsHandler {
 
         match &event.event_data {
             EventData::ApiTokenCreated(details) => self.api_token_created(&event, details).await?,
+            EventData::ApiTokenRevoked(details) => self.api_token_revoked(&event, details).await?,
             EventData::BillableMetricCreated(details) => {
                 self.billable_metric_created(&event, details).await?;
             }
