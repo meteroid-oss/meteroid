@@ -1,9 +1,10 @@
 use crate::api_rest::currencies;
 use crate::api_rest::subscriptions::model::{
-    Subscription, SubscriptionAddOnCustomization, SubscriptionCreateRequest, SubscriptionDetails,
+    AppliedCoupon, AppliedCouponDetailed, Coupon, CouponDiscount, Subscription,
+    SubscriptionAddOnCustomization, SubscriptionCreateRequest, SubscriptionDetails,
 };
 use crate::errors::RestApiError;
-use common_domain::ids::{CouponId, CustomerId};
+use common_domain::ids::{CouponId, CustomerId, PlanVersionId};
 use meteroid_store::domain;
 use meteroid_store::domain::{CreateSubscription, SubscriptionNew};
 use uuid::Uuid;
@@ -30,6 +31,16 @@ pub fn domain_to_rest(s: domain::Subscription) -> Result<Subscription, RestApiEr
 pub fn domain_to_rest_details(
     s: domain::SubscriptionDetails,
 ) -> Result<SubscriptionDetails, RestApiError> {
+    let components = s.price_components.into_iter().map(|c| c.into()).collect();
+
+    let add_ons = s.add_ons.into_iter().map(|a| a.into()).collect();
+
+    let applied_coupons = s
+        .applied_coupons
+        .into_iter()
+        .map(domain_applied_coupon_to_rest)
+        .collect::<Result<Vec<_>, _>>()?;
+
     Ok(SubscriptionDetails {
         id: s.subscription.id,
         customer_id: s.subscription.customer_id,
@@ -44,11 +55,59 @@ pub fn domain_to_rest_details(
         status: s.subscription.status.into(),
         current_period_start: s.subscription.current_period_start,
         current_period_end: s.subscription.current_period_end,
+        components,
+        add_ons,
+        applied_coupons,
+        checkout_url: s.checkout_url,
         purchase_order: s.subscription.purchase_order,
     })
 }
 
+fn domain_applied_coupon_to_rest(
+    ac: domain::AppliedCouponDetailed,
+) -> Result<AppliedCouponDetailed, RestApiError> {
+    let coupon = domain_coupon_to_rest(ac.coupon)?;
+    let applied_coupon = AppliedCoupon {
+        id: ac.applied_coupon.id,
+        coupon_id: ac.applied_coupon.coupon_id,
+        is_active: ac.applied_coupon.is_active,
+        applied_amount: ac.applied_coupon.applied_amount,
+        applied_count: ac.applied_coupon.applied_count,
+        last_applied_at: ac.applied_coupon.last_applied_at,
+        created_at: ac.applied_coupon.created_at,
+    };
+
+    Ok(AppliedCouponDetailed {
+        coupon,
+        applied_coupon,
+    })
+}
+
+fn domain_coupon_to_rest(c: domain::coupons::Coupon) -> Result<Coupon, RestApiError> {
+    let discount = match c.discount {
+        domain::coupons::CouponDiscount::Percentage(percentage) => {
+            CouponDiscount::Percentage { percentage }
+        }
+        domain::coupons::CouponDiscount::Fixed { currency, amount } => {
+            CouponDiscount::Fixed { currency, amount }
+        }
+    };
+
+    Ok(Coupon {
+        id: c.id,
+        code: c.code,
+        description: c.description,
+        discount,
+        expires_at: c.expires_at,
+        redemption_limit: c.redemption_limit,
+        recurring_value: c.recurring_value,
+        reusable: c.reusable,
+        disabled: c.disabled,
+    })
+}
+
 pub fn rest_to_domain_create_request(
+    resolved_plan_version_id: PlanVersionId,
     resolved_customer_id: CustomerId,
     resolved_coupon_ids: Option<Vec<CouponId>>,
     created_by: Uuid,
@@ -56,7 +115,7 @@ pub fn rest_to_domain_create_request(
 ) -> Result<CreateSubscription, RestApiError> {
     let converted = CreateSubscription {
         subscription: SubscriptionNew {
-            plan_version_id: sub.plan_version_id,
+            plan_version_id: resolved_plan_version_id,
             customer_id: resolved_customer_id,
             trial_duration: sub.trial_days,
             start_date: sub.start_date,
@@ -66,12 +125,14 @@ pub fn rest_to_domain_create_request(
             invoice_memo: sub.invoice_memo,
             created_by,
             activation_condition: sub.activation_condition.into(),
-            payment_strategy: None,      // todo
-            auto_advance_invoices: true, // todo
-            invoice_threshold: sub.invoice_threshold,
-            billing_start_date: None,   // todo
-            charge_automatically: true, // todo
             purchase_order: sub.purchase_order,
+
+            // todo, allow configuring some/all below via rest
+            payment_strategy: None,
+            auto_advance_invoices: true,
+            invoice_threshold: None,
+            billing_start_date: None,
+            charge_automatically: true,
         },
         price_components: sub
             .price_components

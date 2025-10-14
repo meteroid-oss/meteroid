@@ -197,6 +197,7 @@ impl ServicesEdge {
                 &results,
                 tenant_id,
                 &self.store.settings.jwt_secret,
+                &self.store.settings.public_url,
             )
             .await?;
 

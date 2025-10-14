@@ -5,12 +5,13 @@ use axum::extract::{Path, Query};
 use axum::{Json, extract::State, response::IntoResponse};
 
 use crate::api_rest::error::RestErrorResponse;
-use crate::api_rest::model::PaginatedResponse;
+use crate::api_rest::model::PaginationExt;
 use crate::api_rest::subscriptions::mapping::{
     domain_to_rest, domain_to_rest_details, rest_to_domain_create_request,
 };
 use crate::api_rest::subscriptions::model::{
-    Subscription, SubscriptionCreateRequest, SubscriptionDetails, SubscriptionRequest,
+    Subscription, SubscriptionCreateRequest, SubscriptionDetails, SubscriptionListResponse,
+    SubscriptionRequest,
 };
 use crate::errors::RestApiError;
 use axum::Extension;
@@ -20,8 +21,10 @@ use common_grpc::middleware::server::auth::AuthorizedAsTenant;
 use http::StatusCode;
 use itertools::Itertools;
 use meteroid_store::repositories::coupons::CouponInterface;
-use meteroid_store::repositories::subscriptions::SubscriptionInterfaceAuto;
-use meteroid_store::repositories::{CustomersInterface, SubscriptionInterface};
+use meteroid_store::repositories::subscriptions::{
+    CancellationEffectiveAt, SubscriptionInterfaceAuto,
+};
+use meteroid_store::repositories::{CustomersInterface, PlansInterface, SubscriptionInterface};
 
 #[utoipa::path(
     get,
@@ -30,11 +33,11 @@ use meteroid_store::repositories::{CustomersInterface, SubscriptionInterface};
     params(
         ("page" = usize, Query, description = "Specifies the starting position of the results", example = 0, minimum = 0),
         ("per_page" = usize, Query, description = "The maximum number of objects to return", example = 10, minimum = 1, maximum = 100),
-        ("customer_id" = CustomerId, Query, description = "Filter by customer ID"),
-        ("plan_id" = PlanId, Query, description = "Filter by plan ID")
+        ("customer_id" = Option<CustomerId>, Query, description = "Filter by customer ID"),
+        ("plan_id" = Option<PlanId>, Query, description = "Filter by plan ID")
     ),
     responses(
-        (status = 200, description = "List of subscriptions", body = PaginatedResponse<Subscription>),
+        (status = 200, description = "List of subscriptions", body = SubscriptionListResponse),
         (status = 401, description = "Unauthorized", body = RestErrorResponse),
         (status = 500, description = "Internal error", body = RestErrorResponse),
     ),
@@ -68,9 +71,11 @@ pub(crate) async fn list_subscriptions(
         .map(domain_to_rest)
         .collect::<Result<Vec<_>, _>>()?;
 
-    Ok(Json(PaginatedResponse {
+    Ok(Json(SubscriptionListResponse {
         data: subscriptions,
-        total: res.total_results,
+        pagination_meta: request
+            .pagination
+            .into_response(res.total_pages, res.total_results),
     }))
 }
 
@@ -139,7 +144,7 @@ pub(crate) async fn create_subscription(
         AliasOr::Alias(alias) => {
             app_state
                 .store
-                .find_customer_by_alias(alias)
+                .find_customer_id_by_alias(alias, authorized_state.tenant_id)
                 .await
                 .map_err(RestApiError::from)?
                 .id
@@ -163,10 +168,20 @@ pub(crate) async fn create_subscription(
         _ => None,
     };
 
+    let resolved_plan_version = app_state
+        .store
+        .resolve_published_version_id(payload.plan_id, payload.version, authorized_state.tenant_id)
+        .await
+        .map_err(|e| {
+            log::error!("Error resolving plan version: {}", e);
+            RestApiError::from(e)
+        })?;
+
     let created = app_state
         .services
         .insert_subscription(
             rest_to_domain_create_request(
+                resolved_plan_version,
                 resolved_customer_id,
                 resolved_coupon_ids,
                 authorized_state.actor_id,
@@ -191,4 +206,52 @@ pub(crate) async fn create_subscription(
         .and_then(domain_to_rest_details)?;
 
     Ok((StatusCode::CREATED, Json(res)))
+}
+
+#[utoipa::path(
+    post,
+    tag = "subscription",
+    path = "/api/v1/subscriptions/{subscription_id}/cancel",
+    params(
+        ("subscription_id" = SubscriptionId, Path, description = "Subscription ID", example = "sub_123"),
+    ),
+    request_body = super::model::CancelSubscriptionRequest,
+    responses(
+        (status = 200, description = "Subscription canceled", body = super::model::CancelSubscriptionResponse),
+        (status = 401, description = "Unauthorized", body = RestErrorResponse),
+        (status = 404, description = "Subscription not found", body = RestErrorResponse),
+        (status = 500, description = "Internal error", body = RestErrorResponse),
+    ),
+    security(
+        ("bearer_auth" = [])
+    )
+)]
+#[axum::debug_handler]
+pub(crate) async fn cancel_subscription(
+    Extension(authorized_state): Extension<AuthorizedAsTenant>,
+    State(app_state): State<AppState>,
+    Path(subscription_id): Path<SubscriptionId>,
+    Valid(Json(request)): Valid<Json<super::model::CancelSubscriptionRequest>>,
+) -> Result<impl IntoResponse, RestApiError> {
+    let subscription = app_state
+        .services
+        .cancel_subscription(
+            subscription_id,
+            authorized_state.tenant_id,
+            request.reason.clone(),
+            request
+                .effective_date
+                .map(CancellationEffectiveAt::Date)
+                .unwrap_or(CancellationEffectiveAt::EndOfBillingPeriod),
+            authorized_state.actor_id,
+        )
+        .await
+        .map_err(|e| {
+            log::error!("Error handling cancel_subscription: {e}");
+            RestApiError::from(e)
+        })?;
+
+    Ok(Json(super::model::CancelSubscriptionResponse {
+        subscription: domain_to_rest(subscription)?,
+    }))
 }

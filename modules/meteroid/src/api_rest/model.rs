@@ -24,15 +24,6 @@ impl From<PaginatedRequest> for domain::PaginationRequest {
     }
 }
 
-// this cause the internal schema to be duplicated, we cannot use generic as of https://github.com/juhaku/utoipa/issues/1148
-// use dedicated types instead
-// TODO drop after updating subscription api
-#[derive(ToSchema, serde::Serialize, serde::Deserialize)]
-pub struct PaginatedResponse<T> {
-    pub data: Vec<T>,
-    pub total: u64,
-}
-
 #[derive(ToSchema, serde::Serialize, serde::Deserialize, Debug)]
 pub struct PaginationResponse {
     pub page: u32,

@@ -30,7 +30,17 @@ pub trait CustomersInterface {
         tenant_id: TenantId,
     ) -> StoreResult<Customer>;
 
-    async fn find_customer_by_alias(&self, alias: String) -> StoreResult<Customer>;
+    async fn find_customer_by_alias(
+        &self,
+        alias: String,
+        tenant_id: TenantId,
+    ) -> StoreResult<Customer>;
+
+    async fn find_customer_id_by_alias(
+        &self,
+        alias: String,
+        tenant_id: TenantId,
+    ) -> StoreResult<CustomerBrief>;
 
     async fn find_customer_ids_by_aliases(
         &self,
@@ -129,13 +139,30 @@ impl CustomersInterface for Store {
             .and_then(TryInto::try_into)
     }
 
-    async fn find_customer_by_alias(&self, alias: String) -> StoreResult<Customer> {
+    async fn find_customer_by_alias(
+        &self,
+        alias: String,
+        tenant_id: TenantId,
+    ) -> StoreResult<Customer> {
         let mut conn = self.get_conn().await?;
 
-        CustomerRow::find_by_alias(&mut conn, alias)
+        CustomerRow::find_by_alias(&mut conn, alias, tenant_id)
             .await
             .map_err(Into::into)
             .and_then(TryInto::try_into)
+    }
+
+    async fn find_customer_id_by_alias(
+        &self,
+        alias: String,
+        tenant_id: TenantId,
+    ) -> StoreResult<CustomerBrief> {
+        let mut conn = self.get_conn().await?;
+
+        CustomerRow::resolve_id_by_alias(&mut conn, tenant_id, alias)
+            .await
+            .map_err(Into::into)
+            .map(Into::into)
     }
 
     async fn find_customer_ids_by_aliases(
@@ -145,7 +172,7 @@ impl CustomersInterface for Store {
     ) -> StoreResult<Vec<CustomerBrief>> {
         let mut conn = self.get_conn().await?;
 
-        CustomerRow::find_by_aliases(&mut conn, tenant_id, aliases)
+        CustomerRow::resolve_ids_by_aliases(&mut conn, tenant_id, aliases)
             .await
             .map_err(Into::into)
             .map(|v| {

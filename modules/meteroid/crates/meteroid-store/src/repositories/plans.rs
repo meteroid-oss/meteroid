@@ -76,6 +76,13 @@ pub trait PlansInterface {
         auth_tenant_id: TenantId,
     ) -> StoreResult<PlanVersion>;
 
+    async fn resolve_published_version_id(
+        &self,
+        plan_id: PlanId,
+        plan_version: Option<i32>,
+        auth_tenant_id: TenantId,
+    ) -> StoreResult<PlanVersionId>;
+
     async fn list_plan_versions(
         &self,
         plan_id: PlanId,
@@ -355,6 +362,23 @@ impl PlansInterface for Store {
             .await
             .map(Into::into)
             .map_err(Into::into)
+    }
+
+    async fn resolve_published_version_id(
+        &self,
+        plan_id: PlanId,
+        plan_version: Option<i32>,
+        auth_tenant_id: TenantId,
+    ) -> StoreResult<PlanVersionId> {
+        let mut conn = self.get_conn().await?;
+        PlanVersionRow::resolve_published_version_id(
+            &mut conn,
+            plan_id,
+            plan_version,
+            auth_tenant_id,
+        )
+        .await
+        .map_err(Into::into)
     }
 
     async fn list_plan_versions(

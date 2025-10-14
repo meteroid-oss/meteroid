@@ -21,25 +21,7 @@ use jsonwebtoken::{DecodingKey, Validation, decode};
 use meteroid_store::repositories::InvoiceInterface;
 use secrecy::ExposeSecret;
 use serde::Deserialize;
-use utoipa::OpenApi;
 
-#[derive(OpenApi)]
-#[openapi(paths(get_logo, get_invoice_pdf))]
-pub struct FileApi;
-
-#[utoipa::path(
-    get,
-    tag = "file",
-    path = "/v1/logo/{uuid}",
-    params(
-        ("uuid" = Uuid, Path, description = "Logo database UUID")
-    ),
-    responses(
-        (status = 200, content_type = "image/png", description = "Logo as PNG image", body = [u8]),
-        (status = 400, description = "Invalid UUID"),
-        (status = 500, description = "Internal error"),
-    )
-)]
 #[axum::debug_handler]
 pub async fn get_logo(
     Path(uuid): Path<StoredDocumentId>,
@@ -82,21 +64,6 @@ pub struct TokenParams {
     token: String,
 }
 
-#[utoipa::path(
-    get,
-    tag = "file",
-    path = "/v1/invoice/pdf/{uid}",
-    params(
-        ("uid" = String, Path, description = "Invoice database UID"),
-        ("token" = str, Query, description = "Security token"),
-    ),
-    responses(
-        (status = 200, content_type = "application/pdf", description = "Invoice in PDF", body = [u8]),
-        (status = 400, description = "Invalid UUID or token"),
-        (status = 401, description = "Unauthorized - invalid token"),
-        (status = 500, description = "Internal error"),
-    )
-)]
 #[axum::debug_handler]
 pub async fn get_invoice_pdf(
     Path(uid): Path<InvoiceId>,

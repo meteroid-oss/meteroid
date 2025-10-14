@@ -194,10 +194,14 @@ impl SubscriptionInterface for Store {
                 .map(std::convert::TryInto::try_into)
                 .collect::<Result<Vec<_>, Report<_>>>()?;
 
-        let checkout_token = if subscription.pending_checkout {
-            let jwt =
-                generate_checkout_token(&self.settings.jwt_secret, tenant_id, subscription.id)?;
-            Some(jwt)
+        let checkout_url = if subscription.pending_checkout {
+            let url = generate_checkout_url(
+                &self.settings.jwt_secret,
+                &self.settings.public_url,
+                tenant_id,
+                subscription.id,
+            )?;
+            Some(url)
         } else {
             None
         };
@@ -225,7 +229,7 @@ impl SubscriptionInterface for Store {
             applied_coupons,
             metrics: billable_metrics,
             schedules,
-            checkout_token,
+            checkout_url,
             customer,
             invoicing_entity,
         })
@@ -404,16 +408,19 @@ impl SubscriptionInterface for Store {
     }
 }
 
-pub fn generate_checkout_token(
+pub fn generate_checkout_url(
     jwt_secret: &SecretString,
+    base_url: &String,
     tenant_id: TenantId,
     subscription_id: SubscriptionId,
 ) -> StoreResult<String> {
-    generate_portal_token(
+    let token = generate_portal_token(
         jwt_secret,
         tenant_id,
         ResourceAccess::SubscriptionCheckout(subscription_id),
-    )
+    )?;
+
+    Ok(format!("{}/checkout?token={}", base_url, token))
 }
 
 // fn get_event_priority(event_type:  ScheduledEventTypeEnum) -> i32 {

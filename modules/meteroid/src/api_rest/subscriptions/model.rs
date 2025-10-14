@@ -1,8 +1,9 @@
 use crate::api_rest::currencies::model::Currency;
-use crate::api_rest::model::{BillingPeriodEnum, PaginatedRequest};
+use crate::api_rest::model::{BillingPeriodEnum, PaginatedRequest, PaginationResponse};
 use chrono::NaiveDate;
 use common_domain::ids::{
-    AddOnId, BillableMetricId, CustomerId, PlanVersionId, PriceComponentId, ProductId,
+    AddOnId, AppliedCouponId, BillableMetricId, CouponId, CustomerId, PlanVersionId,
+    PriceComponentId, ProductId,
 };
 use common_domain::ids::{PlanId, string_serde_opt, string_serde_vec_opt};
 use common_domain::ids::{SubscriptionId, string_serde};
@@ -22,7 +23,7 @@ pub struct SubscriptionRequest {
     pub plan_id: Option<PlanId>,
 }
 
-#[derive(Clone, ToSchema, Serialize, Deserialize)]
+#[derive(Clone, ToSchema, Serialize, Deserialize, Debug)]
 pub struct Subscription {
     #[serde(with = "string_serde")]
     pub id: SubscriptionId,
@@ -44,7 +45,55 @@ pub struct Subscription {
     pub purchase_order: Option<String>,
 }
 
-#[derive(Clone, ToSchema, Serialize, Deserialize)]
+#[derive(Clone, ToSchema, Serialize, Deserialize, Debug)]
+#[serde(tag = "discriminator", rename_all = "SCREAMING_SNAKE_CASE")]
+pub enum CouponDiscount {
+    Percentage {
+        #[schema(value_type = String, format = "decimal")]
+        percentage: rust_decimal::Decimal,
+    },
+    Fixed {
+        currency: String,
+        #[schema(value_type = String, format = "decimal")]
+        amount: rust_decimal::Decimal,
+    },
+}
+
+#[derive(Clone, ToSchema, Serialize, Deserialize, Debug)]
+pub struct Coupon {
+    #[serde(with = "string_serde")]
+    pub id: CouponId,
+    pub code: String,
+    pub description: String,
+    pub discount: CouponDiscount,
+    pub expires_at: Option<chrono::NaiveDateTime>,
+    pub redemption_limit: Option<i32>,
+    pub recurring_value: Option<i32>,
+    pub reusable: bool,
+    pub disabled: bool,
+}
+
+#[derive(Clone, ToSchema, Serialize, Deserialize, Debug)]
+pub struct AppliedCoupon {
+    #[serde(with = "string_serde")]
+    pub id: AppliedCouponId,
+    #[serde(with = "string_serde")]
+    pub coupon_id: CouponId,
+    pub is_active: bool,
+    #[schema(value_type = Option<String>, format = "decimal")]
+    pub applied_amount: Option<rust_decimal::Decimal>,
+    pub applied_count: Option<i32>,
+    pub last_applied_at: Option<chrono::NaiveDateTime>,
+    pub created_at: chrono::NaiveDateTime,
+}
+
+#[derive(Clone, ToSchema, Serialize, Deserialize, Debug)]
+pub struct AppliedCouponDetailed {
+    pub coupon: Coupon,
+    pub applied_coupon: AppliedCoupon,
+}
+
+#[derive(Clone, ToSchema, Serialize, Deserialize, Debug)]
 pub struct SubscriptionDetails {
     #[serde(with = "string_serde")]
     pub id: SubscriptionId,
@@ -64,31 +113,47 @@ pub struct SubscriptionDetails {
     pub current_period_start: NaiveDate,
     pub current_period_end: Option<NaiveDate>,
     pub purchase_order: Option<String>,
+    pub components: Vec<SubscriptionComponent>,
+    pub add_ons: Vec<SubscriptionAddOn>,
+    pub applied_coupons: Vec<AppliedCouponDetailed>,
+    pub checkout_url: Option<String>,
 }
 
 #[derive(ToSchema, Serialize, Deserialize, Validate, Debug)]
 pub struct SubscriptionCreateRequest {
     #[serde(with = "string_serde")]
-    pub plan_version_id: PlanVersionId,
+    pub plan_id: PlanId,
+    #[schema(nullable = false)]
+    pub version: Option<i32>,
     #[schema(format = "CustomerId or customer alias")]
     pub customer_id_or_alias: String,
+    #[schema(nullable = false)]
     pub trial_days: Option<u32>,
     #[schema(example = "2024-11-01")]
     pub start_date: NaiveDate,
     #[schema(example = "2025-11-01")]
+    #[schema(nullable = false)]
     pub end_date: Option<NaiveDate>,
     #[validate(range(min = 1, max = 32767))]
     #[schema(minimum = 1, maximum = 32767)]
     pub billing_day_anchor: Option<u16>,
+    #[schema(nullable = false)]
     pub net_terms: Option<u32>,
+    #[schema(nullable = false)]
     pub invoice_memo: Option<String>,
-    #[schema(value_type = String, format = "decimal")]
-    pub invoice_threshold: Option<rust_decimal::Decimal>,
+
+    #[schema(nullable = false)]
     pub coupon_codes: Option<Vec<String>>,
+    #[schema(nullable = false)]
     pub activation_condition: SubscriptionActivationConditionEnum,
+    #[schema(nullable = false)]
     pub price_components: Option<CreateSubscriptionComponents>,
+    #[schema(nullable = false)]
     pub add_ons: Option<Vec<CreateSubscriptionAddOn>>,
     pub purchase_order: Option<String>,
+    // #[schema(value_type = Option<String>, format = "decimal")]
+    // #[schema(nullable = false)]
+    // pub invoice_threshold: Option<rust_decimal::Decimal>,
 }
 
 #[derive(o2o, Clone, ToSchema, Serialize, Deserialize, Debug)]
@@ -248,7 +313,9 @@ pub enum UsagePricingModel {
 }
 
 #[derive(o2o, ToSchema, Serialize, Deserialize, Clone, Debug)]
-#[map_owned(meteroid_store::domain::subscription_components::SubscriptionComponentNewInternal)]
+#[owned_into(meteroid_store::domain::subscription_components::SubscriptionComponentNewInternal)]
+#[from_owned(meteroid_store::domain::subscription_components::SubscriptionComponent)]
+#[ghosts(is_override: {@.price_component_id.is_some()})]
 pub struct SubscriptionComponent {
     #[serde(default, with = "string_serde_opt")]
     pub price_component_id: Option<PriceComponentId>,
@@ -259,7 +326,6 @@ pub struct SubscriptionComponent {
     pub period: SubscriptionFeeBillingPeriodEnum,
     #[map(~.into())]
     pub fee: SubscriptionFee,
-    pub is_override: bool,
 }
 
 #[derive(o2o, ToSchema, Serialize, Deserialize, Clone, Debug)]
@@ -281,7 +347,7 @@ pub struct ComponentParameters {
 }
 
 #[derive(o2o, ToSchema, Serialize, Deserialize, Clone, Debug)]
-#[map_owned(meteroid_store::domain::subscription_components::ComponentOverride)]
+#[owned_into(meteroid_store::domain::subscription_components::ComponentOverride)]
 pub struct ComponentOverride {
     #[serde(with = "string_serde")]
     pub component_id: PriceComponentId,
@@ -290,7 +356,7 @@ pub struct ComponentOverride {
 }
 
 #[derive(o2o, ToSchema, Serialize, Deserialize, Clone, Debug)]
-#[map_owned(meteroid_store::domain::subscription_components::ExtraComponent)]
+#[owned_into(meteroid_store::domain::subscription_components::ExtraComponent)]
 pub struct ExtraComponent {
     #[map(~.into())]
     pub component: SubscriptionComponent,
@@ -299,6 +365,18 @@ pub struct ExtraComponent {
 #[derive(o2o, ToSchema, Serialize, Deserialize, Clone, Debug)]
 #[map_owned(meteroid_store::domain::subscription_add_ons::SubscriptionAddOnOverride)]
 pub struct SubscriptionAddOnOverride {
+    pub name: String,
+    #[map(~.into())]
+    pub period: SubscriptionFeeBillingPeriodEnum,
+    #[map(~.into())]
+    pub fee: SubscriptionFee,
+}
+
+#[derive(o2o, ToSchema, Serialize, Deserialize, Clone, Debug)]
+#[from_owned(meteroid_store::domain::subscription_add_ons::SubscriptionAddOn)]
+pub struct SubscriptionAddOn {
+    #[serde(default, with = "string_serde")]
+    pub add_on_id: AddOnId,
     pub name: String,
     #[map(~.into())]
     pub period: SubscriptionFeeBillingPeriodEnum,
@@ -328,3 +406,35 @@ pub struct CreateSubscriptionAddOn {
     pub add_on_id: AddOnId,
     pub customization: Option<SubscriptionAddOnCustomization>,
 }
+
+#[derive(ToSchema, Serialize, Deserialize, Validate, Debug)]
+pub struct CancelSubscriptionRequest {
+    /// If not provided, the cancellation will be effective at the end of the current billing or committed period.
+    pub effective_date: Option<NaiveDate>,
+    pub reason: Option<String>,
+}
+
+#[derive(ToSchema, Serialize, Deserialize)]
+pub struct CancelSubscriptionResponse {
+    pub subscription: Subscription,
+}
+
+#[derive(ToSchema, Serialize, Deserialize)]
+pub struct SubscriptionListResponse {
+    pub data: Vec<Subscription>,
+    pub pagination_meta: PaginationResponse,
+}
+
+// #[derive(ToSchema, Serialize, Deserialize, Validate, Debug)]
+// pub struct ChangeSubscriptionPlanRequest {
+//     #[serde(with = "string_serde")]
+//     pub new_plan_id: PlanId,
+//     pub new_plan_version: Option<i32>,
+//     pub effective_date: Option<NaiveDate>,
+// }
+//
+// #[derive(ToSchema, Serialize, Deserialize, Debug)]
+// pub struct ChangeSubscriptionPlanResponse {
+//     pub subscription: Subscription,
+//     pub message: String,
+// }

@@ -214,11 +214,13 @@ impl CustomersService for CustomerServiceComponents {
         &self,
         request: Request<GetCustomerByAliasRequest>,
     ) -> Result<Response<GetCustomerByAliasResponse>, Status> {
+        let tenant = request.tenant()?;
+
         let req = request.into_inner();
 
         let customer = self
             .store
-            .find_customer_by_alias(req.alias.clone())
+            .find_customer_by_alias(req.alias.clone(), tenant)
             .await
             .and_then(ServerCustomerWrapper::try_from)
             .map(|v| v.0)

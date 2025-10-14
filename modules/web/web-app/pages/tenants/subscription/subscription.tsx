@@ -259,13 +259,13 @@ export const Subscription = () => {
           </div>
         </div>
 
-        {data.checkoutToken && (
+        {data.checkoutUrl && (
           <Alert variant="default" className="mb-6">
             <div className="flex gap-2 items-center content-between justify-between">
               <span>This subscription is pending checkout. </span>
               <CopyToClipboardButton
                 text="Copy checkout link"
-                textToCopy={`${window.location.origin}/checkout?token=${data.checkoutToken}`}
+                textToCopy={data.checkoutUrl}
                 className="whitespace-normal"
               />
             </div>

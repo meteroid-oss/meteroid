@@ -46,7 +46,7 @@ pub struct CreatedSubscription {
     pub period: BillingPeriodEnum,
     pub pending_checkout: bool,
     #[ghost({None})]
-    pub checkout_token: Option<String>,
+    pub checkout_url: Option<String>,
     #[from(~.into())]
     pub status: SubscriptionStatusEnum,
     pub purchase_order: Option<String>,
@@ -274,7 +274,7 @@ pub struct SubscriptionDetails {
     pub add_ons: Vec<SubscriptionAddOn>,
     pub applied_coupons: Vec<AppliedCouponDetailed>,
     pub metrics: Vec<BillableMetric>,
-    pub checkout_token: Option<String>,
+    pub checkout_url: Option<String>,
 }
 
 #[derive(Debug, Clone)]

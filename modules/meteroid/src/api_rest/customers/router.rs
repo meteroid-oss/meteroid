@@ -26,7 +26,7 @@ use meteroid_store::repositories::CustomersInterface;
     params(
         ("per_page" = Option<u32>, Query, description = "Specifies the max number of results in a page", example = 20, minimum = 1, maximum = 100),
         ("page" = Option<u32>, Query, description = "The page to return, starting at index 0", example = 0, minimum = 0),
-        ("search" = String, Query, description = "Filtering criteria", example = "abc"),
+        ("search" = Option<String>, Query, description = "Filter customers by search term (part of name, alias or email)")
     ),
     responses(
         (status = 200, description = "List of customers", body = CustomerListResponse),

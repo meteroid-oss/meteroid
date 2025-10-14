@@ -4,8 +4,6 @@ use axum::routing::get;
 
 mod router;
 
-pub use router::FileApi;
-
 pub fn file_routes() -> Router<AppState> {
     Router::new()
         .route("/v1/logo/{uuid}", get(router::get_logo))

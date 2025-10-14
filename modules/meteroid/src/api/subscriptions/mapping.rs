@@ -66,7 +66,7 @@ pub mod subscriptions {
             activated_at: s.activated_at.as_proto(),
             mrr_cents: s.mrr_cents,
             status,
-            checkout_token: None,
+            checkout_url: None,
             card_connection_id: s.card_connection_id.map(|id| id.as_proto()),
             direct_debit_connection_id: s.direct_debit_connection_id.map(|id| id.as_proto()),
             connection_metadata: s.conn_meta.as_ref().map(connection_metadata_to_server),
@@ -143,7 +143,7 @@ pub mod subscriptions {
             invoice_threshold: sub.invoice_threshold.as_proto(),
             activated_at: sub.activated_at.as_proto(),
             mrr_cents: sub.mrr_cents.to_non_negative_u64(),
-            checkout_token: sub.checkout_token,
+            checkout_url: sub.checkout_url,
             purchase_order: sub.purchase_order,
         })
     }
@@ -179,7 +179,7 @@ pub mod subscriptions {
                 activated_at: sub.activated_at.as_proto(),
                 mrr_cents: sub.mrr_cents,
                 status,
-                checkout_token: details.checkout_token,
+                checkout_url: details.checkout_url,
                 card_connection_id: sub.card_connection_id.map(|id| id.as_proto()),
                 direct_debit_connection_id: sub.direct_debit_connection_id.map(|id| id.as_proto()),
                 connection_metadata: sub.conn_meta.as_ref().map(connection_metadata_to_server),
