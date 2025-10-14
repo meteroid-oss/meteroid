@@ -4,9 +4,9 @@ import { FunctionComponent, useEffect, useRef, useState } from 'react'
 import { toast } from 'sonner'
 
 import { useQuery } from '@/lib/connectrpc'
+import { env } from '@/lib/env'
 import { copyToClipboard } from '@/lib/helpers'
 import { me } from '@/rpc/api/users/v1/users-UsersService_connectquery'
-import { env } from '@/lib/env'
 
 const copyEmail = () => {
   copyToClipboard('team@meteroid.com')
