@@ -49,6 +49,7 @@ pub struct CreatedSubscription {
     pub checkout_token: Option<String>,
     #[from(~.into())]
     pub status: SubscriptionStatusEnum,
+    pub purchase_order: Option<String>,
 }
 
 #[derive(Debug, Clone)]
@@ -90,6 +91,7 @@ pub struct Subscription {
     pub status: SubscriptionStatusEnum,
     pub auto_advance_invoices: bool,
     pub charge_automatically: bool,
+    pub purchase_order: Option<String>,
 }
 
 pub enum CyclePosition {
@@ -142,6 +144,7 @@ impl TryFrom<SubscriptionForDisplayRow> for Subscription {
             status: val.subscription.status.into(),
             charge_automatically: val.subscription.charge_automatically,
             auto_advance_invoices: val.subscription.auto_advance_invoices,
+            purchase_order: val.subscription.purchase_order,
         })
     }
 }
@@ -192,6 +195,7 @@ pub struct SubscriptionNew {
 
     pub auto_advance_invoices: bool,
     pub charge_automatically: bool,
+    pub purchase_order: Option<String>,
 }
 
 pub struct SubscriptionNewEnriched<'a> {
@@ -247,6 +251,7 @@ impl SubscriptionNewEnriched<'_> {
             cycle_index: self.cycle_index.map(|i| i as i32),
             charge_automatically: sub.charge_automatically,
             auto_advance_invoices: sub.auto_advance_invoices,
+            purchase_order: sub.purchase_order.clone(),
         }
     }
 }

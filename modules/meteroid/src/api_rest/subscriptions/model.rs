@@ -41,6 +41,7 @@ pub struct Subscription {
     pub status: SubscriptionStatusEnum,
     pub current_period_start: NaiveDate,
     pub current_period_end: Option<NaiveDate>,
+    pub purchase_order: Option<String>,
 }
 
 #[derive(Clone, ToSchema, Serialize, Deserialize)]
@@ -62,6 +63,7 @@ pub struct SubscriptionDetails {
     pub status: SubscriptionStatusEnum,
     pub current_period_start: NaiveDate,
     pub current_period_end: Option<NaiveDate>,
+    pub purchase_order: Option<String>,
 }
 
 #[derive(ToSchema, Serialize, Deserialize, Validate, Debug)]
@@ -86,6 +88,7 @@ pub struct SubscriptionCreateRequest {
     pub activation_condition: SubscriptionActivationConditionEnum,
     pub price_components: Option<CreateSubscriptionComponents>,
     pub add_ons: Option<Vec<CreateSubscriptionAddOn>>,
+    pub purchase_order: Option<String>,
 }
 
 #[derive(o2o, Clone, ToSchema, Serialize, Deserialize, Debug)]

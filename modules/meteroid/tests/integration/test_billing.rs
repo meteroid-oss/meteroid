@@ -560,6 +560,7 @@ async fn create_subscription(services: &Services, params: SubscriptionParams) ->
                     payment_strategy: params.payment_strategy,
                     auto_advance_invoices: true,
                     charge_automatically: true,
+                    purchase_order: None,
                 },
                 price_components: None,
                 add_ons: None,

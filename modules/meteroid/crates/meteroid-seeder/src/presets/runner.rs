@@ -211,6 +211,7 @@ pub async fn run_preset(
             billing_start_date: None,
             auto_advance_invoices: true,
             charge_automatically: true,
+            purchase_order: None,
         };
 
         subscriptions_to_create.push(store_domain::CreateSubscription {

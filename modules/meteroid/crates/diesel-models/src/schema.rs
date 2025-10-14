@@ -152,7 +152,7 @@ diesel::table! {
 }
 
 diesel::table! {
-    use diesel::sql_types::{Uuid, Text, Timestamp};
+    use diesel::sql_types::*;
     use super::sql_types::BankAccountFormat;
 
     bank_account (id) {
@@ -206,7 +206,7 @@ diesel::table! {
 }
 
 diesel::table! {
-    use diesel::sql_types::{Uuid, Text, Int8, Varchar, Timestamp, Date, Nullable};
+    use diesel::sql_types::*;
     use super::sql_types::MrrMovementType;
 
     bi_mrr_movement_log (id) {
@@ -239,7 +239,7 @@ diesel::table! {
 }
 
 diesel::table! {
-    use diesel::sql_types::{Uuid, Text, Nullable, Int4, Jsonb, Timestamp};
+    use diesel::sql_types::*;
     use super::sql_types::BillingMetricAggregateEnum;
     use super::sql_types::UnitConversionRoundingEnum;
 
@@ -265,7 +265,7 @@ diesel::table! {
 }
 
 diesel::table! {
-    use diesel::sql_types::{Uuid, Timestamp, Text, Nullable, Jsonb};
+    use diesel::sql_types::*;
     use super::sql_types::ConnectorTypeEnum;
     use super::sql_types::ConnectorProviderEnum;
 
@@ -302,7 +302,7 @@ diesel::table! {
 }
 
 diesel::table! {
-    use diesel::sql_types::{Uuid, Timestamp, Nullable, Int8, Text};
+    use diesel::sql_types::*;
     use super::sql_types::CreditNoteStatus;
 
     credit_note (id) {
@@ -393,7 +393,7 @@ diesel::table! {
 }
 
 diesel::table! {
-    use diesel::sql_types::{Uuid, Nullable, Array, Text};
+    use diesel::sql_types::*;
     use super::sql_types::PaymentMethodTypeEnum;
 
     customer_connection (id) {
@@ -406,7 +406,7 @@ diesel::table! {
 }
 
 diesel::table! {
-    use diesel::sql_types::{Uuid, Text, Timestamp, Nullable, Int4};
+    use diesel::sql_types::*;
     use super::sql_types::PaymentMethodTypeEnum;
 
     customer_payment_method (id) {
@@ -437,7 +437,7 @@ diesel::table! {
 }
 
 diesel::table! {
-    use diesel::sql_types::{Uuid, Timestamptz, Nullable, Text, Jsonb, Timestamp, Date, Int8, Int4, Bool};
+    use diesel::sql_types::*;
     use super::sql_types::InvoiceStatusEnum;
     use super::sql_types::InvoiceType;
     use super::sql_types::InvoicePaymentStatus;
@@ -490,7 +490,7 @@ diesel::table! {
 }
 
 diesel::table! {
-    use diesel::sql_types::{Uuid, Bool, Text, Int8, Int4, Nullable, Varchar};
+    use diesel::sql_types::*;
     use super::sql_types::TaxResolverEnum;
 
     invoicing_entity (id) {
@@ -547,7 +547,7 @@ diesel::table! {
 }
 
 diesel::table! {
-    use diesel::sql_types::Uuid;
+    use diesel::sql_types::*;
     use super::sql_types::OrganizationUserRole;
 
     organization_member (user_id, organization_id) {
@@ -570,7 +570,7 @@ diesel::table! {
 }
 
 diesel::table! {
-    use diesel::sql_types::{Uuid, Nullable, Text, Timestamp, Int8};
+    use diesel::sql_types::*;
     use super::sql_types::PaymentStatusEnum;
     use super::sql_types::PaymentTypeEnum;
 
@@ -592,7 +592,7 @@ diesel::table! {
 }
 
 diesel::table! {
-    use diesel::sql_types::{Uuid, Text, Nullable, Timestamp};
+    use diesel::sql_types::*;
     use super::sql_types::PlanTypeEnum;
     use super::sql_types::PlanStatusEnum;
 
@@ -614,7 +614,7 @@ diesel::table! {
 }
 
 diesel::table! {
-    use diesel::sql_types::{Uuid, Bool, Int4, Nullable, Int2, Text, Timestamp};
+    use diesel::sql_types::*;
     use super::sql_types::ActionAfterTrialEnum;
 
     plan_version (id) {
@@ -684,7 +684,7 @@ diesel::table! {
 }
 
 diesel::table! {
-    use diesel::sql_types::{Uuid, Timestamptz, Nullable, Varchar, Int4, Date, Text, Array, Jsonb};
+    use diesel::sql_types::*;
     use super::sql_types::QuoteStatusEnum;
     use super::sql_types::SubscriptionActivationConditionEnum;
 
@@ -719,6 +719,7 @@ diesel::table! {
         converted_to_subscription_id -> Nullable<Uuid>,
         converted_at -> Nullable<Timestamptz>,
         recipients -> Jsonb,
+        purchase_order -> Nullable<Text>,
     }
 }
 
@@ -738,7 +739,7 @@ diesel::table! {
 }
 
 diesel::table! {
-    use diesel::sql_types::{Uuid, Text, Nullable, Jsonb, Bool};
+    use diesel::sql_types::*;
     use super::sql_types::SubscriptionFeeBillingPeriod;
 
     quote_component (id) {
@@ -771,7 +772,7 @@ diesel::table! {
 }
 
 diesel::table! {
-    use diesel::sql_types::{Uuid, Jsonb};
+    use diesel::sql_types::*;
     use super::sql_types::BillingPeriodEnum;
 
     schedule (id) {
@@ -783,7 +784,7 @@ diesel::table! {
 }
 
 diesel::table! {
-    use diesel::sql_types::{Uuid, Timestamp, Int4, Jsonb, Nullable, Text};
+    use diesel::sql_types::*;
     use super::sql_types::ScheduledEventTypeEnum;
     use super::sql_types::ScheduledEventStatus;
 
@@ -820,7 +821,7 @@ diesel::table! {
 }
 
 diesel::table! {
-    use diesel::sql_types::{Uuid, Int2, Date, Timestamp, Int4, Nullable, Text, Numeric, Varchar, Int8, Bool, Jsonb};
+    use diesel::sql_types::*;
     use super::sql_types::BillingPeriodEnum;
     use super::sql_types::PaymentMethodTypeEnum;
     use super::sql_types::SubscriptionActivationConditionEnum;
@@ -865,11 +866,12 @@ diesel::table! {
         next_retry -> Nullable<Timestamp>,
         auto_advance_invoices -> Bool,
         charge_automatically -> Bool,
+        purchase_order -> Nullable<Text>,
     }
 }
 
 diesel::table! {
-    use diesel::sql_types::{Uuid, Text, Jsonb, Timestamp};
+    use diesel::sql_types::*;
     use super::sql_types::SubscriptionFeeBillingPeriod;
 
     subscription_add_on (id) {
@@ -884,7 +886,7 @@ diesel::table! {
 }
 
 diesel::table! {
-    use diesel::sql_types::{Uuid, Text, Nullable, Jsonb};
+    use diesel::sql_types::*;
     use super::sql_types::SubscriptionFeeBillingPeriod;
 
     subscription_component (id) {
@@ -899,7 +901,7 @@ diesel::table! {
 }
 
 diesel::table! {
-    use diesel::sql_types::{Uuid, Nullable, Int8, Timestamp, Date, Jsonb};
+    use diesel::sql_types::*;
     use super::sql_types::SubscriptionEventType;
 
     subscription_event (id) {
@@ -915,7 +917,7 @@ diesel::table! {
 }
 
 diesel::table! {
-    use diesel::sql_types::{Uuid, Text, Timestamp, Nullable, Array, Bool};
+    use diesel::sql_types::*;
     use super::sql_types::TenantEnvironmentEnum;
 
     tenant (id) {

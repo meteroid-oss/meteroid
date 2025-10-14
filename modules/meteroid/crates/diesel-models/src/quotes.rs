@@ -46,6 +46,7 @@ pub struct QuoteRow {
     pub converted_to_subscription_id: Option<SubscriptionId>,
     pub converted_at: Option<NaiveDateTime>,
     pub recipients: serde_json::Value,
+    pub purchase_order: Option<String>,
 }
 
 #[derive(Insertable, Debug)]

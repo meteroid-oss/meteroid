@@ -330,6 +330,7 @@ pub async fn run(
             billing_start_date: None,
             auto_advance_invoices: true,
             charge_automatically: true,
+            purchase_order: None,
         };
 
         let create_subscription_components = if parameterized_components.is_empty() {

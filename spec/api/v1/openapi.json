@@ -648,7 +648,7 @@
             "description": "Filter by a product family",
             "required": false,
             "schema": {
-              "type": "string"
+              "$ref": "#/components/schemas/ProductFamilyId"
             },
             "example": "default"
           }
@@ -2633,6 +2633,12 @@
                 "plan_version_id": {
                   "$ref": "#/components/schemas/PlanVersionId"
                 },
+                "purchase_order": {
+                  "type": [
+                    "string",
+                    "null"
+                  ]
+                },
                 "status": {
                   "$ref": "#/components/schemas/SubscriptionStatusEnum"
                 }
@@ -3088,6 +3094,12 @@
           "plan_version_id": {
             "$ref": "#/components/schemas/PlanVersionId"
           },
+          "purchase_order": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
           "status": {
             "$ref": "#/components/schemas/SubscriptionStatusEnum"
           }
@@ -3323,6 +3335,12 @@
               }
             ]
           },
+          "purchase_order": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
           "start_date": {
             "type": "string",
             "format": "date",
@@ -3400,6 +3418,12 @@
           },
           "plan_version_id": {
             "$ref": "#/components/schemas/PlanVersionId"
+          },
+          "purchase_order": {
+            "type": [
+              "string",
+              "null"
+            ]
           },
           "status": {
             "$ref": "#/components/schemas/SubscriptionStatusEnum"

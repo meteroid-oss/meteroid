@@ -63,6 +63,7 @@ message Subscription {
   optional string card_connection_id = 30;
   optional string direct_debit_connection_id = 31;
   optional api.connectors.v1.ConnectionMetadata connection_metadata = 32;
+  optional string purchase_order = 33;
 }
 
 message SubscriptionDetails {
@@ -95,6 +96,7 @@ message CreatedSubscription {
   string local_id = 19;
   uint32 billing_day_anchor = 20;
   optional string checkout_token = 21;
+  optional string purchase_order = 22;
 }
 
 message CreateSubscription {
@@ -107,6 +109,7 @@ message CreateSubscription {
   optional uint32 net_terms = 10;
   optional string invoice_memo = 11;
   optional string invoice_threshold = 12;
+  optional string purchase_order = 13;
   CreateSubscriptionComponents components = 14;
   CreateSubscriptionAddOns add_ons = 15;
   CreateSubscriptionCoupons coupons = 16;

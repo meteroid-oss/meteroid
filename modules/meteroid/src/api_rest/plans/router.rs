@@ -23,7 +23,7 @@ use meteroid_store::repositories::PlansInterface;
     params(
         ("page" = usize, Query, description = "Specifies the starting position of the results", example = 0, minimum = 0),
         ("per_page" = usize, Query, description = "The maximum number of objects to return", example = 10, minimum = 1, maximum = 100),
-        ("product_family_id" = Option<String>, Query, description = "Filter by a product family", example = "default"),
+        ("product_family_id" = Option<ProductFamilyId>, Query, description = "Filter by a product family", example = "default"),
     ),
     responses(
         (status = 200, description = "List of plans", body = PlanListResponse),
