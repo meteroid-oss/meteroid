@@ -495,6 +495,40 @@ impl UsageClient for MeteringUsageClient {
             events: metering_response.events,
         })
     }
+
+    async fn ingest_events(
+        &self,
+        tenant_id: &TenantId,
+        request: meteroid_store::clients::usage::IngestEventsRequest,
+    ) -> StoreResult<meteroid_store::clients::usage::IngestEventsResult> {
+        let grpc_request = InternalIngestRequest {
+            tenant_id: tenant_id.to_string(),
+            events: request.events,
+            allow_backfilling: request.allow_backfilling,
+            fail_on_error: true,
+        };
+
+        let response = self
+            .ingest_grpc_service
+            .clone()
+            .ingest_internal(grpc_request)
+            .await
+            .change_context(StoreError::MeteringServiceError)
+            .attach("Failed to ingest events")?;
+
+        let metering_response = response.into_inner();
+
+        Ok(meteroid_store::clients::usage::IngestEventsResult {
+            failures: metering_response
+                .failures
+                .into_iter()
+                .map(|f| meteroid_store::clients::usage::IngestEventsFailure {
+                    event_id: f.event_id,
+                    reason: f.reason,
+                })
+                .collect(),
+        })
+    }
 }
 
 fn date_to_timestamp(dt: NaiveDate) -> prost_types::Timestamp {

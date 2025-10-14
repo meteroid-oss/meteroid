@@ -1,4 +1,4 @@
-import { Box, ChartPie, Flag, Home, LifeBuoy, ReceiptText, Settings, User, Zap } from 'lucide-react'
+import { Box, ChartPie, CodeIcon, Flag, Home, LifeBuoy, ReceiptText, Settings, User, Zap } from 'lucide-react'
 
 export const sidebarItems = {
   mainNav: [
@@ -92,6 +92,11 @@ export const sidebarItems = {
       title: 'Settings',
       url: 'settings',
       icon: Settings,
+    },
+    {
+      title: 'Developers',
+      url: 'developers',
+      icon: CodeIcon,
     },
   ],
 }
