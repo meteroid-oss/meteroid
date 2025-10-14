@@ -8,7 +8,7 @@ use argon2::{
     Argon2,
     password_hash::{PasswordHasher, SaltString, rand_core::OsRng},
 };
-use common_domain::ids::TenantId;
+use common_domain::ids::{BaseId, TenantId};
 use common_eventbus::Event;
 use diesel_models::api_tokens::{ApiTokenRow, ApiTokenRowNew, ApiTokenValidationRow};
 use diesel_models::tenants::TenantRow;
@@ -30,6 +30,13 @@ pub trait ApiTokensInterface {
     ) -> StoreResult<ApiTokenValidation>;
 
     async fn insert_api_token(&self, plan: domain::ApiTokenNew) -> StoreResult<(String, ApiToken)>;
+
+    async fn delete_api_token(
+        &self,
+        id: &Uuid,
+        tenant_id: TenantId,
+        actor: Uuid,
+    ) -> StoreResult<()>;
 }
 
 #[async_trait::async_trait]
@@ -139,10 +146,31 @@ impl ApiTokensInterface for Store {
                 .publish(Event::api_token_created(
                     insertable_entity.created_by,
                     insertable_entity.id,
+                    insertable_entity.tenant_id.as_uuid(),
                 ))
                 .await;
         }
 
         result.map(|res| (api_key, res))
+    }
+
+    async fn delete_api_token(
+        &self,
+        id: &Uuid,
+        tenant_id: TenantId,
+        actor: Uuid,
+    ) -> StoreResult<()> {
+        let mut conn = self.get_conn().await?;
+
+        ApiTokenRow::delete_by_id(&mut conn, id, tenant_id)
+            .await
+            .map_err(|err| StoreError::DatabaseError(err.error))?;
+
+        let _ = self
+            .eventbus
+            .publish(Event::api_token_revoked(actor, *id, tenant_id.as_uuid()))
+            .await;
+
+        Ok(())
     }
 }

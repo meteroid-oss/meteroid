@@ -10,6 +10,7 @@ import { StripeIntegrationModal } from '@/features/settings/integrations/StripeI
 import { DashboardPage as Dashboard } from '@/pages/tenants/dashboard'
 import { DeveloperSettings } from '@/pages/tenants/developers'
 import { EventsPage } from '@/pages/tenants/events'
+import { HelpPage } from '@/pages/tenants/help'
 import { ReportsPage } from '@/pages/tenants/reports'
 import { TenantSettings } from '@/pages/tenants/settings'
 import { billingRoutes } from 'router/tenant/billing'
@@ -55,6 +56,10 @@ export const tenantRoutes: RouteObject = {
     {
       path: 'developers',
       element: <DeveloperSettings />,
+    },
+    {
+      path: 'help',
+      element: <HelpPage />,
     },
     {
       path: 'events',
