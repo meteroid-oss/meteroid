@@ -231,7 +231,7 @@ export const SegmentationMatrixSection = ({ methods }: BillingMatrixProps) => {
 }
 
 interface JsonMapEditorProps {
-  value: [string, ...string[]] | Record<string, [string, ...string[]]>
+  value: [string, ...string[]] | Record<string, [string, ...string[]]> | undefined
   onChange: (value: unknown) => void
 }
 
