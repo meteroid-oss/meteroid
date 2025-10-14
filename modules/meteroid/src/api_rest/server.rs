@@ -25,9 +25,6 @@ use utoipa_swagger_ui::SwaggerUi;
 #[derive(OpenApi)]
 #[openapi(
     modifiers(&SecurityAddon),
-    nest(
-        (path = "/files", api = crate::api_rest::files::FileApi),
-    ),
     tags((name = "meteroid", description = "Meteroid API"))
 )]
 pub struct ApiDoc;

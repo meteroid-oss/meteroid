@@ -11,7 +11,7 @@ use crate::domain::{
     SubscriptionFee, SubscriptionNew, SubscriptionNewEnriched, SubscriptionStatusEnum,
 };
 use crate::errors::{StoreError, StoreErrorReport};
-use crate::repositories::subscriptions::generate_checkout_token;
+use crate::repositories::subscriptions::generate_checkout_url;
 use crate::services::InvoiceBillingMode;
 use crate::services::subscriptions::utils::{
     apply_coupons, calculate_mrr, extract_billing_period, process_create_subscription_add_ons,
@@ -429,6 +429,7 @@ impl Services {
         processed: &[ProcessedSubscription],
         tenant_id: TenantId,
         jwt_secret: &SecretString,
+        public_url: &String,
     ) -> StoreResult<Vec<CreatedSubscription>> {
         let res = self
             .store
@@ -502,8 +503,9 @@ impl Services {
             .into_iter()
             .map(|mut sub| {
                 if sub.pending_checkout {
-                    sub.checkout_token =
-                        Some(generate_checkout_token(jwt_secret, tenant_id, sub.id)?);
+                    sub.checkout_url = Some(generate_checkout_url(
+                        jwt_secret, public_url, tenant_id, sub.id,
+                    )?);
                 }
                 Ok(sub)
             })

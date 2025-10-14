@@ -45,12 +45,11 @@
           {
             "name": "search",
             "in": "query",
-            "description": "Filtering criteria",
-            "required": true,
+            "description": "Filter customers by search term (part of name, alias or email)",
+            "required": false,
             "schema": {
               "type": "string"
-            },
-            "example": "abc"
+            }
           }
         ],
         "responses": {
@@ -754,16 +753,6 @@
               "minimum": 0
             },
             "example": 0
-          },
-          {
-            "name": "search",
-            "in": "query",
-            "description": "Filtering criteria",
-            "required": true,
-            "schema": {
-              "type": "string"
-            },
-            "example": "abc"
           }
         ],
         "responses": {
@@ -915,7 +904,7 @@
             "name": "customer_id",
             "in": "query",
             "description": "Filter by customer ID",
-            "required": true,
+            "required": false,
             "schema": {
               "$ref": "#/components/schemas/CustomerId"
             }
@@ -924,7 +913,7 @@
             "name": "plan_id",
             "in": "query",
             "description": "Filter by plan ID",
-            "required": true,
+            "required": false,
             "schema": {
               "$ref": "#/components/schemas/PlanId"
             }
@@ -936,7 +925,7 @@
             "content": {
               "application/json": {
                 "schema": {
-                  "$ref": "#/components/schemas/PaginatedResponse_Subscription"
+                  "$ref": "#/components/schemas/SubscriptionListResponse"
                 }
               }
             }
@@ -1098,101 +1087,81 @@
         ]
       }
     },
-    "/files/v1/invoice/pdf/{uid}": {
-      "get": {
+    "/api/v1/subscriptions/{subscription_id}/cancel": {
+      "post": {
         "tags": [
-          "file"
+          "subscription"
         ],
-        "operationId": "get_invoice_pdf",
+        "operationId": "cancel_subscription",
         "parameters": [
           {
-            "name": "uid",
+            "name": "subscription_id",
             "in": "path",
-            "description": "Invoice database UID",
+            "description": "Subscription ID",
             "required": true,
             "schema": {
-              "type": "string"
-            }
-          },
-          {
-            "name": "token",
-            "in": "query",
-            "description": "Security token",
-            "required": true,
-            "schema": {
-              "type": "string"
-            }
+              "$ref": "#/components/schemas/SubscriptionId"
+            },
+            "example": "sub_123"
           }
         ],
-        "responses": {
-          "200": {
-            "description": "Invoice in PDF",
-            "content": {
-              "application/pdf": {
-                "schema": {
-                  "type": "array",
-                  "items": {
-                    "type": "integer",
-                    "format": "int32",
-                    "minimum": 0
-                  }
-                }
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/CancelSubscriptionRequest"
               }
             }
           },
-          "400": {
-            "description": "Invalid UUID or token"
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "description": "Subscription canceled",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/CancelSubscriptionResponse"
+                }
+              }
+            }
           },
           "401": {
-            "description": "Unauthorized - invalid token"
-          },
-          "500": {
-            "description": "Internal error"
-          }
-        }
-      }
-    },
-    "/files/v1/logo/{uuid}": {
-      "get": {
-        "tags": [
-          "file"
-        ],
-        "operationId": "get_logo",
-        "parameters": [
-          {
-            "name": "uuid",
-            "in": "path",
-            "description": "Logo database UUID",
-            "required": true,
-            "schema": {
-              "type": "string",
-              "format": "uuid"
-            }
-          }
-        ],
-        "responses": {
-          "200": {
-            "description": "Logo as PNG image",
+            "description": "Unauthorized",
             "content": {
-              "image/png": {
+              "application/json": {
                 "schema": {
-                  "type": "array",
-                  "items": {
-                    "type": "integer",
-                    "format": "int32",
-                    "minimum": 0
-                  }
+                  "$ref": "#/components/schemas/RestErrorResponse"
                 }
               }
             }
           },
-          "400": {
-            "description": "Invalid UUID"
+          "404": {
+            "description": "Subscription not found",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/RestErrorResponse"
+                }
+              }
+            }
           },
           "500": {
-            "description": "Internal error"
+            "description": "Internal error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/RestErrorResponse"
+                }
+              }
+            }
           }
-        }
+        },
+        "security": [
+          {
+            "bearer_auth": []
+          }
+        ]
       }
     }
   },
@@ -1249,6 +1218,73 @@
             ]
           }
         }
+      },
+      "AppliedCoupon": {
+        "type": "object",
+        "required": [
+          "id",
+          "coupon_id",
+          "is_active",
+          "created_at"
+        ],
+        "properties": {
+          "applied_amount": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "format": "decimal"
+          },
+          "applied_count": {
+            "type": [
+              "integer",
+              "null"
+            ],
+            "format": "int32"
+          },
+          "coupon_id": {
+            "$ref": "#/components/schemas/CouponId"
+          },
+          "created_at": {
+            "type": "string",
+            "format": "date-time"
+          },
+          "id": {
+            "$ref": "#/components/schemas/AppliedCouponId"
+          },
+          "is_active": {
+            "type": "boolean"
+          },
+          "last_applied_at": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "format": "date-time"
+          }
+        }
+      },
+      "AppliedCouponDetailed": {
+        "type": "object",
+        "required": [
+          "coupon",
+          "applied_coupon"
+        ],
+        "properties": {
+          "applied_coupon": {
+            "$ref": "#/components/schemas/AppliedCoupon"
+          },
+          "coupon": {
+            "$ref": "#/components/schemas/Coupon"
+          }
+        }
+      },
+      "AppliedCouponId": {
+        "type": "string",
+        "format": "MeteroidId",
+        "examples": [
+          "sub_cou_7n42DGM5Tflk9n8mt7Fhc7"
+        ]
       },
       "AvailableParameters": {
         "type": "object",
@@ -1325,6 +1361,36 @@
           "ADVANCE",
           "ARREARS"
         ]
+      },
+      "CancelSubscriptionRequest": {
+        "type": "object",
+        "properties": {
+          "effective_date": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "format": "date",
+            "description": "If not provided, the cancellation will be effective at the end of the current billing or committed period."
+          },
+          "reason": {
+            "type": [
+              "string",
+              "null"
+            ]
+          }
+        }
+      },
+      "CancelSubscriptionResponse": {
+        "type": "object",
+        "required": [
+          "subscription"
+        ],
+        "properties": {
+          "subscription": {
+            "$ref": "#/components/schemas/Subscription"
+          }
+        }
       },
       "CapacityThreshold": {
         "type": "object",
@@ -1417,6 +1483,111 @@
           "US",
           "GB",
           "FR"
+        ]
+      },
+      "Coupon": {
+        "type": "object",
+        "required": [
+          "id",
+          "code",
+          "description",
+          "discount",
+          "reusable",
+          "disabled"
+        ],
+        "properties": {
+          "code": {
+            "type": "string"
+          },
+          "description": {
+            "type": "string"
+          },
+          "disabled": {
+            "type": "boolean"
+          },
+          "discount": {
+            "$ref": "#/components/schemas/CouponDiscount"
+          },
+          "expires_at": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "format": "date-time"
+          },
+          "id": {
+            "$ref": "#/components/schemas/CouponId"
+          },
+          "recurring_value": {
+            "type": [
+              "integer",
+              "null"
+            ],
+            "format": "int32"
+          },
+          "redemption_limit": {
+            "type": [
+              "integer",
+              "null"
+            ],
+            "format": "int32"
+          },
+          "reusable": {
+            "type": "boolean"
+          }
+        }
+      },
+      "CouponDiscount": {
+        "oneOf": [
+          {
+            "type": "object",
+            "required": [
+              "percentage",
+              "discriminator"
+            ],
+            "properties": {
+              "discriminator": {
+                "type": "string",
+                "enum": [
+                  "PERCENTAGE"
+                ]
+              },
+              "percentage": {
+                "type": "string",
+                "format": "decimal"
+              }
+            }
+          },
+          {
+            "type": "object",
+            "required": [
+              "currency",
+              "amount",
+              "discriminator"
+            ],
+            "properties": {
+              "amount": {
+                "type": "string",
+                "format": "decimal"
+              },
+              "currency": {
+                "type": "string"
+              },
+              "discriminator": {
+                "type": "string",
+                "enum": [
+                  "FIXED"
+                ]
+              }
+            }
+          }
+        ]
+      },
+      "CouponId": {
+        "type": "string",
+        "format": "MeteroidId",
+        "examples": [
+          "cou_7n42DGM5Tflk9n8mt7Fhc7"
         ]
       },
       "CouponLineItem": {
@@ -2561,97 +2732,6 @@
           }
         }
       },
-      "PaginatedResponse_Subscription": {
-        "type": "object",
-        "required": [
-          "data",
-          "total"
-        ],
-        "properties": {
-          "data": {
-            "type": "array",
-            "items": {
-              "type": "object",
-              "required": [
-                "id",
-                "customer_id",
-                "customer_name",
-                "billing_day_anchor",
-                "currency",
-                "plan_id",
-                "plan_name",
-                "plan_version_id",
-                "plan_version",
-                "status",
-                "current_period_start"
-              ],
-              "properties": {
-                "billing_day_anchor": {
-                  "type": "integer",
-                  "format": "int32"
-                },
-                "currency": {
-                  "$ref": "#/components/schemas/Currency"
-                },
-                "current_period_end": {
-                  "type": [
-                    "string",
-                    "null"
-                  ],
-                  "format": "date"
-                },
-                "current_period_start": {
-                  "type": "string",
-                  "format": "date"
-                },
-                "customer_alias": {
-                  "type": [
-                    "string",
-                    "null"
-                  ]
-                },
-                "customer_id": {
-                  "$ref": "#/components/schemas/CustomerId"
-                },
-                "customer_name": {
-                  "type": "string"
-                },
-                "id": {
-                  "$ref": "#/components/schemas/SubscriptionId"
-                },
-                "plan_id": {
-                  "$ref": "#/components/schemas/PlanId"
-                },
-                "plan_name": {
-                  "type": "string"
-                },
-                "plan_version": {
-                  "type": "integer",
-                  "format": "int32",
-                  "minimum": 0
-                },
-                "plan_version_id": {
-                  "$ref": "#/components/schemas/PlanVersionId"
-                },
-                "purchase_order": {
-                  "type": [
-                    "string",
-                    "null"
-                  ]
-                },
-                "status": {
-                  "$ref": "#/components/schemas/SubscriptionStatusEnum"
-                }
-              }
-            }
-          },
-          "total": {
-            "type": "integer",
-            "format": "int64",
-            "minimum": 0
-          }
-        }
-      },
       "PaginationResponse": {
         "type": "object",
         "required": [
@@ -3113,6 +3193,28 @@
           "MANUAL"
         ]
       },
+      "SubscriptionAddOn": {
+        "type": "object",
+        "required": [
+          "name",
+          "period",
+          "fee"
+        ],
+        "properties": {
+          "add_on_id": {
+            "$ref": "#/components/schemas/AddOnId"
+          },
+          "fee": {
+            "$ref": "#/components/schemas/SubscriptionFee"
+          },
+          "name": {
+            "type": "string"
+          },
+          "period": {
+            "$ref": "#/components/schemas/SubscriptionFeeBillingPeriodEnum"
+          }
+        }
+      },
       "SubscriptionAddOnCustomization": {
         "oneOf": [
           {
@@ -3214,15 +3316,11 @@
         "required": [
           "name",
           "period",
-          "fee",
-          "is_override"
+          "fee"
         ],
         "properties": {
           "fee": {
             "$ref": "#/components/schemas/SubscriptionFee"
-          },
-          "is_override": {
-            "type": "boolean"
           },
           "name": {
             "type": "string"
@@ -3255,10 +3353,9 @@
       "SubscriptionCreateRequest": {
         "type": "object",
         "required": [
-          "plan_version_id",
+          "plan_id",
           "customer_id_or_alias",
           "start_date",
-          "invoice_threshold",
           "activation_condition"
         ],
         "properties": {
@@ -3266,10 +3363,7 @@
             "$ref": "#/components/schemas/SubscriptionActivationConditionEnum"
           },
           "add_ons": {
-            "type": [
-              "array",
-              "null"
-            ],
+            "type": "array",
             "items": {
               "$ref": "#/components/schemas/CreateSubscriptionAddOn"
             }
@@ -3284,10 +3378,7 @@
             "minimum": 1
           },
           "coupon_codes": {
-            "type": [
-              "array",
-              "null"
-            ],
+            "type": "array",
             "items": {
               "type": "string"
             }
@@ -3297,43 +3388,23 @@
             "format": "CustomerId or customer alias"
           },
           "end_date": {
-            "type": [
-              "string",
-              "null"
-            ],
+            "type": "string",
             "format": "date",
             "example": "2025-11-01"
           },
           "invoice_memo": {
-            "type": [
-              "string",
-              "null"
-            ]
-          },
-          "invoice_threshold": {
-            "type": "string",
-            "format": "decimal"
+            "type": "string"
           },
           "net_terms": {
-            "type": [
-              "integer",
-              "null"
-            ],
+            "type": "integer",
             "format": "int32",
             "minimum": 0
           },
-          "plan_version_id": {
-            "$ref": "#/components/schemas/PlanVersionId"
+          "plan_id": {
+            "$ref": "#/components/schemas/PlanId"
           },
           "price_components": {
-            "oneOf": [
-              {
-                "type": "null"
-              },
-              {
-                "$ref": "#/components/schemas/CreateSubscriptionComponents"
-              }
-            ]
+            "$ref": "#/components/schemas/CreateSubscriptionComponents"
           },
           "purchase_order": {
             "type": [
@@ -3347,12 +3418,13 @@
             "example": "2024-11-01"
           },
           "trial_days": {
-            "type": [
-              "integer",
-              "null"
-            ],
+            "type": "integer",
             "format": "int32",
             "minimum": 0
+          },
+          "version": {
+            "type": "integer",
+            "format": "int32"
           }
         }
       },
@@ -3369,12 +3441,39 @@
           "plan_version_id",
           "plan_version",
           "status",
-          "current_period_start"
+          "current_period_start",
+          "components",
+          "add_ons",
+          "applied_coupons"
         ],
         "properties": {
+          "add_ons": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/SubscriptionAddOn"
+            }
+          },
+          "applied_coupons": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/AppliedCouponDetailed"
+            }
+          },
           "billing_day_anchor": {
             "type": "integer",
             "format": "int32"
+          },
+          "checkout_url": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "components": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/SubscriptionComponent"
+            }
           },
           "currency": {
             "$ref": "#/components/schemas/Currency"
@@ -3623,6 +3722,24 @@
         "examples": [
           "sub_7n42DGM5Tflk9n8mt7Fhc7"
         ]
+      },
+      "SubscriptionListResponse": {
+        "type": "object",
+        "required": [
+          "data",
+          "pagination_meta"
+        ],
+        "properties": {
+          "data": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/Subscription"
+            }
+          },
+          "pagination_meta": {
+            "$ref": "#/components/schemas/PaginationResponse"
+          }
+        }
       },
       "SubscriptionStatusEnum": {
         "type": "string",

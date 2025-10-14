@@ -58,7 +58,7 @@ message Subscription {
   // TODO accrued (total up until now ? ) , due (next billing cycle) , last X months of revenue for a graph ?
   string local_id = 25;
   optional string billing_start_date = 26;
-  optional string checkout_token = 27;
+  optional string checkout_url = 27;
 
   optional string card_connection_id = 30;
   optional string direct_debit_connection_id = 31;
@@ -95,7 +95,7 @@ message CreatedSubscription {
   uint64 mrr_cents = 18;
   string local_id = 19;
   uint32 billing_day_anchor = 20;
-  optional string checkout_token = 21;
+  optional string checkout_url = 21;
   optional string purchase_order = 22;
 }
 

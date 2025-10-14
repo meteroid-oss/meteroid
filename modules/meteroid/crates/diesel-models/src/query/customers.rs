@@ -119,12 +119,17 @@ impl CustomerRow {
             .into_db_result()
     }
 
-    pub async fn find_by_alias(conn: &mut PgConn, customer_alias: String) -> DbResult<CustomerRow> {
-        use crate::schema::customer::dsl::{alias, archived_at, customer};
+    pub async fn find_by_alias(
+        conn: &mut PgConn,
+        customer_alias: String,
+        tenant_id_param: TenantId,
+    ) -> DbResult<CustomerRow> {
+        use crate::schema::customer::dsl::{alias, archived_at, customer, tenant_id};
         use diesel_async::RunQueryDsl;
 
         let query = customer
             .filter(alias.eq(customer_alias))
+            .filter(tenant_id.eq(tenant_id_param))
             .filter(archived_at.is_null());
 
         log::debug!("{}", debug_query::<diesel::pg::Pg, _>(&query));
@@ -136,7 +141,7 @@ impl CustomerRow {
             .into_db_result()
     }
 
-    pub async fn find_by_aliases(
+    pub async fn resolve_ids_by_aliases(
         conn: &mut PgConn,
         param_tenant_id: TenantId,
         param_customer_aliases: Vec<String>,
@@ -159,6 +164,29 @@ impl CustomerRow {
             .into_db_result()
     }
 
+    pub async fn resolve_id_by_alias(
+        conn: &mut PgConn,
+        param_tenant_id: TenantId,
+        param_customer_alias: String,
+    ) -> DbResult<CustomerBriefRow> {
+        use crate::schema::customer::dsl::{alias, archived_at, customer, tenant_id};
+        use diesel_async::RunQueryDsl;
+
+        let query = customer
+            .filter(tenant_id.eq(param_tenant_id))
+            .filter(alias.eq(param_customer_alias))
+            .filter(archived_at.is_null())
+            .select(CustomerBriefRow::as_select());
+
+        log::debug!("{}", debug_query::<diesel::pg::Pg, _>(&query));
+
+        query
+            .first(conn)
+            .await
+            .attach("Error while finding customer by aliases")
+            .into_db_result()
+    }
+
     pub async fn list(
         conn: &mut PgConn,
         param_tenant_id: TenantId,
@@ -167,7 +195,7 @@ impl CustomerRow {
         param_query: Option<String>,
     ) -> DbResult<PaginatedVec<CustomerRow>> {
         use crate::schema::customer::dsl::{
-            alias, archived_at, created_at, customer, id, name, tenant_id,
+            alias, archived_at, billing_email, created_at, customer, id, name, tenant_id,
         };
 
         let mut query = customer
@@ -179,7 +207,8 @@ impl CustomerRow {
         if let Some(param_query) = param_query {
             query = query.filter(
                 name.ilike(format!("%{param_query}%"))
-                    .or(alias.ilike(format!("%{param_query}%"))),
+                    .or(alias.ilike(format!("%{param_query}%")))
+                    .or(billing_email.ilike(format!("%{param_query}%"))),
             );
         }
 

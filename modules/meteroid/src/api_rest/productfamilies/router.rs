@@ -24,7 +24,6 @@ use meteroid_store::repositories::ProductFamilyInterface;
     params(
         ("per_page" = Option<u32>, Query, description = "Specifies the max number of results in a page", example = 20, minimum = 1, maximum = 100),
         ("page" = Option<u32>, Query, description = "The page to return, starting at index 0", example = 0, minimum = 0),
-        ("search" = String, Query, description = "Filtering criteria", example = "abc"),
     ),
     responses(
         (status = 200, description = "List of product families", body = ProductFamilyListResponse),
@@ -48,7 +47,7 @@ pub(crate) async fn list_product_families(
             authorized_state.tenant_id,
             request.pagination.into(),
             OrderByRequest::IdAsc,
-            request.filters.search,
+            None,
         )
         .await
         .map_err(|e| {
