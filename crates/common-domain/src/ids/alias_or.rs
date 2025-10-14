@@ -8,8 +8,8 @@ use validator::{Validate, ValidationError};
 #[derive(Debug, PartialEq, Clone)]
 #[cfg_attr(feature = "utoipa", derive(utoipa::ToSchema))]
 pub enum AliasOr<ID: BaseId> {
-    Id(#[cfg_attr(feature = "utoipa", schema(inline))] ID),
-    Alias(#[cfg_attr(feature = "utoipa", schema(inline))] String),
+    Id(ID),
+    Alias(String),
 }
 
 impl<ID> From<ID> for AliasOr<ID>
