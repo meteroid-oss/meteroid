@@ -5,4 +5,5 @@ pub mod timed;
 
 pub mod decimals;
 pub mod integers;
+pub mod misc;
 pub mod rng;

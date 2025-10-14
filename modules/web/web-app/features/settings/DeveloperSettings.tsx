@@ -21,9 +21,10 @@ import { SimpleTable } from '@/components/table/SimpleTable'
 import { useQuery } from '@/lib/connectrpc'
 import { copyToClipboard } from '@/lib/helpers'
 import {
-  listApiTokens,
   createApiToken as createApiTokenMutation,
+  listApiTokens,
 } from '@/rpc/api/apitokens/v1/apitokens-ApiTokensService_connectquery'
+import { parseAndFormatDate } from '@/utils/date'
 
 interface ApiToken {
   id: string
@@ -68,15 +69,15 @@ export const DeveloperSettings: FunctionComponent = () => {
           <TabsList className="w-full justify-start">
             <TabsTrigger value="api-keys">Api keys</TabsTrigger>
             <TabsTrigger value="webhooks">Webhooks</TabsTrigger>
-            <TabsTrigger value="events">Event Debugger</TabsTrigger>
           </TabsList>
           <TabsContent value="api-keys">
-            <h1 className="text-lg py-4 font-semibold">Api keys</h1>
-            <p className="text-sm text-muted-foreground">
-              Create an API key to access our API. We recommand using a different key in each
-              service.
-            </p>
-            <div className="flex max-w-xl justify-end p-2">
+            <div className="flex justify-between py-4">
+              <div>
+                <h1 className="text-lg pb-4 font-semibold">Api keys</h1>
+                <p className="text-sm text-muted-foreground">
+                  Create an API key to access our API.
+                </p>
+              </div>
               <Button hasIcon onClick={() => createApiToken()} size="sm">
                 <PlusIcon size={12} /> Create api token
               </Button>
@@ -130,7 +131,7 @@ export const DeveloperSettings: FunctionComponent = () => {
                     <h3 className="font-semibold">{token.name}</h3>
                     <div className="text-sm font-semibold">Hint: {token.hint}</div>
                     <div className="text-sm text-muted-foreground">
-                      Created by: {token.createdBy} (todo resolve)
+                      Created on: {parseAndFormatDate(token.createdAt)}
                     </div>
                   </li>
                 ))}
@@ -138,7 +139,6 @@ export const DeveloperSettings: FunctionComponent = () => {
             </div>
           </TabsContent>
           <TabsContent value="webhooks">Not implemented</TabsContent>
-          <TabsContent value="events">Not implemented</TabsContent>
         </Tabs>
       </div>
     </>

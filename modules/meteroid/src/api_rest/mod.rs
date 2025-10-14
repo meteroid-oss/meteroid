@@ -1,5 +1,6 @@
 use crate::adapters::stripe::Stripe;
 use crate::api_rest::customers::customer_routes;
+use crate::api_rest::events::event_routes;
 use crate::api_rest::invoices::invoice_routes;
 use crate::api_rest::plans::plan_routes;
 use crate::api_rest::productfamilies::product_family_routes;
@@ -18,6 +19,7 @@ mod auth;
 mod currencies;
 mod customers;
 pub mod error;
+mod events;
 mod files;
 mod invoices;
 mod model;
@@ -36,6 +38,7 @@ pub fn api_routes() -> OpenApiRouter<AppState> {
         .merge(plan_routes())
         .merge(customer_routes())
         .merge(invoice_routes())
+        .merge(event_routes())
 }
 
 #[derive(Clone)]

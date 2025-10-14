@@ -72,6 +72,23 @@ pub struct EventSearchResult {
     pub events: Vec<metering_grpc::meteroid::metering::v1::Event>,
 }
 
+#[derive(Debug, Clone)]
+pub struct IngestEventsRequest {
+    pub events: Vec<metering_grpc::meteroid::metering::v1::Event>,
+    pub allow_backfilling: bool,
+}
+
+#[derive(Debug, Clone)]
+pub struct IngestEventsFailure {
+    pub event_id: String,
+    pub reason: String,
+}
+
+#[derive(Debug, Clone)]
+pub struct IngestEventsResult {
+    pub failures: Vec<IngestEventsFailure>,
+}
+
 #[async_trait::async_trait]
 pub trait UsageClient: Send + Sync {
     async fn register_meter(
@@ -98,6 +115,11 @@ pub trait UsageClient: Send + Sync {
         tenant_id: &TenantId,
         options: EventSearchOptions,
     ) -> StoreResult<EventSearchResult>;
+    async fn ingest_events(
+        &self,
+        tenant_id: &TenantId,
+        request: IngestEventsRequest,
+    ) -> StoreResult<IngestEventsResult>;
 }
 
 #[derive(Eq, Hash, PartialEq)]
@@ -160,6 +182,16 @@ impl UsageClient for MockUsageClient {
     ) -> StoreResult<EventSearchResult> {
         bail!(StoreError::InvalidArgument(
             "Mock client does not support event search".to_string()
+        ));
+    }
+
+    async fn ingest_events(
+        &self,
+        _tenant_id: &TenantId,
+        _request: IngestEventsRequest,
+    ) -> StoreResult<IngestEventsResult> {
+        bail!(StoreError::InvalidArgument(
+            "Mock client does not support event ingestion".to_string()
         ));
     }
 }

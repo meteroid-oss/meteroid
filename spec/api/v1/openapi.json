@@ -371,6 +371,61 @@
         ]
       }
     },
+    "/api/v1/events/ingest": {
+      "post": {
+        "tags": [
+          "events"
+        ],
+        "operationId": "ingest_events",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/IngestEventsRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "description": "Events ingested successfully",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/IngestEventsResponse"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Unauthorized",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/RestErrorResponse"
+                }
+              }
+            }
+          },
+          "500": {
+            "description": "Internal error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/RestErrorResponse"
+                }
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "bearer_auth": []
+          }
+        ]
+      }
+    },
     "/api/v1/invoices": {
       "get": {
         "tags": [
@@ -2210,6 +2265,39 @@
           "INTERNAL_SERVER_ERROR"
         ]
       },
+      "Event": {
+        "type": "object",
+        "required": [
+          "event_id",
+          "code",
+          "customer_id",
+          "timestamp"
+        ],
+        "properties": {
+          "code": {
+            "type": "string"
+          },
+          "customer_id": {
+            "type": "string",
+            "description": "Either Meteroid's customer_id or an alias"
+          },
+          "event_id": {
+            "type": "string"
+          },
+          "properties": {
+            "type": "object",
+            "additionalProperties": {
+              "type": "string"
+            },
+            "propertyNames": {
+              "type": "string"
+            }
+          },
+          "timestamp": {
+            "type": "string"
+          }
+        }
+      },
       "ExtraComponent": {
         "type": "object",
         "required": [
@@ -2397,6 +2485,53 @@
             }
           }
         ]
+      },
+      "IngestEventsRequest": {
+        "type": "object",
+        "required": [
+          "events"
+        ],
+        "properties": {
+          "allow_backfilling": {
+            "type": [
+              "boolean",
+              "null"
+            ],
+            "description": "allow ingesting events with timestamps more than a day in the past"
+          },
+          "events": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/Event"
+            }
+          }
+        }
+      },
+      "IngestEventsResponse": {
+        "type": "object",
+        "properties": {
+          "failures": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/IngestFailure"
+            }
+          }
+        }
+      },
+      "IngestFailure": {
+        "type": "object",
+        "required": [
+          "event_id",
+          "reason"
+        ],
+        "properties": {
+          "event_id": {
+            "type": "string"
+          },
+          "reason": {
+            "type": "string"
+          }
+        }
       },
       "Invoice": {
         "type": "object",
