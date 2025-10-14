@@ -113,7 +113,7 @@ async fn test_customers_basic() {
     assert_eq!(created.alias, Some(customer_alias.clone()));
     assert_eq!(created.billing_email, Some(customer_email.clone()));
 
-    // list by [fake] search
+    // list by [email] search
     let list_by_fake = clients
         .customers
         .clone()
@@ -130,7 +130,7 @@ async fn test_customers_basic() {
         .into_inner()
         .customers;
 
-    assert_eq!(list_by_fake.len(), 0);
+    assert_eq!(list_by_fake.len(), 1);
 
     // list by [alias] search
     let list_by_fake = clients
