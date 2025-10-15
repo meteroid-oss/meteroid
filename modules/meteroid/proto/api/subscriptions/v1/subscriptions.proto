@@ -41,9 +41,7 @@ message CancelSubscriptionRequest {
     BillingPeriodEnd billing_period_end = 4;
     string date = 5;
   }
-
   message Immediate {}
-
   message BillingPeriodEnd {}
 
 }

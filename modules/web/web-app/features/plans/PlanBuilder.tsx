@@ -128,6 +128,7 @@ const SubscriptionsTab = () => {
             perPage: pagination.pageSize,
             page: pagination.pageIndex,
           },
+          status: [],
         }
       : disableQuery
   )

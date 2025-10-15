@@ -25,6 +25,7 @@ export const SubscriptionsCard = ({ customer }: Props) => {
       page: pagination.pageIndex,
     },
     customerId: customer.id,
+    status: [],
   })
 
   return invoicesQuery.isLoading ? (
