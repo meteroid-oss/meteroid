@@ -49,6 +49,8 @@ message Quote {
   repeated RecipientDetails recipients = 25;
 
   int32 net_terms = 26;
+
+  optional string purchase_order = 27;
 }
 
 message RecipientDetails {

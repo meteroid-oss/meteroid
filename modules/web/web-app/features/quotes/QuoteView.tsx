@@ -1,6 +1,20 @@
 import { PlainMessage } from '@bufbuild/protobuf'
-import { Card, CardContent } from '@md/ui'
-import { FC } from 'react'
+import { useMutation } from '@connectrpc/connect-query'
+import {
+  Button,
+  Card,
+  CardContent,
+  Dialog,
+  DialogContent,
+  DialogFooter,
+  DialogHeader,
+  DialogTitle,
+  Input,
+  Label,
+} from '@md/ui'
+import { Edit2, Trash2 } from 'lucide-react'
+import { FC, useState } from 'react'
+import { toast } from 'sonner'
 
 import { AddressLinesCompact } from '@/features/customers/cards/address/AddressCard'
 import {
@@ -11,6 +25,7 @@ import { env } from '@/lib/env'
 import { Customer } from '@/rpc/api/customers/v1/models_pb'
 import { InvoicingEntityPublic } from '@/rpc/api/invoicingentities/v1/models_pb'
 import { Quote, QuoteComponent } from '@/rpc/api/quotes/v1/models_pb'
+import { setQuotePurchaseOrder } from "@/rpc/portal/quotes/v1/quotes-PortalQuoteService_connectquery";
 import { parseAndFormatDate } from '@/utils/date'
 
 export interface QuoteViewProps {
@@ -31,6 +46,83 @@ export const QuoteView: FC<QuoteViewProps> = ({
   className = '',
   subscriptionComponents,
 }) => {
+  const isPurchaseOrderEditable = mode == 'portal'
+  const [isModalOpen, setIsModalOpen] = useState(false)
+  const [purchaseOrderValue, setPurchaseOrderValue] = useState('')
+  const [isLoading, setIsLoading] = useState(false)
+  
+  const setPurchaseOrder = async (purchaseOrder: string | undefined) => {
+    if (!quote.quote?.id) return
+
+    try {
+      await setQuotePurchaseOrderMutation.mutateAsync({
+        purchaseOrder: purchaseOrder
+      })
+      toast.success('Purchase order successfully set')
+      window.location.reload()
+    } catch (error) {
+      toast.error('Failed to set purchase order')
+    }
+  }
+
+  const setQuotePurchaseOrderMutation = useMutation(setQuotePurchaseOrder)
+
+  const handleOpenModal = () => {
+    setPurchaseOrderValue(quote.quote?.purchaseOrder || '')
+    setIsModalOpen(true)
+  }
+
+  const handleUpdatePurchaseOrder = async (value?: string) => {
+    if (!quote.quote?.id) return
+
+    setIsLoading(true)
+    try {
+      await setPurchaseOrder(value)
+      setIsModalOpen(false)
+    } catch (error) {
+      console.error('Failed to update purchase order:', error)
+    } finally {
+      setIsLoading(false)
+    }
+  }
+
+  const renderEditablePurchaseOrder = () => {
+    if (!isPurchaseOrderEditable) return null
+
+    return (
+      <div className="mt-2">
+        {quote.quote?.purchaseOrder ? (
+          <div className="flex items-center gap-2">
+            <span className="text-sm text-muted-foreground">Purchase Order:</span>
+            <span className="text-sm font-medium">{quote.quote.purchaseOrder}</span>
+            <button
+              onClick={handleOpenModal}
+              className="text-muted-foreground hover:text-foreground transition-colors"
+              aria-label="Edit purchase order"
+            >
+              <Edit2 className="h-3.5 w-3.5"/>
+            </button>
+            <button
+              onClick={() => handleUpdatePurchaseOrder(undefined)}
+              className="text-muted-foreground hover:text-destructive transition-colors"
+              aria-label="Delete purchase order"
+              disabled={isLoading}
+            >
+              <Trash2 className="h-3.5 w-3.5"/>
+            </button>
+          </div>
+        ) : (
+          <button
+            onClick={handleOpenModal}
+            className="text-sm text-blue-600 hover:text-blue-700 hover:underline"
+          >
+            Add Purchase Order
+          </button>
+        )}
+      </div>
+    )
+  }
+
   const renderQuoteHeader = () => (
     <div className="mb-8">
       <div className="flex justify-between items-start mb-4">
@@ -49,6 +141,12 @@ export const QuoteView: FC<QuoteViewProps> = ({
               Expires: {parseAndFormatDate(quote.quote.expiresAt)}
             </p>
           )}
+          {!isPurchaseOrderEditable && quote.quote?.purchaseOrder && (
+            <p className="text-sm text-muted-foreground mt-1">
+              Purchase Order: <span className="text-foreground">{quote.quote.purchaseOrder}</span>
+            </p>
+          )}
+          {renderEditablePurchaseOrder()}
         </div>
         {/* Invoicing Entity Logo */}
         {quote.invoicingEntity?.logoAttachmentId && (
@@ -238,16 +336,48 @@ export const QuoteView: FC<QuoteViewProps> = ({
   }
 
   return (
-    <Card className={className}>
-      <CardContent className="p-8">
-        {renderQuoteHeader()}
-        {renderFromToSection()}
-        {renderOverview()}
-        {renderSubscriptionComponents()}
-        {renderSubscriptionDetails()}
-        {renderAdditionalInfo()}
-        {renderSignatureArea()}
-      </CardContent>
-    </Card>
+    <>
+      <Card className={className}>
+        <CardContent className="p-8">
+          {renderQuoteHeader()}
+          {renderFromToSection()}
+          {renderOverview()}
+          {renderSubscriptionComponents()}
+          {renderSubscriptionDetails()}
+          {renderAdditionalInfo()}
+          {renderSignatureArea()}
+        </CardContent>
+      </Card>
+
+      <Dialog open={isModalOpen} onOpenChange={setIsModalOpen}>
+        <DialogContent>
+          <DialogHeader>
+            <DialogTitle>Purchase Order</DialogTitle>
+          </DialogHeader>
+          <div className="py-4">
+            <Label htmlFor="purchase-order">Purchase Order Number</Label>
+            <Input
+              id="purchase-order"
+              value={purchaseOrderValue}
+              onChange={(e) => setPurchaseOrderValue(e.target.value)}
+              placeholder="Enter purchase order number..."
+              className="mt-2"
+            />
+          </div>
+          <DialogFooter>
+            <Button
+              variant="outline"
+              onClick={() => setIsModalOpen(false)}
+              disabled={isLoading}
+            >
+              Cancel
+            </Button>
+            <Button onClick={() => handleUpdatePurchaseOrder(purchaseOrderValue || undefined)} disabled={isLoading}>
+              {isLoading ? 'Saving...' : 'Save'}
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+    </>
   )
 }

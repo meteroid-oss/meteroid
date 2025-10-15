@@ -139,6 +139,7 @@ pub mod quotes {
                 .iter()
                 .map(recipient_details_to_proto)
                 .collect(),
+            purchase_order: quote.purchase_order.clone(),
         }
     }
 
