@@ -176,7 +176,6 @@ tower-layer = { version = "0.3.3" }
 tracing = { version = "0.1.39", features = ["log"] }
 tracing-log = "0.2.0"
 tracing-subscriber = { version = "0.3.18", features = ["registry", "tracing-log", "fmt", "env-filter", "json"] }
-tracing-opentelemetry = "0.32.0"
 typetag = "0.2.13"
 typst = { version = "0.13.1" }
 typst-pdf = { version = "0.13.1" }
