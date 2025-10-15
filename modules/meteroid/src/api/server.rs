@@ -14,6 +14,10 @@ use crate::services::storage::ObjectStoreService;
 
 use super::super::config::Config;
 
+fn reject_all(_path: &str) -> bool {
+    false
+}
+
 pub async fn start_api_server(
     config: Config,
     store: Store,
@@ -46,10 +50,13 @@ pub async fn start_api_server(
                 .filter(common_filters::only_internal),
         )
         .layer(common_middleware::error_logger::create())
-        .layer(
-            otel_middleware::server::OtelGrpcLayer::default()
-                .filter(otel_middleware::filters::reject_healthcheck),
-        )
+        .layer(otel_middleware::server::OtelGrpcLayer::default().filter(
+            if config.common.telemetry.tracing_enabled {
+                otel_middleware::filters::reject_healthcheck
+            } else {
+                reject_all
+            },
+        ))
         .add_service(health_service)
         .add_service(reflection_service)
         .add_service(api::addons::service(store.clone()))
