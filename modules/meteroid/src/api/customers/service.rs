@@ -8,8 +8,9 @@ use meteroid_grpc::meteroid::api::customers::v1::{
     GetCustomerByAliasRequest, GetCustomerByAliasResponse, GetCustomerByIdRequest,
     GetCustomerByIdResponse, ListCustomerRequest, ListCustomerResponse, SyncToHubspotRequest,
     SyncToHubspotResponse, SyncToPennylaneRequest, SyncToPennylaneResponse,
-    TopUpCustomerBalanceRequest, TopUpCustomerBalanceResponse, UpdateCustomerRequest,
-    UpdateCustomerResponse, customers_service_server::CustomersService,
+    TopUpCustomerBalanceRequest, TopUpCustomerBalanceResponse, UnarchiveCustomerRequest,
+    UnarchiveCustomerResponse, UpdateCustomerRequest, UpdateCustomerResponse,
+    customers_service_server::CustomersService,
 };
 use meteroid_store::domain::{
     CustomerBuyCredits, CustomerNew, CustomerPatch, CustomerTopUpBalance, OrderByRequest,
@@ -165,7 +166,13 @@ impl CustomersService for CustomerServiceComponents {
 
         let res = self
             .store
-            .list_customers(tenant_id, pagination_req, order_by, inner.search)
+            .list_customers(
+                tenant_id,
+                pagination_req,
+                order_by,
+                inner.search,
+                inner.archived,
+            )
             .await
             .map_err(Into::<CustomerApiError>::into)?;
 
@@ -312,6 +319,24 @@ impl CustomersService for CustomerServiceComponents {
             .map_err(Into::<CustomerApiError>::into)?;
 
         Ok(Response::new(ArchiveCustomerResponse {}))
+    }
+
+    #[tracing::instrument(skip_all)]
+    async fn unarchive_customer(
+        &self,
+        request: Request<UnarchiveCustomerRequest>,
+    ) -> Result<Response<UnarchiveCustomerResponse>, Status> {
+        let tenant_id = request.tenant()?;
+
+        let req = request.into_inner();
+        let customer_id = CustomerId::from_proto(&req.id)?;
+
+        self.store
+            .unarchive_customer(tenant_id, AliasOr::Id(customer_id))
+            .await
+            .map_err(Into::<CustomerApiError>::into)?;
+
+        Ok(Response::new(UnarchiveCustomerResponse {}))
     }
 
     #[tracing::instrument(skip_all)]

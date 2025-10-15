@@ -24,6 +24,7 @@ message ListCustomerRequest {
   optional string search = 1;
   SortBy sort_by = 2;
   meteroid.common.v1.Pagination pagination = 3;
+  optional bool archived = 4;
 
   enum SortBy {
     DATE_DESC = 0;
@@ -77,6 +78,12 @@ message ArchiveCustomerRequest {
 
 message ArchiveCustomerResponse {}
 
+message UnarchiveCustomerRequest {
+  string id = 1;
+}
+
+message UnarchiveCustomerResponse {}
+
 message SyncToHubspotRequest {
   repeated string customer_ids = 1;
 }
@@ -100,6 +107,7 @@ service CustomersService {
   rpc TopUpCustomerBalance(TopUpCustomerBalanceRequest) returns (TopUpCustomerBalanceResponse) {}
   rpc BuyCustomerCredits(BuyCustomerCreditsRequest) returns (BuyCustomerCreditsResponse) {}
   rpc ArchiveCustomer(ArchiveCustomerRequest) returns (ArchiveCustomerResponse) {}
+  rpc UnarchiveCustomer(UnarchiveCustomerRequest) returns (UnarchiveCustomerResponse) {}
   rpc SyncToHubspot(SyncToHubspotRequest) returns (SyncToHubspotResponse) {}
   rpc SyncToPennylane(SyncToPennylaneRequest) returns (SyncToPennylaneResponse) {}
 }

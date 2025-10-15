@@ -52,7 +52,6 @@ impl CustomerRow {
 
         let query = c_dsl::customer
             .filter(c_dsl::tenant_id.eq(tenant_id))
-            .filter(c_dsl::archived_at.is_null())
             .filter(c_dsl::id.eq_any(ids).or(c_dsl::alias.eq_any(aliases)))
             .select(CustomerRow::as_select());
 
@@ -75,7 +74,6 @@ impl CustomerRow {
 
         let mut query = c_dsl::customer
             .filter(c_dsl::tenant_id.eq(tenant_id))
-            .filter(c_dsl::archived_at.is_null())
             .select(CustomerRow::as_select())
             .into_boxed();
 
@@ -97,6 +95,37 @@ impl CustomerRow {
             .into_db_result()
     }
 
+    pub async fn find_by_id_or_alias_including_archived(
+        conn: &mut PgConn,
+        tenant_id: TenantId,
+        id_or_alias: AliasOr<CustomerId>,
+    ) -> DbResult<CustomerRow> {
+        use crate::schema::customer::dsl as c_dsl;
+        use diesel_async::RunQueryDsl;
+
+        let mut query = c_dsl::customer
+            .filter(c_dsl::tenant_id.eq(tenant_id))
+            .select(CustomerRow::as_select())
+            .into_boxed();
+
+        match id_or_alias {
+            AliasOr::Id(id) => {
+                query = query.filter(c_dsl::id.eq(id));
+            }
+            AliasOr::Alias(alias) => {
+                query = query.filter(c_dsl::alias.eq(alias));
+            }
+        }
+
+        log::debug!("{}", debug_query::<diesel::pg::Pg, _>(&query));
+
+        query
+            .first(conn)
+            .await
+            .attach("Error while finding customer by id or alias (including archived)")
+            .into_db_result()
+    }
+
     pub async fn find_by_id(
         conn: &mut PgConn,
         customer_id: &CustomerId,
@@ -107,8 +136,7 @@ impl CustomerRow {
 
         let query = c_dsl::customer
             .filter(c_dsl::id.eq(customer_id))
-            .filter(c_dsl::tenant_id.eq(tenant_id_param))
-            .filter(c_dsl::archived_at.is_null());
+            .filter(c_dsl::tenant_id.eq(tenant_id_param));
 
         log::debug!("{}", debug_query::<diesel::pg::Pg, _>(&query));
 
@@ -124,13 +152,12 @@ impl CustomerRow {
         customer_alias: String,
         tenant_id_param: TenantId,
     ) -> DbResult<CustomerRow> {
-        use crate::schema::customer::dsl::{alias, archived_at, customer, tenant_id};
+        use crate::schema::customer::dsl::{alias, customer, tenant_id};
         use diesel_async::RunQueryDsl;
 
         let query = customer
             .filter(alias.eq(customer_alias))
-            .filter(tenant_id.eq(tenant_id_param))
-            .filter(archived_at.is_null());
+            .filter(tenant_id.eq(tenant_id_param));
 
         log::debug!("{}", debug_query::<diesel::pg::Pg, _>(&query));
 
@@ -146,13 +173,12 @@ impl CustomerRow {
         param_tenant_id: TenantId,
         param_customer_aliases: Vec<String>,
     ) -> DbResult<Vec<CustomerBriefRow>> {
-        use crate::schema::customer::dsl::{alias, archived_at, customer, tenant_id};
+        use crate::schema::customer::dsl::{alias, customer, tenant_id};
         use diesel_async::RunQueryDsl;
 
         let query = customer
             .filter(tenant_id.eq(param_tenant_id))
             .filter(alias.eq_any(param_customer_aliases))
-            .filter(archived_at.is_null())
             .select(CustomerBriefRow::as_select());
 
         log::debug!("{}", debug_query::<diesel::pg::Pg, _>(&query));
@@ -169,13 +195,12 @@ impl CustomerRow {
         param_tenant_id: TenantId,
         param_customer_alias: String,
     ) -> DbResult<CustomerBriefRow> {
-        use crate::schema::customer::dsl::{alias, archived_at, customer, tenant_id};
+        use crate::schema::customer::dsl::{alias, customer, tenant_id};
         use diesel_async::RunQueryDsl;
 
         let query = customer
             .filter(tenant_id.eq(param_tenant_id))
             .filter(alias.eq(param_customer_alias))
-            .filter(archived_at.is_null())
             .select(CustomerBriefRow::as_select());
 
         log::debug!("{}", debug_query::<diesel::pg::Pg, _>(&query));
@@ -193,6 +218,7 @@ impl CustomerRow {
         pagination: PaginationRequest,
         order_by: OrderByRequest,
         param_query: Option<String>,
+        param_archived: Option<bool>,
     ) -> DbResult<PaginatedVec<CustomerRow>> {
         use crate::schema::customer::dsl::{
             alias, archived_at, billing_email, created_at, customer, id, name, tenant_id,
@@ -200,9 +226,17 @@ impl CustomerRow {
 
         let mut query = customer
             .filter(tenant_id.eq(param_tenant_id))
-            .filter(archived_at.is_null())
             .select(CustomerRow::as_select())
             .into_boxed();
+
+        match param_archived {
+            Some(true) => {
+                query = query.filter(archived_at.is_not_null());
+            }
+            None | Some(false) => {
+                query = query.filter(archived_at.is_null());
+            }
+        }
 
         if let Some(param_query) = param_query {
             query = query.filter(
@@ -235,12 +269,11 @@ impl CustomerRow {
         conn: &mut PgConn,
         ids: Vec<CustomerId>,
     ) -> DbResult<Vec<CustomerRow>> {
-        use crate::schema::customer::dsl::{archived_at, customer, id};
+        use crate::schema::customer::dsl::{customer, id};
         use diesel_async::RunQueryDsl;
 
         let query = customer
             .filter(id.eq_any(ids))
-            .filter(archived_at.is_null())
             .select(CustomerRow::as_select());
 
         log::debug!("{}", debug_query::<diesel::pg::Pg, _>(&query));
@@ -360,6 +393,56 @@ impl CustomerRow {
             .execute(conn)
             .await
             .attach("Error while archiving customer")
+            .into_db_result()
+    }
+
+    pub async fn unarchive(
+        conn: &mut PgConn,
+        id: CustomerId,
+        tenant_id: TenantId,
+    ) -> DbResult<usize> {
+        use crate::schema::customer::dsl as c_dsl;
+        use diesel_async::RunQueryDsl;
+
+        let query = diesel::update(c_dsl::customer)
+            .filter(c_dsl::id.eq(id))
+            .filter(c_dsl::tenant_id.eq(tenant_id))
+            .set((
+                c_dsl::archived_at.eq(None::<chrono::NaiveDateTime>),
+                c_dsl::archived_by.eq(None::<Uuid>),
+            ));
+
+        log::debug!("{}", debug_query::<diesel::pg::Pg, _>(&query));
+
+        query
+            .execute(conn)
+            .await
+            .attach("Error while unarchiving customer")
+            .into_db_result()
+    }
+
+    pub async fn find_archived_customer_in_batch(
+        conn: &mut PgConn,
+        tenant_id: TenantId,
+        customer_ids: Vec<CustomerId>,
+    ) -> DbResult<Option<(CustomerId, String)>> {
+        use crate::schema::customer::dsl as c_dsl;
+        use diesel_async::RunQueryDsl;
+
+        let query = c_dsl::customer
+            .filter(c_dsl::tenant_id.eq(tenant_id))
+            .filter(c_dsl::id.eq_any(customer_ids))
+            .filter(c_dsl::archived_at.is_not_null())
+            .select((c_dsl::id, c_dsl::name))
+            .limit(1);
+
+        log::debug!("{}", debug_query::<diesel::pg::Pg, _>(&query));
+
+        query
+            .first::<(CustomerId, String)>(conn)
+            .await
+            .optional()
+            .attach("Error while checking for archived customers")
             .into_db_result()
     }
 }

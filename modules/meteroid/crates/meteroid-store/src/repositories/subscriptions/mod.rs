@@ -69,6 +69,7 @@ pub trait SubscriptionInterface {
         tenant_id: TenantId,
         customer_id: Option<CustomerId>,
         plan_id: Option<PlanId>,
+        status: Option<Vec<crate::domain::enums::SubscriptionStatusEnum>>,
         pagination: PaginationRequest,
     ) -> StoreResult<PaginatedVec<Subscription>>;
 
@@ -267,15 +268,19 @@ impl SubscriptionInterface for Store {
         tenant_id: TenantId,
         customer_id: Option<CustomerId>,
         plan_id: Option<PlanId>,
+        status: Option<Vec<crate::domain::enums::SubscriptionStatusEnum>>,
         pagination: PaginationRequest,
     ) -> StoreResult<PaginatedVec<Subscription>> {
         let mut conn = self.get_conn().await?;
+
+        let status_filter = status.map(|s| s.into_iter().map(|x| x.into()).collect());
 
         let db_subscriptions = SubscriptionRow::list_subscriptions(
             &mut conn,
             &tenant_id,
             customer_id,
             plan_id,
+            status_filter,
             pagination.into(),
         )
         .await

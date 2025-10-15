@@ -54,6 +54,7 @@ pub trait CustomersInterface {
         pagination: PaginationRequest,
         order_by: OrderByRequest,
         query: Option<String>,
+        archived: Option<bool>,
     ) -> StoreResult<PaginatedVec<Customer>>;
 
     async fn list_customers_by_ids_global(
@@ -98,6 +99,12 @@ pub trait CustomersInterface {
     async fn archive_customer(
         &self,
         actor: Uuid,
+        tenant_id: TenantId,
+        id_or_alias: AliasOr<CustomerId>,
+    ) -> StoreResult<()>;
+
+    async fn unarchive_customer(
+        &self,
         tenant_id: TenantId,
         id_or_alias: AliasOr<CustomerId>,
     ) -> StoreResult<()>;
@@ -188,6 +195,7 @@ impl CustomersInterface for Store {
         pagination: PaginationRequest,
         order_by: OrderByRequest,
         query: Option<String>,
+        archived: Option<bool>,
     ) -> StoreResult<PaginatedVec<Customer>> {
         let mut conn = self.get_conn().await?;
 
@@ -197,6 +205,7 @@ impl CustomersInterface for Store {
             pagination.into(),
             order_by.into(),
             query,
+            archived,
         )
         .await
         .map_err(Into::<Report<StoreError>>::into)?;
@@ -517,19 +526,33 @@ impl CustomersInterface for Store {
         tenant_id: TenantId,
         id_or_alias: AliasOr<CustomerId>,
     ) -> StoreResult<()> {
+        use diesel_models::enums::SubscriptionStatusEnum as DieselSubscriptionStatusEnum;
+
         let mut conn = self.get_conn().await?;
 
         let customer = CustomerRow::find_by_id_or_alias(&mut conn, tenant_id, id_or_alias)
             .await
             .map_err(Into::<Report<StoreError>>::into)?;
 
-        let subscriptions = SubscriptionRow::list_subscriptions(
+        // Check for blocking subscriptions (active, trial, etc.)
+        let blocking_statuses = vec![
+            DieselSubscriptionStatusEnum::Active,
+            DieselSubscriptionStatusEnum::TrialActive,
+            DieselSubscriptionStatusEnum::PendingCharge,
+            // DieselSubscriptionStatusEnum::PendingActivation,
+            DieselSubscriptionStatusEnum::TrialExpired,
+            DieselSubscriptionStatusEnum::Paused,
+            DieselSubscriptionStatusEnum::Suspended,
+        ];
+
+        let blocking_subscriptions = SubscriptionRow::list_subscriptions(
             &mut conn,
             &tenant_id,
             Some(customer.id),
             None,
+            Some(blocking_statuses),
             PaginationRequest {
-                per_page: Some(1),
+                per_page: Some(1), // We only need to know if any exist
                 page: 0,
             }
             .into(),
@@ -537,15 +560,35 @@ impl CustomersInterface for Store {
         .await
         .map_err(Into::<Report<StoreError>>::into)?;
 
-        // this is a temp solution that will be replaced with a more complex logic
-        if subscriptions.total_results > 0 {
+        if blocking_subscriptions.total_results > 0 {
             return Err(StoreError::InvalidArgument(
-                "Cannot archive customer with active subscriptions".to_string(),
+                "Cannot archive customer with active subscriptions. Cancel all active subscriptions before archiving.".to_string(),
             )
             .into());
         }
 
         CustomerRow::archive(&mut conn, customer.id, tenant_id, actor)
+            .await
+            .map(|_| ())
+            .map_err(Into::<Report<StoreError>>::into)
+    }
+
+    async fn unarchive_customer(
+        &self,
+        tenant_id: TenantId,
+        id_or_alias: AliasOr<CustomerId>,
+    ) -> StoreResult<()> {
+        let mut conn = self.get_conn().await?;
+
+        let customer = CustomerRow::find_by_id_or_alias_including_archived(
+            &mut conn,
+            tenant_id,
+            id_or_alias.clone(),
+        )
+        .await
+        .map_err(Into::<Report<StoreError>>::into)?;
+
+        CustomerRow::unarchive(&mut conn, customer.id, tenant_id)
             .await
             .map(|_| ())
             .map_err(Into::<Report<StoreError>>::into)

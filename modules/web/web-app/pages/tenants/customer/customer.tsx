@@ -58,6 +58,7 @@ export const Customer = () => {
             setEditPanelVisible={setEditPanelVisible}
             id={data?.id}
             name={data?.name || data?.alias}
+            archivedAt={data?.archivedAt}
             // setShowIncoice={() => setCreateInvoiceVisible(true)}
             setShowIncoice={() => false}
             setShowEditCustomer={() => setEditCustomerVisible(true)}

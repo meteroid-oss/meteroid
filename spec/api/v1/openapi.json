@@ -15,6 +15,8 @@
         "tags": [
           "customer"
         ],
+        "summary": "List customers",
+        "description": "List customers with optional pagination and search filtering.",
         "operationId": "list_customers",
         "parameters": [
           {
@@ -94,6 +96,7 @@
         "tags": [
           "customer"
         ],
+        "summary": "Create customer",
         "operationId": "create_customer",
         "requestBody": {
           "content": {
@@ -169,6 +172,8 @@
         "tags": [
           "customer"
         ],
+        "summary": "Get customer",
+        "description": "Retrieve a single customer by ID or alias.",
         "operationId": "get_customer",
         "parameters": [
           {
@@ -233,6 +238,7 @@
         "tags": [
           "customer"
         ],
+        "summary": "Update customer",
         "operationId": "update_customer",
         "parameters": [
           {
@@ -317,7 +323,69 @@
         "tags": [
           "customer"
         ],
-        "operationId": "delete_customer",
+        "summary": "Archive a customer",
+        "description": "No linked entity will be deleted. You need to terminate all active subscriptions before archiving a customer, or the call will fail.",
+        "operationId": "archive_customer",
+        "parameters": [
+          {
+            "name": "id_or_alias",
+            "in": "path",
+            "description": "customer ID or alias",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "204": {
+            "description": "No Content"
+          },
+          "401": {
+            "description": "Unauthorized",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/RestErrorResponse"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "Customer not found",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/RestErrorResponse"
+                }
+              }
+            }
+          },
+          "500": {
+            "description": "Internal error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/RestErrorResponse"
+                }
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "bearer_auth": []
+          }
+        ]
+      }
+    },
+    "/api/v1/customers/{id_or_alias}/unarchive": {
+      "post": {
+        "tags": [
+          "customer"
+        ],
+        "summary": "Restore an archived customer",
+        "operationId": "unarchive_customer",
         "parameters": [
           {
             "name": "id_or_alias",
@@ -376,6 +444,8 @@
         "tags": [
           "events"
         ],
+        "summary": "Ingest events",
+        "description": "Ingest usage events for metering and billing purposes.",
         "operationId": "ingest_events",
         "requestBody": {
           "content": {
@@ -431,6 +501,8 @@
         "tags": [
           "invoice"
         ],
+        "summary": "List invoices",
+        "description": "List invoices with optional filtering by customer, subscription, or status.",
         "operationId": "list_invoices",
         "parameters": [
           {
@@ -532,6 +604,8 @@
         "tags": [
           "invoice"
         ],
+        "summary": "Get invoice",
+        "description": "Retrieve a single invoice with its payment transactions.",
         "operationId": "get_invoice_by_id",
         "parameters": [
           {
@@ -599,6 +673,8 @@
         "tags": [
           "invoice"
         ],
+        "summary": "Download invoice PDF",
+        "description": "Download the PDF document for an invoice.",
         "operationId": "download_invoice_pdf",
         "parameters": [
           {
@@ -671,6 +747,8 @@
         "tags": [
           "plan"
         ],
+        "summary": "List plans",
+        "description": "List plans with optional filtering by product family.",
         "operationId": "list_plans",
         "parameters": [
           {
@@ -737,6 +815,8 @@
         "tags": [
           "plan"
         ],
+        "summary": "Get plan",
+        "description": "Retrieve the details of a specific plan",
         "operationId": "get_plan_details",
         "parameters": [
           {
@@ -782,6 +862,7 @@
         "tags": [
           "product_family"
         ],
+        "summary": "List product families",
         "operationId": "list_product_families",
         "parameters": [
           {
@@ -841,6 +922,7 @@
         "tags": [
           "product_family"
         ],
+        "summary": "Create product family",
         "operationId": "create_product_family",
         "requestBody": {
           "content": {
@@ -885,6 +967,8 @@
         "tags": [
           "product_family"
         ],
+        "summary": "Get product family",
+        "description": "Retrieve a single product family by ID or alias.",
         "operationId": "get_product_family_by_id_or_alias",
         "parameters": [
           {
@@ -930,6 +1014,8 @@
         "tags": [
           "subscription"
         ],
+        "summary": "List subscriptions",
+        "description": "List subscriptions with optional filtering by customer or plan.",
         "operationId": "list_subscriptions",
         "parameters": [
           {
@@ -971,6 +1057,18 @@
             "required": false,
             "schema": {
               "$ref": "#/components/schemas/PlanId"
+            }
+          },
+          {
+            "name": "status",
+            "in": "query",
+            "description": "Filter by subscription status(es)",
+            "required": false,
+            "schema": {
+              "type": "array",
+              "items": {
+                "$ref": "#/components/schemas/SubscriptionStatusEnum"
+              }
             }
           }
         ],
@@ -1016,6 +1114,8 @@
         "tags": [
           "subscription"
         ],
+        "summary": "Create subscription",
+        "description": "Create a new subscription for a customer with a specific plan.",
         "operationId": "create_subscription",
         "requestBody": {
           "content": {
@@ -1081,6 +1181,8 @@
         "tags": [
           "subscription"
         ],
+        "summary": "Get subscription details",
+        "description": "Retrieve detailed information about a subscription including price components and schedules.",
         "operationId": "subscription_details",
         "parameters": [
           {
@@ -1147,6 +1249,8 @@
         "tags": [
           "subscription"
         ],
+        "summary": "Cancel subscription",
+        "description": "Cancel a subscription either immediately or at the end of the billing period.",
         "operationId": "cancel_subscription",
         "parameters": [
           {

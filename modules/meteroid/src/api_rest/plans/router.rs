@@ -16,6 +16,9 @@ use meteroid_store::Store;
 use meteroid_store::domain::{OrderByRequest, PlanVersionFilter};
 use meteroid_store::repositories::PlansInterface;
 
+/// List plans
+///
+/// List plans with optional filtering by product family.
 #[utoipa::path(
     get,
     tag = "plan",
@@ -92,6 +95,9 @@ async fn list_plans_handler(
     })
 }
 
+/// Get plan
+///
+/// Retrieve the details of a specific plan
 #[utoipa::path(
     get,
     tag = "plan",

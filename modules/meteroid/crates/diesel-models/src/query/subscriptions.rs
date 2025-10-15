@@ -209,11 +209,12 @@ impl SubscriptionRow {
         tenant_id_param: &TenantId,
         customer_id_opt: Option<CustomerId>,
         plan_id_param_opt: Option<PlanId>,
+        status_opt: Option<Vec<crate::enums::SubscriptionStatusEnum>>,
         pagination: PaginationRequest,
     ) -> DbResult<PaginatedVec<SubscriptionForDisplayRow>> {
         use crate::schema::plan::dsl as p_dsl;
         use crate::schema::plan_version::dsl as pv_dsl;
-        use crate::schema::subscription::dsl::{customer_id, id, subscription, tenant_id};
+        use crate::schema::subscription::dsl::{customer_id, id, status, subscription, tenant_id};
 
         let mut query = subscription
             .filter(tenant_id.eq(tenant_id_param))
@@ -231,12 +232,9 @@ impl SubscriptionRow {
             query = query.filter(p_dsl::id.eq(plan_id_param));
         }
 
-        //
-        //
-        //
-        // query = query
-        //     .inner_join(crate::schema::customer::table)
-        //     .inner_join(crate::schema::plan_version::table.inner_join(crate::schema::plan::table));
+        if let Some(status_param) = status_opt {
+            query = query.filter(status.eq_any(status_param));
+        }
 
         query = query.order(id.desc());
 

@@ -16,6 +16,7 @@ import {
   IntegrationType,
   SyncSubscriptionModal,
 } from '@/features/settings/integrations/SyncSubscriptionModal'
+import { CancelSubscriptionModal } from '@/features/subscriptions/CancelSubscriptionModal'
 import { SubscriptionInvoicesCard } from '@/features/subscriptions/InvoicesCard'
 import { formatSubscriptionFee } from '@/features/subscriptions/utils/fees'
 import { useBasePath } from '@/hooks/useBasePath'
@@ -170,6 +171,7 @@ export const Subscription = () => {
   const basePath = useBasePath()
 
   const [showSyncHubspotModal, setShowSyncHubspotModal] = useState(false)
+  const [showCancelModal, setShowCancelModal] = useState(false)
 
   const { subscriptionId } = useTypedParams()
   const subscriptionQuery = useQuery(
@@ -193,6 +195,12 @@ export const Subscription = () => {
   const isLoading = subscriptionQuery.isLoading || connectorsQuery.isLoading
 
   const hubspotConnMeta = getLatestConnMeta(data?.connectionMetadata?.hubspot)
+
+  // Subscription can be cancelled if it's not already in a terminal state
+  const canCancelSubscription =
+    data &&
+    data.status !== SubscriptionStatus.CANCELED &&
+    data.status !== SubscriptionStatus.ENDED
 
   if (isLoading || !data) {
     return (
@@ -219,6 +227,15 @@ export const Subscription = () => {
           id={data?.id ?? ''}
           integrationType={IntegrationType.Hubspot}
           onClose={() => setShowSyncHubspotModal(false)}
+        />
+      )}
+      {showCancelModal && (
+        <CancelSubscriptionModal
+          subscriptionId={data?.id ?? ''}
+          customerName={data?.customerName ?? ''}
+          planName={data?.planName ?? ''}
+          onClose={() => setShowCancelModal(false)}
+          onSuccess={() => subscriptionQuery.refetch()}
         />
       )}
       {/* Main content area */}
@@ -253,6 +270,13 @@ export const Subscription = () => {
                   onClick={() => setShowSyncHubspotModal(true)}
                 >
                   Sync To Hubspot
+                </DropdownMenuItem>
+                <DropdownMenuItem
+                  disabled={!canCancelSubscription}
+                  onClick={() => setShowCancelModal(true)}
+                  className="text-destructive focus:text-destructive"
+                >
+                  Cancel Subscription
                 </DropdownMenuItem>
               </DropdownMenuContent>
             </DropdownMenu>

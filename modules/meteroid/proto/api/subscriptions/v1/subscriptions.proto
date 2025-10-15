@@ -35,11 +35,17 @@ message GetSubscriptionDetailsResponse {
 message CancelSubscriptionRequest {
   string subscription_id = 1;
   optional string reason = 2;
-  EffectiveAt effective_at = 3;
 
-  enum EffectiveAt {
-    BillingPeriodEnd = 0;
+  oneof effective_at {
+    Immediate immediate = 3;
+    BillingPeriodEnd billing_period_end = 4;
+    string date = 5;
   }
+
+  message Immediate {}
+
+  message BillingPeriodEnd {}
+
 }
 
 message CancelSubscriptionResponse {
@@ -52,6 +58,7 @@ message ListSubscriptionsRequest {
   optional string customer_id = 1;
   optional string plan_id = 2;
   meteroid.common.v1.Pagination pagination = 3;
+  repeated SubscriptionStatus status = 4;
 }
 
 message ListSubscriptionsResponse {

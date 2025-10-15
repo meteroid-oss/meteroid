@@ -3,7 +3,9 @@ import { Flex } from '@ui/components/legacy'
 import { useState } from 'react'
 
 import { SubscriptionsHeader, SubscriptionsTable } from '@/features/subscriptions'
+import { ARRAY_SERDE, useQueryState } from '@/hooks/useQueryState'
 import { useQuery } from '@/lib/connectrpc'
+import { SubscriptionStatus } from '@/rpc/api/subscriptions/v1/models_pb'
 import { listSubscriptions } from '@/rpc/api/subscriptions/v1/subscriptions-SubscriptionsService_connectquery'
 
 import type { PaginationState } from '@tanstack/react-table'
@@ -13,6 +15,11 @@ export const Subscriptions = () => {
     pageIndex: 0,
     pageSize: 20,
   })
+  const [statusFilter, setStatusFilter] = useQueryState(
+    'status',
+    ['pending', 'trialing', 'active'],
+    ARRAY_SERDE
+  )
 
   const subscriptionsQuery = useQuery(
     listSubscriptions,
@@ -21,6 +28,7 @@ export const Subscriptions = () => {
         perPage: pagination.pageSize,
         page: pagination.pageIndex,
       },
+      status: statusFilter.map(mapSubscriptionStatusToGrpc),
     },
     {}
   )
@@ -35,7 +43,13 @@ export const Subscriptions = () => {
 
   return (
     <Flex direction="column" gap={spaces.space9}>
-      <SubscriptionsHeader count={count} isLoading={isLoading} refetch={refetch} />
+      <SubscriptionsHeader
+        count={count}
+        isLoading={isLoading}
+        refetch={refetch}
+        statusFilter={statusFilter}
+        setStatusFilter={setStatusFilter}
+      />
       <SubscriptionsTable
         data={data}
         totalCount={count}
@@ -45,4 +59,23 @@ export const Subscriptions = () => {
       />
     </Flex>
   )
+}
+
+function mapSubscriptionStatusToGrpc(s: string): SubscriptionStatus {
+  switch (s) {
+    case 'pending':
+      return SubscriptionStatus.PENDING
+    case 'trialing':
+      return SubscriptionStatus.TRIALING
+    case 'active':
+      return SubscriptionStatus.ACTIVE
+    case 'canceled':
+      return SubscriptionStatus.CANCELED
+    case 'ended':
+      return SubscriptionStatus.ENDED
+    case 'trial_expired':
+      return SubscriptionStatus.TRIAL_EXPIRED
+    default:
+      throw new Error(`Unknown status: ${s}`)
+  }
 }

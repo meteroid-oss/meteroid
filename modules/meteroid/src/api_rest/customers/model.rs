@@ -9,6 +9,7 @@ use validator::Validate;
 #[derive(ToSchema, serde::Serialize, serde::Deserialize, Validate)]
 pub struct CustomerFilters {
     pub search: Option<String>,
+    pub archived: Option<bool>,
 }
 
 #[derive(ToSchema, serde::Serialize, serde::Deserialize, Validate)]

@@ -20,14 +20,14 @@ export const CustomersHeader: FunctionComponent<CustomersHeaderProps> = ({
   search,
 }) => {
   const [searchParams, setSearchParams] = useSearchParams()
-  const currentTab = searchParams.get('tab') || 'all'
+  const currentTab = searchParams.get('tab') || 'active'
 
   const [visible, setVisible] = useState(false)
 
   const updateTab = (tab: string) => {
     const newSearchParams = new URLSearchParams(searchParams)
 
-    if (tab === 'all') newSearchParams.delete('tab')
+    if (tab === 'active') newSearchParams.delete('tab')
     else {
       newSearchParams.set('tab', tab.toLowerCase())
     }
@@ -42,14 +42,8 @@ export const CustomersHeader: FunctionComponent<CustomersHeaderProps> = ({
             <img src="/header/customer.svg" alt="customer logo" />
             <div className="text-[15px] font-medium">Customers</div>
             <NewFlex align="center" className="gap-2 ml-2 mt-[0.5px]">
-              <ButtonTabs active={currentTab === 'all'} onClick={() => updateTab('all')}>
-                All
-              </ButtonTabs>
               <ButtonTabs active={currentTab === 'active'} onClick={() => updateTab('active')}>
                 Active
-              </ButtonTabs>
-              <ButtonTabs active={currentTab === 'inactive'} onClick={() => updateTab('inactive')}>
-                Inactive
               </ButtonTabs>
               <ButtonTabs active={currentTab === 'archived'} onClick={() => updateTab('archived')}>
                 Archived

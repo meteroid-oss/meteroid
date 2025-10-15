@@ -58,6 +58,7 @@ interface Props {
   className?: string
   triggerElement?: React.ReactNode
   header?: React.ReactNode
+  confirmDisabled?: boolean
 }
 
 const Modal = ({
@@ -74,6 +75,7 @@ const Modal = ({
   triggerElement,
   header,
   size,
+  confirmDisabled,
   ...props
 }: ModalProps & VariantProps<typeof variants>) => {
   const [open, setOpen] = useState(visible ? visible : false)
@@ -89,7 +91,7 @@ const Modal = ({
       <Button variant="secondary" onClick={onCancel} disabled={loading} size="sm">
         {cancelText}
       </Button>
-      <Button onClick={onConfirm} disabled={loading} hasIcon={loading} size="sm">
+      <Button onClick={onConfirm} disabled={loading || confirmDisabled} hasIcon={loading} size="sm">
         {loading && <Spinner />}
         {confirmText}
       </Button>
