@@ -7,7 +7,8 @@ use common_grpc::middleware::server::auth::RequestExt;
 use meteroid_grpc::meteroid::portal::quotes::v1::portal_quote_service_server::PortalQuoteService;
 use meteroid_grpc::meteroid::portal::quotes::v1::{
     GetQuotePortalRequest, GetQuotePortalResponse, QuotePortalDetails, QuoteRecipient,
-    QuoteSignature, SignQuoteRequest, SignQuoteResponse,
+    QuoteSignature, SetQuotePurchaseOrderRequest, SetQuotePurchaseOrderResponse, SignQuoteRequest,
+    SignQuoteResponse,
 };
 use meteroid_store::domain::QuoteSignatureNew;
 use meteroid_store::domain::enums::QuoteStatusEnum;
@@ -257,5 +258,34 @@ impl PortalQuoteService for PortalQuoteServiceComponents {
             success: true,
             signature_id: inserted_signature.id.as_proto(),
         }))
+    }
+
+    #[tracing::instrument(skip_all)]
+    async fn set_quote_purchase_order(
+        &self,
+        request: Request<SetQuotePurchaseOrderRequest>,
+    ) -> Result<Response<SetQuotePurchaseOrderResponse>, Status> {
+        let tenant = request.tenant()?;
+        let quote_id = request.portal_resource()?.quote()?;
+
+        // Get quote to verify status
+        let quote = self
+            .store
+            .get_quote_by_id(tenant, quote_id)
+            .await
+            .map_err(Into::<PortalQuoteApiError>::into)?;
+
+        // Check if quote is in editable state
+        if quote.status != QuoteStatusEnum::Pending {
+            return Err(PortalQuoteApiError::NotEditable.into());
+        }
+
+        let _ = self
+            .store
+            .set_quote_purchase_order(quote_id, tenant, request.into_inner().purchase_order)
+            .await
+            .map_err(Into::<PortalQuoteApiError>::into)?;
+
+        Ok(Response::new(SetQuotePurchaseOrderResponse {}))
     }
 }

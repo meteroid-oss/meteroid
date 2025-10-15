@@ -59,6 +59,7 @@ pub struct Quote {
     StoreError::SerdeError("Failed to deserialize recipients".to_string(), e)
     }) ?)]
     pub recipients: Vec<RecipientDetails>,
+    pub purchase_order: Option<String>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]

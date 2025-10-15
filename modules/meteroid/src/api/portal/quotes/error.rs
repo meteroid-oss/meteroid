@@ -39,6 +39,10 @@ pub enum PortalQuoteApiError {
     #[code(FailedPrecondition)]
     NotSignable,
 
+    #[error("Quote not in editable state")]
+    #[code(FailedPrecondition)]
+    NotEditable,
+
     #[error("Object store error: {0}")]
     #[code(Internal)]
     ObjectStoreError(String, #[source] Box<dyn Error>),

@@ -24,7 +24,14 @@ message SignQuoteResponse {
   string signature_id = 2;
 }
 
+message SetQuotePurchaseOrderRequest {
+  optional string purchase_order = 1;
+}
+
+message SetQuotePurchaseOrderResponse {}
+
 service PortalQuoteService {
   rpc GetQuotePortal(GetQuotePortalRequest) returns (GetQuotePortalResponse) {}
   rpc SignQuote(SignQuoteRequest) returns (SignQuoteResponse) {}
+  rpc SetQuotePurchaseOrder(SetQuotePurchaseOrderRequest) returns (SetQuotePurchaseOrderResponse) {}
 }

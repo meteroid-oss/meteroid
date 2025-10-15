@@ -248,6 +248,35 @@ impl QuoteRow {
             .into_db_result()
             .map(|_| ())
     }
+
+    pub async fn set_purchase_order(
+        conn: &mut PgConn,
+        param_quote_id: QuoteId,
+        param_tenant_id: TenantId,
+        param_purchase_order: Option<String>,
+    ) -> DbResult<QuoteRow> {
+        use crate::schema::quote::dsl::{id, purchase_order, quote, status, tenant_id, updated_at};
+        use diesel_async::RunQueryDsl;
+
+        let now = chrono::Utc::now().naive_utc();
+
+        let query = diesel::update(quote)
+            .filter(id.eq(param_quote_id))
+            .filter(tenant_id.eq(param_tenant_id))
+            .filter(status.eq(QuoteStatusEnum::Pending))
+            .set((
+                purchase_order.eq(param_purchase_order),
+                updated_at.eq(Some(now)),
+            ));
+
+        log::debug!("{}", debug_query::<diesel::pg::Pg, _>(&query));
+
+        query
+            .get_result(conn)
+            .await
+            .attach("Error while setting quote's purchase_order")
+            .into_db_result()
+    }
 }
 
 impl QuoteSignatureRowNew {

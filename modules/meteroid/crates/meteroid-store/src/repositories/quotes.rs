@@ -96,6 +96,13 @@ pub trait QuotesInterface {
         &self,
         components: Vec<QuotePriceComponentNew>,
     ) -> StoreResult<Vec<QuotePriceComponent>>;
+
+    async fn set_quote_purchase_order(
+        &self,
+        quote_id: QuoteId,
+        tenant_id: TenantId,
+        purchase_order: Option<String>,
+    ) -> StoreResult<Quote>;
 }
 
 #[async_trait::async_trait]
@@ -596,5 +603,19 @@ impl QuotesInterface for Store {
         rows.into_iter()
             .map(std::convert::TryInto::try_into)
             .collect::<Result<Vec<_>, _>>()
+    }
+
+    async fn set_quote_purchase_order(
+        &self,
+        quote_id: QuoteId,
+        tenant_id: TenantId,
+        purchase_order: Option<String>,
+    ) -> StoreResult<Quote> {
+        let mut conn = self.get_conn().await?;
+
+        QuoteRow::set_purchase_order(&mut conn, quote_id, tenant_id, purchase_order)
+            .await
+            .map_err(Into::<Report<StoreError>>::into)
+            .and_then(std::convert::TryInto::try_into)
     }
 }
