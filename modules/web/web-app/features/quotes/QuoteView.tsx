@@ -50,8 +50,7 @@ export const QuoteView: FC<QuoteViewProps> = ({
   const [isModalOpen, setIsModalOpen] = useState(false)
   const [purchaseOrderValue, setPurchaseOrderValue] = useState('')
   const [isLoading, setIsLoading] = useState(false)
-
-  // Stub for gRPC endpoint - will be replaced with actual implementation
+  
   const setPurchaseOrder = async (purchaseOrder: string | undefined) => {
     if (!quote.quote?.id) return
 
