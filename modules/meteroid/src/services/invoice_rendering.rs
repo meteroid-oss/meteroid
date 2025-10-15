@@ -12,6 +12,7 @@ use meteroid_store::repositories::invoicing_entities::InvoicingEntityInterface;
 use std::io::Cursor;
 use std::sync::Arc;
 
+#[derive(Clone)]
 pub struct InvoicePreviewRenderingService {
     store: Arc<Store>,
     generator: Arc<dyn svg::SvgGenerator>,
