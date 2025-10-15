@@ -70,6 +70,7 @@ export const StepSettings = () => {
       netTerms: state.netTerms,
       invoiceMemo: state.invoiceMemo,
       invoiceThreshold: state.invoiceThreshold,
+      purchaseOrder: state.purchaseOrder,
     },
   })
 
@@ -84,6 +85,7 @@ export const StepSettings = () => {
       netTerms: data.netTerms,
       invoiceMemo: data.invoiceMemo,
       invoiceThreshold: data.invoiceThreshold,
+      purchaseOrder: data.purchaseOrder,
     })
     nextStep()
   }
@@ -165,13 +167,13 @@ export const StepSettings = () => {
                       onValueChange={field.onChange}
                     >
                       <div className="flex items-center space-x-4">
-                        <RadioGroupItem value="FIRST" id="r1" />
+                        <RadioGroupItem value="FIRST" id="r1"/>
                         <Label htmlFor="r1" className="font-normal">
                           1st of the month
                         </Label>
                       </div>
                       <div className="flex items-center space-x-4">
-                        <RadioGroupItem value="SUB_START_DAY" id="r2" />
+                        <RadioGroupItem value="SUB_START_DAY" id="r2"/>
                         <Label htmlFor="r2" className="font-normal">
                           Anniversary date of the subscription
                         </Label>
@@ -237,6 +239,20 @@ export const StepSettings = () => {
                 /> */}
               </CardContent>
             </Card>
+
+            <Card>
+              <CardHeader>
+                <CardTitle className="text-base">Metadata</CardTitle>
+              </CardHeader>
+              <CardContent className="space-y-4">
+                <InputFormField
+                  name="purchaseOrder"
+                  label="Purchase Order"
+                  placeholder="Enter purchase order..."
+                  control={methods.control}
+                />
+              </CardContent>
+            </Card>
           </div>
         </PageSection>
 
@@ -261,6 +277,7 @@ const schema = z
     netTerms: z.number().min(0),
     invoiceMemo: z.string().optional(),
     invoiceThreshold: z.string().optional(),
+    purchaseOrder: z.string().optional(),
   })
   .refine(data => !data.toDate || data.toDate > data.fromDate, {
     message: 'Must be greater than the start date',

@@ -94,6 +94,7 @@ export const StepReviewAndCreate = () => {
           trialDuration: state.trialDuration,
           invoiceMemo: state.invoiceMemo,
           invoiceThreshold: state.invoiceThreshold,
+          purchaseOrder: state.purchaseOrder,
           // TODO: Add components, addOns, coupons
           components: {
             parameterizedComponents: state.components.parameterized.map(c => ({
@@ -315,7 +316,7 @@ export const StepReviewAndCreate = () => {
             <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
               <Card>
                 <CardHeader className="flex flex-row items-center gap-2">
-                  <User className="h-5 w-5" />
+                  <User className="h-5 w-5"/>
                   <CardTitle className="text-base">Customer</CardTitle>
                 </CardHeader>
                 <CardContent className="space-y-3">
@@ -336,7 +337,7 @@ export const StepReviewAndCreate = () => {
 
               <Card>
                 <CardHeader className="flex flex-row items-center gap-2">
-                  <Package className="h-5 w-5" />
+                  <Package className="h-5 w-5"/>
                   <CardTitle className="text-base">Plan</CardTitle>
                 </CardHeader>
                 <CardContent className="space-y-3">
@@ -355,7 +356,7 @@ export const StepReviewAndCreate = () => {
             {/* Timeline & Settings */}
             <Card>
               <CardHeader className="flex flex-row items-center gap-2">
-                <Calendar className="h-5 w-5" />
+                <Calendar className="h-5 w-5"/>
                 <CardTitle className="text-base">Subscription Details</CardTitle>
               </CardHeader>
               <CardContent>
@@ -410,6 +411,15 @@ export const StepReviewAndCreate = () => {
                     )}
                   </div>
                 )}
+
+                {state.purchaseOrder && (
+                  <div className="mt-4 pt-4 border-t space-y-2">
+                    <div>
+                      <div className="text-xs text-muted-foreground">Purchase Order</div>
+                      <div className="text-sm">{state.purchaseOrder}</div>
+                    </div>
+                  </div>
+                )}
               </CardContent>
             </Card>
 
@@ -419,7 +429,7 @@ export const StepReviewAndCreate = () => {
                 {selectedAddOns.length > 0 && (
                   <Card>
                     <CardHeader className="flex flex-row items-center gap-2">
-                      <PlusIcon className="h-5 w-5" />
+                      <PlusIcon className="h-5 w-5"/>
                       <CardTitle className="text-base">Add-ons ({selectedAddOns.length})</CardTitle>
                     </CardHeader>
                     <CardContent>
@@ -440,7 +450,7 @@ export const StepReviewAndCreate = () => {
                 {selectedCoupons.length > 0 && (
                   <Card>
                     <CardHeader className="flex flex-row items-center gap-2">
-                      <Tag className="h-5 w-5" />
+                      <Tag className="h-5 w-5"/>
                       <CardTitle className="text-base">
                         Coupons ({selectedCoupons.length})
                       </CardTitle>

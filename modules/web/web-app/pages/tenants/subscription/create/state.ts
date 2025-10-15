@@ -78,6 +78,7 @@ export interface CreateSubscriptionState {
   netTerms: number
   invoiceMemo?: string
   invoiceThreshold?: string
+  purchaseOrder?: string
 
   // Components configuration
   components: {
@@ -109,6 +110,7 @@ export const createSubscriptionAtom = atomWithReset<CreateSubscriptionState>({
   netTerms: 30,
   invoiceMemo: undefined,
   invoiceThreshold: undefined,
+  purchaseOrder: undefined,
 
   // Components configuration
   components: {

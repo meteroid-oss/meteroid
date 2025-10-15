@@ -197,14 +197,14 @@ export const Subscription = () => {
   if (isLoading || !data) {
     return (
       <div className="p-6">
-        <Skeleton height={16} width={50} className="mb-4" />
+        <Skeleton height={16} width={50} className="mb-4"/>
         <div className="flex gap-6">
           <div className="flex-1">
-            <Skeleton height={100} className="mb-4" />
-            <Skeleton height={200} className="mb-4" />
+            <Skeleton height={100} className="mb-4"/>
+            <Skeleton height={200} className="mb-4"/>
           </div>
           <div className="w-80">
-            <Skeleton height={300} className="mb-4" />
+            <Skeleton height={300} className="mb-4"/>
           </div>
         </div>
       </div>
@@ -232,14 +232,14 @@ export const Subscription = () => {
             />
             <h2 className="text-xl font-semibold text-foreground">{data.planName}</h2>
             <div className="ml-2">
-              <StatusBadge status={data.status} />
+              <StatusBadge status={data.status}/>
             </div>
           </div>
           <div>
             <DropdownMenu>
               <DropdownMenuTrigger asChild>
                 <Button variant="primary" className="gap-2  " size="sm" hasIcon>
-                  Actions <ChevronDown className="w-4 h-4" />
+                  Actions <ChevronDown className="w-4 h-4"/>
                 </Button>
               </DropdownMenuTrigger>
               <DropdownMenuContent align="end">
@@ -311,43 +311,47 @@ export const Subscription = () => {
             <div className="overflow-hidden">
               <table className="w-full">
                 <thead className="bg-muted/40">
-                  <tr>
-                    <th className="px-4 py-3 text-left text-xs font-medium text-muted-foreground uppercase tracking-wider">
-                      Name
-                    </th>
-                    <th className="px-4 py-3 text-left text-xs font-medium text-muted-foreground uppercase tracking-wider">
-                      Billing Period
-                    </th>
-                    <th className="px-4 py-3 text-left text-xs font-medium text-muted-foreground uppercase tracking-wider">
-                      Fee Type
-                    </th>
-                    <th className="px-4 py-3 text-left text-xs font-medium text-muted-foreground uppercase tracking-wider">
-                      price
-                    </th>
-                  </tr>
+                <tr>
+                  <th
+                    className="px-4 py-3 text-left text-xs font-medium text-muted-foreground uppercase tracking-wider">
+                    Name
+                  </th>
+                  <th
+                    className="px-4 py-3 text-left text-xs font-medium text-muted-foreground uppercase tracking-wider">
+                    Billing Period
+                  </th>
+                  <th
+                    className="px-4 py-3 text-left text-xs font-medium text-muted-foreground uppercase tracking-wider">
+                    Fee Type
+                  </th>
+                  <th
+                    className="px-4 py-3 text-left text-xs font-medium text-muted-foreground uppercase tracking-wider">
+                    price
+                  </th>
+                </tr>
                 </thead>
                 <tbody>
-                  {details.priceComponents.map((component, index) => (
-                    <tr
-                      key={index}
-                      className={
-                        index % 2 === 0 ? 'bg-card' : 'bg-muted/10 border-t border-b border-border'
-                      }
-                    >
-                      <td className="px-4 py-3 text-sm font-medium text-foreground">
-                        {component.name}
-                      </td>
-                      <td className="px-4 py-3 text-sm text-muted-foreground">
-                        {formatBillingPeriod(component.period)}
-                      </td>
-                      <td className="px-4 py-3 text-sm text-muted-foreground">
-                        {formatFeeType(component.fee)}
-                      </td>
-                      <td className="px-4 py-3 text-sm text-muted-foreground">
-                        <SubscriptionFeeDetail fee={component.fee} currency={data.currency} />
-                      </td>
-                    </tr>
-                  ))}
+                {details.priceComponents.map((component, index) => (
+                  <tr
+                    key={index}
+                    className={
+                      index % 2 === 0 ? 'bg-card' : 'bg-muted/10 border-t border-b border-border'
+                    }
+                  >
+                    <td className="px-4 py-3 text-sm font-medium text-foreground">
+                      {component.name}
+                    </td>
+                    <td className="px-4 py-3 text-sm text-muted-foreground">
+                      {formatBillingPeriod(component.period)}
+                    </td>
+                    <td className="px-4 py-3 text-sm text-muted-foreground">
+                      {formatFeeType(component.fee)}
+                    </td>
+                    <td className="px-4 py-3 text-sm text-muted-foreground">
+                      <SubscriptionFeeDetail fee={component.fee} currency={data.currency}/>
+                    </td>
+                  </tr>
+                ))}
                 </tbody>
               </table>
             </div>
@@ -363,41 +367,45 @@ export const Subscription = () => {
             <div className="overflow-hidden">
               <table className="w-full">
                 <thead className="bg-muted/40">
-                  <tr>
-                    <th className="px-4 py-3 text-left text-xs font-medium text-muted-foreground uppercase tracking-wider">
-                      Name
-                    </th>
-                    <th className="px-4 py-3 text-left text-xs font-medium text-muted-foreground uppercase tracking-wider">
-                      Billing Period
-                    </th>
-                    <th className="px-4 py-3 text-left text-xs font-medium text-muted-foreground uppercase tracking-wider">
-                      Fee Type
-                    </th>
-                    <th className="px-4 py-3 text-left text-xs font-medium text-muted-foreground uppercase tracking-wider">
-                      ID
-                    </th>
-                  </tr>
+                <tr>
+                  <th
+                    className="px-4 py-3 text-left text-xs font-medium text-muted-foreground uppercase tracking-wider">
+                    Name
+                  </th>
+                  <th
+                    className="px-4 py-3 text-left text-xs font-medium text-muted-foreground uppercase tracking-wider">
+                    Billing Period
+                  </th>
+                  <th
+                    className="px-4 py-3 text-left text-xs font-medium text-muted-foreground uppercase tracking-wider">
+                    Fee Type
+                  </th>
+                  <th
+                    className="px-4 py-3 text-left text-xs font-medium text-muted-foreground uppercase tracking-wider">
+                    ID
+                  </th>
+                </tr>
                 </thead>
                 <tbody>
-                  {details.addOns.map((addon, index) => (
-                    <tr
-                      key={index}
-                      className={
-                        index % 2 === 0 ? 'bg-card' : 'bg-muted/10 border-t border-b border-border'
-                      }
-                    >
-                      <td className="px-4 py-3 text-sm font-medium text-foreground">
-                        {addon.name}
-                      </td>
-                      <td className="px-4 py-3 text-sm text-muted-foreground">
-                        {formatBillingPeriod(addon.period)}
-                      </td>
-                      <td className="px-4 py-3 text-sm text-muted-foreground">
-                        {formatFeeType(addon.fee)}
-                      </td>
-                      <td className="px-4 py-3 text-sm text-muted-foreground">{addon.addOnId}</td>
-                    </tr>
-                  ))}
+                {details.addOns.map((addon, index) => (
+                  <tr
+                    key={index}
+                    className={
+                      index % 2 === 0 ? 'bg-card' : 'bg-muted/10 border-t border-b border-border'
+                    }
+                  >
+                    <td className="px-4 py-3 text-sm font-medium text-foreground">
+                      {addon.name}
+                    </td>
+                    <td className="px-4 py-3 text-sm text-muted-foreground">
+                      {formatBillingPeriod(addon.period)}
+                    </td>
+                    <td className="px-4 py-3 text-sm text-muted-foreground">
+                      {formatFeeType(addon.fee)}
+                    </td>
+                    <td className="px-4 py-3 text-sm text-muted-foreground">{addon.addOnId}</td>
+                  </tr>
+                ))}
                 </tbody>
               </table>
             </div>
@@ -413,29 +421,31 @@ export const Subscription = () => {
             <div className="overflow-hidden">
               <table className="w-full">
                 <thead className="bg-muted/40">
-                  <tr>
-                    <th className="px-4 py-3 text-left text-xs font-medium text-muted-foreground uppercase tracking-wider">
-                      Name
-                    </th>
-                    <th className="px-4 py-3 text-left text-xs font-medium text-muted-foreground uppercase tracking-wider">
-                      Alias
-                    </th>
-                  </tr>
+                <tr>
+                  <th
+                    className="px-4 py-3 text-left text-xs font-medium text-muted-foreground uppercase tracking-wider">
+                    Name
+                  </th>
+                  <th
+                    className="px-4 py-3 text-left text-xs font-medium text-muted-foreground uppercase tracking-wider">
+                    Alias
+                  </th>
+                </tr>
                 </thead>
                 <tbody>
-                  {details.metrics.map((metric, index) => (
-                    <tr
-                      key={index}
-                      className={
-                        index % 2 === 0 ? 'bg-card' : 'bg-muted/10 border-t border-b border-border'
-                      }
-                    >
-                      <td className="px-4 py-3 text-sm font-medium text-brand hover:underline">
-                        <Link to={`${basePath}/metrics/${metric.id}`}>{metric.name}</Link>
-                      </td>
-                      <td className="px-4 py-3 text-sm text-muted-foreground">{metric.alias}</td>
-                    </tr>
-                  ))}
+                {details.metrics.map((metric, index) => (
+                  <tr
+                    key={index}
+                    className={
+                      index % 2 === 0 ? 'bg-card' : 'bg-muted/10 border-t border-b border-border'
+                    }
+                  >
+                    <td className="px-4 py-3 text-sm font-medium text-brand hover:underline">
+                      <Link to={`${basePath}/metrics/${metric.id}`}>{metric.name}</Link>
+                    </td>
+                    <td className="px-4 py-3 text-sm text-muted-foreground">{metric.alias}</td>
+                  </tr>
+                ))}
                 </tbody>
               </table>
             </div>
@@ -451,37 +461,40 @@ export const Subscription = () => {
             <div className="overflow-hidden">
               <table className="w-full">
                 <thead className="bg-muted/40">
-                  <tr>
-                    <th className="px-4 py-3 text-left text-xs font-medium text-muted-foreground uppercase tracking-wider">
-                      Coupon
-                    </th>
-                    <th className="px-4 py-3 text-left text-xs font-medium text-muted-foreground uppercase tracking-wider">
-                      Type
-                    </th>
-                    <th className="px-4 py-3 text-left text-xs font-medium text-muted-foreground uppercase tracking-wider">
-                      ID
-                    </th>
-                  </tr>
+                <tr>
+                  <th
+                    className="px-4 py-3 text-left text-xs font-medium text-muted-foreground uppercase tracking-wider">
+                    Coupon
+                  </th>
+                  <th
+                    className="px-4 py-3 text-left text-xs font-medium text-muted-foreground uppercase tracking-wider">
+                    Type
+                  </th>
+                  <th
+                    className="px-4 py-3 text-left text-xs font-medium text-muted-foreground uppercase tracking-wider">
+                    ID
+                  </th>
+                </tr>
                 </thead>
                 <tbody>
-                  {details.appliedCoupons.map((coupon, index) => (
-                    <tr
-                      key={index}
-                      className={
-                        index % 2 === 0 ? 'bg-card' : 'bg-muted/10 border-t border-b border-border'
-                      }
-                    >
-                      <td className="px-4 py-3 text-sm font-medium text-foreground">
-                        {coupon.coupon?.code || 'N/A'}
-                      </td>
-                      <td className="px-4 py-3 text-sm text-muted-foreground">
-                        {coupon.appliedCoupon?.appliedAmount || 'N/A'}
-                      </td>
-                      <td className="px-4 py-3 text-sm text-muted-foreground">
-                        {coupon.coupon?.id || 'N/A'}
-                      </td>
-                    </tr>
-                  ))}
+                {details.appliedCoupons.map((coupon, index) => (
+                  <tr
+                    key={index}
+                    className={
+                      index % 2 === 0 ? 'bg-card' : 'bg-muted/10 border-t border-b border-border'
+                    }
+                  >
+                    <td className="px-4 py-3 text-sm font-medium text-foreground">
+                      {coupon.coupon?.code || 'N/A'}
+                    </td>
+                    <td className="px-4 py-3 text-sm text-muted-foreground">
+                      {coupon.appliedCoupon?.appliedAmount || 'N/A'}
+                    </td>
+                    <td className="px-4 py-3 text-sm text-muted-foreground">
+                      {coupon.coupon?.id || 'N/A'}
+                    </td>
+                  </tr>
+                ))}
                 </tbody>
               </table>
             </div>
@@ -493,7 +506,7 @@ export const Subscription = () => {
             <h3 className="text-md font-medium text-foreground">Invoices</h3>
           </div>
           <div className="p-4 text-sm overflow-hidden text-muted-foreground">
-            <SubscriptionInvoicesCard subscriptionId={data.localId} />
+            <SubscriptionInvoicesCard subscriptionId={data.localId}/>
           </div>
         </div>
       </div>
@@ -501,10 +514,10 @@ export const Subscription = () => {
       {/* Sidebar */}
       <div className="w-80 p-6 border-l border-border">
         <DetailSection title="Subscription Details">
-          <DetailRow label="ID" value={data.localId} />
-          <DetailRow label="Version" value={data.version} />
-          <DetailRow label="Status" value={<StatusBadge status={data.status} />} />
-          <DetailRow label="Currency" value={data.currency} />
+          <DetailRow label="ID" value={data.localId}/>
+          <DetailRow label="Version" value={data.version}/>
+          <DetailRow label="Status" value={<StatusBadge status={data.status}/>}/>
+          <DetailRow label="Currency" value={data.currency}/>
         </DetailSection>
 
         <DetailSection title="Customer">
@@ -513,15 +526,18 @@ export const Subscription = () => {
             value={data.customerName}
             link={`${basePath}/customers/${data.customerId}`}
           />
-          {data.customerAlias && <DetailRow label="Alias" value={data.customerAlias} />}
+          {data.customerAlias && <DetailRow label="Alias" value={data.customerAlias}/>}
         </DetailSection>
 
         <DetailSection title="Billing Information">
-          <DetailRow label="Billing Day" value={data.billingDayAnchor} />
-          <DetailRow label="Net Terms" value={`${data.netTerms} days`} />
-          {data.invoiceMemo && <DetailRow label="Invoice Memo" value={data.invoiceMemo} />}
+          <DetailRow label="Billing Day" value={data.billingDayAnchor}/>
+          <DetailRow label="Net Terms" value={`${data.netTerms} days`}/>
+          {data.invoiceMemo && <DetailRow label="Invoice Memo" value={data.invoiceMemo}/>}
           {data.invoiceThreshold && (
-            <DetailRow label="Invoice Threshold" value={data.invoiceThreshold} />
+            <DetailRow label="Invoice Threshold" value={data.invoiceThreshold}/>
+          )}
+          {data.purchaseOrder && (
+            <DetailRow label="Purchase Order" value={data.purchaseOrder}/>
           )}
         </DetailSection>
 
@@ -538,24 +554,24 @@ export const Subscription = () => {
         </DetailSection>
 
         <DetailSection title="Timeline">
-          <DetailRow label="Created At" value={formatDate(data.createdAt)} />
-          <DetailRow label="Start Date" value={formatDate(data.startDate)} />
+          <DetailRow label="Created At" value={formatDate(data.createdAt)}/>
+          <DetailRow label="Start Date" value={formatDate(data.startDate)}/>
           {data.billingStartDate && (
-            <DetailRow label="Billing Start" value={formatDate(data.billingStartDate)} />
+            <DetailRow label="Billing Start" value={formatDate(data.billingStartDate)}/>
           )}
           {data.activatedAt && (
-            <DetailRow label="Activated At" value={formatDate(data.activatedAt)} />
+            <DetailRow label="Activated At" value={formatDate(data.activatedAt)}/>
           )}
-          {data.endDate && <DetailRow label="End Date" value={formatDate(data.endDate)} />}
+          {data.endDate && <DetailRow label="End Date" value={formatDate(data.endDate)}/>}
           {/* {data.canceledAt && <DetailRow label="Canceled At" value={formatDate(data.canceledAt)} />}
           {data.cancellationReason && <DetailRow label="Reason" value={data.cancellationReason} />} */}
         </DetailSection>
 
         {data.trialDuration && (
           <DetailSection title="Trial Information">
-            <DetailRow label="Trial Duration" value={`${data.trialDuration} days`} />
+            <DetailRow label="Trial Duration" value={`${data.trialDuration} days`}/>
             {data.status === SubscriptionStatus.TRIALING && (
-              <DetailRow label="Trial Status" value={<StatusBadge status={data.status} />} />
+              <DetailRow label="Trial Status" value={<StatusBadge status={data.status}/>}/>
             )}
           </DetailSection>
         )}
