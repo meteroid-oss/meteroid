@@ -17,6 +17,7 @@ use http::StatusCode;
 use meteroid_store::domain::OrderByRequest;
 use meteroid_store::repositories::ProductFamilyInterface;
 
+/// List product families
 #[utoipa::path(
     get,
     tag = "product_family",
@@ -65,6 +66,7 @@ pub(crate) async fn list_product_families(
     }))
 }
 
+/// Create product family
 #[utoipa::path(
     post,
     tag = "product_family",
@@ -100,6 +102,9 @@ pub(crate) async fn create_product_family(
         })
 }
 
+/// Get product family
+///
+/// Retrieve a single product family by ID or alias.
 #[utoipa::path(
     get,
     tag = "product_family",

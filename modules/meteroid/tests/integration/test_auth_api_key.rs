@@ -145,6 +145,7 @@ async fn list_customers(
         .list_customers(tonic::Request::new(
             meteroid_grpc::meteroid::api::customers::v1::ListCustomerRequest {
                 search: None,
+                archived: None,
                 sort_by: meteroid_grpc::meteroid::api::customers::v1::list_customer_request::SortBy::NameAsc as i32,
                 pagination: None,
             },

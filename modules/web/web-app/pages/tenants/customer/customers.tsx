@@ -1,5 +1,6 @@
 import { Button, Flex } from '@ui/index'
 import { Fragment, FunctionComponent, useState } from 'react'
+import { useSearchParams } from 'react-router-dom'
 
 import { EmptyState } from '@/components/empty-state/EmptyState'
 import { TenantPageLayout } from '@/components/layouts'
@@ -14,6 +15,9 @@ import type { PaginationState } from '@tanstack/react-table'
 export const Customers: FunctionComponent = () => {
   const [createPanelVisible, setCreatePanelVisible] = useState(false)
   const [search, setSearch] = useState('')
+  const [searchParams] = useSearchParams()
+
+  const currentTab = searchParams.get('tab') || 'active'
 
   const debouncedSearch = useDebounceValue(search, 400)
 
@@ -21,6 +25,9 @@ export const Customers: FunctionComponent = () => {
     pageIndex: 0,
     pageSize: 20,
   })
+
+  // Map tab to archived filter
+  const archivedFilter = currentTab === 'archived' ? true : currentTab === 'active' ? false : undefined
 
   const customersQuery = useQuery(
     listCustomers,
@@ -31,6 +38,7 @@ export const Customers: FunctionComponent = () => {
       },
       search: debouncedSearch.length > 0 ? debouncedSearch : undefined,
       sortBy: ListCustomerRequest_SortBy.NAME_ASC,
+      archived: archivedFilter,
     },
     {}
   )

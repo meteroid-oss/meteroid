@@ -17,6 +17,9 @@ use hyper::StatusCode;
 use meteroid_store::repositories::InvoiceInterface;
 use meteroid_store::repositories::payment_transactions::PaymentTransactionInterface;
 
+/// List invoices
+///
+/// List invoices with optional filtering by customer, subscription, or status.
 #[utoipa::path(
     get,
     tag = "invoice",
@@ -74,6 +77,9 @@ pub(crate) async fn list_invoices(
     }))
 }
 
+/// Get invoice
+///
+/// Retrieve a single invoice with its payment transactions.
 #[utoipa::path(
     get,
     tag = "invoice",
@@ -123,6 +129,9 @@ pub(crate) async fn get_invoice_by_id(
     Ok(Json(rest_model))
 }
 
+/// Download invoice PDF
+///
+/// Download the PDF document for an invoice.
 #[utoipa::path(
     get,
     tag = "invoice",

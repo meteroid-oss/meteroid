@@ -11,14 +11,15 @@ use tonic::Code;
 
 use meteroid_grpc::meteroid::api;
 
+use crate::data::ids::TENANT_ID;
 use crate::meteroid_it;
 use crate::meteroid_it::clients::AllClients;
 use crate::meteroid_it::container::{MeteroidSetup, SeedLevel};
 use meteroid_grpc::meteroid::api::shared::v1::BillingPeriod;
 use meteroid_grpc::meteroid::api::subscriptions::v1::SubscriptionStatus;
-use meteroid_grpc::meteroid::api::subscriptions::v1::cancel_subscription_request::EffectiveAt;
-
-use crate::data::ids::TENANT_ID;
+use meteroid_grpc::meteroid::api::subscriptions::v1::cancel_subscription_request::{
+    BillingPeriodEnd, EffectiveAt,
+};
 use meteroid_store::domain::{LineItem, OrderByRequest, PaginationRequest};
 use meteroid_store::repositories::InvoiceInterface;
 use meteroid_store::repositories::subscriptions::slots::SubscriptionSlotsInterfaceAuto;
@@ -264,7 +265,7 @@ async fn test_subscription_cancel() {
             api::subscriptions::v1::CancelSubscriptionRequest {
                 subscription_id: subscription.subscription.clone().unwrap().id.clone(),
                 reason: Some("test".to_string()),
-                effective_at: EffectiveAt::BillingPeriodEnd as i32,
+                effective_at: Some(EffectiveAt::BillingPeriodEnd(BillingPeriodEnd {})),
             },
         ))
         .await

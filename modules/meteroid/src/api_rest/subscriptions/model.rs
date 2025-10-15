@@ -21,6 +21,7 @@ pub struct SubscriptionRequest {
     pub customer_id: Option<CustomerId>,
     #[serde(default, with = "string_serde_opt")]
     pub plan_id: Option<PlanId>,
+    pub status: Option<Vec<SubscriptionStatusEnum>>,
 }
 
 #[derive(Clone, ToSchema, Serialize, Deserialize, Debug)]

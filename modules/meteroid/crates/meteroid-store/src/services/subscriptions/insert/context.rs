@@ -186,6 +186,18 @@ impl Services {
             .unique()
             .collect();
 
+        if let Some((id, name)) =
+            CustomerRow::find_archived_customer_in_batch(conn, *tenant_id, customer_ids.clone())
+                .await
+                .map_err(Into::<Report<StoreError>>::into)?
+        {
+            return Err(StoreError::InvalidArgument(format!(
+                "Cannot create subscription for archived customer: {} ({})",
+                name, id
+            ))
+            .into());
+        }
+
         CustomerRow::list_by_ids(conn, tenant_id, customer_ids)
             .await
             .map_err(Into::<Report<StoreError>>::into)?

@@ -13,6 +13,7 @@ use meteroid_grpc::meteroid::api::subscriptions::v1::{
     UpdateSlotsRequest, UpdateSlotsResponse,
 };
 
+use crate::api::shared::conversions::ProtoConv;
 use crate::api::subscriptions::error::SubscriptionApiError;
 use crate::api::subscriptions::{SubscriptionServiceComponents, mapping};
 use crate::api::utils::PaginationExt;
@@ -122,12 +123,27 @@ impl SubscriptionsService for SubscriptionServiceComponents {
         let customer_id = CustomerId::from_proto_opt(inner.customer_id.as_ref())?;
         let plan_id = PlanId::from_proto_opt(inner.plan_id)?;
 
+        let status_filter: Vec<_> = inner
+            .status
+            .into_iter()
+            .filter_map(|s| {
+                meteroid_grpc::meteroid::api::subscriptions::v1::SubscriptionStatus::try_from(s)
+                    .ok()
+            })
+            .flat_map(mapping::subscriptions::map_proto_status_to_domain)
+            .collect();
+
         let res = self
             .store
             .list_subscriptions(
                 tenant_id,
                 customer_id,
                 plan_id,
+                if status_filter.is_empty() {
+                    None
+                } else {
+                    Some(status_filter)
+                },
                 inner.pagination.into_domain(),
             )
             .await
@@ -206,13 +222,29 @@ impl SubscriptionsService for SubscriptionServiceComponents {
         let actor = request.actor()?;
         let inner = request.into_inner();
 
+        use meteroid_grpc::meteroid::api::subscriptions::v1::cancel_subscription_request::EffectiveAt;
+
+        let effective_at = match inner.effective_at {
+            Some(EffectiveAt::Immediate(_)) => {
+                // For now, immediate cancellation maps to cancelling today, we could do sync
+                CancellationEffectiveAt::Date(chrono::Utc::now().date_naive())
+            }
+            Some(EffectiveAt::Date(date)) => {
+                let date = chrono::NaiveDate::from_proto(date)?;
+                CancellationEffectiveAt::Date(date)
+            }
+            Some(EffectiveAt::BillingPeriodEnd(_)) | None => {
+                CancellationEffectiveAt::EndOfBillingPeriod
+            }
+        };
+
         let subscription = self
             .services
             .cancel_subscription(
                 SubscriptionId::from_proto(inner.subscription_id)?,
                 tenant_id,
                 inner.reason,
-                CancellationEffectiveAt::EndOfBillingPeriod,
+                effective_at,
                 actor,
             )
             .await

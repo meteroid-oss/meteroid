@@ -26,6 +26,9 @@ use meteroid_store::repositories::subscriptions::{
 };
 use meteroid_store::repositories::{CustomersInterface, PlansInterface, SubscriptionInterface};
 
+/// List subscriptions
+///
+/// List subscriptions with optional filtering by customer or plan.
 #[utoipa::path(
     get,
     tag = "subscription",
@@ -34,7 +37,8 @@ use meteroid_store::repositories::{CustomersInterface, PlansInterface, Subscript
         ("page" = usize, Query, description = "Specifies the starting position of the results", example = 0, minimum = 0),
         ("per_page" = usize, Query, description = "The maximum number of objects to return", example = 10, minimum = 1, maximum = 100),
         ("customer_id" = Option<CustomerId>, Query, description = "Filter by customer ID"),
-        ("plan_id" = Option<PlanId>, Query, description = "Filter by plan ID")
+        ("plan_id" = Option<PlanId>, Query, description = "Filter by plan ID"),
+        ("status" = Option<Vec<super::model::SubscriptionStatusEnum>>, Query, description = "Filter by subscription status(es)")
     ),
     responses(
         (status = 200, description = "List of subscriptions", body = SubscriptionListResponse),
@@ -51,12 +55,17 @@ pub(crate) async fn list_subscriptions(
     Valid(Query(request)): Valid<Query<SubscriptionRequest>>,
     State(app_state): State<AppState>,
 ) -> Result<impl IntoResponse, RestApiError> {
+    let status_filter = request
+        .status
+        .map(|statuses| statuses.into_iter().map(|s| s.into()).collect());
+
     let res = app_state
         .store
         .list_subscriptions(
             authorized_state.tenant_id,
             request.customer_id,
             request.plan_id,
+            status_filter,
             request.pagination.into(),
         )
         .await
@@ -79,6 +88,9 @@ pub(crate) async fn list_subscriptions(
     }))
 }
 
+/// Get subscription details
+///
+/// Retrieve detailed information about a subscription including price components and schedules.
 #[utoipa::path(
     get,
     tag = "subscription",
@@ -115,6 +127,9 @@ pub(crate) async fn subscription_details(
     Ok(Json(res))
 }
 
+/// Create subscription
+///
+/// Create a new subscription for a customer with a specific plan.
 #[utoipa::path(
     post,
     tag = "subscription",
@@ -208,6 +223,9 @@ pub(crate) async fn create_subscription(
     Ok((StatusCode::CREATED, Json(res)))
 }
 
+/// Cancel subscription
+///
+/// Cancel a subscription either immediately or at the end of the billing period.
 #[utoipa::path(
     post,
     tag = "subscription",

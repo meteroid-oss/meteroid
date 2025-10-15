@@ -10,6 +10,9 @@ use axum_valid::Valid;
 use common_grpc::middleware::server::auth::AuthorizedAsTenant;
 use http::StatusCode;
 
+/// Ingest events
+///
+/// Ingest usage events for metering and billing purposes.
 #[utoipa::path(
     post,
     tag = "events",

@@ -103,6 +103,24 @@ impl QuotesInterface for Store {
     async fn insert_quote(&self, quote: QuoteNew) -> StoreResult<Quote> {
         let mut conn = self.get_conn().await?;
 
+        // Check if customer is archived before creating quote (efficient query)
+        use diesel_models::customers::CustomerRow;
+
+        if let Some((id, name)) = CustomerRow::find_archived_customer_in_batch(
+            &mut conn,
+            quote.tenant_id,
+            vec![quote.customer_id],
+        )
+        .await
+        .map_err(Into::<Report<StoreError>>::into)?
+        {
+            return Err(StoreError::InvalidArgument(format!(
+                "Cannot create quote for archived customer: {} ({})",
+                name, id
+            ))
+            .into());
+        }
+
         let row_new: QuoteRowNew = quote.try_into()?;
 
         let row = row_new
@@ -115,6 +133,28 @@ impl QuotesInterface for Store {
 
     async fn insert_quote_batch(&self, quotes: Vec<QuoteNew>) -> StoreResult<Vec<Quote>> {
         let mut conn = self.get_conn().await?;
+
+        // Check if any customers are archived before creating quotes (efficient query)
+        use diesel_models::customers::CustomerRow;
+        use itertools::Itertools;
+
+        let customer_ids: Vec<CustomerId> = quotes.iter().map(|q| q.customer_id).unique().collect();
+
+        if !customer_ids.is_empty() {
+            let tenant_id = quotes.first().ok_or(StoreError::InsertError)?.tenant_id;
+
+            if let Some((id, name)) =
+                CustomerRow::find_archived_customer_in_batch(&mut conn, tenant_id, customer_ids)
+                    .await
+                    .map_err(Into::<Report<StoreError>>::into)?
+            {
+                return Err(StoreError::InvalidArgument(format!(
+                    "Cannot create quote for archived customer: {} ({})",
+                    name, id
+                ))
+                .into());
+            }
+        }
 
         let rows_new: Vec<QuoteRowNew> = quotes
             .into_iter()

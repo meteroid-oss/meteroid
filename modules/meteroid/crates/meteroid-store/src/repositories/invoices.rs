@@ -569,6 +569,29 @@ async fn insert_invoice_batch_tx(
     tx: &mut PgConn,
     invoice: Vec<InvoiceNew>,
 ) -> StoreResult<Vec<Invoice>> {
+    // Check if any customers are archived before creating invoices
+    use diesel_models::customers::CustomerRow;
+    use itertools::Itertools;
+
+    let customer_ids: Vec<CustomerId> =
+        invoice.iter().map(|inv| inv.customer_id).unique().collect();
+
+    if !customer_ids.is_empty() {
+        let tenant_id = invoice.first().ok_or(StoreError::InsertError)?.tenant_id;
+
+        if let Some((id, name)) =
+            CustomerRow::find_archived_customer_in_batch(tx, tenant_id, customer_ids)
+                .await
+                .map_err(Into::<Report<StoreError>>::into)?
+        {
+            return Err(StoreError::InvalidArgument(format!(
+                "Cannot create invoice for archived customer: {} ({})",
+                name, id
+            ))
+            .into());
+        }
+    }
+
     let insertable_invoice: Vec<InvoiceRowNew> = invoice
         .into_iter()
         .map(std::convert::TryInto::try_into)

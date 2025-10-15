@@ -38,6 +38,29 @@ pub mod subscriptions {
         }
     }
 
+    pub(crate) fn map_proto_status_to_domain(
+        status: proto2::SubscriptionStatus,
+    ) -> Vec<SubscriptionStatusEnum> {
+        match status {
+            proto2::SubscriptionStatus::Pending => {
+                vec![
+                    SubscriptionStatusEnum::PendingActivation,
+                    SubscriptionStatusEnum::PendingCharge,
+                ]
+            }
+            proto2::SubscriptionStatus::Trialing => vec![SubscriptionStatusEnum::TrialActive],
+            proto2::SubscriptionStatus::Active => vec![SubscriptionStatusEnum::Active],
+            proto2::SubscriptionStatus::TrialExpired => vec![SubscriptionStatusEnum::TrialExpired],
+            proto2::SubscriptionStatus::Canceled => vec![SubscriptionStatusEnum::Cancelled],
+            proto2::SubscriptionStatus::Ended => vec![
+                SubscriptionStatusEnum::Paused,
+                SubscriptionStatusEnum::Suspended,
+                SubscriptionStatusEnum::Completed,
+                SubscriptionStatusEnum::Superseded,
+            ],
+        }
+    }
+
     pub(crate) fn domain_to_proto(s: domain::Subscription) -> Result<proto2::Subscription, Status> {
         let status = map_subscription_status(s.status) as i32;
 

@@ -19,6 +19,9 @@ use http::StatusCode;
 use meteroid_store::domain::OrderByRequest;
 use meteroid_store::repositories::CustomersInterface;
 
+/// List customers
+///
+/// List customers with optional pagination and search filtering.
 #[utoipa::path(
     get,
     tag = "customer",
@@ -50,6 +53,7 @@ pub(crate) async fn list_customers(
             request.pagination.into(),
             OrderByRequest::IdAsc,
             request.customer_filters.search,
+            request.customer_filters.archived,
         )
         .await
         .map_err(|e| {
@@ -71,6 +75,9 @@ pub(crate) async fn list_customers(
     }))
 }
 
+/// Get customer
+///
+/// Retrieve a single customer by ID or alias.
 #[utoipa::path(
     get,
     tag = "customer",
@@ -106,6 +113,7 @@ pub(crate) async fn get_customer(
         .map(Json)
 }
 
+/// Create customer
 #[utoipa::path(
     post,
     tag = "customer",
@@ -154,6 +162,7 @@ pub(crate) async fn create_customer(
         .map(|x| (StatusCode::CREATED, Json(x)))
 }
 
+/// Update customer
 #[utoipa::path(
     put,
     tag = "customer",
@@ -196,6 +205,9 @@ pub(crate) async fn update_customer(
         .map(Json)
 }
 
+/// Archive a customer
+///
+/// No linked entity will be deleted. You need to terminate all active subscriptions before archiving a customer, or the call will fail.
 #[utoipa::path(
     delete,
     tag = "customer",
@@ -214,7 +226,7 @@ pub(crate) async fn update_customer(
     )
 )]
 #[axum::debug_handler]
-pub(crate) async fn delete_customer(
+pub(crate) async fn archive_customer(
     Extension(authorized_state): Extension<AuthorizedAsTenant>,
     State(app_state): State<AppState>,
     Valid(Path(id_or_alias)): Valid<Path<AliasOr<CustomerId>>>,
@@ -228,7 +240,42 @@ pub(crate) async fn delete_customer(
         )
         .await
         .map_err(|e| {
-            log::error!("Error handling delete_customer: {e}");
+            log::error!("Error handling archive_customer: {e}");
+            RestApiError::from(e)
+        })
+        .map(|()| StatusCode::NO_CONTENT)
+}
+
+/// Restore an archived customer
+#[utoipa::path(
+    post,
+    tag = "customer",
+    path = "/api/v1/customers/{id_or_alias}/unarchive",
+    params(
+        ("id_or_alias" = String, Path, description = "customer ID or alias")
+    ),
+    responses(
+        (status = 204, description = "No Content"),
+        (status = 401, description = "Unauthorized", body = RestErrorResponse),
+        (status = 404, description = "Customer not found", body = RestErrorResponse),
+        (status = 500, description = "Internal error", body = RestErrorResponse),
+    ),
+    security(
+        ("bearer_auth" = [])
+    )
+)]
+#[axum::debug_handler]
+pub(crate) async fn unarchive_customer(
+    Extension(authorized_state): Extension<AuthorizedAsTenant>,
+    State(app_state): State<AppState>,
+    Valid(Path(id_or_alias)): Valid<Path<AliasOr<CustomerId>>>,
+) -> Result<impl IntoResponse, RestApiError> {
+    app_state
+        .store
+        .unarchive_customer(authorized_state.tenant_id, id_or_alias)
+        .await
+        .map_err(|e| {
+            log::error!("Error handling unarchive_customer: {e}");
             RestApiError::from(e)
         })
         .map(|()| StatusCode::NO_CONTENT)
