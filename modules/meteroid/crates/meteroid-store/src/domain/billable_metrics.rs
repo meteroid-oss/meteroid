@@ -30,6 +30,8 @@ pub struct BillableMetric {
     pub created_by: Uuid,
     pub updated_at: Option<NaiveDateTime>,
     pub archived_at: Option<NaiveDateTime>,
+    pub synced_at: Option<NaiveDateTime>,
+    pub sync_error: Option<String>,
     pub tenant_id: TenantId,
     pub product_family_id: ProductFamilyId,
     pub product_id: Option<ProductId>,
@@ -74,6 +76,15 @@ pub struct BillableMetricNew {
     pub product_id: Option<ProductId>,
 }
 
+#[derive(Clone, Debug)]
+pub struct BillableMetricUpdate {
+    pub name: Option<String>,
+    pub description: Option<Option<String>>,
+    pub unit_conversion_factor: Option<Option<i32>>,
+    pub unit_conversion_rounding: Option<Option<UnitConversionRoundingEnum>>,
+    pub segmentation_matrix: Option<Option<SegmentationMatrix>>,
+}
+
 #[derive(Clone, Debug, o2o)]
 #[from_owned(BillableMetricMetaRow)]
 #[owned_into(BillableMetricMetaRow)]
@@ -81,9 +92,12 @@ pub struct BillableMetricMeta {
     pub id: BillableMetricId,
     pub name: String,
     pub code: String,
+    pub description: Option<String>,
     #[map(~.into())]
     pub aggregation_type: BillingMetricAggregateEnum,
     pub aggregation_key: Option<String>,
     pub created_at: NaiveDateTime,
     pub archived_at: Option<NaiveDateTime>,
+    pub synced_at: Option<NaiveDateTime>,
+    pub sync_error: Option<String>,
 }

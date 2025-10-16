@@ -54,8 +54,8 @@ type DimensionValuesSchema = z.ZodArray<z.ZodString, 'atleastone'>
 const dimensionValues: DimensionValuesSchema = z.array(z.string().nonempty()).nonempty()
 
 // We specify some type explicitely to reduce complexity on ts compiler
-type Dimension = {
-  values: [string, ...string[]]
+export type Dimension = {
+  values: string[]
   key: string
 }
 type DimensionSchema = z.ZodObject<
@@ -101,6 +101,8 @@ const simpleSegmentationMatrixSchema = z.object({
   double: z.object({ dimension1: dimensionSchema, dimension2: dimensionSchema }).optional(),
 })
 
+export type SimpleSegmentationMatrixFormData = z.infer<typeof simpleSegmentationMatrixSchema>
+
 export const createBillableMetricSchema = z.object({
   metricName: z.string().min(3),
   eventCode: z.string().min(3),
@@ -112,7 +114,32 @@ export const createBillableMetricSchema = z.object({
     .string()
     .optional()
     .nullable()
-    .transform(flow(O.map(S.trim), O.filter(s => !S.isEmpty(s)))),
+    .transform(
+      flow(
+        O.map(S.trim),
+        O.filter(s => !S.isEmpty(s))
+      )
+    ),
 })
 export type CreateBillableMetricSchema = typeof createBillableMetricSchema
 export type CreateBillableMetricFormData = z.infer<CreateBillableMetricSchema>
+
+export const updateBillableMetricSchema = z.object({
+  id: z.string(),
+  metricName: z.string().min(3).optional(),
+  metricDescription: z.string().optional().nullable(),
+  unitConversion: unitConversion.optional().nullable(),
+  segmentationMatrix: simpleSegmentationMatrixSchema.optional(),
+  usageGroupKey: z
+    .string()
+    .optional()
+    .nullable()
+    .transform(
+      flow(
+        O.map(S.trim),
+        O.filter(s => !S.isEmpty(s))
+      )
+    ),
+})
+export type UpdateBillableMetricSchema = typeof updateBillableMetricSchema
+export type UpdateBillableMetricFormData = z.infer<UpdateBillableMetricSchema>

@@ -1,11 +1,15 @@
 import { FunctionComponent } from 'react'
+import { useLocation } from 'react-router-dom'
 
-import { ProductMetricsEditPanel } from '@/features/productCatalog/metrics/ProductMetricsEditPanel'
+import { ProductMetricsCreatePanel } from '@/features/productCatalog/metrics/ProductMetricsCreatePanel'
 
 export const CreateBillableMetric: FunctionComponent = () => {
+  const location = useLocation()
+  const sourceMetricId = location.state?.sourceMetricId
+
   return (
     <>
-      <ProductMetricsEditPanel />
+      <ProductMetricsCreatePanel sourceMetricId={sourceMetricId} />
     </>
   )
 }

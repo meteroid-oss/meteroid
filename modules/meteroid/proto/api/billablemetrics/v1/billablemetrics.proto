@@ -53,10 +53,23 @@ message UnarchiveBillableMetricRequest {
 message UnarchiveBillableMetricResponse {
 }
 
+message UpdateBillableMetricRequest {
+  string id = 1;
+  optional string name = 2;
+  optional string description = 3;
+  optional Aggregation.UnitConversion unit_conversion = 4;
+  optional SegmentationMatrix segmentation_matrix = 5;
+}
+
+message UpdateBillableMetricResponse {
+  BillableMetric billable_metric = 1;
+}
+
 service BillableMetricsService {
   rpc CreateBillableMetric (CreateBillableMetricRequest) returns (CreateBillableMetricResponse) {}
   rpc ListBillableMetrics (ListBillableMetricsRequest) returns (ListBillableMetricsResponse) {}
   rpc GetBillableMetric (GetBillableMetricRequest) returns (GetBillableMetricResponse) {}
+  rpc UpdateBillableMetric (UpdateBillableMetricRequest) returns (UpdateBillableMetricResponse) {}
   rpc ArchiveBillableMetric (ArchiveBillableMetricRequest) returns (ArchiveBillableMetricResponse) {}
   rpc UnarchiveBillableMetric (UnarchiveBillableMetricRequest) returns (UnarchiveBillableMetricResponse) {}
 }

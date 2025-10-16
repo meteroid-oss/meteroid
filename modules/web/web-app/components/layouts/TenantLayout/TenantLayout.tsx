@@ -171,7 +171,7 @@ export const TenantLayoutOutlet = () => {
               <SidebarMenu>
                 {sidebarItems.navSecondary.map(item => (
                   <SidebarMenuItem key={item.title}>
-                    <NavLink to={item.url} viewTransition>
+                    <NavLink to={item.url}>
                       <SidebarMenuButton isActive={pathname.includes(item.url)} asChild size="sm">
                         <Flex align="center" className="gap-2">
                           <item.icon />

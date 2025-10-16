@@ -49,6 +49,20 @@ pub trait BillableMetricInterface {
         id: BillableMetricId,
         tenant_id: TenantId,
     ) -> StoreResult<()>;
+
+    async fn update_billable_metric(
+        &self,
+        id: BillableMetricId,
+        tenant_id: TenantId,
+        update: domain::BillableMetricUpdate,
+    ) -> StoreResult<domain::BillableMetric>;
+
+    async fn mark_billable_metric_synced(
+        &self,
+        id: BillableMetricId,
+        tenant_id: TenantId,
+        error: Option<String>,
+    ) -> StoreResult<()>;
 }
 
 #[async_trait::async_trait]
@@ -210,6 +224,58 @@ impl BillableMetricInterface for Store {
         let mut conn = self.get_conn().await?;
 
         BillableMetricRow::unarchive(&mut conn, id, tenant_id)
+            .await
+            .map_err(Into::into)
+    }
+
+    async fn update_billable_metric(
+        &self,
+        id: BillableMetricId,
+        tenant_id: TenantId,
+        update: domain::BillableMetricUpdate,
+    ) -> StoreResult<domain::BillableMetric> {
+        use diesel_models::billable_metrics::BillableMetricRowPatch;
+        let mut conn = self.get_conn().await?;
+
+        let patch = BillableMetricRowPatch {
+            name: update.name,
+            description: update.description,
+            unit_conversion_factor: update.unit_conversion_factor,
+            unit_conversion_rounding: update.unit_conversion_rounding.map(|x| x.map(Into::into)),
+            segmentation_matrix: update
+                .segmentation_matrix
+                .map(|opt| {
+                    opt.map(|x| {
+                        serde_json::to_value(&x).map_err(|e| {
+                            StoreError::SerdeError(
+                                "Failed to serialize segmentation_matrix".to_string(),
+                                e,
+                            )
+                        })
+                    })
+                    .transpose()
+                })
+                .transpose()?,
+            updated_at: Some(chrono::Utc::now().naive_utc()),
+            synced_at: None,
+            sync_error: None,
+        };
+
+        BillableMetricRow::update(&mut conn, id, tenant_id, patch)
+            .await
+            .map_err(Into::into)
+            .and_then(TryInto::try_into)
+    }
+
+    async fn mark_billable_metric_synced(
+        &self,
+        id: BillableMetricId,
+        tenant_id: TenantId,
+        error: Option<String>,
+    ) -> StoreResult<()> {
+        let mut conn = self.get_conn().await?;
+
+        BillableMetricRow::mark_synced(&mut conn, id, tenant_id, error)
             .await
             .map_err(Into::into)
     }

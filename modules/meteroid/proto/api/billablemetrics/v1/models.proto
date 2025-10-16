@@ -77,15 +77,20 @@ message BillableMetric {
   google.protobuf.Timestamp archived_at = 9;
   optional string product_id = 10;
   string local_id = 11;
+  google.protobuf.Timestamp synced_at = 12;
+  optional string sync_error = 13;
 }
 
 message BillableMetricMeta {
   string id = 1;
   string name = 2;
   string code = 3;
+  optional string description = 4;
   Aggregation.AggregationType aggregation_type = 5;
   optional string aggregation_key = 6;
   google.protobuf.Timestamp created_at = 8;
   google.protobuf.Timestamp archived_at = 9;
+  google.protobuf.Timestamp synced_at = 10;
+  optional string sync_error = 11;
 }
 

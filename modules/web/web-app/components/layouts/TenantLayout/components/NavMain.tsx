@@ -93,7 +93,7 @@ function Tree({
                     subItem.disabled && 'pointer-events-none opacity-60'
                   )}
                 >
-                  <NavLink to={subItem.url} viewTransition>
+                  <NavLink to={subItem.url}>
                     <SidebarMenuButton key={index} isActive={isSubActive} className="pl-10">
                       {subItem.title}
                     </SidebarMenuButton>
@@ -113,7 +113,7 @@ function Tree({
   return (
     <SidebarMenuItem>
       <div className={cn('block w-full', item.disabled && 'pointer-events-none opacity-60')}>
-        <NavLink to={item.url ?? ''} viewTransition>
+        <NavLink to={item.url ?? ''}>
           <SidebarMenuButton isActive={isActive}>
             {Icon && <Icon className="mr-2 h-4 w-4" />}
             {item.title}

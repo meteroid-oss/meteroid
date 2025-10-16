@@ -14,6 +14,7 @@ import { PlanEdit } from '@/pages/tenants/billing/plans/edit'
 import { PlanOnboardingComponent } from '@/pages/tenants/billing/plans/onboarding'
 import { CatalogOutlet } from '@/pages/tenants/catalog'
 import { CreateBillableMetric } from '@/pages/tenants/catalog/createBillableMetric'
+import { EditBillableMetric } from '@/pages/tenants/catalog/editBillableMetric'
 import { Products } from '@/pages/tenants/catalog/productItems'
 import { ProductMetricDetail } from '@/pages/tenants/catalog/productMetricDetail'
 import { ProductMetrics } from '@/pages/tenants/catalog/productMetrics'
@@ -38,6 +39,10 @@ export const productCatalogRoutes: RouteObject = {
             {
               path: 'add-metric',
               element: <CreateBillableMetric />,
+            },
+            {
+              path: 'edit/:metricId',
+              element: <EditBillableMetric />,
             },
           ],
         },

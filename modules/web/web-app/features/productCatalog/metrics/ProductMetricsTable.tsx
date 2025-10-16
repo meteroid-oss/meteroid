@@ -5,11 +5,23 @@ import {
   DropdownMenu,
   DropdownMenuContent,
   DropdownMenuItem,
+  DropdownMenuSeparator,
   DropdownMenuTrigger,
+  Tooltip,
+  TooltipContent,
+  TooltipProvider,
+  TooltipTrigger,
 } from '@md/ui'
 import { useQueryClient } from '@tanstack/react-query'
 import { ColumnDef, OnChangeFn, PaginationState } from '@tanstack/react-table'
-import { ArchiveIcon, ArchiveRestoreIcon, MoreVerticalIcon } from 'lucide-react'
+import {
+  AlertCircleIcon,
+  ArchiveIcon,
+  ArchiveRestoreIcon,
+  CopyIcon,
+  EditIcon,
+  MoreVerticalIcon,
+} from 'lucide-react'
 import { FC, useMemo } from 'react'
 import { useNavigate } from 'react-router-dom'
 import { toast } from 'sonner'
@@ -25,7 +37,7 @@ import {
   BillableMetricMeta,
 } from '@/rpc/api/billablemetrics/v1/models_pb'
 
-const aggregationTypeMapper: Record<Aggregation_AggregationType, string> = {
+export const aggregationTypeMapper: Record<Aggregation_AggregationType, string> = {
   [Aggregation_AggregationType.SUM]: 'sum',
   [Aggregation_AggregationType.MIN]: 'min',
   [Aggregation_AggregationType.MAX]: 'max',
@@ -113,10 +125,25 @@ export const BillableMetricTable: FC<BillableMetricableProps> = ({
         header: 'Status',
         cell: ({ row }) => {
           const isArchived = !!row.original.archivedAt
+          const hasSyncError = !!row.original.syncError
           return (
-            <Badge variant={isArchived ? 'secondary' : 'success'}>
-              {isArchived ? 'Archived' : 'Active'}
-            </Badge>
+            <div className="flex items-center gap-2">
+              <Badge variant={isArchived ? 'secondary' : hasSyncError ? 'destructive' : 'success'}>
+                {isArchived ? 'Archived' : hasSyncError ? 'Error' : 'Active'}
+              </Badge>
+              {hasSyncError && (
+                <TooltipProvider>
+                  <Tooltip>
+                    <TooltipTrigger asChild>
+                      <AlertCircleIcon className="h-4 w-4 text-destructive" />
+                    </TooltipTrigger>
+                    <TooltipContent className="max-w-xs">
+                      <p className="text-xs">Aggregation failed</p>
+                    </TooltipContent>
+                  </Tooltip>
+                </TooltipProvider>
+              )}
+            </div>
           )
         },
       },
@@ -135,6 +162,23 @@ export const BillableMetricTable: FC<BillableMetricableProps> = ({
                 </Button>
               </DropdownMenuTrigger>
               <DropdownMenuContent align="end">
+                {!isArchived && (
+                  <>
+                    <DropdownMenuItem onClick={() => navigate(`edit/${row.original.id}`)}>
+                      <EditIcon size={16} className="mr-2" />
+                      Edit
+                    </DropdownMenuItem>
+                    <DropdownMenuItem
+                      onClick={() =>
+                        navigate('add-metric', { state: { sourceMetricId: row.original.id } })
+                      }
+                    >
+                      <CopyIcon size={16} className="mr-2" />
+                      Duplicate
+                    </DropdownMenuItem>
+                    <DropdownMenuSeparator />
+                  </>
+                )}
                 {isArchived ? (
                   <DropdownMenuItem onClick={() => handleUnarchive(row.original.id)}>
                     <ArchiveRestoreIcon size={16} className="mr-2" />

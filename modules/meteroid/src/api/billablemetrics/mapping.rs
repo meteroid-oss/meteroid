@@ -134,6 +134,8 @@ pub mod metric {
                 created_at: Some(chrono_to_timestamp(value.created_at)),
                 usage_group_key: value.usage_group_key,
                 product_id: value.product_id.map(|x| x.as_proto()),
+                synced_at: value.synced_at.map(chrono_to_timestamp),
+                sync_error: value.sync_error,
             }))
         }
     }
@@ -149,6 +151,7 @@ pub mod metric {
                     id: value.id.as_proto(),
                     name: value.name,
                     code: value.code,
+                    description: value.description,
                     aggregation_type: super::aggregation_type::domain_to_server(
                         value.aggregation_type,
                     )
@@ -156,6 +159,8 @@ pub mod metric {
                     aggregation_key: value.aggregation_key,
                     created_at: Some(chrono_to_timestamp(value.created_at)),
                     archived_at: value.archived_at.map(chrono_to_timestamp),
+                    synced_at: value.synced_at.map(chrono_to_timestamp),
+                    sync_error: value.sync_error,
                 },
             ))
         }
@@ -295,6 +300,9 @@ pub mod metric {
             aggregation_key: metric.aggregation_key,
             archived_at: metric.archived_at.map(chrono_to_timestamp),
             created_at: Some(chrono_to_timestamp(metric.created_at)),
+            description: metric.description,
+            synced_at: metric.synced_at.map(chrono_to_timestamp),
+            sync_error: metric.sync_error,
         }
     }
 }

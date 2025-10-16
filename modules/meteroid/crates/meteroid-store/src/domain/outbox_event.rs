@@ -220,7 +220,7 @@ impl CustomerEvent {
 #[skip_serializing_none]
 #[derive(Debug, Clone, Serialize, Deserialize, o2o)]
 #[map_owned(BillableMetric)]
-#[ghosts(archived_at: None, updated_at: None)]
+#[ghosts(archived_at: None, updated_at: None, synced_at: None, sync_error: None)]
 pub struct BillableMetricEvent {
     #[ghost(EventId::new())]
     pub id: EventId,
