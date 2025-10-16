@@ -49,7 +49,7 @@ const ItemLink = ({
 const Item: FunctionComponent<ItemProps> = ({ label, to, end, disabled, soon = false }) => {
   return (
     <li className={cn('block w-full', disabled && 'pointer-events-none')}>
-      <NavLink to={to} end={end} viewTransition>
+      <NavLink to={to} end={end}>
         {({ isActive }) => (
           <ItemLink isActive={isActive} disabled={disabled} soon={soon}>
             {label}

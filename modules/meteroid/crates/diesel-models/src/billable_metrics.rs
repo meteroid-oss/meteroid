@@ -27,6 +27,8 @@ pub struct BillableMetricRow {
     pub tenant_id: TenantId,
     pub product_family_id: ProductFamilyId,
     pub product_id: Option<ProductId>,
+    pub synced_at: Option<NaiveDateTime>,
+    pub sync_error: Option<String>,
 }
 
 #[derive(Debug, Clone, Insertable)]
@@ -56,8 +58,25 @@ pub struct BillableMetricMetaRow {
     pub id: BillableMetricId,
     pub name: String,
     pub code: String,
+    pub description: Option<String>,
     pub aggregation_type: BillingMetricAggregateEnum,
     pub aggregation_key: Option<String>,
     pub created_at: NaiveDateTime,
     pub archived_at: Option<NaiveDateTime>,
+    pub synced_at: Option<NaiveDateTime>,
+    pub sync_error: Option<String>,
+}
+
+#[derive(Debug, Clone, diesel::AsChangeset)]
+#[diesel(table_name = crate::schema::billable_metric)]
+#[diesel(check_for_backend(diesel::pg::Pg))]
+pub struct BillableMetricRowPatch {
+    pub name: Option<String>,
+    pub description: Option<Option<String>>,
+    pub unit_conversion_factor: Option<Option<i32>>,
+    pub unit_conversion_rounding: Option<Option<UnitConversionRoundingEnum>>,
+    pub segmentation_matrix: Option<Option<serde_json::Value>>,
+    pub updated_at: Option<NaiveDateTime>,
+    pub synced_at: Option<Option<NaiveDateTime>>,
+    pub sync_error: Option<Option<String>>,
 }

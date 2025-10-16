@@ -134,6 +134,8 @@ pub mod metric {
                 created_at: Some(chrono_to_timestamp(value.created_at)),
                 usage_group_key: value.usage_group_key,
                 product_id: value.product_id.map(|x| x.as_proto()),
+                synced_at: value.synced_at.map(chrono_to_timestamp),
+                sync_error: value.sync_error,
             }))
         }
     }
@@ -149,6 +151,7 @@ pub mod metric {
                     id: value.id.as_proto(),
                     name: value.name,
                     code: value.code,
+                    description: value.description,
                     aggregation_type: super::aggregation_type::domain_to_server(
                         value.aggregation_type,
                     )
@@ -156,6 +159,8 @@ pub mod metric {
                     aggregation_key: value.aggregation_key,
                     created_at: Some(chrono_to_timestamp(value.created_at)),
                     archived_at: value.archived_at.map(chrono_to_timestamp),
+                    synced_at: value.synced_at.map(chrono_to_timestamp),
+                    sync_error: value.sync_error,
                 },
             ))
         }
@@ -295,6 +300,67 @@ pub mod metric {
             aggregation_key: metric.aggregation_key,
             archived_at: metric.archived_at.map(chrono_to_timestamp),
             created_at: Some(chrono_to_timestamp(metric.created_at)),
+            description: metric.description,
+            synced_at: metric.synced_at.map(chrono_to_timestamp),
+            sync_error: metric.sync_error,
+        }
+    }
+
+    /// Merges the values-only update with the existing segmentation matrix structure (keeping keys immutable)
+    pub fn merge_segmentation_matrix_values(
+        existing: Option<SegmentationMatrix>,
+        values_update: server::SegmentationMatrixValuesUpdate,
+    ) -> Option<SegmentationMatrix> {
+        use server::segmentation_matrix_values_update::Values;
+
+        log::info!(
+            "Merging segmentation matrix values update: {:?}",
+            values_update
+        );
+
+        let existing = existing?;
+
+        match (existing, values_update.values) {
+            (SegmentationMatrix::Single(dim), Some(Values::Single(new_values))) => {
+                Some(SegmentationMatrix::Single(Dimension {
+                    key: dim.key,
+                    values: new_values.values,
+                }))
+            }
+            (
+                SegmentationMatrix::Double {
+                    dimension1,
+                    dimension2,
+                },
+                Some(Values::Double(new_values)),
+            ) => Some(SegmentationMatrix::Double {
+                dimension1: Dimension {
+                    key: dimension1.key,
+                    values: new_values.dimension1_values,
+                },
+                dimension2: Dimension {
+                    key: dimension2.key,
+                    values: new_values.dimension2_values,
+                },
+            }),
+            (
+                SegmentationMatrix::Linked {
+                    dimension1_key,
+                    dimension2_key,
+                    ..
+                },
+                Some(Values::Linked(new_values)),
+            ) => Some(SegmentationMatrix::Linked {
+                dimension1_key,
+                dimension2_key,
+                values: new_values
+                    .values
+                    .iter()
+                    .map(|(k, v)| (k.clone(), v.values.clone()))
+                    .collect(),
+            }),
+            // Mismatch between existing matrix type and update type - ignore update
+            _ => None,
         }
     }
 }

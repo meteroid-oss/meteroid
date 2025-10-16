@@ -168,4 +168,61 @@ impl BillableMetricRow {
 
         Ok(())
     }
+
+    pub async fn update(
+        conn: &mut PgConn,
+        param_billable_metric_id: BillableMetricId,
+        param_tenant_id: TenantId,
+        patch: crate::billable_metrics::BillableMetricRowPatch,
+    ) -> DbResult<BillableMetricRow> {
+        use crate::schema::billable_metric::dsl::{billable_metric, id, tenant_id};
+        use diesel_async::RunQueryDsl;
+
+        let query = diesel::update(billable_metric)
+            .filter(id.eq(param_billable_metric_id))
+            .filter(tenant_id.eq(param_tenant_id))
+            .set(&patch);
+
+        log::debug!("{}", debug_query::<diesel::pg::Pg, _>(&query));
+
+        query
+            .get_result(conn)
+            .await
+            .attach("Error while updating billable metric")
+            .into_db_result()
+    }
+
+    pub async fn mark_synced(
+        conn: &mut PgConn,
+        param_billable_metric_id: BillableMetricId,
+        param_tenant_id: TenantId,
+        error: Option<String>,
+    ) -> DbResult<()> {
+        use crate::schema::billable_metric::dsl::{
+            billable_metric, id, sync_error, synced_at, tenant_id,
+        };
+        use chrono::Utc;
+        use diesel_async::RunQueryDsl;
+
+        let now = if error.is_none() {
+            Some(Utc::now().naive_utc())
+        } else {
+            None
+        };
+
+        let query = diesel::update(billable_metric)
+            .filter(id.eq(param_billable_metric_id))
+            .filter(tenant_id.eq(param_tenant_id))
+            .set((synced_at.eq(now), sync_error.eq(error)));
+
+        log::debug!("{}", debug_query::<diesel::pg::Pg, _>(&query));
+
+        query
+            .execute(conn)
+            .await
+            .attach("Error while marking billable metric as synced")
+            .into_db_result()?;
+
+        Ok(())
+    }
 }

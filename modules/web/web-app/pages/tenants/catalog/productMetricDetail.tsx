@@ -1,5 +1,8 @@
 import { useMutation } from '@connectrpc/connect-query'
 import {
+  Alert,
+  AlertDescription,
+  AlertTitle,
   Badge,
   Button,
   Card,
@@ -17,6 +20,7 @@ import {
 } from '@md/ui'
 import { useQueryClient } from '@tanstack/react-query'
 import {
+  AlertCircleIcon,
   ArchiveIcon,
   ArchiveRestoreIcon,
   ChevronDown,
@@ -197,10 +201,12 @@ export const ProductMetricDetail = () => {
                 </Button>
               </DropdownMenuTrigger>
               <DropdownMenuContent align="end">
-                <DropdownMenuItem disabled>
-                  <EditIcon size={16} className="mr-2" />
-                  Edit Metric
-                </DropdownMenuItem>
+                {!isArchived && (
+                  <DropdownMenuItem onClick={() => navigate(`${basePath}/metrics/edit/${data.id}`)}>
+                    <EditIcon size={16} className="mr-2" />
+                    Edit Metric
+                  </DropdownMenuItem>
+                )}
                 {isArchived ? (
                   <DropdownMenuItem onClick={handleUnarchive}>
                     <ArchiveRestoreIcon size={16} className="mr-2" />
@@ -216,6 +222,17 @@ export const ProductMetricDetail = () => {
             </DropdownMenu>
           </div>
         </div>
+
+        {/* Sync Error Alert */}
+        {data.syncError && (
+          <Alert variant="destructive" className="mb-6">
+            <AlertCircleIcon className="h-4 w-4" />
+            <AlertTitle>Metric Error</AlertTitle>
+            <AlertDescription className="mt-2">
+              <p className="text-sm">Aggregation failed. Please contact support.</p>
+            </AlertDescription>
+          </Alert>
+        )}
 
         {/* Overview card */}
         <div className="bg-card rounded-lg shadow-sm p-6 mb-6">

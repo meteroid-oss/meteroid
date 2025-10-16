@@ -16,7 +16,7 @@ import {
 import { ColumnDef } from '@tanstack/react-table'
 import { useAtom } from 'jotai'
 import { PlusIcon, XIcon } from 'lucide-react'
-import { memo, useCallback, useEffect, useMemo, useState } from 'react'
+import { memo, useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { useFieldArray, useWatch } from 'react-hook-form'
 import { useNavigate } from 'react-router-dom'
 import { match } from 'ts-pattern'
@@ -195,12 +195,14 @@ const areDimensionsEqual = (dim1: DimensionCombination, dim2: DimensionCombinati
 const MatrixForm = ({ methods }: { methods: Methods<typeof UsageFeeSchema> }) => {
   const currency = useCurrency()
 
-  const { fields, append, remove } = useFieldArray({
+  const { fields, append } = useFieldArray({
     control: methods.control,
     name: 'model.data.dimensionRates',
   })
 
   const [dimensionHeaders, setDimensionHeaders] = useState<string[]>([])
+  const [validCombinations, setValidCombinations] = useState<DimensionCombination[]>([])
+  const syncedMetricIdRef = useRef<string | null>(null)
 
   const metricId = useWatch({
     control: methods.control,
@@ -209,15 +211,23 @@ const MatrixForm = ({ methods }: { methods: Methods<typeof UsageFeeSchema> }) =>
 
   const metric = useQuery(getBillableMetric, { id: metricId }, { enabled: !!metricId })?.data
 
+  const isOrphaned = useCallback(
+    (row: DimensionCombination) => {
+      return !validCombinations.some(combo => areDimensionsEqual(combo, row))
+    },
+    [validCombinations]
+  )
+
   useEffect(() => {
     if (!metric?.billableMetric?.segmentationMatrix) return
 
+    // Only sync if we haven't synced this metric yet
+    if (syncedMetricIdRef.current === metric.billableMetric.id) return
+    syncedMetricIdRef.current = metric.billableMetric.id
+
     const segmentationMatrix = metric.billableMetric.segmentationMatrix
     let headers: string[] = []
-    let dimensionCombinations: {
-      dimension1: { key: string; value: string }
-      dimension2?: { key: string; value: string }
-    }[] = []
+    let dimensionCombinations: DimensionCombination[] = []
 
     match(segmentationMatrix.matrix)
       .with({ case: 'single' }, ({ value }) => {
@@ -247,62 +257,83 @@ const MatrixForm = ({ methods }: { methods: Methods<typeof UsageFeeSchema> }) =>
       .otherwise(() => {})
 
     setDimensionHeaders(headers)
+    setValidCombinations(dimensionCombinations)
 
-    // Update or create rows based on the current state
-    const currentDimensions = fields.map(field => ({
-      dimension1: field.dimension1,
-      dimension2: field.dimension2,
-    }))
+    // Add only new combinations
     const newRows = dimensionCombinations.filter(
-      combo => !currentDimensions.some(dim => areDimensionsEqual(dim, combo))
+      combo => !fields.some(field => areDimensionsEqual(field, combo))
     )
-    const removedRows = currentDimensions.filter(
-      dim => !dimensionCombinations.some(combo => areDimensionsEqual(dim, combo))
-    )
-    newRows.forEach(dimensions => {
-      append({ ...dimensions, price: '0' })
-    })
 
-    removedRows.forEach(dimensions => {
-      const index = fields.findIndex(field => areDimensionsEqual(field, dimensions))
-      if (index !== -1) remove(index)
-    })
-  }, [metric, fields, append, remove])
+    append(newRows.map(dimensions => ({ ...dimensions, price: '0' })))
+
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [metric])
 
   const columns = useMemo<ColumnDef<Matrix['dimensionRates'][number]>[]>(
     () => [
       {
         header: dimensionHeaders[0] || 'Dimension 1',
-        accessorFn: row => row.dimension1.value,
+        cell: ({ row }) => {
+          const orphaned = isOrphaned(row.original)
+          return (
+            <span
+              className={orphaned ? 'text-muted-foreground line-through' : ''}
+              title={
+                orphaned ? 'This dimension value no longer exists in the metric definition' : ''
+              }
+            >
+              {row.original.dimension1?.value}
+            </span>
+          )
+        },
       },
       ...((dimensionHeaders[1]
         ? [
             {
               header: dimensionHeaders[1],
-              accessorFn: row => row.dimension2?.value,
+              cell: ({ row }) => {
+                const orphaned = isOrphaned(row.original)
+                return (
+                  <span
+                    className={orphaned ? 'text-muted-foreground line-through' : ''}
+                    title={
+                      orphaned
+                        ? 'This dimension value no longer exists in the metric definition'
+                        : ''
+                    }
+                  >
+                    {row.original.dimension2?.value}
+                  </span>
+                )
+              },
             },
           ]
         : []) as ColumnDef<Matrix['dimensionRates'][number]>[]),
       {
         header: 'Unit price',
         accessor: 'price',
-        cell: ({ row }) => (
-          <GenericFormField
-            control={methods.control}
-            name={`model.data.dimensionRates.${row.index}.price`}
-            render={({ field }) => (
-              <UncontrolledPriceInput
-                {...field}
-                currency={currency}
-                showCurrency={true}
-                precision={8}
+        cell: ({ row }) => {
+          const orphaned = isOrphaned(row.original)
+          return (
+            <div className={orphaned ? 'opacity-50' : ''}>
+              <GenericFormField
+                control={methods.control}
+                name={`model.data.dimensionRates.${row.index}.price`}
+                render={({ field }) => (
+                  <UncontrolledPriceInput
+                    {...field}
+                    currency={currency}
+                    showCurrency={true}
+                    precision={8}
+                  />
+                )}
               />
-            )}
-          />
-        ),
+            </div>
+          )
+        },
       },
     ],
-    [dimensionHeaders, methods, currency]
+    [dimensionHeaders, methods, currency, isOrphaned]
   )
 
   if (!metric?.billableMetric) return null

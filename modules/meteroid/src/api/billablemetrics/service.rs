@@ -10,8 +10,8 @@ use meteroid_grpc::meteroid::api::billablemetrics::v1::{
     ArchiveBillableMetricRequest, ArchiveBillableMetricResponse, BillableMetricMeta,
     CreateBillableMetricRequest, CreateBillableMetricResponse, GetBillableMetricRequest,
     GetBillableMetricResponse, ListBillableMetricsRequest, ListBillableMetricsResponse,
-    UnarchiveBillableMetricRequest, UnarchiveBillableMetricResponse,
-    billable_metrics_service_server::BillableMetricsService,
+    UnarchiveBillableMetricRequest, UnarchiveBillableMetricResponse, UpdateBillableMetricRequest,
+    UpdateBillableMetricResponse, billable_metrics_service_server::BillableMetricsService,
 };
 use meteroid_store::domain;
 use meteroid_store::domain::BillableMetric;
@@ -174,5 +174,61 @@ impl BillableMetricsService for BillableMetricsComponents {
             .map_err(Into::<BillableMetricApiError>::into)?;
 
         Ok(Response::new(UnarchiveBillableMetricResponse {}))
+    }
+
+    #[tracing::instrument(skip_all)]
+    async fn update_billable_metric(
+        &self,
+        request: Request<UpdateBillableMetricRequest>,
+    ) -> Result<Response<UpdateBillableMetricResponse>, Status> {
+        let tenant_id = request.tenant()?;
+        let inner = request.into_inner();
+
+        let billable_metric_id = BillableMetricId::from_proto(&inner.id)?;
+
+        let unit_conversion = inner.unit_conversion;
+
+        let segmentation_matrix = if let Some(values_update) = inner.segmentation_matrix_values {
+            let existing_metric = self
+                .store
+                .find_billable_metric_by_id(billable_metric_id, tenant_id)
+                .await
+                .map_err(Into::<BillableMetricApiError>::into)?;
+
+            mapping::metric::merge_segmentation_matrix_values(
+                existing_metric.segmentation_matrix,
+                values_update,
+            )
+            .map(Some)
+        } else {
+            None
+        };
+
+        let update = domain::BillableMetricUpdate {
+            name: inner.name,
+            description: inner.description.map(Some),
+            unit_conversion_factor: unit_conversion.as_ref().map(|u| Some(u.factor as i32)),
+            unit_conversion_rounding: unit_conversion.map(|u| {
+                Some(match u.rounding.try_into() {
+                    Ok(a) => mapping::unit_conversion_rounding::server_to_domain(a),
+                    Err(_) => domain::enums::UnitConversionRoundingEnum::None,
+                })
+            }),
+            segmentation_matrix,
+        };
+
+        let domain_billable_metric = self
+            .store
+            .update_billable_metric(billable_metric_id, tenant_id, update)
+            .await
+            .map_err(Into::<BillableMetricApiError>::into)?;
+
+        let server_billable_metric = ServerBillableMetricWrapper::try_from(domain_billable_metric)
+            .map(|v| v.0)
+            .map_err(Into::<BillableMetricApiError>::into)?;
+
+        Ok(Response::new(UpdateBillableMetricResponse {
+            billable_metric: Some(server_billable_metric),
+        }))
     }
 }
