@@ -127,6 +127,16 @@ impl Services {
                 }
             }
             InvoiceBillingMode::AwaitGracePeriodIfApplicable => {
+                // Check if auto_advance is disabled - if so, leave invoice in draft
+                if !subscription.subscription.auto_advance_invoices {
+                    log::info!(
+                        "auto_advance_invoices is false for subscription {}. Invoice {} will remain in draft.",
+                        subscription.subscription.id,
+                        draft_invoice.id
+                    );
+                    return self.as_detailed_invoice(draft_invoice, customer).map(Some);
+                }
+
                 let invoicing_entity = InvoicingEntityRow::get_invoicing_entity_by_id_and_tenant(
                     conn,
                     subscription.subscription.invoicing_entity_id,
@@ -160,6 +170,16 @@ impl Services {
                 .await?;
             }
             InvoiceBillingMode::Immediate => {
+                // Check if auto_advance is disabled - if so, leave invoice in draft
+                if !subscription.subscription.auto_advance_invoices {
+                    log::info!(
+                        "auto_advance_invoices is false for subscription {}. Invoice {} will remain in draft.",
+                        subscription.subscription.id,
+                        draft_invoice.id
+                    );
+                    return self.as_detailed_invoice(draft_invoice, customer).map(Some);
+                }
+
                 // Finalize and process payment immediately
                 self.finalize_invoice_tx(
                     conn,

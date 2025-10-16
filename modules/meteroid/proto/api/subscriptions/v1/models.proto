@@ -64,6 +64,8 @@ message Subscription {
   optional string direct_debit_connection_id = 31;
   optional api.connectors.v1.ConnectionMetadata connection_metadata = 32;
   optional string purchase_order = 33;
+  bool auto_advance_invoices = 34;
+  bool charge_automatically = 35;
 }
 
 message SubscriptionDetails {
@@ -114,6 +116,8 @@ message CreateSubscription {
   CreateSubscriptionAddOns add_ons = 15;
   CreateSubscriptionCoupons coupons = 16;
   ActivationCondition activation_condition = 17;
+  optional bool auto_advance_invoices = 18;
+  optional bool charge_automatically = 19;
 }
 
 enum ActivationCondition {

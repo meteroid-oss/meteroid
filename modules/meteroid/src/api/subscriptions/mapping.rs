@@ -94,6 +94,8 @@ pub mod subscriptions {
             direct_debit_connection_id: s.direct_debit_connection_id.map(|id| id.as_proto()),
             connection_metadata: s.conn_meta.as_ref().map(connection_metadata_to_server),
             purchase_order: s.purchase_order,
+            auto_advance_invoices: s.auto_advance_invoices,
+            charge_automatically: s.charge_automatically,
         })
     }
 
@@ -119,8 +121,8 @@ pub mod subscriptions {
             end_date: NaiveDate::from_proto_opt(param.end_date)?,
             trial_duration: param.trial_duration,
             payment_strategy: None,
-            auto_advance_invoices: true, // TODO
-            charge_automatically: true,  // TODO
+            auto_advance_invoices: param.auto_advance_invoices.unwrap_or(true),
+            charge_automatically: param.charge_automatically.unwrap_or(true),
             purchase_order: param.purchase_order,
         };
 
@@ -207,6 +209,8 @@ pub mod subscriptions {
                 direct_debit_connection_id: sub.direct_debit_connection_id.map(|id| id.as_proto()),
                 connection_metadata: sub.conn_meta.as_ref().map(connection_metadata_to_server),
                 purchase_order: sub.purchase_order,
+                auto_advance_invoices: sub.auto_advance_invoices,
+                charge_automatically: sub.charge_automatically,
             }),
             schedules: vec![], // TODO
             price_components: details

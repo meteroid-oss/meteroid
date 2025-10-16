@@ -79,6 +79,8 @@ export interface CreateSubscriptionState {
   invoiceMemo?: string
   invoiceThreshold?: string
   purchaseOrder?: string
+  autoAdvanceInvoices: boolean
+  chargeAutomatically: boolean
 
   // Components configuration
   components: {
@@ -111,6 +113,8 @@ export const createSubscriptionAtom = atomWithReset<CreateSubscriptionState>({
   invoiceMemo: undefined,
   invoiceThreshold: undefined,
   purchaseOrder: undefined,
+  autoAdvanceInvoices: true,
+  chargeAutomatically: true,
 
   // Components configuration
   components: {

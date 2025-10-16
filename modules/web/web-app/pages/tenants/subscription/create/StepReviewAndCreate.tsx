@@ -95,7 +95,8 @@ export const StepReviewAndCreate = () => {
           invoiceMemo: state.invoiceMemo,
           invoiceThreshold: state.invoiceThreshold,
           purchaseOrder: state.purchaseOrder,
-          // TODO: Add components, addOns, coupons
+          autoAdvanceInvoices: state.autoAdvanceInvoices,
+          chargeAutomatically: state.chargeAutomatically,
           components: {
             parameterizedComponents: state.components.parameterized.map(c => ({
               componentId: c.componentId,
@@ -393,10 +394,28 @@ export const StepReviewAndCreate = () => {
                       {getActivationConditionText(state.activationCondition)}
                     </div>
                   </div>
+                  <div>
+                    <div className="text-xs text-muted-foreground">Auto-advance</div>
+                    <div className="font-medium">
+                      {state.autoAdvanceInvoices ? 'Yes' : 'No'}
+                    </div>
+                  </div>
+                  <div>
+                    <div className="text-xs text-muted-foreground">Charge auto.</div>
+                    <div className="font-medium">
+                      {state.chargeAutomatically ? 'Yes' : 'No'}
+                    </div>
+                  </div>
                 </div>
 
-                {(state.invoiceMemo || state.invoiceThreshold) && (
+                {(state.invoiceMemo || state.invoiceThreshold || state.purchaseOrder) && (
                   <div className="mt-4 pt-4 border-t space-y-2">
+                    {state.purchaseOrder && (
+                      <div>
+                        <div className="text-xs text-muted-foreground">Purchase Order</div>
+                        <div className="text-sm">{state.purchaseOrder}</div>
+                      </div>
+                    )}
                     {state.invoiceMemo && (
                       <div>
                         <div className="text-xs text-muted-foreground">Invoice Memo</div>
@@ -409,15 +428,6 @@ export const StepReviewAndCreate = () => {
                         <div className="text-sm">{state.invoiceThreshold}</div>
                       </div>
                     )}
-                  </div>
-                )}
-
-                {state.purchaseOrder && (
-                  <div className="mt-4 pt-4 border-t space-y-2">
-                    <div>
-                      <div className="text-xs text-muted-foreground">Purchase Order</div>
-                      <div className="text-sm">{state.purchaseOrder}</div>
-                    </div>
                   </div>
                 )}
               </CardContent>

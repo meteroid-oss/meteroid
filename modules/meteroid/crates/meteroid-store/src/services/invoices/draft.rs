@@ -74,7 +74,7 @@ impl Services {
             invoice_number: invoice_number.to_string(),
             customer_details: customer.into(),
             seller_details: invoicing_entity.into(),
-            auto_advance: true,
+            auto_advance: subscription.auto_advance_invoices,
             payment_status: InvoicePaymentStatus::Unpaid,
             discount: invoice_content.discount,
             tax_breakdown: invoice_content.tax_breakdown,

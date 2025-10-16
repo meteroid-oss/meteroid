@@ -13,9 +13,15 @@ import {
   RadioGroupItem,
   SelectFormField,
   SelectItem,
+  Switch,
   TextareaFormField,
+  Tooltip,
+  TooltipContent,
+  TooltipProvider,
+  TooltipTrigger,
 } from '@ui/components'
 import { useAtom } from 'jotai'
+import { InfoIcon } from 'lucide-react'
 import { useWizard } from 'react-use-wizard'
 import { z } from 'zod'
 
@@ -71,6 +77,8 @@ export const StepSettings = () => {
       invoiceMemo: state.invoiceMemo,
       invoiceThreshold: state.invoiceThreshold,
       purchaseOrder: state.purchaseOrder,
+      autoAdvanceInvoices: state.autoAdvanceInvoices,
+      chargeAutomatically: state.chargeAutomatically,
     },
   })
 
@@ -86,6 +94,8 @@ export const StepSettings = () => {
       invoiceMemo: data.invoiceMemo,
       invoiceThreshold: data.invoiceThreshold,
       purchaseOrder: data.purchaseOrder,
+      autoAdvanceInvoices: data.autoAdvanceInvoices,
+      chargeAutomatically: data.chargeAutomatically,
     })
     nextStep()
   }
@@ -167,13 +177,13 @@ export const StepSettings = () => {
                       onValueChange={field.onChange}
                     >
                       <div className="flex items-center space-x-4">
-                        <RadioGroupItem value="FIRST" id="r1"/>
+                        <RadioGroupItem value="FIRST" id="r1" />
                         <Label htmlFor="r1" className="font-normal">
                           1st of the month
                         </Label>
                       </div>
                       <div className="flex items-center space-x-4">
-                        <RadioGroupItem value="SUB_START_DAY" id="r2"/>
+                        <RadioGroupItem value="SUB_START_DAY" id="r2" />
                         <Label htmlFor="r2" className="font-normal">
                           Anniversary date of the subscription
                         </Label>
@@ -216,6 +226,76 @@ export const StepSettings = () => {
                   <SelectItem value="ON_CHECKOUT">On Checkout</SelectItem>
                   <SelectItem value="MANUAL">Manual Activation</SelectItem>
                 </SelectFormField>
+                <div className="grid grid-cols-2 gap-4">
+                  <div className="space-y-2">
+                    <div className="flex items-center gap-1">
+                      <Label className="text-sm font-medium">Auto-advance invoices</Label>
+                      <TooltipProvider delayDuration={100}>
+                        <Tooltip>
+                          <TooltipTrigger asChild>
+                            <InfoIcon className="h-4 w-4 text-muted-foreground cursor-help" />
+                          </TooltipTrigger>
+                          <TooltipContent>
+                            <p className="max-w-xs">
+                              Automatically finalize draft invoices when generated. Disable to
+                              manually review and finalize invoices.
+                            </p>
+                          </TooltipContent>
+                        </Tooltip>
+                      </TooltipProvider>
+                    </div>
+                    <GenericFormField
+                      control={methods.control}
+                      name="autoAdvanceInvoices"
+                      render={({ field }) => (
+                        <div className="flex items-center space-x-2">
+                          <Switch
+                            id="autoAdvanceInvoices"
+                            checked={field.value}
+                            onCheckedChange={field.onChange}
+                          />
+                          <Label htmlFor="autoAdvanceInvoices" className="font-normal text-sm">
+                            {field.value ? 'Enabled' : 'Disabled'}
+                          </Label>
+                        </div>
+                      )}
+                    />
+                  </div>
+                  <div className="space-y-2">
+                    <div className="flex items-center gap-1">
+                      <Label className="text-sm font-medium">Charge automatically</Label>
+                      <TooltipProvider delayDuration={100}>
+                        <Tooltip>
+                          <TooltipTrigger asChild>
+                            <InfoIcon className="h-4 w-4 text-muted-foreground cursor-help" />
+                          </TooltipTrigger>
+                          <TooltipContent>
+                            <p className="max-w-xs">
+                              Automatically try charging the customer when an invoice is finalized,
+                              if a payment method is configured.
+                            </p>
+                          </TooltipContent>
+                        </Tooltip>
+                      </TooltipProvider>
+                    </div>
+                    <GenericFormField
+                      control={methods.control}
+                      name="chargeAutomatically"
+                      render={({ field }) => (
+                        <div className="flex items-center space-x-2">
+                          <Switch
+                            id="chargeAutomatically"
+                            checked={field.value}
+                            onCheckedChange={field.onChange}
+                          />
+                          <Label htmlFor="chargeAutomatically" className="font-normal text-sm">
+                            {field.value ? 'Enabled' : 'Disabled'}
+                          </Label>
+                        </div>
+                      )}
+                    />
+                  </div>
+                </div>
               </CardContent>
             </Card>
 
@@ -278,6 +358,8 @@ const schema = z
     invoiceMemo: z.string().optional(),
     invoiceThreshold: z.string().optional(),
     purchaseOrder: z.string().optional(),
+    autoAdvanceInvoices: z.boolean().default(true),
+    chargeAutomatically: z.boolean().default(true),
   })
   .refine(data => !data.toDate || data.toDate > data.fromDate, {
     message: 'Must be greater than the start date',
