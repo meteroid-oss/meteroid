@@ -127,13 +127,8 @@ impl Services {
                 }
             }
             InvoiceBillingMode::AwaitGracePeriodIfApplicable => {
-                // Check if auto_advance is disabled - if so, leave invoice in draft
                 if !subscription.subscription.auto_advance_invoices {
-                    log::info!(
-                        "auto_advance_invoices is false for subscription {}. Invoice {} will remain in draft.",
-                        subscription.subscription.id,
-                        draft_invoice.id
-                    );
+                    // leave as draft
                     return self.as_detailed_invoice(draft_invoice, customer).map(Some);
                 }
 
@@ -170,13 +165,8 @@ impl Services {
                 .await?;
             }
             InvoiceBillingMode::Immediate => {
-                // Check if auto_advance is disabled - if so, leave invoice in draft
                 if !subscription.subscription.auto_advance_invoices {
-                    log::info!(
-                        "auto_advance_invoices is false for subscription {}. Invoice {} will remain in draft.",
-                        subscription.subscription.id,
-                        draft_invoice.id
-                    );
+                    // leave as draft
                     return self.as_detailed_invoice(draft_invoice, customer).map(Some);
                 }
 

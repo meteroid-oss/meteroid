@@ -3369,14 +3369,16 @@
         ],
         "properties": {
           "auto_advance_invoices": {
-            "type": "boolean"
+            "type": "boolean",
+            "description": "If false, invoices will stay in Draft until manually reviewed and finalized. Default to true."
           },
           "billing_day_anchor": {
             "type": "integer",
             "format": "int32"
           },
           "charge_automatically": {
-            "type": "boolean"
+            "type": "boolean",
+            "description": "Automatically try to charge the customer's configured payment method on finalize."
           },
           "currency": {
             "$ref": "#/components/schemas/Currency"
