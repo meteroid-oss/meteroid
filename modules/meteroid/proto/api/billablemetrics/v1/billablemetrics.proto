@@ -58,7 +58,7 @@ message UpdateBillableMetricRequest {
   optional string name = 2;
   optional string description = 3;
   optional Aggregation.UnitConversion unit_conversion = 4;
-  optional SegmentationMatrix segmentation_matrix = 5;
+  optional SegmentationMatrixValuesUpdate segmentation_matrix_values = 5;
 }
 
 message UpdateBillableMetricResponse {

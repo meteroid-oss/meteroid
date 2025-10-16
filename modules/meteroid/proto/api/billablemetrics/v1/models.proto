@@ -64,6 +64,31 @@ message SegmentationMatrix {
   }
 }
 
+// For updating dimension values only 
+message SegmentationMatrixValuesUpdate {
+  oneof values {
+    SingleDimensionValues single = 1;
+    DoubleDimensionValues double = 2;
+    LinkedDimensionValues linked = 3;
+  }
+
+  message SingleDimensionValues {
+    repeated string values = 1;
+  }
+
+  message DoubleDimensionValues {
+    repeated string dimension1_values = 1;
+    repeated string dimension2_values = 2;
+  }
+
+  message LinkedDimensionValues {
+    message DimensionValues {
+      repeated string values = 1;
+    }
+    map<string, DimensionValues> values = 1;
+  }
+}
+
 
 message BillableMetric {
   string id = 1;

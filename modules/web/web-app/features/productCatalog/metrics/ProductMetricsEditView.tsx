@@ -19,7 +19,6 @@ import {
   SheetTitle,
   TextareaFormField,
 } from '@md/ui'
-import { D, pipe } from '@mobily/ts-belt'
 import { useQueryClient } from '@tanstack/react-query'
 import { PlusIcon, XIcon } from 'lucide-react'
 import { useEffect, useState } from 'react'
@@ -38,6 +37,11 @@ import {
 import {
   Aggregation_AggregationType,
   Aggregation_UnitConversion_UnitConversionRounding,
+  SegmentationMatrixValuesUpdate,
+  SegmentationMatrixValuesUpdate_DoubleDimensionValues,
+  SegmentationMatrixValuesUpdate_LinkedDimensionValues,
+  SegmentationMatrixValuesUpdate_LinkedDimensionValues_DimensionValues,
+  SegmentationMatrixValuesUpdate_SingleDimensionValues,
 } from '@/rpc/api/billablemetrics/v1/models_pb'
 import { useConfirmationModal } from 'providers/ConfirmationProvider'
 
@@ -70,18 +74,18 @@ function StringArrayEditor({
   value?: string[]
   onChange: (value: string[]) => void
 }) {
-  const [newValue, setNewValue] = useState('')
-
   const handleAdd = () => {
-    if (newValue.trim()) {
-      const trimmed = newValue.trim()
-      onChange([...value, trimmed])
-      setNewValue('')
-    }
+    onChange([...value, ''])
   }
 
   const handleRemove = (index: number) => {
     onChange(value.filter((_, i) => i !== index))
+  }
+
+  const handleChange = (index: number, newValue: string) => {
+    const updated = [...value]
+    updated[index] = newValue
+    onChange(updated)
   }
 
   return (
@@ -90,7 +94,12 @@ function StringArrayEditor({
       <div className="space-y-2">
         {value.map((item, idx) => (
           <div key={idx} className="flex items-center gap-2">
-            <Input value={item} disabled className="flex-1" />
+            <Input
+              value={item}
+              onChange={e => handleChange(idx, e.target.value)}
+              placeholder="Enter value..."
+              className="flex-1"
+            />
             <Button
               type="button"
               variant="ghost"
@@ -104,31 +113,19 @@ function StringArrayEditor({
             </Button>
           </div>
         ))}
-        <div className="flex items-center gap-2">
-          <Input
-            value={newValue}
-            onChange={e => setNewValue(e.target.value)}
-            placeholder="Add value..."
-            className="flex-1"
-            onKeyDown={e => {
-              if (e.key === 'Enter') {
-                e.preventDefault()
-                handleAdd()
-              }
-            }}
-          />
-          <Button
-            type="button"
-            variant="outline"
-            size="icon"
-            onMouseDown={e => {
-              e.preventDefault()
-              handleAdd()
-            }}
-          >
-            <PlusIcon className="h-4 w-4" />
-          </Button>
-        </div>
+        <Button
+          type="button"
+          variant="outline"
+          size="sm"
+          onMouseDown={e => {
+            e.preventDefault()
+            handleAdd()
+          }}
+          className="w-full"
+        >
+          <PlusIcon className="h-4 w-4 mr-2" />
+          Add Value
+        </Button>
       </div>
     </div>
   )
@@ -266,55 +263,48 @@ export const ProductMetricsEditView = ({ metricId }: ProductMetricsEditViewProps
   const handleSubmit = async (data: EditMetricFormData) => {
     setIsSubmitting(true)
     try {
-      // Rebuild segmentation matrix with only values changed
-      let segmentationMatrix = undefined
+      const filterEmpty = (arr?: string[]) => (arr || []).filter(s => s.trim() !== '')
 
-      if (matrixType === 'SINGLE' && dimensionKeys.single) {
-        segmentationMatrix = {
-          matrix: {
-            case: 'single' as const,
-            value: {
-              dimension: {
-                key: dimensionKeys.single,
-                values: data.singleDimensionValues || [],
-              },
-            },
+      let segmentationMatrixValues: SegmentationMatrixValuesUpdate | undefined = undefined
+
+      if (matrixType === 'SINGLE') {
+        segmentationMatrixValues = new SegmentationMatrixValuesUpdate({
+          values: {
+            case: 'single',
+            value: new SegmentationMatrixValuesUpdate_SingleDimensionValues({
+              values: filterEmpty(data.singleDimensionValues),
+            }),
           },
-        }
-      } else if (matrixType === 'DOUBLE' && dimensionKeys.double1 && dimensionKeys.double2) {
-        segmentationMatrix = {
-          matrix: {
-            case: 'double' as const,
-            value: {
-              dimension1: {
-                key: dimensionKeys.double1,
-                values: data.doubleDimension1Values || [],
-              },
-              dimension2: {
-                key: dimensionKeys.double2,
-                values: data.doubleDimension2Values || [],
-              },
-            },
+        })
+      } else if (matrixType === 'DOUBLE') {
+        segmentationMatrixValues = new SegmentationMatrixValuesUpdate({
+          values: {
+            case: 'double',
+            value: new SegmentationMatrixValuesUpdate_DoubleDimensionValues({
+              dimension1Values: filterEmpty(data.doubleDimension1Values),
+              dimension2Values: filterEmpty(data.doubleDimension2Values),
+            }),
           },
-        }
-      } else if (
-        matrixType === 'LINKED' &&
-        dimensionKeys.linkedKey &&
-        dimensionKeys.linkedLinkedKey
-      ) {
-        segmentationMatrix = {
-          matrix: {
-            case: 'linked' as const,
-            value: {
-              dimensionKey: dimensionKeys.linkedKey,
-              linkedDimensionKey: dimensionKeys.linkedLinkedKey,
-              values: pipe(
-                data.linkedDimensionValues || {},
-                D.map(values => ({ values }))
-              ),
-            },
+        })
+      } else if (matrixType === 'LINKED') {
+        const linkedValues: {
+          [key: string]: SegmentationMatrixValuesUpdate_LinkedDimensionValues_DimensionValues
+        } = {}
+        Object.entries(data.linkedDimensionValues || {}).forEach(([key, vals]) => {
+          linkedValues[key] =
+            new SegmentationMatrixValuesUpdate_LinkedDimensionValues_DimensionValues({
+              values: filterEmpty(vals),
+            })
+        })
+
+        segmentationMatrixValues = new SegmentationMatrixValuesUpdate({
+          values: {
+            case: 'linked',
+            value: new SegmentationMatrixValuesUpdate_LinkedDimensionValues({
+              values: linkedValues,
+            }),
           },
-        }
+        })
       }
 
       await updateBillableMetricMut.mutateAsync({
@@ -330,7 +320,7 @@ export const ProductMetricsEditView = ({ metricId }: ProductMetricsEditViewProps
                 ],
             }
           : undefined,
-        segmentationMatrix,
+        segmentationMatrixValues,
       })
 
       methods.reset()

@@ -188,6 +188,22 @@ impl BillableMetricsService for BillableMetricsComponents {
 
         let unit_conversion = inner.unit_conversion;
 
+        let segmentation_matrix = if let Some(values_update) = inner.segmentation_matrix_values {
+            let existing_metric = self
+                .store
+                .find_billable_metric_by_id(billable_metric_id, tenant_id)
+                .await
+                .map_err(Into::<BillableMetricApiError>::into)?;
+
+            mapping::metric::merge_segmentation_matrix_values(
+                existing_metric.segmentation_matrix,
+                values_update,
+            )
+            .map(Some)
+        } else {
+            None
+        };
+
         let update = domain::BillableMetricUpdate {
             name: inner.name,
             description: inner.description.map(Some),
@@ -198,9 +214,7 @@ impl BillableMetricsService for BillableMetricsComponents {
                     Err(_) => domain::enums::UnitConversionRoundingEnum::None,
                 })
             }),
-            segmentation_matrix: inner
-                .segmentation_matrix
-                .map(|s| mapping::metric::map_segmentation_matrix_from_server(Some(s))),
+            segmentation_matrix,
         };
 
         let domain_billable_metric = self
