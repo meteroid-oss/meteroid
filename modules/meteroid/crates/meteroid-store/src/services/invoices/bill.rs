@@ -127,6 +127,11 @@ impl Services {
                 }
             }
             InvoiceBillingMode::AwaitGracePeriodIfApplicable => {
+                if !subscription.subscription.auto_advance_invoices {
+                    // leave as draft
+                    return self.as_detailed_invoice(draft_invoice, customer).map(Some);
+                }
+
                 let invoicing_entity = InvoicingEntityRow::get_invoicing_entity_by_id_and_tenant(
                     conn,
                     subscription.subscription.invoicing_entity_id,
@@ -160,6 +165,11 @@ impl Services {
                 .await?;
             }
             InvoiceBillingMode::Immediate => {
+                if !subscription.subscription.auto_advance_invoices {
+                    // leave as draft
+                    return self.as_detailed_invoice(draft_invoice, customer).map(Some);
+                }
+
                 // Finalize and process payment immediately
                 self.finalize_invoice_tx(
                     conn,

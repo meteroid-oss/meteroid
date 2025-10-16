@@ -25,6 +25,8 @@ pub fn domain_to_rest(s: domain::Subscription) -> Result<Subscription, RestApiEr
         current_period_start: s.current_period_start,
         current_period_end: s.current_period_end,
         purchase_order: s.purchase_order,
+        auto_advance_invoices: s.auto_advance_invoices,
+        charge_automatically: s.charge_automatically,
     })
 }
 
@@ -55,6 +57,8 @@ pub fn domain_to_rest_details(
         status: s.subscription.status.into(),
         current_period_start: s.subscription.current_period_start,
         current_period_end: s.subscription.current_period_end,
+        auto_advance_invoices: s.subscription.auto_advance_invoices,
+        charge_automatically: s.subscription.charge_automatically,
         components,
         add_ons,
         applied_coupons,
@@ -126,13 +130,13 @@ pub fn rest_to_domain_create_request(
             created_by,
             activation_condition: sub.activation_condition.into(),
             purchase_order: sub.purchase_order,
+            auto_advance_invoices: sub.auto_advance_invoices.unwrap_or(true),
+            charge_automatically: sub.charge_automatically.unwrap_or(true),
 
             // todo, allow configuring some/all below via rest
             payment_strategy: None,
-            auto_advance_invoices: true,
             invoice_threshold: None,
             billing_start_date: None,
-            charge_automatically: true,
         },
         price_components: sub
             .price_components

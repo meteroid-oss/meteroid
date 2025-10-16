@@ -556,6 +556,8 @@ export const Subscription = () => {
         <DetailSection title="Billing Information">
           <DetailRow label="Billing Day" value={data.billingDayAnchor}/>
           <DetailRow label="Net Terms" value={`${data.netTerms} days`}/>
+          <DetailRow label="Auto-advance invoices" value={data.autoAdvanceInvoices ? 'Yes' : 'No'}/>
+          <DetailRow label="Charge automatically" value={data.chargeAutomatically ? 'Yes' : 'No'}/>
           {data.invoiceMemo && <DetailRow label="Invoice Memo" value={data.invoiceMemo}/>}
           {data.invoiceThreshold && (
             <DetailRow label="Invoice Threshold" value={data.invoiceThreshold}/>

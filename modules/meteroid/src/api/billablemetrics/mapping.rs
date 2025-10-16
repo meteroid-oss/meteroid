@@ -313,11 +313,6 @@ pub mod metric {
     ) -> Option<SegmentationMatrix> {
         use server::segmentation_matrix_values_update::Values;
 
-        log::info!(
-            "Merging segmentation matrix values update: {:?}",
-            values_update
-        );
-
         let existing = existing?;
 
         match (existing, values_update.values) {

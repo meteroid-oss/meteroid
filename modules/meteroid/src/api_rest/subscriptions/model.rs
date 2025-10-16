@@ -44,6 +44,10 @@ pub struct Subscription {
     pub current_period_start: NaiveDate,
     pub current_period_end: Option<NaiveDate>,
     pub purchase_order: Option<String>,
+    /// If false, invoices will stay in Draft until manually reviewed and finalized. Default to true.
+    pub auto_advance_invoices: bool,
+    /// Automatically try to charge the customer's configured payment method on finalize.
+    pub charge_automatically: bool,
 }
 
 #[derive(Clone, ToSchema, Serialize, Deserialize, Debug)]
@@ -114,6 +118,8 @@ pub struct SubscriptionDetails {
     pub current_period_start: NaiveDate,
     pub current_period_end: Option<NaiveDate>,
     pub purchase_order: Option<String>,
+    pub auto_advance_invoices: bool,
+    pub charge_automatically: bool,
     pub components: Vec<SubscriptionComponent>,
     pub add_ons: Vec<SubscriptionAddOn>,
     pub applied_coupons: Vec<AppliedCouponDetailed>,
@@ -152,6 +158,10 @@ pub struct SubscriptionCreateRequest {
     #[schema(nullable = false)]
     pub add_ons: Option<Vec<CreateSubscriptionAddOn>>,
     pub purchase_order: Option<String>,
+    #[schema(nullable = false)]
+    pub auto_advance_invoices: Option<bool>,
+    #[schema(nullable = false)]
+    pub charge_automatically: Option<bool>,
     // #[schema(value_type = Option<String>, format = "decimal")]
     // #[schema(nullable = false)]
     // pub invoice_threshold: Option<rust_decimal::Decimal>,
