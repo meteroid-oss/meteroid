@@ -159,8 +159,20 @@ export const Customer = () => {
                     <div className="text-[13px]">{data.billingAddress?.city}</div>
                   </Flex>
                   <FlexDetails
-                    title="Tax rate"
-                    value={data.customTaxRate ? `${Number(data.customTaxRate) * 100}%` : 'Default'}
+                    title="Custom taxes"
+                    value={
+                      data.customTaxes && data.customTaxes.length > 0 ? (
+                        <div className="flex flex-col gap-0.5 items-end">
+                          {data.customTaxes.map((tax, idx) => (
+                            <div key={idx} className="text-[13px]">
+                              {tax.name} ({tax.taxCode}): {Number(tax.rate) * 100}%
+                            </div>
+                          ))}
+                        </div>
+                      ) : (
+                        'Default'
+                      )
+                    }
                   />
                   <FlexDetails
                     title="Tax ID"

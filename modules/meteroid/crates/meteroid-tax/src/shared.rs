@@ -58,60 +58,90 @@ fn determine_tax_details(
     customer_tax: &CustomerTax,
     invoicing_entity_address: &Address,
 ) -> TaxDetails {
+    use crate::model::TaxItem;
+
     let invoicing_entity_country = match &invoicing_entity_address.country {
         Some(country) => country,
         None => return TaxDetails::Exempt(VatExemptionReason::NotRegistered),
     };
 
-    // First check custom tax on line item
-    if let Some(custom_tax) = &item.custom_tax {
-        let mut tax_rule: Vec<&TaxRule> = custom_tax
-            .tax_rules
-            .iter()
-            .filter(|c| {
-                let mut include = true;
+    // First check custom taxes on line item (product-level)
+    if !item.custom_taxes.is_empty() {
+        let mut taxes = Vec::new();
+        let mut total_tax_amount = 0u64;
 
-                if let Some(country) = &c.country {
-                    include = country == invoicing_entity_country;
-                }
+        for custom_tax in &item.custom_taxes {
+            // Find the most specific applicable rule for this tax
+            let mut applicable_rules: Vec<&TaxRule> = custom_tax
+                .tax_rules
+                .iter()
+                .filter(|rule| {
+                    let mut include = true;
 
-                if let Some(region) = &c.region {
-                    if let Some(ie_region) = &invoicing_entity_address.region {
-                        include = include && region == ie_region;
-                    } else {
-                        include = false;
+                    if let Some(country) = &rule.country {
+                        include = country == invoicing_entity_country;
+                    }
+
+                    if let Some(region) = &rule.region {
+                        if let Some(ie_region) = &invoicing_entity_address.region {
+                            include = include && region == ie_region;
+                        } else {
+                            include = false;
+                        }
+                    }
+
+                    include
+                })
+                .collect();
+
+            // Sort by specificity (region > country > none)
+            applicable_rules.sort_by(|a, b| {
+                fn priority(rule: &TaxRule) -> i32 {
+                    match (&rule.region, &rule.country) {
+                        (Some(_), _) => 2,    // Has Region
+                        (None, Some(_)) => 1, // Has Country only
+                        (None, None) => 0,    // Has neither
                     }
                 }
 
-                include
-            })
-            .collect();
+                let a_priority = priority(a);
+                let b_priority = priority(b);
+                b_priority.cmp(&a_priority)
+            });
 
-        tax_rule.sort_by(|a, b| {
-            fn priority(a: &TaxRule) -> i32 {
-                match (&a.region, &a.country) {
-                    (Some(_), _) => 2,    // Has Region
-                    (None, Some(_)) => 1, // Has Country only
-                    (None, None) => 0,    // Has neither
-                }
+            // Apply the most specific rule for this custom tax
+            if let Some(tax_rule) = applicable_rules.first() {
+                let tax_amount = (rust_decimal::Decimal::from(item.amount) * tax_rule.rate)
+                    .round_dp_with_strategy(0, rust_decimal::RoundingStrategy::MidpointAwayFromZero)
+                    .to_u64()
+                    .unwrap_or(0);
+
+                total_tax_amount += tax_amount;
+
+                taxes.push(TaxItem {
+                    tax_rate: tax_rule.rate,
+                    tax_reference: custom_tax.reference.clone(),
+                    tax_name: custom_tax.name.clone(),
+                    tax_amount,
+                });
             }
+        }
 
-            let a_priority = priority(a);
-            let b_priority = priority(b);
-            b_priority.cmp(&a_priority)
-        });
-
-        if let Some(tax_rule) = tax_rule.first() {
-            let tax_amount = (rust_decimal::Decimal::from(item.amount) * tax_rule.rate)
-                .round_dp_with_strategy(0, rust_decimal::RoundingStrategy::MidpointAwayFromZero)
-                .to_u64()
-                .unwrap_or(0);
-
-            return TaxDetails::Tax {
-                tax_rate: tax_rule.rate,
-                tax_reference: custom_tax.reference.clone(),
-                tax_name: custom_tax.name.clone(),
-                tax_amount,
+        // If we found at least one applicable tax, return MultipleTaxes or Tax
+        if !taxes.is_empty() {
+            return if taxes.len() == 1 {
+                let tax = taxes.into_iter().next().unwrap();
+                TaxDetails::Tax {
+                    tax_rate: tax.tax_rate,
+                    tax_reference: tax.tax_reference,
+                    tax_name: tax.tax_name,
+                    tax_amount: tax.tax_amount,
+                }
+            } else {
+                TaxDetails::MultipleTaxes {
+                    taxes,
+                    total_tax_amount,
+                }
             };
         }
     }
@@ -132,32 +162,93 @@ fn determine_tax_details(
                 tax_amount,
             }
         }
-        CustomerTax::ResolvedTaxRate(rate) => {
-            let name = match rate.tax_type {
-                world_tax::TaxType::VAT(_) => "VAT",
-                world_tax::TaxType::GST => "GST",
-                world_tax::TaxType::HST => "HST",
-                world_tax::TaxType::PST => "PST",
-                world_tax::TaxType::QST => "QST",
-                world_tax::TaxType::StateSalesTax => "Sales Tax",
-            };
+        CustomerTax::CustomTaxRates(rates) => {
+            use crate::model::TaxItem;
 
-            let rate =
+            let mut taxes = Vec::new();
+            let mut total_tax_amount = 0u64;
+
+            for rate in rates.iter() {
+                let tax_amount = (rust_decimal::Decimal::from(item.amount) * rate.rate)
+                    .round_dp_with_strategy(0, rust_decimal::RoundingStrategy::MidpointAwayFromZero)
+                    .to_u64()
+                    .unwrap_or(0);
+
+                total_tax_amount += tax_amount;
+
+                taxes.push(TaxItem {
+                    tax_rate: rate.rate,
+                    tax_reference: rate.tax_code.clone(),
+                    tax_name: rate.name.clone(),
+                    tax_amount,
+                });
+            }
+
+            TaxDetails::MultipleTaxes {
+                taxes,
+                total_tax_amount,
+            }
+        }
+        CustomerTax::ResolvedTaxRate(rate) => {
+            let name = get_tax_name(&rate.tax_type);
+            let rate_decimal =
                 rust_decimal::Decimal::from_f64(rate.rate).unwrap_or(rust_decimal::Decimal::ZERO);
 
-            let tax_amount = (rust_decimal::Decimal::from(item.amount) * rate)
+            let tax_amount = (rust_decimal::Decimal::from(item.amount) * rate_decimal)
                 .round_dp_with_strategy(0, rust_decimal::RoundingStrategy::MidpointAwayFromZero)
                 .to_u64()
                 .unwrap_or(0);
 
             TaxDetails::Tax {
-                tax_rate: rate,
+                tax_rate: rate_decimal,
                 tax_reference: "customer_resolved".to_string(),
                 tax_name: name.to_string(),
                 tax_amount,
             }
         }
+        CustomerTax::ResolvedMultipleTaxRates(rates) => {
+            use crate::model::TaxItem;
+
+            let mut taxes = Vec::new();
+            let mut total_tax_amount = 0u64;
+
+            for (idx, rate) in rates.iter().enumerate() {
+                let name = get_tax_name(&rate.tax_type);
+                let rate_decimal = rust_decimal::Decimal::from_f64(rate.rate)
+                    .unwrap_or(rust_decimal::Decimal::ZERO);
+
+                let tax_amount = (rust_decimal::Decimal::from(item.amount) * rate_decimal)
+                    .round_dp_with_strategy(0, rust_decimal::RoundingStrategy::MidpointAwayFromZero)
+                    .to_u64()
+                    .unwrap_or(0);
+
+                total_tax_amount += tax_amount;
+
+                taxes.push(TaxItem {
+                    tax_rate: rate_decimal,
+                    tax_reference: format!("customer_resolved_{}", idx),
+                    tax_name: name.to_string(),
+                    tax_amount,
+                });
+            }
+
+            TaxDetails::MultipleTaxes {
+                taxes,
+                total_tax_amount,
+            }
+        }
         CustomerTax::Exempt => TaxDetails::Exempt(VatExemptionReason::TaxExempt),
+    }
+}
+
+fn get_tax_name(tax_type: &world_tax::TaxType) -> &'static str {
+    match tax_type {
+        world_tax::TaxType::VAT(_) => "VAT",
+        world_tax::TaxType::GST => "GST",
+        world_tax::TaxType::HST => "HST",
+        world_tax::TaxType::PST => "PST",
+        world_tax::TaxType::QST => "QST",
+        world_tax::TaxType::StateSalesTax => "Sales Tax",
     }
 }
 
@@ -166,56 +257,90 @@ pub(crate) fn compute_breakdown_from_line_items(
 ) -> CalculationResult {
     use std::collections::HashMap;
 
-    // Group by tax reference or exemption type
-    let mut groups: HashMap<String, Vec<&LineItemWithTax>> = HashMap::new();
+    // Aggregate taxes by tax reference
+    let mut tax_aggregates: HashMap<String, (String, rust_decimal::Decimal, u64, u64)> =
+        HashMap::new();
+    let mut exempt_items: Vec<(VatExemptionReason, u64)> = Vec::new();
 
     for item in line_items {
-        let key = match &item.tax_details {
-            TaxDetails::Tax { tax_reference, .. } => tax_reference.clone(),
-            TaxDetails::Exempt(reason) => format!("exempt_{reason:?}"),
-        };
-        groups.entry(key).or_default().push(item);
-    }
-
-    let breakdown = groups
-        .into_values()
-        .map(|items| {
-            let total_taxable_amount: u64 = items.iter().map(|item| item.pre_tax_amount).sum();
-
-            match &items[0].tax_details {
-                TaxDetails::Exempt(reason) => TaxBreakdownItem {
-                    taxable_amount: total_taxable_amount,
-                    details: TaxDetails::Exempt(reason.clone()),
-                },
-                TaxDetails::Tax {
-                    tax_rate, tax_name, ..
-                } => {
-                    let total_tax_amount: u64 = items
-                        .iter()
-                        .map(|item| match &item.tax_details {
-                            TaxDetails::Tax { tax_amount, .. } => *tax_amount,
-                            _ => 0,
+        match &item.tax_details {
+            TaxDetails::Tax {
+                tax_reference,
+                tax_name,
+                tax_rate,
+                tax_amount,
+            } => {
+                tax_aggregates
+                    .entry(tax_reference.clone())
+                    .and_modify(|(_, _, taxable, tax)| {
+                        *taxable += item.pre_tax_amount;
+                        *tax += *tax_amount;
+                    })
+                    .or_insert((
+                        tax_name.clone(),
+                        *tax_rate,
+                        item.pre_tax_amount,
+                        *tax_amount,
+                    ));
+            }
+            TaxDetails::MultipleTaxes { taxes, .. } => {
+                // Each tax gets its own breakdown item
+                for tax in taxes {
+                    tax_aggregates
+                        .entry(tax.tax_reference.clone())
+                        .and_modify(|(_, _, taxable, tax_amt)| {
+                            *taxable += item.pre_tax_amount;
+                            *tax_amt += tax.tax_amount;
                         })
-                        .sum();
-
-                    TaxBreakdownItem {
-                        taxable_amount: total_taxable_amount,
-                        details: TaxDetails::Tax {
-                            tax_rate: *tax_rate,
-                            tax_name: tax_name.clone(),
-                            tax_amount: total_tax_amount,
-                            tax_reference: String::new(), // Not needed for breakdown
-                        },
-                    }
+                        .or_insert((
+                            tax.tax_name.clone(),
+                            tax.tax_rate,
+                            item.pre_tax_amount,
+                            tax.tax_amount,
+                        ));
                 }
             }
-        })
+            TaxDetails::Exempt(reason) => {
+                exempt_items.push((reason.clone(), item.pre_tax_amount));
+            }
+        }
+    }
+
+    let mut breakdown: Vec<TaxBreakdownItem> = tax_aggregates
+        .into_values()
+        .map(
+            |(tax_name, tax_rate, taxable_amount, tax_amount)| TaxBreakdownItem {
+                taxable_amount,
+                details: TaxDetails::Tax {
+                    tax_rate,
+                    tax_name,
+                    tax_amount,
+                    tax_reference: String::new(), // Not needed for breakdown
+                },
+            },
+        )
         .collect();
+
+    // Add exempt items grouped by reason
+    let mut exempt_groups: HashMap<VatExemptionReason, u64> = HashMap::new();
+    for (reason, amount) in exempt_items {
+        *exempt_groups.entry(reason).or_default() += amount;
+    }
+
+    for (reason, taxable_amount) in exempt_groups {
+        breakdown.push(TaxBreakdownItem {
+            taxable_amount,
+            details: TaxDetails::Exempt(reason),
+        });
+    }
 
     let total_tax: u64 = line_items
         .iter()
         .map(|item| match &item.tax_details {
             TaxDetails::Tax { tax_amount, .. } => *tax_amount,
+            TaxDetails::MultipleTaxes {
+                total_tax_amount, ..
+            } => *total_tax_amount,
             TaxDetails::Exempt(_) => 0,
         })
         .sum();
@@ -226,6 +351,9 @@ pub(crate) fn compute_breakdown_from_line_items(
             item.pre_tax_amount
                 + match &item.tax_details {
                     TaxDetails::Tax { tax_amount, .. } => *tax_amount,
+                    TaxDetails::MultipleTaxes {
+                        total_tax_amount, ..
+                    } => *total_tax_amount,
                     TaxDetails::Exempt(_) => 0,
                 }
         })

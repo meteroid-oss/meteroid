@@ -455,6 +455,7 @@ async fn to_domain_invoice_new(
             local_id: LocalId::generate_for(IdType::Other),
             name: line.product.clone(),
             tax_rate,
+            tax_details: vec![], // Will be calculated after discount
             amount_subtotal,
             taxable_amount: amount_subtotal, // Will be updated by distribute_discount
             tax_amount: 0,                   // Will be calculated after discount

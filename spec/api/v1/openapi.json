@@ -1995,6 +1995,26 @@
           "ZWL"
         ]
       },
+      "CustomTaxRate": {
+        "type": "object",
+        "required": [
+          "tax_code",
+          "name",
+          "rate"
+        ],
+        "properties": {
+          "name": {
+            "type": "string"
+          },
+          "rate": {
+            "type": "number",
+            "format": "double"
+          },
+          "tax_code": {
+            "type": "string"
+          }
+        }
+      },
       "Customer": {
         "type": "object",
         "required": [
@@ -2002,7 +2022,8 @@
           "name",
           "invoicing_emails",
           "currency",
-          "invoicing_entity_id"
+          "invoicing_entity_id",
+          "custom_taxes"
         ],
         "properties": {
           "alias": {
@@ -2040,12 +2061,11 @@
           "currency": {
             "$ref": "#/components/schemas/Currency"
           },
-          "custom_tax_rate": {
-            "type": [
-              "number",
-              "null"
-            ],
-            "format": "double"
+          "custom_taxes": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/CustomTaxRate"
+            }
           },
           "id": {
             "$ref": "#/components/schemas/CustomerId"
@@ -2091,7 +2111,8 @@
         "required": [
           "name",
           "invoicing_emails",
-          "currency"
+          "currency",
+          "custom_taxes"
         ],
         "properties": {
           "alias": {
@@ -2129,12 +2150,11 @@
           "currency": {
             "$ref": "#/components/schemas/Currency"
           },
-          "custom_tax_rate": {
-            "type": [
-              "number",
-              "null"
-            ],
-            "format": "double"
+          "custom_taxes": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/CustomTaxRate"
+            }
           },
           "invoicing_emails": {
             "type": "array",
@@ -2271,7 +2291,8 @@
           "name",
           "invoicing_emails",
           "currency",
-          "invoicing_entity_id"
+          "invoicing_entity_id",
+          "custom_taxes"
         ],
         "properties": {
           "alias": {
@@ -2309,12 +2330,11 @@
           "currency": {
             "$ref": "#/components/schemas/Currency"
           },
-          "custom_tax_rate": {
-            "type": [
-              "number",
-              "null"
-            ],
-            "format": "double"
+          "custom_taxes": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/CustomTaxRate"
+            }
           },
           "invoicing_emails": {
             "type": "array",

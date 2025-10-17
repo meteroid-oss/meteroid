@@ -296,7 +296,15 @@ impl Services {
         let customer = meteroid_tax::CustomerForTax {
             vat_number: customer.vat_number.clone(),
             vat_number_format_valid: customer.vat_number_format_valid,
-            custom_tax_rate: customer.custom_tax_rate,
+            custom_tax_rates: customer
+                .custom_taxes
+                .iter()
+                .map(|t| meteroid_tax::CustomerCustomTaxRate {
+                    tax_code: t.tax_code.clone(),
+                    name: t.name.clone(),
+                    rate: t.rate,
+                })
+                .collect(),
             tax_exempt: customer.is_tax_exempt,
             billing_address: customer_address.into(),
         };
@@ -309,7 +317,7 @@ impl Services {
 
         let product_taxes = self
             .store
-            .list_product_tax_configuration_by_product_ids_and_invoicing_entity_id(
+            .list_product_tax_configuration_by_product_ids_and_invoicing_entity_id_grouped(
                 conn,
                 invoicing_entity.tenant_id,
                 product_ids,
@@ -322,15 +330,31 @@ impl Services {
             .filter_map(|line| {
                 if line.taxable_amount > 0 {
                     let total = line.taxable_amount.to_non_negative_u64();
-                    let custom_tax = line
+
+                    let custom_taxes = line
                         .product_id
                         .and_then(|p| product_taxes.iter().find(|tax| tax.product_id == p))
-                        .and_then(|p| p.custom_tax.as_ref());
+                        .map(|p| {
+                            p.custom_taxes
+                                .iter()
+                                .map(|t| meteroid_tax::CustomTax {
+                                    reference: t.id.to_string(),
+                                    name: t.name.clone(),
+                                    tax_rules: t
+                                        .rules
+                                        .iter()
+                                        .cloned()
+                                        .map(std::convert::Into::into)
+                                        .collect(),
+                                })
+                                .collect()
+                        })
+                        .unwrap_or_default();
 
                     Some(meteroid_tax::LineItemForTax {
                         line_id: line.local_id.to_string(),
                         amount: total,
-                        custom_tax: custom_tax.map(|t| t.clone().into()),
+                        custom_taxes,
                     })
                 } else {
                     // If the line amount is zero (or refund), we skip it
@@ -357,30 +381,111 @@ impl Services {
             // we get the matching taxed line
             if let Some(taxed_line) = res.line_items.iter().find(|l| l.line_id == line.local_id) {
                 // we update the line with the tax details
+                use crate::domain::TaxDetail;
 
-                if let TaxDetails::Tax {
-                    tax_rate,
-                    tax_amount,
-                    ..
-                } = taxed_line.tax_details.clone()
-                {
-                    line.tax_amount = tax_amount as i64;
-                    line.tax_rate = tax_rate;
-                } else {
-                    line.tax_amount = 0;
-                    line.tax_rate = rust_decimal::Decimal::ZERO;
+                match &taxed_line.tax_details {
+                    TaxDetails::Tax {
+                        tax_rate,
+                        tax_amount,
+                        tax_name,
+                        ..
+                    } => {
+                        line.tax_amount = *tax_amount as i64;
+                        line.tax_rate = *tax_rate;
+                        line.tax_details = vec![TaxDetail {
+                            tax_rate: *tax_rate,
+                            tax_name: tax_name.clone(),
+                            tax_amount: *tax_amount as i64,
+                        }];
+                    }
+                    TaxDetails::MultipleTaxes {
+                        taxes,
+                        total_tax_amount,
+                    } => {
+                        line.tax_amount = *total_tax_amount as i64;
+                        // For backward compatibility, compute a compound tax rate
+                        line.tax_rate = if taxed_line.pre_tax_amount > 0 {
+                            rust_decimal::Decimal::from(*total_tax_amount)
+                                / rust_decimal::Decimal::from(taxed_line.pre_tax_amount)
+                        } else {
+                            rust_decimal::Decimal::ZERO
+                        };
+                        line.tax_details = taxes
+                            .iter()
+                            .map(|t| TaxDetail {
+                                tax_rate: t.tax_rate,
+                                tax_name: t.tax_name.clone(),
+                                tax_amount: t.tax_amount as i64,
+                            })
+                            .collect();
+                    }
+                    TaxDetails::Exempt(_) => {
+                        line.tax_amount = 0;
+                        line.tax_rate = rust_decimal::Decimal::ZERO;
+                        line.tax_details = vec![];
+                    }
                 }
                 line.taxable_amount = taxed_line.pre_tax_amount as i64;
             } else {
                 // no tax details found
                 line.tax_rate = rust_decimal::Decimal::ZERO;
+                line.tax_amount = 0;
+                line.tax_details = vec![];
             }
         }
 
+        // Convert tax breakdown items, expanding any MultipleTaxes into separate items
         let breakdown = res
             .breakdown
             .into_iter()
-            .map(std::convert::Into::into)
+            .flat_map(|item| {
+                match item.details {
+                    TaxDetails::Tax {
+                        tax_rate,
+                        tax_name,
+                        tax_amount,
+                        ..
+                    } => vec![TaxBreakdownItem {
+                        taxable_amount: item.taxable_amount,
+                        tax_amount,
+                        tax_rate,
+                        name: tax_name,
+                        exemption_type: None,
+                    }],
+                    TaxDetails::MultipleTaxes { taxes, .. } => {
+                        // Expand multiple taxes into separate breakdown items
+                        taxes
+                            .into_iter()
+                            .map(|tax| TaxBreakdownItem {
+                                taxable_amount: item.taxable_amount,
+                                tax_amount: tax.tax_amount,
+                                tax_rate: tax.tax_rate,
+                                name: tax.tax_name,
+                                exemption_type: None,
+                            })
+                            .collect()
+                    }
+                    TaxDetails::Exempt(reason) => {
+                        use crate::domain::TaxExemptionType;
+                        use meteroid_tax::VatExemptionReason;
+
+                        let exemption_type = match reason {
+                            VatExemptionReason::ReverseCharge => TaxExemptionType::ReverseCharge,
+                            VatExemptionReason::TaxExempt => TaxExemptionType::TaxExempt,
+                            VatExemptionReason::NotRegistered => TaxExemptionType::NotRegistered,
+                            VatExemptionReason::Other(s) => TaxExemptionType::Other(s),
+                        };
+
+                        vec![TaxBreakdownItem {
+                            taxable_amount: item.taxable_amount,
+                            tax_amount: 0,
+                            tax_rate: rust_decimal::Decimal::ZERO,
+                            name: "Exempt".to_string(),
+                            exemption_type: Some(exemption_type),
+                        }]
+                    }
+                }
+            })
             .collect::<Vec<_>>();
 
         Ok((updated_invoice_lines, breakdown))

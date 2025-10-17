@@ -18,6 +18,15 @@ use serde::{Deserialize, Serialize};
 use serde_with::skip_serializing_none;
 use uuid::Uuid;
 
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+pub struct CustomerCustomTax {
+    pub tax_code: String,
+    pub name: String,
+    pub rate: rust_decimal::Decimal,
+}
+
+json_value_serde!(CustomerCustomTax);
+
 #[derive(Clone, Debug, PartialEq, Eq, o2o)]
 #[try_from_owned(CustomerRow, StoreErrorReport)]
 pub struct Customer {
@@ -50,7 +59,8 @@ pub struct Customer {
     #[map(~.map(|v| v.try_into()).transpose()?)]
     pub conn_meta: Option<ConnectionMeta>,
     pub is_tax_exempt: bool,
-    pub custom_tax_rate: Option<rust_decimal::Decimal>,
+    #[from(serde_json::from_value(~).unwrap_or_default())]
+    pub custom_taxes: Vec<CustomerCustomTax>,
     pub vat_number_format_valid: bool,
 }
 
@@ -80,7 +90,7 @@ pub struct CustomerNew {
     pub force_created_date: Option<NaiveDateTime>,
     pub bank_account_id: Option<BankAccountId>,
     pub vat_number: Option<String>,
-    pub custom_tax_rate: Option<rust_decimal::Decimal>,
+    pub custom_taxes: Vec<CustomerCustomTax>,
     pub is_tax_exempt: bool,
 }
 
@@ -135,7 +145,9 @@ impl TryInto<CustomerRowNew> for CustomerNewWrapper {
             direct_debit_provider_id: None,
             card_provider_id: None,
             vat_number: self.inner.vat_number,
-            custom_tax_rate: self.inner.custom_tax_rate,
+            custom_taxes: serde_json::to_value(&self.inner.custom_taxes).map_err(|e| {
+                StoreError::SerdeError("Failed to serialize custom_taxes".to_string(), e)
+            })?,
             is_tax_exempt: self.inner.is_tax_exempt,
             vat_number_format_valid: self.vat_number_format_valid,
         })
@@ -161,7 +173,10 @@ pub struct CustomerPatch {
     pub shipping_address: Option<ShippingAddress>,
     pub invoicing_entity_id: Option<InvoicingEntityId>,
     pub vat_number: Option<Option<String>>,
-    pub custom_tax_rate: Option<Option<rust_decimal::Decimal>>,
+    #[map(~.map(|v| serde_json::to_value(&v)).transpose().map_err(| e | {
+    StoreError::SerdeError("Failed to serialize custom_taxes".to_string(), e)
+    })?)]
+    pub custom_taxes: Option<Vec<CustomerCustomTax>>,
     pub bank_account_id: Option<Option<BankAccountId>>,
     pub is_tax_exempt: Option<bool>,
 }
@@ -243,7 +258,7 @@ pub struct CustomerUpdate {
     pub shipping_address: Option<ShippingAddress>,
     pub invoicing_entity_id: InvoicingEntityId,
     pub vat_number: Option<String>,
-    pub custom_tax_rate: Option<rust_decimal::Decimal>,
+    pub custom_taxes: Vec<CustomerCustomTax>,
     pub bank_account_id: Option<BankAccountId>,
     pub is_tax_exempt: bool,
 }

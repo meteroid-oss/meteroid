@@ -16,7 +16,15 @@ export const createCustomerSchema = z.object({
   city: z.string().optional(),
   vatNumber: z.string().optional(),
   shipping: z.boolean().optional(),
-  customTaxRate: z.coerce.number().optional(),
+  customTaxes: z
+    .array(
+      z.object({
+        taxCode: z.string().min(1, 'Tax code is required'),
+        name: z.string().min(1, 'Tax name is required'),
+        rate: z.coerce.number().min(0).max(100),
+      })
+    )
+    .optional(),
   isTaxExempt: z.boolean().optional(),
 
   //invoicing

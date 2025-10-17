@@ -4,7 +4,7 @@ use crate::{DbResult, PgConn};
 use common_domain::ids::{CustomTaxId, InvoicingEntityId, ProductId, TenantId};
 use diesel::upsert::excluded;
 use diesel::{
-    ExpressionMethods, JoinOnDsl, NullableExpressionMethods, OptionalExtension, QueryDsl,
+    BoolExpressionMethods, ExpressionMethods, JoinOnDsl, OptionalExtension, QueryDsl,
     SelectableHelper, debug_query,
 };
 use error_stack::ResultExt;
@@ -130,7 +130,6 @@ impl ProductAccountingRow {
             .do_update()
             .set((
                 pa_dsl::product_code.eq(excluded(pa_dsl::product_code)),
-                pa_dsl::custom_tax_id.eq(excluded(pa_dsl::custom_tax_id)),
                 pa_dsl::ledger_account_code.eq(excluded(pa_dsl::ledger_account_code)),
             ));
 
@@ -151,11 +150,17 @@ impl ProductAccountingWithTaxRow {
     ) -> DbResult<Vec<ProductAccountingWithTaxRow>> {
         use crate::schema::custom_tax::dsl as ct_dsl;
         use crate::schema::product_accounting::dsl as pa_dsl;
+        use crate::schema::product_custom_tax::dsl as pct_dsl;
         use diesel_async::RunQueryDsl;
 
         let query = pa_dsl::product_accounting
             .filter(pa_dsl::product_id.eq(param_product_id))
-            .left_join(ct_dsl::custom_tax.on(pa_dsl::custom_tax_id.eq(ct_dsl::id.nullable())))
+            .left_join(
+                pct_dsl::product_custom_tax.on(pa_dsl::product_id
+                    .eq(pct_dsl::product_id)
+                    .and(pa_dsl::invoicing_entity_id.eq(pct_dsl::invoicing_entity_id))),
+            )
+            .left_join(ct_dsl::custom_tax.on(pct_dsl::custom_tax_id.eq(ct_dsl::id)))
             .select(ProductAccountingWithTaxRow::as_select());
 
         log::debug!("{}", debug_query::<diesel::pg::Pg, _>(&query));
@@ -163,7 +168,7 @@ impl ProductAccountingWithTaxRow {
         query
             .get_results(conn)
             .await
-            .attach("Error while fetching api token by id")
+            .attach("Error while fetching product accounting by id")
             .into_db_result()
     }
 
@@ -176,6 +181,7 @@ impl ProductAccountingWithTaxRow {
         use crate::schema::custom_tax::dsl as ct_dsl;
         use crate::schema::invoicing_entity::dsl as ie_dsl;
         use crate::schema::product_accounting::dsl as pa_dsl;
+        use crate::schema::product_custom_tax::dsl as pct_dsl;
         use diesel_async::RunQueryDsl;
 
         let query = pa_dsl::product_accounting
@@ -188,7 +194,12 @@ impl ProductAccountingWithTaxRow {
                         .select(ie_dsl::id),
                 ),
             )
-            .left_join(ct_dsl::custom_tax.on(pa_dsl::custom_tax_id.eq(ct_dsl::id.nullable())))
+            .left_join(
+                pct_dsl::product_custom_tax.on(pa_dsl::product_id
+                    .eq(pct_dsl::product_id)
+                    .and(pa_dsl::invoicing_entity_id.eq(pct_dsl::invoicing_entity_id))),
+            )
+            .left_join(ct_dsl::custom_tax.on(pct_dsl::custom_tax_id.eq(ct_dsl::id)))
             .select(ProductAccountingWithTaxRow::as_select());
 
         log::debug!("{}", debug_query::<diesel::pg::Pg, _>(&query));

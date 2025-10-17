@@ -24,7 +24,6 @@ use crate::api::customers::mapping::customer::{
     DomainAddressWrapper, DomainShippingAddressWrapper, ServerCustomerBriefWrapper,
     ServerCustomerWrapper,
 };
-use crate::api::shared::conversions::FromProtoOpt;
 use crate::api::utils::PaginationExt;
 
 use super::CustomerServiceComponents;
@@ -67,7 +66,21 @@ impl CustomersService for CustomerServiceComponents {
             force_created_date: None,
             bank_account_id: BankAccountId::from_proto_opt(inner.bank_account_id)?,
             vat_number: inner.vat_number,
-            custom_tax_rate: rust_decimal::Decimal::from_proto_opt(inner.custom_tax_rate)?,
+            custom_taxes: inner
+                .custom_taxes
+                .into_iter()
+                .map(
+                    |t| -> Result<meteroid_store::domain::CustomerCustomTax, CustomerApiError> {
+                        Ok(meteroid_store::domain::CustomerCustomTax {
+                            tax_code: t.tax_code,
+                            name: t.name,
+                            rate: t.rate.parse().map_err(|_| {
+                                CustomerApiError::InvalidArgument("Invalid tax rate".to_string())
+                            })?,
+                        })
+                    },
+                )
+                .collect::<Result<Vec<_>, _>>()?,
             is_tax_exempt: inner.is_tax_exempt.unwrap_or(false),
         };
 
@@ -130,9 +143,10 @@ impl CustomersService for CustomerServiceComponents {
                     billing_address,
                     shipping_address,
                     vat_number: Some(customer.vat_number),
-                    custom_tax_rate: Some(rust_decimal::Decimal::from_proto_opt(
-                        customer.custom_tax_rate,
-                    )?),
+                    custom_taxes: crate::api::customers::mapping::customer::custom_taxes_from_grpc(
+                        customer.custom_taxes,
+                    )
+                    .map_err(Into::<Status>::into)?,
                     bank_account_id: Some(BankAccountId::from_proto_opt(customer.bank_account_id)?),
                     is_tax_exempt: customer.is_tax_exempt,
                 },

@@ -102,8 +102,8 @@ impl TaxEngine for MeteroidTaxEngine {
         if customer.tax_exempt {
             return Ok(CustomerTax::Exempt);
         }
-        if let Some(rate) = customer.custom_tax_rate {
-            return Ok(CustomerTax::CustomTaxRate(rate));
+        if !customer.custom_tax_rates.is_empty() {
+            return Ok(CustomerTax::CustomTaxRates(customer.custom_tax_rates));
         }
 
         let is_b2b = customer
@@ -145,13 +145,23 @@ impl TaxEngine for MeteroidTaxEngine {
             .get_rates(amount_f64, &TAX_DATABASE)
             .change_context(TaxEngineError::TaxCalculationError)?;
 
-        match rates.first() {
-            Some(rate) => Ok(CustomerTax::ResolvedTaxRate(TaxRate {
-                rate: rate.rate,
-                tax_type: rate.tax_type.clone(),
-                compound: rate.compound,
+        match rates.len() {
+            0 => Ok(CustomerTax::NoTax),
+            1 => Ok(CustomerTax::ResolvedTaxRate(TaxRate {
+                rate: rates[0].rate,
+                tax_type: rates[0].tax_type.clone(),
+                compound: rates[0].compound,
             })),
-            None => Ok(CustomerTax::NoTax),
+            _ => Ok(CustomerTax::ResolvedMultipleTaxRates(
+                rates
+                    .into_iter()
+                    .map(|rate| TaxRate {
+                        rate: rate.rate,
+                        tax_type: rate.tax_type.clone(),
+                        compound: rate.compound,
+                    })
+                    .collect(),
+            )),
         }
     }
 }
@@ -206,8 +216,8 @@ impl TaxEngine for ManualTaxEngine {
         if customer.tax_exempt {
             return Ok(CustomerTax::Exempt);
         }
-        if let Some(rate) = customer.custom_tax_rate {
-            return Ok(CustomerTax::CustomTaxRate(rate));
+        if !customer.custom_tax_rates.is_empty() {
+            return Ok(CustomerTax::CustomTaxRates(customer.custom_tax_rates));
         }
         Ok(CustomerTax::NoTax)
     }

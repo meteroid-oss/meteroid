@@ -9,6 +9,7 @@ use diesel_async::scoped_futures::ScopedFutureExt;
 use diesel_models::customer_balance_txs::CustomerBalancePendingTxRowNew;
 use diesel_models::customers::CustomerRow;
 use error_stack::Report;
+use rust_decimal::Decimal;
 use uuid::Uuid;
 
 impl Services {
@@ -49,7 +50,9 @@ impl Services {
                         product_id: None,
                         metric_id: None,
                         description: None,
-                        tax_rate: Default::default(),
+                        // handled later
+                        tax_rate: Decimal::ZERO,
+                        tax_details: vec![],
                         group_by_dimensions: None,
                     }];
 

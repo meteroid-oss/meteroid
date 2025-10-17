@@ -1,4 +1,5 @@
 import {
+  Button,
   Checkbox,
   Flex,
   FormControl,
@@ -6,17 +7,22 @@ import {
   FormItem,
   FormLabel,
   FormMessage,
+  Input,
   InputFormField,
 } from '@md/ui'
-import { ChevronRight } from 'lucide-react'
+import { ChevronRight, Plus, X } from 'lucide-react'
 import { useState } from 'react'
-import { useFormContext } from 'react-hook-form'
+import { useFieldArray, useFormContext } from 'react-hook-form'
 
 import { CountrySelect } from '@/components/CountrySelect'
 import { CreateCustomerSchema } from '@/lib/schemas/customers'
 
 export const CustomersBilling = () => {
   const { control } = useFormContext<CreateCustomerSchema>()
+  const { fields, append, remove } = useFieldArray({
+    control,
+    name: 'customTaxes',
+  })
 
   const [visible, setVisible] = useState(false)
 
@@ -76,16 +82,80 @@ export const CustomersBilling = () => {
             placeholder="NL123456789B01"
             autoComplete="off"
           />
-          
-          <InputFormField
-            name="customTaxRate"
-            label="Custom Tax Rate (%)"
-            control={control}
-            type="text"
-            placeholder="21.5"
-            autoComplete="off"
-          />
-          
+
+          <Flex direction="column" className="gap-2">
+            <Flex align="center" justify="between">
+              <FormLabel>Custom Taxes</FormLabel>
+              <Button
+                type="button"
+                variant="outline"
+                size="sm"
+                onClick={() => append({ taxCode: '', name: '', rate: 0 })}
+              >
+                <Plus size={14} className="mr-1" />
+                Add Tax
+              </Button>
+            </Flex>
+            {fields.map((field, index) => (
+              <Flex key={field.id} className="gap-2 items-start">
+                <FormField
+                  control={control}
+                  name={`customTaxes.${index}.taxCode`}
+                  render={({ field }) => (
+                    <FormItem className="flex-1">
+                      {index === 0 && <FormLabel>Code</FormLabel>}
+                      <FormControl>
+                        <Input {...field} placeholder="GST" />
+                      </FormControl>
+                      <FormMessage />
+                    </FormItem>
+                  )}
+                />
+                <FormField
+                  control={control}
+                  name={`customTaxes.${index}.name`}
+                  render={({ field }) => (
+                    <FormItem className="flex-[2]">
+                      {index === 0 && <FormLabel>Name</FormLabel>}
+                      <FormControl>
+                        <Input {...field} placeholder="Goods and Services Tax" />
+                      </FormControl>
+                      <FormMessage />
+                    </FormItem>
+                  )}
+                />
+                <FormField
+                  control={control}
+                  name={`customTaxes.${index}.rate`}
+                  render={({ field }) => (
+                    <FormItem className="flex-1">
+                      {index === 0 && <FormLabel>Rate (%)</FormLabel>}
+                      <FormControl>
+                        <Input
+                          {...field}
+                          type="number"
+                          step="0.01"
+                          placeholder="5.0"
+                          onChange={e => field.onChange(parseFloat(e.target.value))}
+                        />
+                      </FormControl>
+                      <FormMessage />
+                    </FormItem>
+                  )}
+                />
+                <Button
+                  type="button"
+                  variant="ghost"
+                  size="icon"
+                  onClick={() => remove(index)}
+                  className={index === 0 ? 'mt-8' : ''}
+                >
+                  <X size={16} />
+                </Button>
+              </Flex>
+            ))}
+          </Flex>
+
           <FormField
             control={control}
             name="isTaxExempt"

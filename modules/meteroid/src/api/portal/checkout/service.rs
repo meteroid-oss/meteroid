@@ -5,7 +5,6 @@ use crate::api::customers::mapping::customer::{
 };
 use crate::api::portal::checkout::PortalCheckoutServiceComponents;
 use crate::api::portal::checkout::error::PortalCheckoutApiError;
-use crate::api::shared::conversions::FromProtoOpt;
 use crate::services::storage::Prefix;
 use common_domain::ids::{
     BankAccountId, BaseId, CustomerConnectionId, CustomerId, CustomerPaymentMethodId,
@@ -29,7 +28,6 @@ use meteroid_store::repositories::customers::CustomersInterface;
 use meteroid_store::repositories::invoicing_entities::InvoicingEntityInterface;
 use meteroid_store::repositories::subscriptions::SubscriptionInterfaceAuto;
 use meteroid_store::repositories::{OrganizationsInterface, SubscriptionInterface};
-use rust_decimal::Decimal;
 use secrecy::ExposeSecret;
 use std::time::Duration;
 use tonic::{Request, Response, Status};
@@ -211,7 +209,7 @@ impl PortalCheckoutService for PortalCheckoutServiceComponents {
                     vat_number: customer
                         .vat_number
                         .map(|v| if v.is_empty() { None } else { Some(v) }),
-                    custom_tax_rate: Some(Decimal::from_proto_opt(customer.custom_tax_rate)?),
+                    custom_taxes: None,
                     bank_account_id: Some(BankAccountId::from_proto_opt(customer.bank_account_id)?),
                     is_tax_exempt: customer.is_tax_exempt,
                 },
