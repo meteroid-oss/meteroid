@@ -347,7 +347,13 @@ async fn rest_api_test(setup: &MeteroidSetup, clients: &AllClients) {
                "same_as_billing": true
             },
             "vat_number": "VAT123456",
-            "custom_tax_rate": 20,
+            "custom_taxes": [,
+                {
+                    "tax_code": "TAX001",
+                    "name": "Standard Tax",
+                    "rate": 20.0
+                }
+            ]
         }))
         .send()
         .await
@@ -433,7 +439,13 @@ async fn rest_api_test(setup: &MeteroidSetup, clients: &AllClients) {
                "same_as_billing": true
             },
             "vat_number": "VAT123456",
-            "custom_tax_rate": 20,
+            "custom_taxes": [,
+                {
+                    "tax_code": "TAX001",
+                    "name": "Standard Tax",
+                    "rate": 20.0
+                }
+            ],
             "invoicing_entity_id": invoicing_entity_id,
         }))
         .send()
