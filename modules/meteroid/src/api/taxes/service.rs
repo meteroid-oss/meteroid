@@ -150,11 +150,17 @@ impl TaxesService for TaxesServiceComponents {
         let product_id = ProductId::from_proto(req.product_id)?;
         let invoicing_entity_id = InvoicingEntityId::from_proto(req.invoicing_entity_id)?;
 
+        let mut conn = self
+            .store
+            .get_conn()
+            .await
+            .map_err(|e| Status::internal(e.to_string()))?;
         let product_accountings = self
             .store
-            .list_product_tax_configuration_by_product_id_and_invoicing_entity_id(
+            .list_product_tax_configuration_by_product_ids_and_invoicing_entity_id_grouped(
+                &mut conn,
                 tenant_id,
-                product_id,
+                vec![product_id],
                 invoicing_entity_id,
             )
             .await
@@ -165,7 +171,6 @@ impl TaxesService for TaxesServiceComponents {
                 meteroid_store::domain::accounting::ProductAccounting {
                     product_id: pa.product_id,
                     invoicing_entity_id: pa.invoicing_entity_id,
-                    custom_tax_id: pa.custom_tax.as_ref().map(|t| t.id),
                     product_code: pa.product_code,
                     ledger_account_code: pa.ledger_account_code,
                 },

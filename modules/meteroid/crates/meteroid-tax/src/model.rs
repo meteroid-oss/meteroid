@@ -10,10 +10,17 @@ pub struct Address {
 }
 
 #[derive(Debug, Clone)]
+pub struct CustomerCustomTaxRate {
+    pub tax_code: String,
+    pub name: String,
+    pub rate: rust_decimal::Decimal,
+}
+
+#[derive(Debug, Clone)]
 pub struct CustomerForTax {
     pub vat_number: Option<String>,
     pub vat_number_format_valid: bool,
-    pub custom_tax_rate: Option<rust_decimal::Decimal>,
+    pub custom_tax_rates: Vec<CustomerCustomTaxRate>,
     pub tax_exempt: bool,
     pub billing_address: Address,
 }
@@ -21,7 +28,9 @@ pub struct CustomerForTax {
 #[derive(Debug)]
 pub enum CustomerTax {
     CustomTaxRate(rust_decimal::Decimal),
+    CustomTaxRates(Vec<CustomerCustomTaxRate>),
     ResolvedTaxRate(world_tax::TaxRate),
+    ResolvedMultipleTaxRates(Vec<world_tax::TaxRate>),
     Exempt,
     NoTax,
 }
@@ -30,6 +39,7 @@ impl Clone for CustomerTax {
     fn clone(&self) -> Self {
         match self {
             CustomerTax::CustomTaxRate(rate) => CustomerTax::CustomTaxRate(*rate),
+            CustomerTax::CustomTaxRates(rates) => CustomerTax::CustomTaxRates(rates.clone()),
             CustomerTax::ResolvedTaxRate(tax_rate) => {
                 CustomerTax::ResolvedTaxRate(world_tax::TaxRate {
                     rate: tax_rate.rate,
@@ -37,6 +47,16 @@ impl Clone for CustomerTax {
                     compound: tax_rate.compound,
                 })
             }
+            CustomerTax::ResolvedMultipleTaxRates(rates) => CustomerTax::ResolvedMultipleTaxRates(
+                rates
+                    .iter()
+                    .map(|tax_rate| world_tax::TaxRate {
+                        rate: tax_rate.rate,
+                        tax_type: tax_rate.tax_type.clone(),
+                        compound: tax_rate.compound,
+                    })
+                    .collect(),
+            ),
             CustomerTax::Exempt => CustomerTax::Exempt,
             CustomerTax::NoTax => CustomerTax::NoTax,
         }
@@ -75,7 +95,7 @@ pub struct CustomTax {
 pub struct LineItemForTax {
     pub line_id: String,
     pub amount: u64,
-    pub custom_tax: Option<CustomTax>,
+    pub custom_taxes: Vec<CustomTax>,
 }
 
 #[derive(Debug, Clone)]
@@ -85,12 +105,20 @@ pub struct LineItemWithTax {
     pub tax_details: TaxDetails,
 }
 
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, PartialEq, Eq, Hash)]
 pub enum VatExemptionReason {
     TaxExempt,
     ReverseCharge,
     NotRegistered,
     Other(String),
+}
+
+#[derive(Debug, Clone)]
+pub struct TaxItem {
+    pub tax_rate: rust_decimal::Decimal,
+    pub tax_reference: String,
+    pub tax_name: String,
+    pub tax_amount: u64,
 }
 
 #[derive(Debug, Clone)]
@@ -100,6 +128,10 @@ pub enum TaxDetails {
         tax_reference: String,
         tax_name: String,
         tax_amount: u64,
+    },
+    MultipleTaxes {
+        taxes: Vec<TaxItem>,
+        total_tax_amount: u64,
     },
     Exempt(VatExemptionReason),
 }

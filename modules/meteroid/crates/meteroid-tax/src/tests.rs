@@ -17,11 +17,11 @@ mod tests {
         }
     }
 
-    fn test_line_item(id: &str, amount: u64, custom_tax: Option<CustomTax>) -> LineItemForTax {
+    fn test_line_item(id: &str, amount: u64, custom_taxes: Vec<CustomTax>) -> LineItemForTax {
         LineItemForTax {
             line_id: id.to_string(),
             amount,
-            custom_tax,
+            custom_taxes,
         }
     }
 
@@ -31,8 +31,8 @@ mod tests {
         let customer_tax = CustomerTax::Exempt;
         let invoicing_entity_address = test_address("US", Some("CA"));
         let line_items = vec![
-            test_line_item("item1", 10000, None),
-            test_line_item("item2", 5000, None),
+            test_line_item("item1", 10000, vec![]),
+            test_line_item("item2", 5000, vec![]),
         ];
 
         let result = shared::compute_tax(customer_tax, invoicing_entity_address, line_items)
@@ -59,8 +59,8 @@ mod tests {
         let customer_tax = CustomerTax::CustomTaxRate(dec!(0.15));
         let invoicing_entity_address = test_address("US", Some("CA"));
         let line_items = vec![
-            test_line_item("item1", 10000, None),
-            test_line_item("item2", 5000, None),
+            test_line_item("item1", 10000, vec![]),
+            test_line_item("item2", 5000, vec![]),
         ];
 
         let result = shared::compute_tax(customer_tax, invoicing_entity_address, line_items)
@@ -117,8 +117,8 @@ mod tests {
         };
 
         let line_items = vec![
-            test_line_item("item1", 10000, Some(custom_tax.clone())),
-            test_line_item("item2", 5000, None), // This will use customer tax
+            test_line_item("item1", 10000, vec![custom_tax.clone()]),
+            test_line_item("item2", 5000, vec![]), // This will use customer tax
         ];
 
         let result = shared::compute_tax(customer_tax, invoicing_entity_address, line_items)
@@ -194,7 +194,7 @@ mod tests {
             ],
         };
 
-        let line_items = vec![test_line_item("item1", 10000, Some(custom_tax))];
+        let line_items = vec![test_line_item("item1", 10000, vec![custom_tax])];
 
         let result = shared::compute_tax(customer_tax, invoicing_entity_address, line_items)
             .await
@@ -240,9 +240,9 @@ mod tests {
         };
 
         let line_items = vec![
-            test_line_item("item1", 10000, Some(custom_tax_1.clone())),
-            test_line_item("item2", 5000, Some(custom_tax_1.clone())),
-            test_line_item("item3", 8000, Some(custom_tax_2)),
+            test_line_item("item1", 10000, vec![custom_tax_1.clone()]),
+            test_line_item("item2", 5000, vec![custom_tax_1.clone()]),
+            test_line_item("item3", 8000, vec![custom_tax_2]),
         ];
 
         let result = shared::compute_tax(customer_tax, invoicing_entity_address, line_items)
@@ -266,7 +266,7 @@ mod tests {
         let invoicing_entity_address = test_address("US", None);
 
         // 999 * 0.21 = 209.79, should round to 210
-        let line_items = vec![test_line_item("item1", 999, None)];
+        let line_items = vec![test_line_item("item1", 999, vec![])];
 
         let result = shared::compute_tax(
             customer_tax.clone(),
@@ -284,7 +284,7 @@ mod tests {
         }
 
         // Test rounding down: 997 * 0.21 = 209.37, should round to 209
-        let line_items = vec![test_line_item("item2", 997, None)];
+        let line_items = vec![test_line_item("item2", 997, vec![])];
 
         let result = shared::compute_tax(customer_tax, invoicing_entity_address, line_items)
             .await
@@ -303,8 +303,8 @@ mod tests {
         let customer_tax = CustomerTax::CustomTaxRate(dec!(0.20));
         let invoicing_entity_address = test_address("US", None);
         let line_items = vec![
-            test_line_item("item1", 0, None),
-            test_line_item("item2", 1000, None),
+            test_line_item("item1", 0, vec![]),
+            test_line_item("item2", 1000, vec![]),
         ];
 
         let result = shared::compute_tax(customer_tax, invoicing_entity_address, line_items)
@@ -340,7 +340,7 @@ mod tests {
         });
 
         let invoicing_entity_address = test_address("FR", None);
-        let line_items = vec![test_line_item("item1", 10000, None)];
+        let line_items = vec![test_line_item("item1", 10000, vec![])];
 
         let result = shared::compute_tax(customer_tax, invoicing_entity_address, line_items)
             .await
@@ -360,14 +360,14 @@ mod tests {
     fn test_customer(
         vat_number: Option<String>,
         tax_exempt: bool,
-        custom_tax_rate: Option<rust_decimal::Decimal>,
+        custom_tax_rates: Vec<CustomerCustomTaxRate>,
         country: &str,
     ) -> CustomerForTax {
         CustomerForTax {
             vat_number: vat_number.clone(),
             vat_number_format_valid: vat_number.is_some(),
             tax_exempt,
-            custom_tax_rate,
+            custom_tax_rates,
             billing_address: test_address(country, None),
         }
     }
@@ -381,9 +381,9 @@ mod tests {
             let engine = MeteroidTaxEngine;
 
             // Test B2C transaction within EU - should apply VAT
-            let customer = test_customer(None, false, None, "DE"); // German B2C customer
+            let customer = test_customer(None, false, vec![], "DE"); // German B2C customer
             let invoicing_entity_address = test_address("FR", None); // French company
-            let line_items = vec![test_line_item("item1", 10000, None)];
+            let line_items = vec![test_line_item("item1", 10000, vec![])];
 
             let result = engine
                 .calculate_line_items_tax(
@@ -406,9 +406,9 @@ mod tests {
             let engine = MeteroidTaxEngine;
 
             // Test B2B transaction between different EU countries - should be reverse charge
-            let customer = test_customer(Some("DE123456789".to_string()), false, None, "DE");
+            let customer = test_customer(Some("DE123456789".to_string()), false, vec![], "DE");
             let invoicing_entity_address = test_address("FR", None);
-            let line_items = vec![test_line_item("item1", 10000, None)];
+            let line_items = vec![test_line_item("item1", 10000, vec![])];
 
             let result = engine
                 .calculate_line_items_tax(
@@ -431,9 +431,18 @@ mod tests {
             let engine = ManualTaxEngine;
 
             // Test customer with custom tax rate
-            let customer = test_customer(None, false, Some(rust_decimal_macros::dec!(0.18)), "US");
+            let customer = test_customer(
+                None,
+                false,
+                vec![CustomerCustomTaxRate {
+                    tax_code: "CUSTOM".to_string(),
+                    name: "Custom Tax".to_string(),
+                    rate: rust_decimal_macros::dec!(0.18),
+                }],
+                "US",
+            );
             let invoicing_entity_address = test_address("US", None);
-            let line_items = vec![test_line_item("item1", 10000, None)];
+            let line_items = vec![test_line_item("item1", 10000, vec![])];
 
             let result = engine
                 .calculate_line_items_tax(
@@ -456,9 +465,9 @@ mod tests {
             let engine = ManualTaxEngine;
 
             // Test tax-exempt customer
-            let customer = test_customer(None, true, None, "US");
+            let customer = test_customer(None, true, vec![], "US");
             let invoicing_entity_address = test_address("US", None);
-            let line_items = vec![test_line_item("item1", 10000, None)];
+            let line_items = vec![test_line_item("item1", 10000, vec![])];
 
             let result = engine
                 .calculate_line_items_tax(
@@ -481,9 +490,9 @@ mod tests {
             let engine = ManualTaxEngine;
 
             // Test regular customer with no special settings
-            let customer = test_customer(None, false, None, "US");
+            let customer = test_customer(None, false, vec![], "US");
             let invoicing_entity_address = test_address("US", None);
-            let line_items = vec![test_line_item("item1", 10000, None)];
+            let line_items = vec![test_line_item("item1", 10000, vec![])];
 
             let result = engine
                 .calculate_line_items_tax(
@@ -506,11 +515,11 @@ mod tests {
             let engine = MeteroidTaxEngine;
 
             // Customer has VAT number but format is invalid
-            let mut customer = test_customer(Some("INVALID_VAT".to_string()), false, None, "DE");
+            let mut customer = test_customer(Some("INVALID_VAT".to_string()), false, vec![], "DE");
             customer.vat_number_format_valid = false;
 
             let invoicing_entity_address = test_address("FR", None);
-            let line_items = vec![test_line_item("item1", 10000, None)];
+            let line_items = vec![test_line_item("item1", 10000, vec![])];
 
             let result = engine
                 .calculate_line_items_tax(
@@ -533,9 +542,9 @@ mod tests {
             let engine = MeteroidTaxEngine;
 
             // Customer has empty VAT number string
-            let customer = test_customer(Some("".to_string()), false, None, "DE");
+            let customer = test_customer(Some("".to_string()), false, vec![], "DE");
             let invoicing_entity_address = test_address("FR", None);
-            let line_items = vec![test_line_item("item1", 10000, None)];
+            let line_items = vec![test_line_item("item1", 10000, vec![])];
 
             let result = engine
                 .calculate_line_items_tax(
@@ -558,11 +567,11 @@ mod tests {
             let engine = MeteroidTaxEngine;
 
             // Customer with no billing country
-            let mut customer = test_customer(None, false, None, "");
+            let mut customer = test_customer(None, false, vec![], "");
             customer.billing_address.country = None;
 
             let invoicing_entity_address = test_address("FR", None);
-            let line_items = vec![test_line_item("item1", 10000, None)];
+            let line_items = vec![test_line_item("item1", 10000, vec![])];
 
             let result = engine
                 .calculate_line_items_tax(
@@ -584,11 +593,11 @@ mod tests {
         async fn test_meteroid_engine_missing_invoicing_country() {
             let engine = MeteroidTaxEngine;
 
-            let customer = test_customer(None, false, None, "DE");
+            let customer = test_customer(None, false, vec![], "DE");
             let mut invoicing_entity_address = test_address("", None);
             invoicing_entity_address.country = None;
 
-            let line_items = vec![test_line_item("item1", 10000, None)];
+            let line_items = vec![test_line_item("item1", 10000, vec![])];
 
             let result = engine
                 .calculate_line_items_tax(
@@ -616,7 +625,7 @@ mod tests {
             vat_number: Some("DE123456789".to_string()),
             vat_number_format_valid: true,
             tax_exempt: false,
-            custom_tax_rate: None,
+            custom_tax_rates: vec![],
             billing_address: Address {
                 country: Some(CountryCode::from_str("DE").expect("failed to parse country code")),
                 region: None,
@@ -637,7 +646,7 @@ mod tests {
         let line_items = vec![LineItemForTax {
             line_id: "item1".to_string(),
             amount: 10000,
-            custom_tax: None,
+            custom_taxes: vec![],
         }];
 
         let result = engine
@@ -674,7 +683,7 @@ mod tests {
             vat_number: None,
             vat_number_format_valid: false,
             tax_exempt: true,
-            custom_tax_rate: None,
+            custom_tax_rates: vec![],
             billing_address: Address {
                 country: Some(CountryCode::from_str("FR").expect("failed to parse country code")),
                 region: None,
@@ -695,7 +704,7 @@ mod tests {
         let line_items = vec![LineItemForTax {
             line_id: "item1".to_string(),
             amount: 10000,
-            custom_tax: None,
+            custom_taxes: vec![],
         }];
 
         let result = engine

@@ -2,7 +2,7 @@ use crate::errors::{StoreError, StoreErrorReport};
 use crate::json_value_serde;
 use common_domain::country::CountryCode;
 use common_domain::ids::{BaseId, CustomTaxId, InvoicingEntityId, ProductId};
-use diesel_models::accounting::{CustomTaxRow, ProductAccountingRow, ProductAccountingWithTaxRow};
+use diesel_models::accounting::{CustomTaxRow, ProductAccountingRow};
 use o2o::o2o;
 use serde::{Deserialize, Serialize};
 
@@ -64,22 +64,15 @@ json_value_serde!(CustomTaxRule);
 pub struct ProductAccounting {
     pub product_id: ProductId,
     pub invoicing_entity_id: InvoicingEntityId,
-    pub custom_tax_id: Option<CustomTaxId>,
     pub product_code: Option<String>,
     pub ledger_account_code: Option<String>,
 }
 
-#[derive(Debug, Clone, o2o)]
-#[try_from_owned(ProductAccountingWithTaxRow, StoreErrorReport)]
-pub struct ProductAccountingWithTax {
-    #[child(product_accounting)]
+#[derive(Debug, Clone)]
+pub struct ProductAccountingWithTaxes {
     pub product_id: ProductId,
-    #[child(product_accounting)]
     pub invoicing_entity_id: InvoicingEntityId,
-    #[child(product_accounting)]
     pub product_code: Option<String>,
-    #[child(product_accounting)]
     pub ledger_account_code: Option<String>,
-    #[map(~.map(|v| v.try_into()).transpose()?)]
-    pub custom_tax: Option<CustomTax>,
+    pub custom_taxes: Vec<CustomTax>,
 }

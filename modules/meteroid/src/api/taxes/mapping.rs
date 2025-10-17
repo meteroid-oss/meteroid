@@ -1,6 +1,6 @@
 use crate::api::shared::conversions::ProtoConv;
 use common_domain::country::CountryCode;
-use common_domain::ids::{CustomTaxId, InvoicingEntityId, ProductId};
+use common_domain::ids::{InvoicingEntityId, ProductId};
 use meteroid_grpc::meteroid::api::taxes::v1 as server;
 use meteroid_store::domain::accounting::{
     CustomTax, CustomTaxNew, CustomTaxRule, ProductAccounting,
@@ -77,7 +77,6 @@ pub fn product_accounting_from_server(
     Ok(ProductAccounting {
         product_id: ProductId::from_proto(value.product_id)?,
         invoicing_entity_id: InvoicingEntityId::from_proto(value.invoicing_entity_id)?,
-        custom_tax_id: CustomTaxId::from_proto_opt(value.custom_tax_id)?,
         product_code: value.product_code,
         ledger_account_code: value.ledger_account_code,
     })
@@ -87,7 +86,6 @@ pub fn product_accounting_to_server(value: ProductAccounting) -> server::Product
     server::ProductAccounting {
         product_id: value.product_id.as_proto(),
         invoicing_entity_id: value.invoicing_entity_id.as_proto(),
-        custom_tax_id: value.custom_tax_id.map(|id| id.as_proto()),
         product_code: value.product_code,
         ledger_account_code: value.ledger_account_code,
     }

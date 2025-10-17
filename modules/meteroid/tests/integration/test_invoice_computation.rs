@@ -10,7 +10,7 @@ use meteroid_store::clients::usage::MockUsageClient;
 use meteroid_store::domain::coupons::{CouponDiscount, CouponNew};
 use meteroid_store::domain::subscription_coupons::CreateSubscriptionCoupon;
 use meteroid_store::domain::{
-    CreateSubscription, CreateSubscriptionCoupons, InvoicingEntityPatch,
+    CreateSubscription, CreateSubscriptionCoupons, CustomerCustomTax, InvoicingEntityPatch,
     SubscriptionActivationCondition, SubscriptionNew,
 };
 use meteroid_store::repositories::SubscriptionInterface;
@@ -18,6 +18,7 @@ use meteroid_store::repositories::coupons::CouponInterface;
 use meteroid_store::repositories::invoicing_entities::InvoicingEntityInterface;
 use meteroid_store::store::PgConn;
 use rust_decimal_macros::dec;
+use serde_json::json;
 use std::str::FromStr;
 use std::sync::Arc;
 
@@ -287,7 +288,7 @@ async fn create_french_b2b_customer(
         card_provider_id: None,
         direct_debit_provider_id: None,
         vat_number: Some("FR12345678901".to_string()),
-        custom_tax_rate: None,
+        custom_taxes: json!([]),
         invoicing_emails: vec![],
         phone: None,
         is_tax_exempt: false,
@@ -532,7 +533,7 @@ async fn create_german_b2b_customer(
         card_provider_id: None,
         direct_debit_provider_id: None,
         vat_number: Some("DE123456789".to_string()),
-        custom_tax_rate: None,
+        custom_taxes: json!([]),
         invoicing_emails: vec![],
         phone: None,
         is_tax_exempt: false,
@@ -581,7 +582,12 @@ async fn create_customer_with_custom_tax_rate(
         card_provider_id: None,
         direct_debit_provider_id: None,
         vat_number: None,
-        custom_tax_rate: Some(dec!(0.0825)),
+        custom_taxes: serde_json::to_value(vec![CustomerCustomTax {
+            tax_code: "custom".to_string(),
+            name: "Custom Tax".to_string(),
+            rate: dec!(0.0825),
+        }])
+        .unwrap(),
         invoicing_emails: vec![],
         phone: None,
         is_tax_exempt: false,

@@ -1,7 +1,7 @@
 pub mod customer {
     use crate::api::connectors::mapping::connectors::connection_metadata_to_server;
     use crate::api::customers::error::CustomerApiError;
-    use crate::api::shared::conversions::{AsProtoOpt, ProtoConv};
+    use crate::api::shared::conversions::ProtoConv;
     use crate::api::shared::mapping::datetime::chrono_to_timestamp;
     use common_domain::country::CountryCode;
     use error_stack::Report;
@@ -112,7 +112,15 @@ pub mod customer {
                     .map(|v| v.0),
                 connection_metadata: value.conn_meta.as_ref().map(connection_metadata_to_server),
                 bank_account_id: value.bank_account_id.map(|v| v.as_proto()),
-                custom_tax_rate: value.custom_tax_rate.as_proto(),
+                custom_taxes: value
+                    .custom_taxes
+                    .into_iter()
+                    .map(|t| server::CustomTaxRate {
+                        tax_code: t.tax_code,
+                        name: t.name,
+                        rate: t.rate.to_string(),
+                    })
+                    .collect(),
                 is_tax_exempt: value.is_tax_exempt,
                 is_vat_number_valid: value.vat_number_format_valid,
             }))
@@ -139,6 +147,37 @@ pub mod customer {
                 created_at: value.created_at.as_proto(),
             }))
         }
+    }
+
+    pub fn custom_taxes_from_grpc(
+        custom_taxes: Option<server::update_customer::CustomTaxesList>,
+    ) -> Result<Option<Vec<domain::CustomerCustomTax>>, CustomerApiError> {
+        custom_taxes
+            .and_then(|list| {
+                if list.taxes.is_empty() {
+                    None
+                } else {
+                    Some(
+                        list.taxes
+                            .into_iter()
+                            .map(|t| {
+                                Ok(domain::CustomerCustomTax {
+                                    tax_code: t.tax_code,
+                                    name: t.name,
+                                    rate: rust_decimal::Decimal::from_proto(t.rate).map_err(
+                                        |_| {
+                                            CustomerApiError::InvalidArgument(
+                                                "Invalid tax rate".to_string(),
+                                            )
+                                        },
+                                    )?,
+                                })
+                            })
+                            .collect::<Result<Vec<_>, _>>(),
+                    )
+                }
+            })
+            .transpose()
     }
 }
 pub mod customer_payment_method {

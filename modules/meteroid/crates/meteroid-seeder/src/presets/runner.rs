@@ -162,7 +162,7 @@ pub async fn run_preset(
                 .or_else(|| Some(slugify(&customer.name))),
             name: customer.name,
             shipping_address: customer.shipping_address.clone(),
-            custom_tax_rate: None,
+            custom_taxes: vec![],
             is_tax_exempt: false,
         });
     }

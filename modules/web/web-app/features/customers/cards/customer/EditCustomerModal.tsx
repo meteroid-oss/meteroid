@@ -1,8 +1,22 @@
 import { createConnectQueryKey, useMutation } from '@connectrpc/connect-query'
-import { Button, CheckboxFormField, Form, InputFormField, Modal } from '@md/ui'
+import {
+  Button,
+  CheckboxFormField,
+  Flex,
+  Form,
+  FormControl,
+  FormField,
+  FormItem,
+  FormLabel,
+  FormMessage,
+  Input,
+  InputFormField,
+  Modal,
+} from '@md/ui'
 import { useQueryClient } from '@tanstack/react-query'
-import { Minus, Plus } from 'lucide-react'
-import { ComponentProps, useState } from 'react'
+import { Minus, Plus, X } from 'lucide-react'
+import { ComponentProps, useEffect, useState } from 'react'
+import { useFieldArray } from 'react-hook-form'
 import { toast } from 'sonner'
 import { z } from 'zod'
 
@@ -19,7 +33,7 @@ type Props = Pick<ComponentProps<typeof Modal>, 'visible' | 'onCancel'> & {
   customer: Customer
 }
 
-export const EditCustomerModal = ({ customer, ...props }: Props) => {
+export const EditCustomerModal = ({ customer, visible, onCancel }: Props) => {
   const queryClient = useQueryClient()
   const [showShippingAddress, setShowShippingAddress] = useState(
     Boolean(customer.shippingAddress?.address)
@@ -33,24 +47,51 @@ export const EditCustomerModal = ({ customer, ...props }: Props) => {
     },
   })
 
+  const getDefaultValues = () => ({
+    name: customer.name,
+    alias: customer.alias,
+    email: customer.billingEmail,
+    invoicingEmail: customer.invoicingEmails[0],
+    phone: customer.phone,
+    vatNumber: customer.vatNumber,
+    customTaxes:
+      customer.customTaxes?.map(tax => ({
+        taxCode: tax.taxCode,
+        name: tax.name,
+        rate: Number(tax.rate) * 100,
+      })) ?? [],
+    isTaxExempt: customer.isTaxExempt,
+    billingAddress: customer.billingAddress,
+    shippingAddress: customer.shippingAddress,
+  })
+
   const methods = useZodForm({
     mode: 'onChange',
     schema: customerSchema,
-    defaultValues: {
-      name: customer.name,
-      alias: customer.alias,
-      email: customer.billingEmail,
-      invoicingEmail: customer.invoicingEmails[0],
-      phone: customer.phone,
-      vatNumber: customer.vatNumber,
-      customTaxRate: customer.customTaxRate
-        ? (Number(customer.customTaxRate) * 100).toString()
-        : '',
-      isTaxExempt: customer.isTaxExempt,
-      billingAddress: customer.billingAddress,
-      shippingAddress: customer.shippingAddress,
-    },
+    defaultValues: getDefaultValues(),
   })
+
+  useEffect(() => {
+    if (visible) {
+      methods.reset(getDefaultValues())
+      setShowShippingAddress(Boolean(customer.shippingAddress?.address))
+    }
+  }, [visible, customer])
+
+  const { fields, append, remove } = useFieldArray({
+    control: methods.control,
+    name: 'customTaxes',
+  })
+
+  const customTaxes = methods.watch('customTaxes')
+  const hasCustomTaxes = customTaxes && customTaxes.length > 0
+
+  // Reset isTaxExempt to false when custom taxes are present
+  useEffect(() => {
+    if (hasCustomTaxes) {
+      methods.setValue('isTaxExempt', false)
+    }
+  }, [hasCustomTaxes, methods])
 
   const onSubmit = async (data: z.infer<typeof customerSchema>) => {
     await updateCustomerMutation.mutateAsync({
@@ -63,22 +104,27 @@ export const EditCustomerModal = ({ customer, ...props }: Props) => {
         invoicingEmails: data.invoicingEmail ? { emails: [data.invoicingEmail] } : undefined,
         phone: data.phone,
         vatNumber: data.vatNumber,
-        customTaxRate: data.customTaxRate
-          ? (Number(data.customTaxRate) / 100).toString()
-          : undefined,
+        customTaxes: {
+          taxes: (data.customTaxes || []).map(tax => ({
+            taxCode: tax.taxCode,
+            name: tax.name,
+            rate: (tax.rate / 100).toString(),
+          })),
+        },
         isTaxExempt: data.isTaxExempt,
         billingAddress: data.billingAddress,
         shippingAddress: data.shippingAddress,
       },
     })
     toast.success('Customer updated')
-    props.onCancel?.()
+    onCancel?.()
   }
 
   return (
     <Modal
       header={<>Edit customer</>}
-      {...props}
+      visible={visible}
+      onCancel={onCancel}
       onConfirm={() => methods.handleSubmit(onSubmit)()}
       size="large"
     >
@@ -133,19 +179,93 @@ export const EditCustomerModal = ({ customer, ...props }: Props) => {
                   name="vatNumber"
                   layout="horizontal"
                 />
-                <InputFormField
-                  control={methods.control}
-                  label="Custom tax rate (%)"
-                  name="customTaxRate"
-                  layout="horizontal"
-                  placeholder="20"
-                />
-                <CheckboxFormField
-                  control={methods.control}
-                  label="Tax exempt"
-                  name="isTaxExempt"
-                  // layout="horizontal"
-                />
+
+                <div className="space-y-2">
+                  <Flex align="center" justify="between">
+                    <FormLabel>Custom Taxes</FormLabel>
+                    <Button
+                      type="button"
+                      variant="outline"
+                      size="sm"
+                      onClick={() => append({ taxCode: '', name: '', rate: 0 })}
+                    >
+                      <Plus size={14} className="mr-1" />
+                      Add Tax
+                    </Button>
+                  </Flex>
+                  {fields.length > 1 && (
+                    <span className="text-xs text-muted-foreground">
+                      All taxes will be applied cumulatively to this customer&apos;s invoices
+                    </span>
+                  )}
+                  {fields.map((field, index) => (
+                    <Flex key={field.id} className="gap-2 items-start px-1">
+                      <FormField
+                        control={methods.control}
+                        name={`customTaxes.${index}.taxCode`}
+                        render={({ field }) => (
+                          <FormItem className="flex-1">
+                            {index === 0 && <FormLabel>Code</FormLabel>}
+                            <FormControl>
+                              <Input {...field} placeholder="GST" />
+                            </FormControl>
+                            <FormMessage />
+                          </FormItem>
+                        )}
+                      />
+                      <FormField
+                        control={methods.control}
+                        name={`customTaxes.${index}.name`}
+                        render={({ field }) => (
+                          <FormItem className="flex-[2]">
+                            {index === 0 && <FormLabel>Name</FormLabel>}
+                            <FormControl>
+                              <Input {...field} placeholder="Goods and Services Tax" />
+                            </FormControl>
+                            <FormMessage />
+                          </FormItem>
+                        )}
+                      />
+                      <FormField
+                        control={methods.control}
+                        name={`customTaxes.${index}.rate`}
+                        render={({ field }) => (
+                          <FormItem className="flex-1">
+                            {index === 0 && <FormLabel>Rate (%)</FormLabel>}
+                            <FormControl>
+                              <Input
+                                {...field}
+                                type="number"
+                                step="0.01"
+                                placeholder="5.0"
+                                onChange={e => field.onChange(parseFloat(e.target.value))}
+                              />
+                            </FormControl>
+                            <FormMessage />
+                          </FormItem>
+                        )}
+                      />
+                      <Button
+                        type="button"
+                        variant="ghost"
+                        size="icon"
+                        onClick={() => remove(index)}
+                        className={index === 0 ? 'mt-8' : ''}
+                      >
+                        <X size={16} />
+                      </Button>
+                    </Flex>
+                  ))}
+                </div>
+
+                {!hasCustomTaxes && (
+                  <CheckboxFormField
+                    control={methods.control}
+                    label="Tax exempt"
+                    name="isTaxExempt"
+                    // layout="horizontal"
+                  />
+                )}
               </div>
 
               {/* Billing Address Section */}

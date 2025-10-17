@@ -37,8 +37,8 @@ pub struct CustomerRow {
     //  logo_url -> Nullable<Text>,
     //  website_url -> Nullable<Text>,
     pub is_tax_exempt: bool,
-    pub custom_tax_rate: Option<rust_decimal::Decimal>,
     pub vat_number_format_valid: bool,
+    pub custom_taxes: serde_json::Value,
 }
 
 #[derive(Clone, Debug, Queryable, Selectable)]
@@ -75,7 +75,7 @@ pub struct CustomerRowNew {
     pub vat_number: Option<String>,
     pub invoicing_emails: Vec<Option<String>>,
     pub is_tax_exempt: bool,
-    pub custom_tax_rate: Option<rust_decimal::Decimal>,
+    pub custom_taxes: serde_json::Value,
     pub vat_number_format_valid: bool,
 }
 
@@ -97,7 +97,7 @@ pub struct CustomerRowPatch {
     pub vat_number: Option<Option<String>>,
     pub bank_account_id: Option<Option<BankAccountId>>,
     pub is_tax_exempt: Option<bool>,
-    pub custom_tax_rate: Option<Option<rust_decimal::Decimal>>,
+    pub custom_taxes: Option<serde_json::Value>,
     pub vat_number_format_valid: Option<bool>,
 }
 
@@ -120,6 +120,6 @@ pub struct CustomerRowUpdate {
     pub vat_number: Option<String>,
     pub bank_account_id: Option<BankAccountId>,
     pub is_tax_exempt: bool,
-    pub custom_tax_rate: Option<rust_decimal::Decimal>,
+    pub custom_taxes: serde_json::Value,
     pub vat_number_format_valid: bool,
 }

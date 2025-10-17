@@ -26,9 +26,8 @@ message CustomTaxNew {
 message ProductAccounting {
   string product_id = 1;
   string invoicing_entity_id = 2;
-  optional string custom_tax_id = 3;
-  optional string product_code = 4;
-  optional string ledger_account_code = 5;
+  optional string product_code = 3;
+  optional string ledger_account_code = 4;
 }
 
 message ValidateVatNumberRequest {

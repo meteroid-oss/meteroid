@@ -457,6 +457,7 @@ impl Services {
                     // tax & discount are handled later
                     tax_rate: Decimal::ZERO,
                     tax_amount: 0,
+                    tax_details: vec![],
                     taxable_amount: line.total as i64,
                     amount_total: line.total as i64,
                 }

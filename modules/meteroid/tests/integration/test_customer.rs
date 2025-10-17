@@ -50,7 +50,7 @@ async fn test_customers_basic() {
                 invoicing_entity_id: None,
                 bank_account_id: None,
                 vat_number: None,
-                custom_tax_rate: None,
+                custom_taxes: vec![],
                 is_tax_exempt: Some(false),
             }),
         })
@@ -99,7 +99,7 @@ async fn test_customers_basic() {
                 invoicing_entity_id: None,
                 bank_account_id: None,
                 vat_number: None,
-                custom_tax_rate: None,
+                custom_taxes: vec![],
                 is_tax_exempt: Some(false),
             }),
         })
@@ -207,7 +207,7 @@ async fn test_customers_basic() {
                 shipping_address: None,
                 invoicing_entity_id: None,
                 vat_number: None,
-                custom_tax_rate: None,
+                custom_taxes: None,
                 bank_account_id: None,
                 is_tax_exempt: None,
             }),
@@ -347,7 +347,13 @@ async fn rest_api_test(setup: &MeteroidSetup, clients: &AllClients) {
                "same_as_billing": true
             },
             "vat_number": "VAT123456",
-            "custom_tax_rate": 20,
+            "custom_taxes": [,
+                {
+                    "tax_code": "TAX001",
+                    "name": "Standard Tax",
+                    "rate": 20.0
+                }
+            ]
         }))
         .send()
         .await
@@ -433,7 +439,13 @@ async fn rest_api_test(setup: &MeteroidSetup, clients: &AllClients) {
                "same_as_billing": true
             },
             "vat_number": "VAT123456",
-            "custom_tax_rate": 20,
+            "custom_taxes": [,
+                {
+                    "tax_code": "TAX001",
+                    "name": "Standard Tax",
+                    "rate": 20.0
+                }
+            ],
             "invoicing_entity_id": invoicing_entity_id,
         }))
         .send()

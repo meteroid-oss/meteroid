@@ -375,8 +375,8 @@ diesel::table! {
         invoicing_emails -> Array<Nullable<Text>>,
         conn_meta -> Nullable<Jsonb>,
         is_tax_exempt -> Bool,
-        custom_tax_rate -> Nullable<Numeric>,
         vat_number_format_valid -> Bool,
+        custom_taxes -> Jsonb,
     }
 }
 
@@ -683,9 +683,16 @@ diesel::table! {
     product_accounting (product_id, invoicing_entity_id) {
         product_id -> Uuid,
         invoicing_entity_id -> Uuid,
-        custom_tax_id -> Nullable<Uuid>,
         product_code -> Nullable<Text>,
         ledger_account_code -> Nullable<Text>,
+    }
+}
+
+diesel::table! {
+    product_custom_tax (product_id, invoicing_entity_id, custom_tax_id) {
+        product_id -> Uuid,
+        invoicing_entity_id -> Uuid,
+        custom_tax_id -> Uuid,
     }
 }
 
@@ -1036,9 +1043,11 @@ diesel::joinable!(price_component -> plan_version (plan_version_id));
 diesel::joinable!(price_component -> product (product_id));
 diesel::joinable!(product -> product_family (product_family_id));
 diesel::joinable!(product -> tenant (tenant_id));
-diesel::joinable!(product_accounting -> custom_tax (custom_tax_id));
 diesel::joinable!(product_accounting -> invoicing_entity (invoicing_entity_id));
 diesel::joinable!(product_accounting -> product (product_id));
+diesel::joinable!(product_custom_tax -> custom_tax (custom_tax_id));
+diesel::joinable!(product_custom_tax -> invoicing_entity (invoicing_entity_id));
+diesel::joinable!(product_custom_tax -> product (product_id));
 diesel::joinable!(product_family -> tenant (tenant_id));
 diesel::joinable!(quote -> customer (customer_id));
 diesel::joinable!(quote -> invoice (converted_to_invoice_id));
@@ -1100,6 +1109,7 @@ diesel::allow_tables_to_appear_in_same_query!(
     price_component,
     product,
     product_accounting,
+    product_custom_tax,
     product_family,
     quote,
     quote_activity,

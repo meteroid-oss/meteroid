@@ -6,6 +6,14 @@ use common_domain::ids::{InvoicingEntityId, string_serde, string_serde_opt};
 use utoipa::ToSchema;
 use validator::Validate;
 
+#[derive(Clone, ToSchema, serde::Serialize, serde::Deserialize, Debug)]
+pub struct CustomTaxRate {
+    pub tax_code: String,
+    pub name: String,
+    #[serde(with = "rust_decimal::serde::float")]
+    pub rate: rust_decimal::Decimal,
+}
+
 #[derive(ToSchema, serde::Serialize, serde::Deserialize, Validate)]
 pub struct CustomerFilters {
     pub search: Option<String>,
@@ -39,8 +47,7 @@ pub struct Customer {
     #[serde(default, with = "string_serde_opt")]
     pub bank_account_id: Option<BankAccountId>,
     pub vat_number: Option<String>,
-    #[serde(with = "rust_decimal::serde::float_option")]
-    pub custom_tax_rate: Option<rust_decimal::Decimal>,
+    pub custom_taxes: Vec<CustomTaxRate>,
 }
 
 #[derive(ToSchema, serde::Serialize, serde::Deserialize, Validate, Debug)]
@@ -58,7 +65,7 @@ pub struct CustomerCreateRequest {
     #[serde(default, with = "string_serde_opt")]
     pub bank_account_id: Option<BankAccountId>,
     pub vat_number: Option<String>,
-    pub custom_tax_rate: Option<rust_decimal::Decimal>,
+    pub custom_taxes: Vec<CustomTaxRate>,
     pub is_tax_exempt: Option<bool>,
 }
 
@@ -77,7 +84,7 @@ pub struct CustomerUpdateRequest {
     #[serde(default, with = "string_serde_opt")]
     pub bank_account_id: Option<BankAccountId>,
     pub vat_number: Option<String>,
-    pub custom_tax_rate: Option<rust_decimal::Decimal>,
+    pub custom_taxes: Vec<CustomTaxRate>,
     pub is_tax_exempt: Option<bool>,
 }
 

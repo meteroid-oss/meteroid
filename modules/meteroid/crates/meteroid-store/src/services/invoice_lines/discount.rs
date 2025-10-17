@@ -151,6 +151,7 @@ mod tests {
             description: None,
             amount_total: amount_subtotal,
             group_by_dimensions: None,
+            tax_details: vec![],
         }
     }
 

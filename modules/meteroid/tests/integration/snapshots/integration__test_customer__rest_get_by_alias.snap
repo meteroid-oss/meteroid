@@ -13,7 +13,13 @@ expression: "&get_by_alias"
   },
   "billing_email": "billing@meteroid.com",
   "currency": "EUR",
-  "custom_tax_rate": 20.0,
+  "custom_taxes": [
+    {
+      "name": "Standard Tax",
+      "rate": 20.0,
+      "tax_code": "TAX001"
+    }
+  ],
   "id": "cus_xxx",
   "invoicing_emails": [
     "invoicing@meteroid.com"

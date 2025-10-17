@@ -206,7 +206,7 @@ pub async fn run(
                 alias: Some(alias),
                 name: company_name.to_string(),
                 shipping_address: None,
-                custom_tax_rate: None,
+                custom_taxes: vec![],
                 is_tax_exempt: false,
             });
         });

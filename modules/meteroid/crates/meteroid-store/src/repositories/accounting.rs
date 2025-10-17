@@ -1,12 +1,13 @@
 use crate::StoreResult;
 use crate::domain::accounting::{
-    CustomTax, CustomTaxNew, ProductAccounting, ProductAccountingWithTax,
+    CustomTax, CustomTaxNew, ProductAccounting, ProductAccountingWithTaxes,
 };
 use crate::errors::StoreError;
 use crate::store::{PgConn, Store};
 use common_domain::ids::{CustomTaxId, InvoicingEntityId, ProductId, TenantId};
 use diesel_models::accounting::{CustomTaxRow, ProductAccountingRow, ProductAccountingWithTaxRow};
 use error_stack::Report;
+use std::collections::HashMap;
 
 #[async_trait::async_trait]
 pub trait AccountingInterface {
@@ -33,20 +34,13 @@ pub trait AccountingInterface {
         product_accounting: ProductAccounting,
     ) -> StoreResult<ProductAccounting>;
 
-    async fn list_product_tax_configuration_by_product_id_and_invoicing_entity_id(
-        &self,
-        tenant_id: TenantId,
-        product_id: ProductId,
-        invoicing_entity_id: InvoicingEntityId,
-    ) -> StoreResult<Vec<ProductAccountingWithTax>>;
-
-    async fn list_product_tax_configuration_by_product_ids_and_invoicing_entity_id(
+    async fn list_product_tax_configuration_by_product_ids_and_invoicing_entity_id_grouped(
         &self,
         conn: &mut PgConn,
         tenant_id: TenantId,
-        product_id: Vec<ProductId>,
+        product_ids: Vec<ProductId>,
         invoicing_entity_id: InvoicingEntityId,
-    ) -> StoreResult<Vec<ProductAccountingWithTax>>;
+    ) -> StoreResult<Vec<ProductAccountingWithTaxes>>;
 }
 
 #[async_trait::async_trait]
@@ -126,29 +120,13 @@ impl AccountingInterface for Store {
         Ok(inserted_product_accounting.into())
     }
 
-    async fn list_product_tax_configuration_by_product_id_and_invoicing_entity_id(
-        &self,
-        tenant_id: TenantId,
-        product_id: ProductId,
-        invoicing_entity_id: InvoicingEntityId,
-    ) -> StoreResult<Vec<ProductAccountingWithTax>> {
-        let mut conn = self.get_conn().await?;
-        self.list_product_tax_configuration_by_product_ids_and_invoicing_entity_id(
-            &mut conn,
-            tenant_id,
-            vec![product_id],
-            invoicing_entity_id,
-        )
-        .await
-    }
-
-    async fn list_product_tax_configuration_by_product_ids_and_invoicing_entity_id(
+    async fn list_product_tax_configuration_by_product_ids_and_invoicing_entity_id_grouped(
         &self,
         conn: &mut PgConn,
         tenant_id: TenantId,
         product_ids: Vec<ProductId>,
         invoicing_entity_id: InvoicingEntityId,
-    ) -> StoreResult<Vec<ProductAccountingWithTax>> {
+    ) -> StoreResult<Vec<ProductAccountingWithTaxes>> {
         let product_accounting_rows =
             ProductAccountingWithTaxRow::list_by_product_ids_and_invoicing_entity_id(
                 conn,
@@ -159,11 +137,29 @@ impl AccountingInterface for Store {
             .await
             .map_err(Into::<Report<StoreError>>::into)?;
 
-        let product_accountings = product_accounting_rows
-            .into_iter()
-            .map(std::convert::TryInto::try_into)
-            .collect::<StoreResult<Vec<ProductAccountingWithTax>>>()?;
+        // Group by product_id
+        let mut grouped: HashMap<ProductId, ProductAccountingWithTaxes> = HashMap::new();
 
-        Ok(product_accountings)
+        for row in product_accounting_rows {
+            let product_id = row.product_accounting.product_id;
+            let invoicing_entity_id = row.product_accounting.invoicing_entity_id;
+
+            let entry = grouped
+                .entry(product_id)
+                .or_insert_with(|| ProductAccountingWithTaxes {
+                    product_id,
+                    invoicing_entity_id,
+                    product_code: row.product_accounting.product_code.clone(),
+                    ledger_account_code: row.product_accounting.ledger_account_code.clone(),
+                    custom_taxes: Vec::new(),
+                });
+
+            if let Some(tax_row) = row.custom_tax {
+                let custom_tax: CustomTax = tax_row.try_into()?;
+                entry.custom_taxes.push(custom_tax);
+            }
+        }
+
+        Ok(grouped.into_values().collect())
     }
 }
