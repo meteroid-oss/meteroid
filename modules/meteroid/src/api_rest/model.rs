@@ -54,5 +54,6 @@ impl PaginationExt for PaginatedRequest {
 pub enum BillingPeriodEnum {
     Monthly,
     Quarterly,
+    Semiannual,
     Annual,
 }

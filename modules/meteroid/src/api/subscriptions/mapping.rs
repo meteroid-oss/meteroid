@@ -344,6 +344,9 @@ pub mod price_components {
             domain::enums::SubscriptionFeeBillingPeriod::Quarterly => {
                 api::SubscriptionFeeBillingPeriod::Quarterly
             }
+            domain::enums::SubscriptionFeeBillingPeriod::Semiannual => {
+                api::SubscriptionFeeBillingPeriod::Semiannual
+            }
             domain::enums::SubscriptionFeeBillingPeriod::Annual => {
                 api::SubscriptionFeeBillingPeriod::Yearly
             }
@@ -696,6 +699,9 @@ pub mod price_components {
             api::SubscriptionFeeBillingPeriod::Quarterly => {
                 Ok(domain::enums::SubscriptionFeeBillingPeriod::Quarterly)
             }
+            api::SubscriptionFeeBillingPeriod::Semiannual => {
+                Ok(domain::enums::SubscriptionFeeBillingPeriod::Semiannual)
+            }
             api::SubscriptionFeeBillingPeriod::Yearly => {
                 Ok(domain::enums::SubscriptionFeeBillingPeriod::Annual)
             } // _ => Err(Status::new(Code::InvalidArgument, "Invalid billing period")),
@@ -726,6 +732,7 @@ pub mod price_components {
         match period {
             api_shared::BillingPeriod::Monthly => domain::enums::BillingPeriodEnum::Monthly,
             api_shared::BillingPeriod::Quarterly => domain::enums::BillingPeriodEnum::Quarterly,
+            api_shared::BillingPeriod::Semiannual => domain::enums::BillingPeriodEnum::Semiannual,
             api_shared::BillingPeriod::Annual => domain::enums::BillingPeriodEnum::Annual,
         }
     }

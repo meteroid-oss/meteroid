@@ -183,6 +183,7 @@ pub enum SubscriptionFeeBillingPeriodEnum {
     OneTime,
     Monthly,
     Quarterly,
+    Semiannual,
     Annual,
 }
 

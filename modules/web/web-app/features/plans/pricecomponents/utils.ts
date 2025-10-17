@@ -10,6 +10,7 @@ interface AddedComponent {
   ref: string
   component: DeepPartial<PriceComponent>
 }
+
 export const addedComponentsAtom = atom<AddedComponent[]>([])
 export const editedComponentsAtom = atom<string[]>([])
 
@@ -119,9 +120,10 @@ export const useCurrency = () => {
   return version?.currency ?? 'USD' // TODO
 }
 
-export const mapCadence = (cadence: 'ANNUAL' | 'QUARTERLY' | 'MONTHLY' | 'COMMITTED'): string => {
+export const mapCadence = (cadence: 'ANNUAL' | 'SEMIANNUAL' | 'QUARTERLY' | 'MONTHLY' | 'COMMITTED'): string => {
   return match(cadence)
     .with('ANNUAL', () => 'Annual')
+    .with('SEMIANNUAL', () => 'Semiannual')
     .with('MONTHLY', () => 'Monthly')
     .with('QUARTERLY', () => 'Quarterly')
     .with('COMMITTED', () => 'Committed')

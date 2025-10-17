@@ -44,7 +44,8 @@ export type BillingType = z.infer<typeof BillingType>
 export const Cadence = z.enum([
   'MONTHLY',
   'QUARTERLY',
-  /*'SEMI_ANNUAL',*/ 'ANNUAL' /*'BIENNIAL', 'TRIENNIAL'*/,
+  'SEMIANNUAL',
+  'ANNUAL' /*'BIENNIAL', 'TRIENNIAL'*/,
 ])
 export type Cadence = z.infer<typeof Cadence>
 

@@ -43,6 +43,7 @@ pub enum BillingMetricAggregateEnum {
 pub enum BillingPeriodEnum {
     Monthly,
     Quarterly,
+    Semiannual,
     Annual,
 }
 
@@ -51,6 +52,7 @@ impl BillingPeriodEnum {
         match self {
             BillingPeriodEnum::Monthly => 1,
             BillingPeriodEnum::Quarterly => 3,
+            BillingPeriodEnum::Semiannual => 6,
             BillingPeriodEnum::Annual => 12,
         }
     }
@@ -59,6 +61,7 @@ impl BillingPeriodEnum {
         match self {
             BillingPeriodEnum::Monthly => SubscriptionFeeBillingPeriod::Monthly,
             BillingPeriodEnum::Quarterly => SubscriptionFeeBillingPeriod::Quarterly,
+            BillingPeriodEnum::Semiannual => SubscriptionFeeBillingPeriod::Semiannual,
             BillingPeriodEnum::Annual => SubscriptionFeeBillingPeriod::Annual,
         }
     }
@@ -272,6 +275,7 @@ pub enum SubscriptionFeeBillingPeriod {
     OneTime,
     Monthly,
     Quarterly,
+    Semiannual,
     Annual,
 }
 
@@ -281,6 +285,7 @@ impl SubscriptionFeeBillingPeriod {
             SubscriptionFeeBillingPeriod::OneTime => i32::MAX, // month_elapsed % OneTime.as_months() will only be 0 if month_elapsed is 0
             SubscriptionFeeBillingPeriod::Monthly => 1,
             SubscriptionFeeBillingPeriod::Quarterly => 3,
+            SubscriptionFeeBillingPeriod::Semiannual => 6,
             SubscriptionFeeBillingPeriod::Annual => 12,
         }
     }
@@ -290,6 +295,7 @@ impl SubscriptionFeeBillingPeriod {
             SubscriptionFeeBillingPeriod::OneTime => None,
             SubscriptionFeeBillingPeriod::Monthly => Some(BillingPeriodEnum::Monthly),
             SubscriptionFeeBillingPeriod::Quarterly => Some(BillingPeriodEnum::Quarterly),
+            SubscriptionFeeBillingPeriod::Semiannual => Some(BillingPeriodEnum::Semiannual),
             SubscriptionFeeBillingPeriod::Annual => Some(BillingPeriodEnum::Annual),
         }
     }

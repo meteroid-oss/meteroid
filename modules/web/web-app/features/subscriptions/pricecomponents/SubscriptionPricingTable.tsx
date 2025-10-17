@@ -26,6 +26,7 @@ const formatBillingPeriod = (period: SubscriptionFeeBillingPeriod) => {
     [SubscriptionFeeBillingPeriod.ONE_TIME]: 'One Time',
     [SubscriptionFeeBillingPeriod.MONTHLY]: 'Monthly',
     [SubscriptionFeeBillingPeriod.QUARTERLY]: 'Quarterly',
+    [SubscriptionFeeBillingPeriod.SEMIANNUAL]: 'Semiannual',
     [SubscriptionFeeBillingPeriod.YEARLY]: 'Yearly',
   }
   return periodMap[period] || 'Unknown'
@@ -101,41 +102,41 @@ export const SubscriptionPricingTable: FC<Props> = ({
       <div className="overflow-hidden">
         <table className="w-full">
           <thead className="bg-muted/40">
-            <tr>
-              <th className="px-4 py-3 text-left text-xs font-medium text-muted-foreground uppercase tracking-wider">
-                Name
-              </th>
-              <th className="px-4 py-3 text-left text-xs font-medium text-muted-foreground uppercase tracking-wider">
-                Billing Period
-              </th>
-              <th className="px-4 py-3 text-left text-xs font-medium text-muted-foreground uppercase tracking-wider">
-                Fee Type
-              </th>
-              <th className="px-4 py-3 text-left text-xs font-medium text-muted-foreground uppercase tracking-wider">
-                Price
-              </th>
-            </tr>
+          <tr>
+            <th className="px-4 py-3 text-left text-xs font-medium text-muted-foreground uppercase tracking-wider">
+              Name
+            </th>
+            <th className="px-4 py-3 text-left text-xs font-medium text-muted-foreground uppercase tracking-wider">
+              Billing Period
+            </th>
+            <th className="px-4 py-3 text-left text-xs font-medium text-muted-foreground uppercase tracking-wider">
+              Fee Type
+            </th>
+            <th className="px-4 py-3 text-left text-xs font-medium text-muted-foreground uppercase tracking-wider">
+              Price
+            </th>
+          </tr>
           </thead>
           <tbody>
-            {components.map((component, index) => (
-              <tr
-                key={component.id}
-                className={
-                  index % 2 === 0 ? 'bg-card' : 'bg-muted/10 border-t border-b border-border'
-                }
-              >
-                <td className="px-4 py-3 text-sm font-medium text-foreground">{component.name}</td>
-                <td className="px-4 py-3 text-sm text-muted-foreground">
-                  {formatBillingPeriod(component.period)}
-                </td>
-                <td className="px-4 py-3 text-sm text-muted-foreground">
-                  {formatFeeType(component.fee)}
-                </td>
-                <td className="px-4 py-3 text-sm text-muted-foreground">
-                  <SubscriptionFeeDetail fee={component.fee} currency={currency} />
-                </td>
-              </tr>
-            ))}
+          {components.map((component, index) => (
+            <tr
+              key={component.id}
+              className={
+                index % 2 === 0 ? 'bg-card' : 'bg-muted/10 border-t border-b border-border'
+              }
+            >
+              <td className="px-4 py-3 text-sm font-medium text-foreground">{component.name}</td>
+              <td className="px-4 py-3 text-sm text-muted-foreground">
+                {formatBillingPeriod(component.period)}
+              </td>
+              <td className="px-4 py-3 text-sm text-muted-foreground">
+                {formatFeeType(component.fee)}
+              </td>
+              <td className="px-4 py-3 text-sm text-muted-foreground">
+                <SubscriptionFeeDetail fee={component.fee} currency={currency}/>
+              </td>
+            </tr>
+          ))}
           </tbody>
         </table>
       </div>

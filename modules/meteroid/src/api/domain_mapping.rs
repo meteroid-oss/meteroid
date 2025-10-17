@@ -10,6 +10,7 @@ pub(crate) mod billing_period {
         match period {
             api_shared::BillingPeriod::Monthly => domain::enums::BillingPeriodEnum::Monthly,
             api_shared::BillingPeriod::Quarterly => domain::enums::BillingPeriodEnum::Quarterly,
+            api_shared::BillingPeriod::Semiannual => domain::enums::BillingPeriodEnum::Semiannual,
             api_shared::BillingPeriod::Annual => domain::enums::BillingPeriodEnum::Annual,
         }
     }
@@ -18,6 +19,7 @@ pub(crate) mod billing_period {
         match period {
             domain::enums::BillingPeriodEnum::Monthly => api_shared::BillingPeriod::Monthly,
             domain::enums::BillingPeriodEnum::Quarterly => api_shared::BillingPeriod::Quarterly,
+            domain::enums::BillingPeriodEnum::Semiannual => api_shared::BillingPeriod::Semiannual,
             domain::enums::BillingPeriodEnum::Annual => api_shared::BillingPeriod::Annual,
         }
     }

@@ -147,6 +147,7 @@ const formatBillingPeriod = (period: SubscriptionFeeBillingPeriod) => {
     [SubscriptionFeeBillingPeriod.ONE_TIME]: 'One Time',
     [SubscriptionFeeBillingPeriod.MONTHLY]: 'Monthly',
     [SubscriptionFeeBillingPeriod.QUARTERLY]: 'Quarterly',
+    [SubscriptionFeeBillingPeriod.SEMIANNUAL]: 'Semiannual',
     [SubscriptionFeeBillingPeriod.YEARLY]: 'Yearly',
   }
   return periodMap[period]

@@ -223,6 +223,7 @@ enum SubscriptionFeeBillingPeriod {
   MONTHLY = 1;
   QUARTERLY = 2;
   YEARLY = 3;
+  SEMIANNUAL = 4;
 }
 
 

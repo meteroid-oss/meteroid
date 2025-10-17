@@ -6,4 +6,5 @@ enum BillingPeriod {
   MONTHLY = 0;
   QUARTERLY = 1;
   ANNUAL = 2;
+  SEMIANNUAL = 3;
 }

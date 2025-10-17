@@ -1504,6 +1504,7 @@
         "enum": [
           "MONTHLY",
           "QUARTERLY",
+          "SEMIANNUAL",
           "ANNUAL"
         ]
       },
@@ -3996,6 +3997,7 @@
           "ONE_TIME",
           "MONTHLY",
           "QUARTERLY",
+          "SEMIANNUAL",
           "ANNUAL"
         ]
       },

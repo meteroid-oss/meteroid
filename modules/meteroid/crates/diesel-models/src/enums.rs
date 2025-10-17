@@ -36,6 +36,7 @@ pub enum BillingMetricAggregateEnum {
 pub enum BillingPeriodEnum {
     Monthly,
     Quarterly,
+    Semiannual,
     Annual,
 }
 
@@ -207,6 +208,7 @@ pub enum SubscriptionFeeBillingPeriod {
     OneTime,
     Monthly,
     Quarterly,
+    Semiannual,
     Annual,
 }
 

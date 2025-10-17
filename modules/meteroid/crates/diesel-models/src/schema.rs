@@ -309,32 +309,17 @@ diesel::table! {
 
     credit_note (id) {
         id -> Uuid,
-        credit_note_number -> Text,
-        status -> CreditNoteStatus,
-        created_at -> Timestamptz,
-        updated_at -> Nullable<Timestamptz>,
-        finalized_at -> Nullable<Timestamptz>,
-        voided_at -> Nullable<Timestamptz>,
+        created_at -> Timestamp,
+        updated_at -> Timestamp,
+        refunded_amount_cents -> Nullable<Int8>,
+        credited_amount_cents -> Nullable<Int8>,
+        currency -> Text,
+        finalized_at -> Timestamp,
+        plan_version_id -> Nullable<Uuid>,
+        invoice_id -> Uuid,
         tenant_id -> Uuid,
         customer_id -> Uuid,
-        invoice_id -> Uuid,
-        plan_version_id -> Nullable<Uuid>,
-        subscription_id -> Nullable<Uuid>,
-        currency -> Text,
-        subtotal -> Int8,
-        tax_amount -> Int8,
-        total -> Int8,
-        refunded_amount_cents -> Int8,
-        credited_amount_cents -> Int8,
-        line_items -> Jsonb,
-        tax_breakdown -> Jsonb,
-        reason -> Nullable<Text>,
-        memo -> Nullable<Text>,
-        customer_details -> Jsonb,
-        seller_details -> Jsonb,
-        pdf_document_id -> Nullable<Uuid>,
-        conn_meta -> Nullable<Jsonb>,
-        invoicing_entity_id -> Uuid,
+        status -> CreditNoteStatus,
     }
 }
 
@@ -1004,9 +989,7 @@ diesel::joinable!(billable_metric -> tenant (tenant_id));
 diesel::joinable!(coupon -> tenant (tenant_id));
 diesel::joinable!(credit_note -> customer (customer_id));
 diesel::joinable!(credit_note -> invoice (invoice_id));
-diesel::joinable!(credit_note -> invoicing_entity (invoicing_entity_id));
 diesel::joinable!(credit_note -> plan_version (plan_version_id));
-diesel::joinable!(credit_note -> subscription (subscription_id));
 diesel::joinable!(credit_note -> tenant (tenant_id));
 diesel::joinable!(custom_tax -> invoicing_entity (invoicing_entity_id));
 diesel::joinable!(customer -> bank_account (bank_account_id));
