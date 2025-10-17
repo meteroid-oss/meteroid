@@ -173,6 +173,7 @@ pub mod meteroid {
                         match self {
                             BillingPeriod::Monthly => 1,
                             BillingPeriod::Quarterly => 3,
+                            BillingPeriod::Semiannual => 6,
                             BillingPeriod::Annual => 12,
                         }
                     }

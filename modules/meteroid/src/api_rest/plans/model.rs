@@ -207,6 +207,7 @@ pub struct MatrixDimension {
 pub enum BillingPeriodEnum {
     Monthly,
     Quarterly,
+    Semiannual,
     Annual,
 }
 

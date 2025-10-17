@@ -363,7 +363,7 @@ export const PriceComponentsLogic = ({
         className="w-full border-dashed"
         onClick={() => setShowAddFeeModal(true)}
       >
-        <Plus className="h-4 w-4 mr-2" />
+        <Plus className="h-4 w-4 mr-2"/>
         Add a fee
       </Button>
 
@@ -457,15 +457,15 @@ const CompactPriceComponentCard = ({
   const getFeeTypeIcon = (fee: string) => {
     switch (fee) {
       case 'rate':
-        return <Calendar className="h-4 w-4" />
+        return <Calendar className="h-4 w-4"/>
       case 'usage':
-        return <Activity className="h-4 w-4" />
+        return <Activity className="h-4 w-4"/>
       case 'slot':
-        return <Users className="h-4 w-4" />
+        return <Users className="h-4 w-4"/>
       case 'capacity':
-        return <Zap className="h-4 w-4" />
+        return <Zap className="h-4 w-4"/>
       default:
-        return <Package className="h-4 w-4" />
+        return <Package className="h-4 w-4"/>
     }
   }
 
@@ -509,6 +509,8 @@ const CompactPriceComponentCard = ({
               return r.term === 'MONTHLY'
             case SharedBillingPeriod.QUARTERLY:
               return r.term === 'QUARTERLY'
+            case SharedBillingPeriod.SEMIANNUAL:
+              return r.term === 'SEMIANNUAL'
             case SharedBillingPeriod.ANNUAL:
               return r.term === 'ANNUAL'
             default:
@@ -650,7 +652,7 @@ const CompactPriceComponentCard = ({
             }
           >
             <SelectTrigger className="h-8 text-xs">
-              <SelectValue placeholder="Select period" />
+              <SelectValue placeholder="Select period"/>
             </SelectTrigger>
             <SelectContent>
               {component.fee.data.rates.map(rate => {
@@ -683,7 +685,7 @@ const CompactPriceComponentCard = ({
                 }
               >
                 <SelectTrigger className="h-8 text-xs">
-                  <SelectValue placeholder="Select period" />
+                  <SelectValue placeholder="Select period"/>
                 </SelectTrigger>
                 <SelectContent>
                   {component.fee.data.rates.map(rate => {
@@ -733,7 +735,7 @@ const CompactPriceComponentCard = ({
             onValueChange={value => onUpdateConfiguration({ committedCapacity: BigInt(value) })}
           >
             <SelectTrigger className="h-8 text-xs">
-              <SelectValue placeholder="Select capacity" />
+              <SelectValue placeholder="Select capacity"/>
             </SelectTrigger>
             <SelectContent>
               {component.fee.data.thresholds.map(threshold => (
@@ -803,7 +805,7 @@ const CompactPriceComponentCard = ({
                     type="button"
                     className={needsConfiguration && !isExcluded ? 'animate-pulse' : ''}
                   >
-                    {isEditing ? <Check className="h-3 w-3" /> : <Settings className="h-3 w-3" />}
+                    {isEditing ? <Check className="h-3 w-3"/> : <Settings className="h-3 w-3"/>}
                   </Button>
                 </PopoverTrigger>
                 <PopoverContent className="w-64" align="end">
@@ -832,7 +834,7 @@ const CompactPriceComponentCard = ({
                   disabled
                   title={isOverridden ? 'Edit custom pricing' : 'Override with custom pricing'}
                 >
-                  <Edit2 className="h-3 w-3" />
+                  <Edit2 className="h-3 w-3"/>
                 </Button>
                 {isOverridden && (
                   <Button
@@ -842,7 +844,7 @@ const CompactPriceComponentCard = ({
                     onClick={onRemoveOverride}
                     title="Remove custom pricing"
                   >
-                    <RefreshCcw className="h-3 w-3" />
+                    <RefreshCcw className="h-3 w-3"/>
                   </Button>
                 )}
               </>
@@ -854,7 +856,7 @@ const CompactPriceComponentCard = ({
               onClick={onToggleExclude}
               title={isExcluded ? 'Include this component' : 'Exclude this component'}
             >
-              {isExcluded ? <PlusIcon className="h-3 w-3" /> : <X className="h-3 w-3" />}
+              {isExcluded ? <PlusIcon className="h-3 w-3"/> : <X className="h-3 w-3"/>}
             </Button>
           </div>
         </div>
@@ -877,7 +879,7 @@ const CompactPriceComponentCard = ({
             {configuration?.committedCapacity !== undefined && (
               <span>
                 {(configuration.billingPeriod !== undefined ||
-                  configuration.initialSlotCount !== undefined) &&
+                    configuration.initialSlotCount !== undefined) &&
                   ' • '}
                 Capacity: {configuration.committedCapacity.toString()}
               </span>
@@ -949,7 +951,7 @@ const ExtraComponentCard = ({ component, currency, onEdit, onRemove }: ExtraComp
         <div className="flex items-center justify-between">
           <div className="flex items-center gap-3 flex-1">
             <div className="text-muted-foreground">
-              <Plus className="h-4 w-4" />
+              <Plus className="h-4 w-4"/>
             </div>
             <div className="flex-1">
               <div className="flex items-center gap-2">
@@ -963,10 +965,10 @@ const ExtraComponentCard = ({ component, currency, onEdit, onRemove }: ExtraComp
           </div>
           <div className="flex gap-1 ml-4">
             <Button variant="ghost" size="sm" type="button" onClick={onEdit}>
-              <Edit2 className="h-3 w-3" />
+              <Edit2 className="h-3 w-3"/>
             </Button>
             <Button variant="destructive" size="sm" type="button" onClick={onRemove}>
-              <X className="h-3 w-3" />
+              <X className="h-3 w-3"/>
             </Button>
           </div>
         </div>
@@ -1080,7 +1082,7 @@ const AddFeeModal = ({
                   <FormControl>
                     <Input placeholder="e.g., Setup Fee, Custom Service" {...field} />
                   </FormControl>
-                  <FormMessage />
+                  <FormMessage/>
                 </FormItem>
               )}
             />
@@ -1094,7 +1096,7 @@ const AddFeeModal = ({
                   <Select onValueChange={field.onChange} defaultValue={field.value}>
                     <FormControl>
                       <SelectTrigger>
-                        <SelectValue placeholder="Select fee type" />
+                        <SelectValue placeholder="Select fee type"/>
                       </SelectTrigger>
                     </FormControl>
                     <SelectContent>
@@ -1110,7 +1112,7 @@ const AddFeeModal = ({
                       </SelectItem>
                     </SelectContent>
                   </Select>
-                  <FormMessage />
+                  <FormMessage/>
                 </FormItem>
               )}
             />
@@ -1124,7 +1126,7 @@ const AddFeeModal = ({
                   <FormControl>
                     <Input type="number" step="0.01" min="0" placeholder="0.00" {...field} />
                   </FormControl>
-                  <FormMessage />
+                  <FormMessage/>
                 </FormItem>
               )}
             />
@@ -1144,7 +1146,7 @@ const AddFeeModal = ({
                       onChange={e => field.onChange(parseInt(e.target.value) || 1)}
                     />
                   </FormControl>
-                  <FormMessage />
+                  <FormMessage/>
                 </FormItem>
               )}
             />
@@ -1161,7 +1163,7 @@ const AddFeeModal = ({
                       <FormControl>
                         <Input placeholder="e.g., seat, user, license" {...field} />
                       </FormControl>
-                      <FormMessage />
+                      <FormMessage/>
                     </FormItem>
                   )}
                 />
@@ -1180,7 +1182,7 @@ const AddFeeModal = ({
                             onChange={e => field.onChange(parseInt(e.target.value) || undefined)}
                           />
                         </FormControl>
-                        <FormMessage />
+                        <FormMessage/>
                       </FormItem>
                     )}
                   />
@@ -1198,7 +1200,7 @@ const AddFeeModal = ({
                             onChange={e => field.onChange(parseInt(e.target.value) || undefined)}
                           />
                         </FormControl>
-                        <FormMessage />
+                        <FormMessage/>
                       </FormItem>
                     )}
                   />
@@ -1218,7 +1220,7 @@ const AddFeeModal = ({
                       <FormControl>
                         <Input type="number" placeholder="e.g., 1000" {...field} />
                       </FormControl>
-                      <FormMessage />
+                      <FormMessage/>
                     </FormItem>
                   )}
                 />
@@ -1231,7 +1233,7 @@ const AddFeeModal = ({
                       <FormControl>
                         <Input type="number" step="0.01" placeholder="0.00" {...field} />
                       </FormControl>
-                      <FormMessage />
+                      <FormMessage/>
                     </FormItem>
                   )}
                 />
@@ -1244,7 +1246,7 @@ const AddFeeModal = ({
                       <FormControl>
                         <Input placeholder="metric_id" {...field} />
                       </FormControl>
-                      <FormMessage />
+                      <FormMessage/>
                     </FormItem>
                   )}
                 />
@@ -1262,7 +1264,7 @@ const AddFeeModal = ({
                     <Select onValueChange={field.onChange} defaultValue={field.value}>
                       <FormControl>
                         <SelectTrigger>
-                          <SelectValue placeholder="Select billing type" />
+                          <SelectValue placeholder="Select billing type"/>
                         </SelectTrigger>
                       </FormControl>
                       <SelectContent>
@@ -1270,7 +1272,7 @@ const AddFeeModal = ({
                         <SelectItem value="ADVANCE">In Advance</SelectItem>
                       </SelectContent>
                     </Select>
-                    <FormMessage />
+                    <FormMessage/>
                   </FormItem>
                 )}
               />
@@ -1359,7 +1361,7 @@ const OverrideFeeModal = ({
                   <FormControl>
                     <Input {...field} />
                   </FormControl>
-                  <FormMessage />
+                  <FormMessage/>
                 </FormItem>
               )}
             />
@@ -1373,7 +1375,7 @@ const OverrideFeeModal = ({
                   <FormControl>
                     <Input type="number" step="0.01" min="0" placeholder="0.00" {...field} />
                   </FormControl>
-                  <FormMessage />
+                  <FormMessage/>
                 </FormItem>
               )}
             />

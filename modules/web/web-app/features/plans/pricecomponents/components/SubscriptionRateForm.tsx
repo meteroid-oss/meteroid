@@ -49,7 +49,7 @@ export const SubscriptionRateForm = (props: FeeFormProps) => {
         <div className="grid grid-cols-3 gap-2">
           <div className="col-span-1 pr-5 border-r border-border">{/* TODO product */}</div>
           <div className="ml-4 col-span-2">
-            <TermRateTable methods={methods} currency={currency} />
+            <TermRateTable methods={methods} currency={currency}/>
           </div>
         </div>
       </EditPriceComponentCard>
@@ -64,7 +64,7 @@ export const TermRateTable = ({
   methods: Methods<typeof RateFeeSchema> | Methods<typeof SlotFeeSchema>
   currency: string
 }) => {
-  const periods = ['MONTHLY', 'QUARTERLY', 'ANNUAL'] as BillingPeriod[]
+  const periods = ['MONTHLY', 'QUARTERLY', 'SEMIANNUAL', 'ANNUAL'] as BillingPeriod[]
   const [activeTab, setActiveTab] = useState<string | null>(null)
 
   const control = methods.control as Methods<typeof RateFeeSchema>['control']
@@ -119,7 +119,7 @@ export const TermRateTable = ({
             </TabsTrigger>
           ))}
           {availablePeriods.length > 0 && (
-            <BillingPeriodSelect periods={availablePeriods} onSelect={addNewTab} label="+ Add" />
+            <BillingPeriodSelect periods={availablePeriods} onSelect={addNewTab} label="+ Add"/>
           )}
         </TabsList>
 
@@ -134,12 +134,12 @@ export const TermRateTable = ({
                   layout="horizontal"
                   labelClassName="px-4 col-span-3"
                   render={({ field }) => (
-                    <UncontrolledPriceInput {...field} currency={currency} className="w-[200px]" />
+                    <UncontrolledPriceInput {...field} currency={currency} className="w-[200px]"/>
                   )}
                 />
               </div>
               <Button size="sm" variant="destructiveGhost" onClick={() => removeTab(index)}>
-                <XIcon size="16" />
+                <XIcon size="16"/>
               </Button>
             </div>
           </TabsContent>
@@ -154,6 +154,7 @@ interface BillingPeriodSelectProps {
   onSelect: (p: BillingPeriod) => void
   label: string
 }
+
 const BillingPeriodSelect = ({ periods, onSelect, label }: BillingPeriodSelectProps) => {
   const [open, setOpen] = useState(false)
   return (
@@ -169,7 +170,7 @@ const BillingPeriodSelect = ({ periods, onSelect, label }: BillingPeriodSelectPr
           <CommandList>
             {periods
               .sort((a, b) => {
-                const order = ['MONTHLY', 'QUARTERLY', 'ANNUAL']
+                const order = ['MONTHLY', 'QUARTERLY', 'SEMIANNUAL', 'ANNUAL']
                 return order.indexOf(a) - order.indexOf(b)
               })
               .map(period => (

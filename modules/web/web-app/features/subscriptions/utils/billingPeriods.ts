@@ -8,6 +8,8 @@ export const mapTermToBillingPeriod = (term: string): SharedBillingPeriod => {
       return SharedBillingPeriod.MONTHLY
     case 'QUARTERLY':
       return SharedBillingPeriod.QUARTERLY
+    case 'SEMIANNUAL':
+      return SharedBillingPeriod.SEMIANNUAL
     case 'ANNUAL':
       return SharedBillingPeriod.ANNUAL
     default:
@@ -21,6 +23,8 @@ export const getBillingPeriodLabel = (period: SharedBillingPeriod): string => {
       return 'Monthly'
     case SharedBillingPeriod.QUARTERLY:
       return 'Quarterly'
+    case SharedBillingPeriod.SEMIANNUAL:
+      return 'Semiannual'
     case SharedBillingPeriod.ANNUAL:
       return 'Annual'
     default:
@@ -29,19 +33,18 @@ export const getBillingPeriodLabel = (period: SharedBillingPeriod): string => {
 }
 
 
-
 // For schema-based components (CreateSubscriptionPriceComponents)
 export const getSchemaComponentBillingPeriodLabel = (
-  component: PriceComponent, 
+  component: PriceComponent,
   configuration?: { billingPeriod?: SharedBillingPeriod }
 ): string => {
   const feeType = component.fee.fee
-  
+
   // For usage & capacity: always monthly
   if (feeType === 'usage' || feeType === 'capacity') {
     return 'Monthly'
   }
-  
+
   // For rates and slots: use configured period or the only available rate's term
   if (feeType === 'rate' || feeType === 'slot') {
     if (configuration?.billingPeriod !== undefined) {
@@ -55,6 +58,8 @@ export const getSchemaComponentBillingPeriodLabel = (
             return 'Monthly'
           case 'QUARTERLY':
             return 'Quarterly'
+          case 'SEMIANNUAL':
+            return 'Semiannual'
           case 'ANNUAL':
             return 'Annual'
           default:
@@ -63,7 +68,7 @@ export const getSchemaComponentBillingPeriodLabel = (
       }
     }
   }
-  
+
   // For one-time and extra recurring
   if (feeType === 'oneTime') {
     return 'One-time'
@@ -71,30 +76,32 @@ export const getSchemaComponentBillingPeriodLabel = (
   if (feeType === 'extraRecurring') {
     return 'Monthly'
   }
-  
+
   return 'Monthly'
 }
 
 export const getApiComponentBillingPeriodLabel = (
-  component: GrpcPriceComponent, 
+  component: GrpcPriceComponent,
   configuration?: { billingPeriod?: BillingPeriod }
 ): string => {
   const feeType = component.fee?.feeType?.case
-  
+
   // For usage & capacity: always monthly
   if (feeType === 'usage' || feeType === 'capacity') {
     return 'Monthly'
   }
-  
+
   // For rates and slots: use configured period or the only available rate's term
   if (feeType === 'rate' || feeType === 'slot') {
     if (configuration?.billingPeriod !== undefined) {
       switch (configuration.billingPeriod) {
-        case BillingPeriod.MONTHLY:  
+        case BillingPeriod.MONTHLY:
           return 'Monthly'
-        case  BillingPeriod.QUARTERLY: 
+        case  BillingPeriod.QUARTERLY:
           return 'Quarterly'
-        case BillingPeriod.ANNUAL:  
+        case BillingPeriod.SEMIANNUAL:
+          return 'Semiannual'
+        case BillingPeriod.ANNUAL:
           return 'Annual'
         default:
           return 'Monthly'
@@ -121,7 +128,7 @@ export const getApiComponentBillingPeriodLabel = (
       }
     }
   }
-  
+
   // For one-time and extra recurring
   if (feeType === 'oneTime') {
     return 'One-time'
@@ -129,12 +136,9 @@ export const getApiComponentBillingPeriodLabel = (
   if (feeType === 'extraRecurring') {
     return 'Monthly'
   }
-  
+
   return 'Monthly'
 }
- 
-
-
 
 
 export const getExtraComponentBillingPeriodLabel = (feeType?: string): string => {

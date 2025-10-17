@@ -11,6 +11,7 @@ export const mapCadence = (cadence: api.Cadence): BillingPeriod => {
   return match(cadence)
     .with('MONTHLY', () => BillingPeriod.MONTHLY)
     .with('QUARTERLY', () => BillingPeriod.QUARTERLY)
+    .with('SEMIANNUAL', () => BillingPeriod.SEMIANNUAL)
     .with('ANNUAL', () => BillingPeriod.ANNUAL)
     .exhaustive()
 }
@@ -21,6 +22,8 @@ export const mapCadenceFromGrpc = (cadence: BillingPeriod): api.Cadence => {
       return 'MONTHLY'
     case BillingPeriod.QUARTERLY:
       return 'QUARTERLY'
+    case BillingPeriod.SEMIANNUAL:
+      return 'SEMIANNUAL'
     case BillingPeriod.ANNUAL:
       return 'ANNUAL'
   }
