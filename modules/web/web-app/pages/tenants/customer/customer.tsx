@@ -4,7 +4,7 @@ import { Fragment, useState } from 'react'
 import { useNavigate } from 'react-router-dom'
 
 import { TenantPageLayout } from '@/components/layouts'
-import { CustomerHeader, CustomersEditPanel } from '@/features/customers'
+import { CustomerHeader, CustomersCreatePanel } from '@/features/customers'
 import { InvoicesCard } from '@/features/customers/cards/InvoicesCard'
 import { SubscriptionsCard } from '@/features/customers/cards/SubscriptionsCard'
 import { AddressLinesCompact } from '@/features/customers/cards/address/AddressCard'
@@ -214,7 +214,7 @@ export const Customer = () => {
           )}
         </Flex>
       </TenantPageLayout>
-      <CustomersEditPanel
+      <CustomersCreatePanel
         visible={editPanelVisible}
         closePanel={() => setEditPanelVisible(false)}
       />

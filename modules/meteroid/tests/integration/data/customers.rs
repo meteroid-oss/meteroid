@@ -5,6 +5,7 @@ use diesel_async::scoped_futures::ScopedFutureExt;
 use diesel_models::customers::CustomerRowNew;
 use diesel_models::errors::DatabaseErrorContainer;
 use meteroid_store::store::PgPool;
+use serde_json::json;
 use std::str::FromStr;
 
 pub async fn run_customers_seed(pool: &PgPool) {
@@ -33,7 +34,7 @@ pub async fn run_customers_seed(pool: &PgPool) {
                 card_provider_id: None,
                 direct_debit_provider_id: None,
                 vat_number: None,
-                custom_tax_rate: None,
+                custom_taxes: json!([]),
                 invoicing_emails: vec![],
                 phone: None,
                 is_tax_exempt: false,
@@ -60,7 +61,7 @@ pub async fn run_customers_seed(pool: &PgPool) {
                 card_provider_id: None,
                 direct_debit_provider_id: None,
                 vat_number: None,
-                custom_tax_rate: None,
+                custom_taxes: json!([]),
                 invoicing_emails: vec![],
                 phone: None,
                 is_tax_exempt: false,
@@ -87,7 +88,7 @@ pub async fn run_customers_seed(pool: &PgPool) {
                 card_provider_id: None,
                 direct_debit_provider_id: None,
                 vat_number: None,
-                custom_tax_rate: None,
+                custom_taxes: json!([]),
                 invoicing_emails: vec![],
                 phone: None,
                 is_tax_exempt: false,

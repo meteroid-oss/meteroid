@@ -90,7 +90,7 @@ async fn test_issuing(
                 is_tax_exempt: false,
                 bank_account_id: None,
                 vat_number: None,
-                custom_tax_rate: None,
+                custom_taxes: vec![],
             },
             TENANT_ID,
         )

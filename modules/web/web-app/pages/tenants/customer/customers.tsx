@@ -4,7 +4,7 @@ import { useSearchParams } from 'react-router-dom'
 
 import { EmptyState } from '@/components/empty-state/EmptyState'
 import { TenantPageLayout } from '@/components/layouts'
-import { CustomersEditPanel, CustomersHeader, CustomersTable } from '@/features/customers'
+import { CustomersCreatePanel, CustomersHeader, CustomersTable } from '@/features/customers'
 import { useDebounceValue } from '@/hooks/useDebounce'
 import { useQuery } from '@/lib/connectrpc'
 import { listCustomers } from '@/rpc/api/customers/v1/customers-CustomersService_connectquery'
@@ -27,7 +27,8 @@ export const Customers: FunctionComponent = () => {
   })
 
   // Map tab to archived filter
-  const archivedFilter = currentTab === 'archived' ? true : currentTab === 'active' ? false : undefined
+  const archivedFilter =
+    currentTab === 'archived' ? true : currentTab === 'active' ? false : undefined
 
   const customersQuery = useQuery(
     listCustomers,
@@ -80,7 +81,7 @@ export const Customers: FunctionComponent = () => {
           )}
         </Flex>
       </TenantPageLayout>
-      <CustomersEditPanel
+      <CustomersCreatePanel
         visible={createPanelVisible}
         closePanel={() => setCreatePanelVisible(false)}
       />

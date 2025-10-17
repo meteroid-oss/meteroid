@@ -25,12 +25,12 @@ import {
 } from '@/rpc/api/customers/v1/customers-CustomersService_connectquery'
 import { listTenantCurrencies } from '@/rpc/api/tenants/v1/tenants-TenantsService_connectquery'
 
-interface CustomersEditPanelProps {
+interface CustomersCreatePanelProps {
   visible: boolean
   closePanel: () => void
 }
 
-export const CustomersEditPanel = ({ visible, closePanel }: CustomersEditPanelProps) => {
+export const CustomersCreatePanel = ({ visible, closePanel }: CustomersCreatePanelProps) => {
   const queryClient = useQueryClient()
 
   const navigate = useNavigate()
@@ -52,7 +52,7 @@ export const CustomersEditPanel = ({ visible, closePanel }: CustomersEditPanelPr
     defaultValues: {
       paymentTerm: 30,
       gracePeriod: 7,
-      customTaxRate: 20,
+      customTaxes: [],
       shipping: false,
     },
   })
@@ -103,9 +103,9 @@ export const CustomersEditPanel = ({ visible, closePanel }: CustomersEditPanelPr
               <div className="flex-1 overflow-y-auto">
                 <div className="space-y-8 p-6">
                   {activeCurrenciesQuery.isLoading ? (
-                    <Loading/>
+                    <Loading />
                   ) : (
-                    <CustomersGeneral activeCurrencies={activeCurrencies}/>
+                    <CustomersGeneral activeCurrencies={activeCurrencies} />
                   )}
 
                   {/* <CustomersBilling />
@@ -151,7 +151,9 @@ export const CustomersEditPanel = ({ visible, closePanel }: CustomersEditPanelPr
               </div>
 
               <SheetFooter className="border-t border-border p-3">
-                <Button variant="outline" type="reset" onClick={safeClosePanel}>Cancel</Button>
+                <Button variant="outline" type="reset" onClick={safeClosePanel}>
+                  Cancel
+                </Button>
                 <Button type="submit">Save changes</Button>
               </SheetFooter>
             </form>

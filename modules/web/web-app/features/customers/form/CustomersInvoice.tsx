@@ -109,14 +109,6 @@ export const CustomersInvoice = () => {
               )}
             />
           </div>
-          <InputFormField
-            name="customTaxRate"
-            label="Custom tax rate (%)"
-            control={control}
-            type="number"
-            placeholder="0"
-            autoComplete="off"
-          />
         </>
       )}
     </Flex>

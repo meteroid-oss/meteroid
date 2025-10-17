@@ -50,7 +50,7 @@ async fn test_customers_basic() {
                 invoicing_entity_id: None,
                 bank_account_id: None,
                 vat_number: None,
-                custom_tax_rate: None,
+                custom_taxes: vec![],
                 is_tax_exempt: Some(false),
             }),
         })
@@ -99,7 +99,7 @@ async fn test_customers_basic() {
                 invoicing_entity_id: None,
                 bank_account_id: None,
                 vat_number: None,
-                custom_tax_rate: None,
+                custom_taxes: vec![],
                 is_tax_exempt: Some(false),
             }),
         })
@@ -207,7 +207,7 @@ async fn test_customers_basic() {
                 shipping_address: None,
                 invoicing_entity_id: None,
                 vat_number: None,
-                custom_tax_rate: None,
+                custom_taxes: None,
                 bank_account_id: None,
                 is_tax_exempt: None,
             }),
