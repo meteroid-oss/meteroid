@@ -519,6 +519,11 @@ export const ProductMetricsEditView = ({ metricId }: ProductMetricsEditViewProps
           <Form {...methods}>
             <form
               onSubmit={methods.handleSubmit(handleSubmit)}
+              onKeyDown={e => {
+                if (e.key === 'Enter' && e.target instanceof HTMLInputElement) {
+                  e.preventDefault()
+                }
+              }}
               className="relative h-full flex flex-col"
             >
               <SheetHeader className="border-b border-border pb-3 mb-3">
@@ -723,7 +728,12 @@ export const ProductMetricsEditView = ({ metricId }: ProductMetricsEditViewProps
               </ScrollArea>
               <Separator />
               <SheetFooter className="pt-3 space-x-3">
-                <Button variant="outline" onClick={safeClosePanel} disabled={isSubmitting}>
+                <Button
+                  type="button"
+                  variant="outline"
+                  onClick={safeClosePanel}
+                  disabled={isSubmitting}
+                >
                   Cancel
                 </Button>
                 <Button type="submit" disabled={!methods.formState.isValid || isSubmitting}>
