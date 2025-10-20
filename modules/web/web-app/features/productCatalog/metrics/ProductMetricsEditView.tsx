@@ -21,7 +21,7 @@ import {
 } from '@md/ui'
 import { useQueryClient } from '@tanstack/react-query'
 import { PlusIcon, XIcon } from 'lucide-react'
-import { useEffect, useState } from 'react'
+import { useEffect, useRef, useState } from 'react'
 import { useNavigate } from 'react-router-dom'
 import { toast } from 'sonner'
 import { z } from 'zod'
@@ -59,7 +59,23 @@ const editMetricSchema = z.object({
   singleDimensionValues: z.array(z.string()).optional(),
   doubleDimension1Values: z.array(z.string()).optional(),
   doubleDimension2Values: z.array(z.string()).optional(),
-  linkedDimensionValues: z.record(z.string(), z.array(z.string())).optional(),
+  linkedDimensionValues: z
+    .array(
+      z.object({
+        key: z.string().min(1, 'Key cannot be empty'),
+        values: z.array(z.string()),
+      })
+    )
+    .optional()
+    .refine(
+      val => {
+        if (!val) return true
+        const keys = val.map(v => v.key.trim())
+        // No duplicate keys
+        return new Set(keys).size === keys.length
+      },
+      { message: 'All dimension keys must be unique' }
+    ),
 })
 
 type EditMetricFormData = z.infer<typeof editMetricSchema>
@@ -131,6 +147,161 @@ function StringArrayEditor({
   )
 }
 
+function LinkedDimensionsEditor({
+  value = [],
+  onChange,
+  primaryKey,
+  linkedKey,
+}: {
+  value?: Array<{ key: string; values: string[] }>
+  onChange: (value: Array<{ key: string; values: string[] }>) => void
+  primaryKey?: string
+  linkedKey?: string
+}) {
+  // Store raw input strings to preserve commas during typing
+  const [entries, setEntries] = useState<Array<{ id: string; key: string; valuesInput: string }>>(
+    () => {
+      return value.map(({ key, values }) => ({
+        id: Math.random().toString(36).substring(2),
+        key,
+        valuesInput: values.join(','),
+      }))
+    }
+  )
+
+  const isOurChangeRef = useRef(false)
+
+  useEffect(() => {
+    if (isOurChangeRef.current) {
+      isOurChangeRef.current = false
+      return
+    }
+
+    setEntries(
+      value.map(({ key, values }) => ({
+        id: Math.random().toString(36).substring(2),
+        key,
+        valuesInput: values.join(','),
+      }))
+    )
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [value])
+
+  const notifyChange = (newEntries: Array<{ id: string; key: string; valuesInput: string }>) => {
+    const updated = newEntries.map(({ key, valuesInput }) => ({
+      key: key.trim(),
+      values: valuesInput
+        .split(',')
+        .map(v => v.trim())
+        .filter(Boolean),
+    }))
+    isOurChangeRef.current = true
+    onChange(updated)
+  }
+
+  const handleAddKey = () => {
+    const newEntries = [
+      ...entries,
+      { id: Math.random().toString(36).substring(2), key: '', valuesInput: '' },
+    ]
+    setEntries(newEntries)
+    notifyChange(newEntries)
+  }
+
+  const handleRemoveKey = (id: string) => {
+    const newEntries = entries.filter(e => e.id !== id)
+    setEntries(newEntries)
+    notifyChange(newEntries)
+  }
+
+  const handleKeyChange = (id: string, newKey: string) => {
+    const newEntries = entries.map(e => (e.id === id ? { ...e, key: newKey } : e))
+    setEntries(newEntries)
+    notifyChange(newEntries)
+  }
+
+  const handleValuesInputChange = (id: string, valuesInput: string) => {
+    const newEntries = entries.map(e => (e.id === id ? { ...e, valuesInput } : e))
+    setEntries(newEntries)
+    notifyChange(newEntries)
+  }
+
+  const hasEmptyKeys = entries.some(e => !e.key.trim())
+  const hasDuplicates = entries.some(
+    (e, i) => e.key.trim() && entries.findIndex(e2 => e2.key.trim() === e.key.trim()) !== i
+  )
+
+  return (
+    <div className="space-y-4">
+      {entries.length === 0 && (
+        <div className="text-sm text-muted-foreground p-4 border border-dashed rounded-lg text-center">
+          No mappings defined. Add one below.
+        </div>
+      )}
+
+      {entries.map(({ id, key, valuesInput }, index) => {
+        const isDuplicate =
+          key.trim() && entries.findIndex(e => e.key.trim() === key.trim()) !== index
+        const isEmpty = !key.trim()
+
+        return (
+          <div key={id} className="space-y-1">
+            <div className="flex gap-2 items-start">
+              <div className="flex-1">
+                <Input
+                  value={key}
+                  onChange={e => handleKeyChange(id, e.target.value)}
+                  placeholder={`${primaryKey || 'Primary'} (e.g. AWS)`}
+                />
+                {isEmpty && key !== '' && (
+                  <p className="text-xs text-destructive mt-1">Key cannot be empty</p>
+                )}
+                {isDuplicate && <p className="text-xs text-destructive mt-1">Duplicate key</p>}
+              </div>
+              <div className="flex-[2]">
+                <Input
+                  value={valuesInput}
+                  onChange={e => handleValuesInputChange(id, e.target.value)}
+                  placeholder={`${linkedKey || 'Linked'} (e.g. us-east-1, us-west-2)`}
+                />
+              </div>
+              <Button
+                type="button"
+                variant="outline"
+                size="sm"
+                onMouseDown={e => {
+                  e.preventDefault()
+                  handleRemoveKey(id)
+                }}
+              >
+                Remove
+              </Button>
+            </div>
+          </div>
+        )
+      })}
+
+      <Button
+        type="button"
+        variant="outline"
+        size="sm"
+        onMouseDown={e => {
+          e.preventDefault()
+          handleAddKey()
+        }}
+        className="w-full mt-2"
+      >
+        <PlusIcon className="h-4 w-4 mr-2" />
+        Add Mapping
+      </Button>
+
+      {(hasEmptyKeys || hasDuplicates) && (
+        <p className="text-xs text-destructive mt-2">Fix validation errors before saving</p>
+      )}
+    </div>
+  )
+}
+
 export const ProductMetricsEditView = ({ metricId }: ProductMetricsEditViewProps) => {
   const queryClient = useQueryClient()
   const [isSubmitting, setIsSubmitting] = useState(false)
@@ -180,7 +351,7 @@ export const ProductMetricsEditView = ({ metricId }: ProductMetricsEditViewProps
       let singleValues: string[] | undefined
       let double1Values: string[] | undefined
       let double2Values: string[] | undefined
-      let linkedValues: Record<string, string[]> | undefined
+      let linkedValues: Array<{ key: string; values: string[] }> | undefined
 
       // Determine matrix type and extract keys/values
       if (matrix?.case === 'single' && matrix.value.dimension) {
@@ -201,10 +372,11 @@ export const ProductMetricsEditView = ({ metricId }: ProductMetricsEditViewProps
           linkedKey: matrix.value.dimensionKey,
           linkedLinkedKey: matrix.value.linkedDimensionKey,
         })
-        linkedValues = {}
-        Object.entries(matrix.value.values || {}).forEach(([key, val]) => {
-          linkedValues![key] = val.values || []
-        })
+
+        linkedValues = Object.entries(matrix.value.values || {}).map(([key, val]) => ({
+          key,
+          values: val.values || [],
+        }))
       } else {
         setMatrixType('NONE')
       }
@@ -290,11 +462,13 @@ export const ProductMetricsEditView = ({ metricId }: ProductMetricsEditViewProps
         const linkedValues: {
           [key: string]: SegmentationMatrixValuesUpdate_LinkedDimensionValues_DimensionValues
         } = {}
-        Object.entries(data.linkedDimensionValues || {}).forEach(([key, vals]) => {
-          linkedValues[key] =
-            new SegmentationMatrixValuesUpdate_LinkedDimensionValues_DimensionValues({
-              values: filterEmpty(vals),
-            })
+        ;(data.linkedDimensionValues || []).forEach(({ key, values }) => {
+          if (key.trim()) {
+            linkedValues[key.trim()] =
+              new SegmentationMatrixValuesUpdate_LinkedDimensionValues_DimensionValues({
+                values: filterEmpty(values),
+              })
+          }
         })
 
         segmentationMatrixValues = new SegmentationMatrixValuesUpdate({
@@ -345,6 +519,11 @@ export const ProductMetricsEditView = ({ metricId }: ProductMetricsEditViewProps
           <Form {...methods}>
             <form
               onSubmit={methods.handleSubmit(handleSubmit)}
+              onKeyDown={e => {
+                if (e.key === 'Enter' && e.target instanceof HTMLInputElement) {
+                  e.preventDefault()
+                }
+              }}
               className="relative h-full flex flex-col"
             >
               <SheetHeader className="border-b border-border pb-3 mb-3">
@@ -526,10 +705,20 @@ export const ProductMetricsEditView = ({ metricId }: ProductMetricsEditViewProps
                                 <span className="font-mono">{dimensionKeys.linkedLinkedKey}</span>
                               </div>
                             </div>
-                            <div className="text-xs text-muted-foreground p-2 bg-muted/30 rounded">
-                              Linked dimension editing is complex. Use the duplicate feature to
-                              create a new metric with different linked values.
-                            </div>
+                            <GenericFormField
+                              control={methods.control}
+                              name="linkedDimensionValues"
+                              render={({ field }) => (
+                                <>
+                                  <LinkedDimensionsEditor
+                                    value={field.value}
+                                    onChange={field.onChange}
+                                    primaryKey={dimensionKeys.linkedKey}
+                                    linkedKey={dimensionKeys.linkedLinkedKey}
+                                  />
+                                </>
+                              )}
+                            />
                           </div>
                         )}
                       </div>
@@ -539,7 +728,12 @@ export const ProductMetricsEditView = ({ metricId }: ProductMetricsEditViewProps
               </ScrollArea>
               <Separator />
               <SheetFooter className="pt-3 space-x-3">
-                <Button variant="outline" onClick={safeClosePanel} disabled={isSubmitting}>
+                <Button
+                  type="button"
+                  variant="outline"
+                  onClick={safeClosePanel}
+                  disabled={isSubmitting}
+                >
                   Cancel
                 </Button>
                 <Button type="submit" disabled={!methods.formState.isValid || isSubmitting}>
