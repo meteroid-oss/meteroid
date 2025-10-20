@@ -1,5 +1,6 @@
 use super::{InvoiceServiceComponents, mapping};
 use crate::api::invoices::error::InvoiceApiError;
+use crate::api::invoices::mapping::invoices::update_to_domain;
 use crate::api::shared::conversions::ProtoConv;
 use crate::api::utils::PaginationExt;
 use chrono::{NaiveDate, NaiveTime};
@@ -13,8 +14,9 @@ use meteroid_grpc::meteroid::api::invoices::v1::{
     MarkInvoiceAsUncollectibleResponse, NewInvoice, PreviewInvoiceRequest, PreviewInvoiceResponse,
     PreviewNewInvoiceRequest, PreviewNewInvoiceResponse, RefreshInvoiceDataRequest,
     RefreshInvoiceDataResponse, RequestPdfGenerationRequest, RequestPdfGenerationResponse,
-    SyncToPennylaneRequest, SyncToPennylaneResponse, VoidInvoiceRequest, VoidInvoiceResponse,
-    invoices_service_server::InvoicesService, list_invoices_request::SortBy,
+    SyncToPennylaneRequest, SyncToPennylaneResponse, UpdateInvoiceRequest, UpdateInvoiceResponse,
+    VoidInvoiceRequest, VoidInvoiceResponse, invoices_service_server::InvoicesService,
+    list_invoices_request::SortBy,
 };
 use meteroid_store::Store;
 use meteroid_store::domain::pgmq::{InvoicePdfRequestEvent, PgmqMessageNew, PgmqQueue};
@@ -387,6 +389,35 @@ impl InvoicesService for InvoiceServiceComponents {
 
         Ok(Response::new(MarkInvoiceAsUncollectibleResponse {
             invoice: Some(invoice),
+        }))
+    }
+
+    #[tracing::instrument(skip_all)]
+    async fn update_invoice(
+        &self,
+        request: Request<UpdateInvoiceRequest>,
+    ) -> Result<Response<UpdateInvoiceResponse>, Status> {
+        let tenant_id = request.tenant()?;
+
+        let req = request
+            .into_inner()
+            .invoice
+            .ok_or_else(|| InvoiceApiError::InputError("Missing invoice data".to_string()))?;
+
+        let updated_invoice = self
+            .store
+            .update_invoice(update_to_domain(req)?, tenant_id)
+            .await
+            .and_then(|inv| {
+                mapping::invoices::domain_invoice_with_plan_details_to_server(
+                    inv,
+                    self.jwt_secret.clone(),
+                )
+            })
+            .map_err(Into::<InvoiceApiError>::into)?;
+
+        Ok(Response::new(UpdateInvoiceResponse {
+            invoice: Some(updated_invoice),
         }))
     }
 }
