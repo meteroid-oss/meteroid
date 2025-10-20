@@ -50,6 +50,7 @@ const mapCapacityFee = (fee: api.CapacityFee): grpc.Fee_CapacityFee => {
       price: threshold.price,
       perUnitOverage: threshold.perUnitOverage,
     })),
+    term: mapCadence(fee.term),
   }
 
   return new grpc.Fee_CapacityFee(data)
@@ -123,6 +124,7 @@ const mapUsageFee = (fee: api.UsageFee): grpc.UsageFee => {
   const data: PlainMessage<grpc.UsageFee> = {
     metricId: fee.metricId,
     model: model,
+    term: mapCadence(fee.term),
   }
 
   return new grpc.UsageFee(data)

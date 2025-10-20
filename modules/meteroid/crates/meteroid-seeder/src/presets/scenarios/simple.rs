@@ -80,6 +80,7 @@ pub fn basic_scenario_1() -> Scenario {
                             pricing: UsagePricingModel::PerUnit {
                                 rate: dec!(0.001),
                             },
+                            cadence: BillingPeriodEnum::Monthly,
                         },
                     },
                 ],

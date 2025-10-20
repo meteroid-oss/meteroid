@@ -13,6 +13,7 @@ message UsageFee {
     Package package = 5;
     Matrix matrix = 6;
   }
+  meteroid.api.shared.v1.BillingPeriod term = 7;
 
   message TieredAndVolume {
     repeated TierRow rows = 1;
@@ -68,6 +69,7 @@ message Fee {
   message CapacityFee {
     string metric_id = 1;
     repeated CapacityThreshold thresholds = 3;
+    meteroid.api.shared.v1.BillingPeriod term = 4;
 
     message CapacityThreshold {
       uint64 included_amount = 1;

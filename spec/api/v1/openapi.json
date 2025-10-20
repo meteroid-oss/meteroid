@@ -2506,9 +2506,13 @@
             "required": [
               "metric_id",
               "thresholds",
+              "cadence",
               "fee_type"
             ],
             "properties": {
+              "cadence": {
+                "$ref": "#/components/schemas/BillingPeriodEnum"
+              },
               "fee_type": {
                 "type": "string",
                 "enum": [
@@ -2532,9 +2536,13 @@
             "required": [
               "metric_id",
               "pricing",
+              "cadence",
               "fee_type"
             ],
             "properties": {
+              "cadence": {
+                "$ref": "#/components/schemas/BillingPeriodEnum"
+              },
               "fee_type": {
                 "type": "string",
                 "enum": [

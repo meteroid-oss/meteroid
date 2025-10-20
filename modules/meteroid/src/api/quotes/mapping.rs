@@ -54,8 +54,11 @@ pub mod quotes {
             name: component.name.clone(),
             price_component_id: component.price_component_id.map(|id| id.as_proto()),
             product_id: component.product_id.map(|id| id.as_proto()),
-            period: component.period.clone() as i32,
-            fee: Some(subscription_fee_to_grpc(&component.fee)),
+            period: component.period as i32,
+            fee: Some(subscription_fee_to_grpc(
+                &component.fee,
+                component.period.as_billing_period_opt().unwrap_or_default(),
+            )),
             is_override: component.is_override,
         }
     }

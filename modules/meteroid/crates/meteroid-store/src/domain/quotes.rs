@@ -2,7 +2,7 @@ use chrono::{NaiveDate, NaiveDateTime};
 use serde::{Deserialize, Serialize};
 
 use crate::domain::enums::{QuoteStatusEnum, SubscriptionActivationCondition};
-use crate::domain::{Customer, InvoicingEntity, SubscriptionFee};
+use crate::domain::{Customer, InvoicingEntity, SubscriptionFee, SubscriptionFeeBillingPeriod};
 use crate::errors::{StoreError, StoreErrorReport};
 use crate::json_value_serde;
 use common_domain::ids::BaseId;
@@ -10,7 +10,6 @@ use common_domain::ids::{
     CustomerId, InvoiceId, PlanVersionId, PriceComponentId, ProductId, QuoteActivityId, QuoteId,
     QuotePriceComponentId, QuoteSignatureId, StoredDocumentId, SubscriptionId, TenantId,
 };
-use diesel_models::enums::SubscriptionFeeBillingPeriod;
 use diesel_models::quotes::{
     QuoteActivityRow, QuoteActivityRowNew, QuoteComponentRow, QuoteComponentRowNew, QuoteRow,
     QuoteRowNew, QuoteSignatureRow, QuoteSignatureRowNew, QuoteWithCustomerRow,
@@ -132,6 +131,7 @@ pub struct QuotePriceComponent {
     pub quote_id: QuoteId,
     pub price_component_id: Option<PriceComponentId>,
     pub product_id: Option<ProductId>,
+    #[from(~.into())]
     pub period: SubscriptionFeeBillingPeriod,
     #[from(~.try_into()?)]
     pub fee: SubscriptionFee,
@@ -146,6 +146,7 @@ pub struct QuotePriceComponentNew {
     pub quote_id: QuoteId,
     pub price_component_id: Option<PriceComponentId>,
     pub product_id: Option<ProductId>,
+    #[into(~.into())]
     pub period: SubscriptionFeeBillingPeriod,
     #[into(~.try_into()?)]
     pub fee: SubscriptionFee,

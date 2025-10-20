@@ -102,15 +102,17 @@ const mapSlotFee = (fee: grpc.Fee_SlotFee): api.SlotFee => ({
 const mapCapacityFee = (fee: grpc.Fee_CapacityFee): api.CapacityFee => ({
   metricId: fee.metricId,
   thresholds: fee.thresholds.map(threshold => ({
-    includedAmount: threshold.includedAmount ,
+    includedAmount: threshold.includedAmount,
     price: threshold.price,
     perUnitOverage: threshold.perUnitOverage,
   })),
+  term: mapCadenceFromGrpc(fee.term),
 })
 
 const mapUsageFee = (fee: grpc.UsageFee): api.UsageFee => ({
   metricId: fee.metricId,
   model: mapUsageModel(fee.model),
+  term: mapCadenceFromGrpc(fee.term)
 })
 
 const mapExtraRecurringFee = (fee: grpc.Fee_ExtraRecurringFee): api.ExtraRecurringFee => {

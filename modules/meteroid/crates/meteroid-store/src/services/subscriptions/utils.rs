@@ -94,7 +94,7 @@ pub fn process_create_subscription_add_ons(
                     processed_add_ons.push(SubscriptionAddOnNewInternal {
                         add_on_id: add_on.id,
                         name: override_.name.clone(),
-                        period: override_.period.clone(),
+                        period: override_.period,
                         fee: override_.fee.clone(),
                     });
                 }
@@ -460,7 +460,7 @@ impl SubscriptionDetails {
             .price_components
             .iter()
             .filter(|c| c.is_standard())
-            .map(|c| c.period.clone())
+            .map(|c| c.period)
             .max_by(|a, b| a.as_months().cmp(&b.as_months()))
             .and_then(|p| p.as_billing_period_opt())
             .unwrap_or(BillingPeriodEnum::Monthly);

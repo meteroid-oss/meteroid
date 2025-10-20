@@ -78,13 +78,20 @@ fn fee_type_to_rest(fee: &domain::price_components::FeeType) -> Fee {
         domain::price_components::FeeType::Capacity {
             metric_id,
             thresholds,
+            cadence,
         } => Fee::Capacity {
             metric_id: *metric_id,
             thresholds: thresholds.iter().map(capacity_threshold_to_rest).collect(),
+            cadence: (*cadence).into(),
         },
-        domain::price_components::FeeType::Usage { metric_id, pricing } => Fee::Usage {
+        domain::price_components::FeeType::Usage {
+            metric_id,
+            pricing,
+            cadence,
+        } => Fee::Usage {
             metric_id: *metric_id,
             pricing: usage_pricing_to_rest(pricing),
+            cadence: (*cadence).into(),
         },
         domain::price_components::FeeType::ExtraRecurring {
             unit_price,
@@ -95,7 +102,7 @@ fn fee_type_to_rest(fee: &domain::price_components::FeeType) -> Fee {
             unit_price: *unit_price,
             quantity: *quantity,
             billing_type: billing_type.clone().into(),
-            cadence: cadence.clone().into(),
+            cadence: (*cadence).into(),
         },
         domain::price_components::FeeType::OneTime {
             unit_price,
@@ -109,7 +116,7 @@ fn fee_type_to_rest(fee: &domain::price_components::FeeType) -> Fee {
 
 fn term_rate_to_rest(rate: &domain::price_components::TermRate) -> TermRate {
     TermRate {
-        term: rate.term.clone().into(),
+        term: rate.term.into(),
         price: rate.price,
     }
 }
@@ -192,14 +199,13 @@ fn extract_available_parameters(
 
         match &component.fee {
             domain::price_components::FeeType::Rate { rates } if rates.len() > 1 => {
-                let periods: Vec<BillingPeriodEnum> =
-                    rates.iter().map(|r| r.term.clone().into()).collect();
+                let periods: Vec<BillingPeriodEnum> = rates.iter().map(|r| r.term.into()).collect();
                 billing_periods.insert(component_id, periods);
             }
             domain::price_components::FeeType::Slot { rates, .. } => {
                 if rates.len() > 1 {
                     let periods: Vec<BillingPeriodEnum> =
-                        rates.iter().map(|r| r.term.clone().into()).collect();
+                        rates.iter().map(|r| r.term.into()).collect();
                     billing_periods.insert(component_id.clone(), periods);
                 }
                 slot_components.push(component_id);

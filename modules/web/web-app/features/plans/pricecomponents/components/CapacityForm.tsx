@@ -1,5 +1,13 @@
 import { disableQuery } from '@connectrpc/connect-query'
-import { Button, ComboboxFormField, Form, GenericFormField, Input } from '@md/ui'
+import {
+  Button,
+  ComboboxFormField,
+  Form,
+  GenericFormField,
+  Input,
+  SelectFormField,
+  SelectItem,
+} from '@md/ui'
 import { ColumnDef } from '@tanstack/react-table'
 import { useAtom } from 'jotai'
 import { PlusIcon, XIcon } from 'lucide-react'
@@ -15,6 +23,7 @@ import { componentFeeAtom } from '@/features/plans/pricecomponents/atoms'
 import { useCurrency } from '@/features/plans/pricecomponents/utils'
 import { Methods, useZodForm } from '@/hooks/useZodForm'
 import { useQuery } from '@/lib/connectrpc'
+import { BillingPeriod } from '@/lib/mapping'
 import { CapacityFee, CapacityFeeSchema, CapacityThreshold } from '@/lib/schemas/plans'
 import { listBillableMetrics } from '@/rpc/api/billablemetrics/v1/billablemetrics-BillableMetricsService_connectquery'
 
@@ -31,16 +40,22 @@ export const CapacityForm = (props: FeeFormProps) => {
     defaultValues: component?.data as CapacityFee,
   })
 
-  // TODO add cadence to capacity. This is the committed cadence, amount & overage is still monthly
-
   const plan = usePlanOverview()
+
+  const cadenceOptions = useMemo(() => {
+    const periods: BillingPeriod[] = ['MONTHLY', 'QUARTERLY', 'SEMIANNUAL', 'ANNUAL']
+    return periods.map(period => ({
+      label: period.charAt(0) + period.slice(1).toLowerCase(),
+      value: period,
+    }))
+  }, [])
 
   const metrics = useQuery(
     listBillableMetrics,
     plan?.productFamilyLocalId
       ? {
-          familyLocalId: plan.productFamilyLocalId,
-        }
+        familyLocalId: plan.productFamilyLocalId,
+      }
       : disableQuery
   )
 
@@ -55,6 +70,18 @@ export const CapacityForm = (props: FeeFormProps) => {
         <EditPriceComponentCard submit={methods.handleSubmit(props.onSubmit)} cancel={props.cancel}>
           <div className="grid grid-cols-3 gap-2">
             <div className="col-span-1 pr-5 border-r border-border space-y-4">
+              <SelectFormField
+                name="term"
+                label="Cadence"
+                control={methods.control}
+                placeholder="Select cadence"
+              >
+                {cadenceOptions.map(option => (
+                  <SelectItem key={option.value} value={option.value}>
+                    {option.label}
+                  </SelectItem>
+                ))}
+              </SelectFormField>
               <ComboboxFormField
                 name="metricId"
                 label="Billable metric"
@@ -69,13 +96,13 @@ export const CapacityForm = (props: FeeFormProps) => {
                     size="full"
                     onClick={() => navigate('add-metric')}
                   >
-                    <PlusIcon size={12} /> New metric
+                    <PlusIcon size={12}/> New metric
                   </Button>
                 }
               />
             </div>
             <div className="ml-4 col-span-2">
-              <ThresholdTable methods={methods} currency={currency} />
+              <ThresholdTable methods={methods} currency={currency}/>
             </div>
           </div>
         </EditPriceComponentCard>
@@ -125,7 +152,7 @@ const ThresholdTable = ({
             control={methods.control}
             name={`thresholds.${row.index}.includedAmount`}
             render={({ field }) => (
-              <IncludedAmountInput {...field} methods={methods} rowIndex={row.index} />
+              <IncludedAmountInput {...field} methods={methods} rowIndex={row.index}/>
             )}
           />
         ),
@@ -137,7 +164,7 @@ const ThresholdTable = ({
             control={methods.control}
             name={`thresholds.${row.index}.price`}
             render={({ field }) => (
-              <UncontrolledPriceInput {...field} currency={currency} showCurrency={false} />
+              <UncontrolledPriceInput {...field} currency={currency} showCurrency={false}/>
             )}
           />
         ),
@@ -164,7 +191,7 @@ const ThresholdTable = ({
         id: 'remove',
         cell: ({ row }) => (
           <Button variant="link" onClick={() => removeThreshold(row.index)}>
-            <XIcon size={12} />
+            <XIcon size={12}/>
           </Button>
         ),
       },
@@ -173,7 +200,7 @@ const ThresholdTable = ({
 
   return (
     <>
-      <SimpleTable columns={columns} data={fields} />
+      <SimpleTable columns={columns} data={fields}/>
       <Button variant="link" onClick={addThreshold}>
         + Add threshold
       </Button>

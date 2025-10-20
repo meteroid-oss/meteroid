@@ -86,10 +86,12 @@ pub enum FeeType {
     Capacity {
         metric_code: String,
         thresholds: Vec<CapacityThreshold>,
+        cadence: BillingPeriodEnum,
     },
     Usage {
         metric_code: String,
         pricing: UsagePricingModel,
+        cadence: BillingPeriodEnum,
     },
     ExtraRecurring {
         unit_price: rust_decimal::Decimal,
@@ -151,6 +153,7 @@ impl PriceComponent {
             FeeType::Capacity {
                 metric_code,
                 thresholds,
+                cadence,
             } => {
                 let metric = maybe_metric.ok_or(StoreError::ValueNotFound(format!(
                     "Metric was not found {metric_code}"
@@ -158,11 +161,13 @@ impl PriceComponent {
                 meteroid_store::domain::FeeType::Capacity {
                     metric_id: metric.id,
                     thresholds: thresholds.clone(),
+                    cadence: *cadence,
                 }
             }
             FeeType::Usage {
                 metric_code,
                 pricing,
+                cadence,
             } => {
                 let metric = maybe_metric.ok_or(StoreError::ValueNotFound(format!(
                     "Metric was not found {metric_code}"
@@ -170,6 +175,7 @@ impl PriceComponent {
                 meteroid_store::domain::FeeType::Usage {
                     metric_id: metric.id,
                     pricing: pricing.clone(),
+                    cadence: *cadence,
                 }
             }
             FeeType::ExtraRecurring {
@@ -181,7 +187,7 @@ impl PriceComponent {
                 unit_price: *unit_price,
                 quantity: *quantity,
                 billing_type: billing_type.clone(),
-                cadence: cadence.clone(),
+                cadence: *cadence,
             },
             FeeType::OneTime {
                 unit_price,

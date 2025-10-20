@@ -131,10 +131,14 @@ pub enum FeeType {
     Capacity {
         metric_id: BillableMetricId,
         thresholds: Vec<CapacityThreshold>,
+        #[serde(default)]
+        cadence: BillingPeriodEnum,
     },
     Usage {
         metric_id: BillableMetricId,
         pricing: UsagePricingModel,
+        #[serde(default)]
+        cadence: BillingPeriodEnum,
     },
     ExtraRecurring {
         unit_price: rust_decimal::Decimal,
@@ -205,6 +209,7 @@ impl FeeType {
             FeeType::Capacity {
                 metric_id,
                 thresholds,
+                cadence,
             } => {
                 if thresholds.len() != 1 {
                     return Err(StoreError::InvalidArgument(format!(
@@ -214,7 +219,7 @@ impl FeeType {
                 }
 
                 Ok((
-                    SubscriptionFeeBillingPeriod::Monthly,
+                    cadence.as_subscription_billing_period(),
                     SubscriptionFee::Capacity {
                         metric_id: *metric_id,
                         overage_rate: thresholds[0].per_unit_overage,
@@ -234,8 +239,12 @@ impl FeeType {
                     quantity: *quantity,
                 },
             )),
-            FeeType::Usage { metric_id, pricing } => Ok((
-                SubscriptionFeeBillingPeriod::Monthly,
+            FeeType::Usage {
+                metric_id,
+                pricing,
+                cadence,
+            } => Ok((
+                cadence.as_subscription_billing_period(),
                 SubscriptionFee::Usage {
                     metric_id: *metric_id,
                     model: pricing.clone(),
@@ -348,6 +357,7 @@ impl FeeType {
             FeeType::Capacity {
                 metric_id,
                 thresholds,
+                cadence,
             } => {
                 let committed_capacity = committed_capacity.ok_or_else(|| {
                     StoreError::InvalidArgument("Missing committed capacity".to_string())
@@ -362,14 +372,14 @@ impl FeeType {
                         ))
                     })?;
 
-                if billing_period.is_some() || initial_slot_count.is_some() {
+                if initial_slot_count.is_some() {
                     return Err(StoreError::InvalidArgument(
                         "Unexpected parameters for capacity fee".to_string(),
                     ));
                 }
 
                 Ok((
-                    SubscriptionFeeBillingPeriod::Monthly, // Default to monthly, until we support period parametrization for capacity
+                    cadence.as_subscription_billing_period(),
                     SubscriptionFee::Capacity {
                         metric_id: *metric_id,
                         overage_rate: threshold.per_unit_overage,
@@ -436,12 +446,14 @@ golden!(FeeType, {
             price: rust_decimal::Decimal::new(100, 2),
             per_unit_overage: rust_decimal::Decimal::new(10, 2),
         }],
+        cadence: BillingPeriodEnum::Monthly,
     },
     "usage_per_unit" => FeeType::Usage {
         metric_id: Uuid::nil().into(),
         pricing: UsagePricingModel::PerUnit {
             rate: rust_decimal::Decimal::new(100, 2),
         },
+        cadence: BillingPeriodEnum::Monthly,
     },
     "usage_tiered" => FeeType::Usage {
         metric_id: Uuid::nil().into(),
@@ -454,6 +466,7 @@ golden!(FeeType, {
             }],
             block_size: Some(10),
         },
+        cadence: BillingPeriodEnum::Monthly,
     },
     "usage_volume" => FeeType::Usage {
         metric_id: Uuid::nil().into(),
@@ -466,6 +479,7 @@ golden!(FeeType, {
             }],
             block_size: Some(10),
         },
+        cadence: BillingPeriodEnum::Monthly,
     },
     "usage_package" => FeeType::Usage {
         metric_id: Uuid::nil().into(),
@@ -473,6 +487,7 @@ golden!(FeeType, {
             block_size: 10,
             rate: rust_decimal::Decimal::new(100, 2),
         },
+        cadence: BillingPeriodEnum::Monthly,
     },
     "usage_matrix" => FeeType::Usage {
         metric_id: Uuid::nil().into(),
@@ -486,6 +501,7 @@ golden!(FeeType, {
                 per_unit_price: rust_decimal::Decimal::new(100, 2),
             }],
         },
+        cadence: BillingPeriodEnum::Monthly,
     },
     "extra_recurring" => FeeType::ExtraRecurring {
         unit_price: rust_decimal::Decimal::new(100, 2),

@@ -86,6 +86,7 @@ export type CapacityThreshold = z.infer<typeof CapacityThresholdSchema>
 export const CapacityFeeSchema = z.object({
   metricId: z.string(),
   thresholds: z.array(CapacityThresholdSchema),
+  term: Cadence,
 })
 export type CapacityFee = z.infer<typeof CapacityFeeSchema>
 
@@ -176,6 +177,7 @@ export type UsagePricingModelType = UsagePricingModel['model']
 export const UsageFeeSchema = z.object({
   metricId: z.string(),
   model: UsagePricingModelSchema,
+  term: Cadence,
 })
 export type UsageFee = z.infer<typeof UsageFeeSchema>
 
@@ -233,11 +235,11 @@ export const addPriceComponentSchema = z.object({
 })
 export type AddPriceComponent = z.infer<typeof addPriceComponentSchema>
 
-export const formPriceCompoentSchema = z.object({
+export const formPriceComponentSchema = z.object({
   name: z.string(),
   fee: FeeTypeSchema,
 })
-export type FormPriceComponent = z.infer<typeof formPriceCompoentSchema>
+export type FormPriceComponent = z.infer<typeof formPriceComponentSchema>
 
 export const editPriceComponentSchema = z.object({
   id: z.string(),

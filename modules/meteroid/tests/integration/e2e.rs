@@ -21,6 +21,7 @@ use meteroid_grpc::meteroid::api::billablemetrics::v1::{
     Aggregation, CreateBillableMetricRequest, SegmentationMatrix,
 };
 use meteroid_grpc::meteroid::api::plans::v1::PlanType;
+use meteroid_grpc::meteroid::api::shared::v1::BillingPeriod;
 use meteroid_mailer::config::MailerConfig;
 use meteroid_store::Store;
 use meteroid_store::domain::enums::{InvoiceStatusEnum, InvoiceType};
@@ -420,6 +421,7 @@ async fn test_metering_e2e() {
                                     per_unit_overage: Decimal::new(4, 2).to_string(),
                                 },
                             ],
+                            term: BillingPeriod::Monthly.into(),
                         },
                     )),
                 }),

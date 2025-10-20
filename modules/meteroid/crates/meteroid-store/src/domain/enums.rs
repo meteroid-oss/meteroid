@@ -38,9 +38,10 @@ pub enum BillingMetricAggregateEnum {
     CountDistinct,
 }
 
-#[derive(o2o, Serialize, Deserialize, Debug, Clone, PartialEq, Eq)]
+#[derive(o2o, Serialize, Deserialize, Debug, Copy, Clone, PartialEq, Eq, Default)]
 #[map_owned(diesel_enums::BillingPeriodEnum)]
 pub enum BillingPeriodEnum {
+    #[default]
     Monthly,
     Quarterly,
     Semiannual,
@@ -269,7 +270,7 @@ pub enum SubscriptionEventType {
     Updated,
 }
 
-#[derive(o2o, Serialize, Deserialize, Debug, Clone, PartialEq, Eq, Hash)]
+#[derive(o2o, Serialize, Deserialize, Debug, Clone, Copy, PartialEq, Eq, Hash)]
 #[map_owned(diesel_enums::SubscriptionFeeBillingPeriod)]
 pub enum SubscriptionFeeBillingPeriod {
     OneTime,

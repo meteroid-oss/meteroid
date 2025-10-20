@@ -502,9 +502,7 @@ impl Services {
         cycle_index: u32,
         currency: &Currency,
     ) -> StoreResult<Vec<LineItem>> {
-        let component_groups = fee_records
-            .iter()
-            .into_group_map_by(|c| c.period_ref().clone());
+        let component_groups = fee_records.iter().into_group_map_by(|c| c.period_ref());
 
         // TODO case when invoiced early via threshold (that's for usage-based only)
         // can be quite easy => we need some last_invoice_threshold date in the subscription, to reduce the usage periods if that date is within the period
@@ -516,7 +514,7 @@ impl Services {
                 let period = calculate_component_period_for_invoice_date(
                     invoice_date,
                     &subscription_details.subscription.period,
-                    &billing_period,
+                    billing_period,
                     billing_start_or_resume_date,
                     cycle_index,
                     u32::from(subscription_details.subscription.billing_day_anchor),
