@@ -266,7 +266,7 @@ pub async fn run(
                 store_domain::FeeType::Rate { rates } => {
                     if rates.len() > 1 {
                         // Multiple rates, requires parameterization
-                        let billing_period = rates[rng.random_range(0..rates.len())].term.clone();
+                        let billing_period = rates[rng.random_range(0..rates.len())].term;
                         parameterized_components.push(store_domain::ComponentParameterization {
                             component_id: component.id,
                             parameters: store_domain::ComponentParameters {
@@ -283,7 +283,7 @@ pub async fn run(
                     ..
                 } => {
                     // Slot-based pricing, requires parameterization
-                    let billing_period = rates[rng.random_range(0..rates.len())].term.clone();
+                    let billing_period = rates[rng.random_range(0..rates.len())].term;
                     let initial_slots = rng.random_range((*minimum_count).unwrap_or(1)..=100); // Generate a random number of initial slots (adjust the range as needed)
                     parameterized_components.push(store_domain::ComponentParameterization {
                         component_id: component.id,

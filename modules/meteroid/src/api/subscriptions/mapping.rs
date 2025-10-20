@@ -254,6 +254,7 @@ pub mod price_components {
     use common_domain::ids::{BillableMetricId, PriceComponentId, ProductId};
     use meteroid_grpc::meteroid::api::components::v1::usage_fee::TieredAndVolume;
     use meteroid_grpc::meteroid::api::components::v1::usage_fee::matrix::MatrixDimension;
+    use meteroid_store::domain::BillingPeriodEnum;
     use tonic::{Code, Result, Status};
 
     pub fn create_subscription_components_from_grpc(
@@ -381,13 +382,19 @@ pub mod price_components {
             product_id: component.product_id.map(|id| id.to_string()),
             subscription_id: component.subscription_id.to_string(),
             name: component.name.clone(),
-            period: subscription_fee_billing_period_to_grpc(component.period.clone()).into(),
-            fee: Some(subscription_fee_to_grpc(&component.fee)),
+            period: subscription_fee_billing_period_to_grpc(component.period).into(),
+            fee: Some(subscription_fee_to_grpc(
+                &component.fee,
+                component.period.as_billing_period_opt().unwrap_or_default(),
+            )),
             is_override: false, // TODO: Update this based on your logic
         }
     }
 
-    pub fn subscription_fee_to_grpc(fee: &domain::SubscriptionFee) -> api::SubscriptionFee {
+    pub fn subscription_fee_to_grpc(
+        fee: &domain::SubscriptionFee,
+        period: BillingPeriodEnum,
+    ) -> api::SubscriptionFee {
         match fee {
             domain::SubscriptionFee::Rate { rate } => api::SubscriptionFee {
                 fee: Some(api::subscription_fee::Fee::Rate(
@@ -455,7 +462,7 @@ pub mod price_components {
             },
             domain::SubscriptionFee::Usage { metric_id, model } => api::SubscriptionFee {
                 fee: Some(api::subscription_fee::Fee::Usage(
-                    usage_pricing_model_to_grpc(metric_id, model),
+                    usage_pricing_model_to_grpc(metric_id, model, period),
                 )),
             },
         }
@@ -464,11 +471,13 @@ pub mod price_components {
     pub fn usage_pricing_model_to_grpc(
         metric_id: &BillableMetricId,
         model: &domain::UsagePricingModel,
+        cadence: BillingPeriodEnum,
     ) -> api_components::UsageFee {
         match model {
             domain::UsagePricingModel::PerUnit { rate } => api_components::UsageFee {
                 metric_id: metric_id.as_proto(),
                 model: Some(api_components::usage_fee::Model::PerUnit(rate.as_proto())),
+                term: billing_period_to_grpc(cadence).into(),
             },
             domain::UsagePricingModel::Tiered { tiers, block_size } => api_components::UsageFee {
                 metric_id: metric_id.as_proto(),
@@ -478,6 +487,7 @@ pub mod price_components {
                         block_size: *block_size,
                     },
                 )),
+                term: billing_period_to_grpc(cadence).into(),
             },
             domain::UsagePricingModel::Volume { tiers, block_size } => api_components::UsageFee {
                 metric_id: metric_id.as_proto(),
@@ -487,6 +497,7 @@ pub mod price_components {
                         block_size: *block_size,
                     },
                 )),
+                term: billing_period_to_grpc(cadence).into(),
             },
             domain::UsagePricingModel::Package { block_size, rate } => api_components::UsageFee {
                 metric_id: metric_id.as_proto(),
@@ -496,6 +507,7 @@ pub mod price_components {
                         package_price: rate.as_proto(),
                     },
                 )),
+                term: billing_period_to_grpc(cadence).into(),
             },
             domain::UsagePricingModel::Matrix { rates } => api_components::UsageFee {
                 metric_id: metric_id.as_proto(),
@@ -519,6 +531,7 @@ pub mod price_components {
                             .collect(),
                     },
                 )),
+                term: billing_period_to_grpc(cadence).into(),
             },
         }
     }
@@ -753,6 +766,15 @@ pub mod price_components {
         }
         Ok(())
     }
+
+    fn billing_period_to_grpc(period: BillingPeriodEnum) -> api_shared::BillingPeriod {
+        match period {
+            BillingPeriodEnum::Monthly => api_shared::BillingPeriod::Monthly,
+            BillingPeriodEnum::Quarterly => api_shared::BillingPeriod::Quarterly,
+            BillingPeriodEnum::Semiannual => api_shared::BillingPeriod::Semiannual,
+            BillingPeriodEnum::Annual => api_shared::BillingPeriod::Annual,
+        }
+    }
 }
 
 mod add_ons {
@@ -775,8 +797,11 @@ mod add_ons {
             add_on_id: add_on.add_on_id.to_string(),
             subscription_id: add_on.subscription_id.to_string(),
             name: add_on.name.clone(),
-            period: subscription_fee_billing_period_to_grpc(add_on.period.clone()).into(),
-            fee: Some(subscription_fee_to_grpc(&add_on.fee)),
+            period: subscription_fee_billing_period_to_grpc(add_on.period).into(),
+            fee: Some(subscription_fee_to_grpc(
+                &add_on.fee,
+                add_on.period.as_billing_period_opt().unwrap_or_default(),
+            )),
         }
     }
 

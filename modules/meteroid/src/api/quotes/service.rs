@@ -364,7 +364,7 @@ fn process_quote_components(
                 quote_id,
                 price_component_id: Some(price_component.id),
                 product_id: price_component.product_id,
-                period: period.into(),
+                period,
                 fee,
                 is_override: false,
             });
@@ -382,7 +382,7 @@ fn process_quote_components(
                 quote_id,
                 price_component_id: Some(price_component.id),
                 product_id: overridden.component.product_id,
-                period: overridden.component.period.clone().into(),
+                period: overridden.component.period,
                 fee: overridden.component.fee.clone(),
                 is_override: true,
             });
@@ -396,7 +396,7 @@ fn process_quote_components(
             quote_id,
             price_component_id: None,
             product_id: extra.component.product_id,
-            period: extra.component.period.clone().into(),
+            period: extra.component.period,
             fee: extra.component.fee.clone(),
             is_override: true,
         });
@@ -433,7 +433,7 @@ fn process_quote_components(
             quote_id,
             price_component_id: Some(price_component.id),
             product_id: price_component.product_id,
-            period: period.into(),
+            period,
             fee,
             is_override: false,
         });

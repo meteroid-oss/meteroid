@@ -20,7 +20,7 @@ import { SubscriptionRateForm } from '@/features/plans/pricecomponents/component
 import { UsageBasedForm } from '@/features/plans/pricecomponents/components/UsageBasedForm'
 import { addedComponentsAtom, editedComponentsAtom } from '@/features/plans/pricecomponents/utils'
 import { mapFee } from '@/lib/mapping/feesToGrpc'
-import { FormPriceComponent, PriceComponent, formPriceCompoentSchema } from '@/lib/schemas/plans'
+import { FormPriceComponent, PriceComponent, formPriceComponentSchema } from '@/lib/schemas/plans'
 import {
   createPriceComponent as createPriceComponentMutation,
   editPriceComponent as editPriceComponentMutation,
@@ -65,7 +65,7 @@ export const CreatePriceComponent = ({ createRef, component }: CreatePriceCompon
   }
 
   const onSubmit = (data: FormPriceComponent) => {
-    const validated = formPriceCompoentSchema.safeParse(data)
+    const validated = formPriceComponentSchema.safeParse(data)
 
     console.log('validated', validated)
     if (!version?.id) return
@@ -80,7 +80,7 @@ export const CreatePriceComponent = ({ createRef, component }: CreatePriceCompon
 
   return (
     <ProviderWrapper init={component}>
-      <PriceComponentForm cancel={cancel} onSubmit={onSubmit} />
+      <PriceComponentForm cancel={cancel} onSubmit={onSubmit}/>
     </ProviderWrapper>
   )
 }
@@ -142,7 +142,7 @@ export const EditPriceComponent = ({ component }: EditPriceComponentProps) => {
 
   return (
     <ProviderWrapper init={component}>
-      <PriceComponentForm cancel={cancel} onSubmit={onSubmit} />
+      <PriceComponentForm cancel={cancel} onSubmit={onSubmit}/>
     </ProviderWrapper>
   )
 }
@@ -175,12 +175,12 @@ const PriceComponentForm = ({ cancel, onSubmit: _onSubmit }: PriceComponentFormP
   }
 
   return match<typeof feeType, ReactNode>(feeType)
-    .with('rate', () => <SubscriptionRateForm cancel={cancel} onSubmit={onSubmit} />)
-    .with('slot', () => <SlotsForm cancel={cancel} onSubmit={onSubmit} />)
-    .with('capacity', () => <CapacityForm cancel={cancel} onSubmit={onSubmit} />)
-    .with('usage', () => <UsageBasedForm cancel={cancel} onSubmit={onSubmit} />)
-    .with('extraRecurring', () => <RecurringForm cancel={cancel} onSubmit={onSubmit} />)
-    .with('oneTime', () => <OneTimeForm cancel={cancel} onSubmit={onSubmit} />)
+    .with('rate', () => <SubscriptionRateForm cancel={cancel} onSubmit={onSubmit}/>)
+    .with('slot', () => <SlotsForm cancel={cancel} onSubmit={onSubmit}/>)
+    .with('capacity', () => <CapacityForm cancel={cancel} onSubmit={onSubmit}/>)
+    .with('usage', () => <UsageBasedForm cancel={cancel} onSubmit={onSubmit}/>)
+    .with('extraRecurring', () => <RecurringForm cancel={cancel} onSubmit={onSubmit}/>)
+    .with('oneTime', () => <OneTimeForm cancel={cancel} onSubmit={onSubmit}/>)
     .otherwise(() => <div>Unknown fee type. Please contact support</div>)
 }
 

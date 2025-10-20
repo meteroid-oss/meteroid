@@ -57,12 +57,12 @@ export const PriceComponentCard: React.FC<{
   const deleteComponentMutation = useMutation(removePriceComponent, {
     onSuccess: () => {
       planWithVersion.version &&
-        queryClient.setQueryData(
-          createConnectQueryKey(listPriceComponents, { planVersionId: planWithVersion.version.id }),
-          createProtobufSafeUpdater(listPriceComponents, prev => ({
-            components: prev?.components.filter(c => c.id !== component.id) ?? [],
-          }))
-        )
+      queryClient.setQueryData(
+        createConnectQueryKey(listPriceComponents, { planVersionId: planWithVersion.version.id }),
+        createProtobufSafeUpdater(listPriceComponents, prev => ({
+          components: prev?.components.filter(c => c.id !== component.id) ?? [],
+        }))
+      )
     },
   })
 
@@ -85,14 +85,14 @@ export const PriceComponentCard: React.FC<{
         <div className="flex flex-row items-center cursor-pointer w-full">
           <div className="mr-2">
             {isCollapsed ? (
-              <ChevronRightIcon className="w-5 l-5 text-accent-1 group-hover:text-muted-foreground" />
+              <ChevronRightIcon className="w-5 l-5 text-accent-1 group-hover:text-muted-foreground"/>
             ) : (
-              <ChevronDownIcon className="w-5 l-5 text-accent-1 group-hover:text-muted-foreground" />
+              <ChevronDownIcon className="w-5 l-5 text-accent-1 group-hover:text-muted-foreground"/>
             )}
           </div>
           <div className="flex items-center gap-2">
             <h4 className="text-base text-accent-1 font-semibold">{component.name}</h4>
-            <LocalId localId={component.localId} className="max-w-24" />
+            <LocalId localId={component.localId} className="max-w-24"/>
           </div>
         </div>
         {isDraft && (
@@ -103,7 +103,7 @@ export const PriceComponentCard: React.FC<{
               onClick={removeComponent}
               size="icon"
             >
-              <Trash2Icon size={12} strokeWidth={2} />
+              <Trash2Icon size={12} strokeWidth={2}/>
             </Button>
             <Button
               variant="ghost"
@@ -111,7 +111,7 @@ export const PriceComponentCard: React.FC<{
               onClick={editComponent}
               size="icon"
             >
-              <PencilIcon size={12} strokeWidth={2} />
+              <PencilIcon size={12} strokeWidth={2}/>
             </Button>
           </div>
         )}
@@ -200,9 +200,9 @@ const toPriceElements = (feeType: FeeType): PriceElement | undefined => {
       feeType: 'Committed capacity',
       linkedItem: {
         type: 'Billable Metric',
-        item: <DisplayBillableMetric metricId={data.metricId} />,
+        item: <DisplayBillableMetric metricId={data.metricId}/>,
       },
-      cadence: 'Monthly',
+      cadence: mapCadence(data.term),
     }))
     .with({ fee: 'oneTime' }, ({ data }) => ({
       feeType: 'Fixed fee',
@@ -218,9 +218,9 @@ const toPriceElements = (feeType: FeeType): PriceElement | undefined => {
       feeType: mapUsageModel(data.model),
       linkedItem: {
         type: 'Billable Metric',
-        item: <DisplayBillableMetric metricId={data.metricId} />,
+        item: <DisplayBillableMetric metricId={data.metricId}/>,
       },
-      cadence: 'Monthly',
+      cadence: mapCadence(data.term),
     }))
     .exhaustive()
 }
@@ -249,7 +249,7 @@ const renderPricingDetails = (feeType: FeeType): ReactNode | undefined => {
         columns={[
           {
             header: 'Unit Price',
-            cell: ({ row }) => <DisplayPrice price={row.original.unitPrice} />,
+            cell: ({ row }) => <DisplayPrice price={row.original.unitPrice}/>,
           },
         ]}
         data={[data]}
@@ -260,7 +260,7 @@ const renderPricingDetails = (feeType: FeeType): ReactNode | undefined => {
         columns={[
           {
             header: 'Unit Price',
-            cell: ({ row }) => <DisplayPrice price={row.original.unitPrice} />,
+            cell: ({ row }) => <DisplayPrice price={row.original.unitPrice}/>,
           },
         ]}
         data={[data]}
@@ -280,7 +280,7 @@ const renderRate = (rate: RateFee) => {
           header: 'Term',
           accessorKey: 'term',
         },
-        { header: 'Price', cell: ({ row }) => <DisplayPrice price={row.original.price} /> },
+        { header: 'Price', cell: ({ row }) => <DisplayPrice price={row.original.price}/> },
       ]}
       data={rate.rates}
     />
@@ -297,7 +297,7 @@ const renderSlotBased = (rate: SlotFee) => {
         },
         {
           header: 'Price per slot',
-          cell: ({ row }) => <DisplayPrice price={row.original.price} />,
+          cell: ({ row }) => <DisplayPrice price={row.original.price}/>,
         },
       ]}
       data={rate.rates}
@@ -314,7 +314,7 @@ const renderUsageBased = (rate: UsageFee) => {
         columns={[
           {
             header: 'Unit price',
-            cell: ({ row }) => <DisplayPrice price={row.original.unitPrice} />,
+            cell: ({ row }) => <DisplayPrice price={row.original.unitPrice}/>,
           },
         ]}
         data={[data]}
@@ -326,7 +326,7 @@ const renderUsageBased = (rate: UsageFee) => {
           { header: 'Block size', accessorKey: 'blockSize' },
           {
             header: 'Block price',
-            cell: ({ row }) => <DisplayPrice price={row.original.packagePrice} />,
+            cell: ({ row }) => <DisplayPrice price={row.original.packagePrice}/>,
           },
         ]}
         data={[data]}
@@ -335,8 +335,8 @@ const renderUsageBased = (rate: UsageFee) => {
     .with({ model: 'matrix' }, ({ data }) => {
       const dimensionHeaders = data.dimensionRates[0]
         ? [data.dimensionRates[0].dimension1.key, data.dimensionRates[0].dimension2?.key].filter(
-            Boolean
-          )
+          Boolean
+        )
         : ['Dimensions']
 
       return (
@@ -352,7 +352,7 @@ const renderUsageBased = (rate: UsageFee) => {
             },
             {
               header: 'Unit price',
-              cell: ({ row }) => <DisplayPrice price={row.original.price} />,
+              cell: ({ row }) => <DisplayPrice price={row.original.price}/>,
             },
           ]}
           data={data.dimensionRates}
@@ -374,27 +374,27 @@ const renderUsageBased = (rate: UsageFee) => {
         { header: 'Last unit', accessorFn: row => row.lastUnit ?? '∞' },
         {
           header: 'Unit price',
-          cell: ({ row }) => <DisplayPrice price={row.original.unitPrice} />,
+          cell: ({ row }) => <DisplayPrice price={row.original.unitPrice}/>,
         },
         ...(hasFlatFee
           ? [
-              {
-                header: 'Flat fee',
-                cell: ({ row }) => <DisplayPrice price={row.original.flatFee ?? '0'} />,
-              } as ColumnDef<TieredAndVolumeRowDisplay>,
-            ]
+            {
+              header: 'Flat fee',
+              cell: ({ row }) => <DisplayPrice price={row.original.flatFee ?? '0'}/>,
+            } as ColumnDef<TieredAndVolumeRowDisplay>,
+          ]
           : []),
         ...(hasFlatCap
           ? [
-              {
-                header: 'Flat cap',
-                cell: ({ row }) => <DisplayPrice price={row.original.flatCap ?? '0'} />,
-              } as ColumnDef<TieredAndVolumeRowDisplay>,
-            ]
+            {
+              header: 'Flat cap',
+              cell: ({ row }) => <DisplayPrice price={row.original.flatCap ?? '0'}/>,
+            } as ColumnDef<TieredAndVolumeRowDisplay>,
+          ]
           : []),
       ]
 
-      return <SimpleTable columns={columns} data={zipWithLastUnit(data.rows)} />
+      return <SimpleTable columns={columns} data={zipWithLastUnit(data.rows)}/>
     })
     .exhaustive()
 }

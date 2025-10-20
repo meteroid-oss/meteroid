@@ -29,6 +29,7 @@ import { EditPriceComponentCard } from '@/features/plans/pricecomponents/EditPri
 import { useCurrency } from '@/features/plans/pricecomponents/utils'
 import { Methods, useZodForm } from '@/hooks/useZodForm'
 import { useQuery } from '@/lib/connectrpc'
+import { BillingPeriod } from '@/lib/mapping'
 import {
   Dimension,
   Matrix,
@@ -101,21 +102,41 @@ export const UsageBasedForm = (props: FeeFormProps) => {
     listBillableMetrics,
     plan?.productFamilyLocalId
       ? {
-          familyLocalId: plan.productFamilyLocalId,
-        }
+        familyLocalId: plan.productFamilyLocalId,
+      }
       : disableQuery
   )
 
   const metricsOptions =
     metrics.data?.billableMetrics?.map(metric => ({ label: metric.name, value: metric.id })) ?? []
 
+  const cadenceOptions = useMemo(() => {
+    const periods: BillingPeriod[] = ['MONTHLY', 'QUARTERLY', 'SEMIANNUAL', 'ANNUAL']
+    return periods.map(period => ({
+      label: period.charAt(0) + period.slice(1).toLowerCase(),
+      value: period,
+    }))
+  }, [])
+
   return (
     <>
       <Form {...methods}>
-        <MetricSetter methods={methods} metricsOptions={metricsOptions} />
+        <MetricSetter methods={methods} metricsOptions={metricsOptions}/>
         <EditPriceComponentCard submit={methods.handleSubmit(props.onSubmit)} cancel={props.cancel}>
           <div className="grid grid-cols-3 gap-2">
             <div className="col-span-1 pr-5 border-r border-border space-y-4">
+              <SelectFormField
+                name="term"
+                label="Cadence"
+                control={methods.control}
+                placeholder="Select cadence"
+              >
+                {cadenceOptions.map(option => (
+                  <SelectItem key={option.value} value={option.value}>
+                    {option.label}
+                  </SelectItem>
+                ))}
+              </SelectFormField>
               <ComboboxFormField
                 name="metricId"
                 label="Billable metric"
@@ -130,7 +151,7 @@ export const UsageBasedForm = (props: FeeFormProps) => {
                     size="full"
                     onClick={() => navigate('add-metric')}
                   >
-                    <PlusIcon size={12} /> New metric
+                    <PlusIcon size={12}/> New metric
                   </Button>
                 }
               />
@@ -150,7 +171,7 @@ export const UsageBasedForm = (props: FeeFormProps) => {
                   </SelectItem>
                 ))}
               </SelectFormField>
-              <UsageBasedDataForm methods={methods} />
+              <UsageBasedDataForm methods={methods}/>
             </div>
           </div>
         </EditPriceComponentCard>
@@ -170,11 +191,11 @@ const UsageBasedDataForm = ({
   })
 
   return match(model)
-    .with('matrix', () => <MatrixForm methods={methods} />)
-    .with('per_unit', () => <PerUnitForm methods={methods} />)
-    .with('tiered', () => <TieredForm methods={methods} />)
-    .with('volume', () => <VolumeForm methods={methods} />)
-    .with('package', () => <PackageForm methods={methods} />)
+    .with('matrix', () => <MatrixForm methods={methods}/>)
+    .with('per_unit', () => <PerUnitForm methods={methods}/>)
+    .with('tiered', () => <TieredForm methods={methods}/>)
+    .with('volume', () => <VolumeForm methods={methods}/>)
+    .with('package', () => <PackageForm methods={methods}/>)
     .exhaustive()
 }
 
@@ -254,7 +275,8 @@ const MatrixForm = ({ methods }: { methods: Methods<typeof UsageFeeSchema> }) =>
           }))
         )
       })
-      .otherwise(() => {})
+      .otherwise(() => {
+      })
 
     setDimensionHeaders(headers)
     setValidCombinations(dimensionCombinations)
@@ -289,25 +311,25 @@ const MatrixForm = ({ methods }: { methods: Methods<typeof UsageFeeSchema> }) =>
       },
       ...((dimensionHeaders[1]
         ? [
-            {
-              header: dimensionHeaders[1],
-              cell: ({ row }) => {
-                const orphaned = isOrphaned(row.original)
-                return (
-                  <span
-                    className={orphaned ? 'text-muted-foreground line-through' : ''}
-                    title={
-                      orphaned
-                        ? 'This dimension value no longer exists in the metric definition'
-                        : ''
-                    }
-                  >
+          {
+            header: dimensionHeaders[1],
+            cell: ({ row }) => {
+              const orphaned = isOrphaned(row.original)
+              return (
+                <span
+                  className={orphaned ? 'text-muted-foreground line-through' : ''}
+                  title={
+                    orphaned
+                      ? 'This dimension value no longer exists in the metric definition'
+                      : ''
+                  }
+                >
                     {row.original.dimension2?.value}
                   </span>
-                )
-              },
+              )
             },
-          ]
+          },
+        ]
         : []) as ColumnDef<Matrix['dimensionRates'][number]>[]),
       {
         header: 'Unit price',
@@ -350,7 +372,7 @@ const MatrixForm = ({ methods }: { methods: Methods<typeof UsageFeeSchema> }) =>
 
   return (
     <>
-      <SimpleTable columns={columns} data={fields} />
+      <SimpleTable columns={columns} data={fields}/>
     </>
   )
 }
@@ -399,7 +421,7 @@ const TieredForm = ({
   methods: Methods<typeof UsageFeeSchema> // TODO
 }) => {
   const currency = useCurrency()
-  return <TierTable methods={methods} currency={currency} />
+  return <TierTable methods={methods} currency={currency}/>
 }
 
 const VolumeForm = ({
@@ -408,7 +430,7 @@ const VolumeForm = ({
   methods: Methods<typeof UsageFeeSchema> // TODO
 }) => {
   const currency = useCurrency()
-  return <TierTable methods={methods} currency={currency} />
+  return <TierTable methods={methods} currency={currency}/>
 }
 
 const PackageForm = ({
@@ -483,11 +505,11 @@ const TierTable = ({
     () => [
       {
         header: 'First unit',
-        cell: ({ row }) => <FirstUnitField methods={methods} rowIndex={row.index} />,
+        cell: ({ row }) => <FirstUnitField methods={methods} rowIndex={row.index}/>,
       },
       {
         header: 'Last unit',
-        cell: ({ row }) => <LastUnitCell methods={methods} rowIndex={row.index} />,
+        cell: ({ row }) => <LastUnitCell methods={methods} rowIndex={row.index}/>,
       },
       {
         header: 'Per unit',
@@ -536,7 +558,7 @@ const TierTable = ({
               onClick={() => remove(row.index)}
               disabled={fields.length <= 2}
             >
-              <XIcon size={12} />
+              <XIcon size={12}/>
             </Button>
           ),
       },
@@ -546,7 +568,7 @@ const TierTable = ({
 
   return (
     <>
-      <SimpleTable columns={columns} data={fields} />
+      <SimpleTable columns={columns} data={fields}/>
       <Button variant="link" onClick={addTier}>
         + Add tier
       </Button>
@@ -588,7 +610,7 @@ const FirstUnitField = memo(
                   placeholder={isFirst ? '0' : ''}
                 />
               </FormControl>
-              <FormMessage />
+              <FormMessage/>
             </FormItem>
           )}
         />

@@ -46,6 +46,7 @@ const defaults: Record<PriceComponentType, DeepPartial<PriceComponent>> = {
       fee: 'capacity',
       data: {
         thresholds: [],
+        term: 'MONTHLY',
       },
     },
   },
@@ -58,6 +59,7 @@ const defaults: Record<PriceComponentType, DeepPartial<PriceComponent>> = {
           model: 'per_unit',
           data: {},
         },
+        term: 'MONTHLY',
       },
     },
   },

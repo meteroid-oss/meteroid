@@ -89,6 +89,7 @@ pub mod components {
                             })
                         })
                         .collect::<Result<Vec<_>, _>>()?,
+                    cadence: billing_period::from_proto(fee.term()),
                 }),
                 api::fee::FeeType::ExtraRecurring(fee) => {
                     let cadence = fee
@@ -114,6 +115,7 @@ pub mod components {
                     Ok(domain::FeeType::Usage {
                         metric_id: BillableMetricId::from_proto(&fee.metric_id)?,
                         pricing: mapped,
+                        cadence: billing_period::from_proto(fee.term()),
                     })
                 }
             },
@@ -172,6 +174,7 @@ pub mod components {
             domain::FeeType::Capacity {
                 metric_id,
                 thresholds,
+                cadence,
             } => {
                 let thresholds = thresholds
                     .into_iter()
@@ -185,6 +188,7 @@ pub mod components {
                 api::fee::FeeType::Capacity(api::fee::CapacityFee {
                     metric_id: metric_id.as_proto(),
                     thresholds,
+                    term: billing_period::to_proto(cadence).into(),
                 })
             }
             domain::FeeType::ExtraRecurring {
@@ -207,8 +211,12 @@ pub mod components {
                 quantity,
                 unit_price: unit_price.as_proto(),
             }),
-            domain::FeeType::Usage { metric_id, pricing } => {
-                let model = usage_pricing_model_to_grpc(&metric_id, &pricing);
+            domain::FeeType::Usage {
+                metric_id,
+                pricing,
+                cadence,
+            } => {
+                let model = usage_pricing_model_to_grpc(&metric_id, &pricing, cadence);
 
                 api::fee::FeeType::Usage(model)
             }

@@ -34,6 +34,7 @@ export const RecurringForm = (props: FeeFormProps) => {
               >
                 <SelectItem value="MONTHLY">Monthly</SelectItem>
                 <SelectItem value="QUARTERLY">Quarterly</SelectItem>
+                <SelectItem value="SEMIANNUAL">Semiannual</SelectItem>
                 <SelectItem value="ANNUAL">Annual</SelectItem>
               </SelectFormField>
               <SelectFormField
@@ -60,7 +61,7 @@ export const RecurringForm = (props: FeeFormProps) => {
                 label="Price per unit"
                 control={methods.control}
                 render={({ field }) => (
-                  <UncontrolledPriceInput {...field} currency={currency} className="max-w-xs" />
+                  <UncontrolledPriceInput {...field} currency={currency} className="max-w-xs"/>
                 )}
               />
             </div>

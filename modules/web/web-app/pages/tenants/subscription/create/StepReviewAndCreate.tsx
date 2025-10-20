@@ -522,7 +522,7 @@ export const StepReviewAndCreate = () => {
                                 <div className="flex items-center justify-end gap-1">
                                   <span className="text-muted-foreground text-xs">Metered</span>
                                   <Badge variant="secondary" size="sm">
-                                    Monthly
+                                    {getApiComponentBillingPeriodLabel(component, configuration)}
                                   </Badge>
                                 </div>
                               ) : (

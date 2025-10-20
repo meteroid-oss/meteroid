@@ -126,12 +126,14 @@ pub enum Fee {
         #[serde(with = "string_serde")]
         metric_id: BillableMetricId,
         thresholds: Vec<CapacityThreshold>,
+        cadence: BillingPeriodEnum,
     },
     /// Usage-based fee
     Usage {
         #[serde(with = "string_serde")]
         metric_id: BillableMetricId,
         pricing: UsagePricingModel,
+        cadence: BillingPeriodEnum,
     },
     /// Extra recurring fee
     ExtraRecurring {

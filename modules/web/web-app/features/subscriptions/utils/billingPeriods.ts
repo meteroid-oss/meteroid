@@ -40,9 +40,24 @@ export const getSchemaComponentBillingPeriodLabel = (
 ): string => {
   const feeType = component.fee.fee
 
-  // For usage & capacity: always monthly
+  // For usage & capacity: use the term
   if (feeType === 'usage' || feeType === 'capacity') {
-    return 'Monthly'
+    if (configuration?.billingPeriod !== undefined) {
+      return getBillingPeriodLabel(configuration.billingPeriod)
+    } else {
+      switch (component.fee.data.term) {
+        case 'MONTHLY':
+          return 'Monthly'
+        case 'QUARTERLY':
+          return 'Quarterly'
+        case 'SEMIANNUAL':
+          return 'Semiannual'
+        case 'ANNUAL':
+          return 'Annual'
+        default:
+          return 'Monthly'
+      }
+    }
   }
 
   // For rates and slots: use configured period or the only available rate's term
@@ -88,7 +103,23 @@ export const getApiComponentBillingPeriodLabel = (
 
   // For usage & capacity: always monthly
   if (feeType === 'usage' || feeType === 'capacity') {
-    return 'Monthly'
+    if (configuration?.billingPeriod !== undefined) {
+      switch (configuration.billingPeriod) {
+        case BillingPeriod.MONTHLY:
+          return 'Monthly'
+        case BillingPeriod.QUARTERLY:
+          return 'Quarterly'
+        case BillingPeriod.SEMIANNUAL:
+          return 'Semiannual'
+        case BillingPeriod.ANNUAL:
+          return 'Annual'
+        default:
+          return 'Monthly'
+      }
+    } else {
+      const term = component.fee?.feeType?.value.term || BillingPeriod.MONTHLY
+      return getBillingPeriodLabel(term)
+    }
   }
 
   // For rates and slots: use configured period or the only available rate's term
@@ -97,7 +128,7 @@ export const getApiComponentBillingPeriodLabel = (
       switch (configuration.billingPeriod) {
         case BillingPeriod.MONTHLY:
           return 'Monthly'
-        case  BillingPeriod.QUARTERLY:
+        case BillingPeriod.QUARTERLY:
           return 'Quarterly'
         case BillingPeriod.SEMIANNUAL:
           return 'Semiannual'

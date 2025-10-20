@@ -239,7 +239,7 @@ impl SubscriptionNewEnriched<'_> {
             invoice_threshold: sub.invoice_threshold,
             activated_at: self.activated_at,
             mrr_cents: 0,
-            period: self.period.clone().into(),
+            period: self.period.into(),
             start_date: sub.start_date,
             activation_condition: sub.activation_condition.clone().into(),
             payment_method: self.payment_setup_result.payment_method,
