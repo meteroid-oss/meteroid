@@ -5,11 +5,11 @@
     "@md/tsconfig": "workspace:*",
     "@svgr/babel-plugin-remove-jsx-attribute": "^8.0.0",
     "@svgr/cli": "^8.1.0",
-    "eslint-config-next": "^14.2.25",
+    "eslint-config-next": "^15.5.6",
     "onchange": "^7.1.0",
     "path": "^0.12.7",
-    "replace-in-file": "^7.2.0",
-    "typescript": "^5.8.2"
+    "replace-in-file": "^8.3.0",
+    "typescript": "^5.9.3"
   },
   "exports": {
     ".": "./dist/index.ts"
