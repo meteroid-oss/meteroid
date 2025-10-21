@@ -133,7 +133,7 @@ services:
       retries: 100
     volumes:
       - clickhouse_data:/var/lib/clickhouse
-      - ./volume/clickhouse/config.xml:/develop/clickhouse/config.xml
+      - ./volume/clickhouse/config.xml:/etc/clickhouse-server/config.d/custom.xml
     networks:
       - meteroid_net
     profiles:

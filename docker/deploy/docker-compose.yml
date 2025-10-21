@@ -8,6 +8,7 @@ x-default-logging: &logging
 volumes:
   pg_data:
   clickhouse_data:
+  clickhouse_coordination:
   redpanda_data:
   object_store_data:
 
@@ -66,6 +67,8 @@ services:
       retries: 100
     volumes:
       - clickhouse_data:/var/lib/clickhouse
+      - clickhouse_coordination:/var/lib/clickhouse/coordination
+      - ./volume/clickhouse/config.xml:/etc/clickhouse-server/config.d/cluster.xml:ro
     networks:
       - meteroid_net
     logging: *logging
@@ -227,6 +230,7 @@ services:
       - CLICKHOUSE_TCP_ADDRESS=clickhouse:9000
       - CLICKHOUSE_USERNAME=${CLICKHOUSE_USERNAME:-default}
       - CLICKHOUSE_PASSWORD=${CLICKHOUSE_PASSWORD:-default}
+      - CLICKHOUSE_CLUSTER_NAME=${CLICKHOUSE_CLUSTER_NAME:-meteroid}
       # Optional: Telemetry
       - TELEMETRY_TRACING_ENABLED=${TELEMETRY_TRACING_ENABLED:-false}
       - TELEMETRY_METRICS_ENABLED=${TELEMETRY_METRICS_ENABLED:-false}

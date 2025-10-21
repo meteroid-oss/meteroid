@@ -1,10 +1,49 @@
 use crate::config::{ClickhouseConfig, KafkaConfig};
+use crate::migrate::{ClusterMigration, ClusterName, sync_checksums};
+use clickhouse::Client;
 use error_stack::{Report, ResultExt};
-use klickhouse::{Client, ClientOptions, ClusterMigration, ClusterName};
+use kafka::config::KafkaConnectionConfig;
 use thiserror::Error;
 
 static KAFKA_CONFIG: std::sync::OnceLock<KafkaConfig> = std::sync::OnceLock::new();
 static CLICKHOUSE_CONFIG: std::sync::OnceLock<ClickhouseConfig> = std::sync::OnceLock::new();
+
+pub fn build_kafka_settings(
+    broker_list: &str,
+    topic: &str,
+    group_name: &str,
+    kafka_connection: &KafkaConnectionConfig,
+) -> String {
+    let mut settings = vec![
+        format!("kafka_broker_list = '{}'", broker_list),
+        format!("kafka_topic_list = '{}'", topic),
+        format!("kafka_group_name = '{}'", group_name),
+        "kafka_format = 'JSONEachRow'".to_string(),
+    ];
+
+    if let Some(ref v) = kafka_connection.sasl_username
+        && !v.is_empty()
+    {
+        settings.push(format!("kafka_sasl_username = '{}'", v));
+    }
+    if let Some(ref v) = kafka_connection.sasl_password
+        && !v.is_empty()
+    {
+        settings.push(format!("kafka_sasl_password = '{}'", v));
+    }
+    if let Some(ref v) = kafka_connection.sasl_mechanism
+        && !v.is_empty()
+    {
+        settings.push(format!("kafka_sasl_mechanism = '{}'", v));
+    }
+    if let Some(ref v) = kafka_connection.security_protocol
+        && !v.is_empty()
+    {
+        settings.push(format!("kafka_security_protocol = '{}'", v));
+    }
+
+    settings.join(",\n              ")
+}
 
 refinery::embed_migrations!("migrations/refinery");
 
@@ -15,56 +54,38 @@ pub async fn run(
     set_kafka_config(kafka_config);
     set_clickhouse_config(clickhouse_config);
 
-    let mut client = Client::connect(
-        &clickhouse_config.tcp_address,
-        ClientOptions {
-            username: clickhouse_config.username.clone(),
-            password: clickhouse_config.password.clone(),
-            default_database: clickhouse_config.database.clone(),
-            tcp_nodelay: true,
-        },
-    )
-    .await
-    .change_context(MigrationsError::Execution)?;
+    // Create native ClickHouse HTTP client
+    let client = Client::default()
+        .with_url(&clickhouse_config.http_address)
+        .with_user(&clickhouse_config.username)
+        .with_password(&clickhouse_config.password)
+        .with_database(&clickhouse_config.database);
 
-    if clickhouse_config.cluster_name.is_some() {
-        // Create a cluster-aware migration client
-        struct MeteroidCluster;
-        impl ClusterName for MeteroidCluster {
-            fn cluster_name() -> String {
-                get_clickhouse_config()
-                    .cluster_name
-                    .as_ref()
-                    .expect("cluster_name should be set for cluster migrations")
-                    .clone()
-            }
+    let mut runner = &mut migrations::runner();
+    runner = runner.set_migration_table_name("refinery_schema_history");
 
-            fn database() -> String {
-                get_clickhouse_config().database.clone()
-            }
+    // temporary: syncs checksums that drifted due to dynamic SQL in V1-V5.
+    // becomes a no-op once V6 has run in all environments.
+    sync_checksums(&client, "refinery_schema_history", runner.get_migrations())
+        .await
+        .change_context(MigrationsError::Execution)?;
+
+    struct MeteroidCluster;
+    impl ClusterName for MeteroidCluster {
+        fn cluster_name() -> String {
+            get_clickhouse_config().cluster_name.clone()
         }
-
-        let mut cluster_client = ClusterMigration::<MeteroidCluster>::new(client);
-
-        let report = migrations::runner()
-            .run_async(&mut cluster_client)
-            .await
-            .change_context(MigrationsError::Execution)?;
-
-        for migration in report.applied_migrations() {
-            log::info!("Migration {migration} has been applied");
-        }
-
-        return Ok(());
     }
 
-    let report = migrations::runner()
-        .run_async(&mut client)
+    let mut cluster_client = ClusterMigration::<MeteroidCluster>::new(client.clone());
+
+    let report = runner
+        .run_async(&mut cluster_client)
         .await
         .change_context(MigrationsError::Execution)?;
 
     for migration in report.applied_migrations() {
-        log::info!("Migration {migration} has been applied");
+        log::info!("Applied migration: {migration}");
     }
 
     Ok(())
