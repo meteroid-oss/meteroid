@@ -23,6 +23,9 @@ pub async fn run(
         .with_password(&clickhouse_config.password)
         .with_database(&clickhouse_config.database);
 
+    let mut runner = &mut migrations::runner();
+    runner = runner.set_migration_table_name("refinery_schema_history_v2");
+
     if clickhouse_config.cluster_name.is_some() {
         struct MeteroidCluster;
         impl ClusterName for MeteroidCluster {
@@ -37,7 +40,7 @@ pub async fn run(
 
         let mut cluster_client = ClusterMigration::<MeteroidCluster>::new(client);
 
-        let report = migrations::runner()
+        let report = runner
             .run_async(&mut cluster_client)
             .await
             .change_context(MigrationsError::Execution)?;
@@ -52,7 +55,7 @@ pub async fn run(
     // Single-node mode using regular MergeTree
     let mut single_client = ClickhouseMigration::new(client);
 
-    let report = migrations::runner()
+    let report = runner
         .run_async(&mut single_client)
         .await
         .change_context(MigrationsError::Execution)?;
