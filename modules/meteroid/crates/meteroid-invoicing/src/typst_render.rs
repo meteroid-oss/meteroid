@@ -332,7 +332,6 @@ impl From<&Invoice> for TypstInvoiceContent {
             "tax_reverse_charge" => invoice_l10n.tax_reverse_charge().into_value(),
             "pay_online" => invoice_l10n.pay_online().into_value(),
             "vat_id" => invoice_l10n.vat_id().into_value(),
-            "tax_breakdown_title" => invoice_l10n.tax_breakdown_title().into_value(),
             "vat_standard" => invoice_l10n.vat_standard().into_value(),
             "vat_reduced" => invoice_l10n.vat_reduced().into_value(),
             "vat_exempt_notice" => invoice_l10n.vat_exempt_notice().into_value(),

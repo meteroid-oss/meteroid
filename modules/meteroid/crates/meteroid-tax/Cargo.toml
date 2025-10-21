@@ -10,6 +10,7 @@ license.workspace = true
 [dependencies]
 tokio = { workspace = true, features = ["full"] }
 serde = { workspace = true, features = ["derive"] }
+ordermap = { workspace = true }
 common-domain = { workspace = true }
 thiserror = { workspace = true }
 chrono = { workspace = true, features = ["clock"] }

@@ -255,11 +255,11 @@ fn get_tax_name(tax_type: &world_tax::TaxType) -> &'static str {
 pub(crate) fn compute_breakdown_from_line_items(
     line_items: &[LineItemWithTax],
 ) -> CalculationResult {
-    use std::collections::HashMap;
+    use ordermap::OrderMap;
 
-    // Aggregate taxes by tax reference
-    let mut tax_aggregates: HashMap<String, (String, rust_decimal::Decimal, u64, u64)> =
-        HashMap::new();
+    // Aggregate taxes by tax reference (OrderMap preserves insertion order)
+    let mut tax_aggregates: OrderMap<String, (String, rust_decimal::Decimal, u64, u64)> =
+        OrderMap::new();
     let mut exempt_items: Vec<(VatExemptionReason, u64)> = Vec::new();
 
     for item in line_items {
@@ -322,7 +322,7 @@ pub(crate) fn compute_breakdown_from_line_items(
         .collect();
 
     // Add exempt items grouped by reason
-    let mut exempt_groups: HashMap<VatExemptionReason, u64> = HashMap::new();
+    let mut exempt_groups: OrderMap<VatExemptionReason, u64> = OrderMap::new();
     for (reason, amount) in exempt_items {
         *exempt_groups.entry(reason).or_default() += amount;
     }
