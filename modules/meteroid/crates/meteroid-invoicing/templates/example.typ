@@ -183,7 +183,6 @@
   exchange_rate_info: "Exchange rate: 1 EUR = 1.08 USD | Converted amount = USD 1296.00",
   no_transactions: "No payments received",
   payment_info_title: "PAYMENT INFORMATION",
-  tax_breakdown_title: "TAX BREAKDOWN",
   vat_standard: "VAT (Standard Rate)",
   vat_reduced: "VAT (Reduced Rate)",
   vat_exempt_notice: "VAT exempt items not included in tax calculation",

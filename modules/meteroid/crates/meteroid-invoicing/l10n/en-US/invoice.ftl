@@ -35,7 +35,6 @@ reverse-charge-label = Reverse charge
 tax-reverse-charge = Tax to be paid on reverse charge basis
 pay-online = Pay online
 vat-id = VAT ID
-tax-breakdown-title = Tax Breakdown
 vat-standard = VAT (Standard Rate)
 vat-reduced = VAT (Reduced Rate)
 vat-exempt-notice = VAT exempt items not included in tax calculation
