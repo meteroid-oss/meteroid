@@ -5,7 +5,7 @@ import { PaginationState } from '@tanstack/react-table'
 import { ScopeProvider } from 'jotai-scope'
 import { ChevronLeftIcon, ExternalLinkIcon, Plus } from 'lucide-react'
 import { ReactNode, useState } from 'react'
-import { Link, useNavigate } from 'react-router-dom'
+import { Link, useNavigate, useParams } from 'react-router-dom'
 
 import { Loading } from '@/components/Loading'
 import { PageSection } from '@/components/layouts/shared/PageSection'
@@ -33,9 +33,17 @@ interface Props {
 
 export const PlanBuilder: React.FC<Props> = ({ children }) => {
   const navigate = useNavigate()
+  const { planVersion } = useParams<{ planVersion?: string }>()
 
   const isDraft = useIsDraftVersion()
   const overview = usePlanOverview()
+
+  // Only show the draft alert when:
+  // 1. Not viewing the draft itself (!isDraft)
+  // 2. There is a draft version (hasDraftVersion)
+  // 3. We're on the default view (no planVersion param)
+  //    This excludes specific numbered versions like /plans/123/2
+  const showDraftAlert = !isDraft && overview?.hasDraftVersion && !planVersion
 
   return (
     <ScopeProvider atoms={[addedComponentsAtom, editedComponentsAtom]}>
@@ -49,18 +57,18 @@ export const PlanBuilder: React.FC<Props> = ({ children }) => {
             <h2 className="text-2xl font-semibold">{overview?.name}</h2>
           </div>
           <div className="flex space-x-6  self-center">
-            <PlanActions />
+            <PlanActions/>
           </div>
         </section>
 
-        {isDraft && <PlanBody />}
+        {isDraft && <PlanBody/>}
         {!isDraft && (
           <>
-            {overview?.hasDraftVersion && (
+            {showDraftAlert && (
               <>
                 <Alert variant="brand" className="flex  gap-2 items-center">
                   <div>
-                    <InfoIcon size={16} className="flex text-brand  " />
+                    <InfoIcon size={16} className="flex text-brand  "/>
                   </div>
                   <span className="text-foreground text-xs flex-grow flex gap-1">
                     A{' '}
@@ -72,7 +80,7 @@ export const PlanBuilder: React.FC<Props> = ({ children }) => {
                   <div className="text-xs">
                     <Button size="sm" variant="link" className="h-fit" hasIcon asChild>
                       <Link to={`../${overview.localId}/draft`}>
-                        Open draft <ExternalLinkIcon size="12" />
+                        Open draft <ExternalLinkIcon size="12"/>
                       </Link>
                     </Button>
                   </div>
@@ -87,16 +95,16 @@ export const PlanBuilder: React.FC<Props> = ({ children }) => {
                 <TabsTrigger value="versions">History</TabsTrigger>
               </TabsList>
               <TabsContent value="overview">
-                <PlanBody />
+                <PlanBody/>
               </TabsContent>
               <TabsContent value="subscriptions">
-                <SubscriptionsTab />
+                <SubscriptionsTab/>
               </TabsContent>
               <TabsContent value="alerts">
                 <>Alerts are not implemented yet</>
               </TabsContent>
               <TabsContent value="versions">
-                <ListPlanVersionTab />
+                <ListPlanVersionTab/>
               </TabsContent>
             </Tabs>
           </>
@@ -123,13 +131,13 @@ const SubscriptionsTab = () => {
     listSubscriptions,
     overview
       ? {
-          planId: overview.id,
-          pagination: {
-            perPage: pagination.pageSize,
-            page: pagination.pageIndex,
-          },
-          status: [],
-        }
+        planId: overview.id,
+        pagination: {
+          perPage: pagination.pageSize,
+          page: pagination.pageIndex,
+        },
+        status: [],
+      }
       : disableQuery
   )
 
@@ -147,7 +155,7 @@ const SubscriptionsTab = () => {
             navigate(`${basePath}/subscriptions/create?planVersionId=${planData?.version?.id}`)
           }
         >
-          <Plus size={10} /> New subscription
+          <Plus size={10}/> New subscription
         </Button>
       </div>
 
@@ -169,7 +177,7 @@ const PlanBody = () => {
   if (planData.isLoading) {
     return (
       <>
-        <Loading />
+        <Loading/>
       </>
     )
   }
@@ -183,10 +191,10 @@ const PlanBody = () => {
 
   return (
     <>
-      {current && <PlanOverview plan={plan} version={current} />}
+      {current && <PlanOverview plan={plan} version={current}/>}
       {plan.planType !== PlanType.FREE && (
         <>
-          <PriceComponentSection />
+          <PriceComponentSection/>
 
           <PageSection
             header={{
@@ -210,7 +218,7 @@ const PlanBody = () => {
             }}
           >
             <div className="space-x-4 ">
-              <SimpleTable columns={[]} data={[]} emptyMessage="No schedule configured" />
+              <SimpleTable columns={[]} data={[]} emptyMessage="No schedule configured"/>
             </div>
           </PageSection>
           <PageSection
@@ -249,7 +257,7 @@ const PlanBody = () => {
         }}
       >
         <div className="space-x-4 ">
-          <SimpleTable headTrClasses="!hidden" columns={[]} data={[]} emptyMessage="No addons" />
+          <SimpleTable headTrClasses="!hidden" columns={[]} data={[]} emptyMessage="No addons"/>
         </div>
       </PageSection>
     </>
