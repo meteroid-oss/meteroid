@@ -284,7 +284,7 @@ export const Subscription = () => {
           </div>
         </div>
 
-        {data.checkoutUrl && (
+        {data.checkoutUrl && data.status === SubscriptionStatus.PENDING && (
           <Alert variant="default" className="mb-6">
             <div className="flex gap-2 items-center content-between justify-between">
               <span>This subscription is pending checkout. </span>
