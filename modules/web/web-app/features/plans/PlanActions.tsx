@@ -1,4 +1,4 @@
-import { createConnectQueryKey, useMutation } from '@connectrpc/connect-query'
+import { useMutation } from '@connectrpc/connect-query'
 import {
   Button,
   DropdownMenu,
@@ -94,9 +94,9 @@ export const PlanActions = () => {
 
   const publishPlanMutation = useMutation(publishPlanVersion, {
     onSuccess: async res => {
-      queryClient.invalidateQueries({ queryKey: createConnectQueryKey(getPlanOverview) })
-      queryClient.invalidateQueries({ queryKey: createConnectQueryKey(getPlanWithVersion) })
-      queryClient.invalidateQueries({ queryKey: createConnectQueryKey(listPlans) })
+      queryClient.invalidateQueries({ queryKey: [getPlanOverview.service.typeName] })
+      queryClient.invalidateQueries({ queryKey: [getPlanWithVersion.service.typeName] })
+      queryClient.invalidateQueries({ queryKey: [listPlans.service.typeName] })
 
       const version = res.planVersion?.version
       setIsBusy(false)
