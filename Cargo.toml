@@ -178,7 +178,7 @@ tracing = { version = "0.1.39", features = ["log"] }
 tracing-log = "0.2.0"
 tracing-subscriber = { version = "0.3.18", features = ["registry", "tracing-log", "fmt", "env-filter", "json"] }
 typetag = "0.2.13"
-typst = { version = "0.13.1" }
+typst = { version = "0.14.0" }
 typst-pdf = { version = "0.13.1" }
 typst-svg = { version = "0.13.1" }
 typst-as-lib = { version = "0.14.1", features = [] }
