@@ -33,6 +33,10 @@ use tonic::Request;
 const MAX_CSV_SIZE: usize = 10 * 1024 * 1024; // 10MB limit
 const MAX_BATCH_SIZE: usize = 500; // Max events per batch
 
+fn extract_error_message(status: &tonic::Status) -> String {
+    status.message().to_string()
+}
+
 #[derive(Clone, Debug)]
 pub struct MeteringUsageClient {
     usage_grpc_client: UsageQueryServiceClient<LayeredClientService>,
@@ -431,6 +435,7 @@ impl UsageClient for MeteringUsageClient {
                 }
                 Err(e) => {
                     tracing::error!("Batch {} failed entirely: {}", batch_idx + 1, e);
+                    let clean_error = extract_error_message(&e);
                     // All events in this batch failed
                     for event in chunk {
                         let original_row = events
@@ -441,7 +446,7 @@ impl UsageClient for MeteringUsageClient {
                         failures.push(CsvIngestionFailure {
                             row_number: original_row.unwrap_or(0) as i32,
                             event_id: event.id.clone(),
-                            reason: format!("Metering service error: {e}"),
+                            reason: clean_error.clone(),
                         });
                     }
                 }

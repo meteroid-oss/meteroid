@@ -9,7 +9,9 @@ pub mod quotes {
     use meteroid_store::domain;
 
     use crate::api::customers::mapping::customer::ServerCustomerWrapper;
-    use crate::api::subscriptions::mapping::price_components::subscription_fee_to_grpc;
+    use crate::api::subscriptions::mapping::price_components::{
+        subscription_fee_billing_period_to_grpc, subscription_fee_to_grpc,
+    };
 
     fn status_domain_to_server(value: domain::enums::QuoteStatusEnum) -> QuoteStatus {
         match value {
@@ -54,7 +56,7 @@ pub mod quotes {
             name: component.name.clone(),
             price_component_id: component.price_component_id.map(|id| id.as_proto()),
             product_id: component.product_id.map(|id| id.as_proto()),
-            period: component.period as i32,
+            period: subscription_fee_billing_period_to_grpc(component.period) as i32,
             fee: Some(subscription_fee_to_grpc(
                 &component.fee,
                 component.period.as_billing_period_opt().unwrap_or_default(),
