@@ -26,9 +26,12 @@ pub enum EventsApiError {
 
 impl From<Report<StoreError>> for EventsApiError {
     fn from(value: Report<StoreError>) -> Self {
-        Self::StoreError(
-            "Error in events service".to_string(),
-            Box::new(value.into_error()),
-        )
+        let error_msg = match value.current_context() {
+            StoreError::InvalidArgument(msg) => return Self::InvalidArgument(msg.clone()),
+            StoreError::MeteringServiceError => value.to_string(),
+            _ => value.to_string(),
+        };
+
+        Self::StoreError(error_msg, Box::new(value.into_error()))
     }
 }

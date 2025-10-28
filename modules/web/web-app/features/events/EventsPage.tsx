@@ -35,11 +35,13 @@ import {
   XCircleIcon,
 } from 'lucide-react'
 import { useEffect, useMemo, useRef, useState } from 'react'
+import { DateRange } from 'react-day-picker'
 import { toast } from 'sonner'
 
 import PageHeading from '@/components/PageHeading/PageHeading'
 import { StandardTable } from '@/components/table/StandardTable'
 import { CustomerSelect } from '@/features/customers/CustomerSelect'
+import { DatePickerWithRange } from '@/features/dashboard/DateRangePicker'
 import { useQuery as useConnectQuery } from '@/lib/connectrpc'
 import {
   ingestEventsFromCsv,
@@ -84,14 +86,27 @@ export const EventsPage: FunctionComponent = () => {
   } | null>(null)
   const prevEventsRef = useRef<EventSummary[]>([])
 
-  // Build search request
+  const [dateRange, setDateRange] = useState<DateRange | undefined>(() => {
+    const to = new Date()
+    const from = new Date()
+    from.setDate(from.getDate() - 30)
+    return { from, to }
+  })
+
   const searchRequest = useMemo(() => {
-    const now = new Date()
-    const from = new Date(now.getTime() - 30 * 24 * 60 * 60 * 1000) // 30 days ago
+    // Default to last 30 days if no range is set
+    let from = dateRange?.from || new Date(new Date().getTime() - 30 * 24 * 60 * 60 * 1000)
+    let to = dateRange?.to || new Date()
+
+    // inclusive
+    from = new Date(from)
+    from.setHours(0, 0, 0, 0)
+    to = new Date(to)
+    to.setHours(23, 59, 59, 999)
 
     return new SearchEventsRequest({
       from: Timestamp.fromDate(from),
-      to: Timestamp.fromDate(now),
+      to: Timestamp.fromDate(to),
       limit: pagination.pageSize,
       offset: pagination.pageIndex * pagination.pageSize,
       search: search || undefined,
@@ -99,15 +114,25 @@ export const EventsPage: FunctionComponent = () => {
       customerIds: customerId ? [customerId] : [],
       sortOrder,
     })
-  }, [pagination, search, customerId, sortOrder])
+  }, [pagination, search, customerId, sortOrder, dateRange])
 
   // Fetch events
   const eventsQuery = useConnectQuery(searchEvents, searchRequest, {
     refetchInterval: isLive ? 5000 : false, // Poll every 5 seconds when live
     staleTime: isLive ? 0 : 30000,
     queryKeyHashFn: () =>
-      `events-${pagination.pageIndex}-${pagination.pageSize}-${search}-${customerId}-${sortOrder}`,
+      `events-${pagination.pageIndex}-${pagination.pageSize}-${search}-${customerId}-${sortOrder}-${dateRange?.from?.getTime()}-${dateRange?.to?.getTime()}`,
   })
+
+  // Update "to" date when in live mode
+  useEffect(() => {
+    if (isLive) {
+      const interval = setInterval(() => {
+        setDateRange(prev => prev ? { ...prev, to: new Date() } : undefined)
+      }, 5000)
+      return () => clearInterval(interval)
+    }
+  }, [isLive])
 
   // Highlight new events when in live mode
   useEffect(() => {
@@ -257,6 +282,9 @@ export const EventsPage: FunctionComponent = () => {
               className="pl-10 w-64"
             />
           </div>
+
+          {/* Date Range */}
+          <DatePickerWithRange range={dateRange} setRange={setDateRange} />
 
           {/* Filters */}
           <div className="flex items-center space-x-2">
@@ -496,7 +524,10 @@ export const EventsPage: FunctionComponent = () => {
                       {importResult.failures.length > 0 && (
                         <Card>
                           <CardContent className="p-4">
-                            <ScrollArea className="max-h-60">
+                            <div className="mb-2 text-sm font-medium text-muted-foreground">
+                              Errors ({importResult.failures.length})
+                            </div>
+                            <ScrollArea className="h-[300px] pr-4">
                               <div className="space-y-2">
                                 {importResult.failures.map((failure, index) => (
                                   <div
@@ -504,8 +535,8 @@ export const EventsPage: FunctionComponent = () => {
                                     className="p-3 border rounded-lg bg-red-50 border-red-200 dark:bg-red-950/50 dark:border-red-800"
                                   >
                                     <div className="flex items-start justify-between">
-                                      <div className="flex-1">
-                                        <div className="flex items-center gap-2 text-sm font-medium mb-1">
+                                      <div className="flex-1 min-w-0">
+                                        <div className="flex items-center gap-2 text-sm font-medium mb-1 flex-wrap">
                                           <Badge variant="destructive" className="text-xs">
                                             Row {failure.rowNumber}
                                           </Badge>
@@ -515,7 +546,7 @@ export const EventsPage: FunctionComponent = () => {
                                             </Badge>
                                           )}
                                         </div>
-                                        <p className="text-sm text-red-700 dark:text-red-300">
+                                        <p className="text-sm text-red-700 dark:text-red-300 break-words">
                                           {failure.reason}
                                         </p>
                                       </div>

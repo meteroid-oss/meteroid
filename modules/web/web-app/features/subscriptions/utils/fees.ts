@@ -57,7 +57,7 @@ export const formatSubscriptionFee = (
       const capacityFee = fee.fee.value
       return {
         type: 'Capacity',
-        details: `${capacityFee.included.toString()} included${parseFloat(capacityFee.overageRate) > 0 ? `, ${formatCurrencyNoRounding(Number(capacityFee.overageRate), currency)} per unit over` : ''}`,
+        details: `${capacityFee.included.toString()} included${parseFloat(capacityFee.overageRate) > 0 ? `, then ${formatCurrencyNoRounding(Number(capacityFee.overageRate), currency)} per unit` : ''}`,
         amount: formatCurrencyNoRounding(Number(capacityFee.rate), currency),
       }
     }
