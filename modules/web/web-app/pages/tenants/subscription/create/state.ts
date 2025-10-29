@@ -42,6 +42,7 @@ export interface ComponentOverride {
 export interface ExtraComponent {
   name: string
   fee: SubscriptionFeeType
+  billingPeriod?: BillingPeriod
 }
 
 export interface CreateSubscriptionAddOn {
