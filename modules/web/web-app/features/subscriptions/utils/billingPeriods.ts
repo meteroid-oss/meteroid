@@ -172,18 +172,18 @@ export const getApiComponentBillingPeriodLabel = (
 }
 
 
-export const getExtraComponentBillingPeriodLabel = (feeType?: string): string => {
-  switch (feeType) {
-    case 'oneTime':
-      return 'One-time'
-    case 'extraRecurring':
-    case 'rate':
-      return 'Monthly'
-    case 'slot':
-      return 'Monthly'  // TODO. defaulting for now for extra
-    case 'capacity':
-      return 'Monthly'
-    default:
-      return 'One-time'
+export const getExtraComponentBillingPeriodLabel = (
+  feeType?: string,
+  billingPeriod?: BillingPeriod
+): string => {
+  if (feeType === 'oneTime') {
+    return 'One-time'
   }
+
+  if (billingPeriod !== undefined) {
+    return getBillingPeriodLabel(billingPeriod)
+  }
+
+  // Fallback to Monthly for recurring fees
+  return 'Monthly'
 }

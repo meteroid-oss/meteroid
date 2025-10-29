@@ -671,7 +671,8 @@ fn validate_domain(email: &str, allowed_domains: &[String]) -> StoreResult<bool>
         Ok(true)
     } else {
         Err(Report::new(StoreError::LoginError(
-            "Domain not authorized".to_string(),
+            "New signups are currently restricted. Please contact us to request access."
+                .to_string(),
         )))
     }
 }
