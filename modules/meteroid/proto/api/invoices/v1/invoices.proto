@@ -110,6 +110,14 @@ message MarkInvoiceAsUncollectibleResponse {
   DetailedInvoice invoice = 1;
 }
 
+message UpdateInvoiceRequest {
+  UpdateInvoice invoice = 1;
+}
+
+message UpdateInvoiceResponse {
+  DetailedInvoice invoice = 1;
+}
+
 service InvoicesService {
   rpc ListInvoices(ListInvoicesRequest) returns (ListInvoicesResponse) {}
   rpc GetInvoice(GetInvoiceRequest) returns (GetInvoiceResponse) {}
@@ -123,4 +131,5 @@ service InvoicesService {
   rpc DeleteInvoice(DeleteInvoiceRequest) returns (DeleteInvoiceResponse) {}
   rpc VoidInvoice(VoidInvoiceRequest) returns (VoidInvoiceResponse) {}
   rpc MarkInvoiceAsUncollectible(MarkInvoiceAsUncollectibleRequest) returns (MarkInvoiceAsUncollectibleResponse) {}
+  rpc UpdateInvoice(UpdateInvoiceRequest) returns (UpdateInvoiceResponse) {}
 }
