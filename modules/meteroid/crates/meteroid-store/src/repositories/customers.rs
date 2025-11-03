@@ -74,6 +74,12 @@ pub trait CustomersInterface {
         tenant_id: TenantId,
     ) -> StoreResult<Vec<Customer>>;
 
+    async fn upsert_customer_batch(
+        &self,
+        batch: Vec<CustomerNew>,
+        tenant_id: TenantId,
+    ) -> StoreResult<Vec<Customer>>;
+
     async fn patch_customer(
         &self,
         actor: Uuid,
@@ -293,48 +299,15 @@ impl CustomersInterface for Store {
         batch: Vec<CustomerNew>,
         tenant_id: TenantId,
     ) -> StoreResult<Vec<Customer>> {
-        let invoicing_entities = self.list_invoicing_entities(tenant_id).await?;
-        let default_invoicing_entity =
-            invoicing_entities
-                .iter()
-                .find(|ie| ie.is_default)
-                .ok_or(StoreError::ValueNotFound(
-                    "Default invoicing entity not found".to_string(),
-                ))?;
-
-        let insertable_batch: Vec<CustomerRowNew> = batch
-            .into_iter()
-            .map(|c| {
-                let invoicing_entity = c
-                    .invoicing_entity_id
-                    .as_ref()
-                    .and_then(|id| invoicing_entities.iter().find(|ie| ie.id == *id))
-                    .unwrap_or(default_invoicing_entity);
-
-                let vat_number_format_valid = c.is_valid_vat_number_format();
-
-                let c: CustomerRowNew = CustomerNewWrapper {
-                    inner: c,
-                    invoicing_entity_id: invoicing_entity.id,
-                    tenant_id,
-                    vat_number_format_valid,
-                }
-                .try_into()?;
-
-                Ok(c)
-            })
-            .collect::<Vec<Result<CustomerRowNew, Report<StoreError>>>>()
-            .into_iter()
-            .collect::<Result<Vec<_>, _>>()?;
+        let prepared_batch = self.prepare_customer_batch(batch, tenant_id).await?;
 
         let res: Vec<Customer> = self
             .transaction(|conn| {
                 async move {
-                    let res: Vec<Customer> =
-                        CustomerRow::insert_customer_batch(conn, insertable_batch)
-                            .await
-                            .map_err(Into::into)
-                            .and_then(|v| v.into_iter().map(TryInto::try_into).collect())?;
+                    let res: Vec<Customer> = CustomerRow::insert_customer_batch(conn, prepared_batch)
+                        .await
+                        .map_err(Into::into)
+                        .and_then(|v| v.into_iter().map(TryInto::try_into).collect())?;
 
                     let outbox_events: Vec<OutboxEvent> = res
                         .iter()
@@ -351,17 +324,41 @@ impl CustomersInterface for Store {
             })
             .await?;
 
-        let _ = futures::future::join_all(res.clone().into_iter().map(|res| {
-            self.eventbus.publish(Event::customer_created(
-                res.created_by,
-                res.id.as_uuid(),
-                res.tenant_id.as_uuid(),
-            ))
-        }))
-        .await
-        .into_iter()
-        .collect::<Result<Vec<_>, _>>();
+        self.publish_customer_created_events(&res).await;
+        Ok(res)
+    }
 
+    async fn upsert_customer_batch(
+        &self,
+        batch: Vec<CustomerNew>,
+        tenant_id: TenantId,
+    ) -> StoreResult<Vec<Customer>> {
+        let prepared_batch = self.prepare_customer_batch(batch, tenant_id).await?;
+
+        let res: Vec<Customer> = self
+            .transaction(|conn| {
+                async move {
+                    let res: Vec<Customer> = CustomerRow::upsert_customer_batch(conn, prepared_batch)
+                        .await
+                        .map_err(Into::into)
+                        .and_then(|v| v.into_iter().map(TryInto::try_into).collect())?;
+
+                    let outbox_events: Vec<OutboxEvent> = res
+                        .iter()
+                        .map(|x| OutboxEvent::customer_created(x.clone().into()))
+                        .collect();
+
+                    self.internal
+                        .insert_outbox_events_tx(conn, outbox_events)
+                        .await?;
+
+                    Ok(res)
+                }
+                .scope_boxed()
+            })
+            .await?;
+
+        self.publish_customer_created_events(&res).await;
         Ok(res)
     }
 
@@ -686,5 +683,58 @@ impl CustomersInterface for Store {
                 .collect::<Result<Vec<_>, _>>()?,
         )
         .await
+    }
+}
+
+impl Store {
+    async fn prepare_customer_batch(
+        &self,
+        batch: Vec<CustomerNew>,
+        tenant_id: TenantId,
+    ) -> StoreResult<Vec<CustomerRowNew>> {
+        let invoicing_entities = self.list_invoicing_entities(tenant_id).await?;
+        let default_invoicing_entity =
+            invoicing_entities
+                .iter()
+                .find(|ie| ie.is_default)
+                .ok_or(StoreError::ValueNotFound(
+                    "Default invoicing entity not found".to_string(),
+                ))?;
+
+        batch
+            .into_iter()
+            .map(|c| {
+                let invoicing_entity = c
+                    .invoicing_entity_id
+                    .as_ref()
+                    .and_then(|id| invoicing_entities.iter().find(|ie| ie.id == *id))
+                    .unwrap_or(default_invoicing_entity);
+
+                let vat_number_format_valid = c.is_valid_vat_number_format();
+
+                CustomerNewWrapper {
+                    inner: c,
+                    invoicing_entity_id: invoicing_entity.id,
+                    tenant_id,
+                    vat_number_format_valid,
+                }
+                .try_into()
+            })
+            .collect::<Vec<Result<CustomerRowNew, Report<StoreError>>>>()
+            .into_iter()
+            .collect()
+    }
+
+    async fn publish_customer_created_events(&self, customers: &[Customer]) {
+        let _ = futures::future::join_all(customers.iter().map(|customer| {
+            self.eventbus.publish(Event::customer_created(
+                customer.created_by,
+                customer.id.as_uuid(),
+                customer.tenant_id.as_uuid(),
+            ))
+        }))
+        .await
+        .into_iter()
+        .collect::<Result<Vec<_>, _>>();
     }
 }
