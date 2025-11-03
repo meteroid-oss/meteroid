@@ -304,10 +304,11 @@ impl CustomersInterface for Store {
         let res: Vec<Customer> = self
             .transaction(|conn| {
                 async move {
-                    let res: Vec<Customer> = CustomerRow::insert_customer_batch(conn, prepared_batch)
-                        .await
-                        .map_err(Into::into)
-                        .and_then(|v| v.into_iter().map(TryInto::try_into).collect())?;
+                    let res: Vec<Customer> =
+                        CustomerRow::insert_customer_batch(conn, prepared_batch)
+                            .await
+                            .map_err(Into::into)
+                            .and_then(|v| v.into_iter().map(TryInto::try_into).collect())?;
 
                     let outbox_events: Vec<OutboxEvent> = res
                         .iter()
@@ -338,10 +339,11 @@ impl CustomersInterface for Store {
         let res: Vec<Customer> = self
             .transaction(|conn| {
                 async move {
-                    let res: Vec<Customer> = CustomerRow::upsert_customer_batch(conn, prepared_batch)
-                        .await
-                        .map_err(Into::into)
-                        .and_then(|v| v.into_iter().map(TryInto::try_into).collect())?;
+                    let res: Vec<Customer> =
+                        CustomerRow::upsert_customer_batch(conn, prepared_batch)
+                            .await
+                            .map_err(Into::into)
+                            .and_then(|v| v.into_iter().map(TryInto::try_into).collect())?;
 
                     let outbox_events: Vec<OutboxEvent> = res
                         .iter()
