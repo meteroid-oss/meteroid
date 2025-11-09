@@ -24,6 +24,7 @@ unic-langid.workspace = true
 serde_json.workspace = true
 typst = { workspace = true }
 typst-pdf = { workspace = true }
+subsetter = { workspace = true }
 typst-svg = { workspace = true }
 typst-as-lib = { workspace = true }
 derive_typst_intoval = { workspace = true }

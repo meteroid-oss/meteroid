@@ -15,13 +15,11 @@ export const useCustomersColumns = () =>
       },
       {
         header: 'Country',
-        cell: ({ row }) => <CountryFlag name={row.original.country} />,
+        cell: ({ row }) => <CountryFlag name={row.original.country}/>,
       },
       {
         header: 'Email',
-        cell: ({ row }) => {
-          row.original.billingEmail
-        },
+        accessorFn: cell => cell.billingEmail,
       },
       {
         header: 'Alias',
@@ -35,7 +33,7 @@ export const useCustomersColumns = () =>
         accessorKey: 'id',
         header: '',
         className: 'w-2',
-        cell: () => <MoreVerticalIcon size={16} className="cursor-pointer" />,
+        cell: () => <MoreVerticalIcon size={16} className="cursor-pointer"/>,
       },
     ],
     []

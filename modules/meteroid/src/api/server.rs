@@ -9,6 +9,7 @@ use meteroid_store::{Services, Store};
 
 use crate::api;
 use crate::api::cors::cors;
+use crate::services::customer_ingest::CustomerIngestService;
 use crate::services::invoice_rendering::InvoicePreviewRenderingService;
 use crate::services::storage::ObjectStoreService;
 
@@ -73,6 +74,7 @@ pub async fn start_api_server(
             store.clone(),
             services.clone(),
             config.jwt_secret.clone(),
+            CustomerIngestService::new(Arc::new(store.clone())),
         ))
         .add_service(api::events::service(store.clone(), services.clone()))
         .add_service(api::tenants::service(store.clone(), services.clone()))

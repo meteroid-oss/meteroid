@@ -324,6 +324,44 @@ impl CustomerRow {
             .into_db_result()
     }
 
+    pub async fn upsert_customer_batch(
+        conn: &mut PgConn,
+        batch: Vec<CustomerRowNew>,
+    ) -> DbResult<Vec<CustomerRow>> {
+        use crate::schema::customer::dsl::*;
+        use diesel::upsert::excluded;
+        use diesel_async::RunQueryDsl;
+
+        let query = diesel::insert_into(customer)
+            .values(&batch)
+            .on_conflict((tenant_id, alias))
+            .do_update()
+            .set((
+                name.eq(excluded(name)),
+                billing_email.eq(excluded(billing_email)),
+                phone.eq(excluded(phone)),
+                currency.eq(excluded(currency)),
+                billing_address.eq(excluded(billing_address)),
+                shipping_address.eq(excluded(shipping_address)),
+                invoicing_entity_id.eq(excluded(invoicing_entity_id)),
+                bank_account_id.eq(excluded(bank_account_id)),
+                vat_number.eq(excluded(vat_number)),
+                invoicing_emails.eq(excluded(invoicing_emails)),
+                is_tax_exempt.eq(excluded(is_tax_exempt)),
+                custom_taxes.eq(excluded(custom_taxes)),
+                vat_number_format_valid.eq(excluded(vat_number_format_valid)),
+                updated_at.eq(diesel::dsl::now),
+            ));
+
+        log::debug!("{}", debug_query::<diesel::pg::Pg, _>(&query));
+
+        query
+            .get_results(conn)
+            .await
+            .attach("Error while upserting customer batch")
+            .into_db_result()
+    }
+
     pub async fn select_for_update(
         conn: &mut PgConn,
         id: CustomerId,
