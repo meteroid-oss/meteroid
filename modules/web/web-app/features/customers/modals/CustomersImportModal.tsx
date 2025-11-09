@@ -194,19 +194,23 @@ export const CustomersImportModal: FunctionComponent<CustomersImportModalProps> 
                       </div>
                     </div>
                     <div className="text-xs text-muted-foreground">
-                      • <strong>All column headers must be present in the CSV</strong>, even for optional fields (leave
-                      values empty if not needed)
-                      <br/>
-                      • Currency should be a 3-letter ISO code (e.g., USD, EUR)
+                      • currency should be a 3-letter ISO code (e.g., USD, EUR)
                       <br/>
                       • invoicing_emails can be comma-separated for multiple emails
                       <br/>
                       • tax_rate1.* and tax_rate2.*: tax_rate1.tax_code, tax_rate1.name, tax_rate1.rate (and same for
                       tax_rate2)
                       <br/>
+                      • billing_address.*: billing_address.line1, billing_address.line2, billing_address.city,
+                      billing_address.country, billing_address.state, billing_address.zip_code
+                      <br/>
+                      • shipping_address.*: shipping_address.same_as_billing, shipping_address.line1,
+                      shipping_address.line2, shipping_address.city, shipping_address.country,
+                      shipping_address.state, shipping_address.zip_code
+                      <br/>
                       • shipping_address.same_as_billing: true/false to copy billing address
                       <br/>
-                      • If customer with the same alias exists, it will be updated
+                      • if customer with the same alias exists, it will be updated
                     </div>
                   </div>
                 </CardContent>

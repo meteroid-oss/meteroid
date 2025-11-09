@@ -266,6 +266,7 @@ pub struct NewCustomerCsv {
     pub alias: Option<CsvString>,
     #[serde(default, with = "optional_csv_string")]
     pub billing_email: Option<CsvString>,
+    #[serde(default)]
     pub invoicing_emails: Option<InvoicingEmails>,
     #[serde(default, with = "optional_csv_string")]
     pub phone: Option<CsvString>,
@@ -274,13 +275,13 @@ pub struct NewCustomerCsv {
     pub invoicing_entity_id: Option<InvoicingEntityId>,
     #[serde(default, with = "optional_csv_string")]
     pub vat_number: Option<CsvString>,
-    #[serde(flatten)]
+    #[serde(flatten, default)]
     pub tax_rates: CustomTaxRatesCsv,
     #[serde(default, with = "optional_bool")]
     pub is_tax_exempt: Option<bool>,
-    #[serde(flatten)]
+    #[serde(flatten, default)]
     pub billing_address: AddressCsv,
-    #[serde(flatten)]
+    #[serde(flatten, default)]
     pub shipping_address: ShippingAddressCsv,
 }
 
@@ -443,23 +444,23 @@ mod optional_csv_string {
     }
 }
 
-#[derive(Deserialize)]
+#[derive(Deserialize, Default)]
 pub struct CustomTaxRatesCsv {
     #[serde(rename = "tax_rate1.tax_code", default, with = "optional_csv_string")]
     pub tax_code1: Option<CsvString>,
     #[serde(rename = "tax_rate1.name", default, with = "optional_csv_string")]
     pub name1: Option<CsvString>,
-    #[serde(rename = "tax_rate1.rate", with = "optional_decimal")]
+    #[serde(rename = "tax_rate1.rate", default, with = "optional_decimal")]
     pub rate1: Option<Decimal>,
     #[serde(rename = "tax_rate2.tax_code", default, with = "optional_csv_string")]
     pub tax_code2: Option<CsvString>,
     #[serde(rename = "tax_rate2.name", default, with = "optional_csv_string")]
     pub name2: Option<CsvString>,
-    #[serde(rename = "tax_rate2.rate", with = "optional_decimal")]
+    #[serde(rename = "tax_rate2.rate", default, with = "optional_decimal")]
     pub rate2: Option<Decimal>,
 }
 
-#[derive(Deserialize)]
+#[derive(Deserialize, Default)]
 pub struct AddressCsv {
     #[serde(
         rename = "billing_address.line1",
@@ -475,7 +476,7 @@ pub struct AddressCsv {
     pub line2: Option<CsvString>,
     #[serde(rename = "billing_address.city", default, with = "optional_csv_string")]
     pub city: Option<CsvString>,
-    #[serde(rename = "billing_address.country")]
+    #[serde(rename = "billing_address.country", default)]
     pub country: Option<CountryCode>,
     #[serde(
         rename = "billing_address.state",
@@ -504,7 +505,7 @@ impl From<AddressCsv> for Address {
     }
 }
 
-#[derive(Deserialize)]
+#[derive(Deserialize, Default)]
 pub struct ShippingAddressCsv {
     #[serde(
         rename = "shipping_address.same_as_billing",
@@ -530,7 +531,7 @@ pub struct ShippingAddressCsv {
         with = "optional_csv_string"
     )]
     pub city: Option<CsvString>,
-    #[serde(rename = "shipping_address.country")]
+    #[serde(rename = "shipping_address.country", default)]
     pub country: Option<CountryCode>,
     #[serde(
         rename = "shipping_address.state",
