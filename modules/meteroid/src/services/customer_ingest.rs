@@ -6,6 +6,7 @@ use meteroid_store::domain::{Address, CustomerCustomTax, CustomerNew, ShippingAd
 use meteroid_store::errors::StoreError;
 use meteroid_store::repositories::CustomersInterface;
 use meteroid_store::{Store, StoreResult};
+use rust_decimal::Decimal;
 use serde::Deserialize;
 use serde::de::{Deserializer, Visitor};
 use std::fmt;
@@ -141,13 +142,25 @@ impl CustomerIngestService {
     }
 
     fn map_to_domain(actor: Uuid, csv: NewCustomerCsv) -> Result<CustomerNew, String> {
-        let billing_address = if csv.billing_address.country.is_some() {
+        let billing_address = if csv
+            .billing_address
+            .country
+            .as_ref()
+            .filter(|x| x.code != "00")
+            .is_some()
+        {
             Some(csv.billing_address.into())
         } else {
             None
         };
 
-        let shipping_address = if csv.shipping_address.country.is_some() {
+        let shipping_address = if csv
+            .shipping_address
+            .country
+            .as_ref()
+            .filter(|x| x.code != "00")
+            .is_some()
+        {
             Some(csv.shipping_address.into())
         } else {
             None
@@ -160,7 +173,7 @@ impl CustomerIngestService {
             created_by: actor,
             alias: csv.alias.map(|a| a.0),
             billing_email: csv.billing_email.map(|e| e.0),
-            invoicing_emails: csv.invoicing_emails.0,
+            invoicing_emails: csv.invoicing_emails.map(|x| x.0).unwrap_or_default(),
             phone: csv.phone.map(|p| p.0),
             balance_value_cents: 0,
             currency: csv.currency.0,
@@ -200,7 +213,7 @@ impl CustomerIngestService {
     }
 
     fn parse_tax_rate(
-        rate: rust_decimal::Decimal,
+        rate: Decimal,
         tax_code: &Option<CsvString>,
         name: &Option<CsvString>,
         field_name: &str,
@@ -249,16 +262,21 @@ impl<'de> Deserialize<'de> for InvoicingEmails {
 #[derive(Deserialize)]
 pub struct NewCustomerCsv {
     pub name: CsvString,
+    #[serde(default, with = "optional_csv_string")]
     pub alias: Option<CsvString>,
+    #[serde(default, with = "optional_csv_string")]
     pub billing_email: Option<CsvString>,
-    pub invoicing_emails: InvoicingEmails,
+    pub invoicing_emails: Option<InvoicingEmails>,
+    #[serde(default, with = "optional_csv_string")]
     pub phone: Option<CsvString>,
     pub currency: CsvString,
     #[serde(default, with = "string_serde_opt")]
     pub invoicing_entity_id: Option<InvoicingEntityId>,
+    #[serde(default, with = "optional_csv_string")]
     pub vat_number: Option<CsvString>,
     #[serde(flatten)]
     pub tax_rates: CustomTaxRatesCsv,
+    #[serde(default, with = "optional_bool")]
     pub is_tax_exempt: Option<bool>,
     #[serde(flatten)]
     pub billing_address: AddressCsv,
@@ -266,35 +284,210 @@ pub struct NewCustomerCsv {
     pub shipping_address: ShippingAddressCsv,
 }
 
+mod optional_decimal {
+    use rust_decimal::Decimal;
+    use serde::Deserializer;
+    use serde::de::{self, Visitor};
+    use std::fmt;
+
+    struct OptionalDecimalVisitor;
+
+    impl<'de> Visitor<'de> for OptionalDecimalVisitor {
+        type Value = Option<Decimal>;
+
+        fn expecting(&self, formatter: &mut fmt::Formatter) -> fmt::Result {
+            formatter.write_str("a decimal number or a string representing a decimal")
+        }
+
+        fn visit_none<E>(self) -> Result<Self::Value, E>
+        where
+            E: de::Error,
+        {
+            Ok(None)
+        }
+
+        fn visit_some<D>(self, deserializer: D) -> Result<Self::Value, D::Error>
+        where
+            D: Deserializer<'de>,
+        {
+            deserializer.deserialize_any(self)
+        }
+
+        fn visit_str<E>(self, v: &str) -> Result<Self::Value, E>
+        where
+            E: de::Error,
+        {
+            if v.trim().is_empty() {
+                Ok(None)
+            } else {
+                v.parse::<f64>()
+                    .map_err(de::Error::custom)
+                    .and_then(|f| Decimal::try_from(f).map_err(de::Error::custom))
+                    .map(Some)
+            }
+        }
+
+        fn visit_string<E>(self, v: String) -> Result<Self::Value, E>
+        where
+            E: de::Error,
+        {
+            self.visit_str(&v)
+        }
+
+        fn visit_f64<E>(self, v: f64) -> Result<Self::Value, E>
+        where
+            E: de::Error,
+        {
+            Decimal::try_from(v).map(Some).map_err(de::Error::custom)
+        }
+
+        fn visit_i64<E>(self, v: i64) -> Result<Self::Value, E>
+        where
+            E: de::Error,
+        {
+            Ok(Some(Decimal::from(v)))
+        }
+
+        fn visit_u64<E>(self, v: u64) -> Result<Self::Value, E>
+        where
+            E: de::Error,
+        {
+            Ok(Some(Decimal::from(v)))
+        }
+    }
+
+    pub fn deserialize<'de, D>(deserializer: D) -> Result<Option<Decimal>, D::Error>
+    where
+        D: Deserializer<'de>,
+    {
+        deserializer.deserialize_option(OptionalDecimalVisitor)
+    }
+}
+
+mod optional_bool {
+    use serde::Deserializer;
+    use serde::de::{self, Visitor};
+    use std::fmt;
+
+    struct OptionalBoolVisitor;
+
+    impl<'de> Visitor<'de> for OptionalBoolVisitor {
+        type Value = Option<bool>;
+
+        fn expecting(&self, formatter: &mut fmt::Formatter) -> fmt::Result {
+            formatter.write_str("a boolean or a string representing a boolean")
+        }
+
+        fn visit_none<E>(self) -> Result<Self::Value, E>
+        where
+            E: de::Error,
+        {
+            Ok(None)
+        }
+
+        fn visit_some<D>(self, deserializer: D) -> Result<Self::Value, D::Error>
+        where
+            D: Deserializer<'de>,
+        {
+            deserializer.deserialize_any(self)
+        }
+
+        fn visit_str<E>(self, v: &str) -> Result<Self::Value, E>
+        where
+            E: de::Error,
+        {
+            if v.trim().is_empty() {
+                Ok(None)
+            } else {
+                v.parse::<bool>().map(Some).map_err(de::Error::custom)
+            }
+        }
+
+        fn visit_string<E>(self, v: String) -> Result<Self::Value, E>
+        where
+            E: de::Error,
+        {
+            self.visit_str(&v)
+        }
+
+        fn visit_bool<E>(self, v: bool) -> Result<Self::Value, E>
+        where
+            E: de::Error,
+        {
+            Ok(Some(v))
+        }
+    }
+
+    pub fn deserialize<'de, D>(deserializer: D) -> Result<Option<bool>, D::Error>
+    where
+        D: Deserializer<'de>,
+    {
+        deserializer.deserialize_option(OptionalBoolVisitor)
+    }
+}
+
+mod optional_csv_string {
+    use super::CsvString;
+    use serde::{Deserialize, Deserializer};
+
+    pub fn deserialize<'de, D>(deserializer: D) -> Result<Option<CsvString>, D::Error>
+    where
+        D: Deserializer<'de>,
+    {
+        let csv_string: CsvString = CsvString::deserialize(deserializer)?;
+        if csv_string.0.trim().is_empty() {
+            Ok(None)
+        } else {
+            Ok(Some(csv_string))
+        }
+    }
+}
+
 #[derive(Deserialize)]
 pub struct CustomTaxRatesCsv {
-    #[serde(rename = "tax_rate1.tax_code")]
+    #[serde(rename = "tax_rate1.tax_code", default, with = "optional_csv_string")]
     pub tax_code1: Option<CsvString>,
-    #[serde(rename = "tax_rate1.name")]
+    #[serde(rename = "tax_rate1.name", default, with = "optional_csv_string")]
     pub name1: Option<CsvString>,
-    #[serde(rename = "tax_rate1.rate", with = "rust_decimal::serde::float_option")]
-    pub rate1: Option<rust_decimal::Decimal>,
-    #[serde(rename = "tax_rate2.tax_code")]
+    #[serde(rename = "tax_rate1.rate", with = "optional_decimal")]
+    pub rate1: Option<Decimal>,
+    #[serde(rename = "tax_rate2.tax_code", default, with = "optional_csv_string")]
     pub tax_code2: Option<CsvString>,
-    #[serde(rename = "tax_rate2.name")]
+    #[serde(rename = "tax_rate2.name", default, with = "optional_csv_string")]
     pub name2: Option<CsvString>,
-    #[serde(rename = "tax_rate2.rate", with = "rust_decimal::serde::float_option")]
-    pub rate2: Option<rust_decimal::Decimal>,
+    #[serde(rename = "tax_rate2.rate", with = "optional_decimal")]
+    pub rate2: Option<Decimal>,
 }
 
 #[derive(Deserialize)]
 pub struct AddressCsv {
-    #[serde(rename = "billing_address.line1")]
+    #[serde(
+        rename = "billing_address.line1",
+        default,
+        with = "optional_csv_string"
+    )]
     pub line1: Option<CsvString>,
-    #[serde(rename = "billing_address.line2")]
+    #[serde(
+        rename = "billing_address.line2",
+        default,
+        with = "optional_csv_string"
+    )]
     pub line2: Option<CsvString>,
-    #[serde(rename = "billing_address.city")]
+    #[serde(rename = "billing_address.city", default, with = "optional_csv_string")]
     pub city: Option<CsvString>,
     #[serde(rename = "billing_address.country")]
     pub country: Option<CountryCode>,
-    #[serde(rename = "billing_address.state")]
+    #[serde(
+        rename = "billing_address.state",
+        default,
+        with = "optional_csv_string"
+    )]
     pub state: Option<CsvString>,
-    #[serde(rename = "billing_address.zip_code")]
+    #[serde(
+        rename = "billing_address.zip_code",
+        default,
+        with = "optional_csv_string"
+    )]
     pub zip_code: Option<CsvString>,
 }
 
@@ -313,19 +506,43 @@ impl From<AddressCsv> for Address {
 
 #[derive(Deserialize)]
 pub struct ShippingAddressCsv {
-    #[serde(rename = "shipping_address.same_as_billing")]
+    #[serde(
+        rename = "shipping_address.same_as_billing",
+        default,
+        with = "optional_bool"
+    )]
     pub same_as_billing: Option<bool>,
-    #[serde(rename = "shipping_address.line1")]
+    #[serde(
+        rename = "shipping_address.line1",
+        default,
+        with = "optional_csv_string"
+    )]
     pub line1: Option<CsvString>,
-    #[serde(rename = "shipping_address.line2")]
+    #[serde(
+        rename = "shipping_address.line2",
+        default,
+        with = "optional_csv_string"
+    )]
     pub line2: Option<CsvString>,
-    #[serde(rename = "shipping_address.city")]
+    #[serde(
+        rename = "shipping_address.city",
+        default,
+        with = "optional_csv_string"
+    )]
     pub city: Option<CsvString>,
     #[serde(rename = "shipping_address.country")]
     pub country: Option<CountryCode>,
-    #[serde(rename = "shipping_address.state")]
+    #[serde(
+        rename = "shipping_address.state",
+        default,
+        with = "optional_csv_string"
+    )]
     pub state: Option<CsvString>,
-    #[serde(rename = "shipping_address.zip_code")]
+    #[serde(
+        rename = "shipping_address.zip_code",
+        default,
+        with = "optional_csv_string"
+    )]
     pub zip_code: Option<CsvString>,
 }
 

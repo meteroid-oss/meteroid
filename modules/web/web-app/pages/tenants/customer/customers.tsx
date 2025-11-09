@@ -58,6 +58,7 @@ export const Customers: FunctionComponent = () => {
             setEditPanelVisible={setCreatePanelVisible}
             setSearch={setSearch}
             search={search}
+            onImportSuccess={() => customersQuery.refetch()}
           />
           {isEmpty ? (
             <EmptyState

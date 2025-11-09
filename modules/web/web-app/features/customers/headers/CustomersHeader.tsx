@@ -2,27 +2,31 @@ import { spaces } from '@md/foundation'
 import { SearchIcon } from '@md/icons'
 import { Button, ButtonProps, InputWithIcon, Flex as NewFlex, Separator, cn } from '@md/ui'
 import { Flex } from '@ui/components/legacy'
-import { ListFilter } from 'lucide-react'
+import { FileUpIcon, ListFilter } from 'lucide-react'
 import { FunctionComponent, PropsWithChildren, useState } from 'react'
 import { useSearchParams } from 'react-router-dom'
 
 import { CustomersExportModal } from '@/features/customers/modals/CustomersExportModal'
+import { CustomersImportModal } from '@/features/customers/modals/CustomersImportModal'
 
 interface CustomersHeaderProps {
   setEditPanelVisible: (visible: boolean) => void
   setSearch: (search: string) => void
   search: string
+  onImportSuccess?: () => void
 }
 
 export const CustomersHeader: FunctionComponent<CustomersHeaderProps> = ({
   setEditPanelVisible,
   setSearch,
   search,
+  onImportSuccess,
 }) => {
   const [searchParams, setSearchParams] = useSearchParams()
   const currentTab = searchParams.get('tab') || 'active'
 
   const [visible, setVisible] = useState(false)
+  const [importVisible, setImportVisible] = useState(false)
 
   const updateTab = (tab: string) => {
     const newSearchParams = new URLSearchParams(searchParams)
@@ -39,7 +43,7 @@ export const CustomersHeader: FunctionComponent<CustomersHeaderProps> = ({
       <Flex direction="column" gap={spaces.space4}>
         <Flex direction="row" align="center" justify="space-between">
           <NewFlex align="center" className="gap-2">
-            <img src="/header/customer.svg" alt="customer logo" />
+            <img src="/header/customer.svg" alt="customer logo"/>
             <div className="text-[15px] font-medium">Customers</div>
             <NewFlex align="center" className="gap-2 ml-2 mt-[0.5px]">
               <ButtonTabs active={currentTab === 'active'} onClick={() => updateTab('active')}>
@@ -54,19 +58,23 @@ export const CustomersHeader: FunctionComponent<CustomersHeaderProps> = ({
             <Button size="sm" onClick={() => setVisible(true)} variant="secondary">
               Export
             </Button>
+            <Button variant="secondary" size="sm" onClick={() => setImportVisible(true)}>
+              <FileUpIcon className="h-4 w-4 mr-2"/>
+              Import CSV
+            </Button>
             <Button size="sm" variant="default" onClick={() => setEditPanelVisible(true)}>
               New customer
             </Button>
           </Flex>
         </Flex>
         <div className="mx-[-16px]">
-          <Separator />
+          <Separator/>
         </div>
         <Flex direction="row" align="center" gap={spaces.space4}>
           <InputWithIcon
             className="h-[30px]"
             placeholder="Search..."
-            icon={<SearchIcon size={16} className="text-[#898784]" />}
+            icon={<SearchIcon size={16} className="text-[#898784]"/>}
             width="fit-content"
             value={search}
             onChange={e => setSearch(e.target.value)}
@@ -76,11 +84,12 @@ export const CustomersHeader: FunctionComponent<CustomersHeaderProps> = ({
             className="h-[30px] bg-accent text-accent-foreground hover:opacity-90"
             variant="outline"
           >
-            <ListFilter size={16} className="text-[#898784]" /> Filter
+            <ListFilter size={16} className="text-[#898784]"/> Filter
           </Button>
         </Flex>
       </Flex>
-      <CustomersExportModal openState={[visible, setVisible]} />
+      <CustomersExportModal openState={[visible, setVisible]}/>
+      <CustomersImportModal openState={[importVisible, setImportVisible]} onSuccess={onImportSuccess}/>
     </>
   )
 }
