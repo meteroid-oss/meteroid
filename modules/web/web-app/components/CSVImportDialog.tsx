@@ -132,9 +132,9 @@ export function CSVImportDialog<TConfig extends CSVImportConfig = CSVImportConfi
               <Card>
                 <CardContent className="p-4 space-y-3">
                   <div className="grid grid-cols-1 gap-3 text-sm">
-                    <div className="grid grid-cols-2">
-                      <strong>Required columns:</strong>
-                      <div className="mt-1 flex gap-2 flex-wrap">
+                    <div className="flex items-start gap-2">
+                      <strong className="w-32 shrink-0">Required columns:</strong>
+                      <div className="flex gap-2 flex-wrap">
                         {requiredColumns.map(col => (
                           <Badge key={col} variant="outline" className="text-xs">
                             {col}
@@ -143,9 +143,9 @@ export function CSVImportDialog<TConfig extends CSVImportConfig = CSVImportConfi
                       </div>
                     </div>
                     {optionalColumns.length > 0 && (
-                      <div className="grid grid-cols-2">
-                        <strong>Optional columns:</strong>
-                        <div className="mt-1 flex gap-2 flex-wrap">
+                      <div className="flex items-start gap-2">
+                        <strong className="w-32 shrink-0">Optional columns:</strong>
+                        <div className="flex gap-2 flex-wrap">
                           {optionalColumns.map(col => (
                             <Badge key={col} variant="outline" className="text-xs">
                               {col}
