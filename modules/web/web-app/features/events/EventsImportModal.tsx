@@ -111,15 +111,20 @@ export const EventsImportModal: FunctionComponent<EventsImportModalProps> = ({
       dialogTitle="Import Events from CSV"
       dialogDescription="Import event data from a CSV file. All imports must include headers."
       dialogIcon={<FileSpreadsheetIcon className="h-5 w-5"/>}
-      requiredColumns={['event_code', 'customer_id']}
-      optionalColumns={['event_id', 'timestamp', '+ any properties']}
+      requiredColumns={[
+        { name: 'event_code' },
+        { name: 'customer_id' },
+      ]}
+      optionalColumns={[
+        { name: 'event_id' },
+        { name: 'timestamp', tooltipMessage: 'Should be in ISO 8601 format' },
+        { name: '+ any properties', tooltipMessage: 'Additional columns will be stored as event properties' },
+      ]}
       additionalInfo={
         <>
-          • Headers are required in the first row
-          <br/>
-          • Timestamp should be in ISO 8601 format
-          <br/>
-          • Additional columns will be stored as event properties
+          <ul>
+            <li>• Headers are required in the first row</li>
+          </ul>
         </>
       }
       additionalOptions={

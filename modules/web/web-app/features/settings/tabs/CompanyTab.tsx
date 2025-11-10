@@ -24,6 +24,7 @@ import { useWatch } from 'react-hook-form'
 import { toast } from 'sonner'
 import { z } from 'zod'
 
+import { CopyToClipboardButton } from '@/components/CopyToClipboard'
 import { Loading } from '@/components/Loading'
 import { InvoicingEntitySelect } from '@/features/settings/components/InvoicingEntitySelect'
 import { useInvoicingEntity } from '@/features/settings/hooks/useInvoicingEntity'
@@ -146,8 +147,19 @@ export const CompanyTab = () => {
                 label="Legal name"
                 control={methods.control}
                 placeholder="ACME Inc."
-                containerClassName="col-span-6"
+                containerClassName="col-span-3"
               />
+
+              <div className="col-span-3 space-y-1">
+                <Label>Invoice Entity ID</Label>
+                <div>
+                  <CopyToClipboardButton
+                    text={invoiceEntityId || ''}
+                    buttonClassName="w-full justify-start"
+                    buttonVariant="outline"
+                  />
+                </div>
+              </div>
 
               <InputFormField
                 name="addressLine1"

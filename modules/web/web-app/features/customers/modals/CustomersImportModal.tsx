@@ -103,40 +103,85 @@ export const CustomersImportModal: FunctionComponent<CustomersImportModalProps> 
       identifierLabel="Customer Alias"
       dialogTitle="Import Customers from CSV"
       dialogDescription="Import customer data from a CSV file. All imports must include headers."
-      dialogIcon={<FileSpreadsheetIcon className="h-5 w-5" />}
-      requiredColumns={['name', 'currency']}
+      dialogIcon={<FileSpreadsheetIcon className="h-5 w-5"/>}
+      requiredColumns={[
+        { name: 'name' },
+        { name: 'currency', tooltipMessage: '3-letter ISO code (e.g., USD, EUR)' },
+      ]}
       optionalColumns={[
-        'invoicing_emails',
-        'alias',
-        'billing_email',
-        'phone',
-        'invoicing_entity_id',
-        'vat_number',
-        'is_tax_exempt',
-        'tax_rate1.*',
-        'tax_rate2.*',
-        'billing_address.*',
-        'shipping_address.*',
+        { name: 'invoicing_emails', tooltipMessage: 'Comma-separated for multiple emails' },
+        { name: 'alias' },
+        { name: 'billing_email' },
+        { name: 'phone' },
+        { name: 'invoicing_entity_id', tooltipMessage: '`default` entity is used if empty' },
+        { name: 'vat_number' },
+        { name: 'is_tax_exempt' },
+        {
+          name: 'tax_rate1.*',
+          tooltipMessage: (
+            <div className="space-y-2">
+              <p className="font-semibold">Available fields:</p>
+              <ul className="list-disc pl-4 space-y-1">
+                <li>tax_rate1.tax_code</li>
+                <li>tax_rate1.name</li>
+                <li>tax_rate1.rate</li>
+              </ul>
+            </div>
+          ),
+        },
+        {
+          name: 'tax_rate2.*',
+          tooltipMessage: (
+            <div className="space-y-2">
+              <p className="font-semibold">Available fields:</p>
+              <ul className="list-disc pl-4 space-y-1">
+                <li>tax_rate2.tax_code</li>
+                <li>tax_rate2.name</li>
+                <li>tax_rate2.rate</li>
+              </ul>
+            </div>
+          ),
+        },
+        {
+          name: 'billing_address.*',
+          tooltipMessage: (
+            <div className="space-y-2">
+              <p className="font-semibold">Available fields:</p>
+              <ul className="list-disc pl-4 space-y-1">
+                <li>billing_address.line1</li>
+                <li>billing_address.line2</li>
+                <li>billing_address.city</li>
+                <li>billing_address.country</li>
+                <li>billing_address.state</li>
+                <li>billing_address.zip_code</li>
+              </ul>
+            </div>
+          ),
+        },
+        {
+          name: 'shipping_address.*',
+          tooltipMessage: (
+            <div className="space-y-2">
+              <p className="font-semibold">Available fields:</p>
+              <ul className="list-disc pl-4 space-y-1">
+                <li>shipping_address.same_as_billing (true/false)</li>
+                <li>shipping_address.line1</li>
+                <li>shipping_address.line2</li>
+                <li>shipping_address.city</li>
+                <li>shipping_address.country</li>
+                <li>shipping_address.state</li>
+                <li>shipping_address.zip_code</li>
+              </ul>
+            </div>
+          ),
+        },
       ]}
       additionalInfo={
         <>
-          • currency should be a 3-letter ISO code (e.g., USD, EUR)
-          <br />
-          • invoicing_emails can be comma-separated for multiple emails
-          <br />
-          • tax_rate1.* and tax_rate2.*: tax_rate1.tax_code, tax_rate1.name, tax_rate1.rate (and
-          same for tax_rate2)
-          <br />
-          • billing_address.*: billing_address.line1, billing_address.line2, billing_address.city,
-          billing_address.country, billing_address.state, billing_address.zip_code
-          <br />
-          • shipping_address.*: shipping_address.same_as_billing, shipping_address.line1,
-          shipping_address.line2, shipping_address.city, shipping_address.country,
-          shipping_address.state, shipping_address.zip_code
-          <br />
-          • shipping_address.same_as_billing: true/false to copy billing address
-          <br />
-          • if customer with the same alias exists, it will be updated
+          <ul>
+            <li>• Headers are required in the first row</li>
+            <li>• If customer with the same alias exists, it will be updated</li>
+          </ul>
         </>
       }
     />
