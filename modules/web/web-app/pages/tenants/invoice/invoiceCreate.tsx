@@ -43,7 +43,7 @@ import { useQuery } from '@/lib/connectrpc'
 import { mapDatev2 } from '@/lib/mapping'
 import { schemas } from '@/lib/schemas'
 import { InvoiceLineSchema } from '@/lib/schemas/invoices'
-import { resizeSvgContent } from '@/pages/tenants/invoice'
+import { resizeSvgContent } from '@/pages/tenants/invoice/utils'
 import { getCustomerById } from '@/rpc/api/customers/v1/customers-CustomersService_connectquery'
 import {
   createInvoice,
