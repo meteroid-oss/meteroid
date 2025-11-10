@@ -12,10 +12,19 @@ import {
   Input,
   Label,
   ScrollArea,
+  Tooltip,
+  TooltipContent,
+  TooltipProvider,
+  TooltipTrigger,
 } from '@md/ui'
-import { AlertCircleIcon, CheckCircleIcon, FileUpIcon, XCircleIcon } from 'lucide-react'
+import { AlertCircleIcon, CheckCircleIcon, FileUpIcon, InfoIcon, XCircleIcon } from 'lucide-react'
 import { Dispatch, ReactNode, SetStateAction } from 'react'
 
+
+export interface ColumnDefinition {
+  name: string
+  tooltipMessage?: ReactNode
+}
 
 export interface CSVImportConfig {
   delimiter: string
@@ -59,8 +68,8 @@ export interface CSVImportDialogProps<TConfig extends CSVImportConfig> {
   onClose: () => void
 
   // Configuration
-  requiredColumns: string[]
-  optionalColumns: string[]
+  requiredColumns: ColumnDefinition[]
+  optionalColumns: ColumnDefinition[]
   additionalInfo?: ReactNode
   additionalOptions?: ReactNode
 
@@ -135,22 +144,46 @@ export function CSVImportDialog<TConfig extends CSVImportConfig = CSVImportConfi
                     <div className="flex items-start gap-2">
                       <strong className="w-32 shrink-0">Required columns:</strong>
                       <div className="flex gap-2 flex-wrap">
-                        {requiredColumns.map(col => (
-                          <Badge key={col} variant="outline" className="text-xs">
-                            {col}
-                          </Badge>
-                        ))}
+                        <TooltipProvider>
+                          {requiredColumns.map(col => (
+                            <Badge key={col.name} variant="outline" className="text-xs gap-1">
+                              {col.name}
+                              {col.tooltipMessage && (
+                                <Tooltip>
+                                  <TooltipTrigger asChild>
+                                    <InfoIcon className="h-3 w-3 text-muted-foreground cursor-help inline-block" />
+                                  </TooltipTrigger>
+                                  <TooltipContent className="max-w-xs">
+                                    {col.tooltipMessage}
+                                  </TooltipContent>
+                                </Tooltip>
+                              )}
+                            </Badge>
+                          ))}
+                        </TooltipProvider>
                       </div>
                     </div>
                     {optionalColumns.length > 0 && (
                       <div className="flex items-start gap-2">
                         <strong className="w-32 shrink-0">Optional columns:</strong>
                         <div className="flex gap-2 flex-wrap">
-                          {optionalColumns.map(col => (
-                            <Badge key={col} variant="outline" className="text-xs">
-                              {col}
-                            </Badge>
-                          ))}
+                          <TooltipProvider>
+                            {optionalColumns.map(col => (
+                              <Badge key={col.name} variant="outline" className="text-xs gap-1">
+                                {col.name}
+                                {col.tooltipMessage && (
+                                  <Tooltip>
+                                    <TooltipTrigger asChild>
+                                      <InfoIcon className="h-3 w-3 text-muted-foreground cursor-help inline-block" />
+                                    </TooltipTrigger>
+                                    <TooltipContent className="max-w-xs">
+                                      {col.tooltipMessage}
+                                    </TooltipContent>
+                                  </Tooltip>
+                                )}
+                              </Badge>
+                            ))}
+                          </TooltipProvider>
                         </div>
                       </div>
                     )}
