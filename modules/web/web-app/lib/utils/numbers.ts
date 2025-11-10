@@ -29,6 +29,21 @@ export const formatCurrency = (amount: bigint | number, currencyCode: string) =>
   }).format(parsedAmount)
 }
 
+
+export const minorToMajorUnit = (amount: bigint | number, currencyCode: string): number => {
+  const currency = CURRENCIES[currencyCode]
+  const precision = currency.precision
+  
+  return Number(amount) / Math.pow(10, precision)
+}
+
+export const majorToMinorUnit = (amount: number, currencyCode: string): bigint => {
+  const currency = CURRENCIES[currencyCode]
+  const precision = currency.precision
+  
+  return BigInt(Math.round(amount * Math.pow(10, precision)))
+}
+
 export const formatCurrencyNoRounding = (amount: string | number, currencyCode: string) => {
   const currency = CURRENCIES[currencyCode]
 

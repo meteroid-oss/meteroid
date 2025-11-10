@@ -662,3 +662,28 @@ impl InvoiceRowLinesPatch {
             .into_db_result()
     }
 }
+
+impl crate::invoices::InvoiceRowPatch {
+    pub async fn update(
+        &self,
+        id: InvoiceId,
+        tenant_id: TenantId,
+        conn: &mut PgConn,
+    ) -> DbResult<usize> {
+        use crate::schema::invoice::dsl as i_dsl;
+        use diesel_async::RunQueryDsl;
+
+        let query = diesel::update(i_dsl::invoice)
+            .filter(i_dsl::id.eq(id).and(i_dsl::tenant_id.eq(tenant_id)))
+            .filter(i_dsl::status.eq(crate::enums::InvoiceStatusEnum::Draft))
+            .set(self);
+
+        log::debug!("{}", debug_query::<diesel::pg::Pg, _>(&query));
+
+        query
+            .execute(conn)
+            .await
+            .attach("Error while updating draft invoice")
+            .into_db_result()
+    }
+}

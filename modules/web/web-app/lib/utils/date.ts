@@ -23,3 +23,7 @@ export const parseAndFormatDateTime = (dateString: string, precision: 'min' | 's
     second: precision === 'sec' ? 'numeric' : undefined,
   })
 }
+
+export const parseDate = (dateString: string): Date => {
+  return new Date(dateString)
+}

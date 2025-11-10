@@ -7,10 +7,12 @@ use crate::domain::{
 use chrono::NaiveDate;
 use itertools::Itertools;
 use std::cmp::min;
+use std::collections::HashMap;
 
 use crate::errors::StoreError;
 use crate::repositories::accounting::AccountingInterface;
 use crate::services::Services;
+use crate::services::invoice_lines::component::ExistingLineKey;
 use crate::services::invoice_lines::discount::calculate_coupons_discount;
 use crate::store::PgConn;
 use crate::utils::periods::calculate_component_period_for_invoice_date;
@@ -85,6 +87,18 @@ impl Services {
 
         let invoice_date = *invoice_date;
 
+        // Build map of existing line items for refresh (only usage-based lines)
+        let existing_lines: HashMap<ExistingLineKey, &LineItem> = if let Some(invoice) = invoice {
+            invoice
+                .line_items
+                .iter()
+                .filter(|line| is_usage_based_line(line))
+                .filter_map(|line| ExistingLineKey::from_line_item(line).map(|key| (key, line)))
+                .collect()
+        } else {
+            HashMap::new()
+        };
+
         let price_components_lines = self
             .process_fee_records(
                 conn,
@@ -94,6 +108,7 @@ impl Services {
                 billing_start_date,
                 cycle_index,
                 currency,
+                &existing_lines,
             )
             .await?;
 
@@ -106,41 +121,33 @@ impl Services {
                 billing_start_date,
                 cycle_index,
                 currency,
+                &existing_lines,
             )
             .await?;
 
-        let invoice_lines = price_components_lines
-            .into_iter()
-            .chain(add_ons_lines)
-            .collect_vec();
-
-        // refresh only usage-based line items if invoice is set
+        // Merge non-usage-based lines from existing invoice (if refreshing)
         let invoice_lines = if let Some(invoice) = invoice {
-            invoice
+            let computed_lines = price_components_lines
+                .into_iter()
+                .chain(add_ons_lines)
+                .collect_vec();
+
+            // Combine computed usage-based lines with preserved non-usage-based lines
+            let non_usage_lines = invoice
                 .line_items
                 .iter()
-                .map(|invoice_line| {
-                    if is_usage_based_line(invoice_line)
-                        && let Some(computed_line) = invoice_lines.iter().find(|line| {
-                            line.metric_id == invoice_line.metric_id
-                                && (line.sub_component_id == invoice_line.sub_component_id
-                                    || line.sub_add_on_id == invoice_line.sub_add_on_id)
-                                && line.group_by_dimensions == invoice_line.group_by_dimensions
-                        })
-                    {
-                        return LineItem {
-                            amount_subtotal: computed_line.amount_subtotal,
-                            quantity: computed_line.quantity,
-                            unit_price: computed_line.unit_price,
-                            sub_lines: computed_line.sub_lines.clone(),
-                            ..invoice_line.clone()
-                        };
-                    }
-                    invoice_line.clone()
-                })
-                .collect()
+                .filter(|line| !is_usage_based_line(line))
+                .cloned();
+
+            computed_lines
+                .into_iter()
+                .chain(non_usage_lines)
+                .collect_vec()
         } else {
-            invoice_lines
+            price_components_lines
+                .into_iter()
+                .chain(add_ons_lines)
+                .collect_vec()
         };
 
         let subtotal = invoice_lines
@@ -501,6 +508,7 @@ impl Services {
         billing_start_or_resume_date: NaiveDate,
         cycle_index: u32,
         currency: &Currency,
+        existing_lines: &HashMap<ExistingLineKey, &LineItem>,
     ) -> StoreResult<Vec<LineItem>> {
         let component_groups = fee_records.iter().into_group_map_by(|c| c.period_ref());
 
@@ -542,6 +550,7 @@ impl Services {
                         period.clone(),
                         &invoice_date,
                         currency.precision,
+                        existing_lines,
                     )
                     .await?;
 

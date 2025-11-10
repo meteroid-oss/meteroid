@@ -9,6 +9,7 @@ type BaseProps = {
   placeholder?: string
   showCurrency?: boolean
   className?: string
+  inputClassName?: string
   precision?: number
 }
 
@@ -27,6 +28,7 @@ export const UncontrolledPriceInput = forwardRef<HTMLInputElement, UncontrolledP
       onChange,
       precision = 2,
       disabled,
+      inputClassName,
       ...props
     },
     ref
@@ -84,7 +86,8 @@ export const UncontrolledPriceInput = forwardRef<HTMLInputElement, UncontrolledP
             displaySymbol ? 'pl-8' : '',
             'py-1.5 pl-8 pr-2 bg-input block w-full sm:text-sm border border-border rounded-md focus:outline-none focus:ring-1 focus:ring-ring ',
             disabled ? 'opacity-50' : '',
-            showCurrency ? 'pr-12' : 'text-right'
+            showCurrency ? 'pr-12' : 'text-right',
+            inputClassName
           )}
           onChange={handleChange}
           onBlur={handleBlur}

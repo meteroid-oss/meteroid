@@ -4,10 +4,10 @@ import { useState } from 'react'
 import { useNavigate } from 'react-router-dom'
 
 import { PaymentPanel } from '@/features/checkout/PaymentPanel'
+import { BillingInfo } from '@/features/customers/components/BillingInfo'
 import { confirmCheckout } from '@/rpc/portal/checkout/v1/checkout-PortalCheckoutService_connectquery'
 import { formatCurrency } from '@/utils/numbers'
 
-import { BillingInfo } from './components/BillingInfo'
 import { SubscriptionSummary } from './components/SubscriptionSummary'
 import { CheckoutFlowProps } from './types'
 /**

@@ -148,16 +148,11 @@ pub mod invoices {
             .collect()
     }
 
-    pub fn domain_invoice_with_plan_details_to_server(
-        value: domain::DetailedInvoice,
+    pub fn domain_invoice_with_transactions_to_server(
+        invoice: domain::Invoice,
+        transactions: Vec<domain::PaymentTransaction>,
         jwt_secret: SecretString,
     ) -> Result<DetailedInvoice, Report<StoreError>> {
-        let domain::DetailedInvoice {
-            invoice,
-            transactions,
-            ..
-        } = value;
-
         let share_key = if invoice.pdf_document_id.is_some() || invoice.xml_document_id.is_some() {
             let exp = chrono::Utc::now().timestamp() as usize + 60 * 60 * 24 * 7; // 7 days
             let claims = ShareableEntityClaims {
@@ -203,6 +198,7 @@ pub mod invoices {
             subtotal: invoice.subtotal,
             subtotal_recurring: invoice.subtotal_recurring,
             tax_amount: invoice.tax_amount,
+            discount: invoice.discount,
             total: invoice.total,
             amount_due: invoice.amount_due,
             net_terms: invoice.net_terms,

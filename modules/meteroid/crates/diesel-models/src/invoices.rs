@@ -73,6 +73,27 @@ pub struct InvoiceRowLinesPatch {
     pub tax_breakdown: serde_json::Value,
 }
 
+#[derive(Debug, AsChangeset)]
+#[diesel(table_name = crate::schema::invoice)]
+#[diesel(check_for_backend(diesel::pg::Pg))]
+pub struct InvoiceRowPatch {
+    pub line_items: serde_json::Value,
+    pub customer_details: serde_json::Value,
+    pub seller_details: serde_json::Value,
+    pub discount: i64,
+    pub memo: Option<String>,
+    pub reference: Option<String>,
+    pub purchase_order: Option<String>,
+    pub due_at: Option<NaiveDateTime>,
+    pub invoicing_entity_id: InvoicingEntityId,
+    pub subtotal: i64,
+    pub subtotal_recurring: i64,
+    pub tax_amount: i64,
+    pub total: i64,
+    pub amount_due: i64,
+    pub tax_breakdown: serde_json::Value,
+}
+
 #[derive(Insertable, Debug)]
 #[diesel(table_name = crate::schema::invoice)]
 pub struct InvoiceRowNew {

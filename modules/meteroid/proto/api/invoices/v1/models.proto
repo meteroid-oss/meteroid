@@ -94,6 +94,7 @@ message DetailedInvoice {
   optional string purchase_order = 45;
   optional string voided_at = 46;
   optional string marked_as_uncollectible_at = 47;
+  int64 discount = 48;
 }
 
 message TaxBreakdownItem {
@@ -220,9 +221,11 @@ message NewInvoiceLineItem {
   string product = 1;
   string start_date = 2;
   string end_date = 3;
-  string quantity = 4;
-  string unit_price = 5;
+  optional string quantity = 4;
+  optional string unit_price = 5;
   string tax_rate = 6;
+  optional string description = 7;
+  repeated SubLineItem sub_line_items = 8;
 }
 
 message NewInvoice {
@@ -233,4 +236,57 @@ message NewInvoice {
   optional string purchase_order = 5;
   repeated NewInvoiceLineItem line_items = 6;
   optional string discount = 7;
+  optional InlineCustomerOverride customer_details = 8;
+  optional string memo = 9;
+  optional string reference = 10;
+}
+
+message InlineCustomerOverride {
+  string name = 1;
+  optional api.customers.v1.Address billing_address = 2;
+  optional string vat_number = 3;
+  optional string email = 4;
+}
+
+message UpdateInvoiceLineItem {
+  // If id is not provided, this is a new line item to be added
+  optional string id = 1;
+  string name = 2;
+
+  string start_date = 3;
+  string end_date = 4;
+
+  // For usage-based line items (those with metric_id), quantity is read-only and will be recalculated on finalization
+  optional string quantity = 5;
+  optional string unit_price = 6;
+
+  string tax_rate = 7;
+  optional string description = 8;
+  repeated SubLineItem sub_line_items = 10;
+}
+
+message UpdateInlineCustomer {
+  // If refresh_from_customer is true, all fields below are ignored
+  bool refresh_from_customer = 1;
+
+  optional string name = 2;
+  optional api.customers.v1.Address billing_address = 3;
+  optional string vat_number = 4;
+}
+
+message UpdateInvoiceRequest {
+  string id = 1;
+
+  optional string memo = 2;
+  optional string reference = 3;
+  optional string purchase_order = 4;
+  optional string due_date = 5;
+  optional UpdatedLineItems line_items = 6;
+  optional string discount = 7;
+  optional UpdateInlineCustomer customer_details = 8;
+  optional string invoicing_entity_id = 9;
+
+  message UpdatedLineItems {
+    repeated UpdateInvoiceLineItem items = 1;
+  }
 }

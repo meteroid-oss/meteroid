@@ -17,13 +17,51 @@ use crate::repositories::subscriptions::SubscriptionSlotsInterface;
 use crate::services::Services;
 use crate::services::clients::usage::{GroupedUsageData, UsageData};
 use crate::store::PgConn;
-use common_domain::ids::BillableMetricId;
+use common_domain::ids::{BillableMetricId, SubscriptionAddOnId, SubscriptionPriceComponentId};
 use common_utils::decimals::ToSubunit;
 use common_utils::integers::{ToNonNegativeU64, only_positive, only_positive_decimal};
 use error_stack::{Report, ResultExt};
 use std::collections::{HashMap, HashSet};
 
+/// Key to match existing line items during invoice refresh
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub(super) struct ExistingLineKey {
+    pub metric_id: BillableMetricId,
+    pub sub_component_id: Option<SubscriptionPriceComponentId>,
+    pub sub_add_on_id: Option<SubscriptionAddOnId>,
+    pub group_by_dimensions: Option<HashMap<String, String>>,
+}
+
+impl std::hash::Hash for ExistingLineKey {
+    fn hash<H: std::hash::Hasher>(&self, state: &mut H) {
+        self.metric_id.hash(state);
+        self.sub_component_id.hash(state);
+        self.sub_add_on_id.hash(state);
+        // For HashMap, we need to hash in a deterministic order
+        if let Some(ref dims) = self.group_by_dimensions {
+            let mut sorted_dims: Vec<_> = dims.iter().collect();
+            sorted_dims.sort_by_key(|(k, _)| *k);
+            for (k, v) in sorted_dims {
+                k.hash(state);
+                v.hash(state);
+            }
+        }
+    }
+}
+
+impl ExistingLineKey {
+    pub fn from_line_item(line: &LineItem) -> Option<Self> {
+        Some(Self {
+            metric_id: line.metric_id?,
+            sub_component_id: line.sub_component_id,
+            sub_add_on_id: line.sub_add_on_id,
+            group_by_dimensions: line.group_by_dimensions.clone(),
+        })
+    }
+}
+
 impl Services {
+    #[allow(clippy::too_many_arguments)]
     pub(super) async fn compute_component<T: SubscriptionFeeInterface>(
         &self,
         conn: &mut PgConn,
@@ -32,6 +70,7 @@ impl Services {
         periods: ComponentPeriods,
         invoice_date: &NaiveDate,
         precision: u8,
+        existing_lines: &HashMap<ExistingLineKey, &LineItem>,
     ) -> StoreResult<Vec<LineItem>> {
         let fixed_period = match periods.advance {
             Some(period) => period,
@@ -328,8 +367,23 @@ impl Services {
 
                                 match model {
                                     UsagePricingModel::PerUnit { rate } => {
+                                        // Check if there's an existing line with a custom unit_price
+                                        let lookup_key = ExistingLineKey {
+                                            metric_id: *metric_id,
+                                            sub_component_id: component.sub_component_id(),
+                                            sub_add_on_id: component.sub_add_on_id(),
+                                            group_by_dimensions: Some(
+                                                grouped_usage.dimensions.clone(),
+                                            ),
+                                        };
+
+                                        let effective_rate = existing_lines
+                                            .get(&lookup_key)
+                                            .and_then(|existing_line| existing_line.unit_price)
+                                            .unwrap_or(*rate);
+
                                         let mut line = InvoiceLineInner::usage_simple(
-                                            rate,
+                                            &effective_rate,
                                             &usage_units,
                                             arrear_period.clone(),
                                             precision,
@@ -435,9 +489,21 @@ impl Services {
                     base_name
                 };
 
+                // Look up existing line to preserve user edits (name, description, tax_rate)
+                let lookup_key = line.metric_id.map(|metric_id| ExistingLineKey {
+                    metric_id,
+                    sub_component_id: component.sub_component_id(),
+                    sub_add_on_id: component.sub_add_on_id(),
+                    group_by_dimensions: line.group_by_dimensions.clone(),
+                });
+
+                let existing_line = lookup_key.as_ref().and_then(|key| existing_lines.get(key));
+
                 LineItem {
-                    local_id: LocalId::no_prefix(),
-                    name,
+                    local_id: existing_line
+                        .map(|el| el.local_id.clone())
+                        .unwrap_or_else(LocalId::no_prefix),
+                    name: existing_line.map(|el| el.name.clone()).unwrap_or(name),
                     quantity: line.quantity,
                     unit_price: line.unit_price,
                     start_date: line.period.start,
@@ -449,13 +515,13 @@ impl Services {
                     sub_add_on_id: component.sub_add_on_id(),
                     product_id: component.product_id(),
                     metric_id: line.metric_id,
-                    description: None,
+                    description: existing_line.and_then(|el| el.description.clone()),
                     group_by_dimensions: line.group_by_dimensions,
 
                     amount_subtotal: line.total as i64,
 
                     // tax & discount are handled later
-                    tax_rate: Decimal::ZERO,
+                    tax_rate: existing_line.map(|el| el.tax_rate).unwrap_or(Decimal::ZERO),
                     tax_amount: 0,
                     tax_details: vec![],
                     taxable_amount: line.total as i64,
