@@ -3,7 +3,7 @@ use crate::domain::{BillableMetric, Period};
 use crate::errors::StoreError;
 use chrono::NaiveDate;
 use common_domain::ids::{BillableMetricId, CustomerId, TenantId};
-use error_stack::{Report, bail};
+use error_stack::bail;
 use rust_decimal::Decimal;
 use std::collections::HashMap;
 
