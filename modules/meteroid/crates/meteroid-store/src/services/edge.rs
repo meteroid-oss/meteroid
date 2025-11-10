@@ -4,14 +4,14 @@ use crate::domain::outbox_event::{
 };
 use crate::domain::payment_transactions::PaymentTransaction;
 use crate::domain::{
-    CreateSubscription, CreatedSubscription, CustomerBuyCredits, DetailedInvoice, SetupIntent,
-    Subscription, SubscriptionDetails,
+    CreateSubscription, CreatedSubscription, CustomerBuyCredits, DetailedInvoice, Invoice,
+    SetupIntent, Subscription, SubscriptionDetails,
 };
 use crate::errors::{StoreError, StoreErrorReport};
 use crate::repositories::InvoiceInterface;
 use crate::repositories::subscriptions::CancellationEffectiveAt;
 use crate::services::invoice_lines::invoice_lines::ComputedInvoiceContent;
-use crate::services::{InvoiceBillingMode, ServicesEdge};
+use crate::services::{InvoiceBillingMode, ServicesEdge, UpdateInvoiceParams};
 use crate::store::PgConn;
 use chrono::NaiveDate;
 use common_domain::ids::{
@@ -253,5 +253,27 @@ impl ServicesEdge {
         tenant_id: TenantId,
     ) -> StoreResult<DetailedInvoice> {
         self.services.finalize_invoice(invoice_id, tenant_id).await
+    }
+
+    pub async fn update_draft_invoice(
+        &self,
+        invoice_id: InvoiceId,
+        tenant_id: TenantId,
+        params: crate::services::UpdateInvoiceParams,
+    ) -> StoreResult<DetailedInvoice> {
+        self.services
+            .update_draft_invoice(invoice_id, tenant_id, params)
+            .await
+    }
+
+    pub async fn preview_draft_invoice_update(
+        &self,
+        invoice_id: InvoiceId,
+        tenant_id: TenantId,
+        params: UpdateInvoiceParams,
+    ) -> StoreResult<Invoice> {
+        self.services
+            .preview_draft_invoice_update(invoice_id, tenant_id, params)
+            .await
     }
 }

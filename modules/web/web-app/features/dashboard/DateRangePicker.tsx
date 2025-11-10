@@ -9,11 +9,13 @@ import { DateRange } from 'react-day-picker'
 export interface DatePickerWithRangeProps {
   range: DateRange | undefined
   setRange: (range: DateRange | undefined) => void
+  disabled?: boolean
 }
 export function DatePickerWithRange({
   className,
   range,
   setRange,
+  disabled,
 }: React.HTMLAttributes<HTMLDivElement> & DatePickerWithRangeProps) {
   return (
     <div className={cn('grid gap-2', className)}>
@@ -22,6 +24,7 @@ export function DatePickerWithRange({
           <Button
             id="date"
             variant="outline"
+            disabled={disabled}
             className={cn(
               'w-[150px] md:w-[250px] justify-start text-left font-normal rounded-md overflow-hidden',
               !range && 'text-muted-foreground'
@@ -49,6 +52,7 @@ export function DatePickerWithRange({
             selected={range}
             onSelect={setRange}
             numberOfMonths={2}
+            disabled={disabled}
           />
         </PopoverContent>
       </Popover>

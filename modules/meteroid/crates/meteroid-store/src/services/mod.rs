@@ -19,7 +19,9 @@ mod subscriptions;
 mod webhooks;
 
 use crate::errors::StoreError;
-pub use invoices::InvoiceBillingMode;
+pub use invoices::{
+    CustomerDetailsUpdate, InvoiceBillingMode, UpdateInvoiceParams, UpdateLineItemParams,
+};
 use stripe_client::client::StripeClient;
 pub use subscriptions::insert::payment_method::PaymentSetupResult;
 

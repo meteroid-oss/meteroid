@@ -16,7 +16,7 @@ type Props = {
 export const SubscriptionsCard = ({ customer }: Props) => {
   const [pagination, setPagination] = useState<PaginationState>({
     pageIndex: 0,
-    pageSize: 20,
+    pageSize: 5,
   })
 
   const invoicesQuery = useQuery(listSubscriptions, {

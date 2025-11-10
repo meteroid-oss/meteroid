@@ -1,29 +1,31 @@
 use crate::domain::enums::InvoiceType;
-use crate::errors::StoreError;
-use crate::store::Store;
-use crate::{StoreResult, domain};
-use diesel_async::scoped_futures::ScopedFutureExt;
-use diesel_models::PgConn;
-use diesel_models::enums::{MrrMovementType, SubscriptionEventType};
-use error_stack::{Report, bail};
-
 use crate::domain::outbox_event::{InvoicePdfGeneratedEvent, OutboxEvent};
 use crate::domain::pgmq::{
     PennylaneSyncInvoice, PennylaneSyncRequestEvent, PgmqMessageNew, PgmqQueue,
 };
 use crate::domain::{
     ConnectorProviderEnum, CursorPaginatedVec, CursorPaginationRequest, DetailedInvoice, Invoice,
-    InvoiceNew, InvoiceWithCustomer, OrderByRequest, PaginatedVec, PaginationRequest,
+    InvoiceNew, InvoiceWithCustomer, LineItem, OrderByRequest, PaginatedVec, PaginationRequest,
+    TaxBreakdownItem,
 };
+use crate::errors::StoreError;
 use crate::repositories::connectors::ConnectorsInterface;
 use crate::repositories::customer_balance::CustomerBalance;
 use crate::repositories::pgmq::PgmqInterface;
+use crate::store::Store;
+use crate::{StoreResult, domain};
 use common_domain::ids::{
     BaseId, ConnectorId, CustomerId, EventId, InvoiceId, StoredDocumentId, SubscriptionId, TenantId,
 };
+use diesel_async::scoped_futures::ScopedFutureExt;
+use diesel_models::PgConn;
 use diesel_models::customer_balance_txs::CustomerBalancePendingTxRow;
+use diesel_models::enums::{MrrMovementType, SubscriptionEventType};
 use diesel_models::invoices::{InvoiceRow, InvoiceRowNew};
 use diesel_models::subscriptions::SubscriptionRow;
+use error_stack::{Report, bail};
+use rust_decimal::Decimal;
+use std::collections::HashMap;
 use tracing_log::log;
 use uuid::Uuid;
 
@@ -649,4 +651,29 @@ async fn _process_pending_tx(conn: &mut PgConn, invoice_id: InvoiceId) -> StoreR
     }
 
     Ok(())
+}
+
+pub fn compute_tax_breakdown(lines: &[LineItem]) -> Vec<TaxBreakdownItem> {
+    let mut tax_groups: HashMap<Decimal, (u64, u64)> = HashMap::new();
+
+    for line in lines {
+        if line.tax_amount > 0 || line.taxable_amount > 0 {
+            let entry = tax_groups.entry(line.tax_rate).or_insert((0, 0));
+            entry.0 += line.taxable_amount as u64; // taxable_amount
+            entry.1 += line.tax_amount as u64; // tax_amount
+        }
+    }
+
+    tax_groups
+        .into_iter()
+        .map(
+            |(tax_rate, (taxable_amount, tax_amount))| TaxBreakdownItem {
+                taxable_amount,
+                tax_amount,
+                tax_rate,
+                name: "Tax".to_string(),
+                exemption_type: None,
+            },
+        )
+        .collect()
 }

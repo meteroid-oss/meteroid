@@ -1,6 +1,7 @@
 use super::{InvoiceServiceComponents, mapping};
+use crate::api::customers::mapping::customer::DomainAddressWrapper;
 use crate::api::invoices::error::InvoiceApiError;
-use crate::api::shared::conversions::ProtoConv;
+use crate::api::shared::conversions::{FromProtoOpt, ProtoConv};
 use crate::api::utils::PaginationExt;
 use chrono::{NaiveDate, NaiveTime};
 use common_domain::ids::{CustomerId, InvoiceId, SubscriptionId, TenantId};
@@ -11,22 +12,22 @@ use meteroid_grpc::meteroid::api::invoices::v1::{
     FinalizeInvoiceRequest, FinalizeInvoiceResponse, GetInvoiceRequest, GetInvoiceResponse,
     Invoice, ListInvoicesRequest, ListInvoicesResponse, MarkInvoiceAsUncollectibleRequest,
     MarkInvoiceAsUncollectibleResponse, NewInvoice, PreviewInvoiceRequest, PreviewInvoiceResponse,
-    PreviewNewInvoiceRequest, PreviewNewInvoiceResponse, RefreshInvoiceDataRequest,
-    RefreshInvoiceDataResponse, RequestPdfGenerationRequest, RequestPdfGenerationResponse,
-    SyncToPennylaneRequest, SyncToPennylaneResponse, VoidInvoiceRequest, VoidInvoiceResponse,
-    invoices_service_server::InvoicesService, list_invoices_request::SortBy,
+    PreviewInvoiceUpdateRequest, PreviewInvoiceUpdateResponse, PreviewNewInvoiceRequest,
+    PreviewNewInvoiceResponse, RefreshInvoiceDataRequest, RefreshInvoiceDataResponse,
+    RequestPdfGenerationRequest, RequestPdfGenerationResponse, SubLineItem as ProtoSubLineItem,
+    SyncToPennylaneRequest, SyncToPennylaneResponse, UpdateInvoiceRequest, UpdateInvoiceResponse,
+    VoidInvoiceRequest, VoidInvoiceResponse, invoices_service_server::InvoicesService,
+    list_invoices_request::SortBy,
 };
 use meteroid_store::Store;
 use meteroid_store::domain::pgmq::{InvoicePdfRequestEvent, PgmqMessageNew, PgmqQueue};
-use meteroid_store::domain::{
-    InvoiceNew, InvoicingEntity, LineItem, OrderByRequest, TaxBreakdownItem,
-};
+use meteroid_store::domain::{InvoiceNew, InvoicingEntity, LineItem, OrderByRequest};
+use meteroid_store::repositories::invoices::compute_tax_breakdown;
 use meteroid_store::repositories::invoicing_entities::InvoicingEntityInterface;
 use meteroid_store::repositories::payment_transactions::PaymentTransactionInterface;
 use meteroid_store::repositories::pgmq::PgmqInterface;
 use meteroid_store::repositories::{CustomersInterface, InvoiceInterface};
 use meteroid_store::utils::local_id::{IdType, LocalId};
-use std::collections::HashMap;
 use tonic::{Request, Response, Status};
 
 #[tonic::async_trait]
@@ -108,8 +109,9 @@ impl InvoicesService for InvoiceServiceComponents {
             .get_detailed_invoice_by_id(tenant_id, invoice_id)
             .await
             .and_then(|inv| {
-                mapping::invoices::domain_invoice_with_plan_details_to_server(
-                    inv,
+                mapping::invoices::domain_invoice_with_transactions_to_server(
+                    inv.invoice,
+                    inv.transactions,
                     self.jwt_secret.clone(),
                 )
             })
@@ -188,8 +190,9 @@ impl InvoicesService for InvoiceServiceComponents {
             .refresh_invoice_data(InvoiceId::from_proto(&req.id)?, tenant_id)
             .await
             .and_then(|inv| {
-                mapping::invoices::domain_invoice_with_plan_details_to_server(
-                    inv,
+                mapping::invoices::domain_invoice_with_transactions_to_server(
+                    inv.invoice,
+                    inv.transactions,
                     self.jwt_secret.clone(),
                 )
             })
@@ -251,8 +254,9 @@ impl InvoicesService for InvoiceServiceComponents {
             .get_detailed_invoice_by_id(tenant_id, inserted.id)
             .await
             .and_then(|inv| {
-                mapping::invoices::domain_invoice_with_plan_details_to_server(
-                    inv,
+                mapping::invoices::domain_invoice_with_transactions_to_server(
+                    inv.invoice,
+                    inv.transactions,
                     self.jwt_secret.clone(),
                 )
             })
@@ -306,8 +310,9 @@ impl InvoicesService for InvoiceServiceComponents {
             .finalize_invoice(invoice_id, tenant_id)
             .await
             .and_then(|inv| {
-                mapping::invoices::domain_invoice_with_plan_details_to_server(
-                    inv,
+                mapping::invoices::domain_invoice_with_transactions_to_server(
+                    inv.invoice,
+                    inv.transactions,
                     self.jwt_secret.clone(),
                 )
             })
@@ -315,6 +320,71 @@ impl InvoicesService for InvoiceServiceComponents {
 
         Ok(Response::new(FinalizeInvoiceResponse {
             invoice: Some(finalized),
+        }))
+    }
+
+    #[tracing::instrument(skip_all)]
+    async fn update_invoice(
+        &self,
+        request: Request<UpdateInvoiceRequest>,
+    ) -> Result<Response<UpdateInvoiceResponse>, Status> {
+        let tenant_id = request.tenant()?;
+
+        let req = request.into_inner();
+
+        let invoice_id = InvoiceId::from_proto(&req.id)?;
+
+        let params = to_update_invoice_params(req, &self.store).await?;
+
+        let updated = self
+            .services
+            .update_draft_invoice(invoice_id, tenant_id, params)
+            .await
+            .and_then(|inv| {
+                mapping::invoices::domain_invoice_with_transactions_to_server(
+                    inv.invoice,
+                    inv.transactions,
+                    self.jwt_secret.clone(),
+                )
+            })
+            .map_err(Into::<InvoiceApiError>::into)?;
+
+        Ok(Response::new(UpdateInvoiceResponse {
+            invoice: Some(updated),
+        }))
+    }
+
+    #[tracing::instrument(skip_all)]
+    async fn preview_invoice_update(
+        &self,
+        request: Request<PreviewInvoiceUpdateRequest>,
+    ) -> Result<Response<PreviewInvoiceUpdateResponse>, Status> {
+        let tenant_id = request.tenant()?;
+
+        let req = request.into_inner();
+        let update_req = req
+            .update_request
+            .ok_or_else(|| InvoiceApiError::InputError("Missing update_request".to_string()))?;
+
+        let invoice_id = InvoiceId::from_proto(&update_req.id)?;
+
+        let params = to_update_invoice_params(update_req, &self.store).await?;
+
+        let preview = self
+            .services
+            .preview_draft_invoice_update(invoice_id, tenant_id, params)
+            .await
+            .and_then(|inv| {
+                mapping::invoices::domain_invoice_with_transactions_to_server(
+                    inv,
+                    Vec::new(), // no transaction in draft
+                    self.jwt_secret.clone(),
+                )
+            })
+            .map_err(Into::<InvoiceApiError>::into)?;
+
+        Ok(Response::new(PreviewInvoiceUpdateResponse {
+            preview: Some(preview),
         }))
     }
 
@@ -351,8 +421,9 @@ impl InvoicesService for InvoiceServiceComponents {
             .void_invoice(invoice_id, tenant_id)
             .await
             .and_then(|inv| {
-                mapping::invoices::domain_invoice_with_plan_details_to_server(
-                    inv,
+                mapping::invoices::domain_invoice_with_transactions_to_server(
+                    inv.invoice,
+                    inv.transactions,
                     self.jwt_secret.clone(),
                 )
             })
@@ -378,8 +449,9 @@ impl InvoicesService for InvoiceServiceComponents {
             .mark_invoice_as_uncollectible(invoice_id, tenant_id)
             .await
             .and_then(|inv| {
-                mapping::invoices::domain_invoice_with_plan_details_to_server(
-                    inv,
+                mapping::invoices::domain_invoice_with_transactions_to_server(
+                    inv.invoice,
+                    inv.transactions,
                     self.jwt_secret.clone(),
                 )
             })
@@ -415,6 +487,74 @@ fn parse_as_minor_opt(
         .transpose()
 }
 
+/// Converts protobuf SubLineItems to domain SubLineItems
+fn convert_sublines_from_proto(
+    proto_sublines: &[ProtoSubLineItem],
+) -> Result<Vec<meteroid_store::domain::invoice_lines::SubLineItem>, Status> {
+    use meteroid_store::domain::invoice_lines::SubLineAttributes;
+
+    proto_sublines
+        .iter()
+        .map(|sub| {
+            let quantity_dec =
+                rust_decimal::Decimal::from_proto_ref(&sub.quantity).map_err(|e| {
+                    InvoiceApiError::InputError(format!("Invalid subline quantity: {}", e))
+                })?;
+            let unit_price_dec =
+                rust_decimal::Decimal::from_proto_ref(&sub.unit_price).map_err(|e| {
+                    InvoiceApiError::InputError(format!("Invalid subline unit price: {}", e))
+                })?;
+
+            let attributes = sub.subline_attributes.as_ref().and_then(|attr| {
+                use meteroid_grpc::meteroid::api::invoices::v1::sub_line_item::SublineAttributes;
+                match attr {
+                    SublineAttributes::Tiered(t) => Some(SubLineAttributes::Tiered {
+                        first_unit: t.first_unit,
+                        last_unit: t.last_unit,
+                        flat_cap: rust_decimal::Decimal::from_proto_opt(t.flat_cap.clone())
+                            .ok()
+                            .flatten(),
+                        flat_fee: rust_decimal::Decimal::from_proto_opt(t.flat_fee.clone())
+                            .ok()
+                            .flatten(),
+                    }),
+                    SublineAttributes::Volume(v) => Some(SubLineAttributes::Volume {
+                        first_unit: v.first_unit,
+                        last_unit: v.last_unit,
+                        flat_cap: rust_decimal::Decimal::from_proto_opt(v.flat_cap.clone())
+                            .ok()
+                            .flatten(),
+                        flat_fee: rust_decimal::Decimal::from_proto_opt(v.flat_fee.clone())
+                            .ok()
+                            .flatten(),
+                    }),
+                    SublineAttributes::Matrix(m) => Some(SubLineAttributes::Matrix {
+                        dimension1_key: m.dimension1_key.clone(),
+                        dimension1_value: m.dimension1_value.clone(),
+                        dimension2_key: m.dimension2_key.clone(),
+                        dimension2_value: m.dimension2_value.clone(),
+                    }),
+                    SublineAttributes::Package(p) => {
+                        let raw = rust_decimal::Decimal::from_proto_opt(Some(p.raw_usage.clone()))
+                            .ok()
+                            .flatten();
+                        raw.map(|r| SubLineAttributes::Package { raw_usage: r })
+                    }
+                }
+            });
+
+            Ok(meteroid_store::domain::invoice_lines::SubLineItem {
+                local_id: sub.id.clone(),
+                name: sub.name.clone(),
+                total: sub.total as i64,
+                quantity: quantity_dec,
+                unit_price: unit_price_dec,
+                attributes,
+            })
+        })
+        .collect()
+}
+
 async fn to_domain_invoice_new(
     tenant_id: TenantId,
     invoice_req: NewInvoice,
@@ -441,15 +581,34 @@ async fn to_domain_invoice_new(
     // First create line items with initial calculations (before discount)
     let mut lines = vec![];
     for line in &invoice_req.line_items {
-        let quantity = rust_decimal::Decimal::from_proto_ref(&line.quantity)?;
         let tax_rate = rust_decimal::Decimal::from_proto_ref(&line.tax_rate)?;
-        let unit_price = rust_decimal::Decimal::from_proto_ref(&line.unit_price)?;
         let start_date = NaiveDate::from_proto_ref(&line.start_date)?;
         let end_date = NaiveDate::from_proto_ref(&line.end_date)?;
 
-        let amount_subtotal = (quantity * unit_price)
-            .to_subunit_opt(currency.exponent as u8)
-            .unwrap_or(0);
+        // Handle optional quantity and unit_price (can be null for items with sublines)
+        let quantity = line
+            .quantity
+            .clone()
+            .map(|q| rust_decimal::Decimal::from_proto(q))
+            .transpose()?;
+        let unit_price = line
+            .unit_price
+            .clone()
+            .map(|p| rust_decimal::Decimal::from_proto(p))
+            .transpose()?;
+
+        // Convert sublines from proto to domain
+        let sub_lines = convert_sublines_from_proto(&line.sub_line_items)?;
+
+        // Calculate amount_subtotal
+        // If we have sublines, sum their totals; otherwise calculate from quantity * unit_price
+        let amount_subtotal = if !sub_lines.is_empty() {
+            sub_lines.iter().map(|s| s.total).sum()
+        } else if let (Some(q), Some(p)) = (quantity, unit_price) {
+            (q * p).to_subunit_opt(currency.exponent as u8).unwrap_or(0)
+        } else {
+            0
+        };
 
         let item = LineItem {
             local_id: LocalId::generate_for(IdType::Other),
@@ -460,18 +619,18 @@ async fn to_domain_invoice_new(
             taxable_amount: amount_subtotal, // Will be updated by distribute_discount
             tax_amount: 0,                   // Will be calculated after discount
             amount_total: 0,                 // Will be calculated after discount
-            quantity: Some(quantity),
-            unit_price: Some(unit_price),
+            quantity,
+            unit_price,
             start_date,
             end_date,
-            sub_lines: vec![],
+            sub_lines,
             is_prorated: false,
             price_component_id: None,
             sub_component_id: None,
             sub_add_on_id: None,
             product_id: None,
             metric_id: None,
-            description: None,
+            description: line.description.clone(),
             group_by_dimensions: None,
         };
 
@@ -498,12 +657,11 @@ async fn to_domain_invoice_new(
         line.amount_total = line.taxable_amount + line.tax_amount;
     }
 
-    // Calculate invoice totals from line items
     let subtotal: i64 = lines.iter().map(|line| line.amount_subtotal).sum();
     let total_tax_amount: i64 = lines.iter().map(|line| line.tax_amount).sum();
     let total_taxable: i64 = lines.iter().map(|line| line.taxable_amount).sum();
     let total = total_taxable + total_tax_amount;
-    let amount_due = total; // Same as total for new invoices
+    let amount_due = total;
 
     // Compute tax breakdown by grouping line items by tax rate
     let tax_breakdown = compute_tax_breakdown(&lines);
@@ -512,6 +670,28 @@ async fn to_domain_invoice_new(
         .get_invoicing_entity(tenant_id, Some(customer.invoicing_entity_id))
         .await
         .map_err(Into::<InvoiceApiError>::into)?;
+
+    // Use custom customer details if provided, otherwise use customer from DB
+    let customer_details = if let Some(custom_details) = invoice_req.customer_details {
+        let billing_address = custom_details
+            .billing_address
+            .map(DomainAddressWrapper::try_from)
+            .transpose()
+            .map_err(|_| InvoiceApiError::InputError("Invalid address".to_string()))?
+            .map(|w| w.0);
+
+        meteroid_store::domain::InlineCustomer {
+            id: customer_id,
+            name: custom_details.name,
+            billing_address,
+            snapshot_at: chrono::Utc::now().naive_utc(),
+            vat_number: custom_details.vat_number,
+            email: custom_details.email,
+            alias: customer.alias,
+        }
+    } else {
+        customer.into()
+    };
 
     let invoice_new = InvoiceNew {
         status: meteroid_store::domain::InvoiceStatusEnum::Draft,
@@ -535,11 +715,11 @@ async fn to_domain_invoice_new(
         net_terms: invoicing_entity.net_terms, // todo derive from due_date?
         discount: discount.unwrap_or(0),
         invoice_number: "draft".to_string(),
-        reference: None,
+        reference: invoice_req.reference,
         purchase_order: invoice_req.purchase_order.clone(),
-        memo: None,
+        memo: invoice_req.memo,
         due_at: due_date.map(|d| d.and_time(NaiveTime::MIN)),
-        customer_details: customer.into(),
+        customer_details,
         seller_details: invoicing_entity.clone().into(),
         auto_advance: false,
         payment_status: meteroid_store::domain::InvoicePaymentStatus::Unpaid,
@@ -550,30 +730,95 @@ async fn to_domain_invoice_new(
     Ok((invoice_new, invoicing_entity))
 }
 
-/// Compute tax breakdown by grouping line items by tax rate
-fn compute_tax_breakdown(lines: &[LineItem]) -> Vec<TaxBreakdownItem> {
-    let mut tax_groups: HashMap<rust_decimal::Decimal, (u64, u64)> = HashMap::new();
+async fn to_update_invoice_params(
+    req: UpdateInvoiceRequest,
+    _store: &Store,
+) -> Result<meteroid_store::services::UpdateInvoiceParams, Status> {
+    use common_domain::ids::BillableMetricId;
+    use meteroid_store::services::{
+        CustomerDetailsUpdate, UpdateInvoiceParams, UpdateLineItemParams,
+    };
 
-    // Group line items by tax rate and aggregate amounts
-    for line in lines {
-        if line.tax_amount > 0 || line.taxable_amount > 0 {
-            let entry = tax_groups.entry(line.tax_rate).or_insert((0, 0));
-            entry.0 += line.taxable_amount as u64; // taxable_amount
-            entry.1 += line.tax_amount as u64; // tax_amount
-        }
-    }
+    let line_items = if let Some(line_items_wrapper) = req.line_items {
+        let mut items = vec![];
+        for line in line_items_wrapper.items {
+            // Handle optional quantity and unit_price (can be None for items with sublines)
+            let quantity = match &line.quantity {
+                Some(q) if !q.is_empty() => Some(rust_decimal::Decimal::from_proto_ref(q)?),
+                _ => None,
+            };
+            let unit_price = match &line.unit_price {
+                Some(p) if !p.is_empty() => Some(rust_decimal::Decimal::from_proto_ref(p)?),
+                _ => None,
+            };
+            let tax_rate = rust_decimal::Decimal::from_proto_ref(&line.tax_rate)?;
+            let start_date = NaiveDate::from_proto_ref(&line.start_date)?;
+            let end_date = NaiveDate::from_proto_ref(&line.end_date)?;
+            let metric_id = line
+                .metric_id
+                .as_ref()
+                .map(|id| BillableMetricId::from_proto(id))
+                .transpose()?;
 
-    // Convert groups to TaxBreakdownItem
-    tax_groups
-        .into_iter()
-        .map(
-            |(tax_rate, (taxable_amount, tax_amount))| TaxBreakdownItem {
-                taxable_amount,
-                tax_amount,
+            // Convert sublines from proto to domain
+            let sub_lines = convert_sublines_from_proto(&line.sub_line_items)?;
+
+            items.push(UpdateLineItemParams {
+                id: line.id,
+                name: line.product,
+                start_date,
+                end_date,
+                quantity,
+                unit_price,
                 tax_rate,
-                name: "Tax".to_string(),
-                exemption_type: None,
-            },
-        )
-        .collect()
+                description: line.description,
+                metric_id,
+                sub_lines,
+            });
+        }
+        Some(items)
+    } else {
+        None
+    };
+
+    // Discount needs to be passed as string and converted in service layer where we have currency
+    let discount = req.discount;
+
+    let customer_details = req.customer_details.map(|cd| {
+        if cd.refresh_from_customer {
+            CustomerDetailsUpdate::RefreshFromCustomer
+        } else {
+            use crate::api::customers::mapping::customer::DomainAddressWrapper;
+            CustomerDetailsUpdate::InlineEdit {
+                name: cd.name,
+                billing_address: cd
+                    .billing_address
+                    .and_then(|addr| DomainAddressWrapper::try_from(addr).ok().map(|w| w.0)),
+                vat_number: cd.vat_number,
+            }
+        }
+    });
+
+    let invoicing_entity_id = req
+        .invoicing_entity_id
+        .as_ref()
+        .map(|id| common_domain::ids::InvoicingEntityId::from_proto(id))
+        .transpose()?;
+
+    let due_date = req
+        .due_date
+        .as_ref()
+        .map(|d| NaiveDate::from_proto_ref(d).map(Some))
+        .transpose()?;
+
+    Ok(UpdateInvoiceParams {
+        memo: req.memo.map(Some),
+        reference: req.reference.map(Some),
+        purchase_order: req.purchase_order.map(Some),
+        due_date,
+        line_items,
+        discount,
+        customer_details,
+        invoicing_entity_id,
+    })
 }

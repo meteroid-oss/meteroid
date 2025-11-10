@@ -17,6 +17,7 @@ import {
   CheckCircleIcon,
   ChevronDown,
   Download,
+  Edit,
   FileX2Icon,
   FolderSyncIcon,
   RefreshCcw,
@@ -37,6 +38,7 @@ import { getCountryName } from '@/features/settings/utils'
 import { useBasePath } from '@/hooks/useBasePath'
 import { useQuery } from '@/lib/connectrpc'
 import { env } from '@/lib/env'
+import { resizeSvgContent } from '@/pages/tenants/invoice/utils'
 import { getLatestConnMeta } from '@/pages/tenants/utils'
 import { listConnectors } from '@/rpc/api/connectors/v1/connectors-ConnectorsService_connectquery'
 import { ConnectorProviderEnum } from '@/rpc/api/connectors/v1/models_pb'
@@ -56,6 +58,7 @@ import { formatCurrency, formatCurrencyNoRounding, formatUsage } from '@/utils/n
 import { useTypedParams } from '@/utils/params'
 
 import { InvoiceConfirmationDialog } from './InvoiceConfirmationDialog'
+import { InvoiceEditForm } from './InvoiceEditForm'
 
 export const Invoice = () => {
   const { invoiceId } = useTypedParams<{ invoiceId: string }>()
@@ -88,41 +91,6 @@ export const Invoice = () => {
 
 interface Props {
   invoice: DetailedInvoice
-}
-
-// Function to resize SVG content by manipulating viewBox and dimensions
-export const resizeSvgContent = (html: string, scaleFactor: number = 0.8): string => {
-  // Create a temporary DOM parser to work with the HTML
-  const parser = new DOMParser()
-  const doc = parser.parseFromString(html, 'text/html')
-  const svgElement = doc.querySelector('svg')
-
-  if (!svgElement) {
-    console.warn('No SVG element found in the provided HTML.')
-    return html
-  }
-
-  // Get current dimensions
-  const width = svgElement.getAttribute('width')
-  const height = svgElement.getAttribute('height')
-
-  // Scale dimensions if they exist, removing units like 'pt', 'px', etc.
-  if (width && !width.includes('%')) {
-    const numWidth = parseFloat(width)
-    if (!isNaN(numWidth)) {
-      // Remove units and set as unitless number (defaults to pixels)
-      svgElement.setAttribute('width', (numWidth * scaleFactor).toString())
-    }
-  }
-
-  if (height && !height.includes('%')) {
-    const numHeight = parseFloat(height)
-    if (!isNaN(numHeight)) {
-      // Remove units and set as unitless number (defaults to pixels)
-      svgElement.setAttribute('height', (numHeight * scaleFactor).toString())
-    }
-  }
-  return doc.documentElement.outerHTML
 }
 
 // Component for inline invoice preview with direct SVG rendering
@@ -206,6 +174,7 @@ export const InvoiceView: React.FC<Props & { invoiceId: string }> = ({ invoice, 
   const basePath = useBasePath()
   const queryClient = useQueryClient()
   const navigate = useNavigate()
+  const [isEditMode, setIsEditMode] = useState(false)
 
   const refresh = useMutation(refreshInvoiceData, {
     onSuccess: async res => {
@@ -292,6 +261,7 @@ export const InvoiceView: React.FC<Props & { invoiceId: string }> = ({ invoice, 
 
   const isDraft = invoice && invoice.status === InvoiceStatus.DRAFT
   const isFinalized = invoice && invoice.status === InvoiceStatus.FINALIZED
+  const canEdit = isDraft
 
   const pdf_url =
     invoice.documentSharingKey &&
@@ -323,6 +293,24 @@ export const InvoiceView: React.FC<Props & { invoiceId: string }> = ({ invoice, 
       doRefresh()
     }
   }, [])
+
+  // If in edit mode, show the edit form
+  if (isEditMode) {
+    return (
+      <InvoiceEditForm
+        invoice={invoice}
+        invoiceId={invoiceId}
+        onCancel={() => {
+          setIsEditMode(false)
+          // Invalidate the invoice query to refetch the invoice data
+          queryClient.invalidateQueries({
+            queryKey: createConnectQueryKey(getInvoice, { id: invoiceId }),
+          })
+        }}
+        onSuccess={() => setIsEditMode(false)}
+      />
+    )
+  }
 
   return (
     <Flex className="h-full">
@@ -391,6 +379,10 @@ export const InvoiceView: React.FC<Props & { invoiceId: string }> = ({ invoice, 
                 </Button>
               </DropdownMenuTrigger>
               <DropdownMenuContent align="end">
+                <DropdownMenuItem onClick={() => setIsEditMode(true)} disabled={!canEdit}>
+                  <Edit size="16" className="mr-2" />
+                  Edit Invoice
+                </DropdownMenuItem>
                 <DropdownMenuItem onClick={doRefresh} disabled={!canRefresh || refresh.isPending}>
                   <RefreshCcw
                     size="16"
@@ -735,21 +727,21 @@ const InvoiceLineItemCard: React.FC<{
   return (
     <div className="py-2">
       <div
-        className={cn('flex justify-between items-start', hasSubItems && 'cursor-pointer')}
+        className={cn('flex justify-between items-start gap-2', hasSubItems && 'cursor-pointer')}
         onClick={() => hasSubItems && setIsExpanded(!isExpanded)}
       >
-        <div className="flex-1">
-          <div className="flex items-center gap-2">
+        <div className="flex-1 min-w-0">
+          <div className="flex items-start gap-2">
             {hasSubItems && (
               <ChevronDown
                 size={12}
                 className={cn(
-                  'text-muted-foreground transition-transform',
+                  'text-muted-foreground transition-transform flex-shrink-0 mt-0.5',
                   isExpanded && 'rotate-180'
                 )}
               />
             )}
-            <div className="text-[13px] font-medium">{line_item.name}</div>
+            <div className="text-[13px] font-medium break-words">{line_item.name}</div>
           </div>
           {line_item.startDate && line_item.endDate && (
             <div className="text-[11px] text-muted-foreground mt-1 ml-4">
@@ -758,14 +750,19 @@ const InvoiceLineItemCard: React.FC<{
           )}
         </div>
         <div className="text-right">
-          {line_item.quantity && line_item.unitPrice && (
+          {!hasSubItems && line_item.quantity && line_item.unitPrice && (
             <div className="text-[11px] text-muted-foreground">
               {formatUsage(parseFloat(line_item.quantity))} ×{' '}
               {formatCurrencyNoRounding(line_item.unitPrice, invoice.currency)}
             </div>
           )}
           <div className="text-[13px] font-medium">
-            {formatCurrency(line_item.subtotal, invoice.currency)}
+            {hasSubItems
+              ? formatCurrency(
+                  line_item.subLineItems.reduce((sum, sub) => sum + Number(sub.total), 0),
+                  invoice.currency
+                )
+              : formatCurrency(line_item.subtotal, invoice.currency)}
           </div>
         </div>
       </div>

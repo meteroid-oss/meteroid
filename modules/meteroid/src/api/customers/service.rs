@@ -303,8 +303,9 @@ impl CustomersService for CustomerServiceComponents {
             })
             .await
             .and_then(|inv| {
-                crate::api::invoices::mapping::invoices::domain_invoice_with_plan_details_to_server(
-                    inv,
+                crate::api::invoices::mapping::invoices::domain_invoice_with_transactions_to_server(
+                    inv.invoice,
+                    inv.transactions,
                     self.jwt_secret.clone(),
                 )
             })
