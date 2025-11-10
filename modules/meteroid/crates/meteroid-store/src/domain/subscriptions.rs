@@ -220,11 +220,9 @@ impl SubscriptionNewEnriched<'_> {
     pub fn map_to_row(&self) -> SubscriptionRowNew {
         let sub = &self.subscription;
 
-        // ON_START subscriptions should never be pending checkout - they activate immediately
-        // and attempt billing right away. If billing fails, the UI can still show a checkout link.
         let pending_checkout = match sub.activation_condition {
-            SubscriptionActivationCondition::OnStart => false,
-            _ => self.payment_setup_result.checkout,
+            SubscriptionActivationCondition::OnCheckout => self.payment_setup_result.checkout,
+            _ => false,
         };
 
         SubscriptionRowNew {

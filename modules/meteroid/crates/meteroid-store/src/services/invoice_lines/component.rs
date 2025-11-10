@@ -185,8 +185,6 @@ impl Services {
                     usage.data.iter().for_each(|usage_data| {
                         let overage_units = usage_data.value - Decimal::from(*included);
 
-                        // we would like to save the line even if the usage is 0 or negative,
-                        // so on invoice refresh we refresh that line too as the usage might have changed
                         let overage_units = only_positive_decimal(overage_units);
 
                         let overage_total = overage_price * overage_units.to_i64().unwrap_or(0);
@@ -207,7 +205,7 @@ impl Services {
                                 attributes: None,
                             }],
                             metric_id: Some(*metric_id),
-                            group_by_dimensions: Some(usage_data.dimensions.clone()), // TODO meh, we could group in subline instead ?
+                            group_by_dimensions: Some(usage_data.dimensions.clone()), // meh, should we group in subline instead ? + improve name
                         };
 
                         lines.push(overage_line);

@@ -29,7 +29,6 @@ export const SubscriptionInvoicesCard = ({ subscriptionId, onRefetchChange }: Pr
     sortBy: ListInvoicesRequest_SortBy.DATE_DESC,
   })
 
-  // Notify parent of refetch function and loading state
   useEffect(() => {
     if (onRefetchChange) {
       onRefetchChange(() => invoicesQuery.refetch(), invoicesQuery.isFetching)
