@@ -71,7 +71,7 @@ export const TenantDropdown = () => {
       <DropdownMenuContent align="start" className="w-[246px] p-0">
         <Command>
           <CommandEmpty>No tenant found.</CommandEmpty>
-          <CommandList>
+          <CommandList className="max-h-52 overflow-y-auto">
             {tenants
               .sort((a, b) => a.name.localeCompare(b.name))
               .map(tenant => (

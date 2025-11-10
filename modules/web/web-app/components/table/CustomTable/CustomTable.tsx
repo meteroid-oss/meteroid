@@ -75,7 +75,7 @@ export const CustomTable = <A extends object>({
 
   const tableBody = useMemo(() => {
     if (isLoading) {
-      const skeletonRows = 10
+      const skeletonRows = pagination.pageSize
       const skeletonColumns = columns.length
 
       const skeletonRowsArray = Array.from({ length: skeletonRows })
@@ -114,7 +114,7 @@ export const CustomTable = <A extends object>({
     }
 
     return rows.map(rowRenderer)
-  }, [isLoading, data, rows, rowRenderer, columns, emptyMessage])
+  }, [isLoading, data, rows, rowRenderer, columns, emptyMessage, pagination.pageSize])
 
   return (
     <>

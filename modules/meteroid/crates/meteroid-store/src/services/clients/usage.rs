@@ -13,15 +13,6 @@ pub struct UsageData {
     pub period: Period,
 }
 
-impl UsageData {
-    pub(crate) fn single(&self) -> StoreResult<Decimal> {
-        if self.data.len() > 1 {
-            return Err(Report::new(StoreError::MeteringServiceError).attach("Too many results"));
-        }
-        Ok(self.data.first().map_or(Decimal::ZERO, |usage| usage.value))
-    }
-}
-
 #[derive(Debug, Clone)]
 pub struct GroupedUsageData {
     pub value: Decimal,

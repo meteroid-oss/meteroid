@@ -127,9 +127,11 @@ impl Services {
 
         // Merge non-usage-based lines from existing invoice (if refreshing)
         let invoice_lines = if let Some(invoice) = invoice {
+            // TODO quick fix, do that part in process_component instead
             let computed_lines = price_components_lines
                 .into_iter()
                 .chain(add_ons_lines)
+                .filter(&is_usage_based_line)
                 .collect_vec();
 
             // Combine computed usage-based lines with preserved non-usage-based lines

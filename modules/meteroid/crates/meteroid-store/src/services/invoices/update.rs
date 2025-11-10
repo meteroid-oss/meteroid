@@ -55,7 +55,6 @@ impl Services {
             ));
         }
 
-        // Apply the same update logic but in-memory only
         let updated_invoice = self
             .prepare_invoice_update(invoice, tenant_id, params)
             .await?;
