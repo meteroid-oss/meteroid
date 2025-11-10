@@ -21,12 +21,16 @@ use meteroid_grpc::meteroid::api::invoices::v1::{
 };
 use meteroid_store::Store;
 use meteroid_store::domain::pgmq::{InvoicePdfRequestEvent, PgmqMessageNew, PgmqQueue};
-use meteroid_store::domain::{InvoiceNew, InvoicingEntity, LineItem, OrderByRequest};
+use meteroid_store::domain::{
+    InvoiceNew, InvoicingEntity, LineItem, OrderByRequest, UpdateInvoiceParams,
+    UpdateLineItemParams,
+};
 use meteroid_store::repositories::invoices::compute_tax_breakdown;
 use meteroid_store::repositories::invoicing_entities::InvoicingEntityInterface;
 use meteroid_store::repositories::payment_transactions::PaymentTransactionInterface;
 use meteroid_store::repositories::pgmq::PgmqInterface;
 use meteroid_store::repositories::{CustomersInterface, InvoiceInterface};
+use meteroid_store::services::CustomerDetailsUpdate;
 use meteroid_store::utils::local_id::{IdType, LocalId};
 use tonic::{Request, Response, Status};
 
@@ -334,7 +338,7 @@ impl InvoicesService for InvoiceServiceComponents {
 
         let invoice_id = InvoiceId::from_proto(&req.id)?;
 
-        let params = to_update_invoice_params(req, &self.store).await?;
+        let params = to_update_invoice_params(req)?;
 
         let updated = self
             .services
@@ -368,7 +372,7 @@ impl InvoicesService for InvoiceServiceComponents {
 
         let invoice_id = InvoiceId::from_proto(&update_req.id)?;
 
-        let params = to_update_invoice_params(update_req, &self.store).await?;
+        let params = to_update_invoice_params(update_req)?;
 
         let preview = self
             .services
@@ -546,7 +550,7 @@ fn convert_sublines_from_proto(
             Ok(meteroid_store::domain::invoice_lines::SubLineItem {
                 local_id: sub.id.clone(),
                 name: sub.name.clone(),
-                total: sub.total as i64,
+                total: sub.total,
                 quantity: quantity_dec,
                 unit_price: unit_price_dec,
                 attributes,
@@ -589,12 +593,12 @@ async fn to_domain_invoice_new(
         let quantity = line
             .quantity
             .clone()
-            .map(|q| rust_decimal::Decimal::from_proto(q))
+            .map(rust_decimal::Decimal::from_proto)
             .transpose()?;
         let unit_price = line
             .unit_price
             .clone()
-            .map(|p| rust_decimal::Decimal::from_proto(p))
+            .map(rust_decimal::Decimal::from_proto)
             .transpose()?;
 
         // Convert sublines from proto to domain
@@ -730,15 +734,7 @@ async fn to_domain_invoice_new(
     Ok((invoice_new, invoicing_entity))
 }
 
-async fn to_update_invoice_params(
-    req: UpdateInvoiceRequest,
-    _store: &Store,
-) -> Result<meteroid_store::services::UpdateInvoiceParams, Status> {
-    use common_domain::ids::BillableMetricId;
-    use meteroid_store::services::{
-        CustomerDetailsUpdate, UpdateInvoiceParams, UpdateLineItemParams,
-    };
-
+fn to_update_invoice_params(req: UpdateInvoiceRequest) -> Result<UpdateInvoiceParams, Status> {
     let line_items = if let Some(line_items_wrapper) = req.line_items {
         let mut items = vec![];
         for line in line_items_wrapper.items {
@@ -754,25 +750,18 @@ async fn to_update_invoice_params(
             let tax_rate = rust_decimal::Decimal::from_proto_ref(&line.tax_rate)?;
             let start_date = NaiveDate::from_proto_ref(&line.start_date)?;
             let end_date = NaiveDate::from_proto_ref(&line.end_date)?;
-            let metric_id = line
-                .metric_id
-                .as_ref()
-                .map(|id| BillableMetricId::from_proto(id))
-                .transpose()?;
 
-            // Convert sublines from proto to domain
             let sub_lines = convert_sublines_from_proto(&line.sub_line_items)?;
 
             items.push(UpdateLineItemParams {
                 id: line.id,
-                name: line.product,
+                name: line.name,
                 start_date,
                 end_date,
                 quantity,
                 unit_price,
                 tax_rate,
                 description: line.description,
-                metric_id,
                 sub_lines,
             });
         }
@@ -781,7 +770,6 @@ async fn to_update_invoice_params(
         None
     };
 
-    // Discount needs to be passed as string and converted in service layer where we have currency
     let discount = req.discount;
 
     let customer_details = req.customer_details.map(|cd| {
@@ -802,7 +790,7 @@ async fn to_update_invoice_params(
     let invoicing_entity_id = req
         .invoicing_entity_id
         .as_ref()
-        .map(|id| common_domain::ids::InvoicingEntityId::from_proto(id))
+        .map(common_domain::ids::InvoicingEntityId::from_proto)
         .transpose()?;
 
     let due_date = req

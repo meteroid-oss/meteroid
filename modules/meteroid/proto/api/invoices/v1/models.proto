@@ -241,7 +241,6 @@ message NewInvoice {
   optional string reference = 10;
 }
 
-// Message for overriding customer details in preview
 message InlineCustomerOverride {
   string name = 1;
   optional api.customers.v1.Address billing_address = 2;
@@ -249,32 +248,20 @@ message InlineCustomerOverride {
   optional string email = 4;
 }
 
-// Message for updating existing line items or adding new ones
 message UpdateInvoiceLineItem {
-  // If id is provided, this is an update to an existing line item (matches local_id)
   // If id is not provided, this is a new line item to be added
   optional string id = 1;
+  string name = 2;
 
-  string product = 2;
   string start_date = 3;
   string end_date = 4;
 
-  // For usage-based line items (those with metric_id), quantity is read-only and will be ignored
-  // The quantity will be recalculated from metrics on finalization
-  // For items with sublines, quantity can be null (computed from sublines)
+  // For usage-based line items (those with metric_id), quantity is read-only and will be recalculated on finalization
   optional string quantity = 5;
-
-  // For items with sublines, unit_price can be null (computed from sublines)
   optional string unit_price = 6;
+
   string tax_rate = 7;
-
-  // Optional description for the line item
   optional string description = 8;
-
-  // For usage-based line items: associate with a metric
-  // If provided, this line will be treated as usage-based (quantity computed from metrics)
-  optional string metric_id = 9;
-
   repeated SubLineItem sub_line_items = 10;
 }
 
@@ -282,37 +269,21 @@ message UpdateInlineCustomer {
   // If refresh_from_customer is true, all fields below are ignored
   bool refresh_from_customer = 1;
 
-  // Inline edits (only used if refresh_from_customer is false)
   optional string name = 2;
   optional api.customers.v1.Address billing_address = 3;
   optional string vat_number = 4;
 }
 
-// Message for updating a draft invoice
 message UpdateInvoiceRequest {
   string id = 1;
 
-  // Metadata updates
   optional string memo = 2;
   optional string reference = 3;
   optional string purchase_order = 4;
   optional string due_date = 5;
-
-  // Line items: complete replacement
-  // - Line items with id: update existing line item
-  // - Line items without id: add new line item
-  // - Existing line items not in this list: will be deleted
-  // If not provided, line items are not modified
   optional UpdatedLineItems line_items = 6;
-
-  // Discount update (triggers recalculation)
-  // If provided, replaces the current discount
   optional string discount = 7;
-
-  // Customer details update
   optional UpdateInlineCustomer customer_details = 8;
-
-  // Change the invoicing entity (affects bank account, invoice number series, etc.)
   optional string invoicing_entity_id = 9;
 
   message UpdatedLineItems {

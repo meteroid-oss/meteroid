@@ -25,18 +25,16 @@ export const createInvoiceSchema = z.object({
   lines: z.array(invoiceLineSchema).min(1, "At least one invoice line is required"),
 })
 
-// Base schema for common fields
 const baseLineItemObject = z.object({
   lineItemId: z.string().optional(), // if provided, update existing line item
-  product: z.string().min(1, "Product is required"),
+  name: z.string().min(1, "Name is required"),
   startDate: z.date({ required_error: "Start date is required" }),
   endDate: z.date({ required_error: "End date is required" }),
   taxRate: z.number().min(0).max(100, "Tax rate must be between 0 and 100"),
   description: z.string().optional(),
-  metricId: z.string().optional(), // for usage-based line items
+  metricId: z.string().optional(), 
 })
 
-// common refine config for date ordering
 const validateLineItemDates = {
   message: "End date must be after start date",
   path: ["endDate"],
@@ -47,7 +45,6 @@ export const baseLineItemSchema = baseLineItemObject.refine(
   validateLineItemDates
 )
 
-// Schema for regular line items (with quantity and unit price)
 export const updateInvoiceLineSchema = baseLineItemObject.extend({
   quantity: z.number().min(0, "Quantity must be 0 or greater"),
   unitPrice: z.number().min(0, "Unit price must be 0 or greater"),
@@ -56,10 +53,8 @@ export const updateInvoiceLineSchema = baseLineItemObject.extend({
   validateLineItemDates
 )
 
-// Schema for line items with sublines (quantity/unitPrice computed from sublines)
 export const updateInvoiceLineWithSublinesSchema = baseLineItemSchema
 
-// Proto SubLineItem structure (matches the proto definition)
 export type SubLineItem = {
   id: string
   name: string
@@ -72,7 +67,7 @@ export type SubLineItem = {
   }
 }
 
-// Original line item data structure (from proto)
+// (from proto)
 export type OriginalLineItem = {
   id: string
   name: string
@@ -89,19 +84,11 @@ export type OriginalLineItem = {
   metricId?: string
   description?: string
 }
-
-// Extended types that include the original line item data (for preserving sublines)
-// Matches the proto LineItem structure from api/invoices/v1/models.proto
-export type UpdateInvoiceLineSchemaWithOriginal =
-  | (z.infer<typeof updateInvoiceLineSchema> & { _originalItem?: OriginalLineItem })
-  | (z.infer<typeof updateInvoiceLineWithSublinesSchema> & { _originalItem?: OriginalLineItem })
-
-// Helper type for regular lines (with quantity/unitPrice)
+ 
 export type UpdateInvoiceLineSchemaRegular = z.infer<typeof updateInvoiceLineSchema> & {
   _originalItem?: OriginalLineItem
 }
 
-// Helper type for lines with sublines (without quantity/unitPrice)
 export type UpdateInvoiceLineSchemaWithSublines = z.infer<typeof updateInvoiceLineWithSublinesSchema> & {
   _originalItem?: OriginalLineItem
 }
@@ -122,7 +109,6 @@ export const updateInlineCustomerSchema = z.object({
   email: z.string().email("Invalid email").optional().or(z.literal("")),
 })
 
-// Schema for updating a draft invoice
 export const updateInvoiceSchema = z.object({
   id: z.string(),
   memo: z.string().optional(),

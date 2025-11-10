@@ -659,8 +659,8 @@ pub fn compute_tax_breakdown(lines: &[LineItem]) -> Vec<TaxBreakdownItem> {
     for line in lines {
         if line.tax_amount > 0 || line.taxable_amount > 0 {
             let entry = tax_groups.entry(line.tax_rate).or_insert((0, 0));
-            entry.0 += line.taxable_amount as u64; // taxable_amount
-            entry.1 += line.tax_amount as u64; // tax_amount
+            entry.0 += line.taxable_amount as u64;
+            entry.1 += line.tax_amount as u64;
         }
     }
 

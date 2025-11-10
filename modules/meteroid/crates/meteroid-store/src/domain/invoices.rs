@@ -4,6 +4,7 @@ use crate::domain::invoice_lines::LineItem;
 use crate::domain::payment_transactions::PaymentTransaction;
 use crate::domain::{Address, CouponLineItem, Customer, InvoicingEntity, PlanVersionOverview};
 use crate::errors::{StoreError, StoreErrorReport};
+use crate::services::CustomerDetailsUpdate;
 use chrono::{NaiveDate, NaiveDateTime, Utc};
 use common_domain::ids::{
     BaseId, CustomerId, InvoiceId, InvoicingEntityId, PlanVersionId, StoredDocumentId,
@@ -335,4 +336,27 @@ impl From<InvoiceNew> for Invoice {
             invoicing_entity_id: value.invoicing_entity_id,
         }
     }
+}
+
+pub struct UpdateInvoiceParams {
+    pub memo: Option<Option<String>>,
+    pub reference: Option<Option<String>>,
+    pub purchase_order: Option<Option<String>>,
+    pub due_date: Option<Option<NaiveDate>>,
+    pub line_items: Option<Vec<UpdateLineItemParams>>,
+    pub discount: Option<String>,
+    pub customer_details: Option<CustomerDetailsUpdate>,
+    pub invoicing_entity_id: Option<InvoicingEntityId>,
+}
+
+pub struct UpdateLineItemParams {
+    pub id: Option<String>,
+    pub name: String,
+    pub start_date: NaiveDate,
+    pub end_date: NaiveDate,
+    pub quantity: Option<Decimal>, // can be None for items with sublines
+    pub unit_price: Option<Decimal>, // same
+    pub tax_rate: Decimal,
+    pub description: Option<String>,
+    pub sub_lines: Vec<crate::domain::invoice_lines::SubLineItem>,
 }

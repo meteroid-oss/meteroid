@@ -5,13 +5,13 @@ use crate::domain::outbox_event::{
 use crate::domain::payment_transactions::PaymentTransaction;
 use crate::domain::{
     CreateSubscription, CreatedSubscription, CustomerBuyCredits, DetailedInvoice, Invoice,
-    SetupIntent, Subscription, SubscriptionDetails,
+    SetupIntent, Subscription, SubscriptionDetails, UpdateInvoiceParams,
 };
 use crate::errors::{StoreError, StoreErrorReport};
 use crate::repositories::InvoiceInterface;
 use crate::repositories::subscriptions::CancellationEffectiveAt;
 use crate::services::invoice_lines::invoice_lines::ComputedInvoiceContent;
-use crate::services::{InvoiceBillingMode, ServicesEdge, UpdateInvoiceParams};
+use crate::services::{InvoiceBillingMode, ServicesEdge};
 use crate::store::PgConn;
 use chrono::NaiveDate;
 use common_domain::ids::{
@@ -259,7 +259,7 @@ impl ServicesEdge {
         &self,
         invoice_id: InvoiceId,
         tenant_id: TenantId,
-        params: crate::services::UpdateInvoiceParams,
+        params: UpdateInvoiceParams,
     ) -> StoreResult<DetailedInvoice> {
         self.services
             .update_draft_invoice(invoice_id, tenant_id, params)

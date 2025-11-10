@@ -61,6 +61,7 @@ impl ExistingLineKey {
 }
 
 impl Services {
+    #[allow(clippy::too_many_arguments)]
     pub(super) async fn compute_component<T: SubscriptionFeeInterface>(
         &self,
         conn: &mut PgConn,
@@ -501,7 +502,7 @@ impl Services {
                 LineItem {
                     local_id: existing_line
                         .map(|el| el.local_id.clone())
-                        .unwrap_or_else(|| LocalId::no_prefix()),
+                        .unwrap_or_else(LocalId::no_prefix),
                     name: existing_line.map(|el| el.name.clone()).unwrap_or(name),
                     quantity: line.quantity,
                     unit_price: line.unit_price,

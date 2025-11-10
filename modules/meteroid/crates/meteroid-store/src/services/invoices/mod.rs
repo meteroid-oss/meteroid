@@ -6,4 +6,4 @@ mod refresh;
 mod update;
 
 pub use bill::InvoiceBillingMode;
-pub use update::{CustomerDetailsUpdate, UpdateInvoiceParams, UpdateLineItemParams};
+pub use update::CustomerDetailsUpdate;

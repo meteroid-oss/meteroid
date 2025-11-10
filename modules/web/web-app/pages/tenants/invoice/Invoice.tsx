@@ -294,7 +294,6 @@ export const InvoiceView: React.FC<Props & { invoiceId: string }> = ({ invoice, 
     }
   }, [])
 
-  // If in edit mode, show the edit form
   if (isEditMode) {
     return (
       <InvoiceEditForm
@@ -302,7 +301,6 @@ export const InvoiceView: React.FC<Props & { invoiceId: string }> = ({ invoice, 
         invoiceId={invoiceId}
         onCancel={() => {
           setIsEditMode(false)
-          // Invalidate the invoice query to refetch the invoice data
           queryClient.invalidateQueries({
             queryKey: createConnectQueryKey(getInvoice, { id: invoiceId }),
           })

@@ -1,13 +1,13 @@
 use crate::StoreResult;
-use crate::domain::{DetailedInvoice, Invoice, LineItem, TaxBreakdownItem};
+use crate::domain::{DetailedInvoice, Invoice, LineItem, TaxBreakdownItem, UpdateInvoiceParams};
 use crate::errors::StoreError;
 use crate::repositories::invoices::compute_tax_breakdown;
 use crate::repositories::invoicing_entities::InvoicingEntityInterface;
 use crate::repositories::{CustomersInterface, InvoiceInterface};
 use crate::services::Services;
 use crate::utils::local_id::{IdType, LocalId};
-use chrono::{NaiveDate, NaiveTime};
-use common_domain::ids::{BillableMetricId, InvoiceId, InvoicingEntityId, TenantId};
+use chrono::NaiveTime;
+use common_domain::ids::{InvoiceId, TenantId};
 use common_utils::decimals::ToSubunit;
 use diesel_async::scoped_futures::ScopedFutureExt;
 use diesel_models::PgConn;
@@ -16,30 +16,7 @@ use error_stack::bail;
 use rust_decimal::Decimal;
 use std::collections::HashMap;
 
-pub struct UpdateInvoiceParams {
-    pub memo: Option<Option<String>>,
-    pub reference: Option<Option<String>>,
-    pub purchase_order: Option<Option<String>>,
-    pub due_date: Option<Option<NaiveDate>>,
-    pub line_items: Option<Vec<UpdateLineItemParams>>,
-    pub discount: Option<String>, // String decimal value, will be converted to minor units
-    pub customer_details: Option<CustomerDetailsUpdate>,
-    pub invoicing_entity_id: Option<InvoicingEntityId>,
-}
-
-pub struct UpdateLineItemParams {
-    pub id: Option<String>, // local_id
-    pub name: String,
-    pub start_date: NaiveDate,
-    pub end_date: NaiveDate,
-    pub quantity: Option<Decimal>,   // None for items with sublines
-    pub unit_price: Option<Decimal>, // None for items with sublines
-    pub tax_rate: Decimal,
-    pub description: Option<String>,
-    pub metric_id: Option<BillableMetricId>,
-    pub sub_lines: Vec<crate::domain::invoice_lines::SubLineItem>, // Preserved for items with sublines
-}
-
+#[allow(clippy::large_enum_variant)]
 pub enum CustomerDetailsUpdate {
     RefreshFromCustomer,
     InlineEdit {
@@ -80,7 +57,7 @@ impl Services {
 
         // Apply the same update logic but in-memory only
         let updated_invoice = self
-            .apply_invoice_updates_in_memory(invoice, tenant_id, params)
+            .prepare_invoice_update(invoice, tenant_id, params)
             .await?;
 
         Ok(updated_invoice)
@@ -93,7 +70,6 @@ impl Services {
         tenant_id: TenantId,
         params: UpdateInvoiceParams,
     ) -> StoreResult<DetailedInvoice> {
-        // Lock and validate invoice
         let invoice_lock = InvoiceRow::select_for_update_by_id(conn, tenant_id, id).await?;
         let invoice: Invoice = invoice_lock.invoice.try_into()?;
 
@@ -103,12 +79,10 @@ impl Services {
             ));
         }
 
-        // Apply updates in memory
         let invoice = self
-            .apply_invoice_updates_in_memory(invoice, tenant_id, params)
+            .prepare_invoice_update(invoice, tenant_id, params)
             .await?;
 
-        // Update in database
         let patch = InvoiceRowPatch {
             line_items: serde_json::to_value(&invoice.line_items).map_err(|e| {
                 StoreError::SerdeError("Failed to serialize line_items".to_string(), e)
@@ -137,7 +111,6 @@ impl Services {
 
         patch.update(id, tenant_id, conn).await?;
 
-        // Fetch and return updated detailed invoice
         let detailed_invoice = InvoiceRow::find_detailed_by_id(conn, tenant_id, id)
             .await
             .map_err(Into::into)
@@ -146,8 +119,8 @@ impl Services {
         Ok(detailed_invoice)
     }
 
-    /// Apply invoice updates in memory (shared logic for update and preview)
-    async fn apply_invoice_updates_in_memory(
+    /// shared logic for update and preview
+    async fn prepare_invoice_update(
         &self,
         mut invoice: Invoice,
         tenant_id: TenantId,
@@ -156,7 +129,6 @@ impl Services {
         let currency = rusty_money::iso::find(&invoice.currency)
             .ok_or_else(|| StoreError::InvalidArgument("Invalid currency".into()))?;
 
-        // Handle customer details update
         if let Some(customer_update) = params.customer_details {
             invoice.customer_details = match customer_update {
                 CustomerDetailsUpdate::RefreshFromCustomer => {
@@ -183,7 +155,6 @@ impl Services {
             };
         }
 
-        // Handle invoicing entity change
         if let Some(new_invoicing_entity_id) = params.invoicing_entity_id {
             let invoicing_entity = self
                 .store
@@ -193,7 +164,6 @@ impl Services {
             invoice.invoicing_entity_id = new_invoicing_entity_id;
         }
 
-        // Handle line items update
         let mut lines = if let Some(new_line_items) = params.line_items {
             // Build a map of existing line items by local_id for quick lookup
             let existing_lines_map: HashMap<String, LineItem> = invoice
@@ -202,7 +172,6 @@ impl Services {
                 .map(|line| (line.local_id.clone(), line.clone()))
                 .collect();
 
-            // Build new line items with initial calculations (before discount)
             let mut lines = vec![];
             for line_params in &new_line_items {
                 let local_id = if let Some(ref existing_id) = line_params.id {
@@ -211,7 +180,6 @@ impl Services {
                     LocalId::generate_for(IdType::Other)
                 };
 
-                // Check if this is an existing line item that we need to preserve
                 let existing_line = line_params
                     .id
                     .as_ref()
@@ -226,8 +194,6 @@ impl Services {
                 // For lines with sublines, preserve the original values
                 // Otherwise, use the updated values from params
                 let (quantity, unit_price, amount_subtotal) = if has_sublines {
-                    // For lines with sublines, try to get from existing line first
-                    // If not found (e.g., ID changed), calculate from sublines passed in params
                     if let Some(existing) = existing_line {
                         (
                             existing.quantity,
@@ -240,7 +206,6 @@ impl Services {
                         (None, None, subtotal)
                     }
                 } else {
-                    // Use new values for regular line items
                     let q = line_params.quantity.unwrap_or(rust_decimal::Decimal::ZERO);
                     let p = line_params
                         .unit_price
@@ -262,13 +227,13 @@ impl Services {
                     unit_price,
                     start_date: line_params.start_date,
                     end_date: line_params.end_date,
-                    sub_lines: line_params.sub_lines.clone(), // Use sublines from params (preserved from frontend)
+                    sub_lines: line_params.sub_lines.clone(),
                     is_prorated: existing_line.map(|l| l.is_prorated).unwrap_or(false),
                     price_component_id: existing_line.and_then(|l| l.price_component_id),
                     sub_component_id: existing_line.and_then(|l| l.sub_component_id),
                     sub_add_on_id: existing_line.and_then(|l| l.sub_add_on_id),
                     product_id: existing_line.and_then(|l| l.product_id),
-                    metric_id: line_params.metric_id,
+                    metric_id: existing_line.and_then(|l| l.metric_id),
                     description: line_params.description.clone(),
                     group_by_dimensions: existing_line.and_then(|l| l.group_by_dimensions.clone()),
                 };
@@ -280,7 +245,6 @@ impl Services {
             invoice.line_items.clone()
         };
 
-        // Update discount if provided
         let discount = if let Some(discount_str) = params.discount {
             let decimal = discount_str.parse::<Decimal>().map_err(|e| {
                 StoreError::InvalidArgument(format!("Invalid discount value: {}", e))
@@ -296,7 +260,6 @@ impl Services {
             invoice.discount
         };
 
-        // Apply discount proportionally across line items
         if discount > 0 {
             lines = crate::services::invoice_lines::discount::distribute_discount(
                 lines,
@@ -304,23 +267,24 @@ impl Services {
             );
         }
 
-        // Calculate tax amounts after discount is applied (tax_rate already set from params)
         let tax_breakdown = apply_tax_rates_to_lines(&mut lines, currency);
 
-        // Calculate invoice totals from line items
         let subtotal: i64 = lines.iter().map(|line| line.amount_subtotal).sum();
         let total_tax_amount: i64 = lines.iter().map(|line| line.tax_amount).sum();
         let total_taxable: i64 = lines.iter().map(|line| line.taxable_amount).sum();
         let total = total_taxable + total_tax_amount;
 
-        // Calculate amount_due (preserve any payments already made)
         let already_paid = invoice.total - invoice.amount_due;
         let amount_due = total - already_paid;
 
-        // Update invoice fields
+        let subtotal_recurring = lines
+            .iter()
+            .filter(|x| x.metric_id.is_none())
+            .fold(0, |acc, x| acc + x.amount_subtotal);
+
         invoice.line_items = lines;
         invoice.subtotal = subtotal;
-        invoice.subtotal_recurring = 0; // no recurring items in manual invoices
+        invoice.subtotal_recurring = subtotal_recurring;
         invoice.tax_amount = total_tax_amount;
         invoice.total = total;
         invoice.amount_due = amount_due;

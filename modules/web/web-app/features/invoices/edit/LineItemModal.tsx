@@ -50,7 +50,7 @@ export const LineItemModal = ({
           .updateInvoiceLineWithSublinesSchema as typeof schemas.invoices.updateInvoiceLineSchema)
       : schemas.invoices.updateInvoiceLineSchema,
     defaultValues: initialData || {
-      product: '',
+      name: '',
       startDate: new Date(),
       endDate: (() => {
         const d = new Date()
@@ -132,7 +132,7 @@ export const LineItemModal = ({
                 control={lineItemMethods.control}
                 layout="vertical"
                 label="Product Name"
-                name="product"
+                name="name"
                 render={({ field }) => (
                   <Input {...field} placeholder="Product name" autoComplete="off" />
                 )}

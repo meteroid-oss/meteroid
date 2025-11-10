@@ -123,38 +123,35 @@ export const InvoiceEditForm: React.FC<InvoiceEditFormProps> = ({
     },
   })
 
-  const convertLineItemsToForm = useCallback(
-    (): UpdateInvoiceLineSchema[] => {
-      return invoice.lineItems.map(item => {
-        const hasSublines = item.subLineItems && item.subLineItems.length > 0
+  const convertLineItemsToForm = useCallback((): UpdateInvoiceSchema['lines'] => {
+    return invoice.lineItems.map(item => {
+      const hasSublines = item.subLineItems && item.subLineItems.length > 0
 
-        if (hasSublines) {
-          return {
-            lineItemId: item.id,
-            product: item.name,
-            startDate: parseDate(item.startDate),
-            endDate: parseDate(item.endDate),
-            taxRate: parseFloat(item.taxRate) * 100,
-            description: item.description,
-            metricId: item.metricId,
-          }
-        } else {
-          return {
-            lineItemId: item.id,
-            product: item.name,
-            startDate: parseDate(item.startDate),
-            endDate: parseDate(item.endDate),
-            quantity: parseFloat(item.quantity || '0'),
-            unitPrice: parseFloat(item.unitPrice || '0'),
-            taxRate: parseFloat(item.taxRate) * 100,
-            description: item.description,
-            metricId: item.metricId,
-          }
+      if (hasSublines) {
+        return {
+          lineItemId: item.id,
+          name: item.name,
+          startDate: parseDate(item.startDate),
+          endDate: parseDate(item.endDate),
+          taxRate: parseFloat(item.taxRate) * 100,
+          description: item.description,
+          metricId: item.metricId,
         }
-      })
-    },
-    [invoice]
-  )
+      } else {
+        return {
+          lineItemId: item.id,
+          name: item.name,
+          startDate: parseDate(item.startDate),
+          endDate: parseDate(item.endDate),
+          quantity: parseFloat(item.quantity || '0'),
+          unitPrice: parseFloat(item.unitPrice || '0'),
+          taxRate: parseFloat(item.taxRate) * 100,
+          description: item.description,
+          metricId: item.metricId,
+        }
+      }
+    })
+  }, [invoice])
 
   const methods = useZodForm({
     schema: schemas.invoices.updateInvoiceSchema,
@@ -212,7 +209,7 @@ export const InvoiceEditForm: React.FC<InvoiceEditFormProps> = ({
 
         return {
           id: line.lineItemId,
-          product: line.product,
+          name: line.name,
           startDate: mapDatev2(line.startDate),
           endDate: mapDatev2(line.endDate),
           quantity: hasSublines ? originalItem.quantity : lineWithValues.quantity?.toString(),
@@ -243,7 +240,6 @@ export const InvoiceEditForm: React.FC<InvoiceEditFormProps> = ({
       updateRequest.customerDetails = new UpdateInlineCustomer({
         refreshFromCustomer: false,
         name: customerDetails.name || undefined,
-        email: customerDetails.email || undefined,
         vatNumber: customerDetails.vatNumber || undefined,
         billingAddress: customerDetails.billingAddress,
       })
@@ -281,7 +277,7 @@ export const InvoiceEditForm: React.FC<InvoiceEditFormProps> = ({
             const lineWithValues = line as UpdateInvoiceLineSchemaRegular
 
             return {
-              product: line.product,
+              name: line.name,
               startDate: mapDatev2(line.startDate),
               endDate: mapDatev2(line.endDate),
               quantity: hasSublines ? undefined : lineWithValues.quantity?.toString(),
@@ -328,21 +324,17 @@ export const InvoiceEditForm: React.FC<InvoiceEditFormProps> = ({
 
       if (data.lines && data.lines.length > 0) {
         const lineItems: PlainMessage<UpdateInvoiceLineItem>[] = data.lines.map(line => {
-          const originalItem = line.lineItemId
-            ? originalLineItems.get(line.lineItemId)
-            : undefined
+          const originalItem = line.lineItemId ? originalLineItems.get(line.lineItemId) : undefined
           const hasSublines = originalItem?.subLineItems && originalItem.subLineItems.length > 0
           const lineWithValues = line as UpdateInvoiceLineSchemaRegular
 
           return {
             id: line.lineItemId,
-            product: line.product,
+            name: line.name,
             startDate: mapDatev2(line.startDate),
             endDate: mapDatev2(line.endDate),
             quantity: hasSublines ? originalItem.quantity : lineWithValues.quantity?.toString(),
-            unitPrice: hasSublines
-              ? originalItem.unitPrice
-              : lineWithValues.unitPrice?.toString(),
+            unitPrice: hasSublines ? originalItem.unitPrice : lineWithValues.unitPrice?.toString(),
             taxRate: ((line.taxRate || 0) / 100).toString(),
             description: line.description,
             metricId: line.metricId,
@@ -361,7 +353,6 @@ export const InvoiceEditForm: React.FC<InvoiceEditFormProps> = ({
       updateRequest.customerDetails = new UpdateInlineCustomer({
         refreshFromCustomer: false,
         name: submitCustomerDetails.name || undefined,
-        email: submitCustomerDetails.email || undefined,
         vatNumber: submitCustomerDetails.vatNumber || undefined,
         billingAddress: submitCustomerDetails.billingAddress,
       })
@@ -393,7 +384,7 @@ export const InvoiceEditForm: React.FC<InvoiceEditFormProps> = ({
   }
 
   const handleRemoveLine = (index: number) => {
-    setItemToDelete({ index, name: fields[index].product })
+    setItemToDelete({ index, name: fields[index].name })
     setDeleteConfirmOpen(true)
   }
 

@@ -56,7 +56,7 @@ export const LineItemDisplay = ({
                 )}
                 onClick={() => hasSublines && setIsExpanded(!isExpanded)}
               >
-                {item.product}
+                {item.name}
               </div>
               {isUsageBased && (
                 <Badge variant="outline" className="text-[10px] px-1.5 py-0 flex-shrink-0">
