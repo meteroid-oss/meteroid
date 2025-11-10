@@ -3,7 +3,7 @@ use crate::domain::{BillableMetric, Period};
 use crate::errors::StoreError;
 use chrono::NaiveDate;
 use common_domain::ids::{BillableMetricId, CustomerId, TenantId};
-use error_stack::{Report, bail};
+use error_stack::bail;
 use rust_decimal::Decimal;
 use std::collections::HashMap;
 
@@ -11,15 +11,6 @@ use std::collections::HashMap;
 pub struct UsageData {
     pub data: Vec<GroupedUsageData>,
     pub period: Period,
-}
-
-impl UsageData {
-    pub(crate) fn single(&self) -> StoreResult<Decimal> {
-        if self.data.len() > 1 {
-            return Err(Report::new(StoreError::MeteringServiceError).attach("Too many results"));
-        }
-        Ok(self.data.first().map_or(Decimal::ZERO, |usage| usage.value))
-    }
 }
 
 #[derive(Debug, Clone)]

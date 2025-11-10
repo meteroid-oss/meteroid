@@ -7,7 +7,7 @@ import {
   DropdownMenuTrigger,
   Skeleton,
 } from '@md/ui'
-import { ChevronDown, ChevronLeftIcon } from 'lucide-react'
+import { ChevronDown, ChevronLeftIcon, RefreshCw } from 'lucide-react'
 import { ReactNode, useState } from 'react'
 import { Link, useNavigate } from 'react-router-dom'
 
@@ -173,6 +173,8 @@ export const Subscription = () => {
 
   const [showSyncHubspotModal, setShowSyncHubspotModal] = useState(false)
   const [showCancelModal, setShowCancelModal] = useState(false)
+  const [invoicesRefetch, setInvoicesRefetch] = useState<(() => void) | null>(null)
+  const [invoicesIsFetching, setInvoicesIsFetching] = useState(false)
 
   const { subscriptionId } = useTypedParams()
   const subscriptionQuery = useQuery(
@@ -527,11 +529,28 @@ export const Subscription = () => {
         )}
 
         <div className="bg-card rounded-lg border border-border shadow-sm mb-6">
-          <div className="p-4 border-b border-border">
+          <div className="p-4 border-b border-border flex items-center justify-between">
             <h3 className="text-md font-medium text-foreground">Invoices</h3>
+            <Button
+              variant="ghost"
+              size="sm"
+              onClick={() => invoicesRefetch?.()}
+              disabled={!invoicesRefetch || invoicesIsFetching}
+              className="h-7 w-7 p-0"
+            >
+              <RefreshCw
+                className={`h-3.5 w-3.5 ${invoicesIsFetching ? 'animate-spin' : ''}`}
+              />
+            </Button>
           </div>
           <div className="p-4 text-sm overflow-hidden text-muted-foreground">
-            <SubscriptionInvoicesCard subscriptionId={data.localId}/>
+            <SubscriptionInvoicesCard
+              subscriptionId={data.localId}
+              onRefetchChange={(refetch, isFetching) => {
+                setInvoicesRefetch(() => refetch)
+                setInvoicesIsFetching(isFetching)
+              }}
+            />
           </div>
         </div>
       </div>

@@ -36,6 +36,10 @@ fn only_api(path: &str) -> bool {
     path.starts_with("/meteroid.metering.v1.EventsService")
 }
 
+fn reject_all(_path: &str) -> bool {
+    false
+}
+
 pub async fn start_server(config: Config) {
     let internal_client = create_meteroid_internal_client(&config).await;
     #[cfg(feature = "kafka")]
@@ -120,10 +124,13 @@ pub async fn start_api_server(
         .layer(api_key_auth_layer)
         .layer(admin_auth_layer)
         .layer(common_middleware::error_logger::create())
-        .layer(
-            otel_middleware::server::OtelGrpcLayer::default()
-                .filter(otel_middleware::filters::reject_healthcheck),
-        )
+        .layer(otel_middleware::server::OtelGrpcLayer::default().filter(
+            if config.common.telemetry.tracing_enabled {
+                otel_middleware::filters::reject_healthcheck
+            } else {
+                reject_all
+            },
+        ))
         .add_service(health_service)
         .add_service(reflection_service)
         .add_service(meter_service)

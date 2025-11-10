@@ -116,7 +116,7 @@ async fn get_user_role_oss_cached(
         .await
         .map_err(|_| {
             Status::permission_denied(format!(
-                "Failed to retrieve user role for organization {user_id} and user {org_id}"
+                "Failed to retrieve user role for organization {org_id} and user {user_id}"
             ))
         })
         .map(|x| x.role)?;

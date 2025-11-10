@@ -277,7 +277,7 @@ export const InvoiceEditForm: React.FC<InvoiceEditFormProps> = ({
             const lineWithValues = line as UpdateInvoiceLineSchemaRegular
 
             return {
-              name: line.name,
+              product: line.name,
               startDate: mapDatev2(line.startDate),
               endDate: mapDatev2(line.endDate),
               quantity: hasSublines ? undefined : lineWithValues.quantity?.toString(),
