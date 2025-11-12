@@ -25,8 +25,6 @@ pub enum StoreError {
     CancellationError,
     #[error("Failed to insert subscription")]
     InsertError,
-    #[error("Transaction error: {0:?}")]
-    TransactionStoreError(error_stack::Report<StoreError>),
     #[error("Failed to compute invoice lines")]
     InvoiceComputationError,
     #[error("Failed to bill subscription")]
@@ -79,6 +77,7 @@ impl From<DatabaseError> for StoreError {
                 entity: "db entity",
                 key: None,
             },
+            DatabaseError::ValidationError(msg) => StoreError::InvalidArgument(msg),
             _ => StoreError::DatabaseError(err.into_report()),
         }
     }
@@ -87,5 +86,34 @@ impl From<DatabaseError> for StoreError {
 impl From<Error> for StoreError {
     fn from(value: Error) -> Self {
         DatabaseError::from(&value).into()
+    }
+}
+
+// Container type used for transactions
+#[derive(Debug)]
+pub struct StoreErrorContainer {
+    pub error: error_stack::Report<StoreError>,
+}
+
+impl From<error_stack::Report<StoreError>> for StoreErrorContainer {
+    fn from(error: error_stack::Report<StoreError>) -> Self {
+        Self {
+            error: error.attach("Transaction failed"),
+        }
+    }
+}
+
+impl From<Error> for StoreErrorContainer {
+    fn from(error: Error) -> Self {
+        let store_error = StoreError::from(DatabaseError::from(&error));
+        Self {
+            error: error_stack::Report::from(error).change_context(store_error),
+        }
+    }
+}
+
+impl From<StoreErrorContainer> for error_stack::Report<StoreError> {
+    fn from(container: StoreErrorContainer) -> Self {
+        container.error
     }
 }

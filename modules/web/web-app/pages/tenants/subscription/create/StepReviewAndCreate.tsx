@@ -141,7 +141,8 @@ export const StepReviewAndCreate = () => {
       toast.success('Subscription created successfully')
       navigate(`${basePath}/subscriptions/${created.subscription?.id}`)
     } catch (error) {
-      toast.error('Failed to create subscription')
+      const errorMessage = error instanceof Error ? error.message : 'Failed to create subscription'
+      toast.error(errorMessage)
       console.error(error)
     }
   }

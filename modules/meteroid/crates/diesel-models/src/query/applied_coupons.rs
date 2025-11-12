@@ -4,11 +4,14 @@ use crate::applied_coupons::{
 use crate::errors::IntoDbResult;
 use crate::extend::pagination::{Paginate, PaginatedVec, PaginationRequest};
 use crate::{DbResult, PgConn};
-use common_domain::ids::{AppliedCouponId, CouponId, SubscriptionId, TenantId};
-use diesel::{ExpressionMethods, JoinOnDsl, QueryDsl, SelectableHelper, debug_query};
+use common_domain::ids::{AppliedCouponId, CouponId, CustomerId, SubscriptionId, TenantId};
+use diesel::{
+    BoolExpressionMethods, ExpressionMethods, JoinOnDsl, QueryDsl, SelectableHelper, debug_query,
+};
 use diesel_async::RunQueryDsl;
 use error_stack::ResultExt;
 use rust_decimal::Decimal;
+use std::collections::HashSet;
 
 impl AppliedCouponRowNew {
     pub async fn insert(&self, conn: &mut PgConn) -> DbResult<AppliedCouponRow> {
@@ -85,6 +88,39 @@ impl AppliedCouponRow {
             .await
             .attach("Error while finalizing invoice")
             .into_db_result()
+    }
+
+    /// Returns the set of (coupon_id, customer_id) pairs from the input that already exist in the database
+    pub async fn find_existing_customer_coupon_pairs(
+        conn: &mut PgConn,
+        pairs: &[(CouponId, CustomerId)],
+    ) -> DbResult<HashSet<(CouponId, CustomerId)>> {
+        use crate::schema::applied_coupon::dsl as ac_dsl;
+
+        if pairs.is_empty() {
+            return Ok(HashSet::new());
+        }
+
+        let mut query = ac_dsl::applied_coupon.into_boxed();
+
+        for (coupon_id, customer_id) in pairs {
+            query = query.or_filter(
+                ac_dsl::coupon_id
+                    .eq(*coupon_id)
+                    .and(ac_dsl::customer_id.eq(*customer_id)),
+            );
+        }
+
+        let results: Vec<(CouponId, CustomerId)> = query
+            .select((ac_dsl::coupon_id, ac_dsl::customer_id))
+            .load(conn)
+            .await
+            .attach("Error while checking existing customer-coupon pairs")
+            .into_db_result()?;
+
+        log::debug!("Found {} existing customer-coupon pairs", results.len());
+
+        Ok(results.into_iter().collect())
     }
 }
 
