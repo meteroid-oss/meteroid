@@ -34,22 +34,16 @@ pub enum CustomerApiError {
 
 impl From<Report<StoreError>> for CustomerApiError {
     fn from(value: Report<StoreError>) -> Self {
-        let mut err = value.current_context();
+        let err = value.current_context();
 
-        loop {
-            if let StoreError::TransactionStoreError(inner_report) = err {
-                err = inner_report.current_context();
-                continue;
+        match err {
+            StoreError::NegativeCustomerBalanceError(_) => {
+                Self::FailedPrecondition("negative customer balance".into())
             }
-            return match err {
-                StoreError::NegativeCustomerBalanceError(_) => {
-                    Self::FailedPrecondition("negative customer balance".into())
-                }
-                _ => Self::StoreError(
-                    "Error in customer service".to_string(),
-                    Box::new(value.into_error()),
-                ),
-            };
+            _ => Self::StoreError(
+                "Error in customer service".to_string(),
+                Box::new(value.into_error()),
+            ),
         }
     }
 }

@@ -186,7 +186,7 @@ impl StoreInternal {
             .transaction(|conn| {
                 async move {
                     let res = callback(conn);
-                    res.await.map_err(StoreError::TransactionStoreError)
+                    res.await.map_err(crate::errors::StoreErrorContainer::from)
                 }
                 .scope_boxed()
             })

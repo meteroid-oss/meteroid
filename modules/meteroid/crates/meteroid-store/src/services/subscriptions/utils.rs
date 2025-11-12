@@ -270,22 +270,37 @@ pub async fn validate_coupons(
         }
     }
 
-    // check non-reusable coupons
+    // check non-reusable coupons - these cannot be reused by the same customer
     let non_reusable_coupons = coupons.iter().filter(|x| !x.reusable).collect::<Vec<_>>();
     if !non_reusable_coupons.is_empty() {
-        let non_reusable_coupons_ids = non_reusable_coupons
-            .iter()
-            .map(|x| x.id)
-            .collect::<Vec<_>>();
+        // Build a list of (coupon_id, customer_id) pairs for non-reusable coupons
+        let customer_coupon_pairs: Vec<(CouponId, common_domain::ids::CustomerId)> =
+            subscription_coupons
+                .iter()
+                .filter_map(|applied| {
+                    let coupon = non_reusable_coupons
+                        .iter()
+                        .find(|c| c.id == applied.coupon_id)?;
+                    Some((coupon.id, applied.customer_id))
+                })
+                .collect();
 
-        let db_customers_by_coupon =
-            CouponRow::customers_count(tx_conn, &non_reusable_coupons_ids).await?;
+        // Check if any of these pairs already exist in the database
+        let existing_pairs =
+            AppliedCouponRow::find_existing_customer_coupon_pairs(tx_conn, &customer_coupon_pairs)
+                .await?;
 
+        // If any customer is trying to reuse a non-reusable coupon, reject it
         for coupon in non_reusable_coupons {
-            if db_customers_by_coupon.contains_key(&coupon.id) {
+            let reused_by_customer = subscription_coupons.iter().find(|applied| {
+                applied.coupon_id == coupon.id
+                    && existing_pairs.contains(&(coupon.id, applied.customer_id))
+            });
+
+            if let Some(applied) = reused_by_customer {
                 return Err(Report::new(DatabaseError::ValidationError(format!(
-                    "coupon {} is not reusable",
-                    coupon.code
+                    "coupon {} is not reusable and has already been used by customer {}",
+                    coupon.code, applied.customer_id
                 )))
                 .into());
             }
