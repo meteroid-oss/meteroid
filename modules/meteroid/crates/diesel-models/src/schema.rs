@@ -86,6 +86,10 @@ pub mod sql_types {
     pub struct ScheduledEventTypeEnum;
 
     #[derive(diesel::query_builder::QueryId, diesel::sql_types::SqlType)]
+    #[diesel(postgres_type(name = "slot_transaction_status"))]
+    pub struct SlotTransactionStatus;
+
+    #[derive(diesel::query_builder::QueryId, diesel::sql_types::SqlType)]
     #[diesel(postgres_type(name = "SubscriptionActivationConditionEnum"))]
     pub struct SubscriptionActivationConditionEnum;
 
@@ -817,6 +821,9 @@ diesel::table! {
 }
 
 diesel::table! {
+    use diesel::sql_types::*;
+    use super::sql_types::SlotTransactionStatus;
+
     slot_transaction (id) {
         id -> Uuid,
         subscription_id -> Uuid,
@@ -826,6 +833,8 @@ diesel::table! {
         transaction_at -> Timestamp,
         #[max_length = 255]
         unit -> Varchar,
+        status -> SlotTransactionStatus,
+        invoice_id -> Nullable<Uuid>,
     }
 }
 
@@ -1044,6 +1053,7 @@ diesel::joinable!(quote_component -> quote (quote_id));
 diesel::joinable!(quote_signature -> quote (quote_id));
 diesel::joinable!(schedule -> plan_version (plan_version_id));
 diesel::joinable!(scheduled_event -> subscription (subscription_id));
+diesel::joinable!(slot_transaction -> invoice (invoice_id));
 diesel::joinable!(slot_transaction -> subscription (subscription_id));
 diesel::joinable!(subscription -> bank_account (bank_account_id));
 diesel::joinable!(subscription -> customer (customer_id));

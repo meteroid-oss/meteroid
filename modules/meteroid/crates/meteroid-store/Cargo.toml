@@ -66,3 +66,6 @@ ctor = { workspace = true }
 
 [dev-dependencies]
 rstest = { workspace = true }
+
+[features]
+test-utils = []

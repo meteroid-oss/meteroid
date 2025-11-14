@@ -581,14 +581,16 @@ impl Services {
         unit: String,
         subscription_details: &SubscriptionDetails,
     ) -> StoreResult<u64> {
+        let timestamp = invoice_date.clone().and_time(NaiveTime::MIN);
+
         let quantity = self
             .store
-            .get_current_slots_value_with_conn(
+            .get_active_slots_value_with_conn(
                 conn,
                 subscription_details.subscription.tenant_id,
                 subscription_details.subscription.id,
-                unit,
-                Some(invoice_date.clone().and_time(NaiveTime::MIN)),
+                unit.clone(),
+                Some(timestamp),
             )
             .await?;
 

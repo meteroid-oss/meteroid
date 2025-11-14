@@ -2,7 +2,7 @@ use crate::helpers;
 use backon::{ConstantBuilder, Retryable};
 use meteroid::adapters::stripe::Stripe;
 use meteroid::config::Config;
-use meteroid::eventbus::{create_eventbus_memory, setup_eventbus_handlers};
+use meteroid::eventbus::{create_eventbus_memory, create_eventbus_noop, setup_eventbus_handlers};
 use meteroid::migrations;
 use meteroid::services::storage::in_memory_object_store;
 use meteroid_mailer::config::MailerConfig;
@@ -59,7 +59,7 @@ pub async fn start_meteroid_with_port(
         multi_organization_enabled: config.multi_organization_enabled,
         skip_email_validation: !config.mailer_enabled(),
         public_url: config.public_url.clone(),
-        eventbus: create_eventbus_memory(),
+        eventbus: create_eventbus_noop(),
         mailer: mailer.clone(),
         oauth: meteroid_oauth::service::OauthServices::new(OauthConfig::dummy()),
         domains_whitelist: config.domains_whitelist(),

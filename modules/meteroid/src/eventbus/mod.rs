@@ -12,7 +12,7 @@ pub mod analytics_handler;
 pub mod memory;
 pub mod noop;
 
-pub async fn create_eventbus_noop() -> Arc<dyn EventBus<Event>> {
+pub fn create_eventbus_noop() -> Arc<dyn EventBus<Event>> {
     Arc::new(NoopEventBus::new())
 }
 

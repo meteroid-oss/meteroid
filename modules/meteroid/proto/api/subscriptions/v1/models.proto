@@ -226,7 +226,14 @@ enum SubscriptionFeeBillingPeriod {
   SEMIANNUAL = 4;
 }
 
-
+enum SlotUpgradeBillingMode {
+  // Optimistic mode: slots activate immediately, invoice created after (trust-based)
+  SLOT_OPTIMISTIC = 0;
+  // OnCheckout mode: payment attempted first, slots only activate if payment succeeds
+  SLOT_ON_CHECKOUT = 1;
+  // OnInvoicePaid mode: invoice created first, slots activate automatically when invoice is paid
+  SLOT_ON_INVOICE_PAID = 2;
+}
 
 message SubscriptionFee {
   oneof fee {

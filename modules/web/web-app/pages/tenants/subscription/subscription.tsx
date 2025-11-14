@@ -8,7 +8,7 @@ import {
   Skeleton,
 } from '@md/ui'
 import { ChevronDown, ChevronLeftIcon, RefreshCw } from 'lucide-react'
-import { ReactNode, useState } from 'react'
+import { ReactNode, useCallback, useState } from 'react'
 import { Link, useNavigate } from 'react-router-dom'
 
 import { CopyToClipboardButton } from '@/components/CopyToClipboard'
@@ -18,6 +18,7 @@ import {
 } from '@/features/settings/integrations/SyncSubscriptionModal'
 import { CancelSubscriptionModal } from '@/features/subscriptions/CancelSubscriptionModal'
 import { SubscriptionInvoicesCard } from '@/features/subscriptions/InvoicesCard'
+import { UpdateSlotModal } from '@/features/subscriptions/UpdateSlotModal'
 import { formatSubscriptionFee } from '@/features/subscriptions/utils/fees'
 import { useBasePath } from '@/hooks/useBasePath'
 import { useQuery } from '@/lib/connectrpc'
@@ -25,11 +26,16 @@ import { getLatestConnMeta } from '@/pages/tenants/utils'
 import { listConnectors } from '@/rpc/api/connectors/v1/connectors-ConnectorsService_connectquery'
 import { ConnectorProviderEnum } from '@/rpc/api/connectors/v1/models_pb'
 import {
+  SubscriptionComponent,
   SubscriptionFee,
   SubscriptionFeeBillingPeriod,
   SubscriptionStatus,
 } from '@/rpc/api/subscriptions/v1/models_pb'
-import { getSubscriptionDetails } from '@/rpc/api/subscriptions/v1/subscriptions-SubscriptionsService_connectquery'
+import {
+  getSlotsValue,
+  getSubscriptionDetails,
+} from '@/rpc/api/subscriptions/v1/subscriptions-SubscriptionsService_connectquery'
+import { formatCurrencyNoRounding } from '@/utils/numbers'
 import { useTypedParams } from '@/utils/params'
 
 // Status Badge Component
@@ -167,6 +173,15 @@ const formatFeeType = (fee: SubscriptionFee | undefined) => {
   return 'Unknown'
 }
 
+interface SlotUpdateData {
+  priceComponentId: string
+  unit: string
+  currentSlots: number
+  unitRate: string
+  minSlots?: number
+  maxSlots?: number
+}
+
 export const Subscription = () => {
   const navigate = useNavigate()
   const basePath = useBasePath()
@@ -175,6 +190,7 @@ export const Subscription = () => {
   const [showCancelModal, setShowCancelModal] = useState(false)
   const [invoicesRefetch, setInvoicesRefetch] = useState<(() => void) | null>(null)
   const [invoicesIsFetching, setInvoicesIsFetching] = useState(false)
+  const [slotUpdateData, setSlotUpdateData] = useState<SlotUpdateData | null>(null)
 
   const { subscriptionId } = useTypedParams()
   const subscriptionQuery = useQuery(
@@ -199,23 +215,26 @@ export const Subscription = () => {
 
   const hubspotConnMeta = getLatestConnMeta(data?.connectionMetadata?.hubspot)
 
+  const handleInvoiceRefetchChange = useCallback((refetch: () => void, isFetching: boolean) => {
+    setInvoicesRefetch(() => refetch)
+    setInvoicesIsFetching(isFetching)
+  }, [])
+
   // Subscription can be cancelled if it's not already in a terminal state
   const canCancelSubscription =
-    data &&
-    data.status !== SubscriptionStatus.CANCELED &&
-    data.status !== SubscriptionStatus.ENDED
+    data && data.status !== SubscriptionStatus.CANCELED && data.status !== SubscriptionStatus.ENDED
 
   if (isLoading || !data) {
     return (
       <div className="p-6">
-        <Skeleton height={16} width={50} className="mb-4"/>
+        <Skeleton height={16} width={50} className="mb-4" />
         <div className="flex gap-6">
           <div className="flex-1">
-            <Skeleton height={100} className="mb-4"/>
-            <Skeleton height={200} className="mb-4"/>
+            <Skeleton height={100} className="mb-4" />
+            <Skeleton height={200} className="mb-4" />
           </div>
           <div className="w-80">
-            <Skeleton height={300} className="mb-4"/>
+            <Skeleton height={300} className="mb-4" />
           </div>
         </div>
       </div>
@@ -252,14 +271,14 @@ export const Subscription = () => {
             />
             <h2 className="text-xl font-semibold text-foreground">{data.planName}</h2>
             <div className="ml-2">
-              <StatusBadge status={data.status}/>
+              <StatusBadge status={data.status} />
             </div>
           </div>
           <div>
             <DropdownMenu>
               <DropdownMenuTrigger asChild>
                 <Button variant="primary" className="gap-2  " size="sm" hasIcon>
-                  Actions <ChevronDown className="w-4 h-4"/>
+                  Actions <ChevronDown className="w-4 h-4" />
                 </Button>
               </DropdownMenuTrigger>
               <DropdownMenuContent align="end">
@@ -329,6 +348,24 @@ export const Subscription = () => {
           </div>
         </div>
 
+        {slotUpdateData && (
+          <UpdateSlotModal
+            subscriptionId={data.id}
+            priceComponentId={slotUpdateData.priceComponentId}
+            unit={slotUpdateData.unit}
+            currentSlots={slotUpdateData.currentSlots}
+            unitRate={slotUpdateData.unitRate}
+            currency={data.currency}
+            minSlots={slotUpdateData.minSlots}
+            maxSlots={slotUpdateData.maxSlots}
+            onClose={() => setSlotUpdateData(null)}
+            onSuccess={() => {
+              setSlotUpdateData(null)
+              subscriptionQuery.refetch()
+            }}
+          />
+        )}
+
         {/* Price Components */}
         {details.priceComponents && details.priceComponents.length > 0 && (
           <div className="bg-card rounded-lg   shadow-sm mb-6">
@@ -337,48 +374,28 @@ export const Subscription = () => {
             </div>
             <div className="overflow-hidden">
               <table className="w-full">
-                <thead className="bg-muted/40">
-                <tr>
-                  <th
-                    className="px-4 py-3 text-left text-xs font-medium text-muted-foreground uppercase tracking-wider">
-                    Name
-                  </th>
-                  <th
-                    className="px-4 py-3 text-left text-xs font-medium text-muted-foreground uppercase tracking-wider">
-                    Billing Period
-                  </th>
-                  <th
-                    className="px-4 py-3 text-left text-xs font-medium text-muted-foreground uppercase tracking-wider">
-                    Fee Type
-                  </th>
-                  <th
-                    className="px-4 py-3 text-left text-xs font-medium text-muted-foreground uppercase tracking-wider">
-                    price
-                  </th>
-                </tr>
+                <thead className="border-b border-border">
+                  <tr>
+                    <th className="px-4 py-2 text-left text-xs font-medium text-muted-foreground">
+                      Component
+                    </th>
+                    <th className="px-4 py-2 text-left text-xs font-medium text-muted-foreground">
+                      Price
+                    </th>
+                    <th className="px-4 py-2 text-right text-xs font-medium text-muted-foreground w-24"></th>
+                  </tr>
                 </thead>
                 <tbody>
-                {details.priceComponents.map((component, index) => (
-                  <tr
-                    key={index}
-                    className={
-                      index % 2 === 0 ? 'bg-card' : 'bg-muted/10 border-t border-b border-border'
-                    }
-                  >
-                    <td className="px-4 py-3 text-sm font-medium text-foreground">
-                      {component.name}
-                    </td>
-                    <td className="px-4 py-3 text-sm text-muted-foreground">
-                      {formatBillingPeriod(component.period)}
-                    </td>
-                    <td className="px-4 py-3 text-sm text-muted-foreground">
-                      {formatFeeType(component.fee)}
-                    </td>
-                    <td className="px-4 py-3 text-sm text-muted-foreground">
-                      <SubscriptionFeeDetail fee={component.fee} currency={data.currency}/>
-                    </td>
-                  </tr>
-                ))}
+                  {details.priceComponents.map((component, index) => (
+                    <PriceComponentRow
+                      key={component.id}
+                      component={component}
+                      subscriptionId={data.id}
+                      currency={data.currency}
+                      isEven={index % 2 === 0}
+                      onUpdateSlot={setSlotUpdateData}
+                    />
+                  ))}
                 </tbody>
               </table>
             </div>
@@ -389,50 +406,39 @@ export const Subscription = () => {
         {details.addOns && details.addOns.length > 0 && (
           <div className="bg-card rounded-lg  shadow-sm mb-6">
             <div className="p-4 border-b border-border">
-              <h3 className="text-lg font-medium text-foreground">Add-ons</h3>
+              <h3 className="text-md font-medium text-foreground">Add-ons</h3>
             </div>
             <div className="overflow-hidden">
               <table className="w-full">
-                <thead className="bg-muted/40">
-                <tr>
-                  <th
-                    className="px-4 py-3 text-left text-xs font-medium text-muted-foreground uppercase tracking-wider">
-                    Name
-                  </th>
-                  <th
-                    className="px-4 py-3 text-left text-xs font-medium text-muted-foreground uppercase tracking-wider">
-                    Billing Period
-                  </th>
-                  <th
-                    className="px-4 py-3 text-left text-xs font-medium text-muted-foreground uppercase tracking-wider">
-                    Fee Type
-                  </th>
-                  <th
-                    className="px-4 py-3 text-left text-xs font-medium text-muted-foreground uppercase tracking-wider">
-                    ID
-                  </th>
-                </tr>
+                <thead className="border-b border-border">
+                  <tr>
+                    <th className="px-4 py-2 text-left text-xs font-medium text-muted-foreground">
+                      Name
+                    </th>
+                    <th className="px-4 py-2 text-left text-xs font-medium text-muted-foreground">
+                      Price
+                    </th>
+                  </tr>
                 </thead>
                 <tbody>
-                {details.addOns.map((addon, index) => (
-                  <tr
-                    key={index}
-                    className={
-                      index % 2 === 0 ? 'bg-card' : 'bg-muted/10 border-t border-b border-border'
-                    }
-                  >
-                    <td className="px-4 py-3 text-sm font-medium text-foreground">
-                      {addon.name}
-                    </td>
-                    <td className="px-4 py-3 text-sm text-muted-foreground">
-                      {formatBillingPeriod(addon.period)}
-                    </td>
-                    <td className="px-4 py-3 text-sm text-muted-foreground">
-                      {formatFeeType(addon.fee)}
-                    </td>
-                    <td className="px-4 py-3 text-sm text-muted-foreground">{addon.addOnId}</td>
-                  </tr>
-                ))}
+                  {details.addOns.map((addon, index) => (
+                    <tr
+                      key={index}
+                      className={
+                        index % 2 === 0 ? 'bg-card' : 'bg-muted/10 border-t border-b border-border'
+                      }
+                    >
+                      <td className="px-4 py-2.5 text-sm">
+                        <div className="font-medium text-foreground">{addon.name}</div>
+                        <div className="text-xs text-muted-foreground mt-0.5">
+                          {formatBillingPeriod(addon.period)} • {formatFeeType(addon.fee)}
+                        </div>
+                      </td>
+                      <td className="px-4 py-2.5 text-sm">
+                        <SubscriptionFeeDetail fee={addon.fee} currency={data.currency} />
+                      </td>
+                    </tr>
+                  ))}
                 </tbody>
               </table>
             </div>
@@ -443,36 +449,39 @@ export const Subscription = () => {
         {details.metrics && details.metrics.length > 0 && (
           <div className="bg-card rounded-lg   shadow-sm mb-6">
             <div className="p-4 border-b border-border">
-              <h3 className="text-lg font-medium text-foreground">Billable Metrics</h3>
+              <h3 className="text-md font-medium text-foreground">Billable Metrics</h3>
             </div>
             <div className="overflow-hidden">
               <table className="w-full">
-                <thead className="bg-muted/40">
-                <tr>
-                  <th
-                    className="px-4 py-3 text-left text-xs font-medium text-muted-foreground uppercase tracking-wider">
-                    Name
-                  </th>
-                  <th
-                    className="px-4 py-3 text-left text-xs font-medium text-muted-foreground uppercase tracking-wider">
-                    Alias
-                  </th>
-                </tr>
+                <thead className="border-b border-border">
+                  <tr>
+                    <th className="px-4 py-2 text-left text-xs font-medium text-muted-foreground">
+                      Name
+                    </th>
+                    <th className="px-4 py-2 text-left text-xs font-medium text-muted-foreground">
+                      Alias
+                    </th>
+                  </tr>
                 </thead>
                 <tbody>
-                {details.metrics.map((metric, index) => (
-                  <tr
-                    key={index}
-                    className={
-                      index % 2 === 0 ? 'bg-card' : 'bg-muted/10 border-t border-b border-border'
-                    }
-                  >
-                    <td className="px-4 py-3 text-sm font-medium text-brand hover:underline">
-                      <Link to={`${basePath}/metrics/${metric.id}`}>{metric.name}</Link>
-                    </td>
-                    <td className="px-4 py-3 text-sm text-muted-foreground">{metric.alias}</td>
-                  </tr>
-                ))}
+                  {details.metrics.map((metric, index) => (
+                    <tr
+                      key={index}
+                      className={
+                        index % 2 === 0 ? 'bg-card' : 'bg-muted/10 border-t border-b border-border'
+                      }
+                    >
+                      <td className="px-4 py-2.5 text-sm">
+                        <Link
+                          to={`${basePath}/metrics/${metric.id}`}
+                          className="font-medium text-brand hover:underline"
+                        >
+                          {metric.name}
+                        </Link>
+                      </td>
+                      <td className="px-4 py-2.5 text-sm text-muted-foreground">{metric.alias}</td>
+                    </tr>
+                  ))}
                 </tbody>
               </table>
             </div>
@@ -483,45 +492,36 @@ export const Subscription = () => {
         {details.appliedCoupons && details.appliedCoupons.length > 0 && (
           <div className="bg-card rounded-lg   shadow-sm mb-6">
             <div className="p-4 border-b border-border">
-              <h3 className="text-lg font-medium text-foreground">Applied Coupons</h3>
+              <h3 className="text-md font-medium text-foreground">Applied Coupons</h3>
             </div>
             <div className="overflow-hidden">
               <table className="w-full">
-                <thead className="bg-muted/40">
-                <tr>
-                  <th
-                    className="px-4 py-3 text-left text-xs font-medium text-muted-foreground uppercase tracking-wider">
-                    Coupon
-                  </th>
-                  <th
-                    className="px-4 py-3 text-left text-xs font-medium text-muted-foreground uppercase tracking-wider">
-                    Type
-                  </th>
-                  <th
-                    className="px-4 py-3 text-left text-xs font-medium text-muted-foreground uppercase tracking-wider">
-                    ID
-                  </th>
-                </tr>
+                <thead className="border-b border-border">
+                  <tr>
+                    <th className="px-4 py-2 text-left text-xs font-medium text-muted-foreground">
+                      Code
+                    </th>
+                    <th className="px-4 py-2 text-left text-xs font-medium text-muted-foreground">
+                      Amount
+                    </th>
+                  </tr>
                 </thead>
                 <tbody>
-                {details.appliedCoupons.map((coupon, index) => (
-                  <tr
-                    key={index}
-                    className={
-                      index % 2 === 0 ? 'bg-card' : 'bg-muted/10 border-t border-b border-border'
-                    }
-                  >
-                    <td className="px-4 py-3 text-sm font-medium text-foreground">
-                      {coupon.coupon?.code || 'N/A'}
-                    </td>
-                    <td className="px-4 py-3 text-sm text-muted-foreground">
-                      {coupon.appliedCoupon?.appliedAmount || 'N/A'}
-                    </td>
-                    <td className="px-4 py-3 text-sm text-muted-foreground">
-                      {coupon.coupon?.id || 'N/A'}
-                    </td>
-                  </tr>
-                ))}
+                  {details.appliedCoupons.map((coupon, index) => (
+                    <tr
+                      key={index}
+                      className={
+                        index % 2 === 0 ? 'bg-card' : 'bg-muted/10 border-t border-b border-border'
+                      }
+                    >
+                      <td className="px-4 py-2.5 text-sm font-medium text-foreground">
+                        {coupon.coupon?.code || 'N/A'}
+                      </td>
+                      <td className="px-4 py-2.5 text-sm text-muted-foreground">
+                        {coupon.appliedCoupon?.appliedAmount || 'N/A'}
+                      </td>
+                    </tr>
+                  ))}
                 </tbody>
               </table>
             </div>
@@ -538,18 +538,13 @@ export const Subscription = () => {
               disabled={!invoicesRefetch || invoicesIsFetching}
               className="h-7 w-7 p-0"
             >
-              <RefreshCw
-                className={`h-3.5 w-3.5 ${invoicesIsFetching ? 'animate-spin' : ''}`}
-              />
+              <RefreshCw className={`h-3.5 w-3.5 ${invoicesIsFetching ? 'animate-spin' : ''}`} />
             </Button>
           </div>
           <div className="p-4 text-sm overflow-hidden text-muted-foreground">
             <SubscriptionInvoicesCard
               subscriptionId={data.localId}
-              onRefetchChange={(refetch, isFetching) => {
-                setInvoicesRefetch(() => refetch)
-                setInvoicesIsFetching(isFetching)
-              }}
+              onRefetchChange={handleInvoiceRefetchChange}
             />
           </div>
         </div>
@@ -558,10 +553,10 @@ export const Subscription = () => {
       {/* Sidebar */}
       <div className="w-80 p-6 border-l border-border">
         <DetailSection title="Subscription Details">
-          <DetailRow label="ID" value={data.localId}/>
-          <DetailRow label="Version" value={data.version}/>
-          <DetailRow label="Status" value={<StatusBadge status={data.status}/>}/>
-          <DetailRow label="Currency" value={data.currency}/>
+          <DetailRow label="ID" value={data.localId} />
+          <DetailRow label="Version" value={data.version} />
+          <DetailRow label="Status" value={<StatusBadge status={data.status} />} />
+          <DetailRow label="Currency" value={data.currency} />
         </DetailSection>
 
         <DetailSection title="Customer">
@@ -570,21 +565,22 @@ export const Subscription = () => {
             value={data.customerName}
             link={`${basePath}/customers/${data.customerId}`}
           />
-          {data.customerAlias && <DetailRow label="Alias" value={data.customerAlias}/>}
+          {data.customerAlias && <DetailRow label="Alias" value={data.customerAlias} />}
         </DetailSection>
 
         <DetailSection title="Billing Information">
-          <DetailRow label="Billing Day" value={data.billingDayAnchor}/>
-          <DetailRow label="Net Terms" value={`${data.netTerms} days`}/>
-          <DetailRow label="Auto-advance invoices" value={data.autoAdvanceInvoices ? 'Yes' : 'No'}/>
-          <DetailRow label="Charge automatically" value={data.chargeAutomatically ? 'Yes' : 'No'}/>
-          {data.invoiceMemo && <DetailRow label="Invoice Memo" value={data.invoiceMemo}/>}
+          <DetailRow label="Billing Day" value={data.billingDayAnchor} />
+          <DetailRow label="Net Terms" value={`${data.netTerms} days`} />
+          <DetailRow
+            label="Auto-advance invoices"
+            value={data.autoAdvanceInvoices ? 'Yes' : 'No'}
+          />
+          <DetailRow label="Charge automatically" value={data.chargeAutomatically ? 'Yes' : 'No'} />
+          {data.invoiceMemo && <DetailRow label="Invoice Memo" value={data.invoiceMemo} />}
           {data.invoiceThreshold && (
-            <DetailRow label="Invoice Threshold" value={data.invoiceThreshold}/>
+            <DetailRow label="Invoice Threshold" value={data.invoiceThreshold} />
           )}
-          {data.purchaseOrder && (
-            <DetailRow label="Purchase Order" value={data.purchaseOrder}/>
-          )}
+          {data.purchaseOrder && <DetailRow label="Purchase Order" value={data.purchaseOrder} />}
         </DetailSection>
 
         <DetailSection title="Integrations">
@@ -600,24 +596,24 @@ export const Subscription = () => {
         </DetailSection>
 
         <DetailSection title="Timeline">
-          <DetailRow label="Created At" value={formatDate(data.createdAt)}/>
-          <DetailRow label="Start Date" value={formatDate(data.startDate)}/>
+          <DetailRow label="Created At" value={formatDate(data.createdAt)} />
+          <DetailRow label="Start Date" value={formatDate(data.startDate)} />
           {data.billingStartDate && (
-            <DetailRow label="Billing Start" value={formatDate(data.billingStartDate)}/>
+            <DetailRow label="Billing Start" value={formatDate(data.billingStartDate)} />
           )}
           {data.activatedAt && (
-            <DetailRow label="Activated At" value={formatDate(data.activatedAt)}/>
+            <DetailRow label="Activated At" value={formatDate(data.activatedAt)} />
           )}
-          {data.endDate && <DetailRow label="End Date" value={formatDate(data.endDate)}/>}
+          {data.endDate && <DetailRow label="End Date" value={formatDate(data.endDate)} />}
           {/* {data.canceledAt && <DetailRow label="Canceled At" value={formatDate(data.canceledAt)} />}
           {data.cancellationReason && <DetailRow label="Reason" value={data.cancellationReason} />} */}
         </DetailSection>
 
         {data.trialDuration && (
           <DetailSection title="Trial Information">
-            <DetailRow label="Trial Duration" value={`${data.trialDuration} days`}/>
+            <DetailRow label="Trial Duration" value={`${data.trialDuration} days`} />
             {data.status === SubscriptionStatus.TRIALING && (
-              <DetailRow label="Trial Status" value={<StatusBadge status={data.status}/>}/>
+              <DetailRow label="Trial Status" value={<StatusBadge status={data.status} />} />
             )}
           </DetailSection>
         )}
@@ -635,60 +631,126 @@ export const Subscription = () => {
 export const SubscriptionFeeDetail = ({
   fee,
   currency,
+  currentSlots,
+  isLoadingSlots,
 }: {
   fee: SubscriptionFee | undefined
   currency: string
+  currentSlots?: number
+  isLoadingSlots?: boolean
 }) => {
   if (!fee || !fee.fee.case) {
-    return <span className="text-muted-foreground">No fee information</span>
+    return <span className="text-muted-foreground text-sm">-</span>
   }
 
   const formatted = formatSubscriptionFee(fee, currency)
 
-  return (
-    <div className="space-y-1">
-      <div className="flex justify-between">
-        <span>{formatted.details}</span>
-      </div>
-      <div className="flex justify-between">
-        <span className="font-medium text-foreground">{formatted.amount}</span>
-      </div>
+  if (fee.fee.case === 'slot' && currentSlots !== undefined && !isLoadingSlots) {
+    const unitRate = Number(fee.fee.value.unitRate)
+    const totalCost = currentSlots * unitRate
 
-      {/* Conditionally render specific details based on fee type */}
-      {fee.fee.case === 'slot' && (
-        <div className="text-xs text-muted-foreground mt-1">
-          <div>Upgrade: {getUpgradePolicyText(fee.fee.value.upgradePolicy)}</div>
-          <div>Downgrade: {getDowngradePolicyText(fee.fee.value.downgradePolicy)}</div>
+    return (
+      <div className="space-y-0.5">
+        <div className="text-lg font-semibold text-foreground tabular-nums">
+          {formatCurrencyNoRounding(totalCost, currency)}
         </div>
-      )}
+        <div className="text-xs text-muted-foreground">
+          {formatCurrencyNoRounding(unitRate, currency)} × {currentSlots} {fee.fee.value.unit}(s)
+        </div>
+      </div>
+    )
+  }
+
+  // For other fee types, use standard formatting
+  return (
+    <div className="space-y-0.5">
+      <div className="font-medium text-foreground">{formatted.amount}</div>
+      <div className="text-xs text-muted-foreground">{formatted.details}</div>
     </div>
   )
 }
 
-// Helper to get human-readable upgrade policy text
-const getUpgradePolicyText = (policy: number): string => {
-  switch (policy) {
-    case 0:
-      return 'Prorated'
-    case 1:
-      return 'Full immediately'
-    default:
-      return 'Unknown'
-  }
+interface PriceComponentRowProps {
+  component: SubscriptionComponent
+  subscriptionId: string
+  currency: string
+  isEven: boolean
+  onUpdateSlot: (data: SlotUpdateData) => void
 }
 
-// Helper to get human-readable downgrade policy text
-const getDowngradePolicyText = (policy: number): string => {
-  switch (policy) {
-    case 0:
-      return 'At end of period'
-    case 1:
-      return 'Prorated refund'
-    case 2:
-      return 'Full refund immediately'
-    default:
-      return 'Unknown'
+const PriceComponentRow = ({
+  component,
+  subscriptionId,
+  currency,
+  isEven,
+  onUpdateSlot,
+}: PriceComponentRowProps) => {
+  const isSlotComponent = component.fee?.fee.case === 'slot'
+
+  const slotsValueQuery = useQuery(
+    getSlotsValue,
+    {
+      subscriptionId,
+      unit: component.fee?.fee.case === 'slot' ? component.fee!.fee.value?.unit : '',
+    },
+    {
+      enabled: isSlotComponent && Boolean(subscriptionId),
+      refetchOnWindowFocus: false,
+    }
+  )
+
+  const handleUpdateClick = () => {
+    if (!isSlotComponent || !component.priceComponentId) return
+
+    const slotFee = component.fee!.fee.value as {
+      unit: string
+      unitRate: string
+      minSlots?: number
+      maxSlots?: number
+      initialSlots: number
+    }
+
+    onUpdateSlot({
+      priceComponentId: component.priceComponentId,
+      unit: slotFee.unit,
+      currentSlots: slotsValueQuery.data?.currentValue ?? slotFee.initialSlots,
+      unitRate: slotFee.unitRate,
+      minSlots: slotFee.minSlots,
+      maxSlots: slotFee.maxSlots,
+    })
   }
+
+  return (
+    <tr className={isEven ? 'bg-card' : 'bg-muted/10 border-t border-b border-border'}>
+      <td className="px-4 py-2.5 text-sm">
+        <div className="font-medium text-foreground">{component.name}</div>
+        <div className="text-xs text-muted-foreground mt-0.5">
+          {formatBillingPeriod(component.period)} • {formatFeeType(component.fee)}
+        </div>
+      </td>
+      <td className="px-4 py-2.5 text-sm">
+        <SubscriptionFeeDetail
+          fee={component.fee}
+          currency={currency}
+          currentSlots={isSlotComponent ? slotsValueQuery.data?.currentValue : undefined}
+          isLoadingSlots={isSlotComponent && slotsValueQuery.isLoading}
+        />
+      </td>
+      <td className="px-4 py-2.5 text-right w-24">
+        {isSlotComponent && component.priceComponentId && (
+          <Button
+            variant="ghost"
+            size="sm"
+            onClick={handleUpdateClick}
+            disabled={slotsValueQuery.isLoading}
+            className="h-7 px-2 text-xs font-medium"
+          >
+            Update
+          </Button>
+        )}
+      </td>
+    </tr>
+  )
 }
 
 export default Subscription

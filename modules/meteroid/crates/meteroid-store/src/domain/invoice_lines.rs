@@ -27,6 +27,7 @@ pub struct TaxDetail {
 
 #[derive(PartialEq, Debug, Deserialize, Serialize, Eq, Clone)]
 pub struct LineItem {
+    // TODO id: LocalItemId & serde(alias = "local_id")
     pub local_id: String,
     pub name: String,
 

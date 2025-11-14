@@ -19,7 +19,7 @@ use crate::api::subscriptions::{SubscriptionServiceComponents, mapping};
 use crate::api::utils::PaginationExt;
 use meteroid_store::repositories::SubscriptionInterface;
 use meteroid_store::repositories::subscriptions::{
-    CancellationEffectiveAt, SubscriptionInterfaceAuto, SubscriptionSlotsInterface,
+    CancellationEffectiveAt, SubscriptionInterfaceAuto,
 };
 
 #[tonic::async_trait]
@@ -49,7 +49,6 @@ impl SubscriptionsService for SubscriptionServiceComponents {
 
         let res = mapping::subscriptions::created_domain_to_proto(created)?;
 
-        // TODO checkout_url
         Ok(Response::new(CreateSubscriptionResponse {
             subscription: Some(res),
         }))
@@ -173,17 +172,33 @@ impl SubscriptionsService for SubscriptionServiceComponents {
 
         let inner = request.into_inner();
 
-        let subscription_id = SubscriptionId::from_proto(inner.subscription_id)?;
-        let price_component_id = PriceComponentId::from_proto(inner.price_component_id)?;
+        let subscription_id = SubscriptionId::from_proto(inner.subscription_id.clone())?;
+        let price_component_id = PriceComponentId::from_proto(inner.price_component_id.clone())?;
 
-        let added = self
-            .store
-            .add_slot_transaction(tenant_id, subscription_id, price_component_id, inner.delta)
+        use meteroid_grpc::meteroid::api::subscriptions::v1::SlotUpgradeBillingMode as ProtoMode;
+        use meteroid_store::domain::SlotUpgradeBillingMode;
+
+        // default to Optimistic
+        let billing_mode = match inner.billing_mode() {
+            ProtoMode::SlotOptimistic => SlotUpgradeBillingMode::Optimistic,
+            ProtoMode::SlotOnCheckout => SlotUpgradeBillingMode::OnCheckout,
+            ProtoMode::SlotOnInvoicePaid => SlotUpgradeBillingMode::OnInvoicePaid,
+        };
+
+        let result = self
+            .services
+            .update_subscription_slots(
+                tenant_id,
+                subscription_id,
+                price_component_id,
+                inner.delta,
+                billing_mode,
+            )
             .await
             .map_err(Into::<SubscriptionApiError>::into)?;
 
         Ok(Response::new(UpdateSlotsResponse {
-            current_value: added as u32, // TODO
+            current_value: result.new_slot_count as u32,
         }))
     }
 
@@ -199,14 +214,9 @@ impl SubscriptionsService for SubscriptionServiceComponents {
 
         let slots = self
             .store
-            .get_current_slots_value(tenant_id, subscription_id, inner.unit, None)
+            .get_active_slots_value(tenant_id, subscription_id, inner.unit, None)
             .await
-            .map_err(|err| {
-                SubscriptionApiError::StoreError(
-                    "Failed to retrieve current slots".to_string(),
-                    Box::new(err.into_error()),
-                )
-            })?;
+            .map_err(Into::<SubscriptionApiError>::into)?;
 
         Ok(Response::new(GetSlotsValueResponse {
             current_value: slots,

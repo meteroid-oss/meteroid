@@ -45,3 +45,20 @@ message SetupIntent {
   api.connectors.v1.ConnectorProviderEnum provider = 5;
   string connection_id = 6;
 }
+
+message SlotUpgradeCheckout {
+  api.subscriptions.v1.SubscriptionDetails subscription = 1;
+  api.customers.v1.Customer customer = 2;
+  repeated api.customers.v1.CustomerPaymentMethod payment_methods = 3;
+
+  string price_component_id = 4;
+  string unit_name = 5;
+  uint32 current_slot_count = 6;
+  uint32 new_slot_count = 7;
+  int32 delta = 8;
+
+  uint64 prorated_amount = 9;
+  string currency = 10;
+  optional string logo_url = 11;
+  string trade_name = 12;
+}

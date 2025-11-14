@@ -546,7 +546,7 @@ async fn test_subscription_create_invoice_seats() {
 
     let current_active_seats = setup
         .store
-        .get_current_slots_value(
+        .get_active_slots_value(
             db_invoice.tenant_id,
             subscription_id.into(),
             price_component_id.into(),

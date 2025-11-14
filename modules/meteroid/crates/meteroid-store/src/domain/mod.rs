@@ -16,6 +16,7 @@ pub use product_families::*;
 pub use products::*;
 pub use quotes::*;
 pub use schedules::*;
+pub use slot_transactions::*;
 pub use subscription_add_ons::*;
 pub use subscription_components::*;
 pub use subscription_coupons::*;
@@ -55,7 +56,6 @@ pub mod products;
 pub mod quotes;
 pub mod scheduled_events;
 pub mod schedules;
-
 pub mod slot_transactions;
 pub mod stats;
 pub mod subscription_add_ons;

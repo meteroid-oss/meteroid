@@ -119,6 +119,7 @@ rdkafka = { workspace = true }
 kafka = { workspace = true }
 mockall = { workspace = true }
 meteroid-mailer = { workspace = true, features = ["test-utils"] }
+meteroid-store = { workspace = true, features = ["test-utils"] }
 insta = { workspace = true, features = ["json"] }
 
 

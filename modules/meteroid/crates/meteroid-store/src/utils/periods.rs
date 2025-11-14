@@ -73,7 +73,7 @@ pub fn calculate_component_period_for_invoice_date(
     }
 }
 
-fn calculate_proration_factor(period: &Period) -> Option<f64> {
+pub fn calculate_proration_factor(period: &Period) -> Option<f64> {
     let days_in_period = period.end.signed_duration_since(period.start).num_days() as u64; // +1 ?
     let days_in_month_from = u64::from(period.start.days_in_month());
     let days_in_month_to = u64::from(period.end.days_in_month());
@@ -94,7 +94,7 @@ fn calculate_proration_factor(period: &Period) -> Option<f64> {
 
     let proration_factor = days_in_period as f64 / days_in_month_from as f64;
 
-    Some(proration_factor)
+    Some(proration_factor.clamp(0.0, 1.0))
 }
 
 fn applies_this_period(

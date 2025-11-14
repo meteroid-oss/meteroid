@@ -300,6 +300,14 @@ pub enum ScheduledEventStatus {
     Cancelled,
 }
 
+#[derive(diesel_derive_enum::DbEnum, Debug, Clone, Copy, PartialEq, Eq)]
+#[ExistingTypePath = "crate::schema::sql_types::SlotTransactionStatus"]
+#[DbValueStyle = "SCREAMING_SNAKE_CASE"]
+pub enum SlotTransactionStatusEnum {
+    Pending,
+    Active,
+}
+
 #[derive(diesel_derive_enum::DbEnum, Debug, Clone)]
 #[ExistingTypePath = "crate::schema::sql_types::TaxResolverEnum"]
 #[DbValueStyle = "SCREAMING_SNAKE_CASE"]

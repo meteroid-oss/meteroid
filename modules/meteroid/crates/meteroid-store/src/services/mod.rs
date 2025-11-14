@@ -18,6 +18,7 @@ mod payment;
 mod subscriptions;
 mod webhooks;
 
+pub use crate::domain::{SlotUpgradeBillingMode, UpdateSlotsResult};
 use crate::errors::StoreError;
 pub use invoices::{CustomerDetailsUpdate, InvoiceBillingMode};
 use stripe_client::client::StripeClient;
@@ -67,5 +68,80 @@ impl ServicesEdge {
 
     pub fn usage_clients(&self) -> Arc<dyn UsageClient> {
         self.services.usage_client.clone()
+    }
+
+    pub async fn update_subscription_slots(
+        &self,
+        tenant_id: common_domain::ids::TenantId,
+        subscription_id: common_domain::ids::SubscriptionId,
+        price_component_id: common_domain::ids::PriceComponentId,
+        delta: i32,
+        billing_mode: SlotUpgradeBillingMode,
+    ) -> StoreResult<UpdateSlotsResult> {
+        self.services
+            .update_subscription_slots(
+                tenant_id,
+                subscription_id,
+                price_component_id,
+                delta,
+                billing_mode,
+                None,
+            )
+            .await
+    }
+
+    pub async fn activate_pending_slot_transactions(
+        &self,
+        tenant_id: common_domain::ids::TenantId,
+        invoice_id: common_domain::ids::InvoiceId,
+    ) -> StoreResult<Vec<(common_domain::ids::SubscriptionId, i32)>> {
+        self.services
+            .activate_pending_slot_transactions(tenant_id, invoice_id)
+            .await
+    }
+
+    pub async fn complete_slot_upgrade_checkout(
+        &self,
+        tenant_id: common_domain::ids::TenantId,
+        subscription_id: common_domain::ids::SubscriptionId,
+        price_component_id: common_domain::ids::PriceComponentId,
+        delta: i32,
+        payment_method_id: common_domain::ids::CustomerPaymentMethodId,
+        at_ts: Option<chrono::NaiveDateTime>,
+    ) -> StoreResult<(crate::domain::PaymentTransaction, i32)> {
+        self.services
+            .complete_slot_upgrade_checkout(
+                tenant_id,
+                subscription_id,
+                price_component_id,
+                delta,
+                payment_method_id,
+                at_ts,
+            )
+            .await
+    }
+}
+
+impl ServicesEdge {
+    #[cfg(feature = "test-utils")]
+    pub async fn update_subscription_slots_for_test(
+        &self,
+        tenant_id: common_domain::ids::TenantId,
+        subscription_id: common_domain::ids::SubscriptionId,
+        price_component_id: common_domain::ids::PriceComponentId,
+        delta: i32,
+        billing_mode: SlotUpgradeBillingMode,
+        at_ts: Option<chrono::NaiveDateTime>,
+    ) -> StoreResult<UpdateSlotsResult> {
+        self.services
+            .update_subscription_slots(
+                tenant_id,
+                subscription_id,
+                price_component_id,
+                delta,
+                billing_mode,
+                at_ts,
+            )
+            .await
     }
 }
