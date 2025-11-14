@@ -68,3 +68,19 @@ pub struct SlotForTransaction {
     pub min_slots: Option<u32>,
     pub max_slots: Option<u32>,
 }
+
+#[derive(Debug)]
+pub struct SlotUpdatePreview {
+    pub current_slots: i32,
+    pub new_slots: i32,
+    pub delta: i32,
+    pub unit: String,
+    pub unit_rate: Decimal,
+    pub prorated_amount: Decimal,
+    pub full_period_amount: Decimal,
+    pub days_remaining: i32,
+    pub days_total: i32,
+    pub effective_at: chrono::NaiveDate,
+    pub current_period_end: chrono::NaiveDate,
+    pub next_invoice_delta: Decimal,
+}

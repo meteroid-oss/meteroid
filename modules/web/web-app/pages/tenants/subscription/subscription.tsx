@@ -6,8 +6,11 @@ import {
   DropdownMenuItem,
   DropdownMenuTrigger,
   Skeleton,
+  TableHead,
+  TableHeader,
+  TableRow,
 } from '@md/ui'
-import { ChevronDown, ChevronLeftIcon, RefreshCw } from 'lucide-react'
+import { ArrowUpDownIcon, ChevronDown, ChevronLeftIcon, Clock, RefreshCw } from 'lucide-react'
 import { ReactNode, useCallback, useState } from 'react'
 import { Link, useNavigate } from 'react-router-dom'
 
@@ -18,6 +21,7 @@ import {
 } from '@/features/settings/integrations/SyncSubscriptionModal'
 import { CancelSubscriptionModal } from '@/features/subscriptions/CancelSubscriptionModal'
 import { SubscriptionInvoicesCard } from '@/features/subscriptions/InvoicesCard'
+import { SlotTransactionsModal } from '@/features/subscriptions/SlotTransactionsModal'
 import { UpdateSlotModal } from '@/features/subscriptions/UpdateSlotModal'
 import { formatSubscriptionFee } from '@/features/subscriptions/utils/fees'
 import { useBasePath } from '@/hooks/useBasePath'
@@ -191,6 +195,7 @@ export const Subscription = () => {
   const [invoicesRefetch, setInvoicesRefetch] = useState<(() => void) | null>(null)
   const [invoicesIsFetching, setInvoicesIsFetching] = useState(false)
   const [slotUpdateData, setSlotUpdateData] = useState<SlotUpdateData | null>(null)
+  const [slotTransactionsUnit, setSlotTransactionsUnit] = useState<string | null>(null)
 
   const { subscriptionId } = useTypedParams()
   const subscriptionQuery = useQuery(
@@ -366,25 +371,30 @@ export const Subscription = () => {
           />
         )}
 
+        {slotTransactionsUnit && (
+          <SlotTransactionsModal
+            subscriptionId={data.id}
+            unit={slotTransactionsUnit}
+            open={true}
+            onClose={() => setSlotTransactionsUnit(null)}
+          />
+        )}
+
         {/* Price Components */}
         {details.priceComponents && details.priceComponents.length > 0 && (
           <div className="bg-card rounded-lg   shadow-sm mb-6">
             <div className="p-4 border-b border-border">
               <h3 className="text-md font-medium text-foreground">Pricing</h3>
             </div>
-            <div className="overflow-hidden">
+            <div className="overflow-hidden p-4">
               <table className="w-full">
-                <thead className="border-b border-border">
-                  <tr>
-                    <th className="px-4 py-2 text-left text-xs font-medium text-muted-foreground">
-                      Component
-                    </th>
-                    <th className="px-4 py-2 text-left text-xs font-medium text-muted-foreground">
-                      Price
-                    </th>
-                    <th className="px-4 py-2 text-right text-xs font-medium text-muted-foreground w-24"></th>
-                  </tr>
-                </thead>
+                <TableHeader className="border-b border-border">
+                  <TableRow>
+                    <TableHead className="px-4">Component</TableHead>
+                    <TableHead className="px-4">Price</TableHead>
+                    <th className="px-4"></th>
+                  </TableRow>
+                </TableHeader>
                 <tbody>
                   {details.priceComponents.map((component, index) => (
                     <PriceComponentRow
@@ -394,6 +404,7 @@ export const Subscription = () => {
                       currency={data.currency}
                       isEven={index % 2 === 0}
                       onUpdateSlot={setSlotUpdateData}
+                      onViewTransactions={setSlotTransactionsUnit}
                     />
                   ))}
                 </tbody>
@@ -651,7 +662,7 @@ export const SubscriptionFeeDetail = ({
 
     return (
       <div className="space-y-0.5">
-        <div className="text-lg font-semibold text-foreground tabular-nums">
+        <div className="text-base font-semibold text-foreground tabular-nums">
           {formatCurrencyNoRounding(totalCost, currency)}
         </div>
         <div className="text-xs text-muted-foreground">
@@ -664,7 +675,7 @@ export const SubscriptionFeeDetail = ({
   // For other fee types, use standard formatting
   return (
     <div className="space-y-0.5">
-      <div className="font-medium text-foreground">{formatted.amount}</div>
+      <div className="text-base font-semibold text-foreground">{formatted.amount}</div>
       <div className="text-xs text-muted-foreground">{formatted.details}</div>
     </div>
   )
@@ -676,6 +687,7 @@ interface PriceComponentRowProps {
   currency: string
   isEven: boolean
   onUpdateSlot: (data: SlotUpdateData) => void
+  onViewTransactions: (unit: string) => void
 }
 
 const PriceComponentRow = ({
@@ -684,14 +696,16 @@ const PriceComponentRow = ({
   currency,
   isEven,
   onUpdateSlot,
+  onViewTransactions,
 }: PriceComponentRowProps) => {
-  const isSlotComponent = component.fee?.fee.case === 'slot'
+  const slot = component.fee?.fee.case === 'slot' ? component.fee.fee.value : null
+  const isSlotComponent = !!slot
 
   const slotsValueQuery = useQuery(
     getSlotsValue,
     {
       subscriptionId,
-      unit: component.fee?.fee.case === 'slot' ? component.fee!.fee.value?.unit : '',
+      unit: slot?.unit ?? '',
     },
     {
       enabled: isSlotComponent && Boolean(subscriptionId),
@@ -702,21 +716,13 @@ const PriceComponentRow = ({
   const handleUpdateClick = () => {
     if (!isSlotComponent || !component.priceComponentId) return
 
-    const slotFee = component.fee!.fee.value as {
-      unit: string
-      unitRate: string
-      minSlots?: number
-      maxSlots?: number
-      initialSlots: number
-    }
-
     onUpdateSlot({
       priceComponentId: component.priceComponentId,
-      unit: slotFee.unit,
-      currentSlots: slotsValueQuery.data?.currentValue ?? slotFee.initialSlots,
-      unitRate: slotFee.unitRate,
-      minSlots: slotFee.minSlots,
-      maxSlots: slotFee.maxSlots,
+      unit: slot.unit,
+      currentSlots: slotsValueQuery.data?.currentValue ?? slot.initialSlots,
+      unitRate: slot.unitRate,
+      minSlots: slot.minSlots,
+      maxSlots: slot.maxSlots,
     })
   }
 
@@ -738,15 +744,28 @@ const PriceComponentRow = ({
       </td>
       <td className="px-4 py-2.5 text-right w-24">
         {isSlotComponent && component.priceComponentId && (
-          <Button
-            variant="ghost"
-            size="sm"
-            onClick={handleUpdateClick}
-            disabled={slotsValueQuery.isLoading}
-            className="h-7 px-2 text-xs font-medium"
-          >
-            Update
-          </Button>
+          <div className="flex items-center justify-end gap-1">
+            <Button
+              variant="ghost"
+              size="sm"
+              onClick={() => onViewTransactions(slot.unit)}
+              disabled={slotsValueQuery.isLoading}
+              className="h-7 w-7 p-0"
+              title="View slot transactions"
+            >
+              <Clock className="h-4 w-4" />
+            </Button>
+            <Button
+              variant="ghost"
+              size="sm"
+              onClick={handleUpdateClick}
+              disabled={slotsValueQuery.isLoading}
+              className="h-7 px-2 text-xs font-medium text-brand"
+              title="Upgrade or downgrade"
+            >
+              <ArrowUpDownIcon className="mr-1 h-4 w-4" />
+            </Button>
+          </div>
         )}
       </td>
     </tr>

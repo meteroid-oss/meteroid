@@ -2,7 +2,9 @@
 
 use crate::StoreResult;
 use crate::constants::Currencies;
-use crate::domain::slot_transactions::{SlotUpgradeBillingMode, UpdateSlotsResult};
+use crate::domain::slot_transactions::{
+    SlotUpdatePreview, SlotUpgradeBillingMode, UpdateSlotsResult,
+};
 use crate::domain::{
     LineItem, PaymentTransaction, Period, SlotForTransaction, SubscriptionFee,
     SubscriptionFeeInterface,
@@ -95,8 +97,18 @@ impl Services {
                         });
                     }
 
+                    // Get currency precision for proper rounding
+                    let currency = Currencies::resolve_currency(&subscription.currency)
+                        .ok_or_else(|| {
+                            StoreError::ValueNotFound(format!(
+                                "Currency {} not found",
+                                subscription.currency
+                            ))
+                        })?;
+
                     let prorated = self
-                        .calculate_slot_upgrade_amount(now_date, period_end, delta, &unit_rate)?;
+                        .calculate_slot_upgrade_amount(now_date, period_end, delta, &unit_rate)?
+                        .round_dp(currency.precision as u32);
 
                     match billing_mode {
                         SlotUpgradeBillingMode::OnCheckout => {
@@ -567,12 +579,18 @@ impl Services {
         &self,
         tenant_id: TenantId,
         invoice_id: InvoiceId,
+        effective_at: Option<chrono::NaiveDateTime>,
     ) -> StoreResult<Vec<(SubscriptionId, i32)>> {
         let mut conn = self.store.get_conn().await?;
 
         let activated_transactions = self
             .store
-            .activate_pending_slot_transactions_for_invoice(&mut conn, tenant_id, invoice_id)
+            .activate_pending_slot_transactions_for_invoice(
+                &mut conn,
+                tenant_id,
+                invoice_id,
+                effective_at,
+            )
             .await?;
 
         let mut results = Vec::new();
@@ -582,6 +600,101 @@ impl Services {
         }
 
         Ok(results)
+    }
+
+    pub async fn preview_slot_update(
+        &self,
+        tenant_id: TenantId,
+        subscription_id: SubscriptionId,
+        price_component_id: PriceComponentId,
+        delta: i32,
+    ) -> StoreResult<SlotUpdatePreview> {
+        if delta == 0 {
+            return Err(StoreError::InvalidArgument(
+                "Delta cannot be zero - no slot change requested".to_string(),
+            )
+            .into());
+        }
+
+        let subscription_details = self
+            .store
+            .get_subscription_details(tenant_id, subscription_id)
+            .await?;
+
+        let subscription = &subscription_details.subscription;
+
+        let period_end = match subscription.current_period_end {
+            Some(period) => period,
+            None => bail!(StoreError::InvalidArgument(
+                "Cannot modify slots for subscription without active billing period".to_string()
+            )),
+        };
+
+        let slot = self.extract_slot(&subscription_details, price_component_id)?;
+
+        let now = chrono::Utc::now().naive_utc();
+        let now_date = now.date();
+
+        let mut conn = self.store.get_conn().await?;
+
+        let current_slots = self
+            .store
+            .get_active_slots_value_with_conn(
+                &mut conn,
+                tenant_id,
+                subscription_id,
+                slot.unit.clone(),
+                None,
+            )
+            .await? as i32;
+
+        let new_slots = current_slots + delta;
+
+        // Validate limits
+        validate_slot_limits(&slot, delta, current_slots)?;
+
+        let effective_at = if delta > 0 { now_date } else { period_end };
+
+        // Get currency precision for proper rounding
+        let currency = Currencies::resolve_currency(&subscription.currency).ok_or_else(|| {
+            StoreError::ValueNotFound(format!("Currency {} not found", subscription.currency))
+        })?;
+
+        let (prorated_amount, full_period_amount) = if delta > 0 {
+            let prorated = self
+                .calculate_slot_upgrade_amount(now_date, period_end, delta, &slot.unit_rate)?
+                .round_dp(currency.precision as u32);
+            let full_period =
+                (Decimal::from(delta) * slot.unit_rate).round_dp(currency.precision as u32);
+            (prorated, full_period)
+        } else {
+            // For downgrades, show what they'll save
+            let full_period_reduction =
+                (Decimal::from(-delta) * slot.unit_rate).round_dp(currency.precision as u32);
+            (Decimal::ZERO, -full_period_reduction)
+        };
+
+        let period = Period {
+            start: now_date,
+            end: period_end,
+        };
+        let days_remaining = period.end.signed_duration_since(period.start).num_days() as i32;
+        let days_total = now_date.days_in_month() as i32;
+
+        Ok(SlotUpdatePreview {
+            current_slots,
+            new_slots,
+            delta,
+            unit: slot.unit.clone(),
+            unit_rate: slot.unit_rate,
+            prorated_amount,
+            full_period_amount,
+            days_remaining,
+            days_total,
+            effective_at,
+            current_period_end: period_end,
+            next_invoice_delta: prorated_amount,
+        })
     }
 
     pub async fn complete_slot_upgrade_checkout(
@@ -623,8 +736,19 @@ impl Services {
                     let unit_rate = slot.unit_rate;
                     let unit_name = slot.unit.clone();
 
+                    // Get currency precision for proper rounding
+                    let currency =
+                        Currencies::resolve_currency(&subscription_details.subscription.currency)
+                            .ok_or_else(|| {
+                            StoreError::ValueNotFound(format!(
+                                "Currency {} not found",
+                                subscription_details.subscription.currency
+                            ))
+                        })?;
+
                     let prorated = self
-                        .calculate_slot_upgrade_amount(now_date, period_end, delta, &unit_rate)?;
+                        .calculate_slot_upgrade_amount(now_date, period_end, delta, &unit_rate)?
+                        .round_dp(currency.precision as u32);
 
                     let active_slots = self
                         .store

@@ -15,7 +15,7 @@ impl Services {
         tenant_id: TenantId,
     ) -> StoreResult<()> {
         let activated = self
-            .activate_pending_slot_transactions(tenant_id, event.invoice_id)
+            .activate_pending_slot_transactions(tenant_id, event.invoice_id, None)
             .await?;
 
         if !activated.is_empty() {

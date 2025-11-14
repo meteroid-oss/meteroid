@@ -117,13 +117,12 @@ impl SlotTransactionRow {
         conn: &mut PgConn,
         tenant_id: common_domain::ids::TenantId,
         invoice_id: common_domain::ids::InvoiceId,
+        effective_at: NaiveDateTime,
     ) -> DbResult<Vec<SlotTransactionRow>> {
         use crate::enums::SlotTransactionStatusEnum;
         use crate::schema::{invoice, slot_transaction};
         use diesel::prelude::*;
         use diesel_async::RunQueryDsl;
-
-        let now = chrono::Utc::now().naive_utc();
 
         let query = diesel::update(
             slot_transaction::table
@@ -137,7 +136,7 @@ impl SlotTransactionRow {
         )
         .set((
             slot_transaction::status.eq(SlotTransactionStatusEnum::Active),
-            slot_transaction::effective_at.eq(now),
+            slot_transaction::effective_at.eq(effective_at),
         ));
 
         log::debug!("{}", debug_query::<diesel::pg::Pg, _>(&query));
@@ -146,6 +145,78 @@ impl SlotTransactionRow {
             .get_results(conn)
             .await
             .attach("Error while activating pending slot transactions")
+            .into_db_result()
+    }
+
+    pub async fn list_by_subscription_id(
+        conn: &mut PgConn,
+        tenant_id: common_domain::ids::TenantId,
+        subscription_id: SubscriptionId,
+        unit: Option<String>,
+        status: Option<crate::enums::SlotTransactionStatusEnum>,
+    ) -> DbResult<Vec<SlotTransactionRow>> {
+        use crate::schema::{slot_transaction, subscription};
+        use diesel::prelude::*;
+        use diesel_async::RunQueryDsl;
+
+        let mut query = slot_transaction::table
+            .inner_join(
+                subscription::table.on(slot_transaction::subscription_id.eq(subscription::id)),
+            )
+            .filter(subscription::tenant_id.eq(tenant_id))
+            .filter(slot_transaction::subscription_id.eq(subscription_id))
+            .select(slot_transaction::all_columns)
+            .order(slot_transaction::transaction_at.desc())
+            .into_boxed();
+
+        if let Some(unit) = unit {
+            query = query.filter(slot_transaction::unit.eq(unit));
+        }
+
+        if let Some(status) = status {
+            query = query.filter(slot_transaction::status.eq(status));
+        }
+
+        log::debug!("{}", debug_query::<diesel::pg::Pg, _>(&query));
+
+        query
+            .get_results(conn)
+            .await
+            .attach("Error while listing slot transactions")
+            .into_db_result()
+    }
+
+    pub async fn delete_transaction(
+        conn: &mut PgConn,
+        tenant_id: common_domain::ids::TenantId,
+        transaction_id: common_domain::ids::SlotTransactionId,
+    ) -> DbResult<()> {
+        use crate::enums::SlotTransactionStatusEnum;
+        use crate::schema::{slot_transaction, subscription};
+        use diesel::prelude::*;
+        use diesel_async::RunQueryDsl;
+
+        let now = chrono::Utc::now().naive_utc();
+
+        let query = diesel::delete(
+            slot_transaction::table
+                .filter(slot_transaction::id.eq(transaction_id))
+                .filter(slot_transaction::status.eq(SlotTransactionStatusEnum::Active))
+                .filter(slot_transaction::effective_at.gt(now))
+                .filter(diesel::dsl::exists(
+                    subscription::table
+                        .filter(subscription::id.eq(slot_transaction::subscription_id))
+                        .filter(subscription::tenant_id.eq(tenant_id)),
+                )),
+        );
+
+        log::debug!("{}", debug_query::<diesel::pg::Pg, _>(&query));
+
+        query
+            .execute(conn)
+            .await
+            .map(|_| ())
+            .attach("Error while deleting slot transaction")
             .into_db_result()
     }
 }

@@ -1,5 +1,6 @@
 use crate::services::clients::usage::UsageClient;
 use crate::{Store, StoreResult};
+use chrono::NaiveDateTime;
 use std::sync::Arc;
 use svix::api::Svix;
 
@@ -94,9 +95,22 @@ impl ServicesEdge {
         &self,
         tenant_id: common_domain::ids::TenantId,
         invoice_id: common_domain::ids::InvoiceId,
+        effective_at: Option<NaiveDateTime>,
     ) -> StoreResult<Vec<(common_domain::ids::SubscriptionId, i32)>> {
         self.services
-            .activate_pending_slot_transactions(tenant_id, invoice_id)
+            .activate_pending_slot_transactions(tenant_id, invoice_id, effective_at)
+            .await
+    }
+
+    pub async fn preview_slot_update(
+        &self,
+        tenant_id: common_domain::ids::TenantId,
+        subscription_id: common_domain::ids::SubscriptionId,
+        price_component_id: common_domain::ids::PriceComponentId,
+        delta: i32,
+    ) -> StoreResult<crate::domain::slot_transactions::SlotUpdatePreview> {
+        self.services
+            .preview_slot_update(tenant_id, subscription_id, price_component_id, delta)
             .await
     }
 

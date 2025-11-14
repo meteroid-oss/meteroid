@@ -21,6 +21,22 @@ pub trait SubscriptionSlotsInterface {
         // default to now
         at_ts: Option<chrono::NaiveDateTime>,
     ) -> StoreResult<u32>;
+
+    #[delegated]
+    async fn list_slot_transactions(
+        &self,
+        tenant_id: TenantId,
+        subscription_id: SubscriptionId,
+        unit: Option<String>,
+        status: Option<SlotTransactionStatusEnum>,
+    ) -> StoreResult<Vec<SlotTransactionRow>>;
+
+    #[delegated]
+    async fn cancel_slot_transaction(
+        &self,
+        tenant_id: TenantId,
+        transaction_id: SlotTransactionId,
+    ) -> StoreResult<()>;
 }
 
 impl Store {
@@ -86,7 +102,7 @@ impl Store {
         status: SlotTransactionStatusEnum,
     ) -> StoreResult<SlotTransactionRow> {
         let now = ts.unwrap_or(chrono::Utc::now().naive_utc());
-        let period_end = current_period_end.and_time(NaiveTime::MIN); // TODO MIN or MAX
+        let period_end = current_period_end.and_time(NaiveTime::MIN); // TODO MAX => change after the inclusive period update
 
         // Determine effective_at based on upgrade/downgrade
         let effective_at = if delta > 0 {
@@ -129,8 +145,11 @@ impl Store {
         conn: &mut PgConn,
         tenant_id: TenantId,
         invoice_id: common_domain::ids::InvoiceId,
+        effective_at: Option<chrono::NaiveDateTime>,
     ) -> StoreResult<Vec<SlotTransactionRow>> {
-        SlotTransactionRow::activate_pending_for_invoice(conn, tenant_id, invoice_id)
+        let now = effective_at.unwrap_or(chrono::Utc::now().naive_utc());
+
+        SlotTransactionRow::activate_pending_for_invoice(conn, tenant_id, invoice_id, now)
             .await
             .map_err(Into::into)
     }
@@ -156,6 +175,36 @@ impl SubscriptionSlotsInterface for Store {
         .await
         .map(|c| c.current_active_slots as u32)
         .map_err(Into::into)
+    }
+
+    async fn list_slot_transactions_with_conn(
+        &self,
+        conn: &mut PgConn,
+        tenant_id: TenantId,
+        subscription_id: SubscriptionId,
+        unit: Option<String>,
+        status: Option<SlotTransactionStatusEnum>,
+    ) -> StoreResult<Vec<SlotTransactionRow>> {
+        SlotTransactionRow::list_by_subscription_id(
+            conn,
+            tenant_id,
+            subscription_id,
+            unit,
+            status.map(Into::into),
+        )
+        .await
+        .map_err(Into::into)
+    }
+
+    async fn cancel_slot_transaction_with_conn(
+        &self,
+        conn: &mut PgConn,
+        tenant_id: TenantId,
+        transaction_id: SlotTransactionId,
+    ) -> StoreResult<()> {
+        SlotTransactionRow::delete_transaction(conn, tenant_id, transaction_id)
+            .await
+            .map_err(Into::into)
     }
 }
 

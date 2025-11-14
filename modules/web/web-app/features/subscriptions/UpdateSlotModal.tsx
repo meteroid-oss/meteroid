@@ -1,13 +1,15 @@
-import { useMutation } from '@connectrpc/connect-query'
+import { useMutation, useQuery } from '@connectrpc/connect-query'
 import { DialogDescription, DialogTitle, Input, Label, Modal } from '@md/ui'
-import { InfoIcon, TrendingDown, TrendingUp } from 'lucide-react'
+import { InfoIcon, Loader2, TrendingDown, TrendingUp } from 'lucide-react'
 import { useState } from 'react'
 import { toast } from 'sonner'
 
 import { SlotUpgradeBillingMode } from '@/rpc/api/subscriptions/v1/models_pb'
-import { updateSlots } from '@/rpc/api/subscriptions/v1/subscriptions-SubscriptionsService_connectquery'
+import {
+  previewSlotUpdate,
+  updateSlots,
+} from '@/rpc/api/subscriptions/v1/subscriptions-SubscriptionsService_connectquery'
 import { formatCurrencyNoRounding } from '@/utils/numbers'
-
 
 interface UpdateSlotModalProps {
   subscriptionId: string
@@ -40,6 +42,19 @@ export const UpdateSlotModal = ({
   const [billingMode, setBillingMode] = useState<BillingModeOption>('optimistic')
   const delta = newSlots - currentSlots
   const isUpgrade = delta > 0
+
+  // Fetch accurate preview when delta changes
+  const previewQuery = useQuery(
+    previewSlotUpdate,
+    {
+      subscriptionId,
+      priceComponentId,
+      delta,
+    },
+    {
+      enabled: delta !== 0,
+    }
+  )
 
   const updateMutation = useMutation(updateSlots, {
     onSuccess: data => {
@@ -89,9 +104,17 @@ export const UpdateSlotModal = ({
   }
 
   const unitRateNum = Number(unitRate)
-  const currentTotalCost = currentSlots * unitRateNum
+
+  const preview = previewQuery.data
+  const isLoadingPreview = previewQuery.isLoading && delta !== 0
+
+  const proratedAmount = preview ? Number(preview.proratedAmount) : Math.abs(delta) * unitRateNum
+  const fullPeriodAmount = preview
+    ? Math.abs(Number(preview.fullPeriodAmount))
+    : Math.abs(delta) * unitRateNum
+  const daysRemaining = preview?.daysRemaining ?? 0
+
   const newTotalCost = newSlots * unitRateNum
-  const costChange = newTotalCost - currentTotalCost
 
   return (
     <Modal
@@ -130,27 +153,49 @@ export const UpdateSlotModal = ({
 
           {delta !== 0 && (
             <div className="rounded-lg border border-border bg-muted/30 p-4">
-              <div className="flex items-start justify-between mb-3">
-                <div>
-                  <div className="text-sm text-muted-foreground mb-1">
-                    {delta > 0 ? 'Adding' : 'Removing'} {Math.abs(delta)} {unit}(s)
-                  </div>
-                  <div className="text-2xl font-semibold tabular-nums">
-                    {costChange > 0 ? '+' : '-'}
-                    {formatCurrencyNoRounding(Math.abs(costChange), currency)}
-                    <span className="text-sm font-normal text-muted-foreground ml-1">/ month</span>
-                  </div>
+              {isLoadingPreview ? (
+                <div className="flex items-center justify-center py-6">
+                  <Loader2 className="h-5 w-5 animate-spin text-muted-foreground" />
+                  <span className="ml-2 text-sm text-muted-foreground">
+                    Calculating proration...
+                  </span>
                 </div>
-                {delta > 0 ? (
-                  <TrendingUp className="w-5 h-5 text-success" />
-                ) : (
-                  <TrendingDown className="w-5 h-5 text-warning" />
-                )}
-              </div>
+              ) : (
+                <>
+                  <div className="flex items-start justify-between mb-3">
+                    <div className="flex-1">
+                      <div className="text-sm text-muted-foreground mb-1">
+                        {delta > 0 ? 'Adding' : 'Removing'} {Math.abs(delta)} {unit}(s)
+                      </div>
+                      <div className="text-2xl font-semibold tabular-nums">
+                        {delta > 0 ? '+' : '-'}
+                        {formatCurrencyNoRounding(fullPeriodAmount, currency)}
+                        <span className="text-sm font-normal text-muted-foreground ml-1">
+                          / month
+                        </span>
+                      </div>
+                      {isUpgrade && daysRemaining > 0 && (
+                        <div className="text-xs text-muted-foreground mt-2 space-y-0.5">
+                          <div className="font-medium">
+                            Prorated charge today:{' '}
+                            {formatCurrencyNoRounding(proratedAmount, currency)}
+                          </div>
+                          <div>{daysRemaining} days remaining in period</div>
+                        </div>
+                      )}
+                    </div>
+                    {delta > 0 ? (
+                      <TrendingUp className="w-5 h-5 text-success" />
+                    ) : (
+                      <TrendingDown className="w-5 h-5 text-warning" />
+                    )}
+                  </div>
 
-              <div className="text-xs text-muted-foreground border-t border-border pt-2">
-                New monthly total: {formatCurrencyNoRounding(newTotalCost, currency)}
-              </div>
+                  <div className="text-xs text-muted-foreground border-t border-border pt-2">
+                    New monthly total: {formatCurrencyNoRounding(newTotalCost, currency)}
+                  </div>
+                </>
+              )}
             </div>
           )}
 
@@ -176,9 +221,15 @@ export const UpdateSlotModal = ({
                   <div className="flex-1 min-w-0">
                     <div className="text-sm font-medium">Optimistic</div>
                     <div className="text-xs text-muted-foreground mt-0.5">
-                      An invoice for the prorated charge will be created and will advance/attempt
-                      payment based on the subscription settings. <br />
-                      Slots activate right away.
+                      Activated immediately. <br />
+                      An adjustment invoice is emitted for the prorated amount for this period.
+                      {!isLoadingPreview && proratedAmount > 0 && (
+                        <>
+                          <br />
+                          Adjustment invoice amount (excl. tax):{' '}
+                          {formatCurrencyNoRounding(proratedAmount, currency)}
+                        </>
+                      )}
                     </div>
                   </div>
                 </label>
@@ -201,9 +252,15 @@ export const UpdateSlotModal = ({
                   <div className="flex-1 min-w-0">
                     <div className="text-sm font-medium">After payment</div>
                     <div className="text-xs text-muted-foreground mt-0.5">
-                      An invoice for the prorated charge will be created and will advance/attempt
-                      payment based on based on the subscription settings. <br />
-                      Slots activate once the invoice is paid.
+                      Activated on paid. <br />
+                      An adjustment invoice is emitted for the prorated amount for this period.
+                      {!isLoadingPreview && proratedAmount > 0 && (
+                        <>
+                          <br />
+                          Adjustment invoice amount (excl. tax):{' '}
+                          {formatCurrencyNoRounding(proratedAmount, currency)}
+                        </>
+                      )}
                     </div>
                   </div>
                 </label>

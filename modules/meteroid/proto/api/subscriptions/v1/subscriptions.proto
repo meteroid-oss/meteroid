@@ -93,6 +93,48 @@ message SyncToHubspotRequest {
 message SyncToHubspotResponse {
 }
 
+message ListSlotTransactionsRequest {
+  string subscription_id = 1;
+  optional string unit = 2;
+  optional SlotTransactionStatus status = 3;
+}
+
+message ListSlotTransactionsResponse {
+  repeated SlotTransaction transactions = 1;
+}
+
+message CancelSlotTransactionRequest {
+  string transaction_id = 1;
+  optional string reason = 2;
+}
+
+message CancelSlotTransactionResponse {}
+
+message PreviewSlotUpdateRequest {
+  string subscription_id = 1;
+  string price_component_id = 2;
+  int32 delta = 3;
+}
+
+message PreviewSlotUpdateResponse {
+  int32 current_slots = 1;
+  int32 new_slots = 2;
+  int32 delta = 3;
+  string unit = 4;
+  string unit_rate = 5;
+
+  // Proration details
+  string prorated_amount = 6; // Actual prorated charge
+  string full_period_amount = 7; // What they'll pay per period going forward
+  int32 days_remaining = 8; // Days left in current period
+  int32 days_total = 9; // Total days in period
+
+  string effective_at = 10;
+  string current_period_end = 11;
+  // How much will be added to next invoice
+  string next_invoice_delta = 12;
+}
+
 
 // Service definition
 service SubscriptionsService {
@@ -102,6 +144,9 @@ service SubscriptionsService {
   rpc ListSubscriptions(ListSubscriptionsRequest) returns (ListSubscriptionsResponse);
   rpc UpdateSlots(UpdateSlotsRequest) returns (UpdateSlotsResponse);
   rpc GetSlotsValue(GetSlotsValueRequest) returns (GetSlotsValueResponse);
+  rpc ListSlotTransactions(ListSlotTransactionsRequest) returns (ListSlotTransactionsResponse);
+  rpc CancelSlotTransaction(CancelSlotTransactionRequest) returns (CancelSlotTransactionResponse);
+  rpc PreviewSlotUpdate(PreviewSlotUpdateRequest) returns (PreviewSlotUpdateResponse);
   rpc CancelSubscription(CancelSubscriptionRequest) returns (CancelSubscriptionResponse);
   rpc SyncToHubspot(SyncToHubspotRequest) returns (SyncToHubspotResponse);
 }
