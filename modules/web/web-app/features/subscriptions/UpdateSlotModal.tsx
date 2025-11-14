@@ -61,7 +61,6 @@ export const UpdateSlotModal = ({
       return
     }
 
-    // Validate min/max constraints
     if (minSlots !== undefined && newSlots < minSlots) {
       toast.error(`Minimum ${unit} count is ${minSlots}`)
       return
@@ -73,7 +72,6 @@ export const UpdateSlotModal = ({
     }
 
     try {
-      // Map billing mode to proto enum
       const billingModeEnum =
         billingMode === 'optimistic'
           ? SlotUpgradeBillingMode.SLOT_OPTIMISTIC
