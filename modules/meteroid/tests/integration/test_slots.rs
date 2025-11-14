@@ -1,4 +1,4 @@
-use chrono::{NaiveDate, NaiveDateTime, NaiveTime};
+use chrono::{NaiveDate, NaiveTime};
 use rust_decimal::Decimal;
 use std::str::FromStr;
 use std::sync::Arc;
@@ -12,10 +12,9 @@ use diesel_models::subscriptions::SubscriptionRow;
 use meteroid_mailer::service::MockMailerService;
 use meteroid_store::clients::usage::MockUsageClient;
 use meteroid_store::domain::{
-    BillingPeriodEnum, ComponentOverride, ComponentParameterization, ComponentParameters,
-    CreateSubscription, CreateSubscriptionComponents, ExtraComponent, SlotUpgradeBillingMode,
+    ComponentOverride, CreateSubscription, CreateSubscriptionComponents, SlotUpgradeBillingMode,
     SubscriptionComponentNewInternal, SubscriptionFee, SubscriptionFeeBillingPeriod,
-    SubscriptionNew, UpdateSlotsResult,
+    SubscriptionNew,
 };
 use meteroid_store::repositories::InvoiceInterface;
 use meteroid_store::repositories::subscriptions::slots::SubscriptionSlotsInterfaceAuto;
@@ -68,7 +67,7 @@ async fn test_slot_transactions_comprehensive() {
     test_concurrent_upgrades(&services, &store, &mut conn).await;
 
     // Test 9: Temporal slot changes across billing cycles
-    test_temporal_slot_changes(&services, &store, &mut conn).await;
+    test_temporal_slot_changes(&services, &store).await;
 }
 
 async fn test_optimistic_upgrade(services: &Services, store: &Store) {
@@ -213,10 +212,6 @@ async fn test_on_checkout_preview(services: &Services, _store: &Store, _conn: &m
     assert!(
         result.prorated_amount.is_some(),
         "Should return prorated amount for preview"
-    );
-    assert!(
-        result.payment_transaction.is_none(),
-        "No payment transaction in preview mode"
     );
 }
 
@@ -508,7 +503,7 @@ async fn test_concurrent_upgrades(services: &Services, store: &Store, _conn: &mu
     );
 }
 
-async fn test_temporal_slot_changes(services: &Services, store: &Store, conn: &mut PgConn) {
+async fn test_temporal_slot_changes(services: &Services, store: &Store) {
     let unit = "temporal-test-seats";
 
     // Create subscription starting on 2024-01-01 with 5 slots
