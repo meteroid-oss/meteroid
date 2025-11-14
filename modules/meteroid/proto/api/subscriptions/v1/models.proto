@@ -235,6 +235,24 @@ enum SlotUpgradeBillingMode {
   SLOT_ON_INVOICE_PAID = 2;
 }
 
+enum SlotTransactionStatus {
+  SLOT_PENDING = 0; // Awaiting payment
+  SLOT_ACTIVE = 1;
+}
+
+message SlotTransaction {
+  string id = 1;
+  string subscription_id = 2;
+  string unit = 3;
+  int32 delta = 4;
+  int32 prev_active_slots = 5;
+  int32 new_active_slots = 6;
+  string effective_at = 7;
+  string transaction_at = 8;
+  SlotTransactionStatus status = 9;
+  optional string invoice_id = 10;
+}
+
 message SubscriptionFee {
   oneof fee {
     RateSubscriptionFee rate = 1;

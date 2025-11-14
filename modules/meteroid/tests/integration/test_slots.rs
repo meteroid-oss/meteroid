@@ -68,6 +68,9 @@ async fn test_slot_transactions_comprehensive() {
 
     // Test 9: Temporal slot changes across billing cycles
     test_temporal_slot_changes(&services, &store).await;
+
+    // Test 10: Mixed pending and active transactions
+    test_mixed_pending_and_active(&services, &store).await;
 }
 
 async fn test_optimistic_upgrade(services: &Services, store: &Store) {
@@ -84,12 +87,13 @@ async fn test_optimistic_upgrade(services: &Services, store: &Store) {
     .await;
 
     let result = services
-        .update_subscription_slots(
+        .update_subscription_slots_for_test(
             TENANT_ID,
             subscription_id,
             slot_component_id,
             5, // Add 5 slots
             SlotUpgradeBillingMode::Optimistic,
+            NaiveDate::from_ymd_opt(2024, 1, 15).map(|t| t.and_time(NaiveTime::MIN)),
         )
         .await
         .expect("Failed to upgrade slots");
@@ -119,6 +123,13 @@ async fn test_optimistic_upgrade(services: &Services, store: &Store) {
     let line_item = &invoice.line_items[0];
     assert_eq!(line_item.quantity, Some(Decimal::from(5)));
     assert!(line_item.is_prorated, "Line item should be prorated");
+
+    let count = store
+        .get_active_slots_value(TENANT_ID, subscription_id, unit.to_string(), None)
+        .await
+        .expect("Failed to get current slots");
+
+    assert_eq!(count, 15);
 }
 
 async fn test_on_invoice_paid_upgrade(services: &Services, store: &Store) {
@@ -163,7 +174,11 @@ async fn test_on_invoice_paid_upgrade(services: &Services, store: &Store) {
 
     // Simulate payment webhook - activate pending transactions
     let activated = services
-        .activate_pending_slot_transactions(TENANT_ID, invoice_id)
+        .activate_pending_slot_transactions(
+            TENANT_ID,
+            invoice_id,
+            NaiveDate::from_ymd_opt(2024, 1, 4).map(|t| t.and_time(NaiveTime::MIN)),
+        )
         .await
         .expect("Failed to activate pending transactions");
 
@@ -174,6 +189,19 @@ async fn test_on_invoice_paid_upgrade(services: &Services, store: &Store) {
     assert_eq!(
         activated[0].0, subscription_id,
         "Should activate for correct subscription"
+    );
+    let count_after_activation = store
+        .get_active_slots_value(
+            TENANT_ID,
+            subscription_id,
+            "on-invoice-paid-seats".to_string(),
+            NaiveDate::from_ymd_opt(2024, 1, 30).map(|t| t.and_time(NaiveTime::MIN)),
+        )
+        .await
+        .expect("Failed to get slots after activation");
+    assert_eq!(
+        count_after_activation, 17,
+        "Should have 17 active slots after pending activation"
     );
 }
 
@@ -679,6 +707,207 @@ async fn test_temporal_slot_changes(services: &Services, store: &Store) {
         .iter()
         .find(|line| line.name.contains(unit))
         .expect("Should have slot line item");
+}
+
+async fn test_mixed_pending_and_active(services: &Services, store: &Store) {
+    let unit = "mixed-mode-test-seats";
+
+    // Create subscription starting with 10 slots
+    let (subscription_id, slot_component_id) = create_subscription_with_slots(
+        services,
+        unit,
+        Decimal::from_str("10.00").unwrap(),
+        Some(1),
+        Some(100),
+        10, // initial 10 slots
+    )
+    .await;
+
+    // Verify initial count
+    let initial_count = store
+        .get_active_slots_value(
+            TENANT_ID,
+            subscription_id,
+            unit.to_string(),
+            NaiveDate::from_ymd_opt(2024, 1, 1).map(|t| t.and_time(NaiveTime::MIN)),
+        )
+        .await
+        .expect("Failed to get initial slots");
+    assert_eq!(initial_count, 10, "Should start with 10 slots");
+
+    // Step 1: Add +1 slot (Optimistic - should activate immediately)
+    let result1 = services
+        .update_subscription_slots_for_test(
+            TENANT_ID,
+            subscription_id,
+            slot_component_id,
+            1,
+            SlotUpgradeBillingMode::Optimistic,
+            NaiveDate::from_ymd_opt(2024, 1, 2).map(|t| t.and_time(NaiveTime::MIN)),
+        )
+        .await
+        .expect("Failed to add first +1 slot");
+
+    assert!(
+        result1.slots_active,
+        "First +1 should be active immediately"
+    );
+    assert_eq!(result1.delta_applied, 1);
+    assert_eq!(result1.new_slot_count, 11, "Should now have 11 slots");
+
+    // Verify count is now 11
+    let count_after_first = store
+        .get_active_slots_value(
+            TENANT_ID,
+            subscription_id,
+            unit.to_string(),
+            NaiveDate::from_ymd_opt(2024, 1, 2).map(|t| t.and_time(NaiveTime::MIN)),
+        )
+        .await
+        .expect("Failed to get slots after first upgrade");
+    assert_eq!(count_after_first, 11, "Should have 11 active slots");
+
+    // Step 2: Add +5 slots as PENDING (OnInvoicePaid - should NOT activate yet)
+    let result2 = services
+        .update_subscription_slots_for_test(
+            TENANT_ID,
+            subscription_id,
+            slot_component_id,
+            5,
+            SlotUpgradeBillingMode::OnInvoicePaid,
+            NaiveDate::from_ymd_opt(2024, 1, 3).map(|t| t.and_time(NaiveTime::MIN)),
+        )
+        .await
+        .expect("Failed to add pending +5 slots");
+
+    assert!(!result2.slots_active, "Pending +5 should NOT be active yet");
+    assert_eq!(result2.delta_applied, 5);
+    assert_eq!(
+        result2.new_slot_count, 11,
+        "New count should stay 11 (as not activated)"
+    );
+    let pending_invoice_id = result2
+        .invoice_id
+        .expect("Should create invoice for pending slots");
+
+    // Verify count is still 11 (pending slots not active yet)
+    let count_after_pending = store
+        .get_active_slots_value(
+            TENANT_ID,
+            subscription_id,
+            unit.to_string(),
+            NaiveDate::from_ymd_opt(2024, 1, 3).map(|t| t.and_time(NaiveTime::MIN)),
+        )
+        .await
+        .expect("Failed to get slots after pending addition");
+    assert_eq!(
+        count_after_pending, 11,
+        "Should still have 11 active slots (pending not activated)"
+    );
+
+    // Step 3: Add another +1 slot (Optimistic - should activate immediately)
+    let result3 = services
+        .update_subscription_slots_for_test(
+            TENANT_ID,
+            subscription_id,
+            slot_component_id,
+            1,
+            SlotUpgradeBillingMode::Optimistic,
+            NaiveDate::from_ymd_opt(2024, 1, 4).map(|t| t.and_time(NaiveTime::MIN)),
+        )
+        .await
+        .expect("Failed to add second +1 slot");
+
+    assert!(
+        result3.slots_active,
+        "Second +1 should be active immediately"
+    );
+    assert_eq!(result3.delta_applied, 1);
+    assert_eq!(
+        result3.new_slot_count, 12,
+        "Should now have 12 active slots (11 + 1, pending still not active)"
+    );
+
+    // Verify count is now 12 (still without pending)
+    let count_after_second = store
+        .get_active_slots_value(
+            TENANT_ID,
+            subscription_id,
+            unit.to_string(),
+            NaiveDate::from_ymd_opt(2024, 1, 4).map(|t| t.and_time(NaiveTime::MIN)),
+        )
+        .await
+        .expect("Failed to get slots after second upgrade");
+    assert_eq!(
+        count_after_second, 12,
+        "Should have 12 active slots (pending +5 still not active)"
+    );
+
+    // Step 4: Activate the pending +5 slots (simulate payment)
+    let activated = services
+        .activate_pending_slot_transactions(
+            TENANT_ID,
+            pending_invoice_id,
+            NaiveDate::from_ymd_opt(2024, 1, 4).map(|t| t.and_time(NaiveTime::MIN)),
+        )
+        .await
+        .expect("Failed to activate pending transactions");
+
+    assert!(
+        !activated.is_empty(),
+        "Should have activated pending transactions"
+    );
+    assert_eq!(
+        activated[0].0, subscription_id,
+        "Should activate for correct subscription"
+    );
+
+    // Verify count is now 17 (12 + 5 pending activated)
+    let count_after_activation = store
+        .get_active_slots_value(
+            TENANT_ID,
+            subscription_id,
+            unit.to_string(),
+            NaiveDate::from_ymd_opt(2024, 1, 4).map(|t| t.and_time(NaiveTime::MIN)),
+        )
+        .await
+        .expect("Failed to get slots after activation");
+    assert_eq!(
+        count_after_activation, 17,
+        "Should have 17 active slots after pending activation"
+    );
+
+    // Step 5: Add another +1 slot (Optimistic - should activate immediately)
+    let result5 = services
+        .update_subscription_slots_for_test(
+            TENANT_ID,
+            subscription_id,
+            slot_component_id,
+            1,
+            SlotUpgradeBillingMode::Optimistic,
+            NaiveDate::from_ymd_opt(2024, 1, 5).map(|t| t.and_time(NaiveTime::MIN)),
+        )
+        .await
+        .expect("Failed to add third +1 slot");
+
+    assert!(
+        result5.slots_active,
+        "Third +1 should be active immediately"
+    );
+    assert_eq!(result5.delta_applied, 1);
+    assert_eq!(result5.new_slot_count, 18, "Should now have 18 slots");
+
+    // Final verification: count should be initial + 8 (10 + 1 + 5 + 1 + 1 = 18)
+    let final_count = store
+        .get_active_slots_value(TENANT_ID, subscription_id, unit.to_string(), None)
+        .await
+        .expect("Failed to get final slots count");
+    assert_eq!(
+        final_count,
+        initial_count + 8,
+        "Final count should be initial (10) + 8 = 18"
+    );
+    assert_eq!(final_count, 18, "Final count should be exactly 18 slots");
 }
 
 async fn get_invoices_for_subscription(

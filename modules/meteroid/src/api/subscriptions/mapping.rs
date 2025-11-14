@@ -925,3 +925,50 @@ pub mod coupons {
         }
     }
 }
+
+pub mod slot_transactions {
+    use crate::api::shared::conversions::ProtoConv;
+    use meteroid_grpc::meteroid::api::subscriptions::v1 as proto;
+    use meteroid_store::domain::SlotTransactionStatusEnum;
+    use meteroid_store::domain::slot_transactions::{SlotTransaction, SlotUpdatePreview};
+    use tonic::Status;
+
+    pub fn domain_to_proto(transaction: SlotTransaction) -> Result<proto::SlotTransaction, Status> {
+        let proto_status = match transaction.status {
+            SlotTransactionStatusEnum::Pending => proto::SlotTransactionStatus::SlotPending,
+            SlotTransactionStatusEnum::Active => proto::SlotTransactionStatus::SlotActive,
+        };
+
+        Ok(proto::SlotTransaction {
+            id: transaction.id.to_string(),
+            subscription_id: transaction.subscription_id.to_string(),
+            unit: transaction.unit,
+            delta: transaction.delta,
+            prev_active_slots: transaction.prev_active_slots,
+            new_active_slots: transaction.prev_active_slots + transaction.delta,
+            effective_at: transaction.effective_at.as_proto(),
+            transaction_at: transaction.transaction_at.as_proto(),
+            status: proto_status.into(),
+            invoice_id: transaction.invoice_id.map(|id| id.to_string()),
+        })
+    }
+
+    pub fn preview_domain_to_proto(
+        preview: SlotUpdatePreview,
+    ) -> Result<proto::PreviewSlotUpdateResponse, Status> {
+        Ok(proto::PreviewSlotUpdateResponse {
+            current_slots: preview.current_slots,
+            new_slots: preview.new_slots,
+            delta: preview.delta,
+            unit: preview.unit,
+            unit_rate: preview.unit_rate.to_string(),
+            prorated_amount: preview.prorated_amount.to_string(),
+            full_period_amount: preview.full_period_amount.to_string(),
+            days_remaining: preview.days_remaining,
+            days_total: preview.days_total,
+            effective_at: preview.effective_at.as_proto(),
+            current_period_end: preview.current_period_end.as_proto(),
+            next_invoice_delta: preview.next_invoice_delta.to_string(),
+        })
+    }
+}

@@ -6,10 +6,12 @@ use tonic::{Request, Response, Status};
 use meteroid_grpc::meteroid::api::subscriptions::v1::subscriptions_service_server::SubscriptionsService;
 
 use meteroid_grpc::meteroid::api::subscriptions::v1::{
-    CancelSubscriptionRequest, CancelSubscriptionResponse, CreateSubscriptionRequest,
-    CreateSubscriptionResponse, CreateSubscriptionsRequest, CreateSubscriptionsResponse,
-    GetSlotsValueRequest, GetSlotsValueResponse, ListSubscriptionsRequest,
-    ListSubscriptionsResponse, SubscriptionDetails, SyncToHubspotRequest, SyncToHubspotResponse,
+    CancelSlotTransactionRequest, CancelSlotTransactionResponse, CancelSubscriptionRequest,
+    CancelSubscriptionResponse, CreateSubscriptionRequest, CreateSubscriptionResponse,
+    CreateSubscriptionsRequest, CreateSubscriptionsResponse, GetSlotsValueRequest,
+    GetSlotsValueResponse, ListSlotTransactionsRequest, ListSlotTransactionsResponse,
+    ListSubscriptionsRequest, ListSubscriptionsResponse, PreviewSlotUpdateRequest,
+    PreviewSlotUpdateResponse, SubscriptionDetails, SyncToHubspotRequest, SyncToHubspotResponse,
     UpdateSlotsRequest, UpdateSlotsResponse,
 };
 
@@ -293,5 +295,90 @@ impl SubscriptionsService for SubscriptionServiceComponents {
             .map_err(Into::<SubscriptionApiError>::into)?;
 
         Ok(Response::new(SyncToHubspotResponse {}))
+    }
+
+    #[tracing::instrument(skip_all)]
+    async fn list_slot_transactions(
+        &self,
+        request: Request<ListSlotTransactionsRequest>,
+    ) -> Result<Response<ListSlotTransactionsResponse>, Status> {
+        let tenant_id = request.tenant()?;
+        let inner = request.into_inner();
+
+        let subscription_id = SubscriptionId::from_proto(inner.subscription_id)?;
+
+        let status = if let Some(status_int) = inner.status {
+            use meteroid_grpc::meteroid::api::subscriptions::v1::SlotTransactionStatus;
+            use meteroid_store::domain::SlotTransactionStatusEnum;
+
+            let proto_status = SlotTransactionStatus::try_from(status_int)
+                .map_err(|_| SubscriptionApiError::InvalidArgument("Invalid status".to_string()))?;
+
+            Some(match proto_status {
+                SlotTransactionStatus::SlotPending => SlotTransactionStatusEnum::Pending,
+                SlotTransactionStatus::SlotActive => SlotTransactionStatusEnum::Active,
+            })
+        } else {
+            None
+        };
+
+        let transactions = self
+            .store
+            .list_slot_transactions(tenant_id, subscription_id, inner.unit, status)
+            .await
+            .map_err(Into::<SubscriptionApiError>::into)?;
+
+        let proto_transactions = transactions
+            .into_iter()
+            .map(|row| {
+                let domain: meteroid_store::domain::slot_transactions::SlotTransaction = row.into();
+                mapping::slot_transactions::domain_to_proto(domain)
+            })
+            .collect::<Result<Vec<_>, _>>()?;
+
+        Ok(Response::new(ListSlotTransactionsResponse {
+            transactions: proto_transactions,
+        }))
+    }
+
+    #[tracing::instrument(skip_all)]
+    async fn cancel_slot_transaction(
+        &self,
+        request: Request<CancelSlotTransactionRequest>,
+    ) -> Result<Response<CancelSlotTransactionResponse>, Status> {
+        let tenant_id = request.tenant()?;
+        let inner = request.into_inner();
+
+        let transaction_id =
+            common_domain::ids::SlotTransactionId::from_proto(inner.transaction_id)?;
+
+        self.store
+            .cancel_slot_transaction(tenant_id, transaction_id)
+            .await
+            .map_err(Into::<SubscriptionApiError>::into)?;
+
+        Ok(Response::new(CancelSlotTransactionResponse {}))
+    }
+
+    #[tracing::instrument(skip_all)]
+    async fn preview_slot_update(
+        &self,
+        request: Request<PreviewSlotUpdateRequest>,
+    ) -> Result<Response<PreviewSlotUpdateResponse>, Status> {
+        let tenant_id = request.tenant()?;
+        let inner = request.into_inner();
+
+        let subscription_id = SubscriptionId::from_proto(inner.subscription_id)?;
+        let price_component_id = PriceComponentId::from_proto(inner.price_component_id)?;
+
+        let preview = self
+            .services
+            .preview_slot_update(tenant_id, subscription_id, price_component_id, inner.delta)
+            .await
+            .map_err(Into::<SubscriptionApiError>::into)?;
+
+        Ok(Response::new(
+            mapping::slot_transactions::preview_domain_to_proto(preview)?,
+        ))
     }
 }
