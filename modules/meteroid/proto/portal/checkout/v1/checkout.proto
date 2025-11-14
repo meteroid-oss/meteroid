@@ -45,10 +45,35 @@ message AddPaymentMethodRequest {
 message AddPaymentMethodResponse {
   api.customers.v1.CustomerPaymentMethod payment_method = 1;
 }
+
+message GetSlotUpgradeCheckoutRequest {
+  string subscription_id = 1;
+  string price_component_id = 2;
+  int32 delta = 3;
+}
+message GetSlotUpgradeCheckoutResponse {
+  SlotUpgradeCheckout checkout = 1;
+}
+
+message ConfirmSlotUpgradeCheckoutRequest {
+  string subscription_id = 1;
+  string price_component_id = 2;
+  int32 delta = 3;
+  string payment_method_id = 4;
+  uint64 displayed_amount = 5;
+  string displayed_currency = 6;
+}
+message ConfirmSlotUpgradeCheckoutResponse {
+  api.invoices.v1.Transaction transaction = 1;
+  uint32 new_slot_count = 2;
+}
+
 service PortalCheckoutService {
   rpc GetSubscriptionCheckout(GetSubscriptionCheckoutRequest) returns (GetSubscriptionCheckoutResponse) {}
   rpc UpdateCustomer(UpdateCustomerRequest) returns (UpdateCustomerResponse) {}
   rpc SetupIntent(SetupIntentRequest) returns (SetupIntentResponse) {}
   rpc ConfirmCheckout(ConfirmCheckoutRequest) returns (ConfirmCheckoutResponse) {}
   rpc AddPaymentMethod(AddPaymentMethodRequest) returns (AddPaymentMethodResponse) {}
+  rpc GetSlotUpgradeCheckout(GetSlotUpgradeCheckoutRequest) returns (GetSlotUpgradeCheckoutResponse) {}
+  rpc ConfirmSlotUpgradeCheckout(ConfirmSlotUpgradeCheckoutRequest) returns (ConfirmSlotUpgradeCheckoutResponse) {}
 }

@@ -14,6 +14,19 @@ impl Services {
         event: InvoiceEvent,
         tenant_id: TenantId,
     ) -> StoreResult<()> {
+        let activated = self
+            .activate_pending_slot_transactions(tenant_id, event.invoice_id)
+            .await?;
+
+        if !activated.is_empty() {
+            tracing::info!(
+                "Activated {} pending slot transactions for invoice {}",
+                activated.len(),
+                event.invoice_id
+            );
+            // TODO: Emit wh events regarding slot activations
+        }
+
         let receipt = self
             .store
             .last_settled_payment_tx_by_invoice_id(tenant_id, event.invoice_id)

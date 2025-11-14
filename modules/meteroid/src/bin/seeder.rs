@@ -47,7 +47,7 @@ async fn main() -> Result<(), Report<SeederError>> {
         multi_organization_enabled: false,
         skip_email_validation: true,
         public_url: "http://localhost:8080".to_owned(),
-        eventbus: create_eventbus_noop().await,
+        eventbus: create_eventbus_noop(),
 
         mailer: meteroid_mailer::service::mailer_service(MailerConfig::dummy()),
         oauth: meteroid_oauth::service::OauthServices::new(OauthConfig::dummy()),

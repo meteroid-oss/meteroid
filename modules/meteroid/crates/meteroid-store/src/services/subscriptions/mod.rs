@@ -1,6 +1,6 @@
 pub(in crate::services) mod cancel;
 
 pub(in crate::services) mod insert;
-pub(in crate::services) mod slots;
+pub(crate) mod slots;
 mod terminate;
 mod utils;

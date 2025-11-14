@@ -51,6 +51,8 @@ pub enum StoreError {
     ObjectStoreError,
     #[error("Error received from payment provider")]
     PaymentProviderError,
+    #[error("Payment failed or pending: {0}")]
+    PaymentError(String),
     #[error("OAuth failure: {0}")]
     OauthError(String),
     #[error("Checkout could not complete")]

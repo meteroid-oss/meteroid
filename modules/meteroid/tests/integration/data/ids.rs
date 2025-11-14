@@ -1,3 +1,5 @@
+#![allow(unused)]
+
 use common_domain::ids::*;
 use uuid::{Uuid, uuid};
 

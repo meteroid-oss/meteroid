@@ -6,9 +6,10 @@ use crate::domain::enums::SubscriptionEventType;
 use crate::domain::slot_transactions::{SlotTransaction, SlotTransactionNewInternal};
 use crate::domain::{
     CreateSubscription, CreateSubscriptionAddOns, CreateSubscriptionComponents,
-    CreatedSubscription, Customer, SubscriptionActivationCondition, SubscriptionAddOnNew,
-    SubscriptionAddOnNewInternal, SubscriptionComponentNew, SubscriptionComponentNewInternal,
-    SubscriptionFee, SubscriptionNew, SubscriptionNewEnriched, SubscriptionStatusEnum,
+    CreatedSubscription, Customer, SlotTransactionStatusEnum, SubscriptionActivationCondition,
+    SubscriptionAddOnNew, SubscriptionAddOnNewInternal, SubscriptionComponentNew,
+    SubscriptionComponentNewInternal, SubscriptionFee, SubscriptionNew, SubscriptionNewEnriched,
+    SubscriptionStatusEnum,
 };
 use crate::errors::{StoreError, StoreErrorReport};
 use crate::repositories::subscriptions::generate_checkout_url;
@@ -288,6 +289,8 @@ impl Services {
                     prev_active_slots: tx.prev_active_slots,
                     effective_at: tx.effective_at,
                     transaction_at: tx.transaction_at,
+                    status: SlotTransactionStatusEnum::Active,
+                    invoice_id: None,
                 }
                 .into()
             })
@@ -378,8 +381,8 @@ impl Services {
 }
 
 fn process_slot_transactions(
-    components: &Vec<SubscriptionComponentNewInternal>,
-    addons: &Vec<SubscriptionAddOnNewInternal>,
+    components: &[SubscriptionComponentNewInternal],
+    addons: &[SubscriptionAddOnNewInternal],
     start_date: NaiveDate,
 ) -> StoreResult<Vec<SlotTransactionNewInternal>> {
     let mut transactions = vec![];

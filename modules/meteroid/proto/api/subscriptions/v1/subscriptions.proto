@@ -69,6 +69,7 @@ message UpdateSlotsRequest {
   string subscription_id = 1;
   string price_component_id = 2;
   int32 delta = 3;
+  optional SlotUpgradeBillingMode billing_mode = 4;
 }
 
 message UpdateSlotsResponse {

@@ -250,6 +250,13 @@ impl WebhookOutEventTypeEnum {
     }
 }
 
+#[derive(o2o, Serialize, Deserialize, Debug, Clone, PartialEq, Eq, Hash)]
+#[map_owned(diesel_enums::SlotTransactionStatusEnum)]
+pub enum SlotTransactionStatusEnum {
+    Pending,
+    Active,
+}
+
 #[derive(o2o, Serialize, Deserialize, Debug, Clone, PartialEq, Eq, Hash, Default)]
 #[map_owned(diesel_enums::SubscriptionActivationConditionEnum)]
 pub enum SubscriptionActivationCondition {
