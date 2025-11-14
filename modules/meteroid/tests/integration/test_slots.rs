@@ -144,12 +144,13 @@ async fn test_on_invoice_paid_upgrade(services: &Services, store: &Store) {
     .await;
 
     let result = services
-        .update_subscription_slots(
+        .update_subscription_slots_for_test(
             TENANT_ID,
             subscription_id,
             slot_component_id,
             3, // Add 3 slots
             SlotUpgradeBillingMode::OnInvoicePaid,
+            NaiveDate::from_ymd_opt(2024, 1, 2).map(|t| t.and_time(NaiveTime::MIN)),
         )
         .await
         .expect("Failed to upgrade slots");
@@ -200,8 +201,8 @@ async fn test_on_invoice_paid_upgrade(services: &Services, store: &Store) {
         .await
         .expect("Failed to get slots after activation");
     assert_eq!(
-        count_after_activation, 17,
-        "Should have 17 active slots after pending activation"
+        count_after_activation, 8,
+        "Should have 8 active slots after pending activation"
     );
 }
 
