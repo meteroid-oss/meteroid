@@ -72,6 +72,7 @@ export interface CSVImportDialogProps<TConfig extends CSVImportConfig> {
   optionalColumns: ColumnDefinition[]
   additionalInfo?: ReactNode
   additionalOptions?: ReactNode
+  fileMaxSizeBytes?: number // Maximum file size in bytes (default: 10MB)
 
   // Labels
   entityName: string // e.g., "customers", "events"
@@ -97,12 +98,16 @@ export function CSVImportDialog<TConfig extends CSVImportConfig = CSVImportConfi
   optionalColumns,
   additionalInfo,
   additionalOptions,
+  fileMaxSizeBytes = 10 * 1024 * 1024, // Default to 10MB
   entityName,
   identifierLabel,
   dialogTitle,
   dialogDescription,
   dialogIcon,
 }: CSVImportDialogProps<TConfig>) {
+  const maxSizeMB = fileMaxSizeBytes / (1024 * 1024)
+  const tooLargeFile = uploadFile ? uploadFile.size > fileMaxSizeBytes : false
+
   return (
     <Dialog open={isOpen} onOpenChange={setIsOpen}>
       <DialogContent className="sm:max-w-2xl max-h-[90vh]">
@@ -119,7 +124,12 @@ export function CSVImportDialog<TConfig extends CSVImportConfig = CSVImportConfi
             <>
               {/* File Upload */}
               <div className="space-y-3">
-                <Label className="text-sm font-medium">CSV File</Label>
+                <div className="flex items-center justify-between">
+                  <Label className="text-sm font-medium">CSV File</Label>
+                  <span className="text-xs text-muted-foreground">
+                    Max size: <span className="font-semibold">{maxSizeMB} MB</span>
+                  </span>
+                </div>
                 <div
                   className="border-2 border-dashed border-muted-foreground/25 rounded-lg p-4 hover:border-muted-foreground/50 transition-colors">
                   <Input
@@ -130,8 +140,19 @@ export function CSVImportDialog<TConfig extends CSVImportConfig = CSVImportConfi
                     className="cursor-pointer"
                   />
                   {uploadFile && (
-                    <div className="mt-2 text-sm text-muted-foreground">
-                      Selected: {uploadFile.name} ({(uploadFile.size / 1024).toFixed(1)} KB)
+                    <div className="mt-2 space-y-2">
+                      <div className="text-sm text-muted-foreground">
+                        Selected: {uploadFile.name} ({(uploadFile.size / 1024).toFixed(1)} KB)
+                      </div>
+                      {tooLargeFile && (
+                        <div
+                          className="flex items-start gap-2 p-3 bg-yellow-50 dark:bg-yellow-950/20 border border-yellow-200 dark:border-yellow-800 rounded-md">
+                          <AlertCircleIcon className="h-4 w-4 text-yellow-600 dark:text-yellow-500 mt-0.5 shrink-0"/>
+                          <div className="text-sm text-yellow-800 dark:text-yellow-200">
+                            File size exceeds maximum allowed limit of {maxSizeMB} MB.
+                          </div>
+                        </div>
+                      )}
                     </div>
                   )}
                 </div>
@@ -151,7 +172,7 @@ export function CSVImportDialog<TConfig extends CSVImportConfig = CSVImportConfi
                               {col.tooltipMessage && (
                                 <Tooltip>
                                   <TooltipTrigger asChild>
-                                    <InfoIcon className="h-3 w-3 text-muted-foreground cursor-help inline-block" />
+                                    <InfoIcon className="h-3 w-3 text-muted-foreground cursor-help inline-block"/>
                                   </TooltipTrigger>
                                   <TooltipContent className="max-w-xs">
                                     {col.tooltipMessage}
@@ -174,7 +195,7 @@ export function CSVImportDialog<TConfig extends CSVImportConfig = CSVImportConfi
                                 {col.tooltipMessage && (
                                   <Tooltip>
                                     <TooltipTrigger asChild>
-                                      <InfoIcon className="h-3 w-3 text-muted-foreground cursor-help inline-block" />
+                                      <InfoIcon className="h-3 w-3 text-muted-foreground cursor-help inline-block"/>
                                     </TooltipTrigger>
                                     <TooltipContent className="max-w-xs">
                                       {col.tooltipMessage}
@@ -238,7 +259,7 @@ export function CSVImportDialog<TConfig extends CSVImportConfig = CSVImportConfi
               <div className="flex gap-2">
                 <Button
                   onClick={onUpload}
-                  disabled={!uploadFile || isUploading}
+                  disabled={!uploadFile || isUploading || tooLargeFile}
                   className="flex-1"
                   size="lg"
                 >

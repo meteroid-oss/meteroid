@@ -28,7 +28,7 @@ import { CustomerSelect } from '@/features/customers/CustomerSelect'
 import { DatePickerWithRange } from '@/features/dashboard/DateRangePicker'
 import { EventsImportModal } from '@/features/events/EventsImportModal'
 import { useQuery as useConnectQuery } from '@/lib/connectrpc'
-import { searchEvents } from '@/rpc/api/events/v1/events-EventsIngestionService_connectquery'
+import { searchEvents } from '@/rpc/api/events/v1/events-EventsService_connectquery'
 import { EventSummary, SearchEventsRequest, SearchEventsRequest_SortOrder } from '@/rpc/api/events/v1/events_pb'
 
 import type { FunctionComponent } from 'react'
@@ -188,7 +188,7 @@ export const EventsPage: FunctionComponent = () => {
           </div>
 
           {/* Date Range */}
-          <DatePickerWithRange range={dateRange} setRange={setDateRange} />
+          <DatePickerWithRange range={dateRange} setRange={setDateRange}/>
 
           {/* Filters */}
           <div className="flex items-center space-x-2">
@@ -247,7 +247,7 @@ export const EventsPage: FunctionComponent = () => {
 
           {/* CSV Import */}
           <Button variant="outline" size="sm" onClick={() => setIsUploadOpen(true)}>
-            <FileUpIcon className="h-4 w-4 mr-2" />
+            <FileUpIcon className="h-4 w-4 mr-2"/>
             Import CSV
           </Button>
           <EventsImportModal

@@ -5,7 +5,6 @@ use crate::api::customers::mapping::customer::{
     ServerCustomerWrapper,
 };
 use crate::api::utils::PaginationExt;
-use crate::services::customer_ingest::CsvIngestionOptions;
 use common_domain::ids::{AliasOr, BankAccountId, CustomerId, InvoicingEntityId};
 use common_grpc::middleware::server::auth::RequestExt;
 use error_stack::Report;
@@ -14,11 +13,11 @@ use meteroid_grpc::meteroid::api::customers::v1::{
     ArchiveCustomerRequest, ArchiveCustomerResponse, BuyCustomerCreditsRequest,
     BuyCustomerCreditsResponse, CreateCustomerRequest, CreateCustomerResponse, CustomerBrief,
     GetCustomerByAliasRequest, GetCustomerByAliasResponse, GetCustomerByIdRequest,
-    GetCustomerByIdResponse, IngestCsvRequest, IngestCsvResponse, IngestionFailure,
-    ListCustomerRequest, ListCustomerResponse, SyncToHubspotRequest, SyncToHubspotResponse,
-    SyncToPennylaneRequest, SyncToPennylaneResponse, TopUpCustomerBalanceRequest,
-    TopUpCustomerBalanceResponse, UnarchiveCustomerRequest, UnarchiveCustomerResponse,
-    UpdateCustomerRequest, UpdateCustomerResponse, customers_service_server::CustomersService,
+    GetCustomerByIdResponse, ListCustomerRequest, ListCustomerResponse, SyncToHubspotRequest,
+    SyncToHubspotResponse, SyncToPennylaneRequest, SyncToPennylaneResponse,
+    TopUpCustomerBalanceRequest, TopUpCustomerBalanceResponse, UnarchiveCustomerRequest,
+    UnarchiveCustomerResponse, UpdateCustomerRequest, UpdateCustomerResponse,
+    customers_service_server::CustomersService,
 };
 use meteroid_store::domain::{
     CustomerBuyCredits, CustomerNew, CustomerPatch, CustomerTopUpBalance, OrderByRequest,
@@ -399,48 +398,5 @@ impl CustomersService for CustomerServiceComponents {
             .map_err(Into::<CustomerApiError>::into)?;
 
         Ok(Response::new(SyncToPennylaneResponse {}))
-    }
-
-    #[tracing::instrument(skip_all)]
-    async fn ingest_csv(
-        &self,
-        request: Request<IngestCsvRequest>,
-    ) -> Result<Response<IngestCsvResponse>, Status> {
-        let tenant_id = request.tenant()?;
-        let actor = request.actor()?;
-
-        let req = request.into_inner();
-
-        let file_data = req
-            .file
-            .ok_or_else(|| Status::invalid_argument("No file provided"))?;
-
-        let options = CsvIngestionOptions {
-            delimiter: req.delimiter.chars().next().unwrap_or(','),
-            allow_backfilling: false,
-            fail_on_error: req.fail_on_error,
-        };
-
-        let result = self
-            .ingest_service
-            .ingest_csv(tenant_id, actor, &file_data.data, options)
-            .await
-            .map_err(Into::<CustomerApiError>::into)?;
-
-        let failures = result
-            .failures
-            .into_iter()
-            .map(|f| IngestionFailure {
-                row_number: f.row_number,
-                customer_alias: f.alias,
-                reason: f.reason,
-            })
-            .collect();
-
-        Ok(Response::new(IngestCsvResponse {
-            total_rows: result.total_rows,
-            successful_rows: result.successful_rows,
-            failures,
-        }))
     }
 }

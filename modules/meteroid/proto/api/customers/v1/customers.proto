@@ -132,5 +132,8 @@ service CustomersService {
   rpc UnarchiveCustomer(UnarchiveCustomerRequest) returns (UnarchiveCustomerResponse) {}
   rpc SyncToHubspot(SyncToHubspotRequest) returns (SyncToHubspotResponse) {}
   rpc SyncToPennylane(SyncToPennylaneRequest) returns (SyncToPennylaneResponse) {}
+}
+
+service CustomersIngestService {
   rpc IngestCsv(IngestCsvRequest) returns (IngestCsvResponse) {}
 }
