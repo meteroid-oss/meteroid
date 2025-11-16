@@ -13,20 +13,17 @@ pub struct CustomerServiceComponents {
     pub store: Store,
     pub service: Services,
     pub jwt_secret: SecretString,
-    pub ingest_service: CustomerIngestService,
 }
 
 pub fn service(
     store: Store,
     service: Services,
     jwt_secret: SecretString,
-    ingest_service: CustomerIngestService,
 ) -> CustomersServiceServer<CustomerServiceComponents> {
     let inner = CustomerServiceComponents {
         store,
         service,
         jwt_secret,
-        ingest_service,
     };
     CustomersServiceServer::new(inner)
 }
