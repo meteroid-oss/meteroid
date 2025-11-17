@@ -4,7 +4,7 @@ import { useState } from 'react'
 import { toast } from 'sonner'
 
 import { CSVImportDialog, CSVImportResult } from '@/components/CSVImportDialog'
-import { ingestCsv } from '@/rpc/api/customers/v1/customers-CustomersService_connectquery'
+import { ingestCsv } from '@/rpc/api/customers/v1/customers-CustomersIngestService_connectquery'
 import { FileData, IngestCsvRequest } from '@/rpc/api/customers/v1/customers_pb'
 
 import type { FunctionComponent } from 'react'
@@ -181,6 +181,9 @@ export const CustomersImportModal: FunctionComponent<CustomersImportModalProps> 
           <ul>
             <li>• Headers are required in the first row</li>
             <li>• If customer with the same alias exists, it will be updated</li>
+            <li>• Group fields (e.g. <i>billing_address.*</i>): hover on info icon to see available fields within the
+              group
+            </li>
           </ul>
         </>
       }

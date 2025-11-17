@@ -5,8 +5,8 @@ import { useState } from 'react'
 import { toast } from 'sonner'
 
 import { CSVImportConfig, CSVImportDialog, CSVImportResult } from '@/components/CSVImportDialog'
-import { ingestEventsFromCsv } from '@/rpc/api/events/v1/events-EventsIngestionService_connectquery'
-import { FileData, IngestEventsFromCsvRequest } from '@/rpc/api/events/v1/events_pb'
+import { ingestCsv } from '@/rpc/api/events/v1/events-EventsIngestService_connectquery'
+import { FileData, IngestCsvRequest } from '@/rpc/api/events/v1/events_pb'
 
 import type { FunctionComponent } from 'react'
 
@@ -33,7 +33,7 @@ export const EventsImportModal: FunctionComponent<EventsImportModalProps> = ({
   const [importResult, setImportResult] = useState<CSVImportResult<string> | null>(null)
 
   // CSV upload mutation
-  const uploadMutation = useMutation(ingestEventsFromCsv, {
+  const uploadMutation = useMutation(ingestCsv, {
     onSuccess: async response => {
       const { totalRows, successfulEvents, failures } = response
 
@@ -77,7 +77,7 @@ export const EventsImportModal: FunctionComponent<EventsImportModalProps> = ({
 
     setImportResult(null) // Clear previous results
     const buffer = await uploadFile.arrayBuffer()
-    const request = new IngestEventsFromCsvRequest({
+    const request = new IngestCsvRequest({
       file: new FileData({ data: new Uint8Array(buffer) }),
       delimiter: csvOptions.delimiter,
       allowBackfilling: csvOptions.allowBackfilling,

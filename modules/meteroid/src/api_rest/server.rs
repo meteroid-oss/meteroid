@@ -14,6 +14,7 @@ use std::any::Any;
 use std::sync::Arc;
 use tokio::net::TcpListener;
 use tower_http::catch_panic::CatchPanicLayer;
+use tower_http::limit::RequestBodyLimitLayer;
 use utoipa::openapi::security::{HttpAuthScheme, HttpBuilder};
 use utoipa::{Modify, OpenApi, openapi::security::SecurityScheme};
 use utoipa_axum::router::OpenApiRouter;
@@ -78,7 +79,8 @@ pub async fn start_rest_server(
         .fallback(handler_404)
         .with_state(app_state)
         .layer(auth_layer)
-        .layer(DefaultBodyLimit::max(4096))
+        .layer(DefaultBodyLimit::disable())
+        .layer(RequestBodyLimitLayer::new(1024 * 1024)) // 1 MB
         .layer(CatchPanicLayer::custom(handle_500));
 
     tracing::info!("Starting REST API on {}", config.rest_api_addr);

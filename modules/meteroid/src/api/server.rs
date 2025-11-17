@@ -37,6 +37,7 @@ pub async fn start_api_server(
         .build_v1()
         .unwrap();
 
+    // Default max message size is 4 MB, override on per service layer (ie CustomerIngestService) as needed
     Server::builder()
         .accept_http1(true)
         .layer(cors())
@@ -74,9 +75,12 @@ pub async fn start_api_server(
             store.clone(),
             services.clone(),
             config.jwt_secret.clone(),
-            CustomerIngestService::new(Arc::new(store.clone())),
         ))
+        .add_service(api::customers::ingest_service(CustomerIngestService::new(
+            Arc::new(store.clone()),
+        )))
         .add_service(api::events::service(store.clone(), services.clone()))
+        .add_service(api::events::ingest_service(services.clone()))
         .add_service(api::tenants::service(store.clone(), services.clone()))
         .add_service(api::apitokens::service(store.clone()))
         .add_service(api::pricecomponents::service(store.clone()))

@@ -4,57 +4,15 @@ use common_grpc::middleware::server::auth::RequestExt;
 use metering_grpc::meteroid::metering::v1::{
     event::CustomerId, query_raw_events_request::SortOrder as MeteringSortOrder,
 };
+use meteroid_grpc::meteroid::api::events::v1::events_service_server::EventsService;
 use meteroid_grpc::meteroid::api::events::v1::{
-    EventIngestionFailure, EventSummary, IngestEventsFromCsvRequest, IngestEventsFromCsvResponse,
-    SearchEventsRequest, SearchEventsResponse,
-    events_ingestion_service_server::EventsIngestionService, search_events_request::SortOrder,
+    EventSummary, SearchEventsRequest, SearchEventsResponse, search_events_request::SortOrder,
 };
-use meteroid_store::clients::usage::{CsvIngestionOptions, EventSearchOptions};
+use meteroid_store::clients::usage::EventSearchOptions;
 use tonic::{Request, Response, Status};
 
 #[tonic::async_trait]
-impl EventsIngestionService for EventsServiceComponents {
-    #[tracing::instrument(skip_all)]
-    async fn ingest_events_from_csv(
-        &self,
-        request: Request<IngestEventsFromCsvRequest>,
-    ) -> Result<Response<IngestEventsFromCsvResponse>, Status> {
-        let tenant_id = request.tenant()?;
-        let req = request.into_inner();
-
-        let file_data = req
-            .file
-            .ok_or_else(|| Status::invalid_argument("No file provided"))?;
-
-        let options = CsvIngestionOptions {
-            delimiter: req.delimiter.chars().next().unwrap_or(','),
-            allow_backfilling: req.allow_backfilling,
-            fail_on_error: req.fail_on_error,
-        };
-
-        let result = self
-            .usage_client
-            .ingest_events_from_csv(&tenant_id, &file_data.data, options)
-            .await
-            .map_err(EventsApiError::from)?;
-
-        let failures = result
-            .failures
-            .into_iter()
-            .map(|f| EventIngestionFailure {
-                row_number: f.row_number,
-                event_id: f.event_id,
-                reason: f.reason,
-            })
-            .collect();
-
-        Ok(Response::new(IngestEventsFromCsvResponse {
-            total_rows: result.total_rows,
-            successful_events: result.successful_events,
-            failures,
-        }))
-    }
-
+impl EventsService for EventsServiceComponents {
     #[tracing::instrument(skip_all)]
     async fn search_events(
         &self,

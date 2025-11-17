@@ -7,8 +7,10 @@ types:
     - meteroid.api.billablemetrics.v1.BillableMetricsService
     - meteroid.api.connectors.v1.ConnectorsService
     - meteroid.api.customers.v1.CustomersService
+    - meteroid.api.customers.v1.CustomersIngestService
     - meteroid.api.coupons.v1.CouponsService
-    - meteroid.api.events.v1.EventsIngestionService
+    - meteroid.api.events.v1.EventsService
+    - meteroid.api.events.v1.EventsIngestService
     - meteroid.api.instance.v1.InstanceService
     - meteroid.api.invoices.v1.InvoicesService
     - meteroid.api.plans.v1.PlansService
