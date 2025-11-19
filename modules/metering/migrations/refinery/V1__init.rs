@@ -1,4 +1,4 @@
-use crate::migrations::{get_kafka_config, get_clickhouse_config};
+use crate::migrations::{get_clickhouse_config, get_kafka_config};
 use kafka::config::KafkaConnectionConfig;
 
 fn build_kafka_settings(
@@ -82,15 +82,6 @@ pub fn migration() -> String {
 
     format!(
         r#"
-        -- Reset
-        DROP TABLE IF EXISTS meteroid.raw_kafka_events_mv{cluster_clause};
-        DROP TABLE IF EXISTS meteroid.preprocessed_kafka_events_mv{cluster_clause};
-        DROP TABLE IF EXISTS meteroid.raw_kafka_events{cluster_clause};
-        DROP TABLE IF EXISTS meteroid.preprocessed_kafka_events{cluster_clause};
-        DROP TABLE IF EXISTS meteroid.raw_events{cluster_clause};
-        DROP TABLE IF EXISTS meteroid.preprocessed_events{cluster_clause};
-
-        -- Recreate main tables with appropriate engines
         CREATE TABLE IF NOT EXISTS meteroid.raw_events{cluster_clause} (
             id String,
             code String,
