@@ -1,5 +1,6 @@
-import { Card, Flex, Separator, Skeleton } from '@md/ui'
-import { ChevronDown, Plus } from 'lucide-react'
+import { useMutation } from '@connectrpc/connect-query'
+import { Card, Flex, Separator, Skeleton, Button } from '@md/ui'
+import { ChevronDown, Plus, ExternalLink } from 'lucide-react'
 import { Fragment, useState } from 'react'
 import { useNavigate } from 'react-router-dom'
 
@@ -14,7 +15,7 @@ import { getCountryFlagEmoji, getCountryName } from '@/features/settings/utils'
 import { useBasePath } from '@/hooks/useBasePath'
 import { useQuery } from '@/lib/connectrpc'
 import { getLatestConnMeta } from '@/pages/tenants/utils'
-import { getCustomerById } from '@/rpc/api/customers/v1/customers-CustomersService_connectquery'
+import { getCustomerById, generateCustomerPortalToken } from '@/rpc/api/customers/v1/customers-CustomersService_connectquery'
 import { getInvoicingEntity } from '@/rpc/api/invoicingentities/v1/invoicingentities-InvoicingEntitiesService_connectquery'
 import { useTypedParams } from '@/utils/params'
 
@@ -36,6 +37,18 @@ export const Customer = () => {
   )
 
   const data = customerQuery.data?.customer
+
+  const portalTokenMutation = useMutation(generateCustomerPortalToken, {
+    onSuccess: (data) => {
+      const portalUrl = `${window.location.origin}/portal/customer?token=${data.token}`
+      window.open(portalUrl, '_blank')
+    },
+    onError: (error) => {
+      console.error('Failed to generate customer portal token:', error)
+    },
+  })
+
+  const handleOpenCustomerPortal = () => portalTokenMutation.mutate({ customerId: customerId ?? '' })
 
   const invoicingEntityQuery = useQuery(
     getInvoicingEntity,
@@ -178,6 +191,20 @@ export const Customer = () => {
                     title="Tax ID"
                     value={data.vatNumber || (data.isTaxExempt ? 'Tax Exempt' : 'None')}
                   />
+                </Flex>
+                <Separator className="-my-3"/>
+                <Flex direction="column" className="gap-2 p-6">
+                  <div className="text-[15px] font-medium">Portal</div>
+                  <Button
+                    variant="secondary"
+                    size="sm"
+                    onClick={handleOpenCustomerPortal}
+                    disabled={portalTokenMutation.isPending}
+                    className="w-full"
+                  >
+                    <ExternalLink size={14} className="mr-2" />
+                    Open Customer Portal
+                  </Button>
                 </Flex>
                 <Separator className="-my-3" />
                 <Flex direction="column" className="gap-2 p-6">

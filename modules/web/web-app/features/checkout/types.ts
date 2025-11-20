@@ -11,7 +11,7 @@ export type SavedPaymentMethodSelection = {
 
 export type NewPaymentMethodSelection = {
   type: 'new'
-  methodType: 'card' | 'bank'
+  methodType: 'card' | 'directDebit'
 }
 
 export type PaymentMethodSelection = SavedPaymentMethodSelection | NewPaymentMethodSelection

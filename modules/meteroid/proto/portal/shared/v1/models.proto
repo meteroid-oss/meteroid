@@ -1,0 +1,32 @@
+syntax = "proto3";
+
+package meteroid.portal.shared.v1;
+
+import "api/subscriptions/v1/models.proto";
+import "api/customers/v1/models.proto";
+import "api/invoices/v1/models.proto";
+import "api/connectors/v1/models.proto";
+import "api/bankaccounts/v1/models.proto";
+
+
+message SetupIntent {
+  string intent_id = 1;
+  string intent_secret = 2;
+  string provider_public_key = 4;
+  api.connectors.v1.ConnectorProviderEnum provider = 5;
+  string connection_id = 6;
+}
+
+message UpdateCustomer {
+  optional string name = 1;
+  optional string billing_email = 2;
+  optional string phone = 5;
+  optional api.customers.v1.Address billing_address = 8;
+  optional api.customers.v1.ShippingAddress shipping_address = 9;
+  optional string vat_number = 15;
+}
+
+enum ConnectionTypeEnum {
+  CARD = 0;
+  DIRECT_DEBIT = 1;
+}

@@ -138,6 +138,7 @@ reqwest-middleware = { version = "0.4.2", default-features = false }
 rstest = "0.26.1"
 rust_decimal = "1.32.0"
 rust_decimal_macros = "1.32.0"
+rust_iso3166 =  "0.1.14"
 rustls = { version = "0.23.12", default-features = false }
 rusty-money = "0.4.1"
 sailfish = "0.10.0"

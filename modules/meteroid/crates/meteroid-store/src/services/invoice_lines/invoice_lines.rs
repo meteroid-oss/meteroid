@@ -529,6 +529,13 @@ impl Services {
                         && !subscription_details.subscription.pending_checkout,
                 );
 
+                log::info!(
+                    "calculate_component_period_for_invoice_date for invoice_date {} , billing_period: {:?}, cycle index: {}",
+                    invoice_date,
+                    billing_period,
+                    cycle_index
+                );
+
                 // if period is None - the components are not relevant for this invoice
                 period.map(|period| (period, components))
             })

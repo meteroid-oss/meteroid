@@ -99,6 +99,9 @@ impl UsageClient for MeteringUsageClient {
         metric: &BillableMetric,
         period: Period,
     ) -> StoreResult<UsageData> {
+
+        log::info!("Fetching usage for params {:?}, {:?}", metric, period);
+
         if period.start >= period.end {
             bail!(StoreError::InvalidArgument("invalid period".to_string()));
         }

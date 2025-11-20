@@ -47,6 +47,7 @@ jsonwebtoken = { workspace = true, features = ["aws_lc_rs"] }
 futures = { workspace = true }
 once_cell = { workspace = true }
 rustls = { workspace = true, features = ["ring"] }
+rust_iso3166 =  { workspace = true }
 tokio-postgres-rustls = { workspace = true }
 tokio = { workspace = true, default-features = false, features = ["macros", "rt-multi-thread"] }
 tokio-postgres = { workspace = true }

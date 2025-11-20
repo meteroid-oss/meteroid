@@ -10,7 +10,7 @@ use common_utils::decimals::ToSubunit;
 use meteroid_grpc::meteroid::api::invoices::v1::{
     CreateInvoiceRequest, CreateInvoiceResponse, DeleteInvoiceRequest, DeleteInvoiceResponse,
     FinalizeInvoiceRequest, FinalizeInvoiceResponse, GetInvoiceRequest, GetInvoiceResponse,
-    Invoice, ListInvoicesRequest, ListInvoicesResponse, MarkInvoiceAsUncollectibleRequest,
+   GenerateInvoicePaymentTokenRequest, GenerateInvoicePaymentTokenResponse, Invoice, ListInvoicesRequest, ListInvoicesResponse, MarkInvoiceAsUncollectibleRequest,
     MarkInvoiceAsUncollectibleResponse, NewInvoice, PreviewInvoiceRequest, PreviewInvoiceResponse,
     PreviewInvoiceUpdateRequest, PreviewInvoiceUpdateResponse, PreviewNewInvoiceRequest,
     PreviewNewInvoiceResponse, RefreshInvoiceDataRequest, RefreshInvoiceDataResponse,
@@ -465,6 +465,29 @@ impl InvoicesService for InvoiceServiceComponents {
             invoice: Some(invoice),
         }))
     }
+
+
+    #[tracing::instrument(skip_all)]
+    async fn generate_invoice_payment_token(
+        &self,
+        request: Request<GenerateInvoicePaymentTokenRequest>,
+    ) -> Result<Response<GenerateInvoicePaymentTokenResponse>, Status> {
+        let tenant_id = request.tenant()?;
+
+        let req = request.into_inner();
+        let invoice_id = InvoiceId::from_proto(req.invoice_id)?;
+
+        // Generate the JWT token for invoice portal access
+        let token = meteroid_store::jwt_claims::generate_portal_token(
+            &self.jwt_secret,
+            tenant_id,
+            meteroid_store::jwt_claims::ResourceAccess::Invoice(invoice_id),
+        )
+            .map_err(Into::<InvoiceApiError>::into)?;
+
+        Ok(Response::new(GenerateInvoicePaymentTokenResponse { token }))
+    }
+
 }
 
 fn parse_as_minor(s: &String, currency: &rusty_money::iso::Currency) -> Result<i64, Status> {
@@ -810,3 +833,4 @@ fn to_update_invoice_params(req: UpdateInvoiceRequest) -> Result<UpdateInvoicePa
         invoicing_entity_id,
     })
 }
+

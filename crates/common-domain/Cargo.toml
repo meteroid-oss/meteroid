@@ -21,7 +21,7 @@ utoipa = { workspace = true, optional = true }
 validator = { workspace = true, features = ["derive"] }
 sealed = { workspace = true }
 tonic = { workspace = true, optional = true }
-rust_iso3166 = "0.1.14"
+rust_iso3166 =  { workspace = true }
 [dev-dependencies]
 serde_json = { workspace = true }
 

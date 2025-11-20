@@ -12,6 +12,7 @@ use meteroid_grpc::meteroid::api::customers::v1::list_customer_request::SortBy;
 use meteroid_grpc::meteroid::api::customers::v1::{
     ArchiveCustomerRequest, ArchiveCustomerResponse, BuyCustomerCreditsRequest,
     BuyCustomerCreditsResponse, CreateCustomerRequest, CreateCustomerResponse, CustomerBrief,
+    GenerateCustomerPortalTokenRequest, GenerateCustomerPortalTokenResponse,
     GetCustomerByAliasRequest, GetCustomerByAliasResponse, GetCustomerByIdRequest,
     GetCustomerByIdResponse, ListCustomerRequest, ListCustomerResponse, SyncToHubspotRequest,
     SyncToHubspotResponse, SyncToPennylaneRequest, SyncToPennylaneResponse,
@@ -398,5 +399,27 @@ impl CustomersService for CustomerServiceComponents {
             .map_err(Into::<CustomerApiError>::into)?;
 
         Ok(Response::new(SyncToPennylaneResponse {}))
+    }
+
+
+    #[tracing::instrument(skip_all)]
+    async fn generate_customer_portal_token(
+        &self,
+        request: Request<GenerateCustomerPortalTokenRequest>,
+    ) -> Result<Response<GenerateCustomerPortalTokenResponse>, Status> {
+        let tenant_id = request.tenant()?;
+
+        let req = request.into_inner();
+        let customer_id = CustomerId::from_proto(req.customer_id)?;
+
+        // Generate the JWT token for customer portal access
+        let token = meteroid_store::jwt_claims::generate_portal_token(
+            &self.jwt_secret,
+            tenant_id,
+            meteroid_store::jwt_claims::ResourceAccess::Customer(customer_id),
+        )
+            .map_err(Into::<CustomerApiError>::into)?;
+
+        Ok(Response::new(GenerateCustomerPortalTokenResponse { token }))
     }
 }

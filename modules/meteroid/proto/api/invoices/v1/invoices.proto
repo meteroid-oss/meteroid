@@ -122,6 +122,14 @@ message PreviewInvoiceUpdateResponse {
   DetailedInvoice preview = 1;
 }
 
+message GenerateInvoicePaymentTokenRequest {
+  string invoice_id = 1;
+}
+
+message GenerateInvoicePaymentTokenResponse {
+  string token = 1;
+}
+
 service InvoicesService {
   rpc ListInvoices(ListInvoicesRequest) returns (ListInvoicesResponse) {}
   rpc GetInvoice(GetInvoiceRequest) returns (GetInvoiceResponse) {}
@@ -129,6 +137,7 @@ service InvoicesService {
   rpc RequestPdfGeneration(RequestPdfGenerationRequest) returns (RequestPdfGenerationResponse) {}
   rpc RefreshInvoiceData(RefreshInvoiceDataRequest) returns (RefreshInvoiceDataResponse) {}
   rpc SyncToPennylane(SyncToPennylaneRequest) returns (SyncToPennylaneResponse) {}
+  rpc GenerateInvoicePaymentToken(GenerateInvoicePaymentTokenRequest) returns (GenerateInvoicePaymentTokenResponse) {}
   rpc CreateInvoice(CreateInvoiceRequest) returns (CreateInvoiceResponse) {}
   rpc PreviewNewInvoiceSvg(PreviewNewInvoiceRequest) returns (PreviewNewInvoiceResponse) {}
   rpc FinalizeInvoice(FinalizeInvoiceRequest) returns (FinalizeInvoiceResponse) {}

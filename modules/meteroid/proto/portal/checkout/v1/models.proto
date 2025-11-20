@@ -6,6 +6,7 @@ import "api/subscriptions/v1/models.proto";
 import "api/customers/v1/models.proto";
 import "api/invoices/v1/models.proto";
 import "api/connectors/v1/models.proto";
+import "api/bankaccounts/v1/models.proto";
 
 
 
@@ -13,7 +14,6 @@ message Checkout {
   api.subscriptions.v1.SubscriptionDetails subscription = 1;
   api.customers.v1.Customer customer = 2;
   repeated api.customers.v1.CustomerPaymentMethod payment_methods = 3;
-
   repeated api.invoices.v1.LineItem invoice_lines = 6;
   uint64 subtotal_amount = 7;
   uint64 tax_amount = 12;
@@ -38,13 +38,6 @@ message AppliedCoupon {
   uint64 amount = 3;
 }
 
-message SetupIntent {
-  string intent_id = 1;
-  string intent_secret = 2;
-  string provider_public_key = 4;
-  api.connectors.v1.ConnectorProviderEnum provider = 5;
-  string connection_id = 6;
-}
 
 message SlotUpgradeCheckout {
   api.subscriptions.v1.SubscriptionDetails subscription = 1;

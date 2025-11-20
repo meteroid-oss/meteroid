@@ -102,7 +102,11 @@ pub async fn start_api_server(
         ))
         .add_service(api::stats::service(store.clone()))
         .add_service(api::users::service(store.clone()))
-        .add_service(api::subscriptions::service(store.clone(), services.clone()))
+        .add_service(api::subscriptions::service(
+            store.clone(),
+            services.clone(),
+            config.jwt_secret.clone(),
+        ))
         .add_service(api::taxes::service(store.clone()))
         .add_service(api::webhooksout::service(store.clone(), services.clone()))
         .add_service(api::internal::service(store.clone()))
@@ -110,6 +114,25 @@ pub async fn start_api_server(
             store.clone(),
             services.clone(),
             object_store.clone(),
+            config.jwt_secret.clone(),
+        ))
+        .add_service(api::portal::customer::service(
+            store.clone(),
+            services.clone(),
+            object_store.clone(),
+            config.jwt_secret.clone(),
+        ))
+        .add_service(api::portal::invoice::service( // TODO check what's actually used
+            store.clone(),
+            services.clone(),
+            object_store.clone(),
+            config.jwt_secret.clone(),
+        ))
+        .add_service(api::portal::shared::service(
+            store.clone(),
+            services.clone(),
+            object_store.clone(),
+            config.jwt_secret.clone(),
         ))
         .add_service(api::portal::quotes::service(
             store.clone(),

@@ -8,7 +8,7 @@ use meteroid_grpc::meteroid::api::subscriptions::v1::subscriptions_service_serve
 use meteroid_grpc::meteroid::api::subscriptions::v1::{
     CancelSlotTransactionRequest, CancelSlotTransactionResponse, CancelSubscriptionRequest,
     CancelSubscriptionResponse, CreateSubscriptionRequest, CreateSubscriptionResponse,
-    CreateSubscriptionsRequest, CreateSubscriptionsResponse, GetSlotsValueRequest,
+    CreateSubscriptionsRequest, CreateSubscriptionsResponse,GenerateCheckoutTokenRequest, GenerateCheckoutTokenResponse, GetSlotsValueRequest,
     GetSlotsValueResponse, ListSlotTransactionsRequest, ListSlotTransactionsResponse,
     ListSubscriptionsRequest, ListSubscriptionsResponse, PreviewSlotUpdateRequest,
     PreviewSlotUpdateResponse, SubscriptionDetails, SyncToHubspotRequest, SyncToHubspotResponse,
@@ -295,6 +295,27 @@ impl SubscriptionsService for SubscriptionServiceComponents {
             .map_err(Into::<SubscriptionApiError>::into)?;
 
         Ok(Response::new(SyncToHubspotResponse {}))
+    }
+
+    #[tracing::instrument(skip_all)]
+    async fn generate_checkout_token(
+        &self,
+        request: Request<GenerateCheckoutTokenRequest>,
+    ) -> Result<Response<GenerateCheckoutTokenResponse>, Status> {
+        let tenant_id = request.tenant()?;
+
+        let req = request.into_inner();
+        let subscription_id = SubscriptionId::from_proto(req.subscription_id)?;
+
+        // Generate the JWT token for checkout portal access
+        let token = meteroid_store::jwt_claims::generate_portal_token(
+            &self.jwt_secret,
+            tenant_id,
+            meteroid_store::jwt_claims::ResourceAccess::SubscriptionCheckout(subscription_id),
+        )
+        .map_err(Into::<SubscriptionApiError>::into)?;
+
+        Ok(Response::new(GenerateCheckoutTokenResponse { token }))
     }
 
     #[tracing::instrument(skip_all)]

@@ -66,25 +66,26 @@ pub async fn authorize_portal(
     gm: GrpcServiceMethod,
 ) -> Result<AuthorizedState, Status> {
     match resource_access {
-        common_grpc::middleware::server::auth::ResourceAccess::SubscriptionCheckout(_) => {
-            if !gm.service.starts_with("meteroid.portal.checkout.") {
-                return Err(Status::permission_denied("Unauthorized"));
-            }
-        }
-        common_grpc::middleware::server::auth::ResourceAccess::CustomerPortal(_) => {
-            if !gm.service.starts_with("meteroid.portal.customer.") {
-                return Err(Status::permission_denied("Unauthorized"));
-            }
-        }
-        common_grpc::middleware::server::auth::ResourceAccess::InvoicePortal(_) => {
-            if !gm.service.starts_with("meteroid.portal.invoice.") {
-                return Err(Status::permission_denied("Unauthorized"));
-            }
-        }
         common_grpc::middleware::server::auth::ResourceAccess::QuotePortal { .. } => {
             if !gm.service.starts_with("meteroid.portal.quotes.") {
                 return Err(Status::permission_denied("Unauthorized"));
             }
+        }
+        common_grpc::middleware::server::auth::ResourceAccess::InvoicePortal { .. } => {
+            if !gm.service.starts_with("meteroid.portal.invoice.") && !gm.service.starts_with("meteroid.portal.shared.") {
+                return Err(Status::permission_denied("Unauthorized"));
+            }
+        }
+        common_grpc::middleware::server::auth::ResourceAccess::SubscriptionCheckout { .. } => {
+            if !gm.service.starts_with("meteroid.portal.checkout.") && !gm.service.starts_with("meteroid.portal.shared.") {
+                return Err(Status::permission_denied("Unauthorized"));
+            }
+        }
+        _ =>   if !gm.service.starts_with("meteroid.portal.invoice.")
+            && !gm.service.starts_with("meteroid.portal.checkout.")
+            && !gm.service.starts_with("meteroid.portal.shared.")
+            && !gm.service.starts_with("meteroid.portal.customer.") {
+            return Err(Status::permission_denied("Unauthorized"));
         }
     }
 

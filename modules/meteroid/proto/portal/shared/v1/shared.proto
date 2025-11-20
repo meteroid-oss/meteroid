@@ -1,0 +1,36 @@
+syntax = "proto3";
+
+package meteroid.portal.shared.v1;
+
+import "portal/shared/v1/models.proto";
+import "api/customers/v1/models.proto";
+
+
+message UpdateCustomerRequest {
+  UpdateCustomer customer = 1;
+}
+message UpdateCustomerResponse {
+  api.customers.v1.Customer customer = 1;
+}
+
+message SetupIntentRequest {
+  optional string connection_id = 1;
+  ConnectionTypeEnum connection_type = 2;
+}
+message SetupIntentResponse {
+  SetupIntent setup_intent = 1;
+}
+
+message AddPaymentMethodRequest {
+  string connection_id = 1;
+  string external_payment_method_id = 2;
+}
+message AddPaymentMethodResponse {
+  api.customers.v1.CustomerPaymentMethod payment_method = 1;
+}
+
+service PortalSharedService {
+  rpc UpdateCustomer(UpdateCustomerRequest) returns (UpdateCustomerResponse);
+  rpc SetupIntent(SetupIntentRequest) returns (SetupIntentResponse);
+  rpc AddPaymentMethod(AddPaymentMethodRequest) returns (AddPaymentMethodResponse);
+}

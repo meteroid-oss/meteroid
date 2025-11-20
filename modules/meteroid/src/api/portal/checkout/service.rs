@@ -1,35 +1,25 @@
-use crate::api::connectors::mapping::connectors::connector_provider_to_server;
-use crate::api::customers::error::CustomerApiError;
-use crate::api::customers::mapping::customer::{
-    DomainAddressWrapper, DomainShippingAddressWrapper, ServerCustomerWrapper,
-};
+use crate::api::customers::mapping::customer::ServerCustomerWrapper;
 use crate::api::portal::checkout::PortalCheckoutServiceComponents;
 use crate::api::portal::checkout::error::PortalCheckoutApiError;
 use crate::services::storage::Prefix;
-use common_domain::ids::{
-    BankAccountId, BaseId, CustomerConnectionId, CustomerId, CustomerPaymentMethodId,
-    InvoicingEntityId,
-};
-use common_grpc::middleware::server::auth::RequestExt;
+use common_domain::ids::{BaseId, CustomerPaymentMethodId, SubscriptionId};
+use common_grpc::middleware::server::auth::{RequestExt, ResourceAccess};
 use common_utils::decimals::ToSubunit;
 use common_utils::integers::ToNonNegativeU64;
 use error_stack::ResultExt;
 use meteroid_grpc::meteroid::portal::checkout::v1::portal_checkout_service_server::PortalCheckoutService;
 use meteroid_grpc::meteroid::portal::checkout::v1::{
-    AddPaymentMethodRequest, AddPaymentMethodResponse, AppliedCoupon, Checkout,
+     AppliedCoupon, Checkout,
     ConfirmCheckoutRequest, ConfirmCheckoutResponse, ConfirmSlotUpgradeCheckoutRequest,
     ConfirmSlotUpgradeCheckoutResponse, GetSlotUpgradeCheckoutRequest,
     GetSlotUpgradeCheckoutResponse, GetSubscriptionCheckoutRequest,
-    GetSubscriptionCheckoutResponse, SetupIntent, SetupIntentRequest, SetupIntentResponse,
-    SlotUpgradeCheckout, TaxBreakdownItem, UpdateCustomerRequest, UpdateCustomerResponse,
+    GetSubscriptionCheckoutResponse,
+    SlotUpgradeCheckout, TaxBreakdownItem,
 };
 use meteroid_store::constants::Currencies;
 use meteroid_store::domain::Period;
-use meteroid_store::domain::{
-    CustomerPatch, CustomerPaymentMethodNew, PaymentMethodTypeEnum, SubscriptionFeeInterface,
-};
+use meteroid_store::domain::SubscriptionFeeInterface;
 use meteroid_store::errors::StoreError;
-use meteroid_store::repositories::customer_connection::CustomerConnectionInterface;
 use meteroid_store::repositories::customer_payment_methods::CustomerPaymentMethodsInterface;
 use meteroid_store::repositories::customers::CustomersInterface;
 use meteroid_store::repositories::invoicing_entities::InvoicingEntityInterface;
@@ -37,9 +27,9 @@ use meteroid_store::repositories::subscriptions::SubscriptionInterfaceAuto;
 use meteroid_store::repositories::{OrganizationsInterface, SubscriptionInterface};
 use meteroid_store::utils::periods::calculate_proration_factor;
 use rust_decimal::prelude::FromPrimitive;
-use secrecy::ExposeSecret;
 use std::time::Duration;
 use tonic::{Request, Response, Status};
+
 
 #[tonic::async_trait]
 impl PortalCheckoutService for PortalCheckoutServiceComponents {
@@ -49,13 +39,34 @@ impl PortalCheckoutService for PortalCheckoutServiceComponents {
         request: Request<GetSubscriptionCheckoutRequest>,
     ) -> Result<Response<GetSubscriptionCheckoutResponse>, Status> {
         let tenant = request.tenant()?;
-        let subscription = request.portal_resource()?.subscription()?;
+
+
+        let portal_resource = request.portal_resource()?;
+
+
+        let (subscription_id, customer_id) = match portal_resource.resource_access {
+            ResourceAccess::SubscriptionCheckout(id) => Ok((id, None)),
+            ResourceAccess::CustomerPortal(id) => {
+                let invoice_id = SubscriptionId::from_proto_opt( request.into_inner().subscription_id)?
+                    .ok_or(Status::invalid_argument("Missing subscriptio ID in request"))?;
+                Ok((invoice_id, Some(id)))
+            },
+            _ => Err(Status::invalid_argument(
+                "Resource is not an invoice or customer portal.",
+            )),
+        }?;
+
 
         let subscription = self
             .store
-            .get_subscription_details(tenant, subscription)
+            .get_subscription_details(tenant, subscription_id)
             .await
             .map_err(Into::<PortalCheckoutApiError>::into)?;
+
+        if let Some(cid) = customer_id
+            && subscription.subscription.customer_id != cid {
+                return Err(Status::permission_denied("Subscription does not belong to the specified customer."));
+            }
 
         let invoice_content = self
             .services
@@ -169,132 +180,41 @@ impl PortalCheckoutService for PortalCheckoutServiceComponents {
     }
 
     #[tracing::instrument(skip_all)]
-    async fn update_customer(
-        &self,
-        request: Request<UpdateCustomerRequest>,
-    ) -> Result<Response<UpdateCustomerResponse>, Status> {
-        let tenant_id = request.tenant()?;
-        // TODO check subscription
-
-        let customer =
-            request
-                .into_inner()
-                .customer
-                .ok_or(PortalCheckoutApiError::MissingArgument(
-                    "customer payload missing".to_string(),
-                ))?;
-
-        let billing_address = customer
-            .billing_address
-            .map(DomainAddressWrapper::try_from)
-            .transpose()?
-            .map(|v| v.0);
-        let shipping_address = customer
-            .shipping_address
-            .map(DomainShippingAddressWrapper::try_from)
-            .transpose()?
-            .map(|v| v.0);
-
-        let customer_id = CustomerId::from_proto(&customer.id)?;
-        let customer = self
-            .store
-            .patch_customer(
-                customer_id.as_uuid(), // TODO Customer as actor, we need to change the actor system
-                tenant_id,
-                CustomerPatch {
-                    id: customer_id,
-                    name: customer.name.clone(),
-                    alias: customer.alias.clone(),
-                    billing_email: customer.billing_email.clone(),
-                    invoicing_emails: customer.invoicing_emails.map(|v| v.emails),
-                    phone: customer.phone.clone(),
-                    balance_value_cents: customer.balance_value_cents,
-                    invoicing_entity_id: InvoicingEntityId::from_proto_opt(
-                        customer.invoicing_entity_id,
-                    )?,
-                    currency: customer.currency.clone(),
-                    billing_address,
-                    shipping_address,
-                    vat_number: customer
-                        .vat_number
-                        .map(|v| if v.is_empty() { None } else { Some(v) }),
-                    custom_taxes: None,
-                    bank_account_id: Some(BankAccountId::from_proto_opt(customer.bank_account_id)?),
-                    is_tax_exempt: customer.is_tax_exempt,
-                },
-            )
-            .await
-            .map_err(Into::<CustomerApiError>::into)?;
-
-        Ok(Response::new(UpdateCustomerResponse {
-            customer: customer
-                .map(ServerCustomerWrapper::try_from)
-                .transpose()
-                .map_err(Into::<PortalCheckoutApiError>::into)?
-                .map(|v| v.0),
-        }))
-    }
-
-    #[tracing::instrument(skip_all)]
-    async fn setup_intent(
-        &self,
-        request: Request<SetupIntentRequest>,
-    ) -> Result<Response<SetupIntentResponse>, Status> {
-        let tenant = request.tenant()?;
-        let subscription = request.portal_resource()?.subscription()?;
-
-        let inner = request.into_inner();
-
-        let subscription = self
-            .store
-            .get_subscription(tenant, subscription)
-            .await
-            .map_err(Into::<PortalCheckoutApiError>::into)?;
-
-        let customer_connection_id = CustomerConnectionId::from_proto(&inner.connection_id)?;
-
-        // validate that customer_connection_id is either subscription.card_provider_id or subscription.direct_debit_provider_id
-        let is_valid = match (
-            &subscription.card_connection_id,
-            &subscription.direct_debit_connection_id,
-        ) {
-            (Some(card_id), _) if *card_id == customer_connection_id => true,
-            (_, Some(debit_id)) if *debit_id == customer_connection_id => true,
-            _ => false,
-        };
-
-        if !is_valid {
-            Err(PortalCheckoutApiError::InvalidArgument(
-                "Connection is not valid for this subscription".to_string(),
-            ))?;
-        }
-
-        let intent = self
-            .services
-            .create_setup_intent(&tenant, &customer_connection_id)
-            .await
-            .map_err(Into::<PortalCheckoutApiError>::into)?;
-
-        Ok(Response::new(SetupIntentResponse {
-            setup_intent: Some(SetupIntent {
-                intent_id: intent.intent_id,
-                intent_secret: intent.client_secret,
-                provider_public_key: intent.public_key.expose_secret().clone(),
-                provider: connector_provider_to_server(&intent.provider) as i32,
-                connection_id: intent.connection_id.as_proto(),
-            }),
-        }))
-    }
-
-    #[tracing::instrument(skip_all)]
     async fn confirm_checkout(
         &self,
         request: Request<ConfirmCheckoutRequest>,
     ) -> Result<Response<ConfirmCheckoutResponse>, Status> {
         let tenant = request.tenant()?;
-        let subscription = request.portal_resource()?.subscription()?;
+
+
+        let portal_resource = request.portal_resource()?;
 
         let inner = request.into_inner();
+
+
+        let (subscription_id, customer_id) = match portal_resource.resource_access {
+            ResourceAccess::SubscriptionCheckout(id) => Ok((id, None)),
+            ResourceAccess::CustomerPortal(id) => {
+                let invoice_id = SubscriptionId::from_proto_opt( inner.subscription_id)?
+                    .ok_or(Status::invalid_argument("Missing subscriptio ID in request"))?;
+                Ok((invoice_id, Some(id)))
+            },
+            _ => Err(Status::invalid_argument(
+                "Resource is not an invoice or customer portal.",
+            )),
+        }?;
+
+        if let Some(customer_id) = customer_id {
+            let subscription = self
+                .store
+                .get_subscription(tenant, subscription_id)
+                .await
+                .map_err(Into::<PortalCheckoutApiError>::into)?;
+
+            if subscription.customer_id != customer_id {
+                return Err(Status::permission_denied("Subscription does not belong to the specified customer."));
+            }
+        }
 
         let payment_method_id = CustomerPaymentMethodId::from_proto(inner.payment_method_id)?;
 
@@ -302,7 +222,7 @@ impl PortalCheckoutService for PortalCheckoutServiceComponents {
             .services
             .complete_subscription_checkout(
                 tenant,
-                subscription,
+                subscription_id,
                 payment_method_id,
                 inner.displayed_amount,
                 inner.displayed_currency,
@@ -317,66 +237,6 @@ impl PortalCheckoutService for PortalCheckoutServiceComponents {
         }))
     }
 
-    /// We want to process payment ASAP, without waiting for the webhook event, so this is a frontend-initiated action when stripe sdk confirm payment method.
-    /// We will complete the details when the webhook event is received (if not already received)
-    #[tracing::instrument(skip_all)]
-    async fn add_payment_method(
-        &self,
-        request: Request<AddPaymentMethodRequest>,
-    ) -> Result<Response<AddPaymentMethodResponse>, Status> {
-        let tenant = request.tenant()?;
-        let subscription = request.portal_resource()?.subscription()?;
-
-        let inner = request.into_inner();
-
-        let connection_id = CustomerConnectionId::from_proto(inner.connection_id)?;
-        let external_payment_method_id = inner.external_payment_method_id;
-
-        let subscription = self
-            .store
-            .get_subscription(tenant, subscription)
-            .await
-            .map_err(Into::<PortalCheckoutApiError>::into)?;
-
-        let connection = self
-            .store
-            .get_connection_by_id(&tenant, &connection_id)
-            .await
-            .map_err(Into::<PortalCheckoutApiError>::into)?;
-
-        if subscription.customer_id != connection.customer_id {
-            return Err(PortalCheckoutApiError::InvalidArgument(
-                "Subscription customer is not attached to this connection".to_string(),
-            )
-            .into());
-        }
-
-        let payment_method = self
-            .store
-            .insert_payment_method_if_not_exist(CustomerPaymentMethodNew {
-                id: CustomerPaymentMethodId::new(),
-                tenant_id: tenant,
-                customer_id: connection.customer_id,
-                connection_id,
-                external_payment_method_id,
-                payment_method_type: PaymentMethodTypeEnum::Card, // TODO
-                account_number_hint: None,
-                card_brand: None,
-                card_last4: None,
-                card_exp_month: None,
-                card_exp_year: None,
-            })
-            .await
-            .map_err(Into::<PortalCheckoutApiError>::into)?;
-
-        Ok(Response::new(AddPaymentMethodResponse {
-            payment_method: Some(
-                crate::api::customers::mapping::customer_payment_method::domain_to_server(
-                    payment_method,
-                ),
-            ),
-        }))
-    }
 
     #[tracing::instrument(skip_all)]
     async fn get_slot_upgrade_checkout(

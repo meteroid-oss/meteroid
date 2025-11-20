@@ -16,6 +16,7 @@ import {
   BanIcon,
   CheckCircleIcon,
   ChevronDown,
+  CreditCard,
   Download,
   Edit,
   FileX2Icon,
@@ -45,6 +46,7 @@ import { ConnectorProviderEnum } from '@/rpc/api/connectors/v1/models_pb'
 import {
   deleteInvoice,
   finalizeInvoice,
+  generateInvoicePaymentToken,
   getInvoice,
   listInvoices,
   markInvoiceAsUncollectible,
@@ -52,7 +54,12 @@ import {
   refreshInvoiceData,
   voidInvoice,
 } from '@/rpc/api/invoices/v1/invoices-InvoicesService_connectquery'
-import { DetailedInvoice, InvoiceStatus, LineItem } from '@/rpc/api/invoices/v1/models_pb'
+import {
+  DetailedInvoice,
+  InvoicePaymentStatus,
+  InvoiceStatus,
+  LineItem,
+} from '@/rpc/api/invoices/v1/models_pb'
 import { parseAndFormatDate, parseAndFormatDateOptional } from '@/utils/date'
 import { formatCurrency, formatCurrencyNoRounding, formatUsage } from '@/utils/numbers'
 import { useTypedParams } from '@/utils/params'
@@ -237,7 +244,18 @@ export const InvoiceView: React.FC<Props & { invoiceId: string }> = ({ invoice, 
     },
   })
 
+  const paymentTokenMutation = useMutation(generateInvoicePaymentToken, {
+    onSuccess: data => {
+      const paymentUrl = `${window.location.origin}/portal/invoice-payment?token=${data.token}`
+      window.open(paymentUrl, '_blank')
+    },
+    onError: error => {
+      console.error('Failed to generate payment token:', error)
+    },
+  })
+
   const doRefresh = () => refresh.mutateAsync({ id: invoice?.id ?? '' })
+  const handlePayOnline = () => paymentTokenMutation.mutate({ invoiceId: invoice?.id ?? '' })
 
   const handleDeleteConfirm = () => {
     setShowDeleteConfirmation(false)
@@ -388,6 +406,16 @@ export const InvoiceView: React.FC<Props & { invoiceId: string }> = ({ invoice, 
                   />
                   Refresh
                 </DropdownMenuItem>
+                {invoice.paymentStatus !== InvoicePaymentStatus.PAID &&
+                  Number(invoice.amountDue) > 0 && (
+                    <DropdownMenuItem
+                      onClick={handlePayOnline}
+                      disabled={paymentTokenMutation.isPending}
+                    >
+                      <CreditCard size="16" className="mr-2" />
+                      Pay Online
+                    </DropdownMenuItem>
+                  )}
                 <DropdownMenuItem
                   disabled={!canFinalize}
                   onClick={() => setShowFinalizeConfirmation(true)}

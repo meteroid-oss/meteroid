@@ -14,10 +14,8 @@ import { CountrySelect } from '@/components/CountrySelect'
 import { getCountryFlagEmoji, getCountryName } from '@/features/settings/utils'
 import { useZodForm } from '@/hooks/useZodForm'
 import { Address, Customer } from '@/rpc/api/customers/v1/models_pb'
-import {
-  getSubscriptionCheckout,
-  updateCustomer,
-} from '@/rpc/portal/checkout/v1/checkout-PortalCheckoutService_connectquery'
+import { getCustomerPortalOverview } from '@/rpc/portal/customer/v1/customer-PortalCustomerService_connectquery'
+import { updateCustomer } from '@/rpc/portal/shared/v1/shared-PortalSharedService_connectquery'
 
 const billingInfoSchema = z.object({
   name: z.string().optional(),
@@ -37,17 +35,17 @@ interface BillingInfoProps {
 }
 
 export const BillingInfo = ({ customer, isEditing, setIsEditing }: BillingInfoProps) => {
-  const [showTaxNumber, setShowTaxNumber] = useState(!!customer.vatNumber)
   const queryClient = useQueryClient()
+  const [showTaxNumber, setShowTaxNumber] = useState(!!customer.vatNumber)
 
   const updateBillingInfoMut = useMutation(updateCustomer, {
     onSuccess: res => {
       if (res.customer) {
         queryClient.setQueryData(
-          createConnectQueryKey(getSubscriptionCheckout),
-          createProtobufSafeUpdater(getSubscriptionCheckout, prev => ({
-            checkout: {
-              ...prev?.checkout,
+          createConnectQueryKey(getCustomerPortalOverview),
+          createProtobufSafeUpdater(getCustomerPortalOverview, prev => ({
+            overview: {
+              ...prev?.overview,
               customer: res.customer,
             },
           }))
@@ -100,7 +98,6 @@ export const BillingInfo = ({ customer, isEditing, setIsEditing }: BillingInfoPr
 
     await updateBillingInfoMut.mutateAsync({
       customer: {
-        id: customer.id,
         billingAddress: updatedAddress,
         name: values.name,
         vatNumber: showTaxNumber ? values.vatNumber : undefined,
@@ -174,7 +171,7 @@ export const BillingInfo = ({ customer, isEditing, setIsEditing }: BillingInfoPr
             control={methods.control}
             placeholder="billing@example.com"
             labelClassName="font-normal text-xs"
-            className="space-y-1 text-xs"
+            className="space-y-1 text-xs  focus-visible:shadow-none focus-visible:border-unset"
           />
 
           <InputFormField
@@ -183,7 +180,7 @@ export const BillingInfo = ({ customer, isEditing, setIsEditing }: BillingInfoPr
             control={methods.control}
             placeholder="Acme Corp."
             labelClassName="font-normal text-xs"
-            className="space-y-1 text-xs"
+            className="space-y-1 text-xs  focus-visible:shadow-none focus-visible:border-unset"
           />
 
           <div className="">
@@ -201,27 +198,27 @@ export const BillingInfo = ({ customer, isEditing, setIsEditing }: BillingInfoPr
               name="line1"
               control={methods.control}
               placeholder="Address line 1"
-              className="rounded-none border-b-0 text-xs"
+              className="rounded-none border-b-0 text-xs  focus-visible:shadow-none focus-visible:border-unset"
             />
 
             <InputFormField
               name="line2"
               control={methods.control}
               placeholder="Apt, suite, etc. (optional)"
-              className="rounded-none border-b-0 text-xs"
+              className="rounded-none border-b-0 text-xs  focus-visible:shadow-none focus-visible:border-unset"
             />
             <div className="grid grid-cols-2">
               <InputFormField
                 name="zipCode"
                 control={methods.control}
                 placeholder="Postal code"
-                className="rounded-none rounded-bl-md border-r-0 text-xs"
+                className="rounded-none rounded-bl-md border-r-0 text-xs  focus-visible:shadow-none focus-visible:border-unset"
               />
               <InputFormField
                 name="city"
                 control={methods.control}
                 placeholder="City"
-                className="rounded-none rounded-br-md text-xs"
+                className="rounded-none rounded-br-md text-xs  focus-visible:shadow-none focus-visible:border-unset"
               />
             </div>
           </div>
@@ -232,7 +229,7 @@ export const BillingInfo = ({ customer, isEditing, setIsEditing }: BillingInfoPr
                 name="vatNumber"
                 labelClassName="font-normal text-xs"
                 label="Tax number"
-                className="text-xs"
+                className="text-xs  focus-visible:shadow-none focus-visible:border-unset  "
                 control={methods.control}
                 placeholder="FR12345678900"
               />

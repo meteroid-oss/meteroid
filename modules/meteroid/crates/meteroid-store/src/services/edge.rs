@@ -138,6 +138,43 @@ impl ServicesEdge {
         Ok(payment_transaction)
     }
 
+    pub async fn complete_invoice_payment(
+        &self,
+        tenant_id: TenantId,
+        invoice_id: InvoiceId,
+        payment_method_id: CustomerPaymentMethodId,
+        _total_amount_confirmation: u64,
+        _currency_confirmation: String,
+    ) -> error_stack::Result<PaymentTransaction, StoreError> {
+        let payment_transaction = self
+            .services
+            .process_invoice_payment_tx(
+                &mut self.get_conn().await?,
+                tenant_id,
+                invoice_id,
+                payment_method_id,
+            )
+            .await?;
+
+        Ok(payment_transaction)
+    }
+
+    pub async fn get_or_create_customer_connections(
+        &self,
+        tenant_id: TenantId,
+        customer_id: common_domain::ids::CustomerId,
+        invoicing_entity_id: common_domain::ids::InvoicingEntityId,
+    ) -> StoreResult<(Option<CustomerConnectionId>, Option<CustomerConnectionId>)> {
+        self.services
+            .get_or_create_customer_connections(
+                &mut self.get_conn().await?,
+                tenant_id,
+                customer_id,
+                invoicing_entity_id,
+            )
+            .await
+    }
+
     pub async fn insert_subscription(
         &self,
         params: CreateSubscription,

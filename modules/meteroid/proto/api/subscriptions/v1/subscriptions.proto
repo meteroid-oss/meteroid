@@ -135,6 +135,14 @@ message PreviewSlotUpdateResponse {
   string next_invoice_delta = 12;
 }
 
+message GenerateCheckoutTokenRequest {
+  string subscription_id = 1;
+}
+
+message GenerateCheckoutTokenResponse {
+  string token = 1;
+}
+
 
 // Service definition
 service SubscriptionsService {
@@ -149,4 +157,5 @@ service SubscriptionsService {
   rpc PreviewSlotUpdate(PreviewSlotUpdateRequest) returns (PreviewSlotUpdateResponse);
   rpc CancelSubscription(CancelSubscriptionRequest) returns (CancelSubscriptionResponse);
   rpc SyncToHubspot(SyncToHubspotRequest) returns (SyncToHubspotResponse);
+  rpc GenerateCheckoutToken(GenerateCheckoutTokenRequest) returns (GenerateCheckoutTokenResponse);
 }

@@ -106,6 +106,9 @@ impl Services {
                         .await
                         .change_context(StoreError::PaymentProviderError)?;
 
+
+                    let supported_payment_types = vec![];
+
                     // Connect the customer to the payment provider in our system
                     let connection_id = self
                         .connect_customer_payment_provider(
@@ -113,6 +116,7 @@ impl Services {
                             &customer.id,
                             &config.id,
                             &external_id,
+                            supported_payment_types.clone()
                         )
                         .await?;
 
@@ -120,7 +124,7 @@ impl Services {
                         id: connection_id,
                         customer_id: customer.id,
                         connector_id: config.id,
-                        supported_payment_types: Some(vec![PaymentMethodTypeEnum::Card]),
+                        supported_payment_types: Some(supported_payment_types),
                         external_customer_id: external_id,
                     });
 
@@ -221,13 +225,14 @@ impl Services {
         customer_id: &CustomerId,
         connector_id: &ConnectorId,
         external_id: &str,
+        supported_payment_method_types: Vec<PaymentMethodTypeEnum>
     ) -> StoreResult<CustomerConnectionId> {
         let customer_connection: CustomerConnectionRow = CustomerConnection {
             id: CustomerConnectionId::new(),
             external_customer_id: external_id.to_string(),
             customer_id: *customer_id,
             connector_id: *connector_id,
-            supported_payment_types: Some(vec![PaymentMethodTypeEnum::Card]),
+            supported_payment_types: Some(supported_payment_method_types),
         }
         .into();
 
