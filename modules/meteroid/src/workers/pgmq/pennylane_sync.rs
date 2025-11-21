@@ -267,6 +267,7 @@ impl PennylaneSync {
 
         for (event, msg_id) in outboxes {
             let customer_id = event.customer_id;
+            let tenant_id = event.tenant_id;
 
             let res = if let Some(pennylane_id) = event.get_pennylane_id(conn.connector_id) {
                 let company = &Self::convert_to_update_company(*event);
@@ -286,6 +287,7 @@ impl PennylaneSync {
                 Ok(res) => {
                     self.store
                         .patch_customer_conn_meta(
+                            tenant_id,
                             customer_id,
                             conn.connector_id,
                             ConnectorProviderEnum::Pennylane,

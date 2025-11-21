@@ -128,6 +128,23 @@ message GenerateCustomerPortalTokenResponse {
   string token = 1;
 }
 
+message UpsertCustomerConnectionRequest {
+  string customer_id = 1;
+  string connector_id = 2;
+  string external_customer_id = 3;
+}
+
+message UpsertCustomerConnectionResponse {
+  CustomerConnection connection = 1;
+}
+
+message DeleteCustomerConnectionRequest {
+  string customer_id = 1;
+  string connection_id = 2;
+}
+
+message DeleteCustomerConnectionResponse {}
+
 service CustomersService {
   rpc CreateCustomer(CreateCustomerRequest) returns (CreateCustomerResponse) {}
   rpc UpdateCustomer(UpdateCustomerRequest) returns (UpdateCustomerResponse) {}
@@ -141,6 +158,8 @@ service CustomersService {
   rpc SyncToHubspot(SyncToHubspotRequest) returns (SyncToHubspotResponse) {}
   rpc SyncToPennylane(SyncToPennylaneRequest) returns (SyncToPennylaneResponse) {}
   rpc GenerateCustomerPortalToken(GenerateCustomerPortalTokenRequest) returns (GenerateCustomerPortalTokenResponse) {}
+  rpc UpsertCustomerConnection(UpsertCustomerConnectionRequest) returns (UpsertCustomerConnectionResponse) {}
+  rpc DeleteCustomerConnection(DeleteCustomerConnectionRequest) returns (DeleteCustomerConnectionResponse) {}
 }
 
 service CustomersIngestService {

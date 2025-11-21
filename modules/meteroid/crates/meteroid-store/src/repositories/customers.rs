@@ -117,6 +117,7 @@ pub trait CustomersInterface {
 
     async fn patch_customer_conn_meta(
         &self,
+        tenant_id: TenantId,
         customer_id: CustomerId,
         connector_id: ConnectorId,
         provider: ConnectorProviderEnum,
@@ -597,6 +598,7 @@ impl CustomersInterface for Store {
 
     async fn patch_customer_conn_meta(
         &self,
+        tenant_id: TenantId,
         customer_id: CustomerId,
         connector_id: ConnectorId,
         provider: ConnectorProviderEnum,
@@ -605,6 +607,7 @@ impl CustomersInterface for Store {
     ) -> StoreResult<()> {
         let mut conn = self.get_conn().await?;
 
+        // Update the JSON metadata field (legacy)
         CustomerRowPatch::upsert_conn_meta(
             &mut conn,
             provider.into(),
@@ -614,7 +617,23 @@ impl CustomersInterface for Store {
             external_company_id,
         )
         .await
-        .map_err(Into::<Report<StoreError>>::into)
+        .map_err(Into::<Report<StoreError>>::into)?;
+
+        // Also upsert to customer_connection table (new approach)
+        use common_domain::ids::BaseId;
+        let connection_row = diesel_models::customer_connection::CustomerConnectionRow {
+            id: common_domain::ids::CustomerConnectionId::new(),
+            customer_id,
+            connector_id,
+            supported_payment_types: None,
+            external_customer_id: external_id.to_string(),
+        };
+
+        diesel_models::customer_connection::CustomerConnectionRow::upsert(&mut conn, &tenant_id, connection_row)
+            .await
+            .map_err(Into::<Report<StoreError>>::into)?;
+
+        Ok(())
     }
 
     async fn sync_customers_to_hubspot(

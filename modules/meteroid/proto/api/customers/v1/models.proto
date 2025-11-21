@@ -58,6 +58,8 @@ message Customer {
   repeated CustomTaxRate custom_taxes = 20;
   bool is_tax_exempt = 21;
   bool is_vat_number_valid = 22;
+  repeated CustomerConnection customer_connections = 23;
+  repeated CustomerPaymentMethod payment_methods = 24;
 
 }
 
@@ -126,5 +128,13 @@ message CustomerPaymentMethod {
   }
 
 
+}
+
+message CustomerConnection {
+  string id = 1;
+  string connector_id = 2;
+  string external_customer_id = 3;
+  api.connectors.v1.ConnectorProviderEnum connector_provider = 4;
+  optional string external_company_id = 5;
 }
 
