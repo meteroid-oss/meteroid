@@ -5,7 +5,7 @@ use common_domain::ids::BaseId;
 use common_grpc::middleware::server::auth::RequestExt;
 use meteroid_grpc::meteroid::portal::customer::v1::portal_customer_service_server::PortalCustomerService;
 use meteroid_grpc::meteroid::portal::customer::v1::*;
-use meteroid_store::domain::{OrderByRequest, PaginationRequest};
+use meteroid_store::domain::{InvoiceStatusEnum, OrderByRequest, PaginationRequest};
 use meteroid_store::domain::enums::SubscriptionStatusEnum;
 use meteroid_store::repositories::{InvoiceInterface, SubscriptionInterface};
 use meteroid_store::repositories::customers::CustomersInterface;
@@ -130,8 +130,19 @@ impl PortalCustomerService for PortalCustomerServiceComponents {
             .map(crate::api::customers::mapping::customer_payment_method::domain_to_server)
             .collect();
 
-        let customer_proto = ServerCustomerWrapper::try_from(customer)
+        let customer_proto = ServerCustomerWrapper::try_from(customer.clone())
             .map(|v| v.0)
+            .map_err(Into::<PortalCustomerApiError>::into)?;
+
+        // Get or create payment connections for this customer
+        let (card_connection_id, direct_debit_connection_id) = self
+            .services
+            .get_or_create_customer_connections(
+                tenant,
+                customer.id,
+                customer.invoicing_entity_id,
+            )
+            .await
             .map_err(Into::<PortalCustomerApiError>::into)?;
 
         Ok(Response::new(GetCustomerPortalOverviewResponse {
@@ -140,6 +151,8 @@ impl PortalCustomerService for PortalCustomerServiceComponents {
                 active_subscriptions,
                 recent_invoices,
                 payment_methods,
+                card_connection_id: card_connection_id.map(|id| id.to_string()),
+                direct_debit_connection_id: direct_debit_connection_id.map(|id| id.to_string()),
             }),
         }))
     }
@@ -169,9 +182,6 @@ impl PortalCustomerService for PortalCustomerServiceComponents {
             .await
             .map_err(Into::<PortalCustomerApiError>::into)?;
 
-
-
-
         Ok(Response::new(ListInvoicesResponse {
             pagination_meta: inner
                 .pagination
@@ -179,6 +189,7 @@ impl PortalCustomerService for PortalCustomerServiceComponents {
             invoices: invoices
                 .items
                 .into_iter()
+                .filter(|i| i.invoice.status != InvoiceStatusEnum::Draft) // TODO change list_invoice to accept an array of status
                 .map(|inv| InvoiceSummary {
                     id: inv.invoice.id.as_proto(),
                     invoice_number: inv.invoice.invoice_number.clone(),

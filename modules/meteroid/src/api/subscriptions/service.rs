@@ -12,7 +12,7 @@ use meteroid_grpc::meteroid::api::subscriptions::v1::{
     GetSlotsValueResponse, ListSlotTransactionsRequest, ListSlotTransactionsResponse,
     ListSubscriptionsRequest, ListSubscriptionsResponse, PreviewSlotUpdateRequest,
     PreviewSlotUpdateResponse, SubscriptionDetails, SyncToHubspotRequest, SyncToHubspotResponse,
-    UpdateSlotsRequest, UpdateSlotsResponse,
+    UpdateSlotsRequest, UpdateSlotsResponse, ActivateSubscriptionRequest, ActivateSubscriptionResponse,
 };
 
 use crate::api::shared::conversions::ProtoConv;
@@ -402,4 +402,17 @@ impl SubscriptionsService for SubscriptionServiceComponents {
             mapping::slot_transactions::preview_domain_to_proto(preview)?,
         ))
     }
+
+    #[tracing::instrument(skip_all)]
+    async fn activate_subscription(&self, request: Request<ActivateSubscriptionRequest>) -> Result<Response<ActivateSubscriptionResponse>, Status> {
+        // 1. Get subscription, check status & activation_condition
+        // 2. If auto_advance_invoices true: finalize invoice, else create draft
+        // 3. Call activate_subscription from subscriptions_lifecycle.rs:20
+        // 4. Return subscription + invoice_id
+
+        unimplemented!()
+    }
+
+
+
 }

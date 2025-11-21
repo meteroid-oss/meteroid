@@ -11,6 +11,8 @@ message CustomerPortalOverview {
   repeated SubscriptionSummary active_subscriptions = 2;
   repeated InvoiceSummary recent_invoices = 3;
   repeated api.customers.v1.CustomerPaymentMethod payment_methods = 4;
+  optional string card_connection_id = 5;
+  optional string direct_debit_connection_id = 6;
 }
 
 message SubscriptionSummary {

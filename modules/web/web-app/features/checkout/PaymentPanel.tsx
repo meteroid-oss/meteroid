@@ -342,7 +342,8 @@ export const PaymentPanel: React.FC<PaymentPanelProps> = props => {
 
   const hasCard = !!props.cardConnectionId
   const hasDirectDebit = !!props.directDebitConnectionId
-  const hasBoth = hasCard && hasDirectDebit
+  const hasBoth =
+    hasCard && hasDirectDebit && props.cardConnectionId !== props.directDebitConnectionId
 
   // Fetch setup intent for the active connection
   const activeConnectionId =

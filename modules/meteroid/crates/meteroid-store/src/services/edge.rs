@@ -57,6 +57,22 @@ impl ServicesEdge {
             .await
     }
 
+    pub async fn create_setup_intent_for_type(
+        &self,
+        tenant_id: &TenantId,
+        customer_connection_id: &CustomerConnectionId,
+        connection_type: crate::domain::ConnectionTypeEnum,
+    ) -> StoreResult<SetupIntent> {
+        self.services
+            .create_setup_intent_for_type(
+                &mut self.get_conn().await?,
+                tenant_id,
+                customer_connection_id,
+                connection_type
+            )
+            .await
+    }
+
     pub async fn refresh_invoice_data(
         &self,
         invoice_id: InvoiceId,

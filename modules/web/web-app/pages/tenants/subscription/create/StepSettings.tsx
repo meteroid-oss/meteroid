@@ -22,13 +22,18 @@ import {
 } from '@ui/components'
 import { useAtom } from 'jotai'
 import { InfoIcon } from 'lucide-react'
+import { useEffect } from 'react'
 import { useWizard } from 'react-use-wizard'
 import { z } from 'zod'
 
 import { PageSection } from '@/components/layouts/shared/PageSection'
 import { useZodForm } from '@/hooks/useZodForm'
+import { useQuery } from '@/lib/connectrpc'
 import { createSubscriptionAtom } from '@/pages/tenants/subscription/create/state'
-import { ActivationCondition } from '@/rpc/api/subscriptions/v1/models_pb'
+import { getCustomerById } from '@/rpc/api/customers/v1/customers-CustomersService_connectquery'
+import { getInvoicingEntityProviders } from '@/rpc/api/invoicingentities/v1/invoicingentities-InvoicingEntitiesService_connectquery'
+import { ActivationCondition, PaymentStrategy } from '@/rpc/api/subscriptions/v1/models_pb'
+import { disableQuery } from '@connectrpc/connect-query'
 
 const activationConditionToString = (
   condition: ActivationCondition
@@ -60,9 +65,58 @@ const activationConditionFromString = (
   }
 }
 
+const paymentStrategyToString = (strategy: PaymentStrategy): 'AUTO' | 'BANK' | 'EXTERNAL' => {
+  switch (strategy) {
+    case PaymentStrategy.AUTO:
+      return 'AUTO'
+    case PaymentStrategy.BANK:
+      return 'BANK'
+    case PaymentStrategy.EXTERNAL:
+      return 'EXTERNAL'
+    default:
+      return 'AUTO'
+  }
+}
+
+const paymentStrategyFromString = (strategy: 'AUTO' | 'BANK' | 'EXTERNAL'): PaymentStrategy => {
+  switch (strategy) {
+    case 'AUTO':
+      return PaymentStrategy.AUTO
+    case 'BANK':
+      return PaymentStrategy.BANK
+    case 'EXTERNAL':
+      return PaymentStrategy.EXTERNAL
+    default:
+      return PaymentStrategy.AUTO
+  }
+}
+
 export const StepSettings = () => {
   const { previousStep, nextStep } = useWizard()
   const [state, setState] = useAtom(createSubscriptionAtom)
+
+  // Fetch customer to get invoicing entity ID
+  const customerQuery = useQuery(
+    getCustomerById,
+    { id: state.customerId! },
+    { enabled: !!state.customerId }
+  )
+
+  const invoicingEntityId = customerQuery.data?.customer?.invoicingEntityId
+
+  // Fetch invoicing entity providers to check if online payment is available
+  const providersQuery = useQuery(
+    getInvoicingEntityProviders,
+    invoicingEntityId ? { id: invoicingEntityId } : disableQuery
+  )
+
+  // Check if online payment providers (card or direct debit) are configured
+  const hasOnlinePaymentProvider =
+    !!providersQuery.data?.cardProvider || !!providersQuery.data?.directDebitProvider
+
+  // Loading state - default to true until we know for sure
+  const isLoadingProviders = customerQuery.isLoading || providersQuery.isLoading
+
   const methods = useZodForm({
     schema: schema,
     defaultValues: {
@@ -70,9 +124,12 @@ export const StepSettings = () => {
       toDate: state.endDate,
       billingDay: state.billingDay,
       trialDuration: state.trialDuration,
-      activationCondition: state.activationCondition
+      activationCondition: state.activationCondition !== undefined
         ? activationConditionToString(state.activationCondition)
-        : 'ON_START', // TODO error is here, somhow state.activationCondition can be undefined when going back
+        : 'ON_START',
+      paymentStrategy: state.paymentStrategy !== undefined
+        ? paymentStrategyToString(state.paymentStrategy)
+        : 'AUTO',
       netTerms: state.netTerms,
       invoiceMemo: state.invoiceMemo,
       invoiceThreshold: state.invoiceThreshold,
@@ -82,6 +139,42 @@ export const StepSettings = () => {
     },
   })
 
+  // Watch activation condition, payment strategy, and charge automatically for cross-validation
+  const [activationCondition, paymentStrategy, chargeAutomatically] = methods.watch([
+    'activationCondition',
+    'paymentStrategy',
+    'chargeAutomatically',
+  ])
+
+  // Auto-disable chargeAutomatically and reset activationCondition when no online provider
+  useEffect(() => {
+    if (!isLoadingProviders && !hasOnlinePaymentProvider) {
+      const currentActivation = methods.getValues('activationCondition')
+      const currentCharge = methods.getValues('chargeAutomatically')
+
+      if (currentActivation === 'ON_CHECKOUT') {
+        methods.setValue('activationCondition', 'ON_START')
+      }
+      if (currentCharge) {
+        methods.setValue('chargeAutomatically', false)
+      }
+    }
+  }, [hasOnlinePaymentProvider, isLoadingProviders, methods])
+
+  // Auto-set payment strategy to Auto when OnCheckout is selected
+  useEffect(() => {
+    if (activationCondition === 'ON_CHECKOUT' && paymentStrategy !== 'AUTO') {
+      methods.setValue('paymentStrategy', 'AUTO')
+    }
+  }, [activationCondition, paymentStrategy, methods])
+
+  // Auto-set payment strategy to Auto when ChargeAutomatically is enabled
+  useEffect(() => {
+    if (chargeAutomatically && (paymentStrategy === 'BANK' || paymentStrategy === 'EXTERNAL')) {
+      methods.setValue('paymentStrategy', 'AUTO')
+    }
+  }, [chargeAutomatically, paymentStrategy, methods])
+
   const onSubmit = async (data: z.infer<typeof schema>) => {
     setState({
       ...state,
@@ -90,6 +183,7 @@ export const StepSettings = () => {
       billingDay: data.billingDay,
       trialDuration: data.trialDuration,
       activationCondition: activationConditionFromString(data.activationCondition),
+      paymentStrategy: paymentStrategyFromString(data.paymentStrategy),
       netTerms: data.netTerms,
       invoiceMemo: data.invoiceMemo,
       invoiceThreshold: data.invoiceThreshold,
@@ -216,16 +310,66 @@ export const StepSettings = () => {
                 <CardTitle className="text-base">Activation & Lifecycle</CardTitle>
               </CardHeader>
               <CardContent className="space-y-4">
-                <SelectFormField
-                  name="activationCondition"
-                  label="Activation Condition"
-                  placeholder="Select when to activate"
-                  control={methods.control}
-                >
-                  <SelectItem value="ON_START">On Start Date</SelectItem>
-                  <SelectItem value="ON_CHECKOUT">On Checkout</SelectItem>
-                  <SelectItem value="MANUAL">Manual Activation</SelectItem>
-                </SelectFormField>
+                <div className="space-y-2">
+                  <SelectFormField
+                    name="activationCondition"
+                    label="Activation condition"
+                    placeholder="Select when to activate"
+                    control={methods.control}
+                  >
+                    <SelectItem value="ON_START">On Start Date</SelectItem>
+                    <SelectItem
+                      value="ON_CHECKOUT"
+                      disabled={!isLoadingProviders && !hasOnlinePaymentProvider}
+                    >
+                      On Checkout
+                      {!isLoadingProviders &&
+                        !hasOnlinePaymentProvider &&
+                        ' (requires a payment provider)'}
+                    </SelectItem>
+                    <SelectItem value="MANUAL">Manual Activation</SelectItem>
+                  </SelectFormField>
+                </div>
+                <div className="space-y-2">
+                  <SelectFormField
+                    name="paymentStrategy"
+                    label="Payment methods strategy"
+                    placeholder="Select payment strategy"
+                    control={methods.control}
+                    labelTooltip={
+                      <TooltipProvider delayDuration={100}>
+                        <Tooltip>
+                          <TooltipTrigger asChild>
+                            <InfoIcon className="h-4 w-4 text-muted-foreground cursor-help" />
+                          </TooltipTrigger>
+                          <TooltipContent className="max-w-96">
+                            Default strategy will try configured online payment providers first,
+                            then fall back to offline methods. <br />
+                            Bank Transfer and External options restrict payment methods accordingly.
+                          </TooltipContent>
+                        </Tooltip>
+                      </TooltipProvider>
+                    }
+                  >
+                    <SelectItem value="AUTO">Default</SelectItem>
+                    <SelectItem
+                      value="BANK"
+                      disabled={activationCondition === 'ON_CHECKOUT' || chargeAutomatically}
+                    >
+                      Bank transfer
+                      {(activationCondition === 'ON_CHECKOUT' || chargeAutomatically) &&
+                        ' (unavailable with Checkout)'}
+                    </SelectItem>
+                    <SelectItem
+                      value="EXTERNAL"
+                      disabled={activationCondition === 'ON_CHECKOUT' || chargeAutomatically}
+                    >
+                      External
+                      {(activationCondition === 'ON_CHECKOUT' || chargeAutomatically) &&
+                        ' (unavailable with Checkout)'}
+                    </SelectItem>
+                  </SelectFormField>
+                </div>
                 <div className="grid grid-cols-2 gap-4">
                   <div className="space-y-2">
                     <div className="flex items-center gap-1">
@@ -271,8 +415,9 @@ export const StepSettings = () => {
                           </TooltipTrigger>
                           <TooltipContent>
                             <p className="max-w-xs">
-                              Automatically try charging the customer when an invoice is finalized,
-                              if a payment method is configured.
+                              {hasOnlinePaymentProvider
+                                ? 'Automatically try charging the customer when an invoice is finalized, if a payment method is configured.'
+                                : 'Requires a card or direct debit payment provider to be configured on the invoicing entity.'}
                             </p>
                           </TooltipContent>
                         </Tooltip>
@@ -287,9 +432,16 @@ export const StepSettings = () => {
                             id="chargeAutomatically"
                             checked={field.value}
                             onCheckedChange={field.onChange}
+                            disabled={!isLoadingProviders && !hasOnlinePaymentProvider}
                           />
-                          <Label htmlFor="chargeAutomatically" className="font-normal text-sm">
+                          <Label
+                            htmlFor="chargeAutomatically"
+                            className={`font-normal text-sm ${!isLoadingProviders && !hasOnlinePaymentProvider ? 'text-muted-foreground' : ''}`}
+                          >
                             {field.value ? 'Enabled' : 'Disabled'}
+                            {!isLoadingProviders &&
+                              !hasOnlinePaymentProvider &&
+                              ' (requires a payment provider)'}
                           </Label>
                         </div>
                       )}
@@ -354,6 +506,7 @@ const schema = z
     billingDay: z.enum(['FIRST', 'SUB_START_DAY']).default('SUB_START_DAY'),
     trialDuration: z.number().min(0).optional(),
     activationCondition: z.enum(['ON_START', 'ON_CHECKOUT', 'MANUAL']),
+    paymentStrategy: z.enum(['AUTO', 'BANK', 'EXTERNAL']).default('AUTO'),
     netTerms: z.number().min(0),
     invoiceMemo: z.string().optional(),
     invoiceThreshold: z.string().optional(),
@@ -365,3 +518,32 @@ const schema = z
     message: 'Must be greater than the start date',
     path: ['toDate'],
   })
+  .refine(
+    data => {
+      // OnCheckout requires Auto payment strategy
+      if (data.activationCondition === 'ON_CHECKOUT' && data.paymentStrategy !== 'AUTO') {
+        return false
+      }
+      return true
+    },
+    {
+      message: 'OnCheckout activation requires Auto payment strategy',
+      path: ['activationCondition'],
+    }
+  )
+  .refine(
+    data => {
+      // ChargeAutomatically doesn't make sense with Bank or External strategies
+      if (
+        data.chargeAutomatically &&
+        (data.paymentStrategy === 'BANK' || data.paymentStrategy === 'EXTERNAL')
+      ) {
+        return false
+      }
+      return true
+    },
+    {
+      message: 'Automatic charging requires Auto payment strategy',
+      path: ['chargeAutomatically'],
+    }
+  )

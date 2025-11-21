@@ -22,6 +22,16 @@ pub mod subscriptions {
         }
     }
 
+    fn map_payment_strategy_proto(
+        e: proto2::PaymentStrategy,
+    ) -> meteroid_store::domain::SubscriptionPaymentStrategy {
+        match e {
+            proto2::PaymentStrategy::Auto => meteroid_store::domain::SubscriptionPaymentStrategy::Auto,
+            proto2::PaymentStrategy::Bank => meteroid_store::domain::SubscriptionPaymentStrategy::Bank,
+            proto2::PaymentStrategy::External => meteroid_store::domain::SubscriptionPaymentStrategy::External,
+        }
+    }
+
     // TODO update subscription statuses
     pub fn map_subscription_status(e: SubscriptionStatusEnum) -> proto2::SubscriptionStatus {
         match e {
@@ -121,7 +131,11 @@ pub mod subscriptions {
             start_date: NaiveDate::from_proto(param.start_date)?,
             end_date: NaiveDate::from_proto_opt(param.end_date)?,
             trial_duration: param.trial_duration,
-            payment_strategy: None,
+            payment_strategy: param.payment_strategy.and_then(|ps| {
+                proto2::PaymentStrategy::try_from(ps)
+                    .ok()
+                    .map(map_payment_strategy_proto)
+            }),
             auto_advance_invoices: param.auto_advance_invoices.unwrap_or(true),
             charge_automatically: param.charge_automatically.unwrap_or(true),
             purchase_order: param.purchase_order,

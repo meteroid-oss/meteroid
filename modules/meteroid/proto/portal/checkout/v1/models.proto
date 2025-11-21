@@ -24,6 +24,9 @@ message Checkout {
   repeated AppliedCoupon applied_coupons = 15;
   optional string logo_url = 10;
   string trade_name = 11;
+  optional string card_connection_id = 17;
+  optional string direct_debit_connection_id = 18;
+  optional api.bankaccounts.v1.BankAccount bank_account = 19;
 }
 
 message TaxBreakdownItem {

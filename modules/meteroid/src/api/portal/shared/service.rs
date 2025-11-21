@@ -19,6 +19,8 @@ use meteroid_store::repositories::customers::CustomersInterface;
 use meteroid_store::repositories::{InvoiceInterface, SubscriptionInterface};
 use secrecy::ExposeSecret;
 use tonic::{Request, Response, Status};
+use meteroid_store::adapters::payment_service_providers::initialize_payment_provider;
+use meteroid_store::repositories::connectors::ConnectorsInterface;
 
 impl PortalSharedServiceComponents {
     async fn resolve_customer(&self, resource: AuthorizedAsPortalUser) -> Result<CustomerId, PortalSharedApiError> {
@@ -137,7 +139,6 @@ impl PortalSharedService for PortalSharedServiceComponents {
             ))?
             ;
 
-
         let customer_id = self.resolve_customer(portal_resource).await?;
         let connection = self
             .store
@@ -154,7 +155,7 @@ impl PortalSharedService for PortalSharedServiceComponents {
 
         let intent = self
             .services
-            .create_setup_intent(&tenant, &customer_connection_id)
+            .create_setup_intent(&tenant, &customer_connection_id, ) // connection_type
             .await
             .map_err(Into::<PortalSharedApiError>::into)?;
 
@@ -201,6 +202,59 @@ impl PortalSharedService for PortalSharedServiceComponents {
             .into());
         }
 
+        // Fetch payment method details from provider to get the actual type
+        let connector = self
+            .store
+            .get_connector_with_data( connection.connector_id, tenant)
+            .await
+            .map_err(Into::<PortalSharedApiError>::into)?;
+
+
+        // TODO added some unwraps just to test it
+
+        let provider = initialize_payment_provider(&connector)
+            .unwrap();
+            // .map_err(Into::<PortalSharedApiError>::into)?;
+
+        let method = provider
+            .get_payment_method_from_provider(&connector, &external_payment_method_id, &connection.external_customer_id)
+            .await
+            .unwrap();
+            // .map_err(Into::<PortalSharedApiError>::into)?;
+
+        // Extract payment method details based on type
+        use stripe_client::payment_methods::StripePaymentMethodType;
+
+        let account_number_hint = match method._type {
+            StripePaymentMethodType::BacsDebit => method.bacs_debit.and_then(|acc| acc.last4),
+            StripePaymentMethodType::Card => None,
+            StripePaymentMethodType::SepaDebit => method.sepa_debit.and_then(|acc| acc.last4),
+            StripePaymentMethodType::UsBankAccount => method.us_bank_account.and_then(|acc| acc.last4),
+        };
+
+        let payment_method_type = match method._type {
+            StripePaymentMethodType::BacsDebit => PaymentMethodTypeEnum::DirectDebitBacs,
+            StripePaymentMethodType::Card => PaymentMethodTypeEnum::Card,
+            StripePaymentMethodType::SepaDebit => PaymentMethodTypeEnum::DirectDebitSepa,
+            StripePaymentMethodType::UsBankAccount => PaymentMethodTypeEnum::DirectDebitAch,
+        };
+
+        let (card_brand, card_last4, card_exp_month, card_exp_year) = match method._type {
+            StripePaymentMethodType::Card => {
+                if let Some(card) = &method.card {
+                    (
+                        Some(card.brand.clone()),
+                        card.last4.clone(),
+                        Some(card.exp_month),
+                        Some(card.exp_year),
+                    )
+                } else {
+                    (None, None, None, None)
+                }
+            }
+            _ => (None, None, None, None),
+        };
+
         let payment_method = self
             .store
             .insert_payment_method_if_not_exist(CustomerPaymentMethodNew {
@@ -209,12 +263,12 @@ impl PortalSharedService for PortalSharedServiceComponents {
                 customer_id: connection.customer_id,
                 connection_id,
                 external_payment_method_id,
-                payment_method_type: PaymentMethodTypeEnum::Card, // TODO
-                account_number_hint: None,
-                card_brand: None,
-                card_last4: None,
-                card_exp_month: None,
-                card_exp_year: None,
+                payment_method_type,
+                account_number_hint,
+                card_brand,
+                card_last4,
+                card_exp_month,
+                card_exp_year,
             })
             .await
             .map_err(Into::<PortalSharedApiError>::into)?;

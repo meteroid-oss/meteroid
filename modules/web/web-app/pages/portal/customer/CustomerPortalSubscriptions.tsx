@@ -1,4 +1,5 @@
 import { Badge } from '@md/ui'
+import { useSearchParams } from 'react-router-dom'
 
 import { SubscriptionSummary } from '@/rpc/portal/customer/v1/models_pb'
 import { formatCurrency } from '@/utils/numbers'
@@ -8,6 +9,13 @@ interface CustomerPortalSubscriptionsProps {
 }
 
 export const CustomerPortalSubscriptions = ({ subscriptions }: CustomerPortalSubscriptionsProps) => {
+  const [searchParams] = useSearchParams()
+  const token = searchParams.get('token')
+
+  const handleSubscriptionClick = (subscriptionId: string) => {
+    if (!token) return
+    window.open(`/portal/subscription/${subscriptionId}?token=${token}`, '_blank')
+  }
   if (subscriptions.length === 0) {
     return (
       <div className="text-center py-8 text-sm text-muted-foreground">
@@ -21,7 +29,8 @@ export const CustomerPortalSubscriptions = ({ subscriptions }: CustomerPortalSub
       {subscriptions.map(subscription => (
         <div
           key={subscription.id}
-          className="flex items-center justify-between p-4 border border-gray-200 rounded-lg hover:border-gray-300 transition-colors"
+          onClick={() => handleSubscriptionClick(subscription.id)}
+          className="flex items-center justify-between p-4 border border-gray-200 rounded-lg hover:border-gray-300 hover:shadow-sm transition-all cursor-pointer"
         >
           <div className="flex-1">
             <div className="font-medium text-sm text-gray-900">{subscription.planName}</div>

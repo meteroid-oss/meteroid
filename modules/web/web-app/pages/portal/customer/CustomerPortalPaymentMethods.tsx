@@ -1,41 +1,63 @@
 import { Button } from '@md/ui'
 import { Building, CreditCard, Plus } from 'lucide-react'
+import { useState } from 'react'
 
 import { CardBrandLogo } from '@/features/checkout/components/CardBrandLogo'
 import {
   CustomerPaymentMethod,
   CustomerPaymentMethod_PaymentMethodTypeEnum,
 } from '@/rpc/api/customers/v1/models_pb'
+import { AddPaymentMethodDialog } from './AddPaymentMethodDialog'
 
 interface CustomerPortalPaymentMethodsProps {
   paymentMethods: CustomerPaymentMethod[]
+  cardConnectionId?: string
+  directDebitConnectionId?: string
+  onRefetch?: () => void
 }
 
 export const CustomerPortalPaymentMethods = ({
   paymentMethods,
+  cardConnectionId,
+  directDebitConnectionId,
+  onRefetch,
 }: CustomerPortalPaymentMethodsProps) => {
+  const [isDialogOpen, setIsDialogOpen] = useState(false)
+
   const handleAddPaymentMethod = () => {
-    // TODO: Implement add payment method flow
-    console.log('Add payment method')
+    setIsDialogOpen(true)
   }
 
-  return (
-    <div className="text-sm">
-      <div className="text-sm font-medium mb-2">Payment methods</div>
+  const handleSuccess = () => {
+    // Refetch payment methods after successful addition
+    if (onRefetch) {
+      onRefetch()
+    }
+  }
 
-      {paymentMethods.length === 0 ? (
-        <div className="border border-gray-200 rounded-lg p-6 text-center">
-          <div className="text-sm text-muted-foreground mb-3">No payment methods saved</div>
-          <Button
-            size="sm"
-            onClick={handleAddPaymentMethod}
-            className="bg-blue-600 hover:bg-blue-700"
-          >
-            <Plus size={16} className="mr-2" />
-            Add payment method
-          </Button>
-        </div>
-      ) : (
+  // Check if any payment method connections are configured
+  const hasPaymentConnections = !!(cardConnectionId || directDebitConnectionId)
+
+  return (
+    <>
+      <div className="text-sm">
+        <div className="text-sm font-medium mb-2">Payment methods</div>
+
+        {paymentMethods.length === 0 ? (
+          <div className="border border-gray-200 rounded-lg p-6 text-center">
+            <div className="text-sm text-muted-foreground mb-3">No payment methods saved</div>
+            {hasPaymentConnections && (
+              <Button
+                size="sm"
+                onClick={handleAddPaymentMethod}
+                className="bg-blue-600 hover:bg-blue-700"
+              >
+                <Plus size={16} className="mr-2" />
+                Add payment method
+              </Button>
+            )}
+          </div>
+        ) : (
         <div className="space-y-2">
           {paymentMethods.map(method => {
             const isCard =
@@ -86,17 +108,28 @@ export const CustomerPortalPaymentMethods = ({
             )
           })}
 
-          <Button
-            size="sm"
-            variant="ghost"
-            onClick={handleAddPaymentMethod}
-            className="w-full text-blue-600 hover:text-blue-700 hover:bg-blue-50"
-          >
-            <Plus size={16} className="mr-2" />
-            Add another payment method
-          </Button>
+          {hasPaymentConnections && (
+            <Button
+              size="sm"
+              variant="ghost"
+              onClick={handleAddPaymentMethod}
+              className="w-full text-blue-600 hover:text-blue-700 hover:bg-blue-50"
+            >
+              <Plus size={16} className="mr-2" />
+              Add another payment method
+            </Button>
+          )}
         </div>
       )}
-    </div>
+      </div>
+
+      <AddPaymentMethodDialog
+        open={isDialogOpen}
+        onOpenChange={setIsDialogOpen}
+        onSuccess={handleSuccess}
+        cardConnectionId={cardConnectionId}
+        directDebitConnectionId={directDebitConnectionId}
+      />
+    </>
   )
 }

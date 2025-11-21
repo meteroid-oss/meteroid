@@ -97,6 +97,7 @@ export const StepReviewAndCreate = () => {
           purchaseOrder: state.purchaseOrder,
           autoAdvanceInvoices: state.autoAdvanceInvoices,
           chargeAutomatically: state.chargeAutomatically,
+          paymentStrategy: state.paymentStrategy,
           components: {
             parameterizedComponents: state.components.parameterized.map(c => ({
               componentId: c.componentId,

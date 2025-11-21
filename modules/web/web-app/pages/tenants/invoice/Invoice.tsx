@@ -19,6 +19,7 @@ import {
   CreditCard,
   Download,
   Edit,
+  ExternalLink,
   FileX2Icon,
   FolderSyncIcon,
   RefreshCcw,
@@ -412,8 +413,8 @@ export const InvoiceView: React.FC<Props & { invoiceId: string }> = ({ invoice, 
                       onClick={handlePayOnline}
                       disabled={paymentTokenMutation.isPending}
                     >
-                      <CreditCard size="16" className="mr-2" />
-                      Pay Online
+                      <ExternalLink size="16" className="mr-2" />
+                      Share Payment Link
                     </DropdownMenuItem>
                   )}
                 <DropdownMenuItem

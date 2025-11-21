@@ -4,7 +4,7 @@ import { useState } from 'react'
 
 import { useQuery } from '@/lib/connectrpc'
 import { env } from '@/lib/env'
-import { InvoiceStatus } from '@/rpc/api/invoices/v1/models_pb'
+import { InvoicePaymentStatus, InvoiceStatus } from '@/rpc/api/invoices/v1/models_pb'
 import { listInvoices } from '@/rpc/portal/customer/v1/customer-PortalCustomerService_connectquery'
 import { InvoiceSummary } from '@/rpc/portal/customer/v1/models_pb'
 import { formatCurrency } from '@/utils/numbers'
@@ -59,6 +59,12 @@ export const CustomerPortalInvoices = () => {
               <span className="font-medium text-sm text-gray-900">{invoice.invoiceNumber}</span>
               <Badge variant={getInvoiceStatusVariant(invoice.status)} className="text-xs">
                 {getInvoiceStatusLabel(invoice.status)}
+              </Badge>
+              <Badge
+                variant={getInvoicePaymentStatusVariant(invoice.paymentStatus)}
+                className="text-xs"
+              >
+                {getInvoicePaymentStatusLabel(invoice.paymentStatus)}
               </Badge>
             </div>
             <div className="text-xs text-gray-600 mt-1">
@@ -127,11 +133,28 @@ const getInvoiceStatusLabel = (status: InvoiceStatus) => {
   }
   return statusMap[status] || 'Unknown'
 }
-
 const getInvoiceStatusVariant = (
   status: InvoiceStatus
-): 'default' | 'secondary' | 'destructive' => {
-  if (status === InvoiceStatus.FINALIZED) return 'default'
+): 'default' | 'secondary' | 'destructive' | 'success' => {
+  if (status === InvoiceStatus.FINALIZED) return 'success'
   if (status === InvoiceStatus.VOID || status === InvoiceStatus.UNCOLLECTIBLE) return 'destructive'
   return 'secondary'
+}
+
+const getInvoicePaymentStatusLabel = (status: InvoicePaymentStatus) => {
+  const statusMap: Record<InvoicePaymentStatus, string> = {
+    [InvoicePaymentStatus.ERRORED]: 'Errored',
+    [InvoicePaymentStatus.PAID]: 'Paid',
+    [InvoicePaymentStatus.PARTIALLY_PAID]: 'Partially Paid',
+    [InvoicePaymentStatus.UNPAID]: 'Unpaid',
+  }
+  return statusMap[status] || 'Unknown'
+}
+
+const getInvoicePaymentStatusVariant = (
+  status: InvoicePaymentStatus
+): 'default' | 'secondary' | 'destructive' | 'success' | 'warning' => {
+  if (status === InvoicePaymentStatus.PAID) return 'success'
+  if (status === InvoicePaymentStatus.ERRORED) return 'destructive'
+  return 'warning'
 }

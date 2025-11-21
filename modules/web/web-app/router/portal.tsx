@@ -5,6 +5,7 @@ import { PortalCheckoutSuccess } from '@/pages/portal/checkout-success'
 import { PortalCustomer } from '@/pages/portal/customer'
 import { PortalInvoicePayment } from '@/pages/portal/invoice-payment'
 import { PortalQuote } from '@/pages/portal/quote'
+import { PortalSubscription } from '@/pages/portal/subscription'
 
 export const portalRoutes: RouteObject = {
   children: [
@@ -54,6 +55,10 @@ export const portalRoutes: RouteObject = {
     {
       path: 'portal/customer',
       element: <PortalCustomer />,
+    },
+    {
+      path: 'portal/subscription/:subscriptionId',
+      element: <PortalSubscription />,
     },
   ],
 }

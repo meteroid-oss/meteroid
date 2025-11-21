@@ -5,11 +5,15 @@ import { useNavigate } from 'react-router-dom'
 
 import { PaymentPanel } from '@/features/checkout/PaymentPanel'
 import { BillingInfo } from '@/features/checkout/components/BillingInfo'
+import { ReadonlyPaymentView } from '@/features/checkout/components/ReadonlyPaymentView'
+import { getInvoicePaymentAvailability } from '@/features/checkout/utils/paymentAvailability'
 import { confirmInvoicePayment } from '@/rpc/portal/invoice/v1/invoice-PortalInvoiceService_connectquery'
 import { formatCurrency } from '@/utils/numbers'
 
 import { BankTransferInfo } from './components/BankTransferInfo'
+import { InvoicePdfDownload } from './components/InvoicePdfDownload'
 import { InvoiceSummary } from './components/InvoiceSummary'
+import { TransactionList } from './components/TransactionList'
 import { InvoicePaymentData } from './types'
 
 /**
@@ -65,6 +69,16 @@ const InvoicePaymentFlow: React.FC<InvoicePaymentData> = ({ invoicePaymentData }
     return <div className="p-8 text-center">Loading invoice payment information...</div>
   }
 
+  // Determine what payment UI to show
+  const paymentAvailability = getInvoicePaymentAvailability({
+    invoiceStatus: invoice.status,
+    paymentStatus: invoice.paymentStatus,
+    cardConnectionId,
+    directDebitConnectionId,
+    bankAccount,
+    hasTransactions: (invoice.transactions?.length ?? 0) > 0,
+  })
+
   return (
     <div className="flex flex-col lg:flex-row min-h-screen">
       {/* Mobile header */}
@@ -97,39 +111,64 @@ const InvoicePaymentFlow: React.FC<InvoicePaymentData> = ({ invoicePaymentData }
               setIsEditing={setIsAddressEditing}
             />
 
-            {/* Bank transfer info - show if available and no online payment methods */}
-            {bankAccount && !cardConnectionId && !directDebitConnectionId && (
+            {/* Invoice PDF Download */}
+            <InvoicePdfDownload
+              invoiceId={invoice.id}
+              invoiceNumber={invoice.invoiceNumber}
+              documentSharingKey={invoice.documentSharingKey}
+              pdfDocumentId={invoice.pdfDocumentId}
+            />
+
+            {/* Render based on payment availability */}
+            {paymentAvailability.type === 'readonly' && (
+              <>
+                <ReadonlyPaymentView
+                  reason={paymentAvailability.reason}
+                  displayTransactions={paymentAvailability.displayTransactions}
+                />
+                {paymentAvailability.displayTransactions && invoice.transactions && (
+                  <TransactionList transactions={invoice.transactions} currency={invoice.currency} />
+                )}
+              </>
+            )}
+
+            {paymentAvailability.type === 'bank_only' && (
               <BankTransferInfo
-                bankAccount={bankAccount}
+                bankAccount={paymentAvailability.bankAccount}
                 invoiceNumber={invoice.invoiceNumber}
                 customerName={customer?.name}
               />
             )}
 
-            {/* Payment panel - show if online payment is available */}
-            {(cardConnectionId || directDebitConnectionId) && (
+            {paymentAvailability.type === 'payment_form' && (
               <>
-                <PaymentPanel
-                  customer={customer}
-                  paymentMethods={paymentMethods || []}
-                  currency={invoice.currency}
-                  totalAmount={formatCurrency(Number(invoice.amountDue) || 0, invoice.currency)}
-                  onPaymentSubmit={handlePaymentSubmit}
-                  cardConnectionId={cardConnectionId}
-                  directDebitConnectionId={directDebitConnectionId}
-                />
-
-                {/* Also show bank transfer as alternative if available */}
-                {bankAccount && (
-                  <div className="mt-6">
-                    <div className="text-center text-sm text-gray-500 mb-4">or</div>
-                    <BankTransferInfo
-                      bankAccount={bankAccount}
-                      invoiceNumber={invoice.invoiceNumber}
-                      customerName={customer?.name}
-                    />
-                  </div>
+                {/* Show payment panel if card or DD available */}
+                {(paymentAvailability.cardConnectionId ||
+                  paymentAvailability.directDebitConnectionId) && (
+                  <PaymentPanel
+                    customer={customer}
+                    paymentMethods={paymentMethods || []}
+                    currency={invoice.currency}
+                    totalAmount={formatCurrency(Number(invoice.amountDue) || 0, invoice.currency)}
+                    onPaymentSubmit={handlePaymentSubmit}
+                    cardConnectionId={paymentAvailability.cardConnectionId}
+                    directDebitConnectionId={paymentAvailability.directDebitConnectionId}
+                  />
                 )}
+
+                {/* Show bank transfer as alternative if available */}
+                {paymentAvailability.bankAccount &&
+                  (paymentAvailability.cardConnectionId ||
+                    paymentAvailability.directDebitConnectionId) && (
+                    <div className="mt-6">
+                      <div className="text-center text-sm text-gray-500 mb-4">or</div>
+                      <BankTransferInfo
+                        bankAccount={paymentAvailability.bankAccount}
+                        invoiceNumber={invoice.invoiceNumber}
+                        customerName={customer?.name}
+                      />
+                    </div>
+                  )}
               </>
             )}
           </div>

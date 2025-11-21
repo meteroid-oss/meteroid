@@ -29,7 +29,7 @@ use meteroid_store::utils::periods::calculate_proration_factor;
 use rust_decimal::prelude::FromPrimitive;
 use std::time::Duration;
 use tonic::{Request, Response, Status};
-
+use meteroid_store::repositories::bank_accounts::BankAccountsInterface;
 
 #[tonic::async_trait]
 impl PortalCheckoutService for PortalCheckoutServiceComponents {
@@ -98,11 +98,26 @@ impl PortalCheckoutService for PortalCheckoutServiceComponents {
             .map(crate::api::customers::mapping::customer_payment_method::domain_to_server)
             .collect();
 
+        // Get bank account if configured on the subscription (set by payment strategy during creation)
+        let bank_account = if let Some(bank_account_id) = subscription.subscription.bank_account_id {
+            self.store
+                .get_bank_account_by_id(bank_account_id, tenant)
+                .await
+                .ok()
+                .map(crate::api::bankaccounts::mapping::bank_accounts::domain_to_proto)
+        } else {
+            None
+        };
+
         let organization = self
             .store
             .get_organization_by_tenant_id(&tenant)
             .await
             .map_err(Into::<PortalCheckoutApiError>::into)?;
+
+        // Use subscription's payment method configuration (set by payment strategy during creation)
+        let card_connection_id = subscription.subscription.card_connection_id;
+        let direct_debit_connection_id = subscription.subscription.direct_debit_connection_id;
 
         let subscription =
             crate::api::subscriptions::mapping::subscriptions::details_domain_to_proto(
@@ -175,6 +190,9 @@ impl PortalCheckoutService for PortalCheckoutServiceComponents {
                 coupon_amount: coupon_amount.to_non_negative_u64(),
                 tax_breakdown,
                 applied_coupons,
+                card_connection_id: card_connection_id.map(|id| id.to_string()),
+                direct_debit_connection_id: direct_debit_connection_id.map(|id| id.to_string()),
+                bank_account,
             }),
         }))
     }

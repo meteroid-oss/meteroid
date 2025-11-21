@@ -16,7 +16,7 @@ export const PortalCustomer = () => {
   const [isAddressEditing, setIsAddressEditing] = useState(false)
 
   const overviewQuery = useQuery(getCustomerPortalOverview)
-  const { data, error, isLoading } = overviewQuery
+  const { data, error, isLoading, refetch } = overviewQuery
 
   if (error) {
     return (
@@ -46,7 +46,8 @@ export const PortalCustomer = () => {
     )
   }
 
-  const { customer, activeSubscriptions, paymentMethods } = data.overview
+  const { customer, activeSubscriptions, paymentMethods, cardConnectionId, directDebitConnectionId } =
+    data.overview
 
   if (!customer) {
     return null
@@ -75,7 +76,12 @@ export const PortalCustomer = () => {
             />
 
             {/* Payment Methods */}
-            <CustomerPortalPaymentMethods paymentMethods={paymentMethods || []} />
+            <CustomerPortalPaymentMethods
+              paymentMethods={paymentMethods || []}
+              cardConnectionId={cardConnectionId}
+              directDebitConnectionId={directDebitConnectionId}
+              onRefetch={() => refetch()}
+            />
           </div>
 
           {/* Right Column - Subscriptions & Invoices */}

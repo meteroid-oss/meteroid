@@ -14,7 +14,9 @@ use meteroid_store::repositories::{InvoiceInterface, OrganizationsInterface};
 use std::time::Duration;
 use tonic::{Request, Response, Status};
 use meteroid_store::repositories::bank_accounts::BankAccountsInterface;
-
+use meteroid_store::repositories::payment_transactions::PaymentTransactionInterface;
+use crate::api::invoices::mapping;
+use meteroid_store::repositories::SubscriptionInterface;
 
 #[tonic::async_trait]
 impl PortalInvoiceService for PortalInvoiceServiceComponents {
@@ -38,11 +40,23 @@ impl PortalInvoiceService for PortalInvoiceServiceComponents {
             )),
         }?;
 
+        let transactions = self
+            .store
+            .list_payment_tx_by_invoice_id(tenant, invoice_id)
+            .await
+            .map_err(Into::<PortalInvoiceApiError>::into)?
+            .into_iter()
+            .map(mapping::transactions::domain_with_method_to_server)
+            .collect::<Vec<_>>();
+
         let invoice = self
             .store
             .get_detailed_invoice_by_id(tenant, invoice_id)
             .await
             .map_err(Into::<PortalInvoiceApiError>::into)?;
+
+
+
 
         if let Some(cid) = customer_id
             && invoice.invoice.customer_id != cid {
@@ -78,22 +92,45 @@ impl PortalInvoiceService for PortalInvoiceServiceComponents {
             .await
             .map_err(Into::<PortalInvoiceApiError>::into)?;
 
-        // Get or create customer connections for payment providers
-        let (card_connection_id, direct_debit_connection_id) = self
-            .services
-            .get_or_create_customer_connections(
-                tenant,
-                customer.id,
-                customer.invoicing_entity_id,
-            )
-            .await
-            .map_err(Into::<PortalInvoiceApiError>::into)?;
+        // Determine payment method availability based on subscription payment strategy
+        // If invoice is linked to a subscription, use the subscription's payment configuration
+        // Otherwise, use get_or_create_customer_connections for standalone invoices
+        let (card_connection_id, direct_debit_connection_id, bank_account_id_override) = if let Some(subscription_id) = invoice.invoice.subscription_id {
+            let subscription = self
+                .store
+                .get_subscription(tenant, subscription_id)
+                .await
+                .map_err(Into::<PortalInvoiceApiError>::into)?;
 
-        let invoice = crate::api::invoices::mapping::invoices::domain_invoice_with_transactions_to_server(
+            // Use subscription's payment configuration (respects payment strategy)
+            (
+                subscription.card_connection_id,
+                subscription.direct_debit_connection_id,
+                subscription.bank_account_id,
+            )
+        } else {
+            // Standalone invoice - create customer connections if needed
+            let (card_conn, dd_conn) = self
+                .services
+                .get_or_create_customer_connections(
+                    tenant,
+                    customer.id,
+                    customer.invoicing_entity_id,
+                )
+                .await
+                .map_err(Into::<PortalInvoiceApiError>::into)?;
+            (card_conn, dd_conn, None)
+        };
+
+
+        let mut invoice = crate::api::invoices::mapping::invoices::domain_invoice_with_transactions_to_server(
             invoice.invoice,
             invoice.transactions,
             self.jwt_secret.clone(),
         ).map_err(Into::<PortalInvoiceApiError>::into)?;
+
+        invoice.transactions = transactions;
+
 
         let customer = ServerCustomerWrapper::try_from(customer)
             .map(|v| v.0)
@@ -112,8 +149,10 @@ impl PortalInvoiceService for PortalInvoiceServiceComponents {
             None
         };
 
-        // Get bank account if configured
-        let bank_account = if let Some(bank_account_id) = invoicing_entity.bank_account_id {
+        // Get bank account - prefer subscription's bank account (set by payment strategy),
+        // otherwise use invoicing entity's default
+        let bank_account_id_to_use = bank_account_id_override.or(invoicing_entity.bank_account_id);
+        let bank_account = if let Some(bank_account_id) = bank_account_id_to_use {
             self.store
                 .get_bank_account_by_id(bank_account_id, tenant)
                 .await

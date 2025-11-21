@@ -1,8 +1,5 @@
 use crate::domain::enums::{ConnectorTypeEnum, PaymentMethodTypeEnum, PlanTypeEnum};
-use crate::domain::{
-    Customer, CustomerConnection, InvoicingEntityProviderSensitive, SubscriptionNew,
-    SubscriptionPaymentStrategy,
-};
+use crate::domain::{Customer, CustomerConnection, InvoicingEntityProviderSensitive, SubscriptionActivationCondition, SubscriptionNew, SubscriptionPaymentStrategy};
 use crate::errors::StoreError;
 
 use super::context::SubscriptionCreationContext;
@@ -66,6 +63,46 @@ impl Services {
                     "No invoicing entity found for customer".to_string(),
                 ))
             })?;
+
+        // Validate activation_condition + payment_strategy combination
+        if matches!(subscription.activation_condition, SubscriptionActivationCondition::OnCheckout) {
+            // OnCheckout requires Auto strategy (can't checkout with Bank or External)
+            if !matches!(strategy, SubscriptionPaymentStrategy::Auto) {
+                return Err(Report::new(StoreError::InvalidArgument(
+                    "OnCheckout activation requires Auto payment strategy. Use OnStart or Manual with Bank/External strategies.".to_string(),
+                )));
+            }
+
+            // OnCheckout requires at least one online payment provider (card or direct debit)
+            let has_online_provider = invoicing_entity_providers.card_provider.is_some()
+                || invoicing_entity_providers.direct_debit_provider.is_some();
+
+            if !has_online_provider {
+                return Err(Report::new(StoreError::InvalidArgument(
+                    "OnCheckout activation requires a card or direct debit payment provider to be configured on the invoicing entity. Please configure a payment provider or use OnStart/Manual activation.".to_string(),
+                )));
+            }
+        }
+
+        // Validate charge_automatically flag
+        if subscription.charge_automatically {
+            // ChargeAutomatically requires at least one online payment provider (card or direct debit)
+            let has_online_provider = invoicing_entity_providers.card_provider.is_some()
+                || invoicing_entity_providers.direct_debit_provider.is_some();
+
+            if !has_online_provider {
+                return Err(Report::new(StoreError::InvalidArgument(
+                    "Automatic charging requires a card or direct debit payment provider to be configured on the invoicing entity. Please configure a payment provider or set charge_automatically to false.".to_string(),
+                )));
+            }
+
+            // ChargeAutomatically doesn't make sense with Bank or External strategies
+            if matches!(strategy, SubscriptionPaymentStrategy::Bank | SubscriptionPaymentStrategy::External) {
+                return Err(Report::new(StoreError::InvalidArgument(
+                    "Automatic charging requires Auto payment strategy. Set charge_automatically to false when using Bank or External payment strategies.".to_string(),
+                )));
+            }
+        }
 
         // Get customer's existing payment provider connections
         let connections = context.get_customer_connection_for_customer(customer);

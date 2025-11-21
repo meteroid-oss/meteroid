@@ -78,17 +78,17 @@ export const PaymentMethodsTab = () => {
   const methods = useZodForm({
     schema: paymentMethodsSchema,
     defaultValues: {
-      cardProviderId: '',
-      directDebitProviderId: '',
-      bankAccountId: '',
+      cardProviderId: 'none',
+      directDebitProviderId: 'none',
+      bankAccountId: 'none',
     },
   })
 
   useEffect(() => {
     if (providersQuery.data && !methods.formState.isDirty) {
-      methods.setValue('cardProviderId', providersQuery.data.cardProvider?.id)
-      methods.setValue('directDebitProviderId', providersQuery.data.directDebitProvider?.id)
-      methods.setValue('bankAccountId', providersQuery.data.bankAccount?.id)
+      methods.setValue('cardProviderId', providersQuery.data.cardProvider?.id || 'none')
+      methods.setValue('directDebitProviderId', providersQuery.data.directDebitProvider?.id || 'none')
+      methods.setValue('bankAccountId', providersQuery.data.bankAccount?.id || 'none')
     }
   }, [providersQuery.data, methods.formState.isDirty, invoiceEntityId])
 
@@ -103,11 +103,9 @@ export const PaymentMethodsTab = () => {
   const onSubmit = async (values: z.infer<typeof paymentMethodsSchema>) => {
     await updateInvoicingEntityMut.mutateAsync({
       id: invoiceEntityId,
-      cardProviderId: values.cardProviderId?.length ? values.cardProviderId : undefined,
-      directDebitProviderId: values.directDebitProviderId?.length
-        ? values.directDebitProviderId
-        : undefined,
-      bankAccountId: values.bankAccountId?.length ? values.bankAccountId : undefined,
+      cardProviderId: values.cardProviderId === 'none' ? undefined : values.cardProviderId,
+      directDebitProviderId: values.directDebitProviderId === 'none' ? undefined : values.directDebitProviderId,
+      bankAccountId: values.bankAccountId === 'none' ? undefined : values.bankAccountId,
     })
   }
 
@@ -172,7 +170,7 @@ export const PaymentMethodsTab = () => {
                         </SelectTrigger>
                         <SelectContent>
                           {paymentProviders.length == 0 ? <SelectEmpty /> : null}
-
+                          <SelectItem value="none">None</SelectItem>
                           {paymentProviders.map(provider => (
                             <SelectItem key={provider.id} value={provider.id}>
                               <div className="flex items-center">
@@ -214,7 +212,7 @@ export const PaymentMethodsTab = () => {
                         </SelectTrigger>
                         <SelectContent>
                           {paymentProviders.length == 0 ? <SelectEmpty /> : null}
-
+                          <SelectItem value="none">None</SelectItem>
                           {paymentProviders.map(provider => (
                             <SelectItem key={provider.id} value={provider.id}>
                               <div className="flex items-center">
@@ -257,6 +255,7 @@ export const PaymentMethodsTab = () => {
                         </SelectTrigger>
                         <SelectContent>
                           {bankAccounts.length == 0 ? <SelectEmpty /> : null}
+                          <SelectItem value="none">None</SelectItem>
                           {bankAccounts.map(account => (
                             <SelectItem key={account.id} value={account.id}>
                               {account.displayName}
