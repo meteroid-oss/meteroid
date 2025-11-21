@@ -1,5 +1,4 @@
-import { Card } from '@md/ui'
-import { CheckCircle, AlertCircle, Info, Ban, XCircle } from 'lucide-react'
+import { AlertCircle, Ban, CheckCircle, Info, XCircle } from 'lucide-react'
 
 interface ReadonlyPaymentViewProps {
   reason:
@@ -13,7 +12,6 @@ interface ReadonlyPaymentViewProps {
     | 'draft_invoice'
   title?: string
   message?: string
-  displayTransactions?: boolean
   children?: React.ReactNode
 }
 
@@ -21,25 +19,22 @@ export const ReadonlyPaymentView: React.FC<ReadonlyPaymentViewProps> = ({
   reason,
   title,
   message,
-  displayTransactions,
   children,
 }) => {
   const config = getReasonConfig(reason)
 
   return (
-    <Card className="border-0 shadow-sm mt-6">
-      <div className="p-6">
-        <div className="flex items-start">
-          <div className={`flex-shrink-0 ${config.iconColor}`}>{config.icon}</div>
-          <div className="ml-4 flex-1">
-            <h3 className="text-sm font-medium text-gray-900">{title || config.title}</h3>
-            <div className="mt-2 text-sm text-gray-600">{message || config.message}</div>
+    <div className="py-6 mt-6">
+      <div className="flex items-start">
+        <div className={`flex-shrink-0 ${config.iconColor}`}>{config.icon}</div>
+        <div className="ml-4 flex-1">
+          <h3 className="text-sm font-medium text-gray-900">{title || config.title}</h3>
+          <div className="mt-2 text-sm text-gray-600">{message || config.message}</div>
 
-            {children && <div className="mt-4">{children}</div>}
-          </div>
+          {children && <div className="mt-4">{children}</div>}
         </div>
       </div>
-    </Card>
+    </div>
   )
 }
 
@@ -57,7 +52,7 @@ function getReasonConfig(reason: ReadonlyPaymentViewProps['reason']) {
       icon: <CheckCircle className="h-6 w-6" />,
       iconColor: 'text-green-600',
       title: 'Payment Completed',
-      message: 'This invoice has been paid. Thank you for your payment!',
+      message: 'Thank you for your payment!',
     },
     already_active: {
       icon: <CheckCircle className="h-6 w-6" />,
@@ -101,7 +96,8 @@ function getReasonConfig(reason: ReadonlyPaymentViewProps['reason']) {
       icon: <Info className="h-6 w-6" />,
       iconColor: 'text-gray-500',
       title: 'Draft Invoice',
-      message: 'This invoice is still in draft status and cannot be paid yet. It will be available for payment once finalized.',
+      message:
+        'This invoice is still in draft status and cannot be paid yet. It will be available for payment once finalized.',
     },
   }
 

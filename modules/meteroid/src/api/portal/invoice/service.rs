@@ -136,6 +136,8 @@ impl PortalInvoiceService for PortalInvoiceServiceComponents {
             .map(|v| v.0)
             .map_err(Into::<PortalInvoiceApiError>::into)?;
 
+        log::info!("logo_attachment_id: {:?}", invoicing_entity.logo_attachment_id);
+
         let logo_url = if let Some(logo_attachment_id) = invoicing_entity.logo_attachment_id {
             self.object_store
                 .get_url(
@@ -148,6 +150,8 @@ impl PortalInvoiceService for PortalInvoiceServiceComponents {
         } else {
             None
         };
+
+        log::info!("logo_url: {:?}", logo_url);
 
         // Get bank account - prefer subscription's bank account (set by payment strategy),
         // otherwise use invoicing entity's default
@@ -172,6 +176,9 @@ impl PortalInvoiceService for PortalInvoiceServiceComponents {
                 card_connection_id: card_connection_id.map(|t| t.as_proto()),
                 direct_debit_connection_id: direct_debit_connection_id.map(|t| t.as_proto()),
                 bank_account,
+                footer_legal: invoicing_entity.invoice_footer_legal,
+                legal_number: invoicing_entity.vat_number,
+                footer_info: invoicing_entity.invoice_footer_info,
             }),
         }))
     }

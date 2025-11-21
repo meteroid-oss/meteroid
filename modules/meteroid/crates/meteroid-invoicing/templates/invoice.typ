@@ -84,11 +84,11 @@
             #show link: underline
             #link("https://meteroid.com?utm_source=invoice", [
               #text(font: inter, size: 8pt, fill: color.heading, [Billing automation for SaaS])
-            ]) • #number • #format_amount(total_amount) due #due_date
+            ]) • #number • #format_amount(total_amount) #translations.due_label #due_date
           ])
         } else {
           text(font: inter, size: 8pt, fill: color.footer_text, [
-            #number • #format_amount(total_amount) due #due_date
+            #number • #format_amount(total_amount) #translations.due_label #due_date
           ])
         },
 
@@ -204,7 +204,7 @@
           #format_amount(total_amount)
         ])
          #text(size: 12pt, weight: "bold", fill: color.heading, [
-          due #due_date
+          #translations.due_label #due_date
         ])
 
 

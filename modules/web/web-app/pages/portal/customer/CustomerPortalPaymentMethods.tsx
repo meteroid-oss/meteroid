@@ -40,88 +40,72 @@ export const CustomerPortalPaymentMethods = ({
 
   return (
     <>
-      <div className="text-sm">
-        <div className="text-sm font-medium mb-2">Payment methods</div>
-
-        {paymentMethods.length === 0 ? (
-          <div className="border border-gray-200 rounded-lg p-6 text-center">
-            <div className="text-sm text-muted-foreground mb-3">No payment methods saved</div>
-            {hasPaymentConnections && (
-              <Button
-                size="sm"
-                onClick={handleAddPaymentMethod}
-                className="bg-blue-600 hover:bg-blue-700"
-              >
-                <Plus size={16} className="mr-2" />
-                Add payment method
-              </Button>
-            )}
-          </div>
-        ) : (
+      {paymentMethods.length === 0 ? (
+        <div className="text-center py-3">
+          <p className="text-xs text-gray-500 mb-2">No payment method on file</p>
+          {hasPaymentConnections && (
+            <button
+              onClick={handleAddPaymentMethod}
+              className="text-xs text-gray-600 hover:text-gray-900 font-medium"
+            >
+              + Add payment method
+            </button>
+          )}
+        </div>
+      ) : (
         <div className="space-y-2">
-          {paymentMethods.map(method => {
+          {paymentMethods.map((method, index) => {
             const isCard =
               method.paymentMethodType === CustomerPaymentMethod_PaymentMethodTypeEnum.CARD
-            const isDefault = false // TODO
+            const isDefault = index === 0 // First one is default
 
             return (
-              <div
-                key={method.id}
-                className="relative flex items-center p-4 border border-gray-200 rounded-lg"
-              >
-                {isCard ? (
-                  <>
-                    <CreditCard size={20} className="mr-3 text-gray-500" />
-                    <div className="flex-1">
-                      <div className="font-medium text-sm">
-                        {method.cardBrand} •••• {method.cardLast4}
+              <div key={method.id} className="flex items-center justify-between text-sm">
+                <div className="flex items-center gap-2.5">
+                  {isCard ? (
+                    <>
+                      {method.cardBrand && <CardBrandLogo brand={method.cardBrand} />}
+                      <div>
+                        <div className="text-gray-900 font-medium">
+                          •••• {method.cardLast4}
+                        </div>
+                        <div className="text-xs text-gray-500">
+                          Expires {method.cardExpMonth?.toString().padStart(2, '0')}/
+                          {method.cardExpYear}
+                        </div>
                       </div>
-                      <div className="text-xs text-gray-500">
-                        Expires {method.cardExpMonth?.toString().padStart(2, '0')}/
-                        {method.cardExpYear?.toString().slice(-2)}
+                    </>
+                  ) : (
+                    <>
+                      <Building size={16} className="text-gray-500" />
+                      <div>
+                        <div className="text-gray-900 font-medium">Bank account</div>
+                        <div className="text-xs text-gray-500">
+                          {method.accountNumberHint && `••••${method.accountNumberHint}`}
+                        </div>
                       </div>
-                    </div>
-                    {method.cardBrand && (
-                      <div className="ml-auto">
-                        <CardBrandLogo brand={method.cardBrand} />
-                      </div>
-                    )}
-                  </>
-                ) : (
-                  <>
-                    <Building size={20} className="mr-3 text-gray-500" />
-                    <div className="flex-1">
-                      <div className="font-medium text-sm">Bank account</div>
-                      <div className="text-xs text-gray-500">
-                        {method.accountNumberHint && `••••${method.accountNumberHint}`}
-                      </div>
-                    </div>
-                  </>
-                )}
-
+                    </>
+                  )}
+                </div>
                 {isDefault && (
-                  <div className="absolute top-2 right-2 bg-blue-100 text-blue-800 text-xs rounded px-2 py-0.5">
+                  <span className="text-xs text-gray-500 bg-gray-100 px-2 py-0.5 rounded">
                     Default
-                  </div>
+                  </span>
                 )}
               </div>
             )
           })}
 
           {hasPaymentConnections && (
-            <Button
-              size="sm"
-              variant="ghost"
+            <button
               onClick={handleAddPaymentMethod}
-              className="w-full text-blue-600 hover:text-blue-700 hover:bg-blue-50"
+              className="text-xs text-gray-600 hover:text-gray-900 font-medium mt-2"
             >
-              <Plus size={16} className="mr-2" />
-              Add another payment method
-            </Button>
+              + Add payment method
+            </button>
           )}
         </div>
       )}
-      </div>
 
       <AddPaymentMethodDialog
         open={isDialogOpen}

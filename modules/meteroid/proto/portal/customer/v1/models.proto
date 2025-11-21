@@ -13,6 +13,9 @@ message CustomerPortalOverview {
   repeated api.customers.v1.CustomerPaymentMethod payment_methods = 4;
   optional string card_connection_id = 5;
   optional string direct_debit_connection_id = 6;
+  optional string invoicing_entity_name = 7;
+  optional string invoicing_entity_logo_url = 8;
+  optional string invoicing_entity_brand_color = 9;
 }
 
 message SubscriptionSummary {

@@ -124,12 +124,14 @@ export const StepSettings = () => {
       toDate: state.endDate,
       billingDay: state.billingDay,
       trialDuration: state.trialDuration,
-      activationCondition: state.activationCondition !== undefined
-        ? activationConditionToString(state.activationCondition)
-        : 'ON_START',
-      paymentStrategy: state.paymentStrategy !== undefined
-        ? paymentStrategyToString(state.paymentStrategy)
-        : 'AUTO',
+      activationCondition:
+        state.activationCondition !== undefined
+          ? activationConditionToString(state.activationCondition)
+          : 'ON_START',
+      paymentStrategy:
+        state.paymentStrategy !== undefined
+          ? paymentStrategyToString(state.paymentStrategy)
+          : 'AUTO',
       netTerms: state.netTerms,
       invoiceMemo: state.invoiceMemo,
       invoiceThreshold: state.invoiceThreshold,
@@ -168,12 +170,12 @@ export const StepSettings = () => {
     }
   }, [activationCondition, paymentStrategy, methods])
 
-  // Auto-set payment strategy to Auto when ChargeAutomatically is enabled
+  // Auto-disable chargeAutomatically when Bank or External payment strategy is selected
   useEffect(() => {
-    if (chargeAutomatically && (paymentStrategy === 'BANK' || paymentStrategy === 'EXTERNAL')) {
-      methods.setValue('paymentStrategy', 'AUTO')
+    if ((paymentStrategy === 'BANK' || paymentStrategy === 'EXTERNAL') && chargeAutomatically) {
+      methods.setValue('chargeAutomatically', false)
     }
-  }, [chargeAutomatically, paymentStrategy, methods])
+  }, [paymentStrategy, chargeAutomatically, methods])
 
   const onSubmit = async (data: z.infer<typeof schema>) => {
     setState({
@@ -352,21 +354,13 @@ export const StepSettings = () => {
                     }
                   >
                     <SelectItem value="AUTO">Default</SelectItem>
-                    <SelectItem
-                      value="BANK"
-                      disabled={activationCondition === 'ON_CHECKOUT' || chargeAutomatically}
-                    >
+                    <SelectItem value="BANK" disabled={activationCondition === 'ON_CHECKOUT'}>
                       Bank transfer
-                      {(activationCondition === 'ON_CHECKOUT' || chargeAutomatically) &&
-                        ' (unavailable with Checkout)'}
+                      {activationCondition === 'ON_CHECKOUT' && ' (unavailable with Checkout)'}
                     </SelectItem>
-                    <SelectItem
-                      value="EXTERNAL"
-                      disabled={activationCondition === 'ON_CHECKOUT' || chargeAutomatically}
-                    >
+                    <SelectItem value="EXTERNAL" disabled={activationCondition === 'ON_CHECKOUT'}>
                       External
-                      {(activationCondition === 'ON_CHECKOUT' || chargeAutomatically) &&
-                        ' (unavailable with Checkout)'}
+                      {activationCondition === 'ON_CHECKOUT' && ' (unavailable with Checkout)'}
                     </SelectItem>
                   </SelectFormField>
                 </div>
@@ -415,9 +409,11 @@ export const StepSettings = () => {
                           </TooltipTrigger>
                           <TooltipContent>
                             <p className="max-w-xs">
-                              {hasOnlinePaymentProvider
-                                ? 'Automatically try charging the customer when an invoice is finalized, if a payment method is configured.'
-                                : 'Requires a card or direct debit payment provider to be configured on the invoicing entity.'}
+                              {!hasOnlinePaymentProvider
+                                ? 'Requires a card or direct debit payment provider to be configured on the invoicing entity.'
+                                : paymentStrategy === 'BANK' || paymentStrategy === 'EXTERNAL'
+                                  ? 'Not available with Bank or External payment strategies. Switch to Default payment strategy to enable.'
+                                  : 'Automatically try charging the customer when an invoice is finalized, if a payment method is configured.'}
                             </p>
                           </TooltipContent>
                         </Tooltip>
@@ -432,16 +428,23 @@ export const StepSettings = () => {
                             id="chargeAutomatically"
                             checked={field.value}
                             onCheckedChange={field.onChange}
-                            disabled={!isLoadingProviders && !hasOnlinePaymentProvider}
+                            disabled={
+                              (!isLoadingProviders && !hasOnlinePaymentProvider) ||
+                              paymentStrategy === 'BANK' ||
+                              paymentStrategy === 'EXTERNAL'
+                            }
                           />
                           <Label
                             htmlFor="chargeAutomatically"
-                            className={`font-normal text-sm ${!isLoadingProviders && !hasOnlinePaymentProvider ? 'text-muted-foreground' : ''}`}
+                            className={`font-normal text-sm ${(!isLoadingProviders && !hasOnlinePaymentProvider) || paymentStrategy === 'BANK' || paymentStrategy === 'EXTERNAL' ? 'text-muted-foreground' : ''}`}
                           >
                             {field.value ? 'Enabled' : 'Disabled'}
-                            {!isLoadingProviders &&
-                              !hasOnlinePaymentProvider &&
-                              ' (requires a payment provider)'}
+                            {!isLoadingProviders && !hasOnlinePaymentProvider
+                              ? ' (requires a payment provider)'
+                              : (paymentStrategy === 'BANK' || paymentStrategy === 'EXTERNAL') &&
+                                  field.value
+                                ? ' (disabled by payment strategy)'
+                                : ''}
                           </Label>
                         </div>
                       )}

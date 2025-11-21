@@ -15,4 +15,7 @@ message InvoiceForPayment {
   optional string card_connection_id = 6;
   optional string direct_debit_connection_id = 7;
   optional api.bankaccounts.v1.BankAccount bank_account = 8;
+  optional string footer_legal = 9;
+  optional string legal_number = 10;
+  optional string footer_info = 11;
 }

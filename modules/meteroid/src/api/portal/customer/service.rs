@@ -10,6 +10,7 @@ use meteroid_store::domain::enums::SubscriptionStatusEnum;
 use meteroid_store::repositories::{InvoiceInterface, SubscriptionInterface};
 use meteroid_store::repositories::customers::CustomersInterface;
 use meteroid_store::repositories::customer_payment_methods::CustomerPaymentMethodsInterface;
+use meteroid_store::repositories::invoicing_entities::InvoicingEntityInterface;
 use tonic::{Request, Response, Status};
 use common_utils::integers::ToNonNegativeU64;
 use crate::api::shared::conversions::{AsProtoOpt, ProtoConv};
@@ -75,9 +76,9 @@ impl PortalCustomerService for PortalCustomerServiceComponents {
                     billing_end: s.end_date.as_proto(),
                     mrr_cents: s.mrr_cents,
                     currency: s.currency,
-                    trial_start: None, // TODO
+                    trial_start: None, // TODO drop (status + next date)
                     trial_end: None,
-                    next_billing_date: None,
+                    next_billing_date: s.current_period_end.as_proto(), // TODO next action (cancels, ends, renews)
                 })
             })
             .collect::<Result<Vec<_>, _>>()?;
@@ -145,6 +146,17 @@ impl PortalCustomerService for PortalCustomerServiceComponents {
             .await
             .map_err(Into::<PortalCustomerApiError>::into)?;
 
+        // Get invoicing entity for branding
+        let invoicing_entity = self
+            .store
+            .get_invoicing_entity(tenant, Some(customer.invoicing_entity_id))
+            .await
+            .map_err(Into::<PortalCustomerApiError>::into)?;
+
+        let invoicing_entity_logo_url = invoicing_entity.logo_attachment_id.as_ref().map(|logo_id| {
+            format!("{}/files/v1/logo/{}", self.rest_api_external_url, logo_id)
+        });
+
         Ok(Response::new(GetCustomerPortalOverviewResponse {
             overview: Some(CustomerPortalOverview {
                 customer: Some(customer_proto),
@@ -153,6 +165,9 @@ impl PortalCustomerService for PortalCustomerServiceComponents {
                 payment_methods,
                 card_connection_id: card_connection_id.map(|id| id.to_string()),
                 direct_debit_connection_id: direct_debit_connection_id.map(|id| id.to_string()),
+                invoicing_entity_name: Some(invoicing_entity.legal_name),
+                invoicing_entity_logo_url,
+                invoicing_entity_brand_color: invoicing_entity.brand_color,
             }),
         }))
     }

@@ -1,4 +1,4 @@
-import { Card, Skeleton } from '@md/ui'
+import { Skeleton } from '@md/ui'
 import { AlertCircle } from 'lucide-react'
 import { useState } from 'react'
 
@@ -34,73 +34,113 @@ export const PortalCustomer = () => {
 
   if (isLoading || !data?.overview) {
     return (
-      <div className="min-h-screen w-full bg-[#00000002]">
-        <div className="container max-w-6xl mx-auto py-12 px-4">
-          <Skeleton height={32} width={200} className="mb-8" />
-          <div className="grid grid-cols-1 lg:grid-cols-2 gap-8">
-            <Skeleton height={400} />
-            <Skeleton height={400} />
+      <div className="min-h-screen bg-white">
+        <div className="border-b border-gray-200">
+          <div className="max-w-5xl mx-auto px-6 md:px-12 py-6">
+            <Skeleton height={32} width={200} />
           </div>
+        </div>
+        <div className="max-w-5xl mx-auto px-6 md:px-12 py-8">
+          <Skeleton height={16} width={100} className="mb-2" />
+          <Skeleton height={180} className="mb-6 rounded-lg" />
+          <div className="grid grid-cols-1 md:grid-cols-2 gap-6 mb-6">
+            <div>
+              <Skeleton height={16} width={120} className="mb-2" />
+              <Skeleton height={120} className="rounded-lg" />
+            </div>
+            <div>
+              <Skeleton height={16} width={140} className="mb-2" />
+              <Skeleton height={120} className="rounded-lg" />
+            </div>
+          </div>
+          <Skeleton height={16} width={80} className="mb-2" />
+          <Skeleton height={200} className="rounded-lg" />
         </div>
       </div>
     )
   }
 
-  const { customer, activeSubscriptions, paymentMethods, cardConnectionId, directDebitConnectionId } =
-    data.overview
+  const {
+    customer,
+    activeSubscriptions,
+    paymentMethods,
+    cardConnectionId,
+    directDebitConnectionId,
+    invoicingEntityName,
+    invoicingEntityLogoUrl,
+    invoicingEntityBrandColor,
+  } = data.overview
 
   if (!customer) {
     return null
   }
 
   return (
-    <div className="min-h-screen w-full bg-[#00000002]">
-      <div className="container max-w-6xl mx-auto py-12 px-4 md:px-6 h-full">
-        {/* Header */}
-        <div className="mb-8">
-          <h1 className="text-2xl md:text-3xl font-semibold text-gray-900">Customer Portal</h1>
-          <p className="text-sm text-gray-600 mt-1">
-            Manage your subscriptions, invoices, and billing information
-          </p>
+    <div className="min-h-screen bg-white">
+      {/* Header */}
+      <div className="border-b border-gray-200">
+        <div className="max-w-5xl mx-auto px-6 md:px-12 py-6 flex items-center justify-between">
+          <div className="flex items-center gap-4">
+            {invoicingEntityLogoUrl && (
+              <img
+                src={invoicingEntityLogoUrl}
+                alt={invoicingEntityName || 'Company logo'}
+                className="h-8 w-auto object-contain"
+              />
+            )}
+            <div>
+              <p className="text-md font-medium text-gray-900">
+                {invoicingEntityName || customer.name} • Billing portal
+              </p>
+              <p className="text-sm text-gray-600">{customer.billingEmail}</p>
+            </div>
+          </div>
+        </div>
+      </div>
+
+      {/* Main Content */}
+      <div className="max-w-5xl mx-auto px-6 md:px-12 py-8">
+        {/* Subscription Section */}
+        <div className="mb-6">
+          <h2 className="text-xs font-medium text-gray-500 mb-2">Subscription</h2>
+          <div className="bg-white border border-gray-200 rounded p-4">
+            <CustomerPortalSubscriptions subscriptions={activeSubscriptions || []} />
+          </div>
         </div>
 
-        {/* Main Content Grid */}
-        <div className="grid grid-cols-1 lg:grid-cols-2 gap-6 h-full overflow-y-auto">
-          {/* Left Column - Billing & Payment */}
-          <div className="space-y-6">
-            {/* Billing Information */}
-            <BillingInfo
-              customer={customer}
-              isEditing={isAddressEditing}
-              setIsEditing={setIsAddressEditing}
-            />
-
-            {/* Payment Methods */}
-            <CustomerPortalPaymentMethods
-              paymentMethods={paymentMethods || []}
-              cardConnectionId={cardConnectionId}
-              directDebitConnectionId={directDebitConnectionId}
-              onRefetch={() => refetch()}
-            />
+        {/* Two Column Layout */}
+        <div className="grid grid-cols-1 md:grid-cols-2 gap-6 mb-6">
+          {/* Payment Method */}
+          <div>
+            <h2 className="text-xs font-medium text-gray-500 mb-2">Payment method</h2>
+            <div className="bg-white border border-gray-200 rounded p-4">
+              <CustomerPortalPaymentMethods
+                paymentMethods={paymentMethods || []}
+                cardConnectionId={cardConnectionId}
+                directDebitConnectionId={directDebitConnectionId}
+                onRefetch={() => refetch()}
+              />
+            </div>
           </div>
 
-          {/* Right Column - Subscriptions & Invoices */}
-          <div className="space-y-6">
-            {/* Subscriptions */}
-            <Card className="border-0 shadow-sm">
-              <div className="p-6">
-                <h2 className="text-md font-medium mb-4">Subscriptions</h2>
-                <CustomerPortalSubscriptions subscriptions={activeSubscriptions || []} />
-              </div>
-            </Card>
+          {/* Billing Information */}
+          <div>
+            <h2 className="text-xs font-medium text-gray-500 mb-2">Billing information</h2>
+            <div className="bg-white border border-gray-200 rounded p-4">
+              <BillingInfo
+                customer={customer}
+                isEditing={isAddressEditing}
+                setIsEditing={setIsAddressEditing}
+              />
+            </div>
+          </div>
+        </div>
 
-            {/* Recent Invoices */}
-            <Card className="border-0 shadow-sm">
-              <div className="p-6">
-                <h2 className="text-md font-medium mb-4">Invoices</h2>
-                <CustomerPortalInvoices />
-              </div>
-            </Card>
+        {/* Invoices Section */}
+        <div className="mb-6">
+          <h2 className="text-xs font-medium text-gray-500 mb-2">Invoices</h2>
+          <div className="bg-white border border-gray-200 rounded p-4">
+            <CustomerPortalInvoices />
           </div>
         </div>
       </div>

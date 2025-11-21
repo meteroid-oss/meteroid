@@ -1,17 +1,17 @@
 import { useMutation } from '@connectrpc/connect-query'
-import { Dialog, DialogContent, DialogHeader, DialogTitle, Button } from '@md/ui'
+import { Button, Dialog, DialogContent, DialogHeader, DialogTitle } from '@md/ui'
 import { Elements, useElements, useStripe } from '@stripe/react-stripe-js'
 import { loadStripe } from '@stripe/stripe-js/pure'
-import { AlertCircle, CreditCard, Building } from 'lucide-react'
+import { AlertCircle, Building, CreditCard } from 'lucide-react'
 import { useState } from 'react'
 
+import { PaymentForm } from '@/features/checkout/components/PaymentForm'
 import { useQuery } from '@/lib/connectrpc'
+import { ConnectionTypeEnum } from '@/rpc/portal/shared/v1/models_pb'
 import {
   addPaymentMethod,
   setupIntent,
 } from '@/rpc/portal/shared/v1/shared-PortalSharedService_connectquery'
-import { ConnectionTypeEnum } from '@/rpc/portal/shared/v1/models_pb'
-import { PaymentForm } from '@/features/checkout/components/PaymentForm'
 
 interface AddPaymentMethodDialogProps {
   open: boolean
@@ -157,11 +157,10 @@ export const AddPaymentMethodDialog: React.FC<AddPaymentMethodDialogProps> = ({
 
   const hasCard = !!cardConnectionId
   const hasDirectDebit = !!directDebitConnectionId
-  const hasBoth = hasCard && hasDirectDebit
+  const hasBoth = hasCard && hasDirectDebit && cardConnectionId !== directDebitConnectionId
 
   // Fetch setup intent for the active connection
-  const activeConnectionId =
-    activeTab === 'card' ? cardConnectionId : directDebitConnectionId
+  const activeConnectionId = activeTab === 'card' ? cardConnectionId : directDebitConnectionId
 
   const setupIntentQuery = useQuery(
     setupIntent,
@@ -233,16 +232,18 @@ export const AddPaymentMethodDialog: React.FC<AddPaymentMethodDialogProps> = ({
 
           {/* Loading/Error states */}
           {setupIntentQuery.isLoading && (
-            <div className="p-6 text-center text-sm text-gray-600">
-              Loading payment options...
-            </div>
+            <div className="p-6 text-center text-sm text-gray-600">Loading payment options...</div>
           )}
 
-          {(setupIntentQuery.isError || !clientSecret || !stripePublishableKey || !connectionId) && (
-            <div className="p-6 text-center text-sm text-red-600">
-              Unable to initialize payment system. Please try again later.
-            </div>
-          )}
+          {!setupIntentQuery.isLoading &&
+            (setupIntentQuery.isError ||
+              !clientSecret ||
+              !stripePublishableKey ||
+              !connectionId) && (
+              <div className="p-6 text-center text-sm text-red-600">
+                Unable to initialize payment system. Please try again later.
+              </div>
+            )}
 
           {/* Payment form */}
           {clientSecret && stripePublishableKey && connectionId && (

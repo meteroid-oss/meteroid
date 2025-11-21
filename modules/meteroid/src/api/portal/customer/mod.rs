@@ -12,6 +12,7 @@ pub struct PortalCustomerServiceComponents {
     pub services: Services,
     pub object_store: Arc<dyn ObjectStoreService>,
     pub jwt_secret: SecretString,
+    pub rest_api_external_url: String,
 }
 
 pub fn service(
@@ -19,12 +20,14 @@ pub fn service(
     services: Services,
     object_store: Arc<dyn ObjectStoreService>,
     jwt_secret: SecretString,
+    rest_api_external_url: String,
 ) -> PortalCustomerServiceServer<PortalCustomerServiceComponents> {
     let inner = PortalCustomerServiceComponents {
         store,
         services,
         object_store,
         jwt_secret,
+        rest_api_external_url,
     };
     PortalCustomerServiceServer::new(inner)
 }

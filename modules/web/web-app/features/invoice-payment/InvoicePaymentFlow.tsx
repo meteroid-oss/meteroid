@@ -97,13 +97,13 @@ const InvoicePaymentFlow: React.FC<InvoicePaymentData> = ({ invoicePaymentData }
       <div className="min-h-screen max-h-screen w-full flex md:flex-row flex-col overflow-auto">
         {/* Left panel - Invoice summary */}
         <div className="flex flex-col md:h-screen bg-background-gray gap-5 px-5 md:px-4 lg:px-20 lg:pt-16 lg:pb-20 pt-5 pb-5 border-b border-border-regular md:pb-8 md:pt-16 w-full md:overflow-auto">
-          <div className="md:max-w-[500px] w-full ml-auto  ">
+          <div className="  w-full ml-auto  ">
             <InvoiceSummary invoicePaymentData={invoicePaymentData} />
           </div>
         </div>
         {/* Right panel - Payment form */}
         <div className="w-full flex lg:px-20 md:px-4 px-5 flex-col bg-white md:h-screen md:overflow-auto lg:pt-16 py-5 shadow-md">
-          <div className="mr-auto ml-auto md:ml-0 md:pt-0 md:h-screen w-full max-w-[440px]">
+          <div className="mr-auto ml-auto md:ml-0 md:pt-0 md:h-screen w-full max-w-[440px] space-y-8">
             {/* Billing information */}
             <BillingInfo
               customer={customer}
@@ -122,12 +122,12 @@ const InvoicePaymentFlow: React.FC<InvoicePaymentData> = ({ invoicePaymentData }
             {/* Render based on payment availability */}
             {paymentAvailability.type === 'readonly' && (
               <>
-                <ReadonlyPaymentView
-                  reason={paymentAvailability.reason}
-                  displayTransactions={paymentAvailability.displayTransactions}
-                />
+                <ReadonlyPaymentView reason={paymentAvailability.reason} />
                 {paymentAvailability.displayTransactions && invoice.transactions && (
-                  <TransactionList transactions={invoice.transactions} currency={invoice.currency} />
+                  <TransactionList
+                    transactions={invoice.transactions}
+                    currency={invoice.currency}
+                  />
                 )}
               </>
             )}

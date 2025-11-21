@@ -40,84 +40,105 @@ export const CustomerPortalInvoices = () => {
   }
 
   if (invoicesQuery.isLoading) {
-    return <div className="text-center py-8 text-sm text-muted-foreground">Loading invoices...</div>
+    return (
+      <div className="text-center py-6">
+        <div className="inline-flex items-center gap-2 text-xs text-gray-500">
+          <svg className="animate-spin h-4 w-4" viewBox="0 0 24 24">
+            <circle
+              className="opacity-25"
+              cx="12"
+              cy="12"
+              r="10"
+              stroke="currentColor"
+              strokeWidth="4"
+              fill="none"
+            />
+            <path
+              className="opacity-75"
+              fill="currentColor"
+              d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"
+            />
+          </svg>
+          Loading...
+        </div>
+      </div>
+    )
   }
 
   if (invoices.length === 0) {
-    return <div className="text-center py-8 text-sm text-muted-foreground">No invoices found</div>
+    return (
+      <div className="text-center py-4">
+        <p className="text-xs text-gray-500">No invoices yet</p>
+      </div>
+    )
   }
 
   return (
-    <div className="space-y-3">
-      {invoices.map(invoice => (
-        <div
-          key={invoice.id}
-          className="flex items-center justify-between p-4 border border-gray-200 rounded-lg hover:border-gray-300 transition-colors"
-        >
-          <div className="flex-1 min-w-0">
+    <div>
+      <div className="space-y-0">
+        {invoices.map((invoice, index) => (
+          <div
+            key={invoice.id}
+            className={`flex items-center justify-between py-2 text-sm ${
+              index !== invoices.length - 1 ? 'border-b border-gray-100' : ''
+            }`}
+          >
+            <div className="flex items-center gap-4 flex-1">
+              <div className="w-24 text-gray-900">{invoice.invoiceDate}</div>
+              <div className="flex items-center gap-2">
+                <span className="font-medium text-gray-900">
+                  {formatCurrency(Number(invoice.totalCents), invoice.currency)}
+                </span>
+                <Badge
+                  variant={getInvoicePaymentStatusVariant(invoice.paymentStatus)}
+                  className="text-xs"
+                >
+                  {getInvoicePaymentStatusLabel(invoice.paymentStatus)}
+                </Badge>
+              </div>
+              {invoice.planName && (
+                <div className="text-gray-500 text-xs">{invoice.planName}</div>
+              )}
+            </div>
             <div className="flex items-center gap-2">
-              <span className="font-medium text-sm text-gray-900">{invoice.invoiceNumber}</span>
-              <Badge variant={getInvoiceStatusVariant(invoice.status)} className="text-xs">
-                {getInvoiceStatusLabel(invoice.status)}
-              </Badge>
-              <Badge
-                variant={getInvoicePaymentStatusVariant(invoice.paymentStatus)}
-                className="text-xs"
+              <button
+                onClick={() => handleViewInvoice(invoice.id)}
+                className="text-xs text-gray-600 hover:text-gray-900 font-medium"
               >
-                {getInvoicePaymentStatusLabel(invoice.paymentStatus)}
-              </Badge>
-            </div>
-            <div className="text-xs text-gray-600 mt-1">
-              {invoice.invoiceDate} • {formatCurrency(Number(invoice.totalCents), invoice.currency)}
+                View
+              </button>
+              {invoice.documentSharingKey && (
+                <button
+                  onClick={() => handleDownloadInvoice(invoice)}
+                  className="p-1.5 hover:bg-gray-100 rounded transition-colors"
+                  title="Download PDF"
+                >
+                  <Download className="h-3.5 w-3.5 text-gray-600" />
+                </button>
+              )}
             </div>
           </div>
-          <div className="flex items-center gap-1 ml-4">
-            <Button
-              size="sm"
-              variant="ghost"
-              onClick={() => handleViewInvoice(invoice.id)}
-              title="View Invoice"
-              className="h-8 w-8 p-0"
-            >
-              <Eye className="h-4 w-4" />
-            </Button>
-            {invoice.documentSharingKey && (
-              <Button
-                size="sm"
-                variant="ghost"
-                onClick={() => handleDownloadInvoice(invoice)}
-                title="Download PDF"
-                className="h-8 w-8 p-0"
-              >
-                <Download className="h-4 w-4" />
-              </Button>
-            )}
-          </div>
-        </div>
-      ))}
+        ))}
+      </div>
 
       {/* Pagination */}
       {(page > 0 || hasMore) && (
-        <div className="flex justify-between items-center pt-2">
-          <Button
-            size="sm"
-            variant="ghost"
+        <div className="flex justify-between items-center pt-3 mt-2 border-t border-gray-100">
+          <button
             onClick={() => setPage(p => Math.max(0, p - 1))}
             disabled={page === 0}
-            className="text-xs"
+            className="text-xs text-gray-600 hover:text-gray-900 font-medium disabled:opacity-40 disabled:cursor-not-allowed"
           >
-            Previous
-          </Button>
-          <span className="text-xs text-gray-600">Page {page + 1}</span>
-          <Button
-            size="sm"
-            variant="ghost"
+            ← Previous
+          </button>
+          <span className="text-xs text-gray-500">Page {page + 1}</span>
+          <button
             onClick={() => setPage(p => p + 1)}
             disabled={!hasMore}
-            className="text-xs"
+            className="text-xs text-gray-600 hover:text-gray-900 font-medium disabled:opacity-40 disabled:cursor-not-allowed"
           >
-            Next
-          </Button>
+            Next →
+          </button>
         </div>
       )}
     </div>

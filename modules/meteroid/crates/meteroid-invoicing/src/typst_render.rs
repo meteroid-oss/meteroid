@@ -304,6 +304,7 @@ impl From<&Invoice> for TypstInvoiceContent {
             "issue_date" => invoice_l10n.issue_date().into_value(),
             "amount_due" => invoice_l10n.amount_due().into_value(),
             "due_date" => invoice_l10n.due_date().into_value(),
+            "due_label" => invoice_l10n.due_label().into_value(),
             "bill_from" => invoice_l10n.bill_from().into_value(),
             "bill_to" => invoice_l10n.bill_to().into_value(),
             "invoice_lines" => invoice_l10n.invoice_lines().into_value(),
@@ -344,7 +345,8 @@ impl From<&Invoice> for TypstInvoiceContent {
             "purchase_order" => invoice_l10n.purchase_order().into_value(),
             "tax_included_text" => invoice_l10n.tax_included_text(invoice.metadata.currency.name).into_value(),
             "tax_reverse_charge" => invoice_l10n.tax_reverse_charge().into_value(),
-            "reverse_charge_label" => invoice_l10n.reverse_charge_label().into_value()
+            "reverse_charge_label" => invoice_l10n.reverse_charge_label().into_value(),
+            "no_tax_applied" => invoice_l10n.no_tax_applied().into_value()
         };
 
         if let Some(exchange_rate) = invoice.organization.exchange_rate {
