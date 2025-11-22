@@ -1,4 +1,4 @@
-import { Building, CreditCard } from 'lucide-react'
+import { Building } from 'lucide-react'
 
 import { CardBrandLogo } from '@/features/checkout/components/CardBrandLogo'
 import {

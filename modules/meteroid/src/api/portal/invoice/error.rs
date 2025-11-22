@@ -1,5 +1,4 @@
-use std::any::Any;
-use error_stack::{IntoReport, Report};
+use error_stack::Report;
 use std::error::Error;
 use thiserror::Error;
 
@@ -7,7 +6,6 @@ use crate::errors::ObjectStoreError;
 use common_grpc_error_as_tonic_macros_impl::ErrorAsTonic;
 use meteroid_store::adapters::payment_service_providers::PaymentProviderError;
 use meteroid_store::errors::StoreError;
-use crate::api::subscriptions::error::SubscriptionApiError;
 
 #[derive(Debug, Error, ErrorAsTonic)]
 pub enum PortalInvoiceApiError {

@@ -1,10 +1,10 @@
 import { Separator } from '@md/ui'
 
+import { PaymentMethodBadge } from '@/features/invoice-payment/components/TransactionList'
 import { InvoicePaymentStatus } from '@/rpc/api/invoices/v1/models_pb'
 import { parseAndFormatDate } from '@/utils/date'
 import { formatCurrency, formatCurrencyNoRounding } from '@/utils/numbers'
 
-import { PaymentMethodBadge } from '@/features/invoice-payment/components/TransactionList'
 import { InvoicePaymentData } from '../types'
 
 export const InvoiceSummary = ({ invoicePaymentData }: InvoicePaymentData) => {

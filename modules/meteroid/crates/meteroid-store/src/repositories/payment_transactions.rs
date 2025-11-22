@@ -129,8 +129,8 @@ impl PaymentTransactionInterface for Store {
                         .await?;
 
                     // If payment succeeded, update subscription's payment method
-                    if transaction.status == domain::enums::PaymentStatusEnum::Settled {
-                        if let Some(payment_method_id) = transaction.payment_method_id {
+                    if transaction.status == domain::enums::PaymentStatusEnum::Settled
+                        && let Some(payment_method_id) = transaction.payment_method_id {
                             // Get invoice to check if it's linked to a subscription
                             let invoice = diesel_models::invoices::InvoiceRow::find_by_id(
                                 conn,
@@ -168,7 +168,6 @@ impl PaymentTransactionInterface for Store {
                                 );
                             }
                         }
-                    }
 
                     Ok(transaction)
                 }

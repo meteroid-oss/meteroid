@@ -405,12 +405,25 @@ impl SubscriptionsService for SubscriptionServiceComponents {
 
     #[tracing::instrument(skip_all)]
     async fn activate_subscription(&self, request: Request<ActivateSubscriptionRequest>) -> Result<Response<ActivateSubscriptionResponse>, Status> {
-        // 1. Get subscription, check status & activation_condition
-        // 2. If auto_advance_invoices true: finalize invoice, else create draft
-        // 3. Call activate_subscription from subscriptions_lifecycle.rs:20
-        // 4. Return subscription + invoice_id
+        let tenant_id = request.tenant()?;
+        let inner = request.into_inner();
 
-        unimplemented!()
+        let subscription_id = SubscriptionId::from_proto(inner.subscription_id)?;
+
+        // Activate the subscription
+        let subscription = self
+            .services
+            .activate_subscription_manual(tenant_id, subscription_id)
+            .await
+            .map_err(Into::<SubscriptionApiError>::into)?;
+
+        // Convert to proto
+        let proto_subscription = mapping::subscriptions::domain_to_proto(subscription)?;
+
+        Ok(Response::new(ActivateSubscriptionResponse {
+            subscription: Some(proto_subscription),
+            invoice_id: None, // Invoice creation happens asynchronously via worker
+        }))
     }
 
 

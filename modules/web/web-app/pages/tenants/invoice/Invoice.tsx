@@ -30,6 +30,8 @@ import { Link, useNavigate } from 'react-router-dom'
 import { toast } from 'sonner'
 
 import { AddressLinesCompact } from '@/features/customers/cards/address/AddressCard'
+import { AddManualPaymentDialog } from '@/features/invoices/AddManualPaymentDialog'
+import { MarkAsPaidDialog } from '@/features/invoices/MarkAsPaidDialog'
 import { PaymentStatusBadge } from '@/features/invoices/PaymentStatusBadge'
 import { TransactionList } from '@/features/invoices/TransactionList'
 import {
@@ -183,6 +185,8 @@ export const InvoiceView: React.FC<Props & { invoiceId: string }> = ({ invoice, 
   const queryClient = useQueryClient()
   const navigate = useNavigate()
   const [isEditMode, setIsEditMode] = useState(false)
+  const [isAddPaymentDialogOpen, setIsAddPaymentDialogOpen] = useState(false)
+  const [isMarkAsPaidDialogOpen, setIsMarkAsPaidDialogOpen] = useState(false)
 
   const refresh = useMutation(refreshInvoiceData, {
     onSuccess: async res => {
@@ -417,6 +421,13 @@ export const InvoiceView: React.FC<Props & { invoiceId: string }> = ({ invoice, 
                       Share Payment Link
                     </DropdownMenuItem>
                   )}
+                {invoice.status === InvoiceStatus.FINALIZED &&
+                  Number(invoice.amountDue) > 0 && (
+                    <DropdownMenuItem onClick={() => setIsMarkAsPaidDialogOpen(true)}>
+                      <CheckCircleIcon size="16" className="mr-2" />
+                      Mark as Paid
+                    </DropdownMenuItem>
+                  )}
                 <DropdownMenuItem
                   disabled={!canFinalize}
                   onClick={() => setShowFinalizeConfirmation(true)}
@@ -566,7 +577,38 @@ export const InvoiceView: React.FC<Props & { invoiceId: string }> = ({ invoice, 
                 />
               </div>
             )}
+
+            {invoice.status === InvoiceStatus.FINALIZED && Number(invoice.amountDue) > 0 && (
+              <div className="mt-4">
+                <Button
+                  variant="outline"
+                  size="sm"
+                  onClick={() => setIsAddPaymentDialogOpen(true)}
+                  className="w-full"
+                >
+                  <CreditCard className="w-4 h-4 mr-2" />
+                  Add Manual Payment
+                </Button>
+              </div>
+            )}
           </Flex>
+
+          <AddManualPaymentDialog
+            open={isAddPaymentDialogOpen}
+            onOpenChange={setIsAddPaymentDialogOpen}
+            invoiceId={invoiceId}
+            currency={invoice.currency}
+            maxAmount={(Number(invoice.amountDue) / 100).toFixed(2)}
+          />
+
+          <MarkAsPaidDialog
+            open={isMarkAsPaidDialogOpen}
+            onOpenChange={setIsMarkAsPaidDialogOpen}
+            invoiceId={invoiceId}
+            invoiceNumber={invoice.invoiceNumber}
+            currency={invoice.currency}
+            totalAmount={(Number(invoice.amountDue) / 100).toFixed(2)}
+          />
 
           {invoice.memo && (
             <>

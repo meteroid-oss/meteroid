@@ -2,7 +2,9 @@ use crate::services::clients::usage::UsageClient;
 use crate::{Store, StoreResult};
 use chrono::NaiveDateTime;
 use std::sync::Arc;
+use rust_decimal::Decimal;
 use svix::api::Svix;
+use common_domain::ids::{InvoiceId, SubscriptionId, TenantId};
 
 // mod billing_worker;
 pub mod utils;
@@ -24,6 +26,7 @@ use crate::errors::StoreError;
 pub use invoices::{CustomerDetailsUpdate, InvoiceBillingMode};
 use stripe_client::client::StripeClient;
 pub use subscriptions::insert::payment_method::PaymentSetupResult;
+use crate::domain::{PaymentTransaction, Subscription};
 
 // INTERNAL. Share connections
 #[derive(Clone)]
@@ -134,6 +137,55 @@ impl ServicesEdge {
             )
             .await
     }
+
+    pub async fn mark_invoice_as_paid(
+        &self,
+        tenant_id: TenantId,
+        invoice_id: InvoiceId,
+        total_amount: Decimal,
+        payment_date: NaiveDateTime,
+        reference: Option<String>,
+    ) -> StoreResult<crate::domain::DetailedInvoice> {
+        self.services
+        .mark_invoice_as_paid(
+            tenant_id,
+            invoice_id,
+            total_amount,
+            payment_date,
+            reference,
+        )
+        .await
+    }
+
+    pub async fn add_manual_payment_transaction(
+        &self,
+        tenant_id: TenantId,
+        invoice_id: InvoiceId,
+        amount: Decimal,
+        payment_date: NaiveDateTime,
+        reference: Option<String>,
+    ) -> StoreResult<PaymentTransaction> {
+        self.services
+        .add_manual_payment_transaction(
+            tenant_id,
+            invoice_id,
+            amount,
+            payment_date,
+            reference,
+        ).await
+    }
+
+    pub async fn activate_subscription_manual(
+        &self,
+        tenant_id: TenantId,
+        subscription_id: SubscriptionId,
+    ) -> StoreResult<Subscription> {
+        self.services
+        .activate_subscription_manual(tenant_id, subscription_id)
+        .await
+
+    }
+
 }
 
 impl ServicesEdge {

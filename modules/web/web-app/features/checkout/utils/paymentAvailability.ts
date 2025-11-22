@@ -1,3 +1,4 @@
+import { BankAccount } from '@/rpc/api/bankaccounts/v1/models_pb'
 import {
   InvoicePaymentStatus,
   InvoiceStatus,
@@ -5,7 +6,6 @@ import {
   Transaction_PaymentStatusEnum,
 } from '@/rpc/api/invoices/v1/models_pb'
 import { SubscriptionStatus } from '@/rpc/api/subscriptions/v1/models_pb'
-import { BankAccount } from '@/rpc/api/bankaccounts/v1/models_pb'
 
 /**
  * Determines what payment UI should be displayed based on configuration and state

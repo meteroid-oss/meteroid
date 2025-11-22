@@ -42,6 +42,7 @@ pub struct PaymentTransactionRowNew {
     pub status: PaymentStatusEnum,
     pub payment_type: PaymentTypeEnum,
     pub error_type: Option<String>,
+    pub processed_at: Option<NaiveDateTime>,
 }
 
 #[derive(AsChangeset)]

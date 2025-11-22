@@ -9,7 +9,7 @@ pub mod invoices {
         CouponLineItem, DetailedInvoice, InlineCustomer, Invoice, InvoicePaymentStatus,
         InvoiceStatus, InvoiceType, LineItem,
     };
-    use meteroid_store::domain;
+    use meteroid_store::{domain, StoreResult};
     use meteroid_store::domain::invoice_lines as domain_invoice_lines;
     use meteroid_store::errors::StoreError;
     use secrecy::{ExposeSecret, SecretString};
@@ -153,7 +153,7 @@ pub mod invoices {
         tenant_id: TenantId,
         jwt_secret: &SecretString,
         exp: usize
-    ) -> error_stack::Result<String, StoreError> {
+    ) -> StoreResult<String> {
         let claims = ShareableEntityClaims {
             exp,
             sub: invoice_id.to_string(),

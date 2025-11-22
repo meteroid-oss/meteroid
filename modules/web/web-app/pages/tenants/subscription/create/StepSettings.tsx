@@ -1,3 +1,4 @@
+import { disableQuery } from '@connectrpc/connect-query'
 import {
   Button,
   Card,
@@ -33,7 +34,6 @@ import { createSubscriptionAtom } from '@/pages/tenants/subscription/create/stat
 import { getCustomerById } from '@/rpc/api/customers/v1/customers-CustomersService_connectquery'
 import { getInvoicingEntityProviders } from '@/rpc/api/invoicingentities/v1/invoicingentities-InvoicingEntitiesService_connectquery'
 import { ActivationCondition, PaymentStrategy } from '@/rpc/api/subscriptions/v1/models_pb'
-import { disableQuery } from '@connectrpc/connect-query'
 
 const activationConditionToString = (
   condition: ActivationCondition

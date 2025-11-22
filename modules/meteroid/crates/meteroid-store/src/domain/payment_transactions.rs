@@ -6,7 +6,7 @@ use common_domain::ids::{
     CustomerPaymentMethodId, InvoiceId, PaymentTransactionId, StoredDocumentId, TenantId,
 };
 use diesel_models::payments::{
-    PaymentTransactionRow, PaymentTransactionRowNew, PaymentTransactionWithMethodRow,
+    PaymentTransactionRow, PaymentTransactionWithMethodRow,
 };
 use o2o::o2o;
 use serde::Deserialize;
@@ -32,23 +32,6 @@ pub struct PaymentTransaction {
     // enum ?
     pub error_type: Option<String>,
     pub receipt_pdf_id: Option<StoredDocumentId>,
-}
-
-#[derive(Clone, Debug, o2o)]
-#[owned_into(PaymentTransactionRowNew)]
-pub struct PaymentTransactionNew {
-    pub id: PaymentTransactionId,
-    pub tenant_id: TenantId,
-    pub invoice_id: InvoiceId,
-    pub provider_transaction_id: Option<String>,
-    pub amount: i64,
-    pub currency: String,
-    pub payment_method_id: Option<CustomerPaymentMethodId>,
-    #[map(~.into())]
-    pub status: PaymentStatusEnum,
-    #[map(~.into())]
-    pub payment_type: PaymentTypeEnum,
-    pub error_type: Option<String>,
 }
 
 #[derive(Clone, Debug, Deserialize)]

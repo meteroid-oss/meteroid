@@ -15,7 +15,6 @@ interface BankTransferInfoProps {
 export const BankTransferInfo: React.FC<BankTransferInfoProps> = ({
   bankAccount,
   invoiceNumber,
-  customerName,
 }) => {
   const [copiedField, setCopiedField] = useState<string | null>(null)
 

@@ -4,18 +4,17 @@ use crate::workers::pgmq::processor::PgmqHandler;
 use common_domain::pgmq::MessageId;
 use error_stack::ResultExt;
 use meteroid_store::domain::pgmq::{PaymentRequestEvent, PgmqMessage};
-use meteroid_store::{Services, Store, StoreResult};
+use meteroid_store::{Services, StoreResult};
 use std::sync::Arc;
 
 #[derive(Clone)]
 pub struct PaymentRequest {
-    store: Arc<Store>,
     services: Arc<Services>,
 }
 
 impl PaymentRequest {
-    pub(crate) fn new(store: Arc<Store>, services: Arc<Services>) -> Self {
-        Self { store, services }
+    pub(crate) fn new( services: Arc<Services>) -> Self {
+        Self {  services }
     }
 
     fn convert_to_events(

@@ -1,7 +1,7 @@
 use super::{InvoiceServiceComponents, mapping};
 use crate::api::customers::mapping::customer::DomainAddressWrapper;
 use crate::api::invoices::error::InvoiceApiError;
-use crate::api::shared::conversions::{FromProtoOpt, ProtoConv};
+use crate::api::shared::conversions::{AsProtoOpt, FromProtoOpt, ProtoConv};
 use crate::api::utils::PaginationExt;
 use chrono::{NaiveDate, NaiveTime};
 use common_domain::ids::{CustomerId, InvoiceId, SubscriptionId, TenantId};
@@ -486,6 +486,84 @@ impl InvoicesService for InvoiceServiceComponents {
             .map_err(Into::<InvoiceApiError>::into)?;
 
         Ok(Response::new(GenerateInvoicePaymentTokenResponse { token }))
+    }
+
+    #[tracing::instrument(skip_all)]
+    async fn add_manual_payment_transaction(
+        &self,
+        request: Request<
+            meteroid_grpc::meteroid::api::invoices::v1::AddManualPaymentTransactionRequest,
+        >,
+    ) -> Result<
+        Response<meteroid_grpc::meteroid::api::invoices::v1::AddManualPaymentTransactionResponse>,
+        Status,
+    > {
+        let tenant_id = request.tenant()?;
+        let req = request.into_inner();
+
+        let invoice_id = InvoiceId::from_proto(req.invoice_id)?;
+        let amount = rust_decimal::Decimal::from_proto_ref(&req.amount)?;
+        let payment_date = chrono::NaiveDateTime::from_proto_opt(req.payment_date)?
+            .unwrap_or_else(|| chrono::Utc::now().naive_utc());
+
+        // Add manual payment transaction via service
+        let transaction = self
+            .services
+            .add_manual_payment_transaction(tenant_id, invoice_id, amount, payment_date, req.reference)
+            .await
+            .map_err(Into::<InvoiceApiError>::into)?;
+
+        Ok(Response::new(
+            meteroid_grpc::meteroid::api::invoices::v1::AddManualPaymentTransactionResponse {
+                transaction_id: transaction.id.as_proto(),
+                invoice_id: transaction.invoice_id.as_proto(),
+                amount: rust_decimal::Decimal::from(transaction.amount).as_proto(),
+                currency: transaction.currency,
+                status: format!("{:?}", transaction.status),
+                payment_date: transaction
+                    .processed_at
+                    .as_proto()
+                    .unwrap_or_else(|| chrono::Utc::now().naive_utc().as_proto()),
+            },
+        ))
+    }
+
+    #[tracing::instrument(skip_all)]
+    async fn mark_invoice_as_paid(
+        &self,
+        request: Request<meteroid_grpc::meteroid::api::invoices::v1::MarkInvoiceAsPaidRequest>,
+    ) -> Result<
+        Response<meteroid_grpc::meteroid::api::invoices::v1::MarkInvoiceAsPaidResponse>,
+        Status,
+    > {
+        let tenant_id = request.tenant()?;
+        let req = request.into_inner();
+
+        let invoice_id = InvoiceId::from_proto(req.invoice_id)?;
+        let total_amount = rust_decimal::Decimal::from_proto_ref(&req.total_amount)?;
+        let payment_date = chrono::NaiveDateTime::from_proto_opt(req.payment_date)?
+            .unwrap_or_else(|| chrono::Utc::now().naive_utc());
+
+        // Mark invoice as paid via service
+        let invoice = self
+            .services
+            .mark_invoice_as_paid(tenant_id, invoice_id, total_amount, payment_date, req.reference)
+            .await
+            .map_err(Into::<InvoiceApiError>::into)?;
+
+        // Convert to detailed invoice proto
+        let proto_invoice = mapping::invoices::domain_invoice_with_transactions_to_server(
+            invoice.invoice,
+            invoice.transactions,
+            self.jwt_secret.clone(),
+        )
+            .map_err(Into::<InvoiceApiError>::into)?;
+
+        Ok(Response::new(
+            meteroid_grpc::meteroid::api::invoices::v1::MarkInvoiceAsPaidResponse {
+                invoice: Some(proto_invoice),
+            },
+        ))
     }
 
 }

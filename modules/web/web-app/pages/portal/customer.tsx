@@ -68,7 +68,7 @@ export const PortalCustomer = () => {
     directDebitConnectionId,
     invoicingEntityName,
     invoicingEntityLogoUrl,
-    invoicingEntityBrandColor,
+    // invoicingEntityBrandColor, TODO
   } = data.overview
 
   if (!customer) {

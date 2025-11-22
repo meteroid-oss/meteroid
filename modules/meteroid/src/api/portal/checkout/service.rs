@@ -2,7 +2,7 @@ use crate::api::customers::mapping::customer::ServerCustomerWrapper;
 use crate::api::portal::checkout::PortalCheckoutServiceComponents;
 use crate::api::portal::checkout::error::PortalCheckoutApiError;
 use crate::services::storage::Prefix;
-use common_domain::ids::{BaseId, CustomerPaymentMethodId, SubscriptionId};
+use common_domain::ids::{  CustomerPaymentMethodId, SubscriptionId};
 use common_grpc::middleware::server::auth::{RequestExt, ResourceAccess};
 use common_utils::decimals::ToSubunit;
 use common_utils::integers::ToNonNegativeU64;

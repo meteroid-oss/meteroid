@@ -9,12 +9,12 @@ import {
   CustomerPaymentMethod,
   CustomerPaymentMethod_PaymentMethodTypeEnum,
 } from '@/rpc/api/customers/v1/models_pb'
+import { ConnectionTypeEnum } from '@/rpc/portal/shared/v1/models_pb'
 import {
   addPaymentMethod,
   setupIntent,
 } from '@/rpc/portal/shared/v1/shared-PortalSharedService_connectquery'
 
-import { ConnectionTypeEnum } from '@/rpc/portal/shared/v1/models_pb'
 import { CardBrandLogo } from './components/CardBrandLogo'
 import { PaymentForm } from './components/PaymentForm'
 import { PaymentMethodSelection, PaymentPanelProps, PaymentState } from './types'

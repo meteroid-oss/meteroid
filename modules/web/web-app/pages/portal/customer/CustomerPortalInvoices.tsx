@@ -1,14 +1,14 @@
-import { Badge, Button } from '@md/ui'
-import { Download, Eye } from 'lucide-react'
+import { Badge } from '@md/ui'
+import { Download } from 'lucide-react'
 import { useState } from 'react'
+import { useSearchParams } from 'react-router-dom'
 
 import { useQuery } from '@/lib/connectrpc'
 import { env } from '@/lib/env'
-import { InvoicePaymentStatus, InvoiceStatus } from '@/rpc/api/invoices/v1/models_pb'
+import { InvoicePaymentStatus } from '@/rpc/api/invoices/v1/models_pb'
 import { listInvoices } from '@/rpc/portal/customer/v1/customer-PortalCustomerService_connectquery'
 import { InvoiceSummary } from '@/rpc/portal/customer/v1/models_pb'
 import { formatCurrency } from '@/utils/numbers'
-import { useSearchParams } from 'react-router-dom'
 
 export const CustomerPortalInvoices = () => {
   const [page, setPage] = useState(0)
@@ -96,9 +96,7 @@ export const CustomerPortalInvoices = () => {
                   {getInvoicePaymentStatusLabel(invoice.paymentStatus)}
                 </Badge>
               </div>
-              {invoice.planName && (
-                <div className="text-gray-500 text-xs">{invoice.planName}</div>
-              )}
+              {invoice.planName && <div className="text-gray-500 text-xs">{invoice.planName}</div>}
             </div>
             <div className="flex items-center gap-2">
               <button
@@ -143,23 +141,6 @@ export const CustomerPortalInvoices = () => {
       )}
     </div>
   )
-}
-
-const getInvoiceStatusLabel = (status: InvoiceStatus) => {
-  const statusMap: Record<InvoiceStatus, string> = {
-    [InvoiceStatus.DRAFT]: 'Draft',
-    [InvoiceStatus.FINALIZED]: 'Finalized',
-    [InvoiceStatus.VOID]: 'Void',
-    [InvoiceStatus.UNCOLLECTIBLE]: 'Uncollectible',
-  }
-  return statusMap[status] || 'Unknown'
-}
-const getInvoiceStatusVariant = (
-  status: InvoiceStatus
-): 'default' | 'secondary' | 'destructive' | 'success' => {
-  if (status === InvoiceStatus.FINALIZED) return 'success'
-  if (status === InvoiceStatus.VOID || status === InvoiceStatus.UNCOLLECTIBLE) return 'destructive'
-  return 'secondary'
 }
 
 const getInvoicePaymentStatusLabel = (status: InvoicePaymentStatus) => {

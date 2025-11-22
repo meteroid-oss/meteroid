@@ -44,6 +44,7 @@ import {
   SubscriptionStatus,
 } from '@/rpc/api/subscriptions/v1/models_pb'
 import {
+  activateSubscription,
   generateCheckoutToken,
   getSlotsValue,
   getSubscriptionDetails,
@@ -248,8 +249,28 @@ export const Subscription = () => {
     },
   })
 
+  const activateSubscriptionMutation = useMutation(activateSubscription, {
+    onSuccess: async () => {
+      await subscriptionQuery.refetch()
+    },
+  })
+
   const handleOpenCheckout = () =>
     checkoutTokenMutation.mutate({ subscriptionId: subscriptionId ?? '' })
+
+  const handleActivateSubscription = () => {
+    activateSubscriptionMutation.mutate(
+      { subscriptionId: subscriptionId ?? '' },
+      {
+        onSuccess: () => {
+          // Refetch is handled in mutation config
+        },
+        onError: error => {
+          console.error('Failed to activate subscription:', error)
+        },
+      }
+    )
+  }
 
   if (isLoading || !data) {
     return (
@@ -309,6 +330,16 @@ export const Subscription = () => {
                 </Button>
               </DropdownMenuTrigger>
               <DropdownMenuContent align="end">
+                {!data.activatedAt && (
+                  <DropdownMenuItem
+                    onClick={handleActivateSubscription}
+                    disabled={activateSubscriptionMutation.isPending}
+                  >
+                    <Clock size="16" className="mr-2" />
+                    {activateSubscriptionMutation.isPending ? 'Activating...' : 'Activate Subscription'}
+                  </DropdownMenuItem>
+                )}
+
                 {data.pendingCheckout && (
                   <DropdownMenuItem
                     onClick={handleOpenCheckout}

@@ -69,6 +69,7 @@ impl Services {
             status: PaymentStatusEnum::Pending,
             payment_type: PaymentTypeEnum::Payment,
             error_type: None,
+            processed_at: None
         };
 
         let inserted_transaction = transaction

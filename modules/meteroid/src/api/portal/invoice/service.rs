@@ -1,22 +1,22 @@
 use crate::api::customers::mapping::customer::ServerCustomerWrapper;
 use crate::api::portal::invoice::PortalInvoiceServiceComponents;
 use crate::api::portal::invoice::error::PortalInvoiceApiError;
-use crate::api::shared::conversions::FromProtoOpt;
 use crate::services::storage::Prefix;
 use common_domain::ids::{BaseId, CustomerPaymentMethodId, InvoiceId};
+
 use common_grpc::middleware::server::auth::{RequestExt, ResourceAccess};
 use meteroid_grpc::meteroid::portal::invoice::v1::portal_invoice_service_server::PortalInvoiceService;
 use meteroid_grpc::meteroid::portal::invoice::v1::*;
 use meteroid_store::repositories::customer_payment_methods::CustomerPaymentMethodsInterface;
 use meteroid_store::repositories::customers::CustomersInterface;
 use meteroid_store::repositories::invoicing_entities::InvoicingEntityInterface;
-use meteroid_store::repositories::{InvoiceInterface, OrganizationsInterface};
+
+use meteroid_store::repositories::{InvoiceInterface, OrganizationsInterface, SubscriptionInterface};
 use std::time::Duration;
 use tonic::{Request, Response, Status};
 use meteroid_store::repositories::bank_accounts::BankAccountsInterface;
 use meteroid_store::repositories::payment_transactions::PaymentTransactionInterface;
 use crate::api::invoices::mapping;
-use meteroid_store::repositories::SubscriptionInterface;
 
 #[tonic::async_trait]
 impl PortalInvoiceService for PortalInvoiceServiceComponents {
@@ -154,7 +154,7 @@ impl PortalInvoiceService for PortalInvoiceServiceComponents {
 
 
         let mut bank_account = None;
-        if (card_connection_id.is_none() &&  direct_debit_connection_id.is_none() &&  bank_account_id_override.is_none()) {
+        if card_connection_id.is_none() &&  direct_debit_connection_id.is_none() &&  bank_account_id_override.is_none() {
             // Get bank account - prefer subscription's bank account (set by payment strategy),
             // otherwise use invoicing entity's default
             let bank_account_id_to_use = bank_account_id_override.or(invoicing_entity.bank_account_id);

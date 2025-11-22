@@ -61,6 +61,7 @@ pub trait PaymentProvider: Send + Sync {
         payment_methods: Vec<PaymentMethodTypeEnum>,
     ) -> Result<SetupIntent, Report<PaymentProviderError>>;
 
+    #[allow(clippy::too_many_arguments)]
     async fn create_payment_intent_in_provider(
         &self,
         connector: &Connector,
@@ -369,9 +370,9 @@ fn extract_stripe_public_key(
 }
 
 
-impl Into<Option<StripePaymentMethodType>> for &PaymentMethodTypeEnum {
-    fn into(self) -> Option<StripePaymentMethodType> {
-        match self {
+impl From<&PaymentMethodTypeEnum> for Option<StripePaymentMethodType> {
+    fn from(val: &PaymentMethodTypeEnum) -> Self {
+        match val {
             PaymentMethodTypeEnum::Card => Some(StripePaymentMethodType::Card),
             PaymentMethodTypeEnum::DirectDebitSepa => Some(StripePaymentMethodType::Sepa),
             PaymentMethodTypeEnum::DirectDebitAch => Some(StripePaymentMethodType::Ach),

@@ -86,14 +86,3 @@ export const CustomerPortalSubscriptions = ({
     </div>
   )
 }
-
-const getSubscriptionStatusLabel = (status: number) => {
-  const statusMap: Record<number, string> = {
-    0: 'Pending',
-    1: 'Active',
-    2: 'Trial',
-    3: 'Canceled',
-    4: 'Ended',
-  }
-  return statusMap[status] || 'Unknown'
-}
