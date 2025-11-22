@@ -1,4 +1,9 @@
-import { InvoicePaymentStatus, InvoiceStatus } from '@/rpc/api/invoices/v1/models_pb'
+import {
+  InvoicePaymentStatus,
+  InvoiceStatus,
+  Transaction,
+  Transaction_PaymentStatusEnum,
+} from '@/rpc/api/invoices/v1/models_pb'
 import { SubscriptionStatus } from '@/rpc/api/subscriptions/v1/models_pb'
 import { BankAccount } from '@/rpc/api/bankaccounts/v1/models_pb'
 
@@ -28,6 +33,7 @@ export type PaymentAvailability =
         | 'external_payment'
         | 'already_active'
         | 'draft_invoice'
+        | 'pending_payment'
       displayTransactions?: boolean
     }
 
@@ -105,6 +111,7 @@ export function getInvoicePaymentAvailability(config: {
   directDebitConnectionId?: string
   bankAccount?: BankAccount
   hasTransactions?: boolean
+  transactions?: Transaction[]
 }): PaymentAvailability {
   const {
     invoiceStatus,
@@ -113,6 +120,7 @@ export function getInvoicePaymentAvailability(config: {
     directDebitConnectionId,
     bankAccount,
     hasTransactions,
+    transactions,
   } = config
 
   // Check invoice status first
@@ -138,6 +146,21 @@ export function getInvoicePaymentAvailability(config: {
       type: 'readonly',
       reason: 'already_paid',
       displayTransactions: true,
+    }
+  }
+
+  // Check for pending transactions
+  if (transactions && transactions.length > 0) {
+    const hasPendingTransaction = transactions.some(
+      tx => tx.status === Transaction_PaymentStatusEnum.PENDING
+    )
+
+    if (hasPendingTransaction) {
+      return {
+        type: 'readonly',
+        reason: 'pending_payment',
+        displayTransactions: true,
+      }
     }
   }
 
@@ -197,6 +220,7 @@ export function getReadonlyMessage(reason: PaymentAvailability['type'] extends '
     external_payment: 'Payment for this invoice is handled externally. Please contact support for payment instructions.',
     already_active: 'This subscription is already active.',
     draft_invoice: 'This invoice is in draft status and cannot be paid yet.',
+    pending_payment: 'A payment for this invoice is already being processed. Please wait for it to complete before attempting another payment.',
   }
   return messages[reason] || 'Payment is not available.'
 }

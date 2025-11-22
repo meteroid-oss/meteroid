@@ -77,6 +77,7 @@ const InvoicePaymentFlow: React.FC<InvoicePaymentData> = ({ invoicePaymentData }
     directDebitConnectionId,
     bankAccount,
     hasTransactions: (invoice.transactions?.length ?? 0) > 0,
+    transactions: invoice.transactions,
   })
 
   return (

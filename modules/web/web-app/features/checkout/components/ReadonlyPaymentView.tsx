@@ -1,4 +1,4 @@
-import { AlertCircle, Ban, CheckCircle, Info, XCircle } from 'lucide-react'
+import { AlertCircle, Ban, CheckCircle, Clock, Info, XCircle } from 'lucide-react'
 
 interface ReadonlyPaymentViewProps {
   reason:
@@ -10,6 +10,7 @@ interface ReadonlyPaymentViewProps {
     | 'external_payment'
     | 'already_active'
     | 'draft_invoice'
+    | 'pending_payment'
   title?: string
   message?: string
   children?: React.ReactNode
@@ -98,6 +99,13 @@ function getReasonConfig(reason: ReadonlyPaymentViewProps['reason']) {
       title: 'Draft Invoice',
       message:
         'This invoice is still in draft status and cannot be paid yet. It will be available for payment once finalized.',
+    },
+    pending_payment: {
+      icon: <Clock className="h-6 w-6" />,
+      iconColor: 'text-yellow-600',
+      title: 'Payment In Progress',
+      message:
+        'A payment for this invoice is currently being processed. Please check back later or contact support if you have questions.',
     },
   }
 
