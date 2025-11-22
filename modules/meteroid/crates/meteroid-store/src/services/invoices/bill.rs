@@ -108,7 +108,27 @@ impl Services {
 
                 transactions.push(res.clone());
 
+
                 if res.status == PaymentStatusEnum::Settled {
+                    // Update subscription's payment method with the one that successfully paid
+                    let payment_method = diesel_models::customer_payment_methods::CustomerPaymentMethodRow::get_by_id(
+                        conn,
+                        &tenant_id,
+                        &payment_method_id,
+                    )
+                    .await
+                    .map_err(|e| StoreError::DatabaseError(e.error))?;
+
+                    diesel_models::subscriptions::SubscriptionRow::update_subscription_payment_method(
+                        conn,
+                        subscription.subscription.id,
+                        tenant_id,
+                        Some(payment_method_id),
+                        Some(payment_method.payment_method_type),
+                    )
+                    .await
+                    .map_err(Into::<Report<StoreError>>::into)?;
+
                     // we finalize the invoice directly
                     self.finalize_invoice_tx(
                         conn,

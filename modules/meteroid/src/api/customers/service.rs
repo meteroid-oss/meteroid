@@ -151,6 +151,7 @@ impl CustomersService for CustomerServiceComponents {
                     )
                     .map_err(Into::<Status>::into)?,
                     bank_account_id: Some(BankAccountId::from_proto_opt(customer.bank_account_id)?),
+                    current_payment_method_id: None,
                     is_tax_exempt: customer.is_tax_exempt,
                 },
             )

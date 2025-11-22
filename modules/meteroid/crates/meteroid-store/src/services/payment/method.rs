@@ -256,9 +256,6 @@ impl Services {
         };
 
 
-        log::info!("DEBUG -- customer_connection: {:#?}", customer_connection);
-
-
         let connector = Connector::from_row(&self.store.settings.crypt_key, connection.connector)?;
 
         let provider = initialize_payment_provider(&connector)
@@ -306,8 +303,6 @@ impl Services {
                         );
 
                 }
-
-                log::info!("DEBUG -- payment_methods: {:#?}", payment_methods);
 
                 payment_methods
             }

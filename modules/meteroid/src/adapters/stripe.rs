@@ -24,6 +24,7 @@ use stripe_client::webhook::event_type;
 
 use meteroid_store::adapters::payment_service_providers::{PaymentProvider, PaymentProviderError};
 use meteroid_store::domain::connectors::Connector;
+use meteroid_store::repositories::CustomersInterface;
 use meteroid_store::repositories::payment_transactions::PaymentTransactionInterface;
 
 static STRIPE: std::sync::OnceLock<Stripe> = std::sync::OnceLock::new();
@@ -196,7 +197,7 @@ impl Stripe {
             _ => (None, None, None, None),
         };
 
-        store
+        let payment_method = store
             .upsert_payment_method(CustomerPaymentMethodNew {
                 id: CustomerPaymentMethodId::new(),
                 tenant_id: connector.tenant_id,
@@ -210,6 +211,32 @@ impl Stripe {
                 card_exp_month,
                 card_exp_year,
             })
+            .await
+            .change_context(errors::AdapterWebhookError::StoreError)?;
+
+        // Set as default payment method for the customer
+        use meteroid_store::domain::CustomerPatch;
+        let customer_patch = CustomerPatch {
+            id: customer_id,
+            name: None,
+            alias: None,
+            billing_email: None,
+            phone: None,
+            balance_value_cents: None,
+            currency: None,
+            billing_address: None,
+            shipping_address: None,
+            invoicing_entity_id: None,
+            vat_number: None,
+            bank_account_id: None,
+            current_payment_method_id: Some(Some(payment_method.id)),
+            invoicing_emails: None,
+            is_tax_exempt: None,
+            custom_taxes: None,
+        };
+
+        store
+            .patch_customer(customer_id.as_uuid(), connector.tenant_id, customer_patch)
             .await
             .change_context(errors::AdapterWebhookError::StoreError)?;
 

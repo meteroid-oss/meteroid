@@ -178,6 +178,7 @@ pub struct CustomerPatch {
     })?)]
     pub custom_taxes: Option<Vec<CustomerCustomTax>>,
     pub bank_account_id: Option<Option<BankAccountId>>,
+    pub current_payment_method_id: Option<Option<CustomerPaymentMethodId>>,
     pub is_tax_exempt: Option<bool>,
 }
 

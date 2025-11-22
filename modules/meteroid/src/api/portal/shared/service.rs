@@ -108,6 +108,7 @@ impl PortalSharedService for PortalSharedServiceComponents {
                         .map(|v| if v.is_empty() { None } else { Some(v) }),
                     custom_taxes: None,
                     bank_account_id: None,
+                    current_payment_method_id: None,
                     is_tax_exempt: None,
                 },
             )
@@ -270,6 +271,31 @@ impl PortalSharedService for PortalSharedServiceComponents {
                 card_exp_month,
                 card_exp_year,
             })
+            .await
+            .map_err(Into::<PortalSharedApiError>::into)?;
+
+        // Set as default payment method for the customer
+        let customer_patch = CustomerPatch {
+            id: connection.customer_id,
+            name: None,
+            alias: None,
+            billing_email: None,
+            phone: None,
+            balance_value_cents: None,
+            currency: None,
+            billing_address: None,
+            shipping_address: None,
+            invoicing_entity_id: None,
+            vat_number: None,
+            bank_account_id: None,
+            current_payment_method_id: Some(Some(payment_method.id)),
+            invoicing_emails: None,
+            is_tax_exempt: None,
+            custom_taxes: None,
+        };
+
+        self.store
+            .patch_customer(customer_id.as_uuid(), tenant, customer_patch)
             .await
             .map_err(Into::<PortalSharedApiError>::into)?;
 

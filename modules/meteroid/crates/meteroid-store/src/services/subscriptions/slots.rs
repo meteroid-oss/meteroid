@@ -782,6 +782,25 @@ impl Services {
                         .await?;
 
                     if payment_result.status == crate::domain::PaymentStatusEnum::Settled {
+                        // Update subscription's payment method with the one that successfully paid
+                        let payment_method = diesel_models::customer_payment_methods::CustomerPaymentMethodRow::get_by_id(
+                            conn,
+                            &tenant_id,
+                            &payment_method_id,
+                        )
+                        .await
+                        .map_err(|e| StoreError::DatabaseError(e.error))?;
+
+                        diesel_models::subscriptions::SubscriptionRow::update_subscription_payment_method(
+                            conn,
+                            subscription_id,
+                            tenant_id,
+                            Some(payment_method_id),
+                            Some(payment_method.payment_method_type),
+                        )
+                        .await
+                        .map_err(Into::<error_stack::Report<StoreError>>::into)?;
+
                         let slot_transaction = self
                             .store
                             .add_slot_transaction_tx(

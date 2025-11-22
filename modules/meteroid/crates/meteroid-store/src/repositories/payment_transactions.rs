@@ -128,6 +128,48 @@ impl PaymentTransactionInterface for Store {
                         )
                         .await?;
 
+                    // If payment succeeded, update subscription's payment method
+                    if transaction.status == domain::enums::PaymentStatusEnum::Settled {
+                        if let Some(payment_method_id) = transaction.payment_method_id {
+                            // Get invoice to check if it's linked to a subscription
+                            let invoice = diesel_models::invoices::InvoiceRow::find_by_id(
+                                conn,
+                                transaction.tenant_id,
+                                transaction.invoice_id,
+                            )
+                            .await
+                            .map_err(Into::<Report<StoreError>>::into)?;
+
+                            if let Some(subscription_id) = invoice.subscription_id {
+                                // Fetch payment method to get its type
+                                let payment_method = diesel_models::customer_payment_methods::CustomerPaymentMethodRow::get_by_id(
+                                    conn,
+                                    &transaction.tenant_id,
+                                    &payment_method_id,
+                                )
+                                .await
+                                .map_err(|e| StoreError::DatabaseError(e.error))?;
+
+                                // Update subscription's payment method
+                                diesel_models::subscriptions::SubscriptionRow::update_subscription_payment_method(
+                                    conn,
+                                    subscription_id,
+                                    transaction.tenant_id,
+                                    Some(payment_method_id),
+                                    Some(payment_method.payment_method_type),
+                                )
+                                .await
+                                .map_err(Into::<Report<StoreError>>::into)?;
+
+                                log::info!(
+                                    "Updated subscription {} with payment method {}",
+                                    subscription_id,
+                                    payment_method_id
+                                );
+                            }
+                        }
+                    }
+
                     Ok(transaction)
                 }
                 .scope_boxed()
