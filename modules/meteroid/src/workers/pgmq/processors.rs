@@ -4,6 +4,7 @@ use crate::workers::pgmq::billable_metric_sync::BillableMetricSync;
 use crate::workers::pgmq::hubspot_sync::HubspotSync;
 use crate::workers::pgmq::invoice_orchestration::InvoiceOrchestration;
 use crate::workers::pgmq::outbox::{PgmqOutboxDispatch, PgmqOutboxProxy};
+use crate::workers::pgmq::payment_request::PaymentRequest;
 use crate::workers::pgmq::pdf_render::PdfRender;
 use crate::workers::pgmq::pennylane_sync::PennylaneSync;
 use crate::workers::pgmq::processor::{ProcessorConfig, run};
@@ -184,6 +185,24 @@ pub async fn run_email_sender(
         vt: MessageReadVtSec(20),
         delete_succeeded: false,
         sleep_duration: std::time::Duration::from_millis(1500),
+        max_read_count: ReadCt(10),
+    })
+    .await;
+}
+
+pub async fn run_payment_request(store: Arc<Store>, services: Arc<Services>) {
+    let queue = PgmqQueue::PaymentRequest;
+    let processor = Arc::new(PaymentRequest::new(store.clone(), services));
+
+    run(ProcessorConfig {
+        name: processor_name("PaymentRequest"),
+        queue,
+        handler: processor,
+        store,
+        qty: MessageReadQty(10),
+        vt: MessageReadVtSec(60),
+        delete_succeeded: true,
+        sleep_duration: std::time::Duration::from_millis(2000),
         max_read_count: ReadCt(10),
     })
     .await;

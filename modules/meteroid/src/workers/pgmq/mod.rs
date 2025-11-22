@@ -5,6 +5,7 @@ mod error;
 mod hubspot_sync;
 
 mod outbox;
+mod payment_request;
 mod pdf_render;
 mod pennylane_sync;
 mod processor;

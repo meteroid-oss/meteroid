@@ -1,4 +1,4 @@
-import { Building, Copy } from 'lucide-react'
+import { Copy } from 'lucide-react'
 import { useState } from 'react'
 
 import type { BankAccount } from '@/rpc/api/bankaccounts/v1/models_pb'
@@ -51,19 +51,17 @@ export const BankTransferInfo: React.FC<BankTransferInfoProps> = ({
         return (
           <>
             <div className="flex items-center justify-between py-3 border-b">
-              <span className="text-sm text-gray-600">IBAN</span>
+              <span className="text-xs text-gray-600">IBAN</span>
               <div className="flex items-center">
-                <span className="font-mono text-sm font-medium">
-                  {bankData.format.value.iban}
-                </span>
+                <span className="font-mono text-xs font-medium">{bankData.format.value.iban}</span>
                 {renderCopyButton(bankData.format.value.iban, 'iban')}
               </div>
             </div>
             {bankData.format.value.bicSwift && (
               <div className="flex items-center justify-between py-3 border-b">
-                <span className="text-sm text-gray-600">BIC/SWIFT</span>
+                <span className="text-xs text-gray-600">BIC/SWIFT</span>
                 <div className="flex items-center">
-                  <span className="font-mono text-sm font-medium">
+                  <span className="font-mono text-xs font-medium">
                     {bankData.format.value.bicSwift}
                   </span>
                   {renderCopyButton(bankData.format.value.bicSwift, 'bic')}
@@ -77,18 +75,18 @@ export const BankTransferInfo: React.FC<BankTransferInfoProps> = ({
         return (
           <>
             <div className="flex items-center justify-between py-3 border-b">
-              <span className="text-sm text-gray-600">Account Number</span>
+              <span className="text-xs text-gray-600">Account Number</span>
               <div className="flex items-center">
-                <span className="font-mono text-sm font-medium">
+                <span className="font-mono text-xs font-medium">
                   {bankData.format.value.accountNumber}
                 </span>
                 {renderCopyButton(bankData.format.value.accountNumber, 'account')}
               </div>
             </div>
             <div className="flex items-center justify-between py-3 border-b">
-              <span className="text-sm text-gray-600">BIC/SWIFT</span>
+              <span className="text-xs text-gray-600">BIC/SWIFT</span>
               <div className="flex items-center">
-                <span className="font-mono text-sm font-medium">
+                <span className="font-mono text-xs font-medium">
                   {bankData.format.value.bicSwift}
                 </span>
                 {renderCopyButton(bankData.format.value.bicSwift, 'bic')}
@@ -101,18 +99,18 @@ export const BankTransferInfo: React.FC<BankTransferInfoProps> = ({
         return (
           <>
             <div className="flex items-center justify-between py-3 border-b">
-              <span className="text-sm text-gray-600">Account Number</span>
+              <span className="text-xs text-gray-600">Account Number</span>
               <div className="flex items-center">
-                <span className="font-mono text-sm font-medium">
+                <span className="font-mono text-xs font-medium">
                   {bankData.format.value.accountNumber}
                 </span>
                 {renderCopyButton(bankData.format.value.accountNumber, 'account')}
               </div>
             </div>
             <div className="flex items-center justify-between py-3 border-b">
-              <span className="text-sm text-gray-600">Routing Number</span>
+              <span className="text-xs text-gray-600">Routing Number</span>
               <div className="flex items-center">
-                <span className="font-mono text-sm font-medium">
+                <span className="font-mono text-xs font-medium">
                   {bankData.format.value.routingNumber}
                 </span>
                 {renderCopyButton(bankData.format.value.routingNumber, 'routing')}
@@ -125,18 +123,18 @@ export const BankTransferInfo: React.FC<BankTransferInfoProps> = ({
         return (
           <>
             <div className="flex items-center justify-between py-3 border-b">
-              <span className="text-sm text-gray-600">Sort Code</span>
+              <span className="text-xs text-gray-600">Sort Code</span>
               <div className="flex items-center">
-                <span className="font-mono text-sm font-medium">
+                <span className="font-mono text-xs font-medium">
                   {bankData.format.value.sortCode}
                 </span>
                 {renderCopyButton(bankData.format.value.sortCode, 'sort')}
               </div>
             </div>
             <div className="flex items-center justify-between py-3 border-b">
-              <span className="text-sm text-gray-600">Account Number</span>
+              <span className="text-xs text-gray-600">Account Number</span>
               <div className="flex items-center">
-                <span className="font-mono text-sm font-medium">
+                <span className="font-mono text-xs font-medium">
                   {bankData.format.value.accountNumber}
                 </span>
                 {renderCopyButton(bankData.format.value.accountNumber, 'account')}
@@ -150,49 +148,42 @@ export const BankTransferInfo: React.FC<BankTransferInfoProps> = ({
     }
   }
 
-  const referenceText = `${invoiceNumber ? `Invoice ${invoiceNumber}` : ''}${customerName ? ` - ${customerName}` : ''}`.trim()
+  const referenceText = invoiceNumber
 
   return (
     <div className="bg-white border border-gray-200 rounded-lg p-6 mb-6">
-      <div className="flex items-center mb-4">
-        <Building size={20} className="text-blue-600 mr-2" />
-        <h3 className="text-lg font-semibold">Bank Transfer Details</h3>
-      </div>
-
-      <p className="text-sm text-gray-600 mb-4">
-        You can pay this invoice by bank transfer using the details below
-      </p>
+      <p className="text-sm text-gray-900 mb-4">Bank Details</p>
 
       <div className="space-y-0">
         <div className="flex items-center justify-between py-3 border-b">
-          <span className="text-sm text-gray-600">Bank Name</span>
-          <span className="text-sm font-medium">{bankData.bankName}</span>
+          <span className="text-xs text-gray-600">Bank Name</span>
+          <span className="text-xs font-medium">{bankData.bankName}</span>
         </div>
 
         <div className="flex items-center justify-between py-3 border-b">
-          <span className="text-sm text-gray-600">Country</span>
-          <span className="text-sm font-medium">{bankData.country}</span>
+          <span className="text-xs text-gray-600">Country</span>
+          <span className="text-xs font-medium">{bankData.country}</span>
         </div>
 
         {renderAccountDetails()}
 
         {referenceText && (
           <div className="flex items-center justify-between py-3">
-            <span className="text-sm text-gray-600">Payment Reference</span>
+            <span className="text-xs text-gray-600">Payment Reference</span>
             <div className="flex items-center">
-              <span className="font-mono text-sm font-medium">{referenceText}</span>
+              <span className="font-mono text-xs font-medium">{referenceText}</span>
               {renderCopyButton(referenceText, 'reference')}
             </div>
           </div>
         )}
       </div>
 
-      <div className="mt-4 p-3 bg-blue-50 rounded-md">
+      {/* <div className="mt-4 p-3 bg-blue-50 rounded-md">
         <p className="text-xs text-blue-800">
           <strong>Important:</strong> Please include the payment reference in your transfer to
           ensure proper allocation of your payment.
         </p>
-      </div>
+      </div> */}
     </div>
   )
 }

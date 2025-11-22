@@ -227,8 +227,9 @@ impl PortalInvoiceService for PortalInvoiceServiceComponents {
                 tenant,
                 invoice_id,
                 payment_method_id,
-                inner.displayed_amount,
-                inner.displayed_currency,
+                // TODO validate
+                // inner.displayed_amount,
+                // inner.displayed_currency,
             )
             .await
             .map_err(Into::<PortalInvoiceApiError>::into)?;

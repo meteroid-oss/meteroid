@@ -159,8 +159,6 @@ impl ServicesEdge {
         tenant_id: TenantId,
         invoice_id: InvoiceId,
         payment_method_id: CustomerPaymentMethodId,
-        _total_amount_confirmation: u64,
-        _currency_confirmation: String,
     ) -> error_stack::Result<PaymentTransaction, StoreError> {
         let payment_transaction = self
             .services

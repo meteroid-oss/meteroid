@@ -85,12 +85,21 @@ export const PaymentMethodsTab = () => {
   })
 
   useEffect(() => {
-    if (providersQuery.data && !methods.formState.isDirty) {
+    if (providersQuery.data) {
       methods.setValue('cardProviderId', providersQuery.data.cardProvider?.id || 'none')
-      methods.setValue('directDebitProviderId', providersQuery.data.directDebitProvider?.id || 'none')
+      methods.setValue(
+        'directDebitProviderId',
+        providersQuery.data.directDebitProvider?.id || 'none'
+      )
       methods.setValue('bankAccountId', providersQuery.data.bankAccount?.id || 'none')
     }
-  }, [providersQuery.data, methods.formState.isDirty, invoiceEntityId])
+  }, [
+    providersQuery.data,
+    methods.formState.isDirty,
+    invoiceEntityId,
+    connectorsQuery.data,
+    bankAccountsQuery.data,
+  ])
 
   if (
     connectorsQuery.isLoading ||
@@ -104,7 +113,8 @@ export const PaymentMethodsTab = () => {
     await updateInvoicingEntityMut.mutateAsync({
       id: invoiceEntityId,
       cardProviderId: values.cardProviderId === 'none' ? undefined : values.cardProviderId,
-      directDebitProviderId: values.directDebitProviderId === 'none' ? undefined : values.directDebitProviderId,
+      directDebitProviderId:
+        values.directDebitProviderId === 'none' ? undefined : values.directDebitProviderId,
       bankAccountId: values.bankAccountId === 'none' ? undefined : values.bankAccountId,
     })
   }
