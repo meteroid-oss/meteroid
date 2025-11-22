@@ -104,6 +104,12 @@ impl Services {
             invoice.invoice_date,
         );
 
+        // Generate payment reference by removing special characters for easier manual entry
+        let payment_reference = new_invoice_number
+            .chars()
+            .filter(|c| c.is_alphanumeric())
+            .collect::<String>();
+
         let _ = refresh_applied_coupons(tx, &invoice.currency, &applied_coupons_amounts).await?;
 
         let applied_coupons_json = serde_json::to_value(&applied_coupons_amounts)
@@ -114,6 +120,7 @@ impl Services {
             invoice.id,
             invoice.tenant_id,
             new_invoice_number,
+            payment_reference,
             applied_coupons_json,
         )
         .await

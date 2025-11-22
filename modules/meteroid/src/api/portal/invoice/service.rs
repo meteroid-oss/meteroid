@@ -56,8 +56,6 @@ impl PortalInvoiceService for PortalInvoiceServiceComponents {
             .map_err(Into::<PortalInvoiceApiError>::into)?;
 
 
-
-
         if let Some(cid) = customer_id
             && invoice.invoice.customer_id != cid {
                 return Err(Status::permission_denied("Invoice does not belong to the specified customer."));
@@ -91,6 +89,7 @@ impl PortalInvoiceService for PortalInvoiceServiceComponents {
             .get_organization_by_tenant_id(&tenant)
             .await
             .map_err(Into::<PortalInvoiceApiError>::into)?;
+
 
         // Determine payment method availability based on subscription payment strategy
         // If invoice is linked to a subscription, use the subscription's payment configuration
@@ -153,18 +152,22 @@ impl PortalInvoiceService for PortalInvoiceServiceComponents {
 
         log::info!("logo_url: {:?}", logo_url);
 
-        // Get bank account - prefer subscription's bank account (set by payment strategy),
-        // otherwise use invoicing entity's default
-        let bank_account_id_to_use = bank_account_id_override.or(invoicing_entity.bank_account_id);
-        let bank_account = if let Some(bank_account_id) = bank_account_id_to_use {
-            self.store
-                .get_bank_account_by_id(bank_account_id, tenant)
-                .await
-                .ok()
-                .map(crate::api::bankaccounts::mapping::bank_accounts::domain_to_proto)
-        } else {
-            None
-        };
+
+        let mut bank_account = None;
+        if (card_connection_id.is_none() &&  direct_debit_connection_id.is_none() &&  bank_account_id_override.is_none()) {
+            // Get bank account - prefer subscription's bank account (set by payment strategy),
+            // otherwise use invoicing entity's default
+            let bank_account_id_to_use = bank_account_id_override.or(invoicing_entity.bank_account_id);
+               if let Some(bank_account_id) = bank_account_id_to_use {
+                bank_account = self.store
+                    .get_bank_account_by_id(bank_account_id, tenant)
+                    .await
+                    .ok()
+                    .map(crate::api::bankaccounts::mapping::bank_accounts::domain_to_proto)
+            }  ;
+        }
+
+
 
         Ok(Response::new(GetInvoiceForPaymentResponse {
             invoice: Some(InvoiceForPayment {

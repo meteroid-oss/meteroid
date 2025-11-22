@@ -4,6 +4,7 @@ import { InvoicePaymentStatus } from '@/rpc/api/invoices/v1/models_pb'
 import { parseAndFormatDate } from '@/utils/date'
 import { formatCurrency, formatCurrencyNoRounding } from '@/utils/numbers'
 
+import { PaymentMethodBadge } from '@/features/invoice-payment/components/TransactionList'
 import { InvoicePaymentData } from '../types'
 
 export const InvoiceSummary = ({ invoicePaymentData }: InvoicePaymentData) => {
@@ -239,14 +240,16 @@ export const InvoiceSummary = ({ invoicePaymentData }: InvoicePaymentData) => {
               {/* Transactions list */}
               {invoice.transactions && invoice.transactions.length > 0 && (
                 <div className="mt-2">
-                  <div className="grid grid-cols-3 gap-4 text-xs text-gray-600 mb-2">
+                  <div className="hidden grid-cols-3 gap-4 text-xs text-gray-600 mb-2 ">
                     <div>Payment method</div>
                     <div>Payment date</div>
                     <div>Payment amount</div>
                   </div>
                   {invoice.transactions.map(transaction => (
                     <div key={transaction.id} className="grid grid-cols-3 gap-4 mb-2">
-                      <div>{transaction.paymentMethodInfo?.paymentMethodType || 'N/A'}</div>
+                      <div>
+                        <PaymentMethodBadge paymentMethodInfo={transaction.paymentMethodInfo} />
+                      </div>
                       <div>
                         {transaction.processedAt
                           ? parseAndFormatDate(transaction.processedAt)
@@ -266,48 +269,48 @@ export const InvoiceSummary = ({ invoicePaymentData }: InvoicePaymentData) => {
           <Separator className="mb-3" />
 
           <div className="space-y-2">
-            <div className="flex justify-between">
-              <span className="text-gray-600">Subtotal</span>
-              <span>{formatCurrency(invoice.subtotal, invoice.currency)}</span>
-            </div>
-            {/* Discount */}
-            {invoice.discount && Number(invoice.discount) > 0 && (
+            <>
               <div className="flex justify-between">
-                <span className="text-gray-600">Discount</span>
-                <span>-{formatCurrency(invoice.discount, invoice.currency)}</span>
+                <span className="text-gray-600">Subtotal</span>
+                <span>{formatCurrency(invoice.subtotal, invoice.currency)}</span>
               </div>
-            )}
 
-            {/* Coupons */}
-            {invoice.couponLineItems?.map(coupon => (
-              <div key={coupon.couponId} className="flex justify-between">
-                <span className="text-gray-600">{coupon.name}</span>
-                <span>-{formatCurrency(coupon.total, invoice.currency)}</span>
+              {invoice.discount && Number(invoice.discount) > 0 && (
+                <div className="flex justify-between">
+                  <span className="text-gray-600">Discount</span>
+                  <span>-{formatCurrency(invoice.discount, invoice.currency)}</span>
+                </div>
+              )}
+
+              {invoice.couponLineItems?.map(coupon => (
+                <div key={coupon.couponId} className="flex justify-between">
+                  <span className="text-gray-600">{coupon.name}</span>
+                  <span>-{formatCurrency(coupon.total, invoice.currency)}</span>
+                </div>
+              ))}
+
+              {invoice.taxBreakdown &&
+              invoice.taxBreakdown.length > 0 &&
+              Number(invoice.taxAmount) > 0
+                ? invoice.taxBreakdown.map((taxItem, index) => (
+                    <div key={index} className="flex justify-between">
+                      <span className="text-gray-600">
+                        {taxItem.name} {taxItem.taxRate}%
+                      </span>
+                      <span>{formatCurrency(taxItem.amount, invoice.currency)}</span>
+                    </div>
+                  ))
+                : null}
+
+              <Separator className="my-2" />
+
+              <div className="flex justify-between text-base">
+                <span className="text-gray-900">Total due</span>
+                <span className="text-gray-900">
+                  {formatCurrency(invoice.total, invoice.currency)}
+                </span>
               </div>
-            ))}
-
-            {/* Tax breakdown */}
-            {invoice.taxBreakdown &&
-            invoice.taxBreakdown.length > 0 &&
-            Number(invoice.taxAmount) > 0
-              ? invoice.taxBreakdown.map((taxItem, index) => (
-                  <div key={index} className="flex justify-between">
-                    <span className="text-gray-600">
-                      {taxItem.name} {taxItem.taxRate}%
-                    </span>
-                    <span>{formatCurrency(taxItem.amount, invoice.currency)}</span>
-                  </div>
-                ))
-              : null}
-
-            <Separator className="my-2" />
-
-            <div className="flex justify-between text-base">
-              <span className="text-gray-900">Total due</span>
-              <span className="text-gray-900">
-                {formatCurrency(invoice.total, invoice.currency)}
-              </span>
-            </div>
+            </>
           </div>
         </div>
       </div>

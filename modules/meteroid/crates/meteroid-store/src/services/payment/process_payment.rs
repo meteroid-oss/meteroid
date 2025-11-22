@@ -61,6 +61,8 @@ impl Services {
             .await
             .map_err(Into::<Report<StoreError>>::into)?;
 
+
+
         // Create payment intent with payment provider
         let payment_intent = self
             .create_payment_intent(
@@ -71,7 +73,7 @@ impl Services {
                 inserted_transaction.amount as u64,
                 inserted_transaction.currency.clone(),
             )
-            .await?;
+            .await?; // TODO if fails we should also consolidate the transaction no ? or is it possible that we are NOT in a transaction here ?
 
         // Consolidate the transaction
         let tx = self
@@ -115,6 +117,7 @@ impl Services {
                 transaction_id,
                 &connection.external_customer_id,
                 &method.external_payment_method_id,
+                &method.payment_method_type.into(),
                 amount as i64,
                 &currency,
             )

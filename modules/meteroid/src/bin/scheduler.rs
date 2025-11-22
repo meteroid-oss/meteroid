@@ -57,6 +57,8 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     let pdf_service = Arc::new(PdfRenderingService::try_new(
         object_store_service.clone(),
         store.clone(),
+        config.public_url.clone(),
+        config.jwt_secret.clone(),
     )?);
 
     let mailer_service = mailer_service(config.mailer.clone());

@@ -399,6 +399,7 @@ impl InvoiceRow {
         id: InvoiceId,
         tenant_id: TenantId,
         new_invoice_number: String,
+        payment_reference: String,
         coupons: serde_json::Value,
     ) -> DbResult<usize> {
         use crate::schema::invoice::dsl as i_dsl;
@@ -418,6 +419,7 @@ impl InvoiceRow {
                 i_dsl::data_updated_at.eq(now),
                 i_dsl::finalized_at.eq(now),
                 i_dsl::invoice_number.eq(new_invoice_number),
+                i_dsl::reference.eq(payment_reference),
                 i_dsl::coupons.eq(coupons),
             ));
 

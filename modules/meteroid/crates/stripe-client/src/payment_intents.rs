@@ -6,6 +6,7 @@ use secrecy::SecretString;
 use serde::{Deserialize, Serialize};
 use serde_with::skip_serializing_none;
 use std::collections::HashMap;
+use crate::setup_intents::StripePaymentMethodType;
 
 #[skip_serializing_none]
 #[derive(Debug, Eq, PartialEq, Serialize)]
@@ -21,6 +22,7 @@ pub struct PaymentIntentRequest {
     pub setup_mandate_details: Option<StripeMandateRequest>,
     pub capture_method: StripeCaptureMethod,
     pub off_session: Option<bool>,
+    pub payment_method_types: Vec<StripePaymentMethodType>,
 }
 
 #[derive(Clone, Debug, Deserialize)]

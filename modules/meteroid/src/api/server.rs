@@ -27,8 +27,12 @@ pub async fn start_api_server(
 ) -> Result<(), Box<dyn std::error::Error>> {
     log::info!("Starting GRPC API on {}", config.grpc_listen_addr);
 
-    let preview_rendering =
-        InvoicePreviewRenderingService::try_new(Arc::new(store.clone()), object_store.clone())?;
+    let preview_rendering = InvoicePreviewRenderingService::try_new(
+        Arc::new(store.clone()),
+        object_store.clone(),
+        config.public_url.clone(),
+        config.jwt_secret.clone(),
+    )?;
 
     let (_, health_service) = tonic_health::server::health_reporter();
 

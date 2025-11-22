@@ -1,5 +1,4 @@
-import { Card } from '@md/ui'
-import { CheckCircle, Clock, XCircle, AlertCircle, Ban } from 'lucide-react'
+import { Ban, CheckCircle, Clock, XCircle } from 'lucide-react'
 
 import { CardBrandLogo } from '@/features/checkout/components/CardBrandLogo'
 import { Transaction, Transaction_PaymentStatusEnum } from '@/rpc/api/invoices/v1/models_pb'
@@ -16,16 +15,14 @@ export const TransactionList: React.FC<TransactionListProps> = ({ transactions, 
   }
 
   return (
-    <Card className="border-0 shadow-sm mt-6">
-      <div className="p-6">
-        <h3 className="text-sm font-medium text-gray-900 mb-4">Payment History</h3>
-        <div className="space-y-3">
-          {transactions.map(transaction => (
-            <TransactionItem key={transaction.id} transaction={transaction} currency={currency} />
-          ))}
-        </div>
+    <div className="">
+      <h3 className="text-sm font-medium text-gray-900 mb-4">Transactions</h3>
+      <div className="space-y-3">
+        {transactions.map(transaction => (
+          <TransactionItem key={transaction.id} transaction={transaction} currency={currency} />
+        ))}
       </div>
-    </Card>
+    </div>
   )
 }
 
@@ -58,9 +55,7 @@ const TransactionItem: React.FC<TransactionItemProps> = ({ transaction, currency
               <span>{new Date(transaction.processedAt).toLocaleString()}</span>
             )}
             {transaction.paymentMethodInfo && (
-              <PaymentMethodBadge
-                paymentMethodInfo={transaction.paymentMethodInfo}
-              />
+              <PaymentMethodBadge paymentMethodInfo={transaction.paymentMethodInfo} />
             )}
           </div>
           {transaction.error && (
@@ -69,9 +64,7 @@ const TransactionItem: React.FC<TransactionItemProps> = ({ transaction, currency
         </div>
       </div>
       <div className="ml-4 flex-shrink-0">
-        <span
-          className={`text-sm font-semibold ${isRefund ? 'text-orange-600' : 'text-gray-900'}`}
-        >
+        <span className={`text-sm font-semibold ${isRefund ? 'text-orange-600' : 'text-gray-900'}`}>
           {isRefund ? '-' : ''}
           {formatCurrency(Number(transaction.amount), currency)}
         </span>
@@ -80,9 +73,9 @@ const TransactionItem: React.FC<TransactionItemProps> = ({ transaction, currency
   )
 }
 
-const PaymentMethodBadge: React.FC<{ paymentMethodInfo: Transaction['paymentMethodInfo'] }> = ({
-  paymentMethodInfo,
-}) => {
+export const PaymentMethodBadge: React.FC<{
+  paymentMethodInfo: Transaction['paymentMethodInfo']
+}> = ({ paymentMethodInfo }) => {
   if (!paymentMethodInfo) return null
 
   const isCard = paymentMethodInfo.paymentMethodType === 0 // CARD
@@ -90,7 +83,7 @@ const PaymentMethodBadge: React.FC<{ paymentMethodInfo: Transaction['paymentMeth
   if (isCard && paymentMethodInfo.cardBrand) {
     return (
       <div className="flex items-center gap-1">
-        <CardBrandLogo brand={paymentMethodInfo.cardBrand} size="sm" />
+        <CardBrandLogo brand={paymentMethodInfo.cardBrand} />
         {paymentMethodInfo.cardLast4 && <span>•••• {paymentMethodInfo.cardLast4}</span>}
       </div>
     )

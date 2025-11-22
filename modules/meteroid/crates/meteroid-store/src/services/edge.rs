@@ -159,18 +159,22 @@ impl ServicesEdge {
         tenant_id: TenantId,
         invoice_id: InvoiceId,
         payment_method_id: CustomerPaymentMethodId,
-    ) -> error_stack::Result<PaymentTransaction, StoreError> {
-        let payment_transaction = self
-            .services
-            .process_invoice_payment_tx(
-                &mut self.get_conn().await?,
-                tenant_id,
-                invoice_id,
-                payment_method_id,
-            )
-            .await?;
-
-        Ok(payment_transaction)
+    ) -> StoreResult<PaymentTransaction > {
+        self.store
+            .transaction(|conn| {
+                async move {
+                self
+                    .services
+                    .process_invoice_payment_tx(
+                        conn,
+                        tenant_id,
+                        invoice_id,
+                        payment_method_id,
+                    )
+                    .await
+                }
+            .scope_boxed()
+            }).await
     }
 
     pub async fn get_or_create_customer_connections(

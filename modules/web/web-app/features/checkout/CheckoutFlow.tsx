@@ -142,8 +142,8 @@ const CheckoutFlow: React.FC<CheckoutFlowProps> = ({ checkoutData }) => {
 
                 {/* Show bank transfer as alternative if available */}
                 {paymentAvailability.bankAccount &&
-                  (paymentAvailability.cardConnectionId ||
-                    paymentAvailability.directDebitConnectionId) && (
+                  !paymentAvailability.cardConnectionId &&
+                  !paymentAvailability.directDebitConnectionId && (
                     <div className="mt-6">
                       <div className="text-center text-sm text-gray-500 mb-4">or</div>
                       <BankTransferInfo
