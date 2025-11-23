@@ -49,7 +49,8 @@ pub fn validate_jwt(
     Ok(AuthenticatedState::User { id: user_id })
 }
 
-const OWNER_ONLY_METHODS: [&str; 1] = ["CreateTenant"];
+// const OWNER_ONLY_METHODS: [&str; 1] = ["CreateTenant"];
+const OWNER_ONLY_METHODS: [&str; 0] = [];
 
 #[cached(
     result = true,
