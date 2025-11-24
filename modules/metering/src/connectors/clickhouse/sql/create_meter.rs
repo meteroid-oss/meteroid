@@ -36,7 +36,7 @@ fn create_meter_view_to_select_sql(meter: Meter) -> String {
 
     let where_clause_for_value_property = match value_property_nes {
         Some(ref value_property) => {
-            let escaped_prop = escape_sql_identifier(&value_property);
+            let escaped_prop = escape_sql_identifier(value_property);
             selects.push(format!(
                 "{}(toFloat64OrZero(properties['{}'])) AS value",
                 agg_state_fn, escaped_prop
