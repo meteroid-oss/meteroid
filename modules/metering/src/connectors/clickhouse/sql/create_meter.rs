@@ -34,13 +34,17 @@ fn create_meter_view_to_select_sql(meter: Meter) -> String {
         .value_property
         .and_then(|v| if v.is_empty() { None } else { Some(v) });
 
-    match value_property_nes {
-        Some(value_property) => {
+    let where_clause_for_value_property = match value_property_nes {
+        Some(ref value_property) => {
+            let escaped_prop = escape_sql_identifier(value_property);
             selects.push(format!(
-                "{}(cast(properties['{}'], 'Float64')) AS value",
-                agg_state_fn,
-                escape_sql_identifier(&value_property)
+                "{}(toFloat64OrZero(properties['{}'])) AS value",
+                agg_state_fn, escaped_prop
             ));
+            format!(
+                " AND properties['{}'] != '' AND isNotNull(toFloat64OrNull(properties['{}']))",
+                escaped_prop, escaped_prop
+            )
         }
         None => {
             if matches!(meter.aggregation, MeterAggregation::Count) {
@@ -49,8 +53,9 @@ fn create_meter_view_to_select_sql(meter: Meter) -> String {
                 // TODO should only allow for Count
                 unimplemented!("Only Count aggregation is supported without value property")
             }
+            String::new()
         }
-    }
+    };
 
     let mut order_by = vec![
         "windowstart".to_string(),
@@ -70,13 +75,14 @@ fn create_meter_view_to_select_sql(meter: Meter) -> String {
     let events_table_name = get_events_table_name();
 
     let query = format!(
-        "SELECT {} FROM {} WHERE {}.tenant_id = '{}' AND {}.code = '{}' GROUP BY {}",
+        "SELECT {} FROM {} WHERE {}.tenant_id = '{}' AND {}.code = '{}'{} GROUP BY {}",
         selects.join(", "),
         events_table_name,
         events_table_name,
         escape_sql_identifier(&meter.namespace),
         events_table_name,
         escape_sql_identifier(&meter.code),
+        where_clause_for_value_property,
         order_by.join(", "), // TODO check
     );
 
@@ -180,12 +186,14 @@ mod tests {
                 customer_id,
                 tumbleStart(toDateTime(timestamp), toIntervalMinute(1)) AS windowstart,
                 tumbleEnd(toDateTime(timestamp), toIntervalMinute(1)) AS windowend,
-                countState(cast(properties['test_value'], 'Float64')) AS value,
+                countState(toFloat64OrZero(properties['test_value'])) AS value,
                 properties['test_group1'] as test_group1,
                 properties['test_group2'] as test_group2
             FROM meteroid.raw_events
             WHERE meteroid.raw_events.tenant_id = 'test_namespace'
                 AND meteroid.raw_events.code = 'test_event'
+                AND properties['test_value'] != ''
+                AND isNotNull(toFloat64OrNull(properties['test_value']))
                 GROUP BY windowstart, windowend, customer_id, test_group1, test_group2
         "#;
 

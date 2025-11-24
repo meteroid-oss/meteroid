@@ -412,13 +412,7 @@ impl Services {
                         total_tax_amount,
                     } => {
                         line.tax_amount = *total_tax_amount as i64;
-                        // For backward compatibility, compute a compound tax rate
-                        line.tax_rate = if taxed_line.pre_tax_amount > 0 {
-                            rust_decimal::Decimal::from(*total_tax_amount)
-                                / rust_decimal::Decimal::from(taxed_line.pre_tax_amount)
-                        } else {
-                            rust_decimal::Decimal::ZERO
-                        };
+                        line.tax_rate = taxes.iter().map(|t| t.tax_rate).sum();
                         line.tax_details = taxes
                             .iter()
                             .map(|t| TaxDetail {
