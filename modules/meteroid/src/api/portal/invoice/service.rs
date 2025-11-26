@@ -3,7 +3,7 @@ use crate::api::invoices::mapping;
 use crate::api::portal::invoice::PortalInvoiceServiceComponents;
 use crate::api::portal::invoice::error::PortalInvoiceApiError;
 use crate::services::storage::Prefix;
-use common_domain::ids::{BaseId, CustomerPaymentMethodId, InvoiceId};
+use common_domain::ids::{CustomerPaymentMethodId, InvoiceId};
 
 use common_grpc::middleware::server::auth::{RequestExt, ResourceAccess};
 use meteroid_grpc::meteroid::portal::invoice::v1::portal_invoice_service_server::PortalInvoiceService;

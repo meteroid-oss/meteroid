@@ -21,8 +21,9 @@ use meteroid_grpc::meteroid::api::customers::v1::{
     GetCustomerByIdResponse, ListCustomerRequest, ListCustomerResponse, SyncToHubspotRequest,
     SyncToHubspotResponse, SyncToPennylaneRequest, SyncToPennylaneResponse,
     TopUpCustomerBalanceRequest, TopUpCustomerBalanceResponse, UnarchiveCustomerRequest,
-    UnarchiveCustomerResponse,UpdateCustomerRequest, UpdateCustomerResponse, UpsertCustomerConnectionRequest,
-    UpsertCustomerConnectionResponse, customers_service_server::CustomersService,
+    UnarchiveCustomerResponse, UpdateCustomerRequest, UpdateCustomerResponse,
+    UpsertCustomerConnectionRequest, UpsertCustomerConnectionResponse,
+    customers_service_server::CustomersService,
 };
 use meteroid_store::domain::{
     CustomerBuyCredits, CustomerNew, CustomerPatch, CustomerTopUpBalance, OrderByRequest,
@@ -465,7 +466,6 @@ impl CustomersService for CustomerServiceComponents {
         Ok(Response::new(SyncToPennylaneResponse {}))
     }
 
-
     #[tracing::instrument(skip_all)]
     async fn generate_customer_portal_token(
         &self,
@@ -482,7 +482,7 @@ impl CustomersService for CustomerServiceComponents {
             tenant_id,
             meteroid_store::jwt_claims::ResourceAccess::Customer(customer_id),
         )
-            .map_err(Into::<CustomerApiError>::into)?;
+        .map_err(Into::<CustomerApiError>::into)?;
 
         Ok(Response::new(GenerateCustomerPortalTokenResponse { token }))
     }

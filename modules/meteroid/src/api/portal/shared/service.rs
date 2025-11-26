@@ -5,7 +5,6 @@ use crate::api::customers::mapping::customer::{
 };
 use crate::api::portal::shared::PortalSharedServiceComponents;
 use crate::api::portal::shared::error::PortalSharedApiError;
-use crate::api::shared::conversions::FromProtoOpt;
 use common_domain::ids::{BaseId, CustomerConnectionId, CustomerId, CustomerPaymentMethodId};
 use common_grpc::middleware::server::auth::{AuthorizedAsPortalUser, RequestExt};
 use meteroid_grpc::meteroid::portal::shared::v1::portal_shared_service_server::PortalSharedService;

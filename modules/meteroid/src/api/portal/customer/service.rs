@@ -3,7 +3,6 @@ use crate::api::portal::customer::PortalCustomerServiceComponents;
 use crate::api::portal::customer::error::PortalCustomerApiError;
 use crate::api::shared::conversions::{AsProtoOpt, ProtoConv};
 use crate::api::utils::PaginationExt;
-use common_domain::ids::BaseId;
 use common_grpc::middleware::server::auth::RequestExt;
 use common_utils::integers::ToNonNegativeU64;
 use meteroid_grpc::meteroid::portal::customer::v1::portal_customer_service_server::PortalCustomerService;
