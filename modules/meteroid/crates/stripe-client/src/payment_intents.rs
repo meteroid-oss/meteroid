@@ -2,6 +2,7 @@ use crate::client::StripeClient;
 use crate::error::StripeError;
 use crate::request::RetryStrategy;
 use crate::setup_intents::StripeMandateRequest;
+use crate::setup_intents::StripePaymentMethodType;
 use secrecy::SecretString;
 use serde::{Deserialize, Serialize};
 use serde_with::skip_serializing_none;
@@ -21,6 +22,7 @@ pub struct PaymentIntentRequest {
     pub setup_mandate_details: Option<StripeMandateRequest>,
     pub capture_method: StripeCaptureMethod,
     pub off_session: Option<bool>,
+    pub payment_method_types: Vec<StripePaymentMethodType>,
 }
 
 #[derive(Clone, Debug, Deserialize)]

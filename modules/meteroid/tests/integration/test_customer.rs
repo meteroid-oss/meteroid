@@ -1,11 +1,14 @@
 use meteroid_grpc::meteroid::api;
 use serde_json::json;
 
+use crate::data::ids::TENANT_ID;
 use crate::helpers;
 use crate::meteroid_it;
 use crate::meteroid_it::clients::AllClients;
 use crate::meteroid_it::container::{MeteroidSetup, SeedLevel};
 use common_domain::ids::{BaseId, ConnectorId, CustomerId, TenantId};
+use diesel_models::connectors::ConnectorRowNew;
+use diesel_models::enums::{ConnectorProviderEnum as DbConnectorProviderEnum, ConnectorTypeEnum};
 use meteroid_store::domain::ConnectorProviderEnum;
 use meteroid_store::repositories::CustomersInterface;
 use tonic::Code;
@@ -60,29 +63,6 @@ async fn test_customers_basic() {
         .customer
         .unwrap();
 
-    setup
-        .store
-        .patch_customer_conn_meta(
-            CustomerId::from_proto(created.id.as_str()).unwrap(),
-            ConnectorId::new(),
-            ConnectorProviderEnum::Hubspot,
-            "idk",
-            "123",
-        )
-        .await
-        .unwrap();
-
-    let patched_conn_meta = setup
-        .store
-        .find_customer_by_id(
-            CustomerId::from_proto(created.id.as_str()).unwrap(),
-            TenantId::from_proto("018c2c82-3df1-7e84-9e05-6e141d0e751a").unwrap(),
-        )
-        .await
-        .unwrap();
-
-    assert_ne!(patched_conn_meta.conn_meta, None);
-
     let created_manual = clients
         .customers
         .clone()
@@ -108,6 +88,48 @@ async fn test_customers_basic() {
         .into_inner()
         .customer
         .unwrap();
+
+    // Create a connector to use for testing customer connections
+    let connector_id = ConnectorId::new();
+    {
+        let mut conn = setup.store.pool.get().await.unwrap();
+        ConnectorRowNew {
+            id: connector_id,
+            tenant_id: TENANT_ID,
+            alias: "test-hubspot-connector".to_string(),
+            connector_type: ConnectorTypeEnum::Crm,
+            provider: DbConnectorProviderEnum::Hubspot,
+            data: None,
+            sensitive: None,
+        }
+        .insert(&mut conn)
+        .await
+        .unwrap();
+    }
+
+    setup
+        .store
+        .patch_customer_conn_meta(
+            TENANT_ID,
+            CustomerId::from_proto(created.id.as_str()).unwrap(),
+            connector_id,
+            ConnectorProviderEnum::Hubspot,
+            "idk",
+            "123",
+        )
+        .await
+        .unwrap();
+
+    let patched_conn_meta = setup
+        .store
+        .find_customer_by_id(
+            CustomerId::from_proto(created.id.as_str()).unwrap(),
+            TenantId::from_proto("018c2c82-3df1-7e84-9e05-6e141d0e751a").unwrap(),
+        )
+        .await
+        .unwrap();
+
+    assert_ne!(patched_conn_meta.conn_meta, None);
 
     assert_eq!(created.name, customer_name.clone());
     assert_eq!(created.alias, Some(customer_alias.clone()));

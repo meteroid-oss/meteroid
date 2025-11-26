@@ -96,6 +96,7 @@ pub struct CustomerRowPatch {
     pub invoicing_entity_id: Option<InvoicingEntityId>,
     pub vat_number: Option<Option<String>>,
     pub bank_account_id: Option<Option<BankAccountId>>,
+    pub current_payment_method_id: Option<Option<CustomerPaymentMethodId>>,
     pub is_tax_exempt: Option<bool>,
     pub custom_taxes: Option<serde_json::Value>,
     pub vat_number_format_valid: Option<bool>,

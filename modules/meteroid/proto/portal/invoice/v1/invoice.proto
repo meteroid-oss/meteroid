@@ -1,0 +1,30 @@
+syntax = "proto3";
+
+package meteroid.portal.invoice.v1;
+
+import "portal/invoice/v1/models.proto";
+import "api/invoices/v1/models.proto";
+
+message GetInvoiceForPaymentRequest {
+  optional string invoice_id = 1;
+}
+
+message GetInvoiceForPaymentResponse {
+  InvoiceForPayment invoice = 1;
+}
+
+message ConfirmInvoicePaymentRequest {
+  string payment_method_id = 1;
+  uint64 displayed_amount = 2;
+  string displayed_currency = 3;
+  optional string invoice_id = 4;
+}
+
+message ConfirmInvoicePaymentResponse {
+  api.invoices.v1.Transaction transaction = 1;
+}
+
+service PortalInvoiceService {
+  rpc GetInvoicePayment(GetInvoiceForPaymentRequest) returns (GetInvoiceForPaymentResponse) {}
+  rpc ConfirmInvoicePayment(ConfirmInvoicePaymentRequest) returns (ConfirmInvoicePaymentResponse) {}
+}

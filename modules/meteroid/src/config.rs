@@ -17,7 +17,7 @@ pub struct Config {
     #[envconfig(from = "DATABASE_URL")]
     pub database_url: String,
 
-    #[envconfig(from = "METEROID_PUBLIC_URL", default = "https://meteroid.com")]
+    #[envconfig(from = "METEROID_PUBLIC_URL", default = "https://app.meteroid.com")]
     pub public_url: String,
 
     #[envconfig(from = "METEROID_API_LISTEN_ADDRESS")]

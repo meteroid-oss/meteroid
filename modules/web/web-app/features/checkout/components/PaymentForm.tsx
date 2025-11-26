@@ -14,7 +14,7 @@ export const PaymentForm = () => {
   return (
     <div className="mt-4 mb-6">
       <div className="py-2 rounded-md mb-3">
-        <PaymentElement options={{ layout: 'tabs' }} />
+        <PaymentElement />
       </div>
     </div>
   )

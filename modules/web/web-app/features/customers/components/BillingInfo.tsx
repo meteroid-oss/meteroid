@@ -8,10 +8,8 @@ import { toast } from 'sonner'
 
 import { useZodForm } from '@/hooks/useZodForm'
 import { Address, Customer } from '@/rpc/api/customers/v1/models_pb'
-import {
-  getSubscriptionCheckout,
-  updateCustomer,
-} from '@/rpc/portal/checkout/v1/checkout-PortalCheckoutService_connectquery'
+import { getSubscriptionCheckout } from '@/rpc/portal/checkout/v1/checkout-PortalCheckoutService_connectquery'
+import { updateCustomer } from '@/rpc/portal/shared/v1/shared-PortalSharedService_connectquery'
 
 import { BillingInfoCard } from './BillingInfoCard'
 import { BillingInfoForm, BillingInfoFormValues, billingInfoSchema } from './BillingInfoForm'
@@ -22,6 +20,7 @@ interface BillingInfoProps {
   setIsEditing: (isEditing: boolean) => void
 }
 
+// TODO Where is this used, vs the other BillingInfo ?
 export const BillingInfo = ({ customer, isEditing, setIsEditing }: BillingInfoProps) => {
   const queryClient = useQueryClient()
 
@@ -84,7 +83,6 @@ export const BillingInfo = ({ customer, isEditing, setIsEditing }: BillingInfoPr
 
     await updateBillingInfoMut.mutateAsync({
       customer: {
-        id: customer.id,
         billingAddress: updatedAddress,
         name: values.name,
         vatNumber: values.vatNumber,

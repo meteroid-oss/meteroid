@@ -2,7 +2,9 @@ use crate::domain::connectors::{Connector, ProviderData, ProviderSensitiveData};
 use crate::domain::customer_payment_methods::SetupIntent;
 use crate::domain::enums::ConnectorProviderEnum;
 use crate::domain::payment_transactions::PaymentIntent;
-use crate::domain::{Address, Customer, CustomerConnection, PaymentMethodTypeEnum};
+use crate::domain::{
+    Address, Customer, CustomerConnection, CustomerPaymentMethodFromProvider, PaymentMethodTypeEnum,
+};
 use crate::utils::local_id::LocalId;
 use async_trait::async_trait;
 use common_domain::ids::{BaseId, PaymentTransactionId, TenantId};
@@ -53,7 +55,7 @@ pub trait PaymentProvider: Send + Sync {
         connector: &Connector,
         payment_method_id: &str,
         customer_id: &str,
-    ) -> Result<stripe_client::payment_methods::PaymentMethod, Report<PaymentProviderError>>;
+    ) -> Result<CustomerPaymentMethodFromProvider, Report<PaymentProviderError>>;
     async fn create_setup_intent_in_provider(
         &self,
         connection: &CustomerConnection,
@@ -61,12 +63,14 @@ pub trait PaymentProvider: Send + Sync {
         payment_methods: Vec<PaymentMethodTypeEnum>,
     ) -> Result<SetupIntent, Report<PaymentProviderError>>;
 
+    #[allow(clippy::too_many_arguments)]
     async fn create_payment_intent_in_provider(
         &self,
         connector: &Connector,
         transaction_id: &PaymentTransactionId,
         customer_external_id: &str,
         payment_method_external_id: &str,
+        payment_method_type: &PaymentMethodTypeEnum,
         amount: i64,
         currency: &str,
     ) -> Result<PaymentIntent, Report<PaymentProviderError>>;
@@ -152,12 +156,67 @@ impl PaymentProvider for StripeClient {
         connector: &Connector,
         payment_method_id: &str,
         customer_id: &str,
-    ) -> Result<stripe_client::payment_methods::PaymentMethod, Report<PaymentProviderError>> {
+    ) -> Result<CustomerPaymentMethodFromProvider, Report<PaymentProviderError>> {
         let secret_key = extract_stripe_secret_key(connector)?;
 
-        self.get_payment_method(payment_method_id, customer_id, &secret_key)
+        let method = self
+            .get_payment_method(payment_method_id, customer_id, &secret_key)
             .await
-            .map_err(|e| Report::new(PaymentProviderError::Configuration(e.to_string())))
+            .map_err(|e| Report::new(PaymentProviderError::Configuration(e.to_string())))?;
+
+        let account_number_hint = match method._type {
+            stripe_client::payment_methods::StripePaymentMethodType::BacsDebit => {
+                method.bacs_debit.and_then(|acc| acc.last4)
+            }
+            stripe_client::payment_methods::StripePaymentMethodType::Card => None,
+            stripe_client::payment_methods::StripePaymentMethodType::SepaDebit => {
+                method.bacs_debit.and_then(|acc| acc.last4)
+            }
+            stripe_client::payment_methods::StripePaymentMethodType::UsBankAccount => {
+                method.bacs_debit.and_then(|acc| acc.last4)
+            }
+        };
+
+        let payment_method_type = match method._type {
+            stripe_client::payment_methods::StripePaymentMethodType::BacsDebit => {
+                PaymentMethodTypeEnum::DirectDebitBacs
+            }
+            stripe_client::payment_methods::StripePaymentMethodType::Card => {
+                PaymentMethodTypeEnum::Card
+            }
+            stripe_client::payment_methods::StripePaymentMethodType::SepaDebit => {
+                PaymentMethodTypeEnum::DirectDebitSepa
+            }
+            stripe_client::payment_methods::StripePaymentMethodType::UsBankAccount => {
+                PaymentMethodTypeEnum::DirectDebitAch
+            }
+        };
+
+        let (card_brand, card_last4, card_exp_month, card_exp_year) = match method._type {
+            stripe_client::payment_methods::StripePaymentMethodType::Card => {
+                if let Some(card) = &method.card {
+                    (
+                        Some(card.brand.clone()),
+                        card.last4.clone(),
+                        Some(card.exp_month),
+                        Some(card.exp_year),
+                    )
+                } else {
+                    (None, None, None, None)
+                }
+            }
+            _ => (None, None, None, None),
+        };
+
+        Ok(CustomerPaymentMethodFromProvider {
+            external_payment_method_id: method.id,
+            payment_method_type,
+            account_number_hint,
+            card_brand,
+            card_last4,
+            card_exp_month,
+            card_exp_year,
+        })
     }
 
     async fn create_setup_intent_in_provider(
@@ -171,14 +230,7 @@ impl PaymentProvider for StripeClient {
 
         let stripe_payment_methods = payment_methods
             .into_iter()
-            .filter_map(|method| match method {
-                PaymentMethodTypeEnum::Card => Some(StripePaymentMethodType::Card),
-                PaymentMethodTypeEnum::DirectDebitSepa => Some(StripePaymentMethodType::Sepa),
-                PaymentMethodTypeEnum::DirectDebitAch => Some(StripePaymentMethodType::Ach),
-                PaymentMethodTypeEnum::DirectDebitBacs => Some(StripePaymentMethodType::Bacs),
-                PaymentMethodTypeEnum::Other => None,
-                PaymentMethodTypeEnum::Transfer => None,
-            })
+            .filter_map(|method| (&method).into())
             .collect();
 
         let metadata = HashMap::from([
@@ -227,6 +279,7 @@ impl PaymentProvider for StripeClient {
         transaction_id: &PaymentTransactionId,
         customer_external_id: &str,
         payment_method_external_id: &str,
+        payment_method_type: &PaymentMethodTypeEnum,
         amount: i64,
         currency: &str,
     ) -> Result<PaymentIntent, Report<PaymentProviderError>> {
@@ -243,6 +296,8 @@ impl PaymentProvider for StripeClient {
             ),
         ]);
 
+        let payment_method_type: Option<StripePaymentMethodType> = payment_method_type.into();
+
         let payment_intent = self
             .create_payment_intent(
                 PaymentIntentRequest {
@@ -256,6 +311,8 @@ impl PaymentProvider for StripeClient {
                     off_session: Some(true),
                     return_url: None,
                     capture_method: Default::default(),
+                    // allowed
+                    payment_method_types: payment_method_type.into_iter().collect(),
                 },
                 &secret_key,
                 Uuid::now_v7().to_string(), // TODO pass idempotency from api ?
@@ -364,5 +421,18 @@ fn extract_stripe_public_key(
         None => Err(Report::new(PaymentProviderError::Configuration(
             "No api_publishable_key found".to_string(),
         ))),
+    }
+}
+
+impl From<&PaymentMethodTypeEnum> for Option<StripePaymentMethodType> {
+    fn from(val: &PaymentMethodTypeEnum) -> Self {
+        match val {
+            PaymentMethodTypeEnum::Card => Some(StripePaymentMethodType::Card),
+            PaymentMethodTypeEnum::DirectDebitSepa => Some(StripePaymentMethodType::Sepa),
+            PaymentMethodTypeEnum::DirectDebitAch => Some(StripePaymentMethodType::Ach),
+            PaymentMethodTypeEnum::DirectDebitBacs => Some(StripePaymentMethodType::Bacs),
+            PaymentMethodTypeEnum::Other => None,
+            PaymentMethodTypeEnum::Transfer => None,
+        }
     }
 }

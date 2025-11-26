@@ -6,13 +6,14 @@ use tonic::{Request, Response, Status};
 use meteroid_grpc::meteroid::api::subscriptions::v1::subscriptions_service_server::SubscriptionsService;
 
 use meteroid_grpc::meteroid::api::subscriptions::v1::{
-    CancelSlotTransactionRequest, CancelSlotTransactionResponse, CancelSubscriptionRequest,
-    CancelSubscriptionResponse, CreateSubscriptionRequest, CreateSubscriptionResponse,
-    CreateSubscriptionsRequest, CreateSubscriptionsResponse, GetSlotsValueRequest,
-    GetSlotsValueResponse, ListSlotTransactionsRequest, ListSlotTransactionsResponse,
-    ListSubscriptionsRequest, ListSubscriptionsResponse, PreviewSlotUpdateRequest,
-    PreviewSlotUpdateResponse, SubscriptionDetails, SyncToHubspotRequest, SyncToHubspotResponse,
-    UpdateSlotsRequest, UpdateSlotsResponse,
+    ActivateSubscriptionRequest, ActivateSubscriptionResponse, CancelSlotTransactionRequest,
+    CancelSlotTransactionResponse, CancelSubscriptionRequest, CancelSubscriptionResponse,
+    CreateSubscriptionRequest, CreateSubscriptionResponse, CreateSubscriptionsRequest,
+    CreateSubscriptionsResponse, GenerateCheckoutTokenRequest, GenerateCheckoutTokenResponse,
+    GetSlotsValueRequest, GetSlotsValueResponse, ListSlotTransactionsRequest,
+    ListSlotTransactionsResponse, ListSubscriptionsRequest, ListSubscriptionsResponse,
+    PreviewSlotUpdateRequest, PreviewSlotUpdateResponse, SubscriptionDetails, SyncToHubspotRequest,
+    SyncToHubspotResponse, UpdateSlotsRequest, UpdateSlotsResponse,
 };
 
 use crate::api::shared::conversions::ProtoConv;
@@ -298,6 +299,27 @@ impl SubscriptionsService for SubscriptionServiceComponents {
     }
 
     #[tracing::instrument(skip_all)]
+    async fn generate_checkout_token(
+        &self,
+        request: Request<GenerateCheckoutTokenRequest>,
+    ) -> Result<Response<GenerateCheckoutTokenResponse>, Status> {
+        let tenant_id = request.tenant()?;
+
+        let req = request.into_inner();
+        let subscription_id = SubscriptionId::from_proto(req.subscription_id)?;
+
+        // Generate the JWT token for checkout portal access
+        let token = meteroid_store::jwt_claims::generate_portal_token(
+            &self.jwt_secret,
+            tenant_id,
+            meteroid_store::jwt_claims::ResourceAccess::SubscriptionCheckout(subscription_id),
+        )
+        .map_err(Into::<SubscriptionApiError>::into)?;
+
+        Ok(Response::new(GenerateCheckoutTokenResponse { token }))
+    }
+
+    #[tracing::instrument(skip_all)]
     async fn list_slot_transactions(
         &self,
         request: Request<ListSlotTransactionsRequest>,
@@ -380,5 +402,30 @@ impl SubscriptionsService for SubscriptionServiceComponents {
         Ok(Response::new(
             mapping::slot_transactions::preview_domain_to_proto(preview)?,
         ))
+    }
+
+    #[tracing::instrument(skip_all)]
+    async fn activate_subscription(
+        &self,
+        request: Request<ActivateSubscriptionRequest>,
+    ) -> Result<Response<ActivateSubscriptionResponse>, Status> {
+        let tenant_id = request.tenant()?;
+        let inner = request.into_inner();
+
+        let subscription_id = SubscriptionId::from_proto(inner.subscription_id)?;
+
+        // Activate the subscription
+        let subscription = self
+            .services
+            .activate_subscription_manual(tenant_id, subscription_id)
+            .await
+            .map_err(Into::<SubscriptionApiError>::into)?;
+
+        let proto_subscription = mapping::subscriptions::domain_to_proto(subscription)?;
+
+        Ok(Response::new(ActivateSubscriptionResponse {
+            subscription: Some(proto_subscription),
+            invoice_id: None, // Invoice creation happens asynchronously via worker
+        }))
     }
 }

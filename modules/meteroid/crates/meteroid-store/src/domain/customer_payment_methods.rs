@@ -71,3 +71,13 @@ pub enum ResolvedPaymentMethod {
     BankTransfer(BankAccountId),
     NotConfigured, // TODO we could separate NotConfigured and RequiresCheckout (for the first there's no connector), or it's done elsewhere
 }
+
+pub struct CustomerPaymentMethodFromProvider {
+    pub external_payment_method_id: String,
+    pub payment_method_type: PaymentMethodTypeEnum,
+    pub account_number_hint: Option<String>,
+    pub card_brand: Option<String>,
+    pub card_last4: Option<String>,
+    pub card_exp_month: Option<i32>,
+    pub card_exp_year: Option<i32>,
+}

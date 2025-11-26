@@ -7,43 +7,22 @@ import "api/customers/v1/models.proto";
 import "api/invoices/v1/models.proto";
 
 message GetSubscriptionCheckoutRequest {
-
+  optional string subscription_id = 1;
 }
 
 message GetSubscriptionCheckoutResponse {
   Checkout checkout = 1;
 }
 
-message UpdateCustomerRequest {
-  api.customers.v1.UpdateCustomer customer = 1;
-}
-
-message UpdateCustomerResponse {
-  api.customers.v1.Customer customer = 1;
-}
-
-message SetupIntentRequest {
-  string connection_id = 1;
-}
-message SetupIntentResponse {
-  SetupIntent setup_intent = 1;
-}
 
 message ConfirmCheckoutRequest {
   string payment_method_id = 1;
   uint64 displayed_amount = 2;
   string displayed_currency = 3;
+  optional string subscription_id = 4;
 }
 message ConfirmCheckoutResponse {
   api.invoices.v1.Transaction transaction = 1;
-}
-
-message AddPaymentMethodRequest {
-  string connection_id = 1;
-  string external_payment_method_id = 2;
-}
-message AddPaymentMethodResponse {
-  api.customers.v1.CustomerPaymentMethod payment_method = 1;
 }
 
 message GetSlotUpgradeCheckoutRequest {
@@ -69,11 +48,8 @@ message ConfirmSlotUpgradeCheckoutResponse {
 }
 
 service PortalCheckoutService {
-  rpc GetSubscriptionCheckout(GetSubscriptionCheckoutRequest) returns (GetSubscriptionCheckoutResponse) {}
-  rpc UpdateCustomer(UpdateCustomerRequest) returns (UpdateCustomerResponse) {}
-  rpc SetupIntent(SetupIntentRequest) returns (SetupIntentResponse) {}
+ rpc GetSubscriptionCheckout(GetSubscriptionCheckoutRequest) returns (GetSubscriptionCheckoutResponse) {}
   rpc ConfirmCheckout(ConfirmCheckoutRequest) returns (ConfirmCheckoutResponse) {}
-  rpc AddPaymentMethod(AddPaymentMethodRequest) returns (AddPaymentMethodResponse) {}
   rpc GetSlotUpgradeCheckout(GetSlotUpgradeCheckoutRequest) returns (GetSlotUpgradeCheckoutResponse) {}
   rpc ConfirmSlotUpgradeCheckout(ConfirmSlotUpgradeCheckoutRequest) returns (ConfirmSlotUpgradeCheckoutResponse) {}
 }

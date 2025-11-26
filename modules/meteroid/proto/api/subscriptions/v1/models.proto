@@ -59,6 +59,7 @@ message Subscription {
   string local_id = 25;
   optional string billing_start_date = 26;
   optional string checkout_url = 27;
+  bool pending_checkout = 36;
 
   optional string card_connection_id = 30;
   optional string direct_debit_connection_id = 31;
@@ -118,12 +119,19 @@ message CreateSubscription {
   ActivationCondition activation_condition = 17;
   optional bool auto_advance_invoices = 18;
   optional bool charge_automatically = 19;
+  optional PaymentStrategy payment_strategy = 20;
 }
 
 enum ActivationCondition {
   ON_START = 0;
   ON_CHECKOUT = 1;
   MANUAL = 2;
+}
+
+enum PaymentStrategy {
+  AUTO = 0;    // Uses existing method, card checkout if configured, else bank, else external
+  BANK = 1;    // Forces bank transfer only (disables card/DD)
+  EXTERNAL = 2; // Manual/external payment (disables all payment methods including bank display)
 }
 
 message CreateSubscriptionAddOn {

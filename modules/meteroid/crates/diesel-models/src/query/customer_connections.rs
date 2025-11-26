@@ -20,6 +20,50 @@ impl CustomerConnectionRow {
             .into_db_result()
     }
 
+    pub async fn upsert(
+        conn: &mut PgConn,
+        tenant_id: &TenantId,
+        row: CustomerConnectionRow,
+    ) -> DbResult<CustomerConnectionRow> {
+        use crate::schema::customer::dsl as cust_dsl;
+        use crate::schema::customer_connection::dsl as cc_dsl;
+        use diesel::prelude::*;
+        use diesel_async::RunQueryDsl;
+
+        // Verify the customer belongs to the tenant
+        let customer_exists: bool = diesel::dsl::select(diesel::dsl::exists(
+            cust_dsl::customer
+                .filter(cust_dsl::id.eq(row.customer_id))
+                .filter(cust_dsl::tenant_id.eq(tenant_id)),
+        ))
+        .get_result(conn)
+        .await
+        .attach("Error while checking customer ownership")
+        .into_db_result()?;
+
+        if !customer_exists {
+            return Err(crate::errors::DatabaseErrorContainer {
+                error: error_stack::Report::new(crate::errors::DatabaseError::ValidationError(
+                    "Customer not found or unauthorized".into(),
+                )),
+            });
+        }
+
+        let query = diesel::insert_into(cc_dsl::customer_connection)
+            .values(&row)
+            .on_conflict((cc_dsl::customer_id, cc_dsl::connector_id))
+            .do_update()
+            .set(cc_dsl::external_customer_id.eq(&row.external_customer_id));
+
+        log::debug!("{}", debug_query::<diesel::pg::Pg, _>(&query));
+
+        query
+            .get_result(conn)
+            .await
+            .attach("Error while upserting customer connection")
+            .into_db_result()
+    }
+
     pub async fn delete(
         conn: &mut PgConn,
         id: CustomerConnectionId,

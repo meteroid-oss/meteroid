@@ -1,20 +1,26 @@
-import { Card, Flex, Separator, Skeleton } from '@md/ui'
-import { ChevronDown, Plus } from 'lucide-react'
+import { useMutation } from '@connectrpc/connect-query'
+import { Button, Card, Flex, Separator, Skeleton } from '@md/ui'
+import { ChevronDown, ExternalLink, Plus } from 'lucide-react'
 import { Fragment, useState } from 'react'
 import { useNavigate } from 'react-router-dom'
 
 import { TenantPageLayout } from '@/components/layouts'
 import { CustomerHeader, CustomersCreatePanel } from '@/features/customers'
 import { InvoicesCard } from '@/features/customers/cards/InvoicesCard'
+import { PaymentMethodsCard } from '@/features/customers/cards/PaymentMethodsCard'
 import { SubscriptionsCard } from '@/features/customers/cards/SubscriptionsCard'
 import { AddressLinesCompact } from '@/features/customers/cards/address/AddressCard'
 import { EditCustomerModal } from '@/features/customers/cards/customer/EditCustomerModal'
 import { CustomerInvoiceModal } from '@/features/customers/modals/CustomerInvoiceModal'
+import { ManageConnectionsModal } from '@/features/customers/modals/ManageConnectionsModal'
 import { getCountryFlagEmoji, getCountryName } from '@/features/settings/utils'
 import { useBasePath } from '@/hooks/useBasePath'
 import { useQuery } from '@/lib/connectrpc'
-import { getLatestConnMeta } from '@/pages/tenants/utils'
-import { getCustomerById } from '@/rpc/api/customers/v1/customers-CustomersService_connectquery'
+import { ConnectorProviderEnum } from '@/rpc/api/connectors/v1/models_pb'
+import {
+  generateCustomerPortalToken,
+  getCustomerById,
+} from '@/rpc/api/customers/v1/customers-CustomersService_connectquery'
 import { getInvoicingEntity } from '@/rpc/api/invoicingentities/v1/invoicingentities-InvoicingEntitiesService_connectquery'
 import { useTypedParams } from '@/utils/params'
 
@@ -26,6 +32,7 @@ export const Customer = () => {
   const [editPanelVisible, setEditPanelVisible] = useState(false)
   const [createInvoiceVisible, setCreateInvoiceVisible] = useState(false)
   const [editCustomerVisible, setEditCustomerVisible] = useState(false)
+  const [manageConnectionsVisible, setManageConnectionsVisible] = useState(false)
 
   const customerQuery = useQuery(
     getCustomerById,
@@ -37,6 +44,19 @@ export const Customer = () => {
 
   const data = customerQuery.data?.customer
 
+  const portalTokenMutation = useMutation(generateCustomerPortalToken, {
+    onSuccess: data => {
+      const portalUrl = `${window.location.origin}/portal/customer?token=${data.token}`
+      window.open(portalUrl, '_blank')
+    },
+    onError: error => {
+      console.error('Failed to generate customer portal token:', error)
+    },
+  })
+
+  const handleOpenCustomerPortal = () =>
+    portalTokenMutation.mutate({ customerId: customerId ?? '' })
+
   const invoicingEntityQuery = useQuery(
     getInvoicingEntity,
     {
@@ -46,9 +66,6 @@ export const Customer = () => {
   )
 
   const isLoading = customerQuery.isLoading || invoicingEntityQuery.isLoading
-
-  const pennylaneConnMeta = getLatestConnMeta(data?.connectionMetadata?.pennylane)
-  const hubspotConnMeta = getLatestConnMeta(data?.connectionMetadata?.hubspot)
 
   return (
     <Fragment>
@@ -110,7 +127,17 @@ export const Customer = () => {
               </Flex>
               <Flex direction="column" className="gap-2 w-1/3">
                 <Flex direction="column" className="gap-2 p-6">
-                  <div className="text-lg font-medium">{data.name}</div>
+                  <div className="flex justify-between">
+                    <div className="text-lg font-medium">{data.name}</div>
+
+                    <Button
+                      size="sm"
+                      variant="secondary"
+                      onClick={() => setEditCustomerVisible(true)}
+                    >
+                      Edit
+                    </Button>
+                  </div>
                   <div className="text-muted-foreground text-[13px] mb-3">{data.alias}</div>
                   <FlexDetails title="Legal name" value={data.name} />
                   <FlexDetails title="Email" value={data.billingEmail} />
@@ -181,33 +208,56 @@ export const Customer = () => {
                 </Flex>
                 <Separator className="-my-3" />
                 <Flex direction="column" className="gap-2 p-6">
-                  <div className="text-[15px] font-medium">Integrations</div>
-                  <FlexDetails title="Alias (External ID)" value={data.alias} />
-                  {hubspotConnMeta?.externalId && (
-                    <FlexDetails
-                      title="Hubspot ID"
-                      value={hubspotConnMeta?.externalId}
-                      externalLink={`https://app.hubspot.com/contacts/${hubspotConnMeta?.externalCompanyId}/company/${hubspotConnMeta?.externalId}`}
-                    />
-                  )}
-                  {pennylaneConnMeta?.externalId && (
-                    <FlexDetails
-                      title="Pennylane ID"
-                      value={pennylaneConnMeta?.externalId}
-                      externalLink={`https://app.pennylane.com/companies/${pennylaneConnMeta?.externalCompanyId}/thirdparties/customers?id=${pennylaneConnMeta?.externalId}`}
-                    />
-                  )}
-                  <FlexDetails title="Stripe ID" value="N/A" />
+                  <div className="text-[15px] font-medium">Portal</div>
+                  <Button
+                    variant="secondary"
+                    size="sm"
+                    onClick={handleOpenCustomerPortal}
+                    disabled={portalTokenMutation.isPending}
+                    className="w-full"
+                  >
+                    <ExternalLink size={14} className="mr-2" />
+                    Open Customer Portal
+                  </Button>
                 </Flex>
                 <Separator className="-my-3" />
                 <Flex direction="column" className="gap-2 p-6">
-                  <div className="text-[15px] font-medium">Payment</div>
-                  <FlexDetails
-                    title="Payment method"
-                    value={data.currentPaymentMethodId ?? 'None'}
+                  <Flex align="center" justify="between" className="mb-2">
+                    <div className="text-[15px] font-medium">Integrations</div>
+                    <Button
+                      variant="secondary"
+                      size="sm"
+                      onClick={() => setManageConnectionsVisible(true)}
+                      className="h-7 text-xs"
+                    >
+                      Manage
+                    </Button>
+                  </Flex>
+                  <FlexDetails title="Alias (External ID)" value={data.alias} />
+                  {data.customerConnections?.map(connection => {
+                    const providerName = getProviderName(connection.connectorProvider)
+                    const externalLink = getProviderLink(
+                      connection.connectorProvider,
+                      connection.externalCustomerId,
+                      connection.externalCompanyId
+                    )
+                    return (
+                      <FlexDetails
+                        key={connection.id}
+                        title={`${providerName} ID`}
+                        value={connection.externalCustomerId}
+                        externalLink={externalLink}
+                      />
+                    )
+                  })}
+                </Flex>
+                <Separator className="-my-3" />
+                <Flex direction="column" className="gap-2 p-6">
+                  <div className="text-[15px] font-medium">Payment methods</div>
+                  <PaymentMethodsCard
+                    paymentMethods={data.paymentMethods ?? []}
+                    currentPaymentMethodId={data.currentPaymentMethodId}
                   />
-                  <FlexDetails title="Payment term" value="N/A" />
-                  <FlexDetails title="Grace period" value="None" />
                 </Flex>
               </Flex>
             </Flex>
@@ -226,6 +276,13 @@ export const Customer = () => {
           onCancel={() => setEditCustomerVisible(false)}
         />
       )}
+      <ManageConnectionsModal
+        openState={[manageConnectionsVisible, setManageConnectionsVisible]}
+        customer={data}
+        onSuccess={() => {
+          customerQuery.refetch()
+        }}
+      />
     </Fragment>
   )
 }
@@ -260,3 +317,39 @@ const FlexDetails = ({
     )}
   </Flex>
 )
+
+// Helper functions for connector providers
+const getProviderName = (provider: ConnectorProviderEnum | undefined): string => {
+  switch (provider) {
+    case ConnectorProviderEnum.STRIPE:
+      return 'Stripe'
+    case ConnectorProviderEnum.HUBSPOT:
+      return 'Hubspot'
+    case ConnectorProviderEnum.PENNYLANE:
+      return 'Pennylane'
+    default:
+      return 'Unknown'
+  }
+}
+
+const getProviderLink = (
+  provider: ConnectorProviderEnum | undefined,
+  externalId: string,
+  externalCompanyId?: string
+): string | undefined => {
+  // Return external links for providers that support it
+  switch (provider) {
+    case ConnectorProviderEnum.STRIPE:
+      return `https://dashboard.stripe.com/customers/${externalId}`
+    case ConnectorProviderEnum.HUBSPOT:
+      return externalCompanyId
+        ? `https://app.hubspot.com/contacts/${externalCompanyId}/company/${externalId}`
+        : undefined
+    case ConnectorProviderEnum.PENNYLANE:
+      return externalCompanyId
+        ? `https://app.pennylane.com/companies/${externalCompanyId}/thirdparties/customers?id=${externalId}`
+        : undefined
+    default:
+      return undefined
+  }
+}

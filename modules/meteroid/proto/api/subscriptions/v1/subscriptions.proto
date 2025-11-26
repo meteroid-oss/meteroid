@@ -135,6 +135,23 @@ message PreviewSlotUpdateResponse {
   string next_invoice_delta = 12;
 }
 
+message GenerateCheckoutTokenRequest {
+  string subscription_id = 1;
+}
+
+message GenerateCheckoutTokenResponse {
+  string token = 1;
+}
+
+message ActivateSubscriptionRequest {
+  string subscription_id = 1;
+}
+
+message ActivateSubscriptionResponse {
+  Subscription subscription = 1;
+  optional string invoice_id = 2;
+}
+
 
 // Service definition
 service SubscriptionsService {
@@ -148,5 +165,7 @@ service SubscriptionsService {
   rpc CancelSlotTransaction(CancelSlotTransactionRequest) returns (CancelSlotTransactionResponse);
   rpc PreviewSlotUpdate(PreviewSlotUpdateRequest) returns (PreviewSlotUpdateResponse);
   rpc CancelSubscription(CancelSubscriptionRequest) returns (CancelSubscriptionResponse);
+  rpc ActivateSubscription(ActivateSubscriptionRequest) returns (ActivateSubscriptionResponse);
   rpc SyncToHubspot(SyncToHubspotRequest) returns (SyncToHubspotResponse);
+  rpc GenerateCheckoutToken(GenerateCheckoutTokenRequest) returns (GenerateCheckoutTokenResponse);
 }

@@ -13,7 +13,7 @@ use diesel_models::customer_connection::CustomerConnectionDetailsRow;
 use diesel_models::customer_payment_methods::CustomerPaymentMethodRow;
 use diesel_models::enums::{PaymentStatusEnum, PaymentTypeEnum};
 use diesel_models::invoices::InvoiceRow;
-use diesel_models::payments::PaymentTransactionRowNew;
+use diesel_models::payments::{PaymentTransactionRow, PaymentTransactionRowNew};
 use error_stack::{Report, ResultExt};
 
 impl Services {
@@ -42,6 +42,22 @@ impl Services {
             return Err(Report::new(StoreError::BillingError).attach("Invoice has no amount due"));
         }
 
+        // Check for existing pending transactions
+        let existing_transactions =
+            PaymentTransactionRow::list_by_invoice_id(conn, invoice_id, tenant_id)
+                .await
+                .map_err(Into::<Report<StoreError>>::into)?;
+
+        let has_pending_transaction = existing_transactions
+            .iter()
+            .any(|tx| tx.transaction.status == PaymentStatusEnum::Pending);
+
+        if has_pending_transaction {
+            return Err(Report::new(StoreError::PaymentError(
+                "A payment for this invoice is already being processed. Please wait for it to complete before attempting another payment.".to_string()
+            )));
+        }
+
         // Create a payment transaction
         let transaction = PaymentTransactionRowNew {
             id: PaymentTransactionId::new(),
@@ -54,6 +70,7 @@ impl Services {
             status: PaymentStatusEnum::Pending,
             payment_type: PaymentTypeEnum::Payment,
             error_type: None,
+            processed_at: None,
         };
 
         let inserted_transaction = transaction
@@ -115,6 +132,7 @@ impl Services {
                 transaction_id,
                 &connection.external_customer_id,
                 &method.external_payment_method_id,
+                &method.payment_method_type.into(),
                 amount as i64,
                 &currency,
             )

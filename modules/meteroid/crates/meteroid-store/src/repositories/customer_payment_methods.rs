@@ -153,8 +153,8 @@ impl CustomerPaymentMethodsInterface for Store {
                     ResolvedPaymentMethod::NotConfigured,
                     ResolvedPaymentMethod::BankTransfer,
                 ),
-            None | Some(PaymentMethodTypeEnum::Other) => ResolvedPaymentMethod::NotConfigured,
-            Some(_) => resolved
+            Some(PaymentMethodTypeEnum::Other) => ResolvedPaymentMethod::NotConfigured,
+            None | Some(_) => resolved
                 .subscription_payment_method_id
                 .or(resolved.customer_payment_method_id)
                 .map_or(

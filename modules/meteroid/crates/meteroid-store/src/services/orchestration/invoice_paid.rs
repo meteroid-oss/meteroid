@@ -65,6 +65,12 @@ impl Services {
             .get_invoicing_entity(tenant_id, Some(customer.invoicing_entity_id))
             .await?;
 
+        let label = invoice
+            .plan_name
+            .as_ref()
+            .map(|plan| format!("Your {} invoice was paid successfully.", plan))
+            .unwrap_or_else(|| "Invoice for services was paid successfully.".to_string());
+
         let event: StoreResult<PgmqMessageNew> = SendEmailRequest::InvoicePaid {
             tenant_id,
             invoice_id: invoice.id,
@@ -72,12 +78,10 @@ impl Services {
             invoicing_entity_id: invoicing_entity.id,
             invoice_date: invoice.invoice_date,
             invoice_due_date: invoice.due_at.map_or(invoice.invoice_date, |d| d.date()),
-            label: invoice
-                .plan_name
-                .unwrap_or(invoice.customer_details.name.clone()),
+            label,
             amount_paid: receipt.amount,
             currency: invoice.currency,
-            company_name: invoice.customer_details.name.clone(),
+            company_name: invoice.seller_details.legal_name.clone(),
             logo_attachment_id: invoicing_entity.logo_attachment_id,
             invoicing_emails: customer.invoicing_emails,
             invoice_pdf_id,

@@ -1,0 +1,29 @@
+syntax = "proto3";
+
+package meteroid.portal.customer.v1;
+
+import "portal/customer/v1/models.proto";
+import "api/customers/v1/models.proto";
+import "api/subscriptions/v1/models.proto";
+import "api/invoices/v1/models.proto";
+import "common/v1/pagination.proto";
+
+message GetCustomerPortalOverviewRequest {}
+
+message GetCustomerPortalOverviewResponse {
+  CustomerPortalOverview overview = 1;
+}
+
+message ListInvoicesRequest {
+  common.v1.Pagination pagination = 1;
+}
+
+message ListInvoicesResponse {
+  repeated InvoiceSummary invoices = 1;
+  common.v1.PaginationResponse pagination_meta = 2;
+}
+
+service PortalCustomerService {
+  rpc GetCustomerPortalOverview(GetCustomerPortalOverviewRequest) returns (GetCustomerPortalOverviewResponse);
+  rpc ListInvoices(ListInvoicesRequest) returns (ListInvoicesResponse);
+}

@@ -4,7 +4,10 @@ import { useState } from 'react'
 import { useNavigate } from 'react-router-dom'
 
 import { PaymentPanel } from '@/features/checkout/PaymentPanel'
+import { ReadonlyPaymentView } from '@/features/checkout/components/ReadonlyPaymentView'
+import { getCheckoutPaymentAvailability } from '@/features/checkout/utils/paymentAvailability'
 import { BillingInfo } from '@/features/customers/components/BillingInfo'
+import { BankTransferInfo } from '@/features/invoice-payment/components/BankTransferInfo'
 import { confirmCheckout } from '@/rpc/portal/checkout/v1/checkout-PortalCheckoutService_connectquery'
 import { formatCurrency } from '@/utils/numbers'
 
@@ -16,7 +19,15 @@ import { CheckoutFlowProps } from './types'
 const CheckoutFlow: React.FC<CheckoutFlowProps> = ({ checkoutData }) => {
   const [isAddressEditing, setIsAddressEditing] = useState(false)
   const navigate = useNavigate()
-  const { subscription, customer, paymentMethods, totalAmount } = checkoutData
+  const {
+    subscription,
+    customer,
+    paymentMethods,
+    totalAmount,
+    cardConnectionId,
+    directDebitConnectionId,
+    bankAccount,
+  } = checkoutData
 
   // Mutation to confirm the checkout
   const confirmCheckoutMutation = useMutation(confirmCheckout, {
@@ -58,6 +69,14 @@ const CheckoutFlow: React.FC<CheckoutFlowProps> = ({ checkoutData }) => {
     return <div className="p-8 text-center">Loading checkout information...</div>
   }
 
+  // Determine what payment UI to show
+  const paymentAvailability = getCheckoutPaymentAvailability({
+    subscriptionStatus: subscription.subscription.status,
+    cardConnectionId,
+    directDebitConnectionId,
+    bankAccount,
+  })
+
   return (
     <div className="flex flex-col lg:flex-row min-h-screen">
       {/* Mobile header */}
@@ -92,16 +111,50 @@ const CheckoutFlow: React.FC<CheckoutFlowProps> = ({ checkoutData }) => {
               setIsEditing={setIsAddressEditing}
             />
 
-            {/* Payment panel */}
-            <PaymentPanel
-              customer={customer}
-              paymentMethods={paymentMethods || []}
-              currency={subscription.subscription.currency}
-              totalAmount={formatCurrency(totalAmount, subscription.subscription.currency)}
-              onPaymentSubmit={handlePaymentSubmit}
-              cardConnectionId={subscription.subscription.cardConnectionId}
-              directDebitConnectionId={subscription.subscription.directDebitConnectionId}
-            />
+            {/* Render based on payment availability */}
+            {paymentAvailability.type === 'readonly' && (
+              <ReadonlyPaymentView reason={paymentAvailability.reason} />
+            )}
+
+            {paymentAvailability.type === 'bank_only' && (
+              <BankTransferInfo
+                bankAccount={paymentAvailability.bankAccount}
+                invoiceNumber={subscription?.subscription?.planName}
+                customerName={customer?.name}
+              />
+            )}
+
+            {paymentAvailability.type === 'payment_form' && (
+              <>
+                {/* Show payment panel if card or DD available */}
+                {(paymentAvailability.cardConnectionId ||
+                  paymentAvailability.directDebitConnectionId) && (
+                  <PaymentPanel
+                    customer={customer}
+                    paymentMethods={paymentMethods || []}
+                    currency={subscription.subscription.currency}
+                    totalAmount={formatCurrency(totalAmount, subscription.subscription.currency)}
+                    onPaymentSubmit={handlePaymentSubmit}
+                    cardConnectionId={paymentAvailability.cardConnectionId}
+                    directDebitConnectionId={paymentAvailability.directDebitConnectionId}
+                  />
+                )}
+
+                {/* Show bank transfer as alternative if available */}
+                {paymentAvailability.bankAccount &&
+                  !paymentAvailability.cardConnectionId &&
+                  !paymentAvailability.directDebitConnectionId && (
+                    <div className="mt-6">
+                      <div className="text-center text-sm text-gray-500 mb-4">or</div>
+                      <BankTransferInfo
+                        bankAccount={paymentAvailability.bankAccount}
+                        invoiceNumber={subscription?.subscription?.planName}
+                        customerName={customer?.name}
+                      />
+                    </div>
+                  )}
+              </>
+            )}
           </div>
         </div>
       </div>

@@ -115,6 +115,13 @@ pub async fn spawn_workers(
     }
     {
         let store = store.clone();
+        let services = services.clone();
+        join_set.spawn(async move {
+            processors::run_payment_request(store, services).await;
+        });
+    }
+    {
+        let store = store.clone();
         let object_store_service = object_store_service.clone();
         join_set.spawn(async move {
             processors::run_email_sender(

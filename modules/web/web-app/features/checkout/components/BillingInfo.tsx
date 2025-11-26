@@ -3,7 +3,7 @@ import {
   createProtobufSafeUpdater,
   useMutation,
 } from '@connectrpc/connect-query'
-import { Button, Card, Form, InputFormField, Label } from '@md/ui'
+import { Button, Form, InputFormField, Label } from '@md/ui'
 import { useQueryClient } from '@tanstack/react-query'
 import { Edit2, PlusIcon, XIcon } from 'lucide-react'
 import { useState } from 'react'
@@ -14,10 +14,8 @@ import { CountrySelect } from '@/components/CountrySelect'
 import { getCountryFlagEmoji, getCountryName } from '@/features/settings/utils'
 import { useZodForm } from '@/hooks/useZodForm'
 import { Address, Customer } from '@/rpc/api/customers/v1/models_pb'
-import {
-  getSubscriptionCheckout,
-  updateCustomer,
-} from '@/rpc/portal/checkout/v1/checkout-PortalCheckoutService_connectquery'
+import { getCustomerPortalOverview } from '@/rpc/portal/customer/v1/customer-PortalCustomerService_connectquery'
+import { updateCustomer } from '@/rpc/portal/shared/v1/shared-PortalSharedService_connectquery'
 
 const billingInfoSchema = z.object({
   name: z.string().optional(),
@@ -37,17 +35,17 @@ interface BillingInfoProps {
 }
 
 export const BillingInfo = ({ customer, isEditing, setIsEditing }: BillingInfoProps) => {
-  const [showTaxNumber, setShowTaxNumber] = useState(!!customer.vatNumber)
   const queryClient = useQueryClient()
+  const [showTaxNumber, setShowTaxNumber] = useState(!!customer.vatNumber)
 
   const updateBillingInfoMut = useMutation(updateCustomer, {
     onSuccess: res => {
       if (res.customer) {
         queryClient.setQueryData(
-          createConnectQueryKey(getSubscriptionCheckout),
-          createProtobufSafeUpdater(getSubscriptionCheckout, prev => ({
-            checkout: {
-              ...prev?.checkout,
+          createConnectQueryKey(getCustomerPortalOverview),
+          createProtobufSafeUpdater(getCustomerPortalOverview, prev => ({
+            overview: {
+              ...prev?.overview,
               customer: res.customer,
             },
           }))
@@ -100,7 +98,6 @@ export const BillingInfo = ({ customer, isEditing, setIsEditing }: BillingInfoPr
 
     await updateBillingInfoMut.mutateAsync({
       customer: {
-        id: customer.id,
         billingAddress: updatedAddress,
         name: values.name,
         vatNumber: showTaxNumber ? values.vatNumber : undefined,
@@ -110,71 +107,62 @@ export const BillingInfo = ({ customer, isEditing, setIsEditing }: BillingInfoPr
 
   if (!isEditing) {
     return (
-      <>
-        <div className="text-sm font-medium">Billing information</div>
-        <Card className="mb-8 px-6 py-4 mt-2 border-0" variant="accent">
-          <div className="flex justify-between items-start mb-2">
-            <div className="text-sm space-y-1">
-              <div className="font-medium">{customer.name}</div>
-              {customer.billingEmail && (
-                <div className="text-muted-foreground">{customer.billingEmail}</div>
-              )}
-              {customer.billingAddress && (
-                <div className="pt-1">
-                  {customer.billingAddress.line1}
-                  {customer.billingAddress.line2 && <span>, {customer.billingAddress.line2}</span>}
-                  <br />
-                  {customer.billingAddress.city}, {customer.billingAddress.state}{' '}
-                  {customer.billingAddress.zipCode}
-                  <br />
-                  {customer.billingAddress.country && (
-                    <span>
-                      {getCountryFlagEmoji(customer.billingAddress.country)}{' '}
-                      {getCountryName(customer.billingAddress.country)}
-                    </span>
-                  )}
-                </div>
-              )}
-              {customer.vatNumber && (
-                <div className="pt-1">
-                  <span className="text-muted-foreground">Tax ID: </span>
-                  {customer.vatNumber}
-                </div>
+      <div className="flex justify-between items-start">
+        <div className="text-sm space-y-1">
+          <div className="font-medium">{customer.name}</div>
+          {customer.billingEmail && (
+            <div className="text-gray-500">{customer.billingEmail}</div>
+          )}
+          {customer.billingAddress && (
+            <div className="pt-0">
+              {customer.billingAddress.line1}
+              {customer.billingAddress.line2 && <span>, {customer.billingAddress.line2}</span>}
+              {customer.billingAddress.line1 && <br />}
+              {customer.billingAddress.city}
+              {customer.billingAddress.state && <span>, {customer.billingAddress.state}</span>}{' '}
+              {customer.billingAddress.zipCode}
+              <br />
+              {customer.billingAddress.country && (
+                <span>
+                  {getCountryFlagEmoji(customer.billingAddress.country)}{' '}
+                  {getCountryName(customer.billingAddress.country)}
+                </span>
               )}
             </div>
-            <Button
-              variant="ghost"
-              size="sm"
-              className="text-blue-600 p-0 h-auto"
-              onClick={handleEdit}
-            >
-              <Edit2 size={16} />
-            </Button>
-          </div>
-        </Card>
-      </>
+          )}
+          {customer.vatNumber && (
+            <div className="pt-1">
+              <span className="text-gray-500">Tax ID: </span>
+              {customer.vatNumber}
+            </div>
+          )}
+        </div>
+        <button onClick={handleEdit} className="p-0 h-auto text-gray-600 hover:text-gray-900">
+          <Edit2 size={16} />
+        </button>
+      </div>
     )
   }
 
   return (
-    <div className=" ">
+    <div>
       <Form {...methods}>
         <form
           onSubmit={methods.handleSubmit(onSubmit, err => console.log(err))}
-          className="space-y-4 text-xs font-normal"
+          className="space-y-4"
         >
-          <div className="flex justify-between items-center mb-2">
-            <div className="text-sm font-medium">Billing information</div>
+          <div className="mb-4">
+            <h3 className="text-base font-medium text-gray-900">Edit billing information</h3>
           </div>
 
           <InputFormField
             name="billingEmail"
             label="Email"
-            disabled
+            disabled={!!customer.billingEmail}
             control={methods.control}
             placeholder="billing@example.com"
             labelClassName="font-normal text-xs"
-            className="space-y-1 text-xs"
+            className="space-y-1 text-xs  focus-visible:shadow-none focus-visible:border-unset"
           />
 
           <InputFormField
@@ -183,7 +171,7 @@ export const BillingInfo = ({ customer, isEditing, setIsEditing }: BillingInfoPr
             control={methods.control}
             placeholder="Acme Corp."
             labelClassName="font-normal text-xs"
-            className="space-y-1 text-xs"
+            className="space-y-1 text-xs  focus-visible:shadow-none focus-visible:border-unset"
           />
 
           <div className="">
@@ -201,27 +189,27 @@ export const BillingInfo = ({ customer, isEditing, setIsEditing }: BillingInfoPr
               name="line1"
               control={methods.control}
               placeholder="Address line 1"
-              className="rounded-none border-b-0 text-xs"
+              className="rounded-none border-b-0 text-xs  focus-visible:shadow-none focus-visible:border-unset"
             />
 
             <InputFormField
               name="line2"
               control={methods.control}
               placeholder="Apt, suite, etc. (optional)"
-              className="rounded-none border-b-0 text-xs"
+              className="rounded-none border-b-0 text-xs  focus-visible:shadow-none focus-visible:border-unset"
             />
             <div className="grid grid-cols-2">
               <InputFormField
                 name="zipCode"
                 control={methods.control}
                 placeholder="Postal code"
-                className="rounded-none rounded-bl-md border-r-0 text-xs"
+                className="rounded-none rounded-bl-md border-r-0 text-xs  focus-visible:shadow-none focus-visible:border-unset"
               />
               <InputFormField
                 name="city"
                 control={methods.control}
                 placeholder="City"
-                className="rounded-none rounded-br-md text-xs"
+                className="rounded-none rounded-br-md text-xs  focus-visible:shadow-none focus-visible:border-unset"
               />
             </div>
           </div>
@@ -232,7 +220,7 @@ export const BillingInfo = ({ customer, isEditing, setIsEditing }: BillingInfoPr
                 name="vatNumber"
                 labelClassName="font-normal text-xs"
                 label="Tax number"
-                className="text-xs"
+                className="text-xs  focus-visible:shadow-none focus-visible:border-unset  "
                 control={methods.control}
                 placeholder="FR12345678900"
               />
@@ -257,14 +245,13 @@ export const BillingInfo = ({ customer, isEditing, setIsEditing }: BillingInfoPr
             </Button>
           )}
 
-          <div className="flex justify-end space-x-2 pt-4">
-            <Button type="button" variant="ghost" size="sm" onClick={handleCancel}>
+          <div className="flex justify-end space-x-3 pt-6 border-t border-gray-100">
+            <Button type="button" variant="outline" onClick={handleCancel} className="font-medium">
               Cancel
             </Button>
             <Button
               type="submit"
-              size="sm"
-              className="bg-blue-600 hover:bg-blue-700"
+              className="bg-gray-900 hover:bg-gray-800 text-white font-medium"
               disabled={
                 !methods.formState.isDirty ||
                 methods.formState.isSubmitting ||

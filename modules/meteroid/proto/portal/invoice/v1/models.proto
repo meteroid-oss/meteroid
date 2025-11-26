@@ -1,0 +1,21 @@
+syntax = "proto3";
+
+package meteroid.portal.invoice.v1;
+
+import "api/customers/v1/models.proto";
+import "api/invoices/v1/models.proto";
+import "api/bankaccounts/v1/models.proto";
+
+message InvoiceForPayment {
+  api.invoices.v1.DetailedInvoice invoice = 1;
+  api.customers.v1.Customer customer = 2;
+  repeated api.customers.v1.CustomerPaymentMethod payment_methods = 3;
+  optional string logo_url = 4;
+  string trade_name = 5;
+  optional string card_connection_id = 6;
+  optional string direct_debit_connection_id = 7;
+  optional api.bankaccounts.v1.BankAccount bank_account = 8;
+  optional string footer_legal = 9;
+  optional string legal_number = 10;
+  optional string footer_info = 11;
+}

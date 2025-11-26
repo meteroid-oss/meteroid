@@ -76,6 +76,34 @@ impl SubscriptionRow {
         Ok(())
     }
 
+    pub async fn update_subscription_payment_method(
+        conn: &mut PgConn,
+        subscription_id: SubscriptionId,
+        tenant_id: TenantId,
+        payment_method_id: Option<common_domain::ids::CustomerPaymentMethodId>,
+        payment_method_type: Option<crate::enums::PaymentMethodTypeEnum>,
+    ) -> DbResult<()> {
+        use crate::schema::subscription::dsl;
+
+        let query = diesel::update(dsl::subscription)
+            .filter(dsl::id.eq(subscription_id))
+            .filter(dsl::tenant_id.eq(tenant_id))
+            .set((
+                dsl::payment_method.eq(payment_method_id),
+                dsl::payment_method_type.eq(payment_method_type),
+            ));
+
+        log::debug!("{}", debug_query::<diesel::pg::Pg, _>(&query));
+
+        query
+            .execute(conn)
+            .await
+            .attach("Error while updating subscription payment method")
+            .into_db_result()?;
+
+        Ok(())
+    }
+
     pub async fn lock_subscription_for_update(
         conn: &mut PgConn,
         subscription_id_param: SubscriptionId,

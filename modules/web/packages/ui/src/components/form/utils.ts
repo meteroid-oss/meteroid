@@ -24,6 +24,7 @@ export const destructuredFormProps = <
   className,
   description,
   rightLabel,
+  labelTooltip,
   ...inputProps
 }: Omit<GenericFormFieldProps<TFieldValues, TName>, 'render'> & A) => {
   return {
@@ -42,6 +43,7 @@ export const destructuredFormProps = <
     className,
     inputProps,
     rightLabel,
+    labelTooltip,
     description,
   }
 }

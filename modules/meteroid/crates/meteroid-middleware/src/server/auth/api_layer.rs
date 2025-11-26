@@ -69,9 +69,10 @@ impl<S> Layer<S> for ApiAuthLayer {
 }
 
 // services that don't require authentication
-const ANONYMOUS_SERVICES: [&str; 7] = [
+const ANONYMOUS_SERVICES: [&str; 8] = [
     "/meteroid.api.instance.v1.InstanceService/GetInstance",
     "/meteroid.api.instance.v1.InstanceService/GetOrganizationByInviteLink",
+    "/meteroid.api.instance.v1.InstanceService/GetCountries",
     "/meteroid.api.users.v1.UsersService/InitRegistration",
     "/meteroid.api.users.v1.UsersService/CompleteRegistration",
     "/meteroid.api.users.v1.UsersService/InitResetPassword",
@@ -80,13 +81,12 @@ const ANONYMOUS_SERVICES: [&str; 7] = [
 ];
 
 // services require authentication but no authorization (no organization/tenant)
-const UNAUTHORIZED_SERVICES: [&str; 6] = [
+const UNAUTHORIZED_SERVICES: [&str; 5] = [
     "/meteroid.api.organizations.v1.OrganizationsService/ListOrganizations",
     "/meteroid.api.organizations.v1.OrganizationsService/CreateOrganization",
     "/meteroid.api.users.v1.UsersService/Me",
     "/meteroid.api.users.v1.UsersService/AcceptInvite",
     "/meteroid.api.users.v1.UsersService/OnboardMe",
-    "/meteroid.api.instance.v1.InstanceService/GetCountries",
 ];
 
 impl<S, ReqBody> Service<Request<ReqBody>> for ApiAuthMiddleware<S>

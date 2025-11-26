@@ -63,6 +63,7 @@ impl Services {
                             event.invoice_id,
                             event.tenant_id,
                             diesel_models::enums::InvoicePaymentStatus::Paid,
+                            event.processed_at,
                         )
                         .await?;
 
@@ -142,6 +143,7 @@ impl Services {
                             event.invoice_id,
                             event.tenant_id,
                             diesel_models::enums::InvoicePaymentStatus::PartiallyPaid,
+                            event.processed_at,
                         )
                         .await?;
                     }

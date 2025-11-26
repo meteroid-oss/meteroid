@@ -37,6 +37,13 @@ pub trait InvoiceInterface {
         invoice_id: InvoiceId,
     ) -> StoreResult<DetailedInvoice>;
 
+    async fn get_detailed_invoice_by_id_with_conn(
+        &self,
+        conn: &mut PgConn,
+        tenant_id: TenantId,
+        invoice_id: InvoiceId,
+    ) -> StoreResult<DetailedInvoice>;
+
     async fn get_invoice_by_id(
         &self,
         tenant_id: TenantId,
@@ -137,7 +144,17 @@ impl InvoiceInterface for Store {
     ) -> StoreResult<DetailedInvoice> {
         let mut conn = self.get_conn().await?;
 
-        InvoiceRow::find_detailed_by_id(&mut conn, tenant_id, invoice_id)
+        self.get_detailed_invoice_by_id_with_conn(&mut conn, tenant_id, invoice_id)
+            .await
+    }
+
+    async fn get_detailed_invoice_by_id_with_conn(
+        &self,
+        conn: &mut PgConn,
+        tenant_id: TenantId,
+        invoice_id: InvoiceId,
+    ) -> StoreResult<DetailedInvoice> {
+        InvoiceRow::find_detailed_by_id(conn, tenant_id, invoice_id)
             .await
             .map_err(Into::into)
             .and_then(std::convert::TryInto::try_into)

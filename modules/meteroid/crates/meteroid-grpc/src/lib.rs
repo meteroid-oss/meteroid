@@ -194,6 +194,21 @@ pub mod meteroid {
                 tonic::include_proto!("meteroid.portal.checkout.v1");
             }
         }
+        pub mod customer {
+            pub mod v1 {
+                tonic::include_proto!("meteroid.portal.customer.v1");
+            }
+        }
+        pub mod invoice {
+            pub mod v1 {
+                tonic::include_proto!("meteroid.portal.invoice.v1");
+            }
+        }
+        pub mod shared {
+            pub mod v1 {
+                tonic::include_proto!("meteroid.portal.shared.v1");
+            }
+        }
         pub mod quotes {
             pub mod v1 {
                 tonic::include_proto!("meteroid.portal.quotes.v1");

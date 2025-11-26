@@ -8,7 +8,7 @@ pub struct OauthConfig {
         default = "http://127.0.0.1:8080"
     )]
     pub rest_api_external_url: String,
-    #[envconfig(from = "METEROID_PUBLIC_URL", default = "https://meteroid.com")]
+    #[envconfig(from = "METEROID_PUBLIC_URL", default = "https://app.meteroid.com")]
     pub public_url: String, // todo remove me (after pennylane transitions to api redirect)
     #[envconfig(nested)]
     pub google: GoogleOauthConfig,

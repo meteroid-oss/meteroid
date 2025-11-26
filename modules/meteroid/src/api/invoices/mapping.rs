@@ -3,18 +3,18 @@ pub mod invoices {
     use crate::api::customers::mapping::customer::ServerAddressWrapper;
     use crate::api::sharable::ShareableEntityClaims;
     use crate::api::shared::conversions::{AsProtoOpt, ProtoConv};
-    use common_domain::ids::BaseId;
+    use common_domain::ids::{BaseId, InvoiceId, TenantId};
     use error_stack::{Report, ResultExt};
     use meteroid_grpc::meteroid::api::invoices::v1::{
         CouponLineItem, DetailedInvoice, InlineCustomer, Invoice, InvoicePaymentStatus,
         InvoiceStatus, InvoiceType, LineItem,
     };
-    use meteroid_store::domain;
     use meteroid_store::domain::invoice_lines as domain_invoice_lines;
     use meteroid_store::errors::StoreError;
+    use meteroid_store::{StoreResult, domain};
     use secrecy::{ExposeSecret, SecretString};
 
-    fn status_domain_to_server(value: domain::enums::InvoiceStatusEnum) -> InvoiceStatus {
+    pub fn status_domain_to_server(value: &domain::enums::InvoiceStatusEnum) -> InvoiceStatus {
         match value {
             domain::enums::InvoiceStatusEnum::Finalized => InvoiceStatus::Finalized,
             domain::enums::InvoiceStatusEnum::Uncollectible => InvoiceStatus::Uncollectible,
@@ -38,7 +38,7 @@ pub mod invoices {
         })
     }
 
-    fn payment_status_domain_to_server(
+    pub fn payment_status_domain_to_server(
         value: domain::enums::InvoicePaymentStatus,
     ) -> InvoicePaymentStatus {
         match value {
@@ -148,29 +148,43 @@ pub mod invoices {
             .collect()
     }
 
+    pub fn generate_invoice_share_key(
+        invoice_id: InvoiceId,
+        tenant_id: TenantId,
+        jwt_secret: &SecretString,
+        exp: usize,
+    ) -> StoreResult<String> {
+        let claims = ShareableEntityClaims {
+            exp,
+            sub: invoice_id.to_string(),
+            entity_id: invoice_id.as_uuid(),
+            tenant_id,
+        };
+
+        let encoded = jsonwebtoken::encode(
+            &jsonwebtoken::Header::default(),
+            &claims,
+            &jsonwebtoken::EncodingKey::from_secret(jwt_secret.expose_secret().as_bytes()),
+        )
+        .change_context(StoreError::CryptError(
+            "Failed to encode shareable claims".to_string(),
+        ))?;
+
+        Ok(encoded)
+    }
+
     pub fn domain_invoice_with_transactions_to_server(
         invoice: domain::Invoice,
         transactions: Vec<domain::PaymentTransaction>,
         jwt_secret: SecretString,
     ) -> Result<DetailedInvoice, Report<StoreError>> {
         let share_key = if invoice.pdf_document_id.is_some() || invoice.xml_document_id.is_some() {
-            let exp = chrono::Utc::now().timestamp() as usize + 60 * 60 * 24 * 7; // 7 days
-            let claims = ShareableEntityClaims {
-                exp,
-                sub: invoice.id.to_string(),
-                entity_id: invoice.id.as_uuid(),
-                tenant_id: invoice.tenant_id,
-            };
-
-            let encoded = jsonwebtoken::encode(
-                &jsonwebtoken::Header::default(),
-                &claims,
-                &jsonwebtoken::EncodingKey::from_secret(jwt_secret.expose_secret().as_bytes()),
-            )
-            .change_context(StoreError::CryptError(
-                "Failed to encode shareable claims".to_string(),
-            ))?;
-
+            let encoded = generate_invoice_share_key(
+                invoice.id,
+                invoice.tenant_id,
+                &jwt_secret,
+                (chrono::Utc::now() + chrono::Duration::days(7)).timestamp() as usize,
+            )?;
             Some(encoded)
         } else {
             None
@@ -182,7 +196,7 @@ pub mod invoices {
 
         Ok(DetailedInvoice {
             id: invoice.id.as_proto(),
-            status: status_domain_to_server(invoice.status).into(),
+            status: status_domain_to_server(&invoice.status).into(),
             created_at: invoice.created_at.as_proto(),
             updated_at: invoice.updated_at.as_proto(),
             tenant_id: invoice.tenant_id.as_proto(),
@@ -258,7 +272,7 @@ pub mod invoices {
         Invoice {
             id: value.invoice.id.to_string(),
             invoice_number: value.invoice.invoice_number,
-            status: status_domain_to_server(value.invoice.status).into(),
+            status: status_domain_to_server(&value.invoice.status).into(),
             invoice_date: value.invoice.invoice_date.to_string(),
             customer_id: value.invoice.customer_id.to_string(),
             customer_name: value.customer.name.to_string(),

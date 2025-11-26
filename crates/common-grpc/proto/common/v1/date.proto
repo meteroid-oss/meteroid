@@ -1,8 +1,10 @@
 syntax = "proto3";
 
 package meteroid.common.v1;
- 
+
+/** Deprecated - use string **/
 message Date {
+    option deprecated=true;
     int32 year = 1;
     uint32 month = 2;
     uint32 day = 3;

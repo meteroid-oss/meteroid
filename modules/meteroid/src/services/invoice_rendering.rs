@@ -6,23 +6,117 @@ use image::ImageFormat::Png;
 use meteroid_invoicing::{pdf, svg};
 use meteroid_store::Store;
 use meteroid_store::domain::{Invoice, InvoicingEntity};
-use meteroid_store::repositories::InvoiceInterface;
+use meteroid_store::jwt_claims::{ResourceAccess, generate_portal_token};
+use meteroid_store::repositories::bank_accounts::BankAccountsInterface;
 use meteroid_store::repositories::historical_rates::HistoricalRatesInterface;
 use meteroid_store::repositories::invoicing_entities::InvoicingEntityInterface;
+use meteroid_store::repositories::subscriptions::SubscriptionInterface;
+use meteroid_store::repositories::{CustomersInterface, InvoiceInterface};
+use std::collections::HashMap;
 use std::io::Cursor;
 use std::sync::Arc;
+
+async fn resolve_payment_info(
+    store: &Arc<Store>,
+    invoice: &Invoice,
+    invoicing_entity: &InvoicingEntity,
+    public_url: &str,
+    jwt_secret: &secrecy::SecretString,
+) -> Result<(Option<HashMap<String, String>>, Option<String>), Report<InvoicingRenderError>> {
+    // TODO a bit complex here to resolve accurately whether we want the payment url or bank or none. We need to centralize it
+    // ex: save the payment_option on the invoice : PaymentLink, Bank(id), None
+
+    let customer = store
+        .find_customer_by_id(invoice.customer_id, invoice.tenant_id)
+        .await
+        .change_context(InvoicingRenderError::StoreError)?;
+
+    if let Some(subscription_id) = invoice.subscription_id {
+        let subscription = store
+            .get_subscription(invoice.tenant_id, subscription_id)
+            .await
+            .change_context(InvoicingRenderError::StoreError)?;
+
+        let has_payment_method = subscription.card_connection_id.is_some()
+            || subscription.direct_debit_connection_id.is_some()
+            || customer.current_payment_method_id.is_some();
+
+        match (has_payment_method, subscription.charge_automatically) {
+            // Automatic charging enabled - no bank details, no payment URL needed
+            (_, true) => Ok((None, None)),
+            // Manual payment via portal - show payment URL, no bank details
+            (true, false) => {
+                let invoice_token = generate_portal_token(
+                    jwt_secret,
+                    invoice.tenant_id,
+                    ResourceAccess::Invoice(invoice.id),
+                )
+                .change_context(InvoicingRenderError::StoreError)?;
+                let payment_url = format!(
+                    "{}/portal/invoice-payment?token={}",
+                    public_url, invoice_token
+                );
+                Ok((None, Some(payment_url)))
+            }
+            // No payment method - show bank details
+            (false, _) => fetch_bank_details(store, invoicing_entity, invoice).await,
+        }
+    } else {
+        let has_payment_method = customer.current_payment_method_id.is_some();
+
+        if has_payment_method {
+            let invoice_token = generate_portal_token(
+                jwt_secret,
+                invoice.tenant_id,
+                ResourceAccess::Invoice(invoice.id),
+            )
+            .change_context(InvoicingRenderError::StoreError)?;
+            let payment_url = format!(
+                "{}/portal/invoice-payment?token={}",
+                public_url, invoice_token
+            );
+            Ok((None, Some(payment_url)))
+        } else {
+            fetch_bank_details(store, invoicing_entity, invoice).await
+        }
+    }
+}
+
+async fn fetch_bank_details(
+    store: &Arc<Store>,
+    invoicing_entity: &InvoicingEntity,
+    invoice: &Invoice,
+) -> Result<(Option<HashMap<String, String>>, Option<String>), Report<InvoicingRenderError>> {
+    let bank_details = if let Some(bank_account_id) = invoicing_entity.bank_account_id {
+        let bank_account = store
+            .get_bank_account_by_id(bank_account_id, invoice.tenant_id)
+            .await
+            .change_context(InvoicingRenderError::StoreError)?;
+        Some(mapper::format_bank_account(
+            &bank_account,
+            invoice.reference.as_deref(),
+        ))
+    } else {
+        None
+    };
+    Ok((bank_details, None))
+}
 
 #[derive(Clone)]
 pub struct InvoicePreviewRenderingService {
     store: Arc<Store>,
     generator: Arc<dyn svg::SvgGenerator>,
     storage: Arc<dyn ObjectStoreService>,
+    public_url: String,
+    jwt_secret: secrecy::SecretString,
 }
 
 impl InvoicePreviewRenderingService {
     pub fn try_new(
         store: Arc<Store>,
         storage: Arc<dyn ObjectStoreService>,
+        public_url: String,
+        jwt_secret: secrecy::SecretString,
     ) -> Result<Self, Report<InvoicingRenderError>> {
         let generator = svg::TypstSvgGenerator::new()
             .change_context(InvoicingRenderError::InitializationError)
@@ -32,6 +126,8 @@ impl InvoicePreviewRenderingService {
             store,
             generator: Arc::new(generator),
             storage,
+            public_url,
+            jwt_secret,
         })
     }
 
@@ -41,10 +137,9 @@ impl InvoicePreviewRenderingService {
         invoicing_entity: InvoicingEntity,
     ) -> Result<Vec<String>, Report<InvoicingRenderError>> {
         let organization_logo = match invoicing_entity.logo_attachment_id.as_ref() {
-            Some(logo_id) => {
-                let res = get_logo_bytes_for_invoice(&self.storage, *logo_id).await?;
-                Some(res)
-            }
+            Some(logo_id) => get_logo_bytes_for_invoice(&self.storage, *logo_id)
+                .await
+                .ok(),
             None => None,
         };
 
@@ -61,8 +156,24 @@ impl InvoicePreviewRenderingService {
                 .change_context(InvoicingRenderError::StoreError)?;
         }
 
-        let mapped =
-            mapper::map_invoice_to_invoicing(invoice, &invoicing_entity, organization_logo, rate)?;
+        // Determine payment information based on subscription payment method
+        let (bank_details, payment_url) = resolve_payment_info(
+            &self.store,
+            &invoice,
+            &invoicing_entity,
+            &self.public_url,
+            &self.jwt_secret,
+        )
+        .await?;
+
+        let mapped = mapper::map_invoice_to_invoicing(
+            invoice,
+            &invoicing_entity,
+            organization_logo,
+            rate,
+            bank_details,
+            payment_url,
+        )?;
 
         let svgs = self
             .generator
@@ -111,12 +222,16 @@ pub struct PdfRenderingService {
     storage: Arc<dyn ObjectStoreService>,
     pdf: Arc<dyn pdf::PdfGenerator>,
     store: Arc<Store>,
+    public_url: String,
+    jwt_secret: secrecy::SecretString,
 }
 
 impl PdfRenderingService {
     pub fn try_new(
         storage: Arc<dyn ObjectStoreService>,
         store: Arc<Store>,
+        public_url: String,
+        jwt_secret: secrecy::SecretString,
     ) -> Result<Self, Report<InvoicingRenderError>> {
         let pdf_generator = Arc::new(
             pdf::TypstPdfGenerator::new()
@@ -128,6 +243,8 @@ impl PdfRenderingService {
             storage,
             pdf: pdf_generator,
             store,
+            public_url,
+            jwt_secret,
         })
     }
 
@@ -202,10 +319,9 @@ impl PdfRenderingService {
 
         // let's resolve the logo as raw bytes
         let organization_logo = match invoicing_entity.logo_attachment_id.as_ref() {
-            Some(logo_id) => {
-                let res = get_logo_bytes_for_invoice(&self.storage, *logo_id).await?;
-                Some(res)
-            }
+            Some(logo_id) => get_logo_bytes_for_invoice(&self.storage, *logo_id)
+                .await
+                .ok(),
             None => None,
         };
 
@@ -222,10 +338,26 @@ impl PdfRenderingService {
                 .change_context(InvoicingRenderError::StoreError)?;
         }
 
+        // Determine payment information based on subscription payment method
+        let (bank_details, payment_url) = resolve_payment_info(
+            &self.store,
+            &invoice,
+            invoicing_entity,
+            &self.public_url,
+            &self.jwt_secret,
+        )
+        .await?;
+
         let customer_id = invoice.customer_id;
 
-        let mapped_invoice =
-            mapper::map_invoice_to_invoicing(invoice, invoicing_entity, organization_logo, rate)?;
+        let mapped_invoice = mapper::map_invoice_to_invoicing(
+            invoice,
+            invoicing_entity,
+            organization_logo,
+            rate,
+            bank_details,
+            payment_url,
+        )?;
 
         let pdf = self
             .pdf
@@ -259,12 +391,15 @@ mod mapper {
     use meteroid_store::domain::historical_rates::HistoricalRate;
     use rust_decimal::Decimal;
     use rust_decimal::prelude::FromPrimitive;
+    use std::collections::HashMap;
 
     pub fn map_invoice_to_invoicing(
         invoice: store_model::Invoice,
         invoicing_entity: &store_model::InvoicingEntity,
         organization_logo_bytes: Option<Vec<u8>>,
         accounting_rate: Option<HistoricalRate>,
+        bank_details: Option<HashMap<String, String>>,
+        payment_url: Option<String>,
     ) -> Result<invoicing_model::Invoice, Report<InvoicingRenderError>> {
         let finalized_date = invoice
             .finalized_at
@@ -297,7 +432,7 @@ mod mapper {
             subtotal: rusty_money::Money::from_minor(invoice.subtotal, currency),
             discount: rusty_money::Money::from_minor(invoice.discount, currency),
             memo: invoice.memo.clone(),
-            payment_url: None, // TODO
+            payment_url,
             flags: Flags {
                 show_payment_status: Some(true),
                 show_payment_info: Some(true),
@@ -416,10 +551,63 @@ mod mapper {
             organization,
             coupons,
             tax_breakdown,
-            bank_details: None,       // TODO
+            bank_details,
             transactions: Vec::new(), // TODO
             payment_status: None,     // TODO
         })
+    }
+
+    pub fn format_bank_account(
+        bank_account: &store_model::BankAccount,
+        payment_reference: Option<&str>,
+    ) -> HashMap<String, String> {
+        let mut details = HashMap::new(); // TODO ordermap::OrderMap , also translation
+
+        let numbers: Vec<&str> = bank_account.account_numbers.split_whitespace().collect();
+
+        match bank_account.format {
+            store_model::BankAccountFormat::IbanBicSwift => {
+                if let Some(iban) = numbers.first() {
+                    details.insert("IBAN".to_string(), iban.to_string());
+                }
+                if let Some(bic) = numbers.get(1) {
+                    details.insert("BIC/SWIFT".to_string(), bic.to_string());
+                }
+            }
+            store_model::BankAccountFormat::AccountRouting => {
+                if let Some(account) = numbers.first() {
+                    details.insert("Account Number".to_string(), account.to_string());
+                }
+                if let Some(routing) = numbers.get(1) {
+                    details.insert("Routing Number".to_string(), routing.to_string());
+                }
+            }
+            store_model::BankAccountFormat::SortCodeAccount => {
+                if let Some(sort_code) = numbers.first() {
+                    details.insert("Sort Code".to_string(), sort_code.to_string());
+                }
+                if let Some(account) = numbers.get(1) {
+                    details.insert("Account Number".to_string(), account.to_string());
+                }
+            }
+            store_model::BankAccountFormat::AccountBicSwift => {
+                if let Some(account) = numbers.first() {
+                    details.insert("Account Number".to_string(), account.to_string());
+                }
+                if let Some(bic) = numbers.get(1) {
+                    details.insert("BIC/SWIFT".to_string(), bic.to_string());
+                }
+            }
+        }
+
+        details.insert("Bank Name".to_string(), bank_account.bank_name.clone());
+
+        // Add payment reference if available
+        if let Some(reference) = payment_reference {
+            details.insert("Payment Reference".to_string(), reference.to_string());
+        }
+
+        details
     }
 }
 
@@ -434,7 +622,7 @@ async fn get_logo_bytes_for_invoice(
 
     let mut img =
         image::load_from_memory(&logo).change_context(InvoicingRenderError::RenderError)?;
-    img = img.resize(350, 20, image::imageops::FilterType::Nearest);
+    img = img.resize(1024, 100, image::imageops::FilterType::Nearest);
     let mut buffer = Vec::new();
     img.write_to(&mut Cursor::new(&mut buffer), Png)
         .change_context(InvoicingRenderError::RenderError)?;

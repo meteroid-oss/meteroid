@@ -340,6 +340,7 @@ impl HubspotSync {
                 let state_res = self
                     .store
                     .patch_customer_conn_meta(
+                        conn.tenant_id,
                         customer.customer_id,
                         conn.id,
                         ConnectorProviderEnum::Hubspot,

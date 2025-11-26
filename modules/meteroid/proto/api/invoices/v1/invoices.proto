@@ -122,6 +122,41 @@ message PreviewInvoiceUpdateResponse {
   DetailedInvoice preview = 1;
 }
 
+message GenerateInvoicePaymentTokenRequest {
+  string invoice_id = 1;
+}
+
+message GenerateInvoicePaymentTokenResponse {
+  string token = 1;
+}
+
+message AddManualPaymentTransactionRequest {
+  string invoice_id = 1;
+  string amount = 2;
+  optional string payment_date = 3;
+  optional string reference = 4;
+}
+
+message AddManualPaymentTransactionResponse {
+  string transaction_id = 1;
+  string invoice_id = 2;
+  string amount = 3;
+  string currency = 4;
+  string status = 5;
+  string payment_date = 6;
+}
+
+message MarkInvoiceAsPaidRequest {
+  string invoice_id = 1;
+  string total_amount = 2; // Must match invoice amount_due
+  optional string payment_date = 3;
+  optional string reference = 4;
+}
+
+message MarkInvoiceAsPaidResponse {
+  DetailedInvoice invoice = 1;
+}
+
 service InvoicesService {
   rpc ListInvoices(ListInvoicesRequest) returns (ListInvoicesResponse) {}
   rpc GetInvoice(GetInvoiceRequest) returns (GetInvoiceResponse) {}
@@ -129,6 +164,7 @@ service InvoicesService {
   rpc RequestPdfGeneration(RequestPdfGenerationRequest) returns (RequestPdfGenerationResponse) {}
   rpc RefreshInvoiceData(RefreshInvoiceDataRequest) returns (RefreshInvoiceDataResponse) {}
   rpc SyncToPennylane(SyncToPennylaneRequest) returns (SyncToPennylaneResponse) {}
+  rpc GenerateInvoicePaymentToken(GenerateInvoicePaymentTokenRequest) returns (GenerateInvoicePaymentTokenResponse) {}
   rpc CreateInvoice(CreateInvoiceRequest) returns (CreateInvoiceResponse) {}
   rpc PreviewNewInvoiceSvg(PreviewNewInvoiceRequest) returns (PreviewNewInvoiceResponse) {}
   rpc FinalizeInvoice(FinalizeInvoiceRequest) returns (FinalizeInvoiceResponse) {}
@@ -137,4 +173,6 @@ service InvoicesService {
   rpc DeleteInvoice(DeleteInvoiceRequest) returns (DeleteInvoiceResponse) {}
   rpc VoidInvoice(VoidInvoiceRequest) returns (VoidInvoiceResponse) {}
   rpc MarkInvoiceAsUncollectible(MarkInvoiceAsUncollectibleRequest) returns (MarkInvoiceAsUncollectibleResponse) {}
+  rpc AddManualPaymentTransaction(AddManualPaymentTransactionRequest) returns (AddManualPaymentTransactionResponse) {}
+  rpc MarkInvoiceAsPaid(MarkInvoiceAsPaidRequest) returns (MarkInvoiceAsPaidResponse) {}
 }

@@ -27,8 +27,12 @@ pub async fn start_api_server(
 ) -> Result<(), Box<dyn std::error::Error>> {
     log::info!("Starting GRPC API on {}", config.grpc_listen_addr);
 
-    let preview_rendering =
-        InvoicePreviewRenderingService::try_new(Arc::new(store.clone()), object_store.clone())?;
+    let preview_rendering = InvoicePreviewRenderingService::try_new(
+        Arc::new(store.clone()),
+        object_store.clone(),
+        config.public_url.clone(),
+        config.jwt_secret.clone(),
+    )?;
 
     let (_, health_service) = tonic_health::server::health_reporter();
 
@@ -102,7 +106,11 @@ pub async fn start_api_server(
         ))
         .add_service(api::stats::service(store.clone()))
         .add_service(api::users::service(store.clone()))
-        .add_service(api::subscriptions::service(store.clone(), services.clone()))
+        .add_service(api::subscriptions::service(
+            store.clone(),
+            services.clone(),
+            config.jwt_secret.clone(),
+        ))
         .add_service(api::taxes::service(store.clone()))
         .add_service(api::webhooksout::service(store.clone(), services.clone()))
         .add_service(api::internal::service(store.clone()))
@@ -110,6 +118,26 @@ pub async fn start_api_server(
             store.clone(),
             services.clone(),
             object_store.clone(),
+            config.jwt_secret.clone(),
+        ))
+        .add_service(api::portal::customer::service(
+            store.clone(),
+            services.clone(),
+            object_store.clone(),
+            config.jwt_secret.clone(),
+            config.rest_api_external_url.clone(),
+        ))
+        .add_service(api::portal::invoice::service(
+            store.clone(),
+            services.clone(),
+            object_store.clone(),
+            config.jwt_secret.clone(),
+        ))
+        .add_service(api::portal::shared::service(
+            store.clone(),
+            services.clone(),
+            object_store.clone(),
+            config.jwt_secret.clone(),
         ))
         .add_service(api::portal::quotes::service(
             store.clone(),

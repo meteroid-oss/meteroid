@@ -1,0 +1,47 @@
+syntax = "proto3";
+
+package meteroid.portal.customer.v1;
+
+import "api/customers/v1/models.proto";
+import "api/subscriptions/v1/models.proto";
+import "api/invoices/v1/models.proto";
+
+message CustomerPortalOverview {
+  api.customers.v1.Customer customer = 1;
+  repeated SubscriptionSummary active_subscriptions = 2;
+  repeated InvoiceSummary recent_invoices = 3;
+  repeated api.customers.v1.CustomerPaymentMethod payment_methods = 4;
+  optional string card_connection_id = 5;
+  optional string direct_debit_connection_id = 6;
+  optional string invoicing_entity_name = 7;
+  optional string invoicing_entity_logo_url = 8;
+  optional string invoicing_entity_brand_color = 9;
+}
+
+message SubscriptionSummary {
+  string id = 1;
+  string subscription_name = 2;
+  string plan_name = 3;
+  api.subscriptions.v1.SubscriptionStatus status = 4;
+  optional string billing_start = 5;
+  optional string billing_end = 6;
+  uint64 mrr_cents = 8;
+  string currency = 9;
+  optional string trial_start = 10;
+  optional string trial_end = 11;
+  optional string next_billing_date = 12;
+}
+
+message InvoiceSummary {
+  string id = 1;
+  string invoice_number = 2;
+  api.invoices.v1.InvoiceStatus status = 3;
+  string invoice_date = 4;
+  optional string due_date = 5;
+  uint64 total_cents = 6;
+  uint64 amount_due_cents = 7;
+  string currency = 8;
+  optional string plan_name = 9;
+  api.invoices.v1.InvoicePaymentStatus payment_status = 10;
+  optional string document_sharing_key = 11;
+}

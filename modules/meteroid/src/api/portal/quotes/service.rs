@@ -151,7 +151,6 @@ impl PortalQuoteService for PortalQuoteServiceComponents {
             .or_else(|| headers.get("x-real-ip"))
             .and_then(|v| v.to_str().ok())
             .map(std::string::ToString::to_string);
-
         let user_agent = headers
             .get("user-agent")
             .and_then(|v| v.to_str().ok())

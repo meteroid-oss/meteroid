@@ -1,3 +1,4 @@
+import { useMutation } from '@connectrpc/connect-query'
 import {
   Alert,
   Button,
@@ -10,9 +11,17 @@ import {
   TableHeader,
   TableRow,
 } from '@md/ui'
-import { ArrowUpDownIcon, ChevronDown, ChevronLeftIcon, Clock, RefreshCw } from 'lucide-react'
+import {
+  ArrowUpDownIcon,
+  ChevronDown,
+  ChevronLeftIcon,
+  Clock,
+  ExternalLink,
+  RefreshCw,
+} from 'lucide-react'
 import { ReactNode, useCallback, useState } from 'react'
 import { Link, useNavigate } from 'react-router-dom'
+import { toast } from 'sonner'
 
 import { CopyToClipboardButton } from '@/components/CopyToClipboard'
 import {
@@ -36,6 +45,8 @@ import {
   SubscriptionStatus,
 } from '@/rpc/api/subscriptions/v1/models_pb'
 import {
+  activateSubscription,
+  generateCheckoutToken,
   getSlotsValue,
   getSubscriptionDetails,
 } from '@/rpc/api/subscriptions/v1/subscriptions-SubscriptionsService_connectquery'
@@ -229,6 +240,40 @@ export const Subscription = () => {
   const canCancelSubscription =
     data && data.status !== SubscriptionStatus.CANCELED && data.status !== SubscriptionStatus.ENDED
 
+  const checkoutTokenMutation = useMutation(generateCheckoutToken, {
+    onSuccess: data => {
+      const checkoutUrl = `${window.location.origin}/checkout?token=${data.token}`
+      window.open(checkoutUrl, '_blank')
+    },
+    onError: error => {
+      console.error('Failed to generate checkout token:', error)
+    },
+  })
+
+  const activateSubscriptionMutation = useMutation(activateSubscription, {
+    onSuccess: async () => {
+      await subscriptionQuery.refetch()
+    },
+  })
+
+  const handleOpenCheckout = () =>
+    checkoutTokenMutation.mutate({ subscriptionId: subscriptionId ?? '' })
+
+  const handleActivateSubscription = () => {
+    activateSubscriptionMutation.mutate(
+      { subscriptionId: subscriptionId ?? '' },
+      {
+        onSuccess: () => {
+          // Refetch is handled in mutation config
+        },
+        onError: error => {
+          console.error('Failed to activate subscription:', error)
+          toast.error('Failed to activate subscription: ' + error.message)
+        },
+      }
+    )
+  }
+
   if (isLoading || !data) {
     return (
       <div className="p-6">
@@ -287,11 +332,28 @@ export const Subscription = () => {
                 </Button>
               </DropdownMenuTrigger>
               <DropdownMenuContent align="end">
-                {/* {secondaryActions.map((option, optionIndex) => (
-                <DropdownMenuItem key={optionIndex} onClick={option.onClick}>
-                  {option.label}
-                </DropdownMenuItem>
-              ))} */}
+                {!data.activatedAt && (
+                  <DropdownMenuItem
+                    onClick={handleActivateSubscription}
+                    disabled={activateSubscriptionMutation.isPending}
+                  >
+                    <Clock size="16" className="mr-2" />
+                    {activateSubscriptionMutation.isPending
+                      ? 'Activating...'
+                      : 'Activate Subscription'}
+                  </DropdownMenuItem>
+                )}
+
+                {data.pendingCheckout && (
+                  <DropdownMenuItem
+                    onClick={handleOpenCheckout}
+                    disabled={checkoutTokenMutation.isPending}
+                  >
+                    <ExternalLink size="16" className="mr-2" />
+                    Open Checkout
+                  </DropdownMenuItem>
+                )}
+
                 <DropdownMenuItem
                   disabled={!isHubspotConnected}
                   onClick={() => setShowSyncHubspotModal(true)}

@@ -72,6 +72,7 @@ export interface GenericFormFieldProps<
   description?: string
   layout?: 'vertical' | 'horizontal' | null
   rightLabel?: ReactNode
+  labelTooltip?: ReactNode
   control: Control<TFieldValues>
   render: ({
     field,
@@ -99,6 +100,7 @@ export const GenericFormField = <
   className,
   description,
   rightLabel,
+  labelTooltip,
   ...props
 }: GenericFormFieldProps<TFieldValues, TName>) => {
   return (
@@ -112,10 +114,13 @@ export const GenericFormField = <
               justify="between"
               className={cn('my-2', formFieldLabelVariants({ layout }), labelClassName)}
             >
-              <FormLabel className={cn(formFieldLabelVariants({ layout }), labelClassName)}>
-                {label}
-                {required ? <span className="text-destructive text-xs pl-1">*</span> : null}
-              </FormLabel>
+              <div className="flex items-center gap-1">
+                <FormLabel className={cn(formFieldLabelVariants({ layout }), labelClassName)}>
+                  {label}
+                  {required ? <span className="text-destructive text-xs pl-1">*</span> : null}
+                </FormLabel>
+                {labelTooltip}
+              </div>
               {rightLabel}
             </Flex>
           )}

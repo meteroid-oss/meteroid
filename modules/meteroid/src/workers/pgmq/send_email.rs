@@ -106,7 +106,10 @@ impl EmailSender {
                     ResourceAccess::Invoice(invoice_id),
                 )?;
 
-                let payment_url = format!("{}/i/pay?token={}", self.public_url, invoice_token);
+                let payment_url = format!(
+                    "{}/portal/invoice-payment?token={}",
+                    self.public_url, invoice_token
+                );
 
                 if invoicing_emails.is_empty() {
                     log::warn!("No invoicing emails found for invoice {invoice_id}");

@@ -7,6 +7,7 @@ pub mod customer {
     use error_stack::Report;
     use meteroid_grpc::meteroid::api::customers::v1 as server;
     use meteroid_store::domain;
+    use meteroid_store::domain::enums::ConnectorProviderEnum;
     use meteroid_store::errors::StoreError;
 
     pub struct ServerAddressWrapper(pub server::Address);
@@ -123,6 +124,8 @@ pub mod customer {
                     .collect(),
                 is_tax_exempt: value.is_tax_exempt,
                 is_vat_number_valid: value.vat_number_format_valid,
+                customer_connections: Vec::new(), // Will be populated in the service layer
+                payment_methods: Vec::new(),      // Will be populated in the service layer
             }))
         }
     }
@@ -178,6 +181,28 @@ pub mod customer {
                 }
             })
             .transpose()
+    }
+
+    pub fn map_customer_connection_to_proto(
+        connection: domain::CustomerConnection,
+        provider: ConnectorProviderEnum,
+        external_company_id: Option<String>,
+    ) -> server::CustomerConnection {
+        use meteroid_grpc::meteroid::api::connectors::v1::ConnectorProviderEnum as ProtoConnectorProvider;
+
+        let connector_provider = match provider {
+            ConnectorProviderEnum::Stripe => ProtoConnectorProvider::Stripe,
+            ConnectorProviderEnum::Hubspot => ProtoConnectorProvider::Hubspot,
+            ConnectorProviderEnum::Pennylane => ProtoConnectorProvider::Pennylane,
+        };
+
+        server::CustomerConnection {
+            id: connection.id.as_proto(),
+            connector_id: connection.connector_id.as_proto(),
+            external_customer_id: connection.external_customer_id,
+            connector_provider: connector_provider.into(),
+            external_company_id,
+        }
     }
 }
 pub mod customer_payment_method {

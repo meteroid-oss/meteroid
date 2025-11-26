@@ -251,16 +251,6 @@ export const CustomerHeader: FunctionComponent<CustomerHeaderProps> = ({
             </DropdownMenu>
           </NewFlex>
           <Flex direction="row" gap={spaces.space4}>
-            <Button size="sm" variant="secondary" onClick={setShowEditCustomer}>
-              Edit Customer
-            </Button>
-            <Button
-              size="sm"
-              variant="secondary"
-              onClick={() => navigate(`${basePath}/invoices/create?customerId=${id}`)}
-            >
-              Create Invoice
-            </Button>
             <DropdownMenu>
               <DropdownMenuTrigger asChild>
                 <Button hasIcon size="sm" variant="secondary">
@@ -270,7 +260,15 @@ export const CustomerHeader: FunctionComponent<CustomerHeaderProps> = ({
               <DropdownMenuContent align="end" className="w-[241px]">
                 {/*<DropdownMenuItem>Assign subscription</DropdownMenuItem>*/}
                 {/*<DropdownMenuItem>Charge one time payment</DropdownMenuItem>*/}
-                {/*<DropdownMenuItem>Create Invoice</DropdownMenuItem>*/}
+                <DropdownMenuItem id="edit_customer" onClick={setShowEditCustomer}>
+                  Edit Customer
+                </DropdownMenuItem>
+                <DropdownMenuItem
+                  id="create_invoice"
+                  onClick={() => navigate(`${basePath}/invoices/create?customerId=${id}`)}
+                >
+                  Create Invoice
+                </DropdownMenuItem>
                 {/*<DropdownMenuItem>Create quote</DropdownMenuItem>*/}
                 {/*<DropdownMenuSeparator/>*/}
                 {/*<DropdownMenuItem>Add balance</DropdownMenuItem>*/}

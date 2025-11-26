@@ -7,7 +7,7 @@ use crate::data::ids::*;
 use crate::helpers;
 use crate::meteroid_it;
 use crate::meteroid_it::container::SeedLevel;
-use common_domain::ids::{BaseId, PriceComponentId, SubscriptionId};
+use common_domain::ids::{PriceComponentId, SubscriptionId};
 use diesel_models::subscriptions::SubscriptionRow;
 use meteroid_mailer::service::MockMailerService;
 use meteroid_store::clients::usage::MockUsageClient;
@@ -948,34 +948,6 @@ async fn get_invoices_for_subscription(
         .collect()
 }
 
-async fn list_all_slot_transactions(
-    conn: &mut PgConn,
-    subscription_id: SubscriptionId,
-) -> Vec<diesel_models::slot_transactions::SlotTransactionRow> {
-    use diesel::prelude::*;
-    use diesel_async::RunQueryDsl;
-    use diesel_models::schema::slot_transaction;
-
-    slot_transaction::table
-        .filter(slot_transaction::subscription_id.eq(subscription_id))
-        .order_by(slot_transaction::transaction_at.asc())
-        .load::<diesel_models::slot_transactions::SlotTransactionRow>(conn)
-        .await
-        .expect("Failed to load slot transactions")
-}
-
-async fn get_subscription(conn: &mut PgConn, subscription_id: SubscriptionId) -> SubscriptionRow {
-    use diesel::prelude::*;
-    use diesel_async::RunQueryDsl;
-    use diesel_models::schema::subscription;
-
-    subscription::table
-        .filter(subscription::id.eq(subscription_id))
-        .first::<SubscriptionRow>(conn)
-        .await
-        .expect("Failed to load subscription")
-}
-
 async fn create_subscription_with_slots(
     services: &Services,
     unit_name: &str,
@@ -1003,7 +975,7 @@ async fn create_subscription_with_slots(
                     billing_day_anchor: None,
                     payment_strategy: None,
                     auto_advance_invoices: true,
-                    charge_automatically: true,
+                    charge_automatically: false,
                     purchase_order: None,
                 },
                 price_components: Some(CreateSubscriptionComponents {

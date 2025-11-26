@@ -14,6 +14,7 @@ use crate::extend::cursor_pagination::{
 use crate::extend::order::OrderByRequest;
 use crate::extend::pagination::{Paginate, PaginatedVec, PaginationRequest};
 use crate::payments::PaymentTransactionRow;
+use chrono::NaiveDateTime;
 use common_domain::ids::{
     BaseId, ConnectorId, CustomerId, InvoiceId, StoredDocumentId, SubscriptionId, TenantId,
 };
@@ -399,6 +400,7 @@ impl InvoiceRow {
         id: InvoiceId,
         tenant_id: TenantId,
         new_invoice_number: String,
+        payment_reference: String,
         coupons: serde_json::Value,
     ) -> DbResult<usize> {
         use crate::schema::invoice::dsl as i_dsl;
@@ -418,6 +420,7 @@ impl InvoiceRow {
                 i_dsl::data_updated_at.eq(now),
                 i_dsl::finalized_at.eq(now),
                 i_dsl::invoice_number.eq(new_invoice_number),
+                i_dsl::reference.eq(payment_reference),
                 i_dsl::coupons.eq(coupons),
             ));
 
@@ -435,14 +438,13 @@ impl InvoiceRow {
         id: InvoiceId,
         tenant_id: TenantId,
         payment_status: InvoicePaymentStatus,
+        tx_at: Option<NaiveDateTime>,
     ) -> DbResult<InvoiceRow> {
         use crate::schema::invoice::dsl as i_dsl;
         use diesel_async::RunQueryDsl;
 
-        let now = chrono::Utc::now().naive_utc();
-
         let paid_at = if payment_status == InvoicePaymentStatus::Paid {
-            Some(now)
+            Some(tx_at.unwrap_or(chrono::Utc::now().naive_utc()))
         } else {
             None
         };

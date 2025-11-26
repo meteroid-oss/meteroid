@@ -559,7 +559,7 @@ async fn create_subscription(services: &Services, params: SubscriptionParams) ->
                     billing_day_anchor: params.billing_day_anchor,
                     payment_strategy: params.payment_strategy,
                     auto_advance_invoices: true,
-                    charge_automatically: true,
+                    charge_automatically: false,
                     purchase_order: None,
                 },
                 price_components: None,

@@ -21,6 +21,7 @@ type SelectFormFieldProps<T extends FieldValues, TName extends FieldPath<T>> = O
     contentClassName?: string
     placeholder?: string
     empty?: boolean
+    labelTooltip?: React.ReactNode
     control: Control<T>
   }
 

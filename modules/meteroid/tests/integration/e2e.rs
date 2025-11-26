@@ -478,7 +478,8 @@ async fn test_metering_e2e() {
                         activation_condition: api::subscriptions::v1::ActivationCondition::Manual.into(),
                         purchase_order: None,
                         auto_advance_invoices: None,
-                        charge_automatically: None
+                        charge_automatically: None,
+                        payment_strategy: None,
                     },
                 )
             },

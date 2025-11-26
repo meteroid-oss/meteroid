@@ -184,7 +184,9 @@ pub async fn authorize_user(
         )
     };
     if role == OrganizationUserRole::Member && OWNER_ONLY_METHODS.contains(&gm.method.as_str()) {
-        return Err(Status::permission_denied("Unauthorized"));
+        return Err(Status::permission_denied(
+            "Unauthorized. Only organization owners can perform this action.",
+        ));
     }
 
     Ok(state)

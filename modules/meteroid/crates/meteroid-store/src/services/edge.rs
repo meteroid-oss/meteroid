@@ -57,6 +57,22 @@ impl ServicesEdge {
             .await
     }
 
+    pub async fn create_setup_intent_for_type(
+        &self,
+        tenant_id: &TenantId,
+        customer_connection_id: &CustomerConnectionId,
+        connection_type: crate::domain::ConnectionTypeEnum,
+    ) -> StoreResult<SetupIntent> {
+        self.services
+            .create_setup_intent_for_type(
+                &mut self.get_conn().await?,
+                tenant_id,
+                customer_connection_id,
+                connection_type,
+            )
+            .await
+    }
+
     pub async fn refresh_invoice_data(
         &self,
         invoice_id: InvoiceId,
@@ -136,6 +152,40 @@ impl ServicesEdge {
             .await?;
 
         Ok(payment_transaction)
+    }
+
+    pub async fn complete_invoice_payment(
+        &self,
+        tenant_id: TenantId,
+        invoice_id: InvoiceId,
+        payment_method_id: CustomerPaymentMethodId,
+    ) -> StoreResult<PaymentTransaction> {
+        self.store
+            .transaction(|conn| {
+                async move {
+                    self.services
+                        .process_invoice_payment_tx(conn, tenant_id, invoice_id, payment_method_id)
+                        .await
+                }
+                .scope_boxed()
+            })
+            .await
+    }
+
+    pub async fn get_or_create_customer_connections(
+        &self,
+        tenant_id: TenantId,
+        customer_id: common_domain::ids::CustomerId,
+        invoicing_entity_id: common_domain::ids::InvoicingEntityId,
+    ) -> StoreResult<(Option<CustomerConnectionId>, Option<CustomerConnectionId>)> {
+        self.services
+            .get_or_create_customer_connections(
+                &mut self.get_conn().await?,
+                tenant_id,
+                customer_id,
+                invoicing_entity_id,
+            )
+            .await
     }
 
     pub async fn insert_subscription(

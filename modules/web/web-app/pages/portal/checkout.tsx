@@ -6,12 +6,17 @@ import { AlertCircle } from 'lucide-react'
 import CheckoutFlow from '@/features/checkout/CheckoutFlow'
 import { useQuery } from '@/lib/connectrpc'
 import { getSubscriptionCheckout } from '@/rpc/portal/checkout/v1/checkout-PortalCheckoutService_connectquery'
+import { useTypedParams } from '@/utils/params'
 import { useForceTheme } from 'providers/ThemeProvider'
 
 export const PortalCheckout = () => {
   useForceTheme('light')
 
-  const checkoutQuery = useQuery(getSubscriptionCheckout)
+  const subscriptionId = useTypedParams<{ subscriptionId: string }>().subscriptionId
+
+  const checkoutQuery = useQuery(getSubscriptionCheckout, {
+    subscriptionId,
+  })
 
   const data = checkoutQuery.data?.checkout
   const error = checkoutQuery.error
