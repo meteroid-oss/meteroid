@@ -156,7 +156,7 @@ impl InvoicePreviewRenderingService {
                 .change_context(InvoicingRenderError::StoreError)?;
         }
 
-        // Determine payment information based on subscription payment method (same as PDF generation)
+        // Determine payment information based on subscription payment method
         let (bank_details, payment_url) = resolve_payment_info(
             &self.store,
             &invoice,
@@ -563,7 +563,6 @@ mod mapper {
     ) -> HashMap<String, String> {
         let mut details = HashMap::new(); // TODO ordermap::OrderMap , also translation
 
-        // Parse account numbers based on format
         let numbers: Vec<&str> = bank_account.account_numbers.split_whitespace().collect();
 
         match bank_account.format {
@@ -601,7 +600,6 @@ mod mapper {
             }
         }
 
-        // Add bank name
         details.insert("Bank Name".to_string(), bank_account.bank_name.clone());
 
         // Add payment reference if available

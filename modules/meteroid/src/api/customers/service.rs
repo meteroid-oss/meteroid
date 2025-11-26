@@ -231,21 +231,18 @@ impl CustomersService for CustomerServiceComponents {
             .await
             .map_err(Into::<CustomerApiError>::into)?;
 
-        // Fetch customer connections
         let customer_connections = self
             .store
             .list_connections_by_customer_id(&tenant_id, &customer_id)
             .await
             .map_err(Into::<CustomerApiError>::into)?;
 
-        // Fetch all connectors to map connection IDs to provider types
         let connectors = self
             .store
             .list_connectors(None, tenant_id)
             .await
             .map_err(Into::<CustomerApiError>::into)?;
 
-        // Fetch customer payment methods
         let payment_methods = self
             .store
             .list_payment_methods_by_customer(&tenant_id, &customer_id)
@@ -254,7 +251,6 @@ impl CustomersService for CustomerServiceComponents {
 
         let customer_proto = ServerCustomerWrapper::try_from(customer)
             .map(|mut v| {
-                // Map customer connections to proto
                 v.0.customer_connections = customer_connections
                     .into_iter()
                     .filter_map(|conn| {
@@ -280,7 +276,6 @@ impl CustomersService for CustomerServiceComponents {
                             })
                     })
                     .collect();
-                // Map payment methods to proto
                 v.0.payment_methods = payment_methods
                     .into_iter()
                     .map(crate::api::customers::mapping::customer_payment_method::domain_to_server)
@@ -505,7 +500,6 @@ impl CustomersService for CustomerServiceComponents {
             .await
             .map_err(Into::<CustomerApiError>::into)?;
 
-        // Create or update the connection
         let connection = meteroid_store::domain::CustomerConnection {
             id: CustomerConnectionId::new(),
             customer_id,
@@ -520,7 +514,6 @@ impl CustomersService for CustomerServiceComponents {
             .await
             .map_err(Into::<CustomerApiError>::into)?;
 
-        // Get connector to map the response
         let connector = self
             .store
             .get_connector_with_data(connector_id, tenant_id)

@@ -246,7 +246,7 @@ impl Services {
             });
         }
 
-        // fallback on bank or externa
+        // fallback on bank or external
         self.setup_bank_payment(customer, invoicing_entity_providers)
     }
 

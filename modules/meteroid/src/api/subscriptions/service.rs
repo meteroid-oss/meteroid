@@ -421,7 +421,6 @@ impl SubscriptionsService for SubscriptionServiceComponents {
             .await
             .map_err(Into::<SubscriptionApiError>::into)?;
 
-        // Convert to proto
         let proto_subscription = mapping::subscriptions::domain_to_proto(subscription)?;
 
         Ok(Response::new(ActivateSubscriptionResponse {

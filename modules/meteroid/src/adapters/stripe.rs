@@ -15,9 +15,8 @@ use common_domain::ids::{BaseId, CustomerConnectionId, CustomerId, CustomerPayme
 use diesel_async::scoped_futures::ScopedFutureExt;
 use error_stack::ResultExt;
 use meteroid_store::Store;
-use meteroid_store::domain::{CustomerPaymentMethodNew, PaymentIntent, PaymentMethodTypeEnum};
+use meteroid_store::domain::{CustomerPaymentMethodNew, PaymentIntent};
 use meteroid_store::repositories::customer_payment_methods::CustomerPaymentMethodsInterface;
-use stripe_client::payment_methods::StripePaymentMethodType;
 use stripe_client::setup_intents::SetupIntent;
 use stripe_client::webhook::StripeWebhook;
 use stripe_client::webhook::event_type;
@@ -167,49 +166,19 @@ impl Stripe {
             .await
             .change_context(errors::AdapterWebhookError::ProviderError)?;
 
-        let account_number_hint = match method._type {
-            StripePaymentMethodType::BacsDebit => method.bacs_debit.and_then(|acc| acc.last4),
-            StripePaymentMethodType::Card => None,
-            StripePaymentMethodType::SepaDebit => method.bacs_debit.and_then(|acc| acc.last4),
-            StripePaymentMethodType::UsBankAccount => method.bacs_debit.and_then(|acc| acc.last4),
-        };
-
-        let payment_method_type = match method._type {
-            StripePaymentMethodType::BacsDebit => PaymentMethodTypeEnum::DirectDebitBacs,
-            StripePaymentMethodType::Card => PaymentMethodTypeEnum::Card,
-            StripePaymentMethodType::SepaDebit => PaymentMethodTypeEnum::DirectDebitSepa,
-            StripePaymentMethodType::UsBankAccount => PaymentMethodTypeEnum::DirectDebitAch,
-        };
-
-        let (card_brand, card_last4, card_exp_month, card_exp_year) = match method._type {
-            StripePaymentMethodType::Card => {
-                if let Some(card) = &method.card {
-                    (
-                        Some(card.brand.clone()),
-                        card.last4.clone(),
-                        Some(card.exp_month),
-                        Some(card.exp_year),
-                    )
-                } else {
-                    (None, None, None, None)
-                }
-            }
-            _ => (None, None, None, None),
-        };
-
         let payment_method = store
             .upsert_payment_method(CustomerPaymentMethodNew {
                 id: CustomerPaymentMethodId::new(),
                 tenant_id: connector.tenant_id,
                 customer_id,
                 connection_id,
-                external_payment_method_id: method.id,
-                payment_method_type,
-                account_number_hint,
-                card_brand,
-                card_last4,
-                card_exp_month,
-                card_exp_year,
+                external_payment_method_id: method.external_payment_method_id,
+                payment_method_type: method.payment_method_type,
+                account_number_hint: method.account_number_hint,
+                card_brand: method.card_brand,
+                card_last4: method.card_last4,
+                card_exp_month: method.card_exp_month,
+                card_exp_year: method.card_exp_year,
             })
             .await
             .change_context(errors::AdapterWebhookError::StoreError)?;

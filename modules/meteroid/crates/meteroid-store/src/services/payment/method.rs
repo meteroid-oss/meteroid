@@ -48,13 +48,11 @@ impl Services {
         use crate::repositories::CustomersInterface;
         use diesel_models::customer_connection::CustomerConnectionRow;
 
-        // Get customer details
         let customer = self
             .store
             .find_customer_by_id(customer_id, tenant_id)
             .await?;
 
-        // Get invoicing entity to determine country for direct debit payment types
         let invoicing_entity = InvoicingEntityRow::get_invoicing_entity_by_id_and_tenant(
             conn,
             invoicing_entity_id,
@@ -63,7 +61,6 @@ impl Services {
         .await
         .map_err(|err| StoreError::DatabaseError(err.error))?;
 
-        // Get invoicing entity providers
         let providers = diesel_models::invoicing_entities::InvoicingEntityProvidersRow::resolve_providers_by_id(
             conn,
             invoicing_entity_id,
@@ -77,7 +74,6 @@ impl Services {
             &self.store.settings.crypt_key,
         )?;
 
-        // Get existing customer connections
         let existing_connections = diesel_models::customer_connection::CustomerConnectionRow::list_connections_by_customer_id(
             conn,
             &tenant_id,
@@ -103,7 +99,6 @@ impl Services {
             // Create a single connection with combined payment types
             let provider = providers_sensitive.card_provider.as_ref().unwrap();
 
-            // Check if connection already exists
             let existing = existing_connections
                 .iter()
                 .find(|c| c.connector_id == provider.id);
@@ -127,7 +122,6 @@ impl Services {
                     &invoicing_entity.country,
                 ));
 
-                // Create connection in our database
                 let new_connection = CustomerConnectionRow {
                     id: CustomerConnectionId::new(),
                     customer_id,
@@ -149,10 +143,7 @@ impl Services {
             direct_debit_connection_id = Some(connection_id);
         } else {
             // Different providers for card and direct debit - create separate connections
-
-            // Check for card provider connection
             if let Some(card_provider) = &providers_sensitive.card_provider {
-                // Check if connection already exists
                 let existing = existing_connections
                     .iter()
                     .find(|c| c.connector_id == card_provider.id);
@@ -160,7 +151,6 @@ impl Services {
                 if let Some(conn_row) = existing {
                     card_connection_id = Some(conn_row.id);
                 } else {
-                    // Create new customer in payment provider
                     let provider = initialize_payment_provider(card_provider)
                         .change_context(StoreError::PaymentProviderError)?;
 
@@ -191,7 +181,6 @@ impl Services {
 
             // Check for direct debit provider connection
             if let Some(direct_debit_provider) = &providers_sensitive.direct_debit_provider {
-                // Check if connection already exists
                 let existing = existing_connections
                     .iter()
                     .find(|c| c.connector_id == direct_debit_provider.id);
@@ -199,7 +188,6 @@ impl Services {
                 if let Some(conn_row) = existing {
                     direct_debit_connection_id = Some(conn_row.id);
                 } else {
-                    // Create new customer in payment provider
                     let provider = initialize_payment_provider(direct_debit_provider)
                         .change_context(StoreError::PaymentProviderError)?;
 
@@ -208,7 +196,6 @@ impl Services {
                         .await
                         .change_context(StoreError::PaymentProviderError)?;
 
-                    // Create connection in our database with country-specific direct debit types
                     let new_connection = CustomerConnectionRow {
                         id: CustomerConnectionId::new(),
                         customer_id,

@@ -69,7 +69,6 @@ impl PgmqHandler for PaymentRequest {
                         event.invoice_id,
                         err
                     );
-                    // Don't add to succeeded - let PGMQ retry
                 }
             }
         }

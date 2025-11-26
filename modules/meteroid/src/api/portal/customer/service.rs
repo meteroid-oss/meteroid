@@ -25,7 +25,6 @@ impl PortalCustomerService for PortalCustomerServiceComponents {
         let tenant = request.tenant()?;
         let customer_id = request.portal_resource()?.customer()?;
 
-        // Get customer details
         let customer = self
             .store
             .find_customer_by_id(customer_id, tenant)
@@ -150,7 +149,6 @@ impl PortalCustomerService for PortalCustomerServiceComponents {
             .await
             .map_err(Into::<PortalCustomerApiError>::into)?;
 
-        // Get invoicing entity for branding
         let invoicing_entity = self
             .store
             .get_invoicing_entity(tenant, Some(customer.invoicing_entity_id))

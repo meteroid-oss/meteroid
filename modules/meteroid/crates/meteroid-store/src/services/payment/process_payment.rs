@@ -88,7 +88,7 @@ impl Services {
                 inserted_transaction.amount as u64,
                 inserted_transaction.currency.clone(),
             )
-            .await?; // TODO if fails we should also consolidate the transaction no ? or is it possible that we are NOT in a transaction here ?
+            .await?;
 
         // Consolidate the transaction
         let tx = self

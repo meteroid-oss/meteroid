@@ -506,7 +506,6 @@ impl InvoicesService for InvoiceServiceComponents {
         let payment_date = chrono::NaiveDateTime::from_proto_opt(req.payment_date)?
             .unwrap_or_else(|| chrono::Utc::now().naive_utc());
 
-        // Add manual payment transaction via service
         let transaction = self
             .services
             .add_manual_payment_transaction(
@@ -550,7 +549,6 @@ impl InvoicesService for InvoiceServiceComponents {
         let payment_date = chrono::NaiveDateTime::from_proto_opt(req.payment_date)?
             .unwrap_or_else(|| chrono::Utc::now().naive_utc());
 
-        // Mark invoice as paid via service
         let invoice = self
             .services
             .mark_invoice_as_paid(
@@ -563,7 +561,6 @@ impl InvoicesService for InvoiceServiceComponents {
             .await
             .map_err(Into::<InvoiceApiError>::into)?;
 
-        // Convert to detailed invoice proto
         let proto_invoice = mapping::invoices::domain_invoice_with_transactions_to_server(
             invoice.invoice,
             invoice.transactions,
@@ -603,7 +600,6 @@ fn parse_as_minor_opt(
         .transpose()
 }
 
-/// Converts protobuf SubLineItems to domain SubLineItems
 fn convert_sublines_from_proto(
     proto_sublines: &[ProtoSubLineItem],
 ) -> Result<Vec<meteroid_store::domain::invoice_lines::SubLineItem>, Status> {

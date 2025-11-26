@@ -7,10 +7,12 @@ use crate::api::portal::shared::PortalSharedServiceComponents;
 use crate::api::portal::shared::error::PortalSharedApiError;
 use common_domain::ids::{BaseId, CustomerConnectionId, CustomerId, CustomerPaymentMethodId};
 use common_grpc::middleware::server::auth::{AuthorizedAsPortalUser, RequestExt};
+use error_stack::ResultExt;
 use meteroid_grpc::meteroid::portal::shared::v1::portal_shared_service_server::PortalSharedService;
 use meteroid_grpc::meteroid::portal::shared::v1::*;
 use meteroid_store::adapters::payment_service_providers::initialize_payment_provider;
-use meteroid_store::domain::{CustomerPatch, CustomerPaymentMethodNew, PaymentMethodTypeEnum};
+use meteroid_store::domain::{CustomerPatch, CustomerPaymentMethodNew};
+use meteroid_store::errors::StoreError;
 use meteroid_store::repositories::connectors::ConnectorsInterface;
 use meteroid_store::repositories::customer_connection::CustomerConnectionInterface;
 use meteroid_store::repositories::customer_payment_methods::CustomerPaymentMethodsInterface;
@@ -130,7 +132,7 @@ impl PortalSharedService for PortalSharedServiceComponents {
 
         let inner = request.into_inner();
         let customer_connection_id = CustomerConnectionId::from_proto_opt(inner.connection_id)?
-            // TODO: if connection_id is not provided, we should resolve the connector from the portal resource and create a new connection
+            // TODO: if connection_id is not provided, we could resolve the connector from the portal resource and create a new connection
             .ok_or(PortalSharedApiError::MissingArgument(
                 "connection_id is required".to_string(),
             ))?;
@@ -203,10 +205,9 @@ impl PortalSharedService for PortalSharedServiceComponents {
             .await
             .map_err(Into::<PortalSharedApiError>::into)?;
 
-        // TODO added some unwraps just to test it
-
-        let provider = initialize_payment_provider(&connector).unwrap();
-        // .map_err(Into::<PortalSharedApiError>::into)?;
+        let provider = initialize_payment_provider(&connector)
+            .change_context(StoreError::PaymentProviderError)
+            .map_err(Into::<PortalSharedApiError>::into)?;
 
         let method = provider
             .get_payment_method_from_provider(
@@ -215,58 +216,24 @@ impl PortalSharedService for PortalSharedServiceComponents {
                 &connection.external_customer_id,
             )
             .await
-            .unwrap();
-        // .map_err(Into::<PortalSharedApiError>::into)?;
-
-        // Extract payment method details based on type
-        use stripe_client::payment_methods::StripePaymentMethodType;
-
-        let account_number_hint = match method._type {
-            StripePaymentMethodType::BacsDebit => method.bacs_debit.and_then(|acc| acc.last4),
-            StripePaymentMethodType::Card => None,
-            StripePaymentMethodType::SepaDebit => method.sepa_debit.and_then(|acc| acc.last4),
-            StripePaymentMethodType::UsBankAccount => {
-                method.us_bank_account.and_then(|acc| acc.last4)
-            }
-        };
-
-        let payment_method_type = match method._type {
-            StripePaymentMethodType::BacsDebit => PaymentMethodTypeEnum::DirectDebitBacs,
-            StripePaymentMethodType::Card => PaymentMethodTypeEnum::Card,
-            StripePaymentMethodType::SepaDebit => PaymentMethodTypeEnum::DirectDebitSepa,
-            StripePaymentMethodType::UsBankAccount => PaymentMethodTypeEnum::DirectDebitAch,
-        };
-
-        let (card_brand, card_last4, card_exp_month, card_exp_year) = match method._type {
-            StripePaymentMethodType::Card => {
-                if let Some(card) = &method.card {
-                    (
-                        Some(card.brand.clone()),
-                        card.last4.clone(),
-                        Some(card.exp_month),
-                        Some(card.exp_year),
-                    )
-                } else {
-                    (None, None, None, None)
-                }
-            }
-            _ => (None, None, None, None),
-        };
+            .change_context(StoreError::PaymentProviderError)
+            .map_err(Into::<PortalSharedApiError>::into)?;
 
         let payment_method = self
             .store
+            // not an upsert as the WH event is more precise
             .insert_payment_method_if_not_exist(CustomerPaymentMethodNew {
                 id: CustomerPaymentMethodId::new(),
                 tenant_id: tenant,
                 customer_id: connection.customer_id,
                 connection_id,
                 external_payment_method_id,
-                payment_method_type,
-                account_number_hint,
-                card_brand,
-                card_last4,
-                card_exp_month,
-                card_exp_year,
+                payment_method_type: method.payment_method_type,
+                account_number_hint: method.account_number_hint,
+                card_brand: method.card_brand,
+                card_last4: method.card_last4,
+                card_exp_month: method.card_exp_month,
+                card_exp_year: method.card_exp_year,
             })
             .await
             .map_err(Into::<PortalSharedApiError>::into)?;

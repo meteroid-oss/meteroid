@@ -619,7 +619,6 @@ impl CustomersInterface for Store {
         .await
         .map_err(Into::<Report<StoreError>>::into)?;
 
-        // Also upsert to customer_connection table (new approach)
         use common_domain::ids::BaseId;
         let connection_row = diesel_models::customer_connection::CustomerConnectionRow {
             id: common_domain::ids::CustomerConnectionId::new(),

@@ -22,16 +22,13 @@ impl Services {
             .store
             .transaction(|conn| {
                 async move {
-                    // Lock subscription for update
                     SubscriptionRow::lock_subscription_for_update(conn, subscription_id).await?;
 
-                    // Fetch subscription details
                     let subscription = self
                         .store
                         .get_subscription_details_with_conn(conn, tenant_id, subscription_id)
                         .await?;
 
-                    // Validate activation condition
                     if subscription.subscription.activation_condition
                         != SubscriptionActivationCondition::Manual
                     {
@@ -40,7 +37,6 @@ impl Services {
                         )));
                     }
 
-                    // Validate not already activated
                     if subscription.subscription.activated_at.is_some() {
                         return Err(Report::new(StoreError::InvalidArgument(
                             "Subscription is already activated".to_string(),

@@ -214,32 +214,37 @@ impl PortalInvoiceService for PortalInvoiceServiceComponents {
             )),
         }?;
 
-        if let Some(customer_id) = customer_id {
-            let invoice = self
-                .store
-                .get_invoice_by_id(tenant, invoice_id)
-                .await
-                .map_err(Into::<PortalInvoiceApiError>::into)?;
+        let invoice = self
+            .store
+            .get_invoice_by_id(tenant, invoice_id)
+            .await
+            .map_err(Into::<PortalInvoiceApiError>::into)?;
 
-            if invoice.customer_id != customer_id {
-                return Err(Status::permission_denied(
-                    "Invoice does not belong to the specified customer.",
-                ));
-            }
+        if let Some(customer_id) = customer_id
+            && invoice.customer_id != customer_id
+        {
+            return Err(Status::permission_denied(
+                "Invoice does not belong to the specified customer.",
+            ));
         }
 
         let payment_method_id = CustomerPaymentMethodId::from_proto(inner.payment_method_id)?;
 
+        if invoice.currency != inner.displayed_currency {
+            return Err(Status::invalid_argument(
+                "Displayed currency does not match invoice currency.",
+            ));
+        }
+
+        if invoice.amount_due != inner.displayed_amount as i64 {
+            return Err(Status::invalid_argument(
+                "Displayed amount does not match invoice amount due.",
+            ));
+        }
+
         let transaction = self
             .services
-            .complete_invoice_payment(
-                tenant,
-                invoice_id,
-                payment_method_id,
-                // TODO validate
-                // inner.displayed_amount,
-                // inner.displayed_currency,
-            )
+            .complete_invoice_payment(tenant, invoice_id, payment_method_id)
             .await
             .map_err(Into::<PortalInvoiceApiError>::into)?;
 

@@ -104,7 +104,6 @@ impl Services {
             invoice.invoice_date,
         );
 
-        // Generate payment reference by removing special characters for easier manual entry
         let payment_reference = new_invoice_number
             .chars()
             .filter(|c| c.is_alphanumeric())

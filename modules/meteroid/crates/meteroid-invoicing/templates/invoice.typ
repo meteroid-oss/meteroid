@@ -119,7 +119,6 @@
 
     ],
 
-    // Logo aligned right - reduced size
     if organization.logo_src != none {
       align(right, image(organization.logo_src, height: 30pt, width: 150pt, fit: "contain"))
     } else {

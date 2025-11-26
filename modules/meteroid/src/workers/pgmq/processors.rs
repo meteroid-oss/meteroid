@@ -200,10 +200,10 @@ pub async fn run_payment_request(store: Arc<Store>, services: Arc<Services>) {
         handler: processor,
         store,
         qty: MessageReadQty(10),
-        vt: MessageReadVtSec(60),
+        vt: MessageReadVtSec(180),
         delete_succeeded: true,
         sleep_duration: std::time::Duration::from_millis(2000),
-        max_read_count: ReadCt(10),
+        max_read_count: ReadCt(3), // 3 retries. TODO applicative payment retry with mails
     })
     .await;
 }

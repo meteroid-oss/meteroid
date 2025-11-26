@@ -33,12 +33,10 @@ impl Services {
             .store
             .transaction(|conn| {
                 async move {
-                    // Fetch and lock invoice
                     let invoice = InvoiceRow::select_for_update_by_id(conn, tenant_id, invoice_id)
                         .await
                         .map_err(Into::<Report<StoreError>>::into)?;
 
-                    // Validate invoice is in Finalized status
                     if invoice.invoice.status != InvoiceStatusEnum::Finalized {
                         return Err(Report::new(StoreError::InvalidArgument(
                             "Invoice must be in Finalized status to add manual payments"
@@ -46,7 +44,6 @@ impl Services {
                         )));
                     }
 
-                    // Validate amount is positive
                     if amount <= Decimal::ZERO {
                         return Err(Report::new(StoreError::InvalidArgument(
                             "Payment amount must be positive".to_string(),
@@ -76,7 +73,6 @@ impl Services {
                         ))));
                     }
 
-                    // Create payment transaction
                     let transaction_id = PaymentTransactionId::new();
                     let transaction_new = PaymentTransactionRowNew {
                         id: transaction_id,
@@ -97,7 +93,6 @@ impl Services {
                         .await
                         .map_err(Into::<Report<StoreError>>::into)?;
 
-                    // Emit outbox event for the settled transaction
                     let transaction: PaymentTransaction = inserted_transaction.clone().into();
                     self.store
                         .insert_outbox_event_tx(
@@ -129,12 +124,10 @@ impl Services {
             .store
             .transaction(|conn| {
                 async move {
-                    // Fetch and lock invoice
                     let invoice = InvoiceRow::select_for_update_by_id(conn, tenant_id, invoice_id)
                         .await
                         .map_err(Into::<Report<StoreError>>::into)?;
 
-                    // Validate invoice is in Finalized status
                     if invoice.invoice.status != InvoiceStatusEnum::Finalized {
                         return Err(Report::new(StoreError::InvalidArgument(
                             "Invoice must be in Finalized status to mark as paid".to_string(),
@@ -155,7 +148,6 @@ impl Services {
                             )))
                         })?;
 
-                    // Validate amount matches amount_due exactly
                     if amount_cents != invoice.invoice.amount_due {
                         return Err(Report::new(StoreError::InvalidArgument(format!(
                             "Payment amount ({}) must match invoice amount due ({})",
@@ -163,7 +155,6 @@ impl Services {
                         ))));
                     }
 
-                    // Create payment transaction
                     let transaction_id = PaymentTransactionId::new();
                     let transaction_new = PaymentTransactionRowNew {
                         id: transaction_id,
@@ -194,7 +185,6 @@ impl Services {
                     )
                     .await?;
 
-                    // Emit events
                     let transaction: PaymentTransaction = inserted_transaction.into();
                     self.store
                         .insert_outbox_event_tx(
