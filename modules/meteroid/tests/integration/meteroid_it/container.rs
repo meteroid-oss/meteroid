@@ -2,7 +2,7 @@ use crate::helpers;
 use backon::{ConstantBuilder, Retryable};
 use meteroid::adapters::stripe::Stripe;
 use meteroid::config::Config;
-use meteroid::eventbus::{create_eventbus_memory, create_eventbus_noop, setup_eventbus_handlers};
+use meteroid::eventbus::{create_eventbus_noop, setup_eventbus_handlers};
 use meteroid::migrations;
 use meteroid::services::storage::in_memory_object_store;
 use meteroid_mailer::config::MailerConfig;

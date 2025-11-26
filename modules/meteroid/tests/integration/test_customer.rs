@@ -1,6 +1,7 @@
 use meteroid_grpc::meteroid::api;
 use serde_json::json;
 
+use crate::data::ids::TENANT_ID;
 use crate::helpers;
 use crate::meteroid_it;
 use crate::meteroid_it::clients::AllClients;
@@ -63,6 +64,7 @@ async fn test_customers_basic() {
     setup
         .store
         .patch_customer_conn_meta(
+            TENANT_ID,
             CustomerId::from_proto(created.id.as_str()).unwrap(),
             ConnectorId::new(),
             ConnectorProviderEnum::Hubspot,

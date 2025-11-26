@@ -206,21 +206,4 @@ export function getInvoicePaymentAvailability(config: {
     bankAccount,
   }
 }
-
-/**
- * Get user-friendly message for readonly reasons
- */
-export function getReadonlyMessage(reason: PaymentAvailability['type'] extends 'readonly' ? PaymentAvailability['reason'] : never): string {
-  const messages: Record<string, string> = {
-    already_paid: 'This invoice has been paid.',
-    voided: 'This invoice has been voided and cannot be paid.',
-    cancelled: 'This subscription has been cancelled.',
-    uncollectible: 'This invoice has been marked as uncollectible.',
-    no_payment_methods: 'No payment methods are available for this invoice.',
-    external_payment: 'Payment for this invoice is handled externally. Please contact support for payment instructions.',
-    already_active: 'This subscription is already active.',
-    draft_invoice: 'This invoice is in draft status and cannot be paid yet.',
-    pending_payment: 'A payment for this invoice is already being processed. Please wait for it to complete before attempting another payment.',
-  }
-  return messages[reason] || 'Payment is not available.'
-}
+ 
