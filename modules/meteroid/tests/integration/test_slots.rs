@@ -7,7 +7,7 @@ use crate::data::ids::*;
 use crate::helpers;
 use crate::meteroid_it;
 use crate::meteroid_it::container::SeedLevel;
-use common_domain::ids::{BaseId, PriceComponentId, SubscriptionId};
+use common_domain::ids::{PriceComponentId, SubscriptionId};
 use diesel_models::subscriptions::SubscriptionRow;
 use meteroid_mailer::service::MockMailerService;
 use meteroid_store::clients::usage::MockUsageClient;
