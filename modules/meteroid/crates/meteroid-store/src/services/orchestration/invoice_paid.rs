@@ -71,7 +71,6 @@ impl Services {
             .map(|plan| format!("Your {} invoice was paid successfully.", plan))
             .unwrap_or_else(|| "Invoice for services was paid successfully.".to_string());
 
-
         let event: StoreResult<PgmqMessageNew> = SendEmailRequest::InvoicePaid {
             tenant_id,
             invoice_id: invoice.id,

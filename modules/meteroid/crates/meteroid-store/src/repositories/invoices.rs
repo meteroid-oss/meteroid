@@ -144,11 +144,8 @@ impl InvoiceInterface for Store {
     ) -> StoreResult<DetailedInvoice> {
         let mut conn = self.get_conn().await?;
 
-        self.get_detailed_invoice_by_id_with_conn(
-            &mut conn,
-            tenant_id,
-            invoice_id,
-        ).await
+        self.get_detailed_invoice_by_id_with_conn(&mut conn, tenant_id, invoice_id)
+            .await
     }
 
     async fn get_detailed_invoice_by_id_with_conn(
@@ -157,7 +154,6 @@ impl InvoiceInterface for Store {
         tenant_id: TenantId,
         invoice_id: InvoiceId,
     ) -> StoreResult<DetailedInvoice> {
-
         InvoiceRow::find_detailed_by_id(conn, tenant_id, invoice_id)
             .await
             .map_err(Into::into)

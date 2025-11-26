@@ -125,7 +125,7 @@ pub mod customer {
                 is_tax_exempt: value.is_tax_exempt,
                 is_vat_number_valid: value.vat_number_format_valid,
                 customer_connections: Vec::new(), // Will be populated in the service layer
-                payment_methods: Vec::new(), // Will be populated in the service layer
+                payment_methods: Vec::new(),      // Will be populated in the service layer
             }))
         }
     }

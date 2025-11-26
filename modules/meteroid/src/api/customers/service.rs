@@ -5,7 +5,10 @@ use crate::api::customers::mapping::customer::{
     ServerCustomerWrapper,
 };
 use crate::api::utils::PaginationExt;
-use common_domain::ids::{AliasOr, BankAccountId, BaseId, ConnectorId, CustomerConnectionId, CustomerId, InvoicingEntityId};
+use common_domain::ids::{
+    AliasOr, BankAccountId, BaseId, ConnectorId, CustomerConnectionId, CustomerId,
+    InvoicingEntityId,
+};
 use common_grpc::middleware::server::auth::RequestExt;
 use error_stack::Report;
 use meteroid_grpc::meteroid::api::customers::v1::list_customer_request::SortBy;
@@ -26,9 +29,9 @@ use meteroid_store::domain::{
 };
 use meteroid_store::errors::StoreError;
 use meteroid_store::repositories::CustomersInterface;
+use meteroid_store::repositories::connectors::ConnectorsInterface;
 use meteroid_store::repositories::customer_connection::CustomerConnectionInterface;
 use meteroid_store::repositories::customer_payment_methods::CustomerPaymentMethodsInterface;
-use meteroid_store::repositories::connectors::ConnectorsInterface;
 use tonic::{Request, Response, Status};
 
 #[tonic::async_trait]

@@ -26,9 +26,15 @@ pub mod subscriptions {
         e: proto2::PaymentStrategy,
     ) -> meteroid_store::domain::SubscriptionPaymentStrategy {
         match e {
-            proto2::PaymentStrategy::Auto => meteroid_store::domain::SubscriptionPaymentStrategy::Auto,
-            proto2::PaymentStrategy::Bank => meteroid_store::domain::SubscriptionPaymentStrategy::Bank,
-            proto2::PaymentStrategy::External => meteroid_store::domain::SubscriptionPaymentStrategy::External,
+            proto2::PaymentStrategy::Auto => {
+                meteroid_store::domain::SubscriptionPaymentStrategy::Auto
+            }
+            proto2::PaymentStrategy::Bank => {
+                meteroid_store::domain::SubscriptionPaymentStrategy::Bank
+            }
+            proto2::PaymentStrategy::External => {
+                meteroid_store::domain::SubscriptionPaymentStrategy::External
+            }
         }
     }
 
@@ -106,7 +112,7 @@ pub mod subscriptions {
             purchase_order: s.purchase_order,
             auto_advance_invoices: s.auto_advance_invoices,
             charge_automatically: s.charge_automatically,
-            pending_checkout: s.pending_checkout
+            pending_checkout: s.pending_checkout,
         })
     }
 
@@ -226,7 +232,7 @@ pub mod subscriptions {
                 purchase_order: sub.purchase_order,
                 auto_advance_invoices: sub.auto_advance_invoices,
                 charge_automatically: sub.charge_automatically,
-                pending_checkout: sub.pending_checkout
+                pending_checkout: sub.pending_checkout,
             }),
             schedules: vec![], // TODO
             price_components: details

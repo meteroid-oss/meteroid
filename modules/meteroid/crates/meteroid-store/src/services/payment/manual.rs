@@ -1,20 +1,22 @@
 use crate::StoreResult;
+use crate::domain::Invoice;
 use crate::domain::outbox_event::OutboxEvent;
 use crate::domain::payment_transactions::PaymentTransaction;
 use crate::errors::StoreError;
+use crate::repositories::InvoiceInterface;
 use crate::repositories::outbox::OutboxInterface;
 use crate::services::Services;
 use chrono::NaiveDateTime;
 use common_domain::ids::{BaseId, InvoiceId, PaymentTransactionId, TenantId};
+use common_utils::decimals::ToSubunit;
 use diesel_async::scoped_futures::ScopedFutureExt;
-use diesel_models::enums::{InvoicePaymentStatus, InvoiceStatusEnum, PaymentStatusEnum, PaymentTypeEnum};
+use diesel_models::enums::{
+    InvoicePaymentStatus, InvoiceStatusEnum, PaymentStatusEnum, PaymentTypeEnum,
+};
 use diesel_models::invoices::InvoiceRow;
 use diesel_models::payments::PaymentTransactionRowNew;
 use error_stack::Report;
 use rust_decimal::Decimal;
-use common_utils::decimals::ToSubunit;
-use crate::domain::Invoice;
-use crate::repositories::InvoiceInterface;
 
 impl Services {
     /// Adds a manual payment transaction to an invoice.
@@ -39,7 +41,8 @@ impl Services {
                     // Validate invoice is in Finalized status
                     if invoice.invoice.status != InvoiceStatusEnum::Finalized {
                         return Err(Report::new(StoreError::InvalidArgument(
-                            "Invoice must be in Finalized status to add manual payments".to_string(),
+                            "Invoice must be in Finalized status to add manual payments"
+                                .to_string(),
                         )));
                     }
 
@@ -50,17 +53,20 @@ impl Services {
                         )));
                     }
 
-                    let currency = rusty_money::iso::find(&invoice.invoice.currency)
-                        .ok_or_else(|| Report::new(StoreError::InvalidArgument("Invalid currency".into())))?;
-
-                    let amount_cents = amount
-                        .to_subunit_opt(currency.exponent as u8)
-                        .ok_or_else(|| {
-                            Report::new(StoreError::InvalidArgument(format!(
-                                "Invalid amount for currency {}",
-                                invoice.invoice.currency
-                            )))
+                    let currency =
+                        rusty_money::iso::find(&invoice.invoice.currency).ok_or_else(|| {
+                            Report::new(StoreError::InvalidArgument("Invalid currency".into()))
                         })?;
+
+                    let amount_cents =
+                        amount
+                            .to_subunit_opt(currency.exponent as u8)
+                            .ok_or_else(|| {
+                                Report::new(StoreError::InvalidArgument(format!(
+                                    "Invalid amount for currency {}",
+                                    invoice.invoice.currency
+                                )))
+                            })?;
 
                     // Validate amount doesn't exceed amount_due
                     if amount_cents > invoice.invoice.amount_due {
@@ -83,7 +89,7 @@ impl Services {
                         status: PaymentStatusEnum::Settled,
                         payment_type: PaymentTypeEnum::Payment,
                         error_type: None,
-                        processed_at: Some(payment_date)
+                        processed_at: Some(payment_date),
                     };
 
                     let inserted_transaction = transaction_new
@@ -135,9 +141,10 @@ impl Services {
                         )));
                     }
 
-
-                    let currency = rusty_money::iso::find(&invoice.invoice.currency)
-                        .ok_or_else(|| Report::new(StoreError::InvalidArgument("Invalid currency".into())))?;
+                    let currency =
+                        rusty_money::iso::find(&invoice.invoice.currency).ok_or_else(|| {
+                            Report::new(StoreError::InvalidArgument("Invalid currency".into()))
+                        })?;
 
                     let amount_cents = total_amount
                         .to_subunit_opt(currency.exponent as u8)
@@ -169,7 +176,7 @@ impl Services {
                         status: PaymentStatusEnum::Settled,
                         payment_type: PaymentTypeEnum::Payment,
                         error_type: None,
-                        processed_at: Some(payment_date)
+                        processed_at: Some(payment_date),
                     };
 
                     let inserted_transaction = transaction_new
@@ -199,10 +206,7 @@ impl Services {
                     let invoice: Invoice = invoice.invoice.try_into()?;
 
                     self.store
-                        .insert_outbox_event_tx(
-                            conn,
-                            OutboxEvent::invoice_paid((&invoice).into()),
-                        )
+                        .insert_outbox_event_tx(conn, OutboxEvent::invoice_paid((&invoice).into()))
                         .await?;
 
                     let updated_invoice = self

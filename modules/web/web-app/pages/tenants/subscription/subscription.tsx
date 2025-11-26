@@ -21,6 +21,7 @@ import {
 } from 'lucide-react'
 import { ReactNode, useCallback, useState } from 'react'
 import { Link, useNavigate } from 'react-router-dom'
+import { toast } from 'sonner'
 
 import { CopyToClipboardButton } from '@/components/CopyToClipboard'
 import {
@@ -51,7 +52,6 @@ import {
 } from '@/rpc/api/subscriptions/v1/subscriptions-SubscriptionsService_connectquery'
 import { formatCurrencyNoRounding } from '@/utils/numbers'
 import { useTypedParams } from '@/utils/params'
-import { toast } from 'sonner'
 
 // Status Badge Component
 const StatusBadge = ({ status }: { status: SubscriptionStatus }) => {

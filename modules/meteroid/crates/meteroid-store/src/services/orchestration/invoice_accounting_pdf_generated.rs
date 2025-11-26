@@ -23,8 +23,6 @@ impl Services {
             .get_invoice_by_id(tenant_id, event.invoice_id)
             .await?;
 
-
-
         let customer = self
             .store
             .find_customer_by_id(invoice.customer_id, tenant_id)

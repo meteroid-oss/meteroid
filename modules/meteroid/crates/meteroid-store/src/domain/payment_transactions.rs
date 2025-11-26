@@ -5,9 +5,7 @@ use crate::domain::CustomerPaymentMethod;
 use common_domain::ids::{
     CustomerPaymentMethodId, InvoiceId, PaymentTransactionId, StoredDocumentId, TenantId,
 };
-use diesel_models::payments::{
-    PaymentTransactionRow, PaymentTransactionWithMethodRow,
-};
+use diesel_models::payments::{PaymentTransactionRow, PaymentTransactionWithMethodRow};
 use o2o::o2o;
 use serde::Deserialize;
 

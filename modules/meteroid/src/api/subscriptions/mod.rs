@@ -21,6 +21,10 @@ pub fn service(
     services: Services,
     jwt_secret: SecretString,
 ) -> SubscriptionsServiceServer<SubscriptionServiceComponents> {
-    let inner = SubscriptionServiceComponents { store, services, jwt_secret };
+    let inner = SubscriptionServiceComponents {
+        store,
+        services,
+        jwt_secret,
+    };
     SubscriptionsServiceServer::new(inner)
 }

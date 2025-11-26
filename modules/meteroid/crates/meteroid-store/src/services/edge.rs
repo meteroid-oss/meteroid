@@ -68,7 +68,7 @@ impl ServicesEdge {
                 &mut self.get_conn().await?,
                 tenant_id,
                 customer_connection_id,
-                connection_type
+                connection_type,
             )
             .await
     }
@@ -159,22 +159,17 @@ impl ServicesEdge {
         tenant_id: TenantId,
         invoice_id: InvoiceId,
         payment_method_id: CustomerPaymentMethodId,
-    ) -> StoreResult<PaymentTransaction > {
+    ) -> StoreResult<PaymentTransaction> {
         self.store
             .transaction(|conn| {
                 async move {
-                self
-                    .services
-                    .process_invoice_payment_tx(
-                        conn,
-                        tenant_id,
-                        invoice_id,
-                        payment_method_id,
-                    )
-                    .await
+                    self.services
+                        .process_invoice_payment_tx(conn, tenant_id, invoice_id, payment_method_id)
+                        .await
                 }
-            .scope_boxed()
-            }).await
+                .scope_boxed()
+            })
+            .await
     }
 
     pub async fn get_or_create_customer_connections(

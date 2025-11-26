@@ -127,7 +127,8 @@ pub async fn start_api_server(
             config.jwt_secret.clone(),
             config.rest_api_external_url.clone(),
         ))
-        .add_service(api::portal::invoice::service( // TODO check what's actually used
+        .add_service(api::portal::invoice::service(
+            // TODO check what's actually used
             store.clone(),
             services.clone(),
             object_store.clone(),

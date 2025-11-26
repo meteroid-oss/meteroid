@@ -13,8 +13,8 @@ pub struct PaymentRequest {
 }
 
 impl PaymentRequest {
-    pub(crate) fn new( services: Arc<Services>) -> Self {
-        Self {  services }
+    pub(crate) fn new(services: Arc<Services>) -> Self {
+        Self { services }
     }
 
     fn convert_to_events(

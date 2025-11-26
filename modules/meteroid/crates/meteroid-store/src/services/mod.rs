@@ -1,10 +1,10 @@
 use crate::services::clients::usage::UsageClient;
 use crate::{Store, StoreResult};
 use chrono::NaiveDateTime;
-use std::sync::Arc;
-use rust_decimal::Decimal;
-use svix::api::Svix;
 use common_domain::ids::{InvoiceId, SubscriptionId, TenantId};
+use rust_decimal::Decimal;
+use std::sync::Arc;
+use svix::api::Svix;
 
 // mod billing_worker;
 pub mod utils;
@@ -21,12 +21,12 @@ mod payment;
 mod subscriptions;
 mod webhooks;
 
+use crate::domain::{PaymentTransaction, Subscription};
 pub use crate::domain::{SlotUpgradeBillingMode, UpdateSlotsResult};
 use crate::errors::StoreError;
 pub use invoices::{CustomerDetailsUpdate, InvoiceBillingMode};
 use stripe_client::client::StripeClient;
 pub use subscriptions::insert::payment_method::PaymentSetupResult;
-use crate::domain::{PaymentTransaction, Subscription};
 
 // INTERNAL. Share connections
 #[derive(Clone)]
@@ -147,14 +147,8 @@ impl ServicesEdge {
         reference: Option<String>,
     ) -> StoreResult<crate::domain::DetailedInvoice> {
         self.services
-        .mark_invoice_as_paid(
-            tenant_id,
-            invoice_id,
-            total_amount,
-            payment_date,
-            reference,
-        )
-        .await
+            .mark_invoice_as_paid(tenant_id, invoice_id, total_amount, payment_date, reference)
+            .await
     }
 
     pub async fn add_manual_payment_transaction(
@@ -166,13 +160,8 @@ impl ServicesEdge {
         reference: Option<String>,
     ) -> StoreResult<PaymentTransaction> {
         self.services
-        .add_manual_payment_transaction(
-            tenant_id,
-            invoice_id,
-            amount,
-            payment_date,
-            reference,
-        ).await
+            .add_manual_payment_transaction(tenant_id, invoice_id, amount, payment_date, reference)
+            .await
     }
 
     pub async fn activate_subscription_manual(
@@ -181,11 +170,9 @@ impl ServicesEdge {
         subscription_id: SubscriptionId,
     ) -> StoreResult<Subscription> {
         self.services
-        .activate_subscription_manual(tenant_id, subscription_id)
-        .await
-
+            .activate_subscription_manual(tenant_id, subscription_id)
+            .await
     }
-
 }
 
 impl ServicesEdge {

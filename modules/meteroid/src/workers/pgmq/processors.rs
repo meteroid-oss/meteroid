@@ -192,7 +192,7 @@ pub async fn run_email_sender(
 
 pub async fn run_payment_request(store: Arc<Store>, services: Arc<Services>) {
     let queue = PgmqQueue::PaymentRequest;
-    let processor = Arc::new(PaymentRequest::new( services));
+    let processor = Arc::new(PaymentRequest::new(services));
 
     run(ProcessorConfig {
         name: processor_name("PaymentRequest"),

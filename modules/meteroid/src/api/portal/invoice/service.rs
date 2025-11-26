@@ -1,4 +1,5 @@
 use crate::api::customers::mapping::customer::ServerCustomerWrapper;
+use crate::api::invoices::mapping;
 use crate::api::portal::invoice::PortalInvoiceServiceComponents;
 use crate::api::portal::invoice::error::PortalInvoiceApiError;
 use crate::services::storage::Prefix;
@@ -7,20 +8,20 @@ use common_domain::ids::{BaseId, CustomerPaymentMethodId, InvoiceId};
 use common_grpc::middleware::server::auth::{RequestExt, ResourceAccess};
 use meteroid_grpc::meteroid::portal::invoice::v1::portal_invoice_service_server::PortalInvoiceService;
 use meteroid_grpc::meteroid::portal::invoice::v1::*;
+use meteroid_store::repositories::bank_accounts::BankAccountsInterface;
 use meteroid_store::repositories::customer_payment_methods::CustomerPaymentMethodsInterface;
 use meteroid_store::repositories::customers::CustomersInterface;
 use meteroid_store::repositories::invoicing_entities::InvoicingEntityInterface;
 
-use meteroid_store::repositories::{InvoiceInterface, OrganizationsInterface, SubscriptionInterface};
+use meteroid_store::repositories::payment_transactions::PaymentTransactionInterface;
+use meteroid_store::repositories::{
+    InvoiceInterface, OrganizationsInterface, SubscriptionInterface,
+};
 use std::time::Duration;
 use tonic::{Request, Response, Status};
-use meteroid_store::repositories::bank_accounts::BankAccountsInterface;
-use meteroid_store::repositories::payment_transactions::PaymentTransactionInterface;
-use crate::api::invoices::mapping;
 
 #[tonic::async_trait]
 impl PortalInvoiceService for PortalInvoiceServiceComponents {
-
     #[tracing::instrument(skip_all)]
     async fn get_invoice_payment(
         &self,
@@ -31,10 +32,10 @@ impl PortalInvoiceService for PortalInvoiceServiceComponents {
         let (invoice_id, customer_id) = match request.portal_resource()?.resource_access {
             ResourceAccess::InvoicePortal(id) => Ok((id, None)),
             ResourceAccess::CustomerPortal(id) => {
-                let invoice_id = InvoiceId::from_proto_opt( request.into_inner().invoice_id)?
+                let invoice_id = InvoiceId::from_proto_opt(request.into_inner().invoice_id)?
                     .ok_or(Status::invalid_argument("Missing invoice ID in request"))?;
                 Ok((invoice_id, Some(id)))
-            },
+            }
             _ => Err(Status::invalid_argument(
                 "Resource is not an invoice or customer portal.",
             )),
@@ -55,11 +56,13 @@ impl PortalInvoiceService for PortalInvoiceServiceComponents {
             .await
             .map_err(Into::<PortalInvoiceApiError>::into)?;
 
-
         if let Some(cid) = customer_id
-            && invoice.invoice.customer_id != cid {
-                return Err(Status::permission_denied("Invoice does not belong to the specified customer."));
-            }
+            && invoice.invoice.customer_id != cid
+        {
+            return Err(Status::permission_denied(
+                "Invoice does not belong to the specified customer.",
+            ));
+        }
 
         let customer = self
             .store
@@ -90,52 +93,55 @@ impl PortalInvoiceService for PortalInvoiceServiceComponents {
             .await
             .map_err(Into::<PortalInvoiceApiError>::into)?;
 
-
         // Determine payment method availability based on subscription payment strategy
         // If invoice is linked to a subscription, use the subscription's payment configuration
         // Otherwise, use get_or_create_customer_connections for standalone invoices
-        let (card_connection_id, direct_debit_connection_id, bank_account_id_override) = if let Some(subscription_id) = invoice.invoice.subscription_id {
-            let subscription = self
-                .store
-                .get_subscription(tenant, subscription_id)
-                .await
-                .map_err(Into::<PortalInvoiceApiError>::into)?;
+        let (card_connection_id, direct_debit_connection_id, bank_account_id_override) =
+            if let Some(subscription_id) = invoice.invoice.subscription_id {
+                let subscription = self
+                    .store
+                    .get_subscription(tenant, subscription_id)
+                    .await
+                    .map_err(Into::<PortalInvoiceApiError>::into)?;
 
-            // Use subscription's payment configuration (respects payment strategy)
-            (
-                subscription.card_connection_id,
-                subscription.direct_debit_connection_id,
-                subscription.bank_account_id,
-            )
-        } else {
-            // Standalone invoice - create customer connections if needed
-            let (card_conn, dd_conn) = self
-                .services
-                .get_or_create_customer_connections(
-                    tenant,
-                    customer.id,
-                    customer.invoicing_entity_id,
+                // Use subscription's payment configuration (respects payment strategy)
+                (
+                    subscription.card_connection_id,
+                    subscription.direct_debit_connection_id,
+                    subscription.bank_account_id,
                 )
-                .await
-                .map_err(Into::<PortalInvoiceApiError>::into)?;
-            (card_conn, dd_conn, None)
-        };
+            } else {
+                // Standalone invoice - create customer connections if needed
+                let (card_conn, dd_conn) = self
+                    .services
+                    .get_or_create_customer_connections(
+                        tenant,
+                        customer.id,
+                        customer.invoicing_entity_id,
+                    )
+                    .await
+                    .map_err(Into::<PortalInvoiceApiError>::into)?;
+                (card_conn, dd_conn, None)
+            };
 
-
-        let mut invoice = crate::api::invoices::mapping::invoices::domain_invoice_with_transactions_to_server(
-            invoice.invoice,
-            invoice.transactions,
-            self.jwt_secret.clone(),
-        ).map_err(Into::<PortalInvoiceApiError>::into)?;
+        let mut invoice =
+            crate::api::invoices::mapping::invoices::domain_invoice_with_transactions_to_server(
+                invoice.invoice,
+                invoice.transactions,
+                self.jwt_secret.clone(),
+            )
+            .map_err(Into::<PortalInvoiceApiError>::into)?;
 
         invoice.transactions = transactions;
-
 
         let customer = ServerCustomerWrapper::try_from(customer)
             .map(|v| v.0)
             .map_err(Into::<PortalInvoiceApiError>::into)?;
 
-        log::info!("logo_attachment_id: {:?}", invoicing_entity.logo_attachment_id);
+        log::info!(
+            "logo_attachment_id: {:?}",
+            invoicing_entity.logo_attachment_id
+        );
 
         let logo_url = if let Some(logo_attachment_id) = invoicing_entity.logo_attachment_id {
             self.object_store
@@ -152,22 +158,21 @@ impl PortalInvoiceService for PortalInvoiceServiceComponents {
 
         log::info!("logo_url: {:?}", logo_url);
 
-
         let mut bank_account = None;
-        if card_connection_id.is_none() &&  direct_debit_connection_id.is_none() {
+        if card_connection_id.is_none() && direct_debit_connection_id.is_none() {
             // Get bank account - prefer subscription's bank account (set by payment strategy),
             // otherwise use invoicing entity's default
-            let bank_account_id_to_use = bank_account_id_override.or(invoicing_entity.bank_account_id);
-               if let Some(bank_account_id) = bank_account_id_to_use {
-                bank_account = self.store
+            let bank_account_id_to_use =
+                bank_account_id_override.or(invoicing_entity.bank_account_id);
+            if let Some(bank_account_id) = bank_account_id_to_use {
+                bank_account = self
+                    .store
                     .get_bank_account_by_id(bank_account_id, tenant)
                     .await
                     .ok()
                     .map(crate::api::bankaccounts::mapping::bank_accounts::domain_to_proto)
-            }  ;
+            };
         }
-
-
 
         Ok(Response::new(GetInvoiceForPaymentResponse {
             invoice: Some(InvoiceForPayment {
@@ -200,10 +205,10 @@ impl PortalInvoiceService for PortalInvoiceServiceComponents {
         let (invoice_id, customer_id) = match resource.resource_access {
             ResourceAccess::InvoicePortal(id) => Ok((id, None)),
             ResourceAccess::CustomerPortal(id) => {
-                let invoice_id = InvoiceId::from_proto_opt( inner.invoice_id)?
+                let invoice_id = InvoiceId::from_proto_opt(inner.invoice_id)?
                     .ok_or(Status::invalid_argument("Missing invoice ID in request"))?;
                 Ok((invoice_id, Some(id)))
-            },
+            }
             _ => Err(Status::invalid_argument(
                 "Resource is not an invoice or customer portal.",
             )),
@@ -217,10 +222,11 @@ impl PortalInvoiceService for PortalInvoiceServiceComponents {
                 .map_err(Into::<PortalInvoiceApiError>::into)?;
 
             if invoice.customer_id != customer_id {
-                return Err(Status::permission_denied("Invoice does not belong to the specified customer."));
+                return Err(Status::permission_denied(
+                    "Invoice does not belong to the specified customer.",
+                ));
             }
         }
-
 
         let payment_method_id = CustomerPaymentMethodId::from_proto(inner.payment_method_id)?;
 

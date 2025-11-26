@@ -2,11 +2,11 @@ use crate::client::StripeClient;
 use crate::error::StripeError;
 use crate::request::RetryStrategy;
 use crate::setup_intents::StripeMandateRequest;
+use crate::setup_intents::StripePaymentMethodType;
 use secrecy::SecretString;
 use serde::{Deserialize, Serialize};
 use serde_with::skip_serializing_none;
 use std::collections::HashMap;
-use crate::setup_intents::StripePaymentMethodType;
 
 #[skip_serializing_none]
 #[derive(Debug, Eq, PartialEq, Serialize)]

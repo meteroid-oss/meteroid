@@ -1,5 +1,3 @@
-
-
 pub const SEPA_COUNTRIES: [rust_iso3166::CountryCode; 41] = [
     // 27 EU Member States
     rust_iso3166::DE, // Germany
@@ -29,12 +27,10 @@ pub const SEPA_COUNTRIES: [rust_iso3166::CountryCode; 41] = [
     rust_iso3166::SK, // Slovakia
     rust_iso3166::SI, // Slovenia
     rust_iso3166::SE, // Sweden
-
     // 3 EEA countries
     rust_iso3166::IS, // Iceland
     rust_iso3166::NO, // Norway
     rust_iso3166::LI, // Liechtenstein
-
     // 11 non-EEA countries
     rust_iso3166::AL, // Albania
     rust_iso3166::AD, // Andorra

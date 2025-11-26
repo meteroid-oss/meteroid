@@ -171,7 +171,6 @@ impl PaymentProvider for StripeClient {
         let secret_key = extract_stripe_secret_key(connector)?;
         let public_key = extract_stripe_public_key(connector)?;
 
-
         let stripe_payment_methods = payment_methods
             .into_iter()
             .filter_map(|method| (&method).into())
@@ -226,7 +225,6 @@ impl PaymentProvider for StripeClient {
         payment_method_type: &PaymentMethodTypeEnum,
         amount: i64,
         currency: &str,
-
     ) -> Result<PaymentIntent, Report<PaymentProviderError>> {
         let secret_key = extract_stripe_secret_key(connector)?;
 
@@ -241,7 +239,7 @@ impl PaymentProvider for StripeClient {
             ),
         ]);
 
-        let payment_method_type : Option<StripePaymentMethodType> = payment_method_type.into();
+        let payment_method_type: Option<StripePaymentMethodType> = payment_method_type.into();
 
         let payment_intent = self
             .create_payment_intent(
@@ -257,7 +255,7 @@ impl PaymentProvider for StripeClient {
                     return_url: None,
                     capture_method: Default::default(),
                     // allowed
-                    payment_method_types: payment_method_type.into_iter().collect()
+                    payment_method_types: payment_method_type.into_iter().collect(),
                 },
                 &secret_key,
                 Uuid::now_v7().to_string(), // TODO pass idempotency from api ?
@@ -368,7 +366,6 @@ fn extract_stripe_public_key(
         ))),
     }
 }
-
 
 impl From<&PaymentMethodTypeEnum> for Option<StripePaymentMethodType> {
     fn from(val: &PaymentMethodTypeEnum) -> Self {

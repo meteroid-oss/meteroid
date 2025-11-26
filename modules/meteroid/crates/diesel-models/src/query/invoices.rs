@@ -7,7 +7,6 @@ use crate::invoices::{
 use crate::{DbResult, PgConn};
 
 use crate::enums::{ConnectorProviderEnum, InvoicePaymentStatus, InvoiceStatusEnum};
-use chrono::NaiveDateTime;
 use crate::extend::connection_metadata;
 use crate::extend::cursor_pagination::{
     CursorPaginate, CursorPaginatedVec, CursorPaginationRequest,
@@ -15,6 +14,7 @@ use crate::extend::cursor_pagination::{
 use crate::extend::order::OrderByRequest;
 use crate::extend::pagination::{Paginate, PaginatedVec, PaginationRequest};
 use crate::payments::PaymentTransactionRow;
+use chrono::NaiveDateTime;
 use common_domain::ids::{
     BaseId, ConnectorId, CustomerId, InvoiceId, StoredDocumentId, SubscriptionId, TenantId,
 };
@@ -438,7 +438,7 @@ impl InvoiceRow {
         id: InvoiceId,
         tenant_id: TenantId,
         payment_status: InvoicePaymentStatus,
-        tx_at: Option<NaiveDateTime>
+        tx_at: Option<NaiveDateTime>,
     ) -> DbResult<InvoiceRow> {
         use crate::schema::invoice::dsl as i_dsl;
         use diesel_async::RunQueryDsl;
@@ -688,5 +688,4 @@ impl crate::invoices::InvoiceRowPatch {
             .attach("Error while updating draft invoice")
             .into_db_result()
     }
-
 }

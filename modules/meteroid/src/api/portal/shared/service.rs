@@ -6,26 +6,29 @@ use crate::api::customers::mapping::customer::{
 use crate::api::portal::shared::PortalSharedServiceComponents;
 use crate::api::portal::shared::error::PortalSharedApiError;
 use crate::api::shared::conversions::FromProtoOpt;
-use common_domain::ids::{
-    BaseId, CustomerConnectionId, CustomerId, CustomerPaymentMethodId,
-};
+use common_domain::ids::{BaseId, CustomerConnectionId, CustomerId, CustomerPaymentMethodId};
 use common_grpc::middleware::server::auth::{AuthorizedAsPortalUser, RequestExt};
 use meteroid_grpc::meteroid::portal::shared::v1::portal_shared_service_server::PortalSharedService;
 use meteroid_grpc::meteroid::portal::shared::v1::*;
+use meteroid_store::adapters::payment_service_providers::initialize_payment_provider;
 use meteroid_store::domain::{CustomerPatch, CustomerPaymentMethodNew, PaymentMethodTypeEnum};
+use meteroid_store::repositories::connectors::ConnectorsInterface;
 use meteroid_store::repositories::customer_connection::CustomerConnectionInterface;
 use meteroid_store::repositories::customer_payment_methods::CustomerPaymentMethodsInterface;
 use meteroid_store::repositories::customers::CustomersInterface;
 use meteroid_store::repositories::{InvoiceInterface, SubscriptionInterface};
 use secrecy::ExposeSecret;
 use tonic::{Request, Response, Status};
-use meteroid_store::adapters::payment_service_providers::initialize_payment_provider;
-use meteroid_store::repositories::connectors::ConnectorsInterface;
 
 impl PortalSharedServiceComponents {
-    async fn resolve_customer(&self, resource: AuthorizedAsPortalUser) -> Result<CustomerId, PortalSharedApiError> {
+    async fn resolve_customer(
+        &self,
+        resource: AuthorizedAsPortalUser,
+    ) -> Result<CustomerId, PortalSharedApiError> {
         match resource.resource_access {
-            common_grpc::middleware::server::auth::ResourceAccess::SubscriptionCheckout(subscription_id) => {
+            common_grpc::middleware::server::auth::ResourceAccess::SubscriptionCheckout(
+                subscription_id,
+            ) => {
                 let subscription = self
                     .store
                     .get_subscription(resource.tenant_id, subscription_id)
@@ -43,22 +46,16 @@ impl PortalSharedServiceComponents {
 
                 Ok(invoice.customer_id)
             }
-            common_grpc::middleware::server::auth::ResourceAccess::CustomerPortal(id) => {
-                Ok(id)
-            }
+            common_grpc::middleware::server::auth::ResourceAccess::CustomerPortal(id) => Ok(id),
             _ => Err(PortalSharedApiError::InvalidArgument(
                 "Invalid portal resource for customer resolution".to_string(),
             )),
         }
-
     }
 }
 
-
 #[tonic::async_trait]
 impl PortalSharedService for PortalSharedServiceComponents {
-
-
     #[tracing::instrument(skip_all)]
     async fn update_customer(
         &self,
@@ -137,8 +134,7 @@ impl PortalSharedService for PortalSharedServiceComponents {
             // TODO: if connection_id is not provided, we should resolve the connector from the portal resource and create a new connection
             .ok_or(PortalSharedApiError::MissingArgument(
                 "connection_id is required".to_string(),
-            ))?
-            ;
+            ))?;
 
         let customer_id = self.resolve_customer(portal_resource).await?;
         let connection = self
@@ -156,7 +152,7 @@ impl PortalSharedService for PortalSharedServiceComponents {
 
         let intent = self
             .services
-            .create_setup_intent(&tenant, &customer_connection_id, ) // connection_type
+            .create_setup_intent(&tenant, &customer_connection_id) // connection_type
             .await
             .map_err(Into::<PortalSharedApiError>::into)?;
 
@@ -170,8 +166,6 @@ impl PortalSharedService for PortalSharedServiceComponents {
             }),
         }))
     }
-
-
 
     /// We want to process payment ASAP, without waiting for the webhook event, so this is a frontend-initiated action when stripe sdk confirm payment method.
     /// We will complete the details when the webhook event is received (if not already received)
@@ -206,22 +200,24 @@ impl PortalSharedService for PortalSharedServiceComponents {
         // Fetch payment method details from provider to get the actual type
         let connector = self
             .store
-            .get_connector_with_data( connection.connector_id, tenant)
+            .get_connector_with_data(connection.connector_id, tenant)
             .await
             .map_err(Into::<PortalSharedApiError>::into)?;
 
-
         // TODO added some unwraps just to test it
 
-        let provider = initialize_payment_provider(&connector)
-            .unwrap();
-            // .map_err(Into::<PortalSharedApiError>::into)?;
+        let provider = initialize_payment_provider(&connector).unwrap();
+        // .map_err(Into::<PortalSharedApiError>::into)?;
 
         let method = provider
-            .get_payment_method_from_provider(&connector, &external_payment_method_id, &connection.external_customer_id)
+            .get_payment_method_from_provider(
+                &connector,
+                &external_payment_method_id,
+                &connection.external_customer_id,
+            )
             .await
             .unwrap();
-            // .map_err(Into::<PortalSharedApiError>::into)?;
+        // .map_err(Into::<PortalSharedApiError>::into)?;
 
         // Extract payment method details based on type
         use stripe_client::payment_methods::StripePaymentMethodType;
@@ -230,7 +226,9 @@ impl PortalSharedService for PortalSharedServiceComponents {
             StripePaymentMethodType::BacsDebit => method.bacs_debit.and_then(|acc| acc.last4),
             StripePaymentMethodType::Card => None,
             StripePaymentMethodType::SepaDebit => method.sepa_debit.and_then(|acc| acc.last4),
-            StripePaymentMethodType::UsBankAccount => method.us_bank_account.and_then(|acc| acc.last4),
+            StripePaymentMethodType::UsBankAccount => {
+                method.us_bank_account.and_then(|acc| acc.last4)
+            }
         };
 
         let payment_method_type = match method._type {
@@ -307,5 +305,4 @@ impl PortalSharedService for PortalSharedServiceComponents {
             ),
         }))
     }
-
 }

@@ -9,9 +9,9 @@ pub mod invoices {
         CouponLineItem, DetailedInvoice, InlineCustomer, Invoice, InvoicePaymentStatus,
         InvoiceStatus, InvoiceType, LineItem,
     };
-    use meteroid_store::{domain, StoreResult};
     use meteroid_store::domain::invoice_lines as domain_invoice_lines;
     use meteroid_store::errors::StoreError;
+    use meteroid_store::{StoreResult, domain};
     use secrecy::{ExposeSecret, SecretString};
 
     pub fn status_domain_to_server(value: &domain::enums::InvoiceStatusEnum) -> InvoiceStatus {
@@ -152,7 +152,7 @@ pub mod invoices {
         invoice_id: InvoiceId,
         tenant_id: TenantId,
         jwt_secret: &SecretString,
-        exp: usize
+        exp: usize,
     ) -> StoreResult<String> {
         let claims = ShareableEntityClaims {
             exp,
@@ -173,15 +173,11 @@ pub mod invoices {
         Ok(encoded)
     }
 
-
-
-
     pub fn domain_invoice_with_transactions_to_server(
         invoice: domain::Invoice,
         transactions: Vec<domain::PaymentTransaction>,
         jwt_secret: SecretString,
     ) -> Result<DetailedInvoice, Report<StoreError>> {
-
         let share_key = if invoice.pdf_document_id.is_some() || invoice.xml_document_id.is_some() {
             let encoded = generate_invoice_share_key(
                 invoice.id,

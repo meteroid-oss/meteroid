@@ -40,7 +40,11 @@ impl TryInto<Message> for Email {
 
     fn try_into(self) -> Result<Message, Self::Error> {
         let mut builder = Message::builder()
-            .from(self.from.parse().unwrap_or_else(|_| panic!("Invalid from address:  {}", self.from.clone())))
+            .from(
+                self.from
+                    .parse()
+                    .unwrap_or_else(|_| panic!("Invalid from address:  {}", self.from.clone())),
+            )
             .subject(self.subject.clone());
 
         for recipient in &self.to {
@@ -49,7 +53,11 @@ impl TryInto<Message> for Email {
         }
 
         if let Some(reply_to) = self.reply_to.as_ref() {
-            builder = builder.reply_to(reply_to.parse().unwrap_or_else(|_| panic!("Invalid reply-to address:  {}", reply_to.clone())));
+            builder = builder.reply_to(
+                reply_to
+                    .parse()
+                    .unwrap_or_else(|_| panic!("Invalid reply-to address:  {}", reply_to.clone())),
+            );
         }
 
         if self.include_attachments() {

@@ -108,7 +108,6 @@ impl Services {
 
                 transactions.push(res.clone());
 
-
                 if res.status == PaymentStatusEnum::Settled {
                     // Update subscription's payment method with the one that successfully paid
                     let payment_method = diesel_models::customer_payment_methods::CustomerPaymentMethodRow::get_by_id(

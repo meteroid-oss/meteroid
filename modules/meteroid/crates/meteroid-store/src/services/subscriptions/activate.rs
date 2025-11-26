@@ -32,7 +32,9 @@ impl Services {
                         .await?;
 
                     // Validate activation condition
-                    if subscription.subscription.activation_condition != SubscriptionActivationCondition::Manual {
+                    if subscription.subscription.activation_condition
+                        != SubscriptionActivationCondition::Manual
+                    {
                         return Err(Report::new(StoreError::InvalidArgument(
                             "Subscription activation condition must be Manual".to_string(),
                         )));
@@ -45,50 +47,54 @@ impl Services {
                         )));
                     }
 
-
                     // TODO check
                     // Calculate activation parameters based on trial
-                    let (status, current_period_start, current_period_end, next_cycle_action, cycle_index) =
-                        if let Some(trial_duration) = subscription.subscription.trial_duration {
-                            // Has trial: activate with trial status
-                            let new_period_start = subscription
-                                .subscription
-                                .current_period_end
-                                .unwrap_or_else(|| Utc::now().naive_utc().date());
-                            let new_period_end = new_period_start
-                                .checked_add_days(Days::new(trial_duration as u64))
-                                .unwrap_or_else(|| new_period_start + Duration::days(7));
+                    let (
+                        status,
+                        current_period_start,
+                        current_period_end,
+                        next_cycle_action,
+                        cycle_index,
+                    ) = if let Some(trial_duration) = subscription.subscription.trial_duration {
+                        // Has trial: activate with trial status
+                        let new_period_start = subscription
+                            .subscription
+                            .current_period_end
+                            .unwrap_or_else(|| Utc::now().naive_utc().date());
+                        let new_period_end = new_period_start
+                            .checked_add_days(Days::new(trial_duration as u64))
+                            .unwrap_or_else(|| new_period_start + Duration::days(7));
 
-                            (
-                                SubscriptionStatusEnum::TrialActive,
-                                new_period_start,
-                                Some(new_period_end),
-                                Some(CycleActionEnum::EndTrial),
-                                Some(0),
-                            )
-                        } else {
-                            // No trial: activate directly to active state
-                            let new_period_start = subscription
-                                .subscription
-                                .billing_start_date
-                                .or(Some(subscription.subscription.start_date))
-                                .unwrap_or_else(|| Utc::now().naive_utc().date());
+                        (
+                            SubscriptionStatusEnum::TrialActive,
+                            new_period_start,
+                            Some(new_period_end),
+                            Some(CycleActionEnum::EndTrial),
+                            Some(0),
+                        )
+                    } else {
+                        // No trial: activate directly to active state
+                        let new_period_start = subscription
+                            .subscription
+                            .billing_start_date
+                            .or(Some(subscription.subscription.start_date))
+                            .unwrap_or_else(|| Utc::now().naive_utc().date());
 
-                            let period = calculate_advance_period_range(
-                                new_period_start,
-                                subscription.subscription.billing_day_anchor as u32,
-                                true,
-                                &subscription.subscription.period,
-                            );
+                        let period = calculate_advance_period_range(
+                            new_period_start,
+                            subscription.subscription.billing_day_anchor as u32,
+                            true,
+                            &subscription.subscription.period,
+                        );
 
-                            (
-                                SubscriptionStatusEnum::Active,
-                                new_period_start,
-                                Some(period.end),
-                                Some(CycleActionEnum::RenewSubscription),
-                                Some(1),
-                            )
-                        };
+                        (
+                            SubscriptionStatusEnum::Active,
+                            new_period_start,
+                            Some(period.end),
+                            Some(CycleActionEnum::RenewSubscription),
+                            Some(1),
+                        )
+                    };
 
                     // Activate the subscription
                     SubscriptionRow::activate_subscription(
@@ -104,13 +110,10 @@ impl Services {
                     .await?;
 
                     // Fetch and return updated subscription
-                    let updated = SubscriptionRow::get_subscription_by_id(
-                        conn,
-                        &tenant_id,
-                        subscription_id,
-                    )
-                    .await
-                    .map_err(Into::<Report<StoreError>>::into)?;
+                    let updated =
+                        SubscriptionRow::get_subscription_by_id(conn, &tenant_id, subscription_id)
+                            .await
+                            .map_err(Into::<Report<StoreError>>::into)?;
 
                     Ok(updated)
                 }

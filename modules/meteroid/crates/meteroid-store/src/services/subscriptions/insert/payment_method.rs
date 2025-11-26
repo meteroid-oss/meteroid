@@ -1,5 +1,8 @@
 use crate::domain::enums::{ConnectorTypeEnum, PaymentMethodTypeEnum, PlanTypeEnum};
-use crate::domain::{Customer, CustomerConnection, InvoicingEntityProviderSensitive, SubscriptionActivationCondition, SubscriptionNew, SubscriptionPaymentStrategy};
+use crate::domain::{
+    Customer, CustomerConnection, InvoicingEntityProviderSensitive,
+    SubscriptionActivationCondition, SubscriptionNew, SubscriptionPaymentStrategy,
+};
 use crate::errors::StoreError;
 
 use super::context::SubscriptionCreationContext;
@@ -65,7 +68,10 @@ impl Services {
             })?;
 
         // Validate activation_condition + payment_strategy combination
-        if matches!(subscription.activation_condition, SubscriptionActivationCondition::OnCheckout) {
+        if matches!(
+            subscription.activation_condition,
+            SubscriptionActivationCondition::OnCheckout
+        ) {
             // OnCheckout requires Auto strategy (can't checkout with Bank or External)
             if !matches!(strategy, SubscriptionPaymentStrategy::Auto) {
                 return Err(Report::new(StoreError::InvalidArgument(
@@ -97,7 +103,10 @@ impl Services {
             }
 
             // ChargeAutomatically doesn't make sense with Bank or External strategies
-            if matches!(strategy, SubscriptionPaymentStrategy::Bank | SubscriptionPaymentStrategy::External) {
+            if matches!(
+                strategy,
+                SubscriptionPaymentStrategy::Bank | SubscriptionPaymentStrategy::External
+            ) {
                 return Err(Report::new(StoreError::InvalidArgument(
                     "Automatic charging requires Auto payment strategy. Set charge_automatically to false when using Bank or External payment strategies.".to_string(),
                 )));
@@ -110,8 +119,14 @@ impl Services {
         // Process the payment setup based on the selected strategy
         match strategy {
             SubscriptionPaymentStrategy::Auto => {
-                self.setup_auto_payment(conn, customer, invoicing_entity_providers, connections, subscription.activation_condition.clone())
-                    .await
+                self.setup_auto_payment(
+                    conn,
+                    customer,
+                    invoicing_entity_providers,
+                    connections,
+                    subscription.activation_condition.clone(),
+                )
+                .await
             }
             SubscriptionPaymentStrategy::Bank => {
                 self.setup_bank_payment(customer, invoicing_entity_providers)
@@ -143,7 +158,6 @@ impl Services {
                         .await
                         .change_context(StoreError::PaymentProviderError)?;
 
-
                     let supported_payment_types = vec![];
 
                     // Connect the customer to the payment provider in our system
@@ -153,7 +167,7 @@ impl Services {
                             &customer.id,
                             &config.id,
                             &external_id,
-                            supported_payment_types.clone()
+                            supported_payment_types.clone(),
                         )
                         .await?;
 
@@ -192,13 +206,7 @@ impl Services {
         customer_connectors: Vec<&CustomerConnection>,
         condition: SubscriptionActivationCondition,
     ) -> StoreResult<PaymentSetupResult> {
-
-
-        let checkout = matches!(
-            condition,
-            SubscriptionActivationCondition::OnCheckout
-        );
-
+        let checkout = matches!(condition, SubscriptionActivationCondition::OnCheckout);
 
         // TODO support customer overrides  customer.card_provider_id + customer.direct_debit_provider_id
 
@@ -227,7 +235,6 @@ impl Services {
         } else {
             Ok(None)
         }?;
-
 
         if card_connection.is_some() || direct_debit_connection.is_some() {
             return Ok(PaymentSetupResult {
@@ -270,7 +277,7 @@ impl Services {
         customer_id: &CustomerId,
         connector_id: &ConnectorId,
         external_id: &str,
-        supported_payment_method_types: Vec<PaymentMethodTypeEnum>
+        supported_payment_method_types: Vec<PaymentMethodTypeEnum>,
     ) -> StoreResult<CustomerConnectionId> {
         let customer_connection: CustomerConnectionRow = CustomerConnection {
             id: CustomerConnectionId::new(),
@@ -311,7 +318,6 @@ pub struct PaymentSetupResult {
 }
 
 impl PaymentSetupResult {
-
     /// Creates a payment setup result associating a bank account for direct transfers
     fn with_bank(bank_account_id: BankAccountId) -> Self {
         Self {

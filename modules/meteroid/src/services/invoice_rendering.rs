@@ -7,11 +7,11 @@ use meteroid_invoicing::{pdf, svg};
 use meteroid_store::Store;
 use meteroid_store::domain::{Invoice, InvoicingEntity};
 use meteroid_store::jwt_claims::{ResourceAccess, generate_portal_token};
-use meteroid_store::repositories::{CustomersInterface, InvoiceInterface};
 use meteroid_store::repositories::bank_accounts::BankAccountsInterface;
 use meteroid_store::repositories::historical_rates::HistoricalRatesInterface;
 use meteroid_store::repositories::invoicing_entities::InvoicingEntityInterface;
 use meteroid_store::repositories::subscriptions::SubscriptionInterface;
+use meteroid_store::repositories::{CustomersInterface, InvoiceInterface};
 use std::collections::HashMap;
 use std::io::Cursor;
 use std::sync::Arc;
@@ -23,7 +23,6 @@ async fn resolve_payment_info(
     public_url: &str,
     jwt_secret: &secrecy::SecretString,
 ) -> Result<(Option<HashMap<String, String>>, Option<String>), Report<InvoicingRenderError>> {
-
     // TODO a bit complex here to resolve accurately whether we want the payment url or bank or none. We need to centralize it
     // ex: save the payment_option on the invoice : PaymentLink, Bank(id), None
 
@@ -52,8 +51,11 @@ async fn resolve_payment_info(
                     invoice.tenant_id,
                     ResourceAccess::Invoice(invoice.id),
                 )
-                    .change_context(InvoicingRenderError::StoreError)?;
-                let payment_url = format!("{}/portal/invoice-payment?token={}", public_url, invoice_token);
+                .change_context(InvoicingRenderError::StoreError)?;
+                let payment_url = format!(
+                    "{}/portal/invoice-payment?token={}",
+                    public_url, invoice_token
+                );
                 Ok((None, Some(payment_url)))
             }
             // No payment method - show bank details
@@ -68,8 +70,11 @@ async fn resolve_payment_info(
                 invoice.tenant_id,
                 ResourceAccess::Invoice(invoice.id),
             )
-                .change_context(InvoicingRenderError::StoreError)?;
-            let payment_url = format!("{}/portal/invoice-payment?token={}", public_url, invoice_token);
+            .change_context(InvoicingRenderError::StoreError)?;
+            let payment_url = format!(
+                "{}/portal/invoice-payment?token={}",
+                public_url, invoice_token
+            );
             Ok((None, Some(payment_url)))
         } else {
             fetch_bank_details(store, invoicing_entity, invoice).await
@@ -87,7 +92,10 @@ async fn fetch_bank_details(
             .get_bank_account_by_id(bank_account_id, invoice.tenant_id)
             .await
             .change_context(InvoicingRenderError::StoreError)?;
-        Some(mapper::format_bank_account(&bank_account, invoice.reference.as_deref()))
+        Some(mapper::format_bank_account(
+            &bank_account,
+            invoice.reference.as_deref(),
+        ))
     } else {
         None
     };
@@ -129,10 +137,9 @@ impl InvoicePreviewRenderingService {
         invoicing_entity: InvoicingEntity,
     ) -> Result<Vec<String>, Report<InvoicingRenderError>> {
         let organization_logo = match invoicing_entity.logo_attachment_id.as_ref() {
-            Some(logo_id) => {
-                
-                get_logo_bytes_for_invoice(&self.storage, *logo_id).await.ok()
-            }
+            Some(logo_id) => get_logo_bytes_for_invoice(&self.storage, *logo_id)
+                .await
+                .ok(),
             None => None,
         };
 
@@ -156,7 +163,8 @@ impl InvoicePreviewRenderingService {
             &invoicing_entity,
             &self.public_url,
             &self.jwt_secret,
-        ).await?;
+        )
+        .await?;
 
         let mapped = mapper::map_invoice_to_invoicing(
             invoice,
@@ -311,10 +319,9 @@ impl PdfRenderingService {
 
         // let's resolve the logo as raw bytes
         let organization_logo = match invoicing_entity.logo_attachment_id.as_ref() {
-            Some(logo_id) => {
-                
-                get_logo_bytes_for_invoice(&self.storage, *logo_id).await.ok()
-            }
+            Some(logo_id) => get_logo_bytes_for_invoice(&self.storage, *logo_id)
+                .await
+                .ok(),
             None => None,
         };
 
@@ -338,7 +345,8 @@ impl PdfRenderingService {
             invoicing_entity,
             &self.public_url,
             &self.jwt_secret,
-        ).await?;
+        )
+        .await?;
 
         let customer_id = invoice.customer_id;
 

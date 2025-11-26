@@ -6,13 +6,14 @@ use tonic::{Request, Response, Status};
 use meteroid_grpc::meteroid::api::subscriptions::v1::subscriptions_service_server::SubscriptionsService;
 
 use meteroid_grpc::meteroid::api::subscriptions::v1::{
-    CancelSlotTransactionRequest, CancelSlotTransactionResponse, CancelSubscriptionRequest,
-    CancelSubscriptionResponse, CreateSubscriptionRequest, CreateSubscriptionResponse,
-    CreateSubscriptionsRequest, CreateSubscriptionsResponse,GenerateCheckoutTokenRequest, GenerateCheckoutTokenResponse, GetSlotsValueRequest,
-    GetSlotsValueResponse, ListSlotTransactionsRequest, ListSlotTransactionsResponse,
-    ListSubscriptionsRequest, ListSubscriptionsResponse, PreviewSlotUpdateRequest,
-    PreviewSlotUpdateResponse, SubscriptionDetails, SyncToHubspotRequest, SyncToHubspotResponse,
-    UpdateSlotsRequest, UpdateSlotsResponse, ActivateSubscriptionRequest, ActivateSubscriptionResponse,
+    ActivateSubscriptionRequest, ActivateSubscriptionResponse, CancelSlotTransactionRequest,
+    CancelSlotTransactionResponse, CancelSubscriptionRequest, CancelSubscriptionResponse,
+    CreateSubscriptionRequest, CreateSubscriptionResponse, CreateSubscriptionsRequest,
+    CreateSubscriptionsResponse, GenerateCheckoutTokenRequest, GenerateCheckoutTokenResponse,
+    GetSlotsValueRequest, GetSlotsValueResponse, ListSlotTransactionsRequest,
+    ListSlotTransactionsResponse, ListSubscriptionsRequest, ListSubscriptionsResponse,
+    PreviewSlotUpdateRequest, PreviewSlotUpdateResponse, SubscriptionDetails, SyncToHubspotRequest,
+    SyncToHubspotResponse, UpdateSlotsRequest, UpdateSlotsResponse,
 };
 
 use crate::api::shared::conversions::ProtoConv;
@@ -404,7 +405,10 @@ impl SubscriptionsService for SubscriptionServiceComponents {
     }
 
     #[tracing::instrument(skip_all)]
-    async fn activate_subscription(&self, request: Request<ActivateSubscriptionRequest>) -> Result<Response<ActivateSubscriptionResponse>, Status> {
+    async fn activate_subscription(
+        &self,
+        request: Request<ActivateSubscriptionRequest>,
+    ) -> Result<Response<ActivateSubscriptionResponse>, Status> {
         let tenant_id = request.tenant()?;
         let inner = request.into_inner();
 
@@ -425,7 +429,4 @@ impl SubscriptionsService for SubscriptionServiceComponents {
             invoice_id: None, // Invoice creation happens asynchronously via worker
         }))
     }
-
-
-
 }

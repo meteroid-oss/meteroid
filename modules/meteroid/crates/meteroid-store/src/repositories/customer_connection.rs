@@ -55,10 +55,13 @@ impl CustomerConnectionInterface for Store {
     ) -> StoreResult<Vec<CustomerConnection>> {
         let mut conn = self.get_conn().await?;
 
-        let connections =
-            CustomerConnectionRow::list_connections_by_customer_id(&mut conn, tenant_id, customer_id)
-                .await
-                .map_err(|err| StoreError::DatabaseError(err.error))?;
+        let connections = CustomerConnectionRow::list_connections_by_customer_id(
+            &mut conn,
+            tenant_id,
+            customer_id,
+        )
+        .await
+        .map_err(|err| StoreError::DatabaseError(err.error))?;
 
         Ok(connections.into_iter().map(|c| c.into()).collect())
     }

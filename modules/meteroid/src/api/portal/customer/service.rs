@@ -1,20 +1,20 @@
 use crate::api::customers::mapping::customer::ServerCustomerWrapper;
-use crate::api::portal::customer::error::PortalCustomerApiError;
 use crate::api::portal::customer::PortalCustomerServiceComponents;
-use common_domain::ids::BaseId;
-use common_grpc::middleware::server::auth::RequestExt;
-use meteroid_grpc::meteroid::portal::customer::v1::portal_customer_service_server::PortalCustomerService;
-use meteroid_grpc::meteroid::portal::customer::v1::*;
-use meteroid_store::domain::{InvoiceStatusEnum, OrderByRequest, PaginationRequest};
-use meteroid_store::domain::enums::SubscriptionStatusEnum;
-use meteroid_store::repositories::{InvoiceInterface, SubscriptionInterface};
-use meteroid_store::repositories::customers::CustomersInterface;
-use meteroid_store::repositories::customer_payment_methods::CustomerPaymentMethodsInterface;
-use meteroid_store::repositories::invoicing_entities::InvoicingEntityInterface;
-use tonic::{Request, Response, Status};
-use common_utils::integers::ToNonNegativeU64;
+use crate::api::portal::customer::error::PortalCustomerApiError;
 use crate::api::shared::conversions::{AsProtoOpt, ProtoConv};
 use crate::api::utils::PaginationExt;
+use common_domain::ids::BaseId;
+use common_grpc::middleware::server::auth::RequestExt;
+use common_utils::integers::ToNonNegativeU64;
+use meteroid_grpc::meteroid::portal::customer::v1::portal_customer_service_server::PortalCustomerService;
+use meteroid_grpc::meteroid::portal::customer::v1::*;
+use meteroid_store::domain::enums::SubscriptionStatusEnum;
+use meteroid_store::domain::{InvoiceStatusEnum, OrderByRequest, PaginationRequest};
+use meteroid_store::repositories::customer_payment_methods::CustomerPaymentMethodsInterface;
+use meteroid_store::repositories::customers::CustomersInterface;
+use meteroid_store::repositories::invoicing_entities::InvoicingEntityInterface;
+use meteroid_store::repositories::{InvoiceInterface, SubscriptionInterface};
+use tonic::{Request, Response, Status};
 
 #[tonic::async_trait]
 impl PortalCustomerService for PortalCustomerServiceComponents {
@@ -66,7 +66,10 @@ impl PortalCustomerService for PortalCustomerServiceComponents {
                 )
             })
             .map(|s| {
-                let status = crate::api::subscriptions::mapping::subscriptions::map_subscription_status(s.status) ;
+                let status =
+                    crate::api::subscriptions::mapping::subscriptions::map_subscription_status(
+                        s.status,
+                    );
                 Ok::<_, Status>(SubscriptionSummary {
                     id: s.id.as_proto(),
                     subscription_name: s.customer_name.clone(),
@@ -107,18 +110,24 @@ impl PortalCustomerService for PortalCustomerServiceComponents {
             .map(|inv| InvoiceSummary {
                 id: inv.invoice.id.as_proto(),
                 invoice_number: inv.invoice.invoice_number.clone(),
-                status: crate::api::invoices::mapping::invoices::status_domain_to_server(&inv.invoice.status).into(),
+                status: crate::api::invoices::mapping::invoices::status_domain_to_server(
+                    &inv.invoice.status,
+                )
+                .into(),
                 invoice_date: inv.invoice.invoice_date.as_proto(),
                 due_date: inv.invoice.due_at.as_proto(),
-                total_cents: inv.invoice.total.to_non_negative_u64() ,
-                amount_due_cents: inv.invoice.amount_due.to_non_negative_u64() ,
+                total_cents: inv.invoice.total.to_non_negative_u64(),
+                amount_due_cents: inv.invoice.amount_due.to_non_negative_u64(),
                 currency: inv.invoice.currency.clone(),
                 plan_name: inv.invoice.plan_name.clone(),
-                payment_status: crate::api::invoices::mapping::invoices::payment_status_domain_to_server(inv.invoice.payment_status).into(),
+                payment_status:
+                    crate::api::invoices::mapping::invoices::payment_status_domain_to_server(
+                        inv.invoice.payment_status,
+                    )
+                    .into(),
                 document_sharing_key: None, // TODO
             })
             .collect();
-
 
         let customer_methods = self
             .store
@@ -138,11 +147,7 @@ impl PortalCustomerService for PortalCustomerServiceComponents {
         // Get or create payment connections for this customer
         let (card_connection_id, direct_debit_connection_id) = self
             .services
-            .get_or_create_customer_connections(
-                tenant,
-                customer.id,
-                customer.invoicing_entity_id,
-            )
+            .get_or_create_customer_connections(tenant, customer.id, customer.invoicing_entity_id)
             .await
             .map_err(Into::<PortalCustomerApiError>::into)?;
 
@@ -153,9 +158,10 @@ impl PortalCustomerService for PortalCustomerServiceComponents {
             .await
             .map_err(Into::<PortalCustomerApiError>::into)?;
 
-        let invoicing_entity_logo_url = invoicing_entity.logo_attachment_id.as_ref().map(|logo_id| {
-            format!("{}/files/v1/logo/{}", self.rest_api_external_url, logo_id)
-        });
+        let invoicing_entity_logo_url = invoicing_entity
+            .logo_attachment_id
+            .as_ref()
+            .map(|logo_id| format!("{}/files/v1/logo/{}", self.rest_api_external_url, logo_id));
 
         Ok(Response::new(GetCustomerPortalOverviewResponse {
             overview: Some(CustomerPortalOverview {
@@ -208,19 +214,24 @@ impl PortalCustomerService for PortalCustomerServiceComponents {
                 .map(|inv| InvoiceSummary {
                     id: inv.invoice.id.as_proto(),
                     invoice_number: inv.invoice.invoice_number.clone(),
-                    status: crate::api::invoices::mapping::invoices::status_domain_to_server(&inv.invoice.status).into(),
+                    status: crate::api::invoices::mapping::invoices::status_domain_to_server(
+                        &inv.invoice.status,
+                    )
+                    .into(),
                     invoice_date: inv.invoice.invoice_date.as_proto(),
                     due_date: inv.invoice.due_at.as_proto(),
-                    total_cents: inv.invoice.total.to_non_negative_u64() ,
-                    amount_due_cents: inv.invoice.amount_due.to_non_negative_u64() ,
+                    total_cents: inv.invoice.total.to_non_negative_u64(),
+                    amount_due_cents: inv.invoice.amount_due.to_non_negative_u64(),
                     currency: inv.invoice.currency.clone(),
                     plan_name: inv.invoice.plan_name.clone(),
-                    payment_status: crate::api::invoices::mapping::invoices::payment_status_domain_to_server(inv.invoice.payment_status).into(),
+                    payment_status:
+                        crate::api::invoices::mapping::invoices::payment_status_domain_to_server(
+                            inv.invoice.payment_status,
+                        )
+                        .into(),
                     document_sharing_key: None, // TODO
                 })
                 .collect::<Vec<InvoiceSummary>>(),
         }))
     }
-
-
 }

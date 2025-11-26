@@ -9,8 +9,9 @@ use common_grpc::middleware::server::auth::RequestExt;
 use common_utils::decimals::ToSubunit;
 use meteroid_grpc::meteroid::api::invoices::v1::{
     CreateInvoiceRequest, CreateInvoiceResponse, DeleteInvoiceRequest, DeleteInvoiceResponse,
-    FinalizeInvoiceRequest, FinalizeInvoiceResponse, GetInvoiceRequest, GetInvoiceResponse,
-   GenerateInvoicePaymentTokenRequest, GenerateInvoicePaymentTokenResponse, Invoice, ListInvoicesRequest, ListInvoicesResponse, MarkInvoiceAsUncollectibleRequest,
+    FinalizeInvoiceRequest, FinalizeInvoiceResponse, GenerateInvoicePaymentTokenRequest,
+    GenerateInvoicePaymentTokenResponse, GetInvoiceRequest, GetInvoiceResponse, Invoice,
+    ListInvoicesRequest, ListInvoicesResponse, MarkInvoiceAsUncollectibleRequest,
     MarkInvoiceAsUncollectibleResponse, NewInvoice, PreviewInvoiceRequest, PreviewInvoiceResponse,
     PreviewInvoiceUpdateRequest, PreviewInvoiceUpdateResponse, PreviewNewInvoiceRequest,
     PreviewNewInvoiceResponse, RefreshInvoiceDataRequest, RefreshInvoiceDataResponse,
@@ -466,7 +467,6 @@ impl InvoicesService for InvoiceServiceComponents {
         }))
     }
 
-
     #[tracing::instrument(skip_all)]
     async fn generate_invoice_payment_token(
         &self,
@@ -483,7 +483,7 @@ impl InvoicesService for InvoiceServiceComponents {
             tenant_id,
             meteroid_store::jwt_claims::ResourceAccess::Invoice(invoice_id),
         )
-            .map_err(Into::<InvoiceApiError>::into)?;
+        .map_err(Into::<InvoiceApiError>::into)?;
 
         Ok(Response::new(GenerateInvoicePaymentTokenResponse { token }))
     }
@@ -509,7 +509,13 @@ impl InvoicesService for InvoiceServiceComponents {
         // Add manual payment transaction via service
         let transaction = self
             .services
-            .add_manual_payment_transaction(tenant_id, invoice_id, amount, payment_date, req.reference)
+            .add_manual_payment_transaction(
+                tenant_id,
+                invoice_id,
+                amount,
+                payment_date,
+                req.reference,
+            )
             .await
             .map_err(Into::<InvoiceApiError>::into)?;
 
@@ -547,7 +553,13 @@ impl InvoicesService for InvoiceServiceComponents {
         // Mark invoice as paid via service
         let invoice = self
             .services
-            .mark_invoice_as_paid(tenant_id, invoice_id, total_amount, payment_date, req.reference)
+            .mark_invoice_as_paid(
+                tenant_id,
+                invoice_id,
+                total_amount,
+                payment_date,
+                req.reference,
+            )
             .await
             .map_err(Into::<InvoiceApiError>::into)?;
 
@@ -557,7 +569,7 @@ impl InvoicesService for InvoiceServiceComponents {
             invoice.transactions,
             self.jwt_secret.clone(),
         )
-            .map_err(Into::<InvoiceApiError>::into)?;
+        .map_err(Into::<InvoiceApiError>::into)?;
 
         Ok(Response::new(
             meteroid_grpc::meteroid::api::invoices::v1::MarkInvoiceAsPaidResponse {
@@ -565,7 +577,6 @@ impl InvoicesService for InvoiceServiceComponents {
             },
         ))
     }
-
 }
 
 fn parse_as_minor(s: &String, currency: &rusty_money::iso::Currency) -> Result<i64, Status> {
@@ -911,4 +922,3 @@ fn to_update_invoice_params(req: UpdateInvoiceRequest) -> Result<UpdateInvoicePa
         invoicing_entity_id,
     })
 }
-

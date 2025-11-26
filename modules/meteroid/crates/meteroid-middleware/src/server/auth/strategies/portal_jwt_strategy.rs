@@ -72,20 +72,27 @@ pub async fn authorize_portal(
             }
         }
         common_grpc::middleware::server::auth::ResourceAccess::InvoicePortal { .. } => {
-            if !gm.service.starts_with("meteroid.portal.invoice.") && !gm.service.starts_with("meteroid.portal.shared.") {
+            if !gm.service.starts_with("meteroid.portal.invoice.")
+                && !gm.service.starts_with("meteroid.portal.shared.")
+            {
                 return Err(Status::permission_denied("Unauthorized"));
             }
         }
         common_grpc::middleware::server::auth::ResourceAccess::SubscriptionCheckout { .. } => {
-            if !gm.service.starts_with("meteroid.portal.checkout.") && !gm.service.starts_with("meteroid.portal.shared.") {
+            if !gm.service.starts_with("meteroid.portal.checkout.")
+                && !gm.service.starts_with("meteroid.portal.shared.")
+            {
                 return Err(Status::permission_denied("Unauthorized"));
             }
         }
-        _ =>   if !gm.service.starts_with("meteroid.portal.invoice.")
-            && !gm.service.starts_with("meteroid.portal.checkout.")
-            && !gm.service.starts_with("meteroid.portal.shared.")
-            && !gm.service.starts_with("meteroid.portal.customer.") {
-            return Err(Status::permission_denied("Unauthorized"));
+        _ => {
+            if !gm.service.starts_with("meteroid.portal.invoice.")
+                && !gm.service.starts_with("meteroid.portal.checkout.")
+                && !gm.service.starts_with("meteroid.portal.shared.")
+                && !gm.service.starts_with("meteroid.portal.customer.")
+            {
+                return Err(Status::permission_denied("Unauthorized"));
+            }
         }
     }
 

@@ -149,7 +149,6 @@ pub enum PaymentMethodTypeEnum {
     Other,
 }
 
-
 #[derive(o2o, Serialize, Deserialize, Debug, Clone, PartialEq, Eq)]
 #[map_owned(diesel_enums::PaymentStatusEnum)]
 pub enum PaymentStatusEnum {

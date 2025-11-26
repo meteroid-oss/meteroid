@@ -629,9 +629,13 @@ impl CustomersInterface for Store {
             external_customer_id: external_id.to_string(),
         };
 
-        diesel_models::customer_connection::CustomerConnectionRow::upsert(&mut conn, &tenant_id, connection_row)
-            .await
-            .map_err(Into::<Report<StoreError>>::into)?;
+        diesel_models::customer_connection::CustomerConnectionRow::upsert(
+            &mut conn,
+            &tenant_id,
+            connection_row,
+        )
+        .await
+        .map_err(Into::<Report<StoreError>>::into)?;
 
         Ok(())
     }

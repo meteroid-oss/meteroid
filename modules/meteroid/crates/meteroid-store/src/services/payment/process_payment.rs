@@ -43,9 +43,10 @@ impl Services {
         }
 
         // Check for existing pending transactions
-        let existing_transactions = PaymentTransactionRow::list_by_invoice_id(conn, invoice_id, tenant_id)
-            .await
-            .map_err(Into::<Report<StoreError>>::into)?;
+        let existing_transactions =
+            PaymentTransactionRow::list_by_invoice_id(conn, invoice_id, tenant_id)
+                .await
+                .map_err(Into::<Report<StoreError>>::into)?;
 
         let has_pending_transaction = existing_transactions
             .iter()
@@ -69,15 +70,13 @@ impl Services {
             status: PaymentStatusEnum::Pending,
             payment_type: PaymentTypeEnum::Payment,
             error_type: None,
-            processed_at: None
+            processed_at: None,
         };
 
         let inserted_transaction = transaction
             .insert(conn)
             .await
             .map_err(Into::<Report<StoreError>>::into)?;
-
-
 
         // Create payment intent with payment provider
         let payment_intent = self

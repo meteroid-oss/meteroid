@@ -41,12 +41,17 @@ impl From<Report<StoreError>> for PortalInvoiceApiError {
             StoreError::ValueNotFound(msg) => Self::InvalidArgument(msg.clone()),
             StoreError::PaymentError(msg) => Self::InternalError(msg.clone()),
             StoreError::PaymentProviderError => {
-                let provider_error = value.frames().find_map(|f| f.downcast_ref::<PaymentProviderError>());
+                let provider_error = value
+                    .frames()
+                    .find_map(|f| f.downcast_ref::<PaymentProviderError>());
                 match provider_error {
                     Some(e) => Self::InternalError(e.to_string()),
-                    None => Self::InternalError("The payment provider rejected this action. Please contact support.".to_string())
+                    None => Self::InternalError(
+                        "The payment provider rejected this action. Please contact support."
+                            .to_string(),
+                    ),
                 }
-            },
+            }
             StoreError::DuplicateValue { entity, key } => {
                 let msg = match key {
                     Some(k) => format!("{} with key '{}' already exists", entity, k),
@@ -61,9 +66,6 @@ impl From<Report<StoreError>> for PortalInvoiceApiError {
         }
     }
 }
-
-
-
 
 impl From<Report<ObjectStoreError>> for PortalInvoiceApiError {
     fn from(value: Report<ObjectStoreError>) -> Self {

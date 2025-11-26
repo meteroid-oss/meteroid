@@ -2,24 +2,23 @@ use crate::api::customers::mapping::customer::ServerCustomerWrapper;
 use crate::api::portal::checkout::PortalCheckoutServiceComponents;
 use crate::api::portal::checkout::error::PortalCheckoutApiError;
 use crate::services::storage::Prefix;
-use common_domain::ids::{  CustomerPaymentMethodId, SubscriptionId};
+use common_domain::ids::{CustomerPaymentMethodId, SubscriptionId};
 use common_grpc::middleware::server::auth::{RequestExt, ResourceAccess};
 use common_utils::decimals::ToSubunit;
 use common_utils::integers::ToNonNegativeU64;
 use error_stack::ResultExt;
 use meteroid_grpc::meteroid::portal::checkout::v1::portal_checkout_service_server::PortalCheckoutService;
 use meteroid_grpc::meteroid::portal::checkout::v1::{
-     AppliedCoupon, Checkout,
-    ConfirmCheckoutRequest, ConfirmCheckoutResponse, ConfirmSlotUpgradeCheckoutRequest,
-    ConfirmSlotUpgradeCheckoutResponse, GetSlotUpgradeCheckoutRequest,
-    GetSlotUpgradeCheckoutResponse, GetSubscriptionCheckoutRequest,
-    GetSubscriptionCheckoutResponse,
-    SlotUpgradeCheckout, TaxBreakdownItem,
+    AppliedCoupon, Checkout, ConfirmCheckoutRequest, ConfirmCheckoutResponse,
+    ConfirmSlotUpgradeCheckoutRequest, ConfirmSlotUpgradeCheckoutResponse,
+    GetSlotUpgradeCheckoutRequest, GetSlotUpgradeCheckoutResponse, GetSubscriptionCheckoutRequest,
+    GetSubscriptionCheckoutResponse, SlotUpgradeCheckout, TaxBreakdownItem,
 };
 use meteroid_store::constants::Currencies;
 use meteroid_store::domain::Period;
 use meteroid_store::domain::SubscriptionFeeInterface;
 use meteroid_store::errors::StoreError;
+use meteroid_store::repositories::bank_accounts::BankAccountsInterface;
 use meteroid_store::repositories::customer_payment_methods::CustomerPaymentMethodsInterface;
 use meteroid_store::repositories::customers::CustomersInterface;
 use meteroid_store::repositories::invoicing_entities::InvoicingEntityInterface;
@@ -29,8 +28,6 @@ use meteroid_store::utils::periods::calculate_proration_factor;
 use rust_decimal::prelude::FromPrimitive;
 use std::time::Duration;
 use tonic::{Request, Response, Status};
-use meteroid_store::repositories::bank_accounts::BankAccountsInterface;
-
 #[tonic::async_trait]
 impl PortalCheckoutService for PortalCheckoutServiceComponents {
     #[tracing::instrument(skip_all)]
@@ -45,15 +42,16 @@ impl PortalCheckoutService for PortalCheckoutServiceComponents {
         let (subscription_id, customer_id) = match portal_resource.resource_access {
             ResourceAccess::SubscriptionCheckout(id) => Ok((id, None)),
             ResourceAccess::CustomerPortal(id) => {
-                let invoice_id = SubscriptionId::from_proto_opt( request.into_inner().subscription_id)?
-                    .ok_or(Status::invalid_argument("Missing subscriptio ID in request"))?;
+                let invoice_id =
+                    SubscriptionId::from_proto_opt(request.into_inner().subscription_id)?.ok_or(
+                        Status::invalid_argument("Missing subscriptio ID in request"),
+                    )?;
                 Ok((invoice_id, Some(id)))
-            },
+            }
             _ => Err(Status::invalid_argument(
                 "Resource is not an invoice or customer portal.",
             )),
         }?;
-
 
         let subscription = self
             .store
@@ -62,9 +60,12 @@ impl PortalCheckoutService for PortalCheckoutServiceComponents {
             .map_err(Into::<PortalCheckoutApiError>::into)?;
 
         if let Some(cid) = customer_id
-            && subscription.subscription.customer_id != cid {
-                return Err(Status::permission_denied("Subscription does not belong to the specified customer."));
-            }
+            && subscription.subscription.customer_id != cid
+        {
+            return Err(Status::permission_denied(
+                "Subscription does not belong to the specified customer.",
+            ));
+        }
 
         let invoice_content = self
             .services
@@ -97,7 +98,8 @@ impl PortalCheckoutService for PortalCheckoutServiceComponents {
             .collect();
 
         // Get bank account if configured on the subscription (set by payment strategy during creation)
-        let bank_account = if let Some(bank_account_id) = subscription.subscription.bank_account_id {
+        let bank_account = if let Some(bank_account_id) = subscription.subscription.bank_account_id
+        {
             self.store
                 .get_bank_account_by_id(bank_account_id, tenant)
                 .await
@@ -119,16 +121,16 @@ impl PortalCheckoutService for PortalCheckoutServiceComponents {
 
         // should we try refreshing if none ?
         /*
-         let (card_conn, dd_conn) = self
-                .services
-                .get_or_create_customer_connections(
-                    tenant,
-                    customer.id,
-                    customer.invoicing_entity_id,
-                )
-                .await
-                .map_err(Into::<PortalInvoiceApiError>::into)?;
-         */
+        let (card_conn, dd_conn) = self
+               .services
+               .get_or_create_customer_connections(
+                   tenant,
+                   customer.id,
+                   customer.invoicing_entity_id,
+               )
+               .await
+               .map_err(Into::<PortalInvoiceApiError>::into)?;
+        */
 
         let subscription =
             crate::api::subscriptions::mapping::subscriptions::details_domain_to_proto(
@@ -215,19 +217,18 @@ impl PortalCheckoutService for PortalCheckoutServiceComponents {
     ) -> Result<Response<ConfirmCheckoutResponse>, Status> {
         let tenant = request.tenant()?;
 
-
         let portal_resource = request.portal_resource()?;
 
         let inner = request.into_inner();
 
-
         let (subscription_id, customer_id) = match portal_resource.resource_access {
             ResourceAccess::SubscriptionCheckout(id) => Ok((id, None)),
             ResourceAccess::CustomerPortal(id) => {
-                let invoice_id = SubscriptionId::from_proto_opt( inner.subscription_id)?
-                    .ok_or(Status::invalid_argument("Missing subscriptio ID in request"))?;
+                let invoice_id = SubscriptionId::from_proto_opt(inner.subscription_id)?.ok_or(
+                    Status::invalid_argument("Missing subscriptio ID in request"),
+                )?;
                 Ok((invoice_id, Some(id)))
-            },
+            }
             _ => Err(Status::invalid_argument(
                 "Resource is not an invoice or customer portal.",
             )),
@@ -241,7 +242,9 @@ impl PortalCheckoutService for PortalCheckoutServiceComponents {
                 .map_err(Into::<PortalCheckoutApiError>::into)?;
 
             if subscription.customer_id != customer_id {
-                return Err(Status::permission_denied("Subscription does not belong to the specified customer."));
+                return Err(Status::permission_denied(
+                    "Subscription does not belong to the specified customer.",
+                ));
             }
         }
 
@@ -265,7 +268,6 @@ impl PortalCheckoutService for PortalCheckoutServiceComponents {
             ),
         }))
     }
-
 
     #[tracing::instrument(skip_all)]
     async fn get_slot_upgrade_checkout(
