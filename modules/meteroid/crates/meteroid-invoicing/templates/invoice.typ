@@ -110,52 +110,54 @@
 
   // Start with clean header layout
   grid(
-    columns: (3fr, 1fr),
-    column-gutter: 10pt,
+    columns: (3fr, 3fr),
+    column-gutter: 2pt,
 
     // Invoice title and info
     [
       #text(weight: "bold", size: 24pt, fill: color.heading, translations.invoice_title)
-      #v(16pt)
 
-      #grid(
-        columns: (120pt, auto),
-        rows: (auto, auto, auto, auto),
-        row-gutter: 6pt,
-
-        [#text(fill: color.accent, weight: "medium", translations.invoice_number)],
-        [#text(weight: "medium", number)],
-
-        [#text(fill: color.accent, weight: "medium", translations.issue_date)],
-        [#text(weight: "medium", issue_date)],
-
-        [#text(fill: color.accent, weight: "medium", translations.due_date)],
-        [#text(weight: "medium", due_date)],
-
-        if purchase_order != none [
-          #text(fill: color.accent, weight: "medium", translations.purchase_order)
-        ] else [],
-
-       if purchase_order != none [
-          #text(weight: "medium", purchase_order)
-       ] else [],
-
-        if organization.tax_id != none [
-          #text(fill: color.accent, weight: "medium", translations.vat_id)
-        ] else [],
-
-        if organization.tax_id != none [
-          #text(weight: "medium", organization.tax_id)
-        ] else [],
-      )
     ],
 
     // Logo aligned right - reduced size
     if organization.logo_src != none {
-      align(right, image(organization.logo_src, width: 35pt))
+      align(right, image(organization.logo_src, height: 30pt, width: 150pt, fit: "contain"))
     } else {
-      align(right, image("logo.png", width: 35pt))
+      align(right, image("logo.png", width: 30pt))
     }
+  )
+
+  v(16pt)
+
+  grid(
+    columns: (120pt, auto),
+    rows: (auto, auto, auto, auto),
+    row-gutter: 6pt,
+
+    [#text(fill: color.accent, weight: "medium", translations.invoice_number)],
+    [#text(weight: "medium", number)],
+
+    [#text(fill: color.accent, weight: "medium", translations.issue_date)],
+    [#text(weight: "medium", issue_date)],
+
+    [#text(fill: color.accent, weight: "medium", translations.due_date)],
+    [#text(weight: "medium", due_date)],
+
+    if purchase_order != none [
+      #text(fill: color.accent, weight: "medium", translations.purchase_order)
+    ] else [],
+
+   if purchase_order != none [
+      #text(weight: "medium", purchase_order)
+   ] else [],
+
+    if organization.tax_id != none [
+      #text(fill: color.accent, weight: "medium", translations.vat_id)
+    ] else [],
+
+    if organization.tax_id != none [
+      #text(weight: "medium", organization.tax_id)
+    ] else [],
   )
 
   v(40pt)

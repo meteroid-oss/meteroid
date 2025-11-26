@@ -1,15 +1,21 @@
-import { CreditCard, Building, Wallet, HelpCircle } from 'lucide-react'
+import { Building, CreditCard, HelpCircle, Wallet } from 'lucide-react'
 
-import { PaymentMethodInfo, PaymentMethodInfo_PaymentMethodTypeEnum } from '@/rpc/api/invoices/v1/models_pb'
+import {
+  PaymentMethodInfo,
+  PaymentMethodInfo_PaymentMethodTypeEnum,
+} from '@/rpc/api/invoices/v1/models_pb'
 
 interface PaymentMethodDisplayProps {
   paymentMethodInfo?: PaymentMethodInfo
   compact?: boolean
 }
 
-export const PaymentMethodDisplay = ({ paymentMethodInfo, compact = false }: PaymentMethodDisplayProps) => {
+export const PaymentMethodDisplay = ({
+  paymentMethodInfo,
+  compact = false,
+}: PaymentMethodDisplayProps) => {
   if (!paymentMethodInfo) {
-    return <span className="text-muted-foreground">Unknown</span>
+    return <span className="text-sm">Manual</span>
   }
 
   const getIcon = () => {
@@ -32,16 +38,16 @@ export const PaymentMethodDisplay = ({ paymentMethodInfo, compact = false }: Pay
           return `${paymentMethodInfo.cardBrand} •••• ${paymentMethodInfo.cardLast4}`
         }
         return 'Card'
-      
+
       case PaymentMethodInfo_PaymentMethodTypeEnum.BANK_TRANSFER:
         if (paymentMethodInfo.accountNumberHint) {
           return `Bank •••• ${paymentMethodInfo.accountNumberHint}`
         }
         return 'Bank Transfer'
-      
+
       case PaymentMethodInfo_PaymentMethodTypeEnum.WALLET:
         return 'Digital Wallet'
-      
+
       default:
         return 'Payment Method'
     }

@@ -237,9 +237,9 @@ impl InvoicingEntitiesService for InvoicingEntitiesServiceComponents {
         }))
     }
 }
-const MAX_IMAGE_SIZE: usize = 2 * 1024 * 1024; // 2 MB
+const MAX_IMAGE_SIZE: usize = 1024 * 1024; // 1 MB
 const MAX_H: u32 = 160;
-const MAX_W: u32 = 1024;
+const MAX_W: u32 = 2048;
 
 fn process_image(bytes: &[u8]) -> Result<Vec<u8>, String> {
     // Validate image format

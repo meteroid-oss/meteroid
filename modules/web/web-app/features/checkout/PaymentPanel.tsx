@@ -136,27 +136,27 @@ const PaymentPanelInner: React.FC<
     return (
       <div
         key={method.id}
-        className={`relative flex items-center p-4 border rounded-md mb-2 cursor-pointer ${
+        className={`relative flex items-center p-2 border rounded-md mb-2 cursor-pointer ${
           isSelected ? 'border-blue-600 bg-blue-50' : 'border-gray-300'
         }`}
         onClick={() => setSelectedPaymentMethod({ type: 'saved', id: method.id })}
       >
         <div
-          className={`w-5 h-5 rounded-full border flex items-center justify-center mr-3 ${
+          className={`w-3 h-3 rounded-full border flex items-center justify-center mr-3 ${
             isSelected ? 'border-blue-600' : 'border-gray-300'
           }`}
         >
-          {isSelected && <div className="w-3 h-3 bg-blue-600 rounded-full"></div>}
+          {isSelected && <div className="w-2 h-2 bg-blue-600 rounded-full"></div>}
         </div>
 
         {isCard ? (
           <>
             <CreditCard size={20} className="mr-3 text-gray-500" />
             <div>
-              <div className="font-medium">
+              <div className="font-medium text-sm">
                 {method.cardBrand} •••• {method.cardLast4}
               </div>
-              <div className="text-sm text-gray-500">
+              <div className="text-xs text-gray-500">
                 Expires {method.cardExpMonth?.toString().padStart(2, '0')}/
                 {method.cardExpYear?.toString().slice(-2)}
               </div>
@@ -172,7 +172,7 @@ const PaymentPanelInner: React.FC<
             <Building size={20} className="mr-3 text-gray-500" />
             <div>
               <div className="font-medium">Bank account</div>
-              <div className="text-sm text-gray-500">
+              <div className="text-xs text-gray-500">
                 {method.accountNumberHint && `••••${method.accountNumberHint}`}
               </div>
             </div>
@@ -198,7 +198,7 @@ const PaymentPanelInner: React.FC<
         {paymentMethods.length > 0 && (
           <div className="mb-4">
             {paymentMethods
-              .filter(pm => paymentMethodMatches(pm.paymentMethodType, activeConnectionType))
+              // .filter(pm => paymentMethodMatches(pm.paymentMethodType, activeConnectionType))
               .map(method => renderSavedPaymentMethod(method))}
           </div>
         )}
@@ -219,7 +219,7 @@ const PaymentPanelInner: React.FC<
                 }
               >
                 <div
-                  className={`w-5 h-5 rounded-full border flex items-center justify-center mr-3 ${
+                  className={`w-3 h-3 rounded-full border flex items-center justify-center mr-3 ${
                     selectedPaymentMethod?.type === 'new' &&
                     selectedPaymentMethod.methodType === activeConnectionType
                       ? 'border-blue-600'
@@ -228,7 +228,7 @@ const PaymentPanelInner: React.FC<
                 >
                   {selectedPaymentMethod?.type === 'new' &&
                     selectedPaymentMethod.methodType === activeConnectionType && (
-                      <div className="w-3 h-3 bg-blue-600 rounded-full"></div>
+                      <div className="w-2 h-2 bg-blue-600 rounded-full"></div>
                     )}
                 </div>
                 {activeConnectionType === 'card' ? (
@@ -309,25 +309,6 @@ const PaymentPanelInner: React.FC<
       </div>
     </form>
   )
-}
-
-function paymentMethodMatches(
-  paymentMethodType: CustomerPaymentMethod_PaymentMethodTypeEnum,
-  activeConnectionType: 'card' | 'directDebit'
-): boolean {
-  if (paymentMethodType === CustomerPaymentMethod_PaymentMethodTypeEnum.CARD) {
-    return activeConnectionType === 'card'
-  }
-
-  if (
-    paymentMethodType === CustomerPaymentMethod_PaymentMethodTypeEnum.DIRECT_DEBIT_ACH ||
-    paymentMethodType === CustomerPaymentMethod_PaymentMethodTypeEnum.DIRECT_DEBIT_SEPA ||
-    paymentMethodType === CustomerPaymentMethod_PaymentMethodTypeEnum.DIRECT_DEBIT_BACS
-  ) {
-    return activeConnectionType === 'directDebit'
-  }
-
-  return false
 }
 
 /**

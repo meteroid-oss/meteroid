@@ -51,6 +51,7 @@ const InvoicePaymentFlow: React.FC<InvoicePaymentData> = ({ invoicePaymentData }
         displayedAmount: invoice.amountDue,
         displayedCurrency: invoice.currency,
         paymentMethodId,
+        invoiceId: invoice.id,
       })
 
       // On success, redirect to success page (we can create this later)

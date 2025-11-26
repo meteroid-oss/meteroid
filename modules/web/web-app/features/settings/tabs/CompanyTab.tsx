@@ -327,7 +327,7 @@ const FileUpload = ({ entity }: { entity: InvoicingEntity }) => {
     <div className="flex flex-row space-y-2 space-x-2 w-full">
       <div className="flex-1 ">
         {entity.logoAttachmentId && (
-          <div className="relative w-12 h-12 rounded overflow-hidden group float-end">
+          <div className="relative h-12 rounded overflow-hidden group float-end">
             <img
               src={env.meteroidRestApiUri + '/files/v1/logo/' + entity.logoAttachmentId}
               alt="Uploaded file"

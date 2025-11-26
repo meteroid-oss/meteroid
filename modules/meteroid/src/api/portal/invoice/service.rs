@@ -154,7 +154,7 @@ impl PortalInvoiceService for PortalInvoiceServiceComponents {
 
 
         let mut bank_account = None;
-        if card_connection_id.is_none() &&  direct_debit_connection_id.is_none() &&  bank_account_id_override.is_none() {
+        if card_connection_id.is_none() &&  direct_debit_connection_id.is_none() {
             // Get bank account - prefer subscription's bank account (set by payment strategy),
             // otherwise use invoicing entity's default
             let bank_account_id_to_use = bank_account_id_override.or(invoicing_entity.bank_account_id);

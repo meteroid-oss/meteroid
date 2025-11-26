@@ -70,7 +70,7 @@ export const AddManualPaymentDialog: React.FC<AddManualPaymentDialogProps> = ({
       await addPaymentMutation.mutateAsync({
         invoiceId,
         amount,
-        paymentDate: paymentDate || undefined,
+        paymentDate: paymentDate ? paymentDate : undefined,
         reference: reference || undefined,
       })
 
@@ -139,7 +139,7 @@ export const AddManualPaymentDialog: React.FC<AddManualPaymentDialogProps> = ({
               id="paymentDate"
               type="datetime-local"
               value={paymentDate}
-              onChange={e => setPaymentDate(e.target.value)}
+              onChange={e => setPaymentDate(e.target.value + ':00')}
               placeholder="Leave empty for current date/time"
             />
             <p className="text-xs text-muted-foreground">

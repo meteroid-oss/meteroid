@@ -7,7 +7,7 @@ use meteroid_invoicing::{pdf, svg};
 use meteroid_store::Store;
 use meteroid_store::domain::{Invoice, InvoicingEntity};
 use meteroid_store::jwt_claims::{ResourceAccess, generate_portal_token};
-use meteroid_store::repositories::InvoiceInterface;
+use meteroid_store::repositories::{CustomersInterface, InvoiceInterface};
 use meteroid_store::repositories::bank_accounts::BankAccountsInterface;
 use meteroid_store::repositories::historical_rates::HistoricalRatesInterface;
 use meteroid_store::repositories::invoicing_entities::InvoicingEntityInterface;
@@ -23,6 +23,15 @@ async fn resolve_payment_info(
     public_url: &str,
     jwt_secret: &secrecy::SecretString,
 ) -> Result<(Option<HashMap<String, String>>, Option<String>), Report<InvoicingRenderError>> {
+
+    // TODO a bit complex here to resolve accurately whether we want the payment url or bank or none. We need to centralize it
+    // ex: save the payment_option on the invoice : PaymentLink, Bank(id), None
+
+    let customer = store
+        .find_customer_by_id(invoice.customer_id, invoice.tenant_id)
+        .await
+        .change_context(InvoicingRenderError::StoreError)?;
+
     if let Some(subscription_id) = invoice.subscription_id {
         let subscription = store
             .get_subscription(invoice.tenant_id, subscription_id)
@@ -30,11 +39,12 @@ async fn resolve_payment_info(
             .change_context(InvoicingRenderError::StoreError)?;
 
         let has_payment_method = subscription.card_connection_id.is_some()
-            || subscription.direct_debit_connection_id.is_some();
+            || subscription.direct_debit_connection_id.is_some()
+            || customer.current_payment_method_id.is_some();
 
         match (has_payment_method, subscription.charge_automatically) {
             // Automatic charging enabled - no bank details, no payment URL needed
-            (true, true) => Ok((None, None)),
+            (_, true) => Ok((None, None)),
             // Manual payment via portal - show payment URL, no bank details
             (true, false) => {
                 let invoice_token = generate_portal_token(
@@ -50,8 +60,20 @@ async fn resolve_payment_info(
             (false, _) => fetch_bank_details(store, invoicing_entity, invoice).await,
         }
     } else {
-        // No subscription - show bank details
-        fetch_bank_details(store, invoicing_entity, invoice).await
+        let has_payment_method = customer.current_payment_method_id.is_some();
+
+        if has_payment_method {
+            let invoice_token = generate_portal_token(
+                jwt_secret,
+                invoice.tenant_id,
+                ResourceAccess::Invoice(invoice.id),
+            )
+                .change_context(InvoicingRenderError::StoreError)?;
+            let payment_url = format!("{}/portal/invoice-payment?token={}", public_url, invoice_token);
+            Ok((None, Some(payment_url)))
+        } else {
+            fetch_bank_details(store, invoicing_entity, invoice).await
+        }
     }
 }
 
@@ -108,8 +130,8 @@ impl InvoicePreviewRenderingService {
     ) -> Result<Vec<String>, Report<InvoicingRenderError>> {
         let organization_logo = match invoicing_entity.logo_attachment_id.as_ref() {
             Some(logo_id) => {
-                let res = get_logo_bytes_for_invoice(&self.storage, *logo_id).await?;
-                Some(res)
+                
+                get_logo_bytes_for_invoice(&self.storage, *logo_id).await.ok()
             }
             None => None,
         };
@@ -290,8 +312,8 @@ impl PdfRenderingService {
         // let's resolve the logo as raw bytes
         let organization_logo = match invoicing_entity.logo_attachment_id.as_ref() {
             Some(logo_id) => {
-                let res = get_logo_bytes_for_invoice(&self.storage, *logo_id).await?;
-                Some(res)
+                
+                get_logo_bytes_for_invoice(&self.storage, *logo_id).await.ok()
             }
             None => None,
         };
@@ -531,7 +553,7 @@ mod mapper {
         bank_account: &store_model::BankAccount,
         payment_reference: Option<&str>,
     ) -> HashMap<String, String> {
-        let mut details = HashMap::new();
+        let mut details = HashMap::new(); // TODO ordermap::OrderMap , also translation
 
         // Parse account numbers based on format
         let numbers: Vec<&str> = bank_account.account_numbers.split_whitespace().collect();
@@ -594,7 +616,7 @@ async fn get_logo_bytes_for_invoice(
 
     let mut img =
         image::load_from_memory(&logo).change_context(InvoicingRenderError::RenderError)?;
-    img = img.resize(350, 20, image::imageops::FilterType::Nearest);
+    img = img.resize(1024, 100, image::imageops::FilterType::Nearest);
     let mut buffer = Vec::new();
     img.write_to(&mut Cursor::new(&mut buffer), Png)
         .change_context(InvoicingRenderError::RenderError)?;

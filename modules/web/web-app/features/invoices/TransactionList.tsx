@@ -23,11 +23,7 @@ export const TransactionList = ({ transactions, currency, isLoading }: Transacti
   }
 
   if (!transactions?.length) {
-    return (
-      <div className="text-sm text-muted-foreground py-2">
-        No payment transactions
-      </div>
-    )
+    return <div className="text-sm text-muted-foreground py-2">No payment transactions</div>
   }
 
   return (
@@ -39,9 +35,16 @@ export const TransactionList = ({ transactions, currency, isLoading }: Transacti
               <div className="flex items-center gap-2">
                 <PaymentMethodDisplay paymentMethodInfo={transaction.paymentMethodInfo} compact />
                 <TransactionStatusBadge status={transaction.status} />
+                {!transaction.paymentMethodId && transaction.providerTransactionId && (
+                  <span className="text-[11px] text-muted-foreground mt-1  ">
+                    ({transaction.providerTransactionId})
+                  </span>
+                )}
               </div>
-              <div className="text-[11px] text-muted-foreground mt-1 ml-5">
-                {transaction.processedAt ? parseAndFormatDate(transaction.processedAt) : 'Pending processing'}
+              <div className="text-[11px] text-muted-foreground mt-1  ">
+                {transaction.processedAt
+                  ? parseAndFormatDate(transaction.processedAt)
+                  : 'Pending processing'}
               </div>
             </div>
             <div className="text-right">

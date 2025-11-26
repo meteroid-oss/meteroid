@@ -11,7 +11,6 @@ import {
   Label,
 } from '@md/ui'
 import { useQueryClient } from '@tanstack/react-query'
-import { AlertCircle } from 'lucide-react'
 import { useState } from 'react'
 import { toast } from 'sonner'
 
@@ -83,7 +82,7 @@ export const MarkAsPaidDialog: React.FC<MarkAsPaidDialogProps> = ({
     onOpenChange(false)
   }
 
-  const displayAmount = (Number(totalAmount) / 100).toFixed(2)
+  const displayAmount = totalAmount
 
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
@@ -97,15 +96,13 @@ export const MarkAsPaidDialog: React.FC<MarkAsPaidDialogProps> = ({
         </DialogHeader>
 
         <div className="bg-muted/50 rounded-lg p-4 flex items-start gap-3">
-          <AlertCircle className="w-5 h-5 text-muted-foreground mt-0.5 flex-shrink-0" />
           <div className="text-sm text-muted-foreground">
-            <div className="font-medium mb-1">Amount to be paid:</div>
+            <div className="font-medium mb-1">Amount:</div>
             <div className="text-lg font-semibold text-foreground">
               {displayAmount} {currency}
             </div>
-            <div className="mt-2">
-              This amount must match the invoice&apos;s amount due exactly. A payment transaction
-              will be created and the invoice status will be updated to Paid.
+            <div className="mt-2 text-xs">
+              For partial payments, please use the &quot;Add Manual Payment&quot; option instead.
             </div>
           </div>
         </div>

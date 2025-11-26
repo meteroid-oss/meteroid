@@ -85,6 +85,7 @@ export const CustomerPortalInvoices = () => {
           >
             <div className="flex items-center gap-4 flex-1">
               <div className="w-24 text-gray-900">{invoice.invoiceDate}</div>
+              <div className="w-24 text-gray-900">{invoice.invoiceNumber}</div>
               <div className="flex items-center gap-2">
                 <span className="font-medium text-gray-900">
                   {formatCurrency(Number(invoice.totalCents), invoice.currency)}

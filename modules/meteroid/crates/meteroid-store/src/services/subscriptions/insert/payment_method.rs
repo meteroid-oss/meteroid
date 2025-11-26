@@ -110,7 +110,7 @@ impl Services {
         // Process the payment setup based on the selected strategy
         match strategy {
             SubscriptionPaymentStrategy::Auto => {
-                self.setup_auto_payment(conn, customer, invoicing_entity_providers, connections)
+                self.setup_auto_payment(conn, customer, invoicing_entity_providers, connections, subscription.activation_condition.clone())
                     .await
             }
             SubscriptionPaymentStrategy::Bank => {
@@ -190,11 +190,15 @@ impl Services {
         customer: &Customer,
         invoicing_entity_providers: &InvoicingEntityProviderSensitive,
         customer_connectors: Vec<&CustomerConnection>,
+        condition: SubscriptionActivationCondition,
     ) -> StoreResult<PaymentSetupResult> {
-        // Use customer's default payment method if available
-        if let Some(payment_method) = &customer.current_payment_method_id {
-            return Ok(PaymentSetupResult::with_existing_method(*payment_method));
-        }
+
+
+        let checkout = matches!(
+            condition,
+            SubscriptionActivationCondition::OnCheckout
+        );
+
 
         // TODO support customer overrides  customer.card_provider_id + customer.direct_debit_provider_id
 
@@ -224,14 +228,18 @@ impl Services {
             Ok(None)
         }?;
 
+
         if card_connection.is_some() || direct_debit_connection.is_some() {
-            return Ok(PaymentSetupResult::with_checkout(
-                card_connection,
-                direct_debit_connection,
-            )); // TODO
+            return Ok(PaymentSetupResult {
+                card_connection_id: card_connection,
+                direct_debit_connection_id: direct_debit_connection,
+                checkout,
+                payment_method: customer.current_payment_method_id,
+                bank: None,
+            });
         }
 
-        // fallback on bank or external
+        // fallback on bank or externa
         self.setup_bank_payment(customer, invoicing_entity_providers)
     }
 
@@ -303,30 +311,6 @@ pub struct PaymentSetupResult {
 }
 
 impl PaymentSetupResult {
-    /// Creates a payment setup result for initiating a checkout flow
-    fn with_checkout(
-        card_connection_id: Option<CustomerConnectionId>,
-        direct_debit_connection_id: Option<CustomerConnectionId>,
-    ) -> Self {
-        Self {
-            card_connection_id,
-            direct_debit_connection_id,
-            checkout: true,
-            payment_method: None,
-            bank: None,
-        }
-    }
-
-    /// Creates a payment setup result using an existing payment method
-    fn with_existing_method(method_id: CustomerPaymentMethodId) -> Self {
-        Self {
-            card_connection_id: None,
-            direct_debit_connection_id: None,
-            checkout: false,
-            bank: None,
-            payment_method: Some(method_id),
-        }
-    }
 
     /// Creates a payment setup result associating a bank account for direct transfers
     fn with_bank(bank_account_id: BankAccountId) -> Self {

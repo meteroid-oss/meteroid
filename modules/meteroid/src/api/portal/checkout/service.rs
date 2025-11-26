@@ -40,9 +40,7 @@ impl PortalCheckoutService for PortalCheckoutServiceComponents {
     ) -> Result<Response<GetSubscriptionCheckoutResponse>, Status> {
         let tenant = request.tenant()?;
 
-
         let portal_resource = request.portal_resource()?;
-
 
         let (subscription_id, customer_id) = match portal_resource.resource_access {
             ResourceAccess::SubscriptionCheckout(id) => Ok((id, None)),
@@ -119,6 +117,19 @@ impl PortalCheckoutService for PortalCheckoutServiceComponents {
         let card_connection_id = subscription.subscription.card_connection_id;
         let direct_debit_connection_id = subscription.subscription.direct_debit_connection_id;
 
+        // should we try refreshing if none ?
+        /*
+         let (card_conn, dd_conn) = self
+                .services
+                .get_or_create_customer_connections(
+                    tenant,
+                    customer.id,
+                    customer.invoicing_entity_id,
+                )
+                .await
+                .map_err(Into::<PortalInvoiceApiError>::into)?;
+         */
+
         let subscription =
             crate::api::subscriptions::mapping::subscriptions::details_domain_to_proto(
                 subscription,
@@ -190,8 +201,8 @@ impl PortalCheckoutService for PortalCheckoutServiceComponents {
                 coupon_amount: coupon_amount.to_non_negative_u64(),
                 tax_breakdown,
                 applied_coupons,
-                card_connection_id: card_connection_id.map(|id| id.to_string()),
-                direct_debit_connection_id: direct_debit_connection_id.map(|id| id.to_string()),
+                card_connection_id: card_connection_id.map(|id| id.as_proto()),
+                direct_debit_connection_id: direct_debit_connection_id.map(|id| id.as_proto()),
                 bank_account,
             }),
         }))

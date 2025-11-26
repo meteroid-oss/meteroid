@@ -51,6 +51,7 @@ import {
 } from '@/rpc/api/subscriptions/v1/subscriptions-SubscriptionsService_connectquery'
 import { formatCurrencyNoRounding } from '@/utils/numbers'
 import { useTypedParams } from '@/utils/params'
+import { toast } from 'sonner'
 
 // Status Badge Component
 const StatusBadge = ({ status }: { status: SubscriptionStatus }) => {
@@ -267,6 +268,7 @@ export const Subscription = () => {
         },
         onError: error => {
           console.error('Failed to activate subscription:', error)
+          toast.error('Failed to activate subscription: ' + error.message)
         },
       }
     )
@@ -336,7 +338,9 @@ export const Subscription = () => {
                     disabled={activateSubscriptionMutation.isPending}
                   >
                     <Clock size="16" className="mr-2" />
-                    {activateSubscriptionMutation.isPending ? 'Activating...' : 'Activate Subscription'}
+                    {activateSubscriptionMutation.isPending
+                      ? 'Activating...'
+                      : 'Activate Subscription'}
                   </DropdownMenuItem>
                 )}
 
