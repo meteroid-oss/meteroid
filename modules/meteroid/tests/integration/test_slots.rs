@@ -975,7 +975,7 @@ async fn create_subscription_with_slots(
                     billing_day_anchor: None,
                     payment_strategy: None,
                     auto_advance_invoices: true,
-                    charge_automatically: true,
+                    charge_automatically: false,
                     purchase_order: None,
                 },
                 price_components: Some(CreateSubscriptionComponents {
