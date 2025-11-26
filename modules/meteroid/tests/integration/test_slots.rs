@@ -948,34 +948,6 @@ async fn get_invoices_for_subscription(
         .collect()
 }
 
-async fn list_all_slot_transactions(
-    conn: &mut PgConn,
-    subscription_id: SubscriptionId,
-) -> Vec<diesel_models::slot_transactions::SlotTransactionRow> {
-    use diesel::prelude::*;
-    use diesel_async::RunQueryDsl;
-    use diesel_models::schema::slot_transaction;
-
-    slot_transaction::table
-        .filter(slot_transaction::subscription_id.eq(subscription_id))
-        .order_by(slot_transaction::transaction_at.asc())
-        .load::<diesel_models::slot_transactions::SlotTransactionRow>(conn)
-        .await
-        .expect("Failed to load slot transactions")
-}
-
-async fn get_subscription(conn: &mut PgConn, subscription_id: SubscriptionId) -> SubscriptionRow {
-    use diesel::prelude::*;
-    use diesel_async::RunQueryDsl;
-    use diesel_models::schema::subscription;
-
-    subscription::table
-        .filter(subscription::id.eq(subscription_id))
-        .first::<SubscriptionRow>(conn)
-        .await
-        .expect("Failed to load subscription")
-}
-
 async fn create_subscription_with_slots(
     services: &Services,
     unit_name: &str,
