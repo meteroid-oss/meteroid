@@ -15,8 +15,8 @@ spec:
 {{- end }}
   strategy:
     rollingUpdate:
-      maxSurge: 0
-      maxUnavailable: 1
+      maxSurge: 1
+      maxUnavailable: 0
   revisionHistoryLimit: {{ .Values.meteroid.revisionHistoryLimit }}
   selector:
     matchLabels:
@@ -84,19 +84,26 @@ spec:
             - name: TELEMETRY_OTEL_ENDPOINT
               value: {{ .Values.global.telemetryOtelEndpoint | default "" | quote }}
 
+            - name: CLICKHOUSE_CLUSTER_NAME
+              value: {{ .Values.global.clickhouse.clusterName }}
             - name: CLICKHOUSE_DATABASE
               value: {{ .Values.global.clickhouse.database }}
-            - name: CLICKHOUSE_ADDRESS
-              value: {{ include "meteroid.clickhouse.address" . }}
+            - name: CLICKHOUSE_TCP_ADDRESS
+              value: {{ .Values.global.clickhouse.tcpAddress }}
+            - name: CLICKHOUSE_HTTP_ADDRESS
+              value: {{ .Values.global.clickhouse.httpAddress }}
             - name: CLICKHOUSE_USERNAME
-              value: {{ .Values.clickhouse.auth.username | quote }}
+              value: {{ .Values.global.clickhouse.username | quote }}
             - name: CLICKHOUSE_PASSWORD
               valueFrom:
                 secretKeyRef:
                   name: {{ include "meteroid.secretsName" . }}
                   key: clickhouse-password
+                  optional: true
+            {{- if .Values.global.kafka.bootstrapServers }}
             - name: KAFKA_BOOTSTRAP_SERVERS
               value: {{ include "meteroid.kafka.bootstrapServers" . }}
+            {{- end }}
             - name: KAFKA_TOPIC
               value: {{ .Values.metering.config.kafka.topic }}
             - name: KAFKA_PRODUCER_LINGER_MS
@@ -107,22 +114,52 @@ spec:
               value: {{ .Values.metering.config.kafka.messageTimeoutMs | quote }}
             - name: KAFKA_COMPRESSION_CODEC
               value: {{ .Values.metering.config.kafka.compressionCodec }}
+            {{- if .Values.global.kafka.saslUsername }}
             - name: KAFKA_SASL_USERNAME
               value: {{ .Values.global.kafka.saslUsername }}
+            {{- end }}
             - name: KAFKA_SASL_PASSWORD
               valueFrom:
                 secretKeyRef:
                   name: {{ include "meteroid.secretsName" . }}
                   key: kafka-password
+                  optional: true
+            {{- if .Values.global.kafka.saslMechanism }}
             - name: KAFKA_SASL_MECHANISM
               value: {{ .Values.global.kafka.saslMechanism }}
+            {{- end }}
+            {{- if .Values.global.kafka.securityProtocol }}
             - name: KAFKA_SECURITY_PROTOCOL
               value: {{ .Values.global.kafka.securityProtocol }}
+            {{- end }}
             - name: KAFKA_INTERNAL_ADDR
               value: {{ include "meteroid.kafka.internalUrl" . }}
+            {{- if eq .Values.global.kafka.securityProtocol "SASL_SSL" }}
+            - name: KAFKA_SSL_CA_LOCATION
+              value: /etc/kafka/certs/ca.crt
+            {{- end }}
   
-          # livenessProbe:
-          # readinessProbe:
+          {{- if eq .Values.global.kafka.securityProtocol "SASL_SSL" }}
+          volumeMounts:
+            - name: kafka-ca-cert
+              mountPath: /etc/kafka/certs
+              readOnly: true
+          {{- end }}
+  
+          startupProbe:
+            grpc:
+              port: {{ .Values.metering.service.ports.grpc }}
+            initialDelaySeconds: {{ .Values.metering.grpcStartupProbe.initialDelaySeconds | default 5 }}
+            periodSeconds: {{ .Values.metering.grpcStartupProbe.periodSeconds | default 5 }}
+            failureThreshold: {{ .Values.metering.grpcStartupProbe.failureThreshold | default 10 }}
+          livenessProbe:
+            grpc:
+              port: {{ .Values.metering.service.ports.grpc }}
+            periodSeconds: {{ .Values.metering.grpcLivenessProbe.periodSeconds | default 20 }}
+          readinessProbe:
+            grpc:
+              port: {{ .Values.metering.service.ports.grpc }}
+            periodSeconds: {{ .Values.metering.grpcReadinessProbe.periodSeconds | default 10 }}
 
           resources:
             {{- toYaml .Values.metering.resources | nindent 12 }}
@@ -137,5 +174,14 @@ spec:
       {{- with .Values.metering.tolerations }}
       tolerations:
         {{- toYaml . | nindent 8 }}
+      {{- end }}
+      {{- if eq .Values.global.kafka.securityProtocol "SASL_SSL" }}
+      volumes:
+        - name: kafka-ca-cert
+          secret:
+            secretName: meteroid-kafka-clients-ca-cert
+            items:
+              - key: ca.crt
+                path: ca.crt
       {{- end }}
       restartPolicy: Always

@@ -1,0 +1,21 @@
+{{- range .Values.ingress.hosts }}
+{{- if .rateLimit }}
+{{- if .rateLimit.perIp }}
+apiVersion: traefik.io/v1alpha1
+kind: Middleware
+metadata:
+  name: {{ include "meteroid.fullname" $ }}-rate-limit-{{ .host | replace "." "-" }}-per-ip
+  namespace: {{ $.Release.Namespace }}
+  labels:
+    {{- include "meteroid.labels" $ | nindent 4 }}
+spec:
+  rateLimit:
+    average: {{ .rateLimit.perIp.average }}
+    period: {{ .rateLimit.perIp.period | default "1s" }}
+    burst: {{ .rateLimit.perIp.burst }}
+    sourceCriterion:
+      requestHeaderName: X-Forwarded-For
+---
+{{- end }}
+{{- end }}
+{{- end }}

@@ -1,18 +1,17 @@
 version: tip
 
-
 commonSettings: &commonSettings
   replicaCount: 1
   autoscaling:
     enabled: false
   image:
     pullPolicy: Always
-  podAnnotations: { }
-  podLabels: { }
-  tolerations: [ ]
-  nodeSelector: { }
-  affinity: { }
-  extraEnv: { }
+  podAnnotations: {}
+  podLabels: {}
+  tolerations: []
+  nodeSelector: {}
+  affinity: {}
+  extraEnv: {}
   resources:
     requests:
       cpu: 100m
@@ -24,8 +23,8 @@ commonSettings: &commonSettings
 
 meteroid:
   revisionHistoryLimit: 10
-  podAnnotations: { }
-  podLabels: { }
+  podAnnotations: {}
+  podLabels: {}
   podSecurityContext:
     runAsNonRoot: true
     runAsUser: 1000
@@ -38,19 +37,28 @@ meteroid:
 serviceAccount:
   create: true
   name: null
-  imagePullSecrets: [ ]
-  annotations: { }
+  imagePullSecrets: []
+  annotations: {}
   automountServiceAccountToken: true
 
 global:
   publicAppUrl: "http://meteroid.local"
   publicApiUrl: "http://api.meteroid.local"
-  meteringUrl: "http://metering.meteroid.local"
+  publicRestApiUrl: "http://api.meteroid.local/api"
 
   telemetry:
     tracingEnabled: false
     metricsEnabled: false
     otelEndpoint: ""
+
+  smtp:
+    # host: ""
+    # from: "Hey <hey@example.com>"
+    # tls: true
+
+  objectStore:
+    uri: ""
+    # s3ndpoint: ""
 
   secrets:
     # if using an external secret use this
@@ -65,6 +73,12 @@ global:
     # oauthGoogle:
     #   clientId: ""
     #   clientSecret: ""
+    # objectStore:
+    #   accessKeyId: ""
+    #   secretAccessKey: ""
+    # smtp:
+    #   username: ""
+    #   password: ""
 
   # External services configuration (used when dependencies are disabled)
   kafka:
@@ -75,16 +89,30 @@ global:
 
   clickhouse:
     address: ""
+    httpAddress: ""
+    tcpAddress: ""
     database: "meteroid"
-    username: "default"
+    username: "meteroid"
+    clusterName: "meteroid"
 
 ingress:
+  # Enable routing configuration (generates either Ingress or IngressRoute based on useIngressRoute)
   enabled: true
+  # Use Traefik IngressRoute CRD (true) or standard Kubernetes Ingress (false)
+  # Note: IngressRoute is required for per-host rate limiting via middlewares
+  useIngressRoute: false
   className: nginx
   annotations:
-    nginx.ingress.kubernetes.io/rewrite-target: /
+  # Traefik rate limiting configuration (requires useIngressRoute: true)
+  # Middlewares are automatically added to routes based on rateLimit config
   hosts:
     - host: meteroid.local
+      # Per-host per-IP rate limit (via X-Forwarded-For header)
+      # Middlewares are auto-injected - no need to specify manually
+      # rateLimit:
+      #   perIp:
+      #     average: 100
+      #     burst: 50
       paths:
         - path: /
           pathType: Prefix
@@ -112,15 +140,17 @@ api:
       http: 8080
       grpc: 50061
   config:
-    objectStoreUri: ""
     enableMultiOrganization: false
     svixServerUrl: ""
-    kafka: { }
+    kafka: {}
+  httpStartupProbe:
+    initialDelaySeconds: 5
+    periodSeconds: 5
+    failureThreshold: 10
+    path: /health
   httpLivenessProbe:
-    initialDelaySeconds: 30
-    periodSeconds: 10
+    periodSeconds: 20
   httpReadinessProbe:
-    initialDelaySeconds: 30
     periodSeconds: 10
     path: /health
 
@@ -157,6 +187,14 @@ metering:
       producerQueueMib: 100
       messageTimeoutMs: 30000
       compressionCodec: "gzip"
+  grpcStartupProbe:
+    initialDelaySeconds: 5
+    periodSeconds: 5
+    failureThreshold: 10
+  grpcLivenessProbe:
+    periodSeconds: 20
+  grpcReadinessProbe:
+    periodSeconds: 10
 
 # Scheduler Configuration
 scheduler:
@@ -165,11 +203,9 @@ scheduler:
     repository: ghcr.io/meteroid-oss/meteroid-scheduler
     tag: tip
   config:
-    objectStoreUri: ""
     enableMultiOrganization: false
     svixServerUrl: ""
-    kafka: { }
-
+    kafka: {}
 
 # Dependencies
 postgresql:
@@ -227,5 +263,3 @@ clickhouse:
   persistence:
     accessMode: ReadWriteOnce
     size: 10Gi
-
-
