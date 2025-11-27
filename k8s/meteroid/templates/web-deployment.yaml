@@ -25,6 +25,8 @@ spec:
           env:
             - name: VITE_METEROID_API_EXTERNAL_URL
               value: {{ .Values.global.publicApiUrl }}
+            - name: VITE_METEROID_REST_API_EXTERNAL_URL
+              value: {{ .Values.global.publicRestApiUrl }}
             {{- with .Values.web.extraEnv }}
             {{- toYaml . | nindent 12 }}
             {{- end }}
@@ -38,3 +40,7 @@ spec:
             httpGet:
               path: /
               port: http
+      {{- with .Values.web.nodeSelector }}
+      nodeSelector:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}

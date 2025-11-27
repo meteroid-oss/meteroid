@@ -103,7 +103,7 @@ Get internal service URLs
 {{- end }}
 
 {{- define "meteroid.kafka.internalUrl" -}}
-{{ include "meteroid.fullname" . }}-kafka:9092
+{{ include "meteroid.fullname" . }}-kafka-kafka-bootstrap:9092
 {{- end }}
 
 {{/*

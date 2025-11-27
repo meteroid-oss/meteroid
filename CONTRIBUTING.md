@@ -26,31 +26,41 @@ Make sure to install them before proceeding, and that **your docker daemon is ru
 - if you need the metering api : `cargo build -p metering`
 - `pnpm install --prefix modules/web`
 
-### Run the apps
 
 - Copy the `.env.example` file to `.env`.
 
+### Run Meteroid (WITHOUT Metering)
+
+Metering requires quite a lot of resources (clickhouse + kafka), so if you don't need it, you can run without it.
+
 - Start the database with :
   `docker compose -f docker/develop/docker-compose.yml --env-file .env up`.
-  If you intend to run the Metering app as well, you will need to use the "metering"
-  profile :
+   
   `docker compose -f docker/develop/docker-compose.yml --env-file .env --profile metering up`
 
 - Start the Rust backend
-  `cargo run -p meteroid --bin meteroid-api`
+  `cargo run -p meteroid --bin standalone`.
 
-It will automatically run migrations.
-
-- Optionally start the Metering Rust backend
-  `cargo run -p metering --bin metering-api`
+  Or if you need Metering: 
+  `cargo run -p meteroid --bin standalone --features="metering-server`
 
 - Start the Web frontend
   `pnpm --prefix modules/web/web-app run dev`
 
 You can now access the app at http://localhost:5173
 
-If you used the seed data, you can log in with the credentials found in docker/develop/data/README.md.
-Click on the "Sandbox" tenant on the left to access the main UI.
+### Run Meteroid (WITH Metering)
+
+- Start the database with :
+  `docker compose -f docker/develop/docker-compose.yml --env-file .env --profile metering up`
+
+- Start the Rust backend
+  `cargo run -p meteroid --bin standalone --features="metering-server`
+
+- Start the Web frontend
+  `pnpm --prefix modules/web/web-app run dev`
+
+You can now access the app at http://localhost:5173
 
 ## Development
 
@@ -62,15 +72,10 @@ After a pull, you should update/build the dependencies.
 
 ### Updating the protobuf files
 
-Protobuf files are found in /modules/meteroid/proto
+Protobuf files are found in /modules/meteroid/proto and /modules/metering/proto
 
-After an update, you can rebuild rust, reinstall the web dependencies and generate from proto via the command above, or
-you can run the following commands for faster feedback:
-
-- `cargo build -p meteroid-grpc`
-- for metering: `cargo build -p metering-grpc`
-- `pnpm --prefix modules/web/web-app run generate:proto`
-
+After an update, you can rebuild rust, reinstall the web dependencies and generate from proto via the commands in the section "Install the dependencies & build" of this docuemnt
+ 
 ### Updating the Open API Specification
 
 Open API specification is generated from routes annotations found in `modules/meteroid/src/api_rest`
@@ -100,7 +105,7 @@ See https://diesel.rs/guides/getting-started for more info.
 
 We provide a light docker compose that starts the latest api docker image from the main branch.
 
-Noticer that this doesn't start the metering server, nor the automation processes, so some functionalities will be
+Noticer that this doesn't start the metering server, nor the automation processes (invoice finalization, payment, generations etc), so some functionalities will be
 missing.
 
 - copy the .env.example to a .env

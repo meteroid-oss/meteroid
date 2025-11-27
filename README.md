@@ -49,8 +49,8 @@ It eliminates the gap between customer usage and billing, ensuring accuracy and 
 
 </span>
 </div>
-
-**Disclaimer:** This project is still in development and should not be used in production.
+ 
+**Disclaimer:** This project is in active development.
 
 
 ---
@@ -105,14 +105,7 @@ This approach, combined with our open philosophy, guides us toward creating a mo
 SaaS industries.
 
 ## Developer Guide
-
-> [!WARNING]
->
-> Meteroid is in **ALPHA**, and is not ready for production use.
->
-> We are working on a stable release.
-
-
+ 
 Please refer to the [contributing guide](CONTRIBUTING.md) for how to install Meteroid from sources.
 
 ## License
@@ -121,7 +114,7 @@ Copyright 2025 Meteroid
 
 Licensed under the AGPL V3 License. <br/> See [LICENSE](LICENSE) for more information.
 
-For enterprise or custom licensing options, please contact us.
+For enterprise support, addons or custom licensing options, please contact us.
 
 ## Contributors ✨
 
@@ -134,5 +127,3 @@ For enterprise or custom licensing options, please contact us.
 Join us on <a href="https://go.meteroid.com/discord?utm_source=github">Discord</a> !
 
 Thanks for the crazy support 💖
-
-[![Star History Chart](https://api.star-history.com/svg?repos=meteroid-oss/meteroid&type=Date)](https://star-history.com/#meteroid-oss/meteroid&Date)

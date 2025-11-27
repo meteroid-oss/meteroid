@@ -39,8 +39,9 @@ spec:
             secretKeyRef:
               name: {{ include "meteroid.secretsName" . }}
               key: clickhouse-password
+              optional: true
         - name: CLICKHOUSE_USER
-          value: {{ .Values.clickhouse.auth.username | quote }}
+          value: {{ .Values.global.clickhouse.username | quote }}
         - name: CLICKHOUSE_DEFAULT_ACCESS_MANAGEMENT
           value: "1"  
         resources:

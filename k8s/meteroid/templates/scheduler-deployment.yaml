@@ -79,18 +79,36 @@ spec:
                   key: secrets-crypt-key
             - name: METERING_API_EXTERNAL_URL
               value: http://{{ include "meteroid.metering.internalGrpcUrl" . }}
+            - name: METEROID_REST_API_EXTERNAL_URL
+              value: {{ .Values.global.publicRestApiUrl }}
             - name: METEROID_PUBLIC_URL
               value: {{ .Values.global.publicAppUrl }}
             - name: OBJECT_STORE_URI
-              value: {{ .Values.scheduler.config.objectStoreUri }}
+              value: {{ .Values.global.objectStore.uri }}
+            {{- if and .Values.global.objectStore .Values.global.objectStore.s3Endpoint }}
+            - name: AWS_ENDPOINT
+              value: {{ .Values.global.objectStore.s3Endpoint }}
+            {{- end }}    
+            - name: AWS_ACCESS_KEY_ID
+              valueFrom:
+                secretKeyRef:
+                  name: {{ include "meteroid.secretsName" . }}
+                  key: aws-access-key-id
+                  optional: true
+            - name: AWS_SECRET_ACCESS_KEY
+              valueFrom:
+                secretKeyRef:
+                  name: {{ include "meteroid.secretsName" . }}
+                  key: aws-secret-access-key
+                  optional: true
             - name: METEROID_API_LISTEN_ADDRESS
               value: 0.0.0.0:{{ .Values.api.service.ports.grpc }}
             - name: METEROID_REST_API_LISTEN_ADDRESS
               value: 0.0.0.0:{{ .Values.api.service.ports.http }}
             - name: ENABLE_MULTI_ORGANIZATION
               value: {{ .Values.scheduler.config.enableMultiOrganization | quote }}
-            - name: SVIX_SERVER_URL
-              value: {{ .Values.scheduler.config.svixServerUrl }}
+{{/*            - name: SVIX_SERVER_URL*/}}
+{{/*              value: {{ .Values.scheduler.config.svixServerUrl }}*/}}
             - name: SVIX_JWT_TOKEN
               valueFrom:
                 secretKeyRef:
@@ -101,24 +119,61 @@ spec:
                 secretKeyRef:
                   name: {{ include "meteroid.secretsName" . }}
                   key: oauth-google-client-id
+                  optional: true
             - name: OAUTH_GOOGLE_CLIENT_SECRET
               valueFrom:
                 secretKeyRef:
                   name: {{ include "meteroid.secretsName" . }}
                   key: oauth-google-client-secret
-            - name: KAFKA_SASL_MECHANISM
-              value: {{ .Values.global.kafka.saslMechanism }}
-            - name: KAFKA_SECURITY_PROTOCOL
-              value: {{ .Values.global.kafka.securityProtocol }}
-            - name: KAFKA_BOOTSTRAP_SERVERS
-              value: {{ include "meteroid.kafka.bootstrapServers" . }}
-            - name: KAFKA_SASL_USERNAME
-              value: {{ .Values.global.kafka.saslUsername }}
-            - name: KAFKA_SASL_PASSWORD
+                  optional: true
+            - name: OAUTH_PENNYLANE_CLIENT_ID
               valueFrom:
                 secretKeyRef:
                   name: {{ include "meteroid.secretsName" . }}
-                  key: kafka-password
+                  key: oauth-pennylane-client-id
+                  optional: true
+            - name: OAUTH_PENNYLANE_CLIENT_SECRET
+              valueFrom:
+                secretKeyRef:
+                  name: {{ include "meteroid.secretsName" . }}
+                  key: oauth-pennylane-client-secret
+                  optional: true
+            - name: OAUTH_HUBSPOT_CLIENT_ID
+              valueFrom:
+                secretKeyRef:
+                  name: {{ include "meteroid.secretsName" . }}
+                  key: oauth-hubspot-client-id
+                  optional: true
+            - name: OAUTH_HUBSPOT_CLIENT_SECRET
+              valueFrom:
+                secretKeyRef:
+                  name: {{ include "meteroid.secretsName" . }}
+                  key: oauth-hubspot-client-secret
+                  optional: true
+            {{- if and .Values.global.smtp .Values.global.smtp.host }}
+            - name: MAILER_SMTP_HOST
+              value: {{ .Values.global.smtp.host }}
+            {{- end }}
+            {{- if and .Values.global.smtp .Values.global.smtp.from }}
+            - name: MAILER_FROM
+              value: {{ .Values.global.smtp.from }}
+            {{- end }}
+            {{- if and .Values.global.smtp .Values.global.smtp.tls }}
+            - name: MAILER_SMTP_TLS
+              value: {{ .Values.global.smtp.tls | quote }}
+            {{- end }}
+            - name: MAILER_SMTP_USERNAME
+              valueFrom:
+                secretKeyRef:
+                  name: {{ include "meteroid.secretsName" . }}
+                  key: smtp-username
+                  optional: true
+            - name: MAILER_SMTP_PASSWORD
+              valueFrom:
+                secretKeyRef:
+                  name: {{ include "meteroid.secretsName" . }}
+                  key: smtp-password
+                  optional: true
           resources:
             {{- toYaml .Values.scheduler.resources | nindent 12 }}
       {{- with .Values.scheduler.affinity }}
