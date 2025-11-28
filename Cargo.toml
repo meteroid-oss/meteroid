@@ -182,7 +182,7 @@ typetag = "0.2.13"
 # this is transitive of typst-pdf, newer version fail the compilation https://github.com/meteroid-oss/meteroid/actions/runs/18858382946/job/54917356068
 subsetter = "=0.2.2"
 typst = { version = "0.13.1" }
-typst-pdf = { version = "0.13.1" }
+typst-pdf = { version = "0.14.0" }
 typst-svg = { version = "0.13.1" }
 typst-as-lib = { version = "0.14.1", features = [] }
 derive_typst_intoval = { version = "0.5.0", features = [] }
