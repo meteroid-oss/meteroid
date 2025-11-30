@@ -46,6 +46,7 @@ message QueryMeterRequest {
   optional string timezone = 10;
   string code = 11;  // billable metric code
   optional SegmentationFilter segmentation_filter = 12;
+  optional string value_property = 13;  // property to aggregate on (required for non-Count aggregations)
 
   enum QueryWindowSize {
     MINUTE = 0;
