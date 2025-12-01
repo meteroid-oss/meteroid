@@ -329,7 +329,7 @@ pub async fn run(
             payment_strategy: None, // TODO
             billing_start_date: None,
             auto_advance_invoices: true,
-            charge_automatically: true,
+            charge_automatically: false,
             purchase_order: None,
         };
 

@@ -210,7 +210,7 @@ pub async fn run_preset(
             payment_strategy: None,
             billing_start_date: None,
             auto_advance_invoices: true,
-            charge_automatically: true,
+            charge_automatically: false,
             purchase_order: None,
         };
 
