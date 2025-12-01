@@ -123,31 +123,43 @@ pub fn query_meter_view_sql(params: QueryMeterParams) -> Result<String, String> 
     let escaped_namespace = escape_sql_identifier(&params.namespace);
     let escaped_code = escape_sql_identifier(&params.code);
 
-    // Step 1: Create deduplicated events CTE
-    // Deduplicates by (id, customer_id), picking the latest record by timestamp
-    let dedup_cte = format!(
-        r#"deduped_events AS (
+    // Step 1: Build WHERE conditions for subquery
+    let mut subquery_conditions = vec![
+        format!("tenant_id = '{}'", escaped_namespace),
+        format!("code = '{}'", escaped_code),
+        format!("timestamp >= toDateTime({})", params.from.timestamp()),
+    ];
+
+    if let Some(to) = params.to {
+        subquery_conditions.push(format!("timestamp <= toDateTime({})", to.timestamp()));
+    }
+
+    if !params.customer_ids.is_empty() {
+        let customer_ids_condition = params
+            .customer_ids
+            .iter()
+            .map(|id| format!("customer_id = '{}'", escape_sql_identifier(id)))
+            .collect::<Vec<_>>()
+            .join(" OR ");
+        subquery_conditions.push(format!("({})", customer_ids_condition));
+    }
+
+    // Create deduplicated events subquery
+    // Deduplicates by (id, customer_id), picking the latest record by timestamp using LIMIT 1 BY
+    let dedup_subquery = format!(
+        r#"(
         SELECT
             id,
             customer_id,
-            max(timestamp) AS event_timestamp,
-            argMax(properties, timestamp) AS properties
+            timestamp,
+            properties
         FROM {}
-        WHERE tenant_id = '{}'
-            AND code = '{}'
-            AND timestamp >= toDateTime({})
-            {}
-        GROUP BY id, customer_id
+        WHERE {}
+        ORDER BY timestamp DESC
+        LIMIT 1 BY id, customer_id
     )"#,
         table_name,
-        escaped_namespace,
-        escaped_code,
-        params.from.timestamp(),
-        if let Some(to) = params.to {
-            format!("AND timestamp <= toDateTime({})", to.timestamp())
-        } else {
-            String::new()
-        }
+        subquery_conditions.join("\n            AND ")
     );
 
     // Step 2: Build the main query
@@ -165,16 +177,16 @@ pub fn query_meter_view_sql(params: QueryMeterParams) -> Result<String, String> 
     if let Some(window_size) = &params.window_size {
         let (tumble_start, tumble_end) = match window_size {
             WindowSize::Minute => (
-                format!("tumbleStart(toDateTime(event_timestamp), toIntervalMinute(1), '{tz}')"),
-                format!("tumbleEnd(toDateTime(event_timestamp), toIntervalMinute(1), '{tz}')"),
+                format!("tumbleStart(toDateTime(timestamp), toIntervalMinute(1), '{tz}')"),
+                format!("tumbleEnd(toDateTime(timestamp), toIntervalMinute(1), '{tz}')"),
             ),
             WindowSize::Hour => (
-                format!("tumbleStart(toDateTime(event_timestamp), toIntervalHour(1), '{tz}')"),
-                format!("tumbleEnd(toDateTime(event_timestamp), toIntervalHour(1), '{tz}')"),
+                format!("tumbleStart(toDateTime(timestamp), toIntervalHour(1), '{tz}')"),
+                format!("tumbleEnd(toDateTime(timestamp), toIntervalHour(1), '{tz}')"),
             ),
             WindowSize::Day => (
-                format!("tumbleStart(toDateTime(event_timestamp), toIntervalDay(1), '{tz}')"),
-                format!("tumbleEnd(toDateTime(event_timestamp), toIntervalDay(1), '{tz}')"),
+                format!("tumbleStart(toDateTime(timestamp), toIntervalDay(1), '{tz}')"),
+                format!("tumbleEnd(toDateTime(timestamp), toIntervalDay(1), '{tz}')"),
             ),
         };
 
@@ -183,8 +195,8 @@ pub fn query_meter_view_sql(params: QueryMeterParams) -> Result<String, String> 
         group_by_columns.push(tumble_start);
         group_by_columns.push(tumble_end);
     } else {
-        select_columns.push("min(toDateTime(event_timestamp)) AS window_start".to_string());
-        select_columns.push("max(toDateTime(event_timestamp)) AS window_end".to_string());
+        select_columns.push("min(toDateTime(timestamp)) AS window_start".to_string());
+        select_columns.push("max(toDateTime(timestamp)) AS window_end".to_string());
     }
 
     // Determine the value expression based on value_property
@@ -205,10 +217,7 @@ pub fn query_meter_view_sql(params: QueryMeterParams) -> Result<String, String> 
         MeterAggregation::Max => format!("max({}) AS value", value_expr),
         MeterAggregation::Count => "toFloat64(count(*)) AS value".to_string(),
         MeterAggregation::Latest => {
-            format!(
-                "argMax({}, toDateTime(event_timestamp)) AS value",
-                value_expr
-            )
+            format!("argMax({}, toDateTime(timestamp)) AS value", value_expr)
         }
         MeterAggregation::CountDistinct => {
             if let Some(ref value_prop) = params.value_property {
@@ -320,9 +329,9 @@ pub fn query_meter_view_sql(params: QueryMeterParams) -> Result<String, String> 
         ));
     }
 
-    // Construct the final SQL query with CTE
-    let mut sql = format!("WITH {} SELECT {}", dedup_cte, select_columns.join(", "));
-    sql.push_str(" FROM deduped_events");
+    // Construct the final SQL query with subquery
+    let mut sql = format!("SELECT {}", select_columns.join(", "));
+    sql.push_str(&format!(" FROM {}", dedup_subquery));
 
     if !where_clauses.is_empty() {
         sql.push_str(&format!(" WHERE {}", where_clauses.join(" AND ")));
@@ -367,29 +376,29 @@ mod tests {
 
         let result = query_meter_view_sql(params).unwrap();
         let expected = r#"
-            WITH deduped_events AS (
+            SELECT
+                tumbleStart(toDateTime(timestamp), toIntervalMinute(1), 'UTC') AS window_start,
+                tumbleEnd(toDateTime(timestamp), toIntervalMinute(1), 'UTC') AS window_end,
+                sum(toFloat64OrZero(properties['amount'])) AS value
+            FROM (
                 SELECT
                     id,
                     customer_id,
-                    max(timestamp) AS event_timestamp,
-                    argMax(properties, timestamp) AS properties
+                    timestamp,
+                    properties
                 FROM meteroid.raw_events
                 WHERE tenant_id = 'test_ns'
                     AND code = 'test_event'
                     AND timestamp >= toDateTime(1704067200)
                     AND timestamp <= toDateTime(1704153600)
-                GROUP BY id, customer_id
+                ORDER BY timestamp DESC
+                LIMIT 1 BY id, customer_id
             )
-            SELECT
-                tumbleStart(toDateTime(event_timestamp), toIntervalMinute(1), 'UTC') AS window_start,
-                tumbleEnd(toDateTime(event_timestamp), toIntervalMinute(1), 'UTC') AS window_end,
-                sum(toFloat64OrZero(properties['amount'])) AS value
-            FROM deduped_events
             WHERE properties['amount'] != ''
                 AND isNotNull(toFloat64OrNull(properties['amount']))
             GROUP BY
-                tumbleStart(toDateTime(event_timestamp), toIntervalMinute(1), 'UTC'),
-                tumbleEnd(toDateTime(event_timestamp), toIntervalMinute(1), 'UTC')
+                tumbleStart(toDateTime(timestamp), toIntervalMinute(1), 'UTC'),
+                tumbleEnd(toDateTime(timestamp), toIntervalMinute(1), 'UTC')
             ORDER BY window_start
         "#;
 
@@ -415,24 +424,24 @@ mod tests {
 
         let result = query_meter_view_sql(params).unwrap();
         let expected = r#"
-            WITH deduped_events AS (
+            SELECT
+                min(toDateTime(timestamp)) AS window_start,
+                max(toDateTime(timestamp)) AS window_end,
+                toFloat64(count(*)) AS value
+            FROM (
                 SELECT
                     id,
                     customer_id,
-                    max(timestamp) AS event_timestamp,
-                    argMax(properties, timestamp) AS properties
+                    timestamp,
+                    properties
                 FROM meteroid.raw_events
                 WHERE tenant_id = 'test_ns'
                     AND code = 'api_call'
                     AND timestamp >= toDateTime(1704067200)
                     AND timestamp <= toDateTime(1704153600)
-                GROUP BY id, customer_id
+                ORDER BY timestamp DESC
+                LIMIT 1 BY id, customer_id
             )
-            SELECT
-                min(toDateTime(event_timestamp)) AS window_start,
-                max(toDateTime(event_timestamp)) AS window_end,
-                toFloat64(count(*)) AS value
-            FROM deduped_events
         "#;
 
         assert_eq!(normalize_sql(&result), normalize_sql(expected));
@@ -457,30 +466,31 @@ mod tests {
 
         let result = query_meter_view_sql(params).unwrap();
         let expected = r#"
-            WITH deduped_events AS (
+            SELECT
+                tumbleStart(toDateTime(timestamp), toIntervalHour(1), 'UTC') AS window_start,
+                tumbleEnd(toDateTime(timestamp), toIntervalHour(1), 'UTC') AS window_end,
+                sum(toFloat64OrZero(properties['bytes'])) AS value,
+                customer_id
+            FROM (
                 SELECT
                     id,
                     customer_id,
-                    max(timestamp) AS event_timestamp,
-                    argMax(properties, timestamp) AS properties
+                    timestamp,
+                    properties
                 FROM meteroid.raw_events
                 WHERE tenant_id = 'test_ns'
                     AND code = 'usage'
                     AND timestamp >= toDateTime(1704067200)
-                GROUP BY id, customer_id
+                    AND (customer_id = 'cust1' OR customer_id = 'cust2')
+                ORDER BY timestamp DESC
+                LIMIT 1 BY id, customer_id
             )
-            SELECT
-                tumbleStart(toDateTime(event_timestamp), toIntervalHour(1), 'UTC') AS window_start,
-                tumbleEnd(toDateTime(event_timestamp), toIntervalHour(1), 'UTC') AS window_end,
-                sum(toFloat64OrZero(properties['bytes'])) AS value,
-                customer_id
-            FROM deduped_events
             WHERE (customer_id = 'cust1' OR customer_id = 'cust2')
                 AND properties['bytes'] != ''
                 AND isNotNull(toFloat64OrNull(properties['bytes']))
             GROUP BY
-                tumbleStart(toDateTime(event_timestamp), toIntervalHour(1), 'UTC'),
-                tumbleEnd(toDateTime(event_timestamp), toIntervalHour(1), 'UTC'),
+                tumbleStart(toDateTime(timestamp), toIntervalHour(1), 'UTC'),
+                tumbleEnd(toDateTime(timestamp), toIntervalHour(1), 'UTC'),
                 customer_id
             ORDER BY window_start
         "#;
@@ -507,30 +517,30 @@ mod tests {
 
         let result = query_meter_view_sql(params).unwrap();
         let expected = r#"
-            WITH deduped_events AS (
+            SELECT
+                tumbleStart(toDateTime(timestamp), toIntervalDay(1), 'UTC') AS window_start,
+                tumbleEnd(toDateTime(timestamp), toIntervalDay(1), 'UTC') AS window_end,
+                avg(toFloat64OrZero(properties['duration'])) AS value,
+                properties['region'] AS _prop_region,
+                properties['endpoint'] AS _prop_endpoint
+            FROM (
                 SELECT
                     id,
                     customer_id,
-                    max(timestamp) AS event_timestamp,
-                    argMax(properties, timestamp) AS properties
+                    timestamp,
+                    properties
                 FROM meteroid.raw_events
                 WHERE tenant_id = 'test_ns'
                     AND code = 'transaction'
                     AND timestamp >= toDateTime(1704067200)
-                GROUP BY id, customer_id
+                ORDER BY timestamp DESC
+                LIMIT 1 BY id, customer_id
             )
-            SELECT
-                tumbleStart(toDateTime(event_timestamp), toIntervalDay(1), 'UTC') AS window_start,
-                tumbleEnd(toDateTime(event_timestamp), toIntervalDay(1), 'UTC') AS window_end,
-                avg(toFloat64OrZero(properties['duration'])) AS value,
-                properties['region'] AS _prop_region,
-                properties['endpoint'] AS _prop_endpoint
-            FROM deduped_events
             WHERE properties['duration'] != ''
                 AND isNotNull(toFloat64OrNull(properties['duration']))
             GROUP BY
-                tumbleStart(toDateTime(event_timestamp), toIntervalDay(1), 'UTC'),
-                tumbleEnd(toDateTime(event_timestamp), toIntervalDay(1), 'UTC'),
+                tumbleStart(toDateTime(timestamp), toIntervalDay(1), 'UTC'),
+                tumbleEnd(toDateTime(timestamp), toIntervalDay(1), 'UTC'),
                 properties['region'],
                 properties['endpoint']
             ORDER BY window_start
@@ -564,25 +574,25 @@ mod tests {
 
         let result = query_meter_view_sql(params).unwrap();
         let expected = r#"
-            WITH deduped_events AS (
+            SELECT
+                min(toDateTime(timestamp)) AS window_start,
+                max(toDateTime(timestamp)) AS window_end,
+                sum(toFloat64OrZero(properties['amount'])) AS value,
+                properties['region'] AS _prop_region,
+                properties['tier'] AS _prop_tier
+            FROM (
                 SELECT
                     id,
                     customer_id,
-                    max(timestamp) AS event_timestamp,
-                    argMax(properties, timestamp) AS properties
+                    timestamp,
+                    properties
                 FROM meteroid.raw_events
                 WHERE tenant_id = 'test_ns'
                     AND code = 'sale'
                     AND timestamp >= toDateTime(1704067200)
-                GROUP BY id, customer_id
+                ORDER BY timestamp DESC
+                LIMIT 1 BY id, customer_id
             )
-            SELECT
-                min(toDateTime(event_timestamp)) AS window_start,
-                max(toDateTime(event_timestamp)) AS window_end,
-                sum(toFloat64OrZero(properties['amount'])) AS value,
-                properties['region'] AS _prop_region,
-                properties['tier'] AS _prop_tier
-            FROM deduped_events
             WHERE (properties['region'] = 'us-east' OR properties['region'] = 'us-west')
                 AND (properties['tier'] = 'premium')
                 AND properties['amount'] != ''
@@ -625,25 +635,25 @@ mod tests {
 
         // HashMap iteration order is not guaranteed, so check both possible orders
         let expected1 = r#"
-            WITH deduped_events AS (
+            SELECT
+                min(toDateTime(timestamp)) AS window_start,
+                max(toDateTime(timestamp)) AS window_end,
+                sum(toFloat64OrZero(properties['count'])) AS value,
+                properties['product'] AS _prop_product,
+                properties['version'] AS _prop_version
+            FROM (
                 SELECT
                     id,
                     customer_id,
-                    max(timestamp) AS event_timestamp,
-                    argMax(properties, timestamp) AS properties
+                    timestamp,
+                    properties
                 FROM meteroid.raw_events
                 WHERE tenant_id = 'test_ns'
                     AND code = 'usage'
                     AND timestamp >= toDateTime(1704067200)
-                GROUP BY id, customer_id
+                ORDER BY timestamp DESC
+                LIMIT 1 BY id, customer_id
             )
-            SELECT
-                min(toDateTime(event_timestamp)) AS window_start,
-                max(toDateTime(event_timestamp)) AS window_end,
-                sum(toFloat64OrZero(properties['count'])) AS value,
-                properties['product'] AS _prop_product,
-                properties['version'] AS _prop_version
-            FROM deduped_events
             WHERE ((properties['product'] = 'prod1' AND properties['version'] IN ('v1', 'v2'))
                    OR (properties['product'] = 'prod2' AND properties['version'] IN ('v3')))
                 AND properties['count'] != ''
@@ -652,25 +662,25 @@ mod tests {
         "#;
 
         let expected2 = r#"
-            WITH deduped_events AS (
+            SELECT
+                min(toDateTime(timestamp)) AS window_start,
+                max(toDateTime(timestamp)) AS window_end,
+                sum(toFloat64OrZero(properties['count'])) AS value,
+                properties['product'] AS _prop_product,
+                properties['version'] AS _prop_version
+            FROM (
                 SELECT
                     id,
                     customer_id,
-                    max(timestamp) AS event_timestamp,
-                    argMax(properties, timestamp) AS properties
+                    timestamp,
+                    properties
                 FROM meteroid.raw_events
                 WHERE tenant_id = 'test_ns'
                     AND code = 'usage'
                     AND timestamp >= toDateTime(1704067200)
-                GROUP BY id, customer_id
+                ORDER BY timestamp DESC
+                LIMIT 1 BY id, customer_id
             )
-            SELECT
-                min(toDateTime(event_timestamp)) AS window_start,
-                max(toDateTime(event_timestamp)) AS window_end,
-                sum(toFloat64OrZero(properties['count'])) AS value,
-                properties['product'] AS _prop_product,
-                properties['version'] AS _prop_version
-            FROM deduped_events
             WHERE ((properties['product'] = 'prod2' AND properties['version'] IN ('v3'))
                    OR (properties['product'] = 'prod1' AND properties['version'] IN ('v1', 'v2')))
                 AND properties['count'] != ''
@@ -708,28 +718,28 @@ mod tests {
 
         let result = query_meter_view_sql(params).unwrap();
         let expected = r#"
-            WITH deduped_events AS (
+            SELECT
+                tumbleStart(toDateTime(timestamp), toIntervalDay(1), 'UTC') AS window_start,
+                tumbleEnd(toDateTime(timestamp), toIntervalDay(1), 'UTC') AS window_end,
+                toFloat64(uniq(properties['user_id'])) AS value
+            FROM (
                 SELECT
                     id,
                     customer_id,
-                    max(timestamp) AS event_timestamp,
-                    argMax(properties, timestamp) AS properties
+                    timestamp,
+                    properties
                 FROM meteroid.raw_events
                 WHERE tenant_id = 'test_ns'
                     AND code = 'login'
                     AND timestamp >= toDateTime(1704067200)
-                GROUP BY id, customer_id
+                ORDER BY timestamp DESC
+                LIMIT 1 BY id, customer_id
             )
-            SELECT
-                tumbleStart(toDateTime(event_timestamp), toIntervalDay(1), 'UTC') AS window_start,
-                tumbleEnd(toDateTime(event_timestamp), toIntervalDay(1), 'UTC') AS window_end,
-                toFloat64(uniq(properties['user_id'])) AS value
-            FROM deduped_events
             WHERE properties['user_id'] != ''
                 AND isNotNull(toFloat64OrNull(properties['user_id']))
             GROUP BY
-                tumbleStart(toDateTime(event_timestamp), toIntervalDay(1), 'UTC'),
-                tumbleEnd(toDateTime(event_timestamp), toIntervalDay(1), 'UTC')
+                tumbleStart(toDateTime(timestamp), toIntervalDay(1), 'UTC'),
+                tumbleEnd(toDateTime(timestamp), toIntervalDay(1), 'UTC')
             ORDER BY window_start
         "#;
 
@@ -755,23 +765,23 @@ mod tests {
 
         let result = query_meter_view_sql(params).unwrap();
         let expected = r#"
-            WITH deduped_events AS (
+            SELECT
+                min(toDateTime(timestamp)) AS window_start,
+                max(toDateTime(timestamp)) AS window_end,
+                argMax(toFloat64OrZero(properties['value']), toDateTime(timestamp)) AS value
+            FROM (
                 SELECT
                     id,
                     customer_id,
-                    max(timestamp) AS event_timestamp,
-                    argMax(properties, timestamp) AS properties
+                    timestamp,
+                    properties
                 FROM meteroid.raw_events
                 WHERE tenant_id = 'test_ns'
                     AND code = 'status'
                     AND timestamp >= toDateTime(1704067200)
-                GROUP BY id, customer_id
+                ORDER BY timestamp DESC
+                LIMIT 1 BY id, customer_id
             )
-            SELECT
-                min(toDateTime(event_timestamp)) AS window_start,
-                max(toDateTime(event_timestamp)) AS window_end,
-                argMax(toFloat64OrZero(properties['value']), toDateTime(event_timestamp)) AS value
-            FROM deduped_events
             WHERE properties['value'] != ''
                 AND isNotNull(toFloat64OrNull(properties['value']))
         "#;
@@ -848,23 +858,23 @@ mod tests {
 
         let result = query_meter_view_sql(params).unwrap();
         let expected = r#"
-            WITH deduped_events AS (
+            SELECT
+                min(toDateTime(timestamp)) AS window_start,
+                max(toDateTime(timestamp)) AS window_end,
+                sum(toFloat64OrZero(properties['price'])) AS value
+            FROM (
                 SELECT
                     id,
                     customer_id,
-                    max(timestamp) AS event_timestamp,
-                    argMax(properties, timestamp) AS properties
+                    timestamp,
+                    properties
                 FROM meteroid.raw_events
                 WHERE tenant_id = 'test_ns'
                     AND code = 'purchase'
                     AND timestamp >= toDateTime(1704067200)
-                GROUP BY id, customer_id
+                ORDER BY timestamp DESC
+                LIMIT 1 BY id, customer_id
             )
-            SELECT
-                min(toDateTime(event_timestamp)) AS window_start,
-                max(toDateTime(event_timestamp)) AS window_end,
-                sum(toFloat64OrZero(properties['price'])) AS value
-            FROM deduped_events
             WHERE properties['price'] != ''
                 AND isNotNull(toFloat64OrNull(properties['price']))
         "#;
@@ -891,24 +901,24 @@ mod tests {
 
         let result = query_meter_view_sql(params).unwrap();
         let expected = r#"
-            WITH deduped_events AS (
+            SELECT
+                min(toDateTime(timestamp)) AS window_start,
+                max(toDateTime(timestamp)) AS window_end,
+                toFloat64(count(*)) AS value
+            FROM (
                 SELECT
                     id,
                     customer_id,
-                    max(timestamp) AS event_timestamp,
-                    argMax(properties, timestamp) AS properties
+                    timestamp,
+                    properties
                 FROM meteroid.raw_events
                 WHERE tenant_id = 'test_ns'
                     AND code = 'event'
                     AND timestamp >= toDateTime(1704067200)
                     AND timestamp <= toDateTime(1704153600)
-                GROUP BY id, customer_id
+                ORDER BY timestamp DESC
+                LIMIT 1 BY id, customer_id
             )
-            SELECT
-                min(toDateTime(event_timestamp)) AS window_start,
-                max(toDateTime(event_timestamp)) AS window_end,
-                toFloat64(count(*)) AS value
-            FROM deduped_events
         "#;
 
         assert_eq!(normalize_sql(&result), normalize_sql(expected));
@@ -935,24 +945,24 @@ mod tests {
 
         let result = query_meter_view_sql(params).unwrap();
         let expected = r#"
-            WITH deduped_events AS (
+            SELECT
+                min(toDateTime(timestamp)) AS window_start,
+                max(toDateTime(timestamp)) AS window_end,
+                sum(toFloat64OrZero(properties['amount'])) AS value,
+                properties['code'] AS _prop_code
+            FROM (
                 SELECT
                     id,
                     customer_id,
-                    max(timestamp) AS event_timestamp,
-                    argMax(properties, timestamp) AS properties
+                    timestamp,
+                    properties
                 FROM meteroid.raw_events
                 WHERE tenant_id = 'test_ns'
                     AND code = 'purchase'
                     AND timestamp >= toDateTime(1704067200)
-                GROUP BY id, customer_id
+                ORDER BY timestamp DESC
+                LIMIT 1 BY id, customer_id
             )
-            SELECT
-                min(toDateTime(event_timestamp)) AS window_start,
-                max(toDateTime(event_timestamp)) AS window_end,
-                sum(toFloat64OrZero(properties['amount'])) AS value,
-                properties['code'] AS _prop_code
-            FROM deduped_events
             WHERE properties['amount'] != ''
                 AND isNotNull(toFloat64OrNull(properties['amount']))
             GROUP BY properties['code']
@@ -985,24 +995,24 @@ mod tests {
 
         let result = query_meter_view_sql(params).unwrap();
         let expected = r#"
-            WITH deduped_events AS (
+            SELECT
+                min(toDateTime(timestamp)) AS window_start,
+                max(toDateTime(timestamp)) AS window_end,
+                sum(toFloat64OrZero(properties['bytes'])) AS value,
+                properties['customer_id'] AS _prop_customer_id
+            FROM (
                 SELECT
                     id,
                     customer_id,
-                    max(timestamp) AS event_timestamp,
-                    argMax(properties, timestamp) AS properties
+                    timestamp,
+                    properties
                 FROM meteroid.raw_events
                 WHERE tenant_id = 'test_ns'
                     AND code = 'usage'
                     AND timestamp >= toDateTime(1704067200)
-                GROUP BY id, customer_id
+                ORDER BY timestamp DESC
+                LIMIT 1 BY id, customer_id
             )
-            SELECT
-                min(toDateTime(event_timestamp)) AS window_start,
-                max(toDateTime(event_timestamp)) AS window_end,
-                sum(toFloat64OrZero(properties['bytes'])) AS value,
-                properties['customer_id'] AS _prop_customer_id
-            FROM deduped_events
             WHERE (properties['customer_id'] = 'cust1' OR properties['customer_id'] = 'cust2')
                 AND properties['bytes'] != ''
                 AND isNotNull(toFloat64OrNull(properties['bytes']))
@@ -1037,26 +1047,26 @@ mod tests {
 
         let result = query_meter_view_sql(params).unwrap();
         let expected = r#"
-            WITH deduped_events AS (
-                SELECT
-                    id,
-                    customer_id,
-                    max(timestamp) AS event_timestamp,
-                    argMax(properties, timestamp) AS properties
-                FROM meteroid.raw_events
-                WHERE tenant_id = 'test_ns'
-                    AND code = 'event'
-                    AND timestamp >= toDateTime(1704067200)
-                GROUP BY id, customer_id
-            )
             SELECT
-                min(toDateTime(event_timestamp)) AS window_start,
-                max(toDateTime(event_timestamp)) AS window_end,
+                min(toDateTime(timestamp)) AS window_start,
+                max(toDateTime(timestamp)) AS window_end,
                 toFloat64(count(*)) AS value,
                 properties['customer_id'] AS _prop_customer_id,
                 properties['region'] AS _prop_region,
                 properties['code'] AS _prop_code
-            FROM deduped_events
+            FROM (
+                SELECT
+                    id,
+                    customer_id,
+                    timestamp,
+                    properties
+                FROM meteroid.raw_events
+                WHERE tenant_id = 'test_ns'
+                    AND code = 'event'
+                    AND timestamp >= toDateTime(1704067200)
+                ORDER BY timestamp DESC
+                LIMIT 1 BY id, customer_id
+            )
             GROUP BY properties['customer_id'], properties['region'], properties['code']
         "#;
 
