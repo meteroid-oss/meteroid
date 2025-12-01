@@ -144,6 +144,75 @@ pub fn query_meter_view_sql(params: QueryMeterParams) -> Result<String, String> 
         subquery_conditions.push(format!("({})", customer_ids_condition));
     }
 
+    // Add segmentation filters to subquery
+    if let Some(ref segmentation) = params.segmentation_filter {
+        match segmentation {
+            SegmentationFilter::Independent(filters) => {
+                for (column, values) in filters {
+                    if values.is_empty() {
+                        return Err(format!("Empty filter for dimension: {column}"));
+                    }
+                    let col = PropertyColumn(column);
+                    let column_condition = values
+                        .iter()
+                        .map(|value| {
+                            let escaped_val = escape_sql_identifier(value);
+                            format!("{} = '{escaped_val}'", col.path())
+                        })
+                        .collect::<Vec<_>>()
+                        .join(" OR ");
+                    subquery_conditions.push(format!("({column_condition})"));
+                }
+            }
+            SegmentationFilter::Linked {
+                dimension1_key,
+                dimension2_key,
+                values,
+            } => {
+                let mut linked_conditions = Vec::new();
+                let col1 = PropertyColumn(dimension1_key);
+                let col2 = PropertyColumn(dimension2_key);
+
+                for (dim1_value, dim2_values) in values {
+                    let escaped_dim1_val = escape_sql_identifier(dim1_value);
+                    if dim2_values.is_empty() {
+                        linked_conditions.push(format!("{} = '{escaped_dim1_val}'", col1.path()));
+                    } else {
+                        let dim2_condition = dim2_values
+                            .iter()
+                            .map(|v| {
+                                let escaped_v = escape_sql_identifier(v);
+                                format!("'{escaped_v}'")
+                            })
+                            .collect::<Vec<_>>()
+                            .join(", ");
+                        linked_conditions.push(format!(
+                            "({} = '{escaped_dim1_val}' AND {} IN ({dim2_condition}))",
+                            col1.path(),
+                            col2.path()
+                        ));
+                    }
+                }
+
+                if !linked_conditions.is_empty() {
+                    subquery_conditions.push(format!("({})", linked_conditions.join(" OR ")));
+                }
+            }
+        }
+    }
+
+    // Add value property filter to subquery for non-Count aggregations
+    if let Some(ref value_prop) = params.value_property
+        && !matches!(params.aggregation, MeterAggregation::Count)
+    {
+        let col = PropertyColumn(value_prop);
+        subquery_conditions.push(format!(
+            "{} != '' AND isNotNull(toFloat64OrNull({}))",
+            col.path(),
+            col.path()
+        ));
+    }
+
     // Create deduplicated events subquery
     // Deduplicates by (id, customer_id), picking the latest record by timestamp using LIMIT 1 BY
     let dedup_subquery = format!(
@@ -165,7 +234,6 @@ pub fn query_meter_view_sql(params: QueryMeterParams) -> Result<String, String> 
     // Step 2: Build the main query
     let mut select_columns = Vec::new();
     let mut group_by_columns = Vec::new();
-    let mut where_clauses = Vec::new();
 
     let tz = params
         .window_time_zone
@@ -230,16 +298,8 @@ pub fn query_meter_view_sql(params: QueryMeterParams) -> Result<String, String> 
     };
     select_columns.push(aggregation_column);
 
-    // Handle customer_ids filtering and grouping
+    // Handle customer_ids grouping (filtering already done in subquery)
     if !params.customer_ids.is_empty() {
-        let subjects_condition = params
-            .customer_ids
-            .iter()
-            .map(|id| format!("customer_id = '{}'", escape_sql_identifier(id)))
-            .collect::<Vec<_>>()
-            .join(" OR ");
-        where_clauses.push(format!("({subjects_condition})"));
-
         // Add to group by if not already in user's group_by
         if !params.group_by.contains(&"customer_id".to_string()) {
             group_by_columns.push("customer_id".to_string());
@@ -254,24 +314,12 @@ pub fn query_meter_view_sql(params: QueryMeterParams) -> Result<String, String> 
         select_columns.push(col.as_select());
     }
 
-    // Handle segmentation filters
+    // Handle segmentation grouping (filtering already done in subquery)
     if let Some(ref segmentation) = params.segmentation_filter {
         match segmentation {
             SegmentationFilter::Independent(filters) => {
-                for (column, values) in filters {
-                    if values.is_empty() {
-                        return Err(format!("Empty filter for dimension: {column}"));
-                    }
+                for (column, _values) in filters {
                     let col = PropertyColumn(column);
-                    let column_condition = values
-                        .iter()
-                        .map(|value| {
-                            let escaped_val = escape_sql_identifier(value);
-                            format!("{} = '{escaped_val}'", col.path())
-                        })
-                        .collect::<Vec<_>>()
-                        .join(" OR ");
-                    where_clauses.push(format!("({column_condition})"));
                     group_by_columns.push(col.path());
                     select_columns.push(col.as_select());
                 }
@@ -279,63 +327,21 @@ pub fn query_meter_view_sql(params: QueryMeterParams) -> Result<String, String> 
             SegmentationFilter::Linked {
                 dimension1_key,
                 dimension2_key,
-                values,
+                values: _,
             } => {
-                let mut linked_conditions = Vec::new();
                 let col1 = PropertyColumn(dimension1_key);
                 let col2 = PropertyColumn(dimension2_key);
-
-                for (dim1_value, dim2_values) in values {
-                    let escaped_dim1_val = escape_sql_identifier(dim1_value);
-                    if dim2_values.is_empty() {
-                        linked_conditions.push(format!("{} = '{escaped_dim1_val}'", col1.path()));
-                    } else {
-                        let dim2_condition = dim2_values
-                            .iter()
-                            .map(|v| {
-                                let escaped_v = escape_sql_identifier(v);
-                                format!("'{escaped_v}'")
-                            })
-                            .collect::<Vec<_>>()
-                            .join(", ");
-                        linked_conditions.push(format!(
-                            "({} = '{escaped_dim1_val}' AND {} IN ({dim2_condition}))",
-                            col1.path(),
-                            col2.path()
-                        ));
-                    }
-                }
-
-                if !linked_conditions.is_empty() {
-                    where_clauses.push(format!("({})", linked_conditions.join(" OR ")));
-                    group_by_columns.push(col1.path());
-                    group_by_columns.push(col2.path());
-                    select_columns.push(col1.as_select());
-                    select_columns.push(col2.as_select());
-                }
+                group_by_columns.push(col1.path());
+                group_by_columns.push(col2.path());
+                select_columns.push(col1.as_select());
+                select_columns.push(col2.as_select());
             }
         }
-    }
-
-    // Add value property filter for non-Count aggregations
-    if let Some(ref value_prop) = params.value_property
-        && !matches!(params.aggregation, MeterAggregation::Count)
-    {
-        let col = PropertyColumn(value_prop);
-        where_clauses.push(format!(
-            "{} != '' AND isNotNull(toFloat64OrNull({}))",
-            col.path(),
-            col.path()
-        ));
     }
 
     // Construct the final SQL query with subquery
     let mut sql = format!("SELECT {}", select_columns.join(", "));
     sql.push_str(&format!(" FROM {}", dedup_subquery));
-
-    if !where_clauses.is_empty() {
-        sql.push_str(&format!(" WHERE {}", where_clauses.join(" AND ")));
-    }
     if !group_by_columns.is_empty() {
         sql.push_str(&format!(" GROUP BY {}", group_by_columns.join(", ")));
     }
@@ -391,11 +397,11 @@ mod tests {
                     AND code = 'test_event'
                     AND timestamp >= toDateTime(1704067200)
                     AND timestamp <= toDateTime(1704153600)
+                    AND properties['amount'] != ''
+                    AND isNotNull(toFloat64OrNull(properties['amount']))
                 ORDER BY timestamp DESC
                 LIMIT 1 BY id, customer_id
             )
-            WHERE properties['amount'] != ''
-                AND isNotNull(toFloat64OrNull(properties['amount']))
             GROUP BY
                 tumbleStart(toDateTime(timestamp), toIntervalMinute(1), 'UTC'),
                 tumbleEnd(toDateTime(timestamp), toIntervalMinute(1), 'UTC')
@@ -482,12 +488,11 @@ mod tests {
                     AND code = 'usage'
                     AND timestamp >= toDateTime(1704067200)
                     AND (customer_id = 'cust1' OR customer_id = 'cust2')
+                    AND properties['bytes'] != ''
+                    AND isNotNull(toFloat64OrNull(properties['bytes']))
                 ORDER BY timestamp DESC
                 LIMIT 1 BY id, customer_id
             )
-            WHERE (customer_id = 'cust1' OR customer_id = 'cust2')
-                AND properties['bytes'] != ''
-                AND isNotNull(toFloat64OrNull(properties['bytes']))
             GROUP BY
                 tumbleStart(toDateTime(timestamp), toIntervalHour(1), 'UTC'),
                 tumbleEnd(toDateTime(timestamp), toIntervalHour(1), 'UTC'),
@@ -533,11 +538,11 @@ mod tests {
                 WHERE tenant_id = 'test_ns'
                     AND code = 'transaction'
                     AND timestamp >= toDateTime(1704067200)
+                    AND properties['duration'] != ''
+                    AND isNotNull(toFloat64OrNull(properties['duration']))
                 ORDER BY timestamp DESC
                 LIMIT 1 BY id, customer_id
             )
-            WHERE properties['duration'] != ''
-                AND isNotNull(toFloat64OrNull(properties['duration']))
             GROUP BY
                 tumbleStart(toDateTime(timestamp), toIntervalDay(1), 'UTC'),
                 tumbleEnd(toDateTime(timestamp), toIntervalDay(1), 'UTC'),
@@ -590,13 +595,13 @@ mod tests {
                 WHERE tenant_id = 'test_ns'
                     AND code = 'sale'
                     AND timestamp >= toDateTime(1704067200)
+                    AND (properties['region'] = 'us-east' OR properties['region'] = 'us-west')
+                    AND (properties['tier'] = 'premium')
+                    AND properties['amount'] != ''
+                    AND isNotNull(toFloat64OrNull(properties['amount']))
                 ORDER BY timestamp DESC
                 LIMIT 1 BY id, customer_id
             )
-            WHERE (properties['region'] = 'us-east' OR properties['region'] = 'us-west')
-                AND (properties['tier'] = 'premium')
-                AND properties['amount'] != ''
-                AND isNotNull(toFloat64OrNull(properties['amount']))
             GROUP BY properties['region'], properties['tier']
         "#;
 
@@ -651,13 +656,13 @@ mod tests {
                 WHERE tenant_id = 'test_ns'
                     AND code = 'usage'
                     AND timestamp >= toDateTime(1704067200)
+                    AND ((properties['product'] = 'prod1' AND properties['version'] IN ('v1', 'v2'))
+                         OR (properties['product'] = 'prod2' AND properties['version'] IN ('v3')))
+                    AND properties['count'] != ''
+                    AND isNotNull(toFloat64OrNull(properties['count']))
                 ORDER BY timestamp DESC
                 LIMIT 1 BY id, customer_id
             )
-            WHERE ((properties['product'] = 'prod1' AND properties['version'] IN ('v1', 'v2'))
-                   OR (properties['product'] = 'prod2' AND properties['version'] IN ('v3')))
-                AND properties['count'] != ''
-                AND isNotNull(toFloat64OrNull(properties['count']))
             GROUP BY properties['product'], properties['version']
         "#;
 
@@ -678,13 +683,13 @@ mod tests {
                 WHERE tenant_id = 'test_ns'
                     AND code = 'usage'
                     AND timestamp >= toDateTime(1704067200)
+                    AND ((properties['product'] = 'prod2' AND properties['version'] IN ('v3'))
+                         OR (properties['product'] = 'prod1' AND properties['version'] IN ('v1', 'v2')))
+                    AND properties['count'] != ''
+                    AND isNotNull(toFloat64OrNull(properties['count']))
                 ORDER BY timestamp DESC
                 LIMIT 1 BY id, customer_id
             )
-            WHERE ((properties['product'] = 'prod2' AND properties['version'] IN ('v3'))
-                   OR (properties['product'] = 'prod1' AND properties['version'] IN ('v1', 'v2')))
-                AND properties['count'] != ''
-                AND isNotNull(toFloat64OrNull(properties['count']))
             GROUP BY properties['product'], properties['version']
         "#;
 
@@ -732,11 +737,11 @@ mod tests {
                 WHERE tenant_id = 'test_ns'
                     AND code = 'login'
                     AND timestamp >= toDateTime(1704067200)
+                    AND properties['user_id'] != ''
+                    AND isNotNull(toFloat64OrNull(properties['user_id']))
                 ORDER BY timestamp DESC
                 LIMIT 1 BY id, customer_id
             )
-            WHERE properties['user_id'] != ''
-                AND isNotNull(toFloat64OrNull(properties['user_id']))
             GROUP BY
                 tumbleStart(toDateTime(timestamp), toIntervalDay(1), 'UTC'),
                 tumbleEnd(toDateTime(timestamp), toIntervalDay(1), 'UTC')
@@ -779,11 +784,11 @@ mod tests {
                 WHERE tenant_id = 'test_ns'
                     AND code = 'status'
                     AND timestamp >= toDateTime(1704067200)
+                    AND properties['value'] != ''
+                    AND isNotNull(toFloat64OrNull(properties['value']))
                 ORDER BY timestamp DESC
                 LIMIT 1 BY id, customer_id
             )
-            WHERE properties['value'] != ''
-                AND isNotNull(toFloat64OrNull(properties['value']))
         "#;
 
         assert_eq!(normalize_sql(&result), normalize_sql(expected));
@@ -872,11 +877,11 @@ mod tests {
                 WHERE tenant_id = 'test_ns'
                     AND code = 'purchase'
                     AND timestamp >= toDateTime(1704067200)
+                    AND properties['price'] != ''
+                    AND isNotNull(toFloat64OrNull(properties['price']))
                 ORDER BY timestamp DESC
                 LIMIT 1 BY id, customer_id
             )
-            WHERE properties['price'] != ''
-                AND isNotNull(toFloat64OrNull(properties['price']))
         "#;
 
         assert_eq!(normalize_sql(&result), normalize_sql(expected));
@@ -960,11 +965,11 @@ mod tests {
                 WHERE tenant_id = 'test_ns'
                     AND code = 'purchase'
                     AND timestamp >= toDateTime(1704067200)
+                    AND properties['amount'] != ''
+                    AND isNotNull(toFloat64OrNull(properties['amount']))
                 ORDER BY timestamp DESC
                 LIMIT 1 BY id, customer_id
             )
-            WHERE properties['amount'] != ''
-                AND isNotNull(toFloat64OrNull(properties['amount']))
             GROUP BY properties['code']
         "#;
 
@@ -1010,12 +1015,12 @@ mod tests {
                 WHERE tenant_id = 'test_ns'
                     AND code = 'usage'
                     AND timestamp >= toDateTime(1704067200)
+                    AND (properties['customer_id'] = 'cust1' OR properties['customer_id'] = 'cust2')
+                    AND properties['bytes'] != ''
+                    AND isNotNull(toFloat64OrNull(properties['bytes']))
                 ORDER BY timestamp DESC
                 LIMIT 1 BY id, customer_id
             )
-            WHERE (properties['customer_id'] = 'cust1' OR properties['customer_id'] = 'cust2')
-                AND properties['bytes'] != ''
-                AND isNotNull(toFloat64OrNull(properties['bytes']))
             GROUP BY properties['customer_id']
         "#;
 
