@@ -6,7 +6,7 @@ use chrono::Days;
 use common_domain::ids::BillableMetricId;
 use itertools::Itertools;
 use metering::connectors::clickhouse::sql::get_meter_view_name;
-use metering::ingest::domain::{PreprocessedEventRow, RawEventRow};
+use metering::ingest::domain::RawEventRow;
 use metering_grpc::meteroid::metering::v1::{Event, IngestRequest, event};
 use meteroid::clients::usage::MeteringUsageClient;
 use meteroid::workers::pgmq::processors::{run_metric_sync, run_outbox_dispatch};
@@ -39,10 +39,6 @@ async fn test_metering_ingestion() {
         metering_it::container::start_clickhouse().await;
 
     metering_it::kafka::create_topic(kafka_port, "meteroid-events-raw")
-        .await
-        .expect("Could not create topic");
-
-    metering_it::kafka::create_topic(kafka_port, "meteroid-events-preprocessed")
         .await
         .expect("Could not create topic");
 
@@ -157,6 +153,7 @@ async fn test_metering_ingestion() {
 
     let clickhouse_client = metering_it::clickhouse::get_client(ch_http_port);
 
+    // todo remove me after the raw aggregation is tested enough
     wait_for_clichouse_meter(&created_metric.id, &clickhouse_client).await;
 
     let customer_1 = ids::CUST_SPOTIFY_ID;
@@ -171,7 +168,7 @@ async fn test_metering_ingestion() {
     let period_1_start = period_2_start.checked_sub_days(Days::new(20)).unwrap();
 
     // we consider a billing period 1, customer 1, inference endpoint
-    let to_ingest = vec![
+    let mut to_ingest = vec![
         Event {
             id: Uuid::now_v7().to_string(),
             code: "api_calls".to_string(),
@@ -326,6 +323,9 @@ async fn test_metering_ingestion() {
         },
     ];
 
+    // simulate duplicate events
+    to_ingest.extend(to_ingest.clone());
+
     let to_ingest_len = to_ingest.len();
 
     // we ingest events in metering
@@ -349,27 +349,6 @@ async fn test_metering_ingestion() {
 
     assert_raw_events_eq(&to_ingest, &raw_events);
     log::info!("Raw clickhouse events validated!");
-
-    log::info!("Validating preprocessed clickhouse events...");
-    let raw_events: Vec<RawEventRow> = raw_events
-        .into_iter()
-        .filter(|e| e.code == "api_calls")
-        .collect();
-
-    let preprocessed_events =
-        get_eventually_preprocessed_events(&clickhouse_client, raw_events.len())
-            .await
-            .expect("Failed to validate preprocessed events in ClickHouse");
-
-    assert_preprocessed_events_eq(&raw_events, &preprocessed_events);
-
-    for event in &preprocessed_events {
-        assert_eq!(
-            event.billable_metric_id.as_str(),
-            created_metric.id.as_str()
-        );
-    }
-    log::info!("Preprocessed clickhouse events validated!");
 
     log::info!("Validating clickhouse usage data...");
 
@@ -439,64 +418,6 @@ fn assert_raw_event_eq(left: &Event, right: &RawEventRow) {
     );
 }
 
-fn assert_preprocessed_events_eq(left: &[RawEventRow], right: &[PreprocessedEventRow]) {
-    fn sort_by<T, F>(items: &[T], sort_fn: F) -> Vec<T>
-    where
-        T: Clone,
-        F: Fn(&T) -> &str,
-    {
-        let mut vec: Vec<T> = items.to_vec();
-        vec.sort_by(|a, b| sort_fn(a).cmp(sort_fn(b)));
-        vec
-    }
-
-    let sorted_right = sort_by(right, |a| &a.id);
-    let sorted_left = sort_by(left, |a| &a.id);
-
-    assert_eq!(sorted_left.len(), sorted_right.len());
-
-    for (event, right_event) in sorted_left.iter().zip(sorted_right.iter()) {
-        assert_preprocessed_event_eq(event, right_event);
-    }
-}
-
-fn assert_preprocessed_event_eq(left: &RawEventRow, right: &PreprocessedEventRow) {
-    assert_eq!(left.id, right.id);
-    assert_eq!(left.code, right.code);
-
-    assert_eq!(&left.customer_id, &right.customer_id);
-    assert_eq!(left.timestamp.to_rfc3339(), right.timestamp.to_rfc3339());
-    assert_eq!(
-        left.properties
-            .iter()
-            .sorted_by(|a, b| a.0.cmp(&b.0))
-            .map(|(k, v)| (k.as_str(), v.as_str()))
-            .collect_vec(),
-        right
-            .properties
-            .iter()
-            .sorted_by(|a, b| a.0.cmp(&b.0))
-            .map(|(k, v)| (k.as_str(), v.as_str()))
-            .collect_vec(),
-    );
-
-    assert_eq!(right.group_by_dim1.clone(), Some("inference".to_string()));
-
-    let left_value = left
-        .properties
-        .iter()
-        .find(|(k, _)| k == "tokens")
-        .and_then(|(_, v)| v.parse::<rust_decimal::Decimal>().ok());
-
-    let right_value = right
-        .value
-        .as_ref()
-        .and_then(|v| v.to_string().parse::<rust_decimal::Decimal>().ok());
-
-    assert!(left_value.is_some());
-    assert_eq!(left_value, right_value)
-}
-
 async fn wait_for_clichouse_meter(bm_id: &str, ch_client: &clickhouse::Client) {
     let view_name = get_meter_view_name(ids::TENANT_ID.to_string().as_str(), bm_id);
     let view_name = view_name.strip_prefix("meteroid.").unwrap();
@@ -550,37 +471,6 @@ async fn get_eventually_raw_events(
                 if vec.len() != expected_count {
                     Err(anyhow::anyhow!(
                         "Expected {expected_count} but got {} raw events",
-                        vec.len()
-                    ))
-                } else {
-                    Ok(vec)
-                }
-            }
-            Err(e) => Err(anyhow::anyhow!(e)),
-        }
-    })
-    .retry(
-        backon::ConstantBuilder::default()
-            .with_delay(Duration::from_millis(100))
-            .with_max_times(60),
-    )
-    .await
-}
-
-async fn get_eventually_preprocessed_events(
-    ch_client: &clickhouse::Client,
-    expected_count: usize,
-) -> anyhow::Result<Vec<PreprocessedEventRow>> {
-    (|| async {
-        match ch_client
-            .query("SELECT * FROM preprocessed_events")
-            .fetch_all::<PreprocessedEventRow>()
-            .await
-        {
-            Ok(vec) => {
-                if vec.len() != expected_count {
-                    Err(anyhow::anyhow!(
-                        "Expected {expected_count} but got {} preprocessed events",
                         vec.len()
                     ))
                 } else {

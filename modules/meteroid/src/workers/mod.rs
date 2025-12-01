@@ -43,7 +43,7 @@ pub async fn spawn_workers(
     store: Arc<meteroid_store::Store>,
     services: Arc<Services>,
     object_store_service: Arc<S3Storage>,
-    usage_clients: Arc<dyn UsageClient>,
+    _usage_clients: Arc<dyn UsageClient>,
     currency_rates_service: Arc<dyn CurrencyRatesService>,
     pdf_rendering_service: Arc<PdfRenderingService>,
     mailer_service: Arc<dyn MailerService>,
@@ -82,7 +82,7 @@ pub async fn spawn_workers(
     {
         let store = store.clone();
         join_set.spawn(async move {
-            processors::run_metric_sync(store, usage_clients).await;
+            processors::run_noop_metric_sync(store).await;
         });
     }
     {

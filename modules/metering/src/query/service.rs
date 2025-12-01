@@ -40,17 +40,11 @@ impl UsageQueryServiceGrpc for UsageQueryService {
     ) -> Result<Response<QueryMeterResponse>, Status> {
         let req = request.into_inner();
 
-        let aggregation_type: AggregationType = req
-            .meter_aggregation_type
-            .try_into()
-            .map_err(|_| Status::internal("unknown aggregation_type"))?;
+        let aggregation_type: AggregationType = req.meter_aggregation_type();
 
         let meter_aggregation = aggregation_type.into();
 
-        let window_size_grpc: QueryWindowSize = req
-            .window_size
-            .try_into()
-            .map_err(|_| Status::invalid_argument("unknown window_size"))?;
+        let window_size_grpc: QueryWindowSize = req.window_size();
 
         let window_size = match window_size_grpc {
             QueryWindowSize::Minute => Some(WindowSize::Minute),
@@ -101,6 +95,7 @@ impl UsageQueryServiceGrpc for UsageQueryService {
             namespace: req.tenant_id,
             meter_slug: req.meter_slug,
             code: req.code,
+            value_property: req.value_property,
             customer_ids: req.customer_ids,
             group_by: req.group_by_properties,
             window_size,

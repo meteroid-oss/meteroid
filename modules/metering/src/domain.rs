@@ -60,6 +60,7 @@ pub struct QueryMeterParams {
     pub namespace: String,
     pub meter_slug: String,
     pub code: String,
+    pub value_property: Option<String>,
     pub customer_ids: Vec<String>,
     pub segmentation_filter: Option<SegmentationFilter>,
     pub group_by: Vec<String>,

@@ -1,6 +1,6 @@
 use crate::services::invoice_rendering::PdfRenderingService;
 use crate::services::storage::ObjectStoreService;
-use crate::workers::pgmq::billable_metric_sync::BillableMetricSync;
+use crate::workers::pgmq::billable_metric_sync::{BillableMetricSync, NoopBillableMetricSync};
 use crate::workers::pgmq::hubspot_sync::HubspotSync;
 use crate::workers::pgmq::invoice_orchestration::InvoiceOrchestration;
 use crate::workers::pgmq::outbox::{PgmqOutboxDispatch, PgmqOutboxProxy};
@@ -126,6 +126,24 @@ pub async fn run_metric_sync(store: Arc<Store>, usage_client: Arc<dyn UsageClien
 
     run(ProcessorConfig {
         name: processor_name("BillableMetricSync"),
+        queue,
+        handler: processor,
+        store,
+        qty: MessageReadQty(10),
+        vt: MessageReadVtSec(20),
+        delete_succeeded: true,
+        sleep_duration: std::time::Duration::from_millis(1500),
+        max_read_count: ReadCt(10),
+    })
+    .await;
+}
+
+pub async fn run_noop_metric_sync(store: Arc<Store>) {
+    let queue = PgmqQueue::BillableMetricSync;
+    let processor = Arc::new(NoopBillableMetricSync);
+
+    run(ProcessorConfig {
+        name: processor_name("NoopBillableMetricSync"),
         queue,
         handler: processor,
         store,

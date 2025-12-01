@@ -1,5 +1,5 @@
 use crate::auth::ExternalApiAuthLayer;
-use crate::config::{Config, KafkaConfig};
+use crate::config::Config;
 
 use crate::ingest;
 
@@ -23,8 +23,6 @@ use crate::connectors::clickhouse::extensions::openstack_ext::OpenstackClickhous
 
 #[cfg(not(feature = "clickhouse"))]
 use crate::connectors::PrintConnector;
-#[cfg(feature = "kafka")]
-use crate::preprocessor::run_raw_preprocessor;
 
 fn only_internal(path: &str) -> bool {
     path.starts_with("/meteroid.metering.v1.UsageQueryService")
@@ -42,27 +40,10 @@ fn reject_all(_path: &str) -> bool {
 
 pub async fn start_server(config: Config) {
     let internal_client = create_meteroid_internal_client(&config).await;
-    #[cfg(feature = "kafka")]
-    let internal_client_clone = internal_client.clone();
     let api_server = start_api_server(config.clone(), internal_client);
-    #[cfg(feature = "kafka")]
-    let kafka_workers = create_kafka_workers(&config.kafka, internal_client_clone);
 
-    #[cfg(feature = "kafka")]
-    tokio::select! {
-          result = api_server => {
-            if let Err(e) = result {
-                log::error!("Error starting API server: {e:?}");
-            }
-        },
-        () = kafka_workers => {
-              log::warn!("Workers terminated");
-        }
-    }
-
-    #[cfg(not(feature = "kafka"))]
     if let Err(e) = api_server.await {
-        log::error!("Error starting API server: {}", e);
+        log::error!("Error starting API server: {:?}", e);
     }
 }
 
@@ -160,11 +141,4 @@ async fn create_meteroid_internal_client(
     let service = build_layered_client_service(channel, &config.internal_auth);
 
     InternalServiceClient::new(service)
-}
-
-async fn create_kafka_workers(
-    config: &KafkaConfig,
-    internal_client: InternalServiceClient<LayeredClientService>,
-) {
-    run_raw_preprocessor(config, internal_client).await;
 }

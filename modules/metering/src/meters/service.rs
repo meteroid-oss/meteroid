@@ -35,10 +35,7 @@ impl MetersServiceGrpc for MetersService {
             .meter
             .ok_or_else(|| Status::invalid_argument("No meter provided"))?;
 
-        let aggregation_type: AggregationType = meter
-            .aggregation
-            .try_into()
-            .map_err(|_| Status::internal("unknown aggregation_type"))?;
+        let aggregation_type: AggregationType = meter.aggregation();
 
         let meter_aggregation = aggregation_type.into();
 

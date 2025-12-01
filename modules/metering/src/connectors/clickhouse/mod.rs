@@ -13,6 +13,7 @@ pub mod extensions;
 pub mod sql;
 
 use crate::connectors::clickhouse::extensions::ConnectorClickhouseExtension;
+use crate::connectors::clickhouse::sql::PropertyColumn;
 use crate::connectors::json::JsonFieldExtractor;
 use crate::migrations;
 use clickhouse::Client;
@@ -88,7 +89,7 @@ impl Connector for ClickhouseConnector {
             .and_then(|ext| ext.build_query(&params))
         {
             Some(ext) => ext,
-            None => sql::query_meter::query_meter_view_sql(params.clone())
+            None => sql::query_raw::query_meter_view_sql(params.clone())
                 .map_err(ConnectorError::InvalidQuery)?,
         };
 
@@ -135,7 +136,8 @@ impl Connector for ClickhouseConnector {
             let mut group_by: HashMap<String, Option<String>> = HashMap::new();
 
             for column_name in &params.group_by {
-                let column_value: Option<String> = row.get_string(column_name.as_str());
+                let col = PropertyColumn::from_str_ref(column_name);
+                let column_value: Option<String> = row.get_string(&col.as_alias());
                 group_by.insert(column_name.clone(), column_value);
             }
 
@@ -143,7 +145,8 @@ impl Connector for ClickhouseConnector {
                 match segmentation {
                     crate::domain::SegmentationFilter::Independent(filters) => {
                         for (column_name, _) in filters {
-                            let column_value: Option<String> = row.get_string(column_name.as_str());
+                            let col = PropertyColumn::from_str_ref(column_name);
+                            let column_value: Option<String> = row.get_string(&col.as_alias());
                             group_by.insert(column_name.clone(), column_value);
                         }
                     }
@@ -152,8 +155,10 @@ impl Connector for ClickhouseConnector {
                         dimension2_key,
                         ..
                     } => {
-                        let dim1_value: Option<String> = row.get_string(dimension1_key.as_str());
-                        let dim2_value: Option<String> = row.get_string(dimension2_key.as_str());
+                        let col1 = PropertyColumn::from_str_ref(dimension1_key);
+                        let col2 = PropertyColumn::from_str_ref(dimension2_key);
+                        let dim1_value: Option<String> = row.get_string(col1.as_alias().as_str());
+                        let dim2_value: Option<String> = row.get_string(col2.as_alias().as_str());
                         group_by.insert(dimension1_key.clone(), dim1_value);
                         group_by.insert(dimension2_key.clone(), dim2_value);
                     }

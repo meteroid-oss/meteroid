@@ -185,6 +185,7 @@ impl UsageClient for MeteringUsageClient {
             window_size: QueryWindowSize::AggregateAll.into(),
             timezone: None,
             segmentation_filter,
+            value_property: metric.aggregation_key.clone(),
         };
 
         let mut metering_client_mut = self.usage_grpc_client.clone();
