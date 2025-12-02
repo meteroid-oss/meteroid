@@ -51,7 +51,7 @@ pub mod subscriptions {
             SubscriptionStatusEnum::Cancelled => proto2::SubscriptionStatus::Canceled,
             SubscriptionStatusEnum::Completed => proto2::SubscriptionStatus::Ended,
             SubscriptionStatusEnum::Superseded => proto2::SubscriptionStatus::Ended,
-            SubscriptionStatusEnum::Errored => proto2::SubscriptionStatus::Ended, // Terminal state due to processing failures
+            SubscriptionStatusEnum::Errored => proto2::SubscriptionStatus::Errored,
         }
     }
 
@@ -75,6 +75,7 @@ pub mod subscriptions {
                 SubscriptionStatusEnum::Completed,
                 SubscriptionStatusEnum::Superseded,
             ],
+            proto2::SubscriptionStatus::Errored => vec![SubscriptionStatusEnum::Errored],
         }
     }
 
@@ -114,6 +115,11 @@ pub mod subscriptions {
             auto_advance_invoices: s.auto_advance_invoices,
             charge_automatically: s.charge_automatically,
             pending_checkout: s.pending_checkout,
+            current_period_start: Some(s.current_period_start.as_proto()),
+            current_period_end: s.current_period_end.as_proto(),
+            error_count: s.error_count,
+            last_error: s.last_error,
+            next_retry: s.next_retry.as_proto(),
         })
     }
 
@@ -234,6 +240,11 @@ pub mod subscriptions {
                 auto_advance_invoices: sub.auto_advance_invoices,
                 charge_automatically: sub.charge_automatically,
                 pending_checkout: sub.pending_checkout,
+                current_period_start: Some(sub.current_period_start.as_proto()),
+                current_period_end: sub.current_period_end.as_proto(),
+                error_count: sub.error_count,
+                last_error: sub.last_error,
+                next_retry: sub.next_retry.as_proto(),
             }),
             schedules: vec![], // TODO
             price_components: details

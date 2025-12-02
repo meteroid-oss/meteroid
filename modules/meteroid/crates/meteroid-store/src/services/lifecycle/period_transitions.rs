@@ -1,7 +1,7 @@
 use crate::StoreResult;
-use crate::errors::StoreError;
 use crate::services::{InvoiceBillingMode, Services};
 use crate::store::PgConn;
+use crate::utils::errors::format_error_chain;
 use crate::utils::periods::calculate_advance_period_range;
 use chrono::{Days, Duration, NaiveDate, NaiveDateTime, Utc};
 use diesel_async::scoped_futures::ScopedFutureExt;
@@ -13,13 +13,9 @@ use diesel_models::scheduled_events::ScheduledEventRow;
 use diesel_models::subscriptions::{
     SubscriptionCycleErrorRowPatch, SubscriptionCycleRowPatch, SubscriptionRow,
 };
-use error_stack::Report;
 
 const BATCH_SIZE: i64 = 10;
-
-/// Maximum number of retry attempts before marking a subscription as Errored.
-/// Must match the value in diesel_models::query::subscriptions_lifecycle.
-const MAX_CYCLE_RETRIES: i32 = SubscriptionRow::MAX_CYCLE_RETRIES;
+const MAX_CYCLE_RETRIES: i32 = 10;
 
 impl Services {
     pub async fn get_and_process_cycle_transitions(&self) -> StoreResult<usize> {
@@ -78,14 +74,20 @@ impl Services {
                             .patch(tx)
                             .await?;
                         } else {
-                            // Clear error state on success
+
+                            let new_status = if subscription.status == SubscriptionStatusEnum::Errored {
+                                Some(SubscriptionStatusEnum::Active) // or previous status ? TODO
+                            } else {
+                                None
+                            };
+
                             SubscriptionCycleErrorRowPatch {
                                 id: subscription.id,
                                 tenant_id: subscription.tenant_id,
                                 last_error: Some(None),
                                 next_retry: Some(None),
                                 error_count: Some(0),
-                                status: None, // Don't change status on success (it's set elsewhere)
+                                status: None, // TODO clear error status if any ?
                             }
                             .patch(tx)
                             .await?;
@@ -331,32 +333,4 @@ fn calculate_retry_time(error_count: i32) -> NaiveDateTime {
 
     let jitter = rand::random::<u64>() % 60; // up to 1 min
     Utc::now().naive_utc() + Duration::minutes(delay_minutes) + Duration::seconds(jitter as i64)
-}
-
-/// Formats the full error chain from an error_stack Report.
-/// This captures all context/causes, not just the top-level error message.
-fn format_error_chain(err: &Report<StoreError>) -> String {
-    let mut messages = Vec::new();
-
-    // Get the root error
-    if let Some(store_error) = err.downcast_ref::<StoreError>() {
-        messages.push(store_error.to_string());
-    }
-
-    // Collect all context messages from the chain
-    for frame in err.frames() {
-        // Try to get any attached string messages
-        if let Some(msg) = frame.downcast_ref::<String>() {
-            messages.push(msg.clone());
-        } else if let Some(msg) = frame.downcast_ref::<&str>() {
-            messages.push((*msg).to_string());
-        }
-    }
-
-    if messages.is_empty() {
-        // Fallback to debug format if we couldn't extract messages
-        format!("{:?}", err)
-    } else {
-        messages.join(" -> ")
-    }
 }

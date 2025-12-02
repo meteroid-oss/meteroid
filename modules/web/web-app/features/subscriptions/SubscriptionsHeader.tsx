@@ -53,6 +53,7 @@ export const SubscriptionsHeader: FunctionComponent<SubscriptionsProps> = ({
             { label: 'Canceled', value: 'canceled' },
             { label: 'Ended', value: 'ended' },
             { label: 'Trial Expired', value: 'trial_expired' },
+            { label: 'Errored', value: 'errored' },
           ]}
           hook={[statusFilter, setStatusFilter]}
         />

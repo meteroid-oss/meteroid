@@ -115,6 +115,10 @@ function formatStatus(status: SubscriptionStatus): ReactNode {
       return <Badge variant="warning">Pending</Badge>
     case SubscriptionStatus.TRIALING:
       return <Badge variant="outline">Trial</Badge>
+    case SubscriptionStatus.TRIAL_EXPIRED:
+      return <Badge variant="warning">Trial Expired</Badge>
+    case SubscriptionStatus.ERRORED:
+      return <Badge variant="destructive">Errored</Badge>
     default:
       return 'Unknown'
   }

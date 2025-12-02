@@ -126,9 +126,6 @@ impl SubscriptionRow {
         Ok(())
     }
 
-    /// Maximum number of retry attempts before marking a subscription as Errored
-    pub const MAX_CYCLE_RETRIES: i32 = 10;
-
     pub async fn get_due_subscription_for_update(
         conn: &mut PgConn,
         limit: i64,

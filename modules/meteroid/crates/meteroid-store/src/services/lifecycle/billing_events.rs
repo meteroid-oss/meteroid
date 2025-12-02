@@ -4,6 +4,7 @@ use crate::domain::scheduled_events::{ScheduledEvent, ScheduledEventData};
 use crate::errors::StoreError;
 use crate::services::Services;
 use crate::store::PgConn;
+use crate::utils::errors::format_error_chain;
 use chrono::{Duration, NaiveDateTime, Utc};
 use diesel_async::scoped_futures::ScopedFutureExt;
 use diesel_models::enums::SubscriptionStatusEnum;
@@ -75,21 +76,29 @@ impl Services {
                 }
                 Err(err) => {
                     let inner = err.current_context();
+                    let error_message = format_error_chain(&err);
+
                     // Handle error
                     if self.should_retry_event(retries, inner) {
                         // Retry logic
                         let retry_time = calculate_retry_time(retries);
-                        ScheduledEventRow::retry_event(
-                            conn,
-                            &event_id,
+                        log::warn!(
+                            "Scheduled event {} failed (attempt {}/5), retrying at {:?}: {}",
+                            event_id,
+                            retries + 1,
                             retry_time,
-                            &inner.to_string(),
-                        )
-                        .await?;
+                            error_message
+                        );
+                        ScheduledEventRow::retry_event(conn, &event_id, retry_time, &error_message)
+                            .await?;
                     } else {
                         // Mark as failed
-                        ScheduledEventRow::mark_as_failed(conn, &event_id, &inner.to_string())
-                            .await?;
+                        log::error!(
+                            "Scheduled event {} exceeded max retries, marking as failed: {}",
+                            event_id,
+                            error_message
+                        );
+                        ScheduledEventRow::mark_as_failed(conn, &event_id, &error_message).await?;
                     }
                 }
             }

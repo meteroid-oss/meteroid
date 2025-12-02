@@ -30,6 +30,7 @@ enum SubscriptionStatus {
   CANCELED = 3;
   ENDED = 4;
   TRIAL_EXPIRED = 5;
+  ERRORED = 6;  // Failed to process after max retries
 }
 
 message Subscription {
@@ -67,6 +68,13 @@ message Subscription {
   optional string purchase_order = 33;
   bool auto_advance_invoices = 34;
   bool charge_automatically = 35;
+
+  // Billing cycle and error tracking fields
+  optional string current_period_start = 37;
+  optional string current_period_end = 38;
+  int32 error_count = 39;
+  optional string last_error = 40;
+  optional string next_retry = 41;
 }
 
 message SubscriptionDetails {
