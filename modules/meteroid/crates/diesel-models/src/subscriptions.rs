@@ -204,4 +204,5 @@ pub struct SubscriptionCycleErrorRowPatch {
     pub last_error: Option<Option<String>>,
     pub next_retry: Option<Option<NaiveDateTime>>,
     pub error_count: Option<i32>,
+    pub status: Option<SubscriptionStatusEnum>,
 }

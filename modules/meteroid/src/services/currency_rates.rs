@@ -85,7 +85,7 @@ impl OpenexchangeRatesService {
             .get(url)
             .send()
             .await
-            .change_context(CurrencyRatesError::FetchFailed)?;
+            .change_context(CurrencyRatesError::FetchFailed)?; // TODO retry with delay
 
         let rates = response
             .json::<ExchangeRates>()

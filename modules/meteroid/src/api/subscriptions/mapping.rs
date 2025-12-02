@@ -51,6 +51,7 @@ pub mod subscriptions {
             SubscriptionStatusEnum::Cancelled => proto2::SubscriptionStatus::Canceled,
             SubscriptionStatusEnum::Completed => proto2::SubscriptionStatus::Ended,
             SubscriptionStatusEnum::Superseded => proto2::SubscriptionStatus::Ended,
+            SubscriptionStatusEnum::Errored => proto2::SubscriptionStatus::Ended, // Terminal state due to processing failures
         }
     }
 

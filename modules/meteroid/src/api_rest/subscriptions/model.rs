@@ -201,6 +201,7 @@ pub enum SubscriptionStatusEnum {
     Cancelled,
     Completed,
     Superseded,
+    Errored,
 }
 
 #[derive(ToSchema, Serialize, Deserialize, Clone, Debug)]

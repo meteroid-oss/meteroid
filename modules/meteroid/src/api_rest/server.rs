@@ -7,7 +7,8 @@ use crate::services::storage::ObjectStoreService;
 use axum::response::Response;
 use axum::routing::get;
 use axum::{
-    Json, Router, extract::DefaultBodyLimit, http::StatusCode, http::Uri, response::IntoResponse,
+    Json, Router, extract::DefaultBodyLimit, extract::Path, http::StatusCode, http::Uri,
+    response::IntoResponse,
 };
 use meteroid_store::{Services, Store};
 use std::any::Any;
@@ -67,6 +68,7 @@ pub async fn start_rest_server(
 
     let app = Router::new()
         .route("/health", get(|| async { "OK" }))
+        .route("/id/{id}", get(resolve_id))
         .merge(SwaggerUi::new("/swagger-ui").url("/api-docs/openapi.json", open_api.clone()))
         .merge(Redoc::with_url("/redoc", open_api.clone()))
         .merge(RapiDoc::new("/api-docs/openapi.json").path("/rapidoc"))
@@ -112,4 +114,16 @@ fn handle_500(_panic: Box<dyn Any + Send>) -> Response {
     });
 
     (StatusCode::INTERNAL_SERVER_ERROR, body).into_response()
+}
+
+async fn resolve_id(Path(id): Path<String>) -> impl IntoResponse {
+    let base62_part = id.rsplit_once('_').map(|(_, b)| b).unwrap_or(&id);
+
+    match base62::decode(base62_part) {
+        Ok(decoded) => {
+            let uuid = uuid::Uuid::from_u128(decoded.rotate_right(67));
+            (StatusCode::OK, uuid.to_string())
+        }
+        Err(_) => (StatusCode::BAD_REQUEST, "invalid id".to_string()),
+    }
 }

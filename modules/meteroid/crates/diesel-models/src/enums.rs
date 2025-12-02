@@ -265,6 +265,7 @@ pub enum SubscriptionStatusEnum {
     Cancelled,
     Completed,
     Superseded, // upgrade/downgrade
+    Errored,    // failed to process after max retries
 }
 
 #[derive(diesel_derive_enum::DbEnum, Debug, Clone, PartialEq)]
