@@ -4046,7 +4046,8 @@
           "SUSPENDED",
           "CANCELLED",
           "COMPLETED",
-          "SUPERSEDED"
+          "SUPERSEDED",
+          "ERRORED"
         ]
       },
       "TaxBreakdownItem": {

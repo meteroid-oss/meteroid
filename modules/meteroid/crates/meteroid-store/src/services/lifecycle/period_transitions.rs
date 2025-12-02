@@ -74,20 +74,13 @@ impl Services {
                             .patch(tx)
                             .await?;
                         } else {
-
-                            let new_status = if subscription.status == SubscriptionStatusEnum::Errored {
-                                Some(SubscriptionStatusEnum::Active) // or previous status ? TODO
-                            } else {
-                                None
-                            };
-
                             SubscriptionCycleErrorRowPatch {
                                 id: subscription.id,
                                 tenant_id: subscription.tenant_id,
                                 last_error: Some(None),
                                 next_retry: Some(None),
                                 error_count: Some(0),
-                                status: None, // TODO clear error status if any ?
+                                status: None,
                             }
                             .patch(tx)
                             .await?;
