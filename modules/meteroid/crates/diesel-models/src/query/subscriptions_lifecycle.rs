@@ -7,7 +7,7 @@ use crate::subscriptions::{
 use crate::{DbResult, PgConn};
 
 use diesel::dsl::not;
-use diesel::{ExpressionMethods, QueryDsl, debug_query};
+use diesel::{BoolExpressionMethods, ExpressionMethods, QueryDsl, debug_query};
 use diesel_async::RunQueryDsl;
 
 use crate::enums::{CycleActionEnum, SubscriptionStatusEnum};
@@ -132,14 +132,18 @@ impl SubscriptionRow {
     ) -> DbResult<Vec<SubscriptionRow>> {
         use crate::schema::subscription::dsl;
 
+        let now = chrono::Utc::now().naive_utc();
+
         let query = dsl::subscription
-            .filter(dsl::current_period_end.le(chrono::Utc::now().naive_utc().date()))
-            .filter(dsl::error_count.le(3))
+            .filter(dsl::current_period_end.le(now.date()))
+            // Only process if next_retry is null (no error) or next_retry time has passed
+            .filter(dsl::next_retry.is_null().or(dsl::next_retry.le(now)))
             .filter(not(dsl::status.eq_any(vec![
                 SubscriptionStatusEnum::Cancelled,
                 SubscriptionStatusEnum::Completed,
                 SubscriptionStatusEnum::Superseded,
                 SubscriptionStatusEnum::Suspended,
+                SubscriptionStatusEnum::Errored,
             ])))
             .order_by(dsl::current_period_end.asc())
             .limit(limit)

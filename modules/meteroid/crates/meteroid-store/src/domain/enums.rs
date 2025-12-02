@@ -358,6 +358,7 @@ pub enum SubscriptionStatusEnum {
     Cancelled,
     Completed,
     Superseded, // upgrade/downgrade
+    Errored,    // failed to process after max retries
 }
 impl SubscriptionStatusEnum {
     pub fn as_screaming_snake_case(&self) -> String {
@@ -372,6 +373,7 @@ impl SubscriptionStatusEnum {
             SubscriptionStatusEnum::Cancelled => "CANCELLED",
             SubscriptionStatusEnum::Completed => "COMPLETED",
             SubscriptionStatusEnum::Superseded => "SUPERSEDED",
+            SubscriptionStatusEnum::Errored => "ERRORED",
         }
         .to_string()
     }

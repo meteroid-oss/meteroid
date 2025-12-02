@@ -1,6 +1,7 @@
 use crate::StoreResult;
 use crate::services::{InvoiceBillingMode, Services};
 use crate::store::PgConn;
+use crate::utils::errors::format_error_chain;
 use crate::utils::periods::calculate_advance_period_range;
 use chrono::{Days, Duration, NaiveDate, NaiveDateTime, Utc};
 use diesel_async::scoped_futures::ScopedFutureExt;
@@ -14,6 +15,7 @@ use diesel_models::subscriptions::{
 };
 
 const BATCH_SIZE: i64 = 10;
+const MAX_CYCLE_RETRIES: i32 = 10;
 
 impl Services {
     pub async fn get_and_process_cycle_transitions(&self) -> StoreResult<usize> {
@@ -32,31 +34,53 @@ impl Services {
 
                         // Process the cycle transition
                         if let Err(err) = self.process_cycle_transition(tx, subscription).await {
-                            log::error!(
-                                "Error processing cycle transition for subscription {}: {:?}",
-                                subscription.id,
-                                err
-                            );
-                            // should we have a failure / errored terminal state ?
+                            let new_error_count = subscription.error_count + 1;
+                            let error_message = format_error_chain(&err);
+
+                            // Check if we've exceeded max retries
+                            let (status, next_retry) = if new_error_count >= MAX_CYCLE_RETRIES {
+                                log::error!(
+                                    "Subscription {} exceeded max retries ({}), marking as Errored. Error: {}",
+                                    subscription.id,
+                                    MAX_CYCLE_RETRIES,
+                                    error_message
+                                );
+                                (
+                                    Some(SubscriptionStatusEnum::Errored),
+                                    Some(None), // Clear next_retry since we're done retrying
+                                )
+                            } else {
+                                log::warn!(
+                                    "Error processing cycle transition for subscription {} (attempt {}/{}): {}",
+                                    subscription.id,
+                                    new_error_count,
+                                    MAX_CYCLE_RETRIES,
+                                    error_message
+                                );
+                                (
+                                    None, // Don't change status yet
+                                    Some(Some(calculate_retry_time(new_error_count))),
+                                )
+                            };
+
                             SubscriptionCycleErrorRowPatch {
                                 id: subscription.id,
                                 tenant_id: subscription.tenant_id,
-                                last_error: Some(Some(err.to_string())),
-                                next_retry: Some(Some(calculate_retry_time(
-                                    subscription.error_count,
-                                ))),
-                                error_count: Some(subscription.error_count + 1),
+                                last_error: Some(Some(error_message)),
+                                next_retry,
+                                error_count: Some(new_error_count),
+                                status,
                             }
                             .patch(tx)
                             .await?;
                         } else {
-                            // TODO mark as processed / detect unchanged (avoid the risk of loops)
                             SubscriptionCycleErrorRowPatch {
                                 id: subscription.id,
                                 tenant_id: subscription.tenant_id,
                                 last_error: Some(None),
                                 next_retry: Some(None),
                                 error_count: Some(0),
+                                status: None,
                             }
                             .patch(tx)
                             .await?;
@@ -284,11 +308,20 @@ struct NextCycle {
     should_bill: bool,
 }
 
-fn calculate_retry_time(retries: i32) -> NaiveDateTime {
-    let delay_minutes = match retries {
+fn calculate_retry_time(error_count: i32) -> NaiveDateTime {
+    // Exponential backoff with reasonable caps for 10 retries
+    // 1: 1min, 2: 2min, 3: 5min, 4: 10min, 5: 20min, 6: 30min, 7: 60min, 8: 120min, 9: 240min, 10+: 1 day
+    let delay_minutes = match error_count {
         1 => 1,
-        2 => 10,
-        _ => 180,
+        2 => 1,
+        3 => 3,
+        4 => 5,
+        5 => 15,
+        6 => 30,
+        7 => 60, // 1 hour
+        8 => 60,
+        9 => 180,
+        _ => 1440,
     };
 
     let jitter = rand::random::<u64>() % 60; // up to 1 min

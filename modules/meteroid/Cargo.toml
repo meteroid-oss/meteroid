@@ -8,6 +8,7 @@ license.workspace = true
 [dependencies]
 error-stack.workspace = true
 thiserror.workspace = true
+base62 = { workspace = true }
 cached = { workspace = true, features = ["async", "tokio"] }
 chrono = { workspace = true, features = ["clock"] }
 common-build-info = { workspace = true }

@@ -92,6 +92,10 @@ pub struct Subscription {
     pub auto_advance_invoices: bool,
     pub charge_automatically: bool,
     pub purchase_order: Option<String>,
+    // Error tracking fields
+    pub error_count: i32,
+    pub last_error: Option<String>,
+    pub next_retry: Option<NaiveDateTime>,
 }
 
 pub enum CyclePosition {
@@ -145,6 +149,9 @@ impl TryFrom<SubscriptionForDisplayRow> for Subscription {
             charge_automatically: val.subscription.charge_automatically,
             auto_advance_invoices: val.subscription.auto_advance_invoices,
             purchase_order: val.subscription.purchase_order,
+            error_count: val.subscription.error_count,
+            last_error: val.subscription.last_error,
+            next_retry: val.subscription.next_retry,
         })
     }
 }

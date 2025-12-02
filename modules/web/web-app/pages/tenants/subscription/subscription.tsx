@@ -50,7 +50,12 @@ import {
   getSlotsValue,
   getSubscriptionDetails,
 } from '@/rpc/api/subscriptions/v1/subscriptions-SubscriptionsService_connectquery'
-import { formatCurrencyNoRounding } from '@/utils/numbers'
+import {
+  parseAndFormatDate,
+  parseAndFormatDateOptional,
+  parseAndFormatDateTime,
+} from '@/utils/date'
+import { formatCurrency, formatCurrencyNoRounding } from '@/utils/numbers'
 import { useTypedParams } from '@/utils/params'
 
 // Status Badge Component
@@ -86,6 +91,11 @@ const StatusBadge = ({ status }: { status: SubscriptionStatus }) => {
       text: 'text-warning',
       render: 'trial expired',
     },
+    [SubscriptionStatus.ERRORED]: {
+      bg: 'bg-destructive/20',
+      text: 'text-destructive',
+      render: 'errored',
+    },
   }
 
   const config = statusConfig[status]
@@ -97,26 +107,6 @@ const StatusBadge = ({ status }: { status: SubscriptionStatus }) => {
       {config.render}
     </span>
   )
-}
-
-// Format date
-const formatDate = (dateString: string | undefined) => {
-  if (!dateString) return 'N/A'
-  return new Date(dateString).toLocaleDateString('en-US', {
-    year: 'numeric',
-    month: 'short',
-    day: 'numeric',
-  })
-}
-
-// Format currency
-const formatCurrency = (amountCents: number, currency: string) => {
-  if (amountCents === undefined) return 'N/A'
-  const amount = amountCents / 100
-  return new Intl.NumberFormat('en-US', {
-    style: 'currency',
-    currency: currency || 'USD',
-  }).format(amount)
 }
 
 // Section Title Component
@@ -385,6 +375,39 @@ export const Subscription = () => {
           </Alert>
         )}
 
+        {data.status === SubscriptionStatus.ERRORED && (
+          <Alert variant="destructive" className="mb-6">
+            <div className="flex flex-col gap-1">
+              <span className="font-medium">
+                This subscription failed to process after {data.errorCount} attempts.
+              </span>
+              {data.lastError && (
+                <span className="text-sm opacity-90">Last error: {data.lastError}</span>
+              )}
+            </div>
+          </Alert>
+        )}
+
+        {data.errorCount > 0 && data.status !== SubscriptionStatus.ERRORED && (
+          <Alert variant="warning" className="mb-6">
+            <div className="flex flex-col gap-1">
+              <span className="font-medium">
+                This subscription has encountered {data.errorCount} processing error(s).
+              </span>
+
+              {data.lastError && (
+                <span className="text-sm opacity-90">Last error: {data.lastError}</span>
+              )}
+
+              {data.nextRetry && (
+                <span className="text-sm opacity-90">
+                  Next retry: {parseAndFormatDateTime(data.nextRetry)}
+                </span>
+              )}
+            </div>
+          </Alert>
+        )}
+
         {/* Revenue summary card */}
         <div className="bg-card rounded-lg  shadow-sm p-6 mb-6">
           <div className="flex justify-between items-center mb-4">
@@ -406,7 +429,7 @@ export const Subscription = () => {
             </div>
             <div className="border-r border-border pr-4 last:border-0">
               <div className="text-sm text-muted-foreground">Started</div>
-              <div className="text-md font-medium mt-1">{formatDate(data.startDate)}</div>
+              <div className="text-md font-medium mt-1">{parseAndFormatDate(data.startDate)}</div>
             </div>
             <div>
               <div className="text-sm text-muted-foreground">Terms</div>
@@ -668,16 +691,24 @@ export const Subscription = () => {
           )}
         </DetailSection>
 
+        <DetailSection title="Current Period">
+          <DetailRow
+            label="Period Start"
+            value={parseAndFormatDateOptional(data.currentPeriodStart)}
+          />
+          <DetailRow label="Period End" value={parseAndFormatDateOptional(data.currentPeriodEnd)} />
+        </DetailSection>
+
         <DetailSection title="Timeline">
-          <DetailRow label="Created At" value={formatDate(data.createdAt)} />
-          <DetailRow label="Start Date" value={formatDate(data.startDate)} />
+          <DetailRow label="Created At" value={parseAndFormatDateTime(data.createdAt)} />
+          <DetailRow label="Start Date" value={parseAndFormatDate(data.startDate)} />
           {data.billingStartDate && (
-            <DetailRow label="Billing Start" value={formatDate(data.billingStartDate)} />
+            <DetailRow label="Billing Start" value={parseAndFormatDate(data.billingStartDate)} />
           )}
           {data.activatedAt && (
-            <DetailRow label="Activated At" value={formatDate(data.activatedAt)} />
+            <DetailRow label="Activated At" value={parseAndFormatDateTime(data.activatedAt)} />
           )}
-          {data.endDate && <DetailRow label="End Date" value={formatDate(data.endDate)} />}
+          {data.endDate && <DetailRow label="End Date" value={parseAndFormatDate(data.endDate)} />}
           {/* {data.canceledAt && <DetailRow label="Canceled At" value={formatDate(data.canceledAt)} />}
           {data.cancellationReason && <DetailRow label="Reason" value={data.cancellationReason} />} */}
         </DetailSection>
