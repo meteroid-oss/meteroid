@@ -23,7 +23,7 @@ jobs:
     env:
       TURBO_TELEMETRY_DISABLED: true
     steps:
-      - uses: actions/checkout@v5
+      - uses: actions/checkout@v6
       - uses: pnpm/action-setup@v4
         with:
           version: 10.12.4
