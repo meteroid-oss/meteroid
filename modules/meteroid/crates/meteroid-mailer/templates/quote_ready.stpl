@@ -1,0 +1,23 @@
+<div class="content-section">
+  <h1>You've received a quote</h1>
+</div>
+
+<div class="content-section">
+  <div class="summary-box">
+    <p><strong>Quote n°:</strong> <%= quote_number %></p>
+<% if let Some(ref expires) = expires_at { %>
+    <p><strong>Valid until:</strong> <%= expires %></p>
+<% } %>
+  </div>
+
+<% if let Some(ref message) = custom_message { %>
+  <div class="custom-message">
+    <p><%= message %></p>
+  </div>
+<% } %>
+
+  <div class="button-container">
+    <a href="<%= portal_url %>" class="button">View and sign quote</a>
+  </div>
+
+</div>

@@ -8,6 +8,8 @@ enum WebhookEventType {
   INVOICE_CREATED = 2;
   INVOICE_FINALIZED = 3;
   BILLABLE_METRIC_CREATED = 4;
+  QUOTE_ACCEPTED = 5;
+  QUOTE_CONVERTED = 6;
 }
 
 message WebhookEndpoint {

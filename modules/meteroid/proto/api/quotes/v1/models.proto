@@ -15,6 +15,12 @@ enum QuoteStatus {
   CANCELLED = 5;
 }
 
+enum PaymentStrategy {
+  AUTO = 0;
+  BANK = 1;
+  EXTERNAL = 2;
+}
+
 message Quote {
   string id = 1;
   string quote_number = 2;
@@ -28,7 +34,7 @@ message Quote {
 
   // Subscription-like fields
   optional uint32 trial_duration = 10;
-  string start_date = 11;
+  optional string start_date = 11;  // now optional for dynamic start date
   optional string billing_start_date = 12;
   optional string end_date = 13;
   optional uint32 billing_day_anchor = 14;
@@ -51,6 +57,18 @@ message Quote {
   int32 net_terms = 26;
 
   optional string purchase_order = 27;
+
+  // Payment configuration fields
+  optional PaymentStrategy payment_strategy = 28;
+  bool auto_advance_invoices = 29;
+  bool charge_automatically = 30;
+  optional string invoice_memo = 31;
+  optional string invoice_threshold = 32;
+  bool create_subscription_on_acceptance = 33;
+
+  // Conversion tracking
+  optional string converted_to_subscription_id = 34;
+  optional string converted_at = 35;
 }
 
 message RecipientDetails {
@@ -65,6 +83,8 @@ message DetailedQuote {
   meteroid.api.customers.v1.Customer customer = 2;
   meteroid.api.invoicingentities.v1.InvoicingEntity invoicing_entity = 3;
   repeated QuoteComponent components = 5;
+  repeated QuoteAddOn add_ons = 8;
+  repeated QuoteCoupon coupons = 9;
   repeated QuoteSignature signatures = 6;
   repeated QuoteActivity activities = 7;
 }
@@ -78,6 +98,21 @@ message QuoteComponent {
   meteroid.api.subscriptions.v1.SubscriptionFeeBillingPeriod period = 5;
   meteroid.api.subscriptions.v1.SubscriptionFee fee = 6;
   bool is_override = 7;
+}
+
+message QuoteAddOn {
+  string id = 1;
+  string quote_id = 2;
+  string add_on_id = 3;
+  string name = 4;
+  meteroid.api.subscriptions.v1.SubscriptionFeeBillingPeriod period = 5;
+  meteroid.api.subscriptions.v1.SubscriptionFee fee = 6;
+}
+
+message QuoteCoupon {
+  string id = 1;
+  string quote_id = 2;
+  string coupon_id = 3;
 }
 
 message QuoteSignature {
@@ -116,7 +151,7 @@ message CreateQuote {
 
   // Subscription-like fields
   optional uint32 trial_duration = 5;
-  string start_date = 6;
+  optional string start_date = 6;  // now optional for dynamic start date
   optional string billing_start_date = 7;
   optional string end_date = 8;
   optional uint32 billing_day_anchor = 9;
@@ -136,4 +171,24 @@ message CreateQuote {
   repeated RecipientDetails recipients = 19;
 
   meteroid.api.subscriptions.v1.CreateSubscriptionComponents components = 20;
+
+  // Payment configuration fields
+  optional PaymentStrategy payment_strategy = 21;
+  optional bool auto_advance_invoices = 22;
+  optional bool charge_automatically = 23;
+  optional string invoice_memo = 24;
+  optional string invoice_threshold = 25;
+  optional bool create_subscription_on_acceptance = 26;
+
+  // Add-ons and coupons
+  meteroid.api.subscriptions.v1.CreateSubscriptionAddOns add_ons = 27;
+  CreateQuoteCoupons coupons = 28;
+}
+
+message CreateQuoteCoupon {
+  string coupon_id = 1;
+}
+
+message CreateQuoteCoupons {
+  repeated CreateQuoteCoupon coupons = 1;
 }

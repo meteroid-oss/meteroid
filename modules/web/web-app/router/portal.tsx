@@ -44,7 +44,7 @@ export const portalRoutes: RouteObject = {
       ],
     },
     {
-      path: 'quote',
+      path: 'portal/quote',
       children: [
         {
           index: true,

@@ -102,6 +102,10 @@ pub mod sql_types {
     pub struct SubscriptionFeeBillingPeriod;
 
     #[derive(diesel::query_builder::QueryId, diesel::sql_types::SqlType)]
+    #[diesel(postgres_type(name = "SubscriptionPaymentStrategy"))]
+    pub struct SubscriptionPaymentStrategy;
+
+    #[derive(diesel::query_builder::QueryId, diesel::sql_types::SqlType)]
     #[diesel(postgres_type(name = "SubscriptionStatusEnum"))]
     pub struct SubscriptionStatusEnum;
 
@@ -700,6 +704,7 @@ diesel::table! {
     use diesel::sql_types::*;
     use super::sql_types::QuoteStatusEnum;
     use super::sql_types::SubscriptionActivationConditionEnum;
+    use super::sql_types::SubscriptionPaymentStrategy;
 
     quote (id) {
         id -> Uuid,
@@ -712,7 +717,7 @@ diesel::table! {
         currency -> Varchar,
         quote_number -> Varchar,
         trial_duration_days -> Nullable<Int4>,
-        billing_start_date -> Date,
+        billing_start_date -> Nullable<Date>,
         billing_end_date -> Nullable<Date>,
         billing_day_anchor -> Nullable<Int4>,
         activation_condition -> SubscriptionActivationConditionEnum,
@@ -733,6 +738,12 @@ diesel::table! {
         converted_at -> Nullable<Timestamptz>,
         recipients -> Jsonb,
         purchase_order -> Nullable<Text>,
+        payment_strategy -> Nullable<SubscriptionPaymentStrategy>,
+        auto_advance_invoices -> Bool,
+        charge_automatically -> Bool,
+        invoice_memo -> Nullable<Text>,
+        invoice_threshold -> Nullable<Numeric>,
+        create_subscription_on_acceptance -> Bool,
     }
 }
 
@@ -755,6 +766,20 @@ diesel::table! {
     use diesel::sql_types::*;
     use super::sql_types::SubscriptionFeeBillingPeriod;
 
+    quote_add_on (id) {
+        id -> Uuid,
+        name -> Text,
+        quote_id -> Uuid,
+        add_on_id -> Uuid,
+        period -> SubscriptionFeeBillingPeriod,
+        fee -> Jsonb,
+    }
+}
+
+diesel::table! {
+    use diesel::sql_types::*;
+    use super::sql_types::SubscriptionFeeBillingPeriod;
+
     quote_component (id) {
         id -> Uuid,
         name -> Text,
@@ -764,6 +789,14 @@ diesel::table! {
         period -> SubscriptionFeeBillingPeriod,
         fee -> Jsonb,
         is_override -> Bool,
+    }
+}
+
+diesel::table! {
+    quote_coupon (id) {
+        id -> Uuid,
+        quote_id -> Uuid,
+        coupon_id -> Uuid,
     }
 }
 
@@ -885,6 +918,7 @@ diesel::table! {
         auto_advance_invoices -> Bool,
         charge_automatically -> Bool,
         purchase_order -> Nullable<Text>,
+        quote_id -> Nullable<Uuid>,
     }
 }
 
@@ -1044,12 +1078,15 @@ diesel::joinable!(product_family -> tenant (tenant_id));
 diesel::joinable!(quote -> customer (customer_id));
 diesel::joinable!(quote -> invoice (converted_to_invoice_id));
 diesel::joinable!(quote -> plan_version (plan_version_id));
-diesel::joinable!(quote -> subscription (converted_to_subscription_id));
 diesel::joinable!(quote -> tenant (tenant_id));
 diesel::joinable!(quote_activity -> quote (quote_id));
+diesel::joinable!(quote_add_on -> add_on (add_on_id));
+diesel::joinable!(quote_add_on -> quote (quote_id));
 diesel::joinable!(quote_component -> price_component (price_component_id));
 diesel::joinable!(quote_component -> product (product_id));
 diesel::joinable!(quote_component -> quote (quote_id));
+diesel::joinable!(quote_coupon -> coupon (coupon_id));
+diesel::joinable!(quote_coupon -> quote (quote_id));
 diesel::joinable!(quote_signature -> quote (quote_id));
 diesel::joinable!(schedule -> plan_version (plan_version_id));
 diesel::joinable!(scheduled_event -> subscription (subscription_id));
@@ -1106,7 +1143,9 @@ diesel::allow_tables_to_appear_in_same_query!(
     product_family,
     quote,
     quote_activity,
+    quote_add_on,
     quote_component,
+    quote_coupon,
     quote_signature,
     schedule,
     scheduled_event,

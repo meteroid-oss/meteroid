@@ -25,7 +25,7 @@ import { env } from '@/lib/env'
 import { Customer } from '@/rpc/api/customers/v1/models_pb'
 import { InvoicingEntityPublic } from '@/rpc/api/invoicingentities/v1/models_pb'
 import { Quote, QuoteComponent } from '@/rpc/api/quotes/v1/models_pb'
-import { setQuotePurchaseOrder } from "@/rpc/portal/quotes/v1/quotes-PortalQuoteService_connectquery";
+import { setQuotePurchaseOrder } from '@/rpc/portal/quotes/v1/quotes-PortalQuoteService_connectquery'
 import { parseAndFormatDate } from '@/utils/date'
 
 export interface QuoteViewProps {
@@ -50,13 +50,13 @@ export const QuoteView: FC<QuoteViewProps> = ({
   const [isModalOpen, setIsModalOpen] = useState(false)
   const [purchaseOrderValue, setPurchaseOrderValue] = useState('')
   const [isLoading, setIsLoading] = useState(false)
-  
+
   const setPurchaseOrder = async (purchaseOrder: string | undefined) => {
     if (!quote.quote?.id) return
 
     try {
       await setQuotePurchaseOrderMutation.mutateAsync({
-        purchaseOrder: purchaseOrder
+        purchaseOrder: purchaseOrder,
       })
       toast.success('Purchase order successfully set')
       window.location.reload()
@@ -100,7 +100,7 @@ export const QuoteView: FC<QuoteViewProps> = ({
               className="text-muted-foreground hover:text-foreground transition-colors"
               aria-label="Edit purchase order"
             >
-              <Edit2 className="h-3.5 w-3.5"/>
+              <Edit2 className="h-3.5 w-3.5" />
             </button>
             <button
               onClick={() => handleUpdatePurchaseOrder(undefined)}
@@ -108,7 +108,7 @@ export const QuoteView: FC<QuoteViewProps> = ({
               aria-label="Delete purchase order"
               disabled={isLoading}
             >
-              <Trash2 className="h-3.5 w-3.5"/>
+              <Trash2 className="h-3.5 w-3.5" />
             </button>
           </div>
         ) : (
@@ -198,7 +198,7 @@ export const QuoteView: FC<QuoteViewProps> = ({
               <p className="font-medium text-foreground">{quote.customer.name}</p>
               <p>{quote.customer.billingEmail}</p>
               {quote.customer.billingAddress && (
-                <AddressLinesCompact address={quote.customer.billingAddress}/>
+                <AddressLinesCompact address={quote.customer.billingAddress} />
               )}
             </>
           ) : quote.quote?.customerId ? (
@@ -252,7 +252,7 @@ export const QuoteView: FC<QuoteViewProps> = ({
             <div className="flex justify-between">
               <span className="text-sm text-muted-foreground">Start Date:</span>
               <span className="text-sm">
-                {quote.quote.startDate ? parseAndFormatDate(quote.quote.startDate) : 'Not set'}
+                {quote.quote.startDate ? parseAndFormatDate(quote.quote.startDate) : 'Immediately'}
               </span>
             </div>
             {quote.quote.endDate && (
@@ -359,20 +359,19 @@ export const QuoteView: FC<QuoteViewProps> = ({
             <Input
               id="purchase-order"
               value={purchaseOrderValue}
-              onChange={(e) => setPurchaseOrderValue(e.target.value)}
+              onChange={e => setPurchaseOrderValue(e.target.value)}
               placeholder="Enter purchase order number..."
               className="mt-2"
             />
           </div>
           <DialogFooter>
-            <Button
-              variant="outline"
-              onClick={() => setIsModalOpen(false)}
-              disabled={isLoading}
-            >
+            <Button variant="outline" onClick={() => setIsModalOpen(false)} disabled={isLoading}>
               Cancel
             </Button>
-            <Button onClick={() => handleUpdatePurchaseOrder(purchaseOrderValue || undefined)} disabled={isLoading}>
+            <Button
+              onClick={() => handleUpdatePurchaseOrder(purchaseOrderValue || undefined)}
+              disabled={isLoading}
+            >
               {isLoading ? 'Saving...' : 'Save'}
             </Button>
           </DialogFooter>

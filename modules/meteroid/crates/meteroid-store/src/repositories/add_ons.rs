@@ -14,6 +14,11 @@ pub trait AddOnInterface {
         pagination: PaginationRequest,
         search: Option<String>,
     ) -> StoreResult<PaginatedVec<AddOn>>;
+    async fn list_add_ons_by_ids(
+        &self,
+        tenant_id: TenantId,
+        ids: Vec<AddOnId>,
+    ) -> StoreResult<Vec<AddOn>>;
     async fn get_add_on_by_id(&self, tenant_id: TenantId, id: AddOnId) -> StoreResult<AddOn>;
     async fn create_add_on(&self, add_on: AddOnNew) -> StoreResult<AddOn>;
     async fn update_add_on(&self, add_on: AddOnPatch) -> StoreResult<AddOn>;
@@ -43,6 +48,19 @@ impl AddOnInterface for Store {
             total_pages: add_ons.total_pages,
             total_results: add_ons.total_results,
         })
+    }
+
+    async fn list_add_ons_by_ids(
+        &self,
+        tenant_id: TenantId,
+        ids: Vec<AddOnId>,
+    ) -> StoreResult<Vec<AddOn>> {
+        let mut conn = self.get_conn().await?;
+
+        AddOnRow::list_by_ids(&mut conn, &ids, &tenant_id)
+            .await
+            .map_err(Into::<Report<StoreError>>::into)
+            .and_then(|x| x.into_iter().map(TryInto::try_into).collect())
     }
 
     async fn get_add_on_by_id(&self, tenant_id: TenantId, id: AddOnId) -> StoreResult<AddOn> {

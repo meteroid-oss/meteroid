@@ -137,6 +137,15 @@ message PublishQuoteResponse {
   DetailedQuote quote = 1;
 }
 
+message ConvertQuoteToSubscriptionRequest {
+  string quote_id = 1;
+}
+
+message ConvertQuoteToSubscriptionResponse {
+  Quote quote = 1;
+  meteroid.api.subscriptions.v1.CreatedSubscription subscription = 2;
+}
+
 service QuotesService {
   // Internal quote management
   rpc CreateQuote(CreateQuoteRequest) returns (CreateQuoteResponse) {}
@@ -149,6 +158,9 @@ service QuotesService {
   rpc CancelQuote(CancelQuoteRequest) returns (CancelQuoteResponse) {}
   rpc DuplicateQuote(DuplicateQuoteRequest) returns (DuplicateQuoteResponse) {}
   rpc UpdateQuote(UpdateQuoteRequest) returns (UpdateQuoteResponse) {}
+
+  // Convert quote to subscription
+  rpc ConvertQuoteToSubscription(ConvertQuoteToSubscriptionRequest) returns (ConvertQuoteToSubscriptionResponse) {}
 
   // Token generation for portal access
   rpc GenerateQuotePortalToken(GenerateQuotePortalTokenRequest) returns (GenerateQuotePortalTokenResponse) {}

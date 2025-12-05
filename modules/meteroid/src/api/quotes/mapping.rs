@@ -1,17 +1,17 @@
 pub mod quotes {
     use crate::api::shared::conversions::{AsProtoOpt, ProtoConv};
 
+    use crate::api::customers::mapping::customer::ServerCustomerWrapper;
+    use crate::api::subscriptions::mapping::price_components::{
+        subscription_fee_billing_period_to_grpc, subscription_fee_to_grpc,
+    };
     use meteroid_grpc::meteroid::api::quotes::v1::{
         DetailedQuote, Quote, QuoteActivity, QuoteComponent, QuoteSignature, QuoteStatus,
         RecipientDetails,
     };
     use meteroid_grpc::meteroid::api::subscriptions::v1::ActivationCondition;
     use meteroid_store::domain;
-
-    use crate::api::customers::mapping::customer::ServerCustomerWrapper;
-    use crate::api::subscriptions::mapping::price_components::{
-        subscription_fee_billing_period_to_grpc, subscription_fee_to_grpc,
-    };
+    use meteroid_store::domain::SubscriptionPaymentStrategy;
 
     fn status_domain_to_server(value: domain::enums::QuoteStatusEnum) -> QuoteStatus {
         match value {
@@ -116,8 +116,8 @@ pub mod quotes {
             // Subscription-like fields
             trial_duration: quote.trial_duration_days.map(|d| d as u32),
             start_date: quote.billing_start_date.as_proto(),
-            billing_start_date: quote.billing_end_date.as_proto(),
-            end_date: None, // TODO: Map end_date
+            billing_start_date: quote.billing_start_date.as_proto(),
+            end_date: quote.billing_end_date.as_proto(),
             billing_day_anchor: quote.billing_day_anchor.map(|d| d as u32),
             activation_condition: activation_condition_to_proto(quote.activation_condition.clone())
                 as i32,
@@ -145,6 +145,44 @@ pub mod quotes {
                 .map(recipient_details_to_proto)
                 .collect(),
             purchase_order: quote.purchase_order.clone(),
+            // Payment configuration fields
+            payment_strategy: quote
+                .payment_strategy
+                .as_ref()
+                .map(payment_strategy_to_proto)
+                .map(|s| s as i32),
+            auto_advance_invoices: quote.auto_advance_invoices,
+            charge_automatically: quote.charge_automatically,
+            invoice_memo: quote.invoice_memo.clone(),
+            invoice_threshold: quote.invoice_threshold.map(|d| d.to_string()),
+            create_subscription_on_acceptance: quote.create_subscription_on_acceptance,
+            // Conversion tracking
+            converted_to_subscription_id: quote
+                .converted_to_subscription_id
+                .map(|id| id.as_proto()),
+            converted_at: quote.converted_at.as_proto(),
+        }
+    }
+
+    pub fn payment_strategy_to_proto(
+        strategy: &SubscriptionPaymentStrategy,
+    ) -> meteroid_grpc::meteroid::api::quotes::v1::PaymentStrategy {
+        use meteroid_grpc::meteroid::api::quotes::v1::PaymentStrategy;
+        match strategy {
+            SubscriptionPaymentStrategy::Auto => PaymentStrategy::Auto,
+            SubscriptionPaymentStrategy::Bank => PaymentStrategy::Bank,
+            SubscriptionPaymentStrategy::External => PaymentStrategy::External,
+        }
+    }
+
+    pub fn payment_strategy_from_proto(
+        strategy: meteroid_grpc::meteroid::api::quotes::v1::PaymentStrategy,
+    ) -> domain::enums::SubscriptionPaymentStrategy {
+        use meteroid_grpc::meteroid::api::quotes::v1::PaymentStrategy;
+        match strategy {
+            PaymentStrategy::Auto => SubscriptionPaymentStrategy::Auto,
+            PaymentStrategy::Bank => SubscriptionPaymentStrategy::Bank,
+            PaymentStrategy::External => SubscriptionPaymentStrategy::External,
         }
     }
 
@@ -153,6 +191,8 @@ pub mod quotes {
     ) -> DetailedQuote {
         let quote = &detailed_quote.quote;
         let components = &detailed_quote.components;
+        let add_ons = &detailed_quote.add_ons;
+        let coupons = &detailed_quote.coupons;
         let signatures = &detailed_quote.signatures;
         let activities = &detailed_quote.activities;
 
@@ -172,8 +212,43 @@ pub mod quotes {
             ),
             customer: Some(customer_server.0),
             components: components.iter().map(quote_component_to_proto).collect(),
+            add_ons: add_ons.iter().map(quote_add_on_to_proto).collect(),
+            coupons: coupons.iter().map(quote_coupon_to_proto).collect(),
             signatures: signatures.iter().map(quote_signature_to_proto).collect(),
             activities: activities.iter().map(quote_activity_to_proto).collect(),
+        }
+    }
+
+    pub fn quote_add_on_to_proto(
+        add_on: &domain::quotes::QuoteAddOn,
+    ) -> meteroid_grpc::meteroid::api::quotes::v1::QuoteAddOn {
+        use crate::api::subscriptions::mapping::price_components::{
+            subscription_fee_billing_period_to_grpc, subscription_fee_to_grpc,
+        };
+        use meteroid_grpc::meteroid::api::quotes::v1::QuoteAddOn;
+
+        QuoteAddOn {
+            id: add_on.id.as_proto(),
+            quote_id: add_on.quote_id.as_proto(),
+            add_on_id: add_on.add_on_id.as_proto(),
+            name: add_on.name.clone(),
+            period: subscription_fee_billing_period_to_grpc(add_on.period) as i32,
+            fee: Some(subscription_fee_to_grpc(
+                &add_on.fee,
+                add_on.period.as_billing_period_opt().unwrap_or_default(),
+            )),
+        }
+    }
+
+    pub fn quote_coupon_to_proto(
+        coupon: &domain::quotes::QuoteCoupon,
+    ) -> meteroid_grpc::meteroid::api::quotes::v1::QuoteCoupon {
+        use meteroid_grpc::meteroid::api::quotes::v1::QuoteCoupon;
+
+        QuoteCoupon {
+            id: coupon.id.as_proto(),
+            quote_id: coupon.quote_id.as_proto(),
+            coupon_id: coupon.coupon_id.as_proto(),
         }
     }
 

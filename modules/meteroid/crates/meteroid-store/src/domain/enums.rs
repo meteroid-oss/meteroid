@@ -230,6 +230,12 @@ pub enum WebhookOutEventTypeEnum {
     #[strum(serialize = "invoice.finalized")]
     #[serde(rename = "invoice.finalized")]
     InvoiceFinalized,
+    #[strum(serialize = "quote.accepted")]
+    #[serde(rename = "quote.accepted")]
+    QuoteAccepted,
+    #[strum(serialize = "quote.converted")]
+    #[serde(rename = "quote.converted")]
+    QuoteConverted,
 }
 
 impl WebhookOutEventTypeEnum {
@@ -252,6 +258,8 @@ impl WebhookOutEventTypeEnum {
             WebhookOutEventTypeEnum::InvoiceCreated => "invoice".to_string(),
             WebhookOutEventTypeEnum::InvoiceFinalized => "invoice".to_string(),
             WebhookOutEventTypeEnum::BillableMetricCreated => "metric".to_string(),
+            WebhookOutEventTypeEnum::QuoteAccepted => "quote".to_string(),
+            WebhookOutEventTypeEnum::QuoteConverted => "quote".to_string(),
         }
     }
 }
@@ -313,6 +321,18 @@ impl SubscriptionFeeBillingPeriod {
             SubscriptionFeeBillingPeriod::Annual => Some(BillingPeriodEnum::Annual),
         }
     }
+}
+
+#[derive(o2o, Serialize, Deserialize, Debug, Clone)]
+#[map_owned(diesel_enums::SubscriptionPaymentStrategy)]
+pub enum SubscriptionPaymentStrategy {
+    Auto, // uses the existing method if exist, do card checkout if standard plan & configured provider, else bank if exists else external
+    Bank,
+    External,
+    // TODO
+    // CustomerPaymentMethod(id)
+    // PaymentProvider(id)
+    // Bank(id)
 }
 
 #[derive(Serialize, Deserialize, Debug, Clone)]

@@ -18,6 +18,7 @@ mod invoices;
 mod lifecycle;
 mod orchestration;
 mod payment;
+mod quotes;
 mod subscriptions;
 mod webhooks;
 
@@ -25,6 +26,7 @@ use crate::domain::{PaymentTransaction, Subscription};
 pub use crate::domain::{SlotUpgradeBillingMode, UpdateSlotsResult};
 use crate::errors::StoreError;
 pub use invoices::{CustomerDetailsUpdate, InvoiceBillingMode};
+pub use quotes::QuoteConversionResult;
 use stripe_client::client::StripeClient;
 pub use subscriptions::insert::payment_method::PaymentSetupResult;
 

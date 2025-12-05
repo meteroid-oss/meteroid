@@ -10,6 +10,7 @@ mod pdf_render;
 mod pennylane_sync;
 mod processor;
 pub mod processors;
+mod quote_conversion;
 mod send_email;
 mod webhook_out;
 

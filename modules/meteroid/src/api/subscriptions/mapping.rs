@@ -120,6 +120,7 @@ pub mod subscriptions {
             error_count: s.error_count,
             last_error: s.last_error,
             next_retry: s.next_retry.as_proto(),
+            quote_id: s.quote_id.map(|id| id.as_proto()),
         })
     }
 
@@ -245,6 +246,7 @@ pub mod subscriptions {
                 error_count: sub.error_count,
                 last_error: sub.last_error,
                 next_retry: sub.next_retry.as_proto(),
+                quote_id: sub.quote_id.map(|id| id.as_proto()),
             }),
             schedules: vec![], // TODO
             price_components: details
@@ -811,7 +813,7 @@ pub mod price_components {
     }
 }
 
-mod add_ons {
+pub mod add_ons {
     use crate::api::subscriptions::mapping::price_components::{
         map_billing_period_from_grpc, subscription_fee_billing_period_from_grpc,
         subscription_fee_billing_period_to_grpc, subscription_fee_from_grpc,

@@ -1,15 +1,21 @@
 use chrono::{NaiveDate, NaiveDateTime};
+use rust_decimal::Decimal;
 use serde::{Deserialize, Serialize};
 
-use crate::domain::enums::{QuoteStatusEnum, SubscriptionActivationCondition};
-use crate::domain::{Customer, InvoicingEntity, SubscriptionFee, SubscriptionFeeBillingPeriod};
+use crate::domain::{
+    Customer, InvoicingEntity, QuoteStatusEnum, SubscriptionActivationCondition, SubscriptionFee,
+    SubscriptionFeeBillingPeriod, SubscriptionPaymentStrategy,
+};
 use crate::errors::{StoreError, StoreErrorReport};
 use crate::json_value_serde;
 use common_domain::ids::BaseId;
 use common_domain::ids::{
-    CustomerId, InvoiceId, PlanVersionId, PriceComponentId, ProductId, QuoteActivityId, QuoteId,
-    QuotePriceComponentId, QuoteSignatureId, StoredDocumentId, SubscriptionId, TenantId,
+    AddOnId, CouponId, CustomerId, InvoiceId, PlanVersionId, PriceComponentId, ProductId,
+    QuoteActivityId, QuoteAddOnId, QuoteCouponId, QuoteId, QuotePriceComponentId, QuoteSignatureId,
+    StoredDocumentId, SubscriptionId, TenantId,
 };
+use diesel_models::quote_add_ons::{QuoteAddOnRow, QuoteAddOnRowNew};
+use diesel_models::quote_coupons::{QuoteCouponRow, QuoteCouponRowNew};
 use diesel_models::quotes::{
     QuoteActivityRow, QuoteActivityRowNew, QuoteComponentRow, QuoteComponentRowNew, QuoteRow,
     QuoteRowNew, QuoteSignatureRow, QuoteSignatureRowNew, QuoteWithCustomerRow,
@@ -31,7 +37,7 @@ pub struct Quote {
     pub quote_number: String,
     // Subscription-like fields
     pub trial_duration_days: Option<i32>,
-    pub billing_start_date: NaiveDate,
+    pub billing_start_date: Option<NaiveDate>,
     pub billing_end_date: Option<NaiveDate>,
     pub billing_day_anchor: Option<i32>,
     #[from(~.into())]
@@ -59,6 +65,14 @@ pub struct Quote {
     }) ?)]
     pub recipients: Vec<RecipientDetails>,
     pub purchase_order: Option<String>,
+    // Payment configuration fields
+    #[from(~.map(|s| s.into()))]
+    pub payment_strategy: Option<SubscriptionPaymentStrategy>,
+    pub auto_advance_invoices: bool,
+    pub charge_automatically: bool,
+    pub invoice_memo: Option<String>,
+    pub invoice_threshold: Option<Decimal>,
+    pub create_subscription_on_acceptance: bool,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -82,7 +96,7 @@ pub struct QuoteNew {
     pub quote_number: String,
     // Subscription-like fields
     pub trial_duration_days: Option<i32>,
-    pub billing_start_date: NaiveDate,
+    pub billing_start_date: Option<NaiveDate>,
     pub billing_end_date: Option<NaiveDate>,
     pub billing_day_anchor: Option<i32>,
     #[map(~.into())]
@@ -102,6 +116,14 @@ pub struct QuoteNew {
     StoreError::SerdeError("Failed to serialize recipients".to_string(), e)
     }) ?)]
     pub recipients: Vec<RecipientDetails>,
+    // Payment configuration fields
+    #[into(~.map(|s| s.into()))]
+    pub payment_strategy: Option<SubscriptionPaymentStrategy>,
+    pub auto_advance_invoices: bool,
+    pub charge_automatically: bool,
+    pub invoice_memo: Option<String>,
+    pub invoice_threshold: Option<Decimal>,
+    pub create_subscription_on_acceptance: bool,
 }
 
 #[derive(o2o, Debug, Clone)]
@@ -119,6 +141,8 @@ pub struct DetailedQuote {
     pub customer: Customer,
     pub invoicing_entity: InvoicingEntity,
     pub components: Vec<QuotePriceComponent>,
+    pub add_ons: Vec<QuoteAddOn>,
+    pub coupons: Vec<QuoteCoupon>,
     pub signatures: Vec<QuoteSignature>,
     pub activities: Vec<QuoteActivity>,
 }
@@ -212,4 +236,48 @@ pub struct QuoteSignatureNew {
     pub ip_address: Option<String>,
     pub user_agent: Option<String>,
     pub verification_token: Option<String>,
+}
+
+// Quote Add-On structs
+#[derive(Debug, Clone, o2o)]
+#[try_from_owned(QuoteAddOnRow, StoreErrorReport)]
+pub struct QuoteAddOn {
+    pub id: QuoteAddOnId,
+    pub name: String,
+    pub quote_id: QuoteId,
+    pub add_on_id: AddOnId,
+    #[from(~.into())]
+    pub period: SubscriptionFeeBillingPeriod,
+    #[from(~.try_into()?)]
+    pub fee: SubscriptionFee,
+}
+
+#[derive(Debug, Clone, o2o)]
+#[owned_try_into(QuoteAddOnRowNew, StoreErrorReport)]
+#[ghosts(id: {QuoteAddOnId::new()})]
+pub struct QuoteAddOnNew {
+    pub name: String,
+    pub quote_id: QuoteId,
+    pub add_on_id: AddOnId,
+    #[into(~.into())]
+    pub period: SubscriptionFeeBillingPeriod,
+    #[into(~.try_into()?)]
+    pub fee: SubscriptionFee,
+}
+
+// Quote Coupon structs
+#[derive(Debug, Clone, o2o)]
+#[from_owned(QuoteCouponRow)]
+pub struct QuoteCoupon {
+    pub id: QuoteCouponId,
+    pub quote_id: QuoteId,
+    pub coupon_id: CouponId,
+}
+
+#[derive(Debug, Clone, o2o)]
+#[owned_into(QuoteCouponRowNew)]
+#[ghosts(id: {QuoteCouponId::new()})]
+pub struct QuoteCouponNew {
+    pub quote_id: QuoteId,
+    pub coupon_id: CouponId,
 }

@@ -1,5 +1,6 @@
 use crate::enums::{
     QuoteStatusEnum, SubscriptionActivationConditionEnum, SubscriptionFeeBillingPeriod,
+    SubscriptionPaymentStrategy,
 };
 use chrono::{NaiveDate, NaiveDateTime};
 
@@ -25,7 +26,7 @@ pub struct QuoteRow {
     pub quote_number: String,
     // Subscription-like fields
     pub trial_duration_days: Option<i32>,
-    pub billing_start_date: NaiveDate,
+    pub billing_start_date: Option<NaiveDate>,
     pub billing_end_date: Option<NaiveDate>,
     pub billing_day_anchor: Option<i32>,
     pub activation_condition: SubscriptionActivationConditionEnum,
@@ -47,6 +48,13 @@ pub struct QuoteRow {
     pub converted_at: Option<NaiveDateTime>,
     pub recipients: serde_json::Value,
     pub purchase_order: Option<String>,
+    // Payment configuration fields
+    pub payment_strategy: Option<SubscriptionPaymentStrategy>,
+    pub auto_advance_invoices: bool,
+    pub charge_automatically: bool,
+    pub invoice_memo: Option<String>,
+    pub invoice_threshold: Option<rust_decimal::Decimal>,
+    pub create_subscription_on_acceptance: bool,
 }
 
 #[derive(Insertable, Debug)]
@@ -61,7 +69,7 @@ pub struct QuoteRowNew {
     pub quote_number: String,
     // Subscription-like fields
     pub trial_duration_days: Option<i32>,
-    pub billing_start_date: NaiveDate,
+    pub billing_start_date: Option<NaiveDate>,
     pub billing_end_date: Option<NaiveDate>,
     pub billing_day_anchor: Option<i32>,
     pub activation_condition: SubscriptionActivationConditionEnum,
@@ -77,16 +85,23 @@ pub struct QuoteRowNew {
     pub pdf_document_id: Option<StoredDocumentId>,
     pub sharing_key: Option<String>,
     pub recipients: serde_json::Value,
+    // Payment configuration fields
+    pub payment_strategy: Option<SubscriptionPaymentStrategy>,
+    pub auto_advance_invoices: bool,
+    pub charge_automatically: bool,
+    pub invoice_memo: Option<String>,
+    pub invoice_threshold: Option<rust_decimal::Decimal>,
+    pub create_subscription_on_acceptance: bool,
 }
 
-#[derive(Debug, AsChangeset)]
+#[derive(Debug, AsChangeset, Default)]
 #[diesel(table_name = crate::schema::quote)]
 #[diesel(check_for_backend(diesel::pg::Pg))]
 pub struct QuoteRowUpdate {
     pub status: Option<QuoteStatusEnum>,
     // Subscription-like fields
     pub trial_duration_days: Option<Option<i32>>,
-    pub billing_start_date: Option<NaiveDate>,
+    pub billing_start_date: Option<Option<NaiveDate>>,
     pub billing_end_date: Option<Option<NaiveDate>>,
     pub billing_day_anchor: Option<Option<i32>>,
     pub activation_condition: Option<SubscriptionActivationConditionEnum>,
@@ -108,6 +123,13 @@ pub struct QuoteRowUpdate {
     pub converted_at: Option<Option<NaiveDateTime>>,
     pub recipients: Option<serde_json::Value>,
     pub updated_at: Option<NaiveDateTime>,
+    // Payment configuration fields
+    pub payment_strategy: Option<Option<SubscriptionPaymentStrategy>>,
+    pub auto_advance_invoices: Option<bool>,
+    pub charge_automatically: Option<bool>,
+    pub invoice_memo: Option<Option<String>>,
+    pub invoice_threshold: Option<Option<rust_decimal::Decimal>>,
+    pub create_subscription_on_acceptance: Option<bool>,
 }
 
 #[derive(Debug, Queryable, Selectable)]

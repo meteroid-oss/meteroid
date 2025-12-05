@@ -20,7 +20,16 @@ import {
   Skeleton,
 } from '@md/ui'
 import { useQueryClient } from '@tanstack/react-query'
-import { ChevronDown, Copy, Download, Edit, ExternalLink, FileText, Send } from 'lucide-react'
+import {
+  ChevronDown,
+  Copy,
+  CopyIcon,
+  Download,
+  Edit,
+  ExternalLink,
+  FileText,
+  Send,
+} from 'lucide-react'
 import { Fragment, useState } from 'react'
 import { Link } from 'react-router-dom'
 import { toast } from 'sonner'
@@ -31,17 +40,20 @@ import { useBasePath } from '@/hooks/useBasePath'
 import { useQuery } from '@/lib/connectrpc'
 import {
   DetailedQuote,
+  PaymentStrategy,
   QuoteComponent,
   QuoteSignature,
   QuoteStatus,
   RecipientDetails,
 } from '@/rpc/api/quotes/v1/models_pb'
 import {
+  convertQuoteToSubscription,
   generateQuotePortalToken,
   getQuote,
   listQuotes,
   publishQuote,
 } from '@/rpc/api/quotes/v1/quotes-QuotesService_connectquery'
+import { ActivationCondition } from '@/rpc/api/subscriptions/v1/models_pb'
 import { parseAndFormatDate } from '@/utils/date'
 import { useTypedParams } from '@/utils/params'
 
@@ -85,6 +97,13 @@ export const QuoteDetailView: React.FC<Props> = ({ quote }) => {
     },
   })
 
+  const convertQuoteToSubscriptionMutation = useMutation(convertQuoteToSubscription, {
+    onSuccess: async () => {
+      await queryClient.invalidateQueries({ queryKey: [listQuotes.service.typeName] })
+      await queryClient.invalidateQueries({ queryKey: [getQuote.service.typeName] })
+    },
+  })
+
   const canEdit = quote.quote?.status === QuoteStatus.DRAFT
   const canPublish = quote.quote?.status === QuoteStatus.DRAFT
   const canSend =
@@ -112,6 +131,19 @@ export const QuoteDetailView: React.FC<Props> = ({ quote }) => {
     }
   }
 
+  const handleConvertQuote = async () => {
+    if (!quote.quote?.id) return
+    try {
+      await convertQuoteToSubscriptionMutation.mutateAsync({
+        quoteId: quote.quote.id,
+      })
+      toast.success('Quote converted to subscription successfully')
+      window.location.reload()
+    } catch (error) {
+      toast.error('Failed to convert quote')
+    }
+  }
+
   const handleGenerateToken = async () => {
     if (!recipientEmail || !quote.quote?.id) return
 
@@ -121,7 +153,7 @@ export const QuoteDetailView: React.FC<Props> = ({ quote }) => {
         recipientEmail: recipientEmail,
       })
 
-      setPortalUrl(`${window.location.origin}/quote?token=${response.token}`)
+      setPortalUrl(`${window.location.origin}/portal/quote?token=${response.token}`)
     } catch (error) {
       toast.error('Failed to generate portal token')
     }
@@ -146,9 +178,9 @@ export const QuoteDetailView: React.FC<Props> = ({ quote }) => {
         recipientEmail: email,
       })
 
-      const url = `${window.location.origin}/quote?token=${response.token}`
+      const url = `${window.location.origin}/portal/quote?token=${response.token}`
       copyToClipboard(url)
-      toast.success('Portal URL copied to clipboard!', { id: 'copy' })
+      toast.success('Sharing link copied to clipboard!', { id: 'copy' })
     } catch (error) {
       toast.error('Failed to generate portal token')
     }
@@ -187,28 +219,29 @@ export const QuoteDetailView: React.FC<Props> = ({ quote }) => {
                   </DropdownMenuItem>
                 )}
                 {canSend && (
-                  <DropdownMenuItem>
-                    <Send size="16" className="mr-2" />
-                    Send to Customer
-                  </DropdownMenuItem>
+                  <>
+                    <DropdownMenuItem>
+                      <Send size="16" className="mr-2" />
+                      Send to Customer
+                    </DropdownMenuItem>
+                    <DropdownMenuSeparator />
+
+                    <DropdownMenuItem onClick={openTokenDialog}>
+                      <ExternalLink size="16" className="mr-2" />
+                      Generate Sharing Link
+                    </DropdownMenuItem>
+                  </>
                 )}
 
                 {canConvert && (
-                  <DropdownMenuItem asChild>
-                    <Link to={`${basePath}/quotes/${quote.quote?.id}/convert`}>
-                      <FileText size="16" className="mr-2" />
-                      Convert to Subscription
-                    </Link>
+                  <DropdownMenuItem onClick={handleConvertQuote}>
+                    <FileText size="16" className="mr-2" />
+                    Convert to Subscription
                   </DropdownMenuItem>
                 )}
                 <DropdownMenuItem disabled={true}>
                   <Download size="16" className="mr-2" />
                   Download PDF
-                </DropdownMenuItem>
-                <DropdownMenuSeparator />
-                <DropdownMenuItem onClick={openTokenDialog}>
-                  <ExternalLink size="16" className="mr-2" />
-                  Generate Portal Link
                 </DropdownMenuItem>
               </DropdownMenuContent>
             </DropdownMenu>
@@ -230,7 +263,11 @@ export const QuoteDetailView: React.FC<Props> = ({ quote }) => {
               value={quote.quote?.expiresAt ? parseAndFormatDate(quote.quote.expiresAt) : '—'}
             />
             <FlexDetails title="Currency" value={quote.quote?.currency} />
-            <FlexDetails title="Plan Version" value={quote.quote?.planVersionId} />
+            <FlexDetails
+              title="Base Plan"
+              value={'View plan'}
+              link={`${basePath}/plan-version/${quote.quote?.planVersionId}`}
+            />
           </Flex>
 
           <Separator className="-my-3" />
@@ -253,9 +290,116 @@ export const QuoteDetailView: React.FC<Props> = ({ quote }) => {
               value={quote.customer?.name || 'Customer'}
               link={`${basePath}/customers/${quote.quote?.customerId}`}
             />
-            <FlexDetails title="Customer ID" value={quote.quote?.customerId} />
             <FlexDetails title="Email" value={quote.customer?.billingEmail} />
           </Flex>
+
+          <Separator className="-my-3" />
+
+          <Flex direction="column" className="gap-2 p-6">
+            <div className="text-[15px] font-medium">Subscription Settings</div>
+            <FlexDetails
+              title="Start Date"
+              value={
+                quote.quote?.startDate
+                  ? parseAndFormatDate(quote.quote.startDate)
+                  : 'Not set (dynamic)'
+              }
+            />
+            {quote.quote?.endDate && (
+              <FlexDetails title="End Date" value={parseAndFormatDate(quote.quote.endDate)} />
+            )}
+            <FlexDetails
+              title="Billing Day"
+              value={
+                quote.quote?.billingDayAnchor
+                  ? `Day ${quote.quote.billingDayAnchor}`
+                  : 'Anniversary'
+              }
+            />
+            <FlexDetails title="Net Terms" value={`${quote.quote?.netTerms ?? 30} days`} />
+            <FlexDetails
+              title="Activation"
+              value={formatActivationCondition(quote.quote?.activationCondition)}
+            />
+            <FlexDetails
+              title="Payment Strategy"
+              value={formatPaymentStrategy(quote.quote?.paymentStrategy)}
+            />
+            {quote.quote?.createSubscriptionOnAcceptance && (
+              <FlexDetails title="Auto-create Subscription" value="Yes" />
+            )}
+          </Flex>
+
+          <Separator className="-my-3" />
+
+          <Flex direction="column" className="gap-2 p-6">
+            <div className="text-[15px] font-medium">Invoice Configuration</div>
+            <FlexDetails
+              title="Auto-advance Invoices"
+              value={quote.quote?.autoAdvanceInvoices ? 'Yes' : 'No'}
+            />
+            <FlexDetails
+              title="Charge Automatically"
+              value={quote.quote?.chargeAutomatically ? 'Yes' : 'No'}
+            />
+            {quote.quote?.invoiceMemo && (
+              <FlexDetails title="Invoice Memo" value={quote.quote.invoiceMemo} />
+            )}
+          </Flex>
+
+          {quote.quote?.convertedToSubscriptionId && (
+            <>
+              <Separator className="-my-3" />
+              <Flex direction="column" className="gap-2 p-6">
+                <div className="text-[15px] font-medium">Linked Resources</div>
+                <FlexDetails
+                  title="Subscription"
+                  value="View subscription"
+                  link={`${basePath}/subscriptions/${quote.quote.convertedToSubscriptionId}`}
+                />
+                {quote.quote?.convertedAt && (
+                  <FlexDetails
+                    title="Converted"
+                    value={parseAndFormatDate(quote.quote.convertedAt)}
+                  />
+                )}
+              </Flex>
+            </>
+          )}
+
+          {((quote.addOns && quote.addOns.length > 0) ||
+            (quote.coupons && quote.coupons.length > 0)) && (
+            <>
+              <Separator className="-my-3" />
+              <Flex direction="column" className="gap-2 p-6">
+                <div className="text-[15px] font-medium">Add-ons & Discounts</div>
+                {quote.addOns && quote.addOns.length > 0 && (
+                  <div className="space-y-1">
+                    <div className="text-[13px] font-medium text-muted-foreground">Add-ons</div>
+                    {quote.addOns.map(addOn => (
+                      <div key={addOn.id} className="text-[13px] flex items-center gap-2">
+                        <Badge variant="outline" size="sm">
+                          {addOn.name}
+                        </Badge>
+                      </div>
+                    ))}
+                  </div>
+                )}
+                {quote.coupons && quote.coupons.length > 0 && (
+                  <div className="space-y-1 mt-2">
+                    <div className="text-[13px] font-medium text-muted-foreground">Coupons</div>
+                    {quote.coupons.map(coupon => (
+                      <div key={coupon.id} className="text-[13px] flex items-center gap-2">
+                        <Badge variant="secondary" size="sm">
+                          {coupon.couponId}
+                        </Badge>
+                      </div>
+                    ))}
+                  </div>
+                )}
+              </Flex>
+            </>
+          )}
 
           <Separator className="-my-3" />
 
@@ -318,7 +462,7 @@ export const QuoteDetailView: React.FC<Props> = ({ quote }) => {
       <Dialog open={showTokenDialog} onOpenChange={setShowTokenDialog}>
         <DialogContent className="max-w-md">
           <DialogHeader>
-            <DialogTitle>Generate Portal Link</DialogTitle>
+            <DialogTitle>Generate Sharing Link</DialogTitle>
             <DialogDescription>
               Create a secure link that allows the recipient to view and sign the quote.
             </DialogDescription>
@@ -418,6 +562,8 @@ const QuoteComponentCard: React.FC<{
 }> = ({ component, quote }) => {
   if (!quote.quote?.currency) return null
 
+  console.log('component', component)
+
   const formatted = formatSubscriptionFee(component.fee, quote.quote.currency)
 
   console.log('formatted', formatted, component)
@@ -512,8 +658,8 @@ const QuoteRecipients: React.FC<QuoteRecipientsProps> = ({
                   onClick={() => onGenerateToken(recipient.email)}
                   className="h-6 px-2 text-[10px]"
                 >
-                  <ExternalLink className="w-3 h-3 mr-1" />
-                  Portal Link
+                  <CopyIcon className="w-3 h-3 mr-1" />
+                  Copy Sharing Link
                 </Button>
               )}
             </div>
@@ -522,4 +668,31 @@ const QuoteRecipients: React.FC<QuoteRecipientsProps> = ({
       })}
     </div>
   )
+}
+
+// Helper functions for formatting
+const formatActivationCondition = (condition?: ActivationCondition): string => {
+  switch (condition) {
+    case ActivationCondition.ON_START:
+      return 'On Start Date'
+    case ActivationCondition.ON_CHECKOUT:
+      return 'On Checkout'
+    case ActivationCondition.MANUAL:
+      return 'Manual'
+    default:
+      return 'On Start Date'
+  }
+}
+
+const formatPaymentStrategy = (strategy?: PaymentStrategy): string => {
+  switch (strategy) {
+    case PaymentStrategy.AUTO:
+      return 'Default'
+    case PaymentStrategy.BANK:
+      return 'Bank Transfer'
+    case PaymentStrategy.EXTERNAL:
+      return 'External'
+    default:
+      return 'Default'
+  }
 }
