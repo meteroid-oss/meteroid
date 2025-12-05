@@ -397,14 +397,11 @@ export const CreateQuote = () => {
         quote: createQuoteData,
       })
 
-      console.log('CreateQuote request b4', data, subscriptionComponents, addOns, coupons)
-      console.log('CreateQuote request', createQuoteData)
-      // TODO
-      // const response = await createQuoteMutation.mutateAsync(request)
+      const response = await createQuoteMutation.mutateAsync(request)
 
-      // if (response.quote?.quote?.id) {
-      //   navigate(`${basePath}/quotes/${response.quote.quote.id}`)
-      // }
+      if (response.quote?.quote?.id) {
+        navigate(`${basePath}/quotes/${response.quote.quote.id}`)
+      }
     } catch (error) {
       console.error('Failed to create quote:', error)
     }

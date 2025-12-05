@@ -265,7 +265,7 @@ export const QuoteDetailView: React.FC<Props> = ({ quote }) => {
             <FlexDetails title="Currency" value={quote.quote?.currency} />
             <FlexDetails
               title="Base Plan"
-              value={'View plan'}
+              value="View plan"
               link={`${basePath}/plan-version/${quote.quote?.planVersionId}`}
             />
           </Flex>

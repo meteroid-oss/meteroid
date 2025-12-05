@@ -17,7 +17,6 @@ pub struct QuoteConversionResult {
 }
 
 impl ServicesEdge {
-
     pub async fn convert_quote_to_subscription(
         &self,
         tenant_id: TenantId,

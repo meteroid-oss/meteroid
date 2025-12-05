@@ -37,8 +37,8 @@ import {
   getQuotePortal,
   signQuote,
 } from '@/rpc/portal/quotes/v1/quotes-PortalQuoteService_connectquery'
-
 import { parseAndFormatDateTime } from '@/utils/date'
+
 import { QuoteView } from './QuoteView'
 
 export interface QuotePortalViewProps {
