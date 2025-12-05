@@ -225,9 +225,28 @@ impl ServicesEdge {
             .await?;
 
         // Step 2: Build subscription details directly from pre-processed quote data
-        let sub = self
+        let mut sub = self
             .services
             .build_subscription_details_from_quote(&params, &context)?;
+
+        // For quote conversions, gracefully handle charge_automatically when
+        // payment provider is not configured. This allows quotes to be converted even if
+        // the invoicing entity doesn't have a payment provider set up yet.
+        if sub.subscription.charge_automatically
+            && let Some(invoicing_entity_providers) =
+                context.get_invoicing_entity_providers_for_customer(&sub.customer)
+        {
+            let has_online_provider = invoicing_entity_providers.card_provider.is_some()
+                || invoicing_entity_providers.direct_debit_provider.is_some();
+
+            if !has_online_provider {
+                log::warn!(
+                    "Quote conversion: charge_automatically was set to true but no payment provider is configured. Falling back to charge_automatically=false for quote_id={}",
+                    quote_id.as_base62()
+                );
+                sub.subscription.charge_automatically = false;
+            }
+        }
 
         // Step 3: Setup payment provider
         let payment_result = self

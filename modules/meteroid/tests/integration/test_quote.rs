@@ -90,8 +90,9 @@ async fn create_test_quote(clients: &AllClients) -> api::quotes::v1::DetailedQuo
                 }),
                 payment_strategy: None,
                 auto_advance_invoices: None,
-                // Set to false to avoid requiring payment provider configuration in tests
-                charge_automatically: Some(false),
+                // Defaults to true - the quote conversion will gracefully fall back to false
+                // if no payment provider is configured on the invoicing entity
+                charge_automatically: None,
                 invoice_memo: None,
                 invoice_threshold: None,
                 create_subscription_on_acceptance: None,
@@ -290,5 +291,84 @@ async fn test_quote_conversion_already_converted_fails() {
         err.message().contains("already been converted"),
         "Error message should mention already converted: {}",
         err.message()
+    );
+}
+
+#[tokio::test]
+async fn test_quote_conversion_falls_back_charge_automatically_without_payment_provider() {
+    let TestContext {
+        setup,
+        clients,
+        _container,
+    } = setup_test(SeedLevel::PLANS).await.unwrap();
+
+    // Create quote with charge_automatically=true (the default)
+    let quote = create_test_quote(&clients).await;
+    let quote_id_proto = quote.quote.as_ref().unwrap().id.clone();
+
+    // Verify the quote was created with charge_automatically=true
+    assert!(
+        quote.quote.as_ref().unwrap().charge_automatically,
+        "Quote should have charge_automatically=true by default"
+    );
+
+    // Publish the quote
+    clients
+        .quotes
+        .clone()
+        .publish_quote(tonic::Request::new(api::quotes::v1::PublishQuoteRequest {
+            id: quote_id_proto.clone(),
+        }))
+        .await
+        .expect("Failed to publish quote");
+
+    // Accept the quote
+    let quote_id = QuoteId::from_proto(&quote_id_proto).expect("Invalid quote ID");
+    setup
+        .store
+        .accept_quote(quote_id, ids::TENANT_ID)
+        .await
+        .expect("Failed to accept quote");
+
+    // Convert the quote - this should succeed even though charge_automatically=true
+    // and no payment provider is configured, because the conversion gracefully
+    // falls back to charge_automatically=false
+    let conversion_result = clients
+        .quotes
+        .clone()
+        .convert_quote_to_subscription(tonic::Request::new(
+            api::quotes::v1::ConvertQuoteToSubscriptionRequest {
+                quote_id: quote_id_proto.clone(),
+            },
+        ))
+        .await
+        .expect("Quote conversion should succeed with graceful fallback");
+
+    // Verify the subscription was created
+    let subscription = conversion_result
+        .into_inner()
+        .subscription
+        .expect("Subscription should be created");
+    assert!(!subscription.id.is_empty());
+
+    // Verify the subscription has charge_automatically=false (the fallback)
+    // We need to fetch the subscription details to check this
+    let subscription_details = clients
+        .subscriptions
+        .clone()
+        .get_subscription_details(tonic::Request::new(
+            api::subscriptions::v1::GetSubscriptionDetailsRequest {
+                subscription_id: subscription.id.clone(),
+            },
+        ))
+        .await
+        .expect("Failed to get subscription details")
+        .into_inner()
+        .subscription
+        .expect("Subscription details should be returned");
+
+    assert!(
+        !subscription_details.charge_automatically,
+        "Subscription should have charge_automatically=false after fallback"
     );
 }
