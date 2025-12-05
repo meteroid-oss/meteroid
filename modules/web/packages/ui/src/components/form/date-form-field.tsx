@@ -11,7 +11,7 @@ interface DateFormFieldProps<
   TName extends FieldPath<TFieldValues>,
 > extends Omit<
       ComponentProps<typeof DatePicker>,
-      'defaultValue' | 'name' | 'disabled' | 'hidden' | 'mode'
+      'defaultValue' | 'name' | 'disabled' | 'hidden' | 'mode' | 'onSelect'
     >,
     UseControllerProps<TFieldValues, TName> {
   label: string

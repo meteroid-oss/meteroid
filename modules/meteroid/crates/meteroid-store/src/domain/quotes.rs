@@ -66,8 +66,8 @@ pub struct Quote {
     pub recipients: Vec<RecipientDetails>,
     pub purchase_order: Option<String>,
     // Payment configuration fields
-    #[from(~.map(|s| s.into()))]
-    pub payment_strategy: Option<SubscriptionPaymentStrategy>,
+    #[from(~.into())]
+    pub payment_strategy: SubscriptionPaymentStrategy,
     pub auto_advance_invoices: bool,
     pub charge_automatically: bool,
     pub invoice_memo: Option<String>,
@@ -117,8 +117,8 @@ pub struct QuoteNew {
     }) ?)]
     pub recipients: Vec<RecipientDetails>,
     // Payment configuration fields
-    #[into(~.map(|s| s.into()))]
-    pub payment_strategy: Option<SubscriptionPaymentStrategy>,
+    #[into(~.into())]
+    pub payment_strategy: SubscriptionPaymentStrategy,
     pub auto_advance_invoices: bool,
     pub charge_automatically: bool,
     pub invoice_memo: Option<String>,

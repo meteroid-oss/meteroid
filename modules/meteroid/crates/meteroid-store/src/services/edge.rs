@@ -265,7 +265,8 @@ impl ServicesEdge {
                         .ok_or(Report::new(StoreError::InsertError))
                         .attach("No subscription inserted from quote")?;
 
-                    QuoteRow::mark_as_converted_to_subscription(
+                    // Atomically mark quote as converted (only if not already converted)
+                    let rows_updated = QuoteRow::mark_as_converted_to_subscription(
                         conn,
                         quote_id,
                         tenant_id,
@@ -273,6 +274,12 @@ impl ServicesEdge {
                     )
                     .await
                     .map_err(Into::<Report<StoreError>>::into)?;
+
+                    if rows_updated == 0 {
+                        return Err(Report::new(StoreError::InvalidArgument(
+                            "Quote has already been converted to a subscription".to_string(),
+                        )));
+                    }
 
                     let activity = QuoteActivityNew {
                         quote_id,

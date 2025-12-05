@@ -83,7 +83,7 @@ fn build_subscription_from_quote(
         activation_condition: quote.activation_condition.clone(),
         trial_duration: quote.trial_duration_days.map(|d| d as u32),
         billing_day_anchor: quote.billing_day_anchor.map(|d| d as u16),
-        payment_strategy: quote.payment_strategy.clone(),
+        payment_strategy: Some(quote.payment_strategy.clone()),
         auto_advance_invoices: quote.auto_advance_invoices,
         charge_automatically: quote.charge_automatically,
         purchase_order: quote.purchase_order.clone(),

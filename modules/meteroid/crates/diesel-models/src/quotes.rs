@@ -49,7 +49,7 @@ pub struct QuoteRow {
     pub recipients: serde_json::Value,
     pub purchase_order: Option<String>,
     // Payment configuration fields
-    pub payment_strategy: Option<SubscriptionPaymentStrategy>,
+    pub payment_strategy: SubscriptionPaymentStrategy,
     pub auto_advance_invoices: bool,
     pub charge_automatically: bool,
     pub invoice_memo: Option<String>,
@@ -86,7 +86,7 @@ pub struct QuoteRowNew {
     pub sharing_key: Option<String>,
     pub recipients: serde_json::Value,
     // Payment configuration fields
-    pub payment_strategy: Option<SubscriptionPaymentStrategy>,
+    pub payment_strategy: SubscriptionPaymentStrategy,
     pub auto_advance_invoices: bool,
     pub charge_automatically: bool,
     pub invoice_memo: Option<String>,
@@ -124,7 +124,7 @@ pub struct QuoteRowUpdate {
     pub recipients: Option<serde_json::Value>,
     pub updated_at: Option<NaiveDateTime>,
     // Payment configuration fields
-    pub payment_strategy: Option<Option<SubscriptionPaymentStrategy>>,
+    pub payment_strategy: Option<SubscriptionPaymentStrategy>,
     pub auto_advance_invoices: Option<bool>,
     pub charge_automatically: Option<bool>,
     pub invoice_memo: Option<Option<String>>,

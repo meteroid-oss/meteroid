@@ -63,13 +63,14 @@ impl QuotesService for QuoteServiceComponents {
             .and_then(|s| chrono::NaiveDate::from_proto_opt(Some(s)).ok())
             .flatten();
 
-        // Parse payment strategy
-        let payment_strategy = quote.payment_strategy.map(|ps| {
-            mapping::quotes::payment_strategy_from_proto(
-                meteroid_grpc::meteroid::api::quotes::v1::PaymentStrategy::try_from(ps)
-                    .unwrap_or(meteroid_grpc::meteroid::api::quotes::v1::PaymentStrategy::Auto),
-            )
-        });
+        // Parse payment strategy (defaults to Auto if not provided)
+        let payment_strategy = quote
+            .payment_strategy
+            .and_then(|ps| {
+                meteroid_grpc::meteroid::api::quotes::v1::PaymentStrategy::try_from(ps).ok()
+            })
+            .map(mapping::quotes::payment_strategy_from_proto)
+            .unwrap_or(meteroid_store::domain::enums::SubscriptionPaymentStrategy::Auto);
 
         let quote_id = QuoteId::new();
 

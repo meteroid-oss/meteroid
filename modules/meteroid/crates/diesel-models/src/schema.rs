@@ -738,7 +738,7 @@ diesel::table! {
         converted_at -> Nullable<Timestamptz>,
         recipients -> Jsonb,
         purchase_order -> Nullable<Text>,
-        payment_strategy -> Nullable<SubscriptionPaymentStrategy>,
+        payment_strategy -> SubscriptionPaymentStrategy,
         auto_advance_invoices -> Bool,
         charge_automatically -> Bool,
         invoice_memo -> Nullable<Text>,

@@ -3,7 +3,8 @@ SELECT pgmq.drop_queue('quote_conversion');
 DROP TABLE IF EXISTS quote_coupon;
 DROP TABLE IF EXISTS quote_add_on;
 
--- ALTER TABLE quote ALTER COLUMN billing_start_date SET NOT NULL;
+UPDATE quote SET billing_start_date = created_at::date WHERE billing_start_date IS NULL;
+ALTER TABLE quote ALTER COLUMN billing_start_date SET NOT NULL;
 
 ALTER TABLE quote DROP COLUMN IF EXISTS create_subscription_on_acceptance;
 ALTER TABLE quote DROP COLUMN IF EXISTS invoice_threshold;

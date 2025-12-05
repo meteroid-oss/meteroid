@@ -216,12 +216,15 @@ impl QuoteRow {
             .map(|_| ())
     }
 
+    /// Atomically marks a quote as converted to subscription.
+    /// Uses optimistic locking by checking that converted_to_subscription_id is NULL.
+    /// Returns the number of rows affected (0 if already converted, 1 if successful).
     pub async fn mark_as_converted_to_subscription(
         conn: &mut PgConn,
         param_quote_id: QuoteId,
         param_tenant_id: TenantId,
         subscription_id: common_domain::ids::SubscriptionId,
-    ) -> DbResult<()> {
+    ) -> DbResult<usize> {
         use crate::schema::quote::dsl::{
             converted_at, converted_to_subscription_id, id, quote, status, tenant_id, updated_at,
         };
@@ -229,10 +232,12 @@ impl QuoteRow {
 
         let now = chrono::Utc::now().naive_utc();
 
+        // Only update if not already converted (converted_to_subscription_id IS NULL)
         let query = diesel::update(quote)
             .filter(id.eq(param_quote_id))
             .filter(tenant_id.eq(param_tenant_id))
             .filter(status.eq(QuoteStatusEnum::Accepted))
+            .filter(converted_to_subscription_id.is_null())
             .set((
                 converted_to_subscription_id.eq(Some(subscription_id)),
                 converted_at.eq(Some(now)),
@@ -246,7 +251,30 @@ impl QuoteRow {
             .await
             .attach("Error while converting quote to subscription")
             .into_db_result()
-            .map(|_| ())
+    }
+
+    /// Finds a quote by ID and locks it for update within a transaction.
+    /// This prevents race conditions when multiple processes try to convert the same quote.
+    pub async fn find_by_id_for_update(
+        conn: &mut PgConn,
+        param_tenant_id: TenantId,
+        param_quote_id: QuoteId,
+    ) -> DbResult<QuoteRow> {
+        use crate::schema::quote::dsl::{id, quote, tenant_id};
+        use diesel_async::RunQueryDsl;
+
+        let query = quote
+            .filter(tenant_id.eq(param_tenant_id))
+            .filter(id.eq(param_quote_id))
+            .for_update();
+
+        log::debug!("{}", debug_query::<diesel::pg::Pg, _>(&query));
+
+        query
+            .first(conn)
+            .await
+            .attach("Error while finding quote by id for update")
+            .into_db_result()
     }
 
     pub async fn set_purchase_order(

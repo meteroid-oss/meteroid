@@ -146,11 +146,7 @@ pub mod quotes {
                 .collect(),
             purchase_order: quote.purchase_order.clone(),
             // Payment configuration fields
-            payment_strategy: quote
-                .payment_strategy
-                .as_ref()
-                .map(payment_strategy_to_proto)
-                .map(|s| s as i32),
+            payment_strategy: Some(payment_strategy_to_proto(&quote.payment_strategy) as i32),
             auto_advance_invoices: quote.auto_advance_invoices,
             charge_automatically: quote.charge_automatically,
             invoice_memo: quote.invoice_memo.clone(),
