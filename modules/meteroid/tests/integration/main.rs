@@ -20,6 +20,7 @@ mod test_billing;
 mod test_plan;
 mod test_product;
 mod test_product_family;
+mod test_quote;
 mod test_schedule;
 mod test_slots;
 mod test_stats;

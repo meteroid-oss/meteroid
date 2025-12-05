@@ -20,6 +20,7 @@ use meteroid_grpc::meteroid::api::organizations::v1::organizations_service_clien
 use meteroid_grpc::meteroid::api::plans::v1::plans_service_client::PlansServiceClient;
 use meteroid_grpc::meteroid::api::productfamilies::v1::product_families_service_client::ProductFamiliesServiceClient;
 use meteroid_grpc::meteroid::api::products::v1::products_service_client::ProductsServiceClient;
+use meteroid_grpc::meteroid::api::quotes::v1::quotes_service_client::QuotesServiceClient;
 use meteroid_grpc::meteroid::api::schedules::v1::schedules_service_client::SchedulesServiceClient;
 use meteroid_grpc::meteroid::api::stats::v1::stats_service_client::StatsServiceClient;
 use meteroid_grpc::meteroid::api::subscriptions::v1::subscriptions_service_client::SubscriptionsServiceClient;
@@ -50,6 +51,7 @@ pub struct AllClients {
     pub webhooks_out: WebhooksServiceClient<TestLayeredClientService>,
     pub stats: StatsServiceClient<TestLayeredClientService>,
     pub organizations: OrganizationsServiceClient<TestLayeredClientService>,
+    pub quotes: QuotesServiceClient<TestLayeredClientService>,
 }
 
 impl AllClients {
@@ -83,6 +85,7 @@ impl AllClients {
             webhooks_out: WebhooksServiceClient::new(service.clone()),
             stats: StatsServiceClient::new(service.clone()),
             organizations: OrganizationsServiceClient::new(service.clone()),
+            quotes: QuotesServiceClient::new(service.clone()),
         }
     }
 
