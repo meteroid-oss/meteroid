@@ -3,7 +3,7 @@ use crate::domain::enums::{BillingPeriodEnum, InvoiceStatusEnum};
 use crate::domain::pgmq::{PgmqMessage, PgmqMessageNew};
 use crate::domain::{
     Address, BillableMetric, BillingMetricAggregateEnum, Customer, Invoice, PaymentStatusEnum,
-    PaymentTransaction, PaymentTypeEnum, SegmentationMatrix, ShippingAddress, Subscription,
+    PaymentTransaction, PaymentTypeEnum, Quote, SegmentationMatrix, ShippingAddress, Subscription,
     SubscriptionStatusEnum, UnitConversionRoundingEnum,
 };
 use crate::errors::{StoreError, StoreErrorReport};
@@ -12,7 +12,7 @@ use chrono::{NaiveDate, NaiveDateTime};
 use common_domain::ids::{
     BankAccountId, BaseId, BillableMetricId, ConnectorId, CustomerId, CustomerPaymentMethodId,
     EventId, InvoiceId, PaymentTransactionId, PlanId, PlanVersionId, ProductFamilyId, ProductId,
-    StoredDocumentId, SubscriptionId, TenantId,
+    QuoteId, StoredDocumentId, SubscriptionId, TenantId,
 };
 use diesel_models::outbox_event::OutboxEventRowNew;
 use diesel_models::pgmq::PgmqMessageRowNew;
@@ -35,6 +35,8 @@ pub enum OutboxEvent {
     InvoiceAccountingPdfGenerated(Box<InvoicePdfGeneratedEvent>),
     SubscriptionCreated(Box<SubscriptionEvent>),
     PaymentTransactionSaved(Box<PaymentTransactionEvent>),
+    QuoteAccepted(Box<QuoteAcceptedEvent>),
+    QuoteConverted(Box<QuoteConvertedEvent>),
 }
 
 #[derive(Display, Debug, Serialize, Deserialize, PartialEq)]
@@ -48,6 +50,8 @@ pub enum EventType {
     InvoiceAccountingPdfGenerated,
     SubscriptionCreated,
     PaymentTransactionReceived,
+    QuoteAccepted,
+    QuoteConverted,
 }
 
 json_value_serde!(OutboxEvent);
@@ -64,6 +68,8 @@ impl OutboxEvent {
             OutboxEvent::InvoiceAccountingPdfGenerated(event) => event.id,
             OutboxEvent::SubscriptionCreated(event) => event.id,
             OutboxEvent::PaymentTransactionSaved(event) => event.id,
+            OutboxEvent::QuoteAccepted(event) => event.id,
+            OutboxEvent::QuoteConverted(event) => event.id,
         }
     }
 
@@ -78,6 +84,8 @@ impl OutboxEvent {
             OutboxEvent::InvoiceAccountingPdfGenerated(event) => event.tenant_id,
             OutboxEvent::SubscriptionCreated(event) => event.tenant_id,
             OutboxEvent::PaymentTransactionSaved(event) => event.tenant_id,
+            OutboxEvent::QuoteAccepted(event) => event.tenant_id,
+            OutboxEvent::QuoteConverted(event) => event.tenant_id,
         }
     }
 
@@ -92,6 +100,8 @@ impl OutboxEvent {
             OutboxEvent::InvoiceAccountingPdfGenerated(event) => event.invoice_id.as_uuid(),
             OutboxEvent::SubscriptionCreated(event) => event.subscription_id.as_uuid(),
             OutboxEvent::PaymentTransactionSaved(event) => event.payment_transaction_id.as_uuid(),
+            OutboxEvent::QuoteAccepted(event) => event.quote_id.as_uuid(),
+            OutboxEvent::QuoteConverted(event) => event.quote_id.as_uuid(),
         }
     }
 
@@ -106,6 +116,8 @@ impl OutboxEvent {
             OutboxEvent::InvoiceAccountingPdfGenerated(_) => "Invoice".to_string(),
             OutboxEvent::SubscriptionCreated(_) => "Subscription".to_string(),
             OutboxEvent::PaymentTransactionSaved(_) => "PaymentTransaction".to_string(),
+            OutboxEvent::QuoteAccepted(_) => "Quote".to_string(),
+            OutboxEvent::QuoteConverted(_) => "Quote".to_string(),
         }
     }
 
@@ -122,6 +134,8 @@ impl OutboxEvent {
             }
             OutboxEvent::SubscriptionCreated(_) => EventType::SubscriptionCreated,
             OutboxEvent::PaymentTransactionSaved(_) => EventType::PaymentTransactionReceived,
+            OutboxEvent::QuoteAccepted(_) => EventType::QuoteAccepted,
+            OutboxEvent::QuoteConverted(_) => EventType::QuoteConverted,
         }
     }
 
@@ -159,6 +173,14 @@ impl OutboxEvent {
 
     pub fn payment_transaction_saved(event: PaymentTransactionEvent) -> OutboxEvent {
         OutboxEvent::PaymentTransactionSaved(Box::new(event))
+    }
+
+    pub fn quote_accepted(event: QuoteAcceptedEvent) -> OutboxEvent {
+        OutboxEvent::QuoteAccepted(Box::new(event))
+    }
+
+    pub fn quote_converted(event: QuoteConvertedEvent) -> OutboxEvent {
+        OutboxEvent::QuoteConverted(Box::new(event))
     }
 
     fn payload_json(&self) -> StoreResult<serde_json::Value> {
@@ -328,6 +350,46 @@ pub struct PaymentTransactionEvent {
     pub payment_type: PaymentTypeEnum,
     pub error_type: Option<String>,
     pub receipt_pdf_id: Option<StoredDocumentId>,
+}
+
+#[skip_serializing_none]
+#[derive(Debug, Clone, Serialize, Deserialize, o2o)]
+#[from_owned(Quote)]
+pub struct QuoteAcceptedEvent {
+    #[map(EventId::new())]
+    pub id: EventId,
+    #[map(id)]
+    pub quote_id: QuoteId,
+    pub tenant_id: TenantId,
+    pub customer_id: CustomerId,
+    pub create_subscription_on_acceptance: bool,
+}
+
+#[skip_serializing_none]
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct QuoteConvertedEvent {
+    pub id: EventId,
+    pub quote_id: QuoteId,
+    pub tenant_id: TenantId,
+    pub customer_id: CustomerId,
+    pub subscription_id: SubscriptionId,
+}
+
+impl QuoteConvertedEvent {
+    pub fn new(
+        quote_id: QuoteId,
+        tenant_id: TenantId,
+        customer_id: CustomerId,
+        subscription_id: SubscriptionId,
+    ) -> Self {
+        Self {
+            id: EventId::new(),
+            quote_id,
+            tenant_id,
+            customer_id,
+            subscription_id,
+        }
+    }
 }
 
 #[derive(Debug, Serialize, Deserialize)]

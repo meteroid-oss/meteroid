@@ -107,6 +107,8 @@ pub mod event_type {
             WebhookEventTypeProto::BillableMetricCreated => {
                 WebhookOutEventTypeEnum::BillableMetricCreated
             }
+            WebhookEventTypeProto::QuoteAccepted => WebhookOutEventTypeEnum::QuoteAccepted,
+            WebhookEventTypeProto::QuoteConverted => WebhookOutEventTypeEnum::QuoteConverted,
         }
     }
 
@@ -121,6 +123,8 @@ pub mod event_type {
             WebhookOutEventTypeEnum::BillableMetricCreated => {
                 WebhookEventTypeProto::BillableMetricCreated
             }
+            WebhookOutEventTypeEnum::QuoteAccepted => WebhookEventTypeProto::QuoteAccepted,
+            WebhookOutEventTypeEnum::QuoteConverted => WebhookEventTypeProto::QuoteConverted,
         }
     }
 }

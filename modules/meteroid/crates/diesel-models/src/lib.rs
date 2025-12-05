@@ -16,6 +16,8 @@ pub mod price_components;
 pub mod product_families;
 pub mod products;
 pub mod query;
+pub mod quote_add_ons;
+pub mod quote_coupons;
 pub mod quotes;
 pub mod schedules;
 pub mod schema;

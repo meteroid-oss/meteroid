@@ -213,6 +213,15 @@ pub enum SubscriptionFeeBillingPeriod {
 }
 
 #[derive(diesel_derive_enum::DbEnum, Debug, Clone)]
+#[ExistingTypePath = "crate::schema::sql_types::SubscriptionPaymentStrategy"]
+#[DbValueStyle = "SCREAMING_SNAKE_CASE"]
+pub enum SubscriptionPaymentStrategy {
+    Auto,
+    Bank,
+    External,
+}
+
+#[derive(diesel_derive_enum::DbEnum, Debug, Clone)]
 #[ExistingTypePath = "crate::schema::sql_types::SubscriptionEventType"]
 #[DbValueStyle = "SCREAMING_SNAKE_CASE"]
 pub enum SubscriptionEventType {

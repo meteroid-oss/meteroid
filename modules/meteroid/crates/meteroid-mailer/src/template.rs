@@ -1,4 +1,4 @@
-use crate::model::{EmailValidationLink, InvoicePaid, InvoiceReady, ResetPasswordLink};
+use crate::model::{EmailValidationLink, InvoicePaid, InvoiceReady, QuoteReady, ResetPasswordLink};
 use sailfish::TemplateSimple;
 use secrecy::ExposeSecret;
 
@@ -182,6 +182,44 @@ impl From<InvoicePaid> for InvoicePaidTemplate {
             tpl: LayoutTemplate {
                 lang: "en".to_string(),
                 title: format!("Your {} receipt", header.company_name),
+                header,
+                footer,
+                content,
+            },
+        }
+    }
+}
+
+#[derive(TemplateSimple)]
+#[template(path = "quote_ready.stpl")]
+pub struct QuoteReadyContent {
+    pub quote_number: String,
+    pub expires_at: Option<String>,
+    pub portal_url: String,
+    pub custom_message: Option<String>,
+}
+
+pub struct QuoteReadyTemplate {
+    pub tpl: LayoutTemplate<QuoteReadyContent>,
+}
+
+impl From<QuoteReady> for QuoteReadyTemplate {
+    fn from(data: QuoteReady) -> Self {
+        let header = HeaderTemplate {
+            company_name: data.company_name.clone(),
+            logo_url: data.logo_url,
+        };
+        let footer = FooterTemplate {};
+        let content = QuoteReadyContent {
+            quote_number: data.quote_number,
+            expires_at: data.expires_at.map(format_date),
+            portal_url: data.portal_url,
+            custom_message: data.custom_message,
+        };
+        QuoteReadyTemplate {
+            tpl: LayoutTemplate {
+                lang: "en".to_string(),
+                title: format!("Quote {} from {}", content.quote_number, data.company_name),
                 header,
                 footer,
                 content,

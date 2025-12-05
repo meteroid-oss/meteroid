@@ -20,6 +20,8 @@ id_type!(QuoteId, "quo_");
 id_type!(QuoteSignatureId, "quo_sig_");
 id_type!(QuoteActivityId, "quo_act_");
 id_type!(QuotePriceComponentId, "quo_price_");
+id_type!(QuoteAddOnId, "quo_add_");
+id_type!(QuoteCouponId, "quo_cou_");
 id_type!(InvoicingEntityId, "ive_");
 id_type!(AddOnId, "add_");
 id_type!(AppliedCouponId, "sub_cou_");

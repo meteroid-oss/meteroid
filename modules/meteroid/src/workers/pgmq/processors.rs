@@ -8,6 +8,7 @@ use crate::workers::pgmq::payment_request::PaymentRequest;
 use crate::workers::pgmq::pdf_render::PdfRender;
 use crate::workers::pgmq::pennylane_sync::PennylaneSync;
 use crate::workers::pgmq::processor::{ProcessorConfig, run};
+use crate::workers::pgmq::quote_conversion::QuoteConversion;
 use crate::workers::pgmq::send_email::EmailSender;
 use crate::workers::pgmq::webhook_out::WebhookOut;
 use common_domain::pgmq::{MessageReadQty, MessageReadVtSec, ReadCt};
@@ -222,6 +223,24 @@ pub async fn run_payment_request(store: Arc<Store>, services: Arc<Services>) {
         delete_succeeded: true,
         sleep_duration: std::time::Duration::from_millis(2000),
         max_read_count: ReadCt(3), // 3 retries. TODO applicative payment retry with mails
+    })
+    .await;
+}
+
+pub async fn run_quote_conversion(store: Arc<Store>, services: Arc<Services>) {
+    let queue = PgmqQueue::QuoteConversion;
+    let processor = Arc::new(QuoteConversion::new(services));
+
+    run(ProcessorConfig {
+        name: processor_name("QuoteConversion"),
+        queue,
+        handler: processor,
+        store,
+        qty: MessageReadQty(10),
+        vt: MessageReadVtSec(30),
+        delete_succeeded: true,
+        sleep_duration: std::time::Duration::from_millis(1500),
+        max_read_count: ReadCt(3),
     })
     .await;
 }

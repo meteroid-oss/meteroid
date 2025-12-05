@@ -6,10 +6,10 @@ use crate::domain::enums::SubscriptionEventType;
 use crate::domain::slot_transactions::{SlotTransaction, SlotTransactionNewInternal};
 use crate::domain::{
     CreateSubscription, CreateSubscriptionAddOns, CreateSubscriptionComponents,
-    CreatedSubscription, Customer, SlotTransactionStatusEnum, SubscriptionActivationCondition,
-    SubscriptionAddOnNew, SubscriptionAddOnNewInternal, SubscriptionComponentNew,
-    SubscriptionComponentNewInternal, SubscriptionFee, SubscriptionNew, SubscriptionNewEnriched,
-    SubscriptionStatusEnum,
+    CreateSubscriptionFromQuote, CreatedSubscription, Customer, SlotTransactionStatusEnum,
+    SubscriptionActivationCondition, SubscriptionAddOnNew, SubscriptionAddOnNewInternal,
+    SubscriptionComponentNew, SubscriptionComponentNewInternal, SubscriptionFee, SubscriptionNew,
+    SubscriptionNewEnriched, SubscriptionStatusEnum,
 };
 use crate::errors::{StoreError, StoreErrorReport};
 use crate::repositories::subscriptions::generate_checkout_url;
@@ -22,7 +22,7 @@ use crate::store::PgConn;
 use crate::utils::periods::calculate_advance_period_range;
 use crate::{StoreResult, services::Services};
 use chrono::{Datelike, NaiveDate, NaiveTime};
-use common_domain::ids::{BaseId, SlotTransactionId, SubscriptionId, TenantId};
+use common_domain::ids::{BaseId, QuoteId, SlotTransactionId, SubscriptionId, TenantId};
 use common_eventbus::{Event, EventBus};
 use diesel_async::scoped_futures::ScopedFutureExt;
 use diesel_models::applied_coupons::AppliedCouponRowNew;
@@ -142,12 +142,66 @@ impl Services {
             .collect::<Result<Vec<DetailedSubscription>, _>>()
     }
 
+    pub(crate) fn build_subscription_details_from_quote(
+        &self,
+        params: &CreateSubscriptionFromQuote,
+        context: &SubscriptionCreationContext,
+    ) -> StoreResult<DetailedSubscription> {
+        let subscription = &params.subscription;
+
+        let customer = context
+            .customers
+            .iter()
+            .find(|c| c.id == subscription.customer_id)
+            .ok_or(Report::new(StoreError::InsertError))
+            .attach("Customer not found")?;
+
+        let plan = context
+            .plans
+            .iter()
+            .find(|p| p.version_id == subscription.plan_version_id)
+            .ok_or(Report::new(StoreError::ValueNotFound(
+                "Plan id not found".to_string(),
+            )))?;
+
+        let subscription_currency = &plan.currency.clone();
+
+        let currency = Currencies::resolve_currency(subscription_currency)
+            .ok_or(StoreError::InsertError)
+            .attach("Failed to resolve currency")?
+            .clone();
+
+        let components = params.components.clone();
+        let add_ons = params.add_ons.clone();
+
+        let slot_transactions =
+            process_slot_transactions(&components, &add_ons, subscription.start_date)?;
+
+        let coupons: Vec<Coupon> = context
+            .all_coupons
+            .iter()
+            .filter(|c| params.coupon_ids.contains(&c.id))
+            .cloned()
+            .collect();
+
+        Ok(DetailedSubscription {
+            subscription: subscription.clone(),
+            components,
+            add_ons,
+            coupons,
+            customer: customer.clone(),
+            currency,
+            slot_transactions,
+        })
+    }
+
     pub(crate) fn process_subscription(
         &self,
         sub: &DetailedSubscription,
         payment_setup_result: &PaymentSetupResult,
         context: &SubscriptionCreationContext,
         tenant_id: TenantId,
+        quote_id: Option<QuoteId>,
     ) -> StoreResult<ProcessedSubscription> {
         let period = extract_billing_period(&sub.components, &sub.add_ons);
 
@@ -239,6 +293,7 @@ impl Services {
             activated_at,
             net_terms,
             cycle_index,
+            quote_id,
         };
 
         let subscription_row = enriched.map_to_row();

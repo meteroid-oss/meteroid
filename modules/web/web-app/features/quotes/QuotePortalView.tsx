@@ -25,7 +25,7 @@ import {
   Input,
 } from '@md/ui'
 import { useQueryClient } from '@tanstack/react-query'
-import { AlertCircle, Check, Pen, X } from 'lucide-react'
+import { AlertCircle, Check, Pen, User, X } from 'lucide-react'
 import { FC, useRef, useState } from 'react'
 import { useForm } from 'react-hook-form'
 import SignatureCanvas from 'react-signature-canvas'
@@ -37,6 +37,7 @@ import {
   getQuotePortal,
   signQuote,
 } from '@/rpc/portal/quotes/v1/quotes-PortalQuoteService_connectquery'
+import { parseAndFormatDateTime } from '@/utils/date'
 
 import { QuoteView } from './QuoteView'
 
@@ -144,11 +145,20 @@ const QuotePortalView: FC<QuotePortalViewProps> = ({ quoteData }) => {
   return (
     <div className="min-h-screen  ">
       {/* Header */}
-      <div className="  border-b">
+      <div className="border-b">
         <div className="max-w-4xl mx-auto px-6 py-4">
           <div className="flex justify-between items-center">
             <div>
               <h1 className="text-2xl font-semibold">Quote {quote?.quoteNumber}</h1>
+              {currentUserEmail && (
+                <p className="text-sm text-muted-foreground mt-1 flex items-center gap-1.5">
+                  <User className="h-3.5 w-3.5" />
+                  Viewing as {currentUserName || currentUserEmail}
+                  {currentUserName && (
+                    <span className="text-muted-foreground/70">({currentUserEmail})</span>
+                  )}
+                </p>
+              )}
             </div>
             <div className="text-right">
               {getStatusBadge()}
@@ -219,7 +229,6 @@ const QuotePortalView: FC<QuotePortalViewProps> = ({ quoteData }) => {
             <Card>
               <CardHeader>
                 <CardTitle>Signatures</CardTitle>
-                <CardDescription>Digital signatures for this quote</CardDescription>
               </CardHeader>
               <CardContent>
                 <div className="space-y-4">
@@ -237,7 +246,7 @@ const QuotePortalView: FC<QuotePortalViewProps> = ({ quoteData }) => {
                       </div>
                       <div className="text-right">
                         <p className="text-sm font-medium">
-                          {new Date(signature.signedAt).toLocaleDateString()}
+                          {parseAndFormatDateTime(signature.signedAt)}
                         </p>
                         <p className="text-sm text-muted-foreground">{signature.signatureMethod}</p>
                       </div>

@@ -75,6 +75,9 @@ message Subscription {
   int32 error_count = 39;
   optional string last_error = 40;
   optional string next_retry = 41;
+
+  // Quote to subscription linking
+  optional string quote_id = 42;
 }
 
 message SubscriptionDetails {

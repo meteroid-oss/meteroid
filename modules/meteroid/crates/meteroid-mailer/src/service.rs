@@ -1,8 +1,10 @@
 use crate::config::MailerConfig;
 use crate::errors::MailerServiceError;
-use crate::model::{Email, EmailValidationLink, InvoicePaid, InvoiceReady, ResetPasswordLink};
+use crate::model::{
+    Email, EmailValidationLink, InvoicePaid, InvoiceReady, QuoteReady, ResetPasswordLink,
+};
 use crate::template::{
-    EmailValidationLinkTemplate, InvoicePaidTemplate, InvoiceReadyTemplate,
+    EmailValidationLinkTemplate, InvoicePaidTemplate, InvoiceReadyTemplate, QuoteReadyTemplate,
     ResetPasswordLinkTemplate,
 };
 use async_trait::async_trait;
@@ -37,6 +39,8 @@ pub trait MailerService: Send + Sync {
     ) -> Result<(), Report<MailerServiceError>>;
 
     async fn send_invoice_paid(&self, link: InvoicePaid) -> Result<(), Report<MailerServiceError>>;
+
+    async fn send_quote_ready(&self, data: QuoteReady) -> Result<(), Report<MailerServiceError>>;
 }
 
 pub struct LettreMailerService<T: AsyncTransport> {
@@ -151,6 +155,24 @@ where
             subject: title,
             body_html,
             attachments: data.attachments,
+        };
+        self.send(email).await
+    }
+
+    async fn send_quote_ready(&self, data: QuoteReady) -> Result<(), Report<MailerServiceError>> {
+        let tpl = QuoteReadyTemplate::from(data.clone()).tpl;
+
+        let title = tpl.title.clone();
+        let from = format!("{} <quotes@meteroid.com>", data.company_name);
+        let body_html = tpl.render_once().map_err(|e| Report::new(e.into()))?;
+
+        let email = Email {
+            from,
+            reply_to: Some("Meteroid <support@meteroid.com>".into()), // TODO allow custom reply email
+            to: data.recipients.clone(),
+            subject: title,
+            body_html,
+            attachments: vec![], // No PDF attachment for quote email, they access via portal
         };
         self.send(email).await
     }

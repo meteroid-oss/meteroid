@@ -1,6 +1,6 @@
 use chrono::{DateTime, NaiveDate, NaiveDateTime, SecondsFormat, Utc};
 use common_domain::ids::{
-    BillableMetricId, ProductFamilyId, ProductId, string_serde, string_serde_opt,
+    BillableMetricId, ProductFamilyId, ProductId, QuoteId, string_serde, string_serde_opt,
 };
 use common_domain::ids::{CustomerId, InvoiceId, SubscriptionId};
 use error_stack::Report;
@@ -9,7 +9,8 @@ use meteroid_store::domain::enums::{
     BillingPeriodEnum, InvoiceStatusEnum, WebhookOutEventTypeEnum,
 };
 use meteroid_store::domain::outbox_event::{
-    BillableMetricEvent, CustomerEvent, InvoiceEvent, OutboxEvent, SubscriptionEvent,
+    BillableMetricEvent, CustomerEvent, InvoiceEvent, OutboxEvent, QuoteAcceptedEvent,
+    QuoteConvertedEvent, SubscriptionEvent,
 };
 use meteroid_store::domain::webhooks::{WebhookOutMessageNew, WebhookOutMessagePayload};
 use meteroid_store::domain::{
@@ -106,6 +107,28 @@ pub struct Invoice {
     pub created_at: NaiveDateTime,
 }
 
+#[derive(Debug, Serialize, o2o)]
+#[from_owned(QuoteAcceptedEvent)]
+pub struct QuoteAccepted {
+    #[serde(serialize_with = "string_serde::serialize")]
+    #[map(quote_id)]
+    pub id: QuoteId,
+    #[serde(serialize_with = "string_serde::serialize")]
+    pub customer_id: CustomerId,
+}
+
+#[derive(Debug, Serialize, o2o)]
+#[from_owned(QuoteConvertedEvent)]
+pub struct QuoteConverted {
+    #[serde(serialize_with = "string_serde::serialize")]
+    #[map(quote_id)]
+    pub id: QuoteId,
+    #[serde(serialize_with = "string_serde::serialize")]
+    pub customer_id: CustomerId,
+    #[serde(serialize_with = "string_serde::serialize")]
+    pub subscription_id: SubscriptionId,
+}
+
 pub(crate) fn to_webhook_out(evt: OutboxEvent) -> StoreResult<Option<WebhookOutMessageNew>> {
     let event_id = evt.event_id().to_string();
     let out = match evt {
@@ -177,6 +200,34 @@ pub(crate) fn to_webhook_out(evt: OutboxEvent) -> StoreResult<Option<WebhookOutM
             Some((
                 WebhookOutEventTypeEnum::SubscriptionCreated,
                 WebhookOutMessagePayload::Subscription(payload),
+            ))
+        }
+        OutboxEvent::QuoteAccepted(event) => {
+            let event = QuoteAccepted::from(*event);
+            let payload = serde_json::to_value(event).map_err(|e| {
+                Report::from(StoreError::SerdeError(
+                    "Failed to serialize payload".to_string(),
+                    e,
+                ))
+            })?;
+
+            Some((
+                WebhookOutEventTypeEnum::QuoteAccepted,
+                WebhookOutMessagePayload::Quote(payload),
+            ))
+        }
+        OutboxEvent::QuoteConverted(event) => {
+            let event = QuoteConverted::from(*event);
+            let payload = serde_json::to_value(event).map_err(|e| {
+                Report::from(StoreError::SerdeError(
+                    "Failed to serialize payload".to_string(),
+                    e,
+                ))
+            })?;
+
+            Some((
+                WebhookOutEventTypeEnum::QuoteConverted,
+                WebhookOutMessagePayload::Quote(payload),
             ))
         }
         // TODO add webhooks

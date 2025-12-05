@@ -1,11 +1,12 @@
 use super::{QuoteServiceComponents, mapping};
 use crate::api::quotes::error::QuoteApiError;
-use crate::api::shared::conversions::{FromProtoOpt, ProtoConv};
+use crate::api::shared::conversions::FromProtoOpt;
 use crate::api::utils::PaginationExt;
-use common_domain::ids::{BaseId, CustomerId, PlanVersionId, QuoteId};
+use common_domain::ids::{AddOnId, BaseId, CouponId, CustomerId, PlanVersionId, QuoteId};
 use common_grpc::middleware::server::auth::RequestExt;
 use meteroid_grpc::meteroid::api::quotes::v1::{
-    CancelQuoteRequest, CancelQuoteResponse, CreateQuoteRequest, CreateQuoteResponse,
+    CancelQuoteRequest, CancelQuoteResponse, ConvertQuoteToSubscriptionRequest,
+    ConvertQuoteToSubscriptionResponse, CreateQuoteRequest, CreateQuoteResponse,
     DuplicateQuoteRequest, DuplicateQuoteResponse, ExpireQuoteRequest, ExpireQuoteResponse,
     GenerateQuotePortalTokenRequest, GenerateQuotePortalTokenResponse, GetQuoteRequest,
     GetQuoteResponse, ListQuotesRequest, ListQuotesResponse, PreviewQuoteRequest,
@@ -13,14 +14,20 @@ use meteroid_grpc::meteroid::api::quotes::v1::{
     SendQuoteResponse, UpdateQuoteRequest, UpdateQuoteResponse, list_quotes_request::SortBy,
     quotes_service_server::QuotesService,
 };
-use meteroid_store::domain::{CreateSubscriptionComponents, OrderByRequest};
+use meteroid_store::domain::add_ons::AddOn;
+use meteroid_store::domain::quotes::{QuoteAddOnNew, QuoteCouponNew};
+use meteroid_store::domain::{
+    CreateSubscriptionAddOns, CreateSubscriptionComponents, OrderByRequest,
+};
 use meteroid_store::domain::{PriceComponent, quotes::QuotePriceComponentNew};
 use meteroid_store::repositories::QuotesInterface;
 use nanoid::nanoid;
 use tonic::{Request, Response, Status};
 
+use crate::api::subscriptions::mapping::add_ons::create_subscription_add_ons_from_grpc;
 use crate::api::subscriptions::mapping::price_components::create_subscription_components_from_grpc;
 use common_utils::rng::UPPER_ALPHANUMERIC;
+use meteroid_store::repositories::add_ons::AddOnInterface;
 use meteroid_store::repositories::price_components::PriceComponentInterface;
 
 #[tonic::async_trait]
@@ -50,8 +57,25 @@ impl QuotesService for QuoteServiceComponents {
             .map(mapping::quotes::recipient_details_to_domain)
             .collect();
 
+        // Parse optional start_date
+        let billing_start_date = quote
+            .start_date
+            .and_then(|s| chrono::NaiveDate::from_proto_opt(Some(s)).ok())
+            .flatten();
+
+        // Parse payment strategy (defaults to Auto if not provided)
+        let payment_strategy = quote
+            .payment_strategy
+            .and_then(|ps| {
+                meteroid_grpc::meteroid::api::quotes::v1::PaymentStrategy::try_from(ps).ok()
+            })
+            .map(mapping::quotes::payment_strategy_from_proto)
+            .unwrap_or(meteroid_store::domain::enums::SubscriptionPaymentStrategy::Auto);
+
+        let quote_id = QuoteId::new();
+
         let quote_new = meteroid_store::domain::quotes::QuoteNew {
-            id: QuoteId::new(),
+            id: quote_id,
             status: meteroid_store::domain::enums::QuoteStatusEnum::Draft,
             tenant_id,
             customer_id,
@@ -62,9 +86,9 @@ impl QuotesService for QuoteServiceComponents {
                 .unwrap_or_else(|| format!("Q-{}", nanoid!(8, &UPPER_ALPHANUMERIC))),
             // Subscription-like fields
             trial_duration_days: quote.trial_duration.map(|d| d as i32),
-            billing_start_date: chrono::NaiveDate::from_proto(quote.start_date)?,
+            billing_start_date,
             billing_end_date: quote
-                .billing_start_date
+                .end_date
                 .and_then(|s| chrono::NaiveDate::from_proto_opt(Some(s)).ok())
                 .flatten(),
             billing_day_anchor: quote.billing_day_anchor.map(|d| d as i32),
@@ -94,36 +118,83 @@ impl QuotesService for QuoteServiceComponents {
             pdf_document_id: None,
             sharing_key: Some(uuid::Uuid::new_v4().to_string()),
             recipients,
+            // Payment configuration fields
+            payment_strategy,
+            auto_advance_invoices: quote.auto_advance_invoices.unwrap_or(true),
+            charge_automatically: quote.charge_automatically.unwrap_or(true),
+            invoice_memo: quote.invoice_memo,
+            invoice_threshold: quote
+                .invoice_threshold
+                .and_then(|s| s.parse::<rust_decimal::Decimal>().ok()),
+            create_subscription_on_acceptance: quote
+                .create_subscription_on_acceptance
+                .unwrap_or(false),
         };
 
-        // Create the quote first TODO transaction in store
-        let created_quote = self
-            .store
-            .insert_quote(quote_new)
-            .await
-            .map_err(Into::<QuoteApiError>::into)?;
-
-        // Process and insert quote components
-        if let Some(components) = quote.components {
+        // Process quote components (fetch plan price components first)
+        let quote_components = if let Some(components) = quote.components {
             let price_components = self
                 .store
                 .list_price_components(plan_version_id, tenant_id)
                 .await
                 .map_err(Into::<QuoteApiError>::into)?;
 
-            let quote_components = process_quote_components(
+            process_quote_components(
                 &create_subscription_components_from_grpc(components)?,
                 &price_components,
-                created_quote.id,
-            )?;
+                quote_id,
+            )?
+        } else {
+            vec![]
+        };
 
-            if !quote_components.is_empty() {
-                self.store
-                    .insert_quote_components(quote_components)
+        // Process quote add-ons (fetch add-on details first)
+        let quote_add_ons = if let Some(add_ons_proto) = quote.add_ons {
+            let create_add_ons = create_subscription_add_ons_from_grpc(add_ons_proto)?;
+
+            if !create_add_ons.add_ons.is_empty() {
+                let add_on_ids: Vec<AddOnId> =
+                    create_add_ons.add_ons.iter().map(|a| a.add_on_id).collect();
+
+                let add_ons = self
+                    .store
+                    .list_add_ons_by_ids(tenant_id, add_on_ids)
                     .await
                     .map_err(Into::<QuoteApiError>::into)?;
+
+                process_quote_add_ons(&create_add_ons, &add_ons, quote_id)?
+            } else {
+                vec![]
             }
-        }
+        } else {
+            vec![]
+        };
+
+        // Process quote coupons
+        let quote_coupons: Vec<QuoteCouponNew> = if let Some(coupons_proto) = quote.coupons {
+            coupons_proto
+                .coupons
+                .iter()
+                .filter_map(|c| {
+                    CouponId::from_proto_opt(Some(c.coupon_id.clone()))
+                        .ok()
+                        .flatten()
+                })
+                .map(|coupon_id| QuoteCouponNew {
+                    quote_id,
+                    coupon_id,
+                })
+                .collect()
+        } else {
+            vec![]
+        };
+
+        // Create quote with all details in a single transaction
+        let created_quote = self
+            .store
+            .insert_quote_with_details(quote_new, quote_components, quote_add_ons, quote_coupons)
+            .await
+            .map_err(Into::<QuoteApiError>::into)?;
 
         let detailed_quote = self
             .store
@@ -221,9 +292,24 @@ impl QuotesService for QuoteServiceComponents {
     #[tracing::instrument(skip_all)]
     async fn send_quote(
         &self,
-        _request: Request<SendQuoteRequest>,
+        request: Request<SendQuoteRequest>,
     ) -> Result<Response<SendQuoteResponse>, Status> {
-        unimplemented!()
+        let tenant_id = request.tenant()?;
+        let inner = request.into_inner();
+
+        let quote_id = QuoteId::from_proto(&inner.id)?;
+
+        // Send the quote (publishes if draft, queues email)
+        let _updated_quote = self
+            .store
+            .send_quote(quote_id, tenant_id, inner.message)
+            .await
+            .map_err(Into::<QuoteApiError>::into)?;
+
+        Ok(Response::new(SendQuoteResponse {
+            success: true,
+            message: Some("Quote sent successfully".to_string()),
+        }))
     }
 
     #[tracing::instrument(skip_all)]
@@ -245,9 +331,31 @@ impl QuotesService for QuoteServiceComponents {
     #[tracing::instrument(skip_all)]
     async fn cancel_quote(
         &self,
-        _request: Request<CancelQuoteRequest>,
+        request: Request<CancelQuoteRequest>,
     ) -> Result<Response<CancelQuoteResponse>, Status> {
-        unimplemented!()
+        let tenant_id = request.tenant()?;
+        let inner = request.into_inner();
+
+        let quote_id = QuoteId::from_proto(&inner.id)?;
+
+        // Cancel the quote
+        let updated_quote = self
+            .store
+            .cancel_quote(quote_id, tenant_id, inner.reason)
+            .await
+            .map_err(Into::<QuoteApiError>::into)?;
+
+        // Get the detailed quote for the response
+        let detailed_quote = self
+            .store
+            .get_detailed_quote_by_id(tenant_id, updated_quote.id)
+            .await
+            .map_err(Into::<QuoteApiError>::into)
+            .map(|q| mapping::quotes::detailed_quote_domain_to_proto(&q))?;
+
+        Ok(Response::new(CancelQuoteResponse {
+            quote: Some(detailed_quote),
+        }))
     }
 
     #[tracing::instrument(skip_all)]
@@ -333,6 +441,43 @@ impl QuotesService for QuoteServiceComponents {
 
         Ok(Response::new(PublishQuoteResponse {
             quote: Some(detailed_quote),
+        }))
+    }
+
+    #[tracing::instrument(skip_all)]
+    async fn convert_quote_to_subscription(
+        &self,
+        request: Request<ConvertQuoteToSubscriptionRequest>,
+    ) -> Result<Response<ConvertQuoteToSubscriptionResponse>, Status> {
+        let tenant_id = request.tenant()?;
+        let actor = request.actor()?;
+        let inner = request.into_inner();
+
+        let quote_id = QuoteId::from_proto(&inner.quote_id)?;
+
+        // Convert the quote to a subscription
+        let result = self
+            .services
+            .convert_quote_to_subscription(tenant_id, quote_id, actor)
+            .await
+            .map_err(Into::<QuoteApiError>::into)?;
+
+        // Get the updated quote
+        let updated_quote = self
+            .store
+            .get_quote_by_id(tenant_id, quote_id)
+            .await
+            .map_err(Into::<QuoteApiError>::into)?;
+
+        // Map the subscription to proto
+        let subscription =
+            crate::api::subscriptions::mapping::subscriptions::created_domain_to_proto(
+                result.subscription,
+            )?;
+
+        Ok(Response::new(ConvertQuoteToSubscriptionResponse {
+            quote: Some(mapping::quotes::quote_to_proto(&updated_quote, None, false)),
+            subscription: Some(subscription),
         }))
     }
 }
@@ -440,4 +585,65 @@ fn process_quote_components(
     }
 
     Ok(processed_components)
+}
+
+fn process_quote_add_ons(
+    create_add_ons: &CreateSubscriptionAddOns,
+    add_ons: &[AddOn],
+    quote_id: QuoteId,
+) -> Result<Vec<QuoteAddOnNew>, Status> {
+    use meteroid_store::domain::SubscriptionAddOnCustomization;
+
+    let mut processed_add_ons = Vec::new();
+
+    for cs_ao in &create_add_ons.add_ons {
+        let add_on = add_ons
+            .iter()
+            .find(|x| x.id == cs_ao.add_on_id)
+            .ok_or_else(|| Status::not_found(format!("Add-on {} not found", cs_ao.add_on_id)))?;
+
+        match &cs_ao.customization {
+            SubscriptionAddOnCustomization::None => {
+                let (period, fee) = add_on
+                    .fee
+                    .to_subscription_fee()
+                    .map_err(|e| Status::internal(format!("Failed to process add-on fee: {e}")))?;
+                processed_add_ons.push(QuoteAddOnNew {
+                    quote_id,
+                    add_on_id: add_on.id,
+                    name: add_on.name.clone(),
+                    period,
+                    fee,
+                });
+            }
+            SubscriptionAddOnCustomization::Override(override_) => {
+                processed_add_ons.push(QuoteAddOnNew {
+                    quote_id,
+                    add_on_id: add_on.id,
+                    name: override_.name.clone(),
+                    period: override_.period,
+                    fee: override_.fee.clone(),
+                });
+            }
+            SubscriptionAddOnCustomization::Parameterization(param) => {
+                let (period, fee) = add_on
+                    .fee
+                    .to_subscription_fee_parameterized(
+                        &param.initial_slot_count,
+                        &param.billing_period,
+                        &param.committed_capacity,
+                    )
+                    .map_err(|e| Status::internal(format!("Failed to process add-on fee: {e}")))?;
+                processed_add_ons.push(QuoteAddOnNew {
+                    quote_id,
+                    add_on_id: add_on.id,
+                    name: add_on.name.clone(),
+                    period,
+                    fee,
+                });
+            }
+        }
+    }
+
+    Ok(processed_add_ons)
 }

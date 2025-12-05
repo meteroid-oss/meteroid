@@ -156,6 +156,18 @@ pub struct InvoicePaid {
     pub account: String, // is checkout
 }
 
+#[derive(Clone)]
+pub struct QuoteReady {
+    pub quote_number: String,
+    pub expires_at: Option<NaiveDate>,
+    pub company_name: String,
+    pub logo_url: Option<String>,
+    pub recipients: Vec<EmailRecipient>,
+    pub portal_url: String,
+    pub custom_message: Option<String>,
+    pub account: String,
+}
+
 impl TryInto<Mailbox> for EmailRecipient {
     type Error = Report<MailerServiceError>;
 

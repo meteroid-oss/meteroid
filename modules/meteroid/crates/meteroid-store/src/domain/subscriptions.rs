@@ -2,17 +2,21 @@ use chrono::{NaiveDate, NaiveDateTime};
 
 use crate::domain::connectors::ConnectionMeta;
 use crate::domain::enums::{BillingPeriodEnum, SubscriptionActivationCondition};
-use crate::domain::subscription_add_ons::{CreateSubscriptionAddOns, SubscriptionAddOn};
+use crate::domain::subscription_add_ons::{
+    CreateSubscriptionAddOns, SubscriptionAddOn, SubscriptionAddOnNewInternal,
+};
+use crate::domain::subscription_components::SubscriptionComponentNewInternal;
 use crate::domain::{
     AppliedCouponDetailed, BillableMetric, CreateSubscriptionComponents, CreateSubscriptionCoupons,
     Customer, InvoicingEntity, PlanForSubscription, Schedule, SubscriptionComponent,
-    SubscriptionStatusEnum,
+    SubscriptionPaymentStrategy, SubscriptionStatusEnum,
 };
 use crate::errors::StoreErrorReport;
 use crate::services::PaymentSetupResult;
+use common_domain::ids::CouponId;
 use common_domain::ids::{
     BankAccountId, CustomerConnectionId, CustomerId, InvoicingEntityId, PlanId, PlanVersionId,
-    SubscriptionId, TenantId,
+    QuoteId, SubscriptionId, TenantId,
 };
 use diesel_models::enums::CycleActionEnum;
 use diesel_models::subscriptions::SubscriptionRowNew;
@@ -96,6 +100,8 @@ pub struct Subscription {
     pub error_count: i32,
     pub last_error: Option<String>,
     pub next_retry: Option<NaiveDateTime>,
+    // Quote to subscription linking
+    pub quote_id: Option<QuoteId>,
 }
 
 pub enum CyclePosition {
@@ -152,20 +158,9 @@ impl TryFrom<SubscriptionForDisplayRow> for Subscription {
             error_count: val.subscription.error_count,
             last_error: val.subscription.last_error,
             next_retry: val.subscription.next_retry,
+            quote_id: val.subscription.quote_id,
         })
     }
-}
-
-#[derive(Debug, Clone, PartialEq)]
-pub enum SubscriptionPaymentStrategy {
-    Auto, // uses the existing method if exist, do card checkout if standard plan & configured provider, else bank if exists else external
-    // Checkout, // forces a checkout, even if the user already has a card on file. Checkout can basically be a validation step.
-    Bank, // TODO not a strategy ? we just add the bank_id to the subscription & invoice
-    External,
-    // TODO
-    // CustomerPaymentMethod(id)
-    // PaymentProvider(id)
-    // Bank(id)
 }
 
 // commitments etc will be represented by the Phases/Schedule, with possibly a way to simplify that in the UI (like trials that should also end up as a sort of phase, though it's a bit different as there's some conditional logic)
@@ -221,6 +216,7 @@ pub struct SubscriptionNewEnriched<'a> {
     pub activated_at: Option<NaiveDateTime>,
     pub net_terms: u32,
     pub cycle_index: Option<u32>,
+    pub quote_id: Option<QuoteId>,
 }
 
 impl SubscriptionNewEnriched<'_> {
@@ -265,6 +261,7 @@ impl SubscriptionNewEnriched<'_> {
             charge_automatically: sub.charge_automatically,
             auto_advance_invoices: sub.auto_advance_invoices,
             purchase_order: sub.purchase_order.clone(),
+            quote_id: self.quote_id,
         }
     }
 }
@@ -275,6 +272,16 @@ pub struct CreateSubscription {
     pub price_components: Option<CreateSubscriptionComponents>,
     pub add_ons: Option<CreateSubscriptionAddOns>,
     pub coupons: Option<CreateSubscriptionCoupons>,
+}
+
+/// Components and add-ons are already processed (fees computed), so we skip plan-based processing.
+#[derive(Debug, Clone)]
+pub struct CreateSubscriptionFromQuote {
+    pub subscription: SubscriptionNew,
+    pub components: Vec<SubscriptionComponentNewInternal>,
+    pub add_ons: Vec<SubscriptionAddOnNewInternal>,
+    pub coupon_ids: Vec<CouponId>,
+    pub quote_id: QuoteId,
 }
 
 #[derive(Debug, Clone)]

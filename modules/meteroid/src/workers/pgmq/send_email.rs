@@ -54,6 +54,7 @@ impl EmailSender {
             SendEmailRequest::InvoicePaid { tenant_id, .. } => Ok(*tenant_id),
             SendEmailRequest::PaymentReminder { tenant_id, .. } => Ok(*tenant_id),
             SendEmailRequest::PaymentRejected { tenant_id, .. } => Ok(*tenant_id),
+            SendEmailRequest::QuoteReady { tenant_id, .. } => Ok(*tenant_id),
         }
     }
 
@@ -249,6 +250,50 @@ impl EmailSender {
                         recipients: recipients.clone(),
                         attachments,
                         lines: vec![], // TODO
+                        account: invoicing_entity_id.as_base62(),
+                    })
+                    .await
+                    .change_context(StoreError::MailServiceError)
+            }
+
+            SendEmailRequest::QuoteReady {
+                invoicing_entity_id,
+                quote_number,
+                expires_at,
+                company_name,
+                logo_attachment_id,
+                recipient_emails,
+                portal_url,
+                custom_message,
+                ..
+            } => {
+                if recipient_emails.is_empty() {
+                    log::warn!("No recipient emails found for quote {quote_number}");
+                    return Ok(());
+                }
+
+                let recipients = recipient_emails
+                    .into_iter()
+                    .map(|email| EmailRecipient {
+                        email,
+                        first_name: None,
+                        last_name: None,
+                    })
+                    .collect_vec();
+
+                let logo_url = logo_attachment_id.map(|logo_attachment_id| {
+                    format!("{}/files/v1/logo/{}", self.rest_api_url, logo_attachment_id)
+                });
+
+                self.mailer
+                    .send_quote_ready(meteroid_mailer::model::QuoteReady {
+                        quote_number,
+                        expires_at,
+                        company_name,
+                        logo_url,
+                        recipients: recipients.clone(),
+                        portal_url,
+                        custom_message,
                         account: invoicing_entity_id.as_base62(),
                     })
                     .await

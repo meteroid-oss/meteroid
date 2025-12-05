@@ -1,13 +1,13 @@
 use crate::domain::add_ons::AddOn;
 use crate::domain::coupons::Coupon;
 use crate::domain::{
-    CreateSubscription, Customer, CustomerConnection, InvoicingEntityProviderSensitive,
-    PlanForSubscription, PriceComponent,
+    CreateSubscription, CreateSubscriptionFromQuote, Customer, CustomerConnection,
+    InvoicingEntityProviderSensitive, PlanForSubscription, PriceComponent,
 };
 use crate::errors::StoreError;
 use crate::store::PgConn;
 use crate::{StoreResult, services::Services};
-use common_domain::ids::{PlanVersionId, TenantId};
+use common_domain::ids::{CouponId, CustomerId, PlanVersionId, TenantId};
 use diesel_models::add_ons::AddOnRow;
 use diesel_models::coupons::CouponRow;
 use diesel_models::customer_connection::CustomerConnectionRow;
@@ -227,6 +227,110 @@ impl Services {
                 .into_iter()
                 .map(CustomerConnection::from)
                 .collect();
+
+        Ok(res)
+    }
+
+    pub(crate) async fn gather_subscription_context_from_quote(
+        &self,
+        conn: &mut PgConn,
+        params: &CreateSubscriptionFromQuote,
+        tenant_id: TenantId,
+        secret_decoding_key: &SecretString,
+    ) -> StoreResult<SubscriptionCreationContext> {
+        let plan_version_ids = vec![params.subscription.plan_version_id];
+
+        let plans = self.get_plans(conn, &plan_version_ids).await?;
+
+        // Get coupons by IDs
+        let coupons = self
+            .get_coupons_by_ids(conn, &params.coupon_ids, &tenant_id)
+            .await?;
+
+        // Get customer
+        let customers = self
+            .get_customers_by_ids(conn, &[params.subscription.customer_id], &tenant_id)
+            .await?;
+
+        let customer_connection = self
+            .get_customer_connection_by_ids(conn, &[params.subscription.customer_id], &tenant_id)
+            .await?;
+
+        let invoicing_entities = self
+            .list_invoicing_entities(conn, &tenant_id, secret_decoding_key)
+            .await?;
+
+        Ok(SubscriptionCreationContext {
+            customers,
+            plans,
+            price_components_by_plan_version: HashMap::new(), // Not needed for quote conversion
+            all_add_ons: vec![],                              // Not needed for quote conversion
+            all_coupons: coupons,
+            invoicing_entity_providers: invoicing_entities,
+            customer_connection,
+        })
+    }
+
+    async fn get_coupons_by_ids(
+        &self,
+        conn: &mut PgConn,
+        coupon_ids: &[CouponId],
+        tenant_id: &TenantId,
+    ) -> StoreResult<Vec<Coupon>> {
+        if coupon_ids.is_empty() {
+            return Ok(vec![]);
+        }
+
+        CouponRow::list_by_ids(conn, coupon_ids, tenant_id)
+            .await
+            .map_err(Into::<Report<StoreError>>::into)
+            .and_then(|x| x.into_iter().map(TryInto::try_into).collect())
+    }
+
+    async fn get_customers_by_ids(
+        &self,
+        conn: &mut PgConn,
+        customer_ids: &[CustomerId],
+        tenant_id: &TenantId,
+    ) -> StoreResult<Vec<Customer>> {
+        if let Some((id, name)) =
+            CustomerRow::find_archived_customer_in_batch(conn, *tenant_id, customer_ids.to_vec())
+                .await
+                .map_err(Into::<Report<StoreError>>::into)?
+        {
+            return Err(StoreError::InvalidArgument(format!(
+                "Cannot create subscription for archived customer: {} ({})",
+                name, id
+            ))
+            .into());
+        }
+
+        CustomerRow::list_by_ids(conn, tenant_id, customer_ids.to_vec())
+            .await
+            .map_err(Into::<Report<StoreError>>::into)?
+            .into_iter()
+            .map(std::convert::TryInto::try_into)
+            .collect::<Vec<StoreResult<Customer>>>()
+            .into_iter()
+            .collect::<StoreResult<Vec<Customer>>>()
+    }
+
+    async fn get_customer_connection_by_ids(
+        &self,
+        conn: &mut PgConn,
+        customer_ids: &[CustomerId],
+        tenant_id: &TenantId,
+    ) -> StoreResult<Vec<CustomerConnection>> {
+        let res = CustomerConnectionRow::list_connections_by_customer_ids(
+            conn,
+            tenant_id,
+            customer_ids.to_vec(),
+        )
+        .await
+        .map_err(Into::<Report<StoreError>>::into)?
+        .into_iter()
+        .map(CustomerConnection::from)
+        .collect();
 
         Ok(res)
     }

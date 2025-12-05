@@ -11,7 +11,7 @@ use crate::enums::{
 };
 use common_domain::ids::{
     BankAccountId, CustomerConnectionId, CustomerId, CustomerPaymentMethodId, InvoicingEntityId,
-    PlanId, PlanVersionId, SubscriptionId, TenantId,
+    PlanId, PlanVersionId, QuoteId, SubscriptionId, TenantId,
 };
 use diesel::{AsChangeset, Identifiable, Insertable, Queryable, Selectable};
 use rust_decimal::Decimal;
@@ -58,6 +58,7 @@ pub struct SubscriptionRow {
     pub auto_advance_invoices: bool,
     pub charge_automatically: bool,
     pub purchase_order: Option<String>,
+    pub quote_id: Option<QuoteId>,
 }
 
 #[derive(Insertable, Debug)]
@@ -96,6 +97,7 @@ pub struct SubscriptionRowNew {
     pub auto_advance_invoices: bool,
     pub charge_automatically: bool,
     pub purchase_order: Option<String>,
+    pub quote_id: Option<QuoteId>,
 }
 
 pub struct CancelSubscriptionParams {

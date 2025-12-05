@@ -8,7 +8,7 @@ use futures::FutureExt;
 use meteroid_store::domain::outbox_event::{EventType, OutboxEvent, OutboxPgmqHeaders};
 use meteroid_store::domain::pgmq::{
     BillableMetricSyncRequestEvent, HubspotSyncRequestEvent, PennylaneSyncInvoice,
-    PennylaneSyncRequestEvent, PgmqMessage, PgmqMessageNew, PgmqQueue,
+    PennylaneSyncRequestEvent, PgmqMessage, PgmqMessageNew, PgmqQueue, QuoteConversionRequestEvent,
 };
 use meteroid_store::repositories::pgmq::PgmqInterface;
 use meteroid_store::{Store, StoreResult};
@@ -216,6 +216,33 @@ impl PgmqOutboxDispatch {
             .await
             .change_context(PgmqError::HandleMessages)
     }
+
+    pub(crate) async fn handle_quote_conversion(&self, msgs: &[PgmqMessage]) -> PgmqResult<()> {
+        let mut new_messages = vec![];
+
+        for msg in msgs {
+            let out_headers: StoreResult<Option<OutboxPgmqHeaders>> =
+                msg.headers.as_ref().map(TryInto::try_into).transpose();
+            if let Ok(Some(out_headers)) = out_headers
+                && let EventType::QuoteAccepted = &out_headers.event_type
+                && let Ok(OutboxEvent::QuoteAccepted(evt)) = msg.try_into()
+            {
+                QuoteConversionRequestEvent::QuoteAccepted(evt)
+                    .try_into()
+                    .map(|msg_new| new_messages.push(msg_new))
+                    .change_context(PgmqError::HandleMessages)?;
+            }
+        }
+
+        if !new_messages.is_empty() {
+            self.store
+                .pgmq_send_batch(PgmqQueue::QuoteConversion, new_messages)
+                .await
+                .change_context(PgmqError::HandleMessages)?;
+        }
+
+        Ok(())
+    }
 }
 
 #[async_trait]
@@ -229,6 +256,7 @@ impl PgmqHandler for PgmqOutboxDispatch {
             self.handle_pennylane_out(msgs).boxed(),
             self.handle_billable_metric_sync(msgs).boxed(),
             self.handle_invoice_orchestration(msgs).boxed(),
+            self.handle_quote_conversion(msgs).boxed(),
         ];
 
         // Run the functions concurrently

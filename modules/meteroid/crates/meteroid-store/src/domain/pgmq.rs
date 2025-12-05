@@ -1,9 +1,11 @@
-use crate::domain::outbox_event::{BillableMetricEvent, CustomerEvent, SubscriptionEvent};
+use crate::domain::outbox_event::{
+    BillableMetricEvent, CustomerEvent, QuoteAcceptedEvent, SubscriptionEvent,
+};
 use crate::errors::{StoreError, StoreErrorReport};
 use crate::json_value_serde;
 use chrono::NaiveDate;
 use common_domain::ids::{
-    CustomerId, CustomerPaymentMethodId, InvoiceId, InvoicingEntityId, StoredDocumentId,
+    CustomerId, CustomerPaymentMethodId, InvoiceId, InvoicingEntityId, QuoteId, StoredDocumentId,
     SubscriptionId, TenantId,
 };
 use common_domain::pgmq::{Headers, Message, MessageId, ReadCt};
@@ -23,6 +25,7 @@ pub enum PgmqQueue {
     InvoiceOrchestration,
     PaymentRequest,
     SendEmailRequest,
+    QuoteConversion,
 }
 
 impl PgmqQueue {
@@ -34,10 +37,10 @@ impl PgmqQueue {
             PgmqQueue::BillableMetricSync => "billable_metric_sync",
             PgmqQueue::HubspotSync => "hubspot_sync",
             PgmqQueue::PennylaneSync => "pennylane_sync",
-
             PgmqQueue::InvoiceOrchestration => "invoice_orchestration",
             PgmqQueue::PaymentRequest => "payment_request",
             PgmqQueue::SendEmailRequest => "send_email_request",
+            PgmqQueue::QuoteConversion => "quote_conversion",
         }
     }
 }
@@ -156,6 +159,25 @@ pub enum SendEmailRequest {
         invoice_pdf_url: String,
         receipt_pdf_url: Option<String>, // or tx details ?
     },
+
+    /// Quote sent to recipient for signature
+    QuoteReady {
+        tenant_id: TenantId,
+        quote_id: QuoteId,
+        invoicing_entity_id: InvoicingEntityId,
+        quote_number: String,
+        expires_at: Option<NaiveDate>,
+        company_name: String,
+        logo_attachment_id: Option<StoredDocumentId>,
+        /// Recipients to send the quote to
+        recipient_emails: Vec<String>,
+        /// Portal URL for signing the quote
+        portal_url: String,
+        /// Optional custom message from sender
+        custom_message: Option<String>,
+        /// Currency of the quote
+        currency: String,
+    },
 }
 json_value_serde!(SendEmailRequest);
 derive_pgmq_message!(SendEmailRequest);
@@ -265,3 +287,18 @@ impl BillableMetricSyncRequestEvent {
 }
 json_value_serde!(BillableMetricSyncRequestEvent);
 derive_pgmq_message!(BillableMetricSyncRequestEvent);
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub enum QuoteConversionRequestEvent {
+    QuoteAccepted(Box<QuoteAcceptedEvent>),
+}
+
+impl QuoteConversionRequestEvent {
+    pub fn tenant_id(&self) -> TenantId {
+        match self {
+            QuoteConversionRequestEvent::QuoteAccepted(event) => event.tenant_id,
+        }
+    }
+}
+json_value_serde!(QuoteConversionRequestEvent);
+derive_pgmq_message!(QuoteConversionRequestEvent);

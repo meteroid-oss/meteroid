@@ -148,6 +148,7 @@ pub enum WebhookOutMessagePayload {
     Subscription(serde_json::Value),
     Invoice(serde_json::Value),
     BillableMetric(serde_json::Value),
+    Quote(serde_json::Value),
 }
 
 impl TryFrom<WebhookOutMessageNew> for svix::api::MessageIn {
