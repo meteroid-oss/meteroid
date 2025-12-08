@@ -1,7 +1,5 @@
-import { spaces } from '@md/foundation'
 import { Skeleton } from '@md/ui'
 import { PaginationState } from '@tanstack/react-table'
-import { Flex } from '@ui/components/legacy'
 import { useEffect, useState } from 'react'
 
 import { InvoicesTable } from '@/features/invoices'
@@ -36,10 +34,10 @@ export const SubscriptionInvoicesCard = ({ subscriptionId, onRefetchChange }: Pr
   }, [onRefetchChange, invoicesQuery.refetch, invoicesQuery.isFetching])
 
   return invoicesQuery.isLoading ? (
-    <Flex direction="column" gap={spaces.space9} fullHeight>
+    <div className="flex flex-col gap-8 h-full">
       <Skeleton height={16} width={50} />
       <Skeleton height={44} />
-    </Flex>
+    </div>
   ) : (
     <InvoicesTable
       data={invoicesQuery.data?.invoices || []}

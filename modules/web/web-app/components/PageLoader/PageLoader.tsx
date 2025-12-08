@@ -1,9 +1,6 @@
-import { LogoSymbol, spaces } from '@md/foundation'
-import { Flex } from '@ui/components/legacy'
+import { LogoSymbol } from '@md/ui'
 
 import { useTheme } from 'providers/ThemeProvider'
-
-import { AnimatedLogo, StyledPageLoader } from './PageLoader.styled'
 
 import type { FunctionComponent } from 'react'
 
@@ -14,14 +11,14 @@ interface PageLoaderProps {
 const PageLoader: FunctionComponent<PageLoaderProps> = ({ title }) => {
   const { isDarkMode } = useTheme()
   return (
-    <StyledPageLoader>
-      <Flex direction="column" gap={spaces.space3} align="center" justify="center">
-        <AnimatedLogo>
+    <div className="flex justify-center items-center h-screen w-screen fixed top-0 left-0 bg-background z-50 text-muted-foreground text-sm fadeIn">
+      <div className="flex flex-col gap-1.5 items-center justify-center">
+        <div className="animate-bounce-logo">
           <LogoSymbol isDarkMode={isDarkMode} size="large" />
-        </AnimatedLogo>
+        </div>
         <h1>{title}</h1>
-      </Flex>
-    </StyledPageLoader>
+      </div>
+    </div>
   )
 }
 

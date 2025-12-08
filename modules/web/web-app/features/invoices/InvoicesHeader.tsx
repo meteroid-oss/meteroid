@@ -1,7 +1,5 @@
-import { colors, spaces } from '@md/foundation'
 import { PlusIcon, SearchIcon } from '@md/icons'
 import { Button, InputWithIcon } from '@md/ui'
-import { Flex } from '@ui/components/legacy'
 import { RefreshCwIcon } from 'lucide-react'
 import { FunctionComponent } from 'react'
 import { Link } from 'react-router-dom'
@@ -27,21 +25,21 @@ export const InvoicesHeader: FunctionComponent<InvoicesProps> = ({
   search,
 }) => {
   return (
-    <Flex direction="column" gap={spaces.space9}>
-      <Flex direction="row" align="center" justify="space-between">
+    <div className="flex flex-col gap-8">
+      <div className="flex flex-row items-center justify-between">
         <PageHeading count={count}>Invoices</PageHeading>
-        <Flex direction="row" gap={spaces.space4}>
+        <div className="flex flex-row gap-2">
           <Button variant="secondary" disabled size="sm">
             Import / Export
           </Button>
           <Link to="create">
             <Button variant="primary" size="sm">
-              <PlusIcon size={10} fill={colors.white1}/> New invoice
+              <PlusIcon size={10} fill="white"/> New invoice
             </Button>
           </Link>
-        </Flex>
-      </Flex>
-      <Flex direction="row" align="center" gap={spaces.space4}>
+        </div>
+      </div>
+      <div className="flex flex-row items-center gap-2">
         <InputWithIcon
           placeholder="Search by customer"
           icon={<SearchIcon size={16}/>}
@@ -56,7 +54,7 @@ export const InvoicesHeader: FunctionComponent<InvoicesProps> = ({
           status={search.status}
           setStatus={value => setSearch({ ...search, status: value })}
         />
-      </Flex>
-    </Flex>
+      </div>
+    </div>
   )
 }

@@ -1,4 +1,3 @@
-import { spaces } from '@md/foundation'
 import {
   Button,
   Form,
@@ -10,7 +9,6 @@ import {
   SheetHeader,
   SheetTitle,
 } from '@md/ui'
-import { Flex } from '@ui/components/legacy'
 import { useState } from 'react'
 import { z } from 'zod'
 
@@ -63,9 +61,9 @@ export function CatalogEditPanel<T extends z.ZodTypeAny>({
                 <SheetTitle>{title}</SheetTitle>
                 <Separator />
               </SheetHeader>
-              <Flex direction="column" gap={spaces.space7}>
+              <div className="flex flex-col gap-5">
                 {children}
-              </Flex>
+              </div>
 
               <SheetFooter className="py-2">
                 <Button type="submit">Save</Button>

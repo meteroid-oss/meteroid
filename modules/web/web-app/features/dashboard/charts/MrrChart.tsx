@@ -1,7 +1,5 @@
-import { colors } from '@md/foundation'
 import { linearGradientDef } from '@nivo/core'
 import { ComputedSerie, LineSvgProps, ResponsiveLine } from '@nivo/line'
-import { styled } from '@stitches/react'
 import { useMemo, useRef, useState } from 'react'
 
 import { MrrColorCircle, MrrColorCircleColors } from '@/features/dashboard/cards/MrrBreakdownCard'
@@ -14,18 +12,6 @@ import { mapDate } from '@/lib/mapping'
 import { MRRBreakdown } from '@/rpc/api/stats/v1/models_pb'
 import { generalStats, totalMrrChart } from '@/rpc/api/stats/v1/stats-StatsService_connectquery'
 import { useTheme } from 'providers/ThemeProvider'
-
-const DottedBackground = styled('div', {
-  maskImage: 'radial-gradient(rgb(0, 0, 0), transparent 62%)',
-  position: 'absolute',
-  width: '100%',
-  height: '100%',
-  top: '0px',
-  left: '0px',
-  padding: '70px',
-  opacity: 0.8,
-  background: `radial-gradient(${colors.neutral4} 1px, transparent 0px)10px 0px / 8px 8px transparent`,
-})
 
 interface MrrChartProps {
   plansId: string[]
@@ -185,7 +171,7 @@ export const MrrChart = (props: MrrChartProps) => {
         </div>
       </div>
       <div className="h-[220px] relative" ref={containerRef}>
-        <div className="h-0 w-0">{!isEmpty && <DottedBackground/>}</div>
+        <div className="h-0 w-0">{!isEmpty && <div className="chart-dotted-bg" />}</div>
         <MrrCrosshair
           serie={serie}
           interval="All"

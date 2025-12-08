@@ -1,5 +1,3 @@
-import { spaces } from '@md/foundation'
-import { Flex } from '@ui/components/legacy'
 import { Fragment, useState } from 'react'
 
 import { InvoicesHeader, InvoicesTable } from '@/features/invoices'
@@ -46,7 +44,7 @@ export const Invoices = () => {
 
   return (
     <Fragment>
-      <Flex direction="column" gap={spaces.space9}>
+      <div className="flex flex-col gap-8">
         <InvoicesHeader
           count={count}
           setEditPanelVisible={setEditPanelVisible}
@@ -62,7 +60,7 @@ export const Invoices = () => {
           setPagination={setPagination}
           isLoading={isLoading}
         />
-      </Flex>
+      </div>
     </Fragment>
   )
 }

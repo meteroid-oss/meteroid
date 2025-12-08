@@ -1,6 +1,4 @@
-import { spaces } from '@md/foundation'
 import { PaginationState } from '@tanstack/react-table'
-import { Flex } from '@ui/components/legacy'
 import { Fragment, FunctionComponent, useState } from 'react'
 import { Outlet, useNavigate } from 'react-router-dom'
 
@@ -37,7 +35,7 @@ export const ProductMetrics: FunctionComponent = () => {
 
   return (
     <Fragment>
-      <Flex direction="column" gap={spaces.space9}>
+      <div className="flex flex-col gap-8">
         <ProductMetricsPageHeader
           setEditPanelVisible={() => navigate('add-metric')}
           isLoading={isLoading}
@@ -52,7 +50,7 @@ export const ProductMetrics: FunctionComponent = () => {
           pagination={pagination}
           setPagination={setPagination}
         />
-      </Flex>
+      </div>
       <Outlet />
     </Fragment>
   )

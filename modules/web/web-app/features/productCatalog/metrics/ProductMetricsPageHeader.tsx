@@ -1,4 +1,3 @@
-import { spaces } from '@md/foundation'
 import { PlusIcon, SearchIcon } from '@md/icons'
 import {
   Button,
@@ -9,7 +8,6 @@ import {
   SelectTrigger,
   SelectValue,
 } from '@md/ui'
-import { Flex } from '@ui/components/legacy'
 import { RefreshCwIcon } from 'lucide-react'
 import { FunctionComponent } from 'react'
 
@@ -33,16 +31,16 @@ export const ProductMetricsPageHeader: FunctionComponent<MetricsHeaderProps> = (
   totalCount,
 }) => {
   return (
-    <Flex direction="column" gap={spaces.space9}>
-      <Flex direction="row" align="center" justify="space-between">
+    <div className="flex flex-col gap-8">
+      <div className="flex flex-row items-center justify-between">
         <PageHeading count={totalCount}>Metrics</PageHeading>
-        <Flex direction="row" gap={spaces.space4}>
+        <div className="flex flex-row gap-2">
           <Button variant="primary" hasIcon onClick={() => setEditPanelVisible(true)} size="sm">
             <PlusIcon size={10} /> New metric
           </Button>
-        </Flex>
-      </Flex>
-      <Flex direction="row" align="center" gap={spaces.space4}>
+        </div>
+      </div>
+      <div className="flex flex-row items-center gap-2">
         <InputWithIcon
           placeholder="Search metrics"
           icon={<SearchIcon size={16} />}
@@ -60,7 +58,7 @@ export const ProductMetricsPageHeader: FunctionComponent<MetricsHeaderProps> = (
         <Button variant="secondary" disabled={isLoading} onClick={refetch}>
           <RefreshCwIcon size={14} className={isLoading ? 'animate-spin' : ''} />
         </Button>
-      </Flex>
-    </Flex>
+      </div>
+    </div>
   )
 }

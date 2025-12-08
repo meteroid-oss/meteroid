@@ -15,9 +15,9 @@
     "eslint": "^8.57.1",
     "husky": "^9.1.7",
     "kill-port": "^2.0.1",
-    "prettier": "^3.5.3",
+    "prettier": "^3.7.4",
     "turbo": "^1.13.4",
-    "typescript": "^5.8.2"
+    "typescript": "^5.9.3"
   },
   "engines": {
     "node": ">=22",
@@ -27,7 +27,6 @@
   },
   "homepage": "https://meteroid.io",
   "license": "AGPL-3.0",
- 
   "packageManager": "pnpm@8.9.0",
   "private": true,
   "repository": "meteroid-oss/monorepo.git",
