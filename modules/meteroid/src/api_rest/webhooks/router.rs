@@ -119,7 +119,7 @@ async fn handler(
         adapter
             .verify_webhook(
                 &parsed_request,
-                &SecretString::new(sensitive_data.webhook_secret.clone()),
+                &SecretString::from(sensitive_data.webhook_secret.clone()),
             )
             .await?;
     }

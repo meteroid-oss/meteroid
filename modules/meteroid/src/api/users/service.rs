@@ -119,13 +119,13 @@ impl UsersService for UsersServiceComponents {
                 .store
                 .login_user(LoginUserRequest {
                     email: req.email,
-                    password: SecretString::new(req.password),
+                    password: SecretString::from(req.password),
                 })
                 .await
                 .map_err(Into::<UserApiError>::into)?;
 
             Ok(Response::new(LoginResponse {
-                token: resp.token.expose_secret().clone(),
+                token: resp.token.expose_secret().to_string(),
                 user: Some(mapping::user::domain_to_proto(resp.user)),
             }))
         })
@@ -161,8 +161,8 @@ impl UsersService for UsersServiceComponents {
 
         self.store
             .reset_password(
-                SecretString::new(inner.token),
-                SecretString::new(inner.new_password),
+                SecretString::from(inner.token),
+                SecretString::from(inner.new_password),
             )
             .await
             .map_err(Into::<UserApiError>::into)?;
@@ -186,7 +186,7 @@ impl UsersService for UsersServiceComponents {
 
             let resp = self
                 .store
-                .init_registration(req.email, req.invite_key.map(SecretString::new))
+                .init_registration(req.email, req.invite_key.map(SecretString::from))
                 .await
                 .map_err(Into::<UserApiError>::into)?;
 
@@ -223,15 +223,15 @@ impl UsersService for UsersServiceComponents {
                 .store
                 .complete_registration(RegisterUserRequest {
                     email: req.email,
-                    password: Some(SecretString::new(req.password)),
-                    invite_key: req.invite_key.map(SecretString::new),
-                    email_validation_token: req.validation_token.map(SecretString::new),
+                    password: Some(SecretString::from(req.password)),
+                    invite_key: req.invite_key.map(SecretString::from),
+                    email_validation_token: req.validation_token.map(SecretString::from),
                 })
                 .await
                 .map_err(Into::<UserApiError>::into)?;
 
             Ok(Response::new(CompleteRegistrationResponse {
-                token: resp.token.expose_secret().clone(),
+                token: resp.token.expose_secret().to_string(),
                 user: Some(mapping::user::domain_to_proto(resp.user)),
             }))
         })

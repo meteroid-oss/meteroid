@@ -143,7 +143,7 @@ rustls = { version = "0.23.12", default-features = false }
 rusty-money = "0.4.1"
 sailfish = "0.10.0"
 sealed = "0.6.0"
-secrecy = "0.10.3" # https://github.com/iqlusioninc/crates/issues/1234
+secrecy = { version = "0.10.3", git = "https://github.com/iqlusioninc/crates", rev = "0e9c9fd6d313381273fa882df07300f2a01c344b", default-features = false } # waiting for release 0.10.4 for pr #1234
 segment = { version = "0.2.3" }
 serde = { version = "1.0.189", default-features = false }
 serde-enum-str = "0.4.0"

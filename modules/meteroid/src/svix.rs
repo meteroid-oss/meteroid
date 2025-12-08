@@ -6,7 +6,7 @@ use svix::api::Svix;
 pub fn new_svix(config: &Config) -> Option<Arc<Svix>> {
     config.svix_server_url.clone().map(|x| {
         Arc::new(Svix::new(
-            config.svix_jwt_token.expose_secret().clone(),
+            config.svix_jwt_token.expose_secret().to_string(),
             Some(svix::api::SvixOptions {
                 debug: true,
                 server_url: Some(x),

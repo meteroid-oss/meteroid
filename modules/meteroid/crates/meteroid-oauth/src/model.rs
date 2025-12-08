@@ -116,10 +116,10 @@ pub struct OAuthTokens {
 impl From<BasicTokenResponse> for OAuthTokens {
     fn from(response: BasicTokenResponse) -> Self {
         OAuthTokens {
-            access_token: SecretString::new(response.access_token().secret().to_owned()),
+            access_token: SecretString::from(response.access_token().secret().to_owned()),
             refresh_token: response
                 .refresh_token()
-                .map(|t| SecretString::new(t.secret().to_owned())),
+                .map(|t| SecretString::from(t.secret().to_owned())),
             expires_in: response.expires_in(),
         }
     }

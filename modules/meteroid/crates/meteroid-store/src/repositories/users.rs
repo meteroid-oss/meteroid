@@ -140,7 +140,7 @@ impl UserInterface for Store {
             RegisterUserRequestInternal {
                 password: req.password,
                 email: email.to_string(),
-                invite_key: invite_key.map(SecretString::new),
+                invite_key: invite_key.map(SecretString::from),
             },
         )
         .await
@@ -326,7 +326,7 @@ impl UserInterface for Store {
                 None,
             )?;
 
-            let url = SecretString::new(format!(
+            let url = SecretString::from(format!(
                 "{}/reset-password?token={}",
                 self.settings.public_url.as_str(),
                 token.expose_secret()
@@ -392,7 +392,7 @@ impl UserInterface for Store {
             }),
         )?;
 
-        let url = SecretString::new(format!(
+        let url = SecretString::from(format!(
             "{}/validate-email?token={}",
             self.settings.public_url.as_str(),
             token.expose_secret()
@@ -485,7 +485,7 @@ impl UserInterface for Store {
                 let user_new = RegisterUserRequestInternal {
                     email: email.clone(),
                     password: None,
-                    invite_key: signin_data.invite_key.map(SecretString::new),
+                    invite_key: signin_data.invite_key.map(SecretString::from),
                 };
 
                 let res = register_user_internal(self, user_new).await?;
@@ -534,7 +534,7 @@ fn generate_jwt_token(
     )
     .map_err(|_| StoreError::InvalidArgument("failed to generate JWT token".into()))?;
 
-    Ok(SecretString::new(token))
+    Ok(SecretString::from(token))
 }
 
 fn generate_auth_jwt_token(user_id: &str, secret: &SecretString) -> StoreResult<SecretString> {
@@ -617,7 +617,7 @@ async fn register_user_internal(
                     async move {
                         let org_id = OrganizationRow::find_by_invite_link(
                             conn,
-                            invite_link.expose_secret().clone(),
+                            invite_link.expose_secret().to_string(),
                         )
                         .await
                         .map_err(Into::<Report<StoreError>>::into)?

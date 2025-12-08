@@ -241,9 +241,9 @@ impl<T: ErrorResponse + Send + Sync + 'static> OauthService for OauthServiceImpl
         let (auth_url, csrf_token) = client.add_extra_param("access_type", "offline").url();
 
         AuthorizeUrl {
-            url: SecretString::new(auth_url.to_string()),
-            csrf_token: SecretString::new(csrf_token.secret().to_owned()),
-            pkce_verifier: SecretString::new(pkce_verifier.secret().to_owned()),
+            url: SecretString::from(auth_url.to_string()),
+            csrf_token: SecretString::from(csrf_token.secret().to_owned()),
+            pkce_verifier: SecretString::from(pkce_verifier.secret().to_owned()),
         }
     }
 
