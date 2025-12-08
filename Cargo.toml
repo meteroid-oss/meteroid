@@ -158,7 +158,7 @@ svix = { version = "1.77.0", default-features = false }
 syn = "2.0.52"
 strum = { version = "0.27", default-features = false }
 tap = "1.0.1"
-testcontainers = "0.25.0"
+testcontainers = "0.26.0"
 thiserror = "2.0.3"
 time = "0.3.36"
 tokio = { version = "1.33.0", default-features = false }
