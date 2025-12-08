@@ -181,10 +181,7 @@ export const Customer = () => {
                       )
                     }
                   />
-                  <Flex align="center" justify="between">
-                    <div className="text-[13px] text-muted-foreground">Address</div>
-                    <div className="text-[13px]">{data.billingAddress?.city}</div>
-                  </Flex>
+
                   <FlexDetails
                     title="Custom taxes"
                     value={
@@ -205,6 +202,11 @@ export const Customer = () => {
                     title="Tax ID"
                     value={data.vatNumber || (data.isTaxExempt ? 'Tax Exempt' : 'None')}
                   />
+                </Flex>
+                <Separator className="-my-3" />
+                <Flex direction="column" className="gap-2 p-6">
+                  <div className="text-[15px] font-medium">Invoicing</div>
+                  <FlexDetails title="Invoicing emails" value={data.invoicingEmails?.join(', ')} />
                 </Flex>
                 <Separator className="-my-3" />
                 <Flex direction="column" className="gap-2 p-6">
@@ -308,13 +310,15 @@ const FlexDetails = ({
 }) => (
   <Flex align="center" justify="between">
     <div className="text-[13px] text-muted-foreground">{title}</div>
-    {externalLink ? (
-      <a href={externalLink} target="_blank" rel="noopener noreferrer">
-        <div className="text-[13px] text-brand hover:underline">{value ?? 'N/A'}</div>
-      </a>
-    ) : (
-      <div className="text-[13px]">{value ?? 'N/A'}</div>
-    )}
+    <div className="max-w-[250px] break-words text-right">
+      {externalLink ? (
+        <a href={externalLink} target="_blank" rel="noopener noreferrer">
+          <div className="text-[13px] text-brand hover:underline">{value ?? 'N/A'}</div>
+        </a>
+      ) : (
+        <div className="text-[13px]">{value ?? '-'}</div>
+      )}
+    </div>
   </Flex>
 )
 
