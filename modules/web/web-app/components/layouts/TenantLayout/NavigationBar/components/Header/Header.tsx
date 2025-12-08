@@ -1,9 +1,7 @@
-import { LogoSymbol } from '@md/foundation'
+import { LogoSymbol } from '@md/ui'
 import { Link } from 'react-router-dom'
 
 import { useTheme } from 'providers/ThemeProvider'
-
-import { StyledHeader } from './Header.styled'
 
 import type { FunctionComponent } from 'react'
 
@@ -11,11 +9,11 @@ const Header: FunctionComponent = () => {
   const { isDarkMode } = useTheme()
 
   return (
-    <StyledHeader>
+    <header>
       <Link to=".">
         <LogoSymbol isDarkMode={isDarkMode} />
       </Link>
-    </StyledHeader>
+    </header>
   )
 }
 

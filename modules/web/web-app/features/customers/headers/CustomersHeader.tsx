@@ -1,7 +1,5 @@
-import { spaces } from '@md/foundation'
 import { SearchIcon } from '@md/icons'
 import { Button, ButtonProps, InputWithIcon, Flex as NewFlex, Separator, cn } from '@md/ui'
-import { Flex } from '@ui/components/legacy'
 import { FileUpIcon, ListFilter } from 'lucide-react'
 import { FunctionComponent, PropsWithChildren, useState } from 'react'
 import { useSearchParams } from 'react-router-dom'
@@ -40,8 +38,8 @@ export const CustomersHeader: FunctionComponent<CustomersHeaderProps> = ({
 
   return (
     <>
-      <Flex direction="column" gap={spaces.space4}>
-        <Flex direction="row" align="center" justify="space-between">
+      <div className="flex flex-col gap-2">
+        <div className="flex flex-row items-center justify-between">
           <NewFlex align="center" className="gap-2">
             <img src="/header/customer.svg" alt="customer logo"/>
             <div className="text-[15px] font-medium">Customers</div>
@@ -54,7 +52,7 @@ export const CustomersHeader: FunctionComponent<CustomersHeaderProps> = ({
               </ButtonTabs>
             </NewFlex>
           </NewFlex>
-          <Flex direction="row" gap={spaces.space4}>
+          <div className="flex flex-row gap-2">
             <Button size="sm" onClick={() => setVisible(true)} variant="secondary">
               Export
             </Button>
@@ -65,12 +63,12 @@ export const CustomersHeader: FunctionComponent<CustomersHeaderProps> = ({
             <Button size="sm" variant="default" onClick={() => setEditPanelVisible(true)}>
               New customer
             </Button>
-          </Flex>
-        </Flex>
+          </div>
+        </div>
         <div className="mx-[-16px]">
           <Separator/>
         </div>
-        <Flex direction="row" align="center" gap={spaces.space4}>
+        <div className="flex flex-row items-center gap-2">
           <InputWithIcon
             className="h-[30px]"
             placeholder="Search..."
@@ -86,8 +84,8 @@ export const CustomersHeader: FunctionComponent<CustomersHeaderProps> = ({
           >
             <ListFilter size={16} className="text-[#898784]"/> Filter
           </Button>
-        </Flex>
-      </Flex>
+        </div>
+      </div>
       <CustomersExportModal openState={[visible, setVisible]}/>
       <CustomersImportModal openState={[importVisible, setImportVisible]} onSuccess={onImportSuccess}/>
     </>

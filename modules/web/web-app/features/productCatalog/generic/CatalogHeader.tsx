@@ -1,7 +1,5 @@
-import { spaces } from '@md/foundation'
 import { PlusIcon, SearchIcon } from '@md/icons'
 import { Button, InputWithIcon } from '@md/ui'
-import { Flex } from '@ui/components/legacy'
 import { RefreshCwIcon } from 'lucide-react'
 import { FunctionComponent } from 'react'
 
@@ -25,16 +23,16 @@ export const CatalogHeader: FunctionComponent<CatalogHeaderProps> = ({
   setSearch,
 }) => {
   return (
-    <Flex direction="column" gap={spaces.space9}>
-      <Flex direction="row" align="center" justify="space-between">
+    <div className="flex flex-col gap-8">
+      <div className="flex flex-row items-center justify-between">
         <PageHeading>{heading}</PageHeading>
-        <Flex direction="row" gap={spaces.space4}>
+        <div className="flex flex-row gap-2">
           <Button hasIcon variant="primary" onClick={() => setEditPanelVisible(true)} size="sm">
             <PlusIcon size={10} /> {newButtonText}
           </Button>
-        </Flex>
-      </Flex>
-      <Flex direction="row" align="center" gap={spaces.space4}>
+        </div>
+      </div>
+      <div className="flex flex-row items-center gap-2">
         <InputWithIcon
           placeholder={`Search ${heading.toLocaleLowerCase()}`}
           icon={<SearchIcon size={16} />}
@@ -44,7 +42,7 @@ export const CatalogHeader: FunctionComponent<CatalogHeaderProps> = ({
         <Button variant="secondary" disabled={isLoading} onClick={refetch}>
           <RefreshCwIcon size={14} className={isLoading ? 'animate-spin' : ''} />
         </Button>
-      </Flex>
-    </Flex>
+      </div>
+    </div>
   )
 }

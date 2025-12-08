@@ -1,9 +1,0 @@
-.shiny {
-  animation: shiny 8s ease-in-out infinite alternate;
-}
-
-@keyframes shiny {
-  to {
-    background-position: -200%;
-  }
-}

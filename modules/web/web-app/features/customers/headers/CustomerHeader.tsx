@@ -1,5 +1,4 @@
 import { createConnectQueryKey, useMutation } from '@connectrpc/connect-query'
-import { spaces } from '@md/foundation'
 import {
   Button,
   cn,
@@ -19,7 +18,6 @@ import {
   Separator,
 } from '@md/ui'
 import { useQueryClient } from '@tanstack/react-query'
-import { Flex } from '@ui/components/legacy'
 import { Check, ChevronDown, ChevronRight } from 'lucide-react'
 import { FunctionComponent, useState } from 'react'
 import { useNavigate } from 'react-router-dom'
@@ -200,8 +198,8 @@ export const CustomerHeader: FunctionComponent<CustomerHeaderProps> = ({
           </DialogFooter>
         </DialogContent>
       </Dialog>
-      <Flex direction="column" gap={spaces.space4}>
-        <Flex direction="row" align="center" justify="space-between">
+      <div className="flex flex-col gap-2">
+        <div className="flex flex-row items-center justify-between">
           <NewFlex align="center" className="gap-2">
             <img src="/header/customer.svg" alt="customer logo" />
             <div
@@ -250,7 +248,7 @@ export const CustomerHeader: FunctionComponent<CustomerHeaderProps> = ({
               </DropdownMenuContent>
             </DropdownMenu>
           </NewFlex>
-          <Flex direction="row" gap={spaces.space4}>
+          <div className="flex flex-row gap-2">
             <DropdownMenu>
               <DropdownMenuTrigger asChild>
                 <Button hasIcon size="sm" variant="secondary">
@@ -310,12 +308,12 @@ export const CustomerHeader: FunctionComponent<CustomerHeaderProps> = ({
                 )}
               </DropdownMenuContent>
             </DropdownMenu>
-          </Flex>
-        </Flex>
+          </div>
+        </div>
         <div className="mx-[-16px]">
           <Separator />
         </div>
-      </Flex>
+      </div>
     </>
   )
 }

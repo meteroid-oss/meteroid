@@ -1,8 +1,9 @@
 import { TooltipProvider } from '@md/ui'
+import { Toaster } from '@ui/components/ui/sonner'
 import { Outlet } from 'react-router-dom'
 
 import ConfirmationModalProvider from 'providers/ConfirmationProvider'
-import { ThemeProvider } from 'providers/ThemeProvider'
+import { ThemeProvider, useTheme } from 'providers/ThemeProvider'
 
 export const Providers: React.FC = () => {
   return (
@@ -13,7 +14,13 @@ export const Providers: React.FC = () => {
           <Outlet />
         </ConfirmationModalProvider>
         {/* </FlagsProvider> */}
+        <ToasterWithTheme />
       </ThemeProvider>
     </TooltipProvider>
   )
+}
+
+const ToasterWithTheme = () => {
+  const theme = useTheme()
+  return <Toaster theme={theme.isDarkMode ? 'dark' : 'light'} />
 }

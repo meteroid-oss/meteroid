@@ -415,3 +415,82 @@ div[data-radix-portal]:not(.portal--toast) {
 ::-webkit-scrollbar-thumb {
     @apply rounded-full bg-border border-[1px] border-transparent border-solid bg-clip-padding;
 }
+
+// Keyframe animations (previously from @md/foundation)
+.fadeIn {
+  animation-name: fadeIn;
+  animation-duration: 200ms;
+}
+
+@keyframes fadeIn {
+  from {
+    opacity: 0;
+  }
+  to {
+    opacity: 1;
+  }
+}
+
+@keyframes bounce-logo {
+  0%, 10%, 20%, 30%, 50%, 70%, 80%, 90%, 100% {
+    transform: translateY(0);
+  }
+  15% {
+    transform: translateY(-15px);
+  }
+  40%, 60% {
+    transform: translateY(-7px);
+  }
+}
+
+.animate-bounce-logo {
+  animation: bounce-logo 2s ease infinite;
+}
+
+// Navigation item active state animation
+@keyframes nav-active-state {
+  0% {
+    transform: translateX(-4px);
+    opacity: 0;
+  }
+  100% {
+    transform: translateX(0);
+    opacity: 1;
+  }
+}
+
+.nav-item-link {
+  @apply relative flex items-center justify-center mx-3 py-2 rounded-lg bg-transparent transition-colors duration-200;
+
+  &.active::before,
+  &[data-exit="true"]::before {
+    content: '';
+    @apply absolute top-0 h-full;
+    right: -0.75rem;
+    width: 3px;
+    border-top-left-radius: 1.5px;
+    border-bottom-left-radius: 1.5px;
+    background: linear-gradient(180deg, #4F46FF -37.5%, #817AFF 100%), #7B74FF;
+    animation: nav-active-state 0.3s ease-in;
+    transition: transform 0.3s ease-out, opacity 0.3s ease-out;
+  }
+
+  &[data-exit="true"]::before {
+    transform: translateX(-4px);
+    opacity: 0;
+  }
+}
+
+// Navigation item divider
+.nav-item-divider {
+  width: calc(100% - 1.5rem);
+  @apply h-px border-none ml-3;
+  background: linear-gradient(81deg, rgba(246,202,220,0) 0%, hsl(var(--border)) 49%, rgba(255,255,255,0) 100%);
+}
+
+// Chart dotted background
+.chart-dotted-bg {
+  mask-image: radial-gradient(rgb(0, 0, 0), transparent 62%);
+  @apply absolute w-full h-full top-0 left-0 p-[70px] opacity-80;
+  background: radial-gradient(hsl(var(--border)) 1px, transparent 0px) 10px 0px / 8px 8px transparent;
+}

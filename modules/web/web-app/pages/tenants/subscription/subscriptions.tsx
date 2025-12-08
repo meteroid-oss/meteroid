@@ -1,5 +1,3 @@
-import { spaces } from '@md/foundation'
-import { Flex } from '@ui/components/legacy'
 import { useState } from 'react'
 
 import { SubscriptionsHeader, SubscriptionsTable } from '@/features/subscriptions'
@@ -42,7 +40,7 @@ export const Subscriptions = () => {
   }
 
   return (
-    <Flex direction="column" gap={spaces.space9}>
+    <div className="flex flex-col gap-8">
       <SubscriptionsHeader
         count={count}
         isLoading={isLoading}
@@ -57,7 +55,7 @@ export const Subscriptions = () => {
         setPagination={setPagination}
         isLoading={isLoading}
       />
-    </Flex>
+    </div>
   )
 }
 

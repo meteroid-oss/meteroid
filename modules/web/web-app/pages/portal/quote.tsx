@@ -1,6 +1,4 @@
-import { spaces } from '@md/foundation'
 import { Skeleton } from '@md/ui'
-import { Flex } from '@ui/components/legacy'
 import { AlertCircle } from 'lucide-react'
 
 import QuotePortalView from '@/features/quotes/QuotePortalView'
@@ -32,7 +30,7 @@ export const PortalQuote = () => {
 
   return (
     <div className="h-full w-full ">
-      <Flex direction="column" gap={spaces.space6} fullHeight>
+      <div className="flex flex-col gap-4 h-full">
         {isLoading || !data ? (
           <>
             <Skeleton height={16} width={50} />
@@ -41,7 +39,7 @@ export const PortalQuote = () => {
         ) : (
           <QuotePortalView quoteData={data} />
         )}
-      </Flex>
+      </div>
     </div>
   )
 }

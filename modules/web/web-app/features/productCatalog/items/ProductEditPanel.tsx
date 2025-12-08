@@ -1,5 +1,4 @@
 import { createConnectQueryKey, useMutation } from '@connectrpc/connect-query'
-import { spaces } from '@md/foundation'
 import {
   Modal,
   Form,
@@ -13,7 +12,6 @@ import {
   Separator,
 } from '@md/ui'
 import { useQueryClient } from '@tanstack/react-query'
-import { Flex } from '@ui/components/legacy'
 import { useState } from 'react'
 
 import ConfirmationModal from '@/components/ConfirmationModal'
@@ -73,7 +71,7 @@ export const ProductEditPanel = ({ visible, closePanel }: ProductEditPanelProps)
                 <SheetTitle>Create a new product item</SheetTitle>
                 <Separator />
               </SheetHeader>
-              <Flex direction="column" gap={spaces.space7}>
+              <div className="flex flex-col gap-5">
                 <InputFormField
                   name="name"
                   label="Product Name"
@@ -88,7 +86,7 @@ export const ProductEditPanel = ({ visible, closePanel }: ProductEditPanelProps)
                   placeholder="desc"
                   control={methods.control}
                 />
-              </Flex>
+              </div>
 
               <SheetFooter className="py-2">
                 <Button type="submit">Create</Button>

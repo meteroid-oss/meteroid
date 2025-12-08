@@ -1,6 +1,4 @@
-import { spaces } from '@md/foundation'
 import { Skeleton } from '@md/ui'
-import { Flex } from '@ui/components/legacy'
 import { AlertCircle } from 'lucide-react'
 
 import InvoicePaymentFlow from '@/features/invoice-payment/InvoicePaymentFlow'
@@ -39,7 +37,7 @@ export const PortalInvoicePayment = () => {
 
   return (
     <div className="h-full w-full bg-[#00000002]">
-      <Flex direction="column" gap={spaces.space6} fullHeight>
+      <div className="flex flex-col gap-4 h-full">
         {isLoading || !data ? (
           <>
             <Skeleton height={16} width={50} />
@@ -48,7 +46,7 @@ export const PortalInvoicePayment = () => {
         ) : (
           <InvoicePaymentFlow invoicePaymentData={data} />
         )}
-      </Flex>
+      </div>
     </div>
   )
 }

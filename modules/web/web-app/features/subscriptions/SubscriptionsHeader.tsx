@@ -1,7 +1,5 @@
-import { colors, spaces } from '@md/foundation'
 import { PlusIcon, SearchIcon } from '@md/icons'
 import { Button, InputWithIcon } from '@ui/components'
-import { Flex } from '@ui/components/legacy'
 import { RefreshCwIcon } from 'lucide-react'
 import { FunctionComponent } from 'react'
 import { Link } from 'react-router-dom'
@@ -26,18 +24,18 @@ export const SubscriptionsHeader: FunctionComponent<SubscriptionsProps> = ({
   setStatusFilter,
 }) => {
   return (
-    <Flex direction="column" gap={spaces.space9}>
-      <Flex direction="row" align="center" justify="space-between">
+    <div className="flex flex-col gap-8">
+      <div className="flex flex-row items-center justify-between">
         <PageHeading count={count}>Subscriptions</PageHeading>
-        <Flex direction="row" gap={spaces.space4}>
+        <div className="flex flex-row gap-2">
           <Link to="create">
             <Button variant="primary" hasIcon>
-              <PlusIcon size={10} fill={colors.white1} /> New subscription
+              <PlusIcon size={10} fill="white" /> New subscription
             </Button>
           </Link>
-        </Flex>
-      </Flex>
-      <Flex direction="row" align="center" gap={spaces.space4}>
+        </div>
+      </div>
+      <div className="flex flex-row items-center gap-2">
         <InputWithIcon
           placeholder="Search subscriptions"
           icon={<SearchIcon size={16} />}
@@ -60,7 +58,7 @@ export const SubscriptionsHeader: FunctionComponent<SubscriptionsProps> = ({
         <Button variant="secondary" disabled={isLoading} onClick={refetch}>
           <RefreshCwIcon size={14} className={isLoading ? 'animate-spin' : ''} />
         </Button>
-      </Flex>
-    </Flex>
+      </div>
+    </div>
   )
 }

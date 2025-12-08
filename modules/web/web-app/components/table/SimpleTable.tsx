@@ -1,7 +1,5 @@
-import { spaces } from '@md/foundation'
 import { Skeleton, Table, TableRow, TableCell, TableHeader, TableBody, TableHead, cn } from '@md/ui'
 import { ColumnDef, Row, flexRender, getCoreRowModel, useReactTable } from '@tanstack/react-table'
-import { Flex } from '@ui/components/legacy'
 import { AlertCircleIcon } from 'lucide-react'
 import { ReactNode, useMemo } from 'react'
 
@@ -80,7 +78,7 @@ export const SimpleTable = <A extends object>({
   }, [isLoading, data, rows, columns, emptyMessage])
 
   return (
-    <Flex direction="column" gap={spaces.space9}>
+    <div className="flex flex-col gap-8">
       <Table
         className={cn(containerClassName, columns.length == 0 ? 'border-t border-border' : '')}
       >
@@ -94,7 +92,7 @@ export const SimpleTable = <A extends object>({
         </TableHeader>
         <TableBody className={bodyClassName}>{tableBody}</TableBody>
       </Table>
-    </Flex>
+    </div>
   )
 }
 

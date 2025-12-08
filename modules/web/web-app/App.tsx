@@ -11,6 +11,7 @@ import {
 } from '@/lib/connectrpc-interceptors'
 import { env } from '@/lib/env'
 import { queryClient } from '@/lib/react-query'
+import { useTheme } from 'providers/ThemeProvider'
 
 import router from './router/router'
 
@@ -19,6 +20,9 @@ export const App: React.FC = () => {
     baseUrl: env.meteroidApiUri,
     interceptors: [errorInterceptor, loggingInterceptor, authInterceptor],
   })
+
+  const theme = useTheme()
+
   return (
     <>
       <TransportProvider transport={transport}>
@@ -27,7 +31,7 @@ export const App: React.FC = () => {
         </QueryClientProvider>
       </TransportProvider>
 
-      <Toaster />
+      <Toaster theme={theme.isDarkMode ? 'dark' : 'light'} />
     </>
   )
 }
