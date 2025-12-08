@@ -170,9 +170,7 @@ async fn test_compute_invoice_with_eu_vat(
         .patch_invoicing_entity(
             InvoicingEntityPatch {
                 id: INVOICING_ENTITY_ID,
-                tax_resolver: Some(
-                    meteroid_store::domain::enums::TaxResolverEnum::MeteroidEuVat.into(),
-                ),
+                tax_resolver: Some(meteroid_store::domain::enums::TaxResolverEnum::MeteroidEuVat),
                 ..Default::default()
             },
             TENANT_ID,
@@ -259,7 +257,7 @@ async fn create_french_b2b_customer(
     use meteroid_store::domain::Address;
 
     let customer_id =
-        common_domain::ids::CustomerId::from_proto(&uuid::Uuid::new_v4().to_string()).unwrap();
+        common_domain::ids::CustomerId::from_proto(uuid::Uuid::new_v4().to_string()).unwrap();
 
     let french_address = Address {
         line1: Some("123 Avenue des Champs-Élysées".to_string()),
@@ -310,9 +308,7 @@ async fn test_compute_invoice_with_reverse_charge(
         .patch_invoicing_entity(
             InvoicingEntityPatch {
                 id: INVOICING_ENTITY_ID,
-                tax_resolver: Some(
-                    meteroid_store::domain::enums::TaxResolverEnum::MeteroidEuVat.into(),
-                ),
+                tax_resolver: Some(meteroid_store::domain::enums::TaxResolverEnum::MeteroidEuVat),
                 ..Default::default()
             },
             TENANT_ID,
@@ -404,7 +400,7 @@ async fn test_compute_invoice_with_manual_tax_and_coupon(
         .patch_invoicing_entity(
             InvoicingEntityPatch {
                 id: INVOICING_ENTITY_ID,
-                tax_resolver: Some(meteroid_store::domain::enums::TaxResolverEnum::Manual.into()),
+                tax_resolver: Some(meteroid_store::domain::enums::TaxResolverEnum::Manual),
                 ..Default::default()
             },
             TENANT_ID,
@@ -504,7 +500,7 @@ async fn create_german_b2b_customer(
     use meteroid_store::domain::Address;
 
     let customer_id =
-        common_domain::ids::CustomerId::from_proto(&uuid::Uuid::new_v4().to_string()).unwrap();
+        common_domain::ids::CustomerId::from_proto(uuid::Uuid::new_v4().to_string()).unwrap();
 
     let german_address = Address {
         line1: Some("Unter den Linden 1".to_string()),
@@ -553,7 +549,7 @@ async fn create_customer_with_custom_tax_rate(
     use meteroid_store::domain::Address;
 
     let customer_id =
-        common_domain::ids::CustomerId::from_proto(&uuid::Uuid::new_v4().to_string()).unwrap();
+        common_domain::ids::CustomerId::from_proto(uuid::Uuid::new_v4().to_string()).unwrap();
 
     let address = Address {
         line1: Some("123 Main Street".to_string()),
