@@ -102,7 +102,7 @@
   )
 
   // Set document metadata
-  set document(title: translations.invoice_title + " " + number)
+  set document(title: translations.invoice_title + " " + number, date: datetime.today())
 
   // Define styles - using the Inter variable font
   set text(font: inter, size: 9.5pt, fill: color.text)
