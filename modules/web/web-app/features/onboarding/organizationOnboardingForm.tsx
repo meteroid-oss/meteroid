@@ -24,7 +24,10 @@ import { useZodForm } from '@/hooks/useZodForm'
 import { queryClient } from '@/lib/react-query'
 import { schemas } from '@/lib/schemas'
 import { getInstance } from '@/rpc/api/instance/v1/instance-InstanceService_connectquery'
-import { createOrganization } from '@/rpc/api/organizations/v1/organizations-OrganizationsService_connectquery'
+import {
+  createOrganization,
+  getCurrentOrganizations,
+} from '@/rpc/api/organizations/v1/organizations-OrganizationsService_connectquery'
 import { me } from '@/rpc/api/users/v1/users-UsersService_connectquery'
 
 export const OrganizationOnboardingForm = () => {
@@ -49,7 +52,10 @@ export const OrganizationOnboardingForm = () => {
           })
         )
 
-        queryClient.invalidateQueries({ queryKey: createConnectQueryKey(getInstance) })
+        await queryClient.invalidateQueries({ queryKey: createConnectQueryKey(getInstance) })
+        await queryClient.invalidateQueries({
+          queryKey: createConnectQueryKey(getCurrentOrganizations),
+        })
 
         navigate('/' + res.organization.slug)
       }
@@ -73,10 +79,13 @@ export const OrganizationOnboardingForm = () => {
   }
 
   return (
-    <Flex direction="column" className="w-full h-full gap-2 p-6 sm:p-8 md:p-10 lg:p-[52px] overflow-y-auto">
+    <Flex
+      direction="column"
+      className="w-full h-full gap-2 p-6 sm:p-8 md:p-10 lg:p-[52px] overflow-y-auto"
+    >
       <Button
         variant="secondary"
-        onClick={() => navigate('/onboarding/user')}
+        onClick={() => navigate(-1)}
         className="text-muted-foreground rounded-2xl w-12 h-[28px] mb-2"
       >
         <ArrowLeft size={15} />

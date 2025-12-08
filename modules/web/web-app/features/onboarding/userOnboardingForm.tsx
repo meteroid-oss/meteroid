@@ -49,7 +49,7 @@ export const UserOnboardingForm = () => {
     <Flex direction="column" className="w-full h-full gap-2 p-[52px]">
       <div className="font-medium text-xl -mb-0.5">Create your profile</div>
       <div className="text-muted-foreground text-[13px] mb-5 leading-[18px]">
-        Let’s get you up and running. This will a minute!
+        Let&apos;s get to know you a bit better !
       </div>
       <Form {...methods}>
         <form
@@ -80,12 +80,12 @@ export const UserOnboardingForm = () => {
             name="department"
             label="Which department do you work in?"
             control={methods.control}
-            placeholder="Product, engineering, finance etc"
+            placeholder="Product, finance etc"
           >
             <SelectItem value="founder">Founder</SelectItem>
+            <SelectItem value="revenue">Revenue / Finance</SelectItem>
             <SelectItem value="engineering">Engineering</SelectItem>
             <SelectItem value="product">Product</SelectItem>
-            <SelectItem value="revenue">Revenue / Finance</SelectItem>
             <SelectItem value="other">Other</SelectItem>
           </SelectFormField>
 
@@ -95,9 +95,9 @@ export const UserOnboardingForm = () => {
             control={methods.control}
             placeholder="Google, Github etc"
           >
-            <SelectItem value="github">Github</SelectItem>
             <SelectItem value="search">Search engine</SelectItem>
             <SelectItem value="linkedin">Linkedin</SelectItem>
+            <SelectItem value="github">Github</SelectItem>
             <SelectItem value="blog">Blogging platform</SelectItem>
             <SelectItem value="referral">Referral</SelectItem>
             <SelectItem value="other">Other</SelectItem>
