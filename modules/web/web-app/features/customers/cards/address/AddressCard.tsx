@@ -36,7 +36,9 @@ export const AddressLinesCompact = ({
       <span>{address.line1}</span>
       <span>{address.line2}</span>
       <span>
-        {address.city}, {address.state} {address.zipCode}
+        {address.city}
+        {address.city && address.state ? ', ' : ''}
+        {address.state} {address.zipCode}
       </span>
     </div>
   )
