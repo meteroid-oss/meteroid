@@ -21,6 +21,13 @@ updates:
           - "prost"
           - "prost-build"
           - "prost-types"
+      typst:
+        patterns:
+          - "typst"
+          - "typst-svg"
+          - "typst-pdf"
+          - "typst-as-lib"
+          - "derive_typst_intoval"
       opentelemetry:
         patterns:
           - "opentelemetry"

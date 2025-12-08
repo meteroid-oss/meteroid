@@ -38,6 +38,7 @@ impl PdfGenerator for TypstPdfGenerator {
             page_ranges: None,
             timestamp: None,
             ident: Smart::Auto,
+            tagged: true,
         };
 
         let pdf = typst_pdf::pdf(&result, &pdf_options).map_err(|e| {
