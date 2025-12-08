@@ -19,13 +19,14 @@ import {
 } from '@ui/index'
 import { ChevronDown, Plus } from 'lucide-react'
 import { PropsWithChildren } from 'react'
-import { NavLink, Outlet, useLocation } from 'react-router-dom'
+import { NavLink, Outlet, useLocation, useNavigate } from 'react-router-dom'
 
 import { NavMain } from '@/components/layouts/TenantLayout/components/NavMain'
 import { sidebarItems } from '@/components/layouts/TenantLayout/utils'
 import { TenantDropdown } from '@/components/layouts/shared/LayoutHeader/TenantDropdown'
 import { useLogout } from '@/hooks/useLogout'
 import { useQuery } from '@/lib/connectrpc'
+import { getInstance } from '@/rpc/api/instance/v1/instance-InstanceService_connectquery'
 import { getCurrentOrganizations } from '@/rpc/api/organizations/v1/organizations-OrganizationsService_connectquery'
 import { OrganizationUserRole } from '@/rpc/api/users/v1/models_pb'
 import { me } from '@/rpc/api/users/v1/users-UsersService_connectquery'
@@ -45,9 +46,11 @@ export const TenantPageLayout = ({ children }: PropsWithChildren) => {
 export const TenantLayoutOutlet = () => {
   const { pathname } = useLocation()
 
+  const navigate = useNavigate()
   const logout = useLogout()
   const meData = useQuery(me)?.data
   const organizationData = useQuery(getCurrentOrganizations)?.data?.organization
+  const getInstanceQuery = useQuery(getInstance)
 
   const { toggleSidebar, state } = useSidebar()
 
@@ -63,6 +66,10 @@ export const TenantLayoutOutlet = () => {
       default:
         return ''
     }
+  }
+
+  if (meData?.user?.onboarded === false) {
+    navigate('/onboarding/user')
   }
 
   return (
@@ -140,14 +147,24 @@ export const TenantLayoutOutlet = () => {
                         <Separator />
                       </>
                     )}
-                    <DropdownMenuItem>
-                      <Plus size={16} className="mr-2" />
-                      New organization
-                    </DropdownMenuItem>
-                    <Separator />
+                    {getInstanceQuery?.data?.multiOrganizationEnabled && (
+                      <>
+                        <DropdownMenuItem
+                          className="cursor-pointer"
+                          onClick={() => navigate('/onboarding/organization')}
+                        >
+                          <Plus size={16} className="mr-2" />
+                          New workspace
+                        </DropdownMenuItem>
+                        <Separator />
+                      </>
+                    )}
 
-                    <DropdownMenuItem className="pointer-events-none text-xs text-muted-foreground flex">
-                      {meData?.user?.email}
+                    <DropdownMenuItem className="pointer-events-none text-xs ml-1 block">
+                      <div>{meData?.user?.firstName}</div>
+                      <div className="text-muted-foreground font-medium  truncate max-w-[200px]">
+                        {meData?.user?.email}
+                      </div>
                     </DropdownMenuItem>
                     <Separator />
                     <DropdownMenuItem onClick={() => logout('User clicked on logout')}>
