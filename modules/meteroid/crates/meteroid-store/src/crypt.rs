@@ -46,7 +46,7 @@ pub fn decrypt(key: &SecretString, value: &str) -> Result<SecretString, Report<E
 
     let plaintext = String::from_utf8(decoded).change_context(EncryptionError::DecryptError)?;
 
-    Ok(SecretString::new(plaintext))
+    Ok(SecretString::from(plaintext))
 }
 
 fn generate_nonce(key: &SecretString) -> &Nonce {
@@ -81,7 +81,7 @@ mod tests {
         ];
 
         for (key_str, raw_str, encrypted_str) in test_data {
-            let key: SecretString = SecretString::new(key_str.into());
+            let key: SecretString = SecretString::from(key_str.to_owned());
 
             let encrypted = super::encrypt(&key, raw_str).unwrap();
 
@@ -89,7 +89,7 @@ mod tests {
 
             let decrypted = super::decrypt(&key, encrypted.as_str()).unwrap();
 
-            assert_eq!(decrypted.expose_secret().as_str(), raw_str);
+            assert_eq!(decrypted.expose_secret(), raw_str);
         }
     }
 }

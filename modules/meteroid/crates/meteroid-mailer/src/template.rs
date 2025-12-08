@@ -15,7 +15,7 @@ const METEROID_WORDMARK_URL: &str =
 impl From<ResetPasswordLink> for ResetPasswordLinkTemplate {
     fn from(link: ResetPasswordLink) -> Self {
         ResetPasswordLinkTemplate {
-            reset_url: link.url.expose_secret().clone(),
+            reset_url: link.url.expose_secret().to_string(),
             url_expires_in: format_duration(link.url_expires_in),
         }
     }
@@ -51,7 +51,7 @@ impl From<EmailValidationLink> for EmailValidationLinkTemplate {
         );
 
         let content = EmailValidationLinkContent {
-            validation_url: link.url.expose_secret().clone(),
+            validation_url: link.url.expose_secret().to_string(),
             url_expires_in: format_duration(link.url_expires_in),
             user,
         };

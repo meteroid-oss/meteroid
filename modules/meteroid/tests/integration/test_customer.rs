@@ -503,11 +503,11 @@ fn scrub_customer_json(value: &mut serde_json::Value, ids: &[&'static str]) -> s
         serde_json::Value::Object(obj) => {
             for (k, v) in obj.iter_mut() {
                 if ids.contains(&k.as_str()) {
-                    if let Some(id_str) = v.as_str() {
-                        if let Some(pos) = id_str.rfind('_') {
-                            let obfuscated = format!("{}{}", &id_str[..=pos], "xxx");
-                            *v = serde_json::Value::String(obfuscated);
-                        }
+                    if let Some(id_str) = v.as_str()
+                        && let Some(pos) = id_str.rfind('_')
+                    {
+                        let obfuscated = format!("{}{}", &id_str[..=pos], "xxx");
+                        *v = serde_json::Value::String(obfuscated);
                     }
                 } else {
                     *v = scrub_customer_json(&mut v.take(), ids);

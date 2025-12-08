@@ -247,7 +247,7 @@ impl ConnectorsInterface for Store {
                 let tokens = self
                     .oauth_exchange_refresh_token(
                         OauthProvider::Pennylane,
-                        SecretString::new(sensitive.refresh_token),
+                        SecretString::from(sensitive.refresh_token),
                     )
                     .await?;
 
@@ -256,7 +256,7 @@ impl ConnectorsInterface for Store {
                 let access_token = ConnectorAccessToken {
                     connector_id: connector.id,
                     external_company_id: data.external_company_id,
-                    access_token: SecretString::new(sensitive.access_token.clone()),
+                    access_token: SecretString::from(sensitive.access_token.clone()),
                     expires_at: sensitive.expires_at,
                 };
 
@@ -280,7 +280,7 @@ impl ConnectorsInterface for Store {
                 ConnectorAccessToken {
                     connector_id: connector.id,
                     external_company_id: data.external_company_id,
-                    access_token: SecretString::new(sensitive.access_token),
+                    access_token: SecretString::from(sensitive.access_token),
                     expires_at: sensitive.expires_at,
                 }
             };

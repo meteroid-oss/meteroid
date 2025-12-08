@@ -161,7 +161,7 @@ impl PortalSharedService for PortalSharedServiceComponents {
             setup_intent: Some(SetupIntent {
                 intent_id: intent.intent_id,
                 intent_secret: intent.client_secret,
-                provider_public_key: intent.public_key.expose_secret().clone(),
+                provider_public_key: intent.public_key.expose_secret().to_string(),
                 provider: connector_provider_to_server(&intent.provider) as i32,
                 connection_id: intent.connection_id.as_proto(),
             }),

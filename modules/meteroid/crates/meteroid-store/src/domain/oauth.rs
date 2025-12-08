@@ -38,7 +38,7 @@ impl OauthVerifier {
 
     pub fn from_row(row: OauthVerifierRow, crypt_key: SecretString) -> StoreResult<Self> {
         Ok(OauthVerifier {
-            csrf_token: SecretString::new(row.csrf_token),
+            csrf_token: SecretString::from(row.csrf_token),
             pkce_verifier: Self::dec(&crypt_key, &row.pkce_verifier)?,
             data: row
                 .data

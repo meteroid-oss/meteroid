@@ -39,10 +39,10 @@ async fn main() -> Result<(), Report<SeederError>> {
     let store = Store::new(StoreConfig {
         database_url: env::var("DATABASE_URL").change_context(SeederError::InitializationError)?,
         crypt_key: env::var("SECRETS_CRYPT_KEY")
-            .map(SecretString::new)
+            .map(SecretString::from)
             .change_context(SeederError::InitializationError)?,
         jwt_secret: env::var("JWT_SECRET")
-            .map(SecretString::new)
+            .map(SecretString::from)
             .change_context(SeederError::InitializationError)?,
         multi_organization_enabled: false,
         skip_email_validation: true,

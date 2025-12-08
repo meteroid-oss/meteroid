@@ -12,7 +12,7 @@ impl ServicesEdge {
         stripe_data: &StripeSensitiveData,
     ) -> StoreResult<String> {
         // we test with the account api, and fail if we cannot reach it
-        let secret = &SecretString::new(stripe_data.api_secret_key.clone());
+        let secret = &SecretString::from(stripe_data.api_secret_key.clone());
         let account = self
             .services
             .stripe

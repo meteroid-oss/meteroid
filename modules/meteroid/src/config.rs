@@ -142,6 +142,6 @@ impl FromStr for CryptKey {
         if s.len() != 32 {
             return Err("Crypt key must be exactly 32 characters long".to_string());
         }
-        Ok(CryptKey(SecretString::new(s.to_string())))
+        Ok(CryptKey(SecretString::from(s.to_string())))
     }
 }

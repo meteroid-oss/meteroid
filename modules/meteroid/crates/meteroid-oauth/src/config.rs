@@ -24,16 +24,16 @@ impl OauthConfig {
             rest_api_external_url: "http://127.0.0.1:8080".to_owned(),
             public_url: "https://meteroid.com".to_owned(),
             google: GoogleOauthConfig {
-                client_id: Some(SecretString::new("google_client_id".to_owned())),
-                client_secret: Some(SecretString::new("google_client_secret".to_owned())),
+                client_id: Some(SecretString::from("google_client_id".to_owned())),
+                client_secret: Some(SecretString::from("google_client_secret".to_owned())),
             },
             hubspot: HubspotOauthConfig {
-                client_id: Some(SecretString::new("hubspot_client_id".to_owned())),
-                client_secret: Some(SecretString::new("hubspot_client_secret".to_owned())),
+                client_id: Some(SecretString::from("hubspot_client_id".to_owned())),
+                client_secret: Some(SecretString::from("hubspot_client_secret".to_owned())),
             },
             pennylane: PennylaneOauthConfig {
-                client_id: Some(SecretString::new("pennylane_client_id".to_owned())),
-                client_secret: Some(SecretString::new("pennylane_client_secret".to_owned())),
+                client_id: Some(SecretString::from("pennylane_client_id".to_owned())),
+                client_secret: Some(SecretString::from("pennylane_client_secret".to_owned())),
             },
         }
     }

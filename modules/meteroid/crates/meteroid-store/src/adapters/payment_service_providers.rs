@@ -399,7 +399,7 @@ fn extract_stripe_secret_key(
 ) -> Result<SecretString, Report<PaymentProviderError>> {
     match &connector.sensitive {
         Some(ProviderSensitiveData::Stripe(data)) => {
-            Ok(SecretString::new(data.api_secret_key.clone()))
+            Ok(SecretString::from(data.api_secret_key.clone()))
         }
         Some(_) => Err(Report::new(PaymentProviderError::Configuration(
             "Not a stripe connector".to_string(),
@@ -414,7 +414,9 @@ fn extract_stripe_public_key(
     connector: &Connector,
 ) -> Result<SecretString, Report<PaymentProviderError>> {
     match &connector.data {
-        Some(ProviderData::Stripe(data)) => Ok(SecretString::new(data.api_publishable_key.clone())),
+        Some(ProviderData::Stripe(data)) => {
+            Ok(SecretString::from(data.api_publishable_key.clone()))
+        }
         Some(_) => Err(Report::new(PaymentProviderError::Configuration(
             "not a stripe connection".to_string(),
         ))),

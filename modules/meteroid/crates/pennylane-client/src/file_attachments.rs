@@ -37,7 +37,7 @@ impl FileAttachmentsApi for PennylaneClient {
 
         self.rate_limiter
             .until_key_ready_with_jitter(
-                access_token.expose_secret(),
+                &access_token.expose_secret().to_string(),
                 Jitter::up_to(Duration::from_secs(1)),
             )
             .await;

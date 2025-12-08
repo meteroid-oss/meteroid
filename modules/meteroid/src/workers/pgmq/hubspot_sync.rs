@@ -548,7 +548,7 @@ async fn get_hubspot_connector(
             Some(ProviderData::Hubspot(public_data)),
         ) = (connector.sensitive, connector.data)
         {
-            let refresh_token = SecretString::new(data.refresh_token.clone());
+            let refresh_token = SecretString::from(data.refresh_token.clone());
 
             let tokens = cache
                 .try_get_with(
