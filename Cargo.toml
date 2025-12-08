@@ -51,7 +51,7 @@ argon2 = "0.5.2"
 async-trait = "0.1.74"
 axum = { version = "0.8.1", features = ["json", "query", "tower-log", "http1"] }
 axum-valid = "0.24.0"
-parquet = { version = "56.0.0", default-features = false }
+parquet = { version = "57.1.0", default-features = false }
 base62 = "2.2.3"
 base64 = "0.22.0"
 backon = "1.5.2"
@@ -180,12 +180,12 @@ tracing-log = "0.2.0"
 tracing-subscriber = { version = "0.3.18", features = ["registry", "tracing-log", "fmt", "env-filter", "json"] }
 typetag = "0.2.13"
 # this is transitive of typst-pdf, newer version fail the compilation https://github.com/meteroid-oss/meteroid/actions/runs/18858382946/job/54917356068
-subsetter = "=0.2.2"
-typst = { version = "0.13.1" }
-typst-pdf = { version = "0.13.1" }
-typst-svg = { version = "0.13.1" }
-typst-as-lib = { version = "0.14.1", features = [] }
-derive_typst_intoval = { version = "0.5.0", features = [] }
+subsetter = "=0.2.3"
+typst = { version = "0.14.1" }
+typst-pdf = { version = "0.14.1" }
+typst-svg = { version = "0.14.1" }
+typst-as-lib = { version = "0.15.0", features = [] }
+derive_typst_intoval = { version = "0.6.0", features = [] }
 unic-langid = "0.9"
 url = "2.5"
 uuid = "1.18"
