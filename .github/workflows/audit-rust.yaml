@@ -8,12 +8,8 @@ on:
     types: [ opened, reopened, synchronize ]
     paths:
       - ".github/workflows/audit-rust.yaml"
-      - "Cargo.*"
-      - "crates/**"
-      - "extra/**"
-      - "modules/meteroid/**"
-      - "modules/metering/**"
-      - "modules/adapters/**"
+      - '**/Cargo.toml'
+      - '**/Cargo.lock'
 jobs:
   audit:
     runs-on: ubuntu-latest
@@ -26,6 +22,8 @@ jobs:
         uses: actions-rs/toolchain@v1
         with:
           toolchain: stable
+
+      - uses: Swatinem/rust-cache@v2
 
       - name: Install cargo-audit
         run: cargo install cargo-audit
