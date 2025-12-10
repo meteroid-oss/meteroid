@@ -18,9 +18,10 @@ use common_logging::unwrapper::UnwrapLogger;
 use meteroid_store::Store;
 use meteroid_store::domain::DetailedInvoice;
 use meteroid_store::repositories::billable_metrics::BillableMetricInterface;
+use meteroid_store::repositories::customers::CustomersInterfaceAuto;
 use meteroid_store::repositories::price_components::PriceComponentInterface;
 use meteroid_store::repositories::subscriptions::SubscriptionInterfaceAuto;
-use meteroid_store::repositories::{CustomersInterface, InvoiceInterface, PlansInterface};
+use meteroid_store::repositories::{InvoiceInterface, PlansInterface};
 
 pub struct AnalyticsHandler {
     store: Store,

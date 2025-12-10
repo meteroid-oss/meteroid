@@ -20,7 +20,9 @@ use meteroid_store::StoreResult;
 use meteroid_store::domain::{FullPlan, Tenant};
 use meteroid_store::errors::StoreError;
 use meteroid_store::repositories::billable_metrics::BillableMetricInterface;
-use meteroid_store::repositories::invoicing_entities::InvoicingEntityInterface;
+use meteroid_store::repositories::invoicing_entities::{
+    InvoicingEntityInterface, InvoicingEntityInterfaceAuto,
+};
 use uuid::Uuid;
 
 pub async fn run_preset(

@@ -33,6 +33,7 @@ use meteroid_store::repositories::CustomersInterface;
 use meteroid_store::repositories::connectors::ConnectorsInterface;
 use meteroid_store::repositories::customer_connection::CustomerConnectionInterface;
 use meteroid_store::repositories::customer_payment_methods::CustomerPaymentMethodsInterface;
+use meteroid_store::repositories::customers::CustomersInterfaceAuto;
 use tonic::{Request, Response, Status};
 
 #[tonic::async_trait]

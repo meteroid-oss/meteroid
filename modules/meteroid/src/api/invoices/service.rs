@@ -26,11 +26,12 @@ use meteroid_store::domain::{
     InvoiceNew, InvoicingEntity, LineItem, OrderByRequest, UpdateInvoiceParams,
     UpdateLineItemParams,
 };
+use meteroid_store::repositories::InvoiceInterface;
+use meteroid_store::repositories::customers::CustomersInterfaceAuto;
 use meteroid_store::repositories::invoices::compute_tax_breakdown;
-use meteroid_store::repositories::invoicing_entities::InvoicingEntityInterface;
+use meteroid_store::repositories::invoicing_entities::InvoicingEntityInterfaceAuto;
 use meteroid_store::repositories::payment_transactions::PaymentTransactionInterface;
 use meteroid_store::repositories::pgmq::PgmqInterface;
-use meteroid_store::repositories::{CustomersInterface, InvoiceInterface};
 use meteroid_store::services::CustomerDetailsUpdate;
 use meteroid_store::utils::local_id::{IdType, LocalId};
 use tonic::{Request, Response, Status};

@@ -1,9 +1,10 @@
 use crate::StoreResult;
 use crate::domain::{DetailedInvoice, Invoice, LineItem, TaxBreakdownItem, UpdateInvoiceParams};
 use crate::errors::StoreError;
+use crate::repositories::InvoiceInterface;
+use crate::repositories::customers::CustomersInterfaceAuto;
 use crate::repositories::invoices::compute_tax_breakdown;
-use crate::repositories::invoicing_entities::InvoicingEntityInterface;
-use crate::repositories::{CustomersInterface, InvoiceInterface};
+use crate::repositories::invoicing_entities::InvoicingEntityInterfaceAuto;
 use crate::services::Services;
 use crate::utils::local_id::{IdType, LocalId};
 use chrono::NaiveTime;

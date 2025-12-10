@@ -11,6 +11,7 @@ use diesel_models::connectors::ConnectorRowNew;
 use diesel_models::enums::{ConnectorProviderEnum as DbConnectorProviderEnum, ConnectorTypeEnum};
 use meteroid_store::domain::ConnectorProviderEnum;
 use meteroid_store::repositories::CustomersInterface;
+use meteroid_store::repositories::customers::CustomersInterfaceAuto;
 use tonic::Code;
 
 #[tokio::test]

@@ -10,8 +10,8 @@ use meteroid_grpc::meteroid::portal::invoice::v1::portal_invoice_service_server:
 use meteroid_grpc::meteroid::portal::invoice::v1::*;
 use meteroid_store::repositories::bank_accounts::BankAccountsInterface;
 use meteroid_store::repositories::customer_payment_methods::CustomerPaymentMethodsInterface;
-use meteroid_store::repositories::customers::CustomersInterface;
-use meteroid_store::repositories::invoicing_entities::InvoicingEntityInterface;
+use meteroid_store::repositories::customers::CustomersInterfaceAuto;
+use meteroid_store::repositories::invoicing_entities::InvoicingEntityInterfaceAuto;
 
 use meteroid_store::repositories::payment_transactions::PaymentTransactionInterface;
 use meteroid_store::repositories::{

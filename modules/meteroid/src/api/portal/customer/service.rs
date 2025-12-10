@@ -10,8 +10,8 @@ use meteroid_grpc::meteroid::portal::customer::v1::*;
 use meteroid_store::domain::enums::SubscriptionStatusEnum;
 use meteroid_store::domain::{InvoiceStatusEnum, OrderByRequest, PaginationRequest};
 use meteroid_store::repositories::customer_payment_methods::CustomerPaymentMethodsInterface;
-use meteroid_store::repositories::customers::CustomersInterface;
-use meteroid_store::repositories::invoicing_entities::InvoicingEntityInterface;
+use meteroid_store::repositories::customers::CustomersInterfaceAuto;
+use meteroid_store::repositories::invoicing_entities::InvoicingEntityInterfaceAuto;
 use meteroid_store::repositories::{InvoiceInterface, SubscriptionInterface};
 use tonic::{Request, Response, Status};
 

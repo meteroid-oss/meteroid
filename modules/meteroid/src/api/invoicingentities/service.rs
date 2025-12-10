@@ -12,7 +12,9 @@ use meteroid_grpc::meteroid::api::invoicingentities::v1::{
     UploadInvoicingEntityLogoResponse, invoicing_entities_service_server::InvoicingEntitiesService,
 };
 use meteroid_store::domain::{InvoicingEntityPatch, InvoicingEntityProvidersPatch};
-use meteroid_store::repositories::invoicing_entities::InvoicingEntityInterface;
+use meteroid_store::repositories::invoicing_entities::{
+    InvoicingEntityInterface, InvoicingEntityInterfaceAuto,
+};
 use std::io::Cursor;
 use tonic::{Request, Response, Status};
 

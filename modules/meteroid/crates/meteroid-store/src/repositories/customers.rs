@@ -11,19 +11,24 @@ use crate::domain::{
 use crate::errors::StoreError;
 use crate::repositories::connectors::ConnectorsInterface;
 use crate::repositories::customer_balance::CustomerBalance;
-use crate::repositories::invoicing_entities::InvoicingEntityInterface;
+use crate::repositories::invoicing_entities::{
+    InvoicingEntityInterface, InvoicingEntityInterfaceAuto,
+};
 use crate::repositories::pgmq::PgmqInterface;
-use crate::store::Store;
+use crate::store::{PgConn, Store};
 use common_domain::ids::{AliasOr, BaseId, ConnectorId, CustomerId, TenantId};
 use common_eventbus::Event;
 use diesel_async::scoped_futures::ScopedFutureExt;
 use diesel_models::customers::{CustomerRow, CustomerRowNew, CustomerRowPatch, CustomerRowUpdate};
 use diesel_models::subscriptions::SubscriptionRow;
 use error_stack::{Report, bail};
+use meteroid_store_macros::with_conn_delegate;
 use uuid::Uuid;
 
+#[with_conn_delegate]
 #[async_trait::async_trait]
 pub trait CustomersInterface {
+    #[delegated]
     async fn find_customer_by_id(
         &self,
         id: CustomerId,
@@ -140,14 +145,13 @@ pub trait CustomersInterface {
 
 #[async_trait::async_trait]
 impl CustomersInterface for Store {
-    async fn find_customer_by_id(
+    async fn find_customer_by_id_with_conn(
         &self,
+        conn: &mut PgConn,
         customer_id: CustomerId,
         tenant_id: TenantId,
     ) -> StoreResult<Customer> {
-        let mut conn = self.get_conn().await?;
-
-        CustomerRow::find_by_id(&mut conn, &customer_id, &tenant_id)
+        CustomerRow::find_by_id(conn, &customer_id, &tenant_id)
             .await
             .map_err(Into::into)
             .and_then(TryInto::try_into)

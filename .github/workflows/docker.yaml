@@ -19,6 +19,7 @@ permissions:
 
 jobs:
   build:
+    timeout-minutes: 75
     strategy:
       fail-fast: false
       max-parallel: 8
@@ -142,7 +143,7 @@ jobs:
             type=semver,pattern={{major}}.{{minor}}
             type=semver,pattern={{major}}
             type=sha
-            
+
       - name: Login to GHCR
         uses: docker/login-action@v3
         with:

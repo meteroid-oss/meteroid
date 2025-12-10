@@ -3,6 +3,7 @@ use crate::adapters::payment_service_providers::initialize_payment_provider;
 use crate::domain::connectors::Connector;
 use crate::domain::{CustomerConnection, PaymentMethodTypeEnum, SetupIntent};
 use crate::errors::StoreError;
+use crate::repositories::customers::CustomersInterfaceAuto;
 use crate::services::Services;
 use crate::services::payment::sepa::SEPA_COUNTRIES;
 use crate::store::PgConn;
@@ -45,7 +46,6 @@ impl Services {
         customer_id: common_domain::ids::CustomerId,
         invoicing_entity_id: common_domain::ids::InvoicingEntityId,
     ) -> StoreResult<(Option<CustomerConnectionId>, Option<CustomerConnectionId>)> {
-        use crate::repositories::CustomersInterface;
         use diesel_models::customer_connection::CustomerConnectionRow;
 
         let customer = self
