@@ -1,10 +1,11 @@
 use crate::StoreResult;
 use crate::domain::outbox_event::InvoiceEvent;
 use crate::domain::pgmq::{PgmqMessageNew, PgmqQueue, SendEmailRequest};
-use crate::repositories::invoicing_entities::InvoicingEntityInterface;
+use crate::repositories::InvoiceInterface;
+use crate::repositories::customers::CustomersInterfaceAuto;
+use crate::repositories::invoicing_entities::InvoicingEntityInterfaceAuto;
 use crate::repositories::payment_transactions::PaymentTransactionInterface;
 use crate::repositories::pgmq::PgmqInterface;
-use crate::repositories::{CustomersInterface, InvoiceInterface};
 use crate::services::Services;
 use common_domain::ids::TenantId;
 

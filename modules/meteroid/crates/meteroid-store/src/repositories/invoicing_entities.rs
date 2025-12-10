@@ -14,7 +14,9 @@ use diesel_models::invoicing_entities::{
 };
 use diesel_models::organizations::OrganizationRow;
 use error_stack::Report;
+use meteroid_store_macros::with_conn_delegate;
 
+#[with_conn_delegate]
 #[async_trait::async_trait]
 pub trait InvoicingEntityInterface {
     async fn list_invoicing_entities(
@@ -27,6 +29,7 @@ pub trait InvoicingEntityInterface {
         ids: Vec<InvoicingEntityId>,
     ) -> StoreResult<Vec<InvoicingEntity>>;
 
+    #[delegated]
     async fn get_invoicing_entity(
         &self,
         tenant_id: TenantId,
@@ -92,28 +95,25 @@ impl InvoicingEntityInterface for Store {
         Ok(invoicing_entities)
     }
 
-    async fn get_invoicing_entity(
+    async fn get_invoicing_entity_with_conn(
         &self,
+        conn: &mut PgConn,
         tenant_id: TenantId,
         invoicing_id_or_default: Option<InvoicingEntityId>,
     ) -> StoreResult<InvoicingEntity> {
-        let mut conn = self.get_conn().await?;
-
         let invoicing_entity = match invoicing_id_or_default {
             Some(invoicing_id) => InvoicingEntityRow::get_invoicing_entity_by_id_and_tenant(
-                &mut conn,
+                conn,
                 invoicing_id,
                 tenant_id,
             )
             .await
             .map_err(Into::<Report<StoreError>>::into)?
             .into(),
-            None => {
-                InvoicingEntityRow::get_default_invoicing_entity_for_tenant(&mut conn, tenant_id)
-                    .await
-                    .map_err(Into::<Report<StoreError>>::into)?
-                    .into()
-            }
+            None => InvoicingEntityRow::get_default_invoicing_entity_for_tenant(conn, tenant_id)
+                .await
+                .map_err(Into::<Report<StoreError>>::into)?
+                .into(),
         };
 
         Ok(invoicing_entity)

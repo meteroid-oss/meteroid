@@ -7,11 +7,14 @@ use meteroid_invoicing::{pdf, svg};
 use meteroid_store::Store;
 use meteroid_store::domain::{Invoice, InvoicingEntity};
 use meteroid_store::jwt_claims::{ResourceAccess, generate_portal_token};
+use meteroid_store::repositories::InvoiceInterface;
 use meteroid_store::repositories::bank_accounts::BankAccountsInterface;
+use meteroid_store::repositories::customers::CustomersInterfaceAuto;
 use meteroid_store::repositories::historical_rates::HistoricalRatesInterface;
-use meteroid_store::repositories::invoicing_entities::InvoicingEntityInterface;
+use meteroid_store::repositories::invoicing_entities::{
+    InvoicingEntityInterface, InvoicingEntityInterfaceAuto,
+};
 use meteroid_store::repositories::subscriptions::SubscriptionInterface;
-use meteroid_store::repositories::{CustomersInterface, InvoiceInterface};
 use std::collections::HashMap;
 use std::io::Cursor;
 use std::sync::Arc;

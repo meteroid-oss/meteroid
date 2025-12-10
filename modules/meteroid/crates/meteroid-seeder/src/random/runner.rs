@@ -33,7 +33,7 @@ use meteroid_store::domain::{
     PaginationRequest,
 };
 use meteroid_store::repositories::billable_metrics::BillableMetricInterface;
-use meteroid_store::repositories::invoicing_entities::InvoicingEntityInterface;
+use meteroid_store::repositories::invoicing_entities::InvoicingEntityInterfaceAuto;
 use meteroid_store::repositories::subscriptions::{
     CancellationEffectiveAt, SubscriptionInterfaceAuto,
 };

@@ -10,6 +10,7 @@ use crate::domain::{
     SubscriptionFeeInterface,
 };
 use crate::errors::StoreError;
+use crate::repositories::SubscriptionInterface;
 use crate::repositories::customers::CustomersInterface;
 use crate::repositories::invoicing_entities::InvoicingEntityInterface;
 use crate::repositories::subscriptions::slots::validate_slot_limits;
@@ -52,7 +53,7 @@ impl Services {
                 async move {
                     let subscription_details = self
                         .store
-                        .get_subscription_details(tenant_id, subscription_id)
+                        .get_subscription_details_with_conn(conn, tenant_id, subscription_id)
                         .await?;
 
                     let subscription = &subscription_details.subscription;
@@ -502,12 +503,12 @@ impl Services {
 
         let customer = self
             .store
-            .find_customer_by_id(subscription.customer_id, tenant_id)
+            .find_customer_by_id_with_conn(conn, subscription.customer_id, tenant_id)
             .await?;
 
         let invoicing_entity = self
             .store
-            .get_invoicing_entity(tenant_id, Some(subscription.invoicing_entity_id))
+            .get_invoicing_entity_with_conn(conn, tenant_id, Some(subscription.invoicing_entity_id))
             .await?;
 
         let invoice_content = self
@@ -720,7 +721,7 @@ impl Services {
                 async move {
                     let subscription_details = self
                         .store
-                        .get_subscription_details(tenant_id, subscription_id)
+                        .get_subscription_details_with_conn(conn, tenant_id, subscription_id)
                         .await?;
 
                     let now = at_ts.unwrap_or(chrono::Utc::now().naive_utc());

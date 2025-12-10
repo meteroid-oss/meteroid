@@ -5,10 +5,11 @@ use crate::domain::{
     Customer, Invoice, InvoicePaymentStatus, InvoicingEntity, ResolvedPaymentMethod,
 };
 use crate::repositories::customer_payment_methods::CustomerPaymentMethodsInterface;
-use crate::repositories::invoicing_entities::InvoicingEntityInterface;
+use crate::repositories::customers::CustomersInterfaceAuto;
+use crate::repositories::invoicing_entities::InvoicingEntityInterfaceAuto;
 use crate::repositories::payment_transactions::PaymentTransactionInterface;
 use crate::repositories::pgmq::PgmqInterface;
-use crate::repositories::{CustomersInterface, InvoiceInterface, SubscriptionInterface};
+use crate::repositories::{InvoiceInterface, SubscriptionInterface};
 use crate::services::Services;
 use common_domain::ids::TenantId;
 

@@ -38,6 +38,7 @@ jobs:
   check:
     name: Test
     runs-on: ubuntu-latest
+    timeout-minutes: 45
     steps:
       - uses: actions/checkout@v6
       - name: Free disk space

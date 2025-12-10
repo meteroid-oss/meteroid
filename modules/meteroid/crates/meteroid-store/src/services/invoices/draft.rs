@@ -4,7 +4,7 @@ use crate::domain::{
 };
 use crate::errors::{StoreError, StoreErrorReport};
 use crate::repositories::invoices::insert_invoice_tx;
-use crate::repositories::invoicing_entities::InvoicingEntityInterface;
+use crate::repositories::invoicing_entities::InvoicingEntityInterfaceAuto;
 use crate::services::Services;
 use crate::store::PgConn;
 use chrono::{NaiveDate, NaiveTime};
