@@ -33,6 +33,7 @@ import { useZodForm } from '@/hooks/useZodForm'
 import { useQuery } from '@/lib/connectrpc'
 import { schemas } from '@/lib/schemas'
 import { CreateCustomerSchema } from '@/lib/schemas/customers'
+import { percentToRate } from '@/lib/utils/numbers'
 import {
   createCustomer,
   listCustomers,
@@ -111,7 +112,7 @@ export const CustomersCreatePanel = ({ visible, closePanel }: CustomersCreatePan
         customTaxes: (values.customTaxes || []).map(tax => ({
           taxCode: tax.taxCode,
           name: tax.name,
-          rate: (tax.rate / 100).toString(),
+          rate: percentToRate(tax.rate),
         })),
         isTaxExempt: values.isTaxExempt,
         billingAddress: values.billingAddress,

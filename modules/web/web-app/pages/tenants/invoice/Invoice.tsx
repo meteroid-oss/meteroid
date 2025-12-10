@@ -42,6 +42,7 @@ import { getCountryName } from '@/features/settings/utils'
 import { useBasePath } from '@/hooks/useBasePath'
 import { useQuery } from '@/lib/connectrpc'
 import { env } from '@/lib/env'
+import { rateToPercent , formatCurrency, formatCurrencyNoRounding, formatUsage } from '@/lib/utils/numbers'
 import { resizeSvgContent } from '@/pages/tenants/invoice/utils'
 import { getLatestConnMeta } from '@/pages/tenants/utils'
 import { listConnectors } from '@/rpc/api/connectors/v1/connectors-ConnectorsService_connectquery'
@@ -64,7 +65,6 @@ import {
   LineItem,
 } from '@/rpc/api/invoices/v1/models_pb'
 import { parseAndFormatDate, parseAndFormatDateOptional } from '@/utils/date'
-import { formatCurrency, formatCurrencyNoRounding, formatUsage } from '@/utils/numbers'
 import { useTypedParams } from '@/utils/params'
 
 import { InvoiceConfirmationDialog } from './InvoiceConfirmationDialog'
@@ -421,13 +421,12 @@ export const InvoiceView: React.FC<Props & { invoiceId: string }> = ({ invoice, 
                       Share Payment Link
                     </DropdownMenuItem>
                   )}
-                {invoice.status === InvoiceStatus.FINALIZED &&
-                  Number(invoice.amountDue) > 0 && (
-                    <DropdownMenuItem onClick={() => setIsMarkAsPaidDialogOpen(true)}>
-                      <CheckCircleIcon size="16" className="mr-2" />
-                      Mark as Paid
-                    </DropdownMenuItem>
-                  )}
+                {invoice.status === InvoiceStatus.FINALIZED && Number(invoice.amountDue) > 0 && (
+                  <DropdownMenuItem onClick={() => setIsMarkAsPaidDialogOpen(true)}>
+                    <CheckCircleIcon size="16" className="mr-2" />
+                    Mark as Paid
+                  </DropdownMenuItem>
+                )}
                 <DropdownMenuItem
                   disabled={!canFinalize}
                   onClick={() => setShowFinalizeConfirmation(true)}
@@ -739,7 +738,7 @@ export const InvoiceSummaryLines: React.FC<{ invoice: DetailedInvoice }> = ({ in
 
       {invoice.taxBreakdown && invoice.taxBreakdown.length > 0
         ? invoice.taxBreakdown.map(tax => {
-            const taxRate = parseFloat(tax.taxRate) * 100 || 0
+            const taxRate = rateToPercent(tax.taxRate)
             const taxAmountValue = Number(tax.amount) || 0
             // Only show tax breakdown if rate is greater than 0
             if (taxRate > 0) {
