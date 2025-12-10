@@ -1,5 +1,5 @@
+import { rateToPercent , formatCurrency } from '@/lib/utils/numbers'
 import { Checkout } from '@/rpc/portal/checkout/v1/models_pb'
-import { formatCurrency } from '@/utils/numbers'
 
 // Helper to format dates
 const formatDate = (dateString: string): string => {
@@ -133,7 +133,7 @@ const SubscriptionSummary: React.FC<{ checkoutData: Checkout }> = ({ checkoutDat
               {taxBreakdown.map((tax, index) => (
                 <div key={index} className="flex justify-between text-sm mb-1">
                   <div className="text-muted-foreground">
-                    {tax.name} ({parseFloat(tax.rate) * 100}%)
+                    {tax.name} ({rateToPercent(tax.rate)}%)
                   </div>
                   <div className="text-muted-foreground">
                     {formatCurrency(tax.amount, currency)}

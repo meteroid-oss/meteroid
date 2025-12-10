@@ -1,4 +1,24 @@
+import Decimal from 'decimal.js'
+
 import { CURRENCIES } from '../data/currencies'
+
+/**
+ * Converts a decimal rate string to a percentage number.
+ * Uses decimal.js for precision.
+ * Example: "0.07" -> 7, "0.075" -> 7.5
+ */
+export const rateToPercent = (rate: string | number): number => {
+  return new Decimal(rate).mul(100).toNumber()
+}
+
+/**
+ * Converts a percentage number to a decimal rate string.
+ * Uses decimal.js for precision.
+ * Example: 7 -> "0.07", 7.5 -> "0.075"
+ */
+export const percentToRate = (percent: number): string => {
+  return new Decimal(percent).div(100).toString()
+}
 
 export const formatUsage = (quantity: number) => {
   let rounded

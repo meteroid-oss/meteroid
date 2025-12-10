@@ -43,6 +43,7 @@ import { useQuery } from '@/lib/connectrpc'
 import { mapDatev2 } from '@/lib/mapping'
 import { schemas } from '@/lib/schemas'
 import { InvoiceLineSchema } from '@/lib/schemas/invoices'
+import { percentToRate } from '@/lib/utils/numbers'
 import { resizeSvgContent } from '@/pages/tenants/invoice/utils'
 import { getCustomerById } from '@/rpc/api/customers/v1/customers-CustomersService_connectquery'
 import {
@@ -507,7 +508,7 @@ const CreateInvoicePreview = ({
             endDate: mapDatev2(line.endDate),
             quantity: line.quantity.toString(),
             unitPrice: line.unitPrice.toString(),
-            taxRate: ((line.taxRate || 0) / 100).toString(),
+            taxRate: percentToRate(line.taxRate || 0),
           })),
         },
       })
@@ -662,7 +663,7 @@ export const InvoiceCreate = () => {
             endDate: mapDatev2(line.endDate),
             quantity: line.quantity.toString(),
             unitPrice: line.unitPrice.toString(),
-            taxRate: ((line.taxRate || 0) / 100).toString(),
+            taxRate: percentToRate(line.taxRate || 0),
           })),
         },
       })

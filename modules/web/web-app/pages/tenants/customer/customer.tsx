@@ -16,6 +16,7 @@ import { ManageConnectionsModal } from '@/features/customers/modals/ManageConnec
 import { getCountryFlagEmoji, getCountryName } from '@/features/settings/utils'
 import { useBasePath } from '@/hooks/useBasePath'
 import { useQuery } from '@/lib/connectrpc'
+import { rateToPercent } from '@/lib/utils/numbers'
 import { ConnectorProviderEnum } from '@/rpc/api/connectors/v1/models_pb'
 import {
   generateCustomerPortalToken,
@@ -189,7 +190,7 @@ export const Customer = () => {
                         <div className="flex flex-col gap-0.5 items-end">
                           {data.customTaxes.map((tax, idx) => (
                             <div key={idx} className="text-[13px]">
-                              {tax.name} ({tax.taxCode}): {Number(tax.rate) * 100}%
+                              {tax.name} ({tax.taxCode}): {rateToPercent(tax.rate)}%
                             </div>
                           ))}
                         </div>

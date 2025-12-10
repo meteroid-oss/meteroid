@@ -37,6 +37,7 @@ import {
   UpdateInvoiceSchema,
 } from '@/lib/schemas/invoices'
 import { parseDate } from '@/lib/utils/date'
+import { percentToRate, rateToPercent , formatCurrency, minorToMajorUnit } from '@/lib/utils/numbers'
 import { resizeSvgContent } from '@/pages/tenants/invoice/utils'
 import { getCustomerById } from '@/rpc/api/customers/v1/customers-CustomersService_connectquery'
 import { Address } from '@/rpc/api/customers/v1/models_pb'
@@ -54,7 +55,6 @@ import {
   UpdateInvoiceRequest,
   UpdateInvoiceRequest_UpdatedLineItems,
 } from '@/rpc/api/invoices/v1/models_pb'
-import { formatCurrency, minorToMajorUnit } from '@/utils/numbers'
 
 interface InvoiceEditFormProps {
   invoice: DetailedInvoice
@@ -133,7 +133,7 @@ export const InvoiceEditForm: React.FC<InvoiceEditFormProps> = ({
           name: item.name,
           startDate: parseDate(item.startDate),
           endDate: parseDate(item.endDate),
-          taxRate: parseFloat(item.taxRate) * 100,
+          taxRate: rateToPercent(item.taxRate),
           description: item.description,
           metricId: item.metricId,
         }
@@ -145,7 +145,7 @@ export const InvoiceEditForm: React.FC<InvoiceEditFormProps> = ({
           endDate: parseDate(item.endDate),
           quantity: parseFloat(item.quantity || '0'),
           unitPrice: parseFloat(item.unitPrice || '0'),
-          taxRate: parseFloat(item.taxRate) * 100,
+          taxRate: rateToPercent(item.taxRate),
           description: item.description,
           metricId: item.metricId,
         }
@@ -214,7 +214,7 @@ export const InvoiceEditForm: React.FC<InvoiceEditFormProps> = ({
           endDate: mapDatev2(line.endDate),
           quantity: hasSublines ? originalItem.quantity : lineWithValues.quantity?.toString(),
           unitPrice: hasSublines ? originalItem.unitPrice : lineWithValues.unitPrice?.toString(),
-          taxRate: ((line.taxRate || 0) / 100).toString(),
+          taxRate: percentToRate(line.taxRate || 0),
           description: line.description,
           metricId: line.metricId,
           subLineItems: hasSublines
@@ -282,7 +282,7 @@ export const InvoiceEditForm: React.FC<InvoiceEditFormProps> = ({
               endDate: mapDatev2(line.endDate),
               quantity: hasSublines ? undefined : lineWithValues.quantity?.toString(),
               unitPrice: hasSublines ? undefined : lineWithValues.unitPrice?.toString(),
-              taxRate: ((line.taxRate || 0) / 100).toString(),
+              taxRate: percentToRate(line.taxRate || 0),
               description: line.description,
               subLineItems: hasSublines
                 ? ((originalItem.subLineItems ?? []) as PlainMessage<SubLineItem>[])
@@ -335,7 +335,7 @@ export const InvoiceEditForm: React.FC<InvoiceEditFormProps> = ({
             endDate: mapDatev2(line.endDate),
             quantity: hasSublines ? originalItem.quantity : lineWithValues.quantity?.toString(),
             unitPrice: hasSublines ? originalItem.unitPrice : lineWithValues.unitPrice?.toString(),
-            taxRate: ((line.taxRate || 0) / 100).toString(),
+            taxRate: percentToRate(line.taxRate || 0),
             description: line.description,
             metricId: line.metricId,
             subLineItems: hasSublines
