@@ -4,12 +4,27 @@ on:
   push:
     branches:
       - main
+    paths:
+      - ".github/workflows/audit-rust.yaml"
+      - ".github/actions/rust-setup/**"
+      - '**/Cargo.toml'
+      - '**/Cargo.lock'
   pull_request:
     types: [ opened, reopened, synchronize ]
     paths:
       - ".github/workflows/audit-rust.yaml"
+      - ".github/actions/rust-setup/**"
       - '**/Cargo.toml'
       - '**/Cargo.lock'
+
+concurrency:
+  group: "${{ github.workflow }}-${{ github.ref }}"
+  cancel-in-progress: true
+
+env:
+  SCCACHE_GHA_ENABLED: "true"
+  RUSTC_WRAPPER: "sccache"
+
 jobs:
   audit:
     runs-on: ubuntu-latest
@@ -18,15 +33,14 @@ jobs:
       - name: Checkout code
         uses: actions/checkout@v6
 
-      - name: Install Rust
-        uses: actions-rs/toolchain@v1
+      - uses: ./.github/actions/rust-setup
         with:
-          toolchain: stable
-
-      - uses: Swatinem/rust-cache@v2
+          install-deps: 'false'
 
       - name: Install cargo-audit
-        run: cargo install cargo-audit
+        uses: taiki-e/install-action@v2
+        with:
+          tool: cargo-audit
 
       - name: Run cargo audit
         run: cargo audit
