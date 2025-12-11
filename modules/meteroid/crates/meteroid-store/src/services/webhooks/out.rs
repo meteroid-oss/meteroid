@@ -1,3 +1,4 @@
+use crate::StoreResult;
 use crate::domain::WebhookPage;
 use crate::domain::enums::WebhookOutEventTypeEnum;
 use crate::domain::webhooks::{
@@ -8,13 +9,11 @@ use crate::domain::webhooks::{
 };
 use crate::errors::StoreError;
 use crate::services::ServicesEdge;
-use crate::{Store, StoreResult};
 use backon::{ConstantBuilder, Retryable};
 use cached::proc_macro::cached;
-use common_domain::ids::TenantId;
-use diesel_models::tenants::{TenantRow, TenantWithOrganizationRow};
+use common_domain::ids::{BaseId, TenantId};
 use diesel_models::webhooks::WebhookInEventRowNew;
-use error_stack::{Report, ResultExt};
+use error_stack::ResultExt;
 use governor::middleware::NoOpMiddleware;
 use governor::state::{InMemoryState, NotKeyed};
 use governor::{Jitter, Quota, RateLimiter, clock};
@@ -22,7 +21,9 @@ use itertools::Itertools;
 use nonzero_ext::nonzero;
 use std::time::Duration;
 use strum::IntoEnumIterator;
-use svix::api::{AppPortalAccessIn, ApplicationIn, EndpointIn, EventTypeIn, MessageIn};
+use svix::api::{
+    AppPortalAccessIn, ApplicationIn, EndpointIn, EventTypeIn, EventTypeUpdate, MessageIn,
+};
 use svix::error::Error;
 use tracing::log;
 
@@ -222,6 +223,8 @@ impl ServicesEdge {
             return Ok(());
         };
 
+        let mut to_update = vec![];
+
         for event_type in WebhookOutEventTypeEnum::iter() {
             let res = svix_api
                 .event_type()
@@ -229,7 +232,7 @@ impl ServicesEdge {
                     EventTypeIn {
                         archived: None,
                         deprecated: None,
-                        description: event_type.to_string(),
+                        description: event_type.description(),
                         feature_flag: None,
                         group_name: Some(event_type.group()),
                         name: event_type.to_string(),
@@ -249,10 +252,40 @@ impl ServicesEdge {
                         "Svix webhook event type {} already exists (409)",
                         event_type
                     );
+                    to_update.push(event_type);
                 }
                 Err(err) => {
                     return Err(err).change_context(StoreError::WebhookServiceError(format!(
                         "Failed to create svix webhook event type {event_type}"
+                    )));
+                }
+            }
+        }
+
+        for event_type in to_update {
+            let res = svix_api
+                .event_type()
+                .update(
+                    event_type.to_string(),
+                    EventTypeUpdate {
+                        archived: None,
+                        deprecated: None,
+                        description: event_type.description(),
+                        feature_flag: None,
+                        feature_flags: None,
+                        group_name: Some(event_type.group()),
+                        schemas: None,
+                    },
+                )
+                .await;
+
+            match res {
+                Ok(_) => {
+                    tracing::info!("Updated svix webhook event type {}", event_type);
+                }
+                Err(err) => {
+                    return Err(err).change_context(StoreError::WebhookServiceError(format!(
+                        "Failed to update svix webhook event type {event_type}"
                     )));
                 }
             }
@@ -267,7 +300,12 @@ impl ServicesEdge {
     ) -> StoreResult<WebhookPortalAccess> {
         let svix = self.services.svix()?;
 
-        let app_in = svix_application_in(&self.store, tenant_id).await?;
+        let app_in = ApplicationIn {
+            metadata: None,
+            name: tenant_id.to_string(),
+            rate_limit: None,
+            uid: Some(tenant_id.as_uuid().to_string()),
+        };
 
         let access_in = AppPortalAccessIn {
             application: Some(app_in),
@@ -331,25 +369,4 @@ async fn get_endpoint_events_to_listen_cached(
         .flat_map(|x| x.events_to_listen)
         .unique()
         .collect::<Vec<_>>())
-}
-
-/// todo optimize
-async fn svix_application_in(store: &Store, tenant_id: TenantId) -> StoreResult<ApplicationIn> {
-    let mut conn = store.get_conn().await?;
-
-    let TenantWithOrganizationRow {
-        tenant,
-        organization,
-    } = TenantRow::find_by_id_with_org(&mut conn, tenant_id)
-        .await
-        .map_err(Into::<Report<StoreError>>::into)?;
-
-    let app_name = format!("{} | {}", organization.trade_name, tenant.name);
-
-    Ok(ApplicationIn {
-        metadata: None,
-        name: app_name,
-        rate_limit: None,
-        uid: Some(tenant_id.to_string()),
-    })
 }

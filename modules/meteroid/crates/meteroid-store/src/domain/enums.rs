@@ -262,6 +262,24 @@ impl WebhookOutEventTypeEnum {
             WebhookOutEventTypeEnum::QuoteConverted => "quote".to_string(),
         }
     }
+
+    pub fn description(&self) -> String {
+        match self {
+            WebhookOutEventTypeEnum::CustomerCreated => "A new customer was created".to_string(),
+            WebhookOutEventTypeEnum::SubscriptionCreated => {
+                "A new subscription was created".to_string()
+            }
+            WebhookOutEventTypeEnum::InvoiceCreated => "A new invoice was created".to_string(),
+            WebhookOutEventTypeEnum::InvoiceFinalized => "An invoice was finalized".to_string(),
+            WebhookOutEventTypeEnum::BillableMetricCreated => {
+                "A new billable metric was created".to_string()
+            }
+            WebhookOutEventTypeEnum::QuoteAccepted => "A quote was accepted".to_string(),
+            WebhookOutEventTypeEnum::QuoteConverted => {
+                "A quote was converted into subscription".to_string()
+            }
+        }
+    }
 }
 
 #[derive(o2o, Serialize, Deserialize, Debug, Clone, PartialEq, Eq, Hash)]

@@ -26,6 +26,7 @@ types:
     - meteroid.api.organizations.v1.OrganizationsService
     - meteroid.api.invoicingentities.v1.InvoicingEntitiesService
     - meteroid.api.taxes.v1.TaxesService
+    - meteroid.api.webhooks.out.v1.WebhooksService
     - meteroid.portal.checkout.v1.PortalCheckoutService
     - meteroid.portal.quotes.v1.PortalQuoteService
     - meteroid.portal.customer.v1.PortalCustomerService

@@ -97,7 +97,10 @@ pub async fn start_api_server(
             services.clone(),
             config.jwt_secret.clone(),
         ))
-        .add_service(api::instance::service(store.clone()))
+        .add_service(api::instance::service(
+            store.clone(),
+            config.svix_server_url.is_some(),
+        ))
         .add_service(api::invoices::service(
             store.clone(),
             services.clone(),
