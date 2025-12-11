@@ -35,17 +35,6 @@ env:
   RUSTC_WRAPPER: "sccache"
 
 jobs:
-  naming:
-    permissions:
-      pull-requests: read
-    name: Validate PR title
-    runs-on: ubuntu-latest
-    if: github.event_name == 'pull_request'
-    steps:
-      - uses: amannn/action-semantic-pull-request@v6
-        env:
-          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-
   check:
     name: Test
     runs-on: ubuntu-latest
