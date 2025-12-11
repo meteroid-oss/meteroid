@@ -1,0 +1,43 @@
+name: CI
+
+on:
+  workflow_dispatch:
+  push:
+    branches:
+      - main
+    paths:
+      - ".github/workflows/openapi-rust.yaml"
+      - ".github/actions/rust-setup/**"
+      - "Cargo.*"
+      - "modules/meteroid/src/api_rest/**"
+  pull_request:
+    types: [ opened, reopened, synchronize ]
+    paths:
+      - ".github/workflows/openapi-rust.yaml"
+      - ".github/actions/rust-setup/**"
+      - "Cargo.*"
+      - "modules/meteroid/src/api_rest/**"
+
+concurrency:
+  group: "${{ github.workflow }}-${{ github.ref }}"
+  cancel-in-progress: true
+
+env:
+  SCCACHE_GHA_ENABLED: "true"
+  RUSTC_WRAPPER: "sccache"
+
+jobs:
+  openapi:
+    name: Open API
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v6
+      - uses: ./.github/actions/rust-setup
+      - name: Validate OpenAPI
+        run: |
+          cargo run -p meteroid --bin openapi-generate
+          if [[ -n "$(git status --porcelain spec/api/v1/openapi.json)" ]]; then
+            echo "openapi.json is not up to date. Please run 'cargo run -p meteroid --bin openapi-generate' and commit changes."
+            git --no-pager diff spec/api/v1/openapi.json
+            exit 1
+          fi

@@ -5,10 +5,20 @@ on:
   push:
     branches:
       - main
+    paths:
+      - ".github/workflows/ci-rust.yaml"
+      - ".github/actions/rust-setup/**"
+      - "Cargo.*"
+      - "crates/**"
+      - "extra/**"
+      - "modules/meteroid/**"
+      - "modules/metering/**"
+      - "modules/adapters/**"
   pull_request:
     types: [ opened, reopened, synchronize ]
     paths:
       - ".github/workflows/ci-rust.yaml"
+      - ".github/actions/rust-setup/**"
       - "Cargo.*"
       - "crates/**"
       - "extra/**"
@@ -35,6 +45,7 @@ jobs:
       - uses: amannn/action-semantic-pull-request@v6
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
   check:
     name: Test
     runs-on: ubuntu-latest
@@ -42,25 +53,10 @@ jobs:
     steps:
       - uses: actions/checkout@v6
       - name: Free disk space
-        run: |
-          sudo rm -rf /usr/share/dotnet /usr/local/lib/android /opt/ghc /opt/hostedtoolcache
-      - name: Install dependencies
-        run: |
-          sudo apt-get update
-          sudo apt-get install -y cmake clang unzip libsasl2-dev
-          wget https://github.com/protocolbuffers/protobuf/releases/download/v21.8/protoc-21.8-linux-x86_64.zip
-          unzip protoc*.zip
-          sudo mv bin/protoc /usr/local/bin
-          sudo mv include/google /usr/local/include
-      - name: Setup mold linker
-        uses: rui314/setup-mold@v1
-      - name: Install toolchain
-        uses: dtolnay/rust-toolchain@1.90.0
-      - uses: Swatinem/rust-cache@v2
-      - name: Run sccache-cache
-        uses: mozilla-actions/sccache-action@v0.0.9
+        run: sudo rm -rf /usr/share/dotnet /usr/local/lib/android /opt/ghc /opt/hostedtoolcache
+      - uses: ./.github/actions/rust-setup
       - name: Install nextest
-        uses: taiki-e/cache-cargo-install-action@v2
+        uses: taiki-e/install-action@v2
         with:
           tool: cargo-nextest
       - name: Test
@@ -71,10 +67,12 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v6
-      - uses: dtolnay/rust-toolchain@1.90.0
+      - uses: ./.github/actions/rust-setup
         with:
           components: rustfmt
-      - uses: Swatinem/rust-cache@v2
+          install-deps: 'false'
+          sccache: 'false'
+          mold: 'false'
       - name: Rustfmt Check
         uses: actions-rust-lang/rustfmt@v1
 
@@ -83,46 +81,8 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v6
-      - name: Install dependencies
-        run: |
-          sudo apt-get update
-          sudo apt-get install -y cmake clang unzip libsasl2-dev
-          wget https://github.com/protocolbuffers/protobuf/releases/download/v21.8/protoc-21.8-linux-x86_64.zip
-          unzip protoc*.zip
-          sudo mv bin/protoc /usr/local/bin
-          sudo mv include/google /usr/local/include
-      - uses: dtolnay/rust-toolchain@1.90.0
+      - uses: ./.github/actions/rust-setup
         with:
           components: clippy
-      - uses: Swatinem/rust-cache@v2
-      - name: Run sccache-cache
-        uses: mozilla-actions/sccache-action@v0.0.9
       - name: Linting
         run: cargo clippy -- -D warnings
-
-  openapi:
-    name: Open API
-    runs-on: ubuntu-latest
-    steps:
-      - uses: actions/checkout@v6
-      - name: Install dependencies
-        run: |
-          sudo apt-get update
-          sudo apt-get install -y cmake clang unzip libsasl2-dev
-          wget https://github.com/protocolbuffers/protobuf/releases/download/v21.8/protoc-21.8-linux-x86_64.zip
-          unzip protoc*.zip
-          sudo mv bin/protoc /usr/local/bin
-          sudo mv include/google /usr/local/include
-      - name: Install toolchain
-        uses: dtolnay/rust-toolchain@1.90.0
-      - uses: Swatinem/rust-cache@v2
-      - name: Run sccache-cache
-        uses: mozilla-actions/sccache-action@v0.0.9
-      - name: Validate OpenAPI
-        run: |
-          cargo run -p meteroid --bin openapi-generate
-          if [[ -n "$(git status --porcelain spec/api/v1/openapi.json)" ]]; then
-            echo "openapi.json is not up to date. Please run 'cargo run -p meteroid --bin openapi-generate' and commit changes."
-            git --no-pager diff spec/api/v1/openapi.json
-            exit 1
-          fi

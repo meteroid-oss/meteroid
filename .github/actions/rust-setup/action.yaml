@@ -1,0 +1,51 @@
+name: 'Rust Setup'
+description: 'Setup Rust toolchain with dependencies, caching, and mold linker'
+
+inputs:
+  toolchain:
+    description: 'Rust toolchain version'
+    default: '1.90.0'
+  components:
+    description: 'Rust components to install (comma-separated)'
+    default: ''
+  install-deps:
+    description: 'Install system dependencies (protoc, cmake, etc.)'
+    default: 'true'
+  sccache:
+    description: 'Enable sccache'
+    default: 'true'
+  mold:
+    description: 'Use mold linker'
+    default: 'true'
+
+runs:
+  using: 'composite'
+  steps:
+    - name: Install dependencies
+      if: inputs.install-deps == 'true'
+      shell: bash
+      run: |
+        sudo apt-get update
+        sudo apt-get install -y cmake clang unzip libsasl2-dev
+        wget -q https://github.com/protocolbuffers/protobuf/releases/download/v21.8/protoc-21.8-linux-x86_64.zip
+        unzip -q protoc*.zip
+        sudo mv bin/protoc /usr/local/bin
+        sudo mv include/google /usr/local/include
+        rm -rf protoc*.zip bin include readme.txt
+
+    - name: Setup mold linker
+      if: inputs.mold == 'true'
+      uses: rui314/setup-mold@v1
+
+    - name: Install toolchain
+      uses: dtolnay/rust-toolchain@master
+      with:
+        toolchain: ${{ inputs.toolchain }}
+        components: ${{ inputs.components }}
+
+    - name: Rust cache
+      uses: Swatinem/rust-cache@v2
+
+    - name: Run sccache
+      if: inputs.sccache == 'true'
+      uses: mozilla-actions/sccache-action@v0.0.9
