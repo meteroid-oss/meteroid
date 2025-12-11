@@ -27,7 +27,6 @@ mod test_stats;
 mod test_subscription;
 mod test_tenant;
 mod test_user;
-mod test_webhooks_out;
 
 mod data;
 mod test_invoice_computation;

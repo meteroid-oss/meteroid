@@ -22,7 +22,7 @@ use meteroid_store::Services;
 use stripe_client::client::StripeClient;
 
 #[tokio::main]
-async fn main() -> Result<(), Box<dyn std::error::Error>> {
+async fn main() -> Result<(), Box<dyn Error>> {
     match dotenvy::dotenv() {
         Err(error) if error.not_found() => Ok(()),
         Err(error) => Err(error),
@@ -38,17 +38,17 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
 
     let store = singletons::get_store().await;
     let store_arc = Arc::new(store.clone()); // TODO harmonize, arc everywhere or nowhere
-    let svix = new_svix(config);
+    let svix = new_svix(&config.svix);
     let stripe = Arc::new(StripeClient::new());
 
     let usage_clients = Arc::new(MeteringUsageClient::get().clone());
 
-    let services = Services::new(store_arc.clone(), usage_clients.clone(), svix, stripe);
+    let services = Services::new(store_arc.clone(), usage_clients.clone(), stripe);
 
     let services_arc = Arc::new(services.clone());
 
     migrations::run(&store.pool).await?;
-    bootstrap::bootstrap_once(store.clone(), services.clone()).await?;
+    bootstrap::bootstrap_once(store.clone(), svix.clone()).await?;
     setup_eventbus_handlers(store.clone(), config.clone()).await;
 
     let object_store_service = Arc::new(S3Storage::try_new(
@@ -61,6 +61,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         store.clone(),
         services.clone(),
         object_store_service.clone(),
+        svix.clone(),
     );
 
     #[cfg(feature = "metering-server")]
@@ -111,6 +112,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         workers::spawn_workers(
             store_arc.clone(),
             services_arc.clone(),
+            svix.clone(),
             object_store_service.clone(),
             usage_clients.clone(),
             Arc::new(currency_rate_service),
@@ -121,7 +123,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         .await;
     });
 
-    // Wait for shutdown signal or server error or processor error
+    // Wait for a shutdown signal or server error or processor error
     tokio::select! {
         metering_grpc_result = metering_grpc_server => {
             if let Err(e) = metering_grpc_result {
@@ -151,6 +153,4 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     }
 
     Ok(())
-
-    //   tokio::time::sleep(Duration::MAX).await;
 }

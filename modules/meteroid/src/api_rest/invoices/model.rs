@@ -6,6 +6,7 @@ use common_domain::ids::{
     AliasOr, CustomerId, CustomerPaymentMethodId, InvoiceId, PaymentTransactionId, SubscriptionId,
 };
 use common_domain::ids::{string_serde, string_serde_opt};
+use o2o::o2o;
 use serde::{Deserialize, Serialize};
 use std::marker::PhantomData;
 use utoipa::{IntoParams, ToSchema};
@@ -67,7 +68,8 @@ pub struct InvoiceLineItem {
     pub sub_line_items: Vec<SubLineItem>,
 }
 
-#[derive(Debug, Clone, Serialize, Deserialize, ToSchema)]
+#[derive(o2o, Debug, Clone, Serialize, Deserialize, ToSchema)]
+#[map_owned(meteroid_store::domain::enums::InvoiceStatusEnum)]
 pub enum InvoiceStatus {
     Draft,
     Finalized,

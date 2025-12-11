@@ -10,6 +10,7 @@ message GetInstanceResponse {
   optional string google_oauth_client_id = 6;
   optional string hubspot_oauth_client_id = 7;
   optional string pennylane_oauth_client_id = 8;
+  bool svix_enabled = 9;
 }
 
 message GetInviteRequest {}

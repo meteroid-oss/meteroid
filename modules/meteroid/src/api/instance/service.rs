@@ -38,6 +38,7 @@ impl InstanceService for InstanceServiceComponents {
             google_oauth_client_id: maybe_instance.google_oauth_client_id,
             hubspot_oauth_client_id: maybe_instance.hubspot_oauth_client_id,
             pennylane_oauth_client_id: maybe_instance.pennylane_oauth_client_id,
+            svix_enabled: self.svix_enabled,
         }))
     }
 

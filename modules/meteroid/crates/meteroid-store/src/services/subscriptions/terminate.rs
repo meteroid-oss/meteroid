@@ -22,7 +22,7 @@ impl Services {
             next_cycle_action: Some(None),
             current_period_start: Some(date),
             current_period_end: Some(None),
-            cycle_index: None, // we don't increase cycle index on termination
+            cycle_index: None, // we don't increase the cycle index on termination
         };
 
         patch.patch(conn).await?;

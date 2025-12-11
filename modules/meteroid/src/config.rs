@@ -68,11 +68,8 @@ pub struct Config {
     )]
     pub secrets_crypt_key: CryptKey,
 
-    #[envconfig(from = "SVIX_SERVER_URL")]
-    pub svix_server_url: Option<String>,
-
-    #[envconfig(from = "SVIX_JWT_TOKEN")]
-    pub svix_jwt_token: SecretString,
+    #[envconfig(nested)]
+    pub svix: SvixConfig,
 
     #[envconfig(nested)]
     pub mailer: MailerConfig,
@@ -144,4 +141,13 @@ impl FromStr for CryptKey {
         }
         Ok(CryptKey(SecretString::from(s.to_string())))
     }
+}
+
+#[derive(Envconfig, Debug, Clone)]
+pub struct SvixConfig {
+    #[envconfig(from = "SVIX_SERVER_URL")]
+    pub server_url: Option<String>,
+
+    #[envconfig(from = "SVIX_JWT_TOKEN")]
+    pub token: SecretString,
 }

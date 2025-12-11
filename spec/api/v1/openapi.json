@@ -1568,6 +1568,18 @@
           "bm_7n42DGM5Tflk9n8mt7Fhc7"
         ]
       },
+      "BillingMetricAggregateEnum": {
+        "type": "string",
+        "enum": [
+          "COUNT",
+          "LATEST",
+          "MAX",
+          "MIN",
+          "MEAN",
+          "SUM",
+          "COUNT_DISTINCT"
+        ]
+      },
       "BillingPeriodEnum": {
         "type": "string",
         "enum": [
@@ -2530,6 +2542,13 @@
           }
         }
       },
+      "EventId": {
+        "type": "string",
+        "format": "MeteroidId",
+        "examples": [
+          "evt_7n42DGM5Tflk9n8mt7Fhc7"
+        ]
+      },
       "ExtraComponent": {
         "type": "object",
         "required": [
@@ -3025,6 +3044,94 @@
           }
         }
       },
+      "MetricDimension": {
+        "type": "object",
+        "required": [
+          "key",
+          "values"
+        ],
+        "properties": {
+          "key": {
+            "type": "string"
+          },
+          "values": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
+          }
+        }
+      },
+      "MetricSegmentationMatrix": {
+        "oneOf": [
+          {
+            "$ref": "#/components/schemas/MetricDimension"
+          },
+          {
+            "type": "object",
+            "required": [
+              "dimension1",
+              "dimension2",
+              "discriminator"
+            ],
+            "properties": {
+              "dimension1": {
+                "$ref": "#/components/schemas/MetricDimension"
+              },
+              "dimension2": {
+                "$ref": "#/components/schemas/MetricDimension"
+              },
+              "discriminator": {
+                "type": "string",
+                "enum": [
+                  "DOUBLE"
+                ]
+              }
+            }
+          },
+          {
+            "type": "object",
+            "required": [
+              "dimension1_key",
+              "dimension2_key",
+              "values",
+              "discriminator"
+            ],
+            "properties": {
+              "dimension1_key": {
+                "type": "string"
+              },
+              "dimension2_key": {
+                "type": "string"
+              },
+              "discriminator": {
+                "type": "string",
+                "enum": [
+                  "LINKED"
+                ]
+              },
+              "values": {
+                "type": "object",
+                "additionalProperties": {
+                  "type": "array",
+                  "items": {
+                    "type": "string"
+                  }
+                },
+                "propertyNames": {
+                  "type": "string"
+                }
+              }
+            }
+          }
+        ],
+        "discriminator": {
+          "propertyName": "discriminator",
+          "mapping": {
+            "SINGLE": "#/components/schemas/MetricDimension"
+          }
+        }
+      },
       "OneTimeFee": {
         "type": "object",
         "required": [
@@ -3442,6 +3549,13 @@
         "format": "MeteroidId",
         "examples": [
           "prd_7n42DGM5Tflk9n8mt7Fhc7"
+        ]
+      },
+      "QuoteId": {
+        "type": "string",
+        "format": "MeteroidId",
+        "examples": [
+          "quo_7n42DGM5Tflk9n8mt7Fhc7"
         ]
       },
       "RateFee": {
@@ -4509,6 +4623,17 @@
           }
         }
       },
+      "UnitConversionRoundingEnum": {
+        "type": "string",
+        "enum": [
+          "UP",
+          "DOWN",
+          "NEAREST",
+          "NEAREST_HALF",
+          "NEAREST_DECILE",
+          "NONE"
+        ]
+      },
       "UsageFee": {
         "type": "object",
         "required": [
@@ -4616,6 +4741,382 @@
             }
           }
         }
+      },
+      "WebhookOutCustomerEventData": {
+        "type": "object",
+        "required": [
+          "id",
+          "name",
+          "invoicing_emails",
+          "currency"
+        ],
+        "properties": {
+          "alias": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "billing_email": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "currency": {
+            "type": "string"
+          },
+          "id": {
+            "$ref": "#/components/schemas/CustomerId"
+          },
+          "invoicing_emails": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
+          },
+          "name": {
+            "type": "string"
+          },
+          "phone": {
+            "type": [
+              "string",
+              "null"
+            ]
+          }
+        }
+      },
+      "WebhookOutEvent": {
+        "type": "object",
+        "required": [
+          "id",
+          "type",
+          "data",
+          "timestamp"
+        ],
+        "properties": {
+          "data": {
+            "$ref": "#/components/schemas/WebhookOutEventData"
+          },
+          "id": {
+            "$ref": "#/components/schemas/EventId"
+          },
+          "timestamp": {
+            "type": "string",
+            "format": "date-time"
+          },
+          "type": {
+            "$ref": "#/components/schemas/WebhookOutEventTypeEnum"
+          }
+        }
+      },
+      "WebhookOutEventData": {
+        "oneOf": [
+          {
+            "$ref": "#/components/schemas/WebhookOutCustomerEventData"
+          },
+          {
+            "$ref": "#/components/schemas/WebhookOutInvoiceEventData"
+          },
+          {
+            "$ref": "#/components/schemas/WebhookOutSubscriptionEventData"
+          },
+          {
+            "$ref": "#/components/schemas/WebhookOutMetricEventData"
+          },
+          {
+            "$ref": "#/components/schemas/WebhookOutQuoteEventData"
+          }
+        ],
+        "discriminator": {
+          "propertyName": "discriminator",
+          "mapping": {
+            "CUSTOMER": "#/components/schemas/WebhookOutCustomerEventData",
+            "INVOICE": "#/components/schemas/WebhookOutInvoiceEventData",
+            "METRIC": "#/components/schemas/WebhookOutMetricEventData",
+            "QUOTE": "#/components/schemas/WebhookOutQuoteEventData",
+            "SUBSCRIPTION": "#/components/schemas/WebhookOutSubscriptionEventData"
+          }
+        }
+      },
+      "WebhookOutEventTypeEnum": {
+        "type": "string",
+        "enum": [
+          "metric.created",
+          "customer.created",
+          "subscription.created",
+          "invoice.created",
+          "invoice.finalized",
+          "invoice.paid",
+          "quote.accepted",
+          "quote.converted"
+        ]
+      },
+      "WebhookOutInvoiceEventData": {
+        "type": "object",
+        "required": [
+          "id",
+          "customer_id",
+          "status",
+          "currency",
+          "total",
+          "tax_amount",
+          "created_at"
+        ],
+        "properties": {
+          "created_at": {
+            "type": "string",
+            "format": "date-time"
+          },
+          "currency": {
+            "type": "string"
+          },
+          "customer_id": {
+            "$ref": "#/components/schemas/CustomerId"
+          },
+          "id": {
+            "$ref": "#/components/schemas/InvoiceId"
+          },
+          "status": {
+            "$ref": "#/components/schemas/InvoiceStatus"
+          },
+          "tax_amount": {
+            "type": "integer",
+            "format": "int64"
+          },
+          "total": {
+            "type": "integer",
+            "format": "int64"
+          }
+        }
+      },
+      "WebhookOutMetricEventData": {
+        "type": "object",
+        "required": [
+          "id",
+          "name",
+          "code",
+          "aggregation_type",
+          "created_at",
+          "product_family_id"
+        ],
+        "properties": {
+          "aggregation_key": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "aggregation_type": {
+            "$ref": "#/components/schemas/BillingMetricAggregateEnum"
+          },
+          "code": {
+            "type": "string"
+          },
+          "created_at": {
+            "type": "string",
+            "format": "date-time"
+          },
+          "description": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "id": {
+            "$ref": "#/components/schemas/BillableMetricId"
+          },
+          "name": {
+            "type": "string"
+          },
+          "product_family_id": {
+            "$ref": "#/components/schemas/ProductFamilyId"
+          },
+          "product_id": {
+            "oneOf": [
+              {
+                "type": "null"
+              },
+              {
+                "$ref": "#/components/schemas/ProductId"
+              }
+            ]
+          },
+          "segmentation_matrix": {
+            "oneOf": [
+              {
+                "type": "null"
+              },
+              {
+                "$ref": "#/components/schemas/MetricSegmentationMatrix"
+              }
+            ]
+          },
+          "unit_conversion_factor": {
+            "type": [
+              "integer",
+              "null"
+            ],
+            "format": "int32"
+          },
+          "unit_conversion_rounding": {
+            "oneOf": [
+              {
+                "type": "null"
+              },
+              {
+                "$ref": "#/components/schemas/UnitConversionRoundingEnum"
+              }
+            ]
+          },
+          "usage_group_key": {
+            "type": [
+              "string",
+              "null"
+            ]
+          }
+        }
+      },
+      "WebhookOutQuoteEventData": {
+        "type": "object",
+        "required": [
+          "id",
+          "customer_id"
+        ],
+        "properties": {
+          "customer_id": {
+            "$ref": "#/components/schemas/CustomerId"
+          },
+          "id": {
+            "$ref": "#/components/schemas/QuoteId"
+          },
+          "subscription_id": {
+            "oneOf": [
+              {
+                "type": "null"
+              },
+              {
+                "$ref": "#/components/schemas/SubscriptionId"
+              }
+            ]
+          }
+        }
+      },
+      "WebhookOutSubscriptionEventData": {
+        "type": "object",
+        "required": [
+          "id",
+          "customer_id",
+          "customer_name",
+          "billing_day_anchor",
+          "currency",
+          "start_date",
+          "plan_name",
+          "version",
+          "created_at",
+          "net_terms",
+          "mrr_cents",
+          "period",
+          "status"
+        ],
+        "properties": {
+          "activated_at": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "format": "date-time"
+          },
+          "billing_day_anchor": {
+            "type": "integer",
+            "format": "int32",
+            "minimum": 0
+          },
+          "billing_start_date": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "format": "date"
+          },
+          "created_at": {
+            "type": "string",
+            "format": "date-time"
+          },
+          "currency": {
+            "type": "string"
+          },
+          "customer_alias": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "customer_id": {
+            "$ref": "#/components/schemas/CustomerId"
+          },
+          "customer_name": {
+            "type": "string"
+          },
+          "end_date": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "format": "date"
+          },
+          "id": {
+            "$ref": "#/components/schemas/SubscriptionId"
+          },
+          "invoice_memo": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "invoice_threshold": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "mrr_cents": {
+            "type": "integer",
+            "format": "int64",
+            "minimum": 0
+          },
+          "net_terms": {
+            "type": "integer",
+            "format": "int32",
+            "minimum": 0
+          },
+          "period": {
+            "$ref": "#/components/schemas/BillingPeriodEnum"
+          },
+          "plan_name": {
+            "type": "string"
+          },
+          "start_date": {
+            "type": "string",
+            "format": "date"
+          },
+          "status": {
+            "$ref": "#/components/schemas/SubscriptionStatusEnum"
+          },
+          "trial_duration": {
+            "type": [
+              "integer",
+              "null"
+            ],
+            "format": "int32",
+            "minimum": 0
+          },
+          "version": {
+            "type": "integer",
+            "format": "int32",
+            "minimum": 0
+          }
+        }
       }
     },
     "securitySchemes": {
@@ -4630,5 +5131,340 @@
       "name": "meteroid",
       "description": "Meteroid API"
     }
-  ]
+  ],
+  "webhooks": {
+    "customer.created": {
+      "post": {
+        "description": "A new customer was created",
+        "operationId": "webhook_customer_created",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "example": {
+                "data": {
+                  "alias": "ACME",
+                  "billing_email": "billing@acme.example",
+                  "currency": "USD",
+                  "discriminator": "CUSTOMER",
+                  "id": "cus_7n42DGM5Tflk9n8mt7Fhc7",
+                  "invoicing_emails": [
+                    "invoices@acme.example"
+                  ],
+                  "name": "Acme Corporation",
+                  "phone": "+1-555-0123"
+                },
+                "id": "evt_7n42DGM5Tflk9n8mt7Fhc7",
+                "timestamp": "1970-01-01T00:00:00.000Z",
+                "type": "customer.created"
+              },
+              "schema": {
+                "$ref": "#/components/schemas/WebhookOutEvent"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "description": "Webhook received successfully"
+          }
+        },
+        "summary": "customer.created webhook",
+        "tags": [
+          "customer"
+        ]
+      }
+    },
+    "invoice.created": {
+      "post": {
+        "description": "A new invoice was created",
+        "operationId": "webhook_invoice_created",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "example": {
+                "data": {
+                  "created_at": "1970-01-01T00:00:00.000Z",
+                  "currency": "EUR",
+                  "customer_id": "cus_7n42DGM5Tflk9n8mt7Fhc7",
+                  "discriminator": "INVOICE",
+                  "id": "inv_7n42DGM5Tflk9n8mt7Fhc7",
+                  "status": "Draft",
+                  "tax_amount": 2000,
+                  "total": 10000
+                },
+                "id": "evt_7n42DGM5Tflk9n8mt7Fhc7",
+                "timestamp": "1970-01-01T00:00:00.000Z",
+                "type": "invoice.created"
+              },
+              "schema": {
+                "$ref": "#/components/schemas/WebhookOutEvent"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "description": "Webhook received successfully"
+          }
+        },
+        "summary": "invoice.created webhook",
+        "tags": [
+          "invoice"
+        ]
+      }
+    },
+    "invoice.finalized": {
+      "post": {
+        "description": "An invoice was finalized",
+        "operationId": "webhook_invoice_finalized",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "example": {
+                "data": {
+                  "created_at": "1970-01-01T00:00:00.000Z",
+                  "currency": "EUR",
+                  "customer_id": "cus_7n42DGM5Tflk9n8mt7Fhc7",
+                  "discriminator": "INVOICE",
+                  "id": "inv_7n42DGM5Tflk9n8mt7Fhc7",
+                  "status": "Draft",
+                  "tax_amount": 2000,
+                  "total": 10000
+                },
+                "id": "evt_7n42DGM5Tflk9n8mt7Fhc7",
+                "timestamp": "1970-01-01T00:00:00.000Z",
+                "type": "invoice.finalized"
+              },
+              "schema": {
+                "$ref": "#/components/schemas/WebhookOutEvent"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "description": "Webhook received successfully"
+          }
+        },
+        "summary": "invoice.finalized webhook",
+        "tags": [
+          "invoice"
+        ]
+      }
+    },
+    "invoice.paid": {
+      "post": {
+        "description": "An invoice was paid",
+        "operationId": "webhook_invoice_paid",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "example": {
+                "data": {
+                  "created_at": "1970-01-01T00:00:00.000Z",
+                  "currency": "EUR",
+                  "customer_id": "cus_7n42DGM5Tflk9n8mt7Fhc7",
+                  "discriminator": "INVOICE",
+                  "id": "inv_7n42DGM5Tflk9n8mt7Fhc7",
+                  "status": "Draft",
+                  "tax_amount": 2000,
+                  "total": 10000
+                },
+                "id": "evt_7n42DGM5Tflk9n8mt7Fhc7",
+                "timestamp": "1970-01-01T00:00:00.000Z",
+                "type": "invoice.paid"
+              },
+              "schema": {
+                "$ref": "#/components/schemas/WebhookOutEvent"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "description": "Webhook received successfully"
+          }
+        },
+        "summary": "invoice.paid webhook",
+        "tags": [
+          "invoice"
+        ]
+      }
+    },
+    "metric.created": {
+      "post": {
+        "description": "A new billable metric was created",
+        "operationId": "webhook_metric_created",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "example": {
+                "data": {
+                  "aggregation_key": null,
+                  "aggregation_type": "COUNT",
+                  "code": "api_calls",
+                  "created_at": "1970-01-01T00:00:00",
+                  "description": null,
+                  "discriminator": "METRIC",
+                  "id": "bm_7n42DGM5Tflk9n8mt7Fhc7",
+                  "name": "Api Calls",
+                  "product_family_id": "pf_7n42DGM5Tflk9n8mt7Fhc7",
+                  "product_id": null,
+                  "segmentation_matrix": null,
+                  "unit_conversion_factor": null,
+                  "unit_conversion_rounding": null,
+                  "usage_group_key": null
+                },
+                "id": "evt_7n42DGM5Tflk9n8mt7Fhc7",
+                "timestamp": "1970-01-01T00:00:00.000Z",
+                "type": "metric.created"
+              },
+              "schema": {
+                "$ref": "#/components/schemas/WebhookOutEvent"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "description": "Webhook received successfully"
+          }
+        },
+        "summary": "metric.created webhook",
+        "tags": [
+          "metric"
+        ]
+      }
+    },
+    "quote.accepted": {
+      "post": {
+        "description": "A quote was accepted",
+        "operationId": "webhook_quote_accepted",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "example": {
+                "data": {
+                  "customer_id": "cus_7n42DGM5Tflk9n8mt7Fhc7",
+                  "discriminator": "QUOTE",
+                  "id": "quo_7n42DGM5Tflk9n8mt7Fhc7",
+                  "subscription_id": null
+                },
+                "id": "evt_7n42DGM5Tflk9n8mt7Fhc7",
+                "timestamp": "1970-01-01T00:00:00.000Z",
+                "type": "quote.accepted"
+              },
+              "schema": {
+                "$ref": "#/components/schemas/WebhookOutEvent"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "description": "Webhook received successfully"
+          }
+        },
+        "summary": "quote.accepted webhook",
+        "tags": [
+          "quote"
+        ]
+      }
+    },
+    "quote.converted": {
+      "post": {
+        "description": "A quote was converted into subscription",
+        "operationId": "webhook_quote_converted",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "example": {
+                "data": {
+                  "customer_id": "cus_7n42DGM5Tflk9n8mt7Fhc7",
+                  "discriminator": "QUOTE",
+                  "id": "quo_7n42DGM5Tflk9n8mt7Fhc7",
+                  "subscription_id": null
+                },
+                "id": "evt_7n42DGM5Tflk9n8mt7Fhc7",
+                "timestamp": "1970-01-01T00:00:00.000Z",
+                "type": "quote.converted"
+              },
+              "schema": {
+                "$ref": "#/components/schemas/WebhookOutEvent"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "description": "Webhook received successfully"
+          }
+        },
+        "summary": "quote.converted webhook",
+        "tags": [
+          "quote"
+        ]
+      }
+    },
+    "subscription.created": {
+      "post": {
+        "description": "A new subscription was created",
+        "operationId": "webhook_subscription_created",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "example": {
+                "data": {
+                  "activated_at": null,
+                  "billing_day_anchor": 1,
+                  "billing_start_date": null,
+                  "created_at": "1970-01-01T00:00:00.000Z",
+                  "currency": "EUR",
+                  "customer_alias": "ACME",
+                  "customer_id": "cus_7n42DGM5Tflk9n8mt7Fhc7",
+                  "customer_name": "Acme Corporation",
+                  "discriminator": "SUBSCRIPTION",
+                  "end_date": null,
+                  "id": "sub_7n42DGM5Tflk9n8mt7Fhc7",
+                  "invoice_memo": null,
+                  "invoice_threshold": null,
+                  "mrr_cents": 0,
+                  "net_terms": 0,
+                  "period": "MONTHLY",
+                  "plan_name": "default",
+                  "start_date": "1970-01-01",
+                  "status": "PENDING_ACTIVATION",
+                  "trial_duration": null,
+                  "version": 0
+                },
+                "id": "evt_7n42DGM5Tflk9n8mt7Fhc7",
+                "timestamp": "1970-01-01T00:00:00.000Z",
+                "type": "subscription.created"
+              },
+              "schema": {
+                "$ref": "#/components/schemas/WebhookOutEvent"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "description": "Webhook received successfully"
+          }
+        },
+        "summary": "subscription.created webhook",
+        "tags": [
+          "subscription"
+        ]
+      }
+    }
+  }
 }

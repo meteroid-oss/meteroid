@@ -27,6 +27,7 @@ pub mod error;
 mod events;
 mod files;
 mod invoices;
+mod metrics;
 mod model;
 mod oauth;
 pub mod openapi;
@@ -34,7 +35,7 @@ mod plans;
 mod productfamilies;
 pub mod server;
 mod subscriptions;
-mod webhooks;
+pub mod webhooks;
 
 pub fn api_routes() -> OpenApiRouter<AppState> {
     OpenApiRouter::new()

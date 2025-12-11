@@ -14,5 +14,4 @@ pub mod migrations;
 pub mod services;
 pub mod singletons;
 pub mod svix;
-pub mod webhook;
 pub mod workers;

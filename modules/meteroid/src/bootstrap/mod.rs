@@ -1,5 +1,8 @@
 use crate::constants::OSS_API;
+use crate::svix::SvixOps;
 use meteroid_store::repositories::historical_rates::HistoricalRatesInterface;
+use std::sync::Arc;
+use svix::api::Svix;
 
 mod historical_rates;
 
@@ -9,10 +12,12 @@ const BASE_DATE: chrono::NaiveDate =
 
 pub async fn bootstrap_once(
     store: meteroid_store::Store,
-    services: meteroid_store::Services,
+    svix: Option<Arc<Svix>>,
 ) -> Result<(), Box<dyn std::error::Error>> {
-    if let Err(err) = services.insert_webhook_out_event_types().await {
-        log::error!("Failed to insert webhook out event types: {err:?}");
+    // register svix event types
+    if let Some(svix) = svix {
+        svix.import_open_api_event_types(include_str!("../../../../spec/api/v1/openapi.json"))
+            .await?;
     }
 
     // check if we need to setup historical rates

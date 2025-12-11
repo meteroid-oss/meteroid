@@ -109,7 +109,7 @@ impl Services {
                 transactions.push(res.clone());
 
                 if res.status == PaymentStatusEnum::Settled {
-                    // Update subscription's payment method with the one that successfully paid
+                    // Update the subscription's payment method with the one that successfully paid
                     let payment_method = diesel_models::customer_payment_methods::CustomerPaymentMethodRow::get_by_id(
                         conn,
                         &tenant_id,
@@ -159,7 +159,7 @@ impl Services {
                 .await?;
 
                 if invoicing_entity.grace_period_hours >= 0 {
-                    // Schedule finalization after grace period
+                    // Schedule finalization after a grace period
                     self.schedule_invoice_finalization(
                         conn,
                         tenant_id,
@@ -173,7 +173,7 @@ impl Services {
                     return self.as_detailed_invoice(draft_invoice, customer).map(Some);
                 }
 
-                // else we finalize immediately, and trigger payment
+                // else we finalize immediately and trigger payment
                 self.finalize_invoice_tx(
                     conn,
                     draft_invoice.id,
@@ -223,7 +223,7 @@ impl Services {
         })
     }
 
-    /// Schedule invoice finalization after grace period
+    /// Schedule invoice finalization after a grace period
     async fn schedule_invoice_finalization(
         &self,
         conn: &mut PgConn,

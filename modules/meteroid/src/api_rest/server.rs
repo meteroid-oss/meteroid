@@ -2,6 +2,7 @@ use crate::adapters::stripe::Stripe;
 use crate::api_rest::AppState;
 use crate::api_rest::api_routes;
 use crate::api_rest::error::{ErrorCode, RestErrorResponse};
+use crate::api_rest::openapi::ApiDoc;
 use crate::config::Config;
 use crate::services::storage::ObjectStoreService;
 use axum::response::Response;
@@ -20,30 +21,9 @@ use tower_http::trace::{
     DefaultMakeSpan, DefaultOnFailure, DefaultOnRequest, DefaultOnResponse, TraceLayer,
 };
 use tracing::Level;
-use utoipa::openapi::security::{HttpAuthScheme, HttpBuilder};
-use utoipa::{Modify, OpenApi, openapi::security::SecurityScheme};
+use utoipa::OpenApi;
 use utoipa_axum::router::OpenApiRouter;
 use utoipa_scalar::{Scalar, Servable as ScalarServable};
-
-#[derive(OpenApi)]
-#[openapi(
-    modifiers(&SecurityAddon),
-    tags((name = "meteroid", description = "Meteroid API"))
-)]
-pub struct ApiDoc;
-
-struct SecurityAddon;
-
-impl Modify for SecurityAddon {
-    fn modify(&self, openapi: &mut utoipa::openapi::OpenApi) {
-        if let Some(components) = openapi.components.as_mut() {
-            components.add_security_scheme(
-                "bearer_auth",
-                SecurityScheme::Http(HttpBuilder::new().scheme(HttpAuthScheme::Bearer).build()),
-            );
-        }
-    }
-}
 
 pub async fn start_rest_server(
     config: Config,
