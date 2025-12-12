@@ -1,0 +1,250 @@
+x-default-logging: &logging
+  driver: "json-file"
+  options:
+    max-size: "5m"
+    max-file: "2"
+    tag: "{{.Name}}"
+
+volumes:
+  pg_data:
+  clickhouse_data:
+  redpanda_data:
+  object_store_data:
+
+networks:
+  meteroid_net:
+
+name: meteroid-deploy
+
+services:
+
+  ### Infrastructure Services
+  meteroid-db:
+    image: ghcr.io/meteroid-oss/meteroid-postgres:17.4
+    ports:
+      - '5432:5432'
+    user: postgres
+    environment:
+      - POSTGRES_USER=${DATABASE_USER:-meteroid}
+      - POSTGRES_PASSWORD=${DATABASE_PASSWORD}
+      - POSTGRES_DB=${DATABASE_NAME:-meteroid}
+    volumes:
+      - pg_data:/var/lib/postgresql/data
+    healthcheck:
+      test: ['CMD-SHELL', 'pg_isready -d $${POSTGRES_DB} -U $${POSTGRES_USER}']
+      interval: 10s
+      timeout: 5s
+      retries: 5
+    command:
+      - "postgres"
+      - "-c"
+      - "wal_level=logical"
+      - "-c"
+      - "shared_preload_libraries=pg_stat_statements"
+    networks:
+      - meteroid_net
+    logging: *logging
+
+  clickhouse:
+    image: clickhouse/clickhouse-server:25.6.2-alpine
+    ports:
+      - 8123:8123
+      - 9000:9000
+    environment:
+      CLICKHOUSE_USER: ${CLICKHOUSE_USERNAME:-default}
+      CLICKHOUSE_PASSWORD: ${CLICKHOUSE_PASSWORD:-default}
+      CLICKHOUSE_DB: ${CLICKHOUSE_DATABASE:-meteroid}
+      CLICKHOUSE_DEFAULT_ACCESS_MANAGEMENT: 1
+    ulimits:
+      nofile:
+        soft: 262144
+        hard: 262144
+    healthcheck:
+      test: wget --no-verbose --tries=1 --spider http://clickhouse:8123/ping || exit 1
+      interval: 5s
+      timeout: 3s
+      retries: 100
+    volumes:
+      - clickhouse_data:/var/lib/clickhouse
+    networks:
+      - meteroid_net
+    logging: *logging
+
+  redpanda:
+    image: docker.redpanda.com/redpandadata/redpanda:v23.3.1
+    hostname: redpanda
+    command:
+      - redpanda start
+      - --smp 1
+      - --memory 1G
+      - --overprovisioned
+      - --node-id 0
+      - --kafka-addr INTERNAL://0.0.0.0:29092,EXTERNAL://0.0.0.0:9092
+      - --advertise-kafka-addr INTERNAL://redpanda:29092,EXTERNAL://localhost:9092
+    volumes:
+      - redpanda_data:/var/lib/redpanda/data
+    networks:
+      - meteroid_net
+    ports:
+      - 9092:9092
+    healthcheck:
+      test: ["CMD-SHELL", "rpk cluster health | grep -E 'Healthy:.+true' || exit 1"]
+      interval: 10s
+      timeout: 5s
+      retries: 10
+    logging: *logging
+
+  redpanda-topic-create:
+    image: docker.redpanda.com/redpandadata/redpanda:v23.3.1
+    depends_on:
+      redpanda:
+        condition: service_healthy
+    entrypoint:
+      - bash
+      - -c
+      - |
+        for topic in meteroid-events-raw; do \
+          echo "Creating topic: $$topic" && \
+          rpk topic create "$$topic" --brokers redpanda:29092 || true; \
+        done
+    networks:
+      - meteroid_net
+
+  ### Meteroid Application Services
+
+  meteroid-api:
+    image: ghcr.io/meteroid-oss/meteroid-api:latest
+    depends_on:
+      meteroid-db:
+        condition: service_healthy
+      redpanda:
+        condition: service_healthy
+    ports:
+      - "8084:8084"
+      - "50061:50061"
+    environment:
+      - JWT_SECRET=${JWT_SECRET}
+      - INTERNAL_API_SECRET=${INTERNAL_API_SECRET}
+      - SECRETS_CRYPT_KEY=${SECRETS_CRYPT_KEY}
+      - DATABASE_URL=postgres://${DATABASE_USER:-meteroid}:${DATABASE_PASSWORD}@meteroid-db:5432/${DATABASE_NAME:-meteroid}?sslmode=disable
+      - METEROID_API_LISTEN_ADDRESS=0.0.0.0:50061
+      - METEROID_REST_API_LISTEN_ADDRESS=0.0.0.0:8084
+      - METERING_API_EXTERNAL_URL=http://metering-api:50062
+      - ENABLE_MULTI_ORGANIZATION=${ENABLE_MULTI_ORGANIZATION:-false}
+      - METEROID_PUBLIC_URL=${METEROID_PUBLIC_URL:-http://localhost:3000}
+      - OBJECT_STORE_URI=${OBJECT_STORE_URI:-file:///data/object-store}
+      - SVIX_JWT_TOKEN=${SVIX_JWT_TOKEN:-}
+#      # S3/MinIO configuration (only needed if using s3:// OBJECT_STORE_URI)
+#      - AWS_ALLOW_HTTP=${AWS_ALLOW_HTTP:-}
+#      - AWS_ENDPOINT=${AWS_ENDPOINT:-}
+#      - AWS_ACCESS_KEY_ID=${AWS_ACCESS_KEY_ID:-}
+#      - AWS_SECRET_ACCESS_KEY=${AWS_SECRET_ACCESS_KEY:-}
+#      # Optional: Webhook support via Svix
+#      - SVIX_SERVER_URL=${SVIX_SERVER_URL:-}
+#      # Optional: OAuth
+#      - OAUTH_GOOGLE_CLIENT_ID=${OAUTH_GOOGLE_CLIENT_ID:-}
+#      - OAUTH_GOOGLE_CLIENT_SECRET=${OAUTH_GOOGLE_CLIENT_SECRET:-}
+#      # Optional: Mail
+#      - MAILER_SMTP_HOST=${MAILER_SMTP_HOST:-}
+#      - MAILER_SMTP_USERNAME=${MAILER_SMTP_USERNAME:-}
+#      - MAILER_SMTP_PASSWORD=${MAILER_SMTP_PASSWORD:-}
+#      - MAILER_SMTP_TLS=${MAILER_SMTP_TLS:-false}
+#      - MAILER_FROM=${MAILER_FROM:-}
+#      # Optional: Telemetry
+#      - TELEMETRY_TRACING_ENABLED=${TELEMETRY_TRACING_ENABLED:-false}
+#      - TELEMETRY_METRICS_ENABLED=${TELEMETRY_METRICS_ENABLED:-false}
+#      - TELEMETRY_OTEL_ENDPOINT=${TELEMETRY_OTEL_ENDPOINT:-}
+    volumes:
+      - object_store_data:/data/object-store
+    healthcheck:
+      test: ["CMD", "/bin/grpc_health_probe", "-addr=:50061"]
+      interval: 10s
+      timeout: 5s
+      retries: 10
+    networks:
+      - meteroid_net
+    logging: *logging
+
+  meteroid-scheduler:
+    image: ghcr.io/meteroid-oss/meteroid-scheduler:latest
+    depends_on:
+      meteroid-db:
+        condition: service_healthy
+      meteroid-api:
+        condition: service_healthy
+    environment:
+      - JWT_SECRET=${JWT_SECRET}
+      - INTERNAL_API_SECRET=${INTERNAL_API_SECRET}
+      - SECRETS_CRYPT_KEY=${SECRETS_CRYPT_KEY}
+      - DATABASE_URL=postgres://${DATABASE_USER:-meteroid}:${DATABASE_PASSWORD}@meteroid-db:5432/${DATABASE_NAME:-meteroid}?sslmode=disable
+      - METEROID_API_LISTEN_ADDRESS=0.0.0.0:50061
+      - METEROID_REST_API_LISTEN_ADDRESS=0.0.0.0:8084
+      - METERING_API_EXTERNAL_URL=http://metering-api:50062
+      - ENABLE_MULTI_ORGANIZATION=${ENABLE_MULTI_ORGANIZATION:-false}
+      - METEROID_PUBLIC_URL=${METEROID_PUBLIC_URL:-http://localhost:3000}
+      - OBJECT_STORE_URI=${OBJECT_STORE_URI:-file:///data/object-store}
+      - SVIX_JWT_TOKEN=${SVIX_JWT_TOKEN:-}
+#      # S3/MinIO configuration (only needed if using s3:// OBJECT_STORE_URI)
+#      - AWS_ALLOW_HTTP=${AWS_ALLOW_HTTP:-}
+#      - AWS_ENDPOINT=${AWS_ENDPOINT:-}
+#      - AWS_ACCESS_KEY_ID=${AWS_ACCESS_KEY_ID:-}
+#      - AWS_SECRET_ACCESS_KEY=${AWS_SECRET_ACCESS_KEY:-}
+#      # Optional: Webhook support via Svix
+#      - SVIX_SERVER_URL=${SVIX_SERVER_URL:-}
+#      # Optional: OAuth
+#      - OAUTH_GOOGLE_CLIENT_ID=${OAUTH_GOOGLE_CLIENT_ID:-}
+#      - OAUTH_GOOGLE_CLIENT_SECRET=${OAUTH_GOOGLE_CLIENT_SECRET:-}
+#      # Optional: Mail
+#      - MAILER_SMTP_HOST=${MAILER_SMTP_HOST:-}
+#      - MAILER_SMTP_USERNAME=${MAILER_SMTP_USERNAME:-}
+#      - MAILER_SMTP_PASSWORD=${MAILER_SMTP_PASSWORD:-}
+#      - MAILER_SMTP_TLS=${MAILER_SMTP_TLS:-false}
+#      - MAILER_FROM=${MAILER_FROM:-}
+#      # Optional: Telemetry
+#      - TELEMETRY_TRACING_ENABLED=${TELEMETRY_TRACING_ENABLED:-false}
+#      - TELEMETRY_METRICS_ENABLED=${TELEMETRY_METRICS_ENABLED:-false}
+#      - TELEMETRY_OTEL_ENDPOINT=${TELEMETRY_OTEL_ENDPOINT:-}
+    networks:
+      - meteroid_net
+    logging: *logging
+
+  metering-api:
+    image: ghcr.io/meteroid-oss/metering-api:latest
+    depends_on:
+      clickhouse:
+        condition: service_healthy
+      redpanda:
+        condition: service_healthy
+    ports:
+      - "50062:50062"
+    environment:
+      - INTERNAL_API_SECRET=${INTERNAL_API_SECRET}
+      - METERING_API_LISTEN_ADDRESS=0.0.0.0:50062
+      - KAFKA_BOOTSTRAP_SERVERS=redpanda:29092
+      - KAFKA_RAW_TOPIC=${KAFKA_RAW_TOPIC:-meteroid-events-raw}
+      - CLICKHOUSE_DATABASE=${CLICKHOUSE_DATABASE:-meteroid}
+      - CLICKHOUSE_HTTP_ADDRESS=http://clickhouse:8123
+      - CLICKHOUSE_TCP_ADDRESS=clickhouse:9000
+      - CLICKHOUSE_USERNAME=${CLICKHOUSE_USERNAME:-default}
+      - CLICKHOUSE_PASSWORD=${CLICKHOUSE_PASSWORD:-default}
+      # Optional: Telemetry
+      - TELEMETRY_TRACING_ENABLED=${TELEMETRY_TRACING_ENABLED:-false}
+      - TELEMETRY_METRICS_ENABLED=${TELEMETRY_METRICS_ENABLED:-false}
+      - TELEMETRY_OTEL_ENDPOINT=${TELEMETRY_OTEL_ENDPOINT:-}
+    networks:
+      - meteroid_net
+    logging: *logging
+
+  meteroid-web:
+    image: ghcr.io/meteroid-oss/meteroid-web:latest
+    depends_on:
+      meteroid-api:
+        condition: service_healthy
+    ports:
+      - "3000:80"
+    environment:
+      - VITE_METEROID_API_EXTERNAL_URL=${VITE_METEROID_API_EXTERNAL_URL:-http://localhost:50061}
+      - VITE_METEROID_REST_API_EXTERNAL_URL=${VITE_METEROID_REST_API_EXTERNAL_URL:-http://localhost:8084}
+    networks:
+      - meteroid_net
+    logging: *logging

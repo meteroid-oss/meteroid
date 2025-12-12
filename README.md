@@ -104,8 +104,15 @@ retention, and expansion through their inherent value and user experience
 This approach, combined with our open philosophy, guides us toward creating a more inclusive, sustainable future for the
 SaaS industries.
 
+## Self-Hosting
+
+Meteroid can be self-hosted using Docker Compose or Kubernetes:
+
+- **Docker Compose**: See [`docker/deploy`](docker/deploy) 
+- **Kubernetes (Helm)**: See [`k8s/meteroid`](k8s/meteroid)
+
 ## Developer Guide
- 
+
 Please refer to the [contributing guide](CONTRIBUTING.md) for how to install Meteroid from sources.
 
 ## License
