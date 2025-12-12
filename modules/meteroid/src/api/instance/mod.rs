@@ -6,9 +6,16 @@ mod service;
 
 pub struct InstanceServiceComponents {
     pub store: Store,
+    pub svix_enabled: bool,
 }
 
-pub fn service(store: Store) -> InstanceServiceServer<InstanceServiceComponents> {
-    let inner = InstanceServiceComponents { store };
+pub fn service(
+    store: Store,
+    svix_enabled: bool,
+) -> InstanceServiceServer<InstanceServiceComponents> {
+    let inner = InstanceServiceComponents {
+        store,
+        svix_enabled,
+    };
     InstanceServiceServer::new(inner)
 }
