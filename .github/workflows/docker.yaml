@@ -101,7 +101,7 @@ jobs:
           touch "/tmp/digests/${{ matrix.image_type.name }}/${digest#sha256:}"
 
       - name: Upload digest
-        uses: actions/upload-artifact@v5
+        uses: actions/upload-artifact@v6
         with:
           name: digests-${{ matrix.image_type.name }}-${{ env.PLATFORM_PAIR }}
           path: /tmp/digests/${{ matrix.image_type.name }}/*
