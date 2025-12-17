@@ -3,7 +3,7 @@ use crate::api_rest::currencies::model::Currency;
 use crate::api_rest::model::{PaginatedRequest, PaginationResponse};
 use common_domain::ids::{BankAccountId, CustomerId};
 use common_domain::ids::{InvoicingEntityId, string_serde, string_serde_opt};
-use utoipa::ToSchema;
+use utoipa::{IntoParams, ToSchema};
 use validator::Validate;
 
 #[derive(Clone, ToSchema, serde::Serialize, serde::Deserialize, Debug)]
@@ -14,13 +14,15 @@ pub struct CustomTaxRate {
     pub rate: rust_decimal::Decimal,
 }
 
-#[derive(ToSchema, serde::Serialize, serde::Deserialize, Validate)]
+#[derive(ToSchema, IntoParams, serde::Serialize, serde::Deserialize, Validate)]
+#[into_params(parameter_in = Query)]
 pub struct CustomerFilters {
     pub search: Option<String>,
     pub archived: Option<bool>,
 }
 
-#[derive(ToSchema, serde::Serialize, serde::Deserialize, Validate)]
+#[derive(ToSchema, IntoParams, serde::Serialize, serde::Deserialize, Validate)]
+#[into_params(parameter_in = Query)]
 pub struct CustomerListRequest {
     #[serde(flatten)]
     #[validate(nested)]
@@ -95,4 +97,12 @@ pub struct CustomerUpdateRequest {
 pub struct CustomerListResponse {
     pub data: Vec<Customer>,
     pub pagination_meta: PaginationResponse,
+}
+
+#[derive(ToSchema, serde::Serialize, serde::Deserialize)]
+pub struct CustomerPortalTokenResponse {
+    /// JWT token for portal access
+    pub token: String,
+    /// Base URL of the customer portal
+    pub portal_url: String,
 }

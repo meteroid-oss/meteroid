@@ -1,7 +1,8 @@
 use crate::api_rest::currencies;
 use crate::api_rest::subscriptions::model::{
-    AppliedCoupon, AppliedCouponDetailed, Coupon, CouponDiscount, Subscription,
-    SubscriptionAddOnCustomization, SubscriptionCreateRequest, SubscriptionDetails,
+    AppliedCoupon, AppliedCouponDetailed, Coupon, CouponDiscount, FixedDiscount,
+    PercentageDiscount, Subscription, SubscriptionAddOnCustomization, SubscriptionCreateRequest,
+    SubscriptionDetails,
 };
 use crate::errors::RestApiError;
 use common_domain::ids::{CouponId, CustomerId, PlanVersionId};
@@ -19,11 +20,22 @@ pub fn domain_to_rest(s: domain::Subscription) -> Result<Subscription, RestApiEr
         currency: currencies::mapping::from_str(s.currency.as_str())?,
         plan_id: s.plan_id,
         plan_name: s.plan_name,
+        plan_description: s.plan_description,
         plan_version_id: s.plan_version_id,
         plan_version: s.version,
         status: s.status.into(),
+        start_date: s.start_date,
+        end_date: s.end_date,
+        billing_start_date: s.billing_start_date,
         current_period_start: s.current_period_start,
         current_period_end: s.current_period_end,
+        trial_duration: s.trial_duration,
+        net_terms: s.net_terms,
+        invoice_memo: s.invoice_memo,
+        mrr_cents: s.mrr_cents,
+        period: s.period.into(),
+        created_at: s.created_at,
+        activated_at: s.activated_at,
         purchase_order: s.purchase_order,
         auto_advance_invoices: s.auto_advance_invoices,
         charge_automatically: s.charge_automatically,
@@ -55,15 +67,25 @@ pub fn domain_to_rest_details(
         plan_version_id: s.subscription.plan_version_id,
         plan_version: s.subscription.version,
         status: s.subscription.status.into(),
+        start_date: s.subscription.start_date,
+        end_date: s.subscription.end_date,
+        billing_start_date: s.subscription.billing_start_date,
         current_period_start: s.subscription.current_period_start,
         current_period_end: s.subscription.current_period_end,
+        trial_duration: s.subscription.trial_duration,
+        net_terms: s.subscription.net_terms,
+        invoice_memo: s.subscription.invoice_memo,
+        mrr_cents: s.subscription.mrr_cents,
+        period: s.subscription.period.into(),
+        created_at: s.subscription.created_at,
+        activated_at: s.subscription.activated_at,
+        purchase_order: s.subscription.purchase_order,
         auto_advance_invoices: s.subscription.auto_advance_invoices,
         charge_automatically: s.subscription.charge_automatically,
         components,
         add_ons,
         applied_coupons,
         checkout_url: s.checkout_url,
-        purchase_order: s.subscription.purchase_order,
     })
 }
 
@@ -90,10 +112,10 @@ fn domain_applied_coupon_to_rest(
 fn domain_coupon_to_rest(c: domain::coupons::Coupon) -> Result<Coupon, RestApiError> {
     let discount = match c.discount {
         domain::coupons::CouponDiscount::Percentage(percentage) => {
-            CouponDiscount::Percentage { percentage }
+            CouponDiscount::Percentage(PercentageDiscount { percentage })
         }
         domain::coupons::CouponDiscount::Fixed { currency, amount } => {
-            CouponDiscount::Fixed { currency, amount }
+            CouponDiscount::Fixed(FixedDiscount { currency, amount })
         }
     };
 

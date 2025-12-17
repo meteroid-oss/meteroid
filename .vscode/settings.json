@@ -18,7 +18,9 @@
   "search.exclude": {
     "**/node_modules": true,
     "**/dist": true,
-    "**/*.code-search": true
+    "**/*.code-search": true,
+    "**/_dev_": true
   },
-  "rust-analyzer.check.command": "clippy"
+  "rust-analyzer.check.command": "clippy",
+  "telemetry.telemetryLevel": "off"
 }

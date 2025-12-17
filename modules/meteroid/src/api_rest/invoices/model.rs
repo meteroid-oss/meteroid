@@ -3,11 +3,12 @@ use crate::api_rest::model::{PaginatedRequest, PaginationResponse};
 use chrono::{NaiveDate, NaiveDateTime};
 use common_domain::country::CountryCode;
 use common_domain::ids::{
-    CustomerId, CustomerPaymentMethodId, InvoiceId, PaymentTransactionId, SubscriptionId,
+    AliasOr, CustomerId, CustomerPaymentMethodId, InvoiceId, PaymentTransactionId, SubscriptionId,
 };
 use common_domain::ids::{string_serde, string_serde_opt};
 use serde::{Deserialize, Serialize};
-use utoipa::ToSchema;
+use std::marker::PhantomData;
+use utoipa::{IntoParams, ToSchema};
 use validator::Validate;
 
 #[derive(Debug, Clone, Serialize, Deserialize, ToSchema)]
@@ -74,16 +75,19 @@ pub enum InvoiceStatus {
     Void,
 }
 
-#[derive(Deserialize, Validate, ToSchema)]
+#[derive(Deserialize, Validate, IntoParams, ToSchema)]
+#[into_params(parameter_in = Query)]
 pub struct InvoiceListRequest {
     #[serde(flatten)]
     #[validate(nested)]
     pub pagination: PaginatedRequest,
-    #[serde(default, with = "string_serde_opt")]
-    pub customer_id: Option<CustomerId>,
+    /// Filter by customer ID or alias
+    #[param(value_type = String, required = false)]
+    pub customer_id: Option<AliasOr<CustomerId>>,
     #[serde(default, with = "string_serde_opt")]
     pub subscription_id: Option<SubscriptionId>,
-    pub status: Option<InvoiceStatus>,
+    #[serde(default)]
+    pub statuses: Option<Vec<InvoiceStatus>>,
 }
 
 #[derive(ToSchema, Serialize, Deserialize)]
@@ -107,7 +111,6 @@ pub enum TaxExemptionType {
     ReverseCharge,
     TaxExempt,
     NotRegistered,
-    Other(String),
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, ToSchema)]
@@ -212,3 +215,8 @@ pub struct SubLineItem {
     #[schema(value_type = String, format = "decimal")]
     pub unit_price: rust_decimal::Decimal,
 }
+
+/// Unused dummy struct only used for an OpenAPI definition.
+#[derive(ToSchema)]
+#[schema(value_type = String, format = Binary)]
+pub struct BinaryFile(PhantomData<Vec<u8>>);

@@ -534,7 +534,6 @@ mod mapper {
                     StoreExemption::ReverseCharge => InvoicingExemption::ReverseCharge,
                     StoreExemption::TaxExempt => InvoicingExemption::TaxExempt,
                     StoreExemption::NotRegistered => InvoicingExemption::NotRegistered,
-                    StoreExemption::Other(s) => InvoicingExemption::Other(s.clone()),
                 });
 
                 invoicing_model::TaxBreakdownItem {

@@ -39,7 +39,6 @@ pub enum TaxExemptionType {
     ReverseCharge,
     TaxExempt,
     NotRegistered,
-    Other(String),
 }
 
 pub struct TaxBreakdownItem {

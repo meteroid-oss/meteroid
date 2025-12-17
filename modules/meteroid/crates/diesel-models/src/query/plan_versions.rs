@@ -50,6 +50,38 @@ impl PlanVersionRow {
             .into_db_result()
     }
 
+    pub async fn find_published_by_plan_id_and_version_and_tenant_id(
+        conn: &mut PgConn,
+        plan_id: PlanId,
+        plan_version: Option<i32>,
+        tenant_id: TenantId,
+    ) -> DbResult<PlanVersionRow> {
+        use crate::schema::plan_version::dsl as pv_dsl;
+        use diesel_async::RunQueryDsl;
+
+        let mut query = pv_dsl::plan_version
+            .filter(pv_dsl::plan_id.eq(plan_id))
+            .filter(pv_dsl::tenant_id.eq(tenant_id))
+            .filter(pv_dsl::is_draft_version.eq(false))
+            .into_boxed();
+
+        if let Some(plan_version) = plan_version {
+            query = query.filter(pv_dsl::version.eq(plan_version));
+        }
+
+        query = query.order_by(pv_dsl::version.desc());
+
+        log::debug!("{}", debug_query::<diesel::pg::Pg, _>(&query));
+
+        query = query.limit(1);
+
+        query
+            .first(conn)
+            .await
+            .attach("Error while finding plan version")
+            .into_db_result()
+    }
+
     pub async fn find_latest_by_plan_id_and_tenant_id(
         conn: &mut PgConn,
         plan_id: PlanId,

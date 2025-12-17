@@ -15,7 +15,8 @@ use crate::repositories::pgmq::PgmqInterface;
 use crate::store::Store;
 use crate::{StoreResult, domain};
 use common_domain::ids::{
-    BaseId, ConnectorId, CustomerId, EventId, InvoiceId, StoredDocumentId, SubscriptionId, TenantId,
+    AliasOr, BaseId, ConnectorId, CustomerId, EventId, InvoiceId, StoredDocumentId, SubscriptionId,
+    TenantId,
 };
 use diesel_async::scoped_futures::ScopedFutureExt;
 use diesel_models::PgConn;
@@ -66,9 +67,9 @@ pub trait InvoiceInterface {
     async fn list_full_invoices(
         &self,
         tenant_id: TenantId,
-        customer_id: Option<CustomerId>,
+        customer_id: Option<AliasOr<CustomerId>>,
         subscription_id: Option<SubscriptionId>,
-        status: Option<domain::enums::InvoiceStatusEnum>,
+        statuses: Option<Vec<domain::enums::InvoiceStatusEnum>>,
         query: Option<String>,
         order_by: OrderByRequest,
         pagination: PaginationRequest,
@@ -214,9 +215,9 @@ impl InvoiceInterface for Store {
     async fn list_full_invoices(
         &self,
         tenant_id: TenantId,
-        customer_id: Option<CustomerId>,
+        customer_id: Option<AliasOr<CustomerId>>,
         subscription_id: Option<SubscriptionId>,
-        status: Option<domain::enums::InvoiceStatusEnum>,
+        statuses: Option<Vec<domain::enums::InvoiceStatusEnum>>,
         query: Option<String>,
         order_by: OrderByRequest,
         pagination: PaginationRequest,
@@ -228,7 +229,7 @@ impl InvoiceInterface for Store {
             tenant_id,
             customer_id,
             subscription_id,
-            status.map(Into::into),
+            statuses.map(|s| s.into_iter().map(Into::into).collect()),
             query,
             order_by.into(),
             pagination.into(),

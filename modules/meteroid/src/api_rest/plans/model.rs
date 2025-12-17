@@ -9,10 +9,11 @@ use o2o::o2o;
 use rust_decimal::Decimal;
 use serde_enum_str::{Deserialize_enum_str, Serialize_enum_str};
 use std::collections::HashMap;
-use utoipa::ToSchema;
+use utoipa::{IntoParams, ToSchema};
 use validator::Validate;
 
-#[derive(ToSchema, serde::Serialize, serde::Deserialize, Validate)]
+#[derive(ToSchema, IntoParams, serde::Serialize, serde::Deserialize, Validate)]
+#[into_params(parameter_in = Query)]
 pub struct PlanListRequest {
     #[serde(flatten)]
     #[validate(nested)]
@@ -109,41 +110,70 @@ pub struct PriceComponent {
     pub product_id: Option<ProductId>,
 }
 
+/// Recurring rate fee (e.g., monthly subscription)
+#[derive(Clone, ToSchema, serde::Serialize, serde::Deserialize, Debug)]
+pub struct RatePlanFee {
+    pub rates: Vec<TermRate>,
+}
+
+/// Slot-based fee (e.g., per-seat pricing)
+#[derive(Clone, ToSchema, serde::Serialize, serde::Deserialize, Debug)]
+pub struct SlotPlanFee {
+    pub rates: Vec<TermRate>,
+    pub slot_unit_name: String,
+    pub minimum_count: Option<u32>,
+    pub quota: Option<u32>,
+}
+
+/// Capacity-based fee with included committed usage and overage
+#[derive(Clone, ToSchema, serde::Serialize, serde::Deserialize, Debug)]
+pub struct CapacityPlanFee {
+    #[serde(with = "string_serde")]
+    pub metric_id: BillableMetricId,
+    pub thresholds: Vec<CapacityThreshold>,
+    pub cadence: BillingPeriodEnum,
+}
+
+/// Usage-based fee
+#[derive(Clone, ToSchema, serde::Serialize, serde::Deserialize, Debug)]
+pub struct UsagePlanFee {
+    #[serde(with = "string_serde")]
+    pub metric_id: BillableMetricId,
+    pub pricing: UsagePricingModel,
+    pub cadence: BillingPeriodEnum,
+}
+
+/// Extra recurring fee
+#[derive(Clone, ToSchema, serde::Serialize, serde::Deserialize, Debug)]
+pub struct ExtraRecurringPlanFee {
+    pub unit_price: Decimal,
+    pub quantity: u32,
+    pub billing_type: BillingType,
+    pub cadence: BillingPeriodEnum,
+}
+
+/// One-time fee
+#[derive(Clone, ToSchema, serde::Serialize, serde::Deserialize, Debug)]
+pub struct OneTimePlanFee {
+    pub unit_price: Decimal,
+    pub quantity: u32,
+}
+
 #[derive(Clone, ToSchema, serde::Serialize, serde::Deserialize, Debug)]
 #[serde(tag = "fee_type", rename_all = "snake_case")]
 pub enum Fee {
-    /// Recurring rate fee (e.g., monthly subscription)
-    Rate { rates: Vec<TermRate> },
-    /// Slot-based fee (e.g., per-seat pricing)
-    Slot {
-        rates: Vec<TermRate>,
-        slot_unit_name: String,
-        minimum_count: Option<u32>,
-        quota: Option<u32>,
-    },
-    /// Capacity-based fee with included committed usage and overage
-    Capacity {
-        #[serde(with = "string_serde")]
-        metric_id: BillableMetricId,
-        thresholds: Vec<CapacityThreshold>,
-        cadence: BillingPeriodEnum,
-    },
-    /// Usage-based fee
-    Usage {
-        #[serde(with = "string_serde")]
-        metric_id: BillableMetricId,
-        pricing: UsagePricingModel,
-        cadence: BillingPeriodEnum,
-    },
-    /// Extra recurring fee
-    ExtraRecurring {
-        unit_price: Decimal,
-        quantity: u32,
-        billing_type: BillingType,
-        cadence: BillingPeriodEnum,
-    },
-    /// One-time fee
-    OneTime { unit_price: Decimal, quantity: u32 },
+    #[serde(rename = "rate")]
+    Rate(RatePlanFee),
+    #[serde(rename = "slot")]
+    Slot(SlotPlanFee),
+    #[serde(rename = "capacity")]
+    Capacity(CapacityPlanFee),
+    #[serde(rename = "usage")]
+    Usage(UsagePlanFee),
+    #[serde(rename = "extra_recurring")]
+    ExtraRecurring(ExtraRecurringPlanFee),
+    #[serde(rename = "one_time")]
+    OneTime(OneTimePlanFee),
 }
 
 #[derive(Clone, ToSchema, serde::Serialize, serde::Deserialize, Debug)]
@@ -160,26 +190,46 @@ pub struct CapacityThreshold {
 }
 
 #[derive(Clone, ToSchema, serde::Serialize, serde::Deserialize, Debug)]
+pub struct PerUnitPlanPricing {
+    pub rate: Decimal,
+}
+
+#[derive(Clone, ToSchema, serde::Serialize, serde::Deserialize, Debug)]
+pub struct TieredPlanPricing {
+    pub tiers: Vec<TierRow>,
+    pub block_size: Option<u64>,
+}
+
+#[derive(Clone, ToSchema, serde::Serialize, serde::Deserialize, Debug)]
+pub struct VolumePlanPricing {
+    pub tiers: Vec<TierRow>,
+    pub block_size: Option<u64>,
+}
+
+#[derive(Clone, ToSchema, serde::Serialize, serde::Deserialize, Debug)]
+pub struct PackagePlanPricing {
+    pub block_size: u64,
+    pub rate: Decimal,
+}
+
+#[derive(Clone, ToSchema, serde::Serialize, serde::Deserialize, Debug)]
+pub struct MatrixPlanPricing {
+    pub rates: Vec<MatrixRow>,
+}
+
+#[derive(Clone, ToSchema, serde::Serialize, serde::Deserialize, Debug)]
 #[serde(tag = "model", rename_all = "snake_case")]
 pub enum UsagePricingModel {
-    PerUnit {
-        rate: Decimal,
-    },
-    Tiered {
-        tiers: Vec<TierRow>,
-        block_size: Option<u64>,
-    },
-    Volume {
-        tiers: Vec<TierRow>,
-        block_size: Option<u64>,
-    },
-    Package {
-        block_size: u64,
-        rate: Decimal,
-    },
-    Matrix {
-        rates: Vec<MatrixRow>,
-    },
+    #[serde(rename = "per_unit")]
+    PerUnit(PerUnitPlanPricing),
+    #[serde(rename = "tiered")]
+    Tiered(TieredPlanPricing),
+    #[serde(rename = "volume")]
+    Volume(VolumePlanPricing),
+    #[serde(rename = "package")]
+    Package(PackagePlanPricing),
+    #[serde(rename = "matrix")]
+    Matrix(MatrixPlanPricing),
 }
 
 #[derive(Clone, ToSchema, serde::Serialize, serde::Deserialize, Debug)]

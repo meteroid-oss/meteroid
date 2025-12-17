@@ -131,57 +131,12 @@ pub struct SubscriptionForDisplayRow {
     #[diesel(select_expression = plan::name)]
     #[diesel(select_expression_type = plan::name)]
     pub plan_name: String,
+    #[diesel(select_expression = plan::description)]
+    #[diesel(select_expression_type = plan::description)]
+    pub plan_description: Option<String>,
     #[diesel(select_expression = plan::id)]
     #[diesel(select_expression_type = plan::id)]
     pub plan_id: PlanId,
-}
-
-#[derive(Debug, Queryable, Selectable)]
-#[diesel(check_for_backend(diesel::pg::Pg))]
-pub struct SubscriptionInvoiceCandidateRow {
-    #[diesel(embed)]
-    pub subscription: subscription_invoice_candidate::SubscriptionEmbedRow,
-    #[diesel(embed)]
-    pub plan_version: subscription_invoice_candidate::PlanVersionEmbedRow,
-}
-
-mod subscription_invoice_candidate {
-    use crate::enums::BillingPeriodEnum;
-
-    use chrono::{NaiveDate, NaiveDateTime};
-
-    use common_domain::ids::{CustomerId, PlanId, PlanVersionId, SubscriptionId, TenantId};
-    use diesel::{Queryable, Selectable};
-
-    #[derive(Debug, Queryable, Selectable)]
-    #[diesel(table_name = crate::schema::subscription)]
-    #[diesel(check_for_backend(diesel::pg::Pg))]
-    pub struct SubscriptionEmbedRow {
-        pub id: SubscriptionId,
-        pub tenant_id: TenantId,
-        pub customer_id: CustomerId,
-        pub plan_version_id: PlanVersionId,
-        pub start_date: NaiveDate,
-        pub end_date: Option<NaiveDate>,
-        pub billing_start_date: Option<NaiveDate>,
-        pub billing_day_anchor: i16,
-        pub net_terms: i32,
-        pub activated_at: Option<NaiveDateTime>,
-        pub period: BillingPeriodEnum,
-    }
-
-    #[derive(Debug, Queryable, Selectable)]
-    #[diesel(table_name = crate::schema::plan_version)]
-    #[diesel(check_for_backend(diesel::pg::Pg))]
-    pub struct PlanVersionEmbedRow {
-        pub plan_id: PlanId,
-        pub currency: String,
-        pub net_terms: i32,
-        pub version: i32,
-        #[diesel(select_expression = crate::schema::plan::name)]
-        #[diesel(select_expression_type = crate::schema::plan::name)]
-        pub plan_name: String,
-    }
 }
 
 #[derive(AsChangeset)]

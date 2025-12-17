@@ -111,10 +111,20 @@ pub enum RestApiError {
     NotFound,
     #[error("Conflict")]
     Conflict,
+    #[error("Service not configured: {0}")]
+    NotConfigured(String),
+    #[error("Feature not implemented: {0}")]
+    NotImplemented(String),
+    #[error("Database error: {0}")]
+    DatabaseError(String),
+    #[error("External service error: {0}")]
+    ExternalServiceError(String),
 }
 
 impl IntoResponse for RestApiError {
     fn into_response(self) -> Response {
+        log::error!("{:?}", self);
+
         let (status, code) = match self {
             RestApiError::ObjectStoreError => {
                 (StatusCode::INTERNAL_SERVER_ERROR, ErrorCode::Unauthorized)
@@ -131,6 +141,20 @@ impl IntoResponse for RestApiError {
             }
             RestApiError::NotFound => (StatusCode::NOT_FOUND, ErrorCode::NotFound),
             RestApiError::Conflict => (StatusCode::CONFLICT, ErrorCode::Conflict),
+            RestApiError::NotConfigured(_) => (
+                StatusCode::SERVICE_UNAVAILABLE,
+                ErrorCode::InternalServerError,
+            ),
+            RestApiError::NotImplemented(_) => {
+                (StatusCode::NOT_IMPLEMENTED, ErrorCode::InternalServerError)
+            }
+            RestApiError::DatabaseError(_) => (
+                StatusCode::INTERNAL_SERVER_ERROR,
+                ErrorCode::InternalServerError,
+            ),
+            RestApiError::ExternalServiceError(_) => {
+                (StatusCode::BAD_GATEWAY, ErrorCode::InternalServerError)
+            }
         };
 
         let error_message = match status {
@@ -153,6 +177,19 @@ impl From<Report<StoreError>> for RestApiError {
         match err.current_context() {
             StoreError::ValueNotFound(_) => RestApiError::NotFound,
             StoreError::DuplicateValue { .. } => RestApiError::Conflict,
+            _ => RestApiError::StoreError,
+        }
+    }
+}
+
+impl From<tonic::Status> for RestApiError {
+    fn from(status: tonic::Status) -> Self {
+        match status.code() {
+            tonic::Code::NotFound => RestApiError::NotFound,
+            tonic::Code::AlreadyExists => RestApiError::Conflict,
+            tonic::Code::InvalidArgument => RestApiError::InvalidInput,
+            tonic::Code::Unauthenticated => RestApiError::Unauthorized,
+            tonic::Code::PermissionDenied => RestApiError::Forbidden,
             _ => RestApiError::StoreError,
         }
     }

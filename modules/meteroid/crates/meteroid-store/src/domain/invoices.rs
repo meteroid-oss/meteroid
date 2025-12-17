@@ -99,7 +99,6 @@ pub enum TaxExemptionType {
     ReverseCharge,
     TaxExempt,
     NotRegistered,
-    Other(String),
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]

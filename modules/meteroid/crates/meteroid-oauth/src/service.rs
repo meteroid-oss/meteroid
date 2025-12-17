@@ -174,8 +174,10 @@ impl OauthServices {
                 client_secret: client_secret.expose_secret().to_owned(),
                 auth_url: "https://app.pennylane.com/oauth/authorize".to_owned(),
                 token_url: "https://app.pennylane.com/oauth/token".to_string(),
-                // todo migrate to rest api url once pennylane app is updated
-                callback_url: format!("{}/oauth-callback/pennylane", config.public_url.as_str()),
+                callback_url: format!(
+                    "{}/oauth-callback/pennylane",
+                    config.rest_api_external_url.as_str()
+                ),
                 user_info_url: Some("https://app.pennylane.com/api/external/v2/me".to_string()),
                 scopes: vec![
                     "customers:all".to_owned(),

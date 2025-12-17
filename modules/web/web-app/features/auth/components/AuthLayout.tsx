@@ -93,6 +93,15 @@ export const AuthLayout = () => {
       <Flex justify="center" align="center" className="flex-grow pb-20">
         <Flex direction="column" className="p-10 w-96 gap-3 text-start relative z-10">
           <Outlet />
+          <div className="text-xs">
+            <span className="text-muted-foreground mr-1">
+              {isLogin ? `Don't have an account?` : 'Already have an account?'}
+            </span>
+
+            <Link to={isLogin ? 'registration' : 'login'}>
+              <span className="underline">{isLogin ? 'Sign up' : 'Log in'}</span>
+            </Link>
+          </div>
         </Flex>
       </Flex>
       <div className="absolute bottom-0 w-full">

@@ -16,13 +16,14 @@ use std::sync::Arc;
 use tokio::net::TcpListener;
 use tower_http::catch_panic::CatchPanicLayer;
 use tower_http::limit::RequestBodyLimitLayer;
+use tower_http::trace::{
+    DefaultMakeSpan, DefaultOnFailure, DefaultOnRequest, DefaultOnResponse, TraceLayer,
+};
+use tracing::Level;
 use utoipa::openapi::security::{HttpAuthScheme, HttpBuilder};
 use utoipa::{Modify, OpenApi, openapi::security::SecurityScheme};
 use utoipa_axum::router::OpenApiRouter;
-use utoipa_rapidoc::RapiDoc;
-use utoipa_redoc::{Redoc, Servable};
 use utoipa_scalar::{Scalar, Servable as ScalarServable};
-use utoipa_swagger_ui::SwaggerUi;
 
 #[derive(OpenApi)]
 #[openapi(
@@ -57,6 +58,7 @@ pub async fn start_rest_server(
         services,
         stripe_adapter,
         jwt_secret: config.jwt_secret,
+        portal_url: config.public_url, // self-hosted - same url
     };
 
     let auth_layer =
@@ -69,9 +71,6 @@ pub async fn start_rest_server(
     let app = Router::new()
         .route("/health", get(|| async { "OK" }))
         .route("/id/{id}", get(resolve_id))
-        .merge(SwaggerUi::new("/swagger-ui").url("/api-docs/openapi.json", open_api.clone()))
-        .merge(Redoc::with_url("/redoc", open_api.clone()))
-        .merge(RapiDoc::new("/api-docs/openapi.json").path("/rapidoc"))
         .merge(Scalar::with_url("/scalar", open_api.clone()))
         //todo add "/api" to path and merge with api_routes
         .nest("/files", crate::api_rest::files::file_routes())
@@ -83,7 +82,18 @@ pub async fn start_rest_server(
         .layer(auth_layer)
         .layer(DefaultBodyLimit::disable())
         .layer(RequestBodyLimitLayer::new(1024 * 1024)) // 1 MB
-        .layer(CatchPanicLayer::custom(handle_500));
+        .layer(CatchPanicLayer::custom(handle_500))
+        .layer(
+            TraceLayer::new_for_http()
+                .make_span_with(
+                    DefaultMakeSpan::new()
+                        .level(Level::TRACE)
+                        .include_headers(false),
+                )
+                .on_request(DefaultOnRequest::new().level(Level::DEBUG))
+                .on_response(DefaultOnResponse::new().level(Level::DEBUG))
+                .on_failure(DefaultOnFailure::new().level(Level::WARN)),
+        );
 
     tracing::info!("Starting REST API on {}", config.rest_api_addr);
 

@@ -36,6 +36,7 @@ serde = { workspace = true, features = ["derive"] }
 serde-enum-str.workspace = true
 serde_json.workspace = true
 serde_with.workspace = true
+serde_html_form.workspace = true
 tap.workspace = true
 time.workspace = true
 tokio = { workspace = true, features = ["rt-multi-thread"] }
@@ -91,10 +92,7 @@ pennylane-client = { workspace = true }
 moka = { workspace = true, features = ["future"] }
 
 utoipa.workspace = true
-utoipa-swagger-ui.workspace = true
 utoipa-axum.workspace = true
-utoipa-redoc.workspace = true
-utoipa-rapidoc.workspace = true
 utoipa-scalar.workspace = true
 
 svix = { workspace = true, features = ["http2", "rustls-tls"] }

@@ -20,9 +20,7 @@ use common_domain::ids::{
 };
 use diesel_models::enums::CycleActionEnum;
 use diesel_models::subscriptions::SubscriptionRowNew;
-use diesel_models::subscriptions::{
-    SubscriptionForDisplayRow, SubscriptionInvoiceCandidateRow, SubscriptionRow,
-};
+use diesel_models::subscriptions::{SubscriptionForDisplayRow, SubscriptionRow};
 use o2o::o2o;
 use uuid::Uuid;
 
@@ -74,6 +72,7 @@ pub struct Subscription {
     pub bank_account_id: Option<BankAccountId>,
     pub plan_id: PlanId,
     pub plan_name: String,
+    pub plan_description: Option<String>,
     pub plan_version_id: PlanVersionId,
     pub version: u32,
     pub created_at: NaiveDateTime,
@@ -128,6 +127,7 @@ impl TryFrom<SubscriptionForDisplayRow> for Subscription {
             start_date: val.subscription.start_date,
             plan_id: val.plan_id,
             plan_name: val.plan_name,
+            plan_description: val.plan_description,
             plan_version_id: val.subscription.plan_version_id,
             card_connection_id: val.subscription.card_connection_id,
             direct_debit_connection_id: val.subscription.direct_debit_connection_id,
@@ -295,43 +295,4 @@ pub struct SubscriptionDetails {
     pub applied_coupons: Vec<AppliedCouponDetailed>,
     pub metrics: Vec<BillableMetric>,
     pub checkout_url: Option<String>,
-}
-
-#[derive(Debug, Clone)]
-pub struct SubscriptionInvoiceCandidate {
-    pub id: SubscriptionId,
-    pub tenant_id: TenantId,
-    pub customer_id: CustomerId,
-    pub plan_version_id: PlanVersionId,
-    pub plan_name: String,
-    pub start_date: NaiveDate,
-    pub end_date: Option<NaiveDate>,
-    pub billing_start_date: Option<NaiveDate>,
-    pub billing_day_anchor: i16,
-    pub net_terms: i32,
-    pub activated_at: Option<NaiveDateTime>,
-    pub currency: String,
-    pub period: BillingPeriodEnum,
-}
-
-impl From<SubscriptionInvoiceCandidateRow> for SubscriptionInvoiceCandidate {
-    fn from(val: SubscriptionInvoiceCandidateRow) -> Self {
-        SubscriptionInvoiceCandidate {
-            id: val.subscription.id,
-            tenant_id: val.subscription.tenant_id,
-            customer_id: val.subscription.customer_id,
-            plan_version_id: val.subscription.plan_version_id,
-            start_date: val.subscription.start_date,
-            billing_start_date: val.subscription.billing_start_date,
-            end_date: val.subscription.end_date,
-            billing_day_anchor: val.subscription.billing_day_anchor,
-            activated_at: val.subscription.activated_at,
-            // plan_id: self.plan_version.plan_id,
-            plan_name: val.plan_version.plan_name,
-            currency: val.plan_version.currency,
-            net_terms: val.subscription.net_terms,
-            // version: self.plan_version.version,
-            period: val.subscription.period.into(),
-        }
-    }
 }

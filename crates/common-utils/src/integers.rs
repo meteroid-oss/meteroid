@@ -24,3 +24,13 @@ impl ToNonNegativeU64 for i64 {
         self.max(0) as u64
     }
 }
+
+pub trait ToNonNegativeU32 {
+    fn to_non_negative_u32(self) -> u32;
+}
+
+impl ToNonNegativeU32 for i32 {
+    fn to_non_negative_u32(self) -> u32 {
+        self.max(0) as u32
+    }
+}

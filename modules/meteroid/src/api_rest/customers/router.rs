@@ -4,7 +4,7 @@ use crate::api_rest::customers::mapping::{
 };
 use crate::api_rest::customers::model::{
     Customer, CustomerCreateRequest, CustomerListRequest, CustomerListResponse,
-    CustomerUpdateRequest,
+    CustomerPortalTokenResponse, CustomerUpdateRequest,
 };
 use crate::api_rest::error::RestErrorResponse;
 use crate::api_rest::model::PaginationExt;
@@ -17,6 +17,7 @@ use common_domain::ids::{AliasOr, CustomerId};
 use common_grpc::middleware::server::auth::AuthorizedAsTenant;
 use http::StatusCode;
 use meteroid_store::domain::OrderByRequest;
+use meteroid_store::jwt_claims::{ResourceAccess, generate_portal_token};
 use meteroid_store::repositories::CustomersInterface;
 
 /// List customers
@@ -27,9 +28,7 @@ use meteroid_store::repositories::CustomersInterface;
     tag = "customer",
     path = "/api/v1/customers",
     params(
-        ("per_page" = Option<u32>, Query, description = "Specifies the max number of results in a page", example = 20, minimum = 1, maximum = 100),
-        ("page" = Option<u32>, Query, description = "The page to return, starting at index 0", example = 0, minimum = 0),
-        ("search" = Option<String>, Query, description = "Filter customers by search term (part of name, alias or email)")
+        CustomerListRequest
     ),
     responses(
         (status = 200, description = "List of customers", body = CustomerListResponse),
@@ -279,4 +278,56 @@ pub(crate) async fn unarchive_customer(
             RestApiError::from(e)
         })
         .map(|()| StatusCode::NO_CONTENT)
+}
+
+/// Generate a portal token for a customer
+///
+/// Generates a JWT token that grants access to the customer portal.
+/// The token can be used to access invoices, payment methods, and other portal features.
+#[utoipa::path(
+    post,
+    tag = "customer",
+    path = "/api/v1/customers/{id_or_alias}/portal-token",
+    params(
+        ("id_or_alias" = String, Path, description = "customer ID or alias")
+    ),
+    responses(
+        (status = 200, description = "Portal token generated", body = CustomerPortalTokenResponse),
+        (status = 401, description = "Unauthorized", body = RestErrorResponse),
+        (status = 404, description = "Customer not found", body = RestErrorResponse),
+        (status = 500, description = "Internal error", body = RestErrorResponse),
+    ),
+    security(
+        ("bearer_auth" = [])
+    )
+)]
+#[axum::debug_handler]
+pub(crate) async fn create_portal_token(
+    Extension(authorized_state): Extension<AuthorizedAsTenant>,
+    State(app_state): State<AppState>,
+    Valid(Path(id_or_alias)): Valid<Path<AliasOr<CustomerId>>>,
+) -> Result<impl IntoResponse, RestApiError> {
+    // Verify customer exists and belongs to tenant
+    let customer = app_state
+        .store
+        .find_customer_by_id_or_alias(id_or_alias, authorized_state.tenant_id)
+        .await
+        .map_err(|e| {
+            log::error!("Error finding customer: {e}");
+            RestApiError::from(e)
+        })?;
+
+    let token = generate_portal_token(
+        &app_state.jwt_secret,
+        authorized_state.tenant_id,
+        ResourceAccess::Customer(customer.id),
+    )
+    .map_err(|e| {
+        log::error!("Error generating portal token: {e}");
+        RestApiError::StoreError
+    })?;
+
+    let portal_url = app_state.portal_url.clone();
+
+    Ok(Json(CustomerPortalTokenResponse { token, portal_url }))
 }

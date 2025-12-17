@@ -16,7 +16,7 @@ use crate::extend::pagination::{Paginate, PaginatedVec, PaginationRequest};
 use crate::payments::PaymentTransactionRow;
 use chrono::NaiveDateTime;
 use common_domain::ids::{
-    BaseId, ConnectorId, CustomerId, InvoiceId, StoredDocumentId, SubscriptionId, TenantId,
+    AliasOr, BaseId, ConnectorId, CustomerId, InvoiceId, StoredDocumentId, SubscriptionId, TenantId,
 };
 use diesel::dsl::IntervalDsl;
 use diesel::{
@@ -198,9 +198,9 @@ impl InvoiceRow {
     pub async fn list_with_transactions(
         conn: &mut PgConn,
         param_tenant_id: TenantId,
-        param_customer_id: Option<CustomerId>,
+        param_customer_id: Option<AliasOr<CustomerId>>,
         param_subscription_id: Option<SubscriptionId>,
-        param_status: Option<InvoiceStatusEnum>,
+        param_statuses: Option<Vec<InvoiceStatusEnum>>,
         param_query: Option<String>,
         order_by: OrderByRequest,
         pagination: PaginationRequest,
@@ -216,15 +216,22 @@ impl InvoiceRow {
             .into_boxed();
 
         if let Some(param_customer_id) = param_customer_id {
-            query = query.filter(i_dsl::customer_id.eq(param_customer_id));
+            match param_customer_id {
+                AliasOr::Id(id) => {
+                    query = query.filter(i_dsl::customer_id.eq(id));
+                }
+                AliasOr::Alias(alias) => {
+                    query = query.filter(c_dsl::alias.eq(alias));
+                }
+            };
         }
 
         if let Some(param_subscription_id) = param_subscription_id {
             query = query.filter(i_dsl::subscription_id.eq(param_subscription_id));
         }
 
-        if let Some(param_status) = param_status {
-            query = query.filter(i_dsl::status.eq(param_status));
+        if let Some(param_statuses) = param_statuses {
+            query = query.filter(i_dsl::status.eq_any(param_statuses));
         }
 
         if let Some(param_query) = param_query
