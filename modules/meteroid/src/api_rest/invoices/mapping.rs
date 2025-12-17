@@ -122,7 +122,6 @@ fn map_tax_exemption_type_to_rest(exemption: domain::TaxExemptionType) -> TaxExe
         domain::TaxExemptionType::ReverseCharge => TaxExemptionType::ReverseCharge,
         domain::TaxExemptionType::TaxExempt => TaxExemptionType::TaxExempt,
         domain::TaxExemptionType::NotRegistered => TaxExemptionType::NotRegistered,
-        domain::TaxExemptionType::Other(s) => TaxExemptionType::Other(s),
     }
 }
 

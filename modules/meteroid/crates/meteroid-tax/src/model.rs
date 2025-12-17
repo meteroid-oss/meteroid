@@ -110,7 +110,6 @@ pub enum VatExemptionReason {
     TaxExempt,
     ReverseCharge,
     NotRegistered,
-    Other(String),
 }
 
 #[derive(Debug, Clone)]

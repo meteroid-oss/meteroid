@@ -1,14 +1,16 @@
 use crate::api_rest::model::{PaginatedRequest, PaginationResponse};
 use common_domain::ids::{ProductFamilyId, string_serde};
-use utoipa::ToSchema;
+use utoipa::{IntoParams, ToSchema};
 use validator::Validate;
 
-#[derive(ToSchema, serde::Serialize, serde::Deserialize, Validate)]
+#[derive(ToSchema, IntoParams, serde::Serialize, serde::Deserialize, Validate)]
+#[into_params(parameter_in = Query)]
 pub struct ProductFamilyFilters {
     pub search: Option<String>,
 }
 
-#[derive(ToSchema, serde::Serialize, serde::Deserialize, Validate)]
+#[derive(ToSchema, IntoParams, serde::Serialize, serde::Deserialize, Validate)]
+#[into_params(parameter_in = Query)]
 pub struct ProductFamilyListRequest {
     #[serde(flatten)]
     #[validate(nested)]

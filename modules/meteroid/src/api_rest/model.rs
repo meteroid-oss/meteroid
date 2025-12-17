@@ -1,17 +1,22 @@
 use meteroid_store::domain;
 use o2o::o2o;
 use serde_with::{DisplayFromStr, serde_as};
-use utoipa::ToSchema;
+use utoipa::{IntoParams, ToSchema};
 use validator::Validate;
 
 #[serde_as]
-#[derive(ToSchema, serde::Serialize, serde::Deserialize, Validate, Copy, Clone)]
+#[derive(ToSchema, serde::Serialize, serde::Deserialize, Validate, Copy, Clone, IntoParams)]
+#[into_params(parameter_in = Query)]
 pub struct PaginatedRequest {
+    /// Page number (0-indexed)
     #[serde_as(as = "Option<DisplayFromStr>")]
     #[validate(range(min = 0))]
+    #[param(minimum = 0)]
     pub page: Option<u32>,
+    /// Number of items per page
     #[serde_as(as = "Option<DisplayFromStr>")]
     #[validate(range(min = 1, max = 100))]
+    #[param(minimum = 1, maximum = 100)]
     pub per_page: Option<u32>,
 }
 

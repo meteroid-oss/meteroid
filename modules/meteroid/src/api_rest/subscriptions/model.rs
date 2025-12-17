@@ -2,26 +2,28 @@ use crate::api_rest::currencies::model::Currency;
 use crate::api_rest::model::{BillingPeriodEnum, PaginatedRequest, PaginationResponse};
 use chrono::NaiveDate;
 use common_domain::ids::{
-    AddOnId, AppliedCouponId, BillableMetricId, CouponId, CustomerId, PlanVersionId,
+    AddOnId, AliasOr, AppliedCouponId, BillableMetricId, CouponId, CustomerId, PlanVersionId,
     PriceComponentId, ProductId,
 };
 use common_domain::ids::{PlanId, string_serde_opt, string_serde_vec_opt};
 use common_domain::ids::{SubscriptionId, string_serde};
 use o2o::o2o;
 use serde::{Deserialize, Serialize};
-use utoipa::ToSchema;
+use utoipa::{IntoParams, ToSchema};
 use validator::Validate;
 
-#[derive(ToSchema, Serialize, Deserialize, Validate)]
+#[derive(ToSchema, IntoParams, Serialize, Deserialize, Validate)]
+#[into_params(parameter_in = Query)]
 pub struct SubscriptionRequest {
     #[serde(flatten)]
     #[validate(nested)]
     pub pagination: PaginatedRequest,
-    #[serde(default, with = "string_serde_opt")]
-    pub customer_id: Option<CustomerId>,
+    /// Filter by customer ID or alias
+    #[param(value_type = String, required = false)]
+    pub customer_id: Option<AliasOr<CustomerId>>,
     #[serde(default, with = "string_serde_opt")]
     pub plan_id: Option<PlanId>,
-    pub status: Option<Vec<SubscriptionStatusEnum>>,
+    pub statuses: Option<Vec<SubscriptionStatusEnum>>,
 }
 
 #[derive(Clone, ToSchema, Serialize, Deserialize, Debug)]
@@ -37,12 +39,35 @@ pub struct Subscription {
     #[serde(with = "string_serde")]
     pub plan_id: PlanId,
     pub plan_name: String,
+    pub plan_description: Option<String>,
     #[serde(with = "string_serde")]
     pub plan_version_id: PlanVersionId,
     pub plan_version: u32,
     pub status: SubscriptionStatusEnum,
+    /// When the subscription contract starts (benefits apply from this date)
+    pub start_date: NaiveDate,
+    /// When the subscription ends (if set)
+    pub end_date: Option<NaiveDate>,
+    /// When billing started (after any trial period)
+    pub billing_start_date: Option<NaiveDate>,
+    /// Current billing period start date
     pub current_period_start: NaiveDate,
+    /// Current billing period end date
     pub current_period_end: Option<NaiveDate>,
+    /// Trial duration in days
+    pub trial_duration: Option<u32>,
+    /// Payment terms in days (0 = due on issue)
+    pub net_terms: u32,
+    /// Default memo for invoices
+    pub invoice_memo: Option<String>,
+    /// Monthly recurring revenue in cents
+    pub mrr_cents: u64,
+    /// Billing period (monthly, annual, etc.)
+    pub period: BillingPeriodEnum,
+    /// When the subscription was created
+    pub created_at: chrono::NaiveDateTime,
+    /// When the subscription was activated (first payment or activation condition met)
+    pub activated_at: Option<chrono::NaiveDateTime>,
     pub purchase_order: Option<String>,
     /// If false, invoices will stay in Draft until manually reviewed and finalized. Default to true.
     pub auto_advance_invoices: bool,
@@ -51,17 +76,25 @@ pub struct Subscription {
 }
 
 #[derive(Clone, ToSchema, Serialize, Deserialize, Debug)]
+pub struct PercentageDiscount {
+    #[schema(value_type = String, format = "decimal")]
+    pub percentage: rust_decimal::Decimal,
+}
+
+#[derive(Clone, ToSchema, Serialize, Deserialize, Debug)]
+pub struct FixedDiscount {
+    pub currency: String,
+    #[schema(value_type = String, format = "decimal")]
+    pub amount: rust_decimal::Decimal,
+}
+
+#[derive(Clone, ToSchema, Serialize, Deserialize, Debug)]
 #[serde(tag = "discriminator", rename_all = "SCREAMING_SNAKE_CASE")]
 pub enum CouponDiscount {
-    Percentage {
-        #[schema(value_type = String, format = "decimal")]
-        percentage: rust_decimal::Decimal,
-    },
-    Fixed {
-        currency: String,
-        #[schema(value_type = String, format = "decimal")]
-        amount: rust_decimal::Decimal,
-    },
+    #[serde(rename = "PERCENTAGE")]
+    Percentage(PercentageDiscount),
+    #[serde(rename = "FIXED")]
+    Fixed(FixedDiscount),
 }
 
 #[derive(Clone, ToSchema, Serialize, Deserialize, Debug)]
@@ -115,8 +148,30 @@ pub struct SubscriptionDetails {
     pub plan_version_id: PlanVersionId,
     pub plan_version: u32,
     pub status: SubscriptionStatusEnum,
+    /// When the subscription contract starts (benefits apply from this date)
+    pub start_date: NaiveDate,
+    /// When the subscription ends (if set)
+    pub end_date: Option<NaiveDate>,
+    /// When billing started (after any trial period)
+    pub billing_start_date: Option<NaiveDate>,
+    /// Current billing period start date
     pub current_period_start: NaiveDate,
+    /// Current billing period end date
     pub current_period_end: Option<NaiveDate>,
+    /// Trial duration in days
+    pub trial_duration: Option<u32>,
+    /// Payment terms in days (0 = due on issue)
+    pub net_terms: u32,
+    /// Default memo for invoices
+    pub invoice_memo: Option<String>,
+    /// Monthly recurring revenue in cents
+    pub mrr_cents: u64,
+    /// Billing period (monthly, annual, etc.)
+    pub period: BillingPeriodEnum,
+    /// When the subscription was created
+    pub created_at: chrono::NaiveDateTime,
+    /// When the subscription was activated (first payment or activation condition met)
+    pub activated_at: Option<chrono::NaiveDateTime>,
     pub purchase_order: Option<String>,
     pub auto_advance_invoices: bool,
     pub charge_automatically: bool,
@@ -213,49 +268,154 @@ pub struct CreateSubscriptionComponents {
     pub remove_components: Option<Vec<PriceComponentId>>,
 }
 
-#[derive(o2o, ToSchema, Serialize, Deserialize, Clone, Debug)]
-#[map_owned(meteroid_store::domain::subscription_components::SubscriptionFee)]
+#[derive(ToSchema, Serialize, Deserialize, Clone, Debug)]
+pub struct RateFee {
+    #[schema(value_type = String, format = "decimal")]
+    pub rate: rust_decimal::Decimal,
+}
+
+#[derive(ToSchema, Serialize, Deserialize, Clone, Debug)]
+pub struct OneTimeFee {
+    #[schema(value_type = String, format = "decimal")]
+    pub rate: rust_decimal::Decimal,
+    pub quantity: u32,
+}
+
+#[derive(ToSchema, Serialize, Deserialize, Clone, Debug)]
+pub struct RecurringFee {
+    #[schema(value_type = String, format = "decimal")]
+    pub rate: rust_decimal::Decimal,
+    pub quantity: u32,
+    pub billing_type: BillingTypeEnum,
+}
+
+#[derive(ToSchema, Serialize, Deserialize, Clone, Debug)]
+pub struct CapacityFee {
+    #[schema(value_type = String, format = "decimal")]
+    pub rate: rust_decimal::Decimal,
+    pub included: u64,
+    #[schema(value_type = String, format = "decimal")]
+    pub overage_rate: rust_decimal::Decimal,
+    #[serde(with = "string_serde")]
+    pub metric_id: BillableMetricId,
+}
+
+#[derive(ToSchema, Serialize, Deserialize, Clone, Debug)]
+pub struct SlotFee {
+    pub unit: String,
+    #[schema(value_type = String, format = "decimal")]
+    pub unit_rate: rust_decimal::Decimal,
+    pub min_slots: Option<u32>,
+    pub max_slots: Option<u32>,
+    pub initial_slots: u32,
+}
+
+#[derive(ToSchema, Serialize, Deserialize, Clone, Debug)]
+pub struct UsageFee {
+    #[serde(with = "string_serde")]
+    pub metric_id: BillableMetricId,
+    pub model: UsagePricingModel,
+}
+
+#[derive(ToSchema, Serialize, Deserialize, Clone, Debug)]
 #[serde(tag = "discriminator", rename_all = "SCREAMING_SNAKE_CASE")]
 pub enum SubscriptionFee {
-    Rate {
-        #[schema(value_type = String, format = "decimal")]
-        rate: rust_decimal::Decimal,
-    },
-    OneTime {
-        #[schema(value_type = String, format = "decimal")]
-        rate: rust_decimal::Decimal,
-        quantity: u32,
-    },
-    Recurring {
-        #[schema(value_type = String, format = "decimal")]
-        rate: rust_decimal::Decimal,
-        quantity: u32,
-        #[map(~.into())]
-        billing_type: BillingTypeEnum,
-    },
-    Capacity {
-        #[schema(value_type = String, format = "decimal")]
-        rate: rust_decimal::Decimal,
-        included: u64,
-        #[schema(value_type = String, format = "decimal")]
-        overage_rate: rust_decimal::Decimal,
-        #[serde(with = "string_serde")]
-        metric_id: BillableMetricId,
-    },
-    Slot {
-        unit: String,
-        #[schema(value_type = String, format = "decimal")]
-        unit_rate: rust_decimal::Decimal,
-        min_slots: Option<u32>,
-        max_slots: Option<u32>,
-        initial_slots: u32,
-    },
-    Usage {
-        #[serde(with = "string_serde")]
-        metric_id: BillableMetricId,
-        #[map(~.into())]
-        model: UsagePricingModel,
-    },
+    #[serde(rename = "RATE")]
+    Rate(RateFee),
+    #[serde(rename = "ONE_TIME")]
+    OneTime(OneTimeFee),
+    #[serde(rename = "RECURRING")]
+    Recurring(RecurringFee),
+    #[serde(rename = "CAPACITY")]
+    Capacity(CapacityFee),
+    #[serde(rename = "SLOT")]
+    Slot(SlotFee),
+    #[serde(rename = "USAGE")]
+    Usage(UsageFee),
+}
+
+impl From<meteroid_store::domain::subscription_components::SubscriptionFee> for SubscriptionFee {
+    fn from(fee: meteroid_store::domain::subscription_components::SubscriptionFee) -> Self {
+        use meteroid_store::domain::subscription_components::SubscriptionFee as DomainFee;
+        match fee {
+            DomainFee::Rate { rate } => SubscriptionFee::Rate(RateFee { rate }),
+            DomainFee::OneTime { rate, quantity } => {
+                SubscriptionFee::OneTime(OneTimeFee { rate, quantity })
+            }
+            DomainFee::Recurring {
+                rate,
+                quantity,
+                billing_type,
+            } => SubscriptionFee::Recurring(RecurringFee {
+                rate,
+                quantity,
+                billing_type: billing_type.into(),
+            }),
+            DomainFee::Capacity {
+                rate,
+                included,
+                overage_rate,
+                metric_id,
+            } => SubscriptionFee::Capacity(CapacityFee {
+                rate,
+                included,
+                overage_rate,
+                metric_id,
+            }),
+            DomainFee::Slot {
+                unit,
+                unit_rate,
+                min_slots,
+                max_slots,
+                initial_slots,
+            } => SubscriptionFee::Slot(SlotFee {
+                unit,
+                unit_rate,
+                min_slots,
+                max_slots,
+                initial_slots,
+            }),
+            DomainFee::Usage { metric_id, model } => SubscriptionFee::Usage(UsageFee {
+                metric_id,
+                model: model.into(),
+            }),
+        }
+    }
+}
+
+impl From<SubscriptionFee> for meteroid_store::domain::subscription_components::SubscriptionFee {
+    fn from(fee: SubscriptionFee) -> Self {
+        use meteroid_store::domain::subscription_components::SubscriptionFee as DomainFee;
+        match fee {
+            SubscriptionFee::Rate(f) => DomainFee::Rate { rate: f.rate },
+            SubscriptionFee::OneTime(f) => DomainFee::OneTime {
+                rate: f.rate,
+                quantity: f.quantity,
+            },
+            SubscriptionFee::Recurring(f) => DomainFee::Recurring {
+                rate: f.rate,
+                quantity: f.quantity,
+                billing_type: f.billing_type.into(),
+            },
+            SubscriptionFee::Capacity(f) => DomainFee::Capacity {
+                rate: f.rate,
+                included: f.included,
+                overage_rate: f.overage_rate,
+                metric_id: f.metric_id,
+            },
+            SubscriptionFee::Slot(f) => DomainFee::Slot {
+                unit: f.unit,
+                unit_rate: f.unit_rate,
+                min_slots: f.min_slots,
+                max_slots: f.max_slots,
+                initial_slots: f.initial_slots,
+            },
+            SubscriptionFee::Usage(f) => DomainFee::Usage {
+                metric_id: f.metric_id,
+                model: f.model.into(),
+            },
+        }
+    }
 }
 
 #[derive(o2o, ToSchema, Serialize, Deserialize, Clone, Debug)]
@@ -296,33 +456,96 @@ pub enum BillingTypeEnum {
     Arrears,
 }
 
-#[derive(o2o, ToSchema, Serialize, Deserialize, Clone, Debug)]
-#[map_owned(meteroid_store::domain::price_components::UsagePricingModel)]
+#[derive(ToSchema, Serialize, Deserialize, Clone, Debug)]
+pub struct PerUnitPricing {
+    #[schema(value_type = String, format = "decimal")]
+    pub rate: rust_decimal::Decimal,
+}
+
+#[derive(ToSchema, Serialize, Deserialize, Clone, Debug)]
+pub struct TieredPricing {
+    pub tiers: Vec<TierRow>,
+    pub block_size: Option<u64>,
+}
+
+#[derive(ToSchema, Serialize, Deserialize, Clone, Debug)]
+pub struct VolumePricing {
+    pub tiers: Vec<TierRow>,
+    pub block_size: Option<u64>,
+}
+
+#[derive(ToSchema, Serialize, Deserialize, Clone, Debug)]
+pub struct PackagePricing {
+    pub block_size: u64,
+    #[schema(value_type = String, format = "decimal")]
+    pub rate: rust_decimal::Decimal,
+}
+
+#[derive(ToSchema, Serialize, Deserialize, Clone, Debug)]
+pub struct MatrixPricing {
+    pub rates: Vec<MatrixRow>,
+}
+
+#[derive(ToSchema, Serialize, Deserialize, Clone, Debug)]
 #[serde(tag = "discriminator", rename_all = "SCREAMING_SNAKE_CASE")]
 pub enum UsagePricingModel {
-    PerUnit {
-        #[schema(value_type = String, format = "decimal")]
-        rate: rust_decimal::Decimal,
-    },
-    Tiered {
-        #[map(~.into_iter().map(|x| x.into()).collect())]
-        tiers: Vec<TierRow>,
-        block_size: Option<u64>,
-    },
-    Volume {
-        #[map(~.into_iter().map(|x| x.into()).collect())]
-        tiers: Vec<TierRow>,
-        block_size: Option<u64>,
-    },
-    Package {
-        block_size: u64,
-        #[schema(value_type = String, format = "decimal")]
-        rate: rust_decimal::Decimal,
-    },
-    Matrix {
-        #[map(~.into_iter().map(|x| x.into()).collect())]
-        rates: Vec<MatrixRow>,
-    },
+    #[serde(rename = "PER_UNIT")]
+    PerUnit(PerUnitPricing),
+    #[serde(rename = "TIERED")]
+    Tiered(TieredPricing),
+    #[serde(rename = "VOLUME")]
+    Volume(VolumePricing),
+    #[serde(rename = "PACKAGE")]
+    Package(PackagePricing),
+    #[serde(rename = "MATRIX")]
+    Matrix(MatrixPricing),
+}
+
+impl From<meteroid_store::domain::price_components::UsagePricingModel> for UsagePricingModel {
+    fn from(model: meteroid_store::domain::price_components::UsagePricingModel) -> Self {
+        use meteroid_store::domain::price_components::UsagePricingModel as DomainModel;
+        match model {
+            DomainModel::PerUnit { rate } => UsagePricingModel::PerUnit(PerUnitPricing { rate }),
+            DomainModel::Tiered { tiers, block_size } => UsagePricingModel::Tiered(TieredPricing {
+                tiers: tiers.into_iter().map(|t| t.into()).collect(),
+                block_size,
+            }),
+            DomainModel::Volume { tiers, block_size } => UsagePricingModel::Volume(VolumePricing {
+                tiers: tiers.into_iter().map(|t| t.into()).collect(),
+                block_size,
+            }),
+            DomainModel::Package { block_size, rate } => {
+                UsagePricingModel::Package(PackagePricing { block_size, rate })
+            }
+            DomainModel::Matrix { rates } => UsagePricingModel::Matrix(MatrixPricing {
+                rates: rates.into_iter().map(|r| r.into()).collect(),
+            }),
+        }
+    }
+}
+
+impl From<UsagePricingModel> for meteroid_store::domain::price_components::UsagePricingModel {
+    fn from(model: UsagePricingModel) -> Self {
+        use meteroid_store::domain::price_components::UsagePricingModel as DomainModel;
+        match model {
+            UsagePricingModel::PerUnit(p) => DomainModel::PerUnit { rate: p.rate },
+            UsagePricingModel::Tiered(p) => DomainModel::Tiered {
+                tiers: p.tiers.into_iter().map(|t| t.into()).collect(),
+                block_size: p.block_size,
+            },
+            UsagePricingModel::Volume(p) => DomainModel::Volume {
+                tiers: p.tiers.into_iter().map(|t| t.into()).collect(),
+                block_size: p.block_size,
+            },
+            UsagePricingModel::Package(p) => DomainModel::Package {
+                block_size: p.block_size,
+                rate: p.rate,
+            },
+            UsagePricingModel::Matrix(p) => DomainModel::Matrix {
+                rates: p.rates.into_iter().map(|r| r.into()).collect(),
+            },
+        }
+    }
 }
 
 #[derive(o2o, ToSchema, Serialize, Deserialize, Clone, Debug)]

@@ -4,6 +4,7 @@ use utoipa::ToSchema;
 // Should be kept in sync with the currencies from open exchange rates
 #[derive(Clone, ToSchema, serde::Serialize, serde::Deserialize, EnumString, Display, Debug)]
 #[allow(clippy::upper_case_acronyms)]
+#[schema(examples("EUR"))]
 pub enum Currency {
     AED,
     AFN,

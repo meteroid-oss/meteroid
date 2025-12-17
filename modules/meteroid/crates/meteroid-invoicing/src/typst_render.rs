@@ -243,7 +243,6 @@ impl From<&TaxBreakdownItem> for TypstTaxBreakdownItem {
             TaxExemptionType::ReverseCharge => "reverse_charge".to_string(),
             TaxExemptionType::TaxExempt => "tax_exempt".to_string(),
             TaxExemptionType::NotRegistered => "not_registered".to_string(),
-            TaxExemptionType::Other(s) => s.clone(),
         });
         TypstTaxBreakdownItem {
             name: item.name.clone(),

@@ -1,9 +1,10 @@
 use super::AppState;
 use std::str::FromStr;
 
-use axum::extract::{Path, Query};
+use axum::extract::Path;
 use axum::{Json, extract::State, response::IntoResponse};
 
+use crate::api_rest::QueryParams;
 use crate::api_rest::error::RestErrorResponse;
 use crate::api_rest::model::PaginationExt;
 use crate::api_rest::subscriptions::mapping::{
@@ -16,7 +17,7 @@ use crate::api_rest::subscriptions::model::{
 use crate::errors::RestApiError;
 use axum::Extension;
 use axum_valid::Valid;
-use common_domain::ids::{AliasOr, CustomerId, PlanId, SubscriptionId};
+use common_domain::ids::{AliasOr, BaseId, CustomerId, SubscriptionId};
 use common_grpc::middleware::server::auth::AuthorizedAsTenant;
 use http::StatusCode;
 use itertools::Itertools;
@@ -34,11 +35,7 @@ use meteroid_store::repositories::{CustomersInterface, PlansInterface, Subscript
     tag = "subscription",
     path = "/api/v1/subscriptions",
     params(
-        ("page" = usize, Query, description = "Specifies the starting position of the results", example = 0, minimum = 0),
-        ("per_page" = usize, Query, description = "The maximum number of objects to return", example = 10, minimum = 1, maximum = 100),
-        ("customer_id" = Option<CustomerId>, Query, description = "Filter by customer ID"),
-        ("plan_id" = Option<PlanId>, Query, description = "Filter by plan ID"),
-        ("status" = Option<Vec<super::model::SubscriptionStatusEnum>>, Query, description = "Filter by subscription status(es)")
+        SubscriptionRequest
     ),
     responses(
         (status = 200, description = "List of subscriptions", body = SubscriptionListResponse),
@@ -52,18 +49,38 @@ use meteroid_store::repositories::{CustomersInterface, PlansInterface, Subscript
 #[axum::debug_handler]
 pub(crate) async fn list_subscriptions(
     Extension(authorized_state): Extension<AuthorizedAsTenant>,
-    Valid(Query(request)): Valid<Query<SubscriptionRequest>>,
+    Valid(QueryParams(request)): Valid<QueryParams<SubscriptionRequest>>,
     State(app_state): State<AppState>,
 ) -> Result<impl IntoResponse, RestApiError> {
     let status_filter = request
-        .status
+        .statuses
         .map(|statuses| statuses.into_iter().map(|s| s.into()).collect());
+
+    let customer_id = match request.customer_id {
+        None => None,
+        Some(c) => match c {
+            AliasOr::Id(id) => Some(id),
+            AliasOr::Alias(alias) => app_state
+                .store
+                .find_customer_by_alias(alias, authorized_state.tenant_id)
+                .await
+                .map_err(|e| {
+                    log::error!(
+                        "Error handling get_customer for tenant {}: {} ",
+                        authorized_state.tenant_id.as_uuid(),
+                        e
+                    );
+                    RestApiError::from(e)
+                })
+                .map(|c| Some(c.id))?,
+        },
+    };
 
     let res = app_state
         .store
         .list_subscriptions(
             authorized_state.tenant_id,
-            request.customer_id,
+            customer_id,
             request.plan_id,
             status_filter,
             request.pagination.into(),

@@ -476,7 +476,6 @@ impl Services {
                             VatExemptionReason::ReverseCharge => TaxExemptionType::ReverseCharge,
                             VatExemptionReason::TaxExempt => TaxExemptionType::TaxExempt,
                             VatExemptionReason::NotRegistered => TaxExemptionType::NotRegistered,
-                            VatExemptionReason::Other(s) => TaxExemptionType::Other(s),
                         };
 
                         vec![TaxBreakdownItem {

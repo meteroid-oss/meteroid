@@ -3,7 +3,7 @@ use utoipa_axum::router::OpenApiRouter;
 use utoipa_axum::routes;
 
 mod mapping;
-mod model;
+pub mod model;
 mod router;
 
 pub fn customer_routes() -> OpenApiRouter<AppState> {
@@ -14,4 +14,5 @@ pub fn customer_routes() -> OpenApiRouter<AppState> {
         .routes(routes!(router::update_customer))
         .routes(routes!(router::archive_customer))
         .routes(routes!(router::unarchive_customer))
+        .routes(routes!(router::create_portal_token))
 }

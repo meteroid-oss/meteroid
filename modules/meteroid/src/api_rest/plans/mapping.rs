@@ -1,6 +1,9 @@
 use crate::api_rest::plans::model::{
-    AvailableParameters, BillingPeriodEnum, CapacityThreshold, Fee, MatrixDimension, MatrixRow,
-    Plan, PriceComponent, ProductFamily, TermRate, TierRow, TrialConfig, UsagePricingModel,
+    AvailableParameters, BillingPeriodEnum, CapacityPlanFee, CapacityThreshold,
+    ExtraRecurringPlanFee, Fee, MatrixDimension, MatrixPlanPricing, MatrixRow, OneTimePlanFee,
+    PackagePlanPricing, PerUnitPlanPricing, Plan, PriceComponent, ProductFamily, RatePlanFee,
+    SlotPlanFee, TermRate, TierRow, TieredPlanPricing, TrialConfig, UsagePlanFee,
+    UsagePricingModel, VolumePlanPricing,
 };
 use meteroid_store::domain;
 use std::collections::HashMap;
@@ -60,57 +63,57 @@ fn price_component_to_rest(component: &domain::price_components::PriceComponent)
 
 fn fee_type_to_rest(fee: &domain::price_components::FeeType) -> Fee {
     match fee {
-        domain::price_components::FeeType::Rate { rates } => Fee::Rate {
+        domain::price_components::FeeType::Rate { rates } => Fee::Rate(RatePlanFee {
             rates: rates.iter().map(term_rate_to_rest).collect(),
-        },
+        }),
         domain::price_components::FeeType::Slot {
             rates,
             slot_unit_name,
             minimum_count,
             quota,
             ..
-        } => Fee::Slot {
+        } => Fee::Slot(SlotPlanFee {
             rates: rates.iter().map(term_rate_to_rest).collect(),
             slot_unit_name: slot_unit_name.clone(),
             minimum_count: *minimum_count,
             quota: *quota,
-        },
+        }),
         domain::price_components::FeeType::Capacity {
             metric_id,
             thresholds,
             cadence,
-        } => Fee::Capacity {
+        } => Fee::Capacity(CapacityPlanFee {
             metric_id: *metric_id,
             thresholds: thresholds.iter().map(capacity_threshold_to_rest).collect(),
             cadence: (*cadence).into(),
-        },
+        }),
         domain::price_components::FeeType::Usage {
             metric_id,
             pricing,
             cadence,
-        } => Fee::Usage {
+        } => Fee::Usage(UsagePlanFee {
             metric_id: *metric_id,
             pricing: usage_pricing_to_rest(pricing),
             cadence: (*cadence).into(),
-        },
+        }),
         domain::price_components::FeeType::ExtraRecurring {
             unit_price,
             quantity,
             billing_type,
             cadence,
-        } => Fee::ExtraRecurring {
+        } => Fee::ExtraRecurring(ExtraRecurringPlanFee {
             unit_price: *unit_price,
             quantity: *quantity,
             billing_type: billing_type.clone().into(),
             cadence: (*cadence).into(),
-        },
+        }),
         domain::price_components::FeeType::OneTime {
             unit_price,
             quantity,
-        } => Fee::OneTime {
+        } => Fee::OneTime(OneTimePlanFee {
             unit_price: *unit_price,
             quantity: *quantity,
-        },
+        }),
     }
 }
 
@@ -136,30 +139,30 @@ fn usage_pricing_to_rest(
 ) -> UsagePricingModel {
     match pricing {
         domain::price_components::UsagePricingModel::PerUnit { rate } => {
-            UsagePricingModel::PerUnit { rate: *rate }
+            UsagePricingModel::PerUnit(PerUnitPlanPricing { rate: *rate })
         }
         domain::price_components::UsagePricingModel::Tiered { tiers, block_size } => {
-            UsagePricingModel::Tiered {
+            UsagePricingModel::Tiered(TieredPlanPricing {
                 tiers: tiers.iter().map(tier_row_to_rest).collect(),
                 block_size: *block_size,
-            }
+            })
         }
         domain::price_components::UsagePricingModel::Volume { tiers, block_size } => {
-            UsagePricingModel::Volume {
+            UsagePricingModel::Volume(VolumePlanPricing {
                 tiers: tiers.iter().map(tier_row_to_rest).collect(),
                 block_size: *block_size,
-            }
+            })
         }
         domain::price_components::UsagePricingModel::Package { block_size, rate } => {
-            UsagePricingModel::Package {
+            UsagePricingModel::Package(PackagePlanPricing {
                 block_size: *block_size,
                 rate: *rate,
-            }
+            })
         }
         domain::price_components::UsagePricingModel::Matrix { rates } => {
-            UsagePricingModel::Matrix {
+            UsagePricingModel::Matrix(MatrixPlanPricing {
                 rates: rates.iter().map(matrix_row_to_rest).collect(),
-            }
+            })
         }
     }
 }
