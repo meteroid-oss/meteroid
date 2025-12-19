@@ -15,9 +15,11 @@ use meteroid_store::domain::outbox_event::{
 };
 use o2o::o2o;
 use serde::{Serialize, Serializer};
+use serde_with::skip_serializing_none;
 use strum::{Display, EnumIter, EnumString};
 use svix::api::MessageIn;
 
+#[skip_serializing_none]
 #[derive(Clone, Debug, Serialize, o2o, utoipa::ToSchema)]
 #[from_owned(CustomerEvent)]
 pub struct WebhookOutCustomerEventData {
@@ -32,6 +34,7 @@ pub struct WebhookOutCustomerEventData {
     pub currency: String,
 }
 
+#[skip_serializing_none]
 #[derive(Clone, Debug, Serialize, o2o, utoipa::ToSchema)]
 #[from_owned(InvoiceEvent)]
 pub struct WebhookOutInvoiceEventData {
@@ -49,6 +52,7 @@ pub struct WebhookOutInvoiceEventData {
     pub created_at: NaiveDateTime,
 }
 
+#[skip_serializing_none]
 #[derive(Clone, Debug, Serialize, o2o, utoipa::ToSchema)]
 #[from_owned(SubscriptionEvent)]
 pub struct WebhookOutSubscriptionEventData {
@@ -81,6 +85,7 @@ pub struct WebhookOutSubscriptionEventData {
     pub status: SubscriptionStatusEnum,
 }
 
+#[skip_serializing_none]
 #[derive(Clone, Debug, Serialize, o2o, utoipa::ToSchema)]
 #[from_owned(BillableMetricEvent)]
 pub struct WebhookOutMetricEventData {
@@ -106,6 +111,7 @@ pub struct WebhookOutMetricEventData {
     pub product_id: Option<ProductId>,
 }
 
+#[skip_serializing_none]
 #[derive(Clone, Debug, Serialize, utoipa::ToSchema)]
 pub struct WebhookOutQuoteEventData {
     #[serde(serialize_with = "string_serde::serialize")]
@@ -146,6 +152,7 @@ pub enum WebhookOutEventData {
     Quote(WebhookOutQuoteEventData),
 }
 
+#[skip_serializing_none]
 #[derive(Clone, Debug, Serialize, utoipa::ToSchema)]
 pub struct WebhookOutEvent {
     #[serde(serialize_with = "string_serde::serialize")]

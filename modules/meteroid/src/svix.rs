@@ -1,6 +1,6 @@
 use crate::api_rest::webhooks::out_model::WebhookOutEvent;
 use crate::config::SvixConfig;
-use common_domain::ids::{BaseId, TenantId};
+use common_domain::ids::TenantId;
 use governor::middleware::NoOpMiddleware;
 use governor::state::{InMemoryState, NotKeyed};
 use governor::{Jitter, Quota, RateLimiter, clock};
@@ -82,7 +82,7 @@ impl SvixOps for Arc<Svix> {
             metadata: None,
             name: tenant_id.to_string(),
             rate_limit: None,
-            uid: Some(tenant_id.as_uuid().to_string()),
+            uid: Some(tenant_id.to_string()),
         };
 
         let access_in = AppPortalAccessIn {
