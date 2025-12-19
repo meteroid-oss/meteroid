@@ -39,11 +39,12 @@ impl WebhookOut {
 
             if let Err(svix::error::Error::Http(e)) = message_result {
                 match e.status.as_u16() {
-                    // todo validate below logic
-                    404 => log::warn!(
-                        "[404] Skipped webhook {event_id} as the webhooks seem to not be configured for tenant {tenant_id}"
+                    // there is no svix application created for this tenant, yet
+                    // it is auto-created once the tenant accesses the webhook portal the first time
+                    404 => log::info!(
+                        "[svix_404] Skipped webhook {event_id} as the tenant {tenant_id} did not configure webhooks"
                     ),
-                    409 => log::warn!("[409] Skipped webhook {event_id} as it already exists"),
+                    409 => log::info!("[svix_409] Skipped webhook {event_id} as it already exists"),
                     _ => {
                         return Err(svix::error::Error::Http(e))
                             .change_context(PgmqError::HandleMessages);
