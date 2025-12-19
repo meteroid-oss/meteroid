@@ -7,7 +7,7 @@ export const InviteOnboarding = () => {
         <InviteOnboardingForm />
       </div>
       <div className="flex-1 bg-[#313131] rounded-r-lg pl-32">
-        <img src="/img/onboarding/invite.svg" alt="user onboarding" className="h-full" />
+        <img src="/img/onboarding/invite.png" alt="user onboarding" className="h-full" />
       </div>
     </>
   )

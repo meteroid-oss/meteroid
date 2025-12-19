@@ -22,7 +22,11 @@ export const UserOnboarding = () => {
       </div>
       <div className="hidden lg:block lg:w-1/2 xl:w-3/5 bg-[#313131] rounded-r-lg h-full">
         <div className="h-full pl-16 py-16 flex justify-end">
-          <img src="/img/onboarding/user.svg" alt="user onboarding" className="h-full object-cover object-left " />
+          <img
+            src="/img/onboarding/user.png"
+            alt="user onboarding"
+            className="h-full object-cover object-left "
+          />
         </div>
       </div>
     </>
