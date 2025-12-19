@@ -5304,20 +5304,13 @@
             "application/json": {
               "example": {
                 "data": {
-                  "aggregation_key": null,
                   "aggregation_type": "COUNT",
                   "code": "api_calls",
                   "created_at": "1970-01-01T00:00:00",
-                  "description": null,
                   "discriminator": "METRIC",
                   "id": "bm_7n42DGM5Tflk9n8mt7Fhc7",
                   "name": "Api Calls",
-                  "product_family_id": "pf_7n42DGM5Tflk9n8mt7Fhc7",
-                  "product_id": null,
-                  "segmentation_matrix": null,
-                  "unit_conversion_factor": null,
-                  "unit_conversion_rounding": null,
-                  "usage_group_key": null
+                  "product_family_id": "pf_7n42DGM5Tflk9n8mt7Fhc7"
                 },
                 "id": "evt_7n42DGM5Tflk9n8mt7Fhc7",
                 "timestamp": "1970-01-01T00:00:00.000Z",
@@ -5352,8 +5345,7 @@
                 "data": {
                   "customer_id": "cus_7n42DGM5Tflk9n8mt7Fhc7",
                   "discriminator": "QUOTE",
-                  "id": "quo_7n42DGM5Tflk9n8mt7Fhc7",
-                  "subscription_id": null
+                  "id": "quo_7n42DGM5Tflk9n8mt7Fhc7"
                 },
                 "id": "evt_7n42DGM5Tflk9n8mt7Fhc7",
                 "timestamp": "1970-01-01T00:00:00.000Z",
@@ -5388,8 +5380,7 @@
                 "data": {
                   "customer_id": "cus_7n42DGM5Tflk9n8mt7Fhc7",
                   "discriminator": "QUOTE",
-                  "id": "quo_7n42DGM5Tflk9n8mt7Fhc7",
-                  "subscription_id": null
+                  "id": "quo_7n42DGM5Tflk9n8mt7Fhc7"
                 },
                 "id": "evt_7n42DGM5Tflk9n8mt7Fhc7",
                 "timestamp": "1970-01-01T00:00:00.000Z",
@@ -5422,26 +5413,20 @@
             "application/json": {
               "example": {
                 "data": {
-                  "activated_at": null,
                   "billing_day_anchor": 1,
-                  "billing_start_date": null,
                   "created_at": "1970-01-01T00:00:00.000Z",
                   "currency": "EUR",
                   "customer_alias": "ACME",
                   "customer_id": "cus_7n42DGM5Tflk9n8mt7Fhc7",
                   "customer_name": "Acme Corporation",
                   "discriminator": "SUBSCRIPTION",
-                  "end_date": null,
                   "id": "sub_7n42DGM5Tflk9n8mt7Fhc7",
-                  "invoice_memo": null,
-                  "invoice_threshold": null,
                   "mrr_cents": 0,
                   "net_terms": 0,
                   "period": "MONTHLY",
                   "plan_name": "default",
                   "start_date": "1970-01-01",
                   "status": "PENDING_ACTIVATION",
-                  "trial_duration": null,
                   "version": 0
                 },
                 "id": "evt_7n42DGM5Tflk9n8mt7Fhc7",
