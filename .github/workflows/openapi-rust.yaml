@@ -1,4 +1,4 @@
-name: CI
+name: OpenAPI
 
 on:
   workflow_dispatch:
