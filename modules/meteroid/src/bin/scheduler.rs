@@ -32,17 +32,12 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     telemetry::init(&config.common.telemetry);
 
     let store = Arc::new(singletons::get_store().await.clone());
-    let svix = new_svix(config);
+    let svix = new_svix(&config.svix);
     let stripe = Arc::new(StripeClient::new());
 
     let usage_clients = Arc::new(MeteringUsageClient::get().clone());
 
-    let services = Arc::new(Services::new(
-        store.clone(),
-        usage_clients.clone(),
-        svix,
-        stripe,
-    ));
+    let services = Arc::new(Services::new(store.clone(), usage_clients.clone(), stripe));
 
     let object_store_service = Arc::new(S3Storage::try_new(
         &config.object_store_uri,
@@ -66,6 +61,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     workers::spawn_workers(
         store.clone(),
         services.clone(),
+        svix,
         object_store_service.clone(),
         usage_clients.clone(),
         Arc::new(currency_rate_service),

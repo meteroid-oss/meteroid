@@ -4,7 +4,6 @@ use crate::workers::pgmq::processor::PgmqHandler;
 use common_domain::pgmq::MessageId;
 use error_stack::{Report, ResultExt};
 use futures::future::try_join_all;
-use itertools::Itertools;
 use meteroid_store::Store;
 use meteroid_store::StoreResult;
 use meteroid_store::clients::usage::UsageClient;
@@ -94,14 +93,5 @@ impl PgmqHandler for BillableMetricSync {
         let ids: Vec<_> = results.into_iter().filter_map(Result::ok).collect();
 
         Ok(ids)
-    }
-}
-
-pub(crate) struct NoopBillableMetricSync;
-
-#[async_trait::async_trait]
-impl PgmqHandler for NoopBillableMetricSync {
-    async fn handle(&self, msgs: &[PgmqMessage]) -> PgmqResult<Vec<MessageId>> {
-        Ok(msgs.iter().map(|x| x.msg_id).collect_vec())
     }
 }

@@ -66,7 +66,7 @@ pub async fn start_meteroid_with_port(
     })
     .expect("Could not create store");
 
-    let services = Services::new(Arc::new(store.clone()), usage_client, None, stripe);
+    let services = Services::new(Arc::new(store.clone()), usage_client, stripe);
 
     populate_postgres(&store.pool, seed_level).await;
 
@@ -78,6 +78,7 @@ pub async fn start_meteroid_with_port(
         store.clone(),
         services.clone(),
         in_memory_object_store(),
+        None,
     );
 
     let stripe = Arc::new(StripeClient::new());

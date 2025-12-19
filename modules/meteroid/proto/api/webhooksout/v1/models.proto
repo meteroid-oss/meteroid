@@ -2,33 +2,7 @@ syntax = "proto3";
 
 package meteroid.api.webhooks.out.v1;
 
-enum WebhookEventType {
-  CUSTOMER_CREATED = 0;
-  SUBSCRIPTION_CREATED = 1;
-  INVOICE_CREATED = 2;
-  INVOICE_FINALIZED = 3;
-  BILLABLE_METRIC_CREATED = 4;
-  QUOTE_ACCEPTED = 5;
-  QUOTE_CONVERTED = 6;
-}
-
-message WebhookEndpoint {
-  string id = 1;
-  string url = 2;
-  optional string description = 3;
-  string secret = 4;
-  bool disabled = 5;
-  string created_at = 6;
-  string updated_at = 7;
-  repeated WebhookEventType events_to_listen = 8;
-}
-
-message WebhookEndpointListItem {
-  string id = 1;
-  string url = 2;
-  optional string description = 3;
-  bool disabled = 4;
-  repeated WebhookEventType events_to_listen = 5;
-  string created_at = 6;
-  string updated_at = 7;
+message PortalAccess {
+  string url = 1;
+  string token = 2;
 }

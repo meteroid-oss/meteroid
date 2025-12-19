@@ -3,6 +3,7 @@ use axum::Router;
 use axum::extract::DefaultBodyLimit;
 use axum::routing::post;
 
+pub mod out_model;
 mod router;
 
 pub fn webhook_in_routes() -> Router<AppState> {

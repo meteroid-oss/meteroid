@@ -14,7 +14,6 @@ pub mod billing;
 pub mod clients;
 pub mod misc;
 pub mod pgmq;
-pub mod webhook_out;
 
 //
 // #[derive(Debug, Clone, Envconfig)]
@@ -42,6 +41,7 @@ pub mod webhook_out;
 pub async fn spawn_workers(
     store: Arc<meteroid_store::Store>,
     services: Arc<Services>,
+    svix: Option<Arc<svix::api::Svix>>,
     object_store_service: Arc<S3Storage>,
     _usage_clients: Arc<dyn UsageClient>,
     currency_rates_service: Arc<dyn CurrencyRatesService>,
@@ -74,9 +74,8 @@ pub async fn spawn_workers(
     }
     {
         let store = store.clone();
-        let services = services.clone();
         join_set.spawn(async move {
-            processors::run_webhook_out(store, services).await;
+            processors::run_webhook_out(store, svix).await;
         });
     }
     {

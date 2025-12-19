@@ -1,13 +1,8 @@
-use crate::StoreResult;
-use crate::errors::StoreError;
 use diesel_models::enums as diesel_enums;
-use error_stack::ResultExt;
 use o2o::o2o;
 use serde::{Deserialize, Serialize};
 use std::cmp::Ordering;
-use std::str::FromStr;
-use strum::{Display, EnumIter, EnumString};
-use svix::api::EndpointOut;
+use strum::{Display, EnumString};
 
 #[derive(o2o, Serialize, Deserialize, PartialEq, Eq, Debug, Clone)]
 #[map_owned(diesel_enums::ActionAfterTrialEnum)]
@@ -211,57 +206,6 @@ pub enum UnitConversionRoundingEnum {
     NearestHalf,
     NearestDecile,
     None,
-}
-
-#[derive(Debug, Copy, Clone, Eq, PartialEq, Hash, Display, EnumIter, EnumString, Serialize)]
-pub enum WebhookOutEventTypeEnum {
-    #[strum(serialize = "metric.created")]
-    #[serde(rename = "metric.created")]
-    BillableMetricCreated,
-    #[strum(serialize = "customer.created")]
-    #[serde(rename = "customer.created")]
-    CustomerCreated,
-    #[strum(serialize = "subscription.created")]
-    #[serde(rename = "subscription.created")]
-    SubscriptionCreated,
-    #[strum(serialize = "invoice.created")]
-    #[serde(rename = "invoice.created")]
-    InvoiceCreated,
-    #[strum(serialize = "invoice.finalized")]
-    #[serde(rename = "invoice.finalized")]
-    InvoiceFinalized,
-    #[strum(serialize = "quote.accepted")]
-    #[serde(rename = "quote.accepted")]
-    QuoteAccepted,
-    #[strum(serialize = "quote.converted")]
-    #[serde(rename = "quote.converted")]
-    QuoteConverted,
-}
-
-impl WebhookOutEventTypeEnum {
-    pub fn from_svix_endpoint(ep: &EndpointOut) -> StoreResult<Vec<WebhookOutEventTypeEnum>> {
-        ep.filter_types
-            .as_ref()
-            .unwrap_or(&vec![])
-            .iter()
-            .map(|x| WebhookOutEventTypeEnum::from_str(x.as_str()))
-            .collect::<Result<Vec<_>, _>>()
-            .change_context(StoreError::WebhookServiceError(
-                "invalid webhook event type".into(),
-            ))
-    }
-
-    pub fn group(&self) -> String {
-        match self {
-            WebhookOutEventTypeEnum::CustomerCreated => "customer".to_string(),
-            WebhookOutEventTypeEnum::SubscriptionCreated => "subscription".to_string(),
-            WebhookOutEventTypeEnum::InvoiceCreated => "invoice".to_string(),
-            WebhookOutEventTypeEnum::InvoiceFinalized => "invoice".to_string(),
-            WebhookOutEventTypeEnum::BillableMetricCreated => "metric".to_string(),
-            WebhookOutEventTypeEnum::QuoteAccepted => "quote".to_string(),
-            WebhookOutEventTypeEnum::QuoteConverted => "quote".to_string(),
-        }
-    }
 }
 
 #[derive(o2o, Serialize, Deserialize, Debug, Clone, PartialEq, Eq, Hash)]

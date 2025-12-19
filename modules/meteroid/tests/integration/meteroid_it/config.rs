@@ -7,7 +7,7 @@ use common_config::auth::InternalAuthConfig;
 use common_config::common::CommonConfig;
 use common_config::idempotency::IdempotencyConfig;
 use common_config::telemetry::TelemetryConfig;
-use meteroid::config::{Config, CryptKey};
+use meteroid::config::{Config, CryptKey, SvixConfig};
 use meteroid_mailer::config::MailerConfig;
 use meteroid_oauth::config::OauthConfig;
 
@@ -48,8 +48,10 @@ pub fn mocked_config(
         multi_organization_enabled: false,
         secrets_crypt_key: CryptKey("00000000000000000000000000000000".to_string().into()),
         openexchangerates_api_key: None,
-        svix_server_url: Some("http://localhost:8071".to_owned()),
-        svix_jwt_token: "fake".to_owned().into(),
+        svix: SvixConfig {
+            server_url: Some("http://localhost:8071".to_owned()),
+            token: "fake".to_owned().into(),
+        },
         mailer: MailerConfig::dummy(),
         public_url: "http://localhost:8080".to_owned(),
         oauth: OauthConfig::dummy(),

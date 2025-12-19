@@ -31,7 +31,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
 
     let store = singletons::get_store().await;
 
-    let svix = new_svix(config);
+    let svix = new_svix(&config.svix);
     let stripe = Arc::new(StripeClient::new());
 
     let store_arc = Arc::new(store.clone());
@@ -39,12 +39,11 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     let services = Services::new(
         store_arc,
         Arc::new(MeteringUsageClient::get().clone()),
-        svix,
         stripe,
     );
 
     migrations::run(&store.pool).await?;
-    bootstrap::bootstrap_once(store.clone(), services.clone()).await?;
+    bootstrap::bootstrap_once(store.clone(), svix.clone()).await?;
     setup_eventbus_handlers(store.clone(), config.clone()).await;
 
     let object_store_service = Arc::new(S3Storage::try_new(
@@ -57,6 +56,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         store.clone(),
         services.clone(),
         object_store_service.clone(),
+        svix,
     );
 
     let exit = signal::ctrl_c();

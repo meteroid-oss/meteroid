@@ -2,6 +2,7 @@ use crate::workers::pgmq::PgmqResult;
 use crate::workers::pgmq::error::PgmqError;
 use common_domain::pgmq::{MessageId, MessageReadQty, MessageReadVtSec, ReadCt};
 use error_stack::ResultExt;
+use itertools::Itertools;
 use meteroid_store::Store;
 use meteroid_store::domain::pgmq::{PgmqMessage, PgmqQueue};
 use meteroid_store::repositories::pgmq::PgmqInterface;
@@ -116,4 +117,13 @@ async fn sleep(duration: Duration, jitter_millis: u64) {
     let total_duration = duration + Duration::from_millis(jitter);
 
     tokio::time::sleep(total_duration).await;
+}
+
+pub(crate) struct Noop;
+
+#[async_trait::async_trait]
+impl PgmqHandler for Noop {
+    async fn handle(&self, msgs: &[PgmqMessage]) -> PgmqResult<Vec<MessageId>> {
+        Ok(msgs.iter().map(|x| x.msg_id).collect_vec())
+    }
 }

@@ -1,13 +1,13 @@
 use crate::services::invoice_rendering::PdfRenderingService;
 use crate::services::storage::ObjectStoreService;
-use crate::workers::pgmq::billable_metric_sync::{BillableMetricSync, NoopBillableMetricSync};
+use crate::workers::pgmq::billable_metric_sync::BillableMetricSync;
 use crate::workers::pgmq::hubspot_sync::HubspotSync;
 use crate::workers::pgmq::invoice_orchestration::InvoiceOrchestration;
 use crate::workers::pgmq::outbox::{PgmqOutboxDispatch, PgmqOutboxProxy};
 use crate::workers::pgmq::payment_request::PaymentRequest;
 use crate::workers::pgmq::pdf_render::PdfRender;
 use crate::workers::pgmq::pennylane_sync::PennylaneSync;
-use crate::workers::pgmq::processor::{ProcessorConfig, run};
+use crate::workers::pgmq::processor::{Noop, PgmqHandler, ProcessorConfig, run};
 use crate::workers::pgmq::quote_conversion::QuoteConversion;
 use crate::workers::pgmq::send_email::EmailSender;
 use crate::workers::pgmq::webhook_out::WebhookOut;
@@ -20,6 +20,7 @@ use meteroid_store::{Services, Store};
 use pennylane_client::client::PennylaneClient;
 use rand::Rng;
 use std::sync::Arc;
+use svix::api::Svix;
 
 pub async fn run_outbox_dispatch(store: Arc<Store>) {
     let queue = PgmqQueue::OutboxEvent;
@@ -57,15 +58,25 @@ pub async fn run_pdf_render(store: Arc<Store>, pdf_service: Arc<PdfRenderingServ
     .await;
 }
 
-pub async fn run_webhook_out(store: Arc<Store>, services: Arc<Services>) {
+pub async fn run_webhook_out(store: Arc<Store>, svix: Option<Arc<Svix>>) {
     let queue = PgmqQueue::WebhookOut;
-    let processor = Arc::new(PgmqOutboxProxy::new(
-        store.clone(),
-        Arc::new(WebhookOut::new(services.clone())),
-    ));
+
+    let processor: Arc<dyn PgmqHandler> = match svix.as_ref() {
+        None => Arc::new(Noop),
+        Some(svix) => Arc::new(PgmqOutboxProxy::new(
+            store.clone(),
+            Arc::new(WebhookOut::new(svix.clone())),
+        )),
+    };
+
+    let proc_name = if svix.is_some() {
+        processor_name("WebhookOut")
+    } else {
+        processor_name("NoopWebhookOut")
+    };
 
     run(ProcessorConfig {
-        name: processor_name("WebhookOut"),
+        name: proc_name,
         queue,
         handler: processor,
         store,
@@ -141,7 +152,7 @@ pub async fn run_metric_sync(store: Arc<Store>, usage_client: Arc<dyn UsageClien
 
 pub async fn run_noop_metric_sync(store: Arc<Store>) {
     let queue = PgmqQueue::BillableMetricSync;
-    let processor = Arc::new(NoopBillableMetricSync);
+    let processor = Arc::new(Noop);
 
     run(ProcessorConfig {
         name: processor_name("NoopBillableMetricSync"),

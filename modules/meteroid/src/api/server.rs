@@ -24,6 +24,7 @@ pub async fn start_api_server(
     store: Store,
     services: Services,
     object_store: Arc<dyn ObjectStoreService>,
+    svix: Option<Arc<svix::api::Svix>>,
 ) -> Result<(), Box<dyn std::error::Error>> {
     log::info!("Starting GRPC API on {}", config.grpc_listen_addr);
 
@@ -97,7 +98,10 @@ pub async fn start_api_server(
             services.clone(),
             config.jwt_secret.clone(),
         ))
-        .add_service(api::instance::service(store.clone()))
+        .add_service(api::instance::service(
+            store.clone(),
+            config.svix.server_url.is_some(),
+        ))
         .add_service(api::invoices::service(
             store.clone(),
             services.clone(),
@@ -112,7 +116,7 @@ pub async fn start_api_server(
             config.jwt_secret.clone(),
         ))
         .add_service(api::taxes::service(store.clone()))
-        .add_service(api::webhooksout::service(store.clone(), services.clone()))
+        .add_service(api::webhooksout::service(svix))
         .add_service(api::internal::service(store.clone()))
         .add_service(api::portal::checkout::service(
             store.clone(),
