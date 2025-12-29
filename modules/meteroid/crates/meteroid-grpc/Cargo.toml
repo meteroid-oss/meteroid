@@ -21,7 +21,7 @@ pbjson = "0.9.0"
 tonic-prost-build.workspace = true
 error-stack.workspace = true
 thiserror.workspace = true
-pbjson-build = "0.8.0"
+pbjson-build = "0.9.0"
 
 [features]
 default = ["client"]
