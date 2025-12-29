@@ -1,6 +1,6 @@
 use crate::StoreResult;
 use crate::domain::outbox_event::{OutboxEvent, PaymentTransactionEvent};
-use crate::domain::{Invoice, SubscriptionStatusEnum};
+use crate::domain::{Invoice, InvoicePaymentStatus, SubscriptionStatusEnum};
 use crate::errors::StoreError;
 use crate::repositories::outbox::OutboxInterface;
 use crate::services::Services;
@@ -58,22 +58,25 @@ impl Services {
                     if completed {
                         let invoice: Invoice = res.try_into()?;
 
-                        InvoiceRow::apply_payment_status(
-                            conn,
-                            event.invoice_id,
-                            event.tenant_id,
-                            diesel_models::enums::InvoicePaymentStatus::Paid,
-                            event.processed_at,
-                        )
-                        .await?;
-
-                        self.store
-                            .insert_outbox_event_tx(
+                        if invoice.payment_status != InvoicePaymentStatus::Paid {
+                            InvoiceRow::apply_payment_status(
                                 conn,
-                                OutboxEvent::invoice_paid((&invoice).into()),
+                                event.invoice_id,
+                                event.tenant_id,
+                                diesel_models::enums::InvoicePaymentStatus::Paid,
+                                event.processed_at,
                             )
                             .await?;
 
+                            self.store
+                                .insert_outbox_event_tx(
+                                    conn,
+                                    OutboxEvent::invoice_paid((&invoice).into()),
+                                )
+                                .await?;
+                        }
+
+                        // todo should this be on_invoice_paid?
                         if let Some(subscription_id) = subscription_id.as_ref() {
                             let subscription = SubscriptionRow::get_subscription_by_id(
                                 conn,
