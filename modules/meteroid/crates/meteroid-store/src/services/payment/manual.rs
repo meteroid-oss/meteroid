@@ -1,5 +1,4 @@
 use crate::StoreResult;
-use crate::domain::Invoice;
 use crate::domain::outbox_event::OutboxEvent;
 use crate::domain::payment_transactions::PaymentTransaction;
 use crate::errors::StoreError;
@@ -10,9 +9,7 @@ use chrono::NaiveDateTime;
 use common_domain::ids::{BaseId, InvoiceId, PaymentTransactionId, TenantId};
 use common_utils::decimals::ToSubunit;
 use diesel_async::scoped_futures::ScopedFutureExt;
-use diesel_models::enums::{
-    InvoicePaymentStatus, InvoiceStatusEnum, PaymentStatusEnum, PaymentTypeEnum,
-};
+use diesel_models::enums::{InvoiceStatusEnum, PaymentStatusEnum, PaymentTypeEnum};
 use diesel_models::invoices::InvoiceRow;
 use diesel_models::payments::PaymentTransactionRowNew;
 use error_stack::Report;
@@ -175,28 +172,12 @@ impl Services {
                         .await
                         .map_err(Into::<Report<StoreError>>::into)?;
 
-                    // Update invoice payment status synchronously
-                    InvoiceRow::apply_payment_status(
-                        conn,
-                        invoice_id,
-                        tenant_id,
-                        InvoicePaymentStatus::Paid,
-                        Some(payment_date),
-                    )
-                    .await?;
-
                     let transaction: PaymentTransaction = inserted_transaction.into();
                     self.store
                         .insert_outbox_event_tx(
                             conn,
-                            OutboxEvent::payment_transaction_saved(transaction.clone().into()),
+                            OutboxEvent::payment_transaction_saved(transaction.into()),
                         )
-                        .await?;
-
-                    let invoice: Invoice = invoice.invoice.try_into()?;
-
-                    self.store
-                        .insert_outbox_event_tx(conn, OutboxEvent::invoice_paid((&invoice).into()))
                         .await?;
 
                     let updated_invoice = self
