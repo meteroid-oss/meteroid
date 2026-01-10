@@ -9,7 +9,7 @@ use object_store::local::LocalFileSystem;
 use object_store::memory::InMemory;
 use object_store::path::Path;
 use object_store::signer::Signer;
-use object_store::{ObjectStore, ObjectStoreScheme, PutPayload};
+use object_store::{ObjectStore, ObjectStoreExt, ObjectStoreScheme, PutPayload};
 use std::sync::Arc;
 use std::time::Duration;
 
