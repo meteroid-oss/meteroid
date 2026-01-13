@@ -136,3 +136,34 @@ fn get_mapped_rates_for_currency(
         })
     })
 }
+
+/// Transaction-compatible version of get_historical_rate.
+/// Use this when you need to get a historical rate within an existing transaction.
+pub async fn get_historical_rate_tx(
+    conn: &mut PgConn,
+    from_currency: &str,
+    to_currency: &str,
+    date: NaiveDate,
+) -> StoreResult<Option<HistoricalRate>> {
+    let rate = get_historical_rate_from_usd_by_date_cached(conn, date).await?;
+    Ok(get_mapped_rates_for_currency(
+        from_currency,
+        to_currency,
+        rate,
+    ))
+}
+
+/// Transaction-compatible version of latest_rate.
+/// Use this when you need to get the latest exchange rate within an existing transaction.
+pub async fn latest_rate_tx(
+    conn: &mut PgConn,
+    from_currency: &str,
+    to_currency: &str,
+) -> StoreResult<Option<HistoricalRate>> {
+    let rate = get_latest_rate_from_usd_cached(conn).await?;
+    Ok(get_mapped_rates_for_currency(
+        from_currency,
+        to_currency,
+        rate,
+    ))
+}

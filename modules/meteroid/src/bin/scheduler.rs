@@ -10,6 +10,7 @@ use common_build_info::BuildInfo;
 use common_logging::telemetry;
 use meteroid::clients::usage::MeteringUsageClient;
 use meteroid::config::Config;
+use meteroid::services::credit_note_rendering::CreditNotePdfRenderingService;
 use meteroid::services::currency_rates::OpenexchangeRatesService;
 use meteroid::services::invoice_rendering::PdfRenderingService;
 use meteroid::services::storage::S3Storage;
@@ -56,6 +57,11 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         config.jwt_secret.clone(),
     )?);
 
+    let credit_note_pdf_service = Arc::new(CreditNotePdfRenderingService::try_new(
+        object_store_service.clone(),
+        store.clone(),
+    )?);
+
     let mailer_service = mailer_service(config.mailer.clone());
 
     workers::spawn_workers(
@@ -66,6 +72,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         usage_clients.clone(),
         Arc::new(currency_rate_service),
         pdf_service.clone(),
+        credit_note_pdf_service,
         mailer_service,
         config,
     )

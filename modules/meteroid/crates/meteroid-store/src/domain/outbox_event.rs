@@ -1,18 +1,19 @@
 use crate::domain::connectors::ConnectionMeta;
+use crate::domain::enums::CreditNoteStatus;
 use crate::domain::enums::{BillingPeriodEnum, InvoiceStatusEnum};
 use crate::domain::pgmq::{PgmqMessage, PgmqMessageNew};
 use crate::domain::{
-    Address, BillableMetric, BillingMetricAggregateEnum, Customer, Invoice, PaymentStatusEnum,
-    PaymentTransaction, PaymentTypeEnum, Quote, SegmentationMatrix, ShippingAddress, Subscription,
-    SubscriptionStatusEnum, UnitConversionRoundingEnum,
+    Address, BillableMetric, BillingMetricAggregateEnum, CreditNote, Customer, Invoice,
+    PaymentStatusEnum, PaymentTransaction, PaymentTypeEnum, Quote, SegmentationMatrix,
+    ShippingAddress, Subscription, SubscriptionStatusEnum, UnitConversionRoundingEnum,
 };
 use crate::errors::{StoreError, StoreErrorReport};
 use crate::{StoreResult, json_value_serde};
 use chrono::{NaiveDate, NaiveDateTime};
 use common_domain::ids::{
-    BankAccountId, BaseId, BillableMetricId, ConnectorId, CustomerId, CustomerPaymentMethodId,
-    EventId, InvoiceId, PaymentTransactionId, PlanId, PlanVersionId, ProductFamilyId, ProductId,
-    QuoteId, StoredDocumentId, SubscriptionId, TenantId,
+    BankAccountId, BaseId, BillableMetricId, ConnectorId, CreditNoteId, CustomerId,
+    CustomerPaymentMethodId, EventId, InvoiceId, PaymentTransactionId, PlanId, PlanVersionId,
+    ProductFamilyId, ProductId, QuoteId, StoredDocumentId, SubscriptionId, TenantId,
 };
 use diesel_models::outbox_event::OutboxEventRowNew;
 use diesel_models::pgmq::PgmqMessageRowNew;
@@ -31,8 +32,12 @@ pub enum OutboxEvent {
     InvoiceCreated(Box<InvoiceEvent>),
     InvoiceFinalized(Box<InvoiceEvent>),
     InvoicePaid(Box<InvoiceEvent>),
+    InvoiceVoided(Box<InvoiceEvent>),
     // only triggered at finalization. Other pdfs (other lang etc) do not trigger this.
     InvoiceAccountingPdfGenerated(Box<InvoicePdfGeneratedEvent>),
+    CreditNoteCreated(Box<CreditNoteEvent>),
+    CreditNoteFinalized(Box<CreditNoteEvent>),
+    CreditNoteVoided(Box<CreditNoteEvent>),
     SubscriptionCreated(Box<SubscriptionEvent>),
     PaymentTransactionSaved(Box<PaymentTransactionEvent>),
     QuoteAccepted(Box<QuoteAcceptedEvent>),
@@ -47,7 +52,11 @@ pub enum EventType {
     InvoiceCreated,
     InvoiceFinalized,
     InvoicePaid,
+    InvoiceVoided,
     InvoiceAccountingPdfGenerated,
+    CreditNoteCreated,
+    CreditNoteFinalized,
+    CreditNoteVoided,
     SubscriptionCreated,
     PaymentTransactionReceived,
     QuoteAccepted,
@@ -65,7 +74,11 @@ impl OutboxEvent {
             OutboxEvent::InvoiceCreated(event) => event.id,
             OutboxEvent::InvoiceFinalized(event) => event.id,
             OutboxEvent::InvoicePaid(event) => event.id,
+            OutboxEvent::InvoiceVoided(event) => event.id,
             OutboxEvent::InvoiceAccountingPdfGenerated(event) => event.id,
+            OutboxEvent::CreditNoteCreated(event) => event.id,
+            OutboxEvent::CreditNoteFinalized(event) => event.id,
+            OutboxEvent::CreditNoteVoided(event) => event.id,
             OutboxEvent::SubscriptionCreated(event) => event.id,
             OutboxEvent::PaymentTransactionSaved(event) => event.id,
             OutboxEvent::QuoteAccepted(event) => event.id,
@@ -81,7 +94,11 @@ impl OutboxEvent {
             OutboxEvent::InvoiceCreated(event) => event.tenant_id,
             OutboxEvent::InvoiceFinalized(event) => event.tenant_id,
             OutboxEvent::InvoicePaid(event) => event.tenant_id,
+            OutboxEvent::InvoiceVoided(event) => event.tenant_id,
             OutboxEvent::InvoiceAccountingPdfGenerated(event) => event.tenant_id,
+            OutboxEvent::CreditNoteCreated(event) => event.tenant_id,
+            OutboxEvent::CreditNoteFinalized(event) => event.tenant_id,
+            OutboxEvent::CreditNoteVoided(event) => event.tenant_id,
             OutboxEvent::SubscriptionCreated(event) => event.tenant_id,
             OutboxEvent::PaymentTransactionSaved(event) => event.tenant_id,
             OutboxEvent::QuoteAccepted(event) => event.tenant_id,
@@ -97,7 +114,11 @@ impl OutboxEvent {
             OutboxEvent::InvoiceCreated(event) => event.invoice_id.as_uuid(),
             OutboxEvent::InvoiceFinalized(event) => event.invoice_id.as_uuid(),
             OutboxEvent::InvoicePaid(event) => event.invoice_id.as_uuid(),
+            OutboxEvent::InvoiceVoided(event) => event.invoice_id.as_uuid(),
             OutboxEvent::InvoiceAccountingPdfGenerated(event) => event.invoice_id.as_uuid(),
+            OutboxEvent::CreditNoteCreated(event) => event.credit_note_id.as_uuid(),
+            OutboxEvent::CreditNoteFinalized(event) => event.credit_note_id.as_uuid(),
+            OutboxEvent::CreditNoteVoided(event) => event.credit_note_id.as_uuid(),
             OutboxEvent::SubscriptionCreated(event) => event.subscription_id.as_uuid(),
             OutboxEvent::PaymentTransactionSaved(event) => event.payment_transaction_id.as_uuid(),
             OutboxEvent::QuoteAccepted(event) => event.quote_id.as_uuid(),
@@ -113,7 +134,11 @@ impl OutboxEvent {
             OutboxEvent::InvoiceCreated(_) => "Invoice".to_string(),
             OutboxEvent::InvoiceFinalized(_) => "Invoice".to_string(),
             OutboxEvent::InvoicePaid(_) => "Invoice".to_string(),
+            OutboxEvent::InvoiceVoided(_) => "Invoice".to_string(),
             OutboxEvent::InvoiceAccountingPdfGenerated(_) => "Invoice".to_string(),
+            OutboxEvent::CreditNoteCreated(_) => "CreditNote".to_string(),
+            OutboxEvent::CreditNoteFinalized(_) => "CreditNote".to_string(),
+            OutboxEvent::CreditNoteVoided(_) => "CreditNote".to_string(),
             OutboxEvent::SubscriptionCreated(_) => "Subscription".to_string(),
             OutboxEvent::PaymentTransactionSaved(_) => "PaymentTransaction".to_string(),
             OutboxEvent::QuoteAccepted(_) => "Quote".to_string(),
@@ -129,9 +154,13 @@ impl OutboxEvent {
             OutboxEvent::InvoiceCreated(_) => EventType::InvoiceCreated,
             OutboxEvent::InvoiceFinalized(_) => EventType::InvoiceFinalized,
             OutboxEvent::InvoicePaid(_) => EventType::InvoicePaid,
+            OutboxEvent::InvoiceVoided(_) => EventType::InvoiceVoided,
             OutboxEvent::InvoiceAccountingPdfGenerated(_) => {
                 EventType::InvoiceAccountingPdfGenerated
             }
+            OutboxEvent::CreditNoteCreated(_) => EventType::CreditNoteCreated,
+            OutboxEvent::CreditNoteFinalized(_) => EventType::CreditNoteFinalized,
+            OutboxEvent::CreditNoteVoided(_) => EventType::CreditNoteVoided,
             OutboxEvent::SubscriptionCreated(_) => EventType::SubscriptionCreated,
             OutboxEvent::PaymentTransactionSaved(_) => EventType::PaymentTransactionReceived,
             OutboxEvent::QuoteAccepted(_) => EventType::QuoteAccepted,
@@ -163,8 +192,24 @@ impl OutboxEvent {
         OutboxEvent::InvoicePaid(Box::new(event))
     }
 
+    pub fn invoice_voided(event: InvoiceEvent) -> OutboxEvent {
+        OutboxEvent::InvoiceVoided(Box::new(event))
+    }
+
     pub fn invoice_pdf_generated(event: InvoicePdfGeneratedEvent) -> OutboxEvent {
         OutboxEvent::InvoiceAccountingPdfGenerated(Box::new(event))
+    }
+
+    pub fn credit_note_created(event: CreditNoteEvent) -> OutboxEvent {
+        OutboxEvent::CreditNoteCreated(Box::new(event))
+    }
+
+    pub fn credit_note_finalized(event: CreditNoteEvent) -> OutboxEvent {
+        OutboxEvent::CreditNoteFinalized(Box::new(event))
+    }
+
+    pub fn credit_note_voided(event: CreditNoteEvent) -> OutboxEvent {
+        OutboxEvent::CreditNoteVoided(Box::new(event))
     }
 
     pub fn subscription_created(event: SubscriptionEvent) -> OutboxEvent {
@@ -328,6 +373,32 @@ pub struct InvoicePdfGeneratedEvent {
     pub tenant_id: TenantId,
     pub customer_id: CustomerId,
     pub pdf_id: StoredDocumentId,
+}
+
+#[skip_serializing_none]
+#[derive(Debug, Clone, Serialize, Deserialize, o2o)]
+#[from_ref(CreditNote)]
+pub struct CreditNoteEvent {
+    #[map(EventId::new())]
+    pub id: EventId,
+    #[map(@.id)]
+    pub credit_note_id: CreditNoteId,
+    #[map(@.status.clone())]
+    pub status: CreditNoteStatus,
+    pub tenant_id: TenantId,
+    pub customer_id: CustomerId,
+    pub invoice_id: InvoiceId,
+    pub subscription_id: Option<SubscriptionId>,
+    #[map(@.currency.clone())]
+    pub currency: String,
+    pub tax_amount: i64,
+    pub total: i64,
+    pub refunded_amount_cents: i64,
+    pub credited_amount_cents: i64,
+    #[map(@.created_at.clone())]
+    pub created_at: NaiveDateTime,
+    #[map(@.conn_meta.clone())]
+    pub conn_meta: Option<ConnectionMeta>,
 }
 
 #[skip_serializing_none]

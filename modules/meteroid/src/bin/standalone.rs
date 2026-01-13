@@ -11,6 +11,7 @@ use meteroid::clients::usage::MeteringUsageClient;
 use meteroid::config::Config;
 use meteroid::eventbus::setup_eventbus_handlers;
 use meteroid::migrations;
+use meteroid::services::credit_note_rendering::CreditNotePdfRenderingService;
 use meteroid::services::currency_rates::OpenexchangeRatesService;
 use meteroid::services::invoice_rendering::PdfRenderingService;
 use meteroid::services::storage::S3Storage;
@@ -106,6 +107,11 @@ async fn main() -> Result<(), Box<dyn Error>> {
         config.jwt_secret.clone(),
     )?);
 
+    let credit_note_pdf_service = Arc::new(CreditNotePdfRenderingService::try_new(
+        object_store_service.clone(),
+        store_arc.clone(),
+    )?);
+
     let mailer_service = mailer_service(config.mailer.clone());
 
     let workers_handle = tokio::spawn(async move {
@@ -117,6 +123,7 @@ async fn main() -> Result<(), Box<dyn Error>> {
             usage_clients.clone(),
             Arc::new(currency_rate_service),
             pdf_service,
+            credit_note_pdf_service,
             mailer_service,
             config,
         )

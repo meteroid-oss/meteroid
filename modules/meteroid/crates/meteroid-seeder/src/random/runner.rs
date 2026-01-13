@@ -505,6 +505,7 @@ pub async fn run(
                 tax_amount: invoice_content.amount_due,
                 total: invoice_content.total,
                 amount_due: invoice_content.amount_due,
+                applied_credits: invoice_content.applied_credits,
                 tax_breakdown: invoice_content.tax_breakdown,
                 net_terms: 30,
                 reference: None,

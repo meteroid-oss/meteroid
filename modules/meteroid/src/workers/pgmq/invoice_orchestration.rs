@@ -8,7 +8,7 @@ use futures::future::try_join_all;
 use meteroid_store::domain::PaymentStatusEnum;
 use meteroid_store::domain::outbox_event::OutboxEvent;
 use meteroid_store::domain::pgmq::{
-    InvoicePdfRequestEvent, PgmqMessage, PgmqMessageNew, PgmqQueue,
+    CreditNotePdfRequestEvent, InvoicePdfRequestEvent, PgmqMessage, PgmqMessageNew, PgmqQueue,
 };
 use meteroid_store::repositories::pgmq::PgmqInterface;
 use meteroid_store::{Services, Store, StoreResult};
@@ -82,6 +82,18 @@ impl PgmqHandler for InvoiceOrchestration {
                                     .change_context(PgmqError::HandleMessages)?;
 
                                 return Ok(msg_id);
+                            }
+                            OutboxEvent::CreditNoteFinalized(event) => {
+                                // request the credit note pdf to be generated
+                                let evt: StoreResult<PgmqMessageNew> =
+                                    CreditNotePdfRequestEvent::new(event.credit_note_id).try_into();
+                                store_clone
+                                    .pgmq_send_batch(
+                                        PgmqQueue::CreditNotePdfRequest,
+                                        vec![evt.change_context(PgmqError::HandleMessages)?],
+                                    )
+                                    .await
+                                    .change_context(PgmqError::HandleMessages)?;
                             }
 
                             // OutboxEvent::PaymentTransactionSaved(event) if event.status == PaymentStatusEnum::Failed or Cancelled ?

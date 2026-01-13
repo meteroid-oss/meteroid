@@ -20,6 +20,7 @@ import {
   Download,
   Edit,
   ExternalLink,
+  FileText,
   FileX2Icon,
   FolderSyncIcon,
   RefreshCcw,
@@ -29,8 +30,10 @@ import { Fragment, useEffect, useState } from 'react'
 import { Link, useNavigate } from 'react-router-dom'
 import { toast } from 'sonner'
 
+import { CreditNoteStatusPill } from '@/features/creditNotes'
 import { AddressLinesCompact } from '@/features/customers/cards/address/AddressCard'
 import { AddManualPaymentDialog } from '@/features/invoices/AddManualPaymentDialog'
+import { CreateCreditNoteDialog } from '@/features/invoices/CreateCreditNoteDialog'
 import { MarkAsPaidDialog } from '@/features/invoices/MarkAsPaidDialog'
 import { PaymentStatusBadge } from '@/features/invoices/PaymentStatusBadge'
 import { TransactionList } from '@/features/invoices/TransactionList'
@@ -47,6 +50,7 @@ import { resizeSvgContent } from '@/pages/tenants/invoice/utils'
 import { getLatestConnMeta } from '@/pages/tenants/utils'
 import { listConnectors } from '@/rpc/api/connectors/v1/connectors-ConnectorsService_connectquery'
 import { ConnectorProviderEnum } from '@/rpc/api/connectors/v1/models_pb'
+import { listCreditNotesByInvoiceId } from '@/rpc/api/creditnotes/v1/creditnotes-CreditNotesService_connectquery'
 import {
   deleteInvoice,
   finalizeInvoice,
@@ -228,9 +232,16 @@ export const InvoiceView: React.FC<Props & { invoiceId: string }> = ({ invoice, 
   const voidInvoiceMutation = useMutation(voidInvoice, {
     onSuccess: async () => {
       toast.success('Invoice voided')
-      await queryClient.invalidateQueries({
-        queryKey: createConnectQueryKey(getInvoice, { id: invoice?.id ?? '' }),
-      })
+      await Promise.all([
+        queryClient.invalidateQueries({
+          queryKey: createConnectQueryKey(getInvoice, { id: invoice?.id ?? '' }),
+        }),
+        queryClient.invalidateQueries({
+          queryKey: createConnectQueryKey(listCreditNotesByInvoiceId, {
+            invoiceId: invoice?.id ?? '',
+          }),
+        }),
+      ])
     },
     onError: error => {
       toast.error(`Failed to void invoice: ${error.message}`)
@@ -299,13 +310,23 @@ export const InvoiceView: React.FC<Props & { invoiceId: string }> = ({ invoice, 
   const [showVoidConfirmation, setShowVoidConfirmation] = useState(false)
   const [showMarkAsUncollectibleConfirmation, setShowMarkAsUncollectibleConfirmation] =
     useState(false)
+  const [showCreateCreditNoteDialog, setShowCreateCreditNoteDialog] = useState(false)
   const isPennylaneConnected = connectorsData.some(
     connector => connector.provider === ConnectorProviderEnum.PENNYLANE
   )
 
+  // Query for related credit notes
+  const creditNotesQuery = useQuery(
+    listCreditNotesByInvoiceId,
+    { invoiceId: invoice.id },
+    { enabled: Boolean(invoice.id) }
+  )
+  const creditNotes = creditNotesQuery.data?.creditNotes ?? []
+
   const canRefresh = isDraft && !invoice.manual
   const canDelete = isDraft
   const canFinalize = isDraft
+  const canCreateCreditNote = isFinalized
   const canSendToPennylane = isDraft && isPennylaneConnected
 
   const canVoid = isFinalized
@@ -383,6 +404,12 @@ export const InvoiceView: React.FC<Props & { invoiceId: string }> = ({ invoice, 
         invoiceNumber={invoice.invoiceNumber}
       />
 
+      <CreateCreditNoteDialog
+        open={showCreateCreditNoteDialog}
+        onOpenChange={setShowCreateCreditNoteDialog}
+        invoice={invoice}
+      />
+
       {/* Left Panel - Invoice Details */}
       <Flex direction="column" className="w-1/3 border-r border-border">
         {/* Fixed Header - Always Visible */}
@@ -440,6 +467,13 @@ export const InvoiceView: React.FC<Props & { invoiceId: string }> = ({ invoice, 
                 >
                   <FolderSyncIcon size="16" className="mr-2" />
                   Sync to Pennylane
+                </DropdownMenuItem>
+                <DropdownMenuItem
+                  disabled={!canCreateCreditNote}
+                  onClick={() => setShowCreateCreditNoteDialog(true)}
+                >
+                  <FileText size="16" className="mr-2" />
+                  Create Credit Note
                 </DropdownMenuItem>
                 <DropdownMenuItem disabled={!invoice.pdfDocumentId}>
                   <a
@@ -670,6 +704,40 @@ export const InvoiceView: React.FC<Props & { invoiceId: string }> = ({ invoice, 
               )}
             </div>
           </Flex>
+
+          {creditNotes.length > 0 && (
+            <>
+              <Separator className="-my-3" />
+              <Flex direction="column" className="gap-2 p-6">
+                <div className="text-[15px] font-medium">Credit Notes</div>
+                <div className="space-y-2">
+                  {creditNotes.map(cn => (
+                    <Link
+                      key={cn.id}
+                      to={`${basePath}/credit-notes/${cn.id}`}
+                      className="flex items-center justify-between p-2 rounded-md hover:bg-muted/50 transition-colors"
+                    >
+                      <div className="flex items-center gap-3">
+                        <FileText size={14} className="text-muted-foreground" />
+                        <div>
+                          <div className="text-[13px] font-medium">{cn.creditNoteNumber}</div>
+                          <div className="text-[11px] text-muted-foreground">
+                            {parseAndFormatDate(cn.createdAt)}
+                          </div>
+                        </div>
+                      </div>
+                      <div className="flex items-center gap-2">
+                        <span className="text-[13px] font-medium">
+                          {formatCurrency(Math.abs(Number(cn.total)), cn.currency)}
+                        </span>
+                        <CreditNoteStatusPill status={cn.status} />
+                      </div>
+                    </Link>
+                  ))}
+                </div>
+              </Flex>
+            </>
+          )}
 
           {getLatestConnMeta(invoice.connectionMetadata?.pennylane)?.externalId && (
             <>

@@ -56,7 +56,6 @@ export const sidebarItems = {
         {
           title: 'Credit notes',
           url: 'credit-notes',
-          disabled: true,
         },
       ],
     },

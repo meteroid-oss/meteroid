@@ -1,0 +1,109 @@
+syntax = "proto3";
+
+package meteroid.api.creditnotes.v1;
+
+import "api/creditnotes/v1/models.proto";
+import "common/v1/pagination.proto";
+
+message ListCreditNotesRequest {
+  enum SortBy {
+    DATE_DESC = 0;
+    DATE_ASC = 1;
+    ID_DESC = 2;
+    ID_ASC = 3;
+    NUMBER_ASC = 4;
+    NUMBER_DESC = 5;
+  }
+  SortBy sort_by = 1;
+  optional string search = 2;
+  meteroid.common.v1.Pagination pagination = 3;
+  optional CreditNoteStatus status = 4;
+  optional string customer_id = 5;
+  optional string invoice_id = 6;
+}
+
+message ListCreditNotesResponse {
+  repeated CreditNote credit_notes = 1;
+  meteroid.common.v1.PaginationResponse pagination_meta = 2;
+}
+
+message GetCreditNoteRequest {
+  string id = 1;
+}
+
+message GetCreditNoteResponse {
+  DetailedCreditNote credit_note = 1;
+}
+
+message ListCreditNotesByInvoiceIdRequest {
+  string invoice_id = 1;
+}
+
+message ListCreditNotesByInvoiceIdResponse {
+  repeated DetailedCreditNote credit_notes = 1;
+}
+
+message ListCreditNotesByCustomerIdRequest {
+  string customer_id = 1;
+}
+
+message ListCreditNotesByCustomerIdResponse {
+  repeated DetailedCreditNote credit_notes = 1;
+}
+
+message FinalizeCreditNoteRequest {
+  string id = 1;
+}
+
+message FinalizeCreditNoteResponse {
+  DetailedCreditNote credit_note = 1;
+}
+
+message VoidCreditNoteRequest {
+  string id = 1;
+}
+
+message VoidCreditNoteResponse {
+  DetailedCreditNote credit_note = 1;
+}
+
+message CreateCreditNoteRequest {
+  NewCreditNote credit_note = 1;
+}
+
+message CreateCreditNoteResponse {
+  DetailedCreditNote credit_note = 1;
+}
+
+message PreviewCreditNoteSvgRequest {
+  string id = 1;
+}
+
+message PreviewCreditNoteSvgResponse {
+  repeated string svgs = 1;
+}
+
+message RequestCreditNotePdfGenerationRequest {
+  string id = 1;
+}
+
+message RequestCreditNotePdfGenerationResponse {}
+
+message DeleteDraftCreditNoteRequest {
+  string id = 1;
+}
+
+message DeleteDraftCreditNoteResponse {}
+
+service CreditNotesService {
+  rpc ListCreditNotes(ListCreditNotesRequest) returns (ListCreditNotesResponse) {}
+  rpc GetCreditNote(GetCreditNoteRequest) returns (GetCreditNoteResponse) {}
+  rpc ListCreditNotesByInvoiceId(ListCreditNotesByInvoiceIdRequest) returns (ListCreditNotesByInvoiceIdResponse) {}
+  rpc ListCreditNotesByCustomerId(ListCreditNotesByCustomerIdRequest) returns (ListCreditNotesByCustomerIdResponse) {}
+  rpc CreateCreditNote(CreateCreditNoteRequest) returns (CreateCreditNoteResponse) {}
+  rpc FinalizeCreditNote(FinalizeCreditNoteRequest) returns (FinalizeCreditNoteResponse) {}
+  rpc VoidCreditNote(VoidCreditNoteRequest) returns (VoidCreditNoteResponse) {}
+  rpc DeleteDraftCreditNote(DeleteDraftCreditNoteRequest) returns (DeleteDraftCreditNoteResponse) {}
+  rpc PreviewCreditNoteSvg(PreviewCreditNoteSvgRequest) returns (PreviewCreditNoteSvgResponse) {}
+  rpc RequestCreditNotePdfGeneration(RequestCreditNotePdfGenerationRequest) returns (RequestCreditNotePdfGenerationResponse) {}
+}

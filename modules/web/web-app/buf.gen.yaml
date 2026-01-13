@@ -9,6 +9,7 @@ types:
     - meteroid.api.customers.v1.CustomersService
     - meteroid.api.customers.v1.CustomersIngestService
     - meteroid.api.coupons.v1.CouponsService
+    - meteroid.api.creditnotes.v1.CreditNotesService
     - meteroid.api.events.v1.EventsService
     - meteroid.api.events.v1.EventsIngestService
     - meteroid.api.instance.v1.InstanceService

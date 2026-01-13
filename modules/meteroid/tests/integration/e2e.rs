@@ -510,6 +510,7 @@ async fn test_metering_e2e() {
             invoice_date: period_2_start.date_naive(),
             total: 100,
             amount_due: 100,
+            applied_credits: 0,
             net_terms: 0,
             reference: None,
             purchase_order: None,

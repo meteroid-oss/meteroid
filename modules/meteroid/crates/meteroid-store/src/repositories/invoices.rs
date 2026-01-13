@@ -10,6 +10,9 @@ use crate::domain::{
 };
 use crate::errors::StoreError;
 use crate::repositories::connectors::ConnectorsInterface;
+use crate::repositories::credit_notes::{
+    CreateCreditNoteTxParams, CreditType, create_credit_note_tx,
+};
 use crate::repositories::customer_balance::CustomerBalance;
 use crate::repositories::pgmq::PgmqInterface;
 use crate::store::Store;
@@ -447,16 +450,76 @@ impl InvoiceInterface for Store {
         id: InvoiceId,
         tenant_id: TenantId,
     ) -> StoreResult<DetailedInvoice> {
-        let mut conn = self.get_conn().await?;
+        self.transaction(|conn| {
+            async move {
+                // 1. Get and validate the invoice
+                let detailed_invoice = InvoiceRow::find_detailed_by_id(conn, tenant_id, id)
+                    .await
+                    .map_err(Into::<Report<StoreError>>::into)?;
 
-        InvoiceRow::void(&mut conn, id, tenant_id)
-            .await
-            .map_err(Into::<Report<StoreError>>::into)?;
+                let invoice: Invoice = detailed_invoice.invoice.try_into()?;
 
-        InvoiceRow::find_detailed_by_id(&mut conn, tenant_id, id)
-            .await
-            .map_err(Into::into)
-            .and_then(TryInto::try_into)
+                // 2. Validate invoice can be voided (must be finalized and not paid)
+                if invoice.status != domain::enums::InvoiceStatusEnum::Finalized {
+                    bail!(StoreError::InvalidArgument(
+                        "Only finalized invoices can be voided".to_string()
+                    ));
+                }
+
+                if matches!(
+                    invoice.payment_status,
+                    domain::enums::InvoicePaymentStatus::Paid
+                        | domain::enums::InvoicePaymentStatus::PartiallyPaid
+                ) {
+                    bail!(StoreError::InvalidArgument(
+                        "Paid or partially paid invoices cannot be voided".to_string()
+                    ));
+                }
+
+                // 3. Create credit note for the full invoice amount using shared implementation
+                let _credit_note = create_credit_note_tx(
+                    self,
+                    conn,
+                    tenant_id,
+                    CreateCreditNoteTxParams {
+                        invoice,
+                        line_items: None, // Credit all line items
+                        status: domain::enums::CreditNoteStatus::Finalized,
+                        finalized_at: Some(chrono::Utc::now().naive_utc()),
+                        reason: Some("Invoice voided".to_string()),
+                        memo: None,
+                        credit_type: CreditType::CreditToBalance,
+                    },
+                )
+                .await?;
+
+                // 4. Void the invoice
+                InvoiceRow::void(conn, id, tenant_id)
+                    .await
+                    .map_err(Into::<Report<StoreError>>::into)?;
+
+                // 5. Get the voided invoice
+                let voided_invoice: DetailedInvoice =
+                    InvoiceRow::find_detailed_by_id(conn, tenant_id, id)
+                        .await
+                        .map_err(Into::<Report<StoreError>>::into)?
+                        .try_into()?;
+
+                // 6. Emit outbox event for voided invoice
+                self.internal
+                    .insert_outbox_events_tx(
+                        conn,
+                        vec![domain::outbox_event::OutboxEvent::invoice_voided(
+                            (&voided_invoice.invoice).into(),
+                        )],
+                    )
+                    .await?;
+
+                Ok(voided_invoice)
+            }
+            .scope_boxed()
+        })
+        .await
     }
 
     async fn mark_invoice_as_uncollectible(

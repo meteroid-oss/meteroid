@@ -2,6 +2,7 @@ import { RouteObject } from 'react-router-dom'
 
 import { NotImplemented } from '@/features/NotImplemented'
 import { Billing, BillingOutlet } from '@/pages/tenants/billing'
+import { CreditNote, CreditNotes } from '@/pages/tenants/creditnote'
 import { Invoice, Invoices } from '@/pages/tenants/invoice'
 import { InvoiceCreate } from '@/pages/tenants/invoice/invoiceCreate'
 import { CreateQuote, Quote, Quotes } from '@/pages/tenants/quotes'
@@ -64,6 +65,19 @@ export const billingRoutes: RouteObject = {
         {
           path: ':quoteId',
           element: <Quote />,
+        },
+      ],
+    },
+    {
+      path: 'credit-notes',
+      children: [
+        {
+          index: true,
+          element: <CreditNotes />,
+        },
+        {
+          path: ':creditNoteId',
+          element: <CreditNote />,
         },
       ],
     },

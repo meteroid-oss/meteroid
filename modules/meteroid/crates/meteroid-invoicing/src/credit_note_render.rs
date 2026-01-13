@@ -1,0 +1,465 @@
+use crate::credit_note_model::{
+    Address, CreditNote, CreditNoteLine, CreditNoteSubLine, Customer, Organization,
+    TaxBreakdownItem, TaxExemptionType,
+};
+use crate::errors::{InvoicingError, InvoicingResult};
+use chrono::prelude::*;
+use derive_typst_intoval::{IntoDict, IntoValue};
+use fluent_static::MessageBundle;
+use rust_decimal::Decimal;
+use rust_decimal::prelude::ToPrimitive;
+use rusty_money::{FormattableCurrency, iso};
+use typst::foundations::{Bytes, Dict, IntoValue};
+use typst::layout::PagedDocument;
+use typst::text::Font;
+use typst_as_lib::TypstEngine;
+
+static CREDIT_NOTE_CORE: &str = include_str!("../templates/credit_note.typ");
+static TEMPLATE_CORE: &str = include_str!("../templates/template.typ");
+static CREDIT_NOTE_MAIN_TEMPLATE: &str = include_str!("../templates/credit_note_main.typ");
+
+static INTER_VARIABLE_FONT: &[u8] = include_bytes!("../assets/fonts/Inter-Variable.ttf");
+static WORDMARK_LOGO: &[u8] = include_bytes!("../assets/wordmark.svg");
+static LOGO: &[u8] = include_bytes!("../assets/logo.png");
+
+// Use same localization as invoices
+#[allow(clippy::all)]
+mod l10n {
+    use fluent_static::message_bundle;
+
+    #[message_bundle(
+        resources = [
+            ("l10n/en-US/invoice.ftl", "en-US"),
+            ("l10n/fr-FR/invoice.ftl", "fr-FR"),
+        ],
+        default_language = "en-US")]
+    pub struct CreditNoteL10n;
+
+    include!(concat!(env!("OUT_DIR"), "/i18n_data.rs"));
+
+    pub fn get_country_local_name<'a>(lang: &str, country_code: &str) -> Option<&'a str> {
+        let primary = LOCALES
+            .get(lang)
+            .and_then(|locale| locale.get(country_code).map(std::string::String::as_str));
+        let fallback = || {
+            LOCALES
+                .get("en-US")
+                .and_then(|locale| locale.get(country_code).map(std::string::String::as_str))
+        };
+
+        primary.or_else(fallback)
+    }
+}
+
+#[derive(Debug, Clone, IntoValue, IntoDict)]
+pub struct TypstAddress {
+    pub line1: String,
+    pub line2: Option<String>,
+    pub city: Option<String>,
+    pub country: Option<String>,
+    pub state: Option<String>,
+    pub zipcode: Option<String>,
+}
+
+impl TypstAddress {
+    pub fn from_address(address: &Address, lang: &str) -> Self {
+        let country_name = address
+            .country
+            .as_ref()
+            .map(|code| l10n::get_country_local_name(lang, &code.code).unwrap_or(&code.name))
+            .map(std::string::ToString::to_string);
+
+        TypstAddress {
+            line1: address.line1.clone().unwrap_or_default(),
+            line2: address.line2.clone(),
+            city: address.city.clone(),
+            country: country_name,
+            state: address.state.clone(),
+            zipcode: address.zip_code.clone(),
+        }
+    }
+}
+
+#[derive(Debug, Clone, IntoValue, IntoDict)]
+pub struct TypstOrganization {
+    pub name: String,
+    pub logo_src: Option<Bytes>,
+    pub legal_number: Option<String>,
+    pub address: TypstAddress,
+    pub email: Option<String>,
+    pub tax_id: Option<String>,
+    pub footer_info: Option<String>,
+    pub footer_legal: Option<String>,
+    pub currency_code: String,
+    pub exchange_rate: Option<f64>,
+    pub accounting_currency_code: Option<String>,
+}
+
+impl TypstOrganization {
+    pub fn from_org_with_lang(org: Organization, lang: &str) -> Self {
+        let currency_code = org.accounting_currency.code().to_string();
+
+        TypstOrganization {
+            name: org.name,
+            logo_src: org.logo_src.map(Bytes::new),
+            legal_number: org.legal_number,
+            address: TypstAddress::from_address(&org.address, lang),
+            email: org.email,
+            tax_id: org.tax_id,
+            footer_info: org.footer_info,
+            footer_legal: org.footer_legal,
+            currency_code: currency_code.clone(),
+            exchange_rate: org.exchange_rate.and_then(|d| d.to_f64()),
+            accounting_currency_code: Some(currency_code),
+        }
+    }
+}
+
+#[derive(Debug, Clone, IntoValue, IntoDict)]
+pub struct TypstCustomer {
+    pub name: String,
+    pub legal_number: Option<String>,
+    pub address: TypstAddress,
+    pub email: Option<String>,
+    pub tax_id: Option<String>,
+}
+
+impl TypstCustomer {
+    pub fn from_customer_with_lang(customer: &Customer, lang: &str) -> Self {
+        TypstCustomer {
+            name: customer.name.clone(),
+            legal_number: customer.legal_number.clone(),
+            address: TypstAddress::from_address(&customer.address, lang),
+            email: customer.email.clone(),
+            tax_id: customer.tax_id.clone(),
+        }
+    }
+}
+
+#[derive(Debug, Clone, IntoValue, IntoDict)]
+pub struct TypstCreditNoteLine {
+    pub name: String,
+    pub description: Option<String>,
+    pub quantity: Option<f64>,
+    pub unit_price: Option<f64>,
+    pub vat_rate: Option<f64>,
+    pub subtotal: f64,
+    pub start_date: String,
+    pub end_date: String,
+    pub sub_lines: Vec<TypstCreditNoteSubLine>,
+}
+
+impl From<&CreditNoteLine> for TypstCreditNoteLine {
+    fn from(line: &CreditNoteLine) -> Self {
+        let start_date = line.start_date.format("%Y-%m-%d").to_string();
+        let end_date = line.end_date.format("%Y-%m-%d").to_string();
+
+        TypstCreditNoteLine {
+            name: line.name.clone(),
+            description: line.description.clone(),
+            quantity: line.quantity.and_then(|d| d.to_f64()),
+            unit_price: line.unit_price.as_ref().and_then(|d| d.amount().to_f64()),
+            vat_rate: (line.tax_rate * Decimal::from(100)).to_f64(),
+            subtotal: line.subtotal.amount().to_f64().unwrap_or(0.0),
+            start_date,
+            end_date,
+            sub_lines: {
+                let mut sub_lines = Vec::with_capacity(line.sub_lines.len());
+                for sub_line in &line.sub_lines {
+                    sub_lines.push(TypstCreditNoteSubLine::from(sub_line));
+                }
+                sub_lines
+            },
+        }
+    }
+}
+
+#[derive(Debug, Clone, IntoValue, IntoDict)]
+pub struct TypstCreditNoteSubLine {
+    pub name: String,
+    pub quantity: f64,
+    pub unit_price: f64,
+    pub total: f64,
+}
+
+impl From<&CreditNoteSubLine> for TypstCreditNoteSubLine {
+    fn from(sub_line: &CreditNoteSubLine) -> Self {
+        let quantity = sub_line.quantity.to_f64().unwrap_or(0.0);
+        let unit_price = sub_line.unit_price.amount().to_f64().unwrap_or(0.0);
+
+        TypstCreditNoteSubLine {
+            name: sub_line.name.clone(),
+            quantity,
+            unit_price,
+            total: sub_line.total.amount().to_f64().unwrap_or(0.0),
+        }
+    }
+}
+
+#[derive(Debug, Clone, IntoValue, IntoDict)]
+pub struct TypstTaxBreakdownItem {
+    pub name: String,
+    pub rate: f64,
+    pub amount: f64,
+    pub exemption_type: Option<String>,
+}
+
+impl From<&TaxBreakdownItem> for TypstTaxBreakdownItem {
+    fn from(item: &TaxBreakdownItem) -> Self {
+        let exemption_type = item.exemption_type.as_ref().map(|e| match e {
+            TaxExemptionType::ReverseCharge => "reverse_charge".to_string(),
+            TaxExemptionType::TaxExempt => "tax_exempt".to_string(),
+            TaxExemptionType::NotRegistered => "not_registered".to_string(),
+        });
+        TypstTaxBreakdownItem {
+            name: item.name.clone(),
+            rate: (item.rate * Decimal::from(100)).to_f64().unwrap_or(0.0),
+            amount: item.amount.amount().to_f64().unwrap_or(0.0),
+            exemption_type,
+        }
+    }
+}
+
+#[derive(Debug, Clone, IntoValue, IntoDict)]
+pub struct TypstCreditNoteContent {
+    pub lang: String,
+    pub organization: TypstOrganization,
+    pub customer: TypstCustomer,
+    pub number: String,
+    pub related_invoice_number: String,
+    pub issue_date: String,
+    pub subtotal: f64,
+    pub tax_amount: f64,
+    pub total_amount: f64,
+    pub currency_code: String,
+    pub currency_symbol: String,
+    pub reason: Option<String>,
+    pub memo: Option<String>,
+    pub credit_type: String,
+    pub refunded_amount: f64,
+    pub credited_amount: f64,
+    pub lines: Vec<TypstCreditNoteLine>,
+    pub tax_breakdown: Vec<TypstTaxBreakdownItem>,
+    pub translations: Dict,
+    pub show_tax_info: bool,
+    pub show_legal_info: bool,
+    pub show_footer_custom_info: bool,
+    pub whitelabel: bool,
+}
+
+impl From<&CreditNote> for TypstCreditNoteContent {
+    fn from(credit_note: &CreditNote) -> Self {
+        let lang = match credit_note.lang.as_str() {
+            "fr" | "fr-FR" => "fr-FR",
+            _ => "en-US",
+        };
+
+        let credit_note_l10n =
+            &l10n::CreditNoteL10N::get(lang).unwrap_or(l10n::CreditNoteL10N::default());
+
+        let mut translations = typst::foundations::dict! {
+            // Credit note specific translations
+            "credit_note_title" => credit_note_l10n.credit_note_title().into_value(),
+            "credit_note_number" => credit_note_l10n.credit_note_number().into_value(),
+            "related_invoice" => credit_note_l10n.related_invoice().into_value(),
+            "credit_to" => credit_note_l10n.credit_to().into_value(),
+            "reason" => credit_note_l10n.reason().into_value(),
+            "refunded" => credit_note_l10n.refunded().into_value(),
+            "credit_to_balance" => credit_note_l10n.credit_to_balance().into_value(),
+            "refunded_amount" => credit_note_l10n.refunded_amount().into_value(),
+            "credited_amount" => credit_note_l10n.credited_amount().into_value(),
+            "total_credit" => credit_note_l10n.total_credit().into_value(),
+            // Shared translations
+            "issue_date" => credit_note_l10n.issue_date().into_value(),
+            "description" => credit_note_l10n.description().into_value(),
+            "quantity" => credit_note_l10n.quantity().into_value(),
+            "unit_price" => credit_note_l10n.unit_price().into_value(),
+            "tax_rate" => credit_note_l10n.tax_rate().into_value(),
+            "amount" => credit_note_l10n.amount().into_value(),
+            "subtotal" => credit_note_l10n.subtotal().into_value(),
+            "legal_info" => credit_note_l10n.legal_info().into_value(),
+            "vat_exempt_legal" => credit_note_l10n.vat_exempt_legal().into_value(),
+            "vat_id" => credit_note_l10n.vat_id().into_value(),
+            "tax_info_title" => credit_note_l10n.tax_info_title().into_value(),
+            "tax_reverse_charge" => credit_note_l10n.tax_reverse_charge().into_value(),
+            "reverse_charge_notice" => credit_note_l10n.reverse_charge_notice().into_value(),
+            "vat_exempt_notice" => credit_note_l10n.vat_exempt_notice().into_value(),
+            "no_tax_applied" => credit_note_l10n.no_tax_applied().into_value(),
+            "tax_included_text" => credit_note_l10n.tax_included_text(credit_note.metadata.currency.name).into_value(),
+            "company_registration" => credit_note_l10n.company_registration().into_value(),
+            "credit_note_vat_directive_notice" => credit_note_l10n.credit_note_vat_directive_notice().into_value(),
+            "credit_note_reverse_charge_notice" => credit_note_l10n.credit_note_reverse_charge_notice().into_value()
+        };
+
+        if let Some(exchange_rate) = credit_note.organization.exchange_rate {
+            let date = format_date(lang, &credit_note.metadata.issue_date).unwrap_or_else(|_| {
+                credit_note
+                    .metadata
+                    .issue_date
+                    .format("%Y-%m-%d")
+                    .to_string()
+            });
+
+            let equality = format!(
+                "1 {} = {} {}",
+                credit_note.metadata.currency.code(),
+                exchange_rate,
+                credit_note.organization.accounting_currency.code()
+            );
+
+            let amount_converted = format_currency_dec(
+                credit_note.metadata.total_amount.amount() * exchange_rate,
+                &credit_note.organization.accounting_currency,
+            );
+
+            translations.insert(
+                "exchange_rate_info".into(),
+                credit_note_l10n
+                    .exchange_rate_info(&date, &equality, &amount_converted)
+                    .into_value(),
+            );
+        }
+
+        let currency_symbol = credit_note.metadata.currency.symbol();
+
+        let formatted_issue_date = format_date(lang, &credit_note.metadata.issue_date)
+            .unwrap_or_else(|_| {
+                credit_note
+                    .metadata
+                    .issue_date
+                    .format("%Y-%m-%d")
+                    .to_string()
+            });
+
+        let mut lines = Vec::with_capacity(credit_note.lines.len());
+        for line in &credit_note.lines {
+            lines.push(TypstCreditNoteLine::from(line));
+        }
+
+        let mut tax_breakdown = Vec::with_capacity(credit_note.tax_breakdown.len());
+        for tax_breakdown_item in &credit_note.tax_breakdown {
+            tax_breakdown.push(TypstTaxBreakdownItem::from(tax_breakdown_item));
+        }
+
+        let currency_code = credit_note.metadata.currency.code().to_string();
+
+        let subtotal = credit_note
+            .metadata
+            .subtotal
+            .amount()
+            .to_f64()
+            .unwrap_or(0.0);
+        let tax_amount = credit_note
+            .metadata
+            .tax_amount
+            .amount()
+            .to_f64()
+            .unwrap_or(0.0);
+        let total_amount = credit_note
+            .metadata
+            .total_amount
+            .amount()
+            .to_f64()
+            .unwrap_or(0.0);
+
+        let refunded_amount = credit_note
+            .metadata
+            .refunded_amount
+            .amount()
+            .to_f64()
+            .unwrap_or(0.0);
+        let credited_amount = credit_note
+            .metadata
+            .credited_amount
+            .amount()
+            .to_f64()
+            .unwrap_or(0.0);
+
+        TypstCreditNoteContent {
+            lang: credit_note.lang.clone(),
+            organization: TypstOrganization::from_org_with_lang(
+                credit_note.organization.clone(),
+                lang,
+            ),
+            customer: TypstCustomer::from_customer_with_lang(&credit_note.customer, lang),
+            number: credit_note.metadata.number.clone(),
+            related_invoice_number: credit_note.metadata.related_invoice_number.clone(),
+            issue_date: formatted_issue_date,
+            subtotal,
+            tax_amount,
+            total_amount,
+            currency_code,
+            currency_symbol: currency_symbol.to_string(),
+            reason: credit_note.metadata.reason.clone(),
+            memo: credit_note.metadata.memo.clone(),
+            credit_type: credit_note.metadata.credit_type.as_template_string(),
+            refunded_amount,
+            credited_amount,
+            lines,
+            tax_breakdown,
+            translations,
+            show_tax_info: credit_note.metadata.flags.show_tax_info.unwrap_or(true),
+            show_legal_info: credit_note.metadata.flags.show_legal_info.unwrap_or(true),
+            show_footer_custom_info: credit_note
+                .metadata
+                .flags
+                .show_footer_custom_info
+                .unwrap_or(true),
+            whitelabel: credit_note.metadata.flags.whitelabel.unwrap_or(false),
+        }
+    }
+}
+
+#[inline]
+fn format_date(lang: &str, date: &chrono::NaiveDate) -> Result<String, InvoicingError> {
+    match lang {
+        "fr-FR" => Ok(date.format_localized("%e %B %Y", Locale::fr_FR).to_string()),
+        _ => Ok(date.format("%B %e, %Y").to_string()),
+    }
+}
+
+#[inline]
+fn format_currency_dec(amount: Decimal, currency: &iso::Currency) -> String {
+    rusty_money::Money::from_decimal(amount, currency).to_string()
+}
+
+pub struct TypstCreditNoteRenderer {
+    engine: TypstEngine,
+}
+
+impl TypstCreditNoteRenderer {
+    pub fn new() -> Result<Self, InvoicingError> {
+        let font = Font::new(Bytes::new(INTER_VARIABLE_FONT), 0).ok_or(
+            InvoicingError::I18nError("Failed to load Inter variable font".to_string()),
+        )?;
+
+        let engine = TypstEngine::builder()
+            .with_static_source_file_resolver([
+                ("credit_note.typ", CREDIT_NOTE_CORE),
+                ("template.typ", TEMPLATE_CORE),
+                ("credit_note_main.typ", CREDIT_NOTE_MAIN_TEMPLATE),
+            ])
+            .with_static_file_resolver([("wordmark.svg", WORDMARK_LOGO)])
+            .with_static_file_resolver([("logo.png", LOGO)])
+            .fonts([font])
+            .build();
+
+        Ok(TypstCreditNoteRenderer { engine })
+    }
+
+    pub fn render_credit_note(&self, credit_note: &CreditNote) -> InvoicingResult<PagedDocument> {
+        let credit_note_content = TypstCreditNoteContent::from(credit_note);
+
+        let result = self
+            .engine
+            .compile_with_input("credit_note_main.typ", credit_note_content.into_dict())
+            .output
+            .map_err(|e| {
+                InvoicingError::InvoiceGenerationError(format!(
+                    "Failed to compile Typst credit note document: {e:?}"
+                ))
+            })?;
+
+        Ok(result)
+    }
+}

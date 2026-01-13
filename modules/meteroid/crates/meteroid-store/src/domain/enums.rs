@@ -75,7 +75,7 @@ impl Ord for BillingPeriodEnum {
     }
 }
 
-#[derive(o2o, Serialize, Deserialize, Debug, Clone)]
+#[derive(o2o, Serialize, Deserialize, Debug, Clone, Eq, PartialEq)]
 #[map_owned(diesel_enums::CreditNoteStatus)]
 pub enum CreditNoteStatus {
     Draft,

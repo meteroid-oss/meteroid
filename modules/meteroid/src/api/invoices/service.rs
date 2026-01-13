@@ -822,6 +822,7 @@ async fn to_domain_invoice_new(
         finalized_at: None,
         total,
         amount_due,
+        applied_credits: 0, // manual invoices don't use customer credits ?
         subtotal,
         subtotal_recurring: 0, // no recurring items in manual invoices
         tax_amount: total_tax_amount,

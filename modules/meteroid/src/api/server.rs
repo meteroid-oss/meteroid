@@ -9,6 +9,7 @@ use meteroid_store::{Services, Store};
 
 use crate::api;
 use crate::api::cors::cors;
+use crate::services::credit_note_rendering::CreditNotePreviewRenderingService;
 use crate::services::customer_ingest::CustomerIngestService;
 use crate::services::invoice_rendering::InvoicePreviewRenderingService;
 use crate::services::storage::ObjectStoreService;
@@ -34,6 +35,9 @@ pub async fn start_api_server(
         config.public_url.clone(),
         config.jwt_secret.clone(),
     )?;
+
+    let credit_note_preview_rendering =
+        CreditNotePreviewRenderingService::try_new(Arc::new(store.clone()), object_store.clone())?;
 
     let (_, health_service) = tonic_health::server::health_reporter();
 
@@ -76,6 +80,10 @@ pub async fn start_api_server(
         ))
         .add_service(api::connectors::service(store.clone(), services.clone()))
         .add_service(api::coupons::service(store.clone()))
+        .add_service(api::creditnotes::service(
+            store.clone(),
+            credit_note_preview_rendering,
+        ))
         .add_service(api::customers::service(
             store.clone(),
             services.clone(),

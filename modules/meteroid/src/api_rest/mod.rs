@@ -1,4 +1,5 @@
 use crate::adapters::stripe::Stripe;
+use crate::api_rest::creditnotes::credit_note_routes;
 use crate::api_rest::customers::customer_routes;
 use crate::api_rest::events::event_routes;
 use crate::api_rest::invoices::invoice_routes;
@@ -21,6 +22,7 @@ use utoipa_axum::router::OpenApiRouter;
 
 mod addresses;
 mod auth;
+mod creditnotes;
 mod currencies;
 mod customers;
 pub mod error;
@@ -44,6 +46,7 @@ pub fn api_routes() -> OpenApiRouter<AppState> {
         .merge(plan_routes())
         .merge(customer_routes())
         .merge(invoice_routes())
+        .merge(credit_note_routes())
         .merge(event_routes())
 }
 

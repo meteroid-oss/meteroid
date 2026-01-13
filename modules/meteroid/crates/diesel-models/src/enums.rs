@@ -40,7 +40,7 @@ pub enum BillingPeriodEnum {
     Annual,
 }
 
-#[derive(diesel_derive_enum::DbEnum, Debug, Clone)]
+#[derive(diesel_derive_enum::DbEnum, Debug, Clone, Eq, PartialEq)]
 #[ExistingTypePath = "crate::schema::sql_types::CreditNoteStatus"]
 #[DbValueStyle = "SCREAMING_SNAKE_CASE"]
 pub enum CreditNoteStatus {

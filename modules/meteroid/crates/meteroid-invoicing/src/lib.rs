@@ -1,3 +1,5 @@
+pub mod credit_note_model;
+pub mod credit_note_render;
 pub mod errors;
 pub mod model;
 pub mod pdf;
