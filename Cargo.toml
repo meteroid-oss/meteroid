@@ -94,8 +94,8 @@ humantime = { version = "2.3.0" }
 hyper = { version = "1.7.0", default-features = false }
 image = "0.25.2"
 ordermap = "1.0.0"
-init-tracing-opentelemetry = { version = "0.34.0", features = ["tracing_subscriber_ext"] }
-axum-tracing-opentelemetry = { version = "0.32.3" }
+init-tracing-opentelemetry = { version = "0.36.0", features = ["tracing_subscriber_ext"] }
+axum-tracing-opentelemetry = { version = "0.33.0" }
 insta = { version = "1.43.1", features = ["json"] }
 itertools = "0.14.0"
 jsonwebtoken = { version = "10.0.0", default-features = false }
