@@ -479,7 +479,7 @@ const CreditNoteLineItems: React.FC<{ items: LineItem[]; currency: string }> = (
       {items
         .sort((a, b) => a.name.localeCompare(b.name))
         .map(item => (
-          <div key={item.localId} className="py-2">
+          <div key={item.id} className="py-2">
             <div className="flex justify-between items-start gap-2">
               <div className="flex-1 min-w-0">
                 <div className="text-[13px] font-medium break-words">{item.name}</div>

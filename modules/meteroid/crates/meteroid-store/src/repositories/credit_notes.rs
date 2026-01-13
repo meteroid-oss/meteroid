@@ -58,21 +58,16 @@ async fn convert_to_customer_currency(
 /// How the credit note amount should be applied
 #[derive(Debug, Clone)]
 pub enum CreditType {
-    /// Credit is added to customer's balance for future invoices
     CreditToBalance,
-    /// Credit triggers a refund to the customer
-    Refund,
+    Refund, // not implemented (external only)
 }
 
 /// Specifies a line item to credit, optionally with a partial amount
 #[derive(Debug, Clone)]
 pub struct CreditLineItem {
-    /// The local_id of the line item from the original invoice
     pub local_id: String,
-    /// Optional amount to credit, EXCLUDING TAX (subtotal).
+    /// Optional amount to credit, excl tax (subtotal).
     /// If None, credits the full line item subtotal.
-    /// Must be positive and not exceed the original line item's amount_subtotal.
-    /// Tax will be calculated proportionally based on the original tax rate.
     pub amount: Option<i64>,
 }
 
@@ -87,11 +82,8 @@ pub struct CreateCreditNoteParams {
     pub credit_type: CreditType,
 }
 
-/// Internal parameters for creating a credit note within a transaction.
-/// Used by both `create_credit_note` and `void_invoice`.
 #[derive(Debug, Clone)]
 pub(crate) struct CreateCreditNoteTxParams {
-    /// The invoice to create the credit note for (must be already loaded)
     pub invoice: Invoice,
     /// Line items to credit. If None, credits all invoice line items with full amounts.
     pub line_items: Option<Vec<CreditLineItem>>,
@@ -117,6 +109,7 @@ pub trait CreditNoteInterface {
         params: CreateCreditNoteParams,
     ) -> StoreResult<CreditNote>;
 
+    #[allow(clippy::too_many_arguments)]
     async fn list_credit_notes(
         &self,
         tenant_id: TenantId,
@@ -176,10 +169,6 @@ pub trait CreditNoteInterface {
         pdf_document_id: StoredDocumentId,
     ) -> StoreResult<()>;
 }
-
-// ============================================================================
-// Internal helper functions for credit note creation
-// ============================================================================
 
 /// Creates negated line items for a credit note.
 /// The amounts are negated to represent credits.
@@ -312,9 +301,6 @@ fn negate_line_items(
         .collect()
 }
 
-/// Computes tax breakdown from line items using their tax_details.
-/// Groups by (tax_rate, tax_name) to preserve individual tax information.
-/// Returns unsigned amounts (the credit note context implies the direction).
 fn compute_tax_breakdown(line_items: &[LineItem]) -> Vec<TaxBreakdownItem> {
     // Group by (tax_rate, tax_name) to preserve detailed breakdown
     let mut tax_groups: HashMap<(Decimal, String), u64> = HashMap::new();
@@ -322,30 +308,30 @@ fn compute_tax_breakdown(line_items: &[LineItem]) -> Vec<TaxBreakdownItem> {
     let mut taxable_by_rate: HashMap<Decimal, u64> = HashMap::new();
 
     for item in line_items {
-        let taxable = item.taxable_amount.abs() as u64;
+        let taxable = item.taxable_amount.unsigned_abs();
 
         if item.tax_details.is_empty() {
             // No detailed breakdown available, use combined rate
             if item.tax_amount != 0 || taxable > 0 {
                 let key = (item.tax_rate, "Tax".to_string());
-                *tax_groups.entry(key).or_insert(0) += item.tax_amount.abs() as u64;
+                *tax_groups.entry(key).or_insert(0) += item.tax_amount.unsigned_abs();
                 *taxable_by_rate.entry(item.tax_rate).or_insert(0) += taxable;
             }
         } else {
             // Use detailed breakdown - each tax_detail has its own rate and amount
             for detail in &item.tax_details {
                 let key = (detail.tax_rate, detail.tax_name.clone());
-                *tax_groups.entry(key).or_insert(0) += detail.tax_amount.abs() as u64;
+                *tax_groups.entry(key).or_insert(0) += detail.tax_amount.unsigned_abs();
                 // Taxable amount is shared across all taxes on this line item
                 // We track it per rate to avoid double-counting when multiple taxes share a rate
             }
             // Add taxable amount once per unique rate on this item
             let mut seen_rates: HashMap<Decimal, bool> = HashMap::new();
             for detail in &item.tax_details {
-                if !seen_rates.contains_key(&detail.tax_rate) {
+                seen_rates.entry(detail.tax_rate).or_insert_with(|| {
                     *taxable_by_rate.entry(detail.tax_rate).or_insert(0) += taxable;
-                    seen_rates.insert(detail.tax_rate, true);
-                }
+                    true
+                });
             }
         }
     }
@@ -365,8 +351,7 @@ fn compute_tax_breakdown(line_items: &[LineItem]) -> Vec<TaxBreakdownItem> {
         .collect()
 }
 
-/// Internal function to create a credit note within an existing transaction.
-/// This is the shared implementation used by both `create_credit_note` and `void_invoice`.
+// shared implementation used by both `create_credit_note` and `void_invoice`.
 pub(crate) async fn create_credit_note_tx(
     store: &Store,
     conn: &mut PgConn,
@@ -653,7 +638,6 @@ pub(crate) async fn create_credit_note_tx(
         .await?;
     }
 
-    // 14. Emit outbox events
     let mut events = vec![OutboxEvent::credit_note_created((&credit_note).into())];
     // If created as finalized, also emit the finalized event
     if params.status == crate::domain::enums::CreditNoteStatus::Finalized {

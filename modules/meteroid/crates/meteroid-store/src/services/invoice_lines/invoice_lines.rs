@@ -56,8 +56,7 @@ impl Services {
         if let Some(invoice) = invoice
             && !invoice.line_items.iter().any(is_usage_based_line)
         {
-            // Still need to recalculate applied_credits based on current customer balance
-            // because draft invoices are created without applied_credits set
+            // recalculate applied_credits based on current customer balance
             let total = invoice.total as u64;
             let applied_credits = min(
                 total,

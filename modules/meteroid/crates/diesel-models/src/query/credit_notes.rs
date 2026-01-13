@@ -202,7 +202,6 @@ impl CreditNoteRow {
             .select(CreditNoteRow::as_select())
             .into_boxed();
 
-        // Apply filters
         if let Some(customer_id) = param_customer_id {
             query = query.filter(cn_dsl::customer_id.eq(customer_id));
         }

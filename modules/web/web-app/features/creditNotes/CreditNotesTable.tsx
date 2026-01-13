@@ -40,7 +40,7 @@ export const CreditNotesTable = ({
       },
       {
         header: 'Amount',
-        accessorFn: cell => formatCurrency(Math.abs(Number(cell.total)), cell.currency, 2),
+        accessorFn: cell => formatCurrency(Math.abs(Number(cell.total)), cell.currency),
       },
       {
         header: 'Currency',

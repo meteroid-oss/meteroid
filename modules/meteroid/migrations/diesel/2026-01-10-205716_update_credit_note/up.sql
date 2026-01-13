@@ -53,7 +53,7 @@ CREATE TABLE credit_note (
     invoicing_entity_id   uuid                    NOT NULL REFERENCES invoicing_entity ON UPDATE CASCADE ON DELETE RESTRICT
 );
 
--- Indexes for efficient querying
+
 CREATE INDEX idx_credit_note_tenant_id ON credit_note(tenant_id);
 CREATE INDEX idx_credit_note_customer_id ON credit_note(customer_id);
 CREATE INDEX idx_credit_note_invoice_id ON credit_note(invoice_id);

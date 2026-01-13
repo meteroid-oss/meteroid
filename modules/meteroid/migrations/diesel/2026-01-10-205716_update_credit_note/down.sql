@@ -1,7 +1,6 @@
--- Drop the modern credit_note table
+
 DROP TABLE IF EXISTS credit_note CASCADE;
 
--- Restore the old simple credit_note table structure
 CREATE TABLE credit_note (
     id                    uuid               NOT NULL PRIMARY KEY,
     created_at            timestamp(3)       NOT NULL,
@@ -17,7 +16,6 @@ CREATE TABLE credit_note (
     status                "CreditNoteStatus" NOT NULL
 );
 
--- Restore bi_mrr_movement_log foreign key
 ALTER TABLE bi_mrr_movement_log
     DROP CONSTRAINT IF EXISTS bi_mrr_movement_log_credit_note_id_fkey;
 

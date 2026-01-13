@@ -10,7 +10,6 @@ use typst::layout::PagedDocument;
 use typst_pdf::{self, PdfOptions, PdfStandard, PdfStandards};
 
 fn generate_pdf_from_document(document: &PagedDocument) -> InvoicingResult<Bytes> {
-    // Generate PDF with proper standards - reuse PDF standards when possible
     let pdf_standard = [PdfStandard::A_3b]; // PDF/A-3b is required for e-invoicing
     let pdf_standards = PdfStandards::new(&pdf_standard).map_err(|_| {
         InvoicingError::PdfGenerationError("Failed to create PDF standards".to_string())
