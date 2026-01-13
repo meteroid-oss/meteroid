@@ -1,10 +1,20 @@
 <br/>
 
 <div align="center">
-  Want to support us ? Leave us a star ⭐ and join us on discord !
+
+  **📣 Exciting News! We’re launching on Product Hunt on Thursday, January 15!**
+
+  **We'd love your support! Upvote us on Product Hunt when we launch, leave a star ⭐ on Github, and join our Discord!**
+
+  <a href="https://www.producthunt.com/products/meteroid?launch=meteroid">
+    <img src="https://img.shields.io/badge/Check%20it%20out%20on%20Product%20Hunt%20%E2%86%92-red?logo=producthunt&logoColor=%23fff&style=for-the-badge" alt="ProductHunt">
+  </a>
+   
 </div>
 
 <br/>
+
+---
 
 <div align="center">
   <a href="https://www.meteroid.com?utm_source=github" target="_blank">
