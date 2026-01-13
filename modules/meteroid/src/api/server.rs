@@ -36,10 +36,8 @@ pub async fn start_api_server(
         config.jwt_secret.clone(),
     )?;
 
-    let credit_note_preview_rendering = CreditNotePreviewRenderingService::try_new(
-        Arc::new(store.clone()),
-        object_store.clone(),
-    )?;
+    let credit_note_preview_rendering =
+        CreditNotePreviewRenderingService::try_new(Arc::new(store.clone()), object_store.clone())?;
 
     let (_, health_service) = tonic_health::server::health_reporter();
 

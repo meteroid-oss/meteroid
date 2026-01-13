@@ -4,19 +4,21 @@ use crate::api::utils::PaginationExt;
 use common_domain::ids::{CreditNoteId, CustomerId, InvoiceId};
 use common_grpc::middleware::server::auth::RequestExt;
 use meteroid_grpc::meteroid::api::creditnotes::v1::{
-    CreateCreditNoteRequest, CreateCreditNoteResponse, CreditType, FinalizeCreditNoteRequest,
-    FinalizeCreditNoteResponse, GetCreditNoteRequest, GetCreditNoteResponse,
-    ListCreditNotesByCustomerIdRequest, ListCreditNotesByCustomerIdResponse,
-    ListCreditNotesByInvoiceIdRequest, ListCreditNotesByInvoiceIdResponse,
-    ListCreditNotesRequest, ListCreditNotesResponse, PreviewCreditNoteSvgRequest,
-    PreviewCreditNoteSvgResponse, RequestCreditNotePdfGenerationRequest,
-    RequestCreditNotePdfGenerationResponse, VoidCreditNoteRequest, VoidCreditNoteResponse,
-    credit_notes_service_server::CreditNotesService,
+    CreateCreditNoteRequest, CreateCreditNoteResponse, CreditType, DeleteDraftCreditNoteRequest,
+    DeleteDraftCreditNoteResponse, FinalizeCreditNoteRequest, FinalizeCreditNoteResponse,
+    GetCreditNoteRequest, GetCreditNoteResponse, ListCreditNotesByCustomerIdRequest,
+    ListCreditNotesByCustomerIdResponse, ListCreditNotesByInvoiceIdRequest,
+    ListCreditNotesByInvoiceIdResponse, ListCreditNotesRequest, ListCreditNotesResponse,
+    PreviewCreditNoteSvgRequest, PreviewCreditNoteSvgResponse,
+    RequestCreditNotePdfGenerationRequest, RequestCreditNotePdfGenerationResponse,
+    VoidCreditNoteRequest, VoidCreditNoteResponse, credit_notes_service_server::CreditNotesService,
 };
 use meteroid_store::domain::OrderByRequest;
-use meteroid_store::repositories::credit_notes::{CreateCreditNoteParams, CreditType as DomainCreditType};
-use meteroid_store::repositories::customers::CustomersInterfaceAuto;
 use meteroid_store::repositories::CreditNoteInterface;
+use meteroid_store::repositories::credit_notes::{
+    CreateCreditNoteParams, CreditLineItem, CreditType as DomainCreditType,
+};
+use meteroid_store::repositories::customers::CustomersInterfaceAuto;
 use tonic::{Request, Response, Status};
 
 use crate::api::creditnotes::CreditNoteServiceComponents;
@@ -199,16 +201,20 @@ impl CreditNotesService for CreditNoteServiceComponents {
         let tenant_id = request.tenant()?;
         let req = request.into_inner();
 
-        let credit_note_req = req.credit_note
+        let credit_note_req = req
+            .credit_note
             .ok_or_else(|| CreditNoteApiError::MissingArgument("credit_note".to_string()))?;
 
         let invoice_id = InvoiceId::from_proto(&credit_note_req.invoice_id)?;
 
-        // Convert line items
-        let line_item_ids: Vec<String> = credit_note_req
+        // Convert line items with optional amounts
+        let line_items: Vec<CreditLineItem> = credit_note_req
             .line_items
             .iter()
-            .map(|li| li.line_item_local_id.clone())
+            .map(|li| CreditLineItem {
+                local_id: li.line_item_local_id.clone(),
+                amount: li.amount,
+            })
             .collect();
 
         // Convert credit type
@@ -221,7 +227,7 @@ impl CreditNotesService for CreditNoteServiceComponents {
 
         let params = CreateCreditNoteParams {
             invoice_id,
-            line_item_ids,
+            line_items,
             reason: credit_note_req.reason,
             memo: credit_note_req.memo,
             credit_type,
@@ -317,6 +323,24 @@ impl CreditNotesService for CreditNoteServiceComponents {
         };
 
         Ok(Response::new(response))
+    }
+
+    #[tracing::instrument(skip_all)]
+    async fn delete_draft_credit_note(
+        &self,
+        request: Request<DeleteDraftCreditNoteRequest>,
+    ) -> Result<Response<DeleteDraftCreditNoteResponse>, Status> {
+        let tenant_id = request.tenant()?;
+        let req = request.into_inner();
+
+        let credit_note_id = CreditNoteId::from_proto(&req.id)?;
+
+        self.store
+            .delete_draft_credit_note(tenant_id, credit_note_id)
+            .await
+            .map_err(Into::<CreditNoteApiError>::into)?;
+
+        Ok(Response::new(DeleteDraftCreditNoteResponse {}))
     }
 
     #[tracing::instrument(skip_all)]

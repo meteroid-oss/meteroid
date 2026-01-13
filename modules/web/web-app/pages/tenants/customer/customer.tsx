@@ -16,7 +16,7 @@ import { ManageConnectionsModal } from '@/features/customers/modals/ManageConnec
 import { getCountryFlagEmoji, getCountryName } from '@/features/settings/utils'
 import { useBasePath } from '@/hooks/useBasePath'
 import { useQuery } from '@/lib/connectrpc'
-import { rateToPercent } from '@/lib/utils/numbers'
+import { formatCurrency, rateToPercent } from '@/lib/utils/numbers'
 import { ConnectorProviderEnum } from '@/rpc/api/connectors/v1/models_pb'
 import {
   generateCustomerPortalToken,
@@ -91,10 +91,11 @@ export const Customer = () => {
               <Flex direction="column" className="gap-4 w-2/3 border-r border-border px-12 py-6">
                 <div className="text-lg font-medium">Overview</div>
                 <div className="grid grid-cols-2 gap-x-4">
-                  <OverviewCard title="MRR" value={undefined} />
+                  <OverviewCard title="MRR" value={undefined} currency={data.currency} />
                   <OverviewCard
                     title="Balance"
                     value={data?.balanceValueCents ? Number(data.balanceValueCents) : undefined}
+                    currency={data.currency}
                   />
                 </div>
                 <Flex align="center" justify="between" className="mt-4">
@@ -290,13 +291,25 @@ export const Customer = () => {
   )
 }
 
-const OverviewCard = ({ title, value }: { title: string; value?: number }) => (
+const OverviewCard = ({
+  title,
+  value,
+  currency,
+}: {
+  title: string
+  currency: string
+  value?: number
+}) => (
   <Card className="bg-[#1A1A1A] bg-gradient-to-t from-[rgba(243,242,241,0.00)] to-[rgba(243,242,241,0.02)] rounded-md p-5">
     <Flex align="center" className="gap-1 text-muted-foreground">
       <div className="text-[13px]">{title}</div>
       <ChevronDown size={10} className="mt-0.5" />
     </Flex>
-    <div className="mt-4 text-xl">€ {value}</div>
+    {value !== undefined ? (
+      <div className="mt-4 text-xl">{formatCurrency(value, currency)}</div>
+    ) : (
+      <div className="mt-4 text-xl">-</div>
+    )}
   </Card>
 )
 

@@ -61,7 +61,7 @@ enum CreditType {
 
 message CreditLineItem {
   string line_item_local_id = 1;
-  optional int64 amount = 2; // if null, credit full line item amount
+  optional int64 amount = 2; // Amount to credit EXCLUDING TAX (subtotal in cents). If null, credits full line item subtotal. Tax is calculated proportionally.
 }
 
 message NewCreditNote {

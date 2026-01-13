@@ -367,7 +367,7 @@
         text(fill: color.accent, translations.subtotal),
         align(right, text(weight: "regular", format_amount(subtotal))),
 
-        ..if tax_breakdown.len() > 0 and tax_amount > 0 {
+        ..if tax_breakdown.len() > 0 and calc.abs(tax_amount) > 0 {
           for tax_item in tax_breakdown {
             (
               text(fill: color.accent, tax_item.name + " " + str(tax_item.rate) + "%"),

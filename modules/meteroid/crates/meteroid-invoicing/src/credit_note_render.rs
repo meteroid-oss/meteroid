@@ -292,8 +292,13 @@ impl From<&CreditNote> for TypstCreditNoteContent {
         };
 
         if let Some(exchange_rate) = credit_note.organization.exchange_rate {
-            let date = format_date(lang, &credit_note.metadata.issue_date)
-                .unwrap_or_else(|_| credit_note.metadata.issue_date.format("%Y-%m-%d").to_string());
+            let date = format_date(lang, &credit_note.metadata.issue_date).unwrap_or_else(|_| {
+                credit_note
+                    .metadata
+                    .issue_date
+                    .format("%Y-%m-%d")
+                    .to_string()
+            });
 
             let equality = format!(
                 "1 {} = {} {}",
@@ -442,10 +447,7 @@ impl TypstCreditNoteRenderer {
         Ok(TypstCreditNoteRenderer { engine })
     }
 
-    pub fn render_credit_note(
-        &self,
-        credit_note: &CreditNote,
-    ) -> InvoicingResult<PagedDocument> {
+    pub fn render_credit_note(&self, credit_note: &CreditNote) -> InvoicingResult<PagedDocument> {
         let credit_note_content = TypstCreditNoteContent::from(credit_note);
 
         let result = self

@@ -327,9 +327,7 @@ impl WebhookOutEventTypeEnum {
             WebhookOutEventTypeEnum::CreditNoteFinalized => {
                 "A credit note was finalized".to_string()
             }
-            WebhookOutEventTypeEnum::CreditNoteVoided => {
-                "A credit note was voided".to_string()
-            }
+            WebhookOutEventTypeEnum::CreditNoteVoided => "A credit note was voided".to_string(),
         }
     }
 }

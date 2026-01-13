@@ -15,6 +15,7 @@ CREATE TABLE credit_note (
     tenant_id             uuid                    NOT NULL REFERENCES tenant ON UPDATE CASCADE ON DELETE RESTRICT,
     customer_id           uuid                    NOT NULL REFERENCES customer ON UPDATE CASCADE ON DELETE RESTRICT,
     invoice_id            uuid                    NOT NULL REFERENCES invoice ON UPDATE CASCADE ON DELETE RESTRICT,
+    invoice_number        text                    NOT NULL,
     plan_version_id       uuid                    REFERENCES plan_version ON UPDATE CASCADE ON DELETE SET NULL,
     subscription_id       uuid                    REFERENCES subscription ON UPDATE CASCADE ON DELETE SET NULL,
 
@@ -73,3 +74,5 @@ ALTER TABLE bi_mrr_movement_log
     FOREIGN KEY (credit_note_id)
     REFERENCES credit_note(id)
     ON UPDATE CASCADE ON DELETE RESTRICT;
+
+SELECT pgmq.create('credit_note_pdf_request');

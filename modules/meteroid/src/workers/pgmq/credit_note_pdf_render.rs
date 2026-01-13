@@ -1,4 +1,6 @@
-use crate::services::credit_note_rendering::{CreditNoteGenerateResult, CreditNotePdfRenderingService};
+use crate::services::credit_note_rendering::{
+    CreditNoteGenerateResult, CreditNotePdfRenderingService,
+};
 use crate::workers::pgmq::PgmqResult;
 use crate::workers::pgmq::error::PgmqError;
 use crate::workers::pgmq::processor::PgmqHandler;

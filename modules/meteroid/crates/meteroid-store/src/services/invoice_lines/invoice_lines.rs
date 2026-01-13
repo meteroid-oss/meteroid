@@ -67,7 +67,8 @@ impl Services {
                     .to_non_negative_u64(),
             );
             let already_paid = prepaid_amount.unwrap_or(0);
-            let amount_due = total - already_paid - applied_credits;
+            let applied = (already_paid + applied_credits) as i64;
+            let amount_due = ((total as i64) - applied).to_non_negative_u64();
 
             return Ok(ComputedInvoiceContent {
                 invoice_lines: invoice.line_items.clone(),

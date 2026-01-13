@@ -26,3 +26,5 @@ ALTER TABLE bi_mrr_movement_log
     FOREIGN KEY (credit_note_id)
     REFERENCES credit_note(id)
     ON UPDATE CASCADE ON DELETE RESTRICT;
+
+SELECT pgmq.drop_queue('credit_note_pdf_request');

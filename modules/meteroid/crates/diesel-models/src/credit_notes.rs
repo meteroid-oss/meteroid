@@ -1,7 +1,10 @@
 use chrono::NaiveDateTime;
 
 use crate::enums::CreditNoteStatus;
-use common_domain::ids::{CreditNoteId, CustomerId, InvoiceId, InvoicingEntityId, PlanVersionId, StoredDocumentId, SubscriptionId, TenantId};
+use common_domain::ids::{
+    CreditNoteId, CustomerId, InvoiceId, InvoicingEntityId, PlanVersionId, StoredDocumentId,
+    SubscriptionId, TenantId,
+};
 use diesel::{AsChangeset, Identifiable, Insertable, Queryable, Selectable};
 
 #[derive(Debug, Identifiable, Queryable, Selectable)]
@@ -18,6 +21,7 @@ pub struct CreditNoteRow {
     pub tenant_id: TenantId,
     pub customer_id: CustomerId,
     pub invoice_id: InvoiceId,
+    pub invoice_number: String,
     pub plan_version_id: Option<PlanVersionId>,
     pub subscription_id: Option<SubscriptionId>,
     pub currency: String,
@@ -46,6 +50,7 @@ pub struct CreditNoteRowNew {
     pub tenant_id: TenantId,
     pub customer_id: CustomerId,
     pub invoice_id: InvoiceId,
+    pub invoice_number: String,
     pub plan_version_id: Option<PlanVersionId>,
     pub subscription_id: Option<SubscriptionId>,
     pub currency: String,

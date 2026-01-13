@@ -326,6 +326,7 @@ diesel::table! {
         tenant_id -> Uuid,
         customer_id -> Uuid,
         invoice_id -> Uuid,
+        invoice_number -> Text,
         plan_version_id -> Nullable<Uuid>,
         subscription_id -> Nullable<Uuid>,
         currency -> Text,

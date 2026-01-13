@@ -1,11 +1,11 @@
 use crate::api::invoices::mapping as invoice_mapping;
 use crate::api::shared::conversions::{AsProtoOpt, ProtoConv};
 use meteroid_grpc::meteroid::api::creditnotes::v1;
-use meteroid_store::domain::{CreditNote as DomainCreditNote, DetailedCreditNote, CreditNoteStatus};
+use meteroid_store::domain::{
+    CreditNote as DomainCreditNote, CreditNoteStatus, DetailedCreditNote,
+};
 
-pub fn credit_note_status_domain_to_server(
-    status: CreditNoteStatus,
-) -> v1::CreditNoteStatus {
+pub fn credit_note_status_domain_to_server(status: CreditNoteStatus) -> v1::CreditNoteStatus {
     match status {
         CreditNoteStatus::Draft => v1::CreditNoteStatus::Draft,
         CreditNoteStatus::Finalized => v1::CreditNoteStatus::Finalized,
@@ -13,14 +13,10 @@ pub fn credit_note_status_domain_to_server(
     }
 }
 
-pub fn credit_note_status_server_to_domain(
-    status: Option<i32>,
-) -> Option<CreditNoteStatus> {
+pub fn credit_note_status_server_to_domain(status: Option<i32>) -> Option<CreditNoteStatus> {
     status.and_then(|s| match v1::CreditNoteStatus::try_from(s).ok()? {
         v1::CreditNoteStatus::Draft => Some(CreditNoteStatus::Draft),
-        v1::CreditNoteStatus::Finalized => {
-            Some(CreditNoteStatus::Finalized)
-        }
+        v1::CreditNoteStatus::Finalized => Some(CreditNoteStatus::Finalized),
         v1::CreditNoteStatus::Voided => Some(CreditNoteStatus::Voided),
     })
 }

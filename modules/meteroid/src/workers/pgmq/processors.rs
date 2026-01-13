@@ -42,7 +42,6 @@ pub async fn run_outbox_dispatch(store: Arc<Store>) {
     .await;
 }
 
-
 // Used in tests
 pub async fn run_once_outbox_dispatch(store: Arc<Store>) {
     let queue = PgmqQueue::OutboxEvent;
@@ -229,9 +228,8 @@ pub async fn run_invoice_orchestration(store: Arc<Store>, services: Arc<Services
     .await;
 }
 
-
 // Used in tests
-pub  async fn run_once_invoice_orchestration(store: Arc<Store>, services: Arc<Services>) {
+pub async fn run_once_invoice_orchestration(store: Arc<Store>, services: Arc<Services>) {
     let queue = PgmqQueue::InvoiceOrchestration;
     let processor = Arc::new(PgmqOutboxProxy::new(
         store.clone(),

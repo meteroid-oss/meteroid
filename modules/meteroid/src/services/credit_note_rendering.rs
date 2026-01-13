@@ -258,7 +258,6 @@ impl CreditNotePdfRenderingService {
 
 mod mapper {
     use crate::errors::InvoicingRenderError;
-    use common_domain::ids::BaseId;
     use error_stack::Report;
     use meteroid_invoicing::credit_note_model as invoicing_model;
     use meteroid_store::constants::Countries;
@@ -301,7 +300,7 @@ mod mapper {
         let metadata = invoicing_model::CreditNoteMetadata {
             currency,
             number: credit_note.credit_note_number,
-            related_invoice_number: format!("INV-{}", credit_note.invoice_id.as_uuid()),
+            related_invoice_number: credit_note.invoice_number.clone(),
             issue_date,
             total_amount: rusty_money::Money::from_minor(credit_note.total, currency),
             tax_amount: rusty_money::Money::from_minor(credit_note.tax_amount, currency),

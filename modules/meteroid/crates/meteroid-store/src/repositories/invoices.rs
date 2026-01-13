@@ -10,11 +10,13 @@ use crate::domain::{
 };
 use crate::errors::StoreError;
 use crate::repositories::connectors::ConnectorsInterface;
-use crate::repositories::credit_notes::{create_credit_note_tx, CreateCreditNoteTxParams, CreditType};
+use crate::repositories::credit_notes::{
+    CreateCreditNoteTxParams, CreditType, create_credit_note_tx,
+};
 use crate::repositories::customer_balance::CustomerBalance;
 use crate::repositories::pgmq::PgmqInterface;
 use crate::store::Store;
-use crate::{domain, StoreResult};
+use crate::{StoreResult, domain};
 use common_domain::ids::{
     AliasOr, BaseId, ConnectorId, CustomerId, EventId, InvoiceId, StoredDocumentId, SubscriptionId,
     TenantId,
@@ -457,10 +459,20 @@ impl InvoiceInterface for Store {
 
                 let invoice: Invoice = detailed_invoice.invoice.try_into()?;
 
-                // 2. Validate invoice can be voided (must be finalized)
+                // 2. Validate invoice can be voided (must be finalized and not paid)
                 if invoice.status != domain::enums::InvoiceStatusEnum::Finalized {
                     bail!(StoreError::InvalidArgument(
                         "Only finalized invoices can be voided".to_string()
+                    ));
+                }
+
+                if matches!(
+                    invoice.payment_status,
+                    domain::enums::InvoicePaymentStatus::Paid
+                        | domain::enums::InvoicePaymentStatus::PartiallyPaid
+                ) {
+                    bail!(StoreError::InvalidArgument(
+                        "Paid or partially paid invoices cannot be voided".to_string()
                     ));
                 }
 
@@ -471,7 +483,7 @@ impl InvoiceInterface for Store {
                     tenant_id,
                     CreateCreditNoteTxParams {
                         invoice,
-                        line_item_ids: None, // Credit all line items
+                        line_items: None, // Credit all line items
                         status: domain::enums::CreditNoteStatus::Finalized,
                         finalized_at: Some(chrono::Utc::now().naive_utc()),
                         reason: Some("Invoice voided".to_string()),
@@ -487,10 +499,11 @@ impl InvoiceInterface for Store {
                     .map_err(Into::<Report<StoreError>>::into)?;
 
                 // 5. Get the voided invoice
-                let voided_invoice: DetailedInvoice = InvoiceRow::find_detailed_by_id(conn, tenant_id, id)
-                    .await
-                    .map_err(Into::<Report<StoreError>>::into)?
-                    .try_into()?;
+                let voided_invoice: DetailedInvoice =
+                    InvoiceRow::find_detailed_by_id(conn, tenant_id, id)
+                        .await
+                        .map_err(Into::<Report<StoreError>>::into)?
+                        .try_into()?;
 
                 // 6. Emit outbox event for voided invoice
                 self.internal

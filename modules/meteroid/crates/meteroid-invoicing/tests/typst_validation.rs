@@ -13,7 +13,7 @@ use meteroid_invoicing::{
     pdf::TypstPdfGenerator,
 };
 use rust_decimal::Decimal;
-use rusty_money::{iso, Money};
+use rusty_money::{Money, iso};
 use std::collections::HashMap;
 use std::path::Path;
 use std::str::FromStr;

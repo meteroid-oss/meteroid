@@ -1,8 +1,8 @@
 use super::enums::CreditNoteStatus;
 use super::invoice_lines::LineItem;
 use super::invoices::{InlineCustomer, InlineInvoicingEntity, TaxBreakdownItem};
-use crate::domain::connectors::ConnectionMeta;
 use crate::domain::Customer;
+use crate::domain::connectors::ConnectionMeta;
 use crate::errors::{StoreError, StoreErrorReport};
 use chrono::NaiveDateTime;
 use common_domain::ids::{
@@ -26,6 +26,7 @@ pub struct CreditNote {
     pub tenant_id: TenantId,
     pub customer_id: CustomerId,
     pub invoice_id: InvoiceId,
+    pub invoice_number: String,
     pub plan_version_id: Option<PlanVersionId>,
     pub subscription_id: Option<SubscriptionId>,
     pub currency: String,
@@ -68,6 +69,7 @@ pub struct CreditNoteNew {
     pub tenant_id: TenantId,
     pub customer_id: CustomerId,
     pub invoice_id: InvoiceId,
+    pub invoice_number: String,
     pub plan_version_id: Option<PlanVersionId>,
     pub subscription_id: Option<SubscriptionId>,
     pub currency: String,

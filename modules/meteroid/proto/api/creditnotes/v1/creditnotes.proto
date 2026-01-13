@@ -89,6 +89,12 @@ message RequestCreditNotePdfGenerationRequest {
 
 message RequestCreditNotePdfGenerationResponse {}
 
+message DeleteDraftCreditNoteRequest {
+  string id = 1;
+}
+
+message DeleteDraftCreditNoteResponse {}
+
 service CreditNotesService {
   rpc ListCreditNotes(ListCreditNotesRequest) returns (ListCreditNotesResponse) {}
   rpc GetCreditNote(GetCreditNoteRequest) returns (GetCreditNoteResponse) {}
@@ -97,6 +103,7 @@ service CreditNotesService {
   rpc CreateCreditNote(CreateCreditNoteRequest) returns (CreateCreditNoteResponse) {}
   rpc FinalizeCreditNote(FinalizeCreditNoteRequest) returns (FinalizeCreditNoteResponse) {}
   rpc VoidCreditNote(VoidCreditNoteRequest) returns (VoidCreditNoteResponse) {}
+  rpc DeleteDraftCreditNote(DeleteDraftCreditNoteRequest) returns (DeleteDraftCreditNoteResponse) {}
   rpc PreviewCreditNoteSvg(PreviewCreditNoteSvgRequest) returns (PreviewCreditNoteSvgResponse) {}
   rpc RequestCreditNotePdfGeneration(RequestCreditNotePdfGenerationRequest) returns (RequestCreditNotePdfGenerationResponse) {}
 }

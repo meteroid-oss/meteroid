@@ -9,30 +9,34 @@ use diesel_models::enums::{PlanStatusEnum, PlanTypeEnum};
 use diesel_models::plan_versions::PlanVersionRowNew;
 use diesel_models::plans::{PlanRowNew, PlanRowPatch};
 use diesel_models::price_components::PriceComponentRowNew;
+use meteroid::api_rest::webhooks::out_model::CreditNoteStatus;
+use meteroid::workers::pgmq::processors::{
+    run_invoice_orchestration, run_once_invoice_orchestration, run_once_outbox_dispatch,
+};
 use meteroid_mailer::service::MockMailerService;
+use meteroid_store::Services;
+use meteroid_store::clients::usage::MockUsageClient;
 use meteroid_store::domain::coupons::{CouponDiscount, CouponNew};
 use meteroid_store::domain::enums::InvoiceStatusEnum;
 use meteroid_store::domain::subscription_coupons::CreateSubscriptionCoupon;
 use meteroid_store::domain::{
-    Address, BillingPeriodEnum, CreateSubscription, CreateSubscriptionCoupons,
-    CustomerCustomTax, FeeType, InvoicingEntityPatch, OrderByRequest, PaginationRequest,
+    Address, BillingPeriodEnum, CreateSubscription, CreateSubscriptionCoupons, CustomerCustomTax,
+    FeeType, InvoicingEntityPatch, OrderByRequest, PaginationRequest,
     SubscriptionActivationCondition, SubscriptionNew, TermRate,
 };
-use meteroid_store::repositories::credit_notes::{CreateCreditNoteParams, CreditType};
 use meteroid_store::repositories::coupons::CouponInterface;
+use meteroid_store::repositories::credit_notes::{
+    CreateCreditNoteParams, CreditLineItem, CreditType,
+};
+use meteroid_store::repositories::customers::CustomersInterfaceAuto;
 use meteroid_store::repositories::invoicing_entities::InvoicingEntityInterface;
 use meteroid_store::repositories::{CreditNoteInterface, InvoiceInterface, SubscriptionInterface};
 use meteroid_store::store::PgConn;
-use meteroid_store::clients::usage::MockUsageClient;
-use meteroid_store::Services;
 use rust_decimal_macros::dec;
 use serde_json::json;
 use std::str::FromStr;
 use std::sync::Arc;
 use uuid::Uuid;
-use meteroid::api_rest::webhooks::out_model::CreditNoteStatus;
-use meteroid::workers::pgmq::processors::{run_invoice_orchestration, run_once_invoice_orchestration, run_once_outbox_dispatch};
-use meteroid_store::repositories::customers::CustomersInterfaceAuto;
 
 /// Test credit notes with partial credits, discounts, taxes, and multiple line items
 #[tokio::test]
@@ -175,7 +179,10 @@ async fn test_credit_note_partial_credits() {
     // Tax: 10% of 9000 = 900 cents
     // Total: 9000 + 900 = 9900 cents
     assert_eq!(invoice.subtotal, 10000, "Subtotal should be 10000 cents");
-    assert_eq!(invoice.discount, 1000, "Discount should be 1000 cents (10%)");
+    assert_eq!(
+        invoice.discount, 1000,
+        "Discount should be 1000 cents (10%)"
+    );
     assert_eq!(
         invoice.tax_amount, 900,
         "Tax should be 900 cents (10% of 9000)"
@@ -207,7 +214,16 @@ async fn test_credit_note_partial_credits() {
             TENANT_ID,
             CreateCreditNoteParams {
                 invoice_id: invoice.id,
-                line_item_ids: vec![line_ids[0].clone(), line_ids[1].clone()],
+                line_items: vec![
+                    CreditLineItem {
+                        local_id: line_ids[0].clone(),
+                        amount: None,
+                    },
+                    CreditLineItem {
+                        local_id: line_ids[1].clone(),
+                        amount: None,
+                    },
+                ],
                 reason: Some("Partial refund - first batch".to_string()),
                 memo: None,
                 credit_type: CreditType::CreditToBalance,
@@ -257,7 +273,16 @@ async fn test_credit_note_partial_credits() {
             TENANT_ID,
             CreateCreditNoteParams {
                 invoice_id: invoice.id,
-                line_item_ids: vec![line_ids[2].clone(), line_ids[3].clone()],
+                line_items: vec![
+                    CreditLineItem {
+                        local_id: line_ids[2].clone(),
+                        amount: None,
+                    },
+                    CreditLineItem {
+                        local_id: line_ids[3].clone(),
+                        amount: None,
+                    },
+                ],
                 reason: Some("Partial refund - second batch".to_string()),
                 memo: None,
                 credit_type: CreditType::CreditToBalance,
@@ -344,17 +369,35 @@ async fn test_credit_note_partial_credits() {
 
     // Line 0: original subtotal=1000, discount=100, taxable=900, tax=90, total=990
     let cn1_line0 = &credit_note_1.line_items[0];
-    assert_eq!(cn1_line0.amount_subtotal, -1000, "CN1 line 0 subtotal should be -1000");
-    assert_eq!(cn1_line0.taxable_amount, -900, "CN1 line 0 taxable should be -900");
+    assert_eq!(
+        cn1_line0.amount_subtotal, -1000,
+        "CN1 line 0 subtotal should be -1000"
+    );
+    assert_eq!(
+        cn1_line0.taxable_amount, -900,
+        "CN1 line 0 taxable should be -900"
+    );
     assert_eq!(cn1_line0.tax_amount, -90, "CN1 line 0 tax should be -90");
-    assert_eq!(cn1_line0.amount_total, -990, "CN1 line 0 total should be -990");
+    assert_eq!(
+        cn1_line0.amount_total, -990,
+        "CN1 line 0 total should be -990"
+    );
 
     // Line 1: original subtotal=2000, discount=200, taxable=1800, tax=180, total=1980
     let cn1_line1 = &credit_note_1.line_items[1];
-    assert_eq!(cn1_line1.amount_subtotal, -2000, "CN1 line 1 subtotal should be -2000");
-    assert_eq!(cn1_line1.taxable_amount, -1800, "CN1 line 1 taxable should be -1800");
+    assert_eq!(
+        cn1_line1.amount_subtotal, -2000,
+        "CN1 line 1 subtotal should be -2000"
+    );
+    assert_eq!(
+        cn1_line1.taxable_amount, -1800,
+        "CN1 line 1 taxable should be -1800"
+    );
     assert_eq!(cn1_line1.tax_amount, -180, "CN1 line 1 tax should be -180");
-    assert_eq!(cn1_line1.amount_total, -1980, "CN1 line 1 total should be -1980");
+    assert_eq!(
+        cn1_line1.amount_total, -1980,
+        "CN1 line 1 total should be -1980"
+    );
 
     // Credit note 2 should have 2 line items
     assert_eq!(
@@ -365,17 +408,35 @@ async fn test_credit_note_partial_credits() {
 
     // Line 2: original subtotal=3000, discount=300, taxable=2700, tax=270, total=2970
     let cn2_line0 = &credit_note_2.line_items[0];
-    assert_eq!(cn2_line0.amount_subtotal, -3000, "CN2 line 0 subtotal should be -3000");
-    assert_eq!(cn2_line0.taxable_amount, -2700, "CN2 line 0 taxable should be -2700");
+    assert_eq!(
+        cn2_line0.amount_subtotal, -3000,
+        "CN2 line 0 subtotal should be -3000"
+    );
+    assert_eq!(
+        cn2_line0.taxable_amount, -2700,
+        "CN2 line 0 taxable should be -2700"
+    );
     assert_eq!(cn2_line0.tax_amount, -270, "CN2 line 0 tax should be -270");
-    assert_eq!(cn2_line0.amount_total, -2970, "CN2 line 0 total should be -2970");
+    assert_eq!(
+        cn2_line0.amount_total, -2970,
+        "CN2 line 0 total should be -2970"
+    );
 
     // Line 3: original subtotal=4000, discount=400, taxable=3600, tax=360, total=3960
     let cn2_line1 = &credit_note_2.line_items[1];
-    assert_eq!(cn2_line1.amount_subtotal, -4000, "CN2 line 1 subtotal should be -4000");
-    assert_eq!(cn2_line1.taxable_amount, -3600, "CN2 line 1 taxable should be -3600");
+    assert_eq!(
+        cn2_line1.amount_subtotal, -4000,
+        "CN2 line 1 subtotal should be -4000"
+    );
+    assert_eq!(
+        cn2_line1.taxable_amount, -3600,
+        "CN2 line 1 taxable should be -3600"
+    );
     assert_eq!(cn2_line1.tax_amount, -360, "CN2 line 1 tax should be -360");
-    assert_eq!(cn2_line1.amount_total, -3960, "CN2 line 1 total should be -3960");
+    assert_eq!(
+        cn2_line1.amount_total, -3960,
+        "CN2 line 1 total should be -3960"
+    );
 
     // 12. Test that we can't credit the same line twice
     let duplicate_result = store
@@ -383,7 +444,12 @@ async fn test_credit_note_partial_credits() {
             TENANT_ID,
             CreateCreditNoteParams {
                 invoice_id: invoice.id,
-                line_item_ids: vec![line_ids[0].clone()], // Already credited
+                line_items: vec![
+                    CreditLineItem {
+                        local_id: line_ids[0].clone(),
+                        amount: None,
+                    }, // Already credited
+                ],
                 reason: Some("Should fail - duplicate".to_string()),
                 memo: None,
                 credit_type: CreditType::CreditToBalance,
@@ -504,7 +570,10 @@ async fn test_credit_note_race_condition() {
                     TENANT_ID,
                     CreateCreditNoteParams {
                         invoice_id,
-                        line_item_ids: vec![line_id],
+                        line_items: vec![CreditLineItem {
+                            local_id: line_id,
+                            amount: None,
+                        }],
                         reason: Some("Concurrent 1".to_string()),
                         memo: None,
                         credit_type: CreditType::CreditToBalance,
@@ -518,7 +587,10 @@ async fn test_credit_note_race_condition() {
                     TENANT_ID,
                     CreateCreditNoteParams {
                         invoice_id,
-                        line_item_ids: vec![line_id_clone],
+                        line_items: vec![CreditLineItem {
+                            local_id: line_id_clone,
+                            amount: None,
+                        }],
                         reason: Some("Concurrent 2".to_string()),
                         memo: None,
                         credit_type: CreditType::CreditToBalance,
@@ -527,7 +599,6 @@ async fn test_credit_note_race_condition() {
                 .await
         }
     );
-
 
     // Only one should succeed
     let successes = [result1.is_ok(), result2.is_ok()]
@@ -548,7 +619,7 @@ async fn test_credit_note_race_condition() {
     };
 
     assert!(
-        error_message.contains("already credited"),
+        error_message.contains("already been fully credited"),
         "The failed credit note should indicate the line was already credited, got error: {}",
         error_message
     );
@@ -614,7 +685,6 @@ async fn test_credit_note_refund_with_applied_credits() {
         .await
         .unwrap();
 
-
     // Get invoice
     let invoices = store
         .list_invoices(
@@ -632,7 +702,6 @@ async fn test_credit_note_refund_with_applied_credits() {
         .await
         .unwrap()
         .items;
-
 
     assert_eq!(invoices.len(), 1, "Should have a single invoice");
 
@@ -657,10 +726,7 @@ async fn test_credit_note_refund_with_applied_credits() {
         .unwrap()
         .items;
 
-
     assert_eq!(invoices.len(), 1, "Should have a single invoice");
-
-
 
     let customer_balance = store
         .find_customer_by_id(customer_id, TENANT_ID)
@@ -693,25 +759,20 @@ async fn test_credit_note_refund_with_applied_credits() {
 
     let invoice = &invoices[0].invoice;
 
-    let res = services.mark_invoice_as_paid(
-        TENANT_ID,
-        invoice.id,
-        dec!(80.00), // amount due after applying 20€ credits from 100€ plan
-        invoice.created_at,
-        None
-    ).await.unwrap();
+    let res = services
+        .mark_invoice_as_paid(
+            TENANT_ID,
+            invoice.id,
+            dec!(80.00), // amount due after applying 20€ credits from 100€ plan
+            invoice.created_at,
+            None,
+        )
+        .await
+        .unwrap();
 
+    run_once_outbox_dispatch(Arc::new(store.clone())).await;
 
-    run_once_outbox_dispatch(
-        Arc::new(store.clone()),
-    ).await;
-
-    run_once_invoice_orchestration(
-        Arc::new(store.clone()),
-        Arc::new(services.clone()),
-    ).await;
-
-
+    run_once_invoice_orchestration(Arc::new(store.clone()), Arc::new(services.clone())).await;
 
     // Invoice should have used applied_credits
     log::info!(
@@ -720,7 +781,6 @@ async fn test_credit_note_refund_with_applied_credits() {
         invoice.applied_credits,
         invoice.amount_due
     );
-
 
     // Total should be 10000 (no discount or tax in this test since no coupon and no tax resolver)
     // applied_credits should be 2000 (customer balance)
@@ -738,7 +798,7 @@ async fn test_credit_note_refund_with_applied_credits() {
             TENANT_ID,
             CreateCreditNoteParams {
                 invoice_id: invoice.id,
-                line_item_ids: vec![], // All lines
+                line_items: vec![], // All lines with full amounts
                 reason: Some("Full refund with applied credits".to_string()),
                 memo: None,
                 credit_type: CreditType::Refund,
@@ -771,7 +831,8 @@ async fn test_credit_note_refund_with_applied_credits() {
     );
 
     assert_eq!(
-        credit_note.status, meteroid_store::domain::enums::CreditNoteStatus::Draft,
+        credit_note.status,
+        meteroid_store::domain::enums::CreditNoteStatus::Draft,
         "Credit note should be draft until processed"
     );
 
@@ -787,10 +848,7 @@ async fn test_credit_note_refund_with_applied_credits() {
     );
 
     let finalized = store
-        .finalize_credit_note(
-            TENANT_ID,
-            credit_note.id,
-        )
+        .finalize_credit_note(TENANT_ID, credit_note.id)
         .await
         .unwrap();
 
@@ -804,10 +862,10 @@ async fn test_credit_note_refund_with_applied_credits() {
     );
 
     assert_eq!(
-        finalized.status, meteroid_store::domain::enums::CreditNoteStatus::Finalized,
+        finalized.status,
+        meteroid_store::domain::enums::CreditNoteStatus::Finalized,
         "Credit note should be finalized"
     );
-
 
     let customer_balance = store
         .find_customer_by_id(customer_id, TENANT_ID)
@@ -821,12 +879,298 @@ async fn test_credit_note_refund_with_applied_credits() {
     );
 }
 
+/// Test credit notes with partial amounts (crediting less than full line item amount)
+#[tokio::test]
+async fn test_credit_note_partial_amounts() {
+    helpers::init::logging();
+    let (_postgres_container, postgres_connection_string) =
+        meteroid_it::container::start_postgres().await;
+
+    let mock_mailer = Arc::new(MockMailerService::new());
+    let setup = meteroid_it::container::start_meteroid_with_clients(
+        postgres_connection_string,
+        SeedLevel::PLANS,
+        Arc::new(MockUsageClient::noop()),
+        mock_mailer.clone(),
+    )
+    .await;
+
+    let services = setup.services.clone();
+    let store = setup.store.clone();
+    let mut conn = setup.store.pool.get().await.unwrap();
+
+    log::info!(">>> Testing credit notes with partial amounts");
+
+    // 1. Set up manual tax resolver with 10% tax
+    store
+        .patch_invoicing_entity(
+            InvoicingEntityPatch {
+                id: INVOICING_ENTITY_ID,
+                tax_resolver: Some(meteroid_store::domain::enums::TaxResolverEnum::Manual),
+                ..Default::default()
+            },
+            TENANT_ID,
+        )
+        .await
+        .unwrap();
+
+    // 2. Create a plan with 4 price components
+    let (plan_version_id, _) = create_plan_with_4_components(&mut conn).await;
+
+    // 3. Create customer with custom tax rate (10%)
+    let customer_id = create_customer_with_tax(&mut conn, 0).await;
+
+    // 4. Create subscription
+    let subscription = services
+        .insert_subscription(
+            CreateSubscription {
+                subscription: SubscriptionNew {
+                    customer_id,
+                    plan_version_id,
+                    created_by: USER_ID,
+                    net_terms: None,
+                    invoice_memo: None,
+                    invoice_threshold: None,
+                    start_date: NaiveDate::from_ymd_opt(2024, 4, 1).unwrap(),
+                    end_date: None,
+                    billing_start_date: Some(NaiveDate::from_ymd_opt(2024, 4, 1).unwrap()),
+                    activation_condition: SubscriptionActivationCondition::OnStart,
+                    trial_duration: None,
+                    billing_day_anchor: None,
+                    payment_strategy: None,
+                    auto_advance_invoices: true,
+                    charge_automatically: false,
+                    purchase_order: None,
+                },
+                price_components: None,
+                add_ons: None,
+                coupons: None,
+            },
+            TENANT_ID,
+        )
+        .await
+        .unwrap();
+
+    // 5. Process billing events to finalize invoice
+    services.get_and_process_due_events().await.unwrap();
+
+    // 6. Get the invoice
+    let invoices = store
+        .list_invoices(
+            TENANT_ID,
+            None,
+            Some(subscription.id),
+            None,
+            None,
+            OrderByRequest::DateAsc,
+            PaginationRequest {
+                page: 0,
+                per_page: None,
+            },
+        )
+        .await
+        .unwrap()
+        .items;
+
+    assert_eq!(invoices.len(), 1, "Should have one invoice");
+    let invoice = &invoices[0].invoice;
+    assert_eq!(
+        invoice.status,
+        InvoiceStatusEnum::Finalized,
+        "Invoice should be finalized"
+    );
+
+    // Invoice has 4 line items:
+    // Line 0: subtotal=1000, tax=100, total=1100
+    // Line 1: subtotal=2000, tax=200, total=2200
+    // Line 2: subtotal=3000, tax=300, total=3300
+    // Line 3: subtotal=4000, tax=400, total=4400
+    // Total: 10000 + 1000 tax = 11000 (no discount in this test)
+    let line_ids: Vec<String> = invoice
+        .line_items
+        .iter()
+        .map(|l| l.local_id.clone())
+        .collect();
+
+    log::info!("Line items:");
+    for line in &invoice.line_items {
+        log::info!(
+            "  {}: subtotal={}, tax={}, total={}",
+            line.local_id,
+            line.amount_subtotal,
+            line.tax_amount,
+            line.amount_total
+        );
+    }
+
+    // 7. Create a credit note with partial amounts (EXCLUDING TAX):
+    // - Line 0: credit only 500 (half of subtotal 1000)
+    // - Line 1: credit full amount
+    let credit_note = store
+        .create_credit_note(
+            TENANT_ID,
+            CreateCreditNoteParams {
+                invoice_id: invoice.id,
+                line_items: vec![
+                    CreditLineItem {
+                        local_id: line_ids[0].clone(),
+                        amount: Some(500),
+                    }, // Half of subtotal
+                    CreditLineItem {
+                        local_id: line_ids[1].clone(),
+                        amount: None,
+                    }, // Full
+                ],
+                reason: Some("Partial amount credit test".to_string()),
+                memo: None,
+                credit_type: CreditType::CreditToBalance,
+            },
+        )
+        .await
+        .unwrap();
+
+    log::info!(
+        "Credit Note: subtotal={}, tax={}, total={}, credited={}",
+        credit_note.subtotal,
+        credit_note.tax_amount,
+        credit_note.total,
+        credit_note.credited_amount_cents
+    );
+
+    // Verify credit note totals
+    // Line 0 partial (500 = 50% of subtotal 1000):
+    //   - subtotal: 500 -> -500
+    //   - tax: 100 * 0.5 = 50 -> -50
+    //   - total: 500 + 50 = 550 -> -550
+    // Line 1 full:
+    //   - subtotal: -2000
+    //   - tax: -200
+    //   - total: -2200
+    // Combined:
+    //   - subtotal: -500 + -2000 = -2500
+    //   - tax: -50 + -200 = -250
+    //   - total: -550 + -2200 = -2750
+
+    assert_eq!(
+        credit_note.total, -2750,
+        "Credit note total should be -2750"
+    );
+    assert_eq!(
+        credit_note.credited_amount_cents, 2750,
+        "Credit note credited amount should be 2750"
+    );
+
+    // Verify line items
+    assert_eq!(credit_note.line_items.len(), 2, "Should have 2 line items");
+
+    // Line 0: partial credit (500 subtotal excl. tax)
+    let cn_line0 = &credit_note.line_items[0];
+    assert_eq!(
+        cn_line0.amount_subtotal, -500,
+        "CN line 0 subtotal should be -500"
+    );
+    // Tax is prorated: 100 * (500/1000) = 50
+    assert_eq!(cn_line0.tax_amount, -50, "CN line 0 tax should be -50");
+    // Total = subtotal + tax
+    assert_eq!(
+        cn_line0.amount_total, -550,
+        "CN line 0 total should be -550 (partial)"
+    );
+    // For partial credits, quantity=1 and unit_price=credited_subtotal
+    assert_eq!(
+        cn_line0.quantity,
+        Some(dec!(1)),
+        "CN line 0 quantity should be 1"
+    );
+    assert_eq!(
+        cn_line0.unit_price,
+        Some(dec!(-5.00)),
+        "CN line 0 unit_price should be -5.00 (-500 cents)"
+    );
+
+    // Line 1: full credit (keeps original quantity/unit_price)
+    let cn_line1 = &credit_note.line_items[1];
+    assert_eq!(
+        cn_line1.amount_subtotal, -2000,
+        "CN line 1 subtotal should be -2000"
+    );
+    assert_eq!(cn_line1.tax_amount, -200, "CN line 1 tax should be -200");
+    assert_eq!(
+        cn_line1.amount_total, -2200,
+        "CN line 1 total should be -2200 (full)"
+    );
+
+    // 8. Test validation: amount exceeds original subtotal
+    let exceed_result = store
+        .create_credit_note(
+            TENANT_ID,
+            CreateCreditNoteParams {
+                invoice_id: invoice.id,
+                line_items: vec![
+                    CreditLineItem {
+                        local_id: line_ids[2].clone(),
+                        amount: Some(9999),
+                    }, // Exceeds subtotal 3000
+                ],
+                reason: Some("Should fail - exceeds subtotal".to_string()),
+                memo: None,
+                credit_type: CreditType::CreditToBalance,
+            },
+        )
+        .await;
+
+    assert!(
+        exceed_result.is_err(),
+        "Should not be able to credit more than line item subtotal"
+    );
+
+    let error_message = format!("{:?}", exceed_result.unwrap_err());
+    assert!(
+        error_message.contains("exceeds"),
+        "Error should mention exceeding amount, got: {}",
+        error_message
+    );
+
+    // 9. Test validation: negative amount
+    let negative_result = store
+        .create_credit_note(
+            TENANT_ID,
+            CreateCreditNoteParams {
+                invoice_id: invoice.id,
+                line_items: vec![CreditLineItem {
+                    local_id: line_ids[2].clone(),
+                    amount: Some(-100),
+                }],
+                reason: Some("Should fail - negative amount".to_string()),
+                memo: None,
+                credit_type: CreditType::CreditToBalance,
+            },
+        )
+        .await;
+
+    assert!(
+        negative_result.is_err(),
+        "Should not be able to credit a negative amount"
+    );
+
+    let error_message = format!("{:?}", negative_result.unwrap_err());
+    assert!(
+        error_message.contains("positive"),
+        "Error should mention positive amount, got: {}",
+        error_message
+    );
+
+    log::info!(">>> Partial amount credit note test passed!");
+}
+
 // =============================================================================
 // Helper functions
 // =============================================================================
 
 /// Create a plan with 4 price components for testing (totalling 100€)
-async fn create_plan_with_4_components(conn: &mut PgConn) -> (PlanVersionId, Vec<PriceComponentId>) {
+async fn create_plan_with_4_components(
+    conn: &mut PgConn,
+) -> (PlanVersionId, Vec<PriceComponentId>) {
     use diesel_async::AsyncConnection;
     use diesel_async::scoped_futures::ScopedFutureExt;
     use diesel_models::errors::DatabaseErrorContainer;

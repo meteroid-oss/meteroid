@@ -10,6 +10,75 @@
     "version": "0.1.0"
   },
   "paths": {
+    "/api/v1/credit-notes/{credit_note_id}/download": {
+      "get": {
+        "tags": [
+          "credit-notes"
+        ],
+        "operationId": "download_credit_note_pdf",
+        "parameters": [
+          {
+            "name": "credit_note_id",
+            "in": "path",
+            "description": "Credit Note ID",
+            "required": true,
+            "schema": {
+              "$ref": "#/components/schemas/CreditNoteId"
+            },
+            "example": "cn_123"
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Credit Note PDF",
+            "content": {
+              "application/pdf": {
+                "schema": {
+                  "type": "string",
+                  "format": "binary",
+                  "description": "Unused dummy struct only used for an OpenAPI definition."
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Unauthorized",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/RestErrorResponse"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "Credit note not found or PDF not available",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/RestErrorResponse"
+                }
+              }
+            }
+          },
+          "500": {
+            "description": "Internal error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/RestErrorResponse"
+                }
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "bearer_auth": []
+          }
+        ]
+      }
+    },
     "/api/v1/customers": {
       "get": {
         "tags": [
@@ -1931,6 +2000,21 @@
             }
           }
         }
+      },
+      "CreditNoteId": {
+        "type": "string",
+        "format": "MeteroidId",
+        "examples": [
+          "crn_7n42DGM5Tflk9n8mt7Fhc7"
+        ]
+      },
+      "CreditNoteStatus": {
+        "type": "string",
+        "enum": [
+          "DRAFT",
+          "FINALIZED",
+          "VOIDED"
+        ]
       },
       "Currency": {
         "type": "string",
@@ -4742,6 +4826,58 @@
           }
         }
       },
+      "WebhookOutCreditNoteEventData": {
+        "type": "object",
+        "required": [
+          "id",
+          "customer_id",
+          "invoice_id",
+          "status",
+          "currency",
+          "total",
+          "tax_amount",
+          "refunded_amount_cents",
+          "credited_amount_cents",
+          "created_at"
+        ],
+        "properties": {
+          "created_at": {
+            "type": "string",
+            "format": "date-time"
+          },
+          "credited_amount_cents": {
+            "type": "integer",
+            "format": "int64"
+          },
+          "currency": {
+            "type": "string"
+          },
+          "customer_id": {
+            "$ref": "#/components/schemas/CustomerId"
+          },
+          "id": {
+            "$ref": "#/components/schemas/CreditNoteId"
+          },
+          "invoice_id": {
+            "$ref": "#/components/schemas/InvoiceId"
+          },
+          "refunded_amount_cents": {
+            "type": "integer",
+            "format": "int64"
+          },
+          "status": {
+            "$ref": "#/components/schemas/CreditNoteStatus"
+          },
+          "tax_amount": {
+            "type": "integer",
+            "format": "int64"
+          },
+          "total": {
+            "type": "integer",
+            "format": "int64"
+          }
+        }
+      },
       "WebhookOutCustomerEventData": {
         "type": "object",
         "required": [
@@ -4826,11 +4962,15 @@
           },
           {
             "$ref": "#/components/schemas/WebhookOutQuoteEventData"
+          },
+          {
+            "$ref": "#/components/schemas/WebhookOutCreditNoteEventData"
           }
         ],
         "discriminator": {
           "propertyName": "discriminator",
           "mapping": {
+            "CREDIT_NOTE": "#/components/schemas/WebhookOutCreditNoteEventData",
             "CUSTOMER": "#/components/schemas/WebhookOutCustomerEventData",
             "INVOICE": "#/components/schemas/WebhookOutInvoiceEventData",
             "METRIC": "#/components/schemas/WebhookOutMetricEventData",
@@ -4848,8 +4988,12 @@
           "invoice.created",
           "invoice.finalized",
           "invoice.paid",
+          "invoice.voided",
           "quote.accepted",
-          "quote.converted"
+          "quote.converted",
+          "credit_note.created",
+          "credit_note.finalized",
+          "credit_note.voided"
         ]
       },
       "WebhookOutInvoiceEventData": {
@@ -5133,6 +5277,135 @@
     }
   ],
   "webhooks": {
+    "credit_note.created": {
+      "post": {
+        "description": "A new credit note was created",
+        "operationId": "webhook_credit_note_created",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "example": {
+                "data": {
+                  "created_at": "1970-01-01T00:00:00.000Z",
+                  "credited_amount_cents": 5000,
+                  "currency": "EUR",
+                  "customer_id": "cus_7n42DGM5Tflk9n8mt7Fhc7",
+                  "discriminator": "CREDIT_NOTE",
+                  "id": "crn_7n42DGM5Tflk9n8mt7Fhc7",
+                  "invoice_id": "inv_7n42DGM5Tflk9n8mt7Fhc7",
+                  "refunded_amount_cents": 0,
+                  "status": "DRAFT",
+                  "tax_amount": 1000,
+                  "total": 5000
+                },
+                "id": "evt_7n42DGM5Tflk9n8mt7Fhc7",
+                "timestamp": "1970-01-01T00:00:00.000Z",
+                "type": "credit_note.created"
+              },
+              "schema": {
+                "$ref": "#/components/schemas/WebhookOutEvent"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "description": "Webhook received successfully"
+          }
+        },
+        "summary": "credit_note.created webhook",
+        "tags": [
+          "credit_note"
+        ]
+      }
+    },
+    "credit_note.finalized": {
+      "post": {
+        "description": "A credit note was finalized",
+        "operationId": "webhook_credit_note_finalized",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "example": {
+                "data": {
+                  "created_at": "1970-01-01T00:00:00.000Z",
+                  "credited_amount_cents": 5000,
+                  "currency": "EUR",
+                  "customer_id": "cus_7n42DGM5Tflk9n8mt7Fhc7",
+                  "discriminator": "CREDIT_NOTE",
+                  "id": "crn_7n42DGM5Tflk9n8mt7Fhc7",
+                  "invoice_id": "inv_7n42DGM5Tflk9n8mt7Fhc7",
+                  "refunded_amount_cents": 0,
+                  "status": "DRAFT",
+                  "tax_amount": 1000,
+                  "total": 5000
+                },
+                "id": "evt_7n42DGM5Tflk9n8mt7Fhc7",
+                "timestamp": "1970-01-01T00:00:00.000Z",
+                "type": "credit_note.finalized"
+              },
+              "schema": {
+                "$ref": "#/components/schemas/WebhookOutEvent"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "description": "Webhook received successfully"
+          }
+        },
+        "summary": "credit_note.finalized webhook",
+        "tags": [
+          "credit_note"
+        ]
+      }
+    },
+    "credit_note.voided": {
+      "post": {
+        "description": "A credit note was voided",
+        "operationId": "webhook_credit_note_voided",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "example": {
+                "data": {
+                  "created_at": "1970-01-01T00:00:00.000Z",
+                  "credited_amount_cents": 5000,
+                  "currency": "EUR",
+                  "customer_id": "cus_7n42DGM5Tflk9n8mt7Fhc7",
+                  "discriminator": "CREDIT_NOTE",
+                  "id": "crn_7n42DGM5Tflk9n8mt7Fhc7",
+                  "invoice_id": "inv_7n42DGM5Tflk9n8mt7Fhc7",
+                  "refunded_amount_cents": 0,
+                  "status": "DRAFT",
+                  "tax_amount": 1000,
+                  "total": 5000
+                },
+                "id": "evt_7n42DGM5Tflk9n8mt7Fhc7",
+                "timestamp": "1970-01-01T00:00:00.000Z",
+                "type": "credit_note.voided"
+              },
+              "schema": {
+                "$ref": "#/components/schemas/WebhookOutEvent"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "description": "Webhook received successfully"
+          }
+        },
+        "summary": "credit_note.voided webhook",
+        "tags": [
+          "credit_note"
+        ]
+      }
+    },
     "customer.created": {
       "post": {
         "description": "A new customer was created",
@@ -5290,6 +5563,46 @@
           }
         },
         "summary": "invoice.paid webhook",
+        "tags": [
+          "invoice"
+        ]
+      }
+    },
+    "invoice.voided": {
+      "post": {
+        "description": "An invoice was voided",
+        "operationId": "webhook_invoice_voided",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "example": {
+                "data": {
+                  "created_at": "1970-01-01T00:00:00.000Z",
+                  "currency": "EUR",
+                  "customer_id": "cus_7n42DGM5Tflk9n8mt7Fhc7",
+                  "discriminator": "INVOICE",
+                  "id": "inv_7n42DGM5Tflk9n8mt7Fhc7",
+                  "status": "Draft",
+                  "tax_amount": 2000,
+                  "total": 10000
+                },
+                "id": "evt_7n42DGM5Tflk9n8mt7Fhc7",
+                "timestamp": "1970-01-01T00:00:00.000Z",
+                "type": "invoice.voided"
+              },
+              "schema": {
+                "$ref": "#/components/schemas/WebhookOutEvent"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "description": "Webhook received successfully"
+          }
+        },
+        "summary": "invoice.voided webhook",
         "tags": [
           "invoice"
         ]

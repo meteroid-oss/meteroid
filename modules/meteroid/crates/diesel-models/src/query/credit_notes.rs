@@ -1,16 +1,16 @@
 use crate::credit_notes::{CreditNoteRow, CreditNoteRowNew, CreditNoteRowPatch};
 use crate::enums::CreditNoteStatus;
 use crate::errors::IntoDbResult;
-use crate::{DbResult, PgConn};
 use crate::extend::pagination::{Paginate, PaginatedVec, PaginationRequest};
+use crate::{DbResult, PgConn};
 
+use crate::extend::order::OrderByRequest;
 use common_domain::ids::{CreditNoteId, CustomerId, InvoiceId, StoredDocumentId, TenantId};
 use diesel::{
-    BoolExpressionMethods, ExpressionMethods, PgTextExpressionMethods,
-    QueryDsl, debug_query, SelectableHelper, JoinOnDsl
+    BoolExpressionMethods, ExpressionMethods, JoinOnDsl, PgTextExpressionMethods, QueryDsl,
+    SelectableHelper, debug_query,
 };
 use error_stack::ResultExt;
-use crate::extend::order::OrderByRequest;
 
 impl CreditNoteRowNew {
     pub async fn insert(&self, conn: &mut PgConn) -> DbResult<CreditNoteRow> {
@@ -158,11 +158,7 @@ impl CreditNoteRow {
             .into_db_result()
     }
 
-    pub async fn void(
-        conn: &mut PgConn,
-        id: CreditNoteId,
-        tenant_id: TenantId,
-    ) -> DbResult<usize> {
+    pub async fn void(conn: &mut PgConn, id: CreditNoteId, tenant_id: TenantId) -> DbResult<usize> {
         use crate::schema::credit_note::dsl as cn_dsl;
         use diesel_async::RunQueryDsl;
 
@@ -185,7 +181,6 @@ impl CreditNoteRow {
             .attach("Error while voiding credit note")
             .into_db_result()
     }
-
 
     #[allow(clippy::too_many_arguments)]
     pub async fn list(
@@ -223,8 +218,9 @@ impl CreditNoteRow {
         if let Some(search) = param_search {
             let search_pattern = format!("%{}%", search);
             query = query.filter(
-                cn_dsl::credit_note_number.ilike(search_pattern.clone())
-                    .or(c_dsl::name.ilike(search_pattern))
+                cn_dsl::credit_note_number
+                    .ilike(search_pattern.clone())
+                    .or(c_dsl::name.ilike(search_pattern)),
             );
         }
 
@@ -236,7 +232,6 @@ impl CreditNoteRow {
             OrderByRequest::NameAsc => query.order(cn_dsl::credit_note_number.asc()),
             OrderByRequest::NameDesc => query.order(cn_dsl::credit_note_number.desc()),
         };
-
 
         let paginated_query = query.paginate(pagination);
 
@@ -294,6 +289,28 @@ impl CreditNoteRow {
             .execute(conn)
             .await
             .attach("Error while updating credit note pdf_document_id")
+            .into_db_result()
+    }
+
+    pub async fn delete_draft(
+        conn: &mut PgConn,
+        id: CreditNoteId,
+        tenant_id: TenantId,
+    ) -> DbResult<usize> {
+        use crate::schema::credit_note::dsl as cn_dsl;
+        use diesel_async::RunQueryDsl;
+
+        let query = diesel::delete(cn_dsl::credit_note)
+            .filter(cn_dsl::id.eq(id))
+            .filter(cn_dsl::tenant_id.eq(tenant_id))
+            .filter(cn_dsl::status.eq(CreditNoteStatus::Draft));
+
+        log::debug!("{}", debug_query::<diesel::pg::Pg, _>(&query));
+
+        query
+            .execute(conn)
+            .await
+            .attach("Error while deleting draft credit note")
             .into_db_result()
     }
 }
