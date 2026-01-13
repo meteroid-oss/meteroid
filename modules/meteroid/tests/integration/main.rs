@@ -17,6 +17,7 @@ mod test_instance;
 mod test_internal;
 // mod test_payment;
 mod test_billing;
+mod test_credit_note;
 mod test_plan;
 mod test_product;
 mod test_product_family;

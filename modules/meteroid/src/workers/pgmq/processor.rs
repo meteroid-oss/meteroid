@@ -61,7 +61,7 @@ pub(crate) async fn run(cfg: ProcessorConfig) {
     }
 }
 
-async fn run_once(
+pub(crate) async  fn run_once(
     queue: PgmqQueue,
     handler: Arc<dyn PgmqHandler>,
     store: Arc<Store>,

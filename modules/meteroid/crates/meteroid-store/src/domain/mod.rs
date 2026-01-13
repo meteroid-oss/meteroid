@@ -1,6 +1,7 @@
 pub use api_tokens::*;
 pub use bank_accounts::*;
 pub use billable_metrics::*;
+pub use credit_notes::*;
 pub use customer_payment_methods::*;
 pub use customers::*;
 pub use enums::*;
@@ -38,6 +39,7 @@ pub mod bank_accounts;
 pub mod billable_metrics;
 pub mod connectors;
 pub mod coupons;
+pub mod credit_notes;
 pub mod customer_payment_methods;
 pub mod enums;
 

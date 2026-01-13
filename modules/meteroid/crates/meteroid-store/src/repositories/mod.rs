@@ -1,3 +1,4 @@
+pub use credit_notes::CreditNoteInterface;
 pub use customers::CustomersInterface;
 pub use invoices::InvoiceInterface;
 pub use organizations::OrganizationsInterface;
@@ -20,6 +21,7 @@ pub mod billable_metrics;
 pub mod connectors;
 mod constants;
 pub mod coupons;
+pub mod credit_notes;
 pub mod customer_balance;
 pub mod customer_connection;
 pub mod historical_rates;

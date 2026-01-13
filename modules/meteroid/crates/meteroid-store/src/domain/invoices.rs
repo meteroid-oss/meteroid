@@ -142,6 +142,7 @@ pub struct InvoiceNew {
     pub tax_amount: i64,
     pub total: i64,
     pub amount_due: i64,
+    pub applied_credits: i64,
     pub net_terms: i32,
     pub reference: Option<String>,
     pub purchase_order: Option<String>,

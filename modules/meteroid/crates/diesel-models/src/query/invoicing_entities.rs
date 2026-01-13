@@ -200,6 +200,29 @@ impl InvoicingEntityRow {
             .attach("Error while updating invoicing entity number")
             .into_db_result()
     }
+
+    pub async fn update_credit_note_number(
+        conn: &mut PgConn,
+        id: InvoicingEntityId,
+        tenant_id: TenantId,
+        new_credit_note_number: i64,
+    ) -> DbResult<InvoicingEntityRow> {
+        use crate::schema::invoicing_entity::dsl;
+        use diesel_async::RunQueryDsl;
+
+        let query = diesel::update(dsl::invoicing_entity)
+            .filter(dsl::id.eq(id))
+            .filter(dsl::tenant_id.eq(tenant_id))
+            .set(dsl::next_credit_note_number.eq(new_credit_note_number + 1));
+
+        log::debug!("{}", debug_query::<diesel::pg::Pg, _>(&query));
+
+        query
+            .get_result(conn)
+            .await
+            .attach("Error while updating credit note number")
+            .into_db_result()
+    }
 }
 
 impl InvoicingEntityProvidersRow {

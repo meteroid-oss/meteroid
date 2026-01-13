@@ -19,6 +19,7 @@ fn generate_grpc_types(root: &Path) -> Result<(), Report<BuildError>> {
         "connectors",
         "customers",
         "coupons",
+        "creditnotes",
         "events",
         "instance",
         "invoices",

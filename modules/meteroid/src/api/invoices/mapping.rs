@@ -148,6 +148,34 @@ pub mod invoices {
             .collect()
     }
 
+    pub fn domain_tax_breakdown_to_server(
+        item: &domain::TaxBreakdownItem,
+    ) -> meteroid_grpc::meteroid::api::invoices::v1::TaxBreakdownItem {
+        meteroid_grpc::meteroid::api::invoices::v1::TaxBreakdownItem {
+            tax_rate: item.tax_rate.as_proto(),
+            name: item.name.clone(),
+            amount: item.tax_amount as i64,
+        }
+    }
+
+    pub fn domain_inline_customer_to_server(
+        customer: &domain::InlineCustomer,
+    ) -> Result<InlineCustomer, Report<StoreError>> {
+        Ok(InlineCustomer {
+            id: customer.id.as_proto(),
+            name: customer.name.clone(),
+            email: customer.email.clone(),
+            vat_number: customer.vat_number.clone(),
+            snapshot_at: customer.snapshot_at.as_proto(),
+            billing_address: customer
+                .billing_address
+                .clone()
+                .map(ServerAddressWrapper::try_from)
+                .transpose()?
+                .map(|x: ServerAddressWrapper| x.0),
+        })
+    }
+
     pub fn generate_invoice_share_key(
         invoice_id: InvoiceId,
         tenant_id: TenantId,
@@ -221,19 +249,7 @@ pub mod invoices {
             local_id: invoice.id.as_proto(), // todo remove me
             due_at: invoice.due_at.as_proto(),
             plan_name: invoice.plan_name,
-            customer_details: Some(InlineCustomer {
-                id: invoice.customer_details.id.as_proto(),
-                name: invoice.customer_details.name,
-                email: invoice.customer_details.email,
-                vat_number: invoice.customer_details.vat_number,
-                snapshot_at: invoice.customer_details.snapshot_at.as_proto(),
-                billing_address: invoice
-                    .customer_details
-                    .billing_address
-                    .map(ServerAddressWrapper::try_from)
-                    .transpose()?
-                    .map(|x: ServerAddressWrapper| x.0),
-            }),
+            customer_details: Some(domain_inline_customer_to_server(&invoice.customer_details)?),
             line_items,
             coupon_line_items,
             applied_credits: invoice.applied_credits,
@@ -243,13 +259,7 @@ pub mod invoices {
             tax_breakdown: invoice
                 .tax_breakdown
                 .iter()
-                .map(
-                    |k| meteroid_grpc::meteroid::api::invoices::v1::TaxBreakdownItem {
-                        tax_rate: k.tax_rate.as_proto(),
-                        name: k.name.clone(),
-                        amount: k.tax_amount as i64,
-                    },
-                )
+                .map(domain_tax_breakdown_to_server)
                 .collect(),
             connection_metadata: invoice
                 .conn_meta

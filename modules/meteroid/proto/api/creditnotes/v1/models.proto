@@ -1,0 +1,73 @@
+syntax = "proto3";
+
+package meteroid.api.creditnotes.v1;
+
+import "api/customers/v1/models.proto";
+import "api/invoices/v1/models.proto";
+
+enum CreditNoteStatus {
+  DRAFT = 0;
+  FINALIZED = 1;
+  VOIDED = 2;
+}
+
+message CreditNote {
+  string id = 1;
+  string credit_note_number = 2;
+  CreditNoteStatus status = 3;
+  string created_at = 4;
+  string tenant_id = 5;
+  string customer_id = 6;
+  string customer_name = 7;
+  string invoice_id = 8;
+  string currency = 9;
+  int64 total = 10;
+  int64 credited_amount_cents = 11;
+  int64 refunded_amount_cents = 12;
+  optional string finalized_at = 13;
+}
+
+message DetailedCreditNote {
+  string id = 1;
+  string credit_note_number = 2;
+  CreditNoteStatus status = 3;
+  string created_at = 4;
+  optional string updated_at = 5;
+  optional string finalized_at = 6;
+  string tenant_id = 7;
+  string customer_id = 8;
+  string invoice_id = 9;
+  optional string plan_version_id = 10;
+  optional string subscription_id = 11;
+  string currency = 12;
+  int64 subtotal = 13;
+  int64 tax_amount = 14;
+  int64 total = 15;
+  int64 refunded_amount_cents = 16;
+  int64 credited_amount_cents = 17;
+  repeated api.invoices.v1.LineItem line_items = 18;
+  repeated api.invoices.v1.TaxBreakdownItem tax_breakdown = 19;
+  optional string reason = 20;
+  optional string memo = 21;
+  api.invoices.v1.InlineCustomer customer_details = 22;
+  optional string pdf_document_id = 23;
+  optional string voided_at = 24;
+}
+
+enum CreditType {
+  CREDIT_TO_BALANCE = 0;
+  REFUND = 1;
+}
+
+message CreditLineItem {
+  string line_item_local_id = 1;
+  optional int64 amount = 2; // if null, credit full line item amount
+}
+
+message NewCreditNote {
+  string invoice_id = 1;
+  repeated CreditLineItem line_items = 2;
+  optional string reason = 3;
+  optional string memo = 4;
+  CreditType credit_type = 5;
+}

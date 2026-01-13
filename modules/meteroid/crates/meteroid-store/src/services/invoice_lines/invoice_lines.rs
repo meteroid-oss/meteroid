@@ -56,15 +56,28 @@ impl Services {
         if let Some(invoice) = invoice
             && !invoice.line_items.iter().any(is_usage_based_line)
         {
+            // Still need to recalculate applied_credits based on current customer balance
+            // because draft invoices are created without applied_credits set
+            let total = invoice.total as u64;
+            let applied_credits = min(
+                total,
+                subscription_details
+                    .customer
+                    .balance_value_cents
+                    .to_non_negative_u64(),
+            );
+            let already_paid = prepaid_amount.unwrap_or(0);
+            let amount_due = total - already_paid - applied_credits;
+
             return Ok(ComputedInvoiceContent {
                 invoice_lines: invoice.line_items.clone(),
                 subtotal: invoice.subtotal,
                 applied_coupons: invoice.coupons.clone(),
                 discount: invoice.discount,
                 tax_breakdown: invoice.tax_breakdown.clone(),
-                applied_credits: invoice.applied_credits,
+                applied_credits: applied_credits as i64,
                 total: invoice.total,
-                amount_due: invoice.amount_due,
+                amount_due: amount_due as i64,
                 subtotal_recurring: invoice.subtotal_recurring,
                 tax_amount: invoice.tax_amount,
             });
@@ -435,6 +448,8 @@ impl Services {
                 line.tax_amount = 0;
                 line.tax_details = vec![];
             }
+            // Recalculate amount_total after discount and tax have been applied
+            line.amount_total = line.taxable_amount + line.tax_amount;
         }
 
         // Convert tax breakdown items, expanding any MultipleTaxes into separate items

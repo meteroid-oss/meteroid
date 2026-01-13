@@ -40,6 +40,24 @@ pub async fn run_outbox_dispatch(store: Arc<Store>) {
     .await;
 }
 
+
+// Used in tests
+pub async fn run_once_outbox_dispatch(store: Arc<Store>) {
+    let queue = PgmqQueue::OutboxEvent;
+    let processor = Arc::new(PgmqOutboxDispatch::new(store.clone()));
+
+    let _ = crate::workers::pgmq::processor::run_once(
+        queue,
+        processor,
+        store,
+        MessageReadQty(100),
+        MessageReadVtSec(10),
+        false,
+        ReadCt(10),
+    )
+    .await;
+}
+
 pub async fn run_pdf_render(store: Arc<Store>, pdf_service: Arc<PdfRenderingService>) {
     let queue = PgmqQueue::InvoicePdfRequest;
     let processor = Arc::new(PdfRender::new(pdf_service));
@@ -185,6 +203,26 @@ pub async fn run_invoice_orchestration(store: Arc<Store>, services: Arc<Services
         sleep_duration: std::time::Duration::from_millis(1500),
         max_read_count: ReadCt(10),
     })
+    .await;
+}
+
+
+// Used in tests
+pub  async fn run_once_invoice_orchestration(store: Arc<Store>, services: Arc<Services>) {
+    let queue = PgmqQueue::InvoiceOrchestration;
+    let processor = Arc::new(PgmqOutboxProxy::new(
+        store.clone(),
+        Arc::new(InvoiceOrchestration::new(store.clone(), services)),
+    ));
+    let _ = crate::workers::pgmq::processor::run_once(
+        queue,
+        processor,
+        store,
+        MessageReadQty(10),
+        MessageReadVtSec(20),
+        true,
+        ReadCt(10),
+    )
     .await;
 }
 

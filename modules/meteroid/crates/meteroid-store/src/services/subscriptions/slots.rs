@@ -545,6 +545,7 @@ impl Services {
             finalized_at: None,
             total: invoice_content.total,
             amount_due: invoice_content.amount_due,
+            applied_credits: invoice_content.applied_credits,
             net_terms: subscription.net_terms as i32,
             subtotal: invoice_content.subtotal,
             subtotal_recurring: invoice_content.subtotal_recurring,

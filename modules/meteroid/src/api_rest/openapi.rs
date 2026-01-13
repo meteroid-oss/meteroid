@@ -3,13 +3,14 @@ use crate::api_rest::metrics::model::BillingMetricAggregateEnum;
 use crate::api_rest::model::BillingPeriodEnum;
 use crate::api_rest::subscriptions::model::SubscriptionStatusEnum;
 use crate::api_rest::webhooks::out_model::{
-    WebhookOutCustomerEventData, WebhookOutEvent, WebhookOutEventData, WebhookOutEventGroupEnum,
-    WebhookOutEventTypeEnum, WebhookOutInvoiceEventData, WebhookOutMetricEventData,
-    WebhookOutQuoteEventData, WebhookOutSubscriptionEventData,
+    CreditNoteStatus, WebhookOutCreditNoteEventData, WebhookOutCustomerEventData, WebhookOutEvent,
+    WebhookOutEventData, WebhookOutEventGroupEnum, WebhookOutEventTypeEnum,
+    WebhookOutInvoiceEventData, WebhookOutMetricEventData, WebhookOutQuoteEventData,
+    WebhookOutSubscriptionEventData,
 };
 use crate::api_rest::{AppState, api_routes};
 use common_domain::ids::{
-    BillableMetricId, CustomerId, EventId, InvoiceId, QuoteId, SubscriptionId,
+    BillableMetricId, CreditNoteId, CustomerId, EventId, InvoiceId, QuoteId, SubscriptionId,
 };
 use strum::IntoEnumIterator;
 use utoipa::openapi::security::{HttpAuthScheme, HttpBuilder, SecurityScheme};
@@ -139,6 +140,20 @@ impl Modify for WebhooksAddon {
                         id: QuoteId::default(),
                         customer_id: Default::default(),
                         subscription_id: None,
+                    })
+                }
+                WebhookOutEventGroupEnum::CreditNote => {
+                    WebhookOutEventData::CreditNote(WebhookOutCreditNoteEventData {
+                        id: CreditNoteId::default(),
+                        customer_id: Default::default(),
+                        invoice_id: Default::default(),
+                        status: CreditNoteStatus::Draft,
+                        currency: "EUR".to_string(),
+                        total: 5000,
+                        tax_amount: 1000,
+                        refunded_amount_cents: 0,
+                        credited_amount_cents: 5000,
+                        created_at: Default::default(),
                     })
                 }
             };

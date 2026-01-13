@@ -1,7 +1,7 @@
 use crate::api_rest::webhooks::out_model::{
-    WebhookOutCustomerEventData, WebhookOutEvent, WebhookOutEventData, WebhookOutEventTypeEnum,
-    WebhookOutInvoiceEventData, WebhookOutMetricEventData, WebhookOutQuoteEventData,
-    WebhookOutSubscriptionEventData,
+    WebhookOutCreditNoteEventData, WebhookOutCustomerEventData, WebhookOutEvent,
+    WebhookOutEventData, WebhookOutEventTypeEnum, WebhookOutInvoiceEventData,
+    WebhookOutMetricEventData, WebhookOutQuoteEventData, WebhookOutSubscriptionEventData,
 };
 use crate::svix::SvixOps;
 use crate::workers::pgmq::PgmqResult;
@@ -104,6 +104,15 @@ impl WebhookOut {
                     timestamp: chrono::Utc::now().naive_utc(),
                 })
             }
+            OutboxEvent::InvoiceVoided(event) => {
+                let event = WebhookOutInvoiceEventData::from(*event);
+                Some(WebhookOutEvent {
+                    id: event_id,
+                    event_type: WebhookOutEventTypeEnum::InvoiceVoided,
+                    data: WebhookOutEventData::Invoice(event),
+                    timestamp: chrono::Utc::now().naive_utc(),
+                })
+            }
             OutboxEvent::SubscriptionCreated(event) => {
                 let event = WebhookOutSubscriptionEventData::from(*event);
                 Some(WebhookOutEvent {
@@ -128,6 +137,33 @@ impl WebhookOut {
                     id: event_id,
                     event_type: WebhookOutEventTypeEnum::QuoteConverted,
                     data: WebhookOutEventData::Quote(event),
+                    timestamp: chrono::Utc::now().naive_utc(),
+                })
+            }
+            OutboxEvent::CreditNoteCreated(event) => {
+                let event = WebhookOutCreditNoteEventData::from(*event);
+                Some(WebhookOutEvent {
+                    id: event_id,
+                    event_type: WebhookOutEventTypeEnum::CreditNoteCreated,
+                    data: WebhookOutEventData::CreditNote(event),
+                    timestamp: chrono::Utc::now().naive_utc(),
+                })
+            }
+            OutboxEvent::CreditNoteFinalized(event) => {
+                let event = WebhookOutCreditNoteEventData::from(*event);
+                Some(WebhookOutEvent {
+                    id: event_id,
+                    event_type: WebhookOutEventTypeEnum::CreditNoteFinalized,
+                    data: WebhookOutEventData::CreditNote(event),
+                    timestamp: chrono::Utc::now().naive_utc(),
+                })
+            }
+            OutboxEvent::CreditNoteVoided(event) => {
+                let event = WebhookOutCreditNoteEventData::from(*event);
+                Some(WebhookOutEvent {
+                    id: event_id,
+                    event_type: WebhookOutEventTypeEnum::CreditNoteVoided,
+                    data: WebhookOutEventData::CreditNote(event),
                     timestamp: chrono::Utc::now().naive_utc(),
                 })
             }

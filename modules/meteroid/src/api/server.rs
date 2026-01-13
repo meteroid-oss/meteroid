@@ -76,6 +76,7 @@ pub async fn start_api_server(
         ))
         .add_service(api::connectors::service(store.clone(), services.clone()))
         .add_service(api::coupons::service(store.clone()))
+        .add_service(api::creditnotes::service(store.clone()))
         .add_service(api::customers::service(
             store.clone(),
             services.clone(),

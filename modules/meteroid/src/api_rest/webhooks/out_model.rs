@@ -6,12 +6,12 @@ use crate::api_rest::model::BillingPeriodEnum;
 use crate::api_rest::subscriptions::model::SubscriptionStatusEnum;
 use chrono::{DateTime, NaiveDate, NaiveDateTime, SecondsFormat, Utc};
 use common_domain::ids::{
-    BillableMetricId, CustomerId, EventId, InvoiceId, ProductFamilyId, ProductId, QuoteId,
-    SubscriptionId, string_serde, string_serde_opt,
+    BillableMetricId, CreditNoteId, CustomerId, EventId, InvoiceId, ProductFamilyId, ProductId,
+    QuoteId, SubscriptionId, string_serde, string_serde_opt,
 };
 use meteroid_store::domain::outbox_event::{
-    BillableMetricEvent, CustomerEvent, InvoiceEvent, QuoteAcceptedEvent, QuoteConvertedEvent,
-    SubscriptionEvent,
+    BillableMetricEvent, CreditNoteEvent, CustomerEvent, InvoiceEvent, QuoteAcceptedEvent,
+    QuoteConvertedEvent, SubscriptionEvent,
 };
 use o2o::o2o;
 use serde::{Serialize, Serializer};
@@ -143,6 +143,48 @@ impl From<QuoteConvertedEvent> for WebhookOutQuoteEventData {
 }
 
 #[derive(Clone, Debug, Serialize, utoipa::ToSchema)]
+#[serde(rename_all = "SCREAMING_SNAKE_CASE")]
+pub enum CreditNoteStatus {
+    Draft,
+    Finalized,
+    Voided,
+}
+
+impl From<meteroid_store::domain::enums::CreditNoteStatus> for CreditNoteStatus {
+    fn from(value: meteroid_store::domain::enums::CreditNoteStatus) -> Self {
+        match value {
+            meteroid_store::domain::enums::CreditNoteStatus::Draft => CreditNoteStatus::Draft,
+            meteroid_store::domain::enums::CreditNoteStatus::Finalized => {
+                CreditNoteStatus::Finalized
+            }
+            meteroid_store::domain::enums::CreditNoteStatus::Voided => CreditNoteStatus::Voided,
+        }
+    }
+}
+
+#[skip_serializing_none]
+#[derive(Clone, Debug, Serialize, o2o, utoipa::ToSchema)]
+#[from_owned(CreditNoteEvent)]
+pub struct WebhookOutCreditNoteEventData {
+    #[serde(serialize_with = "string_serde::serialize")]
+    #[map(credit_note_id)]
+    pub id: CreditNoteId,
+    #[serde(serialize_with = "string_serde::serialize")]
+    pub customer_id: CustomerId,
+    #[serde(serialize_with = "string_serde::serialize")]
+    pub invoice_id: InvoiceId,
+    #[from(~.into())]
+    pub status: CreditNoteStatus,
+    pub currency: String,
+    pub total: i64,
+    pub tax_amount: i64,
+    pub refunded_amount_cents: i64,
+    pub credited_amount_cents: i64,
+    #[serde(serialize_with = "ser_naive_dt")]
+    pub created_at: NaiveDateTime,
+}
+
+#[derive(Clone, Debug, Serialize, utoipa::ToSchema)]
 #[serde(tag = "discriminator", rename_all = "SCREAMING_SNAKE_CASE")]
 pub enum WebhookOutEventData {
     Customer(WebhookOutCustomerEventData),
@@ -150,6 +192,7 @@ pub enum WebhookOutEventData {
     Subscription(WebhookOutSubscriptionEventData),
     Metric(WebhookOutMetricEventData),
     Quote(WebhookOutQuoteEventData),
+    CreditNote(WebhookOutCreditNoteEventData),
 }
 
 #[skip_serializing_none]
@@ -205,12 +248,24 @@ pub enum WebhookOutEventTypeEnum {
     #[strum(serialize = "invoice.paid")]
     #[serde(rename = "invoice.paid")]
     InvoicePaid,
+    #[strum(serialize = "invoice.voided")]
+    #[serde(rename = "invoice.voided")]
+    InvoiceVoided,
     #[strum(serialize = "quote.accepted")]
     #[serde(rename = "quote.accepted")]
     QuoteAccepted,
     #[strum(serialize = "quote.converted")]
     #[serde(rename = "quote.converted")]
     QuoteConverted,
+    #[strum(serialize = "credit_note.created")]
+    #[serde(rename = "credit_note.created")]
+    CreditNoteCreated,
+    #[strum(serialize = "credit_note.finalized")]
+    #[serde(rename = "credit_note.finalized")]
+    CreditNoteFinalized,
+    #[strum(serialize = "credit_note.voided")]
+    #[serde(rename = "credit_note.voided")]
+    CreditNoteVoided,
 }
 
 #[derive(Debug, Display, EnumIter, EnumString, Copy, Clone)]
@@ -225,6 +280,8 @@ pub enum WebhookOutEventGroupEnum {
     BillableMetric,
     #[strum(serialize = "quote")]
     Quote,
+    #[strum(serialize = "credit_note")]
+    CreditNote,
 }
 
 impl WebhookOutEventTypeEnum {
@@ -235,11 +292,15 @@ impl WebhookOutEventTypeEnum {
             WebhookOutEventTypeEnum::InvoiceCreated => WebhookOutEventGroupEnum::Invoice,
             WebhookOutEventTypeEnum::InvoiceFinalized => WebhookOutEventGroupEnum::Invoice,
             WebhookOutEventTypeEnum::InvoicePaid => WebhookOutEventGroupEnum::Invoice,
+            WebhookOutEventTypeEnum::InvoiceVoided => WebhookOutEventGroupEnum::Invoice,
             WebhookOutEventTypeEnum::BillableMetricCreated => {
                 WebhookOutEventGroupEnum::BillableMetric
             }
             WebhookOutEventTypeEnum::QuoteAccepted => WebhookOutEventGroupEnum::Quote,
             WebhookOutEventTypeEnum::QuoteConverted => WebhookOutEventGroupEnum::Quote,
+            WebhookOutEventTypeEnum::CreditNoteCreated => WebhookOutEventGroupEnum::CreditNote,
+            WebhookOutEventTypeEnum::CreditNoteFinalized => WebhookOutEventGroupEnum::CreditNote,
+            WebhookOutEventTypeEnum::CreditNoteVoided => WebhookOutEventGroupEnum::CreditNote,
         }
     }
 
@@ -252,12 +313,22 @@ impl WebhookOutEventTypeEnum {
             WebhookOutEventTypeEnum::InvoiceCreated => "A new invoice was created".to_string(),
             WebhookOutEventTypeEnum::InvoiceFinalized => "An invoice was finalized".to_string(),
             WebhookOutEventTypeEnum::InvoicePaid => "An invoice was paid".to_string(),
+            WebhookOutEventTypeEnum::InvoiceVoided => "An invoice was voided".to_string(),
             WebhookOutEventTypeEnum::BillableMetricCreated => {
                 "A new billable metric was created".to_string()
             }
             WebhookOutEventTypeEnum::QuoteAccepted => "A quote was accepted".to_string(),
             WebhookOutEventTypeEnum::QuoteConverted => {
                 "A quote was converted into subscription".to_string()
+            }
+            WebhookOutEventTypeEnum::CreditNoteCreated => {
+                "A new credit note was created".to_string()
+            }
+            WebhookOutEventTypeEnum::CreditNoteFinalized => {
+                "A credit note was finalized".to_string()
+            }
+            WebhookOutEventTypeEnum::CreditNoteVoided => {
+                "A credit note was voided".to_string()
             }
         }
     }
