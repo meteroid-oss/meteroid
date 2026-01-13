@@ -1,5 +1,4 @@
 use chrono::NaiveDateTime;
-use uuid::Uuid;
 
 use crate::enums::CreditNoteStatus;
 use common_domain::ids::{CreditNoteId, CustomerId, InvoiceId, InvoicingEntityId, PlanVersionId, StoredDocumentId, SubscriptionId, TenantId};

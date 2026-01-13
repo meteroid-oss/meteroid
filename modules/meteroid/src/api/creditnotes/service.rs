@@ -1,22 +1,24 @@
 use super::mapping;
 use crate::api::creditnotes::error::CreditNoteApiError;
-use crate::api::shared::conversions::ProtoConv;
 use crate::api::utils::PaginationExt;
-use common_domain::ids::{CreditNoteId, CustomerId, InvoiceId, TenantId};
+use common_domain::ids::{CreditNoteId, CustomerId, InvoiceId};
 use common_grpc::middleware::server::auth::RequestExt;
 use meteroid_grpc::meteroid::api::creditnotes::v1::{
-    CreateCreditNoteRequest, CreateCreditNoteResponse,
-    FinalizeCreditNoteRequest, FinalizeCreditNoteResponse, GetCreditNoteRequest,
-    GetCreditNoteResponse, ListCreditNotesByCustomerIdRequest,
-    ListCreditNotesByCustomerIdResponse, ListCreditNotesByInvoiceIdRequest,
-    ListCreditNotesByInvoiceIdResponse, ListCreditNotesRequest, ListCreditNotesResponse,
-    VoidCreditNoteRequest, VoidCreditNoteResponse,
-    credit_notes_service_server::CreditNotesService, CreditType,
+    CreateCreditNoteRequest, CreateCreditNoteResponse, CreditType, FinalizeCreditNoteRequest,
+    FinalizeCreditNoteResponse, GetCreditNoteRequest, GetCreditNoteResponse,
+    ListCreditNotesByCustomerIdRequest, ListCreditNotesByCustomerIdResponse,
+    ListCreditNotesByInvoiceIdRequest, ListCreditNotesByInvoiceIdResponse,
+    ListCreditNotesRequest, ListCreditNotesResponse, PreviewCreditNoteSvgRequest,
+    PreviewCreditNoteSvgResponse, RequestCreditNotePdfGenerationRequest,
+    RequestCreditNotePdfGenerationResponse, VoidCreditNoteRequest, VoidCreditNoteResponse,
+    credit_notes_service_server::CreditNotesService,
 };
 use meteroid_store::domain::OrderByRequest;
-use meteroid_store::repositories::{CreditNoteInterface, CustomersInterface, credit_notes::{CreateCreditNoteParams, CreditType as DomainCreditType}};
-use tonic::{Request, Response, Status};
+use meteroid_store::repositories::credit_notes::{CreateCreditNoteParams, CreditType as DomainCreditType};
 use meteroid_store::repositories::customers::CustomersInterfaceAuto;
+use meteroid_store::repositories::CreditNoteInterface;
+use tonic::{Request, Response, Status};
+
 use crate::api::creditnotes::CreditNoteServiceComponents;
 
 #[tonic::async_trait]
@@ -315,5 +317,50 @@ impl CreditNotesService for CreditNoteServiceComponents {
         };
 
         Ok(Response::new(response))
+    }
+
+    #[tracing::instrument(skip_all)]
+    async fn preview_credit_note_svg(
+        &self,
+        request: Request<PreviewCreditNoteSvgRequest>,
+    ) -> Result<Response<PreviewCreditNoteSvgResponse>, Status> {
+        let tenant_id = request.tenant()?;
+        let req = request.into_inner();
+
+        let credit_note_id = CreditNoteId::from_proto(&req.id)?;
+
+        let svgs = self
+            .preview_rendering
+            .preview_credit_note_by_id(credit_note_id, tenant_id)
+            .await
+            .map_err(Into::<CreditNoteApiError>::into)?;
+
+        let response = PreviewCreditNoteSvgResponse { svgs };
+
+        Ok(Response::new(response))
+    }
+
+    #[tracing::instrument(skip_all)]
+    async fn request_credit_note_pdf_generation(
+        &self,
+        request: Request<RequestCreditNotePdfGenerationRequest>,
+    ) -> Result<Response<RequestCreditNotePdfGenerationResponse>, Status> {
+        let tenant_id = request.tenant()?;
+        let req = request.into_inner();
+
+        let credit_note_id = CreditNoteId::from_proto(&req.id)?;
+
+        // Verify the credit note exists and belongs to the tenant
+        let _credit_note = self
+            .store
+            .get_credit_note_by_id(tenant_id, credit_note_id)
+            .await
+            .map_err(Into::<CreditNoteApiError>::into)?;
+
+        // TODO: Queue the PDF generation request via outbox event
+        // For now, this is a placeholder - the actual PDF generation
+        // will be triggered by the finalize_credit_note flow
+
+        Ok(Response::new(RequestCreditNotePdfGenerationResponse {}))
     }
 }

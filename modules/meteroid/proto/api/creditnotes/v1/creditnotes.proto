@@ -75,6 +75,20 @@ message CreateCreditNoteResponse {
   DetailedCreditNote credit_note = 1;
 }
 
+message PreviewCreditNoteSvgRequest {
+  string id = 1;
+}
+
+message PreviewCreditNoteSvgResponse {
+  repeated string svgs = 1;
+}
+
+message RequestCreditNotePdfGenerationRequest {
+  string id = 1;
+}
+
+message RequestCreditNotePdfGenerationResponse {}
+
 service CreditNotesService {
   rpc ListCreditNotes(ListCreditNotesRequest) returns (ListCreditNotesResponse) {}
   rpc GetCreditNote(GetCreditNoteRequest) returns (GetCreditNoteResponse) {}
@@ -83,4 +97,6 @@ service CreditNotesService {
   rpc CreateCreditNote(CreateCreditNoteRequest) returns (CreateCreditNoteResponse) {}
   rpc FinalizeCreditNote(FinalizeCreditNoteRequest) returns (FinalizeCreditNoteResponse) {}
   rpc VoidCreditNote(VoidCreditNoteRequest) returns (VoidCreditNoteResponse) {}
+  rpc PreviewCreditNoteSvg(PreviewCreditNoteSvgRequest) returns (PreviewCreditNoteSvgResponse) {}
+  rpc RequestCreditNotePdfGeneration(RequestCreditNotePdfGenerationRequest) returns (RequestCreditNotePdfGenerationResponse) {}
 }

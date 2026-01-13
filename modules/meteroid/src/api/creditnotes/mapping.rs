@@ -1,6 +1,5 @@
 use crate::api::invoices::mapping as invoice_mapping;
 use crate::api::shared::conversions::{AsProtoOpt, ProtoConv};
-use common_domain::ids::{CreditNoteId, CustomerId, InvoiceId};
 use meteroid_grpc::meteroid::api::creditnotes::v1;
 use meteroid_store::domain::{CreditNote as DomainCreditNote, DetailedCreditNote, CreditNoteStatus};
 

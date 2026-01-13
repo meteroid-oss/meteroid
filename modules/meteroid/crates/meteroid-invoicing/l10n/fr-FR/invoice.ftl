@@ -48,3 +48,17 @@ company-registration = Numéro d'immatriculation
 discount = Remise
 purchase-order = Bon de commande
 no-tax-applied = Aucune taxe appliquée
+
+# Credit Note specific translations
+credit-note-title = Avoir
+credit-note-number = Avoir n°
+related-invoice = Facture associée
+credit-to = Bénéficiaire
+reason = Motif
+refunded = Remboursé
+credit-to-balance = Crédité sur le solde
+refunded-amount = Montant remboursé
+credited-amount = Montant crédité
+total-credit = Total de l'avoir
+credit-note-vat-directive-notice = Cet avoir est conforme à la Directive TVA UE 2006/112/CE
+credit-note-reverse-charge-notice = Autoliquidation des articles 44 et 196 de la directive 2006/112/CE. Le destinataire de la facture originale est redevable de la TVA.

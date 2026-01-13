@@ -4,14 +4,13 @@ use crate::errors::IntoDbResult;
 use crate::{DbResult, PgConn};
 use crate::extend::pagination::{Paginate, PaginatedVec, PaginationRequest};
 
-use common_domain::ids::{CreditNoteId, CustomerId, InvoiceId, TenantId};
+use common_domain::ids::{CreditNoteId, CustomerId, InvoiceId, StoredDocumentId, TenantId};
 use diesel::{
-    BoolExpressionMethods, ExpressionMethods, NullableExpressionMethods, PgTextExpressionMethods,
-    QueryDsl, debug_query,SelectableHelper, JoinOnDsl
+    BoolExpressionMethods, ExpressionMethods, PgTextExpressionMethods,
+    QueryDsl, debug_query, SelectableHelper, JoinOnDsl
 };
 use error_stack::ResultExt;
 use crate::extend::order::OrderByRequest;
-use crate::invoices::InvoiceWithCustomerRow;
 
 impl CreditNoteRowNew {
     pub async fn insert(&self, conn: &mut PgConn) -> DbResult<CreditNoteRow> {
@@ -247,6 +246,54 @@ impl CreditNoteRow {
             .load_and_count_pages(conn)
             .await
             .attach("Error while listing credit notes")
+            .into_db_result()
+    }
+
+    pub async fn list_by_ids(
+        conn: &mut PgConn,
+        credit_note_ids: Vec<CreditNoteId>,
+    ) -> DbResult<Vec<CreditNoteRow>> {
+        use crate::schema::credit_note::dsl as cn_dsl;
+        use diesel_async::RunQueryDsl;
+
+        let query = cn_dsl::credit_note
+            .filter(cn_dsl::id.eq_any(credit_note_ids))
+            .select(CreditNoteRow::as_select());
+
+        log::debug!("{}", debug_query::<diesel::pg::Pg, _>(&query));
+
+        query
+            .load(conn)
+            .await
+            .attach("Error while listing credit notes by ids")
+            .into_db_result()
+    }
+
+    pub async fn update_pdf_document_id(
+        conn: &mut PgConn,
+        id: CreditNoteId,
+        tenant_id: TenantId,
+        pdf_document_id: StoredDocumentId,
+    ) -> DbResult<usize> {
+        use crate::schema::credit_note::dsl as cn_dsl;
+        use diesel_async::RunQueryDsl;
+
+        let now = chrono::Utc::now().naive_utc();
+
+        let query = diesel::update(cn_dsl::credit_note)
+            .filter(cn_dsl::id.eq(id))
+            .filter(cn_dsl::tenant_id.eq(tenant_id))
+            .set((
+                cn_dsl::pdf_document_id.eq(pdf_document_id),
+                cn_dsl::updated_at.eq(now),
+            ));
+
+        log::debug!("{}", debug_query::<diesel::pg::Pg, _>(&query));
+
+        query
+            .execute(conn)
+            .await
+            .attach("Error while updating credit note pdf_document_id")
             .into_db_result()
     }
 }

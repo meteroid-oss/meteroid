@@ -9,7 +9,7 @@ use crate::repositories::customer_balance::CustomerBalance;
 use crate::store::Store;
 use crate::StoreResult;
 use chrono::NaiveDateTime;
-use common_domain::ids::{CreditNoteId, CustomerId, InvoiceId, TenantId};
+use common_domain::ids::{CreditNoteId, CustomerId, InvoiceId, StoredDocumentId, TenantId};
 use diesel_async::scoped_futures::ScopedFutureExt;
 use diesel_models::credit_notes::CreditNoteRow;
 use diesel_models::invoices::InvoiceRow;
@@ -110,6 +110,18 @@ pub trait CreditNoteInterface {
         tenant_id: TenantId,
         credit_note_id: CreditNoteId,
     ) -> StoreResult<CreditNote>;
+
+    async fn list_credit_notes_by_ids(
+        &self,
+        credit_note_ids: Vec<CreditNoteId>,
+    ) -> StoreResult<Vec<CreditNote>>;
+
+    async fn save_credit_note_pdf_document(
+        &self,
+        credit_note_id: CreditNoteId,
+        tenant_id: TenantId,
+        pdf_document_id: StoredDocumentId,
+    ) -> StoreResult<()>;
 }
 
 // ============================================================================
@@ -718,5 +730,35 @@ impl CreditNoteInterface for Store {
             .scope_boxed()
         })
         .await
+    }
+
+    async fn list_credit_notes_by_ids(
+        &self,
+        credit_note_ids: Vec<CreditNoteId>,
+    ) -> StoreResult<Vec<CreditNote>> {
+        let mut conn = self.get_conn().await?;
+
+        let rows = CreditNoteRow::list_by_ids(&mut conn, credit_note_ids)
+            .await
+            .map_err(Into::<Report<StoreError>>::into)?;
+
+        rows.into_iter()
+            .map(std::convert::TryInto::try_into)
+            .collect::<Result<Vec<_>, _>>()
+    }
+
+    async fn save_credit_note_pdf_document(
+        &self,
+        credit_note_id: CreditNoteId,
+        tenant_id: TenantId,
+        pdf_document_id: StoredDocumentId,
+    ) -> StoreResult<()> {
+        let mut conn = self.get_conn().await?;
+
+        CreditNoteRow::update_pdf_document_id(&mut conn, credit_note_id, tenant_id, pdf_document_id)
+            .await
+            .map_err(Into::<Report<StoreError>>::into)?;
+
+        Ok(())
     }
 }

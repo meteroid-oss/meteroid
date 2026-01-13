@@ -1,4 +1,5 @@
 use crate::config::Config;
+use crate::services::credit_note_rendering::CreditNotePdfRenderingService;
 use crate::services::currency_rates::CurrencyRatesService;
 use crate::services::invoice_rendering::PdfRenderingService;
 use crate::services::storage::S3Storage;
@@ -46,6 +47,7 @@ pub async fn spawn_workers(
     _usage_clients: Arc<dyn UsageClient>,
     currency_rates_service: Arc<dyn CurrencyRatesService>,
     pdf_rendering_service: Arc<PdfRenderingService>,
+    credit_note_pdf_rendering_service: Arc<CreditNotePdfRenderingService>,
     mailer_service: Arc<dyn MailerService>,
     config: &Config,
 ) {
@@ -70,6 +72,12 @@ pub async fn spawn_workers(
         let store = store.clone();
         join_set.spawn(async move {
             processors::run_pdf_render(store, pdf_rendering_service).await;
+        });
+    }
+    {
+        let store = store.clone();
+        join_set.spawn(async move {
+            processors::run_credit_note_pdf_render(store, credit_note_pdf_rendering_service).await;
         });
     }
     {

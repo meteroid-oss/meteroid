@@ -16,6 +16,7 @@ use std::time::Duration;
 #[derive(Clone)]
 pub enum Prefix {
     InvoicePdf,
+    CreditNotePdf,
     ReceiptPdf,
     InvoiceXml,
     ImageLogo,
@@ -29,6 +30,7 @@ impl Prefix {
     pub fn to_path_string(&self) -> String {
         match self {
             Prefix::InvoicePdf => "invoice_pdf".to_string(),
+            Prefix::CreditNotePdf => "credit_note_pdf".to_string(),
             Prefix::ReceiptPdf => "receipt_pdf".to_string(),
             Prefix::InvoiceXml => "invoice_xml".to_string(),
             Prefix::ImageLogo => "image_logo".to_string(),

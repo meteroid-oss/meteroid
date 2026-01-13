@@ -5,8 +5,8 @@ use crate::errors::{StoreError, StoreErrorReport};
 use crate::json_value_serde;
 use chrono::NaiveDate;
 use common_domain::ids::{
-    CustomerId, CustomerPaymentMethodId, InvoiceId, InvoicingEntityId, QuoteId, StoredDocumentId,
-    SubscriptionId, TenantId,
+    CreditNoteId, CustomerId, CustomerPaymentMethodId, InvoiceId, InvoicingEntityId, QuoteId,
+    StoredDocumentId, SubscriptionId, TenantId,
 };
 use common_domain::pgmq::{Headers, Message, MessageId, ReadCt};
 use diesel_models::pgmq::{PgmqMessageRow, PgmqMessageRowNew};
@@ -18,6 +18,7 @@ use strum::Display;
 pub enum PgmqQueue {
     OutboxEvent,
     InvoicePdfRequest,
+    CreditNotePdfRequest,
     WebhookOut,
     BillableMetricSync,
     HubspotSync,
@@ -33,6 +34,7 @@ impl PgmqQueue {
         match self {
             PgmqQueue::OutboxEvent => "outbox_event",
             PgmqQueue::InvoicePdfRequest => "invoice_pdf_request",
+            PgmqQueue::CreditNotePdfRequest => "credit_note_pdf_request",
             PgmqQueue::WebhookOut => "webhook_out",
             PgmqQueue::BillableMetricSync => "billable_metric_sync",
             PgmqQueue::HubspotSync => "hubspot_sync",
@@ -198,6 +200,19 @@ impl InvoicePdfRequestEvent {
 }
 json_value_serde!(InvoicePdfRequestEvent);
 derive_pgmq_message!(InvoicePdfRequestEvent);
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct CreditNotePdfRequestEvent {
+    pub credit_note_id: CreditNoteId,
+}
+
+impl CreditNotePdfRequestEvent {
+    pub fn new(credit_note_id: CreditNoteId) -> Self {
+        Self { credit_note_id }
+    }
+}
+json_value_serde!(CreditNotePdfRequestEvent);
+derive_pgmq_message!(CreditNotePdfRequestEvent);
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub enum HubspotSyncRequestEvent {

@@ -1,7 +1,10 @@
 use chrono::NaiveDate;
 use common_domain::country::CountryCode;
+use meteroid_invoicing::credit_note_model::{
+    self as cn, CreditNote, CreditNoteMetadata, CreditType,
+};
 use meteroid_invoicing::model::{Coupon, Flags, PaymentStatus, TaxBreakdownItem};
-use meteroid_invoicing::pdf::PdfGenerator;
+use meteroid_invoicing::pdf::{CreditNotePdfGenerator, PdfGenerator, TypstCreditNotePdfGenerator};
 use meteroid_invoicing::{
     model::{
         Address, Customer, Invoice, InvoiceLine, InvoiceMetadata, InvoiceSubLine, Organization,
@@ -10,8 +13,9 @@ use meteroid_invoicing::{
     pdf::TypstPdfGenerator,
 };
 use rust_decimal::Decimal;
-use rusty_money::{Money, iso};
+use rusty_money::{iso, Money};
 use std::collections::HashMap;
+use std::path::Path;
 use std::str::FromStr;
 
 #[tokio::test]
@@ -296,6 +300,311 @@ fn create_full_invoice() -> Invoice {
             name: "VAT 20%".to_string(),
             rate: Decimal::from_str("20.0").unwrap(),
             amount: Money::from_major(200, eur),
+            exemption_type: None,
+        }],
+    }
+}
+
+// Credit Note Tests
+
+#[tokio::test]
+async fn test_typst_credit_note_generation_validates_template() {
+    let generator =
+        TypstCreditNotePdfGenerator::new().expect("Failed to create TypstCreditNotePdfGenerator");
+    let credit_note = create_minimal_credit_note();
+
+    let result = generator.generate_credit_note_pdf(&credit_note).await;
+    assert!(
+        result.is_ok(),
+        "Failed to generate credit note PDF: {:?}",
+        result.err()
+    );
+
+    let pdf_data = result.unwrap();
+    assert!(
+        !pdf_data.is_empty(),
+        "Generated credit note PDF should not be empty"
+    );
+    assert!(
+        pdf_data.len() > 1000,
+        "Generated credit note PDF seems too small, likely an error"
+    );
+    assert!(
+        &pdf_data[0..4] == b"%PDF",
+        "Output should be a valid PDF file"
+    );
+}
+
+#[tokio::test]
+async fn test_typst_credit_note_with_full_data() {
+    let generator =
+        TypstCreditNotePdfGenerator::new().expect("Failed to create TypstCreditNotePdfGenerator");
+    let credit_note = create_full_credit_note();
+
+    let result = generator.generate_credit_note_pdf(&credit_note).await;
+    assert!(
+        result.is_ok(),
+        "Failed to generate credit note PDF with full data: {:?}",
+        result.err()
+    );
+
+    let pdf_data = result.unwrap();
+    assert!(
+        !pdf_data.is_empty(),
+        "Generated credit note PDF should not be empty"
+    );
+    assert!(
+        pdf_data.len() > 1000,
+        "Generated credit note PDF seems too small"
+    );
+    assert!(
+        &pdf_data[0..4] == b"%PDF",
+        "Output should be a valid PDF file"
+    );
+
+    // let output_path = Path::new("benchmark_invoice.pdf");
+    // std::fs::write(output_path, pdf_data).unwrap();
+    // println!(
+    //     "\nExample invoice saved at: {:?}",
+    //     output_path.canonicalize().unwrap()
+    // );
+}
+
+#[tokio::test]
+async fn test_typst_credit_note_with_multiple_languages() {
+    let generator =
+        TypstCreditNotePdfGenerator::new().expect("Failed to create TypstCreditNotePdfGenerator");
+
+    // Test English credit note
+    let mut credit_note_en = create_minimal_credit_note();
+    credit_note_en.lang = "en-US".to_string();
+    let result_en = generator.generate_credit_note_pdf(&credit_note_en).await;
+    assert!(
+        result_en.is_ok(),
+        "Failed to generate English credit note PDF: {:?}",
+        result_en.err()
+    );
+
+    // Test French credit note
+    let mut credit_note_fr = create_minimal_credit_note();
+    credit_note_fr.lang = "fr-FR".to_string();
+    let result_fr = generator.generate_credit_note_pdf(&credit_note_fr).await;
+    assert!(
+        result_fr.is_ok(),
+        "Failed to generate French credit note PDF: {:?}",
+        result_fr.err()
+    );
+}
+
+#[tokio::test]
+async fn test_typst_credit_note_refund_type() {
+    let generator =
+        TypstCreditNotePdfGenerator::new().expect("Failed to create TypstCreditNotePdfGenerator");
+
+    let mut credit_note = create_minimal_credit_note();
+    credit_note.metadata.credit_type = CreditType::Refund;
+    credit_note.metadata.refunded_amount = Money::from_major(120, iso::find("EUR").unwrap());
+    credit_note.metadata.credited_amount = Money::from_major(0, iso::find("EUR").unwrap());
+
+    let result = generator.generate_credit_note_pdf(&credit_note).await;
+    assert!(
+        result.is_ok(),
+        "Failed to generate refund credit note PDF: {:?}",
+        result.err()
+    );
+
+    let pdf_data = result.unwrap();
+    assert!(
+        &pdf_data[0..4] == b"%PDF",
+        "Output should be a valid PDF file"
+    );
+}
+
+fn create_minimal_credit_note() -> CreditNote {
+    let issue_date = NaiveDate::from_ymd_opt(2025, 1, 15).unwrap();
+    let start_date = NaiveDate::from_ymd_opt(2024, 12, 1).unwrap();
+    let end_date = NaiveDate::from_ymd_opt(2024, 12, 31).unwrap();
+
+    let eur = iso::find("EUR").unwrap();
+
+    CreditNote {
+        lang: "en-US".to_string(),
+        organization: cn::Organization {
+            name: "Test Company".to_string(),
+            logo_src: None,
+            legal_number: None,
+            address: cn::Address {
+                line1: Some("123 Test St".to_string()),
+                line2: None,
+                city: Some("Test City".to_string()),
+                country: CountryCode::parse_as_opt("US"),
+                state: None,
+                zip_code: Some("12345".to_string()),
+            },
+            email: Some("test@company.com".to_string()),
+            tax_id: None,
+            footer_info: None,
+            footer_legal: None,
+            accounting_currency: *eur,
+            exchange_rate: None,
+        },
+        customer: cn::Customer {
+            name: "Test Customer".to_string(),
+            legal_number: None,
+            address: cn::Address {
+                line1: Some("456 Customer Ave".to_string()),
+                line2: None,
+                city: Some("Customer City".to_string()),
+                country: CountryCode::parse_as_opt("US"),
+                state: None,
+                zip_code: Some("54321".to_string()),
+            },
+            email: Some("customer@test.com".to_string()),
+            tax_id: None,
+        },
+        metadata: CreditNoteMetadata {
+            number: "CN-001".to_string(),
+            issue_date,
+            related_invoice_number: "INV-001".to_string(),
+            subtotal: Money::from_major(100, eur),
+            tax_amount: Money::from_major(20, eur),
+            total_amount: Money::from_major(120, eur),
+            currency: eur,
+            reason: Some("Billing error".to_string()),
+            memo: None,
+            credit_type: CreditType::CreditToBalance,
+            refunded_amount: Money::from_major(0, eur),
+            credited_amount: Money::from_major(120, eur),
+            flags: cn::Flags {
+                show_tax_info: Some(true),
+                show_legal_info: Some(false),
+                show_footer_custom_info: Some(false),
+                whitelabel: Some(false),
+            },
+        },
+        lines: vec![cn::CreditNoteLine {
+            name: "Test Service".to_string(),
+            description: Some("Credited service".to_string()),
+            subtotal: Money::from_major(100, eur),
+            quantity: Some(Decimal::from_str("1.0").unwrap()),
+            unit_price: Some(Money::from_major(100, eur)),
+            tax_rate: Decimal::from_str("20.0").unwrap(),
+            start_date,
+            end_date,
+            sub_lines: vec![],
+        }],
+        tax_breakdown: vec![cn::TaxBreakdownItem {
+            name: "VAT 20%".to_string(),
+            rate: Decimal::from_str("20.0").unwrap(),
+            amount: Money::from_major(20, eur),
+            exemption_type: None,
+        }],
+    }
+}
+
+fn create_full_credit_note() -> CreditNote {
+    let issue_date = NaiveDate::from_ymd_opt(2025, 4, 15).unwrap();
+    let start_date = NaiveDate::from_ymd_opt(2025, 3, 1).unwrap();
+    let end_date = NaiveDate::from_ymd_opt(2025, 3, 31).unwrap();
+
+    let eur = iso::find("EUR").unwrap();
+
+    CreditNote {
+        lang: "en-US".to_string(),
+        organization: cn::Organization {
+            name: "Full Test Corp".to_string(),
+            logo_src: None,
+            legal_number: Some("123456789".to_string()),
+            address: cn::Address {
+                line1: Some("789 Corporate Blvd".to_string()),
+                line2: Some("Suite 100".to_string()),
+                city: Some("Business City".to_string()),
+                country: CountryCode::parse_as_opt("US"),
+                state: Some("CA".to_string()),
+                zip_code: Some("90210".to_string()),
+            },
+            email: Some("billing@fulltestcorp.com".to_string()),
+            tax_id: Some("US123456789".to_string()),
+            footer_info: Some("Credit notes are non-transferable.".to_string()),
+            footer_legal: Some("This credit note is valid for 12 months.".to_string()),
+            accounting_currency: *eur,
+            exchange_rate: Some(Decimal::from_str("1.08").unwrap()),
+        },
+        customer: cn::Customer {
+            name: "Premium Customer Ltd".to_string(),
+            legal_number: Some("987654321".to_string()),
+            address: cn::Address {
+                line1: Some("321 Premium Plaza".to_string()),
+                line2: Some("Floor 25".to_string()),
+                city: Some("Metro City".to_string()),
+                country: CountryCode::parse_as_opt("GB"),
+                state: None,
+                zip_code: Some("SW1A 1AA".to_string()),
+            },
+            email: Some("accounts@premiumcustomer.com".to_string()),
+            tax_id: Some("GB987654321".to_string()),
+        },
+        metadata: CreditNoteMetadata {
+            number: "CN-2025-FULL-001".to_string(),
+            issue_date,
+            related_invoice_number: "INV-2025-FULL-001".to_string(),
+            subtotal: Money::from_major(500, eur),
+            tax_amount: Money::from_major(100, eur),
+            total_amount: Money::from_major(600, eur),
+            currency: eur,
+            reason: Some("Partial refund for unused services".to_string()),
+            memo: Some("We apologize for any inconvenience.".to_string()),
+            credit_type: CreditType::Refund,
+            refunded_amount: Money::from_major(600, eur),
+            credited_amount: Money::from_major(0, eur),
+            flags: cn::Flags {
+                show_tax_info: Some(true),
+                show_legal_info: Some(true),
+                show_footer_custom_info: Some(true),
+                whitelabel: Some(false),
+            },
+        },
+        lines: vec![
+            cn::CreditNoteLine {
+                name: "Professional Services".to_string(),
+                description: Some("Unused consulting hours".to_string()),
+                subtotal: Money::from_major(400, eur),
+                quantity: Some(Decimal::from_str("20.0").unwrap()),
+                unit_price: Some(Money::from_major(20, eur)),
+                tax_rate: Decimal::from_str("20.0").unwrap(),
+                start_date,
+                end_date,
+                sub_lines: vec![
+                    cn::CreditNoteSubLine {
+                        name: "Architecture Design".to_string(),
+                        total: Money::from_major(200, eur),
+                        quantity: Decimal::from_str("10.0").unwrap(),
+                        unit_price: Money::from_major(20, eur),
+                    },
+                    cn::CreditNoteSubLine {
+                        name: "Implementation".to_string(),
+                        total: Money::from_major(200, eur),
+                        quantity: Decimal::from_str("10.0").unwrap(),
+                        unit_price: Money::from_major(20, eur),
+                    },
+                ],
+            },
+            cn::CreditNoteLine {
+                name: "Support Package".to_string(),
+                description: Some("Unused support credit".to_string()),
+                subtotal: Money::from_major(100, eur),
+                quantity: Some(Decimal::from_str("1.0").unwrap()),
+                unit_price: Some(Money::from_major(100, eur)),
+                tax_rate: Decimal::from_str("20.0").unwrap(),
+                start_date,
+                end_date,
+                sub_lines: vec![],
+            },
+        ],
+        tax_breakdown: vec![cn::TaxBreakdownItem {
+            name: "VAT 20%".to_string(),
+            rate: Decimal::from_str("20.0").unwrap(),
+            amount: Money::from_major(100, eur),
             exemption_type: None,
         }],
     }

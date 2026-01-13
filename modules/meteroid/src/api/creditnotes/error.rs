@@ -1,5 +1,6 @@
 use std::error::Error;
 
+use crate::errors::InvoicingRenderError;
 use common_grpc_error_as_tonic_macros_impl::ErrorAsTonic;
 use deadpool_postgres::PoolError;
 use error_stack::Report;
@@ -31,6 +32,10 @@ pub enum CreditNoteApiError {
     #[error("Input error: {0}")]
     #[code(InvalidArgument)]
     InputError(String),
+
+    #[error("Rendering error: {0}")]
+    #[code(Internal)]
+    RenderingError(String),
 }
 
 impl From<Report<StoreError>> for CreditNoteApiError {
@@ -43,5 +48,11 @@ impl From<Report<StoreError>> for CreditNoteApiError {
 impl From<PoolError> for CreditNoteApiError {
     fn from(e: PoolError) -> Self {
         CreditNoteApiError::DatabaseError(e.to_string(), Some(Box::new(e)))
+    }
+}
+
+impl From<Report<InvoicingRenderError>> for CreditNoteApiError {
+    fn from(value: Report<InvoicingRenderError>) -> Self {
+        Self::RenderingError(format!("{:?}", value))
     }
 }
