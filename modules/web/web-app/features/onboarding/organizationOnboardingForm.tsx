@@ -3,13 +3,7 @@ import {
   createProtobufSafeUpdater,
   useMutation,
 } from '@connectrpc/connect-query'
-import {
-  Button,
-  Flex,
-  Form,
-  InputFormField,
-  Label,
-} from '@md/ui'
+import { Button, Flex, Form, InputFormField, Label } from '@md/ui'
 import { ArrowLeft } from 'lucide-react'
 import { useNavigate } from 'react-router-dom'
 import { z } from 'zod'
@@ -26,12 +20,22 @@ import {
 } from '@/rpc/api/organizations/v1/organizations-OrganizationsService_connectquery'
 import { me } from '@/rpc/api/users/v1/users-UsersService_connectquery'
 
+const getBrowserCountryCode = (): string | undefined => {
+  const locale = navigator.language || navigator.languages?.[0]
+  if (!locale) return undefined
+  // Extract country from locale like "en-US" -> "US", "fr-FR" -> "FR"
+  const parts = locale.split('-')
+  return parts.length > 1 ? parts[1].toUpperCase() : undefined
+}
+
 export const OrganizationOnboardingForm = () => {
   const navigate = useNavigate()
 
   const methods = useZodForm({
     schema: schemas.organizations.organizationOnboardingSchema,
-    defaultValues: {},
+    defaultValues: {
+      country: getBrowserCountryCode(),
+    },
     mode: 'onSubmit',
   })
 
@@ -104,7 +108,7 @@ export const OrganizationOnboardingForm = () => {
             {/*</div>*/}
           </Flex>
 
-          <div className="grid grid-cols-1 lg:grid-cols-2 gap-4 mt-5">
+          <div className="grid grid-cols-1 lg:grid-cols-2 gap-4 mt-5 mb-5">
             <CountrySelect
               name="country"
               label="Incorporation country"

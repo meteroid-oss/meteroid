@@ -1,19 +1,27 @@
-import { Card, Checkbox, Flex, Separator } from '@md/ui'
-import { Heart } from 'lucide-react'
+import { Button, Card, Checkbox, Flex, Separator } from '@md/ui'
+import { Heart, SettingsIcon } from 'lucide-react'
 import { useMemo } from 'react'
+import { Link } from 'react-router-dom'
 
 import { Loading } from '@/components/Loading'
 import { DetailsSection } from '@/features/dashboard/sections/DetailsSection'
 import { MrrSection } from '@/features/dashboard/sections/MrrSection'
 import { TopSection } from '@/features/dashboard/sections/TopSection'
+import { useInvoicingEntity } from '@/features/settings/hooks/useInvoicingEntity'
 import { useTenant } from '@/hooks/useTenant'
 import { useQuery } from '@/lib/connectrpc'
 import { me } from '@/rpc/api/users/v1/users-UsersService_connectquery'
 
 export const Dashboard = () => {
   const { isRefetching } = useTenant()
+  const { defaultEntity, isLoading: isLoadingEntity } = useInvoicingEntity()
 
   const username = useQuery(me)?.data?.user?.firstName
+
+  const showAddressSetup = useMemo(() => {
+    if (isLoadingEntity || !defaultEntity) return false
+    return !defaultEntity.addressLine1 || !defaultEntity.city
+  }, [defaultEntity, isLoadingEntity])
 
   const date = useMemo(() => {
     const today = new Date()
@@ -49,6 +57,26 @@ export const Dashboard = () => {
           <span className="text-md font-medium text-muted-foreground">{date}</span>
         </div>
         <Separator />
+        {showAddressSetup && (
+          <Card variant="accent2">
+            <div className="px-6 py-4">
+              <div className="flex items-center justify-between">
+                <div>
+                  <div className="text-sm font-semibold pb-1">Complete your setup</div>
+                  <div className="text-xs text-muted-foreground">
+                    Add your business address to start generating invoices
+                  </div>
+                </div>
+                <Button variant="primary" size="sm" hasIcon asChild>
+                  <Link to="settings?tab=merchant">
+                    <SettingsIcon size={14} />
+                    Configure
+                  </Link>
+                </Button>
+              </div>
+            </div>
+          </Card>
+        )}
         <Card variant="accent2" className="hidden">
           <div className="px-6 py-4">
             <div className="text-sm font-semibold pb-4">Complete your onboarding</div>
