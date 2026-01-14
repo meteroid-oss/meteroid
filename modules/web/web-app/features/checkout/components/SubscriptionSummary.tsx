@@ -47,7 +47,7 @@ const SubscriptionSummary: React.FC<SubscriptionSummaryProps> = ({
   const currency = subscription?.subscription?.currency || '?'
 
   // Determine if there are any applied coupons
-  const hasCoupons = appliedCoupons && appliedCoupons.length > 0
+  const hasCoupons = Boolean(appliedCoupons && appliedCoupons.length > 0)
 
   // Determine if there are manual discounts
   const hasDiscounts = discountAmount && discountAmount > 0
