@@ -121,8 +121,6 @@
 
     if organization.logo_src != none {
       align(right, image(organization.logo_src, height: 30pt, width: 150pt, fit: "contain"))
-    } else {
-      align(right, image("logo.png", width: 30pt))
     }
   )
 
