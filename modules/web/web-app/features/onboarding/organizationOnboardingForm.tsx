@@ -5,16 +5,12 @@ import {
 } from '@connectrpc/connect-query'
 import {
   Button,
-  Collapsible,
-  CollapsibleContent,
-  CollapsibleTrigger,
   Flex,
   Form,
   InputFormField,
   Label,
-  Separator,
 } from '@md/ui'
-import { ArrowLeft, ChevronDown } from 'lucide-react'
+import { ArrowLeft } from 'lucide-react'
 import { useNavigate } from 'react-router-dom'
 import { z } from 'zod'
 
@@ -122,6 +118,7 @@ export const OrganizationOnboardingForm = () => {
             </div>
           </div>
 
+          {/* Company details section commented out - data is not saved by backend yet
           <div>
             <Collapsible>
               <CollapsibleTrigger className="text-sm font-medium pt-2 flex w-full">
@@ -192,6 +189,7 @@ export const OrganizationOnboardingForm = () => {
               </CollapsibleContent>
             </Collapsible>
           </div>
+          */}
 
           <Button
             variant="primary"

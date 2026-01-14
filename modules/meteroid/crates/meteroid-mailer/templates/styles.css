@@ -122,6 +122,19 @@ a.small {
   color: #333333;
 }
 
+/* Custom Message */
+.custom-message {
+  background-color: #f8f8f8;
+  border-radius: 4px;
+  padding: 16px;
+  margin-bottom: 24px;
+}
+
+.custom-message p {
+  white-space: pre-wrap;
+  margin-bottom: 0;
+}
+
 /* Button Styles */
 a.button {
   display: inline-block;

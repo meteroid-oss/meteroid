@@ -1,3 +1,4 @@
+import { useMutation } from '@connectrpc/connect-query'
 import {
   Badge,
   Button,
@@ -18,14 +19,16 @@ import {
   TableHeader,
   TableRow,
 } from '@md/ui'
+import { useQueryClient } from '@tanstack/react-query'
 import { ChevronDown, Edit, Eye, FileText, Plus, Send } from 'lucide-react'
 import { FC, useState } from 'react'
 import { Link } from 'react-router-dom'
+import { toast } from 'sonner'
 
 import { useBasePath } from '@/hooks/useBasePath'
 import { useQuery } from '@/lib/connectrpc'
 import { Quote, QuoteStatus } from '@/rpc/api/quotes/v1/models_pb'
-import { listQuotes } from '@/rpc/api/quotes/v1/quotes-QuotesService_connectquery'
+import { listQuotes, sendQuote } from '@/rpc/api/quotes/v1/quotes-QuotesService_connectquery'
 import { ListQuotesRequest_SortBy } from '@/rpc/api/quotes/v1/quotes_pb'
 import { parseAndFormatDate } from '@/utils/date'
 
@@ -169,13 +172,21 @@ interface QuoteRowProps {
 }
 
 const QuoteRow: FC<QuoteRowProps> = ({ quote, basePath }) => {
-  // TODO: Add mutations for quote actions
-  // const sendQuoteMutation = useMutation(sendQuote)
-  // const cancelQuoteMutation = useMutation(cancelQuote)
+  const queryClient = useQueryClient()
 
-  const handleSendQuote = (quoteId: string) => {
-    // TODO: Implement send quote functionality
-    console.log('Sending quote:', quoteId)
+  const sendQuoteMutation = useMutation(sendQuote, {
+    onSuccess: async () => {
+      await queryClient.invalidateQueries({ queryKey: [listQuotes.service.typeName] })
+    },
+  })
+
+  const handleSendQuote = async (quoteId: string) => {
+    try {
+      await sendQuoteMutation.mutateAsync({ id: quoteId })
+      toast.success('Quote sent successfully')
+    } catch (error) {
+      toast.error('Failed to send quote')
+    }
   }
 
   const handleCancelQuote = (quoteId: string) => {

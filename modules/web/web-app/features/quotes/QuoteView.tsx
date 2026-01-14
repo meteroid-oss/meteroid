@@ -24,9 +24,9 @@ import {
 import { env } from '@/lib/env'
 import { Customer } from '@/rpc/api/customers/v1/models_pb'
 import { InvoicingEntityPublic } from '@/rpc/api/invoicingentities/v1/models_pb'
-import { Quote, QuoteComponent } from '@/rpc/api/quotes/v1/models_pb'
+import { Quote, QuoteComponent, QuoteSignature } from '@/rpc/api/quotes/v1/models_pb'
 import { setQuotePurchaseOrder } from '@/rpc/portal/quotes/v1/quotes-PortalQuoteService_connectquery'
-import { parseAndFormatDate } from '@/utils/date'
+import { parseAndFormatDate, parseAndFormatDateTime } from '@/utils/date'
 
 export interface QuoteViewProps {
   quote: {
@@ -34,6 +34,7 @@ export interface QuoteViewProps {
     invoicingEntity?: PlainMessage<InvoicingEntityPublic>
     customer?: PlainMessage<Customer>
     components?: PlainMessage<QuoteComponent>[]
+    signatures?: PlainMessage<QuoteSignature>[]
   }
   mode?: 'preview' | 'detailed' | 'portal'
   className?: string
@@ -325,12 +326,42 @@ export const QuoteView: FC<QuoteViewProps> = ({
   const renderSignatureArea = () => {
     if (mode === 'portal') return null
 
+    const signatures = quote.signatures || []
+
     return (
       <div className="border-t pt-8">
-        <h3 className="font-semibold mb-4">Signature</h3>
-        <div className="bg-muted/30 border-2 border-dashed border-muted-foreground/30 p-8 rounded-lg text-center">
-          <p className="text-muted-foreground">Digital signatures</p>
-        </div>
+        <h3 className="font-semibold mb-4">Signatures</h3>
+        {signatures.length > 0 ? (
+          <div className="space-y-3">
+            {signatures.map((signature, index) => (
+              <div
+                key={index}
+                className="flex justify-between items-center p-3 bg-muted/50 rounded-lg"
+              >
+                <div>
+                  <p className="font-medium text-sm">{signature.signedByName}</p>
+                  <p className="text-sm text-muted-foreground">{signature.signedByEmail}</p>
+                  {signature.signedByTitle && (
+                    <p className="text-sm text-muted-foreground">{signature.signedByTitle}</p>
+                  )}
+                </div>
+                <div className="text-right">
+                  <p className="text-sm font-medium">
+                    {signature.signedAt ? parseAndFormatDateTime(signature.signedAt) : '—'}
+                  </p>
+                  {signature.signatureMethod && (
+                    <p className="text-xs text-muted-foreground">{signature.signatureMethod}</p>
+                  )}
+                  <p className="text-xs text-muted-foreground">{signature.id}</p>
+                </div>
+              </div>
+            ))}
+          </div>
+        ) : (
+          <div className="bg-muted/30 border-2 border-dashed border-muted-foreground/30 p-8 rounded-lg text-center">
+            <p className="text-muted-foreground">No signatures yet</p>
+          </div>
+        )}
       </div>
     )
   }
