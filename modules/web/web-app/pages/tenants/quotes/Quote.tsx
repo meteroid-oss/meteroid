@@ -30,6 +30,7 @@ import {
   ExternalLink,
   FileText,
   Send,
+  XCircle,
 } from 'lucide-react'
 import { Fragment, useState } from 'react'
 import { Link } from 'react-router-dom'
@@ -48,6 +49,7 @@ import {
   RecipientDetails,
 } from '@/rpc/api/quotes/v1/models_pb'
 import {
+  cancelQuote,
   convertQuoteToSubscription,
   generateQuotePortalToken,
   getQuote,
@@ -110,6 +112,8 @@ export const QuoteDetailView: React.FC<Props> = ({ quote }) => {
   const canPublish = quote.quote?.status === QuoteStatus.DRAFT
   const canSend =
     quote.quote?.status === QuoteStatus.DRAFT || quote.quote?.status === QuoteStatus.PENDING
+  const canCancel =
+    quote.quote?.status === QuoteStatus.DRAFT || quote.quote?.status === QuoteStatus.PENDING
   const canConvert = quote.quote?.status === QuoteStatus.ACCEPTED
 
   const [showTokenDialog, setShowTokenDialog] = useState(false)
@@ -122,6 +126,13 @@ export const QuoteDetailView: React.FC<Props> = ({ quote }) => {
   const generateTokenMutation = useMutation(generateQuotePortalToken)
 
   const sendQuoteMutation = useMutation(sendQuote, {
+    onSuccess: async () => {
+      await queryClient.invalidateQueries({ queryKey: [listQuotes.service.typeName] })
+      await queryClient.invalidateQueries({ queryKey: [getQuote.service.typeName] })
+    },
+  })
+
+  const cancelQuoteMutation = useMutation(cancelQuote, {
     onSuccess: async () => {
       await queryClient.invalidateQueries({ queryKey: [listQuotes.service.typeName] })
       await queryClient.invalidateQueries({ queryKey: [getQuote.service.typeName] })
@@ -172,6 +183,16 @@ export const QuoteDetailView: React.FC<Props> = ({ quote }) => {
       setShowSendDialog(false)
     } catch (error) {
       toast.error('Failed to send quote')
+    }
+  }
+
+  const handleCancelQuote = async () => {
+    if (!quote.quote?.id) return
+    try {
+      await cancelQuoteMutation.mutateAsync({ id: quote.quote.id })
+      toast.success('Quote cancelled')
+    } catch (error) {
+      toast.error('Failed to cancel quote')
     }
   }
 
@@ -274,6 +295,18 @@ export const QuoteDetailView: React.FC<Props> = ({ quote }) => {
                   <Download size="16" className="mr-2" />
                   Download PDF
                 </DropdownMenuItem>
+                {canCancel && (
+                  <>
+                    <DropdownMenuSeparator />
+                    <DropdownMenuItem
+                      onClick={handleCancelQuote}
+                      className="text-destructive focus:text-destructive"
+                    >
+                      <XCircle size="16" className="mr-2" />
+                      Cancel Quote
+                    </DropdownMenuItem>
+                  </>
+                )}
               </DropdownMenuContent>
             </DropdownMenu>
           </div>

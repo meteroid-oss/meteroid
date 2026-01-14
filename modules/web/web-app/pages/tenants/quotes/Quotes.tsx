@@ -20,7 +20,7 @@ import {
   TableRow,
 } from '@md/ui'
 import { useQueryClient } from '@tanstack/react-query'
-import { ChevronDown, Edit, Eye, FileText, Plus, Send } from 'lucide-react'
+import { ChevronDown, Eye, FileText, Plus, Send } from 'lucide-react'
 import { FC, useState } from 'react'
 import { Link } from 'react-router-dom'
 import { toast } from 'sonner'
@@ -28,7 +28,11 @@ import { toast } from 'sonner'
 import { useBasePath } from '@/hooks/useBasePath'
 import { useQuery } from '@/lib/connectrpc'
 import { Quote, QuoteStatus } from '@/rpc/api/quotes/v1/models_pb'
-import { listQuotes, sendQuote } from '@/rpc/api/quotes/v1/quotes-QuotesService_connectquery'
+import {
+  cancelQuote,
+  listQuotes,
+  sendQuote,
+} from '@/rpc/api/quotes/v1/quotes-QuotesService_connectquery'
 import { ListQuotesRequest_SortBy } from '@/rpc/api/quotes/v1/quotes_pb'
 import { parseAndFormatDate } from '@/utils/date'
 
@@ -180,6 +184,12 @@ const QuoteRow: FC<QuoteRowProps> = ({ quote, basePath }) => {
     },
   })
 
+  const cancelQuoteMutation = useMutation(cancelQuote, {
+    onSuccess: async () => {
+      await queryClient.invalidateQueries({ queryKey: [listQuotes.service.typeName] })
+    },
+  })
+
   const handleSendQuote = async (quoteId: string) => {
     try {
       await sendQuoteMutation.mutateAsync({ id: quoteId })
@@ -189,9 +199,13 @@ const QuoteRow: FC<QuoteRowProps> = ({ quote, basePath }) => {
     }
   }
 
-  const handleCancelQuote = (quoteId: string) => {
-    // TODO: Implement cancel quote functionality
-    console.log('Cancelling quote:', quoteId)
+  const handleCancelQuote = async (quoteId: string) => {
+    try {
+      await cancelQuoteMutation.mutateAsync({ id: quoteId })
+      toast.success('Quote cancelled')
+    } catch (error) {
+      toast.error('Failed to cancel quote')
+    }
   }
 
   return (
@@ -232,12 +246,6 @@ const QuoteRow: FC<QuoteRowProps> = ({ quote, basePath }) => {
               <Link to={`${basePath}/quotes/${quote.id}`}>
                 <Eye className="w-4 h-4 mr-2" />
                 View
-              </Link>
-            </DropdownMenuItem>
-            <DropdownMenuItem asChild>
-              <Link to={`${basePath}/quotes/${quote.id}/edit`}>
-                <Edit className="w-4 h-4 mr-2" />
-                Edit
               </Link>
             </DropdownMenuItem>
             {(quote.status === QuoteStatus.DRAFT || quote.status === QuoteStatus.PENDING) && (
