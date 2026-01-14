@@ -2,7 +2,9 @@ use crate::api::customers::mapping::customer::ServerCustomerWrapper;
 use crate::api::portal::checkout::PortalCheckoutServiceComponents;
 use crate::api::portal::checkout::error::PortalCheckoutApiError;
 use crate::services::storage::Prefix;
-use common_domain::ids::{CustomerPaymentMethodId, SubscriptionId};
+use common_domain::ids::{
+    AppliedCouponId, BaseId, CustomerPaymentMethodId, SubscriptionId, TenantId,
+};
 use common_grpc::middleware::server::auth::{RequestExt, ResourceAccess};
 use common_utils::decimals::ToSubunit;
 use common_utils::integers::ToNonNegativeU64;
@@ -15,10 +17,14 @@ use meteroid_grpc::meteroid::portal::checkout::v1::{
     GetSubscriptionCheckoutResponse, SlotUpgradeCheckout, TaxBreakdownItem,
 };
 use meteroid_store::constants::Currencies;
-use meteroid_store::domain::Period;
 use meteroid_store::domain::SubscriptionFeeInterface;
+use meteroid_store::domain::subscription_coupons::{
+    AppliedCoupon as DomainAppliedCoupon, AppliedCouponDetailed,
+};
+use meteroid_store::domain::{Period, SubscriptionDetails};
 use meteroid_store::errors::StoreError;
 use meteroid_store::repositories::bank_accounts::BankAccountsInterface;
+use meteroid_store::repositories::coupons::CouponInterface;
 use meteroid_store::repositories::customer_payment_methods::CustomerPaymentMethodsInterface;
 use meteroid_store::repositories::customers::CustomersInterfaceAuto;
 use meteroid_store::repositories::invoicing_entities::InvoicingEntityInterfaceAuto;
@@ -38,22 +44,23 @@ impl PortalCheckoutService for PortalCheckoutServiceComponents {
         let tenant = request.tenant()?;
 
         let portal_resource = request.portal_resource()?;
+        let inner = request.into_inner();
+        let coupon_code = inner.coupon_code.clone();
 
         let (subscription_id, customer_id) = match portal_resource.resource_access {
             ResourceAccess::SubscriptionCheckout(id) => Ok((id, None)),
             ResourceAccess::CustomerPortal(id) => {
-                let invoice_id =
-                    SubscriptionId::from_proto_opt(request.into_inner().subscription_id)?.ok_or(
-                        Status::invalid_argument("Missing subscriptio ID in request"),
-                    )?;
-                Ok((invoice_id, Some(id)))
+                let sub_id = SubscriptionId::from_proto_opt(inner.subscription_id)?.ok_or(
+                    Status::invalid_argument("Missing subscription ID in request"),
+                )?;
+                Ok((sub_id, Some(id)))
             }
             _ => Err(Status::invalid_argument(
                 "Resource is not an invoice or customer portal.",
             )),
         }?;
 
-        let subscription = self
+        let mut subscription = self
             .store
             .get_subscription_details(tenant, subscription_id)
             .await
@@ -65,6 +72,14 @@ impl PortalCheckoutService for PortalCheckoutServiceComponents {
             return Err(Status::permission_denied(
                 "Subscription does not belong to the specified customer.",
             ));
+        }
+
+        // If a coupon code is provided, validate and add it for preview
+        if let Some(code) = coupon_code {
+            let preview_coupon = self
+                .validate_and_create_preview_coupon(&code, tenant, &subscription)
+                .await?;
+            subscription.applied_coupons.push(preview_coupon);
         }
 
         let invoice_content = self
@@ -258,6 +273,7 @@ impl PortalCheckoutService for PortalCheckoutServiceComponents {
                 payment_method_id,
                 inner.displayed_amount,
                 inner.displayed_currency,
+                inner.coupon_code,
             )
             .await
             .map_err(Into::<PortalCheckoutApiError>::into)?;
@@ -499,5 +515,91 @@ impl PortalCheckoutService for PortalCheckoutServiceComponents {
             ),
             new_slot_count: new_slot_count as u32,
         }))
+    }
+}
+
+impl PortalCheckoutServiceComponents {
+    /// Validates a coupon code and creates a preview AppliedCouponDetailed for invoice computation.
+    /// This does NOT persist the coupon - it's only used for previewing the discount.
+    async fn validate_and_create_preview_coupon(
+        &self,
+        code: &str,
+        tenant_id: TenantId,
+        subscription: &SubscriptionDetails,
+    ) -> Result<AppliedCouponDetailed, Status> {
+        // Look up coupon by code
+        let coupons = self
+            .store
+            .list_coupons_by_codes(tenant_id, &[code.to_string()])
+            .await
+            .map_err(Into::<PortalCheckoutApiError>::into)?;
+
+        let coupon = coupons
+            .into_iter()
+            .next()
+            .ok_or_else(|| Status::invalid_argument(format!("Coupon code '{}' not found", code)))?;
+
+        // Validate the coupon
+        let now = chrono::Utc::now().naive_utc();
+
+        if coupon.expires_at.is_some_and(|x| x <= now) {
+            return Err(Status::invalid_argument(format!(
+                "Coupon '{}' has expired",
+                code
+            )));
+        }
+
+        if coupon.archived_at.is_some() {
+            return Err(Status::invalid_argument(format!(
+                "Coupon '{}' is no longer available",
+                code
+            )));
+        }
+
+        if coupon.disabled {
+            return Err(Status::invalid_argument(format!(
+                "Coupon '{}' is disabled",
+                code
+            )));
+        }
+
+        if let Some(limit) = coupon.redemption_limit
+            && coupon.redemption_count >= limit
+        {
+            return Err(Status::invalid_argument(format!(
+                "Coupon '{}' has reached its redemption limit",
+                code
+            )));
+        }
+
+        // Check currency compatibility
+        if coupon
+            .discount
+            .currency()
+            .is_some_and(|c| c != subscription.subscription.currency)
+        {
+            return Err(Status::invalid_argument(format!(
+                "Coupon '{}' currency does not match subscription currency",
+                code
+            )));
+        }
+
+        // Create a preview AppliedCouponDetailed (not persisted)
+        let preview_applied = DomainAppliedCoupon {
+            id: AppliedCouponId::new(),
+            coupon_id: coupon.id,
+            customer_id: subscription.subscription.customer_id,
+            subscription_id: subscription.subscription.id,
+            is_active: true,
+            applied_amount: None,
+            applied_count: Some(0),
+            last_applied_at: None,
+            created_at: now,
+        };
+
+        Ok(AppliedCouponDetailed {
+            coupon,
+            applied_coupon: preview_applied,
+        })
     }
 }

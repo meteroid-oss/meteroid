@@ -1,3 +1,4 @@
+import { Code, ConnectError } from '@connectrpc/connect'
 import { useMutation } from '@connectrpc/connect-query'
 import { ArrowLeft } from 'lucide-react'
 import { useState } from 'react'
@@ -8,7 +9,11 @@ import { ReadonlyPaymentView } from '@/features/checkout/components/ReadonlyPaym
 import { getCheckoutPaymentAvailability } from '@/features/checkout/utils/paymentAvailability'
 import { BillingInfo } from '@/features/customers/components/BillingInfo'
 import { BankTransferInfo } from '@/features/invoice-payment/components/BankTransferInfo'
-import { confirmCheckout } from '@/rpc/portal/checkout/v1/checkout-PortalCheckoutService_connectquery'
+import {
+  confirmCheckout,
+  getSubscriptionCheckout,
+} from '@/rpc/portal/checkout/v1/checkout-PortalCheckoutService_connectquery'
+import { Checkout } from '@/rpc/portal/checkout/v1/models_pb'
 import { formatCurrency } from '@/utils/numbers'
 
 import { SubscriptionSummary } from './components/SubscriptionSummary'
@@ -16,8 +21,12 @@ import { CheckoutFlowProps } from './types'
 /**
  * Main checkout flow component
  */
-const CheckoutFlow: React.FC<CheckoutFlowProps> = ({ checkoutData }) => {
+const CheckoutFlow: React.FC<CheckoutFlowProps> = ({ checkoutData: initialCheckoutData }) => {
   const [isAddressEditing, setIsAddressEditing] = useState(false)
+  const [couponCode, setCouponCode] = useState('')
+  const [couponError, setCouponError] = useState<string | undefined>(undefined)
+  const [isApplyingCoupon, setIsApplyingCoupon] = useState(false)
+  const [checkoutData, setCheckoutData] = useState<Checkout>(initialCheckoutData)
   const navigate = useNavigate()
   const {
     subscription,
@@ -36,13 +45,64 @@ const CheckoutFlow: React.FC<CheckoutFlowProps> = ({ checkoutData }) => {
     },
   })
 
-  // Mutation to add a new payment method
+  // Mutation to apply coupon (fetches checkout with coupon preview)
+  const applyCouponMutation = useMutation(getSubscriptionCheckout)
+
+  /**
+   * Apply coupon code and update checkout totals
+   */
+  const handleApplyCoupon = async () => {
+    const code = couponCode.trim()
+    if (!code) return
+
+    setIsApplyingCoupon(true)
+    setCouponError(undefined)
+
+    try {
+      const response = await applyCouponMutation.mutateAsync({
+        subscriptionId: subscription?.subscription?.id,
+        couponCode: code,
+      })
+
+      if (response.checkout) {
+        setCheckoutData(response.checkout)
+      }
+    } catch (error) {
+      if (error instanceof ConnectError) {
+        setCouponError(error.message)
+      } else {
+        setCouponError('Failed to apply coupon')
+      }
+    } finally {
+      setIsApplyingCoupon(false)
+    }
+  }
+
+  // Clear coupon and revert to original data
+  const handleClearCoupon = async () => {
+    setCouponCode('')
+    setCouponError(undefined)
+
+    try {
+      const response = await applyCouponMutation.mutateAsync({
+        subscriptionId: subscription?.subscription?.id,
+      })
+      if (response.checkout) {
+        setCheckoutData(response.checkout)
+      }
+    } catch {
+      // Fallback to initial data if refetch fails
+      setCheckoutData(initialCheckoutData)
+    }
+  }
 
   /**
    * Process payment with selected payment method
    */
   const handlePaymentSubmit = async (paymentMethodId: string) => {
     try {
+      setCouponError(undefined)
+
       if (!subscription?.subscription?.currency) {
         throw new Error('Currency is not defined')
       }
@@ -51,6 +111,7 @@ const CheckoutFlow: React.FC<CheckoutFlowProps> = ({ checkoutData }) => {
         displayedAmount: totalAmount,
         displayedCurrency: subscription.subscription.currency,
         paymentMethodId,
+        couponCode: couponCode.trim() || undefined,
       })
 
       // On success, redirect to success page
@@ -61,6 +122,17 @@ const CheckoutFlow: React.FC<CheckoutFlowProps> = ({ checkoutData }) => {
       navigate(`success?${params.toString()}`)
     } catch (error) {
       console.error('Payment submission error:', error)
+
+      // Check if error is coupon-related and show it inline
+      if (
+        error instanceof ConnectError &&
+        error.message.toLowerCase().includes('coupon') &&
+        (error.code === Code.NotFound || error.code === Code.InvalidArgument)
+      ) {
+        setCouponError('No active coupon found with this code.')
+        return // Don't re-throw, let user fix the coupon
+      }
+
       throw error // Let the PaymentPanel handle this error
     }
   }
@@ -98,7 +170,15 @@ const CheckoutFlow: React.FC<CheckoutFlowProps> = ({ checkoutData }) => {
         {/* Left panel - Order summary */}
         <div className="flex flex-col md:h-screen bg-background-gray gap-5 px-5 md:px-4 lg:px-20 lg:pt-16 lg:pb-20 pt-5 pb-5 border-b border-border-regular md:pb-8 md:pt-16 w-full md:overflow-auto">
           <div className="md:max-w-[500px] w-full ml-auto  ">
-            <SubscriptionSummary checkoutData={checkoutData} />
+            <SubscriptionSummary
+              checkoutData={checkoutData}
+              couponCode={couponCode}
+              onCouponCodeChange={setCouponCode}
+              onApplyCoupon={handleApplyCoupon}
+              onClearCoupon={handleClearCoupon}
+              couponError={couponError}
+              isApplyingCoupon={isApplyingCoupon}
+            />
           </div>
         </div>
         {/* Right panel - Payment form */}
