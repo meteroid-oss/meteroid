@@ -26,14 +26,11 @@ pub enum PortalCheckoutApiError {
     #[error("Invalid argument: {0}")]
     #[code(InvalidArgument)]
     InvalidArgument(String),
+    #[error("Invalid coupon: {0}")]
+    #[code(InvalidArgument)]
+    InvalidCoupon(String),
 }
 
-impl From<Report<StoreError>> for PortalCheckoutApiError {
-    fn from(value: Report<StoreError>) -> Self {
-        let err = Box::new(value.into_error());
-        Self::StoreError("Error in portal checkout service".to_string(), err)
-    }
-}
 impl From<Report<ObjectStoreError>> for PortalCheckoutApiError {
     fn from(value: Report<ObjectStoreError>) -> Self {
         let err = Box::new(value.into_error());
@@ -41,5 +38,27 @@ impl From<Report<ObjectStoreError>> for PortalCheckoutApiError {
             "Object store error in portal checkout service".to_string(),
             err,
         )
+    }
+}
+
+impl From<Report<StoreError>> for PortalCheckoutApiError {
+    fn from(value: Report<StoreError>) -> Self {
+        let err = value.current_context();
+
+        match err {
+            StoreError::InvalidArgument(msg) => Self::InvalidArgument(msg.clone()),
+            StoreError::ValueNotFound(msg) => Self::InvalidArgument(msg.clone()),
+            StoreError::DuplicateValue { entity, key } => {
+                let msg = match key {
+                    Some(k) => format!("{} with key '{}' already exists", entity, k),
+                    None => format!("{} already exists", entity),
+                };
+                Self::InvalidArgument(msg)
+            }
+            _ => Self::StoreError(
+                "Error in checkout service".to_string(),
+                Box::new(value.into_error()),
+            ),
+        }
     }
 }

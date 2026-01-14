@@ -18,10 +18,14 @@ use crate::services::{InvoiceBillingMode, ServicesEdge};
 use crate::store::PgConn;
 use chrono::NaiveDate;
 use common_domain::ids::{
-    BaseId, CustomerConnectionId, CustomerPaymentMethodId, InvoiceId, SubscriptionId, TenantId,
+    AppliedCouponId, BaseId, CustomerConnectionId, CustomerPaymentMethodId, InvoiceId,
+    SubscriptionId, TenantId,
 };
 use diesel_async::scoped_futures::ScopedFutureExt;
+use diesel_models::applied_coupons::AppliedCouponRowNew;
+use diesel_models::coupons::CouponRow;
 use diesel_models::quotes::{QuoteActivityRowNew, QuoteRow};
+use diesel_models::subscriptions::SubscriptionRow;
 use error_stack::{Report, ResultExt};
 use uuid::Uuid;
 
@@ -121,11 +125,126 @@ impl ServicesEdge {
         payment_method_id: CustomerPaymentMethodId,
         total_amount_confirmation: u64,
         currency_confirmation: String,
+        coupon_code: Option<String>,
     ) -> Result<PaymentTransaction, StoreErrorReport> {
         let payment_transaction = self
             .store
             .transaction(|conn| {
                 async move {
+                    // Apply coupon if provided
+                    if let Some(code) = coupon_code {
+                        let subscription_row = SubscriptionRow::get_subscription_by_id(
+                            conn,
+                            &tenant_id,
+                            subscription_id,
+                        )
+                        .await
+                        .map_err(Into::<Report<StoreError>>::into)?;
+
+                        // Look up coupon by code
+                        let coupons =
+                            CouponRow::list_by_codes(conn, tenant_id, std::slice::from_ref(&code))
+                                .await?;
+
+                        let coupon = coupons.into_iter().next().ok_or_else(|| {
+                            Report::new(StoreError::InvalidArgument(format!(
+                                "Coupon code '{}' not found",
+                                code
+                            )))
+                        })?;
+
+                        // Validate the coupon
+                        let now = chrono::Utc::now().naive_utc();
+
+                        if coupon.expires_at.is_some_and(|x| x <= now) {
+                            return Err(Report::new(StoreError::InvalidArgument(format!(
+                                "Coupon '{}' has expired",
+                                code
+                            ))));
+                        }
+
+                        if coupon.archived_at.is_some() {
+                            return Err(Report::new(StoreError::InvalidArgument(format!(
+                                "Coupon '{}' is no longer available",
+                                code
+                            ))));
+                        }
+
+                        if coupon.disabled {
+                            return Err(Report::new(StoreError::InvalidArgument(format!(
+                                "Coupon '{}' is disabled",
+                                code
+                            ))));
+                        }
+
+                        if let Some(limit) = coupon.redemption_limit
+                            && coupon.redemption_count >= limit
+                        {
+                            return Err(Report::new(StoreError::InvalidArgument(format!(
+                                "Coupon '{}' has reached its redemption limit",
+                                code
+                            ))));
+                        }
+
+                        // Check currency compatibility
+                        let discount: crate::domain::coupons::CouponDiscount =
+                            serde_json::from_value(coupon.discount.clone()).map_err(|_| {
+                                Report::new(StoreError::InvalidArgument(
+                                    "Invalid coupon discount format".to_string(),
+                                ))
+                            })?;
+
+                        if discount
+                            .currency()
+                            .is_some_and(|c| c != subscription_row.subscription.currency)
+                        {
+                            return Err(Report::new(StoreError::InvalidArgument(format!(
+                                "Coupon '{}' currency does not match subscription currency",
+                                code
+                            ))));
+                        }
+
+                        // Check if non-reusable coupon was already used by this customer
+                        if !coupon.reusable {
+                            use diesel_models::applied_coupons::AppliedCouponRow;
+                            let existing = AppliedCouponRow::find_existing_customer_coupon_pairs(
+                                conn,
+                                &[(coupon.id, subscription_row.subscription.customer_id)],
+                            )
+                            .await?;
+
+                            if !existing.is_empty() {
+                                return Err(Report::new(StoreError::InvalidArgument(format!(
+                                    "Coupon '{}' has already been used",
+                                    code
+                                ))));
+                            }
+                        }
+
+                        // Apply the coupon
+                        let applied_coupon = AppliedCouponRowNew {
+                            id: AppliedCouponId::new(),
+                            subscription_id,
+                            coupon_id: coupon.id,
+                            customer_id: subscription_row.subscription.customer_id,
+                            is_active: true,
+                            applied_amount: None,
+                            applied_count: None,
+                            last_applied_at: None,
+                        };
+
+                        applied_coupon.insert(conn).await?;
+
+                        // Update coupon redemption stats
+                        CouponRow::update_last_redemption_at(
+                            conn,
+                            &[coupon.id],
+                            chrono::Utc::now().naive_utc(),
+                        )
+                        .await?;
+                        CouponRow::inc_redemption_count(conn, coupon.id, 1).await?;
+                    }
+
                     let detailed_invoice = self
                         .services
                         .bill_subscription_tx(

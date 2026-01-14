@@ -1,4 +1,7 @@
-import { rateToPercent , formatCurrency } from '@/lib/utils/numbers'
+import { Button, Input } from '@md/ui'
+import { useState } from 'react'
+
+import { formatCurrency, rateToPercent } from '@/lib/utils/numbers'
 import { Checkout } from '@/rpc/portal/checkout/v1/models_pb'
 
 // Helper to format dates
@@ -7,7 +10,26 @@ const formatDate = (dateString: string): string => {
   return date.toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' })
 }
 
-const SubscriptionSummary: React.FC<{ checkoutData: Checkout }> = ({ checkoutData }) => {
+interface SubscriptionSummaryProps {
+  checkoutData: Checkout
+  couponCode: string
+  onCouponCodeChange: (code: string) => void
+  onApplyCoupon: () => void
+  onClearCoupon: () => void
+  couponError?: string
+  isApplyingCoupon?: boolean
+}
+
+const SubscriptionSummary: React.FC<SubscriptionSummaryProps> = ({
+  checkoutData,
+  couponCode,
+  onCouponCodeChange,
+  onApplyCoupon,
+  onClearCoupon,
+  couponError,
+  isApplyingCoupon,
+}) => {
+  const [showCouponInput, setShowCouponInput] = useState(false)
   const {
     subscription,
     invoiceLines,
@@ -107,24 +129,22 @@ const SubscriptionSummary: React.FC<{ checkoutData: Checkout }> = ({ checkoutDat
           <div>{formatCurrency(subtotalAmount, currency)}</div>
         </div>
 
-        {/* Display manual discounts if any */}
-        {hasDiscounts ? (
-          <div className="flex justify-between text-green-600 mb-1">
-            <div className="text-sm">Discount</div>
-            <div>-{formatCurrency(discountAmount, currency)}</div>
-          </div>
-        ) : null}
-
         {/* Display applied coupons if any */}
         {hasCoupons &&
           appliedCoupons.map((coupon, index) => (
             <div key={index} className="flex justify-between text-green-600 mb-1">
-              <div className="text-sm">
-                {coupon.couponName} ({coupon.couponCode})
-              </div>
+              <div className="text-sm">{coupon.couponCode}</div>
               <div>-{formatCurrency(coupon.amount, currency)}</div>
             </div>
           ))}
+
+        {/* Display other discounts (non-coupon) if any */}
+        {hasDiscounts && !hasCoupons && (
+          <div className="flex justify-between text-green-600 mb-1">
+            <div className="text-sm">Discount</div>
+            <div>-{formatCurrency(discountAmount, currency)}</div>
+          </div>
+        )}
 
         {/* Display tax breakdown if any */}
         {hasTaxes && (
@@ -141,13 +161,74 @@ const SubscriptionSummary: React.FC<{ checkoutData: Checkout }> = ({ checkoutDat
                 </div>
               ))}
             </div>
-
           </>
         )}
 
-        {/* Promotion code link */}
+        {/* Promotion code input */}
         {!hasCoupons && (
-          <button className="text-blue-600 text-xs font-medium mt-2">Add promotion code</button>
+          <div className="mt-2">
+            {!showCouponInput ? (
+              <Button
+                variant="link"
+                size="sm"
+                onClick={() => setShowCouponInput(true)}
+                className="text-blue-600 text-xs font-medium p-0 h-auto"
+              >
+                Add promotion code
+              </Button>
+            ) : (
+              <div className="flex flex-col gap-1">
+                <div className="flex items-center gap-2">
+                  <Input
+                    value={couponCode}
+                    onChange={e => onCouponCodeChange(e.target.value)}
+                    placeholder="Enter code"
+                    className="flex-1 h-8 text-xs"
+                    onKeyDown={e => {
+                      if (e.key === 'Enter' && couponCode.trim()) {
+                        onApplyCoupon()
+                      }
+                    }}
+                  />
+                  <Button
+                    variant="secondary"
+                    size="sm"
+                    onClick={onApplyCoupon}
+                    disabled={!couponCode.trim() || isApplyingCoupon}
+                    className="text-xs"
+                  >
+                    {isApplyingCoupon ? 'Applying...' : 'Apply'}
+                  </Button>
+                  <Button
+                    variant="ghost"
+                    size="sm"
+                    onClick={() => {
+                      setShowCouponInput(false)
+                      onCouponCodeChange('')
+                    }}
+                    className="text-muted-foreground text-xs"
+                  >
+                    Cancel
+                  </Button>
+                </div>
+                {couponError && <p className="text-destructive text-xs">{couponError}</p>}
+              </div>
+            )}
+          </div>
+        )}
+
+        {/* Show applied coupon with remove option */}
+        {hasCoupons && (
+          <div className="mt-2">
+            <Button
+              variant="link"
+              size="sm"
+              onClick={onClearCoupon}
+              className="text-muted-foreground text-xs p-0 h-auto"
+            >
+              Remove coupon
+            </Button>
+          </div>
         )}
       </div>
 

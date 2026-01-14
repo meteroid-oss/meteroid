@@ -8,6 +8,7 @@ import "api/invoices/v1/models.proto";
 
 message GetSubscriptionCheckoutRequest {
   optional string subscription_id = 1;
+  optional string coupon_code = 2;
 }
 
 message GetSubscriptionCheckoutResponse {
@@ -20,6 +21,7 @@ message ConfirmCheckoutRequest {
   uint64 displayed_amount = 2;
   string displayed_currency = 3;
   optional string subscription_id = 4;
+  optional string coupon_code = 5;
 }
 message ConfirmCheckoutResponse {
   api.invoices.v1.Transaction transaction = 1;

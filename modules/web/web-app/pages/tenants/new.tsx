@@ -115,7 +115,13 @@ export const TenantNew: FunctionComponent = () => {
                 </div>
 
                 <div className="w-full flex justify-end items-center pt-6">
-                  <Button variant="ghost" className="!rounded-r-none" size="sm" type="button">
+                  <Button
+                    variant="ghost"
+                    className="!rounded-r-none"
+                    size="sm"
+                    type="button"
+                    onClick={() => navigate(-1)}
+                  >
                     Cancel
                   </Button>
                   <Button

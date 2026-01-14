@@ -40,8 +40,8 @@ impl PortalCustomerService for PortalCustomerServiceComponents {
                 None,
                 Some(vec![
                     SubscriptionStatusEnum::Active,
-                    SubscriptionStatusEnum::Completed,
-                    SubscriptionStatusEnum::Cancelled,
+                    // SubscriptionStatusEnum::Completed,
+                    // SubscriptionStatusEnum::Cancelled,
                     SubscriptionStatusEnum::TrialActive,
                     SubscriptionStatusEnum::TrialExpired,
                     SubscriptionStatusEnum::Paused,
