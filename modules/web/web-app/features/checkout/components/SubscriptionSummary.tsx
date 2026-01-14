@@ -47,10 +47,10 @@ const SubscriptionSummary: React.FC<SubscriptionSummaryProps> = ({
   const currency = subscription?.subscription?.currency || '?'
 
   // Determine if there are any applied coupons
-  const hasCoupons = Boolean(appliedCoupons && appliedCoupons.length > 0)
+  const hasCoupons: boolean = appliedCoupons.length > 0
 
   // Determine if there are manual discounts
-  const hasDiscounts = discountAmount && discountAmount > 0
+  const hasDiscounts = discountAmount > 0
 
   // Determine if there are taxes
   const hasTaxes = taxBreakdown && taxBreakdown.length > 0
@@ -129,21 +129,24 @@ const SubscriptionSummary: React.FC<SubscriptionSummaryProps> = ({
           <div>{formatCurrency(subtotalAmount, currency)}</div>
         </div>
 
-        {/* Display applied coupons if any */}
-        {hasCoupons &&
-          appliedCoupons.map((coupon, index) => (
-            <div key={index} className="flex justify-between text-green-600 mb-1">
-              <div className="text-sm">{coupon.couponCode}</div>
-              <div>-{formatCurrency(coupon.amount, currency)}</div>
-            </div>
-          ))}
+        {hasCoupons ? (
+          <>
+            {appliedCoupons.map((coupon, index) => (
+              <div key={index} className="flex justify-between text-green-600 mb-1">
+                <div className="text-sm">{coupon.couponCode}</div>
+                <div>-{formatCurrency(coupon.amount, currency)}</div>
+              </div>
+            ))}
+          </>
+        ) : null}
 
-        {/* Display other discounts (non-coupon) if any */}
         {hasDiscounts && !hasCoupons && (
-          <div className="flex justify-between text-green-600 mb-1">
-            <div className="text-sm">Discount</div>
-            <div>-{formatCurrency(discountAmount, currency)}</div>
-          </div>
+          <>
+            <div className="flex justify-between text-green-600 mb-1">
+              <div className="text-sm">Discount</div>
+              <div>-{formatCurrency(discountAmount, currency)}</div>
+            </div>
+          </>
         )}
 
         {/* Display tax breakdown if any */}
