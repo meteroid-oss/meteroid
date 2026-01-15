@@ -87,6 +87,7 @@ fn build_subscription_from_quote(
         auto_advance_invoices: quote.auto_advance_invoices,
         charge_automatically: quote.charge_automatically,
         purchase_order: quote.purchase_order.clone(),
+        backdate_invoices: false,
     };
 
     let components: Vec<SubscriptionComponentNewInternal> = detailed_quote

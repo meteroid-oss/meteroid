@@ -44,7 +44,7 @@ impl InvoiceRowNew {
 }
 
 impl InvoiceRow {
-    /// locks the invoice, the customer (for the balance) and the subscription
+    /// locks the invoice and the customer (for the balance)
     pub async fn select_for_update_by_id(
         conn: &mut PgConn,
         param_tenant_id: TenantId,
@@ -57,11 +57,7 @@ impl InvoiceRow {
 
         let query = i_dsl::invoice
             .inner_join(c_dsl::customer.on(i_dsl::customer_id.eq(c_dsl::id)))
-            .select((
-                InvoiceRow::as_select(),
-                c_dsl::balance_value_cents,
-                c_dsl::invoicing_entity_id,
-            ))
+            .select(InvoiceLockRow::as_select())
             .filter(i_dsl::tenant_id.eq(param_tenant_id))
             .filter(i_dsl::id.eq(param_invoice_id))
             .for_update();
@@ -72,6 +68,27 @@ impl InvoiceRow {
             .first(conn)
             .await
             .attach("Error while locking invoice by id")
+            .into_db_result()
+    }
+
+    /// Get the backdate_invoices flag from the subscription (if any)
+    pub async fn get_subscription_backdate_flag(
+        conn: &mut PgConn,
+        subscription_id: SubscriptionId,
+    ) -> DbResult<bool> {
+        use crate::schema::subscription::dsl as s_dsl;
+        use diesel_async::RunQueryDsl;
+
+        let query = s_dsl::subscription
+            .select(s_dsl::backdate_invoices)
+            .filter(s_dsl::id.eq(subscription_id));
+
+        log::debug!("{}", debug_query::<diesel::pg::Pg, _>(&query));
+
+        query
+            .first(conn)
+            .await
+            .attach("Error while fetching subscription backdate flag")
             .into_db_result()
     }
 
@@ -409,6 +426,7 @@ impl InvoiceRow {
         new_invoice_number: String,
         payment_reference: String,
         coupons: serde_json::Value,
+        finalized_at: NaiveDateTime,
     ) -> DbResult<usize> {
         use crate::schema::invoice::dsl as i_dsl;
         use diesel_async::RunQueryDsl;
@@ -425,7 +443,7 @@ impl InvoiceRow {
                 i_dsl::status.eq(InvoiceStatusEnum::Finalized),
                 i_dsl::updated_at.eq(now),
                 i_dsl::data_updated_at.eq(now),
-                i_dsl::finalized_at.eq(now),
+                i_dsl::finalized_at.eq(finalized_at),
                 i_dsl::invoice_number.eq(new_invoice_number),
                 i_dsl::reference.eq(payment_reference),
                 i_dsl::coupons.eq(coupons),

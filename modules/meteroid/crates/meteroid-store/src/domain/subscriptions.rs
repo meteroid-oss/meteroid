@@ -198,6 +198,7 @@ pub struct SubscriptionNew {
     pub auto_advance_invoices: bool,
     pub charge_automatically: bool,
     pub purchase_order: Option<String>,
+    pub backdate_invoices: bool,
 }
 
 pub struct SubscriptionNewEnriched<'a> {
@@ -262,6 +263,7 @@ impl SubscriptionNewEnriched<'_> {
             auto_advance_invoices: sub.auto_advance_invoices,
             purchase_order: sub.purchase_order.clone(),
             quote_id: self.quote_id,
+            backdate_invoices: sub.backdate_invoices,
         }
     }
 }

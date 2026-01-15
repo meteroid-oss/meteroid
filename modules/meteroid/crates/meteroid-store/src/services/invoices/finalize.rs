@@ -5,6 +5,7 @@ use crate::errors::StoreError;
 use crate::repositories::customer_balance::CustomerBalance;
 use crate::services::Services;
 use crate::services::utils::format_invoice_number;
+use chrono::NaiveTime;
 use common_domain::ids::{AppliedCouponId, BaseId, InvoiceId, InvoicingEntityId, TenantId};
 use common_eventbus::Event;
 use common_utils::decimals::ToUnit;
@@ -71,12 +72,22 @@ impl Services {
             .await?;
         }
 
+        // Fetch backdate flag from subscription if present
+        let backdate_invoices = if let Some(subscription_id) = invoice.subscription_id {
+            InvoiceRow::get_subscription_backdate_flag(conn, subscription_id)
+                .await
+                .unwrap_or(false)
+        } else {
+            false
+        };
+
         let invoice_details = self
             .increment_and_finalize(
                 conn,
                 invoice,
                 invoice_lock.customer_invoicing_entity_id,
                 applied_coupons_amounts,
+                backdate_invoices,
             )
             .await?;
 
@@ -89,6 +100,7 @@ impl Services {
         invoice: Invoice,
         invoicing_entity_id: InvoicingEntityId,
         applied_coupons_amounts: Vec<CouponLineItem>,
+        backdate_invoices: bool,
     ) -> StoreResult<DetailedInvoice> {
         let invoicing_entity = InvoicingEntityRow::select_for_update_by_id_and_tenant(
             tx,
@@ -114,6 +126,16 @@ impl Services {
         let applied_coupons_json = serde_json::to_value(&applied_coupons_amounts)
             .map_err(|e| StoreError::SerdeError("Failed to serialize coupons".to_string(), e))?;
 
+        // Use invoice_date for finalized_at when backdating (for seeded subscriptions),
+        // otherwise use current time
+        let finalized_at = if backdate_invoices {
+            invoice
+                .invoice_date
+                .and_time(NaiveTime::from_hms_opt(12, 0, 0).unwrap())
+        } else {
+            chrono::Utc::now().naive_utc()
+        };
+
         InvoiceRow::finalize(
             tx,
             invoice.id,
@@ -121,6 +143,7 @@ impl Services {
             new_invoice_number,
             payment_reference,
             applied_coupons_json,
+            finalized_at,
         )
         .await
         .map_err(Into::<Report<StoreError>>::into)?;

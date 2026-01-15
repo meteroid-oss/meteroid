@@ -10,7 +10,7 @@ import {
 } from '@md/ui'
 import { ChevronLeft } from 'lucide-react'
 import { FunctionComponent } from 'react'
-import { useNavigate } from 'react-router-dom'
+import { useNavigate, useParams } from 'react-router-dom'
 import { z } from 'zod'
 
 import { useZodForm } from '@/hooks/useZodForm'
@@ -34,6 +34,7 @@ const tenantSchema = z.object({
 })
 
 export const TenantNew: FunctionComponent = () => {
+  const { organizationSlug } = useParams()
   const methods = useZodForm({
     schema: tenantSchema,
     defaultValues: {
@@ -45,11 +46,7 @@ export const TenantNew: FunctionComponent = () => {
 
   const navigate = useNavigate()
 
-  const mut = useMutation(createTenant, {
-    onSuccess: ({ tenant }) => {
-      navigate(`../${tenant?.slug}`)
-    },
-  })
+  const mut = useMutation(createTenant)
 
   return (
     <main className="flex  flex-col flex-1 w-full max-w-screen-2xl pl-8 pr-2 mx-auto h-full overflow-x-hidden ">
@@ -68,11 +65,17 @@ export const TenantNew: FunctionComponent = () => {
           <Form {...methods}>
             <form
               onSubmit={methods.handleSubmit(async values => {
-                await mut.mutateAsync({
+                const result = await mut.mutateAsync({
                   name: values.name,
                   environment: values.environment,
                   disableEmails: values.disableEmails,
                 })
+                if (result.tenant) {
+                  // Add query param for sandbox tenants to trigger data refresh on dashboard
+                  const isSandbox = values.environment === TenantEnvironmentEnum.SANDBOX
+                  const queryParam = isSandbox ? '?just_onboarded=true' : ''
+                  navigate(`/${organizationSlug}/${result.tenant.slug}${queryParam}`)
+                }
               })}
             >
               <Card className="px-8 py-6">
