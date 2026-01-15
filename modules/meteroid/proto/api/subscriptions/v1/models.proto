@@ -15,6 +15,7 @@ PendingActivation, // before trial
     PendingCharge,     // after billing start date, while awaiting payment
     TrialActive,
     Active,
+    TrialExpired,
     Paused,
     Suspended, // due to non-payment
     Cancelled,
@@ -28,8 +29,8 @@ enum SubscriptionStatus {
   ACTIVE = 2;
   CANCELED = 3;
   ENDED = 4;
-  ERRORED = 5;
-  TRIAL_EXPIRED = 6; // trial ended on paid plan without payment method, awaiting checkout
+  TRIAL_EXPIRED = 5; // trial ended on paid plan without payment method, awaiting checkout
+  ERRORED = 6;
 }
 
 message Subscription {

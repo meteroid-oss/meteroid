@@ -321,7 +321,7 @@ impl Services {
         let period = calculate_advance_period_range(
             new_period_start,
             subscription.billing_day_anchor as u32,
-            true, // Align to billing_day_anchor (works for both first post-trial and renewals)
+            false,
             &(subscription.period.clone().into()),
         );
 
