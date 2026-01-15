@@ -2,7 +2,7 @@
 
 <div align="center">
 
-  **📣 Exciting News! We’re launching on Product Hunt on Thursday, January 15!**
+  **📣 Exciting News! We’re launching on Product Hunt on Friday, January 16!**
 
   **We'd love your support! Upvote us on Product Hunt when we launch, leave a star ⭐ on Github, and join our Discord!**
 
