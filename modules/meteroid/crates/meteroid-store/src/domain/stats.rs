@@ -1,7 +1,5 @@
 use chrono::NaiveDate;
 use common_domain::ids::{CustomerId, PlanId, TenantId};
-use uuid::Uuid;
-
 pub enum TrendScope {
     Trend24h = 0,
     Trend7d = 1,
@@ -74,7 +72,7 @@ pub struct MrrChartRequest {
     pub tenant_id: TenantId,
     pub start_date: NaiveDate,
     pub end_date: NaiveDate,
-    pub plans_id: Option<Vec<Uuid>>,
+    pub plans_id: Option<Vec<PlanId>>,
 }
 
 pub struct MrrChartResponse {
@@ -146,8 +144,9 @@ impl MRRBreakdownScope {
 }
 
 pub struct MRRBreakdownRequest {
-    pub scope: MRRBreakdownScope,
     pub tenant_id: TenantId,
+    pub start_date: NaiveDate,
+    pub end_date: NaiveDate,
 }
 
 pub struct CountAndValue {
@@ -194,4 +193,26 @@ pub struct MrrLogEntry {
     pub plan_name: String,
     pub description: String,
     pub mrr_type: MrrMovementType,
+}
+
+pub struct RevenueChartRequest {
+    pub tenant_id: TenantId,
+    pub start_date: NaiveDate,
+    pub end_date: NaiveDate,
+    pub plans_id: Option<Vec<PlanId>>,
+}
+
+pub struct RevenueChartResponse {
+    pub series: Vec<RevenueChartSeries>,
+}
+
+pub struct RevenueChartSeries {
+    pub name: String,
+    pub code: String,
+    pub data: Vec<RevenueChartDataPoint>,
+}
+
+pub struct RevenueChartDataPoint {
+    pub x: String,
+    pub revenue: i64,
 }

@@ -212,3 +212,11 @@ pub struct TotalMrrByPlanRow {
     #[diesel(sql_type = diesel::sql_types::Integer)]
     pub reactivation_count: i32,
 }
+
+#[derive(QueryableByName, Debug)]
+pub struct RevenueChartRow {
+    #[diesel(sql_type = diesel::sql_types::Date)]
+    pub period: NaiveDate,
+    #[diesel(sql_type = diesel::sql_types::BigInt)]
+    pub total_revenue: i64,
+}

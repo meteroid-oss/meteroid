@@ -2,12 +2,19 @@ import { cn, Separator } from '@md/ui'
 
 import { useCurrency } from '@/hooks/useCurrency'
 import { useQuery } from '@/lib/connectrpc'
-import { MRRBreakdownScope } from '@/rpc/api/stats/v1/models_pb'
+import { mapDate } from '@/lib/mapping'
 import { mrrBreakdown } from '@/rpc/api/stats/v1/stats-StatsService_connectquery'
 
-export const MrrBreakdownCard = () => {
-  const breakdown = useQuery(mrrBreakdown, { scope: MRRBreakdownScope.THIS_YEAR }).data
-    ?.mmrBreakdown
+interface MrrBreakdownCardProps {
+  from: Date
+  to: Date
+}
+
+export const MrrBreakdownCard = ({ from, to }: MrrBreakdownCardProps) => {
+  const breakdown = useQuery(mrrBreakdown, {
+    startDate: mapDate(from),
+    endDate: mapDate(to),
+  }).data?.mmrBreakdown
 
   const { formatAmount } = useCurrency()
 

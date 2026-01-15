@@ -44,13 +44,14 @@ async fn test_stats_basic() {
         .total_mrr_chart(api::stats::v1::MrrChartRequest {
             start_date: None,
             end_date: None,
-            plans_id: vec!["ae35bbb9-65da-477d-b856-7dbd87546441".into()],
+            plans_id: vec![],
         })
         .await
         .unwrap()
         .into_inner()
         .series;
 
+    // With MINIMAL seed and no plans filter, we get one aggregated series
     assert_eq!(res.len(), 1);
 
     // mrr_breakdown
@@ -58,7 +59,8 @@ async fn test_stats_basic() {
         .stats
         .clone()
         .mrr_breakdown(api::stats::v1::MrrBreakdownRequest {
-            scope: api::stats::v1::MrrBreakdownScope::LastMonth.into(),
+            start_date: None,
+            end_date: None,
         })
         .await
         .unwrap()

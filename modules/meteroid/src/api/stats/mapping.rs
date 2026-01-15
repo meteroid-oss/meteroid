@@ -1,7 +1,7 @@
 use meteroid_grpc::meteroid::api::stats::v1 as proto;
-use meteroid_grpc::meteroid::api::stats::v1::{BreakdownStat, MrrBreakdown, MrrBreakdownScope};
+use meteroid_grpc::meteroid::api::stats::v1::{BreakdownStat, MrrBreakdown};
 use meteroid_store::domain::stats::{
-    CountAndValue, MRRBreakdown, MRRBreakdownScope, MrrMovementType, Trend, TrendScope,
+    CountAndValue, MRRBreakdown, MrrMovementType, Trend, TrendScope,
 };
 
 pub fn trend_to_server(trend: &Trend) -> proto::Trend {
@@ -22,19 +22,6 @@ pub fn trend_scope_to_server(scope: &TrendScope) -> proto::TrendScope {
         TrendScope::Trend90d => proto::TrendScope::Trend90d,
         TrendScope::Trend1y => proto::TrendScope::Trend1y,
         TrendScope::Trend2y => proto::TrendScope::Trend2y,
-    }
-}
-
-pub fn mrr_breakdown_scope_from_server(scope: proto::MrrBreakdownScope) -> MRRBreakdownScope {
-    match scope {
-        MrrBreakdownScope::ThisWeek => MRRBreakdownScope::ThisWeek,
-        MrrBreakdownScope::ThisMonth => MRRBreakdownScope::ThisMonth,
-        MrrBreakdownScope::ThisQuarter => MRRBreakdownScope::ThisQuarter,
-        MrrBreakdownScope::ThisYear => MRRBreakdownScope::ThisYear,
-        MrrBreakdownScope::LastWeek => MRRBreakdownScope::LastWeek,
-        MrrBreakdownScope::LastMonth => MRRBreakdownScope::LastMonth,
-        MrrBreakdownScope::LastQuarter => MRRBreakdownScope::LastQuarter,
-        MrrBreakdownScope::LastYear => MRRBreakdownScope::LastYear,
     }
 }
 

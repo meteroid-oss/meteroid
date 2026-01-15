@@ -3,6 +3,8 @@ import { RouteObject } from 'react-router-dom'
 
 import { TenantLayoutOutlet } from '@/components/layouts'
 import { NotImplemented } from '@/features/NotImplemented'
+import { MrrReport } from '@/features/reports/charts/MrrReport'
+import { RevenueReport } from '@/features/reports/charts/RevenueReport'
 import { EditHubspotIntegrationModal } from '@/features/settings/integrations/EditHubspotIntegrationModal'
 import { HubspotIntegrationModal } from '@/features/settings/integrations/HubspotIntegration'
 import { PennylaneIntegrationModal } from '@/features/settings/integrations/PennylaneIntegration'
@@ -76,6 +78,16 @@ export const tenantRoutes: RouteObject = {
     {
       path: 'reports',
       element: <ReportsPage />,
+      children: [
+        {
+          index: true,
+          element: <MrrReport />,
+        },
+        {
+          path: 'revenue',
+          element: <RevenueReport />,
+        },
+      ],
     },
     {
       path: '*',
