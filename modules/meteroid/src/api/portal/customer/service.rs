@@ -43,7 +43,6 @@ impl PortalCustomerService for PortalCustomerServiceComponents {
                     // SubscriptionStatusEnum::Completed,
                     // SubscriptionStatusEnum::Cancelled,
                     SubscriptionStatusEnum::TrialActive,
-                    SubscriptionStatusEnum::TrialExpired,
                     SubscriptionStatusEnum::Paused,
                 ]),
                 PaginationRequest {

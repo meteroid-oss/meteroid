@@ -545,8 +545,6 @@ impl CustomersInterface for Store {
             DieselSubscriptionStatusEnum::Active,
             DieselSubscriptionStatusEnum::TrialActive,
             DieselSubscriptionStatusEnum::PendingCharge,
-            // DieselSubscriptionStatusEnum::PendingActivation,
-            DieselSubscriptionStatusEnum::TrialExpired,
             DieselSubscriptionStatusEnum::Paused,
             DieselSubscriptionStatusEnum::Suspended,
         ];

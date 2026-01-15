@@ -4,14 +4,6 @@ use serde::{Deserialize, Serialize};
 use std::cmp::Ordering;
 use strum::{Display, EnumString};
 
-#[derive(o2o, Serialize, Deserialize, PartialEq, Eq, Debug, Clone)]
-#[map_owned(diesel_enums::ActionAfterTrialEnum)]
-pub enum ActionAfterTrialEnum {
-    Block,
-    Charge,
-    Downgrade,
-}
-
 #[derive(o2o, Serialize, Deserialize, Debug, Clone, PartialEq, Eq)]
 #[map_owned(diesel_enums::BankAccountFormat)]
 pub enum BankAccountFormat {
@@ -316,7 +308,7 @@ pub enum SubscriptionStatusEnum {
     PendingCharge,     // after billing start date, while awaiting payment
     TrialActive,
     Active,
-    TrialExpired,
+    TrialExpired, // trial ended on paid plan without payment method
     Paused,
     Suspended, // due to non-payment
     Cancelled,

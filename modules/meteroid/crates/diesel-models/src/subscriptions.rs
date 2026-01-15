@@ -152,6 +152,7 @@ pub struct SubscriptionCycleRowPatch {
     pub next_cycle_action: Option<Option<CycleActionEnum>>,
     pub current_period_start: Option<NaiveDate>,
     pub current_period_end: Option<Option<NaiveDate>>,
+    pub pending_checkout: Option<bool>,
 }
 
 #[derive(AsChangeset)]

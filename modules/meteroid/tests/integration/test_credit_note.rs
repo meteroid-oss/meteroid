@@ -1208,7 +1208,6 @@ async fn create_plan_with_4_components(
                 plan_id,
                 version: 1,
                 trial_duration_days: None,
-                downgrade_plan_id: None,
                 tenant_id: TENANT_ID,
                 period_start_day: None,
                 net_terms: 0,
@@ -1216,7 +1215,6 @@ async fn create_plan_with_4_components(
                 billing_cycles: None,
                 created_by: USER_ID,
                 trialing_plan_id: None,
-                action_after_trial: None,
                 trial_is_free: false,
             }
             .insert(tx)

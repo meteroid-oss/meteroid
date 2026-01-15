@@ -15,7 +15,6 @@ PendingActivation, // before trial
     PendingCharge,     // after billing start date, while awaiting payment
     TrialActive,
     Active,
-    TrialExpired,
     Paused,
     Suspended, // due to non-payment
     Cancelled,
@@ -29,8 +28,8 @@ enum SubscriptionStatus {
   ACTIVE = 2;
   CANCELED = 3;
   ENDED = 4;
-  TRIAL_EXPIRED = 5;
-  ERRORED = 6;  // Failed to process after max retries
+  ERRORED = 5;
+  TRIAL_EXPIRED = 6; // trial ended on paid plan without payment method, awaiting checkout
 }
 
 message Subscription {
@@ -80,6 +79,14 @@ message Subscription {
   optional string quote_id = 42;
 }
 
+// Trial configuration resolved from the plan version
+message TrialConfig {
+  uint32 duration_days = 1;
+  bool is_free = 2;
+  optional string trialing_plan_id = 3;
+  optional string trialing_plan_name = 4; // resolved name for display
+}
+
 message SubscriptionDetails {
   Subscription subscription = 1;
   repeated meteroid.api.schedules.v1.Schedule schedules = 2;
@@ -87,6 +94,7 @@ message SubscriptionDetails {
   repeated BillableMetric metrics = 4;
   repeated SubscriptionAddOn add_ons = 5;
   repeated meteroid.api.coupons.v1.AppliedCouponDetailed applied_coupons = 6;
+  optional TrialConfig trial_config = 7; // trial configuration from the plan
 }
 
 // TODO replace by subscription or even subscription details

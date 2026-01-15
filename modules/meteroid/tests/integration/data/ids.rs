@@ -59,6 +59,37 @@ pub const COMP_SUPABASE_BANDWIDTH_ID: PriceComponentId =
 pub const COMP_SUPABASE_DB_SIZE_ID: PriceComponentId =
     PriceComponentId::from_const(uuid!("331810d4-05b1-4d8e-bf9b-d61cedaec117"));
 
+// Trial-related plans
+pub const PLAN_FREE_ID: PlanId = PlanId::from_const(uuid!("019438e0-0001-7000-8000-000000000001"));
+pub const PLAN_VERSION_FREE_ID: PlanVersionId =
+    PlanVersionId::from_const(uuid!("019438e0-0002-7000-8000-000000000001"));
+pub const PLAN_PRO_WITH_TRIAL_ID: PlanId =
+    PlanId::from_const(uuid!("019438e0-0003-7000-8000-000000000001"));
+pub const PLAN_VERSION_PRO_WITH_TRIAL_ID: PlanVersionId =
+    PlanVersionId::from_const(uuid!("019438e0-0004-7000-8000-000000000001"));
+pub const PLAN_ENTERPRISE_ID: PlanId =
+    PlanId::from_const(uuid!("019438e0-0005-7000-8000-000000000001"));
+pub const PLAN_VERSION_ENTERPRISE_ID: PlanVersionId =
+    PlanVersionId::from_const(uuid!("019438e0-0006-7000-8000-000000000001"));
+
+// Paid plan with free trial (Standard type, trial_is_free = true)
+// After trial: TrialExpired if no payment method, or Active with billing
+pub const PLAN_PAID_FREE_TRIAL_ID: PlanId =
+    PlanId::from_const(uuid!("019438e0-0007-7000-8000-000000000001"));
+pub const PLAN_VERSION_PAID_FREE_TRIAL_ID: PlanVersionId =
+    PlanVersionId::from_const(uuid!("019438e0-0008-7000-8000-000000000001"));
+pub const COMP_PAID_FREE_TRIAL_RATE_ID: PriceComponentId =
+    PriceComponentId::from_const(uuid!("019438e0-0009-7000-8000-000000000001"));
+
+// Paid plan with paid trial (Standard type, trial_is_free = false)
+// Bills immediately but gives trialing_plan features
+pub const PLAN_PAID_TRIAL_ID: PlanId =
+    PlanId::from_const(uuid!("019438e0-000a-7000-8000-000000000001"));
+pub const PLAN_VERSION_PAID_TRIAL_ID: PlanVersionId =
+    PlanVersionId::from_const(uuid!("019438e0-000b-7000-8000-000000000001"));
+pub const COMP_PAID_TRIAL_RATE_ID: PriceComponentId =
+    PriceComponentId::from_const(uuid!("019438e0-000c-7000-8000-000000000001"));
+
 // Subscriptions
 pub const SUB_SPOTIFY_NOTION_ID: SubscriptionId =
     SubscriptionId::from_const(uuid!("018c3475-bdc5-77dd-9e26-e9a7fdd60426"));

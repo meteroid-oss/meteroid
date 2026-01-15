@@ -82,9 +82,16 @@ impl PortalCheckoutService for PortalCheckoutServiceComponents {
             subscription.applied_coupons.push(preview_coupon);
         }
 
+        // Use current_period_start for consistency with actual billing
+        // For pending checkout (OnCheckout): current_period_start = start_date
+        // For TrialExpired: current_period_start = trial end date
         let invoice_content = self
             .services
-            .compute_invoice(&subscription.subscription.start_date, &subscription, None)
+            .compute_invoice(
+                &subscription.subscription.current_period_start,
+                &subscription,
+                None,
+            )
             .await
             .change_context(StoreError::InvoiceComputationError)
             .map_err(Into::<PortalCheckoutApiError>::into)?;
@@ -278,10 +285,10 @@ impl PortalCheckoutService for PortalCheckoutServiceComponents {
             .await
             .map_err(Into::<PortalCheckoutApiError>::into)?;
 
+        // For free trials, transaction is None (no payment collected)
         Ok(Response::new(ConfirmCheckoutResponse {
-            transaction: Some(
-                crate::api::invoices::mapping::transactions::domain_to_server(transaction),
-            ),
+            transaction: transaction
+                .map(crate::api::invoices::mapping::transactions::domain_to_server),
         }))
     }
 

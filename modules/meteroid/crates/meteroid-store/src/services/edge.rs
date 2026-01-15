@@ -24,6 +24,8 @@ use common_domain::ids::{
 use diesel_async::scoped_futures::ScopedFutureExt;
 use diesel_models::applied_coupons::AppliedCouponRowNew;
 use diesel_models::coupons::CouponRow;
+use diesel_models::enums::{CycleActionEnum, SubscriptionStatusEnum as DbSubscriptionStatusEnum};
+use diesel_models::plans::PlanRow;
 use diesel_models::quotes::{QuoteActivityRowNew, QuoteRow};
 use diesel_models::subscriptions::SubscriptionRow;
 use error_stack::{Report, ResultExt};
@@ -118,6 +120,17 @@ impl ServicesEdge {
             .await
     }
 
+    /// Completes the checkout process for a subscription.
+    ///
+    /// For free trials (trial_is_free = true):
+    /// - Saves the payment method on the subscription
+    /// - Activates the subscription to TrialActive status
+    /// - Returns None (no payment transaction)
+    ///
+    /// For paid subscriptions or paid trials:
+    /// - Creates and finalizes an invoice
+    /// - Processes payment
+    /// - Returns Some(PaymentTransaction)
     pub async fn complete_subscription_checkout(
         &self,
         tenant_id: TenantId,
@@ -126,21 +139,40 @@ impl ServicesEdge {
         total_amount_confirmation: u64,
         currency_confirmation: String,
         coupon_code: Option<String>,
-    ) -> Result<PaymentTransaction, StoreErrorReport> {
+    ) -> Result<Option<PaymentTransaction>, StoreErrorReport> {
         let payment_transaction = self
             .store
             .transaction(|conn| {
                 async move {
-                    // Apply coupon if provided
-                    if let Some(code) = coupon_code {
-                        let subscription_row = SubscriptionRow::get_subscription_by_id(
-                            conn,
-                            &tenant_id,
-                            subscription_id,
-                        )
-                        .await
-                        .map_err(Into::<Report<StoreError>>::into)?;
+                    // Fetch subscription and plan info to determine checkout flow
+                    let subscription_row = SubscriptionRow::get_subscription_by_id(
+                        conn,
+                        &tenant_id,
+                        subscription_id,
+                    )
+                    .await
+                    .map_err(Into::<Report<StoreError>>::into)?;
 
+                    let subscription = &subscription_row.subscription;
+
+                    // Fetch plan version to check trial_is_free
+                    let plan_with_version = PlanRow::get_with_version(
+                        conn,
+                        subscription.plan_version_id,
+                        tenant_id,
+                    )
+                    .await?;
+
+                    let plan_version = plan_with_version
+                        .version
+                        .ok_or(StoreError::ValueNotFound("Plan version not found".to_string()))?;
+
+                    // Determine if this is a free trial checkout
+                    // Free trial = has trial_duration AND plan's trial_is_free is true
+                    let is_free_trial = subscription.trial_duration.is_some() && plan_version.trial_is_free;
+
+                    // Apply coupon if provided (applies to both free and paid checkout)
+                    if let Some(code) = coupon_code {
                         // Look up coupon by code
                         let coupons =
                             CouponRow::list_by_codes(conn, tenant_id, std::slice::from_ref(&code))
@@ -196,7 +228,7 @@ impl ServicesEdge {
 
                         if discount
                             .currency()
-                            .is_some_and(|c| c != subscription_row.subscription.currency)
+                            .is_some_and(|c| c != subscription.currency)
                         {
                             return Err(Report::new(StoreError::InvalidArgument(format!(
                                 "Coupon '{}' currency does not match subscription currency",
@@ -209,7 +241,7 @@ impl ServicesEdge {
                             use diesel_models::applied_coupons::AppliedCouponRow;
                             let existing = AppliedCouponRow::find_existing_customer_coupon_pairs(
                                 conn,
-                                &[(coupon.id, subscription_row.subscription.customer_id)],
+                                &[(coupon.id, subscription.customer_id)],
                             )
                             .await?;
 
@@ -226,7 +258,7 @@ impl ServicesEdge {
                             id: AppliedCouponId::new(),
                             subscription_id,
                             coupon_id: coupon.id,
-                            customer_id: subscription_row.subscription.customer_id,
+                            customer_id: subscription.customer_id,
                             is_active: true,
                             applied_amount: None,
                             applied_count: None,
@@ -245,30 +277,73 @@ impl ServicesEdge {
                         CouponRow::inc_redemption_count(conn, coupon.id, 1).await?;
                     }
 
-                    let detailed_invoice = self
-                        .services
-                        .bill_subscription_tx(
+                    // Check if trial has already expired - if so, go to paid checkout flow
+                    let is_trial_expired =
+                        subscription.status == DbSubscriptionStatusEnum::TrialExpired;
+
+                    if is_free_trial && !is_trial_expired {
+                        // Free trial checkout (trial not yet started or in progress):
+                        // Save payment method and activate to TrialActive
+                        let payment_method = diesel_models::customer_payment_methods::CustomerPaymentMethodRow::get_by_id(
                             conn,
-                            tenant_id,
-                            subscription_id,
-                            InvoiceBillingMode::FinalizeAfterPayment {
-                                currency_confirmation,
-                                total_amount_confirmation,
-                                payment_method_id,
-                            },
+                            &tenant_id,
+                            &payment_method_id,
                         )
-                        .await?
-                        .ok_or(StoreError::InsertError)
-                        .attach("Failed to bill the subscription")?;
+                        .await
+                        .map_err(|e| StoreError::DatabaseError(e.error))?;
 
-                    let payment_transaction = detailed_invoice
-                        .transactions
-                        .into_iter()
-                        .next()
-                        .ok_or(StoreError::InsertError)
-                        .attach("No payment transaction linked to invoice")?;
+                        // Calculate trial period
+                        let trial_duration = subscription.trial_duration.unwrap();
+                        let current_period_start = subscription.current_period_end
+                            .unwrap_or_else(|| chrono::Utc::now().naive_utc().date());
+                        let current_period_end = current_period_start
+                            + chrono::Duration::days(i64::from(trial_duration));
 
-                    Ok(payment_transaction)
+                        // Activate subscription with trial status and payment method
+                        SubscriptionRow::activate_subscription_with_payment_method(
+                            conn,
+                            &subscription_id,
+                            &tenant_id,
+                            current_period_start,
+                            Some(current_period_end),
+                            Some(CycleActionEnum::EndTrial),
+                            Some(0),
+                            DbSubscriptionStatusEnum::TrialActive,
+                            Some(payment_method_id),
+                            Some(payment_method.payment_method_type),
+                        )
+                        .await
+                        .map_err(Into::<Report<StoreError>>::into)?;
+
+                        // No payment transaction for free trial
+                        Ok(None)
+                    } else {
+                        // Paid checkout: proceed with billing
+                        let detailed_invoice = self
+                            .services
+                            .bill_subscription_tx(
+                                conn,
+                                tenant_id,
+                                subscription_id,
+                                InvoiceBillingMode::FinalizeAfterPayment {
+                                    currency_confirmation,
+                                    total_amount_confirmation,
+                                    payment_method_id,
+                                },
+                            )
+                            .await?
+                            .ok_or(StoreError::InsertError)
+                            .attach("Failed to bill the subscription")?;
+
+                        let payment_transaction = detailed_invoice
+                            .transactions
+                            .into_iter()
+                            .next()
+                            .ok_or(StoreError::InsertError)
+                            .attach("No payment transaction linked to invoice")?;
+
+                        Ok(Some(payment_transaction))
+                    }
                 }
                 .scope_boxed()
             })

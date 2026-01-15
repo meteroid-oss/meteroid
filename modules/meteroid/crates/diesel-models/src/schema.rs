@@ -2,10 +2,6 @@
 
 pub mod sql_types {
     #[derive(diesel::query_builder::QueryId, diesel::sql_types::SqlType)]
-    #[diesel(postgres_type(name = "ActionAfterTrialEnum"))]
-    pub struct ActionAfterTrialEnum;
-
-    #[derive(diesel::query_builder::QueryId, diesel::sql_types::SqlType)]
     #[diesel(postgres_type(name = "BankAccountFormat"))]
     pub struct BankAccountFormat;
 
@@ -640,16 +636,12 @@ diesel::table! {
 }
 
 diesel::table! {
-    use diesel::sql_types::*;
-    use super::sql_types::ActionAfterTrialEnum;
-
     plan_version (id) {
         id -> Uuid,
         is_draft_version -> Bool,
         plan_id -> Uuid,
         version -> Int4,
         trial_duration_days -> Nullable<Int4>,
-        downgrade_plan_id -> Nullable<Uuid>,
         tenant_id -> Uuid,
         period_start_day -> Nullable<Int2>,
         net_terms -> Int4,
@@ -658,7 +650,6 @@ diesel::table! {
         created_at -> Timestamp,
         created_by -> Uuid,
         trialing_plan_id -> Nullable<Uuid>,
-        action_after_trial -> Nullable<ActionAfterTrialEnum>,
         trial_is_free -> Bool,
     }
 }

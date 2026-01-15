@@ -38,6 +38,12 @@ import { useQuery } from '@/lib/connectrpc'
 import { getLatestConnMeta } from '@/pages/tenants/utils'
 import { listConnectors } from '@/rpc/api/connectors/v1/connectors-ConnectorsService_connectquery'
 import { ConnectorProviderEnum } from '@/rpc/api/connectors/v1/models_pb'
+import { PlanType } from '@/rpc/api/plans/v1/models_pb'
+import {
+  getPlanWithVersionByVersionId,
+  listPlans,
+} from '@/rpc/api/plans/v1/plans-PlansService_connectquery'
+import { ListPlansRequest_SortBy } from '@/rpc/api/plans/v1/plans_pb'
 import {
   SubscriptionComponent,
   SubscriptionFee,
@@ -67,8 +73,8 @@ const StatusBadge = ({ status }: { status: SubscriptionStatus }) => {
       render: 'pending',
     },
     [SubscriptionStatus.TRIALING]: {
-      bg: 'bg-secondary/20',
-      text: 'text-secondary',
+      bg: 'bg-brand/20',
+      text: 'text-brand',
       render: 'trialing',
     },
     [SubscriptionStatus.ACTIVE]: {
@@ -209,6 +215,27 @@ export const Subscription = () => {
 
   const details = subscriptionQuery.data
   const data = details?.subscription
+
+  // Fetch plan version to get trial config
+  const planVersionQuery = useQuery(
+    getPlanWithVersionByVersionId,
+    { localId: data?.planVersionId ?? '' },
+    { enabled: Boolean(data?.planVersionId) }
+  )
+
+  // Fetch all plans for resolving trialing plan name
+  const plansQuery = useQuery(listPlans, {
+    sortBy: ListPlansRequest_SortBy.NAME_ASC,
+  })
+
+  const planTrialConfig = planVersionQuery.data?.plan?.version?.trialConfig
+  const planType = planVersionQuery.data?.plan?.plan?.planType
+  const isFreePlan = planType === PlanType.FREE
+
+  // Resolve trialing plan name
+  const trialingPlanName = planTrialConfig?.trialingPlanId
+    ? plansQuery.data?.plans.find(p => p.id === planTrialConfig.trialingPlanId)?.name
+    : undefined
 
   const connectorsQuery = useQuery(listConnectors, {})
   const connectorsData = connectorsQuery.data?.connectors ?? []
@@ -716,8 +743,29 @@ export const Subscription = () => {
         {data.trialDuration && (
           <DetailSection title="Trial Information">
             <DetailRow label="Trial Duration" value={`${data.trialDuration} days`} />
-            {data.status === SubscriptionStatus.TRIALING && (
+            {(data.status === SubscriptionStatus.TRIALING ||
+              data.status === SubscriptionStatus.TRIAL_EXPIRED) && (
               <DetailRow label="Trial Status" value={<StatusBadge status={data.status} />} />
+            )}
+            {planTrialConfig && (
+              <>
+                <DetailRow
+                  label="Trial Type"
+                  value={
+                    isFreePlan
+                      ? 'Free plan'
+                      : planTrialConfig.trialIsFree
+                        ? 'Free trial'
+                        : 'Paid trial'
+                  }
+                />
+                {trialingPlanName && (
+                  <DetailRow
+                    label="Trial Features"
+                    value={`"${trialingPlanName}" features`}
+                  />
+                )}
+              </>
             )}
           </DetailSection>
         )}

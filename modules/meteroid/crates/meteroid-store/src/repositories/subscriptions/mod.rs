@@ -2,7 +2,7 @@ use crate::StoreResult;
 use crate::domain::{
     BillableMetric, ConnectorProviderEnum, Customer, InvoicingEntity, PaginatedVec,
     PaginationRequest, Schedule, Subscription, SubscriptionComponent, SubscriptionComponentNew,
-    SubscriptionDetails,
+    SubscriptionDetails, TrialConfig,
 };
 use chrono::NaiveDate;
 use common_domain::ids::{ConnectorId, CustomerId, PlanId, SubscriptionId, TenantId};
@@ -30,6 +30,7 @@ use crate::repositories::pgmq::PgmqInterface;
 use diesel_models::PgConn;
 use diesel_models::customers::CustomerRow;
 use diesel_models::invoicing_entities::InvoicingEntityRow;
+use diesel_models::plans::PlanRow;
 use diesel_models::scheduled_events::ScheduledEventRowNew;
 use meteroid_store_macros::with_conn_delegate;
 use secrecy::SecretString;
@@ -223,6 +224,44 @@ impl SubscriptionInterface for Store {
             .map_err(Into::<Report<StoreError>>::into)?
             .into();
 
+        // Fetch trial config from plan version
+        let trial_config = {
+            let plan_with_version =
+                PlanRow::get_with_version(conn, subscription.plan_version_id, tenant_id)
+                    .await
+                    .map_err(Into::<Report<StoreError>>::into)?;
+
+            if let Some(version) = plan_with_version.version {
+                if let Some(duration_days) = version.trial_duration_days {
+                    if duration_days > 0 {
+                        // If there's a trialing_plan_id, fetch its name
+                        let trialing_plan_name =
+                            if let Some(trialing_plan_id) = &version.trialing_plan_id {
+                                PlanRow::get_overview_by_id(conn, *trialing_plan_id, tenant_id)
+                                    .await
+                                    .ok()
+                                    .map(|p| p.name)
+                            } else {
+                                None
+                            };
+
+                        Some(TrialConfig {
+                            duration_days: duration_days as u32,
+                            is_free: version.trial_is_free,
+                            trialing_plan_id: version.trialing_plan_id,
+                            trialing_plan_name,
+                        })
+                    } else {
+                        None
+                    }
+                } else {
+                    None
+                }
+            } else {
+                None
+            }
+        };
+
         Ok(SubscriptionDetails {
             subscription,
             price_components: subscription_components,
@@ -233,6 +272,7 @@ impl SubscriptionInterface for Store {
             checkout_url,
             customer,
             invoicing_entity,
+            trial_config,
         })
     }
 

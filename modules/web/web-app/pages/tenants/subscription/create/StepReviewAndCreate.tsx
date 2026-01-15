@@ -82,13 +82,17 @@ export const StepReviewAndCreate = () => {
 
   const handleCreate = async () => {
     try {
+      // Map billingDay to billingDayAnchor
+      // 'FIRST' = 1st of month (fixed day), 'SUB_START_DAY' = anniversary (undefined)
+      const billingDayAnchor = state.billingDay === 'FIRST' ? 1 : state.billingDayAnchor
+
       const created = await createSubscriptionMutation.mutateAsync({
         subscription: {
           planVersionId: state.planVersionId,
           customerId: state.customerId,
           startDate: mapDatev2(state.startDate),
           endDate: state.endDate && mapDatev2(state.endDate),
-          billingDayAnchor: state.billingDayAnchor,
+          billingDayAnchor,
           netTerms: state.netTerms,
           activationCondition: state.activationCondition,
           trialDuration: state.trialDuration,

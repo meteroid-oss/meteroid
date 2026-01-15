@@ -27,6 +27,7 @@ use common_eventbus::{Event, EventBus};
 use diesel_async::scoped_futures::ScopedFutureExt;
 use diesel_models::applied_coupons::AppliedCouponRowNew;
 use diesel_models::enums::CycleActionEnum;
+use diesel_models::plans::PlanRow;
 use diesel_models::slot_transactions::SlotTransactionRow;
 use diesel_models::subscription_add_ons::{SubscriptionAddOnRow, SubscriptionAddOnRowNew};
 use diesel_models::subscription_components::{
@@ -215,17 +216,31 @@ impl Services {
 
         let subscription_id = SubscriptionId::new();
 
-        let billing_day_anchor = sub.subscription.billing_day_anchor.unwrap_or_else(|| {
-            sub.subscription
-                .billing_start_date
-                .unwrap_or(sub.subscription.start_date)
-                .day() as u16
-        });
-
         let billing_start_date = sub
             .subscription
             .billing_start_date
             .unwrap_or(sub.subscription.start_date);
+
+        // Use trial_duration from request, or fall back to plan's trial_duration_days
+        // Filter out 0 values - a trial of 0 days means no trial
+        let effective_trial_duration: Option<u32> = sub
+            .subscription
+            .trial_duration
+            .or(plan.trial_duration_days.map(|d| d as u32))
+            .filter(|&d| d > 0);
+
+        // Billing day anchor priority:
+        // 1. Explicit anchor (fixed day billing)
+        // 2. Trial end date day (anniversary billing with trial)
+        // 3. Billing start date day (anniversary billing without trial)
+        let billing_day_anchor = sub.subscription.billing_day_anchor.unwrap_or_else(|| {
+            if let Some(trial_days) = effective_trial_duration {
+                let trial_end = billing_start_date + chrono::Duration::days(i64::from(trial_days));
+                trial_end.day() as u16
+            } else {
+                billing_start_date.day() as u16
+            }
+        });
 
         let net_terms = sub.subscription.net_terms.unwrap_or(plan.net_terms as u32);
 
@@ -245,17 +260,16 @@ impl Services {
         let mut cycle_index = None;
         let mut status = SubscriptionStatusEnum::PendingActivation; // TODO should add pending_checkout ? or we just infer from activation_condition ?
 
+        // Handle trial: both OnStart and OnCheckout start the trial immediately if there's a free trial
+        let has_free_trial = effective_trial_duration.is_some() && plan.trial_is_free;
+
         if sub.subscription.activation_condition == SubscriptionActivationCondition::OnStart {
             if sub.subscription.start_date <= now.date() {
-                if sub.subscription.trial_duration.is_some() {
+                if let Some(trial_days) = effective_trial_duration {
                     status = SubscriptionStatusEnum::TrialActive;
                     current_period_start = billing_start_date;
-                    current_period_end = Some(
-                        current_period_start
-                            + chrono::Duration::days(i64::from(
-                                sub.subscription.trial_duration.unwrap(),
-                            )),
-                    );
+                    current_period_end =
+                        Some(current_period_start + chrono::Duration::days(i64::from(trial_days)));
                     next_cycle_action = Some(CycleActionEnum::EndTrial);
                 } else {
                     let range = calculate_advance_period_range(
@@ -271,6 +285,23 @@ impl Services {
                     current_period_end = Some(range.end);
                     next_cycle_action = Some(CycleActionEnum::RenewSubscription);
                 }
+            } else {
+                current_period_end = Some(sub.subscription.start_date);
+                next_cycle_action = Some(CycleActionEnum::ActivateSubscription);
+            }
+        } else if sub.subscription.activation_condition
+            == SubscriptionActivationCondition::OnCheckout
+            && has_free_trial
+        {
+            // OnCheckout with free trial: start the trial immediately
+            // Checkout will be required when trial ends
+            if sub.subscription.start_date <= now.date() {
+                let trial_days = effective_trial_duration.unwrap(); // Safe: has_free_trial implies this
+                status = SubscriptionStatusEnum::TrialActive;
+                current_period_start = billing_start_date;
+                current_period_end =
+                    Some(current_period_start + chrono::Duration::days(i64::from(trial_days)));
+                next_cycle_action = Some(CycleActionEnum::EndTrial);
             } else {
                 current_period_end = Some(sub.subscription.start_date);
                 next_cycle_action = Some(CycleActionEnum::ActivateSubscription);
@@ -294,6 +325,7 @@ impl Services {
             net_terms,
             cycle_index,
             quote_id,
+            effective_trial_duration,
         };
 
         let subscription_row = enriched.map_to_row();
@@ -534,12 +566,25 @@ impl Services {
                         .await?;
 
                     for sub in &inserted {
-                        // Only bill if the subscription is active and not pending checkout/in trial TODO check paid trial
-                        if sub.activated_at.is_none()
-                            || sub.pending_checkout
-                            || sub.trial_duration.is_some()
-                        {
+                        // Skip billing if subscription is not activated or pending checkout
+                        if sub.activated_at.is_none() || sub.pending_checkout {
                             continue;
+                        }
+
+                        // For subscriptions with trials, check if it's a free trial
+                        if sub.trial_duration.is_some() {
+                            // Fetch plan version to check trial_is_free
+                            let plan_with_version =
+                                PlanRow::get_with_version(conn, sub.plan_version_id, tenant_id)
+                                    .await?;
+
+                            // Skip billing for free trials
+                            if let Some(version) = plan_with_version.version
+                                && version.trial_is_free
+                            {
+                                continue;
+                            }
+                            // Paid trial: fall through to billing
                         }
 
                         self.bill_subscription_tx(

@@ -1,13 +1,4 @@
 #[derive(diesel_derive_enum::DbEnum, Debug, Clone)]
-#[ExistingTypePath = "crate::schema::sql_types::ActionAfterTrialEnum"]
-#[DbValueStyle = "SCREAMING_SNAKE_CASE"]
-pub enum ActionAfterTrialEnum {
-    Block,
-    Charge,
-    Downgrade,
-}
-
-#[derive(diesel_derive_enum::DbEnum, Debug, Clone)]
 #[ExistingTypePath = "crate::schema::sql_types::BankAccountFormat"]
 #[DbValueStyle = "SCREAMING_SNAKE_CASE"]
 pub enum BankAccountFormat {
@@ -261,14 +252,11 @@ pub enum UnitConversionRoundingEnum {
 #[ExistingTypePath = "crate::schema::sql_types::SubscriptionStatusEnum"]
 #[DbValueStyle = "SCREAMING_SNAKE_CASE"]
 pub enum SubscriptionStatusEnum {
-    // Planned,
     PendingActivation, // before trial
     PendingCharge,     // after billing start date, while awaiting payment
     TrialActive,
     Active,
-    // PastDue,
-    // Delinquent,
-    TrialExpired,
+    TrialExpired, // trial ended on paid plan without payment method
     Paused,
     Suspended, // due to non-payment
     Cancelled,

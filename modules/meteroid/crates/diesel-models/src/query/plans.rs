@@ -567,6 +567,7 @@ impl PlanRowPatch {
     }
 }
 impl PlanRowForSubscription {
+    #[allow(clippy::type_complexity)]
     pub async fn get_plans_for_subscription_by_version_ids(
         conn: &mut PgConn,
         version_ids: Vec<PlanVersionId>,
@@ -584,6 +585,8 @@ impl PlanRowForSubscription {
                 p_dsl::name,
                 pv_dsl::currency,
                 p_dsl::plan_type,
+                pv_dsl::trial_duration_days,
+                pv_dsl::trial_is_free,
             ));
 
         log::debug!("{}", debug_query::<diesel::pg::Pg, _>(&query));
@@ -594,17 +597,37 @@ impl PlanRowForSubscription {
             .attach("Error while getting plan names by version ids")
             .into_db_result()
             .map(
-                |rows: Vec<(PlanVersionId, i32, String, String, PlanTypeEnum)>| {
+                |rows: Vec<(
+                    PlanVersionId,
+                    i32,
+                    String,
+                    String,
+                    PlanTypeEnum,
+                    Option<i32>,
+                    bool,
+                )>| {
                     rows.into_iter()
-                        .map(|(version_id, net_terms, name, currency, plan_type)| {
-                            PlanRowForSubscription {
+                        .map(
+                            |(
                                 version_id,
                                 net_terms,
                                 name,
                                 currency,
                                 plan_type,
-                            }
-                        })
+                                trial_duration_days,
+                                trial_is_free,
+                            )| {
+                                PlanRowForSubscription {
+                                    version_id,
+                                    net_terms,
+                                    name,
+                                    currency,
+                                    plan_type,
+                                    trial_duration_days,
+                                    trial_is_free,
+                                }
+                            },
+                        )
                         .collect()
                 },
             )

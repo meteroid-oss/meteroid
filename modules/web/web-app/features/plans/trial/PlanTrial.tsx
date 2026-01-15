@@ -10,14 +10,14 @@ import {
   SelectValue,
 } from '@md/ui'
 import { useQueryClient } from '@tanstack/react-query'
-import { forwardRef, useEffect, useState } from 'react'
+import { forwardRef, useState } from 'react'
 import { Controller } from 'react-hook-form'
 import { z } from 'zod'
 
 import { useIsDraftVersion } from '@/features/plans/hooks/usePlan'
 import { useZodForm } from '@/hooks/useZodForm'
 import { useQuery } from '@/lib/connectrpc'
-import { PlanType, TrialConfig, TrialConfig_ActionAfterTrial } from '@/rpc/api/plans/v1/models_pb'
+import { PlanType, TrialConfig } from '@/rpc/api/plans/v1/models_pb'
 import {
   getPlanOverview,
   listPlans,
@@ -29,35 +29,15 @@ interface TrialProps {
   config?: TrialConfig
   currentPlanId: string
   currentPlanVersionId: string
+  planType: PlanType
 }
 
-const mapActionAfterTrial = (action?: TrialConfig_ActionAfterTrial) => {
-  switch (action) {
-    case TrialConfig_ActionAfterTrial.BLOCK:
-      return 'BLOCK'
-    case TrialConfig_ActionAfterTrial.CHARGE:
-      return 'CHARGE'
-    case TrialConfig_ActionAfterTrial.DOWNGRADE:
-      return 'DOWNGRADE'
-    default:
-      return 'BLOCK'
-  }
-}
-
-const actionAfterTrialToGrpc = (action?: 'BLOCK' | 'CHARGE' | 'DOWNGRADE') => {
-  switch (action) {
-    case 'BLOCK':
-      return TrialConfig_ActionAfterTrial.BLOCK
-    case 'CHARGE':
-      return TrialConfig_ActionAfterTrial.CHARGE
-    case 'DOWNGRADE':
-      return TrialConfig_ActionAfterTrial.DOWNGRADE
-    case undefined:
-      return TrialConfig_ActionAfterTrial.BLOCK
-  }
-}
-
-export const PlanTrial = ({ config, currentPlanId, currentPlanVersionId }: TrialProps) => {
+export const PlanTrial = ({
+  config,
+  currentPlanId,
+  currentPlanVersionId,
+  planType,
+}: TrialProps) => {
   const isDraft = useIsDraftVersion()
   const [isEditing, setIsEditing] = useState(false)
 
@@ -67,6 +47,7 @@ export const PlanTrial = ({ config, currentPlanId, currentPlanVersionId }: Trial
         config={config}
         currentPlanId={currentPlanId}
         currentPlanVersionId={currentPlanVersionId}
+        planType={planType}
         cancel={() => setIsEditing(false)}
         afterSubmit={() => setIsEditing(false)}
       />
@@ -75,7 +56,7 @@ export const PlanTrial = ({ config, currentPlanId, currentPlanVersionId }: Trial
 
   return (
     <div className="flex flex-row gap-2 items-center text-sm ">
-      <PlanTrialReadonly config={config} currentPlanId={currentPlanId} />
+      <PlanTrialReadonly config={config} currentPlanId={currentPlanId} planType={planType} />
       {isDraft && (
         <Button type="button" variant="link" onClick={() => setIsEditing(true)}>
           Edit
@@ -88,15 +69,14 @@ export const PlanTrial = ({ config, currentPlanId, currentPlanVersionId }: Trial
 const formSchema = z.object({
   durationDays: z.number().int().optional(),
   trialingPlanId: z.union([z.string(), z.literal('current')]).optional(),
-  trialType: z.enum(['free', 'paid']).optional(),
-  actionAfterTrial: z.enum(['BLOCK', 'CHARGE', 'DOWNGRADE']).optional(),
-  downgradePlanId: z.union([z.string(), z.literal('current')]).optional(),
+  trialIsFree: z.boolean().optional(),
 })
 
 interface TrialConfigSentenceProps {
   config?: TrialConfig
   currentPlanId: string
   currentPlanVersionId: string
+  planType: PlanType
   afterSubmit: () => void
   cancel: () => void
 }
@@ -104,19 +84,16 @@ export function PlanTrialForm({
   config,
   currentPlanId,
   currentPlanVersionId,
+  planType,
   afterSubmit,
   cancel,
 }: TrialConfigSentenceProps) {
-  console.log('config', config)
   const methods = useZodForm({
     schema: formSchema,
     defaultValues: {
-      trialType: !config || config?.trialIsFree ? 'free' : 'paid',
       durationDays: config?.durationDays ?? 0,
-      actionAfterTrial: mapActionAfterTrial(config?.actionAfterTrial),
-      downgradePlanId: config?.downgradePlanId,
       trialingPlanId: config?.trialingPlanId,
-      //   requiresPreAuthorization: config?.requiresPreAuthorization ?? false,
+      trialIsFree: config?.trialIsFree ?? true,
     },
   })
 
@@ -133,8 +110,6 @@ export function PlanTrialForm({
 
   const plans = useQuery(listPlans, {
     sortBy: ListPlansRequest_SortBy.NAME_ASC,
-    // TODO filter out custom plans. We need to support arrays in the filter
-    //   planTypeFilter
   })
 
   const data = methods.watch()
@@ -151,20 +126,7 @@ export function PlanTrialForm({
   })
 
   const nonFreePlansOptions = plansOptions.filter(p => p.type !== PlanType.FREE)
-
-  const [trialingPlanId, trialType] = methods.watch(['trialingPlanId', 'trialType'])
-
-  useEffect(() => {
-    if (trialingPlanId === 'current' || trialingPlanId === currentPlanId) {
-      methods.resetField('trialType')
-    }
-  }, [trialingPlanId, currentPlanId, methods.resetField])
-
-  useEffect(() => {
-    if (trialType === 'paid') {
-      methods.resetField('downgradePlanId')
-    }
-  }, [trialType, currentPlanId, methods.resetField])
+  const isFreePlan = planType === PlanType.FREE
 
   return (
     <div className="space-y-4">
@@ -172,23 +134,14 @@ export function PlanTrialForm({
         <Form {...methods}>
           <form
             onSubmit={methods.handleSubmit(data => {
-              const trialIsFree = !data.trialType || data.trialType === 'free'
-
               const trial =
                 data?.durationDays && data.durationDays > 0
                   ? {
-                      actionAfterTrial: actionAfterTrialToGrpc(data.actionAfterTrial),
-                      downgradePlanId:
-                        trialIsFree && data.actionAfterTrial === 'DOWNGRADE'
-                          ? data.downgradePlanId === 'current'
-                            ? undefined
-                            : data.downgradePlanId
-                          : undefined,
                       trialingPlanId:
                         data.trialingPlanId === 'current' ? undefined : data.trialingPlanId,
                       durationDays: data.durationDays,
-                      trialIsFree,
-                      requiresPreAuthorization: false, // TODO
+                      // Free plans are always free, paid plans use the toggle
+                      trialIsFree: isFreePlan ? true : (data.trialIsFree ?? true),
                     }
                   : undefined
 
@@ -209,6 +162,7 @@ export function PlanTrialForm({
                   onClick={() =>
                     methods.reset({
                       durationDays: 14,
+                      trialIsFree: true,
                     })
                   }
                 >
@@ -216,130 +170,95 @@ export function PlanTrialForm({
                 </Button>
               </p>
             ) : (
-              <p className="text-sm">
-                Your users will get{' '}
-                <Controller
-                  name="durationDays"
-                  control={methods.control}
-                  render={({ field }) => <EditableSpan {...field} type="number" />}
-                />{' '}
-                days of the{' '}
-                <Controller
-                  name="trialingPlanId"
-                  control={methods.control}
-                  render={({ field }) => (
-                    <EditableSpan
-                      {...field}
-                      options={nonFreePlansOptions}
-                      emptyMessage="current"
-                      quotes
-                    />
-                  )}
-                />{' '}
-                plan{' '}
-                {!data.trialingPlanId ||
-                data.trialingPlanId === 'current' ||
-                data.trialingPlanId === currentPlanId ? (
-                  'for free'
-                ) : (
+              <div className="text-sm space-y-2">
+                <p>
+                  Users get{' '}
                   <Controller
-                    name="trialType"
+                    name="durationDays"
+                    control={methods.control}
+                    render={({ field }) => <EditableSpan {...field} type="number" />}
+                  />{' '}
+                  days
+                  {/* Trialing plan selector - for giving premium features during trial */}
+                  <Controller
+                    name="trialingPlanId"
                     control={methods.control}
                     render={({ field }) => (
-                      <EditableSpan
-                        onChange={field.onChange}
-                        value={field.value}
-                        options={[
-                          { value: 'free', name: 'for free' },
-                          { value: 'paid', name: 'while paying for the current plan' },
-                        ]}
-                        emptyMessage="for free"
-                      />
-                    )}
-                  />
-                )}
-                , then be{' '}
-                {data.trialType === 'paid' ? (
-                  'downgraded to the current plan'
-                ) : (
-                  <>
-                    <Controller
-                      name="actionAfterTrial"
-                      control={methods.control}
-                      render={({ field }) => (
-                        <EditableSpan
-                          {...field}
-                          options={[
-                            { value: 'BLOCK', name: 'blocked' },
-                            { value: 'CHARGE', name: 'charged' },
-                            { value: 'DOWNGRADE', name: 'downgraded' },
-                          ]}
-                          emptyMessage="blocked"
-                        />
-                      )}
-                    />
-                    {data.actionAfterTrial === 'DOWNGRADE' && (
                       <>
                         {' '}
-                        to the{' '}
-                        <Controller
-                          name="downgradePlanId"
-                          control={methods.control}
-                          render={({ field }) => (
-                            <EditableSpan
-                              {...field}
-                              options={plansOptions}
-                              emptyMessage="current"
-                              quotes
-                            />
-                          )}
+                        with{' '}
+                        <EditableSpan
+                          {...field}
+                          options={nonFreePlansOptions}
+                          emptyMessage="current"
+                          quotes
                         />{' '}
-                        plan
+                        features
                       </>
                     )}
-                  </>
-                )}
-                .
-                <Button
-                  type="button"
-                  variant="link"
-                  className="text-destructive"
-                  onClick={() =>
-                    methods.reset({
-                      durationDays: 0,
-                    })
-                  }
-                >
-                  Remove trial
-                </Button>
-              </p>
+                  />
+                  {/* Free/Paid toggle - only for paid plans */}
+                  {!isFreePlan && (
+                    <Controller
+                      name="trialIsFree"
+                      control={methods.control}
+                      render={({ field }) => (
+                        <>
+                          {' '}
+                          <EditableSpan
+                            onChange={val => field.onChange(val === 'free')}
+                            value={field.value ? 'free' : 'paid'}
+                            options={[
+                              { value: 'free', name: 'for free' },
+                              { value: 'paid', name: 'while being charged' },
+                            ]}
+                            emptyMessage="for free"
+                          />
+                        </>
+                      )}
+                    />
+                  )}
+                  , then continue on this plan.
+                  <Button
+                    type="button"
+                    variant="link"
+                    className="text-destructive"
+                    onClick={() =>
+                      methods.reset({
+                        durationDays: 0,
+                      })
+                    }
+                  >
+                    Remove trial
+                  </Button>
+                </p>
+                {/* Contextual help based on plan type */}
+                <p className="text-muted-foreground text-xs">
+                  {isFreePlan ? (
+                    <>This is a free plan. No payment will ever be required.</>
+                  ) : data.trialIsFree ? (
+                    <>
+                      Payment method will be collected at checkout. If trial ends without a valid
+                      payment method, subscription will pause until checkout is completed.
+                    </>
+                  ) : (
+                    <>Payment will be collected immediately at checkout.</>
+                  )}
+                </p>
+              </div>
             )}
 
             {methods.formState.errors && (
               <div className="text-[0.8rem] font-medium text-destructive">
                 {methods.formState.errors.durationDays && (
                   <p>
-                    Invalid duration : {String(methods.formState.errors.trialingPlanId?.message)}
-                  </p>
-                )}
-                {methods.formState.errors.actionAfterTrial && (
-                  <p>
-                    Invalid action : {String(methods.formState.errors.actionAfterTrial?.message)}
-                  </p>
-                )}
-                {methods.formState.errors.downgradePlanId && (
-                  <p>
-                    Invalid downgrade plan :{' '}
-                    {String(methods.formState.errors.downgradePlanId?.message)}
+                    Invalid duration : {String(methods.formState.errors.durationDays?.message)}
                   </p>
                 )}
                 {methods.formState.errors.trialingPlanId && (
                   <p>
                     Invalid trial plan : {String(methods.formState.errors.trialingPlanId?.message)}
                   </p>
-                )}
-                {methods.formState.errors.trialType && (
-                  <p>Invalid trial type : {String(methods.formState.errors.trialType?.message)}</p>
                 )}
                 {methods.formState.errors.root && (
                   <p>Error : {String(methods.formState.errors.root?.message)}</p>
@@ -370,9 +289,9 @@ export function PlanTrialForm({
 interface PlanTrialReadonlyProps {
   config?: TrialConfig
   currentPlanId: string
+  planType?: PlanType
 }
-export function PlanTrialReadonly({ config, currentPlanId }: PlanTrialReadonlyProps) {
-  // TODO resolve plan names in server
+export function PlanTrialReadonly({ config, currentPlanId, planType }: PlanTrialReadonlyProps) {
   const { data: plansData, isLoading } = useQuery(listPlans, {
     sortBy: ListPlansRequest_SortBy.NAME_ASC,
   })
@@ -384,30 +303,10 @@ export function PlanTrialReadonly({ config, currentPlanId }: PlanTrialReadonlyPr
   }
 
   const isCurrentPlan = (planId?: string) => !planId || planId === currentPlanId
+  const isFreePlan = planType === PlanType.FREE
 
   if (!config) {
     return <p className="text-sm">No trial configured.</p>
-  }
-
-  const renderActionAfterTrial = () => {
-    const { actionAfterTrial, downgradePlanId } = config
-
-    switch (actionAfterTrial) {
-      case TrialConfig_ActionAfterTrial.DOWNGRADE:
-        return (
-          <>
-            <span className="font-bold">downgraded</span> to the{' '}
-            <span className="font-bold">
-              {isCurrentPlan(downgradePlanId) ? 'current' : resolvePlanName(downgradePlanId!)}
-            </span>{' '}
-            plan
-          </>
-        )
-      case TrialConfig_ActionAfterTrial.CHARGE:
-        return <span className="font-bold">charged</span>
-      default:
-        return <span className="font-bold">blocked</span>
-    }
   }
 
   const renderTrialDescription = () => {
@@ -420,15 +319,75 @@ export function PlanTrialReadonly({ config, currentPlanId }: PlanTrialReadonlyPr
     const trialPlanName = isCurrentPlan(trialingPlanId)
       ? 'current'
       : resolvePlanName(trialingPlanId!)
-    const trialPriceDescription = trialIsFree ? 'for free' : 'while paying for the current plan'
+    const hasTrialingPlan = !isCurrentPlan(trialingPlanId)
 
-    return (
-      <p className="text-sm">
-        Your users will get <span className="font-bold">{durationDays}</span> days of the{' '}
-        <span className="font-bold">{trialPlanName}</span> plan {trialPriceDescription}, then be{' '}
-        {trialIsFree ? renderActionAfterTrial() : 'downgraded to the current plan'}.
-      </p>
-    )
+    // Render based on plan type and trial configuration
+    if (isFreePlan) {
+      // Free plan: trial just gives access to features, no billing ever
+      return (
+        <div className="text-sm space-y-1">
+          <p>
+            Users get <span className="font-bold">{durationDays} days</span>
+            {hasTrialingPlan && (
+              <>
+                {' '}
+                with <span className="font-bold">&quot;{trialPlanName}&quot;</span> features
+              </>
+            )}
+            , then continue on this free plan.
+          </p>
+          <p className="text-muted-foreground text-xs">No payment required.</p>
+        </div>
+      )
+    } else {
+      // Paid plan
+      if (trialIsFree) {
+        // Free trial on paid plan: no charge during trial, then billing starts
+        return (
+          <div className="text-sm space-y-1">
+            <p>
+              Users get <span className="font-bold">{durationDays} days free</span>
+              {hasTrialingPlan && (
+                <>
+                  {' '}
+                  with <span className="font-bold">&quot;{trialPlanName}&quot;</span> features
+                </>
+              )}
+              , then billing starts on this plan.
+            </p>
+            <p className="text-muted-foreground text-xs">
+              Payment method collected at checkout. If trial ends without payment, subscription
+              requires checkout to continue.
+            </p>
+          </div>
+        )
+      } else {
+        // Paid trial: charge from day 1, but with trialing plan features
+        return (
+          <div className="text-sm space-y-1">
+            <p>
+              Users are <span className="font-bold">charged from day 1</span>
+              {hasTrialingPlan && (
+                <>
+                  , but get <span className="font-bold">&quot;{trialPlanName}&quot;</span> features
+                  for <span className="font-bold">{durationDays} days</span>
+                </>
+              )}
+              {!hasTrialingPlan && (
+                <>
+                  {' '}
+                  with a <span className="font-bold">{durationDays}-day</span> introductory period
+                </>
+              )}
+              .
+            </p>
+            <p className="text-muted-foreground text-xs">
+              Payment collected immediately at checkout.
+            </p>
+          </div>
+        )
+      }
+    }
   }
 
   return <div className="space-y-4">{renderTrialDescription()}</div>
