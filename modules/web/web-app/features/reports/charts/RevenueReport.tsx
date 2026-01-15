@@ -1,12 +1,4 @@
-import {
-  Button,
-  Card,
-  Select,
-  SelectContent,
-  SelectItem,
-  SelectTrigger,
-  SelectValue,
-} from '@md/ui'
+import { Button, Card, Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@md/ui'
 import { subYears } from 'date-fns'
 import * as React from 'react'
 import { useMemo } from 'react'
@@ -44,12 +36,14 @@ export const RevenueReport = () => {
         <div className="flex justify-between items-end flex-wrap pb-4">
           <h3 className="text-lg text-foreground font-medium">Revenue</h3>
           <div>
-            <Button variant="primary">Save chart</Button>
+            <Button variant="primary" disabled>
+              Save chart
+            </Button>
           </div>
         </div>
         <div className="flex justify-between items-end flex-wrap">
           <div>
-            <Button variant="link" className="p-0">
+            <Button variant="link" className="p-0" disabled>
               Filter
             </Button>
           </div>

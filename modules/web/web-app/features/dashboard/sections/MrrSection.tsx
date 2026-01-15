@@ -83,7 +83,7 @@ export const MrrSection = () => {
         )}
         <Separator className="m-2" />
         <div className="w-full flex flex-row h-[180px] relative">
-          <MrrBreakdownCard />
+          <MrrBreakdownCard from={range.from} to={range.to} />
           <Separator orientation="vertical" className="m-2" />
           <MrrLogsCard />
         </div>

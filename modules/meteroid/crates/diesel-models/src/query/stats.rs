@@ -450,14 +450,14 @@ impl TotalMrrChartRow {
         ORDER BY fm.period";
 
         let query = diesel::sql_query(raw_sql)
-            .bind::<sql_types::Uuid, _>(tenant_id)   // $1: conversion_rates
-            .bind::<sql_types::Date, _>(start_date)  // $2: data_bounds fallback
-            .bind::<sql_types::Uuid, _>(tenant_id)   // $3: data_bounds
-            .bind::<sql_types::Date, _>(start_date)  // $4: effective_start GREATEST
-            .bind::<sql_types::Uuid, _>(tenant_id)   // $5: initial_mrr
-            .bind::<sql_types::Date, _>(end_date)    // $6: date_series end
-            .bind::<sql_types::Date, _>(end_date)    // $7: daily_mrr end
-            .bind::<sql_types::Uuid, _>(tenant_id);  // $8: daily_mrr
+            .bind::<sql_types::Uuid, _>(tenant_id) // $1: conversion_rates
+            .bind::<sql_types::Date, _>(start_date) // $2: data_bounds fallback
+            .bind::<sql_types::Uuid, _>(tenant_id) // $3: data_bounds
+            .bind::<sql_types::Date, _>(start_date) // $4: effective_start GREATEST
+            .bind::<sql_types::Uuid, _>(tenant_id) // $5: initial_mrr
+            .bind::<sql_types::Date, _>(end_date) // $6: date_series end
+            .bind::<sql_types::Date, _>(end_date) // $7: daily_mrr end
+            .bind::<sql_types::Uuid, _>(tenant_id); // $8: daily_mrr
 
         log::debug!("{}", debug_query::<diesel::pg::Pg, _>(&query));
 
@@ -592,16 +592,16 @@ impl TotalMrrByPlanRow {
         ORDER BY fm.period, fm.plan_id";
 
         let query = diesel::sql_query(raw_sql)
-            .bind::<sql_types::Uuid, _>(tenant_id)        // $1: conversion_rates
+            .bind::<sql_types::Uuid, _>(tenant_id) // $1: conversion_rates
             .bind::<sql_types::Array<sql_types::Uuid>, _>(plan_ids) // $2: selected_plans
-            .bind::<sql_types::Date, _>(start_date)       // $3: data_bounds fallback
-            .bind::<sql_types::Uuid, _>(tenant_id)        // $4: data_bounds
-            .bind::<sql_types::Date, _>(start_date)       // $5: effective_start GREATEST
-            .bind::<sql_types::Uuid, _>(tenant_id)        // $6: initial_mrr
+            .bind::<sql_types::Date, _>(start_date) // $3: data_bounds fallback
+            .bind::<sql_types::Uuid, _>(tenant_id) // $4: data_bounds
+            .bind::<sql_types::Date, _>(start_date) // $5: effective_start GREATEST
+            .bind::<sql_types::Uuid, _>(tenant_id) // $6: initial_mrr
             .bind::<sql_types::Array<sql_types::Uuid>, _>(plan_ids) // $7: initial_mrr plan filter
-            .bind::<sql_types::Date, _>(end_date)         // $8: date_series end
-            .bind::<sql_types::Date, _>(end_date)         // $9: daily_mrr end
-            .bind::<sql_types::Uuid, _>(tenant_id)        // $10: daily_mrr
+            .bind::<sql_types::Date, _>(end_date) // $8: date_series end
+            .bind::<sql_types::Date, _>(end_date) // $9: daily_mrr end
+            .bind::<sql_types::Uuid, _>(tenant_id) // $10: daily_mrr
             .bind::<sql_types::Array<sql_types::Uuid>, _>(plan_ids); // $11: daily_mrr plan filter
 
         log::debug!("{}", debug_query::<diesel::pg::Pg, _>(&query));
@@ -630,16 +630,16 @@ impl MrrBreakdownRow {
                 historical_rates_from_usd
         )
         SELECT
-            COALESCE(SUM(bi.net_mrr_cents_usd * cr.rate), 0)::BIGINT AS net_new_mrr,
-            COALESCE(SUM(bi.new_business_cents_usd * cr.rate), 0)::BIGINT AS new_business_mrr,
+            COALESCE(FLOOR(SUM(bi.net_mrr_cents_usd * cr.rate)), 0)::BIGINT AS net_new_mrr,
+            COALESCE(FLOOR(SUM(bi.new_business_cents_usd * cr.rate)), 0)::BIGINT AS new_business_mrr,
             COALESCE(SUM(bi.new_business_count), 0)::INTEGER AS new_business_count,
-            COALESCE(SUM(bi.expansion_cents_usd * cr.rate), 0)::BIGINT AS expansion_mrr,
+            COALESCE(FLOOR(SUM(bi.expansion_cents_usd * cr.rate)), 0)::BIGINT AS expansion_mrr,
             COALESCE(SUM(bi.expansion_count), 0)::INTEGER AS expansion_count,
-            COALESCE(SUM(bi.contraction_cents_usd * cr.rate), 0)::BIGINT AS contraction_mrr,
+            COALESCE(FLOOR(SUM(bi.contraction_cents_usd * cr.rate)), 0)::BIGINT AS contraction_mrr,
             COALESCE(SUM(bi.contraction_count), 0)::INTEGER AS contraction_count,
-            COALESCE(SUM(bi.churn_cents_usd * cr.rate), 0)::BIGINT AS churn_mrr,
+            COALESCE(FLOOR(SUM(bi.churn_cents_usd * cr.rate)), 0)::BIGINT AS churn_mrr,
             COALESCE(SUM(bi.churn_count), 0)::INTEGER AS churn_count,
-            COALESCE(SUM(bi.reactivation_cents_usd * cr.rate), 0)::BIGINT AS reactivation_mrr,
+            COALESCE(FLOOR(SUM(bi.reactivation_cents_usd * cr.rate)), 0)::BIGINT AS reactivation_mrr,
             COALESCE(SUM(bi.reactivation_count), 0)::INTEGER AS reactivation_count
         FROM
             bi_delta_mrr_daily bi
@@ -795,15 +795,15 @@ impl RevenueChartRow {
             ORDER BY fr.period";
 
             let query = diesel::sql_query(raw_sql)
-                .bind::<sql_types::Uuid, _>(tenant_id)   // $1: conversion_rates
-                .bind::<sql_types::Date, _>(start_date)  // $2: data_bounds fallback
-                .bind::<sql_types::Uuid, _>(tenant_id)   // $3: data_bounds
-                .bind::<sql_types::Date, _>(start_date)  // $4: effective_start GREATEST
-                .bind::<sql_types::Uuid, _>(tenant_id)   // $5: initial_revenue
-                .bind::<sql_types::Date, _>(end_date)    // $6: date_series end
-                .bind::<sql_types::Date, _>(end_date)    // $7: daily_revenue end
-                .bind::<sql_types::Uuid, _>(tenant_id)   // $8: daily_revenue
-                .bind::<sql_types::Array<sql_types::Uuid>, _>(plan_ids)  // $9: initial_revenue plan filter
+                .bind::<sql_types::Uuid, _>(tenant_id) // $1: conversion_rates
+                .bind::<sql_types::Date, _>(start_date) // $2: data_bounds fallback
+                .bind::<sql_types::Uuid, _>(tenant_id) // $3: data_bounds
+                .bind::<sql_types::Date, _>(start_date) // $4: effective_start GREATEST
+                .bind::<sql_types::Uuid, _>(tenant_id) // $5: initial_revenue
+                .bind::<sql_types::Date, _>(end_date) // $6: date_series end
+                .bind::<sql_types::Date, _>(end_date) // $7: daily_revenue end
+                .bind::<sql_types::Uuid, _>(tenant_id) // $8: daily_revenue
+                .bind::<sql_types::Array<sql_types::Uuid>, _>(plan_ids) // $9: initial_revenue plan filter
                 .bind::<sql_types::Array<sql_types::Uuid>, _>(plan_ids); // $10: daily_revenue plan filter
 
             log::debug!("{}", debug_query::<diesel::pg::Pg, _>(&query));
@@ -879,14 +879,14 @@ impl RevenueChartRow {
             ORDER BY fr.period";
 
             let query = diesel::sql_query(raw_sql)
-                .bind::<sql_types::Uuid, _>(tenant_id)   // $1: conversion_rates
-                .bind::<sql_types::Date, _>(start_date)  // $2: data_bounds fallback
-                .bind::<sql_types::Uuid, _>(tenant_id)   // $3: data_bounds
-                .bind::<sql_types::Date, _>(start_date)  // $4: effective_start GREATEST
-                .bind::<sql_types::Uuid, _>(tenant_id)   // $5: initial_revenue
-                .bind::<sql_types::Date, _>(end_date)    // $6: date_series end
-                .bind::<sql_types::Date, _>(end_date)    // $7: daily_revenue end
-                .bind::<sql_types::Uuid, _>(tenant_id);  // $8: daily_revenue
+                .bind::<sql_types::Uuid, _>(tenant_id) // $1: conversion_rates
+                .bind::<sql_types::Date, _>(start_date) // $2: data_bounds fallback
+                .bind::<sql_types::Uuid, _>(tenant_id) // $3: data_bounds
+                .bind::<sql_types::Date, _>(start_date) // $4: effective_start GREATEST
+                .bind::<sql_types::Uuid, _>(tenant_id) // $5: initial_revenue
+                .bind::<sql_types::Date, _>(end_date) // $6: date_series end
+                .bind::<sql_types::Date, _>(end_date) // $7: daily_revenue end
+                .bind::<sql_types::Uuid, _>(tenant_id); // $8: daily_revenue
 
             log::debug!("{}", debug_query::<diesel::pg::Pg, _>(&query));
 

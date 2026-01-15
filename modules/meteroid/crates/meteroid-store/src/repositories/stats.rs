@@ -284,67 +284,68 @@ impl StatsInterface for Store {
 
         // If plans are selected, return plan-specific series only
         if let Some(plan_ids) = &request.plans_id
-            && !plan_ids.is_empty() {
-                // Convert PlanId to Uuid for the query
-                let plan_uuids: Vec<uuid::Uuid> = plan_ids.iter().map(|id| **id).collect();
-                let plans_data = TotalMrrByPlanRow::list(
-                    &mut conn,
-                    request.tenant_id,
-                    &plan_uuids,
-                    request.start_date,
-                    request.end_date,
-                )
-                .await
-                .map_err(Into::<Report<StoreError>>::into)?;
+            && !plan_ids.is_empty()
+        {
+            // Convert PlanId to Uuid for the query
+            let plan_uuids: Vec<uuid::Uuid> = plan_ids.iter().map(|id| **id).collect();
+            let plans_data = TotalMrrByPlanRow::list(
+                &mut conn,
+                request.tenant_id,
+                &plan_uuids,
+                request.start_date,
+                request.end_date,
+            )
+            .await
+            .map_err(Into::<Report<StoreError>>::into)?;
 
-                let mut series_map: HashMap<String, MrrChartSeries> = HashMap::new();
-                for data in plans_data {
-                    let data_point = MrrChartDataPoint {
-                        x: data.date.format("%Y-%m-%d").to_string(),
-                        data: MRRBreakdown {
-                            new_business: CountAndValue {
-                                count: data.new_business_count,
-                                value: data.new_business_mrr,
-                            },
-                            expansion: CountAndValue {
-                                count: data.expansion_count,
-                                value: data.expansion_mrr,
-                            },
-                            contraction: CountAndValue {
-                                count: data.contraction_count,
-                                value: data.contraction_mrr,
-                            },
-                            churn: CountAndValue {
-                                count: data.churn_count,
-                                value: data.churn_mrr,
-                            },
-                            reactivation: CountAndValue {
-                                count: data.reactivation_count,
-                                value: data.reactivation_mrr,
-                            },
-                            net_new_mrr: data.net_new_mrr,
-                            total_net_mrr: data.total_net_mrr,
+            let mut series_map: HashMap<String, MrrChartSeries> = HashMap::new();
+            for data in plans_data {
+                let data_point = MrrChartDataPoint {
+                    x: data.date.format("%Y-%m-%d").to_string(),
+                    data: MRRBreakdown {
+                        new_business: CountAndValue {
+                            count: data.new_business_count,
+                            value: data.new_business_mrr,
                         },
-                    };
+                        expansion: CountAndValue {
+                            count: data.expansion_count,
+                            value: data.expansion_mrr,
+                        },
+                        contraction: CountAndValue {
+                            count: data.contraction_count,
+                            value: data.contraction_mrr,
+                        },
+                        churn: CountAndValue {
+                            count: data.churn_count,
+                            value: data.churn_mrr,
+                        },
+                        reactivation: CountAndValue {
+                            count: data.reactivation_count,
+                            value: data.reactivation_mrr,
+                        },
+                        net_new_mrr: data.net_new_mrr,
+                        total_net_mrr: data.total_net_mrr,
+                    },
+                };
 
-                    series_map
-                        .entry(data.plan_name.clone())
-                        .or_insert_with(|| MrrChartSeries {
+                series_map
+                    .entry(data.plan_name.clone())
+                    .or_insert_with(|| MrrChartSeries {
+                        name: data.plan_name.clone(),
+                        code: format!("mrr_breakdown_plan_{}", data.plan_id),
+                        plan: Some(PlanBrief {
+                            id: data.plan_id,
                             name: data.plan_name.clone(),
-                            code: format!("mrr_breakdown_plan_{}", data.plan_id),
-                            plan: Some(PlanBrief {
-                                id: data.plan_id,
-                                name: data.plan_name.clone(),
-                            }),
-                            data: vec![],
-                        })
-                        .data
-                        .push(data_point);
-                }
-
-                let series: Vec<MrrChartSeries> = series_map.into_values().collect();
-                return Ok(MrrChartResponse { series });
+                        }),
+                        data: vec![],
+                    })
+                    .data
+                    .push(data_point);
             }
+
+            let series: Vec<MrrChartSeries> = series_map.into_values().collect();
+            return Ok(MrrChartResponse { series });
+        }
 
         // No plans selected - return total MRR across all plans
         let total = TotalMrrChartRow::list(
@@ -445,8 +446,8 @@ impl StatsInterface for Store {
             request.start_date,
             request.end_date,
         )
-            .await
-            .map_err(Into::<Report<StoreError>>::into)?;
+        .await
+        .map_err(Into::<Report<StoreError>>::into)?;
 
         match breakdown {
             None => Ok(MRRBreakdown {

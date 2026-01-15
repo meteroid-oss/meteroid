@@ -48,12 +48,14 @@ export const MrrReport = () => {
         <div className="flex justify-between items-end flex-wrap pb-4">
           <h3 className="text-lg text-foreground font-medium">Monthly Recurring Revenue</h3>
           <div>
-            <Button variant="primary">Save chart</Button>
+            <Button variant="primary" disabled>
+              Save chart
+            </Button>
           </div>
         </div>
         <div className="flex justify-between items-end flex-wrap">
           <div>
-            <Button variant="link" className="p-0">
+            <Button variant="link" className="p-0" disabled>
               Filter
             </Button>
           </div>
@@ -84,7 +86,10 @@ export const MrrReport = () => {
         />
         <Separator className="m-2" />
         <div className="w-full flex flex-row h-[180px] relative">
-          <MrrBreakdownCard />
+          <MrrBreakdownCard
+            from={range?.from ?? defaultRange.from}
+            to={range?.to ?? defaultRange.to}
+          />
           <Separator orientation="vertical" className="m-2" />
           <MrrLogsCard />
         </div>

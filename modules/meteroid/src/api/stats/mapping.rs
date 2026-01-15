@@ -25,7 +25,6 @@ pub fn trend_scope_to_server(scope: &TrendScope) -> proto::TrendScope {
     }
 }
 
-
 pub fn breakdown_stat_to_server(stat: &CountAndValue) -> BreakdownStat {
     BreakdownStat {
         count: i64::from(stat.count),

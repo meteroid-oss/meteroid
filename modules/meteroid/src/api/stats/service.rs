@@ -4,8 +4,9 @@ use tonic::{Request, Response, Status};
 use super::{StatsServiceComponents, mapping};
 use meteroid_grpc::meteroid::api::stats::v1 as grpc;
 use meteroid_grpc::meteroid::api::stats::v1::{
-    GeneralStatsRequest, GeneralStatsResponse, MrrBreakdownRequest, MrrBreakdownResponse, MrrChartRequest, MrrChartResponse, MrrChartSeries, MrrLogRequest,
-    MrrLogResponse, RevenueChartRequest, RevenueChartResponse, RevenueChartSeries, SignupSeries,
+    GeneralStatsRequest, GeneralStatsResponse, MrrBreakdownRequest, MrrBreakdownResponse,
+    MrrChartRequest, MrrChartResponse, MrrChartSeries, MrrLogRequest, MrrLogResponse,
+    RevenueChartRequest, RevenueChartResponse, RevenueChartSeries, SignupSeries,
     SignupSparklineRequest, SignupSparklineRequestResponse, TopRevenueByCustomerRequest,
     TopRevenueByCustomerResponse, TrialConversionMetaDataPoint,
     TrialConversionRateSparklineRequest, TrialConversionRateSparklineResponse,
