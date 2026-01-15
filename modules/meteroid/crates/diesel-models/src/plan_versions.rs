@@ -1,8 +1,6 @@
 use chrono::NaiveDateTime;
 use uuid::Uuid;
 
-use crate::enums::ActionAfterTrialEnum;
-
 use common_domain::ids::{PlanId, PlanVersionId, ProductFamilyId, TenantId};
 use diesel::{AsChangeset, Identifiable, Insertable, Queryable, Selectable};
 
@@ -15,17 +13,14 @@ pub struct PlanVersionRow {
     pub plan_id: PlanId,
     pub version: i32,
     pub trial_duration_days: Option<i32>,
-    pub downgrade_plan_id: Option<PlanId>,
     pub tenant_id: TenantId,
     pub period_start_day: Option<i16>,
     pub net_terms: i32,
-    // TODO is this used ? or always the tenant currency ?
     pub currency: String,
     pub billing_cycles: Option<i32>,
     pub created_at: NaiveDateTime,
     pub created_by: Uuid,
     pub trialing_plan_id: Option<PlanId>,
-    pub action_after_trial: Option<ActionAfterTrialEnum>,
     pub trial_is_free: bool,
 }
 
@@ -38,7 +33,6 @@ pub struct PlanVersionRowNew {
     pub plan_id: PlanId,
     pub version: i32,
     pub trial_duration_days: Option<i32>,
-    pub downgrade_plan_id: Option<PlanId>,
     pub tenant_id: TenantId,
     pub period_start_day: Option<i16>,
     pub net_terms: i32,
@@ -46,7 +40,6 @@ pub struct PlanVersionRowNew {
     pub billing_cycles: Option<i32>,
     pub created_by: Uuid,
     pub trialing_plan_id: Option<PlanId>,
-    pub action_after_trial: Option<ActionAfterTrialEnum>,
     pub trial_is_free: bool,
 }
 
@@ -62,9 +55,7 @@ pub struct PlanVersionRowOverview {
     pub version: i32,
     pub created_by: Uuid,
     pub trial_duration_days: Option<i32>,
-    pub downgrade_plan_id: Option<PlanId>,
     pub trialing_plan_id: Option<PlanId>,
-    pub action_after_trial: Option<ActionAfterTrialEnum>,
     pub trial_is_free: bool,
     pub period_start_day: Option<i16>,
     pub net_terms: i32,
@@ -96,10 +87,8 @@ pub struct PlanVersionTrialRowPatch {
     pub id: PlanVersionId,
     pub tenant_id: TenantId,
     pub trialing_plan_id: Option<Option<PlanId>>,
-    pub action_after_trial: Option<Option<ActionAfterTrialEnum>>,
     pub trial_is_free: Option<bool>,
     pub trial_duration_days: Option<Option<i32>>,
-    pub downgrade_plan_id: Option<Option<PlanId>>,
 }
 
 #[derive(Debug, Clone)]

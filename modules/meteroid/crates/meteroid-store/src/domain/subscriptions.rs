@@ -218,6 +218,8 @@ pub struct SubscriptionNewEnriched<'a> {
     pub net_terms: u32,
     pub cycle_index: Option<u32>,
     pub quote_id: Option<QuoteId>,
+    /// Effective trial duration: uses request override if provided, otherwise plan's trial_duration_days
+    pub effective_trial_duration: Option<u32>,
 }
 
 impl SubscriptionNewEnriched<'_> {
@@ -231,7 +233,7 @@ impl SubscriptionNewEnriched<'_> {
 
         SubscriptionRowNew {
             id: self.subscription_id,
-            trial_duration: sub.trial_duration.map(|x| x as i32),
+            trial_duration: self.effective_trial_duration.map(|x| x as i32),
             customer_id: sub.customer_id,
             billing_day_anchor: self.billing_day_anchor as i16,
             tenant_id: self.tenant_id,
@@ -286,6 +288,15 @@ pub struct CreateSubscriptionFromQuote {
     pub quote_id: QuoteId,
 }
 
+/// Trial configuration from the plan version
+#[derive(Debug, Clone)]
+pub struct TrialConfig {
+    pub duration_days: u32,
+    pub is_free: bool,
+    pub trialing_plan_id: Option<PlanId>,
+    pub trialing_plan_name: Option<String>,
+}
+
 #[derive(Debug, Clone)]
 pub struct SubscriptionDetails {
     pub subscription: Subscription,
@@ -297,4 +308,5 @@ pub struct SubscriptionDetails {
     pub applied_coupons: Vec<AppliedCouponDetailed>,
     pub metrics: Vec<BillableMetric>,
     pub checkout_url: Option<String>,
+    pub trial_config: Option<TrialConfig>,
 }

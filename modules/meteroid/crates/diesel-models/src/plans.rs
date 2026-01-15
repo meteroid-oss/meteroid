@@ -63,6 +63,8 @@ pub struct PlanRowForSubscription {
     pub name: String,
     pub currency: String,
     pub plan_type: PlanTypeEnum,
+    pub trial_duration_days: Option<i32>,
+    pub trial_is_free: bool,
 }
 
 #[derive(Debug, Queryable)]

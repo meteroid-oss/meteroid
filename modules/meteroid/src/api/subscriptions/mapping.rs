@@ -38,7 +38,6 @@ pub mod subscriptions {
         }
     }
 
-    // TODO update subscription statuses
     pub fn map_subscription_status(e: SubscriptionStatusEnum) -> proto2::SubscriptionStatus {
         match e {
             SubscriptionStatusEnum::PendingActivation => proto2::SubscriptionStatus::Pending,
@@ -274,6 +273,12 @@ pub mod subscriptions {
                 .into_iter()
                 .map(super::coupons::applied_coupon_detailed_to_grpc)
                 .collect(),
+            trial_config: details.trial_config.map(|tc| proto2::TrialConfig {
+                duration_days: tc.duration_days,
+                is_free: tc.is_free,
+                trialing_plan_id: tc.trialing_plan_id.map(|id| id.as_proto()),
+                trialing_plan_name: tc.trialing_plan_name,
+            }),
         })
     }
 }

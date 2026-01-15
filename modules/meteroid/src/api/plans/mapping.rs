@@ -6,18 +6,16 @@ pub mod plans {
     };
     use meteroid_grpc::meteroid::api::plans::v1::{
         Plan, PlanBillingConfiguration, PlanStatus, PlanType, PlanVersion, PlanWithVersion,
-        TrialConfig, trial_config::ActionAfterTrial,
+        TrialConfig,
     };
     use meteroid_store::domain;
-    use meteroid_store::domain::enums::{ActionAfterTrialEnum, PlanStatusEnum, PlanTypeEnum};
+    use meteroid_store::domain::enums::{PlanStatusEnum, PlanTypeEnum};
 
     pub struct PlanWithVersionWrapper(pub PlanWithVersion);
 
     pub struct PlanVersionWrapper(pub PlanVersion);
 
     pub struct PlanTypeWrapper(pub PlanType);
-
-    pub struct ActionAfterTrialWrapper(pub ActionAfterTrial);
 
     pub struct PlanStatusWrapper(pub PlanStatus);
 
@@ -43,14 +41,6 @@ pub mod plans {
                 match version.trial_duration_days {
                     Some(days) if days > 0 => Some(TrialConfig {
                         trialing_plan_id: version.trialing_plan_id.map(|x| x.as_proto()),
-                        downgrade_plan_id: version.downgrade_plan_id.map(|x| x.as_proto()),
-                        action_after_trial: version
-                            .action_after_trial
-                            .as_ref()
-                            .map_or(ActionAfterTrial::Block, |a| {
-                                ActionAfterTrialWrapper::from(a.clone()).0
-                            })
-                            .into(),
                         duration_days: days as u32,
                         trial_is_free: version.trial_is_free,
                     }),
@@ -148,26 +138,6 @@ pub mod plans {
                 PlanTypeEnum::Standard => PlanType::Standard,
                 PlanTypeEnum::Free => PlanType::Free,
                 PlanTypeEnum::Custom => PlanType::Custom,
-            })
-        }
-    }
-
-    impl From<ActionAfterTrialWrapper> for ActionAfterTrialEnum {
-        fn from(val: ActionAfterTrialWrapper) -> Self {
-            match val.0 {
-                ActionAfterTrial::Block => ActionAfterTrialEnum::Block,
-                ActionAfterTrial::Charge => ActionAfterTrialEnum::Charge,
-                ActionAfterTrial::Downgrade => ActionAfterTrialEnum::Downgrade,
-            }
-        }
-    }
-
-    impl From<ActionAfterTrialEnum> for ActionAfterTrialWrapper {
-        fn from(e: ActionAfterTrialEnum) -> Self {
-            Self(match e {
-                ActionAfterTrialEnum::Block => ActionAfterTrial::Block,
-                ActionAfterTrialEnum::Charge => ActionAfterTrial::Charge,
-                ActionAfterTrialEnum::Downgrade => ActionAfterTrial::Downgrade,
             })
         }
     }

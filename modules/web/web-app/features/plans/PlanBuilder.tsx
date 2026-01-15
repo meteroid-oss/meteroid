@@ -195,21 +195,28 @@ const PlanBody = () => {
       {plan.planType !== PlanType.FREE && (
         <>
           <PriceComponentSection/>
+        </>
+      )}
 
-          <PageSection
-            header={{
-              title: 'Trial',
-              subtitle:
-                'Define a period during which your customers can try out this plan for free.',
-            }}
-          >
-            <PlanTrial
-              config={current?.trialConfig}
-              currentPlanId={plan.id}
-              currentPlanVersionId={current.id}
-            />
-          </PageSection>
+      <PageSection
+        header={{
+          title: 'Trial',
+          subtitle:
+            plan.planType === PlanType.FREE
+              ? 'Give users temporary access to premium features before they continue on this free plan.'
+              : 'Define a trial period for new subscribers.',
+        }}
+      >
+        <PlanTrial
+          config={current?.trialConfig}
+          currentPlanId={plan.id}
+          currentPlanVersionId={current.id}
+          planType={plan.planType}
+        />
+      </PageSection>
 
+      {plan.planType !== PlanType.FREE && (
+        <>
           <PageSection
             hidden
             header={{

@@ -12,11 +12,10 @@ use diesel_models::plans::PlanVersionRowInfo;
 use diesel_models::plans::PlanWithVersionRow;
 use diesel_models::plans::{FullPlanRow, PlanFilters as PlanFiltersDb};
 
+use super::enums::{PlanStatusEnum, PlanTypeEnum};
 use common_domain::ids::{BaseId, PlanId, PlanVersionId, ProductFamilyId, TenantId};
 use o2o::o2o;
 use uuid::Uuid;
-// TODO duplicate as well
-use super::enums::{ActionAfterTrialEnum, PlanStatusEnum, PlanTypeEnum};
 
 use crate::StoreResult;
 use crate::domain::ProductFamilyOverview;
@@ -86,12 +85,10 @@ pub struct PlanVersionNewInternal {
 #[derive(Debug, Clone)]
 pub struct PlanTrial {
     pub duration_days: u32,
-    // which plan is resolved after trial ends (if different from the current plan)
-    pub downgrade_plan_id: Option<PlanId>,
     // which plan is resolved during trial (if different from the current plan)
     pub trialing_plan_id: Option<PlanId>,
-    pub action_after_trial: Option<ActionAfterTrialEnum>,
-    pub require_pre_authorization: bool,
+    // if true, the trial is free (no charges). If false, normal plan price applies.
+    pub trial_is_free: bool,
 }
 
 #[derive(Debug, Clone)]
@@ -113,17 +110,6 @@ impl PlanVersionNew {
             tenant_id: self.tenant_id,
             is_draft_version: self.internal.is_draft_version,
             trial_duration_days: self.internal.trial.as_ref().map(|v| v.duration_days as i32),
-            action_after_trial: self
-                .internal
-                .trial
-                .as_ref()
-                .and_then(|v| v.action_after_trial.as_ref())
-                .map(|v| v.clone().into()),
-            downgrade_plan_id: self
-                .internal
-                .trial
-                .as_ref()
-                .and_then(|v| v.downgrade_plan_id),
             trialing_plan_id: self
                 .internal
                 .trial
@@ -133,7 +119,7 @@ impl PlanVersionNew {
                 .internal
                 .trial
                 .as_ref()
-                .is_some_and(|v| v.require_pre_authorization),
+                .is_some_and(|v| v.trial_is_free),
             period_start_day: self.internal.period_start_day,
             net_terms: self.internal.net_terms,
             currency: self.internal.currency.unwrap_or(tenant_currency),
@@ -175,10 +161,7 @@ pub struct PlanVersion {
     pub created_at: NaiveDateTime,
     pub created_by: Uuid,
     pub trialing_plan_id: Option<PlanId>,
-    #[from(~.map(| v | v.into()))]
-    pub action_after_trial: Option<ActionAfterTrialEnum>,
     pub trial_is_free: bool,
-    pub downgrade_plan_id: Option<PlanId>,
     pub trial_duration_days: Option<i32>,
 }
 
@@ -217,10 +200,7 @@ pub struct PlanVersionOverview {
     pub product_family_id: ProductFamilyId,
     pub product_family_name: String,
     pub trialing_plan_id: Option<PlanId>,
-    #[from(~.map(| v | v.into()))]
-    pub action_after_trial: Option<ActionAfterTrialEnum>,
     pub trial_is_free: bool,
-    pub downgrade_plan_id: Option<PlanId>,
     pub trial_duration_days: Option<i32>,
 }
 
@@ -242,6 +222,8 @@ pub struct PlanForSubscription {
     pub currency: String,
     #[from(~.into())]
     pub plan_type: PlanTypeEnum,
+    pub trial_duration_days: Option<i32>,
+    pub trial_is_free: bool,
 }
 
 #[derive(Clone, Debug, o2o)]

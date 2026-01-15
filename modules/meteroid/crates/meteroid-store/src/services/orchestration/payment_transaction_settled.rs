@@ -85,11 +85,39 @@ impl Services {
                             )
                             .await?;
 
-                            // Activate subscription if needed
+                            // Activate subscription if pending checkout
                             let should_activate = subscription.subscription.activated_at.is_none()
                                 && subscription.subscription.activation_condition
                                     == SubscriptionActivationConditionEnum::OnCheckout;
-                            if should_activate {
+
+                            // Transition TrialExpired to Active when invoice is paid
+                            let should_activate_from_trial_expired =
+                                subscription.subscription.status
+                                    == diesel_models::enums::SubscriptionStatusEnum::TrialExpired;
+
+                            if should_activate_from_trial_expired {
+                                // Trial expired subscription paid - transition to Active
+                                // Use current_period_start (trial end date), not billing_start_date
+                                let period_start = subscription.subscription.current_period_start;
+
+                                let range = calculate_advance_period_range(
+                                    period_start,
+                                    subscription.subscription.billing_day_anchor as u32,
+                                    true, // Align to billing_day_anchor (prorates for fixed day, full period for anniversary)
+                                    &subscription.subscription.period.into(),
+                                );
+
+                                SubscriptionRow::transition_trial_expired_to_active(
+                                    conn,
+                                    subscription_id,
+                                    &event.tenant_id,
+                                    range.start,
+                                    Some(range.end),
+                                    Some(CycleActionEnum::RenewSubscription),
+                                    Some(0),
+                                )
+                                .await?;
+                            } else if should_activate {
                                 let billing_start_date = subscription
                                     .subscription
                                     .billing_start_date

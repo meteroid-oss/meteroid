@@ -27,6 +27,7 @@ mod test_slots;
 mod test_stats;
 mod test_subscription;
 mod test_tenant;
+mod test_trials;
 mod test_user;
 
 mod data;

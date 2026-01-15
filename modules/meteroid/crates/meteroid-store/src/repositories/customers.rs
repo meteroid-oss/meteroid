@@ -544,9 +544,8 @@ impl CustomersInterface for Store {
         let blocking_statuses = vec![
             DieselSubscriptionStatusEnum::Active,
             DieselSubscriptionStatusEnum::TrialActive,
-            DieselSubscriptionStatusEnum::PendingCharge,
-            // DieselSubscriptionStatusEnum::PendingActivation,
             DieselSubscriptionStatusEnum::TrialExpired,
+            DieselSubscriptionStatusEnum::PendingCharge,
             DieselSubscriptionStatusEnum::Paused,
             DieselSubscriptionStatusEnum::Suspended,
         ];

@@ -1,5 +1,6 @@
 import { disableQuery } from '@connectrpc/connect-query'
 import {
+  Alert,
   Button,
   Card,
   CardContent,
@@ -33,6 +34,12 @@ import { useQuery } from '@/lib/connectrpc'
 import { createSubscriptionAtom } from '@/pages/tenants/subscription/create/state'
 import { getCustomerById } from '@/rpc/api/customers/v1/customers-CustomersService_connectquery'
 import { getInvoicingEntityProviders } from '@/rpc/api/invoicingentities/v1/invoicingentities-InvoicingEntitiesService_connectquery'
+import { PlanType } from '@/rpc/api/plans/v1/models_pb'
+import {
+  getPlanWithVersionByVersionId,
+  listPlans,
+} from '@/rpc/api/plans/v1/plans-PlansService_connectquery'
+import { ListPlansRequest_SortBy } from '@/rpc/api/plans/v1/plans_pb'
 import { ActivationCondition, PaymentStrategy } from '@/rpc/api/subscriptions/v1/models_pb'
 
 const activationConditionToString = (
@@ -101,6 +108,27 @@ export const StepSettings = () => {
     { id: state.customerId! },
     { enabled: !!state.customerId }
   )
+
+  // Fetch plan version to get trial config
+  const planQuery = useQuery(
+    getPlanWithVersionByVersionId,
+    { localId: state.planVersionId! },
+    { enabled: !!state.planVersionId }
+  )
+
+  // Fetch all plans for resolving trialing plan name
+  const plansQuery = useQuery(listPlans, {
+    sortBy: ListPlansRequest_SortBy.NAME_ASC,
+  })
+
+  const planTrialConfig = planQuery.data?.plan?.version?.trialConfig
+  const planType = planQuery.data?.plan?.plan?.planType
+  const isFreePlan = planType === PlanType.FREE
+
+  // Resolve trialing plan name
+  const trialingPlanName = planTrialConfig?.trialingPlanId
+    ? plansQuery.data?.plans.find(p => p.id === planTrialConfig.trialingPlanId)?.name
+    : undefined
 
   const invoicingEntityId = customerQuery.data?.customer?.invoicingEntityId
 
@@ -244,21 +272,68 @@ export const StepSettings = () => {
                     />
                   )}
                 />
-                <InputFormField
-                  name="trialDuration"
-                  label="Trial Duration (days)"
-                  type="number"
-                  containerClassName="hidden"
-                  placeholder="7"
-                  control={methods.control}
-                />
-                {/* TODO */}
               </CardContent>
             </Card>
 
             <Card>
               <CardHeader>
-                <CardTitle className="text-base">Billing Configuration</CardTitle>
+                <CardTitle className="text-base">Trial Configuration</CardTitle>
+              </CardHeader>
+              <CardContent className="space-y-4">
+                {planTrialConfig?.durationDays ? (
+                  <>
+                    <Alert variant="default" className="text-sm">
+                      <div className="space-y-1">
+                        <p>
+                          Plan default:{' '}
+                          <span className="font-medium">{planTrialConfig.durationDays} days</span>
+                          {trialingPlanName && (
+                            <>
+                              {' '}
+                              with <span className="font-medium">&quot;{trialingPlanName}&quot;</span>{' '}
+                              features
+                            </>
+                          )}
+                        </p>
+                        <p className="text-muted-foreground text-xs">
+                          {isFreePlan
+                            ? 'Free plan - no payment required.'
+                            : planTrialConfig.trialIsFree
+                              ? 'Free trial - payment method collected at checkout, billing starts after trial.'
+                              : 'Paid trial - billing starts immediately.'}
+                        </p>
+                      </div>
+                    </Alert>
+                    <InputFormField
+                      name="trialDuration"
+                      label="Trial Duration (days)"
+                      type="number"
+                      placeholder={String(planTrialConfig.durationDays)}
+                      control={methods.control}
+                      description="Leave empty to use plan default, or set to 0 to skip trial"
+                    />
+                  </>
+                ) : (
+                  <p className="text-sm text-muted-foreground">
+                    No trial configured on this plan.
+                  </p>
+                )}
+              </CardContent>
+            </Card>
+          </div>
+        </PageSection>
+
+        {/* Billing Configuration */}
+        <PageSection
+          header={{
+            title: 'Billing Configuration',
+            subtitle: 'Set billing cycle and payment terms',
+          }}
+        >
+          <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
+            <Card>
+              <CardHeader>
+                <CardTitle className="text-base">Billing Cycle</CardTitle>
               </CardHeader>
               <CardContent className="space-y-4">
                 <GenericFormField

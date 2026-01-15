@@ -92,8 +92,10 @@ impl Services {
 
                 // Validate the total amount
                 if draft_invoice.amount_due != (total_amount_confirmation as i64) {
-                    return Err(Report::new(StoreError::CheckoutError)
-                        .attach("Total due amount is different from the confirmation"));
+                    return Err(Report::new(StoreError::CheckoutError).attach(format!(
+                        "Total due amount is different from the confirmation : expected {}, got {}",
+                        draft_invoice.amount_due, total_amount_confirmation
+                    )));
                 }
 
                 // We trigger the payment synchronously but don't finalize the invoice yet, it will be done via the webhook

@@ -1,8 +1,8 @@
 use super::PlanServiceComponents;
 use crate::api::plans::error::PlanApiError;
 use crate::api::plans::mapping::plans::{
-    ActionAfterTrialWrapper, ListPlanVersionWrapper, PlanOverviewWrapper, PlanStatusWrapper,
-    PlanTypeWrapper, PlanVersionWrapper, PlanWithVersionWrapper,
+    ListPlanVersionWrapper, PlanOverviewWrapper, PlanStatusWrapper, PlanTypeWrapper,
+    PlanVersionWrapper, PlanWithVersionWrapper,
 };
 use crate::api::utils::PaginationExt;
 use common_domain::ids::{PlanId, PlanVersionId, ProductFamilyId};
@@ -333,13 +333,9 @@ impl PlansService for PlanServiceComponents {
                     .trial
                     .map(|t| {
                         Ok::<domain::PlanTrial, Status>(domain::PlanTrial {
-                            action_after_trial: Some(
-                                ActionAfterTrialWrapper(t.action_after_trial()).into(),
-                            ),
                             duration_days: t.duration_days,
                             trialing_plan_id: PlanId::from_proto_opt(t.trialing_plan_id)?,
-                            downgrade_plan_id: PlanId::from_proto_opt(t.downgrade_plan_id)?,
-                            require_pre_authorization: t.trial_is_free,
+                            trial_is_free: t.trial_is_free,
                         })
                     })
                     .transpose()?,

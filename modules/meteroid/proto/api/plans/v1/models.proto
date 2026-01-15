@@ -49,23 +49,10 @@ message PlanBillingConfiguration {
 
 message TrialConfig {
   uint32 duration_days = 1;
-  ActionAfterTrial action_after_trial = 2;
-  // if true, nothing will be charged. If false, the normal plan price is charged from the start, no matter the plan that this trial gives access to.
-  bool trial_is_free = 3;
-  // what plan is applied after the trial completes and before any payment
-  optional string downgrade_plan_id = 4;
-  // what plan is applied during the trial (ex: Enterprise for X days after paying Pro plan). None for current plan
-  optional string trialing_plan_id = 5;
-
-  // advanced options :
-  //  optional bool requires_pre_authorization = 6;
-  // usage_credits, custom trial limits, etc
-
-  enum ActionAfterTrial {
-    BLOCK = 0;
-    CHARGE = 1;
-    DOWNGRADE = 2;
-  }
+  // if true, nothing will be charged during trial. If false, the normal plan price applies.
+  bool trial_is_free = 2;
+  // what plan's features are applied during the trial (ex: Enterprise for X days). None for current plan's features.
+  optional string trialing_plan_id = 3;
 }
 
 message PlanVersion {

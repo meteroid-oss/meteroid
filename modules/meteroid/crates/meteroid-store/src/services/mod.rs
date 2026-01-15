@@ -162,6 +162,23 @@ impl ServicesEdge {
             .activate_subscription_manual(tenant_id, subscription_id)
             .await
     }
+
+    /// Resolves the effective plan for a subscription based on its trial status.
+    ///
+    /// Returns information about which plan should be "in effect" for billing/features:
+    /// - During active trial with trialing_plan_id: returns the trialing plan
+    /// - After trial expired with DOWNGRADE action: returns the downgrade plan
+    /// - Otherwise: returns the subscription's original plan
+    pub async fn get_subscription_effective_plan(
+        &self,
+        conn: &mut crate::store::PgConn,
+        tenant_id: TenantId,
+        subscription_id: SubscriptionId,
+    ) -> StoreResult<crate::domain::EffectivePlanInfo> {
+        self.services
+            .get_subscription_effective_plan(conn, tenant_id, subscription_id)
+            .await
+    }
 }
 
 impl ServicesEdge {

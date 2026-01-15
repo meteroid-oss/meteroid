@@ -1,6 +1,7 @@
 import { PartialMessage } from '@bufbuild/protobuf'
 import { disableQuery, useMutation } from '@connectrpc/connect-query'
 import {
+  Alert,
   Badge,
   Button,
   Card,
@@ -54,7 +55,12 @@ import {
   getInvoicingEntity,
   getInvoicingEntityProviders,
 } from '@/rpc/api/invoicingentities/v1/invoicingentities-InvoicingEntitiesService_connectquery'
-import { getPlanWithVersionByVersionId } from '@/rpc/api/plans/v1/plans-PlansService_connectquery'
+import { PlanType } from '@/rpc/api/plans/v1/models_pb'
+import {
+  getPlanWithVersionByVersionId,
+  listPlans,
+} from '@/rpc/api/plans/v1/plans-PlansService_connectquery'
+import { ListPlansRequest_SortBy } from '@/rpc/api/plans/v1/plans_pb'
 import { PriceComponent } from '@/rpc/api/pricecomponents/v1/models_pb'
 import { listPriceComponents } from '@/rpc/api/pricecomponents/v1/pricecomponents-PriceComponentsService_connectquery'
 import {
@@ -240,6 +246,20 @@ export const CreateQuote = () => {
     { localId: planVersionId ?? '' },
     { enabled: Boolean(planVersionId) }
   )
+
+  // Fetch all plans for resolving trialing plan name
+  const plansQuery = useQuery(listPlans, {
+    sortBy: ListPlansRequest_SortBy.NAME_ASC,
+  })
+
+  const planTrialConfig = planQuery.data?.plan?.version?.trialConfig
+  const planType = planQuery.data?.plan?.plan?.planType
+  const isFreePlan = planType === PlanType.FREE
+
+  // Resolve trialing plan name
+  const trialingPlanName = planTrialConfig?.trialingPlanId
+    ? plansQuery.data?.plans.find(p => p.id === planTrialConfig.trialingPlanId)?.name
+    : undefined
 
   useEffect(() => {
     if (planQuery.data?.plan?.version?.currency) {
@@ -1000,6 +1020,52 @@ export const CreateQuote = () => {
                       />
                     </div>
                   </div>
+
+                  {/* Trial Configuration */}
+                  {planVersionId && (
+                    <div className="border-t pt-4">
+                      <h4 className="text-sm font-medium mb-4">Trial Configuration</h4>
+                      {planTrialConfig?.durationDays ? (
+                        <div className="space-y-4">
+                          <Alert variant="default" className="text-sm">
+                            <div className="space-y-1">
+                              <p>
+                                Plan default:{' '}
+                                <span className="font-medium">{planTrialConfig.durationDays} days</span>
+                                {trialingPlanName && (
+                                  <>
+                                    {' '}
+                                    with <span className="font-medium">&quot;{trialingPlanName}&quot;</span>{' '}
+                                    features
+                                  </>
+                                )}
+                              </p>
+                              <p className="text-muted-foreground text-xs">
+                                {isFreePlan
+                                  ? 'Free plan - no payment required.'
+                                  : planTrialConfig.trialIsFree
+                                    ? 'Free trial - payment method collected at checkout, billing starts after trial.'
+                                    : 'Paid trial - billing starts immediately.'}
+                              </p>
+                            </div>
+                          </Alert>
+                          <InputFormField
+                            name="trial_duration"
+                            label="Trial Duration (days)"
+                            type="number"
+                            placeholder={String(planTrialConfig.durationDays)}
+                            control={methods.control}
+                            description="Leave empty to use plan default, or set to 0 to skip trial"
+                            layout="vertical"
+                          />
+                        </div>
+                      ) : (
+                        <p className="text-sm text-muted-foreground">
+                          No trial configured on this plan.
+                        </p>
+                      )}
+                    </div>
+                  )}
 
                   <div className="border-t pt-4 grid grid-cols-1 lg:grid-cols-2 gap-6">
                     {/* Activation & Lifecycle */}

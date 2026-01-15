@@ -6,9 +6,10 @@ use crate::utils::periods::calculate_advance_period_range;
 use chrono::{Days, Duration, NaiveDate, NaiveDateTime, Utc};
 use diesel_async::scoped_futures::ScopedFutureExt;
 use diesel_models::enums::{
-    ActionAfterTrialEnum, CycleActionEnum, ScheduledEventTypeEnum, SubscriptionStatusEnum,
+    CycleActionEnum, PlanTypeEnum, ScheduledEventTypeEnum, SubscriptionActivationConditionEnum,
+    SubscriptionStatusEnum,
 };
-use diesel_models::plan_versions::PlanVersionRow;
+use diesel_models::plans::PlanRow;
 use diesel_models::scheduled_events::ScheduledEventRow;
 use diesel_models::subscriptions::{
     SubscriptionCycleErrorRowPatch, SubscriptionCycleRowPatch, SubscriptionRow,
@@ -123,7 +124,10 @@ impl Services {
                         CycleActionEnum::RenewSubscription => {
                             self.renew_subscription(subscription)?
                         }
-                        CycleActionEnum::EndTrial => self.end_trial(conn, subscription).await?,
+                        CycleActionEnum::EndTrial => {
+                            // Trial ends - determine next state based on plan type and payment method
+                            self.end_trial(conn, subscription).await?
+                        }
                         CycleActionEnum::EndSubscription => self.end_subscription(subscription)?,
                     };
 
@@ -173,6 +177,7 @@ impl Services {
                         current_period_start: Some(next_cycle.new_period_start),
                         current_period_end: Some(next_cycle.new_period_end),
                         cycle_index: subscription.cycle_index.map(|i| i + 1),
+                        pending_checkout: Some(next_cycle.pending_checkout),
                     };
 
                     patch.patch(conn).await?;
@@ -208,58 +213,102 @@ impl Services {
                 next_cycle_action: Some(CycleActionEnum::EndTrial),
                 new_period_start,
                 new_period_end: Some(new_period_end),
-                should_bill: true,
+                should_bill: false, // Don't bill during trial activation - billing handled by trial_is_free logic
+                pending_checkout: false,
             })
         } else {
             self.renew_subscription(subscription)
         }
     }
 
+    /// Handles the end of a trial period.
+    ///
+    /// Business logic:
+    /// - Free plan: → Active (no invoice ever)
+    /// - Paid plan + has payment method: → Active + invoice
+    /// - Paid plan + no payment method: → TrialExpired (awaiting checkout)
     async fn end_trial(
         &self,
         conn: &mut PgConn,
         subscription: &SubscriptionRow,
     ) -> StoreResult<NextCycle> {
-        let plan_version = PlanVersionRow::find_by_id_and_tenant_id(
-            conn,
-            subscription.plan_version_id,
-            subscription.tenant_id,
-        )
-        .await?;
+        // Fetch plan info to determine if it's a free or paid plan
+        let plan_with_version =
+            PlanRow::get_with_version(conn, subscription.plan_version_id, subscription.tenant_id)
+                .await?;
 
-        let new_period_start = subscription
-            .current_period_end // cannot be null in this context
-            .unwrap_or_else(|| Utc::now().naive_utc().date());
+        let plan = plan_with_version.plan;
+        let is_free_plan = plan.plan_type == PlanTypeEnum::Free;
 
-        let period = calculate_advance_period_range(
-            new_period_start,
-            subscription.billing_day_anchor as u32,
-            true,
-            &(subscription.period.clone().into()),
-        );
+        if is_free_plan {
+            // Free plan: transition to Active with no billing
+            let new_period_start = subscription
+                .current_period_end
+                .unwrap_or_else(|| Utc::now().naive_utc().date());
 
-        match plan_version.action_after_trial {
-            Some(ActionAfterTrialEnum::Charge) => {
-                // we need to bill then activate
-                Ok(NextCycle {
-                    status: SubscriptionStatusEnum::PendingCharge,
-                    next_cycle_action: Some(CycleActionEnum::RenewSubscription),
-                    new_period_start,
-                    new_period_end: Some(period.end),
-                    should_bill: true,
-                })
-            }
-            // even downgrade as it is to free plan (and it should be resolved via the plan_version.downgrade_plan_id)
-            // TODO check & validate that downgrade is always to free plan
-            None | Some(ActionAfterTrialEnum::Block | ActionAfterTrialEnum::Downgrade) => {
-                Ok(NextCycle {
+            let period = calculate_advance_period_range(
+                new_period_start,
+                subscription.billing_day_anchor as u32,
+                true, // Align to billing_day_anchor
+                &(subscription.period.clone().into()),
+            );
+
+            Ok(NextCycle {
+                status: SubscriptionStatusEnum::Active,
+                next_cycle_action: Some(CycleActionEnum::RenewSubscription),
+                new_period_start,
+                new_period_end: Some(period.end),
+                should_bill: false, // Free plan - never bill
+                pending_checkout: false,
+            })
+        } else {
+            // Paid plan: determine next action based on activation condition and payment setup
+            let is_on_checkout = subscription.activation_condition
+                == SubscriptionActivationConditionEnum::OnCheckout;
+            let has_payment_method = subscription.payment_method.is_some();
+            let can_auto_charge = subscription.charge_automatically && has_payment_method;
+
+            // OnCheckout without auto-charge: always require checkout before invoice
+            if is_on_checkout && !can_auto_charge {
+                let new_period_start = subscription
+                    .current_period_end
+                    .unwrap_or_else(|| Utc::now().naive_utc().date());
+
+                return Ok(NextCycle {
                     status: SubscriptionStatusEnum::TrialExpired,
                     next_cycle_action: None,
                     new_period_start,
-                    new_period_end: Some(period.end),
+                    new_period_end: None,
                     should_bill: false,
-                })
+                    pending_checkout: true,
+                });
             }
+
+            // Can auto-charge (has payment method + charge_automatically): proceed to Active
+            if can_auto_charge {
+                return self.renew_subscription(subscription);
+            }
+
+            // OnStart without payment method: create invoice for external payment
+            let new_period_start = subscription
+                .current_period_end
+                .unwrap_or_else(|| Utc::now().naive_utc().date());
+
+            let period = calculate_advance_period_range(
+                new_period_start,
+                subscription.billing_day_anchor as u32,
+                true, // Align to billing_day_anchor
+                &(subscription.period.clone().into()),
+            );
+
+            Ok(NextCycle {
+                status: SubscriptionStatusEnum::TrialExpired,
+                next_cycle_action: None,
+                new_period_start,
+                new_period_end: Some(period.end),
+                should_bill: true,
+                pending_checkout: false,
+            })
         }
     }
 
@@ -282,6 +331,7 @@ impl Services {
             new_period_start,
             new_period_end: Some(period.end),
             should_bill: true,
+            pending_checkout: false,
         })
     }
 
@@ -296,6 +346,7 @@ impl Services {
             new_period_start,
             new_period_end: None,
             should_bill: true,
+            pending_checkout: false,
         })
     }
 }
@@ -306,6 +357,7 @@ struct NextCycle {
     new_period_start: NaiveDate,
     new_period_end: Option<NaiveDate>,
     should_bill: bool,
+    pending_checkout: bool,
 }
 
 fn calculate_retry_time(error_count: i32) -> NaiveDateTime {
