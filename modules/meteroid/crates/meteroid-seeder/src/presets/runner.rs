@@ -214,6 +214,7 @@ pub async fn run_preset(
             auto_advance_invoices: true,
             charge_automatically: false,
             purchase_order: None,
+            backdate_invoices: true,
         };
 
         subscriptions_to_create.push(store_domain::CreateSubscription {

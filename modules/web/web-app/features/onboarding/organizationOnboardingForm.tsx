@@ -57,7 +57,7 @@ export const OrganizationOnboardingForm = () => {
           queryKey: createConnectQueryKey(getCurrentOrganizations),
         })
 
-        navigate('/' + res.organization.slug)
+        navigate('/' + res.organization.slug + '?just_onboarded=true')
       }
     },
   })

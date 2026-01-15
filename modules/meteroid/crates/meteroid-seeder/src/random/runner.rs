@@ -331,6 +331,7 @@ pub async fn run(
             auto_advance_invoices: true,
             charge_automatically: false,
             purchase_order: None,
+            backdate_invoices: true,
         };
 
         let create_subscription_components = if parameterized_components.is_empty() {

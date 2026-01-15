@@ -59,6 +59,7 @@ pub struct SubscriptionRow {
     pub charge_automatically: bool,
     pub purchase_order: Option<String>,
     pub quote_id: Option<QuoteId>,
+    pub backdate_invoices: bool,
 }
 
 #[derive(Insertable, Debug)]
@@ -98,6 +99,7 @@ pub struct SubscriptionRowNew {
     pub charge_automatically: bool,
     pub purchase_order: Option<String>,
     pub quote_id: Option<QuoteId>,
+    pub backdate_invoices: bool,
 }
 
 pub struct CancelSubscriptionParams {

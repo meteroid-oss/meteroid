@@ -154,6 +154,7 @@ pub fn rest_to_domain_create_request(
             purchase_order: sub.purchase_order,
             auto_advance_invoices: sub.auto_advance_invoices.unwrap_or(true),
             charge_automatically: sub.charge_automatically.unwrap_or(true),
+            backdate_invoices: false,
 
             // todo, allow configuring some/all below via rest
             payment_strategy: None,

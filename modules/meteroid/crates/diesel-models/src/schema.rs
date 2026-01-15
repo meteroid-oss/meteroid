@@ -935,6 +935,7 @@ diesel::table! {
         charge_automatically -> Bool,
         purchase_order -> Nullable<Text>,
         quote_id -> Nullable<Uuid>,
+        backdate_invoices -> Bool,
     }
 }
 
