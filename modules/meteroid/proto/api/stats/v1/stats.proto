@@ -83,16 +83,28 @@ message MrrChartResponse {
 }
 
 message MRRBreakdownRequest {
-  MRRBreakdownScope scope = 1;
+  common.v1.Date start_date = 1;
+  common.v1.Date end_date = 2;
 }
 
 message MRRBreakdownResponse {
   MRRBreakdown mmr_breakdown = 1;
 }
 
+message RevenueChartRequest {
+  common.v1.Date start_date = 1;
+  common.v1.Date end_date = 2;
+  repeated string plans_id = 3;
+}
+
+message RevenueChartResponse {
+  repeated RevenueChartSeries series = 1;
+}
+
 service StatsService {
   rpc GeneralStats(GeneralStatsRequest) returns (GeneralStatsResponse) {}
   rpc TotalMrrChart(MrrChartRequest) returns (MrrChartResponse);
+  rpc TotalRevenueChart(RevenueChartRequest) returns (RevenueChartResponse);
   rpc MrrBreakdown(MRRBreakdownRequest) returns (MRRBreakdownResponse);
   rpc MrrLog(MrrLogRequest) returns (MrrLogResponse);
   rpc SignupSparkline(SignupSparklineRequest) returns (SignupSparklineRequestResponse);

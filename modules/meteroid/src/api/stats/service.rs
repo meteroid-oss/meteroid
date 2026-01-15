@@ -1,15 +1,13 @@
 use chrono::Months;
 use tonic::{Request, Response, Status};
 
-use crate::{api::utils::parse_uuid, parse_uuid};
-
 use super::{StatsServiceComponents, mapping};
 use meteroid_grpc::meteroid::api::stats::v1 as grpc;
 use meteroid_grpc::meteroid::api::stats::v1::{
-    GeneralStatsRequest, GeneralStatsResponse, MrrBreakdownRequest, MrrBreakdownResponse,
-    MrrBreakdownScope, MrrChartRequest, MrrChartResponse, MrrChartSeries, MrrLogRequest,
-    MrrLogResponse, SignupSeries, SignupSparklineRequest, SignupSparklineRequestResponse,
-    TopRevenueByCustomerRequest, TopRevenueByCustomerResponse, TrialConversionMetaDataPoint,
+    GeneralStatsRequest, GeneralStatsResponse, MrrBreakdownRequest, MrrBreakdownResponse, MrrChartRequest, MrrChartResponse, MrrChartSeries, MrrLogRequest,
+    MrrLogResponse, RevenueChartRequest, RevenueChartResponse, RevenueChartSeries, SignupSeries,
+    SignupSparklineRequest, SignupSparklineRequestResponse, TopRevenueByCustomerRequest,
+    TopRevenueByCustomerResponse, TrialConversionMetaDataPoint,
     TrialConversionRateSparklineRequest, TrialConversionRateSparklineResponse,
     TrialConversionSeries, general_stats_response, signup_series,
     stats_service_server::StatsService,
@@ -21,9 +19,9 @@ use crate::api::shared;
 use crate::api::stats::mapping::trend_to_server;
 
 use common_grpc::middleware::server::auth::RequestExt;
-use uuid::Uuid;
 
 use meteroid_grpc::meteroid::api::stats::v1::mrr_chart_series;
+use meteroid_grpc::meteroid::api::stats::v1::revenue_chart_series;
 use meteroid_grpc::meteroid::api::stats::v1::trial_conversion_series;
 use meteroid_store::domain::stats::RevenueByCustomerRequest;
 
@@ -95,15 +93,15 @@ impl StatsService for StatsServiceComponents {
             .and_then(shared::mapping::date::chrono_from_proto)
             .unwrap_or(now);
 
-        let plans_id = if req.plans_id.is_empty() {
+        let plans_id: Option<Vec<common_domain::ids::PlanId>> = if req.plans_id.is_empty() {
             None
         } else {
-            let parsed: Vec<Uuid> = req
-                .plans_id
-                .into_iter()
-                .map(|plan_id| parse_uuid!(&plan_id))
-                .collect::<Result<Vec<Uuid>, Status>>()?;
-            Some(parsed)
+            Some(
+                req.plans_id
+                    .iter()
+                    .map(common_domain::ids::PlanId::from_proto)
+                    .collect::<Result<Vec<_>, _>>()?,
+            )
         };
 
         let mrr_chart = self
@@ -142,6 +140,67 @@ impl StatsService for StatsServiceComponents {
     }
 
     #[tracing::instrument(skip_all)]
+    async fn total_revenue_chart(
+        &self,
+        request: Request<RevenueChartRequest>,
+    ) -> Result<Response<RevenueChartResponse>, Status> {
+        let tenant_id = request.tenant()?;
+        let req = request.into_inner();
+
+        let now = chrono::Utc::now().naive_utc().date();
+        let start_date = req
+            .start_date
+            .and_then(shared::mapping::date::chrono_from_proto)
+            .unwrap_or(now.checked_sub_months(Months::new(12)).unwrap());
+
+        let end_date = req
+            .end_date
+            .and_then(shared::mapping::date::chrono_from_proto)
+            .unwrap_or(now);
+
+        let plans_id: Option<Vec<common_domain::ids::PlanId>> = if req.plans_id.is_empty() {
+            None
+        } else {
+            Some(
+                req.plans_id
+                    .iter()
+                    .map(common_domain::ids::PlanId::from_proto)
+                    .collect::<Result<Vec<_>, _>>()?,
+            )
+        };
+
+        let revenue_chart = self
+            .store
+            .total_revenue_chart(meteroid_store::domain::stats::RevenueChartRequest {
+                tenant_id,
+                start_date,
+                end_date,
+                plans_id,
+            })
+            .await
+            .map_err(|e| Status::internal(format!("Failed to fetch revenue chart: {e}")))?;
+
+        let series = revenue_chart
+            .series
+            .into_iter()
+            .map(|series| RevenueChartSeries {
+                name: series.name,
+                code: series.code,
+                data: series
+                    .data
+                    .into_iter()
+                    .map(|dp| revenue_chart_series::DataPoint {
+                        x: dp.x,
+                        revenue: dp.revenue,
+                    })
+                    .collect(),
+            })
+            .collect();
+
+        Ok(Response::new(RevenueChartResponse { series }))
+    }
+
+    #[tracing::instrument(skip_all)]
     async fn mrr_breakdown(
         &self,
         request: Request<MrrBreakdownRequest>,
@@ -149,15 +208,23 @@ impl StatsService for StatsServiceComponents {
         let tenant_id = request.tenant()?;
         let req = request.into_inner();
 
+        let now = chrono::Utc::now().naive_utc().date();
+        let start_date = req
+            .start_date
+            .and_then(shared::mapping::date::chrono_from_proto)
+            .unwrap_or(now.checked_sub_months(Months::new(1)).unwrap());
+
+        let end_date = req
+            .end_date
+            .and_then(shared::mapping::date::chrono_from_proto)
+            .unwrap_or(now);
+
         let mrr_breakdown = self
             .store
             .mrr_breakdown(meteroid_store::domain::stats::MRRBreakdownRequest {
                 tenant_id,
-                scope: mapping::mrr_breakdown_scope_from_server(
-                    MrrBreakdownScope::try_from(req.scope).map_err(|e| {
-                        Status::invalid_argument(format!("Failed to parse scope: {e}"))
-                    })?,
-                ),
+                start_date,
+                end_date,
             })
             .await
             .map_err(|e| Status::internal(format!("Failed to fetch mrr breakdown: {e}")))?;

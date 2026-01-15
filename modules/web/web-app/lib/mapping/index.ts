@@ -6,7 +6,7 @@ import { Date as DateMessage } from '@/rpc/common/v1/date_pb'
 export const mapDate = (date: Date): DateMessage => {
   return new DateMessage({
     year: date.getFullYear(),
-    month: date.getMonth(),
+    month: date.getMonth() + 1, // JavaScript months are 0-indexed, backend expects 1-indexed
     day: date.getDate(),
   })
 }

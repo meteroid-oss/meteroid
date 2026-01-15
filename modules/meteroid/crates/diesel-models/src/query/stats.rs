@@ -1,8 +1,8 @@
 use crate::stats::{
     ActiveSubscriptionsCountRow, CustomerTopRevenueRow, DailyNewSignups90DaysRow,
     LastMrrMovementsRow, MrrBreakdownRow, NewSignupsTrend90DaysRow, PendingInvoicesTotalRow,
-    RevenueTrendRow, SubscriptionTrialConversionRateRow, SubscriptionTrialToPaidConversionRow,
-    TotalMrrByPlanRow, TotalMrrChartRow, TotalMrrRow,
+    RevenueChartRow, RevenueTrendRow, SubscriptionTrialConversionRateRow,
+    SubscriptionTrialToPaidConversionRow, TotalMrrByPlanRow, TotalMrrChartRow, TotalMrrRow,
 };
 use crate::{DbResult, PgConn};
 use chrono::{NaiveDate, NaiveDateTime};
@@ -366,49 +366,98 @@ impl TotalMrrChartRow {
             FROM
                 historical_rates_from_usd
         ),
+        data_bounds AS (
+            SELECT COALESCE(MIN(date), $2::date) AS min_date
+            FROM bi_delta_mrr_daily
+            WHERE tenant_id = $3
+        ),
+        effective_start AS (
+            SELECT GREATEST($4::date, (SELECT min_date - INTERVAL '1 month' FROM data_bounds)::date) AS start_date
+        ),
         initial_mrr AS (
             SELECT
-                COALESCE(SUM(bd.net_mrr_cents_usd * cr.conversion_rate), 0)::BIGINT AS total_net_mrr_cents
+                COALESCE(FLOOR(SUM(bd.net_mrr_cents_usd * cr.conversion_rate)), 0)::BIGINT AS total_net_mrr_cents
             FROM
                 bi_delta_mrr_daily bd
                     JOIN
                 conversion_rates cr ON bd.historical_rate_id = cr.id
             WHERE
-                bd.date < $2
-              AND bd.tenant_id = $3
+                bd.date < (SELECT start_date FROM effective_start)
+              AND bd.tenant_id = $5
+        ),
+        date_series AS (
+            SELECT generate_series((SELECT start_date FROM effective_start), $6::date, '1 day'::interval)::date AS period
+        ),
+        daily_mrr AS (
+            SELECT
+                bi.date AS period,
+                FLOOR(SUM(bi.net_mrr_cents_usd) * MAX(cr.conversion_rate))::BIGINT AS net_new_mrr,
+                FLOOR(SUM(bi.new_business_cents_usd) * MAX(cr.conversion_rate))::BIGINT AS new_business_mrr,
+                SUM(bi.new_business_count)::INTEGER AS new_business_count,
+                FLOOR(SUM(bi.expansion_cents_usd) * MAX(cr.conversion_rate))::BIGINT AS expansion_mrr,
+                SUM(bi.expansion_count)::INTEGER AS expansion_count,
+                FLOOR(SUM(bi.contraction_cents_usd) * MAX(cr.conversion_rate))::BIGINT AS contraction_mrr,
+                SUM(bi.contraction_count)::INTEGER AS contraction_count,
+                FLOOR(SUM(bi.churn_cents_usd) * MAX(cr.conversion_rate))::BIGINT AS churn_mrr,
+                SUM(bi.churn_count)::INTEGER AS churn_count,
+                FLOOR(SUM(bi.reactivation_cents_usd) * MAX(cr.conversion_rate))::BIGINT AS reactivation_mrr,
+                SUM(bi.reactivation_count)::INTEGER AS reactivation_count
+            FROM
+                bi_delta_mrr_daily bi
+                    JOIN
+                conversion_rates cr ON bi.historical_rate_id = cr.id
+            WHERE
+                bi.date BETWEEN (SELECT start_date FROM effective_start) AND $7
+              AND bi.tenant_id = $8
+            GROUP BY bi.date
+        ),
+        filled_mrr AS (
+            SELECT
+                ds.period,
+                COALESCE(dm.net_new_mrr, 0) AS net_new_mrr,
+                COALESCE(dm.new_business_mrr, 0) AS new_business_mrr,
+                COALESCE(dm.new_business_count, 0) AS new_business_count,
+                COALESCE(dm.expansion_mrr, 0) AS expansion_mrr,
+                COALESCE(dm.expansion_count, 0) AS expansion_count,
+                COALESCE(dm.contraction_mrr, 0) AS contraction_mrr,
+                COALESCE(dm.contraction_count, 0) AS contraction_count,
+                COALESCE(dm.churn_mrr, 0) AS churn_mrr,
+                COALESCE(dm.churn_count, 0) AS churn_count,
+                COALESCE(dm.reactivation_mrr, 0) AS reactivation_mrr,
+                COALESCE(dm.reactivation_count, 0) AS reactivation_count
+            FROM
+                date_series ds
+                    LEFT JOIN daily_mrr dm ON ds.period = dm.period
         )
         SELECT
-            bi.date AS period,
-            (im.total_net_mrr_cents + COALESCE(SUM(bi.net_mrr_cents_usd) OVER (ORDER BY bi.date), 0) * cr.conversion_rate)::BIGINT AS total_net_mrr,
-            (bi.net_mrr_cents_usd * cr.conversion_rate)::BIGINT AS net_new_mrr,
-            (bi.new_business_cents_usd * cr.conversion_rate)::BIGINT AS new_business_mrr,
-            bi.new_business_count,
-            (bi.expansion_cents_usd * cr.conversion_rate)::BIGINT AS expansion_mrr,
-            bi.expansion_count,
-            (bi.contraction_cents_usd * cr.conversion_rate)::BIGINT AS contraction_mrr,
-            bi.contraction_count,
-            (bi.churn_cents_usd * cr.conversion_rate)::BIGINT AS churn_mrr,
-            bi.churn_count,
-            (bi.reactivation_cents_usd * cr.conversion_rate)::BIGINT AS reactivation_mrr,
-            bi.reactivation_count
+            fm.period,
+            (im.total_net_mrr_cents + COALESCE(SUM(fm.net_new_mrr) OVER (ORDER BY fm.period), 0))::BIGINT AS total_net_mrr,
+            fm.net_new_mrr,
+            fm.new_business_mrr,
+            fm.new_business_count::INTEGER,
+            fm.expansion_mrr,
+            fm.expansion_count::INTEGER,
+            fm.contraction_mrr,
+            fm.contraction_count::INTEGER,
+            fm.churn_mrr,
+            fm.churn_count::INTEGER,
+            fm.reactivation_mrr,
+            fm.reactivation_count::INTEGER
         FROM
-            bi_delta_mrr_daily bi
-                JOIN
-            conversion_rates cr ON bi.historical_rate_id = cr.id
+            filled_mrr fm
                 CROSS JOIN
             initial_mrr im
-        WHERE
-            bi.date BETWEEN $4 AND $5
-            AND bi.tenant_id = $6
-        ORDER BY period";
+        ORDER BY fm.period";
 
         let query = diesel::sql_query(raw_sql)
-            .bind::<sql_types::Uuid, _>(tenant_id)
-            .bind::<sql_types::Date, _>(start_date)
-            .bind::<sql_types::Uuid, _>(tenant_id)
-            .bind::<sql_types::Date, _>(start_date)
-            .bind::<sql_types::Date, _>(end_date)
-            .bind::<sql_types::Uuid, _>(tenant_id);
+            .bind::<sql_types::Uuid, _>(tenant_id)   // $1: conversion_rates
+            .bind::<sql_types::Date, _>(start_date)  // $2: data_bounds fallback
+            .bind::<sql_types::Uuid, _>(tenant_id)   // $3: data_bounds
+            .bind::<sql_types::Date, _>(start_date)  // $4: effective_start GREATEST
+            .bind::<sql_types::Uuid, _>(tenant_id)   // $5: initial_mrr
+            .bind::<sql_types::Date, _>(end_date)    // $6: date_series end
+            .bind::<sql_types::Date, _>(end_date)    // $7: daily_mrr end
+            .bind::<sql_types::Uuid, _>(tenant_id);  // $8: daily_mrr
 
         log::debug!("{}", debug_query::<diesel::pg::Pg, _>(&query));
 
@@ -440,9 +489,20 @@ impl TotalMrrByPlanRow {
             FROM
                 historical_rates_from_usd
         ),
+        selected_plans AS (
+            SELECT id, name FROM plan WHERE id = ANY($2)
+        ),
+        data_bounds AS (
+            SELECT COALESCE(MIN(date), $3::date) AS min_date
+            FROM bi_delta_mrr_daily
+            WHERE tenant_id = $4
+        ),
+        effective_start AS (
+            SELECT GREATEST($5::date, (SELECT min_date - INTERVAL '1 month' FROM data_bounds)::date) AS start_date
+        ),
         initial_mrr AS (
             SELECT
-                COALESCE(SUM(bi.net_mrr_cents_usd * cr.conversion_rate), 0)::BIGINT AS total_net_mrr_usd,
+                COALESCE(FLOOR(SUM(bi.net_mrr_cents_usd * cr.conversion_rate)), 0)::BIGINT AS total_net_mrr_usd,
                 pv.plan_id
             FROM
                 bi_delta_mrr_daily bi
@@ -451,48 +511,98 @@ impl TotalMrrByPlanRow {
                     JOIN
                 conversion_rates cr ON bi.historical_rate_id = cr.id
             WHERE
-                bi.date < $2
-                AND bi.tenant_id = $3
-                AND pv.plan_id = ANY ($4)
+                bi.date < (SELECT start_date FROM effective_start)
+                AND bi.tenant_id = $6
+                AND pv.plan_id = ANY ($7)
             GROUP BY
                 pv.plan_id
+        ),
+        date_series AS (
+            SELECT generate_series((SELECT start_date FROM effective_start), $8::date, '1 day'::interval)::date AS period
+        ),
+        date_plan_series AS (
+            SELECT ds.period, sp.id AS plan_id, sp.name AS plan_name
+            FROM date_series ds
+            CROSS JOIN selected_plans sp
+        ),
+        daily_mrr AS (
+            SELECT
+                bi.date AS period,
+                pv.plan_id,
+                FLOOR(SUM(bi.net_mrr_cents_usd) * MAX(cr.conversion_rate))::BIGINT AS net_new_mrr,
+                FLOOR(SUM(bi.new_business_cents_usd) * MAX(cr.conversion_rate))::BIGINT AS new_business_mrr,
+                SUM(bi.new_business_count)::INTEGER AS new_business_count,
+                FLOOR(SUM(bi.expansion_cents_usd) * MAX(cr.conversion_rate))::BIGINT AS expansion_mrr,
+                SUM(bi.expansion_count)::INTEGER AS expansion_count,
+                FLOOR(SUM(bi.contraction_cents_usd) * MAX(cr.conversion_rate))::BIGINT AS contraction_mrr,
+                SUM(bi.contraction_count)::INTEGER AS contraction_count,
+                FLOOR(SUM(bi.churn_cents_usd) * MAX(cr.conversion_rate))::BIGINT AS churn_mrr,
+                SUM(bi.churn_count)::INTEGER AS churn_count,
+                FLOOR(SUM(bi.reactivation_cents_usd) * MAX(cr.conversion_rate))::BIGINT AS reactivation_mrr,
+                SUM(bi.reactivation_count)::INTEGER AS reactivation_count
+            FROM
+                bi_delta_mrr_daily bi
+                    JOIN plan_version pv ON bi.plan_version_id = pv.id
+                    JOIN conversion_rates cr ON bi.historical_rate_id = cr.id
+            WHERE
+                bi.date BETWEEN (SELECT start_date FROM effective_start) AND $9
+              AND bi.tenant_id = $10
+              AND pv.plan_id = ANY($11)
+            GROUP BY bi.date, pv.plan_id
+        ),
+        filled_mrr AS (
+            SELECT
+                dps.period,
+                dps.plan_id,
+                dps.plan_name,
+                COALESCE(dm.net_new_mrr, 0) AS net_new_mrr,
+                COALESCE(dm.new_business_mrr, 0) AS new_business_mrr,
+                COALESCE(dm.new_business_count, 0) AS new_business_count,
+                COALESCE(dm.expansion_mrr, 0) AS expansion_mrr,
+                COALESCE(dm.expansion_count, 0) AS expansion_count,
+                COALESCE(dm.contraction_mrr, 0) AS contraction_mrr,
+                COALESCE(dm.contraction_count, 0) AS contraction_count,
+                COALESCE(dm.churn_mrr, 0) AS churn_mrr,
+                COALESCE(dm.churn_count, 0) AS churn_count,
+                COALESCE(dm.reactivation_mrr, 0) AS reactivation_mrr,
+                COALESCE(dm.reactivation_count, 0) AS reactivation_count
+            FROM
+                date_plan_series dps
+                    LEFT JOIN daily_mrr dm ON dps.period = dm.period AND dps.plan_id = dm.plan_id
         )
-        SELECT    bi.date,
-                  p.id AS plan_id,
-                  p.name AS plan_name,
-                  (im.total_net_mrr_usd + COALESCE(SUM(bi.net_mrr_cents_usd) OVER (PARTITION BY p.id ORDER BY bi.date), 0) * cr.conversion_rate)::BIGINT AS total_net_mrr,
-                  (bi.net_mrr_cents_usd * cr.conversion_rate)::BIGINT AS net_new_mrr,
-                  (bi.new_business_cents_usd * cr.conversion_rate)::BIGINT AS new_business_mrr,
-                  bi.new_business_count,
-                  (bi.expansion_cents_usd * cr.conversion_rate)::BIGINT AS expansion_mrr,
-                  bi.expansion_count,
-                  (bi.contraction_cents_usd * cr.conversion_rate)::BIGINT AS contraction_mrr,
-                  bi.contraction_count,
-                  (bi.churn_cents_usd * cr.conversion_rate)::BIGINT AS churn_mrr,
-                  bi.churn_count,
-                  (bi.reactivation_cents_usd * cr.conversion_rate)::BIGINT AS reactivation_mrr,
-                  bi.reactivation_count
-        FROM bi_delta_mrr_daily bi
-                 JOIN plan_version pv on bi.plan_version_id = pv.id
-                 JOIN plan p on pv.plan_id = p.id
-                 JOIN
-             conversion_rates cr ON bi.historical_rate_id = cr.id
-                 JOIN initial_mrr im on pv.plan_id = im.plan_id
-        WHERE bi.date BETWEEN $5 AND $6
-          AND bi.tenant_id = $7
-          AND p.id = ANY ($8)
-        ORDER BY date;
-        ";
+        SELECT
+            fm.period AS date,
+            fm.plan_id,
+            fm.plan_name,
+            (COALESCE(im.total_net_mrr_usd, 0) + COALESCE(SUM(fm.net_new_mrr) OVER (PARTITION BY fm.plan_id ORDER BY fm.period), 0))::BIGINT AS total_net_mrr,
+            fm.net_new_mrr,
+            fm.new_business_mrr,
+            fm.new_business_count::INTEGER,
+            fm.expansion_mrr,
+            fm.expansion_count::INTEGER,
+            fm.contraction_mrr,
+            fm.contraction_count::INTEGER,
+            fm.churn_mrr,
+            fm.churn_count::INTEGER,
+            fm.reactivation_mrr,
+            fm.reactivation_count::INTEGER
+        FROM
+            filled_mrr fm
+                LEFT JOIN initial_mrr im ON fm.plan_id = im.plan_id
+        ORDER BY fm.period, fm.plan_id";
 
         let query = diesel::sql_query(raw_sql)
-            .bind::<sql_types::Uuid, _>(tenant_id)
-            .bind::<sql_types::Date, _>(start_date)
-            .bind::<sql_types::Uuid, _>(tenant_id)
-            .bind::<sql_types::Array<sql_types::Uuid>, _>(plan_ids)
-            .bind::<sql_types::Date, _>(start_date)
-            .bind::<sql_types::Date, _>(end_date)
-            .bind::<sql_types::Uuid, _>(tenant_id)
-            .bind::<sql_types::Array<sql_types::Uuid>, _>(plan_ids);
+            .bind::<sql_types::Uuid, _>(tenant_id)        // $1: conversion_rates
+            .bind::<sql_types::Array<sql_types::Uuid>, _>(plan_ids) // $2: selected_plans
+            .bind::<sql_types::Date, _>(start_date)       // $3: data_bounds fallback
+            .bind::<sql_types::Uuid, _>(tenant_id)        // $4: data_bounds
+            .bind::<sql_types::Date, _>(start_date)       // $5: effective_start GREATEST
+            .bind::<sql_types::Uuid, _>(tenant_id)        // $6: initial_mrr
+            .bind::<sql_types::Array<sql_types::Uuid>, _>(plan_ids) // $7: initial_mrr plan filter
+            .bind::<sql_types::Date, _>(end_date)         // $8: date_series end
+            .bind::<sql_types::Date, _>(end_date)         // $9: daily_mrr end
+            .bind::<sql_types::Uuid, _>(tenant_id)        // $10: daily_mrr
+            .bind::<sql_types::Array<sql_types::Uuid>, _>(plan_ids); // $11: daily_mrr plan filter
 
         log::debug!("{}", debug_query::<diesel::pg::Pg, _>(&query));
 
@@ -606,5 +716,189 @@ impl LastMrrMovementsRow {
             .await
             .attach("Error while fetching last mrr movements")
             .into_db_result()
+    }
+}
+
+impl RevenueChartRow {
+    pub async fn list(
+        conn: &mut PgConn,
+        tenant_id: TenantId,
+        start_date: NaiveDate,
+        end_date: NaiveDate,
+        plan_ids: Option<&Vec<Uuid>>,
+    ) -> DbResult<Vec<RevenueChartRow>> {
+        // If plan_ids is provided and not empty, filter by plans
+        let has_plan_filter = plan_ids.map(|p| !p.is_empty()).unwrap_or(false);
+
+        if has_plan_filter {
+            let plan_ids = plan_ids.unwrap();
+            let raw_sql = r"
+            WITH conversion_rates AS (
+                SELECT
+                    id,
+                    (rates->>(SELECT reporting_currency FROM tenant WHERE id = $1))::NUMERIC AS conversion_rate
+                FROM
+                    historical_rates_from_usd
+            ),
+            data_bounds AS (
+                SELECT COALESCE(MIN(revenue_date), $2::date) AS min_date
+                FROM bi_revenue_daily
+                WHERE tenant_id = $3
+            ),
+            effective_start AS (
+                SELECT GREATEST($4::date, (SELECT min_date - INTERVAL '1 month' FROM data_bounds)::date) AS start_date
+            ),
+            initial_revenue AS (
+                SELECT
+                    COALESCE(ROUND(SUM(bi.net_revenue_cents_usd * cr.conversion_rate)), 0)::BIGINT AS total_revenue
+                FROM
+                    bi_revenue_daily bi
+                        JOIN conversion_rates cr ON bi.historical_rate_id = cr.id
+                        LEFT JOIN plan_version pv ON bi.plan_version_id = pv.id
+                WHERE
+                    bi.revenue_date < (SELECT start_date FROM effective_start)
+                  AND bi.tenant_id = $5
+                  AND (bi.plan_version_id IS NULL OR pv.plan_id = ANY($9))
+            ),
+            date_series AS (
+                SELECT generate_series((SELECT start_date FROM effective_start), $6::date, '1 day'::interval)::date AS period
+            ),
+            daily_revenue AS (
+                SELECT
+                    bi.revenue_date AS period,
+                    COALESCE(ROUND(SUM(bi.net_revenue_cents_usd * cr.conversion_rate)), 0)::BIGINT AS daily_revenue
+                FROM
+                    bi_revenue_daily bi
+                        JOIN conversion_rates cr ON bi.historical_rate_id = cr.id
+                        LEFT JOIN plan_version pv ON bi.plan_version_id = pv.id
+                WHERE
+                    bi.revenue_date BETWEEN (SELECT start_date FROM effective_start) AND $7
+                  AND bi.tenant_id = $8
+                  AND (bi.plan_version_id IS NULL OR pv.plan_id = ANY($10))
+                GROUP BY bi.revenue_date
+            ),
+            filled_revenue AS (
+                SELECT
+                    ds.period,
+                    COALESCE(dr.daily_revenue, 0) AS daily_revenue
+                FROM
+                    date_series ds
+                        LEFT JOIN daily_revenue dr ON ds.period = dr.period
+            )
+            SELECT
+                fr.period,
+                (ir.total_revenue + COALESCE(SUM(fr.daily_revenue) OVER (ORDER BY fr.period), 0))::BIGINT AS total_revenue
+            FROM
+                filled_revenue fr
+                    CROSS JOIN
+                initial_revenue ir
+            ORDER BY fr.period";
+
+            let query = diesel::sql_query(raw_sql)
+                .bind::<sql_types::Uuid, _>(tenant_id)   // $1: conversion_rates
+                .bind::<sql_types::Date, _>(start_date)  // $2: data_bounds fallback
+                .bind::<sql_types::Uuid, _>(tenant_id)   // $3: data_bounds
+                .bind::<sql_types::Date, _>(start_date)  // $4: effective_start GREATEST
+                .bind::<sql_types::Uuid, _>(tenant_id)   // $5: initial_revenue
+                .bind::<sql_types::Date, _>(end_date)    // $6: date_series end
+                .bind::<sql_types::Date, _>(end_date)    // $7: daily_revenue end
+                .bind::<sql_types::Uuid, _>(tenant_id)   // $8: daily_revenue
+                .bind::<sql_types::Array<sql_types::Uuid>, _>(plan_ids)  // $9: initial_revenue plan filter
+                .bind::<sql_types::Array<sql_types::Uuid>, _>(plan_ids); // $10: daily_revenue plan filter
+
+            log::debug!("{}", debug_query::<diesel::pg::Pg, _>(&query));
+
+            query
+                .get_results::<RevenueChartRow>(conn)
+                .await
+                .map_err(|e| {
+                    log::error!("Error while fetching revenue chart: {e:?}");
+                    e
+                })
+                .attach("Error while fetching revenue chart")
+                .into_db_result()
+        } else {
+            let raw_sql = r"
+            WITH conversion_rates AS (
+                SELECT
+                    id,
+                    (rates->>(SELECT reporting_currency FROM tenant WHERE id = $1))::NUMERIC AS conversion_rate
+                FROM
+                    historical_rates_from_usd
+            ),
+            data_bounds AS (
+                SELECT COALESCE(MIN(revenue_date), $2::date) AS min_date
+                FROM bi_revenue_daily
+                WHERE tenant_id = $3
+            ),
+            effective_start AS (
+                SELECT GREATEST($4::date, (SELECT min_date - INTERVAL '1 month' FROM data_bounds)::date) AS start_date
+            ),
+            initial_revenue AS (
+                SELECT
+                    COALESCE(ROUND(SUM(bi.net_revenue_cents_usd * cr.conversion_rate)), 0)::BIGINT AS total_revenue
+                FROM
+                    bi_revenue_daily bi
+                        JOIN
+                    conversion_rates cr ON bi.historical_rate_id = cr.id
+                WHERE
+                    bi.revenue_date < (SELECT start_date FROM effective_start)
+                  AND bi.tenant_id = $5
+            ),
+            date_series AS (
+                SELECT generate_series((SELECT start_date FROM effective_start), $6::date, '1 day'::interval)::date AS period
+            ),
+            daily_revenue AS (
+                SELECT
+                    bi.revenue_date AS period,
+                    COALESCE(ROUND(SUM(bi.net_revenue_cents_usd * cr.conversion_rate)), 0)::BIGINT AS daily_revenue
+                FROM
+                    bi_revenue_daily bi
+                        JOIN
+                    conversion_rates cr ON bi.historical_rate_id = cr.id
+                WHERE
+                    bi.revenue_date BETWEEN (SELECT start_date FROM effective_start) AND $7
+                  AND bi.tenant_id = $8
+                GROUP BY bi.revenue_date
+            ),
+            filled_revenue AS (
+                SELECT
+                    ds.period,
+                    COALESCE(dr.daily_revenue, 0) AS daily_revenue
+                FROM
+                    date_series ds
+                        LEFT JOIN daily_revenue dr ON ds.period = dr.period
+            )
+            SELECT
+                fr.period,
+                (ir.total_revenue + COALESCE(SUM(fr.daily_revenue) OVER (ORDER BY fr.period), 0))::BIGINT AS total_revenue
+            FROM
+                filled_revenue fr
+                    CROSS JOIN
+                initial_revenue ir
+            ORDER BY fr.period";
+
+            let query = diesel::sql_query(raw_sql)
+                .bind::<sql_types::Uuid, _>(tenant_id)   // $1: conversion_rates
+                .bind::<sql_types::Date, _>(start_date)  // $2: data_bounds fallback
+                .bind::<sql_types::Uuid, _>(tenant_id)   // $3: data_bounds
+                .bind::<sql_types::Date, _>(start_date)  // $4: effective_start GREATEST
+                .bind::<sql_types::Uuid, _>(tenant_id)   // $5: initial_revenue
+                .bind::<sql_types::Date, _>(end_date)    // $6: date_series end
+                .bind::<sql_types::Date, _>(end_date)    // $7: daily_revenue end
+                .bind::<sql_types::Uuid, _>(tenant_id);  // $8: daily_revenue
+
+            log::debug!("{}", debug_query::<diesel::pg::Pg, _>(&query));
+
+            query
+                .get_results::<RevenueChartRow>(conn)
+                .await
+                .map_err(|e| {
+                    log::error!("Error while fetching revenue chart: {e:?}");
+                    e
+                })
+                .attach("Error while fetching revenue chart")
+                .into_db_result()
+        }
     }
 }

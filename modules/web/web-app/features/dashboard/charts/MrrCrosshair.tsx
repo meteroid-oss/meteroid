@@ -15,7 +15,7 @@ interface MrrCrosshairProps {
 }
 
 interface TooltipProps {
-  format: 'currency' | 'percent'
+  format: 'currency' | 'percent' | 'number'
   labels: Record<string, string>
   render?: (data: Datum) => React.ReactNode
 }
@@ -74,6 +74,7 @@ export const MrrCrosshair: React.FC<MrrCrosshairProps> = ({
                   {tooltip.format === 'currency' &&
                     formatAmount((serie?.data[0].data.y as number) / 100)}{' '}
                   {tooltip.format === 'percent' && (serie?.data[0].data.y as number)}
+                  {tooltip.format === 'number' && (serie?.data[0].data.y as number)}
                 </span>
               </div>
               {tooltip.render && tooltip.render(serie.data[0].data)}

@@ -125,3 +125,14 @@ message MrrLogEntry {
   common.v1.Date applies_to = 8;
 
 }
+
+message RevenueChartSeries {
+  string name = 1;
+  string code = 2;
+  repeated DataPoint data = 3;
+
+  message DataPoint {
+    string x = 1;
+    int64 revenue = 2;
+  }
+}

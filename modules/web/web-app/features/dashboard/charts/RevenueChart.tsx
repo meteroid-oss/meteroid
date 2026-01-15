@@ -4,7 +4,6 @@ import { ComputedSerie, LineSvgProps, ResponsiveLine } from '@nivo/line'
 import { ChevronDownIcon } from '@radix-ui/react-icons'
 import { useMemo, useRef, useState } from 'react'
 
-import { MrrColorCircle, MrrColorCircleColors } from '@/features/dashboard/cards/MrrBreakdownCard'
 import { ChartNoData } from '@/features/dashboard/charts/ChartNoData'
 import { MrrCrosshair } from '@/features/dashboard/charts/MrrCrosshair'
 import { ChartType } from '@/features/dashboard/charts/types'
@@ -12,24 +11,21 @@ import { ActiveSerieLayer } from '@/features/dashboard/charts/utils'
 import { useCurrency } from '@/hooks/useCurrency'
 import { useQuery } from '@/lib/connectrpc'
 import { mapDate } from '@/lib/mapping'
-import { MRRBreakdown } from '@/rpc/api/stats/v1/models_pb'
-import { totalMrrChart } from '@/rpc/api/stats/v1/stats-StatsService_connectquery'
+import { totalRevenueChart } from '@/rpc/api/stats/v1/stats-StatsService_connectquery'
 import { useTheme } from 'providers/ThemeProvider'
 
-interface MrrChartProps {
-  plansId: string[]
+interface RevenueChartProps {
   from: Date
   to: Date
+  plansId: string[]
   chartType?: ChartType
   onChartTypeChange?: (type: ChartType) => void
 }
 
 const commonChartProps: LineSvgProps = {
   data: [],
-  lineWidth: 1,
+  lineWidth: 2,
   animate: false,
-  axisLeft: null,
-  axisBottom: null,
   enableCrosshair: false,
   enableGridX: false,
   enableGridY: false,
@@ -38,13 +34,19 @@ const commonChartProps: LineSvgProps = {
   colors: { datum: 'color' },
 }
 
-export const MrrChart = ({ plansId, from, to, chartType, onChartTypeChange }: MrrChartProps) => {
+export const RevenueChart = ({
+  from,
+  to,
+  plansId,
+  chartType,
+  onChartTypeChange,
+}: RevenueChartProps) => {
   const theme = useTheme()
 
-  const chartData = useQuery(totalMrrChart, {
-    plansId: plansId,
+  const chartData = useQuery(totalRevenueChart, {
     startDate: mapDate(from),
     endDate: mapDate(to),
+    plansId: plansId,
   })
   const { formatAmount } = useCurrency()
 
@@ -53,90 +55,10 @@ export const MrrChart = ({ plansId, from, to, chartType, onChartTypeChange }: Mr
       id: s.code,
       data: s.data.map(d => ({
         x: d.x,
-        y: Number(d.data?.totalNetMrr ?? 0),
+        y: Number(d.revenue ?? 0),
         key: d.x,
-        breakdown: d.data,
       })),
     })) ?? []
-
-  // Build labels map from series data (code -> name)
-  const seriesLabels = useMemo(() => {
-    const labels: Record<string, string> = {}
-    chartData.data?.series.forEach(s => {
-      labels[s.code] = s.name
-    })
-    return labels
-  }, [chartData.data?.series])
-
-  const Item = ({
-    label,
-    value,
-    circle,
-    count,
-  }: {
-    label: string
-    value: string
-    count?: bigint
-    circle?: MrrColorCircleColors
-  }) => (
-    <div className="flex justify-between items-center space-x-2" key={label}>
-      <span className="flex justify-between items-center space-x-0">
-        {circle && <MrrColorCircle type={circle} />}
-        <span className="semibold pr-2">{label}</span>
-      </span>
-      <span>{value}</span>
-      {count ? <span className="font-medium">({Number(count)})</span> : null}
-    </div>
-  )
-
-  const renderTooltipAdditionalData = (data: { breakdown: MRRBreakdown }) => {
-    return (
-      <div className="flex flex-col gap-2 text-muted-foreground text-xs border-t border-border pt-3">
-        <Item label="Net New MRR" value={formatAmount(data.breakdown.netNewMrr)} />
-
-        {!!data.breakdown.newBusiness?.count && (
-          <Item
-            circle="new"
-            label="New Business"
-            value={formatAmount(data.breakdown.newBusiness.value)}
-            count={data.breakdown.newBusiness.count}
-          />
-        )}
-        {!!data.breakdown.expansion?.count && (
-          <Item
-            circle="expansion"
-            label="Expansions"
-            value={formatAmount(data.breakdown.expansion.value)}
-            count={data.breakdown.expansion.count}
-          />
-        )}
-        {!!data.breakdown.contraction?.count && (
-          <Item
-            circle="contraction"
-            label="Contractions"
-            value={formatAmount(data.breakdown.contraction.value)}
-            count={data.breakdown.contraction.count}
-          />
-        )}
-        {!!data.breakdown.churn?.count && (
-          <Item
-            circle="churn"
-            label="Churn"
-            value={formatAmount(data.breakdown.churn.value)}
-            count={data.breakdown.churn.count}
-          />
-        )}
-        {!!data.breakdown.reactivation?.count && (
-          <Item
-            circle="reactivation"
-            label="Reactivations"
-            value={formatAmount(data.breakdown.reactivation.value)}
-            count={data.breakdown.reactivation.count}
-          />
-        )}
-      </div>
-    )
-  }
 
   const { min, max }: { min: number; max: number } = useMemo(() => {
     const numbers = data
@@ -152,9 +74,11 @@ export const MrrChart = ({ plansId, from, to, chartType, onChartTypeChange }: Mr
     const maxVal = Math.max(...numbers)
     const minVal = Math.min(...numbers)
 
+    // Add some padding to the range
+    const padding = (maxVal - minVal) * 0.1
     return {
-      min: minVal,
-      max: maxVal,
+      min: Math.max(0, minVal - padding),
+      max: maxVal + padding,
     }
   }, [data])
 
@@ -164,7 +88,7 @@ export const MrrChart = ({ plansId, from, to, chartType, onChartTypeChange }: Mr
 
   const containerRef = useRef<HTMLDivElement>(null)
 
-  // Get the last data point's total MRR for display
+  // Get the last data point's total revenue for display
   const lastDataPoint = data[0]?.data[data[0]?.data.length - 1]
   const firstDataPoint = data[0]?.data[0]
   const currentTotal = lastDataPoint?.y ?? 0
@@ -198,7 +122,7 @@ export const MrrChart = ({ plansId, from, to, chartType, onChartTypeChange }: Mr
               </DropdownMenuContent>
             </DropdownMenu>
           ) : (
-            <div className="text-sm font-semibold text-muted-foreground">MRR</div>
+            <div className="text-sm font-semibold text-muted-foreground">Revenue</div>
           )}
           <div>
             <span className="text-2xl font-semibold leading-6">
@@ -222,13 +146,9 @@ export const MrrChart = ({ plansId, from, to, chartType, onChartTypeChange }: Mr
           containerRef={containerRef}
           tooltip={{
             format: 'currency',
-            labels: seriesLabels,
-            render: d =>
-              renderTooltipAdditionalData(
-                d as {
-                  breakdown: MRRBreakdown
-                }
-              ),
+            labels: {
+              total_revenue: 'Total Revenue',
+            },
           }}
         />
         {isEmpty ? (
@@ -236,7 +156,6 @@ export const MrrChart = ({ plansId, from, to, chartType, onChartTypeChange }: Mr
         ) : (
           <ResponsiveLine
             {...commonChartProps}
-            lineWidth={2}
             areaOpacity={0.15}
             enableArea={true}
             defs={[

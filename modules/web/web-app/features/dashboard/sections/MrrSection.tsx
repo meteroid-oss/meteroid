@@ -1,4 +1,3 @@
-import { disableQuery } from '@connectrpc/connect-query'
 import {
   Card,
   Select,
@@ -8,97 +7,80 @@ import {
   SelectValue,
   Separator,
 } from '@md/ui'
-import { subYears } from 'date-fns'
 import * as React from 'react'
-import { useMemo } from 'react'
-import { DateRange } from 'react-day-picker'
+import { useMemo, useState } from 'react'
 
-import { DatePickerWithRange } from '@/features/dashboard/DateRangePicker'
+import {
+  DatePresetSelect,
+  DateRangePreset,
+  getDateRangeFromPreset,
+} from '@/features/dashboard/DatePresetSelect'
 import { MrrBreakdownCard } from '@/features/dashboard/cards/MrrBreakdownCard'
 import { MrrLogsCard } from '@/features/dashboard/cards/MrrLogsCard'
 import { MrrChart } from '@/features/dashboard/charts/MrrChart'
+import { RevenueChart } from '@/features/dashboard/charts/RevenueChart'
+import { ChartType } from '@/features/dashboard/charts/types'
 import { useQuery } from '@/lib/connectrpc'
 import { listPlans } from '@/rpc/api/plans/v1/plans-PlansService_connectquery'
 import { ListPlansRequest_SortBy } from '@/rpc/api/plans/v1/plans_pb'
-import { listProductFamilies } from '@/rpc/api/productfamilies/v1/productfamilies-ProductFamiliesService_connectquery'
 
-const ALL = '_all'
+const ALL_PLANS = '_all'
 
 export const MrrSection = () => {
-  const defaultRange = useMemo(
-    () => ({
-      from: subYears(new Date(), 1),
-      to: new Date(),
-    }),
-    []
-  )
-  const [range, setRange] = React.useState<DateRange | undefined>(defaultRange)
+  const [datePreset, setDatePreset] = useState<DateRangePreset>('last30days')
+  const range = useMemo(() => getDateRangeFromPreset(datePreset), [datePreset])
+  const [chartType, setChartType] = useState<ChartType>('revenue')
 
-  const [productFamily, setProductFamily] = React.useState<string>()
+  const [plan, setPlan] = React.useState<string>(ALL_PLANS)
 
-  // TODO multiselect https://github.com/mxkaske/mxkaske.dev/blob/main/components/craft/fancy-box.tsx
-  const [plan, setPlan] = React.useState<string>()
+  const plans = useQuery(listPlans, {
+    sortBy: ListPlansRequest_SortBy.NAME_ASC,
+  })
 
-  const productFamilies = useQuery(listProductFamilies)
-
-  const plans = useQuery(
-    listPlans,
-    productFamily
-      ? {
-          sortBy: ListPlansRequest_SortBy.NAME_ASC,
-          productFamilyLocalId: productFamily,
-        }
-      : disableQuery
-  )
-
-  React.useEffect(() => {
-    if (productFamilies.data?.productFamilies[0]?.localId && productFamily !== ALL) {
-      setProductFamily(productFamilies.data.productFamilies[0].localId)
-    }
-  }, [productFamilies.data?.productFamilies, productFamily])
+  const selectedPlanIds = plan === ALL_PLANS ? [] : [plan]
 
   return (
     <>
       <div className="pt-2 pb-2">
         <div className="flex justify-between items-center flex-wrap gap-2">
-          <h3 className=" text-lg text-muted-foreground font-medium">Your overview</h3>
-          <div className="flex flex-row   gap-1">
-            <DatePickerWithRange range={range} setRange={setRange} />
-
-            <Select onValueChange={setProductFamily} value={productFamily}>
-              <SelectTrigger className="md:w-[180px]">
-                <SelectValue placeholder="All product lines" />
-              </SelectTrigger>
-              <SelectContent>
-                {productFamilies.data?.productFamilies.map(pf => (
-                  <SelectItem key={pf.localId} value={pf.localId}>
-                    {pf.name}
-                  </SelectItem>
-                ))}
-              </SelectContent>
-            </Select>
-
+          <h3 className="text-lg text-muted-foreground font-medium">Overview</h3>
+          <div className="flex flex-row gap-1">
             <Select onValueChange={setPlan} value={plan}>
               <SelectTrigger className="md:w-[180px]">
                 <SelectValue placeholder="All plans" />
               </SelectTrigger>
               <SelectContent>
+                <SelectItem value={ALL_PLANS}>All plans</SelectItem>
                 {plans.data?.plans.map(p => (
-                  <SelectItem key={p.localId} value={p.localId}>
+                  <SelectItem key={p.id} value={p.id}>
                     {p.name}
                   </SelectItem>
                 ))}
               </SelectContent>
             </Select>
+
+            <DatePresetSelect value={datePreset} onChange={setDatePreset} />
           </div>
         </div>
       </div>
       <Card className="p-6">
-        <MrrChart
-          from={range?.from ?? defaultRange.from}
-          to={range?.to ?? defaultRange.to}
-          plansId={plan ? [plan] : []}
-        />
+        {chartType === 'revenue' ? (
+          <RevenueChart
+            from={range.from}
+            to={range.to}
+            plansId={selectedPlanIds}
+            chartType={chartType}
+            onChartTypeChange={setChartType}
+          />
+        ) : (
+          <MrrChart
+            from={range.from}
+            to={range.to}
+            plansId={selectedPlanIds}
+            chartType={chartType}
+            onChartTypeChange={setChartType}
+          />
+        )}
         <Separator className="m-2" />
         <div className="w-full flex flex-row h-[180px] relative">
           <MrrBreakdownCard />
