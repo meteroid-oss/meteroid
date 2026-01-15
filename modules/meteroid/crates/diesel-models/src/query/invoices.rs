@@ -23,7 +23,7 @@ use diesel::{
     BelongingToDsl, BoolExpressionMethods, JoinOnDsl, NullableExpressionMethods,
     PgTextExpressionMethods, SelectableHelper, debug_query,
 };
-use diesel::{ExpressionMethods, QueryDsl};
+use diesel::{ExpressionMethods, OptionalExtension, QueryDsl};
 use error_stack::ResultExt;
 
 impl InvoiceRowNew {
@@ -644,6 +644,32 @@ impl InvoiceRow {
             .await
             .map(|_| ())
             .attach("Error while marking invoice as uncollectible")
+            .into_db_result()
+    }
+
+    pub async fn find_last_by_subscription_id(
+        conn: &mut PgConn,
+        param_tenant_id: TenantId,
+        param_subscription_id: SubscriptionId,
+    ) -> DbResult<Option<InvoiceRow>> {
+        use crate::schema::invoice::dsl as i_dsl;
+        use diesel_async::RunQueryDsl;
+
+        let query = i_dsl::invoice
+            .filter(i_dsl::tenant_id.eq(param_tenant_id))
+            .filter(i_dsl::subscription_id.eq(param_subscription_id))
+            .filter(i_dsl::status.eq(InvoiceStatusEnum::Finalized))
+            .order(i_dsl::invoice_date.desc())
+            .limit(1)
+            .select(InvoiceRow::as_select());
+
+        log::debug!("{}", debug_query::<diesel::pg::Pg, _>(&query));
+
+        query
+            .first(conn)
+            .await
+            .optional()
+            .attach("Error while finding last invoice by subscription id")
             .into_db_result()
     }
 }
