@@ -370,7 +370,7 @@ async fn test_subscription_cancellation(services: &Services, store: &Store, conn
     assert!(subscription.next_cycle_action.is_none());
     assert_eq!(subscription.current_period_start, cancel_date);
     assert!(subscription.current_period_end.is_none());
-    assert_eq!(subscription.mrr_cents, expected_total);
+    assert_eq!(subscription.mrr_cents, 0);
 
     let invoices = get_invoices(store, subscription_id).await;
     assert_eq!(invoices.len(), 2);
@@ -460,7 +460,7 @@ async fn test_subscription_cancellation_race_condition(
     assert!(subscription.next_cycle_action.is_none());
     assert_eq!(subscription.current_period_start, cancel_date);
     assert!(subscription.current_period_end.is_none());
-    assert_eq!(subscription.mrr_cents, expected_total);
+    assert_eq!(subscription.mrr_cents, 0);
 }
 
 // Helper functions
