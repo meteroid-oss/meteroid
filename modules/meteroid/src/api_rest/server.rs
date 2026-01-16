@@ -48,9 +48,15 @@ pub async fn start_rest_server(
         .merge(api_routes())
         .split_for_parts();
 
+    let openapi_json = open_api.clone();
+
     let app = Router::new()
         .route("/health", get(|| async { "OK" }))
         .route("/id/{id}", get(resolve_id))
+        .route(
+            "/api-docs/openapi.json",
+            get(move || async move { Json(openapi_json.clone()) }),
+        )
         .merge(Scalar::with_url("/scalar", open_api.clone()))
         //todo add "/api" to path and merge with api_routes
         .nest("/files", crate::api_rest::files::file_routes())
