@@ -18,14 +18,13 @@
   "editable": true,
   "fiscalYearStartMonth": 0,
   "graphTooltip": 0,
-  "id": 6,
+  "id": 0,
   "links": [],
-  "liveNow": false,
   "panels": [
     {
       "datasource": {
         "type": "prometheus",
-        "uid": "webstore-metrics"
+        "uid": "grafanacloud-prom"
       },
       "fieldConfig": {
         "defaults": {
@@ -39,6 +38,7 @@
             "axisLabel": "",
             "axisPlacement": "auto",
             "barAlignment": 0,
+            "barWidthFactor": 0.6,
             "drawStyle": "line",
             "fillOpacity": 0,
             "gradientMode": "none",
@@ -55,6 +55,7 @@
               "type": "linear"
             },
             "showPoints": "auto",
+            "showValues": false,
             "spanNulls": false,
             "stacking": {
               "group": "A",
@@ -70,7 +71,7 @@
             "steps": [
               {
                 "color": "green",
-                "value": null
+                "value": 0
               },
               {
                 "color": "red",
@@ -78,7 +79,7 @@
               }
             ]
           },
-          "unit": "reqps"
+          "unit": "ms"
         },
         "overrides": []
       },
@@ -88,7 +89,7 @@
         "x": 0,
         "y": 0
       },
-      "id": 3,
+      "id": 2,
       "options": {
         "legend": {
           "calcs": [],
@@ -97,19 +98,21 @@
           "showLegend": true
         },
         "tooltip": {
+          "hideZeros": false,
           "mode": "single",
           "sort": "none"
         }
       },
+      "pluginVersion": "12.4.0-20781422371.patch2",
       "targets": [
         {
           "datasource": {
             "type": "prometheus",
-            "uid": "webstore-metrics"
+            "uid": "grafanacloud-prom"
           },
           "disableTextWrap": false,
           "editorMode": "builder",
-          "expr": "sum by(grpc_service, grpc_method) (rate(grpc_call_counter_total{grpc_kind=\"client\", grpc_service=~\"$grpc_service\"}[$__rate_interval]))",
+          "expr": "histogram_quantile(0.95, sum by(le, grpc_service, grpc_method) (rate(grpc_call_latency_bucket{grpc_kind=\"server\", grpc_service=~\"$grpc_service\"}[$__rate_interval])))",
           "fullMetaSearch": false,
           "includeNullMetadata": false,
           "instant": false,
@@ -119,13 +122,13 @@
           "useBackend": false
         }
       ],
-      "title": "Client throughput",
+      "title": "Server latency",
       "type": "timeseries"
     },
     {
       "datasource": {
         "type": "prometheus",
-        "uid": "webstore-metrics"
+        "uid": "grafanacloud-prom"
       },
       "fieldConfig": {
         "defaults": {
@@ -139,6 +142,7 @@
             "axisLabel": "",
             "axisPlacement": "auto",
             "barAlignment": 0,
+            "barWidthFactor": 0.6,
             "drawStyle": "line",
             "fillOpacity": 0,
             "gradientMode": "none",
@@ -155,6 +159,7 @@
               "type": "linear"
             },
             "showPoints": "auto",
+            "showValues": false,
             "spanNulls": false,
             "stacking": {
               "group": "A",
@@ -170,7 +175,7 @@
             "steps": [
               {
                 "color": "green",
-                "value": null
+                "value": 0
               },
               {
                 "color": "red",
@@ -188,7 +193,7 @@
         "x": 8,
         "y": 0
       },
-      "id": 5,
+      "id": 4,
       "options": {
         "legend": {
           "calcs": [],
@@ -197,35 +202,38 @@
           "showLegend": true
         },
         "tooltip": {
+          "hideZeros": false,
           "mode": "single",
           "sort": "none"
         }
       },
+      "pluginVersion": "12.4.0-20781422371.patch2",
       "targets": [
         {
           "datasource": {
             "type": "prometheus",
-            "uid": "webstore-metrics"
+            "uid": "grafanacloud-prom"
           },
           "disableTextWrap": false,
           "editorMode": "builder",
-          "expr": "sum by(grpc_status, grpc_service) (rate(grpc_call_counter_total{grpc_kind=\"client\", grpc_service=~\"$grpc_service\"}[$__rate_interval]))",
+          "exemplar": false,
+          "expr": "sum by(grpc_method, grpc_service) (rate(grpc_call_counter_total{grpc_kind=\"server\", grpc_service=~\"$grpc_service\"}[$__rate_interval]))",
           "fullMetaSearch": false,
           "includeNullMetadata": false,
           "instant": false,
-          "legendFormat": "{{grpc_service}}:{{grpc_status}}",
+          "legendFormat": "{{grpc_service}}#{{grpc_method}}",
           "range": true,
           "refId": "A",
           "useBackend": false
         }
       ],
-      "title": "Client throughput by status",
+      "title": "Server throughput",
       "type": "timeseries"
     },
     {
       "datasource": {
         "type": "prometheus",
-        "uid": "webstore-metrics"
+        "uid": "grafanacloud-prom"
       },
       "fieldConfig": {
         "defaults": {
@@ -239,6 +247,7 @@
             "axisLabel": "",
             "axisPlacement": "auto",
             "barAlignment": 0,
+            "barWidthFactor": 0.6,
             "drawStyle": "line",
             "fillOpacity": 0,
             "gradientMode": "none",
@@ -255,6 +264,7 @@
               "type": "linear"
             },
             "showPoints": "auto",
+            "showValues": false,
             "spanNulls": false,
             "stacking": {
               "group": "A",
@@ -270,7 +280,111 @@
             "steps": [
               {
                 "color": "green",
-                "value": null
+                "value": 0
+              },
+              {
+                "color": "red",
+                "value": 80
+              }
+            ]
+          },
+          "unit": "reqps"
+        },
+        "overrides": []
+      },
+      "gridPos": {
+        "h": 8,
+        "w": 8,
+        "x": 16,
+        "y": 0
+      },
+      "id": 6,
+      "options": {
+        "legend": {
+          "calcs": [],
+          "displayMode": "table",
+          "placement": "bottom",
+          "showLegend": true
+        },
+        "tooltip": {
+          "hideZeros": false,
+          "mode": "single",
+          "sort": "none"
+        }
+      },
+      "pluginVersion": "12.4.0-20781422371.patch2",
+      "targets": [
+        {
+          "datasource": {
+            "type": "prometheus",
+            "uid": "grafanacloud-prom"
+          },
+          "disableTextWrap": false,
+          "editorMode": "builder",
+          "expr": "sum by(grpc_status, grpc_service) (rate(grpc_call_counter_total{grpc_kind=\"server\", grpc_service=~\"$grpc_service\"}[$__rate_interval]))",
+          "fullMetaSearch": false,
+          "includeNullMetadata": false,
+          "instant": false,
+          "legendFormat": "{{grpc_service}}:{{grpc_status}}",
+          "range": true,
+          "refId": "A",
+          "useBackend": false
+        }
+      ],
+      "title": "Server throughput by status",
+      "type": "timeseries"
+    },
+    {
+      "datasource": {
+        "type": "prometheus",
+        "uid": "grafanacloud-prom"
+      },
+      "fieldConfig": {
+        "defaults": {
+          "color": {
+            "mode": "palette-classic"
+          },
+          "custom": {
+            "axisBorderShow": false,
+            "axisCenteredZero": false,
+            "axisColorMode": "text",
+            "axisLabel": "",
+            "axisPlacement": "auto",
+            "barAlignment": 0,
+            "barWidthFactor": 0.6,
+            "drawStyle": "line",
+            "fillOpacity": 0,
+            "gradientMode": "none",
+            "hideFrom": {
+              "legend": false,
+              "tooltip": false,
+              "viz": false
+            },
+            "insertNulls": false,
+            "lineInterpolation": "linear",
+            "lineWidth": 1,
+            "pointSize": 5,
+            "scaleDistribution": {
+              "type": "linear"
+            },
+            "showPoints": "auto",
+            "showValues": false,
+            "spanNulls": false,
+            "stacking": {
+              "group": "A",
+              "mode": "none"
+            },
+            "thresholdsStyle": {
+              "mode": "off"
+            }
+          },
+          "mappings": [],
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              {
+                "color": "green",
+                "value": 0
               },
               {
                 "color": "red",
@@ -299,7 +413,7 @@
                 "id": "custom.hideFrom",
                 "value": {
                   "legend": false,
-                  "tooltip": false,
+                  "tooltip": true,
                   "viz": true
                 }
               }
@@ -310,8 +424,8 @@
       "gridPos": {
         "h": 8,
         "w": 8,
-        "x": 16,
-        "y": 0
+        "x": 0,
+        "y": 8
       },
       "id": 1,
       "options": {
@@ -322,15 +436,17 @@
           "showLegend": true
         },
         "tooltip": {
+          "hideZeros": false,
           "mode": "single",
           "sort": "none"
         }
       },
+      "pluginVersion": "12.4.0-20781422371.patch2",
       "targets": [
         {
           "datasource": {
             "type": "prometheus",
-            "uid": "webstore-metrics"
+            "uid": "grafanacloud-prom"
           },
           "disableTextWrap": false,
           "editorMode": "builder",
@@ -350,7 +466,7 @@
     {
       "datasource": {
         "type": "prometheus",
-        "uid": "webstore-metrics"
+        "uid": "grafanacloud-prom"
       },
       "fieldConfig": {
         "defaults": {
@@ -364,6 +480,7 @@
             "axisLabel": "",
             "axisPlacement": "auto",
             "barAlignment": 0,
+            "barWidthFactor": 0.6,
             "drawStyle": "line",
             "fillOpacity": 0,
             "gradientMode": "none",
@@ -380,6 +497,7 @@
               "type": "linear"
             },
             "showPoints": "auto",
+            "showValues": false,
             "spanNulls": false,
             "stacking": {
               "group": "A",
@@ -395,108 +513,7 @@
             "steps": [
               {
                 "color": "green",
-                "value": null
-              },
-              {
-                "color": "red",
-                "value": 80
-              }
-            ]
-          },
-          "unit": "reqps"
-        },
-        "overrides": []
-      },
-      "gridPos": {
-        "h": 8,
-        "w": 8,
-        "x": 0,
-        "y": 8
-      },
-      "id": 4,
-      "options": {
-        "legend": {
-          "calcs": [],
-          "displayMode": "table",
-          "placement": "bottom",
-          "showLegend": true
-        },
-        "tooltip": {
-          "mode": "single",
-          "sort": "none"
-        }
-      },
-      "targets": [
-        {
-          "datasource": {
-            "type": "prometheus",
-            "uid": "webstore-metrics"
-          },
-          "disableTextWrap": false,
-          "editorMode": "builder",
-          "exemplar": false,
-          "expr": "sum by(grpc_method, grpc_service) (rate(grpc_call_counter_total{grpc_kind=\"server\", grpc_service=~\"$grpc_service\"}[$__rate_interval]))",
-          "fullMetaSearch": false,
-          "includeNullMetadata": false,
-          "instant": false,
-          "legendFormat": "{{grpc_service}}#{{grpc_method}}",
-          "range": true,
-          "refId": "A",
-          "useBackend": false
-        }
-      ],
-      "title": "Server throughput",
-      "type": "timeseries"
-    },
-    {
-      "datasource": {
-        "type": "prometheus",
-        "uid": "webstore-metrics"
-      },
-      "fieldConfig": {
-        "defaults": {
-          "color": {
-            "mode": "palette-classic"
-          },
-          "custom": {
-            "axisBorderShow": false,
-            "axisCenteredZero": false,
-            "axisColorMode": "text",
-            "axisLabel": "",
-            "axisPlacement": "auto",
-            "barAlignment": 0,
-            "drawStyle": "line",
-            "fillOpacity": 0,
-            "gradientMode": "none",
-            "hideFrom": {
-              "legend": false,
-              "tooltip": false,
-              "viz": false
-            },
-            "insertNulls": false,
-            "lineInterpolation": "linear",
-            "lineWidth": 1,
-            "pointSize": 5,
-            "scaleDistribution": {
-              "type": "linear"
-            },
-            "showPoints": "auto",
-            "spanNulls": false,
-            "stacking": {
-              "group": "A",
-              "mode": "none"
-            },
-            "thresholdsStyle": {
-              "mode": "off"
-            }
-          },
-          "mappings": [],
-          "thresholds": {
-            "mode": "absolute",
-            "steps": [
-              {
-                "color": "green",
-                "value": null
+                "value": 0
               },
               {
                 "color": "red",
@@ -514,7 +531,7 @@
         "x": 8,
         "y": 8
       },
-      "id": 6,
+      "id": 3,
       "options": {
         "legend": {
           "calcs": [],
@@ -523,35 +540,37 @@
           "showLegend": true
         },
         "tooltip": {
+          "hideZeros": false,
           "mode": "single",
           "sort": "none"
         }
       },
+      "pluginVersion": "12.4.0-20781422371.patch2",
       "targets": [
         {
           "datasource": {
             "type": "prometheus",
-            "uid": "webstore-metrics"
+            "uid": "grafanacloud-prom"
           },
           "disableTextWrap": false,
           "editorMode": "builder",
-          "expr": "sum by(grpc_status, grpc_service) (rate(grpc_call_counter_total{grpc_kind=\"server\", grpc_service=~\"$grpc_service\"}[$__rate_interval]))",
+          "expr": "sum by(grpc_service, grpc_method) (rate(grpc_call_counter_total{grpc_kind=\"client\", grpc_service=~\"$grpc_service\"}[$__rate_interval]))",
           "fullMetaSearch": false,
           "includeNullMetadata": false,
           "instant": false,
-          "legendFormat": "{{grpc_service}}:{{grpc_status}}",
+          "legendFormat": "{{grpc_service}}#{{grpc_method}}",
           "range": true,
           "refId": "A",
           "useBackend": false
         }
       ],
-      "title": "Server throughput by status",
+      "title": "Client throughput",
       "type": "timeseries"
     },
     {
       "datasource": {
         "type": "prometheus",
-        "uid": "webstore-metrics"
+        "uid": "grafanacloud-prom"
       },
       "fieldConfig": {
         "defaults": {
@@ -565,6 +584,7 @@
             "axisLabel": "",
             "axisPlacement": "auto",
             "barAlignment": 0,
+            "barWidthFactor": 0.6,
             "drawStyle": "line",
             "fillOpacity": 0,
             "gradientMode": "none",
@@ -581,6 +601,7 @@
               "type": "linear"
             },
             "showPoints": "auto",
+            "showValues": false,
             "spanNulls": false,
             "stacking": {
               "group": "A",
@@ -596,7 +617,7 @@
             "steps": [
               {
                 "color": "green",
-                "value": null
+                "value": 0
               },
               {
                 "color": "red",
@@ -604,7 +625,7 @@
               }
             ]
           },
-          "unit": "ms"
+          "unit": "reqps"
         },
         "overrides": []
       },
@@ -614,7 +635,7 @@
         "x": 16,
         "y": 8
       },
-      "id": 2,
+      "id": 5,
       "options": {
         "legend": {
           "calcs": [],
@@ -623,53 +644,55 @@
           "showLegend": true
         },
         "tooltip": {
+          "hideZeros": false,
           "mode": "single",
           "sort": "none"
         }
       },
+      "pluginVersion": "12.4.0-20781422371.patch2",
       "targets": [
         {
           "datasource": {
             "type": "prometheus",
-            "uid": "webstore-metrics"
+            "uid": "grafanacloud-prom"
           },
           "disableTextWrap": false,
           "editorMode": "builder",
-          "expr": "histogram_quantile(0.95, sum by(le, grpc_service, grpc_method) (rate(grpc_call_latency_bucket{grpc_kind=\"server\", grpc_service=~\"$grpc_service\"}[$__rate_interval])))",
+          "expr": "sum by(grpc_status, grpc_service) (rate(grpc_call_counter_total{grpc_kind=\"client\", grpc_service=~\"$grpc_service\"}[$__rate_interval]))",
           "fullMetaSearch": false,
           "includeNullMetadata": false,
           "instant": false,
-          "legendFormat": "{{grpc_service}}#{{grpc_method}}",
+          "legendFormat": "{{grpc_service}}:{{grpc_status}}",
           "range": true,
           "refId": "A",
           "useBackend": false
         }
       ],
-      "title": "Server latency",
+      "title": "Client throughput by status",
       "type": "timeseries"
     }
   ],
+  "preload": false,
   "refresh": "10s",
-  "schemaVersion": 38,
-  "tags": [],
+  "schemaVersion": 42,
+  "tags": [
+    "grpc",
+    "api"
+  ],
   "templating": {
     "list": [
       {
         "current": {
-          "selected": false,
-          "text": [
-            "All"
-          ],
+          "text": "All",
           "value": [
             "$__all"
           ]
         },
         "datasource": {
           "type": "prometheus",
-          "uid": "webstore-metrics"
+          "uid": "grafanacloud-prom"
         },
         "definition": "label_values(grpc_service)",
-        "hide": 0,
         "includeAll": true,
         "label": "gRPC Service",
         "multi": true,
@@ -682,7 +705,7 @@
         },
         "refresh": 1,
         "regex": "",
-        "skipUrlSync": false,
+        "regexApplyTo": "value",
         "sort": 1,
         "type": "query"
       }
@@ -693,9 +716,9 @@
     "to": "now"
   },
   "timepicker": {},
-  "timezone": "",
-  "title": "gRPC summary",
+  "timezone": "browser",
+  "title": "gRPC API",
   "uid": "b7f7f1ff-e48e-43f7-974e-dc58c61ebe3a",
-  "version": 12,
+  "version": 11,
   "weekStart": ""
 }

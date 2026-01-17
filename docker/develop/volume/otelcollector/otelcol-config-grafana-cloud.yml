@@ -1,0 +1,57 @@
+receivers:
+  # Receives OTLP data (metrics, traces, logs) via gRPC and HTTP
+  otlp:
+    protocols:
+      grpc:
+        endpoint: 0.0.0.0:4317
+      http:
+        endpoint: 0.0.0.0:4318
+
+processors:
+  # Batch processing for efficiency
+  batch:
+    timeout: 10s
+    send_batch_size: 1024
+
+  # Memory limiter to prevent OOM
+  memory_limiter:
+    check_interval: 1s
+    limit_mib: 512
+
+exporters:
+  # Metrics, Logs and Traces to Grafana Cloud (via OTLP)
+  otlphttp/grafana:
+    endpoint: ${GRAFANA_OTLP_ENDPOINT}
+    headers:
+      authorization: "Basic ${GRAFANA_CLOUD_TOKEN}"
+
+  # Optional: debug exporter for debugging
+  debug:
+    verbosity: basic
+
+service:
+  pipelines:
+    # Metrics pipeline
+    metrics:
+      receivers: [ otlp ]
+      processors: [ memory_limiter, batch ]
+      exporters: [ otlphttp/grafana ]
+
+    # Traces pipeline
+    traces:
+      receivers: [ otlp ]
+      processors: [ memory_limiter, batch ]
+      exporters: [ otlphttp/grafana ]
+
+    # Logs pipeline
+    logs:
+      receivers: [ otlp ]
+      processors: [ memory_limiter, batch ]
+      exporters: [ otlphttp/grafana ]
+
+  # Enable telemetry for the collector itself
+#  telemetry:
+#    logs:
+#      level: info
+#    metrics:
+#      address: 0.0.0.0:8888
