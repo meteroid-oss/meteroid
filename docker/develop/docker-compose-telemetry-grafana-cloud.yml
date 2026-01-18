@@ -1,0 +1,37 @@
+x-default-logging: &logging
+  driver: "json-file"
+  options:
+    max-size: "5m"
+    max-file: "2"
+    tag: "{{.Name}}"
+
+
+networks:
+  meteroid_net:
+
+name: meteroid-telemetry
+
+services:
+  # OpenTelemetry Collector
+  otel-collector:
+    image: otel/opentelemetry-collector-contrib:0.143.0
+    container_name: otel-collector
+    command: [ "--config=/etc/otelcol-config.yml" ]
+    user: 0:0
+    volumes:
+      - /:/hostfs:ro
+      - /var/run/docker.sock:/var/run/docker.sock:ro
+      - ./volume/otelcollector/otelcol-config-grafana-cloud.yml:/etc/otelcol-config.yml
+    env_file:
+      - .env
+    networks:
+      - meteroid_net
+    ports:
+      - "4317:4317"   # OTLP gRPC
+      - "4318:4318"   # OTLP HTTP
+    deploy:
+      resources:
+        limits:
+          memory: 125M
+    restart: unless-stopped
+    logging: *logging

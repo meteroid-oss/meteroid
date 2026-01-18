@@ -1,4 +1,4 @@
-use opentelemetry::{KeyValue, global};
+use opentelemetry::global;
 use opentelemetry_appender_tracing::layer::OpenTelemetryTracingBridge;
 use opentelemetry_otlp::{Protocol, WithExportConfig};
 use std::time::Duration;
@@ -32,13 +32,9 @@ pub fn init_meter_provider(cfg: &TelemetryConfig) -> opentelemetry_sdk::metrics:
         .with_interval(Duration::from_secs(5))
         .build();
 
-    let resource = Resource::builder()
-        .with_attributes(vec![KeyValue::new("host", "localhost")])
-        .build();
-
     let provider = opentelemetry_sdk::metrics::SdkMeterProvider::builder()
         .with_reader(reader)
-        .with_resource(resource)
+        .with_resource(get_resource())
         .build();
 
     global::set_meter_provider(provider.clone());
@@ -48,7 +44,10 @@ pub fn init_meter_provider(cfg: &TelemetryConfig) -> opentelemetry_sdk::metrics:
 
 pub fn init_otel_tracing_and_logging() {
     let (trace_layer, _guard) =
-        init_tracing_opentelemetry::tracing_subscriber_ext::build_tracer_layer().unwrap();
+        init_tracing_opentelemetry::tracing_subscriber_ext::build_tracer_layer_with_resource(
+            get_resource(),
+        )
+        .expect("failed to build tracing layer");
 
     let logger_provider = opentelemetry_sdk::logs::SdkLoggerProvider::builder()
         .with_resource(get_resource())
