@@ -7,6 +7,7 @@ use error_stack::{Report, ResultExt};
 use futures::FutureExt;
 use meteroid_store::domain::outbox_event::{EventType, OutboxEvent, OutboxPgmqHeaders};
 use meteroid_store::domain::pgmq::{
+    BiAggregationEvent, BiCreditNoteFinalizedEvent, BiInvoiceFinalizedEvent,
     BillableMetricSyncRequestEvent, HubspotSyncRequestEvent, PennylaneSyncInvoice,
     PennylaneSyncRequestEvent, PgmqMessage, PgmqMessageNew, PgmqQueue, QuoteConversionRequestEvent,
 };
@@ -243,6 +244,69 @@ impl PgmqOutboxDispatch {
 
         Ok(())
     }
+
+    pub(crate) async fn handle_bi_aggregation(&self, msgs: &[PgmqMessage]) -> PgmqResult<()> {
+        let mut new_messages = vec![];
+
+        for msg in msgs {
+            let out_headers: StoreResult<Option<OutboxPgmqHeaders>> =
+                msg.headers.as_ref().map(TryInto::try_into).transpose();
+            if let Ok(Some(out_headers)) = out_headers {
+                match &out_headers.event_type {
+                    EventType::InvoiceFinalized => {
+                        if let Ok(OutboxEvent::InvoiceFinalized(evt)) = msg.try_into() {
+                            // Only process if finalized_at exists (should always be set on finalization)
+                            if let Some(finalized_at) = evt.finalized_at {
+                                BiAggregationEvent::InvoiceFinalized(Box::new(
+                                    BiInvoiceFinalizedEvent {
+                                        tenant_id: evt.tenant_id,
+                                        customer_id: evt.customer_id,
+                                        plan_version_id: evt.plan_version_id,
+                                        currency: evt.currency.clone(),
+                                        amount_due: evt.amount_due,
+                                        finalized_at,
+                                    },
+                                ))
+                                .try_into()
+                                .map(|msg_new| new_messages.push(msg_new))
+                                .change_context(PgmqError::HandleMessages)?;
+                            }
+                        }
+                    }
+                    EventType::CreditNoteFinalized => {
+                        if let Ok(OutboxEvent::CreditNoteFinalized(evt)) = msg.try_into() {
+                            // Only process if finalized_at exists
+                            if let Some(finalized_at) = evt.finalized_at {
+                                BiAggregationEvent::CreditNoteFinalized(Box::new(
+                                    BiCreditNoteFinalizedEvent {
+                                        tenant_id: evt.tenant_id,
+                                        customer_id: evt.customer_id,
+                                        plan_version_id: evt.plan_version_id,
+                                        currency: evt.currency.clone(),
+                                        refunded_amount_cents: evt.refunded_amount_cents,
+                                        finalized_at,
+                                    },
+                                ))
+                                .try_into()
+                                .map(|msg_new| new_messages.push(msg_new))
+                                .change_context(PgmqError::HandleMessages)?;
+                            }
+                        }
+                    }
+                    _ => {}
+                }
+            }
+        }
+
+        if !new_messages.is_empty() {
+            self.store
+                .pgmq_send_batch(PgmqQueue::BiAggregation, new_messages)
+                .await
+                .change_context(PgmqError::HandleMessages)?;
+        }
+
+        Ok(())
+    }
 }
 
 #[async_trait]
@@ -257,6 +321,7 @@ impl PgmqHandler for PgmqOutboxDispatch {
             self.handle_billable_metric_sync(msgs).boxed(),
             self.handle_invoice_orchestration(msgs).boxed(),
             self.handle_quote_conversion(msgs).boxed(),
+            self.handle_bi_aggregation(msgs).boxed(),
         ];
 
         // Run the functions concurrently

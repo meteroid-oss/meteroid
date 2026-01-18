@@ -149,6 +149,12 @@ pub async fn spawn_workers(
             processors::run_quote_conversion(store, services).await;
         });
     }
+    {
+        let store = store.clone();
+        join_set.spawn(async move {
+            processors::run_bi_aggregation(store).await;
+        });
+    }
 
     join_set.spawn(async move {
         misc::currency_rates_worker::run_currency_rates_worker(&store, &currency_rates_service)

@@ -68,7 +68,9 @@ export const MrrCrosshair: React.FC<MrrCrosshairProps> = ({
           return (
             <div key={serie.id}>
               <div className="flex justify-between">
-                <span className="font-semibold">{tooltip.labels[serie.id] ?? 'unknown serie'}</span>
+                <span className="font-semibold mr-2">
+                  {tooltip.labels[serie.id] ?? 'unknown serie'}
+                </span>
                 <span>
                   {/*  TODO we should not need /100 */}
                   {tooltip.format === 'currency' &&

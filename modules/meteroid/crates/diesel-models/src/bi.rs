@@ -1,5 +1,6 @@
 use chrono::NaiveDate;
 use chrono::NaiveDateTime;
+use rust_decimal::Decimal;
 use uuid::Uuid;
 
 use super::enums::MrrMovementType;
@@ -36,12 +37,12 @@ pub struct BiDeltaMrrDailyRow {
     pub reactivation_cents: i64,
     pub reactivation_count: i32,
     pub historical_rate_id: Uuid,
-    pub net_mrr_cents_usd: i64,
-    pub new_business_cents_usd: i64,
-    pub expansion_cents_usd: i64,
-    pub contraction_cents_usd: i64,
-    pub churn_cents_usd: i64,
-    pub reactivation_cents_usd: i64,
+    pub net_mrr_cents_usd: Decimal,
+    pub new_business_cents_usd: Decimal,
+    pub expansion_cents_usd: Decimal,
+    pub contraction_cents_usd: Decimal,
+    pub churn_cents_usd: Decimal,
+    pub reactivation_cents_usd: Decimal,
 }
 
 #[derive(Queryable, Debug, Identifiable)]
@@ -60,7 +61,7 @@ pub struct BiMrrMovementLogRow {
     pub tenant_id: TenantId,
 }
 
-#[derive(Insertable, Debug)]
+#[derive(Insertable, Debug, Clone)]
 #[diesel(table_name = crate::schema::bi_mrr_movement_log)]
 pub struct BiMrrMovementLogRowNew {
     pub id: Uuid,
@@ -85,5 +86,6 @@ pub struct BiRevenueDailyRow {
     pub revenue_date: NaiveDate,
     pub net_revenue_cents: i64,
     pub historical_rate_id: Uuid,
-    pub net_revenue_cents_usd: i64,
+    pub net_revenue_cents_usd: Decimal,
+    pub id: Uuid,
 }

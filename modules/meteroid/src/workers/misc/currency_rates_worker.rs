@@ -6,6 +6,7 @@ use crate::services::currency_rates::CurrencyRatesService;
 use error_stack::{Report, ResultExt};
 use meteroid_store::Store;
 use meteroid_store::domain::historical_rates::HistoricalRatesFromUsdNew;
+use meteroid_store::repositories::bi::BiAggregationInterface;
 use meteroid_store::repositories::historical_rates::HistoricalRatesInterface;
 
 pub async fn run_currency_rates_worker(
@@ -65,7 +66,9 @@ async fn update_currency_rates(
         .ok_or(errors::WorkerError::CurrencyRatesUpdateError)?
         .date_naive();
 
-    // we insert or update the rates. bi table usd values are updated via a trigger
+    let rates_map = rates.rates.clone();
+
+    // Insert or update the rates
     store
         .create_historical_rates_from_usd(vec![HistoricalRatesFromUsdNew {
             date,
@@ -73,6 +76,35 @@ async fn update_currency_rates(
         }])
         .await
         .change_context(errors::WorkerError::CurrencyRatesUpdateError)?;
+
+    // Update BI table USD values (replaces the trigger)
+    // Get the historical rate ID for this date
+    let rate_record = store
+        .get_historical_rate_from_usd_by_date(date)
+        .await
+        .change_context(errors::WorkerError::CurrencyRatesUpdateError)?;
+
+    if let Some(r) = rate_record {
+        match store
+            .update_bi_usd_values(date, &rates_map, r.id)
+            .await
+            .change_context(errors::WorkerError::CurrencyRatesUpdateError)
+        {
+            Ok((mrr_updated, revenue_updated)) => {
+                log::info!(
+                    "Updated USD values for date {}: {} MRR rows, {} revenue rows",
+                    date,
+                    mrr_updated,
+                    revenue_updated
+                );
+            }
+            Err(e) => {
+                log::error!("Failed to update BI USD values: {:?}", e);
+            }
+        }
+    } else {
+        log::warn!("No historical rate record found for date {}", date);
+    }
 
     Ok(Duration::from_secs(3600))
 }

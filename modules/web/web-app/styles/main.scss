@@ -491,6 +491,6 @@ div[data-radix-portal]:not(.portal--toast) {
 // Chart dotted background
 .chart-dotted-bg {
   mask-image: radial-gradient(rgb(0, 0, 0), transparent 62%);
-  @apply absolute w-full h-full top-0 left-0 p-[70px] opacity-80;
+  @apply absolute w-full h-full top-0 left-0 p-[70px] opacity-90 ;
   background: radial-gradient(hsl(var(--border)) 1px, transparent 0px) 10px 0px / 8px 8px transparent;
 }

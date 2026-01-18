@@ -3,10 +3,10 @@ use crate::domain::outbox_event::{
 };
 use crate::errors::{StoreError, StoreErrorReport};
 use crate::json_value_serde;
-use chrono::NaiveDate;
+use chrono::{NaiveDate, NaiveDateTime};
 use common_domain::ids::{
-    CreditNoteId, CustomerId, CustomerPaymentMethodId, InvoiceId, InvoicingEntityId, QuoteId,
-    StoredDocumentId, SubscriptionId, TenantId,
+    CreditNoteId, CustomerId, CustomerPaymentMethodId, InvoiceId, InvoicingEntityId, PlanVersionId,
+    QuoteId, StoredDocumentId, SubscriptionId, TenantId,
 };
 use common_domain::pgmq::{Headers, Message, MessageId, ReadCt};
 use diesel_models::pgmq::{PgmqMessageRow, PgmqMessageRowNew};
@@ -27,6 +27,7 @@ pub enum PgmqQueue {
     PaymentRequest,
     SendEmailRequest,
     QuoteConversion,
+    BiAggregation,
 }
 
 impl PgmqQueue {
@@ -43,6 +44,7 @@ impl PgmqQueue {
             PgmqQueue::PaymentRequest => "payment_request",
             PgmqQueue::SendEmailRequest => "send_email_request",
             PgmqQueue::QuoteConversion => "quote_conversion",
+            PgmqQueue::BiAggregation => "bi_aggregation",
         }
     }
 }
@@ -317,3 +319,41 @@ impl QuoteConversionRequestEvent {
 }
 json_value_serde!(QuoteConversionRequestEvent);
 derive_pgmq_message!(QuoteConversionRequestEvent);
+
+/// BI aggregation events for revenue and customer YTD tracking
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub enum BiAggregationEvent {
+    InvoiceFinalized(Box<BiInvoiceFinalizedEvent>),
+    CreditNoteFinalized(Box<BiCreditNoteFinalizedEvent>),
+}
+
+impl BiAggregationEvent {
+    pub fn tenant_id(&self) -> TenantId {
+        match self {
+            BiAggregationEvent::InvoiceFinalized(event) => event.tenant_id,
+            BiAggregationEvent::CreditNoteFinalized(event) => event.tenant_id,
+        }
+    }
+}
+json_value_serde!(BiAggregationEvent);
+derive_pgmq_message!(BiAggregationEvent);
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct BiInvoiceFinalizedEvent {
+    pub tenant_id: TenantId,
+    pub customer_id: CustomerId,
+    pub plan_version_id: Option<PlanVersionId>,
+    pub currency: String,
+    pub amount_due: i64,
+    pub finalized_at: NaiveDateTime,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct BiCreditNoteFinalizedEvent {
+    pub tenant_id: TenantId,
+    pub customer_id: CustomerId,
+    pub plan_version_id: Option<PlanVersionId>,
+    pub currency: String,
+    pub refunded_amount_cents: i64,
+    pub finalized_at: NaiveDateTime,
+}

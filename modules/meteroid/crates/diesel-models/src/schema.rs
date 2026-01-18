@@ -200,12 +200,12 @@ diesel::table! {
         reactivation_cents -> Int8,
         reactivation_count -> Int4,
         historical_rate_id -> Uuid,
-        net_mrr_cents_usd -> Int8,
-        new_business_cents_usd -> Int8,
-        expansion_cents_usd -> Int8,
-        contraction_cents_usd -> Int8,
-        churn_cents_usd -> Int8,
-        reactivation_cents_usd -> Int8,
+        net_mrr_cents_usd -> Numeric,
+        new_business_cents_usd -> Numeric,
+        expansion_cents_usd -> Numeric,
+        contraction_cents_usd -> Numeric,
+        churn_cents_usd -> Numeric,
+        reactivation_cents_usd -> Numeric,
     }
 }
 
@@ -237,7 +237,7 @@ diesel::table! {
         revenue_date -> Date,
         net_revenue_cents -> Int8,
         historical_rate_id -> Uuid,
-        net_revenue_cents_usd -> Int8,
+        net_revenue_cents_usd -> Numeric,
         id -> Uuid,
     }
 }
@@ -267,6 +267,99 @@ diesel::table! {
         product_id -> Nullable<Uuid>,
         synced_at -> Nullable<Timestamp>,
         sync_error -> Nullable<Text>,
+    }
+}
+
+diesel::table! {
+    connect_access_token (id) {
+        id -> Uuid,
+        token_hash -> Text,
+        oauth_app_id -> Uuid,
+        connected_organization_id -> Uuid,
+        scopes -> Array<Nullable<Text>>,
+        expires_at -> Timestamp,
+        created_at -> Timestamp,
+        revoked_at -> Nullable<Timestamp>,
+    }
+}
+
+diesel::table! {
+    connect_authorization_code (id) {
+        id -> Uuid,
+        code_hash -> Text,
+        oauth_app_id -> Uuid,
+        connected_organization_id -> Uuid,
+        redirect_uri -> Text,
+        scopes -> Array<Nullable<Text>>,
+        code_challenge -> Nullable<Text>,
+        code_challenge_method -> Nullable<Text>,
+        expires_at -> Timestamp,
+        created_at -> Timestamp,
+        used_at -> Nullable<Timestamp>,
+    }
+}
+
+diesel::table! {
+    connect_connected_account (id) {
+        id -> Uuid,
+        platform_organization_id -> Uuid,
+        connected_organization_id -> Uuid,
+        connection_type -> Text,
+        status -> Text,
+        onboarding_completed_at -> Nullable<Timestamp>,
+        metadata -> Nullable<Jsonb>,
+        created_at -> Timestamp,
+        revoked_at -> Nullable<Timestamp>,
+    }
+}
+
+diesel::table! {
+    connect_oauth_app (id) {
+        id -> Uuid,
+        organization_id -> Uuid,
+        name -> Text,
+        client_id -> Text,
+        client_secret_hash -> Text,
+        client_secret_hint -> Text,
+        redirect_uris -> Array<Nullable<Text>>,
+        scopes -> Array<Nullable<Text>>,
+        is_active -> Bool,
+        created_at -> Timestamp,
+        updated_at -> Nullable<Timestamp>,
+    }
+}
+
+diesel::table! {
+    connect_onboarding_link (id) {
+        id -> Uuid,
+        connected_account_id -> Uuid,
+        token_hash -> Text,
+        redirect_url -> Text,
+        expires_at -> Timestamp,
+        used_at -> Nullable<Timestamp>,
+        created_at -> Timestamp,
+    }
+}
+
+diesel::table! {
+    connect_platform_settings (organization_id) {
+        organization_id -> Uuid,
+        is_platform_enabled -> Bool,
+        default_scopes -> Array<Nullable<Text>>,
+        branding -> Nullable<Jsonb>,
+        created_at -> Timestamp,
+    }
+}
+
+diesel::table! {
+    connect_refresh_token (id) {
+        id -> Uuid,
+        token_hash -> Text,
+        access_token_id -> Uuid,
+        expires_at -> Nullable<Timestamp>,
+        created_at -> Timestamp,
+        revoked_at -> Nullable<Timestamp>,
+        rotated_to_id -> Nullable<Uuid>,
     }
 }
 
@@ -1037,6 +1130,14 @@ diesel::joinable!(bi_revenue_daily -> historical_rates_from_usd (historical_rate
 diesel::joinable!(billable_metric -> product (product_id));
 diesel::joinable!(billable_metric -> product_family (product_family_id));
 diesel::joinable!(billable_metric -> tenant (tenant_id));
+diesel::joinable!(connect_access_token -> connect_oauth_app (oauth_app_id));
+diesel::joinable!(connect_access_token -> organization (connected_organization_id));
+diesel::joinable!(connect_authorization_code -> connect_oauth_app (oauth_app_id));
+diesel::joinable!(connect_authorization_code -> organization (connected_organization_id));
+diesel::joinable!(connect_oauth_app -> organization (organization_id));
+diesel::joinable!(connect_onboarding_link -> connect_connected_account (connected_account_id));
+diesel::joinable!(connect_platform_settings -> organization (organization_id));
+diesel::joinable!(connect_refresh_token -> connect_access_token (access_token_id));
 diesel::joinable!(coupon -> tenant (tenant_id));
 diesel::joinable!(credit_note -> customer (customer_id));
 diesel::joinable!(credit_note -> invoice (invoice_id));
@@ -1127,6 +1228,13 @@ diesel::allow_tables_to_appear_in_same_query!(
     bi_mrr_movement_log,
     bi_revenue_daily,
     billable_metric,
+    connect_access_token,
+    connect_authorization_code,
+    connect_connected_account,
+    connect_oauth_app,
+    connect_onboarding_link,
+    connect_platform_settings,
+    connect_refresh_token,
     connector,
     coupon,
     credit_note,
