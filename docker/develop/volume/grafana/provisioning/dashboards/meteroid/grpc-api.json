@@ -112,11 +112,11 @@
           },
           "disableTextWrap": false,
           "editorMode": "builder",
-          "expr": "histogram_quantile(0.95, sum by(le, grpc_service, grpc_method) (rate(grpc_call_latency_bucket{grpc_kind=\"server\", grpc_service=~\"$grpc_service\"}[$__rate_interval])))",
+          "expr": "histogram_quantile(0.95, sum by(le, grpc_service, grpc_method, service_name) (rate(grpc_call_latency_bucket{grpc_kind=\"server\", grpc_service=~\"$grpc_service\", service_name=~\"$service_name\"}[$__rate_interval])))",
           "fullMetaSearch": false,
           "includeNullMetadata": false,
           "instant": false,
-          "legendFormat": "{{grpc_service}}#{{grpc_method}}",
+          "legendFormat": "{{service_name}} {{grpc_service}}#{{grpc_method}}",
           "range": true,
           "refId": "A",
           "useBackend": false
@@ -217,11 +217,11 @@
           "disableTextWrap": false,
           "editorMode": "builder",
           "exemplar": false,
-          "expr": "sum by(grpc_method, grpc_service) (rate(grpc_call_counter_total{grpc_kind=\"server\", grpc_service=~\"$grpc_service\"}[$__rate_interval]))",
+          "expr": "sum by(grpc_method, grpc_service, service_name) (rate(grpc_call_counter_total{grpc_kind=\"server\", grpc_service=~\"$grpc_service\", service_name=~\"$service_name\"}[$__rate_interval]))",
           "fullMetaSearch": false,
           "includeNullMetadata": false,
           "instant": false,
-          "legendFormat": "{{grpc_service}}#{{grpc_method}}",
+          "legendFormat": "{{service_name}} {{grpc_service}}#{{grpc_method}}",
           "range": true,
           "refId": "A",
           "useBackend": false
@@ -321,11 +321,11 @@
           },
           "disableTextWrap": false,
           "editorMode": "builder",
-          "expr": "sum by(grpc_status, grpc_service) (rate(grpc_call_counter_total{grpc_kind=\"server\", grpc_service=~\"$grpc_service\"}[$__rate_interval]))",
+          "expr": "sum by(grpc_status, grpc_service, service_name) (rate(grpc_call_counter_total{grpc_kind=\"server\", grpc_service=~\"$grpc_service\", service_name=~\"$service_name\"}[$__rate_interval]))",
           "fullMetaSearch": false,
           "includeNullMetadata": false,
           "instant": false,
-          "legendFormat": "{{grpc_service}}:{{grpc_status}}",
+          "legendFormat": "{{service_name}} {{grpc_service}}:{{grpc_status}}",
           "range": true,
           "refId": "A",
           "useBackend": false
@@ -394,32 +394,7 @@
           },
           "unit": "ms"
         },
-        "overrides": [
-          {
-            "__systemRef": "hideSeriesFrom",
-            "matcher": {
-              "id": "byNames",
-              "options": {
-                "mode": "exclude",
-                "names": [
-                  "subscriptions.SubscriptionsService#ListSubscriptionsToInvoice"
-                ],
-                "prefix": "All except:",
-                "readOnly": true
-              }
-            },
-            "properties": [
-              {
-                "id": "custom.hideFrom",
-                "value": {
-                  "legend": false,
-                  "tooltip": true,
-                  "viz": true
-                }
-              }
-            ]
-          }
-        ]
+        "overrides": []
       },
       "gridPos": {
         "h": 8,
@@ -450,11 +425,11 @@
           },
           "disableTextWrap": false,
           "editorMode": "builder",
-          "expr": "histogram_quantile(0.95, sum by(le, grpc_service, grpc_method) (rate(grpc_call_latency_bucket{grpc_kind=\"client\", grpc_service=~\"$grpc_service\"}[$__rate_interval])))",
+          "expr": "histogram_quantile(0.95, sum by(le, grpc_service, grpc_method, service_name) (rate(grpc_call_latency_bucket{grpc_kind=\"client\", grpc_service=~\"$grpc_service\", service_name=~\"$service_name\"}[$__rate_interval])))",
           "fullMetaSearch": false,
           "includeNullMetadata": false,
           "instant": false,
-          "legendFormat": "{{grpc_service}}#{{grpc_method}}",
+          "legendFormat": "{{service_name}} {{grpc_service}}#{{grpc_method}}",
           "range": true,
           "refId": "A",
           "useBackend": false
@@ -554,11 +529,11 @@
           },
           "disableTextWrap": false,
           "editorMode": "builder",
-          "expr": "sum by(grpc_service, grpc_method) (rate(grpc_call_counter_total{grpc_kind=\"client\", grpc_service=~\"$grpc_service\"}[$__rate_interval]))",
+          "expr": "sum by(grpc_service, grpc_method, service_name) (rate(grpc_call_counter_total{grpc_kind=\"client\", grpc_service=~\"$grpc_service\", service_name=~\"$service_name\"}[$__rate_interval]))",
           "fullMetaSearch": false,
           "includeNullMetadata": false,
           "instant": false,
-          "legendFormat": "{{grpc_service}}#{{grpc_method}}",
+          "legendFormat": "{{service_name}} {{grpc_service}}#{{grpc_method}}",
           "range": true,
           "refId": "A",
           "useBackend": false
@@ -658,11 +633,11 @@
           },
           "disableTextWrap": false,
           "editorMode": "builder",
-          "expr": "sum by(grpc_status, grpc_service) (rate(grpc_call_counter_total{grpc_kind=\"client\", grpc_service=~\"$grpc_service\"}[$__rate_interval]))",
+          "expr": "sum by(grpc_status, grpc_service, service_name) (rate(grpc_call_counter_total{grpc_kind=\"client\", grpc_service=~\"$grpc_service\", service_name=~\"$service_name\"}[$__rate_interval]))",
           "fullMetaSearch": false,
           "includeNullMetadata": false,
           "instant": false,
-          "legendFormat": "{{grpc_service}}:{{grpc_status}}",
+          "legendFormat": "{{service_name}} {{grpc_service}}:{{grpc_status}}",
           "range": true,
           "refId": "A",
           "useBackend": false
@@ -681,6 +656,34 @@
   ],
   "templating": {
     "list": [
+      {
+        "current": {
+          "text": "All",
+          "value": [
+            "$__all"
+          ]
+        },
+        "datasource": {
+          "type": "prometheus",
+          "uid": "grafanacloud-prom"
+        },
+        "definition": "label_values(service_name)",
+        "includeAll": true,
+        "label": "Service Name",
+        "multi": true,
+        "name": "service_name",
+        "options": [],
+        "query": {
+          "qryType": 1,
+          "query": "label_values(service_name)",
+          "refId": "PrometheusVariableQueryEditor-VariableQuery"
+        },
+        "refresh": 1,
+        "regex": "",
+        "regexApplyTo": "value",
+        "sort": 1,
+        "type": "query"
+      },
       {
         "current": {
           "text": "All",
@@ -719,6 +722,6 @@
   "timezone": "browser",
   "title": "gRPC API",
   "uid": "b7f7f1ff-e48e-43f7-974e-dc58c61ebe3a",
-  "version": 11,
+  "version": 12,
   "weekStart": ""
 }
