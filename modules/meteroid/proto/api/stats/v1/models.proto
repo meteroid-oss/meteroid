@@ -111,7 +111,8 @@ message TrialConversionMetaDataPoint {
 message RevenueByCustomer {
   string customer_name = 1;
   string customer_id = 2;
-  int64 revenue = 3;
+  int64 revenue_ytd = 3;
+  int64 revenue_all_time = 4;
 }
 
 message MrrLogEntry {
@@ -123,7 +124,8 @@ message MrrLogEntry {
   string description = 6;
   MRRMovementType mrr_type = 7;
   common.v1.Date applies_to = 8;
-
+  int64 mrr_change = 9;
+  string currency = 10;
 }
 
 message RevenueChartSeries {
@@ -134,5 +136,6 @@ message RevenueChartSeries {
   message DataPoint {
     string x = 1;
     int64 revenue = 2;
+    int64 daily_revenue = 3;
   }
 }

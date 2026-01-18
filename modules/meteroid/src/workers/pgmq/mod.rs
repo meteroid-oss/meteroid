@@ -1,5 +1,6 @@
 use error_stack::Report;
 
+mod bi_aggregation;
 mod billable_metric_sync;
 mod credit_note_pdf_render;
 mod error;

@@ -29,6 +29,7 @@ use diesel_models::invoices::{InvoiceRow, InvoiceRowNew};
 use diesel_models::subscriptions::SubscriptionRow;
 use error_stack::{Report, bail};
 use rust_decimal::Decimal;
+use rust_decimal::prelude::FromPrimitive;
 use std::collections::HashMap;
 use tracing_log::log;
 use uuid::Uuid;
@@ -548,6 +549,9 @@ TODO special cases :
 - consolidation if multiple events in the same day. Ex: new business + expansion = new business, or cancellation + reactivation => nothing
  */
 async fn process_mrr(inserted: &Invoice, conn: &mut PgConn) -> StoreResult<()> {
+    use crate::repositories::historical_rates::get_historical_rate_from_usd_by_date_cached;
+    use diesel_models::query::bi::MrrDailyUpsertInput;
+
     log::info!("Processing MRR logs for invoice {}", inserted.id);
     if inserted.invoice_type == InvoiceType::Recurring
         || inserted.invoice_type == InvoiceType::Adjustment
@@ -609,7 +613,7 @@ async fn process_mrr(inserted: &Invoice, conn: &mut PgConn) -> StoreResult<()> {
                 let new_log = diesel_models::bi::BiMrrMovementLogRowNew {
                     id: Uuid::now_v7(),
                     description: description.to_string(),
-                    movement_type,
+                    movement_type: movement_type.clone(),
                     net_mrr_change: mrr_delta,
                     currency: inserted.currency.clone(),
                     applies_to: inserted.invoice_date,
@@ -619,15 +623,56 @@ async fn process_mrr(inserted: &Invoice, conn: &mut PgConn) -> StoreResult<()> {
                     tenant_id: inserted.tenant_id,
                 };
 
-                mrr_logs.push(new_log);
+                mrr_logs.push((new_log, movement_type));
             }
         }
 
-        let mrr_delta_cents: i64 = mrr_logs.iter().map(|l| l.net_mrr_change).sum();
+        let mrr_delta_cents: i64 = mrr_logs.iter().map(|(l, _)| l.net_mrr_change).sum();
 
-        diesel_models::bi::BiMrrMovementLogRow::insert_movement_log_batch(conn, mrr_logs)
+        // Get historical rate for USD conversion
+        let rates =
+            get_historical_rate_from_usd_by_date_cached(conn, inserted.invoice_date).await?;
+
+        // Insert MRR movement logs
+        let logs_to_insert: Vec<_> = mrr_logs.iter().map(|(l, _)| (*l).clone()).collect();
+        diesel_models::bi::BiMrrMovementLogRow::insert_movement_log_batch(conn, logs_to_insert)
             .await
             .map_err(Into::<Report<StoreError>>::into)?;
+
+        // Aggregate into bi_delta_mrr_daily (replaces trigger)
+        if let Some(rates) = rates {
+            for (log, movement_type) in &mrr_logs {
+                let rate = rates.rates.get(&log.currency).copied().unwrap_or(1.0);
+                // Convert to USD with full Decimal precision (stored as NUMERIC(20,4))
+                let mrr_change_usd = if rate != 0.0 {
+                    let rate_decimal = Decimal::from_f32(rate).unwrap_or(Decimal::ONE);
+                    Decimal::from(log.net_mrr_change) / rate_decimal
+                } else {
+                    Decimal::ZERO
+                };
+
+                diesel_models::bi::BiDeltaMrrDailyRow::upsert_mrr_movement(
+                    conn,
+                    MrrDailyUpsertInput {
+                        tenant_id: log.tenant_id.as_uuid(),
+                        plan_version_id: log.plan_version_id.as_uuid(),
+                        date: log.applies_to,
+                        currency: log.currency.clone(),
+                        movement_type: movement_type.clone(),
+                        net_mrr_change: log.net_mrr_change,
+                        net_mrr_change_usd: mrr_change_usd,
+                        historical_rate_id: rates.id,
+                    },
+                )
+                .await
+                .map_err(Into::<Report<StoreError>>::into)?;
+            }
+        } else {
+            log::warn!(
+                "No historical rates found for date {}, MRR USD values will be zero",
+                inserted.invoice_date
+            );
+        }
 
         SubscriptionRow::update_subscription_mrr_delta(conn, subscription_id, mrr_delta_cents)
             .await

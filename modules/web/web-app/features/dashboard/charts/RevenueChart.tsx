@@ -65,6 +65,7 @@ export const RevenueChart = ({
         x: d.x,
         y: Number(d.revenue ?? 0),
         key: d.x,
+        dailyRevenue: Number(d.dailyRevenue ?? 0),
       })),
     })) ?? []
 
@@ -155,7 +156,17 @@ export const RevenueChart = ({
           tooltip={{
             format: 'currency',
             labels: {
-              total_revenue: 'Total Revenue',
+              total_revenue: 'Cumulated ',
+            },
+            render: datum => {
+              const dailyRevenue = (datum as { dailyRevenue?: number }).dailyRevenue
+              if (dailyRevenue === undefined) return null
+              return (
+                <div className="flex justify-between text-muted-foreground text-xs mt-1">
+                  <span>Daily</span>
+                  <span>{formatAmount(dailyRevenue / 100)}</span>
+                </div>
+              )
             },
           }}
         />
@@ -164,6 +175,15 @@ export const RevenueChart = ({
         ) : (
           <ResponsiveLine
             {...commonChartProps}
+            theme={{
+              axis: {
+                ticks: {
+                  text: {
+                    fill: 'hsl(var(--muted-foreground))',
+                  },
+                },
+              },
+            }}
             areaOpacity={0.15}
             enableArea={true}
             defs={[
@@ -175,12 +195,16 @@ export const RevenueChart = ({
             fill={[{ match: '*', id: 'gradientA' }]}
             colors={[theme.isDarkMode ? '#a78bfa' : '#7c3aed']}
             data={data}
-            margin={{ top: 10, right: 10, bottom: 30, left: 10 }}
+            margin={{ top: 10, right: 50, bottom: 30, left: 50 }}
             xScale={{
               type: 'time',
               format: '%Y-%m-%d',
               precision: 'day',
-              nice: true,
+              useUTC: false,
+              min: data[0]?.data[0]?.x ? new Date(data[0].data[0].x) : 'auto',
+              max: data[0]?.data[data[0]?.data.length - 1]?.x
+                ? new Date(data[0].data[data[0].data.length - 1].x)
+                : 'auto',
             }}
             xFormat="time:%b %d, %Y"
             yScale={{ type: 'linear', min: min, max: max }}
@@ -188,8 +212,13 @@ export const RevenueChart = ({
               tickSize: 0,
               tickPadding: 10,
               tickRotation: 0,
-              format: '%b %Y',
-              tickValues: 'every month',
+              format: '%b %d, %Y',
+              tickValues: [
+                data[0]?.data[0]?.x ? new Date(data[0].data[0].x) : null,
+                data[0]?.data[data[0]?.data.length - 1]?.x
+                  ? new Date(data[0].data[data[0].data.length - 1].x)
+                  : null,
+              ].filter(Boolean) as Date[],
             }}
             axisLeft={null}
             layers={[

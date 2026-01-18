@@ -78,7 +78,9 @@ pub struct CustomerTopRevenueRow {
     #[diesel(sql_type = diesel::sql_types::Text)]
     pub name: String,
     #[diesel(sql_type = diesel::sql_types::BigInt)]
-    pub total_revenue_cents: i64,
+    pub revenue_ytd_cents: i64,
+    #[diesel(sql_type = diesel::sql_types::BigInt)]
+    pub revenue_all_time_cents: i64,
     #[diesel(sql_type = diesel::sql_types::Text)]
     pub currency: String,
 }
@@ -219,4 +221,6 @@ pub struct RevenueChartRow {
     pub period: NaiveDate,
     #[diesel(sql_type = diesel::sql_types::BigInt)]
     pub total_revenue: i64,
+    #[diesel(sql_type = diesel::sql_types::BigInt)]
+    pub daily_revenue: i64,
 }

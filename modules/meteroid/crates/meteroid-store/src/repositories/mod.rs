@@ -9,6 +9,7 @@ pub use subscriptions::SubscriptionInterface;
 pub use tenants::TenantInterface;
 
 pub mod accounting;
+pub mod bi;
 pub mod customers;
 pub mod invoices;
 pub mod plans;

@@ -250,6 +250,15 @@ export const MrrChart = ({
         ) : (
           <ResponsiveLine
             {...commonChartProps}
+            theme={{
+              axis: {
+                ticks: {
+                  text: {
+                    fill: 'hsl(var(--muted-foreground))',
+                  },
+                },
+              },
+            }}
             lineWidth={2}
             areaOpacity={0.15}
             enableArea={true}
@@ -262,12 +271,16 @@ export const MrrChart = ({
             fill={[{ match: '*', id: 'gradientA' }]}
             colors={[theme.isDarkMode ? '#a78bfa' : '#7c3aed']}
             data={data}
-            margin={{ top: 10, right: 10, bottom: 30, left: 10 }}
+            margin={{ top: 10, right: 50, bottom: 30, left: 50 }}
             xScale={{
               type: 'time',
               format: '%Y-%m-%d',
               precision: 'day',
-              nice: true,
+              useUTC: false,
+              min: data[0]?.data[0]?.x ? new Date(data[0].data[0].x) : 'auto',
+              max: data[0]?.data[data[0]?.data.length - 1]?.x
+                ? new Date(data[0].data[data[0].data.length - 1].x)
+                : 'auto',
             }}
             xFormat="time:%b %d, %Y"
             yScale={{ type: 'linear', min: min, max: max }}
@@ -275,8 +288,13 @@ export const MrrChart = ({
               tickSize: 0,
               tickPadding: 10,
               tickRotation: 0,
-              format: '%b %Y',
-              tickValues: 'every month',
+              format: '%b %d, %Y',
+              tickValues: [
+                data[0]?.data[0]?.x ? new Date(data[0].data[0].x) : null,
+                data[0]?.data[data[0]?.data.length - 1]?.x
+                  ? new Date(data[0].data[data[0].data.length - 1].x)
+                  : null,
+              ].filter(Boolean) as Date[],
             }}
             axisLeft={null}
             layers={[

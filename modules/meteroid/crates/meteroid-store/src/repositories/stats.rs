@@ -264,7 +264,8 @@ impl StatsInterface for Store {
             .map(|d| RevenueByCustomer {
                 customer_name: d.name,
                 customer_id: d.id,
-                revenue: d.total_revenue_cents,
+                revenue_ytd: d.revenue_ytd_cents,
+                revenue_all_time: d.revenue_all_time_cents,
                 currency: d.currency,
             })
             .collect())
@@ -428,6 +429,7 @@ impl StatsInterface for Store {
                 .map(|d| RevenueChartDataPoint {
                     x: d.period.to_string(),
                     revenue: d.total_revenue,
+                    daily_revenue: d.daily_revenue,
                 })
                 .collect(),
         };
@@ -526,6 +528,8 @@ impl StatsInterface for Store {
                     plan_name: d.plan_name,
                     description: d.description,
                     mrr_type: map_movement_type(d.movement_type),
+                    mrr_change: d.net_mrr_change,
+                    currency: d.currency,
                 })
                 .collect(),
         })

@@ -355,6 +355,7 @@ pub struct InvoiceEvent {
     pub tenant_id: TenantId,
     pub customer_id: CustomerId,
     pub subscription_id: Option<SubscriptionId>,
+    pub plan_version_id: Option<PlanVersionId>,
     #[map(@.currency.clone())]
     pub currency: String,
     pub tax_amount: i64,
@@ -364,6 +365,7 @@ pub struct InvoiceEvent {
     #[map(@.conn_meta.clone())]
     pub conn_meta: Option<ConnectionMeta>,
     pub amount_due: i64,
+    pub finalized_at: Option<NaiveDateTime>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -389,6 +391,7 @@ pub struct CreditNoteEvent {
     pub customer_id: CustomerId,
     pub invoice_id: InvoiceId,
     pub subscription_id: Option<SubscriptionId>,
+    pub plan_version_id: Option<PlanVersionId>,
     #[map(@.currency.clone())]
     pub currency: String,
     pub tax_amount: i64,
@@ -399,6 +402,7 @@ pub struct CreditNoteEvent {
     pub created_at: NaiveDateTime,
     #[map(@.conn_meta.clone())]
     pub conn_meta: Option<ConnectionMeta>,
+    pub finalized_at: Option<NaiveDateTime>,
 }
 
 #[skip_serializing_none]

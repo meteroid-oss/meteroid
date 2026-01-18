@@ -1,79 +1,129 @@
-import { ScrollArea } from '@ui/components'
+import { ScrollArea, Tooltip, TooltipContent, TooltipTrigger } from '@ui/components'
 import { cn } from '@ui/lib'
 import { format } from 'date-fns'
+import { ArrowDownIcon, ArrowUpIcon, MinusIcon, PlusIcon, RefreshCwIcon } from 'lucide-react'
 import { Link } from 'react-router-dom'
 
 import { ChartNoData } from '@/features/dashboard/charts/ChartNoData'
+import { useCurrency } from '@/hooks/useCurrency'
 import { useQuery } from '@/lib/connectrpc'
 import { mapDateFromGrpc } from '@/lib/mapping'
 import { MRRMovementType } from '@/rpc/api/stats/v1/models_pb'
 import { mrrLog } from '@/rpc/api/stats/v1/stats-StatsService_connectquery'
 
-const mrrTypeTolabel: Record<MRRMovementType, string> = {
-  [MRRMovementType.NEW_BUSINESS]: '(new)',
-  [MRRMovementType.EXPANSION]: '(exp)',
-  [MRRMovementType.CONTRACTION]: '(con)',
-  [MRRMovementType.CHURN]: '(chn)',
-  [MRRMovementType.REACTIVATION]: '(rea)',
-}
-const mrrTypeToColor: Record<MRRMovementType, string> = {
-  [MRRMovementType.NEW_BUSINESS]: 'bg-green-700',
-  [MRRMovementType.EXPANSION]: 'bg-blue-700',
-  [MRRMovementType.CONTRACTION]: 'bg-purple-700',
-  [MRRMovementType.CHURN]: 'bg-red-700',
-  [MRRMovementType.REACTIVATION]: 'bg-yellow-700',
+const mrrTypeConfig: Record<
+  MRRMovementType,
+  { label: string; color: string; bgColor: string; icon: React.ElementType }
+> = {
+  [MRRMovementType.NEW_BUSINESS]: {
+    label: 'New',
+    color: 'text-green-600',
+    bgColor: 'bg-green-500/10',
+    icon: PlusIcon,
+  },
+  [MRRMovementType.EXPANSION]: {
+    label: 'Expansion',
+    color: 'text-blue-600',
+    bgColor: 'bg-blue-500/10',
+    icon: ArrowUpIcon,
+  },
+  [MRRMovementType.CONTRACTION]: {
+    label: 'Contraction',
+    color: 'text-orange-600',
+    bgColor: 'bg-orange-500/10',
+    icon: ArrowDownIcon,
+  },
+  [MRRMovementType.CHURN]: {
+    label: 'Churn',
+    color: 'text-red-600',
+    bgColor: 'bg-red-500/10',
+    icon: MinusIcon,
+  },
+  [MRRMovementType.REACTIVATION]: {
+    label: 'Reactivation',
+    color: 'text-emerald-600',
+    bgColor: 'bg-emerald-500/10',
+    icon: RefreshCwIcon,
+  },
 }
 
-const Circle = ({ movementType }: { movementType: MRRMovementType }) => (
-  <div
-    className={cn(
-      'w-[10px] h-[10px] rounded-full shadow-circle mr-2 opacity-60',
-      mrrTypeToColor[movementType]
-    )}
-  ></div>
-)
+const MovementBadge = ({ type }: { type: MRRMovementType }) => {
+  const config = mrrTypeConfig[type]
+  const Icon = config.icon
+
+  return (
+    <Tooltip>
+      <TooltipTrigger asChild>
+        <div
+          className={cn(
+            'flex items-center justify-center w-6 h-6 rounded-md shrink-0',
+            config.bgColor
+          )}
+        >
+          <Icon className={cn('w-3.5 h-3.5', config.color)} />
+        </div>
+      </TooltipTrigger>
+      <TooltipContent side="top" className="text-xs">
+        {config.label}
+      </TooltipContent>
+    </Tooltip>
+  )
+}
 
 export const MrrLogsCard = () => {
   const logs = useQuery(mrrLog, {}).data
+  const { formatAmount } = useCurrency()
+
+  const formatMrrChange = (amount: bigint, type: MRRMovementType) => {
+    const isNegative = type === MRRMovementType.CHURN || type === MRRMovementType.CONTRACTION
+    const formatted = formatAmount(amount < 0n ? -amount : amount)
+    return isNegative ? `-${formatted}` : `+${formatted}`
+  }
 
   return (
-    <div className="max-w-[50%] relative h-[180px] w-[50%]  py-4 px-2 ">
-      <div className="text-sm font-semibold leading-none tracking-tight">MRR Movement Logs</div>
-      <div className="pt-5 h-full">
-        <div className="h-full ">
-          <ScrollArea className="h-full pr-2 -mr-4">
-            {logs?.entries?.length ? (
-              logs.entries.map((log, idx) => (
+    <div className="max-w-[50%] relative h-[180px] w-[50%] pt-4 px-2">
+      <div className="text-sm font-semibold leading-none tracking-tight mb-3">
+        MRR Movement Logs
+      </div>
+      <ScrollArea className="h-[calc(100%-28px)] pr-2 -mr-4">
+        {logs?.entries?.length ? (
+          <div className="space-y-1.5">
+            {logs.entries.map((log, idx) => {
+              const config = mrrTypeConfig[log.mrrType]
+              return (
                 <div
                   key={idx}
-                  className="text-xs flex flex-row gap-2 p-1  items-baseline box-border rounded-sm justify-between hover:bg-muted"
+                  className="flex items-center gap-2.5 p-2 rounded-lg hover:bg-muted/50 transition-colors"
                 >
-                  <span className="flex items-center w-[90px]">
-                    <Circle movementType={log.mrrType} />
-                    {log.appliesTo && format(mapDateFromGrpc(log.appliesTo), 'dd/MM/yyyy')}
-                  </span>
-                  <span className="flex  w-[40px]">{mrrTypeTolabel[log.mrrType]}</span>
-                  <span className="flex flex-grow gap-1">
-                    {log.description} for customer
-                    <Link
-                      to={`customers/${log.customerId}`}
-                      target="_blank"
-                      rel="noopener noreferrer"
-                      className="font-semibold underline decoration-border decoration-dashed underline-offset-2"
-                    >
-                      {log.customerName}
-                    </Link>
-                  </span>
+                  <MovementBadge type={log.mrrType} />
+                  <div className="flex-1 min-w-0">
+                    <div className="flex items-center gap-1.5 text-xs">
+                      <Link
+                        to={`customers/${log.customerId}`}
+                        className="font-medium truncate hover:underline underline-offset-2"
+                      >
+                        {log.customerName}
+                      </Link>
+                      <span className="text-muted-foreground shrink-0">on</span>
+                      <span className="text-muted-foreground truncate">{log.planName}</span>
+                    </div>
+                    <div className="text-[10px] text-muted-foreground mt-0.5">
+                      {log.appliesTo && format(mapDateFromGrpc(log.appliesTo), 'MMM d, yyyy')}
+                    </div>
+                  </div>
+                  <div className={cn('text-xs font-semibold tabular-nums shrink-0', config.color)}>
+                    {formatMrrChange(log.mrrChange, log.mrrType)}
+                  </div>
                 </div>
-              ))
-            ) : (
-              <div className="h-full items-center justify-end">
-                <ChartNoData />
-              </div>
-            )}
-          </ScrollArea>
-        </div>
-      </div>
+              )
+            })}
+          </div>
+        ) : (
+          <div className="h-full flex items-center justify-center">
+            <ChartNoData />
+          </div>
+        )}
+      </ScrollArea>
     </div>
   )
 }

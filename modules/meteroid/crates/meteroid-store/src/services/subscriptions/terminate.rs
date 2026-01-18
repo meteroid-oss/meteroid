@@ -1,15 +1,19 @@
 use crate::StoreResult;
 use crate::errors::StoreError;
+use crate::repositories::historical_rates::get_historical_rate_from_usd_by_date_cached;
 use crate::services::{InvoiceBillingMode, Services};
 use crate::store::PgConn;
 use chrono::NaiveDate;
-use common_domain::ids::{SubscriptionId, TenantId};
+use common_domain::ids::{BaseId, SubscriptionId, TenantId};
 use diesel_models::bi::BiMrrMovementLogRowNew;
 use diesel_models::enums::{MrrMovementType, SubscriptionEventType, SubscriptionStatusEnum};
 use diesel_models::invoices::InvoiceRow;
+use diesel_models::query::bi::MrrDailyUpsertInput;
 use diesel_models::subscription_events::SubscriptionEventRow;
 use diesel_models::subscriptions::{SubscriptionCycleRowPatch, SubscriptionRow};
 use error_stack::Report;
+use rust_decimal::Decimal;
+use rust_decimal::prelude::FromPrimitive;
 use uuid::Uuid;
 
 impl Services {
@@ -148,6 +152,43 @@ impl Services {
             .insert(conn)
             .await
             .map_err(Into::<Report<StoreError>>::into)?;
+
+        // Aggregate into bi_delta_mrr_daily (replaces trigger)
+        let rates = get_historical_rate_from_usd_by_date_cached(conn, termination_date).await?;
+        if let Some(rates) = rates {
+            let rate = rates
+                .rates
+                .get(&subscription.subscription.currency)
+                .copied()
+                .unwrap_or(1.0);
+            let mrr_change_usd = if rate != 0.0 {
+                let rate_decimal = Decimal::from_f32(rate).unwrap_or(Decimal::ONE);
+                Decimal::from(mrr_delta) / rate_decimal
+            } else {
+                Decimal::ZERO
+            };
+
+            diesel_models::bi::BiDeltaMrrDailyRow::upsert_mrr_movement(
+                conn,
+                MrrDailyUpsertInput {
+                    tenant_id: tenant_id.as_uuid(),
+                    plan_version_id: subscription.subscription.plan_version_id.as_uuid(),
+                    date: termination_date,
+                    currency: subscription.subscription.currency.clone(),
+                    movement_type: MrrMovementType::Churn,
+                    net_mrr_change: mrr_delta,
+                    net_mrr_change_usd: mrr_change_usd,
+                    historical_rate_id: rates.id,
+                },
+            )
+            .await
+            .map_err(Into::<Report<StoreError>>::into)?;
+        } else {
+            log::warn!(
+                "No historical rates found for date {}, MRR USD values will be zero",
+                termination_date
+            );
+        }
 
         // Update the subscription event to link to the MRR log (for audit trail)
         SubscriptionEventRow::update_mrr_movement_log_id(conn, event.id, inserted_log.id)

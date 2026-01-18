@@ -1,6 +1,7 @@
 use crate::services::credit_note_rendering::CreditNotePdfRenderingService;
 use crate::services::invoice_rendering::PdfRenderingService;
 use crate::services::storage::ObjectStoreService;
+use crate::workers::pgmq::bi_aggregation::BiAggregation;
 use crate::workers::pgmq::billable_metric_sync::BillableMetricSync;
 use crate::workers::pgmq::credit_note_pdf_render::CreditNotePdfRender;
 use crate::workers::pgmq::hubspot_sync::HubspotSync;
@@ -311,6 +312,24 @@ pub async fn run_quote_conversion(store: Arc<Store>, services: Arc<Services>) {
         delete_succeeded: true,
         sleep_duration: std::time::Duration::from_millis(1500),
         max_read_count: ReadCt(3),
+    })
+    .await;
+}
+
+pub async fn run_bi_aggregation(store: Arc<Store>) {
+    let queue = PgmqQueue::BiAggregation;
+    let processor = Arc::new(BiAggregation::new(store.clone()));
+
+    run(ProcessorConfig {
+        name: processor_name("BiAggregation"),
+        queue,
+        handler: processor,
+        store,
+        qty: MessageReadQty(50),
+        vt: MessageReadVtSec(10),
+        delete_succeeded: true,
+        sleep_duration: std::time::Duration::from_millis(1500),
+        max_read_count: ReadCt(5),
     })
     .await;
 }

@@ -28,19 +28,19 @@ impl RevenueTrendRow {
     conversion_rates AS (SELECT id,
                                  (rates ->> (SELECT reporting_currency FROM tenant WHERE id = $3))::NUMERIC AS conversion_rate
                           FROM historical_rates_from_usd),
-    revenue_ytd AS (SELECT COALESCE(SUM(net_revenue_cents * cr.conversion_rate), 0)::bigint AS total_ytd
+    revenue_ytd AS (SELECT COALESCE(SUM(net_revenue_cents_usd  * cr.conversion_rate), 0)::bigint AS total_ytd
                      FROM bi_revenue_daily
                               JOIN conversion_rates cr ON bi_revenue_daily.historical_rate_id = cr.id
                      WHERE revenue_date BETWEEN DATE_TRUNC('year', CURRENT_DATE) AND CURRENT_DATE
                        AND bi_revenue_daily.tenant_id = $4),
-    current_period AS (SELECT COALESCE(SUM(net_revenue_cents_usd * cr.conversion_rate), 0)::bigint AS total
+    current_period AS (SELECT COALESCE(SUM(net_revenue_cents_usd  * cr.conversion_rate), 0)::bigint AS total
                         FROM bi_revenue_daily
                                  JOIN
                              period ON revenue_date BETWEEN period.start_current_period AND CURRENT_DATE
                                  JOIN
                              conversion_rates cr ON bi_revenue_daily.historical_rate_id = cr.id
                         WHERE bi_revenue_daily.tenant_id = $5),
-    previous_period AS (SELECT COALESCE(SUM(net_revenue_cents_usd * cr.conversion_rate), 0)::bigint AS total
+    previous_period AS (SELECT COALESCE(SUM(net_revenue_cents_usd  * cr.conversion_rate), 0)::bigint AS total
                          FROM bi_revenue_daily
                                   JOIN
                               period
@@ -288,24 +288,39 @@ impl CustomerTopRevenueRow {
         currency: &str,
         limit: i32,
     ) -> DbResult<Vec<CustomerTopRevenueRow>> {
+        // Use CTEs to pre-filter BI data for better performance
+        // and compute both YTD and all-time revenue in a single query
         let raw_sql = r"
+        WITH ytd_revenue AS (
+            SELECT customer_id, total_revenue_cents
+            FROM bi_customer_ytd_summary
+            WHERE tenant_id = $2
+              AND currency = $1
+              AND revenue_year = EXTRACT(YEAR FROM CURRENT_DATE)::INT
+        ),
+        all_time_revenue AS (
+            SELECT customer_id, SUM(total_revenue_cents) AS total_revenue_cents
+            FROM bi_customer_ytd_summary
+            WHERE tenant_id = $2
+              AND currency = $1
+            GROUP BY customer_id
+        )
         SELECT c.id,
-        c.name,
-        COALESCE(bi.total_revenue_cents, 0)::bigint AS total_revenue_cents,
-        $1                                  AS currency
+               c.name,
+               COALESCE(ytd.total_revenue_cents, 0)::bigint AS revenue_ytd_cents,
+               COALESCE(alltime.total_revenue_cents, 0)::bigint AS revenue_all_time_cents,
+               $1 AS currency
         FROM customer c
-                 LEFT JOIN bi_customer_ytd_summary bi ON bi.customer_id = c.id
+        LEFT JOIN ytd_revenue ytd ON ytd.customer_id = c.id
+        LEFT JOIN all_time_revenue alltime ON alltime.customer_id = c.id
         WHERE c.tenant_id = $2
-          AND (bi.revenue_year IS NULL OR bi.currency = $3)
-          AND (bi.revenue_year IS NULL OR bi.revenue_year = DATE_PART('year', CURRENT_DATE))
-        ORDER BY total_revenue_cents DESC
-        LIMIT $4;
+        ORDER BY revenue_all_time_cents DESC
+        LIMIT $3;
         ";
 
         diesel::sql_query(raw_sql)
             .bind::<sql_types::Text, _>(currency)
             .bind::<sql_types::Uuid, _>(tenant_id)
-            .bind::<sql_types::Text, _>(currency)
             .bind::<sql_types::Integer, _>(limit)
             .get_results::<CustomerTopRevenueRow>(conn)
             .await
@@ -327,7 +342,7 @@ impl TotalMrrRow {
                     CASE
                         WHEN bd.currency = t.reporting_currency
                         THEN bd.net_mrr_cents
-                        ELSE bd.net_mrr_cents_usd * (hr.rates->>t.reporting_currency)::NUMERIC
+                        ELSE bd.net_mrr_cents_usd  * (hr.rates->>t.reporting_currency)::NUMERIC
                     END
                 ),
                 0
@@ -366,48 +381,40 @@ impl TotalMrrChartRow {
             FROM
                 historical_rates_from_usd
         ),
-        data_bounds AS (
-            SELECT COALESCE(MIN(date), $2::date) AS min_date
-            FROM bi_delta_mrr_daily
-            WHERE tenant_id = $3
-        ),
-        effective_start AS (
-            SELECT GREATEST($4::date, (SELECT min_date - INTERVAL '1 month' FROM data_bounds)::date) AS start_date
-        ),
         initial_mrr AS (
             SELECT
-                COALESCE(FLOOR(SUM(bd.net_mrr_cents_usd * cr.conversion_rate)), 0)::BIGINT AS total_net_mrr_cents
+                COALESCE(FLOOR(SUM(bd.net_mrr_cents_usd  * cr.conversion_rate)), 0)::BIGINT AS total_net_mrr_cents
             FROM
                 bi_delta_mrr_daily bd
                     JOIN
                 conversion_rates cr ON bd.historical_rate_id = cr.id
             WHERE
-                bd.date < (SELECT start_date FROM effective_start)
-              AND bd.tenant_id = $5
+                bd.date < $2
+              AND bd.tenant_id = $3
         ),
         date_series AS (
-            SELECT generate_series((SELECT start_date FROM effective_start), $6::date, '1 day'::interval)::date AS period
+            SELECT generate_series($4::date, $5::date, '1 day'::interval)::date AS period
         ),
         daily_mrr AS (
             SELECT
                 bi.date AS period,
-                FLOOR(SUM(bi.net_mrr_cents_usd) * MAX(cr.conversion_rate))::BIGINT AS net_new_mrr,
-                FLOOR(SUM(bi.new_business_cents_usd) * MAX(cr.conversion_rate))::BIGINT AS new_business_mrr,
+                FLOOR(SUM(bi.net_mrr_cents_usd ) * MAX(cr.conversion_rate))::BIGINT AS net_new_mrr,
+                FLOOR(SUM(bi.new_business_cents_usd ) * MAX(cr.conversion_rate))::BIGINT AS new_business_mrr,
                 SUM(bi.new_business_count)::INTEGER AS new_business_count,
-                FLOOR(SUM(bi.expansion_cents_usd) * MAX(cr.conversion_rate))::BIGINT AS expansion_mrr,
+                FLOOR(SUM(bi.expansion_cents_usd ) * MAX(cr.conversion_rate))::BIGINT AS expansion_mrr,
                 SUM(bi.expansion_count)::INTEGER AS expansion_count,
-                FLOOR(SUM(bi.contraction_cents_usd) * MAX(cr.conversion_rate))::BIGINT AS contraction_mrr,
+                FLOOR(SUM(bi.contraction_cents_usd ) * MAX(cr.conversion_rate))::BIGINT AS contraction_mrr,
                 SUM(bi.contraction_count)::INTEGER AS contraction_count,
-                FLOOR(SUM(bi.churn_cents_usd) * MAX(cr.conversion_rate))::BIGINT AS churn_mrr,
+                FLOOR(SUM(bi.churn_cents_usd ) * MAX(cr.conversion_rate))::BIGINT AS churn_mrr,
                 SUM(bi.churn_count)::INTEGER AS churn_count,
-                FLOOR(SUM(bi.reactivation_cents_usd) * MAX(cr.conversion_rate))::BIGINT AS reactivation_mrr,
+                FLOOR(SUM(bi.reactivation_cents_usd ) * MAX(cr.conversion_rate))::BIGINT AS reactivation_mrr,
                 SUM(bi.reactivation_count)::INTEGER AS reactivation_count
             FROM
                 bi_delta_mrr_daily bi
                     JOIN
                 conversion_rates cr ON bi.historical_rate_id = cr.id
             WHERE
-                bi.date BETWEEN (SELECT start_date FROM effective_start) AND $7
+                bi.date BETWEEN $6 AND $7
               AND bi.tenant_id = $8
             GROUP BY bi.date
         ),
@@ -451,13 +458,13 @@ impl TotalMrrChartRow {
 
         let query = diesel::sql_query(raw_sql)
             .bind::<sql_types::Uuid, _>(tenant_id) // $1: conversion_rates
-            .bind::<sql_types::Date, _>(start_date) // $2: data_bounds fallback
-            .bind::<sql_types::Uuid, _>(tenant_id) // $3: data_bounds
-            .bind::<sql_types::Date, _>(start_date) // $4: effective_start GREATEST
-            .bind::<sql_types::Uuid, _>(tenant_id) // $5: initial_mrr
-            .bind::<sql_types::Date, _>(end_date) // $6: date_series end
+            .bind::<sql_types::Date, _>(start_date) // $2: initial_mrr cutoff
+            .bind::<sql_types::Uuid, _>(tenant_id) // $3: initial_mrr tenant
+            .bind::<sql_types::Date, _>(start_date) // $4: date_series start
+            .bind::<sql_types::Date, _>(end_date) // $5: date_series end
+            .bind::<sql_types::Date, _>(start_date) // $6: daily_mrr start
             .bind::<sql_types::Date, _>(end_date) // $7: daily_mrr end
-            .bind::<sql_types::Uuid, _>(tenant_id); // $8: daily_mrr
+            .bind::<sql_types::Uuid, _>(tenant_id); // $8: daily_mrr tenant
 
         log::debug!("{}", debug_query::<diesel::pg::Pg, _>(&query));
 
@@ -492,17 +499,9 @@ impl TotalMrrByPlanRow {
         selected_plans AS (
             SELECT id, name FROM plan WHERE id = ANY($2)
         ),
-        data_bounds AS (
-            SELECT COALESCE(MIN(date), $3::date) AS min_date
-            FROM bi_delta_mrr_daily
-            WHERE tenant_id = $4
-        ),
-        effective_start AS (
-            SELECT GREATEST($5::date, (SELECT min_date - INTERVAL '1 month' FROM data_bounds)::date) AS start_date
-        ),
         initial_mrr AS (
             SELECT
-                COALESCE(FLOOR(SUM(bi.net_mrr_cents_usd * cr.conversion_rate)), 0)::BIGINT AS total_net_mrr_usd,
+                COALESCE(FLOOR(SUM(bi.net_mrr_cents_usd  * cr.conversion_rate)), 0)::BIGINT AS total_net_mrr_usd,
                 pv.plan_id
             FROM
                 bi_delta_mrr_daily bi
@@ -511,14 +510,14 @@ impl TotalMrrByPlanRow {
                     JOIN
                 conversion_rates cr ON bi.historical_rate_id = cr.id
             WHERE
-                bi.date < (SELECT start_date FROM effective_start)
-                AND bi.tenant_id = $6
-                AND pv.plan_id = ANY ($7)
+                bi.date < $3
+                AND bi.tenant_id = $4
+                AND pv.plan_id = ANY ($5)
             GROUP BY
                 pv.plan_id
         ),
         date_series AS (
-            SELECT generate_series((SELECT start_date FROM effective_start), $8::date, '1 day'::interval)::date AS period
+            SELECT generate_series($6::date, $7::date, '1 day'::interval)::date AS period
         ),
         date_plan_series AS (
             SELECT ds.period, sp.id AS plan_id, sp.name AS plan_name
@@ -529,23 +528,23 @@ impl TotalMrrByPlanRow {
             SELECT
                 bi.date AS period,
                 pv.plan_id,
-                FLOOR(SUM(bi.net_mrr_cents_usd) * MAX(cr.conversion_rate))::BIGINT AS net_new_mrr,
-                FLOOR(SUM(bi.new_business_cents_usd) * MAX(cr.conversion_rate))::BIGINT AS new_business_mrr,
+                FLOOR(SUM(bi.net_mrr_cents_usd ) * MAX(cr.conversion_rate))::BIGINT AS net_new_mrr,
+                FLOOR(SUM(bi.new_business_cents_usd ) * MAX(cr.conversion_rate))::BIGINT AS new_business_mrr,
                 SUM(bi.new_business_count)::INTEGER AS new_business_count,
-                FLOOR(SUM(bi.expansion_cents_usd) * MAX(cr.conversion_rate))::BIGINT AS expansion_mrr,
+                FLOOR(SUM(bi.expansion_cents_usd ) * MAX(cr.conversion_rate))::BIGINT AS expansion_mrr,
                 SUM(bi.expansion_count)::INTEGER AS expansion_count,
-                FLOOR(SUM(bi.contraction_cents_usd) * MAX(cr.conversion_rate))::BIGINT AS contraction_mrr,
+                FLOOR(SUM(bi.contraction_cents_usd ) * MAX(cr.conversion_rate))::BIGINT AS contraction_mrr,
                 SUM(bi.contraction_count)::INTEGER AS contraction_count,
-                FLOOR(SUM(bi.churn_cents_usd) * MAX(cr.conversion_rate))::BIGINT AS churn_mrr,
+                FLOOR(SUM(bi.churn_cents_usd ) * MAX(cr.conversion_rate))::BIGINT AS churn_mrr,
                 SUM(bi.churn_count)::INTEGER AS churn_count,
-                FLOOR(SUM(bi.reactivation_cents_usd) * MAX(cr.conversion_rate))::BIGINT AS reactivation_mrr,
+                FLOOR(SUM(bi.reactivation_cents_usd ) * MAX(cr.conversion_rate))::BIGINT AS reactivation_mrr,
                 SUM(bi.reactivation_count)::INTEGER AS reactivation_count
             FROM
                 bi_delta_mrr_daily bi
                     JOIN plan_version pv ON bi.plan_version_id = pv.id
                     JOIN conversion_rates cr ON bi.historical_rate_id = cr.id
             WHERE
-                bi.date BETWEEN (SELECT start_date FROM effective_start) AND $9
+                bi.date BETWEEN $8 AND $9
               AND bi.tenant_id = $10
               AND pv.plan_id = ANY($11)
             GROUP BY bi.date, pv.plan_id
@@ -594,14 +593,14 @@ impl TotalMrrByPlanRow {
         let query = diesel::sql_query(raw_sql)
             .bind::<sql_types::Uuid, _>(tenant_id) // $1: conversion_rates
             .bind::<sql_types::Array<sql_types::Uuid>, _>(plan_ids) // $2: selected_plans
-            .bind::<sql_types::Date, _>(start_date) // $3: data_bounds fallback
-            .bind::<sql_types::Uuid, _>(tenant_id) // $4: data_bounds
-            .bind::<sql_types::Date, _>(start_date) // $5: effective_start GREATEST
-            .bind::<sql_types::Uuid, _>(tenant_id) // $6: initial_mrr
-            .bind::<sql_types::Array<sql_types::Uuid>, _>(plan_ids) // $7: initial_mrr plan filter
-            .bind::<sql_types::Date, _>(end_date) // $8: date_series end
+            .bind::<sql_types::Date, _>(start_date) // $3: initial_mrr cutoff
+            .bind::<sql_types::Uuid, _>(tenant_id) // $4: initial_mrr tenant
+            .bind::<sql_types::Array<sql_types::Uuid>, _>(plan_ids) // $5: initial_mrr plan filter
+            .bind::<sql_types::Date, _>(start_date) // $6: date_series start
+            .bind::<sql_types::Date, _>(end_date) // $7: date_series end
+            .bind::<sql_types::Date, _>(start_date) // $8: daily_mrr start
             .bind::<sql_types::Date, _>(end_date) // $9: daily_mrr end
-            .bind::<sql_types::Uuid, _>(tenant_id) // $10: daily_mrr
+            .bind::<sql_types::Uuid, _>(tenant_id) // $10: daily_mrr tenant
             .bind::<sql_types::Array<sql_types::Uuid>, _>(plan_ids); // $11: daily_mrr plan filter
 
         log::debug!("{}", debug_query::<diesel::pg::Pg, _>(&query));
@@ -630,16 +629,16 @@ impl MrrBreakdownRow {
                 historical_rates_from_usd
         )
         SELECT
-            COALESCE(FLOOR(SUM(bi.net_mrr_cents_usd * cr.rate)), 0)::BIGINT AS net_new_mrr,
-            COALESCE(FLOOR(SUM(bi.new_business_cents_usd * cr.rate)), 0)::BIGINT AS new_business_mrr,
+            COALESCE(FLOOR(SUM(bi.net_mrr_cents_usd  * cr.rate)), 0)::BIGINT AS net_new_mrr,
+            COALESCE(FLOOR(SUM(bi.new_business_cents_usd  * cr.rate)), 0)::BIGINT AS new_business_mrr,
             COALESCE(SUM(bi.new_business_count), 0)::INTEGER AS new_business_count,
-            COALESCE(FLOOR(SUM(bi.expansion_cents_usd * cr.rate)), 0)::BIGINT AS expansion_mrr,
+            COALESCE(FLOOR(SUM(bi.expansion_cents_usd  * cr.rate)), 0)::BIGINT AS expansion_mrr,
             COALESCE(SUM(bi.expansion_count), 0)::INTEGER AS expansion_count,
-            COALESCE(FLOOR(SUM(bi.contraction_cents_usd * cr.rate)), 0)::BIGINT AS contraction_mrr,
+            COALESCE(FLOOR(SUM(bi.contraction_cents_usd  * cr.rate)), 0)::BIGINT AS contraction_mrr,
             COALESCE(SUM(bi.contraction_count), 0)::INTEGER AS contraction_count,
-            COALESCE(FLOOR(SUM(bi.churn_cents_usd * cr.rate)), 0)::BIGINT AS churn_mrr,
+            COALESCE(FLOOR(SUM(bi.churn_cents_usd  * cr.rate)), 0)::BIGINT AS churn_mrr,
             COALESCE(SUM(bi.churn_count), 0)::INTEGER AS churn_count,
-            COALESCE(FLOOR(SUM(bi.reactivation_cents_usd * cr.rate)), 0)::BIGINT AS reactivation_mrr,
+            COALESCE(FLOOR(SUM(bi.reactivation_cents_usd  * cr.rate)), 0)::BIGINT AS reactivation_mrr,
             COALESCE(SUM(bi.reactivation_count), 0)::INTEGER AS reactivation_count
         FROM
             bi_delta_mrr_daily bi
@@ -732,6 +731,8 @@ impl RevenueChartRow {
 
         if has_plan_filter {
             let plan_ids = plan_ids.unwrap();
+            // Returns cumulative revenue within the selected period (starting from 0)
+            // and daily revenue for each day
             let raw_sql = r"
             WITH conversion_rates AS (
                 SELECT
@@ -740,28 +741,8 @@ impl RevenueChartRow {
                 FROM
                     historical_rates_from_usd
             ),
-            data_bounds AS (
-                SELECT COALESCE(MIN(revenue_date), $2::date) AS min_date
-                FROM bi_revenue_daily
-                WHERE tenant_id = $3
-            ),
-            effective_start AS (
-                SELECT GREATEST($4::date, (SELECT min_date - INTERVAL '1 month' FROM data_bounds)::date) AS start_date
-            ),
-            initial_revenue AS (
-                SELECT
-                    COALESCE(ROUND(SUM(bi.net_revenue_cents_usd * cr.conversion_rate)), 0)::BIGINT AS total_revenue
-                FROM
-                    bi_revenue_daily bi
-                        JOIN conversion_rates cr ON bi.historical_rate_id = cr.id
-                        LEFT JOIN plan_version pv ON bi.plan_version_id = pv.id
-                WHERE
-                    bi.revenue_date < (SELECT start_date FROM effective_start)
-                  AND bi.tenant_id = $5
-                  AND (bi.plan_version_id IS NULL OR pv.plan_id = ANY($9))
-            ),
             date_series AS (
-                SELECT generate_series((SELECT start_date FROM effective_start), $6::date, '1 day'::interval)::date AS period
+                SELECT generate_series($2::date, $3::date, '1 day'::interval)::date AS period
             ),
             daily_revenue AS (
                 SELECT
@@ -772,9 +753,9 @@ impl RevenueChartRow {
                         JOIN conversion_rates cr ON bi.historical_rate_id = cr.id
                         LEFT JOIN plan_version pv ON bi.plan_version_id = pv.id
                 WHERE
-                    bi.revenue_date BETWEEN (SELECT start_date FROM effective_start) AND $7
-                  AND bi.tenant_id = $8
-                  AND (bi.plan_version_id IS NULL OR pv.plan_id = ANY($10))
+                    bi.revenue_date BETWEEN $4 AND $5
+                  AND bi.tenant_id = $6
+                  AND (bi.plan_version_id IS NULL OR pv.plan_id = ANY($7))
                 GROUP BY bi.revenue_date
             ),
             filled_revenue AS (
@@ -787,24 +768,20 @@ impl RevenueChartRow {
             )
             SELECT
                 fr.period,
-                (ir.total_revenue + COALESCE(SUM(fr.daily_revenue) OVER (ORDER BY fr.period), 0))::BIGINT AS total_revenue
+                COALESCE(SUM(fr.daily_revenue) OVER (ORDER BY fr.period), 0)::BIGINT AS total_revenue,
+                fr.daily_revenue
             FROM
                 filled_revenue fr
-                    CROSS JOIN
-                initial_revenue ir
             ORDER BY fr.period";
 
             let query = diesel::sql_query(raw_sql)
                 .bind::<sql_types::Uuid, _>(tenant_id) // $1: conversion_rates
-                .bind::<sql_types::Date, _>(start_date) // $2: data_bounds fallback
-                .bind::<sql_types::Uuid, _>(tenant_id) // $3: data_bounds
-                .bind::<sql_types::Date, _>(start_date) // $4: effective_start GREATEST
-                .bind::<sql_types::Uuid, _>(tenant_id) // $5: initial_revenue
-                .bind::<sql_types::Date, _>(end_date) // $6: date_series end
-                .bind::<sql_types::Date, _>(end_date) // $7: daily_revenue end
-                .bind::<sql_types::Uuid, _>(tenant_id) // $8: daily_revenue
-                .bind::<sql_types::Array<sql_types::Uuid>, _>(plan_ids) // $9: initial_revenue plan filter
-                .bind::<sql_types::Array<sql_types::Uuid>, _>(plan_ids); // $10: daily_revenue plan filter
+                .bind::<sql_types::Date, _>(start_date) // $2: date_series start
+                .bind::<sql_types::Date, _>(end_date) // $3: date_series end
+                .bind::<sql_types::Date, _>(start_date) // $4: daily_revenue start
+                .bind::<sql_types::Date, _>(end_date) // $5: daily_revenue end
+                .bind::<sql_types::Uuid, _>(tenant_id) // $6: daily_revenue tenant
+                .bind::<sql_types::Array<sql_types::Uuid>, _>(plan_ids); // $7: daily_revenue plan filter
 
             log::debug!("{}", debug_query::<diesel::pg::Pg, _>(&query));
 
@@ -818,6 +795,8 @@ impl RevenueChartRow {
                 .attach("Error while fetching revenue chart")
                 .into_db_result()
         } else {
+            // Returns cumulative revenue within the selected period (starting from 0)
+            // and daily revenue for each day
             let raw_sql = r"
             WITH conversion_rates AS (
                 SELECT
@@ -826,27 +805,8 @@ impl RevenueChartRow {
                 FROM
                     historical_rates_from_usd
             ),
-            data_bounds AS (
-                SELECT COALESCE(MIN(revenue_date), $2::date) AS min_date
-                FROM bi_revenue_daily
-                WHERE tenant_id = $3
-            ),
-            effective_start AS (
-                SELECT GREATEST($4::date, (SELECT min_date - INTERVAL '1 month' FROM data_bounds)::date) AS start_date
-            ),
-            initial_revenue AS (
-                SELECT
-                    COALESCE(ROUND(SUM(bi.net_revenue_cents_usd * cr.conversion_rate)), 0)::BIGINT AS total_revenue
-                FROM
-                    bi_revenue_daily bi
-                        JOIN
-                    conversion_rates cr ON bi.historical_rate_id = cr.id
-                WHERE
-                    bi.revenue_date < (SELECT start_date FROM effective_start)
-                  AND bi.tenant_id = $5
-            ),
             date_series AS (
-                SELECT generate_series((SELECT start_date FROM effective_start), $6::date, '1 day'::interval)::date AS period
+                SELECT generate_series($2::date, $3::date, '1 day'::interval)::date AS period
             ),
             daily_revenue AS (
                 SELECT
@@ -854,11 +814,10 @@ impl RevenueChartRow {
                     COALESCE(ROUND(SUM(bi.net_revenue_cents_usd * cr.conversion_rate)), 0)::BIGINT AS daily_revenue
                 FROM
                     bi_revenue_daily bi
-                        JOIN
-                    conversion_rates cr ON bi.historical_rate_id = cr.id
+                        JOIN conversion_rates cr ON bi.historical_rate_id = cr.id
                 WHERE
-                    bi.revenue_date BETWEEN (SELECT start_date FROM effective_start) AND $7
-                  AND bi.tenant_id = $8
+                    bi.revenue_date BETWEEN $4 AND $5
+                  AND bi.tenant_id = $6
                 GROUP BY bi.revenue_date
             ),
             filled_revenue AS (
@@ -871,22 +830,19 @@ impl RevenueChartRow {
             )
             SELECT
                 fr.period,
-                (ir.total_revenue + COALESCE(SUM(fr.daily_revenue) OVER (ORDER BY fr.period), 0))::BIGINT AS total_revenue
+                COALESCE(SUM(fr.daily_revenue) OVER (ORDER BY fr.period), 0)::BIGINT AS total_revenue,
+                fr.daily_revenue
             FROM
                 filled_revenue fr
-                    CROSS JOIN
-                initial_revenue ir
             ORDER BY fr.period";
 
             let query = diesel::sql_query(raw_sql)
                 .bind::<sql_types::Uuid, _>(tenant_id) // $1: conversion_rates
-                .bind::<sql_types::Date, _>(start_date) // $2: data_bounds fallback
-                .bind::<sql_types::Uuid, _>(tenant_id) // $3: data_bounds
-                .bind::<sql_types::Date, _>(start_date) // $4: effective_start GREATEST
-                .bind::<sql_types::Uuid, _>(tenant_id) // $5: initial_revenue
-                .bind::<sql_types::Date, _>(end_date) // $6: date_series end
-                .bind::<sql_types::Date, _>(end_date) // $7: daily_revenue end
-                .bind::<sql_types::Uuid, _>(tenant_id); // $8: daily_revenue
+                .bind::<sql_types::Date, _>(start_date) // $2: date_series start
+                .bind::<sql_types::Date, _>(end_date) // $3: date_series end
+                .bind::<sql_types::Date, _>(start_date) // $4: daily_revenue start
+                .bind::<sql_types::Date, _>(end_date) // $5: daily_revenue end
+                .bind::<sql_types::Uuid, _>(tenant_id); // $6: daily_revenue tenant
 
             log::debug!("{}", debug_query::<diesel::pg::Pg, _>(&query));
 

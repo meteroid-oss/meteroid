@@ -58,7 +58,8 @@ pub struct TrialConversionDataPoint {
 pub struct RevenueByCustomer {
     pub customer_name: String,
     pub customer_id: CustomerId,
-    pub revenue: i64,
+    pub revenue_ytd: i64,
+    pub revenue_all_time: i64,
     pub currency: String,
 }
 
@@ -193,6 +194,8 @@ pub struct MrrLogEntry {
     pub plan_name: String,
     pub description: String,
     pub mrr_type: MrrMovementType,
+    pub mrr_change: i64,
+    pub currency: String,
 }
 
 pub struct RevenueChartRequest {
@@ -215,4 +218,5 @@ pub struct RevenueChartSeries {
 pub struct RevenueChartDataPoint {
     pub x: String,
     pub revenue: i64,
+    pub daily_revenue: i64,
 }

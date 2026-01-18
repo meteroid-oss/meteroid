@@ -95,7 +95,7 @@ impl HistoricalRatesInterface for Store {
     key = "NaiveDate",
     convert = r#"{ date }"#
 )]
-async fn get_historical_rate_from_usd_by_date_cached(
+pub async fn get_historical_rate_from_usd_by_date_cached(
     conn: &mut PgConn,
     date: NaiveDate,
 ) -> StoreResult<Option<HistoricalRatesFromUsd>> {

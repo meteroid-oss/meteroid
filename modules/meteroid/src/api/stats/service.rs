@@ -193,6 +193,7 @@ impl StatsService for StatsServiceComponents {
                     .map(|dp| revenue_chart_series::DataPoint {
                         x: dp.x,
                         revenue: dp.revenue,
+                        daily_revenue: dp.daily_revenue,
                     })
                     .collect(),
             })
@@ -268,6 +269,8 @@ impl StatsService for StatsServiceComponents {
                     description: entry.description,
                     plan_name: entry.plan_name,
                     subscription_id: entry.subscription_id,
+                    mrr_change: entry.mrr_change,
+                    currency: entry.currency,
                 })
                 .collect(),
         }))
@@ -375,7 +378,8 @@ impl StatsService for StatsServiceComponents {
             .map(|customer| grpc::RevenueByCustomer {
                 customer_id: customer.customer_id.to_string(),
                 customer_name: customer.customer_name,
-                revenue: customer.revenue,
+                revenue_ytd: customer.revenue_ytd,
+                revenue_all_time: customer.revenue_all_time,
             })
             .collect();
 
