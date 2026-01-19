@@ -111,34 +111,34 @@ impl TryInto<SubscriptionAddOnRowNew> for SubscriptionAddOnNew {
     }
 }
 
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct SubscriptionAddOnOverride {
     pub name: String,
     pub period: SubscriptionFeeBillingPeriod,
     pub fee: SubscriptionFee,
 }
 
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct SubscriptionAddOnParameterization {
     pub initial_slot_count: Option<u32>,
     pub billing_period: Option<BillingPeriodEnum>,
     pub committed_capacity: Option<u64>,
 }
 
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, Serialize, Deserialize)]
 pub enum SubscriptionAddOnCustomization {
     Override(SubscriptionAddOnOverride),
     Parameterization(SubscriptionAddOnParameterization),
     None,
 }
 
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct CreateSubscriptionAddOn {
     pub add_on_id: AddOnId,
     pub customization: SubscriptionAddOnCustomization,
 }
 
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct CreateSubscriptionAddOns {
     pub add_ons: Vec<CreateSubscriptionAddOn>,
 }

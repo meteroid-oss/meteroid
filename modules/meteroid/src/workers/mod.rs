@@ -156,6 +156,13 @@ pub async fn spawn_workers(
         });
     }
 
+    {
+        let store = store.clone();
+        join_set.spawn(async move {
+            misc::checkout_session_cleanup::run_checkout_session_cleanup_worker(store).await;
+        });
+    }
+
     join_set.spawn(async move {
         misc::currency_rates_worker::run_currency_rates_worker(&store, &currency_rates_service)
             .await;

@@ -136,7 +136,7 @@ const PaymentPanelInner: React.FC<
     return (
       <div
         key={method.id}
-        className={`relative flex items-center p-2 border rounded-md mb-2 cursor-pointer ${
+        className={`flex items-center p-2 border rounded-md mb-2 cursor-pointer ${
           isSelected ? 'border-blue-600 bg-blue-50' : 'border-gray-300'
         }`}
         onClick={() => setSelectedPaymentMethod({ type: 'saved', id: method.id })}
@@ -151,9 +151,9 @@ const PaymentPanelInner: React.FC<
 
         {isCard ? (
           <>
-            <CreditCard size={20} className="mr-3 text-gray-500" />
-            <div>
-              <div className="font-medium text-sm">
+            <CreditCard size={20} className="mr-3 text-gray-500 flex-shrink-0" />
+            <div className="min-w-0">
+              <div className="font-medium text-sm truncate">
                 {method.cardBrand} •••• {method.cardLast4}
               </div>
               <div className="text-xs text-gray-500">
@@ -161,28 +161,30 @@ const PaymentPanelInner: React.FC<
                 {method.cardExpYear?.toString().slice(-2)}
               </div>
             </div>
-            {method.cardBrand && (
-              <div className="ml-auto">
-                <CardBrandLogo brand={method.cardBrand} />
-              </div>
-            )}
+            <div className="ml-auto flex items-center gap-2 flex-shrink-0">
+              {isDefault && (
+                <div className="bg-gray-100 text-gray-500 text-xs font-medium rounded px-2 py-1">
+                  Default
+                </div>
+              )}
+              {method.cardBrand && <CardBrandLogo brand={method.cardBrand} />}
+            </div>
           </>
         ) : (
           <>
-            <Building size={20} className="mr-3 text-gray-500" />
-            <div>
-              <div className="font-medium">Bank account</div>
+            <Building size={20} className="mr-3 text-gray-500 flex-shrink-0" />
+            <div className="min-w-0">
+              <div className="font-medium truncate">Bank account</div>
               <div className="text-xs text-gray-500">
                 {method.accountNumberHint && `••••${method.accountNumberHint}`}
               </div>
             </div>
+            {isDefault && (
+              <div className="ml-auto bg-gray-100 text-gray-500 text-xs font-medium rounded px-2 py-1 flex-shrink-0">
+                Default
+              </div>
+            )}
           </>
-        )}
-
-        {isDefault && (
-          <div className="absolute top-1 right-1 bg-blue-100 text-blue-800 text-xs rounded px-1.5 py-0.5">
-            Default
-          </div>
         )}
       </div>
     )

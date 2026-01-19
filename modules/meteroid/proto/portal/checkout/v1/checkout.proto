@@ -3,35 +3,54 @@ syntax = "proto3";
 package meteroid.portal.checkout.v1;
 
 import "portal/checkout/v1/models.proto";
-import "api/customers/v1/models.proto";
 import "api/invoices/v1/models.proto";
 
-message GetSubscriptionCheckoutRequest {
-  optional string subscription_id = 1;
-  optional string coupon_code = 2;
+// Checkout type enum
+enum CheckoutType {
+  CHECKOUT_TYPE_SELF_SERVE = 0;
+  CHECKOUT_TYPE_SUBSCRIPTION_ACTIVATION = 1;
 }
 
-message GetSubscriptionCheckoutResponse {
+// GetCheckout - works with CheckoutSession token
+message GetCheckoutRequest {
+  optional string coupon_code = 1;
+}
+
+message GetCheckoutResponse {
   Checkout checkout = 1;
+  CheckoutType checkout_type = 2;
 }
 
-
+// ConfirmCheckout - works with CheckoutSession token
 message ConfirmCheckoutRequest {
   string payment_method_id = 1;
   uint64 displayed_amount = 2;
   string displayed_currency = 3;
-  optional string subscription_id = 4;
-  optional string coupon_code = 5;
+  optional string coupon_code = 4;
 }
+
+// Status of checkout confirmation
+enum ConfirmCheckoutStatus {
+  // Checkout completed successfully - subscription created
+  CONFIRM_CHECKOUT_STATUS_COMPLETED = 0;
+  // Payment is pending (async payment method like SEPA) - awaiting webhook confirmation
+  CONFIRM_CHECKOUT_STATUS_AWAITING_PAYMENT = 1;
+}
+
 message ConfirmCheckoutResponse {
-  api.invoices.v1.Transaction transaction = 1;
+  optional api.invoices.v1.Transaction transaction = 1;
+  // Subscription ID - present when status is COMPLETED, absent when AWAITING_PAYMENT
+  optional string subscription_id = 2;
+  ConfirmCheckoutStatus status = 3;
 }
+
 
 message GetSlotUpgradeCheckoutRequest {
   string subscription_id = 1;
   string price_component_id = 2;
   int32 delta = 3;
 }
+
 message GetSlotUpgradeCheckoutResponse {
   SlotUpgradeCheckout checkout = 1;
 }
@@ -44,14 +63,18 @@ message ConfirmSlotUpgradeCheckoutRequest {
   uint64 displayed_amount = 5;
   string displayed_currency = 6;
 }
+
 message ConfirmSlotUpgradeCheckoutResponse {
   api.invoices.v1.Transaction transaction = 1;
   uint32 new_slot_count = 2;
 }
 
 service PortalCheckoutService {
- rpc GetSubscriptionCheckout(GetSubscriptionCheckoutRequest) returns (GetSubscriptionCheckoutResponse) {}
+  // Checkout endpoints (use CheckoutSession token)
+  rpc GetCheckout(GetCheckoutRequest) returns (GetCheckoutResponse) {}
   rpc ConfirmCheckout(ConfirmCheckoutRequest) returns (ConfirmCheckoutResponse) {}
+
+  // Slot upgrade endpoints (use CustomerPortal token)
   rpc GetSlotUpgradeCheckout(GetSlotUpgradeCheckoutRequest) returns (GetSlotUpgradeCheckoutResponse) {}
   rpc ConfirmSlotUpgradeCheckout(ConfirmSlotUpgradeCheckoutRequest) returns (ConfirmSlotUpgradeCheckoutResponse) {}
 }

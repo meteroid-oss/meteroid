@@ -522,7 +522,12 @@ impl InvoicesService for InvoiceServiceComponents {
         Ok(Response::new(
             meteroid_grpc::meteroid::api::invoices::v1::AddManualPaymentTransactionResponse {
                 transaction_id: transaction.id.as_proto(),
-                invoice_id: transaction.invoice_id.as_proto(),
+                invoice_id: transaction
+                    .invoice_id
+                    .ok_or_else(|| {
+                        Status::internal("Manual payment transaction missing invoice_id")
+                    })?
+                    .as_proto(),
                 amount: rust_decimal::Decimal::from(transaction.amount).as_proto(),
                 currency: transaction.currency,
                 status: format!("{:?}", transaction.status),

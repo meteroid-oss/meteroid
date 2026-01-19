@@ -30,6 +30,47 @@ pub struct Coupon {
     pub redemption_count: i32,
 }
 
+/// Validation error for coupon usage
+#[derive(Debug, Clone)]
+pub enum CouponValidationError {
+    Expired,
+    Archived,
+    Disabled,
+    RedemptionLimitReached,
+    CurrencyMismatch {
+        coupon_currency: String,
+        expected: String,
+    },
+}
+
+impl CouponValidationError {
+    pub fn to_error_message(&self, coupon_code: &str) -> String {
+        match self {
+            CouponValidationError::Expired => {
+                format!("Coupon '{}' has expired", coupon_code)
+            }
+            CouponValidationError::Archived => {
+                format!("Coupon '{}' is no longer available", coupon_code)
+            }
+            CouponValidationError::Disabled => {
+                format!("Coupon '{}' is disabled", coupon_code)
+            }
+            CouponValidationError::RedemptionLimitReached => {
+                format!("Coupon '{}' has reached its redemption limit", coupon_code)
+            }
+            CouponValidationError::CurrencyMismatch {
+                coupon_currency,
+                expected,
+            } => {
+                format!(
+                    "Coupon '{}' currency ({}) does not match subscription currency ({})",
+                    coupon_code, coupon_currency, expected
+                )
+            }
+        }
+    }
+}
+
 impl Coupon {
     pub fn is_infinite(&self) -> bool {
         self.recurring_value.is_none()
@@ -45,6 +86,59 @@ impl Coupon {
 
     pub fn currency(&self) -> Option<&str> {
         self.discount.currency()
+    }
+
+    /// Validates that a coupon can be used for a new subscription.
+    /// This performs all standard validation checks:
+    /// - Not expired
+    /// - Not archived
+    /// - Not disabled
+    /// - Redemption limit not reached
+    /// - Currency compatible (if coupon has fixed currency)
+    ///
+    /// Note: This does NOT check the `reusable` flag (whether the same customer
+    /// can use the coupon multiple times). That check requires a database lookup
+    /// and should be done separately when needed.
+    pub fn validate_for_use(
+        &self,
+        subscription_currency: &str,
+    ) -> Result<(), CouponValidationError> {
+        let now = chrono::Utc::now().naive_utc();
+
+        if self.is_expired(now) {
+            return Err(CouponValidationError::Expired);
+        }
+
+        if self.archived_at.is_some() {
+            return Err(CouponValidationError::Archived);
+        }
+
+        if self.disabled {
+            return Err(CouponValidationError::Disabled);
+        }
+
+        if let Some(limit) = self.redemption_limit
+            && self.redemption_count >= limit
+        {
+            return Err(CouponValidationError::RedemptionLimitReached);
+        }
+
+        if let Some(coupon_currency) = self.currency()
+            && coupon_currency != subscription_currency
+        {
+            return Err(CouponValidationError::CurrencyMismatch {
+                coupon_currency: coupon_currency.to_string(),
+                expected: subscription_currency.to_string(),
+            });
+        }
+
+        Ok(())
+    }
+
+    /// Validates the coupon and returns an error message suitable for API responses.
+    pub fn validate_for_use_with_message(&self, subscription_currency: &str) -> Result<(), String> {
+        self.validate_for_use(subscription_currency)
+            .map_err(|e| e.to_error_message(&self.code))
     }
 }
 

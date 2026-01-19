@@ -106,6 +106,7 @@ impl PaymentTransactionInterface for Store {
 
         let patch = PaymentTransactionRowPatch {
             id: transaction.id,
+            invoice_id: None,
             status: Some(payment_intent.status.clone().into()),
             processed_at: Some(payment_intent.processed_at),
             refunded_at: None,
@@ -128,13 +129,14 @@ impl PaymentTransactionInterface for Store {
                         )
                         .await?;
 
-                    // If payment succeeded, update subscription's payment method
+                    // If payment succeeded and there's an invoice, update subscription's payment method
                     if transaction.status == domain::enums::PaymentStatusEnum::Settled
-                        && let Some(payment_method_id) = transaction.payment_method_id {
+                        && let Some(payment_method_id) = transaction.payment_method_id
+                        && let Some(invoice_id) = transaction.invoice_id {
                             let invoice = diesel_models::invoices::InvoiceRow::find_by_id(
                                 conn,
                                 transaction.tenant_id,
-                                transaction.invoice_id,
+                                invoice_id,
                             )
                             .await
                             .map_err(Into::<Report<StoreError>>::into)?;

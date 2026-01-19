@@ -14,6 +14,14 @@ pub mod sql_types {
     pub struct BillingPeriodEnum;
 
     #[derive(diesel::query_builder::QueryId, diesel::sql_types::SqlType)]
+    #[diesel(postgres_type(name = "CheckoutSessionStatusEnum"))]
+    pub struct CheckoutSessionStatusEnum;
+
+    #[derive(diesel::query_builder::QueryId, diesel::sql_types::SqlType)]
+    #[diesel(postgres_type(name = "CheckoutTypeEnum"))]
+    pub struct CheckoutTypeEnum;
+
+    #[derive(diesel::query_builder::QueryId, diesel::sql_types::SqlType)]
     #[diesel(postgres_type(name = "ConnectorProviderEnum"))]
     pub struct ConnectorProviderEnum;
 
@@ -271,95 +279,40 @@ diesel::table! {
 }
 
 diesel::table! {
-    connect_access_token (id) {
-        id -> Uuid,
-        token_hash -> Text,
-        oauth_app_id -> Uuid,
-        connected_organization_id -> Uuid,
-        scopes -> Array<Nullable<Text>>,
-        expires_at -> Timestamp,
-        created_at -> Timestamp,
-        revoked_at -> Nullable<Timestamp>,
-    }
-}
+    use diesel::sql_types::*;
+    use super::sql_types::SubscriptionActivationConditionEnum;
+    use super::sql_types::CheckoutSessionStatusEnum;
+    use super::sql_types::CheckoutTypeEnum;
 
-diesel::table! {
-    connect_authorization_code (id) {
+    checkout_session (id) {
         id -> Uuid,
-        code_hash -> Text,
-        oauth_app_id -> Uuid,
-        connected_organization_id -> Uuid,
-        redirect_uri -> Text,
-        scopes -> Array<Nullable<Text>>,
-        code_challenge -> Nullable<Text>,
-        code_challenge_method -> Nullable<Text>,
-        expires_at -> Timestamp,
-        created_at -> Timestamp,
-        used_at -> Nullable<Timestamp>,
-    }
-}
-
-diesel::table! {
-    connect_connected_account (id) {
-        id -> Uuid,
-        platform_organization_id -> Uuid,
-        connected_organization_id -> Uuid,
-        connection_type -> Text,
-        status -> Text,
-        onboarding_completed_at -> Nullable<Timestamp>,
+        tenant_id -> Uuid,
+        customer_id -> Uuid,
+        plan_version_id -> Uuid,
+        created_by -> Uuid,
+        billing_start_date -> Nullable<Date>,
+        billing_day_anchor -> Nullable<Int2>,
+        net_terms -> Nullable<Int4>,
+        trial_duration_days -> Nullable<Int4>,
+        end_date -> Nullable<Date>,
+        activation_condition -> SubscriptionActivationConditionEnum,
+        auto_advance_invoices -> Bool,
+        charge_automatically -> Bool,
+        invoice_memo -> Nullable<Text>,
+        invoice_threshold -> Nullable<Numeric>,
+        purchase_order -> Nullable<Text>,
+        payment_strategy -> Nullable<Jsonb>,
+        components -> Nullable<Jsonb>,
+        add_ons -> Nullable<Jsonb>,
+        coupon_code -> Nullable<Varchar>,
+        coupon_ids -> Array<Nullable<Uuid>>,
+        status -> CheckoutSessionStatusEnum,
+        created_at -> Timestamptz,
+        expires_at -> Nullable<Timestamptz>,
+        completed_at -> Nullable<Timestamptz>,
+        subscription_id -> Nullable<Uuid>,
         metadata -> Nullable<Jsonb>,
-        created_at -> Timestamp,
-        revoked_at -> Nullable<Timestamp>,
-    }
-}
-
-diesel::table! {
-    connect_oauth_app (id) {
-        id -> Uuid,
-        organization_id -> Uuid,
-        name -> Text,
-        client_id -> Text,
-        client_secret_hash -> Text,
-        client_secret_hint -> Text,
-        redirect_uris -> Array<Nullable<Text>>,
-        scopes -> Array<Nullable<Text>>,
-        is_active -> Bool,
-        created_at -> Timestamp,
-        updated_at -> Nullable<Timestamp>,
-    }
-}
-
-diesel::table! {
-    connect_onboarding_link (id) {
-        id -> Uuid,
-        connected_account_id -> Uuid,
-        token_hash -> Text,
-        redirect_url -> Text,
-        expires_at -> Timestamp,
-        used_at -> Nullable<Timestamp>,
-        created_at -> Timestamp,
-    }
-}
-
-diesel::table! {
-    connect_platform_settings (organization_id) {
-        organization_id -> Uuid,
-        is_platform_enabled -> Bool,
-        default_scopes -> Array<Nullable<Text>>,
-        branding -> Nullable<Jsonb>,
-        created_at -> Timestamp,
-    }
-}
-
-diesel::table! {
-    connect_refresh_token (id) {
-        id -> Uuid,
-        token_hash -> Text,
-        access_token_id -> Uuid,
-        expires_at -> Nullable<Timestamp>,
-        created_at -> Timestamp,
-        revoked_at -> Nullable<Timestamp>,
-        rotated_to_id -> Nullable<Uuid>,
+        checkout_type -> CheckoutTypeEnum,
     }
 }
 
@@ -692,7 +645,7 @@ diesel::table! {
     payment_transaction (id) {
         id -> Uuid,
         tenant_id -> Uuid,
-        invoice_id -> Uuid,
+        invoice_id -> Nullable<Uuid>,
         provider_transaction_id -> Nullable<Text>,
         processed_at -> Nullable<Timestamp>,
         refunded_at -> Nullable<Timestamp>,
@@ -703,6 +656,7 @@ diesel::table! {
         payment_type -> PaymentTypeEnum,
         error_type -> Nullable<Text>,
         receipt_pdf_id -> Nullable<Uuid>,
+        checkout_session_id -> Nullable<Uuid>,
     }
 }
 
@@ -1130,14 +1084,11 @@ diesel::joinable!(bi_revenue_daily -> historical_rates_from_usd (historical_rate
 diesel::joinable!(billable_metric -> product (product_id));
 diesel::joinable!(billable_metric -> product_family (product_family_id));
 diesel::joinable!(billable_metric -> tenant (tenant_id));
-diesel::joinable!(connect_access_token -> connect_oauth_app (oauth_app_id));
-diesel::joinable!(connect_access_token -> organization (connected_organization_id));
-diesel::joinable!(connect_authorization_code -> connect_oauth_app (oauth_app_id));
-diesel::joinable!(connect_authorization_code -> organization (connected_organization_id));
-diesel::joinable!(connect_oauth_app -> organization (organization_id));
-diesel::joinable!(connect_onboarding_link -> connect_connected_account (connected_account_id));
-diesel::joinable!(connect_platform_settings -> organization (organization_id));
-diesel::joinable!(connect_refresh_token -> connect_access_token (access_token_id));
+diesel::joinable!(checkout_session -> customer (customer_id));
+diesel::joinable!(checkout_session -> plan_version (plan_version_id));
+diesel::joinable!(checkout_session -> subscription (subscription_id));
+diesel::joinable!(checkout_session -> tenant (tenant_id));
+diesel::joinable!(checkout_session -> user (created_by));
 diesel::joinable!(coupon -> tenant (tenant_id));
 diesel::joinable!(credit_note -> customer (customer_id));
 diesel::joinable!(credit_note -> invoice (invoice_id));
@@ -1170,6 +1121,7 @@ diesel::joinable!(invoicing_entity -> bank_account (bank_account_id));
 diesel::joinable!(invoicing_entity -> tenant (tenant_id));
 diesel::joinable!(organization_member -> organization (organization_id));
 diesel::joinable!(organization_member -> user (user_id));
+diesel::joinable!(payment_transaction -> checkout_session (checkout_session_id));
 diesel::joinable!(payment_transaction -> customer_payment_method (payment_method_id));
 diesel::joinable!(payment_transaction -> invoice (invoice_id));
 diesel::joinable!(payment_transaction -> tenant (tenant_id));
@@ -1228,13 +1180,7 @@ diesel::allow_tables_to_appear_in_same_query!(
     bi_mrr_movement_log,
     bi_revenue_daily,
     billable_metric,
-    connect_access_token,
-    connect_authorization_code,
-    connect_connected_account,
-    connect_oauth_app,
-    connect_onboarding_link,
-    connect_platform_settings,
-    connect_refresh_token,
+    checkout_session,
     connector,
     coupon,
     credit_note,

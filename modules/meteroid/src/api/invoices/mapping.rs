@@ -355,7 +355,7 @@ pub mod transactions {
             provider_transaction_id: value.provider_transaction_id,
             amount: value.amount.to_non_negative_u64(),
             error: value.error_type,
-            invoice_id: value.invoice_id.as_proto(),
+            invoice_id: value.invoice_id.map(|id| id.as_proto()),
             payment_method_info: None,
             processed_at: value.processed_at.as_proto(),
         }

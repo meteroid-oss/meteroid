@@ -5,6 +5,7 @@ pub mod applied_coupons;
 pub mod bank_accounts;
 pub mod bi;
 pub mod billable_metrics;
+pub mod checkout_sessions;
 pub mod connectors;
 pub mod coupons;
 pub mod credit_notes;

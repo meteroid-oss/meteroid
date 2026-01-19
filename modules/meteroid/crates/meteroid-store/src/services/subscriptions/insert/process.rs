@@ -1,6 +1,7 @@
 use super::context::SubscriptionCreationContext;
 use super::payment_method::PaymentSetupResult;
 use crate::constants::{Currencies, Currency};
+use crate::domain::checkout_sessions::{CheckoutType, CreateCheckoutSession};
 use crate::domain::coupons::Coupon;
 use crate::domain::enums::SubscriptionEventType;
 use crate::domain::slot_transactions::{SlotTransaction, SlotTransactionNewInternal};
@@ -12,11 +13,12 @@ use crate::domain::{
     SubscriptionNewEnriched, SubscriptionStatusEnum,
 };
 use crate::errors::{StoreError, StoreErrorReport};
-use crate::repositories::subscriptions::generate_checkout_url;
+use crate::jwt_claims::{ResourceAccess, generate_portal_token};
 use crate::services::InvoiceBillingMode;
 use crate::services::subscriptions::utils::{
-    apply_coupons, calculate_mrr, extract_billing_period, process_create_subscription_add_ons,
-    process_create_subscription_components, process_create_subscription_coupons,
+    apply_coupons, apply_coupons_without_validation, calculate_mrr, extract_billing_period,
+    process_create_subscription_add_ons, process_create_subscription_components,
+    process_create_subscription_coupons,
 };
 use crate::store::PgConn;
 use crate::utils::periods::calculate_advance_period_range;
@@ -26,6 +28,7 @@ use common_domain::ids::{BaseId, QuoteId, SlotTransactionId, SubscriptionId, Ten
 use common_eventbus::{Event, EventBus};
 use diesel_async::scoped_futures::ScopedFutureExt;
 use diesel_models::applied_coupons::AppliedCouponRowNew;
+use diesel_models::checkout_sessions::CheckoutSessionRowNew;
 use diesel_models::enums::CycleActionEnum;
 use diesel_models::plans::PlanRow;
 use diesel_models::slot_transactions::SlotTransactionRow;
@@ -521,6 +524,38 @@ impl Services {
         jwt_secret: &SecretString,
         public_url: &String,
     ) -> StoreResult<Vec<CreatedSubscription>> {
+        self.persist_subscriptions_internal(
+            conn, processed, tenant_id, jwt_secret, public_url, false,
+        )
+        .await
+    }
+
+    /// Persist subscriptions without coupon validation.
+    ///
+    /// Use this for async payment flows where coupons were already validated before charging.
+    pub(crate) async fn persist_subscriptions_skip_coupon_validation(
+        &self,
+        conn: &mut PgConn,
+        processed: &[ProcessedSubscription],
+        tenant_id: TenantId,
+        jwt_secret: &SecretString,
+        public_url: &String,
+    ) -> StoreResult<Vec<CreatedSubscription>> {
+        self.persist_subscriptions_internal(
+            conn, processed, tenant_id, jwt_secret, public_url, true,
+        )
+        .await
+    }
+
+    async fn persist_subscriptions_internal(
+        &self,
+        conn: &mut PgConn,
+        processed: &[ProcessedSubscription],
+        tenant_id: TenantId,
+        jwt_secret: &SecretString,
+        public_url: &String,
+        skip_coupon_validation: bool,
+    ) -> StoreResult<Vec<CreatedSubscription>> {
         let res = self
             .store
             .transaction_with(conn, |conn| {
@@ -550,9 +585,15 @@ impl Services {
                         .map_err(Into::<StoreErrorReport>::into)
                         .await?;
 
-                    apply_coupons(conn, &coupons, &inserted, tenant_id)
-                        .map_err(Into::<StoreErrorReport>::into)
-                        .await?;
+                    if skip_coupon_validation {
+                        apply_coupons_without_validation(conn, &coupons)
+                            .map_err(Into::<StoreErrorReport>::into)
+                            .await?;
+                    } else {
+                        apply_coupons(conn, &coupons, &inserted, tenant_id)
+                            .map_err(Into::<StoreErrorReport>::into)
+                            .await?;
+                    }
 
                     SubscriptionEventRow::insert_batch(conn, events)
                         .map_err(Into::<StoreErrorReport>::into)
@@ -602,19 +643,67 @@ impl Services {
             })
             .await?;
 
-        let inserted_with_tokens = res
-            .into_iter()
-            .map(|mut sub| {
-                if sub.pending_checkout {
-                    sub.checkout_url = Some(generate_checkout_url(
-                        jwt_secret, public_url, tenant_id, sub.id,
-                    )?);
-                }
-                Ok(sub)
-            })
-            .collect::<StoreResult<Vec<_>>>()?;
+        // For pending_checkout subscriptions, create checkout sessions and generate session-based URLs
+        let mut inserted_with_checkout_urls = Vec::with_capacity(res.len());
 
-        Ok(inserted_with_tokens)
+        for mut sub in res {
+            if sub.pending_checkout {
+                // Create a checkout session linked to this subscription
+                // For SubscriptionActivation checkouts, the subscription already exists with all
+                // parameters applied. The checkout session just needs basic info for completion.
+                let create_session = CreateCheckoutSession {
+                    tenant_id,
+                    customer_id: sub.customer_id,
+                    plan_version_id: sub.plan_version_id,
+                    created_by: sub.created_by,
+                    billing_start_date: sub.billing_start_date,
+                    billing_day_anchor: Some(sub.billing_day_anchor),
+                    net_terms: Some(sub.net_terms),
+                    trial_duration_days: sub.trial_duration,
+                    end_date: sub.end_date,
+                    // Use defaults for activation checkout - subscription already has these applied
+                    activation_condition: SubscriptionActivationCondition::OnCheckout,
+                    auto_advance_invoices: true,
+                    charge_automatically: true,
+                    invoice_memo: sub.invoice_memo.clone(),
+                    invoice_threshold: sub.invoice_threshold,
+                    purchase_order: sub.purchase_order.clone(),
+                    payment_strategy: None, // Already set on subscription
+                    components: None,       // Components already applied to subscription
+                    add_ons: None,          // Add-ons already applied to subscription
+                    coupon_code: None,      // Coupons already applied to subscription
+                    coupon_ids: vec![],
+                    expires_in_hours: None, // Use default 24 hours
+                    metadata: None,
+                    checkout_type: CheckoutType::SubscriptionActivation,
+                    subscription_id: Some(sub.id),
+                };
+
+                let session_row: CheckoutSessionRowNew = create_session.into_row();
+                let session_id = session_row.id;
+
+                // Insert the checkout session
+                let mut session_conn = self.store.get_conn().await?;
+                session_row
+                    .insert(&mut session_conn)
+                    .await
+                    .map_err(|e| Report::new(StoreError::DatabaseError(e.error)))?;
+
+                // Generate session-based checkout URL
+                let token = generate_portal_token(
+                    jwt_secret,
+                    tenant_id,
+                    ResourceAccess::CheckoutSession(session_id),
+                )?;
+
+                let checkout_url = format!("{}/checkout?token={}", public_url, token);
+
+                sub.checkout_url = Some(checkout_url);
+            }
+            inserted_with_checkout_urls.push(sub);
+        }
+
+        Ok(inserted_with_checkout_urls)
     }
 
     pub async fn handle_post_insertion(

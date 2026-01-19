@@ -5,7 +5,7 @@ pub use admin_layer::AdminAuthLayer;
 pub use admin_layer::AdminAuthService;
 use common_config::auth::InternalAuthConfig;
 use common_domain::ids::{
-    CustomerId, InvoiceId, OrganizationId, QuoteId, SubscriptionId, TenantId,
+    CheckoutSessionId, CustomerId, InvoiceId, OrganizationId, QuoteId, TenantId,
 };
 
 mod admin_layer;
@@ -135,7 +135,7 @@ pub fn extract_organization(
 
 #[derive(Clone)]
 pub enum ResourceAccess {
-    SubscriptionCheckout(SubscriptionId),
+    CheckoutSession(CheckoutSessionId),
     CustomerPortal(CustomerId),
     InvoicePortal(InvoiceId),
     QuotePortal {
@@ -173,11 +173,11 @@ pub struct AuthorizedAsPortalUser {
 }
 
 impl AuthorizedAsPortalUser {
-    pub fn subscription(&self) -> Result<SubscriptionId, Status> {
+    pub fn checkout_session(&self) -> Result<CheckoutSessionId, Status> {
         match self.resource_access {
-            ResourceAccess::SubscriptionCheckout(id) => Ok(id),
+            ResourceAccess::CheckoutSession(id) => Ok(id),
             _ => Err(Status::invalid_argument(
-                "Resource is not a subscription checkout.",
+                "Resource is not a checkout session.",
             )),
         }
     }

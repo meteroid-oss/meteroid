@@ -5,4 +5,4 @@ mod effective_plan;
 pub(in crate::services) mod insert;
 pub(crate) mod slots;
 mod terminate;
-mod utils;
+pub mod utils;

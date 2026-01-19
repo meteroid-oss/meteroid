@@ -10,8 +10,8 @@ import { getCheckoutPaymentAvailability } from '@/features/checkout/utils/paymen
 import { BillingInfo } from '@/features/customers/components/BillingInfo'
 import { BankTransferInfo } from '@/features/invoice-payment/components/BankTransferInfo'
 import {
+  getCheckout,
   confirmCheckout,
-  getSubscriptionCheckout,
 } from '@/rpc/portal/checkout/v1/checkout-PortalCheckoutService_connectquery'
 import { Checkout } from '@/rpc/portal/checkout/v1/models_pb'
 import { formatCurrency } from '@/utils/numbers'
@@ -38,15 +38,15 @@ const CheckoutFlow: React.FC<CheckoutFlowProps> = ({ checkoutData: initialChecko
     bankAccount,
   } = checkoutData
 
-  // Mutation to confirm the checkout
+  // Mutation to confirm the checkout using unified endpoint
   const confirmCheckoutMutation = useMutation(confirmCheckout, {
     onError: error => {
       console.error('Checkout confirmation error:', error)
     },
   })
 
-  // Mutation to apply coupon (fetches checkout with coupon preview)
-  const applyCouponMutation = useMutation(getSubscriptionCheckout)
+  // Mutation to apply coupon (fetches checkout with coupon preview using unified endpoint)
+  const applyCouponMutation = useMutation(getCheckout)
 
   /**
    * Apply coupon code and update checkout totals
@@ -59,8 +59,8 @@ const CheckoutFlow: React.FC<CheckoutFlowProps> = ({ checkoutData: initialChecko
     setCouponError(undefined)
 
     try {
+      // Unified endpoint - session ID is in the auth token
       const response = await applyCouponMutation.mutateAsync({
-        subscriptionId: subscription?.subscription?.id,
         couponCode: code,
       })
 
@@ -84,9 +84,8 @@ const CheckoutFlow: React.FC<CheckoutFlowProps> = ({ checkoutData: initialChecko
     setCouponError(undefined)
 
     try {
-      const response = await applyCouponMutation.mutateAsync({
-        subscriptionId: subscription?.subscription?.id,
-      })
+      // Unified endpoint - session ID is in the auth token, no coupon = clear
+      const response = await applyCouponMutation.mutateAsync({})
       if (response.checkout) {
         setCheckoutData(response.checkout)
       }

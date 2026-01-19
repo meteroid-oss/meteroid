@@ -11,9 +11,9 @@ use crate::errors::{StoreError, StoreErrorReport};
 use crate::{StoreResult, json_value_serde};
 use chrono::{NaiveDate, NaiveDateTime};
 use common_domain::ids::{
-    BankAccountId, BaseId, BillableMetricId, ConnectorId, CreditNoteId, CustomerId,
-    CustomerPaymentMethodId, EventId, InvoiceId, PaymentTransactionId, PlanId, PlanVersionId,
-    ProductFamilyId, ProductId, QuoteId, StoredDocumentId, SubscriptionId, TenantId,
+    BankAccountId, BaseId, BillableMetricId, CheckoutSessionId, ConnectorId, CreditNoteId,
+    CustomerId, CustomerPaymentMethodId, EventId, InvoiceId, PaymentTransactionId, PlanId,
+    PlanVersionId, ProductFamilyId, ProductId, QuoteId, StoredDocumentId, SubscriptionId, TenantId,
 };
 use diesel_models::outbox_event::OutboxEventRowNew;
 use diesel_models::pgmq::PgmqMessageRowNew;
@@ -414,7 +414,8 @@ pub struct PaymentTransactionEvent {
     #[map(id)]
     pub payment_transaction_id: PaymentTransactionId,
     pub tenant_id: TenantId,
-    pub invoice_id: InvoiceId,
+    pub invoice_id: Option<InvoiceId>,
+    pub checkout_session_id: Option<CheckoutSessionId>,
     pub provider_transaction_id: Option<String>,
     pub processed_at: Option<NaiveDateTime>,
     pub refunded_at: Option<NaiveDateTime>,

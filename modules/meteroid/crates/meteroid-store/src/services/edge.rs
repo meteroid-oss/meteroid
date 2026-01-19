@@ -1,13 +1,15 @@
 use crate::StoreResult;
+use crate::domain::checkout_sessions::{CheckoutCompletionResult, CheckoutType};
+use crate::domain::enums::PaymentStatusEnum;
 use crate::domain::outbox_event::{
     InvoiceEvent, InvoicePdfGeneratedEvent, OutboxEvent, PaymentTransactionEvent,
     QuoteConvertedEvent,
 };
 use crate::domain::payment_transactions::PaymentTransaction;
 use crate::domain::{
-    CreateSubscription, CreateSubscriptionFromQuote, CreatedSubscription, CustomerBuyCredits,
-    DetailedInvoice, Invoice, QuoteActivityNew, SetupIntent, Subscription, SubscriptionDetails,
-    UpdateInvoiceParams,
+    CheckoutSession, CreateSubscription, CreateSubscriptionFromQuote, CreatedSubscription,
+    CustomerBuyCredits, DetailedInvoice, Invoice, QuoteActivityNew, SetupIntent, Subscription,
+    SubscriptionDetails, UpdateInvoiceParams,
 };
 use crate::errors::{StoreError, StoreErrorReport};
 use crate::repositories::InvoiceInterface;
@@ -16,13 +18,14 @@ use crate::repositories::subscriptions::CancellationEffectiveAt;
 use crate::services::invoice_lines::invoice_lines::ComputedInvoiceContent;
 use crate::services::{InvoiceBillingMode, ServicesEdge};
 use crate::store::PgConn;
-use chrono::NaiveDate;
+use chrono::{NaiveDate, Utc};
 use common_domain::ids::{
-    AppliedCouponId, BaseId, CustomerConnectionId, CustomerPaymentMethodId, InvoiceId,
-    SubscriptionId, TenantId,
+    AppliedCouponId, BaseId, CheckoutSessionId, CustomerConnectionId, CustomerPaymentMethodId,
+    InvoiceId, SubscriptionId, TenantId,
 };
 use diesel_async::scoped_futures::ScopedFutureExt;
 use diesel_models::applied_coupons::AppliedCouponRowNew;
+use diesel_models::checkout_sessions::CheckoutSessionRow;
 use diesel_models::coupons::CouponRow;
 use diesel_models::enums::{CycleActionEnum, SubscriptionStatusEnum as DbSubscriptionStatusEnum};
 use diesel_models::plans::PlanRow;
@@ -125,231 +128,153 @@ impl ServicesEdge {
     /// For free trials (trial_is_free = true):
     /// - Saves the payment method on the subscription
     /// - Activates the subscription to TrialActive status
-    /// - Returns None (no payment transaction)
+    /// - Returns (None, false)
     ///
     /// For paid subscriptions or paid trials:
-    /// - Creates and finalizes an invoice
+    /// - Creates and finalizes an invoice (or draft if payment is pending)
     /// - Processes payment
-    /// - Returns Some(PaymentTransaction)
-    pub async fn complete_subscription_checkout(
+    /// - Returns (Some(PaymentTransaction), is_pending)
+    ///
+    /// The `is_pending` flag indicates if the payment is still pending (async payment method).
+    /// Caller should handle this by marking the checkout session as AwaitingPayment.
+    #[allow(clippy::too_many_arguments)]
+    pub async fn complete_subscription_checkout_tx(
         &self,
+        conn: &mut PgConn,
         tenant_id: TenantId,
         subscription_id: SubscriptionId,
         payment_method_id: CustomerPaymentMethodId,
         total_amount_confirmation: u64,
         currency_confirmation: String,
         coupon_code: Option<String>,
-    ) -> Result<Option<PaymentTransaction>, StoreErrorReport> {
-        let payment_transaction = self
-            .store
-            .transaction(|conn| {
-                async move {
-                    // Fetch subscription and plan info to determine checkout flow
-                    let subscription_row = SubscriptionRow::get_subscription_by_id(
-                        conn,
-                        &tenant_id,
-                        subscription_id,
-                    )
+    ) -> Result<(Option<PaymentTransaction>, bool), StoreErrorReport> {
+        let subscription_row =
+            SubscriptionRow::get_subscription_by_id(conn, &tenant_id, subscription_id)
+                .await
+                .map_err(Into::<Report<StoreError>>::into)?;
+
+        let subscription = &subscription_row.subscription;
+
+        let plan_with_version =
+            PlanRow::get_with_version(conn, subscription.plan_version_id, tenant_id).await?;
+
+        let plan_version = plan_with_version.version.ok_or(StoreError::ValueNotFound(
+            "Plan version not found".to_string(),
+        ))?;
+
+        let is_free_trial = subscription.trial_duration.is_some() && plan_version.trial_is_free;
+
+        // Handle coupon if provided - lock and validate before any charging
+        if let Some(code) = coupon_code {
+            // Resolve coupon code to ID
+            let coupon_rows =
+                CouponRow::list_by_codes(conn, tenant_id, std::slice::from_ref(&code)).await?;
+
+            let coupon_row = coupon_rows.into_iter().next().ok_or_else(|| {
+                Report::new(StoreError::InvalidArgument(format!(
+                    "Coupon code '{}' not found",
+                    code
+                )))
+            })?;
+
+            let coupon_id = coupon_row.id;
+
+            // Lock and validate coupon with FOR UPDATE to prevent race conditions
+            let validated_coupons = self
+                .services
+                .lock_and_validate_coupons_for_checkout(
+                    conn,
+                    tenant_id,
+                    subscription.customer_id,
+                    &[coupon_id],
+                    &subscription.currency,
+                )
+                .await?;
+
+            // Apply the coupon (insert AppliedCoupon and update redemption count)
+            if let Some(coupon) = validated_coupons.into_iter().next() {
+                use crate::services::subscriptions::utils::apply_coupons_without_validation;
+
+                let applied_coupon = AppliedCouponRowNew {
+                    id: AppliedCouponId::new(),
+                    subscription_id,
+                    coupon_id: coupon.id,
+                    customer_id: subscription.customer_id,
+                    is_active: true,
+                    applied_amount: None,
+                    applied_count: None,
+                    last_applied_at: None,
+                };
+
+                apply_coupons_without_validation(conn, &[&applied_coupon])
                     .await
                     .map_err(Into::<Report<StoreError>>::into)?;
+            }
+        }
 
-                    let subscription = &subscription_row.subscription;
+        let is_trial_expired = subscription.status == DbSubscriptionStatusEnum::TrialExpired;
 
-                    // Fetch plan version to check trial_is_free
-                    let plan_with_version = PlanRow::get_with_version(
-                        conn,
-                        subscription.plan_version_id,
-                        tenant_id,
-                    )
-                    .await?;
+        if is_free_trial && !is_trial_expired {
+            let payment_method =
+                diesel_models::customer_payment_methods::CustomerPaymentMethodRow::get_by_id(
+                    conn,
+                    &tenant_id,
+                    &payment_method_id,
+                )
+                .await
+                .map_err(|e| StoreError::DatabaseError(e.error))?;
 
-                    let plan_version = plan_with_version
-                        .version
-                        .ok_or(StoreError::ValueNotFound("Plan version not found".to_string()))?;
+            let trial_duration = subscription.trial_duration.unwrap();
+            let current_period_start = subscription
+                .current_period_end
+                .unwrap_or_else(|| chrono::Utc::now().naive_utc().date());
+            let current_period_end =
+                current_period_start + chrono::Duration::days(i64::from(trial_duration));
 
-                    // Determine if this is a free trial checkout
-                    // Free trial = has trial_duration AND plan's trial_is_free is true
-                    let is_free_trial = subscription.trial_duration.is_some() && plan_version.trial_is_free;
+            SubscriptionRow::activate_subscription_with_payment_method(
+                conn,
+                &subscription_id,
+                &tenant_id,
+                current_period_start,
+                Some(current_period_end),
+                Some(CycleActionEnum::EndTrial),
+                Some(0),
+                DbSubscriptionStatusEnum::TrialActive,
+                Some(payment_method_id),
+                Some(payment_method.payment_method_type),
+            )
+            .await
+            .map_err(Into::<Report<StoreError>>::into)?;
 
-                    // Apply coupon if provided (applies to both free and paid checkout)
-                    if let Some(code) = coupon_code {
-                        // Look up coupon by code
-                        let coupons =
-                            CouponRow::list_by_codes(conn, tenant_id, std::slice::from_ref(&code))
-                                .await?;
+            Ok((None, false))
+        } else {
+            let detailed_invoice = self
+                .services
+                .bill_subscription_tx(
+                    conn,
+                    tenant_id,
+                    subscription_id,
+                    InvoiceBillingMode::FinalizeAfterPayment {
+                        currency_confirmation,
+                        total_amount_confirmation,
+                        payment_method_id,
+                    },
+                )
+                .await?
+                .ok_or(StoreError::InsertError)
+                .attach("Failed to bill the subscription")?;
 
-                        let coupon = coupons.into_iter().next().ok_or_else(|| {
-                            Report::new(StoreError::InvalidArgument(format!(
-                                "Coupon code '{}' not found",
-                                code
-                            )))
-                        })?;
+            let payment_transaction = detailed_invoice
+                .transactions
+                .into_iter()
+                .next()
+                .ok_or(StoreError::InsertError)
+                .attach("No payment transaction linked to invoice")?;
 
-                        // Validate the coupon
-                        let now = chrono::Utc::now().naive_utc();
+            let is_pending = payment_transaction.status == PaymentStatusEnum::Pending;
 
-                        if coupon.expires_at.is_some_and(|x| x <= now) {
-                            return Err(Report::new(StoreError::InvalidArgument(format!(
-                                "Coupon '{}' has expired",
-                                code
-                            ))));
-                        }
-
-                        if coupon.archived_at.is_some() {
-                            return Err(Report::new(StoreError::InvalidArgument(format!(
-                                "Coupon '{}' is no longer available",
-                                code
-                            ))));
-                        }
-
-                        if coupon.disabled {
-                            return Err(Report::new(StoreError::InvalidArgument(format!(
-                                "Coupon '{}' is disabled",
-                                code
-                            ))));
-                        }
-
-                        if let Some(limit) = coupon.redemption_limit
-                            && coupon.redemption_count >= limit
-                        {
-                            return Err(Report::new(StoreError::InvalidArgument(format!(
-                                "Coupon '{}' has reached its redemption limit",
-                                code
-                            ))));
-                        }
-
-                        // Check currency compatibility
-                        let discount: crate::domain::coupons::CouponDiscount =
-                            serde_json::from_value(coupon.discount.clone()).map_err(|_| {
-                                Report::new(StoreError::InvalidArgument(
-                                    "Invalid coupon discount format".to_string(),
-                                ))
-                            })?;
-
-                        if discount
-                            .currency()
-                            .is_some_and(|c| c != subscription.currency)
-                        {
-                            return Err(Report::new(StoreError::InvalidArgument(format!(
-                                "Coupon '{}' currency does not match subscription currency",
-                                code
-                            ))));
-                        }
-
-                        // Check if non-reusable coupon was already used by this customer
-                        if !coupon.reusable {
-                            use diesel_models::applied_coupons::AppliedCouponRow;
-                            let existing = AppliedCouponRow::find_existing_customer_coupon_pairs(
-                                conn,
-                                &[(coupon.id, subscription.customer_id)],
-                            )
-                            .await?;
-
-                            if !existing.is_empty() {
-                                return Err(Report::new(StoreError::InvalidArgument(format!(
-                                    "Coupon '{}' has already been used",
-                                    code
-                                ))));
-                            }
-                        }
-
-                        // Apply the coupon
-                        let applied_coupon = AppliedCouponRowNew {
-                            id: AppliedCouponId::new(),
-                            subscription_id,
-                            coupon_id: coupon.id,
-                            customer_id: subscription.customer_id,
-                            is_active: true,
-                            applied_amount: None,
-                            applied_count: None,
-                            last_applied_at: None,
-                        };
-
-                        applied_coupon.insert(conn).await?;
-
-                        // Update coupon redemption stats
-                        CouponRow::update_last_redemption_at(
-                            conn,
-                            &[coupon.id],
-                            chrono::Utc::now().naive_utc(),
-                        )
-                        .await?;
-                        CouponRow::inc_redemption_count(conn, coupon.id, 1).await?;
-                    }
-
-                    // Check if trial has already expired - if so, go to paid checkout flow
-                    let is_trial_expired =
-                        subscription.status == DbSubscriptionStatusEnum::TrialExpired;
-
-                    if is_free_trial && !is_trial_expired {
-                        // Free trial checkout (trial not yet started or in progress):
-                        // Save payment method and activate to TrialActive
-                        let payment_method = diesel_models::customer_payment_methods::CustomerPaymentMethodRow::get_by_id(
-                            conn,
-                            &tenant_id,
-                            &payment_method_id,
-                        )
-                        .await
-                        .map_err(|e| StoreError::DatabaseError(e.error))?;
-
-                        // Calculate trial period
-                        let trial_duration = subscription.trial_duration.unwrap();
-                        let current_period_start = subscription.current_period_end
-                            .unwrap_or_else(|| chrono::Utc::now().naive_utc().date());
-                        let current_period_end = current_period_start
-                            + chrono::Duration::days(i64::from(trial_duration));
-
-                        // Activate subscription with trial status and payment method
-                        SubscriptionRow::activate_subscription_with_payment_method(
-                            conn,
-                            &subscription_id,
-                            &tenant_id,
-                            current_period_start,
-                            Some(current_period_end),
-                            Some(CycleActionEnum::EndTrial),
-                            Some(0),
-                            DbSubscriptionStatusEnum::TrialActive,
-                            Some(payment_method_id),
-                            Some(payment_method.payment_method_type),
-                        )
-                        .await
-                        .map_err(Into::<Report<StoreError>>::into)?;
-
-                        // No payment transaction for free trial
-                        Ok(None)
-                    } else {
-                        // Paid checkout: proceed with billing
-                        let detailed_invoice = self
-                            .services
-                            .bill_subscription_tx(
-                                conn,
-                                tenant_id,
-                                subscription_id,
-                                InvoiceBillingMode::FinalizeAfterPayment {
-                                    currency_confirmation,
-                                    total_amount_confirmation,
-                                    payment_method_id,
-                                },
-                            )
-                            .await?
-                            .ok_or(StoreError::InsertError)
-                            .attach("Failed to bill the subscription")?;
-
-                        let payment_transaction = detailed_invoice
-                            .transactions
-                            .into_iter()
-                            .next()
-                            .ok_or(StoreError::InsertError)
-                            .attach("No payment transaction linked to invoice")?;
-
-                        Ok(Some(payment_transaction))
-                    }
-                }
-                .scope_boxed()
-            })
-            .await?;
-
-        Ok(payment_transaction)
+            Ok((Some(payment_transaction), is_pending))
+        }
     }
 
     pub async fn complete_invoice_payment(
@@ -398,6 +323,19 @@ impl ServicesEdge {
             .attach("No subscription inserted")
     }
 
+    pub async fn insert_subscription_tx(
+        &self,
+        conn: &mut PgConn,
+        params: CreateSubscription,
+        tenant_id: TenantId,
+    ) -> StoreResult<CreatedSubscription> {
+        self.insert_subscription_batch_tx(conn, vec![params], tenant_id)
+            .await?
+            .pop()
+            .ok_or(Report::new(StoreError::InsertError))
+            .attach("No subscription inserted")
+    }
+
     /// Components and add-ons are already processed, so we skip plan-based processing.
     pub async fn insert_subscription_from_quote(
         &self,
@@ -407,7 +345,6 @@ impl ServicesEdge {
         let mut conn = self.get_conn().await?;
         let quote_id = params.quote_id;
 
-        // Step 1: Gather minimal context (no price components/add-ons needed)
         let context = self
             .services
             .gather_subscription_context_from_quote(
@@ -418,7 +355,6 @@ impl ServicesEdge {
             )
             .await?;
 
-        // Step 2: Build subscription details directly from pre-processed quote data
         let mut sub = self
             .services
             .build_subscription_details_from_quote(&params, &context)?;
@@ -442,13 +378,11 @@ impl ServicesEdge {
             }
         }
 
-        // Step 3: Setup payment provider
         let payment_result = self
             .services
             .setup_payment_provider(&mut conn, &sub.subscription, &sub.customer, &context)
             .await?;
 
-        // Step 4: Process subscription for insert (with quote_id linking)
         let processed = self.services.process_subscription(
             &sub,
             &payment_result,
@@ -461,7 +395,6 @@ impl ServicesEdge {
             .store
             .transaction_with(&mut conn, |conn| {
                 async move {
-                    // Step 5: Persist
                     let mut inserted = self
                         .services
                         .persist_subscriptions(
@@ -478,7 +411,6 @@ impl ServicesEdge {
                         .ok_or(Report::new(StoreError::InsertError))
                         .attach("No subscription inserted from quote")?;
 
-                    // Atomically mark quote as converted (only if not already converted)
                     let rows_updated = QuoteRow::mark_as_converted_to_subscription(
                         conn,
                         quote_id,
@@ -532,7 +464,6 @@ impl ServicesEdge {
             })
             .await?;
 
-        // Step 6: Post-insertion tasks
         self.services
             .handle_post_insertion(self.store.eventbus.clone(), std::slice::from_ref(&inserted))
             .await?;
@@ -547,31 +478,30 @@ impl ServicesEdge {
     ) -> StoreResult<Vec<CreatedSubscription>> {
         let mut conn = self.get_conn().await?;
 
-        // Step 1: Gather all required data
+        self.insert_subscription_batch_tx(&mut conn, batch, tenant_id)
+            .await
+    }
+
+    pub async fn insert_subscription_batch_tx(
+        &self,
+        conn: &mut PgConn,
+        batch: Vec<CreateSubscription>,
+        tenant_id: TenantId,
+    ) -> StoreResult<Vec<CreatedSubscription>> {
         let context = self
             .services
-            .gather_subscription_context(
-                &mut conn,
-                &batch,
-                tenant_id,
-                &self.store.settings.crypt_key,
-            )
+            .gather_subscription_context(conn, &batch, tenant_id, &self.store.settings.crypt_key)
             .await?;
 
-        // Step 2 : Prepare for internal usage, compute etc
         let subscriptions = self.services.build_subscription_details(&batch, &context)?;
 
         let mut results = Vec::new();
         for sub in subscriptions {
-            // Step 3 : Connector stuff (create customer, create payment intent, bundle that for saving).
-            // Not in the same transaction, it's fine if we have it already created in retry
-
             let result = self
                 .services
-                .setup_payment_provider(&mut conn, &sub.subscription, &sub.customer, &context)
+                .setup_payment_provider(conn, &sub.subscription, &sub.customer, &context)
                 .await?;
 
-            // Step 4 : Prepare for insert
             let processed = self
                 .services
                 .process_subscription(&sub, &result, &context, tenant_id, None)?;
@@ -579,11 +509,10 @@ impl ServicesEdge {
             results.push(processed);
         }
 
-        // Step 5 : Insert
         let inserted = self
             .services
             .persist_subscriptions(
-                &mut conn,
+                conn,
                 &results,
                 tenant_id,
                 &self.store.settings.jwt_secret,
@@ -591,7 +520,6 @@ impl ServicesEdge {
             )
             .await?;
 
-        // Step 4: Handle post-insertion tasks
         self.services
             .handle_post_insertion(self.store.eventbus.clone(), &inserted)
             .await?;
@@ -665,5 +593,383 @@ impl ServicesEdge {
         self.services
             .preview_draft_invoice_update(invoice_id, tenant_id, params)
             .await
+    }
+
+    /// For SelfServe checkout type :
+    /// - Validates payment / charges customer FIRST
+    /// - Only creates subscription if payment succeeds
+    /// - Marks session completed
+    ///
+    /// For SubscriptionActivation checkout type:
+    /// - Uses the linked subscription (already created via OnCheckout)
+    /// - Processes payment (activates the subscription)
+    /// - Marks session completed
+    pub async fn complete_checkout(
+        &self,
+        tenant_id: TenantId,
+        checkout_session_id: CheckoutSessionId,
+        payment_method_id: CustomerPaymentMethodId,
+        total_amount_confirmation: u64,
+        currency_confirmation: String,
+        coupon_code: Option<String>,
+    ) -> Result<CheckoutCompletionResult, StoreErrorReport> {
+        let result = self
+            .store
+            .transaction(|conn| {
+                async move {
+                    let session_row = CheckoutSessionRow::get_by_id_for_update(
+                        conn,
+                        tenant_id,
+                        checkout_session_id,
+                    )
+                    .await
+                    .map_err(Into::<Report<StoreError>>::into)?;
+
+                    let session: CheckoutSession = session_row.into();
+
+                    if !session.can_complete() {
+                        if session.is_completed() {
+                            return Err(Report::new(StoreError::InvalidArgument(
+                                "Checkout session has already been completed".to_string(),
+                            )));
+                        }
+                        if session.is_expired() {
+                            return Err(Report::new(StoreError::InvalidArgument(
+                                "Checkout session has expired".to_string(),
+                            )));
+                        }
+                        return Err(Report::new(StoreError::InvalidArgument(
+                            "Checkout session is not in a valid state for completion".to_string(),
+                        )));
+                    }
+
+                    match session.checkout_type {
+                        CheckoutType::SubscriptionActivation => {
+                            self.complete_checkout_activation_tx(
+                                conn,
+                                tenant_id,
+                                checkout_session_id,
+                                session,
+                                payment_method_id,
+                                total_amount_confirmation,
+                                currency_confirmation,
+                                coupon_code,
+                            )
+                            .await
+                        }
+                        CheckoutType::SelfServe => {
+                            self.complete_checkout_self_serve_tx(
+                                conn,
+                                tenant_id,
+                                checkout_session_id,
+                                session,
+                                payment_method_id,
+                                total_amount_confirmation,
+                                currency_confirmation,
+                                coupon_code,
+                            )
+                            .await
+                        }
+                    }
+                }
+                .scope_boxed()
+            })
+            .await?;
+
+        Ok(result)
+    }
+
+    /// Completes checkout for SubscriptionActivation type.
+    /// The subscription already exists; we just need to activate it via payment.
+    #[allow(clippy::too_many_arguments)]
+    async fn complete_checkout_activation_tx(
+        &self,
+        conn: &mut PgConn,
+        tenant_id: TenantId,
+        checkout_session_id: CheckoutSessionId,
+        session: CheckoutSession,
+        payment_method_id: CustomerPaymentMethodId,
+        total_amount_confirmation: u64,
+        currency_confirmation: String,
+        coupon_code: Option<String>,
+    ) -> Result<CheckoutCompletionResult, StoreErrorReport> {
+        let subscription_id = session.subscription_id.ok_or_else(|| {
+            Report::new(StoreError::InvalidArgument(
+                "Session has no linked subscription for activation flow".to_string(),
+            ))
+        })?;
+
+        let coupon_for_checkout = coupon_code.or(session.coupon_code.clone());
+
+        let (payment_transaction, is_pending) = self
+            .complete_subscription_checkout_tx(
+                conn,
+                tenant_id,
+                subscription_id,
+                payment_method_id,
+                total_amount_confirmation,
+                currency_confirmation,
+                coupon_for_checkout,
+            )
+            .await?;
+
+        if is_pending {
+            CheckoutSessionRow::mark_awaiting_payment(
+                conn,
+                tenant_id,
+                checkout_session_id,
+                Some(subscription_id),
+            )
+            .await
+            .map_err(Into::<Report<StoreError>>::into)?;
+
+            Ok(CheckoutCompletionResult::AwaitingPayment {
+                transaction: payment_transaction.ok_or_else(|| {
+                    Report::new(StoreError::InvalidArgument(
+                        "Pending payment must have transaction".to_string(),
+                    ))
+                })?,
+            })
+        } else {
+            CheckoutSessionRow::mark_completed(
+                conn,
+                tenant_id,
+                checkout_session_id,
+                subscription_id,
+                Utc::now(),
+            )
+            .await
+            .map_err(Into::<Report<StoreError>>::into)?;
+
+            Ok(CheckoutCompletionResult::Completed {
+                subscription_id,
+                transaction: payment_transaction,
+            })
+        }
+    }
+
+    /// Completes checkout for SelfServe type :
+    /// 1. Build preview to compute amount
+    /// 2. Charge customer (or validate payment method for free trials)
+    /// 3. Only create subscription if payment succeeds (or is pending for async)
+    /// 4. For pending payments: create transaction only, defer subscription/invoice
+    /// 5. Mark session completed (sync) or awaiting payment (async)
+    #[allow(clippy::too_many_arguments)]
+    async fn complete_checkout_self_serve_tx(
+        &self,
+        conn: &mut PgConn,
+        tenant_id: TenantId,
+        checkout_session_id: CheckoutSessionId,
+        session: CheckoutSession,
+        payment_method_id: CustomerPaymentMethodId,
+        total_amount_confirmation: u64,
+        currency_confirmation: String,
+        coupon_code: Option<String>,
+    ) -> Result<CheckoutCompletionResult, StoreErrorReport> {
+        let effective_coupon_code = coupon_code.clone().or(session.coupon_code.clone());
+        let preview_details = self
+            .services
+            .build_preview_subscription_details(
+                conn,
+                &session,
+                tenant_id,
+                effective_coupon_code.as_deref(),
+            )
+            .await?;
+
+        let invoice_content = self
+            .services
+            .compute_invoice(
+                conn,
+                &preview_details.subscription.current_period_start,
+                &preview_details,
+                None,
+                None,
+            )
+            .await
+            .change_context(StoreError::InvoiceComputationError)?;
+
+        let amount_due = invoice_content.total;
+        let currency = preview_details.subscription.currency.clone();
+
+        if currency != currency_confirmation {
+            return Err(Report::new(StoreError::CheckoutError).attach(format!(
+                "Currency mismatch: expected {}, got {}",
+                currency, currency_confirmation
+            )));
+        }
+
+        let coupon_ids = self
+            .services
+            .resolve_coupon_ids_for_checkout_tx(conn, tenant_id, &session, effective_coupon_code)
+            .await?;
+
+        let _locked_coupons = self
+            .services
+            .lock_and_validate_coupons_for_checkout(
+                conn,
+                tenant_id,
+                session.customer_id,
+                &coupon_ids,
+                &currency,
+            )
+            .await?;
+
+        let is_free_trial = preview_details
+            .trial_config
+            .as_ref()
+            .is_some_and(|tc| tc.is_free);
+
+        let charge_result = if is_free_trial || amount_due <= 0 {
+            let _method =
+                diesel_models::customer_payment_methods::CustomerPaymentMethodRow::get_by_id(
+                    conn,
+                    &tenant_id,
+                    &payment_method_id,
+                )
+                .await
+                .map_err(|_| {
+                    Report::new(StoreError::InvalidArgument(
+                        "Payment method not found".to_string(),
+                    ))
+                })?;
+
+            None
+        } else {
+            let amount_diff = (amount_due - total_amount_confirmation as i64).abs();
+            if amount_diff > 1 {
+                return Err(Report::new(StoreError::CheckoutError).attach(format!(
+                    "Amount mismatch: expected {}, got {}",
+                    amount_due, total_amount_confirmation
+                )));
+            }
+
+            // TODO: If subscription creation fails after this charge succeeds, we should allow manual reconciliation or auto refund.
+            let result = self
+                .services
+                .charge_payment_method_directly(
+                    conn,
+                    tenant_id,
+                    payment_method_id,
+                    amount_due,
+                    currency.clone(),
+                )
+                .await?;
+
+            if result.payment_intent.status == PaymentStatusEnum::Pending {
+                let transaction = self
+                    .services
+                    .create_transaction_for_checkout(conn, tenant_id, checkout_session_id, &result)
+                    .await?;
+
+                CheckoutSessionRow::mark_awaiting_payment(
+                    conn,
+                    tenant_id,
+                    checkout_session_id,
+                    None,
+                )
+                .await
+                .map_err(Into::<Report<StoreError>>::into)?;
+
+                return Ok(CheckoutCompletionResult::AwaitingPayment { transaction });
+            }
+
+            Some(result)
+        };
+
+        let start_date = session
+            .billing_start_date
+            .unwrap_or_else(|| Utc::now().date_naive());
+
+        let create_subscription = session.to_create_subscription(start_date, coupon_ids);
+
+        let trial_config = preview_details.trial_config.clone();
+
+        let created_subscription = self
+            .insert_subscription_tx(conn, create_subscription, tenant_id)
+            .await?;
+
+        let payment_transaction = if let Some(charge_result) = charge_result {
+            let detailed_invoice = self
+                .services
+                .bill_subscription_tx(
+                    conn,
+                    tenant_id,
+                    created_subscription.id,
+                    InvoiceBillingMode::AlreadyPaid {
+                        charge_result,
+                        existing_transaction_id: None,
+                    },
+                )
+                .await?
+                .ok_or(StoreError::InsertError)
+                .attach("Failed to create invoice for subscription")?;
+
+            detailed_invoice.transactions.into_iter().next()
+        } else if is_free_trial {
+            let payment_method =
+                diesel_models::customer_payment_methods::CustomerPaymentMethodRow::get_by_id(
+                    conn,
+                    &tenant_id,
+                    &payment_method_id,
+                )
+                .await
+                .map_err(|e| StoreError::DatabaseError(e.error))?;
+
+            let trial_duration = trial_config
+                .as_ref()
+                .map(|tc| tc.duration_days)
+                .unwrap_or(0);
+            let current_period_start = start_date;
+            let current_period_end =
+                current_period_start + chrono::Duration::days(i64::from(trial_duration));
+
+            SubscriptionRow::activate_subscription_with_payment_method(
+                conn,
+                &created_subscription.id,
+                &tenant_id,
+                current_period_start,
+                Some(current_period_end),
+                Some(CycleActionEnum::EndTrial),
+                Some(0),
+                DbSubscriptionStatusEnum::TrialActive,
+                Some(payment_method_id),
+                Some(payment_method.payment_method_type),
+            )
+            .await
+            .map_err(Into::<Report<StoreError>>::into)?;
+
+            None
+        } else {
+            SubscriptionRow::activate_subscription(
+                conn,
+                &created_subscription.id,
+                &tenant_id,
+                start_date,
+                None,
+                None,
+                Some(0),
+                DbSubscriptionStatusEnum::Active,
+            )
+            .await
+            .map_err(Into::<Report<StoreError>>::into)?;
+
+            None
+        };
+
+        CheckoutSessionRow::mark_completed(
+            conn,
+            tenant_id,
+            checkout_session_id,
+            created_subscription.id,
+            Utc::now(),
+        )
+        .await
+        .map_err(Into::<Report<StoreError>>::into)?;
+
+        Ok(CheckoutCompletionResult::Completed {
+            subscription_id: created_subscription.id,
+            transaction: payment_transaction,
+        })
     }
 }
