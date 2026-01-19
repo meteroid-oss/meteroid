@@ -14,6 +14,7 @@ use crate::api_rest::error::{ErrorCode, RestErrorResponse};
 use common_domain::ids::{OrganizationId, TenantId};
 use common_grpc::middleware::server::auth::{AuthenticatedState, AuthorizedAsTenant};
 use meteroid_store::Store;
+use meteroid_store::errors::StoreError;
 use meteroid_store::repositories::api_tokens::ApiTokensInterface;
 use std::time::Duration;
 use uuid::Uuid;
@@ -84,7 +85,12 @@ async fn validate_api_token_by_id_cached(
         .get_api_token_by_id_for_validation(api_key_id)
         .await
         .map_err(|err| {
-            error!("Failed to resolve api key: {:?}", err);
+            match err.current_context() {
+                StoreError::ValueNotFound(_) => {}
+                other => {
+                    error!("Failed to resolve api key: {:?}", other);
+                }
+            }
             AuthStatus {
                 status: StatusCode::UNAUTHORIZED,
                 msg: Some("Failed to resolve api key".to_string()),
