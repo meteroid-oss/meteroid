@@ -164,7 +164,9 @@ impl ServicesEdge {
 
         let is_free_trial = subscription.trial_duration.is_some() && plan_version.trial_is_free;
 
+        // Handle coupon if provided - lock and validate before any charging
         if let Some(code) = coupon_code {
+            // Resolve coupon code to ID
             let coupon_rows =
                 CouponRow::list_by_codes(conn, tenant_id, std::slice::from_ref(&code)).await?;
 
@@ -175,48 +177,39 @@ impl ServicesEdge {
                 )))
             })?;
 
-            let coupon: crate::domain::Coupon = coupon_row.try_into()?;
+            let coupon_id = coupon_row.id;
 
-            coupon
-                .validate_for_use_with_message(&subscription.currency)
-                .map_err(|msg| Report::new(StoreError::InvalidArgument(msg)))?;
-
-            if !coupon.reusable {
-                use diesel_models::applied_coupons::AppliedCouponRow;
-                let existing = AppliedCouponRow::find_existing_customer_coupon_pairs(
+            // Lock and validate coupon with FOR UPDATE to prevent race conditions
+            let validated_coupons = self
+                .services
+                .lock_and_validate_coupons_for_checkout(
                     conn,
-                    &[(coupon.id, subscription.customer_id)],
+                    tenant_id,
+                    subscription.customer_id,
+                    &[coupon_id],
+                    &subscription.currency,
                 )
                 .await?;
 
-                if !existing.is_empty() {
-                    return Err(Report::new(StoreError::InvalidArgument(format!(
-                        "Coupon '{}' has already been used",
-                        coupon.code
-                    ))));
-                }
+            // Apply the coupon (insert AppliedCoupon and update redemption count)
+            if let Some(coupon) = validated_coupons.into_iter().next() {
+                use crate::services::subscriptions::utils::apply_coupons_without_validation;
+
+                let applied_coupon = AppliedCouponRowNew {
+                    id: AppliedCouponId::new(),
+                    subscription_id,
+                    coupon_id: coupon.id,
+                    customer_id: subscription.customer_id,
+                    is_active: true,
+                    applied_amount: None,
+                    applied_count: None,
+                    last_applied_at: None,
+                };
+
+                apply_coupons_without_validation(conn, &[&applied_coupon])
+                    .await
+                    .map_err(Into::<Report<StoreError>>::into)?;
             }
-
-            let applied_coupon = AppliedCouponRowNew {
-                id: AppliedCouponId::new(),
-                subscription_id,
-                coupon_id: coupon.id,
-                customer_id: subscription.customer_id,
-                is_active: true,
-                applied_amount: None,
-                applied_count: None,
-                last_applied_at: None,
-            };
-
-            applied_coupon.insert(conn).await?;
-
-            CouponRow::update_last_redemption_at(
-                conn,
-                &[coupon.id],
-                chrono::Utc::now().naive_utc(),
-            )
-            .await?;
-            CouponRow::inc_redemption_count(conn, coupon.id, 1).await?;
         }
 
         let is_trial_expired = subscription.status == DbSubscriptionStatusEnum::TrialExpired;

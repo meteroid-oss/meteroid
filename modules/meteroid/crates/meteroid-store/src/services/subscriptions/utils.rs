@@ -250,6 +250,15 @@ pub async fn validate_coupons(
             .into());
         }
 
+        // check disabled coupons
+        if coupon.disabled {
+            return Err(Report::new(DatabaseError::ValidationError(format!(
+                "coupon {} is disabled",
+                coupon.code
+            )))
+            .into());
+        }
+
         // TEMPORARY CHECK: currency is the same as in subscription
         let discount: CouponDiscount =
             serde_json::from_value(coupon.discount.clone()).map_err(|_| {
