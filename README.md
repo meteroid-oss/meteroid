@@ -116,7 +116,7 @@ We provide a Docker Compose and a Helm Chart setup for easy self-hosting:
 
 ## License
 
-Copyright 2025 Meteroid
+Copyright 2026 Meteroid
 
 Licensed under the AGPL V3 License. <br/> See [LICENSE](LICENSE) for more information.
 
