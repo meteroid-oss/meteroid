@@ -314,3 +314,23 @@ pub enum TaxResolverEnum {
     Manual,
     MeteroidEuVat,
 }
+
+#[derive(diesel_derive_enum::DbEnum, Debug, Clone, PartialEq, Eq)]
+#[ExistingTypePath = "crate::schema::sql_types::CheckoutSessionStatusEnum"]
+#[DbValueStyle = "SCREAMING_SNAKE_CASE"]
+pub enum CheckoutSessionStatusEnum {
+    Created,
+    AwaitingPayment,
+    Completed,
+    Expired,
+    Cancelled,
+}
+
+#[derive(diesel_derive_enum::DbEnum, Debug, Clone, PartialEq, Eq, Default)]
+#[ExistingTypePath = "crate::schema::sql_types::CheckoutTypeEnum"]
+#[DbValueStyle = "SCREAMING_SNAKE_CASE"]
+pub enum CheckoutTypeEnum {
+    #[default]
+    SelfServe,
+    SubscriptionActivation,
+}

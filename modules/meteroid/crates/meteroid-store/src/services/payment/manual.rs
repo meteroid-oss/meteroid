@@ -74,7 +74,7 @@ impl Services {
                     let transaction_new = PaymentTransactionRowNew {
                         id: transaction_id,
                         tenant_id,
-                        invoice_id,
+                        invoice_id: Some(invoice_id),
                         provider_transaction_id: reference.clone(),
                         amount: amount_cents,
                         currency: invoice.invoice.currency.clone(),
@@ -83,6 +83,7 @@ impl Services {
                         payment_type: PaymentTypeEnum::Payment,
                         error_type: None,
                         processed_at: Some(payment_date),
+                        checkout_session_id: None,
                     };
 
                     let inserted_transaction = transaction_new
@@ -156,7 +157,7 @@ impl Services {
                     let transaction_new = PaymentTransactionRowNew {
                         id: transaction_id,
                         tenant_id,
-                        invoice_id,
+                        invoice_id: Some(invoice_id),
                         provider_transaction_id: reference.clone(),
                         amount: amount_cents,
                         currency: invoice.invoice.currency.clone(),
@@ -165,6 +166,7 @@ impl Services {
                         payment_type: PaymentTypeEnum::Payment,
                         error_type: None,
                         processed_at: Some(payment_date),
+                        checkout_session_id: None,
                     };
 
                     let inserted_transaction = transaction_new

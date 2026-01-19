@@ -73,6 +73,8 @@ function mapSubscriptionStatusToGrpc(s: string): SubscriptionStatus {
       return SubscriptionStatus.ENDED
     case 'trial_expired':
       return SubscriptionStatus.TRIAL_EXPIRED
+    case 'errored':
+      return SubscriptionStatus.ERRORED
     default:
       throw new Error(`Unknown status: ${s}`)
   }

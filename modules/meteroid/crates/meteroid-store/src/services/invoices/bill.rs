@@ -4,14 +4,18 @@ use crate::domain::{Customer, DetailedInvoice, Invoice, PaymentStatusEnum, Subsc
 use crate::errors::StoreError;
 use crate::repositories::SubscriptionInterface;
 use crate::services::Services;
+use crate::services::checkout_completion::DirectChargeResult;
 use crate::store::PgConn;
 use chrono::NaiveTime;
-use common_domain::ids::{CustomerPaymentMethodId, InvoiceId, SubscriptionId, TenantId};
+use common_domain::ids::{
+    CustomerPaymentMethodId, InvoiceId, PaymentTransactionId, SubscriptionId, TenantId,
+};
 use diesel_models::customers::CustomerRow;
 use diesel_models::invoices::InvoiceRow;
 use diesel_models::invoicing_entities::InvoicingEntityRow;
 use error_stack::Report;
 
+#[allow(clippy::large_enum_variant)]
 pub enum InvoiceBillingMode {
     /// Post checkout. We request a payment and don't finalize the invoice until paid.
     FinalizeAfterPayment {
@@ -23,6 +27,13 @@ pub enum InvoiceBillingMode {
     AwaitGracePeriodIfApplicable,
     /// Subscription created without checkout (ex: upgrade/downgrade). We immediately finalize
     Immediate,
+    /// Payment was already collected before subscription creation
+    AlreadyPaid {
+        charge_result: DirectChargeResult,
+        /// If set, update this existing transaction instead of creating a new one.
+        /// Used for async payments where the transaction was created before the invoice.
+        existing_transaction_id: Option<PaymentTransactionId>,
+    },
 }
 
 impl Services {
@@ -90,7 +101,6 @@ impl Services {
                         .attach("Currency is different from the confirmation"));
                 }
 
-                // Validate the total amount
                 if draft_invoice.amount_due != (total_amount_confirmation as i64) {
                     return Err(Report::new(StoreError::CheckoutError).attach(format!(
                         "Total due amount is different from the confirmation : expected {}, got {}",
@@ -192,6 +202,67 @@ impl Services {
                 }
 
                 // Finalize and process payment immediately
+                self.finalize_invoice_tx(
+                    conn,
+                    draft_invoice.id,
+                    tenant_id,
+                    false,
+                    &Some(subscription.clone()),
+                )
+                .await?;
+            }
+            InvoiceBillingMode::AlreadyPaid {
+                charge_result,
+                existing_transaction_id,
+            } => {
+                if draft_invoice.currency != charge_result.currency {
+                    return Err(Report::new(StoreError::CheckoutError)
+                        .attach("Currency mismatch between invoice and payment"));
+                }
+
+                // Allow 1 subunit tolerance for rounding
+                let amount_diff = (draft_invoice.amount_due - charge_result.amount).abs();
+                if amount_diff > 1 {
+                    return Err(Report::new(StoreError::CheckoutError).attach(format!(
+                        "Amount mismatch: invoice {} vs payment {}",
+                        draft_invoice.amount_due, charge_result.amount
+                    )));
+                }
+
+                let transaction = if let Some(tx_id) = existing_transaction_id {
+                    self.link_transaction_to_invoice(conn, tenant_id, tx_id, draft_invoice.id)
+                        .await?
+                } else {
+                    self.create_transaction_for_direct_charge(
+                        conn,
+                        tenant_id,
+                        draft_invoice.id,
+                        &charge_result,
+                    )
+                    .await?
+                };
+
+                transactions.push(transaction.clone());
+
+                let payment_method =
+                    diesel_models::customer_payment_methods::CustomerPaymentMethodRow::get_by_id(
+                        conn,
+                        &tenant_id,
+                        &charge_result.payment_method_id,
+                    )
+                    .await
+                    .map_err(|e| StoreError::DatabaseError(e.error))?;
+
+                diesel_models::subscriptions::SubscriptionRow::update_subscription_payment_method(
+                    conn,
+                    subscription.subscription.id,
+                    tenant_id,
+                    Some(charge_result.payment_method_id),
+                    Some(payment_method.payment_method_type),
+                )
+                .await
+                .map_err(Into::<Report<StoreError>>::into)?;
+
                 self.finalize_invoice_tx(
                     conn,
                     draft_invoice.id,

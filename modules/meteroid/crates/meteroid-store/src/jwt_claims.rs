@@ -1,14 +1,13 @@
 use crate::StoreResult;
 use crate::errors::StoreError;
-use common_domain::ids::{CustomerId, InvoiceId, QuoteId, SubscriptionId, TenantId};
+use common_domain::ids::{CheckoutSessionId, CustomerId, InvoiceId, QuoteId, TenantId};
 use secrecy::{ExposeSecret, SecretString};
 use serde_with::skip_serializing_none;
 // todo reuse in common-grpc as well
 
 #[derive(Debug, serde::Deserialize, serde::Serialize, Clone)]
 pub enum ResourceAccess {
-    SubscriptionCheckout(SubscriptionId),
-    // OneTimeCheckout
+    CheckoutSession(CheckoutSessionId),
     Customer(CustomerId),
     Invoice(InvoiceId),
     Quote {

@@ -127,7 +127,7 @@ impl TryInto<SubscriptionComponentRowNew> for SubscriptionComponentNew {
     }
 }
 
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct CreateSubscriptionComponents {
     pub parameterized_components: Vec<ComponentParameterization>,
     pub overridden_components: Vec<ComponentOverride>,
@@ -135,31 +135,31 @@ pub struct CreateSubscriptionComponents {
     pub remove_components: Vec<PriceComponentId>,
 }
 
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct ComponentParameterization {
     pub component_id: PriceComponentId,
     pub parameters: ComponentParameters,
 }
 
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct ComponentParameters {
     pub initial_slot_count: Option<u32>,
     pub billing_period: Option<BillingPeriodEnum>,
     pub committed_capacity: Option<u64>,
 }
 
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct ComponentOverride {
     pub component_id: PriceComponentId,
     pub component: SubscriptionComponentNewInternal,
 }
 
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct ExtraComponent {
     pub component: SubscriptionComponentNewInternal,
 }
 
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct SubscriptionComponentNewInternal {
     pub price_component_id: Option<PriceComponentId>,
     pub product_id: Option<ProductId>,

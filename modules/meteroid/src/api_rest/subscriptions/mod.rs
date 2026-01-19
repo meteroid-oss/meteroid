@@ -2,7 +2,7 @@ use crate::api_rest::AppState;
 use utoipa_axum::router::OpenApiRouter;
 use utoipa_axum::routes;
 
-mod mapping;
+pub mod mapping;
 pub mod model;
 pub mod router;
 

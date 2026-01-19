@@ -182,7 +182,7 @@ message Transaction {
   optional string payment_method_id = 3;
   uint64 amount = 4;
   string currency = 5;
-  string invoice_id = 6;
+  optional string invoice_id = 6;
   optional string error = 7;
   PaymentStatusEnum status = 8;
   PaymentTypeEnum payment_type = 9;

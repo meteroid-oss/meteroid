@@ -74,6 +74,8 @@ impl IntoResponse for AdapterWebhookError {
 pub enum WorkerError {
     #[error("Failed to update currency rates")]
     CurrencyRatesUpdateError,
+    #[error("Failed to cleanup checkout sessions")]
+    CheckoutSessionCleanupError,
 }
 
 #[derive(Debug, thiserror::Error)]

@@ -60,13 +60,15 @@ export const CustomerPortalPaymentMethods = ({
             const isDefault = index === 0 // First one is default
 
             return (
-              <div key={method.id} className="flex items-center justify-between text-sm">
-                <div className="flex items-center gap-2.5">
+              <div key={method.id} className="flex items-center justify-between gap-3 text-sm">
+                <div className="flex items-center gap-2.5 min-w-0">
                   {isCard ? (
                     <>
-                      {method.cardBrand && <CardBrandLogo brand={method.cardBrand} />}
-                      <div>
-                        <div className="text-gray-900 font-medium">
+                      <div className="flex-shrink-0">
+                        {method.cardBrand && <CardBrandLogo brand={method.cardBrand} />}
+                      </div>
+                      <div className="min-w-0">
+                        <div className="text-gray-900 font-medium truncate">
                           •••• {method.cardLast4}
                         </div>
                         <div className="text-xs text-gray-500">
@@ -77,9 +79,9 @@ export const CustomerPortalPaymentMethods = ({
                     </>
                   ) : (
                     <>
-                      <Building size={16} className="text-gray-500" />
-                      <div>
-                        <div className="text-gray-900 font-medium">Bank account</div>
+                      <Building size={16} className="text-gray-500 flex-shrink-0" />
+                      <div className="min-w-0">
+                        <div className="text-gray-900 font-medium truncate">Bank account</div>
                         <div className="text-xs text-gray-500">
                           {method.accountNumberHint && `••••${method.accountNumberHint}`}
                         </div>
@@ -88,7 +90,7 @@ export const CustomerPortalPaymentMethods = ({
                   )}
                 </div>
                 {isDefault && (
-                  <span className="text-xs text-gray-500 bg-gray-100 px-2 py-0.5 rounded">
+                  <span className="text-xs text-gray-500 bg-gray-100 px-2 py-0.5 rounded flex-shrink-0">
                     Default
                   </span>
                 )}

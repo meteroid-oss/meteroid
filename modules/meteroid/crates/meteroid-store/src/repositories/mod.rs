@@ -19,6 +19,7 @@ pub mod add_ons;
 pub mod api_tokens;
 pub mod bank_accounts;
 pub mod billable_metrics;
+pub mod checkout_sessions;
 pub mod connectors;
 mod constants;
 pub mod coupons;

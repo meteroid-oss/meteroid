@@ -3,7 +3,8 @@ use chrono::NaiveDateTime;
 
 use crate::domain::CustomerPaymentMethod;
 use common_domain::ids::{
-    CustomerPaymentMethodId, InvoiceId, PaymentTransactionId, StoredDocumentId, TenantId,
+    CheckoutSessionId, CustomerPaymentMethodId, InvoiceId, PaymentTransactionId, StoredDocumentId,
+    TenantId,
 };
 use diesel_models::payments::{PaymentTransactionRow, PaymentTransactionWithMethodRow};
 use o2o::o2o;
@@ -15,7 +16,7 @@ pub struct PaymentTransaction {
     pub id: PaymentTransactionId,
     pub tenant_id: TenantId,
     // technically we could allow a payment intent to be linked to multiple invoices ? (ex: pay multiple overdue at once)
-    pub invoice_id: InvoiceId,
+    pub invoice_id: Option<InvoiceId>,
     pub provider_transaction_id: Option<String>,
     pub processed_at: Option<NaiveDateTime>,
     pub refunded_at: Option<NaiveDateTime>,
@@ -30,6 +31,7 @@ pub struct PaymentTransaction {
     // enum ?
     pub error_type: Option<String>,
     pub receipt_pdf_id: Option<StoredDocumentId>,
+    pub checkout_session_id: Option<CheckoutSessionId>,
 }
 
 #[derive(Clone, Debug, Deserialize)]

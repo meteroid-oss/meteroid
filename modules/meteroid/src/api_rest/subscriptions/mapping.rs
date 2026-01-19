@@ -1,8 +1,8 @@
 use crate::api_rest::currencies;
 use crate::api_rest::subscriptions::model::{
-    AppliedCoupon, AppliedCouponDetailed, Coupon, CouponDiscount, FixedDiscount,
-    PercentageDiscount, Subscription, SubscriptionAddOnCustomization, SubscriptionCreateRequest,
-    SubscriptionDetails,
+    AppliedCoupon, AppliedCouponDetailed, Coupon, CouponDiscount, CreateSubscriptionAddOn,
+    CreateSubscriptionComponents, FixedDiscount, PercentageDiscount, Subscription,
+    SubscriptionAddOnCustomization, SubscriptionCreateRequest, SubscriptionDetails,
 };
 use crate::errors::RestApiError;
 use common_domain::ids::{CouponId, CustomerId, PlanVersionId};
@@ -161,46 +161,8 @@ pub fn rest_to_domain_create_request(
             invoice_threshold: None,
             billing_start_date: None,
         },
-        price_components: sub
-            .price_components
-            .map(|pc| domain::CreateSubscriptionComponents {
-                parameterized_components: pc
-                    .parameterized_components
-                    .unwrap_or_default()
-                    .into_iter()
-                    .map(Into::into)
-                    .collect(),
-                overridden_components: pc
-                    .overridden_components
-                    .unwrap_or_default()
-                    .into_iter()
-                    .map(Into::into)
-                    .collect(),
-                extra_components: pc
-                    .extra_components
-                    .unwrap_or_default()
-                    .into_iter()
-                    .map(Into::into)
-                    .collect(),
-                remove_components: pc.remove_components.unwrap_or_default(),
-            }),
-        add_ons: sub.add_ons.map(|add_ons| domain::CreateSubscriptionAddOns {
-            add_ons: add_ons
-                .into_iter()
-                .map(|add_on| domain::CreateSubscriptionAddOn {
-                    add_on_id: add_on.add_on_id,
-                    customization: match add_on.customization {
-                        None => domain::SubscriptionAddOnCustomization::None,
-                        Some(SubscriptionAddOnCustomization::Parameterization(p)) => {
-                            domain::SubscriptionAddOnCustomization::Parameterization(p.into())
-                        }
-                        Some(SubscriptionAddOnCustomization::Override(o)) => {
-                            domain::SubscriptionAddOnCustomization::Override(o.into())
-                        }
-                    },
-                })
-                .collect(),
-        }),
+        price_components: sub.price_components.map(Into::into),
+        add_ons: sub.add_ons.map(map_add_ons),
         coupons: resolved_coupon_ids.map(|ids| domain::CreateSubscriptionCoupons {
             coupons: ids
                 .into_iter()
@@ -210,4 +172,53 @@ pub fn rest_to_domain_create_request(
     };
 
     Ok(converted)
+}
+
+impl From<CreateSubscriptionComponents> for domain::CreateSubscriptionComponents {
+    fn from(pc: CreateSubscriptionComponents) -> Self {
+        Self {
+            parameterized_components: pc
+                .parameterized_components
+                .unwrap_or_default()
+                .into_iter()
+                .map(Into::into)
+                .collect(),
+            overridden_components: pc
+                .overridden_components
+                .unwrap_or_default()
+                .into_iter()
+                .map(Into::into)
+                .collect(),
+            extra_components: pc
+                .extra_components
+                .unwrap_or_default()
+                .into_iter()
+                .map(Into::into)
+                .collect(),
+            remove_components: pc.remove_components.unwrap_or_default(),
+        }
+    }
+}
+
+impl From<CreateSubscriptionAddOn> for domain::CreateSubscriptionAddOn {
+    fn from(add_on: CreateSubscriptionAddOn) -> Self {
+        Self {
+            add_on_id: add_on.add_on_id,
+            customization: match add_on.customization {
+                None => domain::SubscriptionAddOnCustomization::None,
+                Some(SubscriptionAddOnCustomization::Parameterization(p)) => {
+                    domain::SubscriptionAddOnCustomization::Parameterization(p.into())
+                }
+                Some(SubscriptionAddOnCustomization::Override(o)) => {
+                    domain::SubscriptionAddOnCustomization::Override(o.into())
+                }
+            },
+        }
+    }
+}
+
+pub fn map_add_ons(add_ons: Vec<CreateSubscriptionAddOn>) -> domain::CreateSubscriptionAddOns {
+    domain::CreateSubscriptionAddOns {
+        add_ons: add_ons.into_iter().map(Into::into).collect(),
+    }
 }

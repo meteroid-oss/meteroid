@@ -1,13 +1,21 @@
+use crate::domain::{CheckoutSession, Coupon};
+use crate::errors::StoreError;
+use crate::repositories::coupons::CouponInterface;
 use crate::services::clients::usage::UsageClient;
 use crate::{Store, StoreResult};
 use chrono::NaiveDateTime;
-use common_domain::ids::{InvoiceId, SubscriptionId, TenantId};
+use common_domain::ids::{CouponId, CustomerId, InvoiceId, SubscriptionId, TenantId};
+use diesel_models::applied_coupons::AppliedCouponRow;
+use diesel_models::coupons::CouponRow;
+use error_stack::Report;
 use rust_decimal::Decimal;
 use std::sync::Arc;
 
 // mod billing_worker;
 pub mod utils;
 
+mod checkout_completion;
+mod checkout_preview;
 pub mod clients;
 mod connectors;
 mod credits;
@@ -23,6 +31,7 @@ mod webhooks;
 
 use crate::domain::{PaymentTransaction, Subscription};
 pub use crate::domain::{SlotUpgradeBillingMode, UpdateSlotsResult};
+use crate::store::PgConn;
 pub use invoices::{CustomerDetailsUpdate, InvoiceBillingMode};
 pub use quotes::QuoteConversionResult;
 use stripe_client::client::StripeClient;
@@ -179,6 +188,23 @@ impl ServicesEdge {
             .get_subscription_effective_plan(conn, tenant_id, subscription_id)
             .await
     }
+
+    /// Builds a virtual SubscriptionDetails from a checkout session for invoice preview.
+    ///
+    /// This is used in the self-serve checkout flow where there's no subscription yet.
+    /// The returned SubscriptionDetails can be used with compute_invoice() to preview
+    /// the invoice that would be generated when the checkout is completed.
+    pub async fn build_preview_subscription_details(
+        &self,
+        session: &crate::domain::CheckoutSession,
+        tenant_id: TenantId,
+        coupon_code: Option<&str>,
+    ) -> StoreResult<crate::domain::SubscriptionDetails> {
+        let mut conn = self.store.get_conn().await?;
+        self.services
+            .build_preview_subscription_details(&mut conn, session, tenant_id, coupon_code)
+            .await
+    }
 }
 
 impl ServicesEdge {
@@ -202,5 +228,102 @@ impl ServicesEdge {
                 at_ts,
             )
             .await
+    }
+}
+
+impl Services {
+    /// Resolves coupon IDs for a checkout session.
+    ///
+    /// If the session already has `coupon_ids`, returns those.
+    /// Otherwise, if a `coupon_code_override` is provided or the session has a `coupon_code`,
+    /// looks up the coupon by code and returns its ID.
+    pub(crate) async fn resolve_coupon_ids_for_checkout_tx(
+        &self,
+        conn: &mut PgConn,
+        tenant_id: TenantId,
+        session: &CheckoutSession,
+        coupon_code_override: Option<String>,
+    ) -> StoreResult<Vec<CouponId>> {
+        let mut coupon_ids = session.coupon_ids.clone();
+
+        if coupon_ids.is_empty() {
+            // Use override if provided, otherwise fall back to session's coupon_code
+            let effective_code = coupon_code_override.or_else(|| session.coupon_code.clone());
+
+            if let Some(code) = effective_code {
+                let coupons = self
+                    .store
+                    .list_coupons_by_codes_tx(conn, tenant_id, &[code])
+                    .await?;
+                if let Some(coupon) = coupons.into_iter().next() {
+                    coupon_ids.push(coupon.id);
+                }
+            }
+        }
+
+        Ok(coupon_ids)
+    }
+
+    /// Locks coupons with FOR UPDATE and validates they can be used.
+    /// Validates:
+    /// - Coupon is not expired, archived, or disabled
+    /// - Coupon has not reached its redemption limit
+    /// - Coupon currency matches subscription currency (if applicable)
+    /// - Non-reusable coupons haven't been used by this customer before
+    pub(crate) async fn lock_and_validate_coupons_for_checkout(
+        &self,
+        conn: &mut PgConn,
+        tenant_id: TenantId,
+        customer_id: CustomerId,
+        coupon_ids: &[CouponId],
+        subscription_currency: &str,
+    ) -> StoreResult<Vec<Coupon>> {
+        if coupon_ids.is_empty() {
+            return Ok(vec![]);
+        }
+
+        // Lock coupons with FOR UPDATE to prevent concurrent modifications
+        let coupon_rows = CouponRow::list_by_ids_for_update(conn, coupon_ids, &tenant_id).await?;
+
+        // Convert to domain objects and validate
+        let mut coupons = Vec::with_capacity(coupon_rows.len());
+        for row in coupon_rows {
+            let coupon: Coupon = row.try_into()?;
+
+            // Validate coupon can be used (expired, archived, disabled, redemption limit, currency)
+            coupon
+                .validate_for_use_with_message(subscription_currency)
+                .map_err(|msg| Report::new(StoreError::InvalidArgument(msg)))?;
+
+            coupons.push(coupon);
+        }
+
+        // Check non-reusable coupons haven't been used by this customer
+        let non_reusable_ids: Vec<CouponId> = coupons
+            .iter()
+            .filter(|c| !c.reusable)
+            .map(|c| c.id)
+            .collect();
+
+        if !non_reusable_ids.is_empty() {
+            let pairs: Vec<(CouponId, CustomerId)> = non_reusable_ids
+                .iter()
+                .map(|&id| (id, customer_id))
+                .collect();
+
+            let existing =
+                AppliedCouponRow::find_existing_customer_coupon_pairs(conn, &pairs).await?;
+
+            for coupon in coupons.iter().filter(|c| !c.reusable) {
+                if existing.contains(&(coupon.id, customer_id)) {
+                    return Err(Report::new(StoreError::InvalidArgument(format!(
+                        "Coupon {} is not reusable and has already been used by this customer",
+                        coupon.code
+                    ))));
+                }
+            }
+        }
+
+        Ok(coupons)
     }
 }

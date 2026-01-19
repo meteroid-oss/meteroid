@@ -35,6 +35,13 @@ pub trait CouponInterface {
         tenant_id: TenantId,
         codes: &[String],
     ) -> StoreResult<Vec<Coupon>>;
+
+    async fn list_coupons_by_codes_tx(
+        &self,
+        conn: &mut diesel_models::PgConn,
+        tenant_id: TenantId,
+        codes: &[String],
+    ) -> StoreResult<Vec<Coupon>>;
 }
 
 #[async_trait::async_trait]
@@ -151,14 +158,13 @@ impl CouponInterface for Store {
         })
     }
 
-    async fn list_coupons_by_codes(
+    async fn list_coupons_by_codes_tx(
         &self,
+        conn: &mut diesel_models::PgConn,
         tenant_id: TenantId,
         codes: &[String],
     ) -> StoreResult<Vec<Coupon>> {
-        let mut conn = self.get_conn().await?;
-
-        CouponRow::list_by_codes(&mut conn, tenant_id, codes)
+        CouponRow::list_by_codes(conn, tenant_id, codes)
             .await
             .map_err(Into::<Report<StoreError>>::into)
             .and_then(|coupons| {
@@ -167,5 +173,16 @@ impl CouponInterface for Store {
                     .map(TryInto::try_into)
                     .collect::<Result<Vec<_>, _>>()
             })
+    }
+
+    async fn list_coupons_by_codes(
+        &self,
+        tenant_id: TenantId,
+        codes: &[String],
+    ) -> StoreResult<Vec<Coupon>> {
+        let mut conn = self.get_conn().await?;
+
+        self.list_coupons_by_codes_tx(&mut conn, tenant_id, codes)
+            .await
     }
 }

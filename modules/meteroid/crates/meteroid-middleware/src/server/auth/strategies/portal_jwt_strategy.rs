@@ -40,8 +40,8 @@ pub fn validate_portal_jwt(
     Ok(AuthenticatedState::Shared {
         tenant_id: decoded.tenant_id,
         resource_access: match decoded.resource {
-            ResourceAccess::SubscriptionCheckout(id) => {
-                common_grpc::middleware::server::auth::ResourceAccess::SubscriptionCheckout(id)
+            ResourceAccess::CheckoutSession(id) => {
+                common_grpc::middleware::server::auth::ResourceAccess::CheckoutSession(id)
             }
             ResourceAccess::Customer(id) => {
                 common_grpc::middleware::server::auth::ResourceAccess::CustomerPortal(id)
@@ -78,14 +78,14 @@ pub async fn authorize_portal(
                 return Err(Status::permission_denied("Unauthorized"));
             }
         }
-        common_grpc::middleware::server::auth::ResourceAccess::SubscriptionCheckout { .. } => {
+        common_grpc::middleware::server::auth::ResourceAccess::CheckoutSession { .. } => {
             if !gm.service.starts_with("meteroid.portal.checkout.")
                 && !gm.service.starts_with("meteroid.portal.shared.")
             {
                 return Err(Status::permission_denied("Unauthorized"));
             }
         }
-        _ => {
+        common_grpc::middleware::server::auth::ResourceAccess::CustomerPortal { .. } => {
             if !gm.service.starts_with("meteroid.portal.invoice.")
                 && !gm.service.starts_with("meteroid.portal.checkout.")
                 && !gm.service.starts_with("meteroid.portal.shared.")

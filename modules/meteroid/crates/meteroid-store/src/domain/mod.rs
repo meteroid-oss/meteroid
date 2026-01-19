@@ -1,6 +1,8 @@
 pub use api_tokens::*;
 pub use bank_accounts::*;
 pub use billable_metrics::*;
+pub use checkout_sessions::*;
+pub use coupons::*;
 pub use credit_notes::*;
 pub use customer_payment_methods::*;
 pub use customers::*;
@@ -38,6 +40,7 @@ pub mod adjustments;
 pub mod api_tokens;
 pub mod bank_accounts;
 pub mod billable_metrics;
+pub mod checkout_sessions;
 pub mod connectors;
 pub mod coupons;
 pub mod credit_notes;

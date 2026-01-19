@@ -3,18 +3,14 @@ import { AlertCircle } from 'lucide-react'
 
 import CheckoutFlow from '@/features/checkout/CheckoutFlow'
 import { useQuery } from '@/lib/connectrpc'
-import { getSubscriptionCheckout } from '@/rpc/portal/checkout/v1/checkout-PortalCheckoutService_connectquery'
-import { useTypedParams } from '@/utils/params'
+import { getCheckout } from '@/rpc/portal/checkout/v1/checkout-PortalCheckoutService_connectquery'
 import { useForceTheme } from 'providers/ThemeProvider'
 
 export const PortalCheckout = () => {
   useForceTheme('light')
 
-  const subscriptionId = useTypedParams<{ subscriptionId: string }>().subscriptionId
-
-  const checkoutQuery = useQuery(getSubscriptionCheckout, {
-    subscriptionId,
-  })
+  // Use the unified GetCheckout endpoint - token is passed via authorization header
+  const checkoutQuery = useQuery(getCheckout, {})
 
   const data = checkoutQuery.data?.checkout
   const error = checkoutQuery.error

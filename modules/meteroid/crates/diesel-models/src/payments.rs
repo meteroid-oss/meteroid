@@ -2,7 +2,8 @@ use crate::customer_payment_methods::CustomerPaymentMethodRow;
 use crate::enums::{PaymentStatusEnum, PaymentTypeEnum};
 use chrono::NaiveDateTime;
 use common_domain::ids::{
-    CustomerPaymentMethodId, InvoiceId, PaymentTransactionId, StoredDocumentId, TenantId,
+    CheckoutSessionId, CustomerPaymentMethodId, InvoiceId, PaymentTransactionId, StoredDocumentId,
+    TenantId,
 };
 use diesel::{AsChangeset, Associations, Identifiable, Insertable, Queryable, Selectable};
 
@@ -13,7 +14,7 @@ use diesel::{AsChangeset, Associations, Identifiable, Insertable, Queryable, Sel
 pub struct PaymentTransactionRow {
     pub id: PaymentTransactionId,
     pub tenant_id: TenantId,
-    pub invoice_id: InvoiceId,
+    pub invoice_id: Option<InvoiceId>,
     pub provider_transaction_id: Option<String>,
     pub processed_at: Option<NaiveDateTime>,
     pub refunded_at: Option<NaiveDateTime>,
@@ -26,6 +27,7 @@ pub struct PaymentTransactionRow {
     // enum ?
     pub error_type: Option<String>,
     pub receipt_pdf_id: Option<StoredDocumentId>,
+    pub checkout_session_id: Option<CheckoutSessionId>,
 }
 
 #[derive(Debug, Insertable)]
@@ -34,7 +36,7 @@ pub struct PaymentTransactionRow {
 pub struct PaymentTransactionRowNew {
     pub id: PaymentTransactionId,
     pub tenant_id: TenantId,
-    pub invoice_id: InvoiceId,
+    pub invoice_id: Option<InvoiceId>,
     pub provider_transaction_id: Option<String>,
     pub amount: i64,
     pub currency: String,
@@ -43,14 +45,17 @@ pub struct PaymentTransactionRowNew {
     pub payment_type: PaymentTypeEnum,
     pub error_type: Option<String>,
     pub processed_at: Option<NaiveDateTime>,
+    pub checkout_session_id: Option<CheckoutSessionId>,
 }
 
-#[derive(AsChangeset)]
+#[derive(AsChangeset, Default)]
 #[diesel(table_name = crate::schema::payment_transaction)]
 #[diesel(check_for_backend(diesel::pg::Pg))]
 #[diesel(primary_key(id))]
 pub struct PaymentTransactionRowPatch {
+    #[diesel(skip_insertion)]
     pub id: PaymentTransactionId,
+    pub invoice_id: Option<Option<InvoiceId>>,
     pub status: Option<PaymentStatusEnum>,
     pub error_type: Option<Option<String>>,
     pub processed_at: Option<Option<NaiveDateTime>>,

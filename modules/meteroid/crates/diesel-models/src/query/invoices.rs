@@ -306,7 +306,7 @@ impl InvoiceRow {
             .map(|invoice_row| {
                 let txs: Vec<PaymentTransactionRow> = transactions
                     .iter()
-                    .filter(|tx| tx.invoice_id == invoice_row.invoice.id)
+                    .filter(|tx| tx.invoice_id == Some(invoice_row.invoice.id))
                     .cloned()
                     .collect();
                 (invoice_row, txs)

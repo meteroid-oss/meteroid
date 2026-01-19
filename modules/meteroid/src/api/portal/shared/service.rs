@@ -13,11 +13,12 @@ use meteroid_grpc::meteroid::portal::shared::v1::*;
 use meteroid_store::adapters::payment_service_providers::initialize_payment_provider;
 use meteroid_store::domain::{CustomerPatch, CustomerPaymentMethodNew};
 use meteroid_store::errors::StoreError;
+use meteroid_store::repositories::InvoiceInterface;
+use meteroid_store::repositories::checkout_sessions::CheckoutSessionsInterface;
 use meteroid_store::repositories::connectors::ConnectorsInterface;
 use meteroid_store::repositories::customer_connection::CustomerConnectionInterface;
 use meteroid_store::repositories::customer_payment_methods::CustomerPaymentMethodsInterface;
 use meteroid_store::repositories::customers::CustomersInterface;
-use meteroid_store::repositories::{InvoiceInterface, SubscriptionInterface};
 use secrecy::ExposeSecret;
 use tonic::{Request, Response, Status};
 
@@ -27,16 +28,14 @@ impl PortalSharedServiceComponents {
         resource: AuthorizedAsPortalUser,
     ) -> Result<CustomerId, PortalSharedApiError> {
         match resource.resource_access {
-            common_grpc::middleware::server::auth::ResourceAccess::SubscriptionCheckout(
-                subscription_id,
-            ) => {
-                let subscription = self
+            common_grpc::middleware::server::auth::ResourceAccess::CheckoutSession(session_id) => {
+                let session = self
                     .store
-                    .get_subscription(resource.tenant_id, subscription_id)
+                    .get_checkout_session(resource.tenant_id, session_id)
                     .await
                     .map_err(Into::<PortalSharedApiError>::into)?;
 
-                Ok(subscription.customer_id)
+                Ok(session.customer_id)
             }
             common_grpc::middleware::server::auth::ResourceAccess::InvoicePortal(invoice_id) => {
                 let invoice = self
@@ -48,9 +47,11 @@ impl PortalSharedServiceComponents {
                 Ok(invoice.customer_id)
             }
             common_grpc::middleware::server::auth::ResourceAccess::CustomerPortal(id) => Ok(id),
-            _ => Err(PortalSharedApiError::InvalidArgument(
-                "Invalid portal resource for customer resolution".to_string(),
-            )),
+            common_grpc::middleware::server::auth::ResourceAccess::QuotePortal { .. } => {
+                Err(PortalSharedApiError::InvalidArgument(
+                    "Quote portal cannot resolve customer".to_string(),
+                ))
+            }
         }
     }
 }

@@ -303,16 +303,25 @@ impl SubscriptionsService for SubscriptionServiceComponents {
         &self,
         request: Request<GenerateCheckoutTokenRequest>,
     ) -> Result<Response<GenerateCheckoutTokenResponse>, Status> {
+        use meteroid_store::repositories::checkout_sessions::CheckoutSessionsInterface;
+
         let tenant_id = request.tenant()?;
 
         let req = request.into_inner();
         let subscription_id = SubscriptionId::from_proto(req.subscription_id)?;
 
-        // Generate the JWT token for checkout portal access
+        // Find the CheckoutSession linked to this subscription
+        let session = self
+            .store
+            .get_checkout_session_by_subscription(tenant_id, subscription_id)
+            .await
+            .map_err(Into::<SubscriptionApiError>::into)?;
+
+        // Generate the JWT token for the CheckoutSession
         let token = meteroid_store::jwt_claims::generate_portal_token(
             &self.jwt_secret,
             tenant_id,
-            meteroid_store::jwt_claims::ResourceAccess::SubscriptionCheckout(subscription_id),
+            meteroid_store::jwt_claims::ResourceAccess::CheckoutSession(session.id),
         )
         .map_err(Into::<SubscriptionApiError>::into)?;
 

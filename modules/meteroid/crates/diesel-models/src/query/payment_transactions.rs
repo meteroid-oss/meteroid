@@ -167,4 +167,29 @@ impl PaymentTransactionRowPatch {
             .attach("Error while updating transaction")
             .into_db_result()
     }
+
+    pub async fn patch(
+        &self,
+        conn: &mut PgConn,
+        tenant_uid: TenantId,
+        tx_id: PaymentTransactionId,
+    ) -> DbResult<PaymentTransactionRow> {
+        use crate::schema::payment_transaction::dsl::{id, payment_transaction, tenant_id};
+        use diesel_async::RunQueryDsl;
+
+        let query = diesel::update(
+            payment_transaction
+                .filter(id.eq(tx_id))
+                .filter(tenant_id.eq(tenant_uid)),
+        )
+        .set(self);
+
+        log::debug!("{}", debug_query::<diesel::pg::Pg, _>(&query));
+
+        query
+            .get_result(conn)
+            .await
+            .attach("Error while patching transaction")
+            .into_db_result()
+    }
 }

@@ -24,7 +24,6 @@ use diesel_models::subscriptions::SubscriptionRow;
 // TODO we need to always pass the tenant id and match it with the resource, if not within the resource.
 // and even within it's probably still unsafe no ? Ex: creating components against a wrong subscription within a different tenant
 use crate::domain::pgmq::{HubspotSyncRequestEvent, HubspotSyncSubscription, PgmqQueue};
-use crate::jwt_claims::{ResourceAccess, generate_portal_token};
 use crate::repositories::connectors::ConnectorsInterface;
 use crate::repositories::pgmq::PgmqInterface;
 use diesel_models::PgConn;
@@ -33,7 +32,6 @@ use diesel_models::invoicing_entities::InvoicingEntityRow;
 use diesel_models::plans::PlanRow;
 use diesel_models::scheduled_events::ScheduledEventRowNew;
 use meteroid_store_macros::with_conn_delegate;
-use secrecy::SecretString;
 
 pub mod slots;
 use crate::domain::scheduled_events::{ScheduledEvent, ScheduledEventNew};
@@ -196,14 +194,29 @@ impl SubscriptionInterface for Store {
                 .map(std::convert::TryInto::try_into)
                 .collect::<Result<Vec<_>, Report<_>>>()?;
 
+        // Look up the linked CheckoutSession to get the checkout URL
         let checkout_url = if subscription.pending_checkout {
-            let url = generate_checkout_url(
-                &self.settings.jwt_secret,
-                &self.settings.public_url,
-                tenant_id,
-                subscription.id,
-            )?;
-            Some(url)
+            use crate::jwt_claims::{ResourceAccess, generate_portal_token};
+            use diesel_models::checkout_sessions::CheckoutSessionRow;
+
+            // Find the active checkout session for this subscription
+            let session = CheckoutSessionRow::get_by_subscription(conn, tenant_id, subscription.id)
+                .await
+                .map_err(Into::<Report<StoreError>>::into)?;
+
+            if let Some(session) = session {
+                let token = generate_portal_token(
+                    &self.settings.jwt_secret,
+                    tenant_id,
+                    ResourceAccess::CheckoutSession(session.id),
+                )?;
+                Some(format!(
+                    "{}/checkout?token={}",
+                    self.settings.public_url, token
+                ))
+            } else {
+                None
+            }
         } else {
             None
         };
@@ -451,21 +464,6 @@ impl SubscriptionInterface for Store {
             .map(std::convert::TryInto::try_into)
             .collect::<Result<Vec<_>, _>>()
     }
-}
-
-pub fn generate_checkout_url(
-    jwt_secret: &SecretString,
-    base_url: &String,
-    tenant_id: TenantId,
-    subscription_id: SubscriptionId,
-) -> StoreResult<String> {
-    let token = generate_portal_token(
-        jwt_secret,
-        tenant_id,
-        ResourceAccess::SubscriptionCheckout(subscription_id),
-    )?;
-
-    Ok(format!("{}/checkout?token={}", base_url, token))
 }
 
 // fn get_event_priority(event_type:  ScheduledEventTypeEnum) -> i32 {
