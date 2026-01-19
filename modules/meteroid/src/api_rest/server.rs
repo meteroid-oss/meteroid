@@ -11,6 +11,7 @@ use axum::{
     Json, Router, extract::DefaultBodyLimit, extract::Path, http::StatusCode, http::Uri,
     response::IntoResponse,
 };
+use axum_tracing_opentelemetry::middleware::{OtelAxumLayer, OtelInResponseLayer};
 use meteroid_store::{Services, Store};
 use std::any::Any;
 use std::sync::Arc;
@@ -80,6 +81,10 @@ pub async fn start_rest_server(
         .layer(DefaultBodyLimit::disable())
         .layer(RequestBodyLimitLayer::new(1024 * 1024)) // 1 MB
         .layer(CatchPanicLayer::custom(handle_500))
+        // include trace context as a header in the response
+        .layer(OtelInResponseLayer)
+        //start OpenTelemetry trace on an incoming request
+        .layer(OtelAxumLayer::default())
         .layer(
             TraceLayer::new_for_http()
                 .make_span_with(
