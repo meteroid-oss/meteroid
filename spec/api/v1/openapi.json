@@ -10,6 +10,272 @@
     "version": "0.1.0"
   },
   "paths": {
+    "/api/v1/checkout-sessions": {
+      "get": {
+        "tags": [
+          "Checkout Sessions"
+        ],
+        "summary": "List checkout sessions",
+        "operationId": "list_checkout_sessions",
+        "parameters": [
+          {
+            "name": "customer_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "oneOf": [
+                {
+                  "type": "null"
+                },
+                {
+                  "$ref": "#/components/schemas/CustomerId"
+                }
+              ]
+            }
+          },
+          {
+            "name": "status",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "oneOf": [
+                {
+                  "type": "null"
+                },
+                {
+                  "$ref": "#/components/schemas/CheckoutSessionStatus"
+                }
+              ]
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "List of checkout sessions",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ListCheckoutSessionsResponse"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Unauthorized",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/RestErrorResponse"
+                }
+              }
+            }
+          },
+          "500": {
+            "description": "Internal server error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/RestErrorResponse"
+                }
+              }
+            }
+          }
+        }
+      },
+      "post": {
+        "tags": [
+          "Checkout Sessions"
+        ],
+        "summary": "Create a checkout session",
+        "operationId": "create_checkout_session",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/CreateCheckoutSessionRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "description": "Checkout session created",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/CreateCheckoutSessionResponse"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Bad request",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/RestErrorResponse"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Unauthorized",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/RestErrorResponse"
+                }
+              }
+            }
+          },
+          "500": {
+            "description": "Internal server error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/RestErrorResponse"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/checkout-sessions/{id}": {
+      "get": {
+        "tags": [
+          "Checkout Sessions"
+        ],
+        "summary": "Get a checkout session by ID",
+        "operationId": "get_checkout_session",
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "description": "Checkout session ID",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Checkout session details",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/GetCheckoutSessionResponse"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Unauthorized",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/RestErrorResponse"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "Not found",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/RestErrorResponse"
+                }
+              }
+            }
+          },
+          "500": {
+            "description": "Internal server error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/RestErrorResponse"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/checkout-sessions/{id}/cancel": {
+      "post": {
+        "tags": [
+          "Checkout Sessions"
+        ],
+        "summary": "Cancel a checkout session",
+        "operationId": "cancel_checkout_session",
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "description": "Checkout session ID",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Checkout session cancelled",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/CancelCheckoutSessionResponse"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Bad request - session cannot be cancelled",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/RestErrorResponse"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Unauthorized",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/RestErrorResponse"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "Not found",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/RestErrorResponse"
+                }
+              }
+            }
+          },
+          "500": {
+            "description": "Internal server error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/RestErrorResponse"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
     "/api/v1/credit-notes/{credit_note_id}/download": {
       "get": {
         "tags": [
@@ -1672,6 +1938,17 @@
           "ARREARS"
         ]
       },
+      "CancelCheckoutSessionResponse": {
+        "type": "object",
+        "required": [
+          "session"
+        ],
+        "properties": {
+          "session": {
+            "$ref": "#/components/schemas/CheckoutSession"
+          }
+        }
+      },
       "CancelSubscriptionRequest": {
         "type": "object",
         "properties": {
@@ -1772,6 +2049,127 @@
             "type": "string"
           }
         }
+      },
+      "CheckoutSession": {
+        "type": "object",
+        "required": [
+          "id",
+          "customer_id",
+          "plan_version_id",
+          "status",
+          "checkout_type",
+          "created_at"
+        ],
+        "properties": {
+          "billing_day_anchor": {
+            "type": [
+              "integer",
+              "null"
+            ],
+            "format": "int32"
+          },
+          "billing_start_date": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "format": "date"
+          },
+          "checkout_type": {
+            "$ref": "#/components/schemas/CheckoutType"
+          },
+          "checkout_url": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "completed_at": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "format": "date-time"
+          },
+          "coupon_code": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "created_at": {
+            "type": "string",
+            "format": "date-time"
+          },
+          "customer_id": {
+            "$ref": "#/components/schemas/CustomerId"
+          },
+          "expires_at": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "format": "date-time",
+            "description": "When the session expires. None means the session never expires."
+          },
+          "id": {
+            "$ref": "#/components/schemas/CheckoutSessionId"
+          },
+          "net_terms": {
+            "type": [
+              "integer",
+              "null"
+            ],
+            "format": "int32"
+          },
+          "plan_version_id": {
+            "$ref": "#/components/schemas/PlanVersionId"
+          },
+          "status": {
+            "$ref": "#/components/schemas/CheckoutSessionStatus"
+          },
+          "subscription_id": {
+            "oneOf": [
+              {
+                "type": "null"
+              },
+              {
+                "$ref": "#/components/schemas/SubscriptionId"
+              }
+            ]
+          },
+          "trial_duration_days": {
+            "type": [
+              "integer",
+              "null"
+            ],
+            "format": "int32"
+          }
+        }
+      },
+      "CheckoutSessionId": {
+        "type": "string",
+        "format": "MeteroidId",
+        "examples": [
+          "che_7n42DGM5Tflk9n8mt7Fhc7"
+        ]
+      },
+      "CheckoutSessionStatus": {
+        "type": "string",
+        "enum": [
+          "CREATED",
+          "AWAITING_PAYMENT",
+          "COMPLETED",
+          "EXPIRED",
+          "CANCELLED"
+        ]
+      },
+      "CheckoutType": {
+        "type": "string",
+        "enum": [
+          "SELF_SERVE",
+          "SUBSCRIPTION_ACTIVATION"
+        ]
       },
       "ComponentOverride": {
         "type": "object",
@@ -1936,6 +2334,161 @@
           "total": {
             "type": "integer",
             "format": "int64"
+          }
+        }
+      },
+      "CreateCheckoutSessionRequest": {
+        "type": "object",
+        "required": [
+          "customer_id",
+          "plan_version_id"
+        ],
+        "properties": {
+          "activation_condition": {
+            "oneOf": [
+              {
+                "type": "null"
+              },
+              {
+                "$ref": "#/components/schemas/SubscriptionActivationConditionEnum"
+              }
+            ]
+          },
+          "add_ons": {
+            "type": [
+              "array",
+              "null"
+            ],
+            "items": {
+              "$ref": "#/components/schemas/CreateSubscriptionAddOn"
+            }
+          },
+          "auto_advance_invoices": {
+            "type": [
+              "boolean",
+              "null"
+            ],
+            "description": "If false, invoices will stay in Draft until manually reviewed and finalized. Default is true."
+          },
+          "billing_day_anchor": {
+            "type": [
+              "integer",
+              "null"
+            ],
+            "format": "int32"
+          },
+          "billing_start_date": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "format": "date"
+          },
+          "charge_automatically": {
+            "type": [
+              "boolean",
+              "null"
+            ],
+            "description": "Automatically try to charge the customer's configured payment method on finalize. Default is true."
+          },
+          "components": {
+            "oneOf": [
+              {
+                "type": "null"
+              },
+              {
+                "$ref": "#/components/schemas/CreateSubscriptionComponents"
+              }
+            ]
+          },
+          "coupon_code": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "coupon_ids": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/CouponId"
+            }
+          },
+          "customer_id": {
+            "$ref": "#/components/schemas/CustomerId"
+          },
+          "end_date": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "format": "date"
+          },
+          "expires_in_hours": {
+            "type": [
+              "integer",
+              "null"
+            ],
+            "format": "int32",
+            "description": "Session expiry time in hours. Default is 1 hour for self-serve checkout.",
+            "minimum": 0
+          },
+          "invoice_memo": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "invoice_threshold": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "format": "decimal"
+          },
+          "metadata": {},
+          "net_terms": {
+            "type": [
+              "integer",
+              "null"
+            ],
+            "format": "int32"
+          },
+          "payment_strategy": {
+            "oneOf": [
+              {
+                "type": "null"
+              },
+              {
+                "$ref": "#/components/schemas/PaymentStrategy"
+              }
+            ]
+          },
+          "plan_version_id": {
+            "$ref": "#/components/schemas/PlanVersionId"
+          },
+          "purchase_order": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "trial_duration_days": {
+            "type": [
+              "integer",
+              "null"
+            ],
+            "format": "int32"
+          }
+        }
+      },
+      "CreateCheckoutSessionResponse": {
+        "type": "object",
+        "required": [
+          "session"
+        ],
+        "properties": {
+          "session": {
+            "$ref": "#/components/schemas/CheckoutSession"
           }
         }
       },
@@ -2719,6 +3272,17 @@
           }
         }
       },
+      "GetCheckoutSessionResponse": {
+        "type": "object",
+        "required": [
+          "session"
+        ],
+        "properties": {
+          "session": {
+            "$ref": "#/components/schemas/CheckoutSession"
+          }
+        }
+      },
       "IngestEventsRequest": {
         "type": "object",
         "required": [
@@ -3059,6 +3623,20 @@
           "ive_7n42DGM5Tflk9n8mt7Fhc7"
         ]
       },
+      "ListCheckoutSessionsResponse": {
+        "type": "object",
+        "required": [
+          "sessions"
+        ],
+        "properties": {
+          "sessions": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/CheckoutSession"
+            }
+          }
+        }
+      },
       "MatrixDimension": {
         "type": "object",
         "required": [
@@ -3364,6 +3942,14 @@
           "Settled",
           "Cancelled",
           "Failed"
+        ]
+      },
+      "PaymentStrategy": {
+        "type": "string",
+        "enum": [
+          "AUTO",
+          "BANK",
+          "EXTERNAL"
         ]
       },
       "PaymentTransactionId": {
