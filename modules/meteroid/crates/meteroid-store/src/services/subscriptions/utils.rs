@@ -147,6 +147,29 @@ pub async fn apply_coupons(
     tenant_id: TenantId,
 ) -> DbResult<()> {
     validate_coupons(tx_conn, subscription_coupons, subscriptions, tenant_id).await?;
+    apply_coupons_internal(tx_conn, subscription_coupons).await
+}
+
+/// Applies coupons without validation.
+///
+/// Use this for async payment flows where coupons were already validated before charging.
+/// The customer already paid the discounted price, so we honor it even if the coupon
+/// became invalid (e.g., hit redemption limit) during the async payment window.
+/// TODO use a coupon_reservation table with cleanup linked checkouts to avoid any over-redemption due to async flows
+pub async fn apply_coupons_without_validation(
+    tx_conn: &mut PgConn,
+    subscription_coupons: &[&AppliedCouponRowNew],
+) -> DbResult<()> {
+    apply_coupons_internal(tx_conn, subscription_coupons).await
+}
+
+async fn apply_coupons_internal(
+    tx_conn: &mut PgConn,
+    subscription_coupons: &[&AppliedCouponRowNew],
+) -> DbResult<()> {
+    if subscription_coupons.is_empty() {
+        return Ok(());
+    }
 
     AppliedCouponRow::insert_batch(tx_conn, subscription_coupons.to_vec()).await?;
 

@@ -332,8 +332,10 @@ impl Services {
                                 None,
                             )?;
 
+                            // Skip coupon validation since coupons were already validated before
+                            // charging. The customer already paid the discounted price.
                             let created_subscriptions = self
-                                .persist_subscriptions(
+                                .persist_subscriptions_skip_coupon_validation(
                                     conn,
                                     &[processed],
                                     event.tenant_id,

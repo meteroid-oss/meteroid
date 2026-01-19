@@ -16,8 +16,9 @@ use crate::errors::{StoreError, StoreErrorReport};
 use crate::jwt_claims::{ResourceAccess, generate_portal_token};
 use crate::services::InvoiceBillingMode;
 use crate::services::subscriptions::utils::{
-    apply_coupons, calculate_mrr, extract_billing_period, process_create_subscription_add_ons,
-    process_create_subscription_components, process_create_subscription_coupons,
+    apply_coupons, apply_coupons_without_validation, calculate_mrr, extract_billing_period,
+    process_create_subscription_add_ons, process_create_subscription_components,
+    process_create_subscription_coupons,
 };
 use crate::store::PgConn;
 use crate::utils::periods::calculate_advance_period_range;
@@ -523,6 +524,38 @@ impl Services {
         jwt_secret: &SecretString,
         public_url: &String,
     ) -> StoreResult<Vec<CreatedSubscription>> {
+        self.persist_subscriptions_internal(
+            conn, processed, tenant_id, jwt_secret, public_url, false,
+        )
+        .await
+    }
+
+    /// Persist subscriptions without coupon validation.
+    ///
+    /// Use this for async payment flows where coupons were already validated before charging.
+    pub(crate) async fn persist_subscriptions_skip_coupon_validation(
+        &self,
+        conn: &mut PgConn,
+        processed: &[ProcessedSubscription],
+        tenant_id: TenantId,
+        jwt_secret: &SecretString,
+        public_url: &String,
+    ) -> StoreResult<Vec<CreatedSubscription>> {
+        self.persist_subscriptions_internal(
+            conn, processed, tenant_id, jwt_secret, public_url, true,
+        )
+        .await
+    }
+
+    async fn persist_subscriptions_internal(
+        &self,
+        conn: &mut PgConn,
+        processed: &[ProcessedSubscription],
+        tenant_id: TenantId,
+        jwt_secret: &SecretString,
+        public_url: &String,
+        skip_coupon_validation: bool,
+    ) -> StoreResult<Vec<CreatedSubscription>> {
         let res = self
             .store
             .transaction_with(conn, |conn| {
@@ -552,9 +585,15 @@ impl Services {
                         .map_err(Into::<StoreErrorReport>::into)
                         .await?;
 
-                    apply_coupons(conn, &coupons, &inserted, tenant_id)
-                        .map_err(Into::<StoreErrorReport>::into)
-                        .await?;
+                    if skip_coupon_validation {
+                        apply_coupons_without_validation(conn, &coupons)
+                            .map_err(Into::<StoreErrorReport>::into)
+                            .await?;
+                    } else {
+                        apply_coupons(conn, &coupons, &inserted, tenant_id)
+                            .map_err(Into::<StoreErrorReport>::into)
+                            .await?;
+                    }
 
                     SubscriptionEventRow::insert_batch(conn, events)
                         .map_err(Into::<StoreErrorReport>::into)
