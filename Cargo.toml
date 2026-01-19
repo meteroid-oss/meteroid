@@ -141,7 +141,7 @@ rust_decimal = "1.32.0"
 rust_decimal_macros = "1.32.0"
 rust_iso3166 = "0.1.14"
 rustls = { version = "0.23.12", default-features = false }
-rusty-money = "0.4.1"
+rusty-money = "0.5.0"
 sailfish = "0.10.0"
 sealed = "0.6.0"
 secrecy = { version = "0.10.3", git = "https://github.com/iqlusioninc/crates", rev = "0e9c9fd6d313381273fa882df07300f2a01c344b", default-features = false } # waiting for release 0.10.4 for pr #1234
