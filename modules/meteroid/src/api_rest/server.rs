@@ -63,7 +63,7 @@ pub async fn start_rest_server(
                 let spec = openapi_json.clone();
                 || async move {
                     (
-                        [(axum::http::header::CONTENT_TYPE, "application/json")],
+                        [(http::header::CONTENT_TYPE, "application/json")],
                         spec.clone(),
                     )
                 }
@@ -84,7 +84,7 @@ pub async fn start_rest_server(
         // include trace context as a header in the response
         .layer(OtelInResponseLayer)
         //start OpenTelemetry trace on an incoming request
-        .layer(OtelAxumLayer::default())
+        .layer(OtelAxumLayer::default().filter(otel_filter))
         .layer(
             TraceLayer::new_for_http()
                 .make_span_with(
@@ -138,4 +138,12 @@ async fn resolve_id(Path(id): Path<String>) -> impl IntoResponse {
         }
         Err(_) => (StatusCode::BAD_REQUEST, "invalid id".to_string()),
     }
+}
+
+const OTEL_SKIP_PATH_PREFIXES: &[&str] = &["/health", "/api-docs/", "/scalar"];
+
+fn otel_filter(path: &str) -> bool {
+    !OTEL_SKIP_PATH_PREFIXES
+        .iter()
+        .any(|prefix| path.starts_with(prefix))
 }
