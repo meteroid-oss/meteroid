@@ -28,6 +28,8 @@ impl ApiRateLimiter {
 
 pub fn new_svix(config: &SvixConfig) -> Option<Arc<Svix>> {
     config.server_url.as_ref().map(|x| {
+        log::info!("Initializing Svix client with server URL: {}", x);
+
         Arc::new(Svix::new(
             config.token.expose_secret().to_string(),
             Some(svix::api::SvixOptions {

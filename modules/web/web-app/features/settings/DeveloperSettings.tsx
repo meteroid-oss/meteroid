@@ -52,7 +52,6 @@ import { getInstance } from '@/rpc/api/instance/v1/instance-InstanceService_conn
 import { getWebhookPortalAccess } from '@/rpc/api/webhooksout/v1/webhooksout-WebhooksService_connectquery'
 import { parseAndFormatDateTime } from '@/utils/date'
 
-
 interface ApiToken {
   id: string
   name: string
@@ -100,15 +99,17 @@ export const DeveloperSettings: FunctionComponent = () => {
   const tokens = useQuery(listApiTokens)
   const getInstanceQuery = useQuery(getInstance)
   const isSvixEnabled = getInstanceQuery.data?.svixEnabled || false
-  const webhookPortalAccessQuery = useQuery(getWebhookPortalAccess, undefined, { enabled: isSvixEnabled })
+  const webhookPortalAccessQuery = useQuery(getWebhookPortalAccess, undefined, {
+    enabled: isSvixEnabled,
+  })
 
   // Sort tokens by creation date (newest first)
   const sortedTokens = tokens.data?.apiTokens
     ? [...tokens.data.apiTokens].sort((a, b) => {
-      const dateA = a.createdAt ? new Date(a.createdAt).getTime() : 0
-      const dateB = b.createdAt ? new Date(b.createdAt).getTime() : 0
-      return dateB - dateA
-    })
+        const dateA = a.createdAt ? new Date(a.createdAt).getTime() : 0
+        const dateB = b.createdAt ? new Date(b.createdAt).getTime() : 0
+        return dateB - dateA
+      })
     : []
 
   const createApiToken = async () => {
@@ -148,18 +149,18 @@ export const DeveloperSettings: FunctionComponent = () => {
                 </p>
               </div>
               <Button hasIcon onClick={() => setIsCreateDialogOpen(true)} size="sm">
-                <PlusIcon size={12}/> Create api token
+                <PlusIcon size={12} /> Create api token
               </Button>
             </div>
             <div className="space-y-4">
               {loading && (
                 <Alert variant="default" className="max-w-2xl">
-                  <Skeleton height={20} width="100%"/>
+                  <Skeleton height={20} width="100%" />
                 </Alert>
               )}
               {!loading && displayed && (
                 <Alert variant="success" className="max-w-2xl">
-                  <CheckIcon size={16}/>
+                  <CheckIcon size={16} />
                   <AlertTitle className="pb-2 pt-1">Success !</AlertTitle>
                   <AlertDescription className="text-foreground">
                     <div className="pb-2">
@@ -169,7 +170,7 @@ export const DeveloperSettings: FunctionComponent = () => {
                     <InputWithIcon
                       value={displayed.apiKey}
                       readOnly
-                      icon={<CopyIcon className="group-hover:text-success"/>}
+                      icon={<CopyIcon className="group-hover:text-success" />}
                       className="cursor-pointer"
                       containerClassName="group"
                       onClick={() =>
@@ -212,7 +213,7 @@ export const DeveloperSettings: FunctionComponent = () => {
                               onClick={() => setTokenToDelete({ id: token.id, name: token.name })}
                               className="h-8 w-8 p-0 text-muted-foreground hover:text-destructive"
                             >
-                              <Trash2Icon size={16}/>
+                              <Trash2Icon size={16} />
                             </Button>
                           </TableCell>
                         </TableRow>
@@ -250,21 +251,21 @@ export const DeveloperSettings: FunctionComponent = () => {
               <div className="border border-border rounded-lg overflow-hidden">
                 {!isSvixEnabled ? (
                   <div className="flex items-center justify-center h-full">
-                    <p className="text-sm text-muted-foreground">
-                      Webhooks are currently disabled
-                    </p>
+                    <p className="text-sm text-muted-foreground">Webhooks are currently disabled</p>
                   </div>
                 ) : webhookPortalAccessQuery.isLoading ? (
                   <div className="flex items-center justify-center h-full">
-                    <Skeleton height={40} width={200}/>
+                    <Skeleton height={40} width={200} />
                   </div>
                 ) : webhookPortalAccessQuery.data?.access?.url ? (
-                  <AppPortal url={webhookPortalAccessQuery.data.access?.url} fullSize/>
+                  <AppPortal
+                    url={webhookPortalAccessQuery.data.access?.url}
+                    fullSize
+                    darkMode
+                  />
                 ) : (
                   <div className="flex items-center justify-center h-full">
-                    <p className="text-sm text-muted-foreground">
-                      Unable to load webhook portal
-                    </p>
+                    <p className="text-sm text-muted-foreground">Unable to load webhook portal</p>
                   </div>
                 )}
               </div>

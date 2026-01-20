@@ -3,6 +3,7 @@ use crate::svix::SvixOps;
 use meteroid_store::repositories::historical_rates::HistoricalRatesInterface;
 use std::sync::Arc;
 use svix::api::Svix;
+use tap::TapFallible;
 
 mod historical_rates;
 
@@ -17,7 +18,10 @@ pub async fn bootstrap_once(
     // register svix event types
     if let Some(svix) = svix {
         svix.import_open_api_event_types(include_str!("../../../../spec/api/v1/openapi.json"))
-            .await?;
+            .await
+            .tap_err(|err| {
+                log::error!("Failed to import Svix event types: {}", err);
+            })?;
     }
 
     // check if we need to setup historical rates

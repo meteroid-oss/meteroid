@@ -62,7 +62,7 @@ services:
   pgbouncer:
     image: "docker.io/edoburu/pgbouncer:v1.23.1-p2"
     healthcheck:
-      test: "pg_isready -h localhost"
+      test: "pg_isready -h localhost -U meteroid"
       interval: 30s
       timeout: 10s
       retries: 3

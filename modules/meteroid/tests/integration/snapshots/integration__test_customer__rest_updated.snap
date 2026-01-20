@@ -3,32 +3,32 @@ source: modules/meteroid/tests/integration/test_customer.rs
 expression: "&updated"
 ---
 {
-  "alias": "test-customer-rest",
-  "bank_account_id": null,
-  "billing_address": {
-    "city": "Test City",
-    "country": "FR",
-    "line1": "123 Test St",
-    "zip_code": "12345"
-  },
-  "billing_email": "billing@meteroid.com",
-  "currency": "USD",
-  "custom_taxes": [
-    {
-      "name": "Standard Tax",
-      "rate": 20.0,
-      "tax_code": "TAX001"
-    }
-  ],
   "id": "cus_xxx",
+  "name": "Test Customer REST",
+  "alias": "test-customer-rest",
+  "billing_email": "billing@meteroid.com",
   "invoicing_emails": [
     "invoicing@meteroid.com"
   ],
-  "invoicing_entity_id": "ive_xxx",
-  "name": "Test Customer REST",
   "phone": "123456789",
+  "billing_address": {
+    "line1": "123 Test St",
+    "city": "Test City",
+    "country": "FR",
+    "zip_code": "12345"
+  },
   "shipping_address": {
     "same_as_billing": true
   },
-  "vat_number": "VAT123456"
+  "currency": "USD",
+  "invoicing_entity_id": "ive_xxx",
+  "bank_account_id": null,
+  "vat_number": "VAT123456",
+  "custom_taxes": [
+    {
+      "tax_code": "TAX001",
+      "name": "Standard Tax",
+      "rate": 20.0
+    }
+  ]
 }

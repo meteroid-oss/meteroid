@@ -12,8 +12,25 @@ const sessionAtom = atomWithStorage<Session | null>(LS_SESSION_KEY, null, undefi
 const store = createStore()
 
 export const useSession = () => {
-  return useAtom(sessionAtom, { store })
+  const [session, setSession] = useAtom(sessionAtom, { store })
+
+  const setSessionNotNull = (newSession: Session) => {
+    if(!newSession) {
+      console.error('Session is null, use clearSession instead.')
+      return;
+    }
+    setSession(newSession)
+  }
+
+  const clearSession = () => {
+    console.log('Clearing session')
+    setSession(null)
+  }
+
+  return [session, setSessionNotNull, clearSession] as const
+
 }
+ 
 
 export const getSessionToken = (): undefined | string => {
   try {
