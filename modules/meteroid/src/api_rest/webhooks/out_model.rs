@@ -21,11 +21,11 @@ use svix::api::MessageIn;
 
 #[skip_serializing_none]
 #[derive(Clone, Debug, Serialize, o2o, utoipa::ToSchema)]
+#[schema(as = CustomerEventData)]
 #[from_owned(CustomerEvent)]
 pub struct WebhookOutCustomerEventData {
     #[serde(serialize_with = "string_serde::serialize")]
-    #[map(customer_id)]
-    pub id: CustomerId,
+    pub customer_id: CustomerId,
     pub name: String,
     pub alias: Option<String>,
     pub billing_email: Option<String>,
@@ -36,29 +36,29 @@ pub struct WebhookOutCustomerEventData {
 
 #[skip_serializing_none]
 #[derive(Clone, Debug, Serialize, o2o, utoipa::ToSchema)]
+#[schema(as = InvoiceEventData)]
 #[from_owned(InvoiceEvent)]
 pub struct WebhookOutInvoiceEventData {
     #[serde(serialize_with = "string_serde::serialize")]
-    #[map(invoice_id)]
-    pub id: InvoiceId,
+    pub invoice_id: InvoiceId,
     #[serde(serialize_with = "string_serde::serialize")]
     pub customer_id: CustomerId,
     #[from(~.into())]
     pub status: InvoiceStatus,
     pub currency: String,
-    pub total: i64,      // todo convert to money?
-    pub tax_amount: i64, // todo convert to money?
+    pub total: i64,
+    pub tax_amount: i64,
     #[serde(serialize_with = "ser_naive_dt")]
     pub created_at: NaiveDateTime,
 }
 
 #[skip_serializing_none]
 #[derive(Clone, Debug, Serialize, o2o, utoipa::ToSchema)]
+#[schema(as = SubscriptionEventData)]
 #[from_owned(SubscriptionEvent)]
 pub struct WebhookOutSubscriptionEventData {
     #[serde(serialize_with = "string_serde::serialize")]
-    #[map(subscription_id)]
-    pub id: SubscriptionId,
+    pub subscription_id: SubscriptionId,
     #[serde(serialize_with = "string_serde::serialize")]
     pub customer_id: CustomerId,
     pub customer_alias: Option<String>,
@@ -87,11 +87,11 @@ pub struct WebhookOutSubscriptionEventData {
 
 #[skip_serializing_none]
 #[derive(Clone, Debug, Serialize, o2o, utoipa::ToSchema)]
+#[schema(as = MetricEventData)]
 #[from_owned(BillableMetricEvent)]
 pub struct WebhookOutMetricEventData {
     #[serde(serialize_with = "string_serde::serialize")]
-    #[map(metric_id)]
-    pub id: BillableMetricId,
+    pub metric_id: BillableMetricId,
     pub name: String,
     pub description: Option<String>,
     pub code: String,
@@ -113,9 +113,10 @@ pub struct WebhookOutMetricEventData {
 
 #[skip_serializing_none]
 #[derive(Clone, Debug, Serialize, utoipa::ToSchema)]
+#[schema(as = QuoteEventData)]
 pub struct WebhookOutQuoteEventData {
     #[serde(serialize_with = "string_serde::serialize")]
-    pub id: QuoteId,
+    pub quote_id: QuoteId,
     #[serde(serialize_with = "string_serde::serialize")]
     pub customer_id: CustomerId,
     #[serde(serialize_with = "string_serde_opt::serialize")]
@@ -125,7 +126,7 @@ pub struct WebhookOutQuoteEventData {
 impl From<QuoteAcceptedEvent> for WebhookOutQuoteEventData {
     fn from(value: QuoteAcceptedEvent) -> Self {
         WebhookOutQuoteEventData {
-            id: value.quote_id,
+            quote_id: value.quote_id,
             customer_id: value.customer_id,
             subscription_id: None,
         }
@@ -135,7 +136,7 @@ impl From<QuoteAcceptedEvent> for WebhookOutQuoteEventData {
 impl From<QuoteConvertedEvent> for WebhookOutQuoteEventData {
     fn from(value: QuoteConvertedEvent) -> Self {
         WebhookOutQuoteEventData {
-            id: value.quote_id,
+            quote_id: value.quote_id,
             customer_id: value.customer_id,
             subscription_id: Some(value.subscription_id),
         }
@@ -164,11 +165,11 @@ impl From<meteroid_store::domain::enums::CreditNoteStatus> for CreditNoteStatus 
 
 #[skip_serializing_none]
 #[derive(Clone, Debug, Serialize, o2o, utoipa::ToSchema)]
+#[schema(as = CreditNoteEventData)]
 #[from_owned(CreditNoteEvent)]
 pub struct WebhookOutCreditNoteEventData {
     #[serde(serialize_with = "string_serde::serialize")]
-    #[map(credit_note_id)]
-    pub id: CreditNoteId,
+    pub credit_note_id: CreditNoteId,
     #[serde(serialize_with = "string_serde::serialize")]
     pub customer_id: CustomerId,
     #[serde(serialize_with = "string_serde::serialize")]
@@ -184,30 +185,138 @@ pub struct WebhookOutCreditNoteEventData {
     pub created_at: NaiveDateTime,
 }
 
-#[derive(Clone, Debug, Serialize, utoipa::ToSchema)]
-#[serde(tag = "discriminator", rename_all = "SCREAMING_SNAKE_CASE")]
-pub enum WebhookOutEventData {
-    Customer(WebhookOutCustomerEventData),
-    Invoice(WebhookOutInvoiceEventData),
-    Subscription(WebhookOutSubscriptionEventData),
-    Metric(WebhookOutMetricEventData),
-    Quote(WebhookOutQuoteEventData),
-    CreditNote(WebhookOutCreditNoteEventData),
-}
+/// Event-specific webhook schemas for type-safe webhook payloads
 
 #[skip_serializing_none]
 #[derive(Clone, Debug, Serialize, utoipa::ToSchema)]
-pub struct WebhookOutEvent {
+#[schema(as = CustomerEvent)]
+pub struct WebhookOutCustomerEvent {
     #[serde(serialize_with = "string_serde::serialize")]
     pub id: EventId,
     #[serde(rename = "type")]
     pub event_type: WebhookOutEventTypeEnum,
-    pub data: WebhookOutEventData,
+    #[serde(flatten)]
+    pub data: WebhookOutCustomerEventData,
     #[serde(serialize_with = "ser_naive_dt")]
     pub timestamp: NaiveDateTime,
 }
 
-impl TryInto<MessageIn> for WebhookOutEvent {
+#[skip_serializing_none]
+#[derive(Clone, Debug, Serialize, utoipa::ToSchema)]
+#[schema(as = InvoiceEvent)]
+pub struct WebhookOutInvoiceEvent {
+    #[serde(serialize_with = "string_serde::serialize")]
+    pub id: EventId,
+    #[serde(rename = "type")]
+    pub event_type: WebhookOutEventTypeEnum,
+    #[serde(flatten)]
+    pub data: WebhookOutInvoiceEventData,
+    #[serde(serialize_with = "ser_naive_dt")]
+    pub timestamp: NaiveDateTime,
+}
+
+#[skip_serializing_none]
+#[derive(Clone, Debug, Serialize, utoipa::ToSchema)]
+#[schema(as = SubscriptionEvent)]
+pub struct WebhookOutSubscriptionEvent {
+    #[serde(serialize_with = "string_serde::serialize")]
+    pub id: EventId,
+    #[serde(rename = "type")]
+    pub event_type: WebhookOutEventTypeEnum,
+    #[serde(flatten)]
+    pub data: WebhookOutSubscriptionEventData,
+    #[serde(serialize_with = "ser_naive_dt")]
+    pub timestamp: NaiveDateTime,
+}
+
+#[skip_serializing_none]
+#[derive(Clone, Debug, Serialize, utoipa::ToSchema)]
+#[schema(as = MetricEvent)]
+pub struct WebhookOutMetricEvent {
+    #[serde(serialize_with = "string_serde::serialize")]
+    pub id: EventId,
+    #[serde(rename = "type")]
+    pub event_type: WebhookOutEventTypeEnum,
+    #[serde(flatten)]
+    pub data: WebhookOutMetricEventData,
+    #[serde(serialize_with = "ser_naive_dt")]
+    pub timestamp: NaiveDateTime,
+}
+
+#[skip_serializing_none]
+#[derive(Clone, Debug, Serialize, utoipa::ToSchema)]
+#[schema(as = QuoteEvent)]
+pub struct WebhookOutQuoteEvent {
+    #[serde(serialize_with = "string_serde::serialize")]
+    pub id: EventId,
+    #[serde(rename = "type")]
+    pub event_type: WebhookOutEventTypeEnum,
+    #[serde(flatten)]
+    pub data: WebhookOutQuoteEventData,
+    #[serde(serialize_with = "ser_naive_dt")]
+    pub timestamp: NaiveDateTime,
+}
+
+#[skip_serializing_none]
+#[derive(Clone, Debug, Serialize, utoipa::ToSchema)]
+#[schema(as = CreditNoteEvent)]
+pub struct WebhookOutCreditNoteEvent {
+    #[serde(serialize_with = "string_serde::serialize")]
+    pub id: EventId,
+    #[serde(rename = "type")]
+    pub event_type: WebhookOutEventTypeEnum,
+    #[serde(flatten)]
+    pub data: WebhookOutCreditNoteEventData,
+    #[serde(serialize_with = "ser_naive_dt")]
+    pub timestamp: NaiveDateTime,
+}
+
+impl TryInto<MessageIn> for WebhookOutCustomerEvent {
+    type Error = serde_json::Error;
+
+    fn try_into(self) -> Result<MessageIn, Self::Error> {
+        let result = serde_json::to_value(&self)?;
+        Ok(MessageIn::new(self.event_type.to_string(), result))
+    }
+}
+
+impl TryInto<MessageIn> for WebhookOutInvoiceEvent {
+    type Error = serde_json::Error;
+
+    fn try_into(self) -> Result<MessageIn, Self::Error> {
+        let result = serde_json::to_value(&self)?;
+        Ok(MessageIn::new(self.event_type.to_string(), result))
+    }
+}
+
+impl TryInto<MessageIn> for WebhookOutSubscriptionEvent {
+    type Error = serde_json::Error;
+
+    fn try_into(self) -> Result<MessageIn, Self::Error> {
+        let result = serde_json::to_value(&self)?;
+        Ok(MessageIn::new(self.event_type.to_string(), result))
+    }
+}
+
+impl TryInto<MessageIn> for WebhookOutMetricEvent {
+    type Error = serde_json::Error;
+
+    fn try_into(self) -> Result<MessageIn, Self::Error> {
+        let result = serde_json::to_value(&self)?;
+        Ok(MessageIn::new(self.event_type.to_string(), result))
+    }
+}
+
+impl TryInto<MessageIn> for WebhookOutQuoteEvent {
+    type Error = serde_json::Error;
+
+    fn try_into(self) -> Result<MessageIn, Self::Error> {
+        let result = serde_json::to_value(&self)?;
+        Ok(MessageIn::new(self.event_type.to_string(), result))
+    }
+}
+
+impl TryInto<MessageIn> for WebhookOutCreditNoteEvent {
     type Error = serde_json::Error;
 
     fn try_into(self) -> Result<MessageIn, Self::Error> {
@@ -229,6 +338,7 @@ impl TryInto<MessageIn> for WebhookOutEvent {
     Serialize,
     utoipa::ToSchema,
 )]
+#[schema(as = EventType)]
 pub enum WebhookOutEventTypeEnum {
     #[strum(serialize = "metric.created")]
     #[serde(rename = "metric.created")]
@@ -282,6 +392,19 @@ pub enum WebhookOutEventGroupEnum {
     Quote,
     #[strum(serialize = "credit_note")]
     CreditNote,
+}
+
+impl WebhookOutEventGroupEnum {
+    pub fn schema_name(&self) -> &'static str {
+        match self {
+            WebhookOutEventGroupEnum::Customer => "CustomerEvent",
+            WebhookOutEventGroupEnum::Subscription => "SubscriptionEvent",
+            WebhookOutEventGroupEnum::Invoice => "InvoiceEvent",
+            WebhookOutEventGroupEnum::BillableMetric => "MetricEvent",
+            WebhookOutEventGroupEnum::Quote => "QuoteEvent",
+            WebhookOutEventGroupEnum::CreditNote => "CreditNoteEvent",
+        }
+    }
 }
 
 impl WebhookOutEventTypeEnum {

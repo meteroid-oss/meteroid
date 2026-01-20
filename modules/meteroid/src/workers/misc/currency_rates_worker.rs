@@ -90,14 +90,7 @@ async fn update_currency_rates(
             .await
             .change_context(errors::WorkerError::CurrencyRatesUpdateError)
         {
-            Ok((mrr_updated, revenue_updated)) => {
-                log::info!(
-                    "Updated USD values for date {}: {} MRR rows, {} revenue rows",
-                    date,
-                    mrr_updated,
-                    revenue_updated
-                );
-            }
+            Ok((_mrr_updated, _revenue_updated)) => {}
             Err(e) => {
                 log::error!("Failed to update BI USD values: {:?}", e);
             }

@@ -49,8 +49,8 @@ pub fn api_routes() -> OpenApiRouter<AppState> {
         .merge(customer_routes())
         .merge(invoice_routes())
         .merge(credit_note_routes())
-        .merge(event_routes())
         .merge(checkout_session_routes())
+        .merge(event_routes())
 }
 
 #[derive(Clone)]

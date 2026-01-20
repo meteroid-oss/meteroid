@@ -191,9 +191,9 @@ pub struct SubscriptionCreateRequest {
     pub customer_id_or_alias: String,
     #[schema(nullable = false)]
     pub trial_days: Option<u32>,
-    #[schema(example = "2024-11-01")]
+    #[schema(examples("2024-11-01"))]
     pub start_date: NaiveDate,
-    #[schema(example = "2025-11-01")]
+    #[schema(examples("2025-11-01"))]
     #[schema(nullable = false)]
     pub end_date: Option<NaiveDate>,
     #[validate(range(min = 1, max = 32767))]

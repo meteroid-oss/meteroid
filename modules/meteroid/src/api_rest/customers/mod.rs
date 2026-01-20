@@ -12,6 +12,7 @@ pub fn customer_routes() -> OpenApiRouter<AppState> {
         .routes(routes!(router::get_customer))
         .routes(routes!(router::create_customer))
         .routes(routes!(router::update_customer))
+        .routes(routes!(router::patch_customer))
         .routes(routes!(router::archive_customer))
         .routes(routes!(router::unarchive_customer))
         .routes(routes!(router::create_portal_token))

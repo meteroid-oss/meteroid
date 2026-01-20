@@ -15,7 +15,7 @@ use http::StatusCode;
 /// Ingest usage events for metering and billing purposes.
 #[utoipa::path(
     post,
-    tag = "events",
+    tag = "Events",
     path = "/api/v1/events/ingest",
     request_body = IngestEventsRequest,
     responses(
