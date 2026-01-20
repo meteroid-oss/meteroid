@@ -1,7 +1,7 @@
 use crate::api_rest::addresses;
 use crate::api_rest::currencies;
 use crate::api_rest::customers::model::{
-    CustomTaxRate, Customer, CustomerCreateRequest, CustomerUpdateRequest,
+    CustomTaxRate, Customer, CustomerCreateRequest, CustomerPatchRequest, CustomerUpdateRequest,
 };
 use crate::errors::RestApiError;
 use common_domain::ids::{AliasOr, CustomerId};
@@ -103,5 +103,39 @@ pub fn update_req_to_domain(
             .collect(),
         bank_account_id: req.bank_account_id,
         is_tax_exempt: req.is_tax_exempt.unwrap_or(false),
+    }
+}
+
+pub fn patch_req_to_domain(id: CustomerId, req: CustomerPatchRequest) -> domain::CustomerPatch {
+    domain::CustomerPatch {
+        id,
+        name: req.name,
+        alias: req.alias,
+        billing_email: req.billing_email,
+        invoicing_emails: req.invoicing_emails,
+        phone: req.phone,
+        balance_value_cents: None,
+        currency: req.currency.map(|c| c.to_string()),
+        billing_address: req
+            .billing_address
+            .map(addresses::mapping::address::rest_to_domain),
+        shipping_address: req
+            .shipping_address
+            .map(addresses::mapping::shipping_address::rest_to_domain),
+        invoicing_entity_id: req.invoicing_entity_id,
+        vat_number: req.vat_number.map(Some),
+        custom_taxes: req.custom_taxes.map(|taxes| {
+            taxes
+                .into_iter()
+                .map(|t| domain::CustomerCustomTax {
+                    tax_code: t.tax_code,
+                    name: t.name,
+                    rate: t.rate,
+                })
+                .collect()
+        }),
+        bank_account_id: req.bank_account_id.map(Some),
+        current_payment_method_id: None,
+        is_tax_exempt: req.is_tax_exempt,
     }
 }

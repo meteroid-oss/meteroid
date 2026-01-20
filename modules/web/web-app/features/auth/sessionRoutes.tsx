@@ -1,8 +1,9 @@
 import { jwtDecode } from 'jwt-decode'
-import { FC, useMemo } from 'react'
-import { Navigate, Outlet } from 'react-router-dom'
+import { FC, useEffect, useMemo } from 'react'
+import { Outlet, useNavigate } from 'react-router-dom'
 
 import { Loading } from '@/components/Loading'
+import { Loader } from '@/features/auth/components/Loader'
 import { useSession } from '@/features/auth/session'
 import { useLogout } from '@/hooks/useLogout'
 import { useQuery } from '@/lib/connectrpc'
@@ -11,10 +12,22 @@ import { me } from '@/rpc/api/users/v1/users-UsersService_connectquery'
 // prevent access if authenticated
 export const AnonymousRoutes: FC = () => {
   const [session] = useSession()
+  const navigate = useNavigate()
 
-  if (session?.token) return <Navigate to="/" replace />
+  useEffect(() => {
+    if (session?.token) {
+      const timeout = setTimeout(() => {
+        navigate('/', { replace: true })
+      }, 50)
+      return () => clearTimeout(timeout)
+    }
+  }, [session?.token])
 
-  return <Outlet /> // TODO this requires an error, any other solution ?
+  if (session?.token) {
+    return <Loader />
+  }
+
+  return <Outlet />
 }
 
 const useTokenExpiration = (token: string | undefined) => {

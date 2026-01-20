@@ -1,4 +1,3 @@
-use crate::api_rest::webhooks::out_model::WebhookOutEvent;
 use crate::config::SvixConfig;
 use common_domain::ids::TenantId;
 use governor::middleware::NoOpMiddleware;
@@ -10,7 +9,7 @@ use std::sync::Arc;
 use std::time::Duration;
 use svix::api::{
     AppPortalAccessIn, AppPortalAccessOut, ApplicationIn, EventTypeImportOpenApiIn,
-    EventTypeImportOpenApiOut, MessageOut, Svix,
+    EventTypeImportOpenApiOut, MessageIn, MessageOut, Svix,
 };
 use svix::error::Error;
 
@@ -29,6 +28,8 @@ impl ApiRateLimiter {
 
 pub fn new_svix(config: &SvixConfig) -> Option<Arc<Svix>> {
     config.server_url.as_ref().map(|x| {
+        log::info!("Initializing Svix client with server URL: {}", x);
+
         Arc::new(Svix::new(
             config.token.expose_secret().to_string(),
             Some(svix::api::SvixOptions {
@@ -48,7 +49,7 @@ pub trait SvixOps {
     async fn create_message(
         &self,
         tenant_id: TenantId,
-        msg: WebhookOutEvent,
+        msg: MessageIn,
     ) -> Result<MessageOut, Error>;
 
     async fn app_portal_access(&self, tenant_id: TenantId) -> Result<AppPortalAccessOut, Error>;
@@ -64,16 +65,13 @@ impl SvixOps for Arc<Svix> {
     async fn create_message(
         &self,
         tenant_id: TenantId,
-        msg: WebhookOutEvent,
+        msg: MessageIn,
     ) -> Result<MessageOut, Error> {
-        let msg_in = msg
-            .try_into()
-            .map_err(|e: serde_json::Error| Error::Generic(e.to_string()))?;
         ApiRateLimiter::get()
             .until_ready_with_jitter(Jitter::up_to(Duration::from_secs(1)))
             .await;
         self.message()
-            .create(tenant_id.to_string(), msg_in, None)
+            .create(tenant_id.to_string(), msg, None)
             .await
     }
 

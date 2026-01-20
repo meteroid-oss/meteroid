@@ -90,6 +90,25 @@ pub struct CustomerUpdateRequest {
     pub is_tax_exempt: Option<bool>,
 }
 
+#[derive(ToSchema, serde::Serialize, serde::Deserialize, Validate, Default)]
+pub struct CustomerPatchRequest {
+    pub name: Option<String>,
+    pub alias: Option<String>,
+    pub billing_email: Option<String>,
+    pub invoicing_emails: Option<Vec<String>>,
+    pub phone: Option<String>,
+    pub currency: Option<Currency>,
+    pub billing_address: Option<Address>,
+    pub shipping_address: Option<ShippingAddress>,
+    #[serde(default, with = "string_serde_opt")]
+    pub invoicing_entity_id: Option<InvoicingEntityId>,
+    #[serde(default, with = "string_serde_opt")]
+    pub bank_account_id: Option<BankAccountId>,
+    pub vat_number: Option<String>,
+    pub custom_taxes: Option<Vec<CustomTaxRate>>,
+    pub is_tax_exempt: Option<bool>,
+}
+
 // TODO : allow importing from stripe
 // => Allow providing a stripe customer id and load the customer methods from stripe
 

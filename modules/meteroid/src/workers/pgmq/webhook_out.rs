@@ -1,7 +1,9 @@
 use crate::api_rest::webhooks::out_model::{
-    WebhookOutCreditNoteEventData, WebhookOutCustomerEventData, WebhookOutEvent,
-    WebhookOutEventData, WebhookOutEventTypeEnum, WebhookOutInvoiceEventData,
-    WebhookOutMetricEventData, WebhookOutQuoteEventData, WebhookOutSubscriptionEventData,
+    WebhookOutCreditNoteEvent, WebhookOutCreditNoteEventData, WebhookOutCustomerEvent,
+    WebhookOutCustomerEventData, WebhookOutEventTypeEnum, WebhookOutInvoiceEvent,
+    WebhookOutInvoiceEventData, WebhookOutMetricEvent, WebhookOutMetricEventData,
+    WebhookOutQuoteEvent, WebhookOutQuoteEventData, WebhookOutSubscriptionEvent,
+    WebhookOutSubscriptionEventData,
 };
 use crate::svix::SvixOps;
 use crate::workers::pgmq::PgmqResult;
@@ -14,7 +16,7 @@ use futures::future::try_join_all;
 use meteroid_store::domain::outbox_event::OutboxEvent;
 use meteroid_store::domain::pgmq::PgmqMessage;
 use std::sync::Arc;
-use svix::api::Svix;
+use svix::api::{MessageIn, Svix};
 
 pub(crate) struct WebhookOut {
     pub svix: Arc<Svix>,
@@ -32,10 +34,13 @@ impl WebhookOut {
     ) -> Result<MessageId, Report<PgmqError>> {
         let event_id = event.event_id();
         let tenant_id = event.tenant_id();
-        let webhook_out = Self::to_webhook_out(event);
+        let message_in = Self::to_message_in(event);
 
-        if let Some(webhook_out) = webhook_out {
-            let message_result = svix.create_message(tenant_id, webhook_out).await;
+        if let Some(message_in) = message_in {
+            let message_in =
+                message_in.map_err(|e| Report::new(PgmqError::HandleMessages).attach(e))?;
+
+            let message_result = svix.create_message(tenant_id, message_in).await;
 
             if let Err(svix::error::Error::Http(e)) = message_result {
                 match e.status.as_u16() {
@@ -56,116 +61,130 @@ impl WebhookOut {
         Ok::<MessageId, Report<PgmqError>>(msg_id)
     }
 
-    fn to_webhook_out(evt: OutboxEvent) -> Option<WebhookOutEvent> {
+    fn to_message_in(evt: OutboxEvent) -> Option<Result<MessageIn, serde_json::Error>> {
         let event_id = evt.event_id();
+        let timestamp = chrono::Utc::now().naive_utc();
+
         match evt {
             OutboxEvent::CustomerCreated(event) => {
-                let event = WebhookOutCustomerEventData::from(*event);
-                Some(WebhookOutEvent {
+                let data = WebhookOutCustomerEventData::from(*event);
+                let event = WebhookOutCustomerEvent {
                     id: event_id,
                     event_type: WebhookOutEventTypeEnum::CustomerCreated,
-                    data: WebhookOutEventData::Customer(event),
-                    timestamp: chrono::Utc::now().naive_utc(),
-                })
+                    data,
+                    timestamp,
+                };
+                Some(event.try_into())
             }
             OutboxEvent::BillableMetricCreated(event) => {
-                let event = WebhookOutMetricEventData::from(*event);
-                Some(WebhookOutEvent {
+                let data = WebhookOutMetricEventData::from(*event);
+                let event = WebhookOutMetricEvent {
                     id: event_id,
                     event_type: WebhookOutEventTypeEnum::BillableMetricCreated,
-                    data: WebhookOutEventData::Metric(event),
-                    timestamp: chrono::Utc::now().naive_utc(),
-                })
+                    data,
+                    timestamp,
+                };
+                Some(event.try_into())
             }
             OutboxEvent::InvoiceCreated(event) => {
-                let event = WebhookOutInvoiceEventData::from(*event);
-                Some(WebhookOutEvent {
+                let data = WebhookOutInvoiceEventData::from(*event);
+                let event = WebhookOutInvoiceEvent {
                     id: event_id,
                     event_type: WebhookOutEventTypeEnum::InvoiceCreated,
-                    data: WebhookOutEventData::Invoice(event),
-                    timestamp: chrono::Utc::now().naive_utc(),
-                })
+                    data,
+                    timestamp,
+                };
+                Some(event.try_into())
             }
             OutboxEvent::InvoiceFinalized(event) => {
-                let event = WebhookOutInvoiceEventData::from(*event);
-                Some(WebhookOutEvent {
+                let data = WebhookOutInvoiceEventData::from(*event);
+                let event = WebhookOutInvoiceEvent {
                     id: event_id,
                     event_type: WebhookOutEventTypeEnum::InvoiceFinalized,
-                    data: WebhookOutEventData::Invoice(event),
-                    timestamp: chrono::Utc::now().naive_utc(),
-                })
+                    data,
+                    timestamp,
+                };
+                Some(event.try_into())
             }
             OutboxEvent::InvoicePaid(event) => {
-                let event = WebhookOutInvoiceEventData::from(*event);
-                Some(WebhookOutEvent {
+                let data = WebhookOutInvoiceEventData::from(*event);
+                let event = WebhookOutInvoiceEvent {
                     id: event_id,
                     event_type: WebhookOutEventTypeEnum::InvoicePaid,
-                    data: WebhookOutEventData::Invoice(event),
-                    timestamp: chrono::Utc::now().naive_utc(),
-                })
+                    data,
+                    timestamp,
+                };
+                Some(event.try_into())
             }
             OutboxEvent::InvoiceVoided(event) => {
-                let event = WebhookOutInvoiceEventData::from(*event);
-                Some(WebhookOutEvent {
+                let data = WebhookOutInvoiceEventData::from(*event);
+                let event = WebhookOutInvoiceEvent {
                     id: event_id,
                     event_type: WebhookOutEventTypeEnum::InvoiceVoided,
-                    data: WebhookOutEventData::Invoice(event),
-                    timestamp: chrono::Utc::now().naive_utc(),
-                })
+                    data,
+                    timestamp,
+                };
+                Some(event.try_into())
             }
             OutboxEvent::SubscriptionCreated(event) => {
-                let event = WebhookOutSubscriptionEventData::from(*event);
-                Some(WebhookOutEvent {
+                let data = WebhookOutSubscriptionEventData::from(*event);
+                let event = WebhookOutSubscriptionEvent {
                     id: event_id,
                     event_type: WebhookOutEventTypeEnum::SubscriptionCreated,
-                    data: WebhookOutEventData::Subscription(event),
-                    timestamp: chrono::Utc::now().naive_utc(),
-                })
+                    data,
+                    timestamp,
+                };
+                Some(event.try_into())
             }
             OutboxEvent::QuoteAccepted(event) => {
-                let event = WebhookOutQuoteEventData::from(*event);
-                Some(WebhookOutEvent {
+                let data = WebhookOutQuoteEventData::from(*event);
+                let event = WebhookOutQuoteEvent {
                     id: event_id,
                     event_type: WebhookOutEventTypeEnum::QuoteAccepted,
-                    data: WebhookOutEventData::Quote(event),
-                    timestamp: chrono::Utc::now().naive_utc(),
-                })
+                    data,
+                    timestamp,
+                };
+                Some(event.try_into())
             }
             OutboxEvent::QuoteConverted(event) => {
-                let event = WebhookOutQuoteEventData::from(*event);
-                Some(WebhookOutEvent {
+                let data = WebhookOutQuoteEventData::from(*event);
+                let event = WebhookOutQuoteEvent {
                     id: event_id,
                     event_type: WebhookOutEventTypeEnum::QuoteConverted,
-                    data: WebhookOutEventData::Quote(event),
-                    timestamp: chrono::Utc::now().naive_utc(),
-                })
+                    data,
+                    timestamp,
+                };
+                Some(event.try_into())
             }
             OutboxEvent::CreditNoteCreated(event) => {
-                let event = WebhookOutCreditNoteEventData::from(*event);
-                Some(WebhookOutEvent {
+                let data = WebhookOutCreditNoteEventData::from(*event);
+                let event = WebhookOutCreditNoteEvent {
                     id: event_id,
                     event_type: WebhookOutEventTypeEnum::CreditNoteCreated,
-                    data: WebhookOutEventData::CreditNote(event),
-                    timestamp: chrono::Utc::now().naive_utc(),
-                })
+                    data,
+                    timestamp,
+                };
+                Some(event.try_into())
             }
             OutboxEvent::CreditNoteFinalized(event) => {
-                let event = WebhookOutCreditNoteEventData::from(*event);
-                Some(WebhookOutEvent {
+                let data = WebhookOutCreditNoteEventData::from(*event);
+                let event = WebhookOutCreditNoteEvent {
                     id: event_id,
                     event_type: WebhookOutEventTypeEnum::CreditNoteFinalized,
-                    data: WebhookOutEventData::CreditNote(event),
-                    timestamp: chrono::Utc::now().naive_utc(),
-                })
+                    data,
+                    timestamp,
+                };
+                Some(event.try_into())
             }
             OutboxEvent::CreditNoteVoided(event) => {
-                let event = WebhookOutCreditNoteEventData::from(*event);
-                Some(WebhookOutEvent {
+                let data = WebhookOutCreditNoteEventData::from(*event);
+                let event = WebhookOutCreditNoteEvent {
                     id: event_id,
                     event_type: WebhookOutEventTypeEnum::CreditNoteVoided,
-                    data: WebhookOutEventData::CreditNote(event),
-                    timestamp: chrono::Utc::now().naive_utc(),
-                })
+                    data,
+                    timestamp,
+                };
+                Some(event.try_into())
             }
             // TODO add webhooks
             OutboxEvent::CustomerUpdated(_) => None,

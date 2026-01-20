@@ -31,6 +31,7 @@ services:
       - POSTGRES_DB=${DATABASE_NAME:-meteroid}
     volumes:
       - pg_data:/var/lib/postgresql/data
+      - ./init-db/svix/init_svix.sql:/docker-entrypoint-initdb.d/init_svix.sql:ro
     healthcheck:
       test: [ 'CMD-SHELL', 'pg_isready -d $${POSTGRES_DB} -U $${POSTGRES_USER}' ]
       interval: 10s
@@ -61,7 +62,7 @@ services:
   pgbouncer:
     image: "docker.io/edoburu/pgbouncer:v1.23.1-p2"
     healthcheck:
-      test: "pg_isready -h localhost"
+      test: "pg_isready -h localhost -U meteroid"
       interval: 30s
       timeout: 10s
       retries: 3

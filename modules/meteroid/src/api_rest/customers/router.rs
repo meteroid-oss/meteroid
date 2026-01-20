@@ -1,10 +1,10 @@
 use crate::api_rest::AppState;
 use crate::api_rest::customers::mapping::{
-    create_req_to_domain, domain_to_rest, update_req_to_domain,
+    create_req_to_domain, domain_to_rest, patch_req_to_domain, update_req_to_domain,
 };
 use crate::api_rest::customers::model::{
     Customer, CustomerCreateRequest, CustomerListRequest, CustomerListResponse,
-    CustomerPortalTokenResponse, CustomerUpdateRequest,
+    CustomerPatchRequest, CustomerPortalTokenResponse, CustomerUpdateRequest,
 };
 use crate::api_rest::error::RestErrorResponse;
 use crate::api_rest::model::PaginationExt;
@@ -25,7 +25,7 @@ use meteroid_store::repositories::CustomersInterface;
 /// List customers with optional pagination and search filtering.
 #[utoipa::path(
     get,
-    tag = "customer",
+    tag = "Customers",
     path = "/api/v1/customers",
     params(
         CustomerListRequest
@@ -79,7 +79,7 @@ pub(crate) async fn list_customers(
 /// Retrieve a single customer by ID or alias.
 #[utoipa::path(
     get,
-    tag = "customer",
+    tag = "Customers",
     path = "/api/v1/customers/{id_or_alias}",
     params(
         ("id_or_alias" = String, Path, description = "customer ID or alias")
@@ -115,7 +115,7 @@ pub(crate) async fn get_customer(
 /// Create customer
 #[utoipa::path(
     post,
-    tag = "customer",
+    tag = "Customers",
     path = "/api/v1/customers",
     request_body(content = CustomerCreateRequest, content_type = "application/json"),
     responses(
@@ -164,7 +164,7 @@ pub(crate) async fn create_customer(
 /// Update customer
 #[utoipa::path(
     put,
-    tag = "customer",
+    tag = "Customers",
     path = "/api/v1/customers/{id_or_alias}",
     params(
         ("id_or_alias" = String, Path, description = "customer ID or alias")
@@ -204,12 +204,70 @@ pub(crate) async fn update_customer(
         .map(Json)
 }
 
+/// Patch customer
+///
+/// Partially update a customer. Only provided fields will be updated.
+#[utoipa::path(
+    patch,
+    tag = "Customers",
+    path = "/api/v1/customers/{id_or_alias}",
+    params(
+        ("id_or_alias" = String, Path, description = "customer ID or alias")
+    ),
+    request_body(content = CustomerPatchRequest, content_type = "application/json"),
+    responses(
+        (status = 200, description = "Customer", body = Customer),
+        (status = 400, description = "Bad request", body = RestErrorResponse),
+        (status = 401, description = "Unauthorized", body = RestErrorResponse),
+        (status = 404, description = "Customer not found", body = RestErrorResponse),
+        (status = 500, description = "Internal error", body = RestErrorResponse),
+    ),
+    security(
+        ("bearer_auth" = [])
+    )
+)]
+#[axum::debug_handler]
+pub(crate) async fn patch_customer(
+    Extension(authorized_state): Extension<AuthorizedAsTenant>,
+    State(app_state): State<AppState>,
+    Valid(Path(id_or_alias)): Valid<Path<AliasOr<CustomerId>>>,
+    Valid(Json(payload)): Valid<Json<CustomerPatchRequest>>,
+) -> Result<impl IntoResponse, RestApiError> {
+    // First resolve the customer ID
+    let customer = app_state
+        .store
+        .find_customer_by_id_or_alias(id_or_alias, authorized_state.tenant_id)
+        .await
+        .map_err(|e| {
+            log::error!("Error finding customer: {e}");
+            RestApiError::from(e)
+        })?;
+
+    let updated = app_state
+        .store
+        .patch_customer(
+            authorized_state.actor_id,
+            authorized_state.tenant_id,
+            patch_req_to_domain(customer.id, payload),
+        )
+        .await
+        .map_err(|e| {
+            log::error!("Error handling patch_customer: {e}");
+            RestApiError::from(e)
+        })?;
+
+    match updated {
+        Some(customer) => domain_to_rest(customer).map(Json),
+        None => Err(RestApiError::NotFound),
+    }
+}
+
 /// Archive a customer
 ///
 /// No linked entity will be deleted. You need to terminate all active subscriptions before archiving a customer, or the call will fail.
 #[utoipa::path(
     delete,
-    tag = "customer",
+    tag = "Customers",
     path = "/api/v1/customers/{id_or_alias}",
     params(
         ("id_or_alias" = String, Path, description = "customer ID or alias")
@@ -248,7 +306,7 @@ pub(crate) async fn archive_customer(
 /// Restore an archived customer
 #[utoipa::path(
     post,
-    tag = "customer",
+    tag = "Customers",
     path = "/api/v1/customers/{id_or_alias}/unarchive",
     params(
         ("id_or_alias" = String, Path, description = "customer ID or alias")
@@ -286,7 +344,7 @@ pub(crate) async fn unarchive_customer(
 /// The token can be used to access invoices, payment methods, and other portal features.
 #[utoipa::path(
     post,
-    tag = "customer",
+    tag = "Customers",
     path = "/api/v1/customers/{id_or_alias}/portal-token",
     params(
         ("id_or_alias" = String, Path, description = "customer ID or alias")

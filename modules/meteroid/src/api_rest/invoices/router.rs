@@ -23,7 +23,7 @@ use meteroid_store::repositories::payment_transactions::PaymentTransactionInterf
 /// List invoices with optional filtering by customer, subscription, or status.
 #[utoipa::path(
     get,
-    tag = "invoice",
+    tag = "Invoices",
     path = "/api/v1/invoices",
     params(
         InvoiceListRequest
@@ -82,7 +82,7 @@ pub(crate) async fn list_invoices(
 /// Retrieve a single invoice with its payment transactions.
 #[utoipa::path(
     get,
-    tag = "invoice",
+    tag = "Invoices",
     path = "/api/v1/invoices/{invoice_id}",
     params(
         ("invoice_id" = InvoiceId, Path, description = "Invoice ID", example = "inv_123"),
@@ -134,7 +134,7 @@ pub(crate) async fn get_invoice_by_id(
 /// Download the PDF document for an invoice.
 #[utoipa::path(
     get,
-    tag = "invoice",
+    tag = "Invoices",
     path = "/api/v1/invoices/{invoice_id}/download",
     params(
         ("invoice_id" = InvoiceId, Path, description = "Invoice ID", example = "inv_123"),

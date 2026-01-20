@@ -14,7 +14,7 @@ use meteroid_store::repositories::CreditNoteInterface;
 #[utoipa::path(
     get,
     path = "/api/v1/credit-notes/{credit_note_id}/download",
-    tag = "credit-notes",
+    tag = "Credit Notes",
     params(
         ("credit_note_id" = CreditNoteId, Path, description = "Credit Note ID", example = "cn_123"),
     ),

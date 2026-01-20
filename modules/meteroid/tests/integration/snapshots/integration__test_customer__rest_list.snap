@@ -5,64 +5,64 @@ expression: "&list"
 {
   "data": [
     {
-      "alias": "fffrrriiieeennndddsss",
-      "bank_account_id": null,
-      "billing_address": null,
-      "billing_email": "fake@fake.com",
-      "currency": "EUR",
-      "custom_taxes": [],
       "id": "cus_xxx",
-      "invoicing_emails": [],
-      "invoicing_entity_id": "ive_xxx",
       "name": "new name",
-      "phone": null,
-      "shipping_address": null,
-      "vat_number": null
-    },
-    {
-      "alias": "created_manual",
-      "bank_account_id": null,
-      "billing_address": null,
-      "billing_email": "created_manual@meteroid.com",
-      "currency": "EUR",
-      "custom_taxes": [],
-      "id": "cus_xxx",
+      "alias": "fffrrriiieeennndddsss",
+      "billing_email": "fake@fake.com",
       "invoicing_emails": [],
-      "invoicing_entity_id": "ive_xxx",
-      "name": "created_manual",
       "phone": null,
+      "billing_address": null,
       "shipping_address": null,
-      "vat_number": null
+      "currency": "EUR",
+      "invoicing_entity_id": "ive_xxx",
+      "bank_account_id": null,
+      "vat_number": null,
+      "custom_taxes": []
     },
     {
-      "alias": "test-customer-rest",
-      "bank_account_id": null,
-      "billing_address": {
-        "city": "Test City",
-        "country": "FR",
-        "line1": "123 Test St",
-        "zip_code": "12345"
-      },
-      "billing_email": "billing@meteroid.com",
-      "currency": "EUR",
-      "custom_taxes": [
-        {
-          "name": "Standard Tax",
-          "rate": 20.0,
-          "tax_code": "TAX001"
-        }
-      ],
       "id": "cus_xxx",
+      "name": "created_manual",
+      "alias": "created_manual",
+      "billing_email": "created_manual@meteroid.com",
+      "invoicing_emails": [],
+      "phone": null,
+      "billing_address": null,
+      "shipping_address": null,
+      "currency": "EUR",
+      "invoicing_entity_id": "ive_xxx",
+      "bank_account_id": null,
+      "vat_number": null,
+      "custom_taxes": []
+    },
+    {
+      "id": "cus_xxx",
+      "name": "Test Customer REST",
+      "alias": "test-customer-rest",
+      "billing_email": "billing@meteroid.com",
       "invoicing_emails": [
         "invoicing@meteroid.com"
       ],
-      "invoicing_entity_id": "ive_xxx",
-      "name": "Test Customer REST",
       "phone": "123456789",
+      "billing_address": {
+        "line1": "123 Test St",
+        "city": "Test City",
+        "country": "FR",
+        "zip_code": "12345"
+      },
       "shipping_address": {
         "same_as_billing": true
       },
-      "vat_number": "VAT123456"
+      "currency": "EUR",
+      "invoicing_entity_id": "ive_xxx",
+      "bank_account_id": null,
+      "vat_number": "VAT123456",
+      "custom_taxes": [
+        {
+          "tax_code": "TAX001",
+          "name": "Standard Tax",
+          "rate": 20.0
+        }
+      ]
     }
   ],
   "pagination_meta": {
