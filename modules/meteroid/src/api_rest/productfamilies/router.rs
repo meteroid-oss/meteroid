@@ -20,7 +20,7 @@ use meteroid_store::repositories::ProductFamilyInterface;
 /// List product families
 #[utoipa::path(
     get,
-    tag = "Product Family",
+    tag = "Product Families",
     path = "/api/v1/product_families",
     params(
         ProductFamilyListRequest
@@ -68,7 +68,7 @@ pub(crate) async fn list_product_families(
 /// Create product family
 #[utoipa::path(
     post,
-    tag = "Product Family",
+    tag = "Product Families",
     path = "/api/v1/product_families",
     request_body(content = ProductFamilyCreateRequest, content_type = "application/json"),
     responses(
@@ -106,7 +106,7 @@ pub(crate) async fn create_product_family(
 /// Retrieve a single product family by ID or alias.
 #[utoipa::path(
     get,
-    tag = "Product Family",
+    tag = "Product Families",
     path = "/api/v1/product_families/{id_or_alias}",
     params(
         ("id_or_alias" = String, Path, description = "product_family ID or alias")
