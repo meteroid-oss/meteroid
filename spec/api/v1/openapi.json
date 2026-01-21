@@ -1233,7 +1233,7 @@
     "/api/v1/plans": {
       "get": {
         "tags": [
-          "Plan"
+          "Plans"
         ],
         "summary": "List plans",
         "description": "List plans with optional filtering by product family.",
@@ -1299,7 +1299,7 @@
     "/api/v1/plans/{plan_id}": {
       "get": {
         "tags": [
-          "Plan"
+          "Plans"
         ],
         "summary": "Get plan",
         "description": "Retrieve the details of a specific plan",
@@ -1346,7 +1346,7 @@
     "/api/v1/product_families": {
       "get": {
         "tags": [
-          "Product Family"
+          "Product Families"
         ],
         "summary": "List product families",
         "operationId": "list_product_families",
@@ -1412,7 +1412,7 @@
       },
       "post": {
         "tags": [
-          "Product Family"
+          "Product Families"
         ],
         "summary": "Create product family",
         "operationId": "create_product_family",
@@ -1457,7 +1457,7 @@
     "/api/v1/product_families/{id_or_alias}": {
       "get": {
         "tags": [
-          "Product Family"
+          "Product Families"
         ],
         "summary": "Get product family",
         "description": "Retrieve a single product family by ID or alias.",
@@ -1504,7 +1504,7 @@
     "/api/v1/subscriptions": {
       "get": {
         "tags": [
-          "Subscription"
+          "Subscriptions"
         ],
         "summary": "List subscriptions",
         "description": "List subscriptions with optional filtering by customer or plan.",
@@ -1602,7 +1602,7 @@
       },
       "post": {
         "tags": [
-          "Subscription"
+          "Subscriptions"
         ],
         "summary": "Create subscription",
         "description": "Create a new subscription for a customer with a specific plan.",
@@ -1669,7 +1669,7 @@
     "/api/v1/subscriptions/{id}": {
       "get": {
         "tags": [
-          "Subscription"
+          "Subscriptions"
         ],
         "summary": "Get subscription details",
         "description": "Retrieve detailed information about a subscription including price components and schedules.",
@@ -1737,7 +1737,7 @@
     "/api/v1/subscriptions/{subscription_id}/cancel": {
       "post": {
         "tags": [
-          "Subscription"
+          "Subscriptions"
         ],
         "summary": "Cancel subscription",
         "description": "Cancel a subscription either immediately or at the end of the billing period.",

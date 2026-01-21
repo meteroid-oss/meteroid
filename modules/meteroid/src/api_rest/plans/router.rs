@@ -21,7 +21,7 @@ use meteroid_store::repositories::PlansInterface;
 /// List plans with optional filtering by product family.
 #[utoipa::path(
     get,
-    tag = "Plan",
+    tag = "Plans",
     path = "/api/v1/plans",
     params(
         PlanListRequest
@@ -98,7 +98,7 @@ async fn list_plans_handler(
 /// Retrieve the details of a specific plan
 #[utoipa::path(
     get,
-    tag = "Plan",
+    tag = "Plans",
     path = "/api/v1/plans/{plan_id}",
     params(
         ("plan_id" = PlanId, Path, description = "Plan ID"),

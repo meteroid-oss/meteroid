@@ -32,7 +32,7 @@ use meteroid_store::repositories::{CustomersInterface, PlansInterface, Subscript
 /// List subscriptions with optional filtering by customer or plan.
 #[utoipa::path(
     get,
-    tag = "Subscription",
+    tag = "Subscriptions",
     path = "/api/v1/subscriptions",
     params(
         SubscriptionRequest
@@ -110,7 +110,7 @@ pub(crate) async fn list_subscriptions(
 /// Retrieve detailed information about a subscription including price components and schedules.
 #[utoipa::path(
     get,
-    tag = "Subscription",
+    tag = "Subscriptions",
     path = "/api/v1/subscriptions/{id}",
     params(
         ("id" = SubscriptionId, Path, description = "subscription ID")
@@ -149,7 +149,7 @@ pub(crate) async fn subscription_details(
 /// Create a new subscription for a customer with a specific plan.
 #[utoipa::path(
     post,
-    tag = "Subscription",
+    tag = "Subscriptions",
     path = "/api/v1/subscriptions",
     request_body(content = SubscriptionCreateRequest, content_type = "application/json"),
     responses(
@@ -245,7 +245,7 @@ pub(crate) async fn create_subscription(
 /// Cancel a subscription either immediately or at the end of the billing period.
 #[utoipa::path(
     post,
-    tag = "Subscription",
+    tag = "Subscriptions",
     path = "/api/v1/subscriptions/{subscription_id}/cancel",
     params(
         ("subscription_id" = SubscriptionId, Path, description = "Subscription ID", example = "sub_123"),
