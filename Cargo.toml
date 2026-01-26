@@ -131,7 +131,7 @@ quote = "1.0.35"
 rand = "0.9.0"
 rand_chacha = "0.9.0"
 rand_distr = "0.5.0"
-rdkafka = "0.38.0"
+rdkafka = "0.39.0"
 refinery = { version = "=0.8.14", default-features = false }
 reqwest = { version = "0.12.15", default-features = false }
 reqwest-retry = { version = "0.8.0", default-features = false }
