@@ -78,7 +78,7 @@
     "postcss-scss": "^4.0.9",
     "postcss-selector-parser": "^6.1.2",
     "react-dom": "^18.3.1",
-    "storybook": "^7.6.20",
+    "storybook": "^7.6.21",
     "tailwindcss": "^3.4.18",
     "tailwindcss-radix": "^2.9.0",
     "typescript": "^5.9.3",
