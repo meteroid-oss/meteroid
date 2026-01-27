@@ -1,12 +1,11 @@
-use crate::workers::pgmq::PgmqResult;
 use crate::workers::pgmq::error::PgmqError;
+use crate::workers::pgmq::{PgmqResult, sleep_with_jitter};
 use common_domain::pgmq::{MessageId, MessageReadQty, MessageReadVtSec, ReadCt};
 use error_stack::ResultExt;
 use itertools::Itertools;
 use meteroid_store::Store;
 use meteroid_store::domain::pgmq::{PgmqMessage, PgmqQueue};
 use meteroid_store::repositories::pgmq::PgmqInterface;
-use rand::Rng;
 use std::sync::Arc;
 use std::time::Duration;
 
@@ -27,9 +26,12 @@ pub(crate) struct ProcessorConfig {
     pub max_read_count: ReadCt,
 }
 
+const BACKOFF_DURATION: Duration = Duration::from_secs(1);
+
 pub(crate) async fn run(cfg: ProcessorConfig) {
     log::info!("Starting pgmq dequeuer {}...", cfg.name.as_str());
     loop {
+        let perf_start = std::time::Instant::now();
         match run_once(
             cfg.queue,
             cfg.handler.clone(),
@@ -48,13 +50,25 @@ pub(crate) async fn run(cfg: ProcessorConfig) {
                     cfg.queue,
                     e
                 );
-                sleep(cfg.sleep_duration, 100).await;
+                sleep_with_jitter(cfg.sleep_duration + BACKOFF_DURATION).await;
             }
             Ok(count) => {
+                if count.0 > 0 {
+                    let elapsed = perf_start.elapsed();
+                    let per_msg = elapsed.as_millis() as f64 / count.0 as f64;
+                    log::info!(
+                        "[{}] processed {} messages from pgmq {} in {:?} ({:.2} ms/msg)",
+                        cfg.name,
+                        count.0,
+                        cfg.queue,
+                        elapsed,
+                        per_msg,
+                    );
+                }
                 if count < cfg.qty {
                     log::debug!("[{}] caught up with the queue", cfg.name);
                     // caught up with the queue
-                    sleep(cfg.sleep_duration, 100).await;
+                    sleep_with_jitter(cfg.sleep_duration).await;
                 }
             }
         }
@@ -110,13 +124,6 @@ pub(crate) async fn run_once(
     }
 
     Ok(MessageReadQty(read_len as i16))
-}
-
-async fn sleep(duration: Duration, jitter_millis: u64) {
-    let jitter = rand::rng().random_range(0..=jitter_millis);
-    let total_duration = duration + Duration::from_millis(jitter);
-
-    tokio::time::sleep(total_duration).await;
 }
 
 pub(crate) struct Noop;

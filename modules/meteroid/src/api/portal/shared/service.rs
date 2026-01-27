@@ -158,12 +158,18 @@ impl PortalSharedService for PortalSharedServiceComponents {
             .await
             .map_err(Into::<PortalSharedApiError>::into)?;
 
+        let provider = connector_provider_to_server(&intent.provider).ok_or_else(|| {
+            PortalSharedApiError::InvalidArgument(
+                "Mock provider cannot be used for setup intents".to_string(),
+            )
+        })?;
+
         Ok(Response::new(SetupIntentResponse {
             setup_intent: Some(SetupIntent {
                 intent_id: intent.intent_id,
                 intent_secret: intent.client_secret,
                 provider_public_key: intent.public_key.expose_secret().to_string(),
-                provider: connector_provider_to_server(&intent.provider) as i32,
+                provider: provider as i32,
                 connection_id: intent.connection_id.as_proto(),
             }),
         }))

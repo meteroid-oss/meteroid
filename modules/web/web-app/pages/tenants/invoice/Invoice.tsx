@@ -45,7 +45,12 @@ import { getCountryName } from '@/features/settings/utils'
 import { useBasePath } from '@/hooks/useBasePath'
 import { useQuery } from '@/lib/connectrpc'
 import { env } from '@/lib/env'
-import { rateToPercent , formatCurrency, formatCurrencyNoRounding, formatUsage } from '@/lib/utils/numbers'
+import {
+  formatCurrency,
+  formatCurrencyNoRounding,
+  formatUsage,
+  rateToPercent,
+} from '@/lib/utils/numbers'
 import { resizeSvgContent } from '@/pages/tenants/invoice/utils'
 import { getLatestConnMeta } from '@/pages/tenants/utils'
 import { listConnectors } from '@/rpc/api/connectors/v1/connectors-ConnectorsService_connectquery'

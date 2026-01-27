@@ -205,3 +205,18 @@ services:
     profiles:
       - metering
 
+  pghero:
+    image: ankane/pghero:latest
+    container_name: pghero
+    ports:
+      - "8080:8080"
+    environment:
+      DATABASE_URL: postgresql://${DATABASE_USER:-meteroid}:${DATABASE_PASSWORD:-meteroid}@meteroid-db/${DATABASE_NAME:-meteroid}
+    depends_on:
+      meteroid-db:
+        condition: service_healthy
+    networks:
+      - meteroid_net
+    profiles:
+      - pghero
+

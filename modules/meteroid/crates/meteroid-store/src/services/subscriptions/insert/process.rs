@@ -234,10 +234,15 @@ impl Services {
 
         // Billing day anchor priority:
         // 1. Explicit anchor (fixed day billing)
-        // 2. Trial end date day (anniversary billing with trial)
-        // 3. Billing start date day (anniversary billing without trial)
+        // 2. Trial end date day (anniversary billing with FREE trial - billing starts after trial)
+        // 3. Billing start date day (paid trial or no trial - billing starts immediately)
         let billing_day_anchor = sub.subscription.billing_day_anchor.unwrap_or_else(|| {
-            if let Some(trial_days) = effective_trial_duration {
+            // For FREE trials, anchor to trial end date (billing starts after trial ends)
+            // For PAID trials, anchor to billing start date (billing starts immediately)
+            let has_free_trial_for_anchor =
+                effective_trial_duration.is_some() && plan.trial_is_free;
+            if has_free_trial_for_anchor {
+                let trial_days = effective_trial_duration.unwrap();
                 let trial_end = billing_start_date + chrono::Duration::days(i64::from(trial_days));
                 trial_end.day() as u16
             } else {
@@ -263,18 +268,40 @@ impl Services {
         let mut cycle_index = None;
         let mut status = SubscriptionStatusEnum::PendingActivation; // TODO should add pending_checkout ? or we just infer from activation_condition ?
 
-        // Handle trial: both OnStart and OnCheckout start the trial immediately if there's a free trial
+        // Handle trial: distinguish between free and paid trials
+        // - Free trial: billing period = trial duration, no billing until trial ends
+        // - Paid trial: billing period = full cycle (e.g., 30 days), billing immediately
+        //   Trial only affects feature resolution (trialing_plan_id), not billing
         let has_free_trial = effective_trial_duration.is_some() && plan.trial_is_free;
+        let has_paid_trial = effective_trial_duration.is_some() && !plan.trial_is_free;
 
         if sub.subscription.activation_condition == SubscriptionActivationCondition::OnStart {
             if sub.subscription.start_date <= now.date() {
-                if let Some(trial_days) = effective_trial_duration {
+                if has_free_trial {
+                    // Free trial: period = trial duration, no billing until trial ends
+                    let trial_days = effective_trial_duration.unwrap();
                     status = SubscriptionStatusEnum::TrialActive;
+                    cycle_index = Some(0); // Track cycle from start, even during trial
                     current_period_start = billing_start_date;
                     current_period_end =
                         Some(current_period_start + chrono::Duration::days(i64::from(trial_days)));
                     next_cycle_action = Some(CycleActionEnum::EndTrial);
+                } else if has_paid_trial {
+                    // Paid trial: period = full billing cycle, bill immediately
+                    // Trial only affects feature resolution, not billing
+                    let range = calculate_advance_period_range(
+                        billing_start_date,
+                        u32::from(billing_day_anchor),
+                        true,
+                        &period,
+                    );
+                    status = SubscriptionStatusEnum::TrialActive;
+                    cycle_index = Some(0);
+                    current_period_start = range.start;
+                    current_period_end = Some(range.end);
+                    next_cycle_action = Some(CycleActionEnum::EndTrial);
                 } else {
+                    // No trial: normal billing
                     let range = calculate_advance_period_range(
                         billing_start_date,
                         u32::from(billing_day_anchor),
@@ -301,6 +328,7 @@ impl Services {
             if sub.subscription.start_date <= now.date() {
                 let trial_days = effective_trial_duration.unwrap(); // Safe: has_free_trial implies this
                 status = SubscriptionStatusEnum::TrialActive;
+                cycle_index = Some(0); // Track cycle from start, even during trial
                 current_period_start = billing_start_date;
                 current_period_end =
                     Some(current_period_start + chrono::Duration::days(i64::from(trial_days)));
@@ -310,6 +338,7 @@ impl Services {
                 next_cycle_action = Some(CycleActionEnum::ActivateSubscription);
             }
         }
+        // OnCheckout with paid trial: stays PendingActivation, checkout will handle billing
 
         let enriched = SubscriptionNewEnriched {
             subscription: &sub.subscription,

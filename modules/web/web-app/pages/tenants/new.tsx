@@ -8,17 +8,21 @@ import {
   SelectFormField,
   SelectItem,
 } from '@md/ui'
-import { ChevronLeft } from 'lucide-react'
+import { ChevronLeft, DicesIcon } from 'lucide-react'
 import { FunctionComponent } from 'react'
 import { useNavigate, useParams } from 'react-router-dom'
 import { z } from 'zod'
 
+import { buildSyncParam } from '@/hooks/useSyncQueries'
 import { useZodForm } from '@/hooks/useZodForm'
+import { env } from '@/lib/env'
 import { TenantEnvironmentEnum } from '@/rpc/api/tenants/v1/models_pb'
 import { createTenant } from '@/rpc/api/tenants/v1/tenants-TenantsService_connectquery'
+import { nanoid } from 'nanoid'
+import { useWatch } from 'react-hook-form'
 
 const tenantSchema = z.object({
-  name: z.string().min(1),
+  name: z.string().min(3).max(50),
   environment: z.string().transform((val: string, ctx) => {
     try {
       return Number(val) as TenantEnvironmentEnum
@@ -33,20 +37,34 @@ const tenantSchema = z.object({
   disableEmails: z.boolean(),
 })
 
+const environmentPlaceholders: Record<TenantEnvironmentEnum, string> = {
+  [TenantEnvironmentEnum.PRODUCTION]: 'Production',
+  [TenantEnvironmentEnum.DEVELOPMENT]: 'Development',
+  [TenantEnvironmentEnum.SANDBOX]: 'Sandbox',
+  [TenantEnvironmentEnum.STAGING]: 'Staging',
+  [TenantEnvironmentEnum.QA]: 'QA',
+  [TenantEnvironmentEnum.DEMO]: 'Demo',
+}
+
 export const TenantNew: FunctionComponent = () => {
   const { organizationSlug } = useParams()
   const methods = useZodForm({
     schema: tenantSchema,
     defaultValues: {
       name: '',
-      environment: `${TenantEnvironmentEnum.PRODUCTION}` as unknown as TenantEnvironmentEnum,
-      disableEmails: false,
+      environment: `${TenantEnvironmentEnum.SANDBOX}` as unknown as TenantEnvironmentEnum,
+      disableEmails: true,
     },
   })
 
   const navigate = useNavigate()
 
   const mut = useMutation(createTenant)
+
+  const environment = useWatch({
+    control: methods.control,
+    name: 'environment',
+  })
 
   return (
     <main className="flex  flex-col flex-1 w-full max-w-screen-2xl pl-8 pr-2 mx-auto h-full overflow-x-hidden ">
@@ -73,21 +91,43 @@ export const TenantNew: FunctionComponent = () => {
                 if (result.tenant) {
                   // Add query param for sandbox tenants to trigger data refresh on dashboard
                   const isSandbox = values.environment === TenantEnvironmentEnum.SANDBOX
-                  const queryParam = isSandbox ? '?just_onboarded=true' : ''
+                  const queryParam = isSandbox ? `?${buildSyncParam('stats')}` : ''
                   navigate(`/${organizationSlug}/${result.tenant.slug}${queryParam}`)
                 }
               })}
             >
               <Card className="px-8 py-6">
                 <div className="w-full space-y-4">
-                  <InputFormField
-                    label="Tenant name"
-                    name="name"
-                    className="max-w-xs"
-                    type="text"
-                    placeholder="Production"
-                    control={methods.control}
-                  />
+                  <div className="flex items-end space-x-2">
+                    <InputFormField
+                      label="Tenant name"
+                      name="name"
+                      className="max-w-xs"
+                      type="text"
+                      placeholder={
+                        environmentPlaceholders[environment ?? TenantEnvironmentEnum.SANDBOX]
+                      }
+                      control={methods.control}
+                    />
+                    {env.dx && environment == TenantEnvironmentEnum.SANDBOX ? (
+                      <Button
+                        size={'icon'}
+                        variant="ghost"
+                        type="button"
+                        className=""
+                        onClick={() => {
+                          const d = new Date()
+                          methods.setValue(
+                            'name',
+                            `sbx-${(((+d - +new Date(d.getFullYear(), 0, 1)) / 1e3) | 0).toString(36).padStart(5, '0')}-${nanoid(2)}`,
+                            { shouldValidate: true }
+                          )
+                        }}
+                      >
+                        <DicesIcon size={14} />
+                      </Button>
+                    ) : null}
+                  </div>
 
                   <SelectFormField
                     name="environment"

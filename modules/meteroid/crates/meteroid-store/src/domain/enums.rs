@@ -123,6 +123,7 @@ pub enum ConnectorProviderEnum {
     Hubspot,
     Stripe,
     Pennylane,
+    Mock,
 }
 
 #[derive(o2o, Serialize, Deserialize, Debug, Clone, PartialEq, Eq)]

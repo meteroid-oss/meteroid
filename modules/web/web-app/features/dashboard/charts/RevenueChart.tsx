@@ -20,7 +20,6 @@ interface RevenueChartProps {
   plansId: string[]
   chartType?: ChartType
   onChartTypeChange?: (type: ChartType) => void
-  refetchInterval?: number | false
 }
 
 const commonChartProps: LineSvgProps = {
@@ -41,21 +40,14 @@ export const RevenueChart = ({
   plansId,
   chartType,
   onChartTypeChange,
-  refetchInterval,
 }: RevenueChartProps) => {
   const theme = useTheme()
 
-  const chartData = useQuery(
-    totalRevenueChart,
-    {
-      startDate: mapDate(from),
-      endDate: mapDate(to),
-      plansId: plansId,
-    },
-    {
-      refetchInterval,
-    }
-  )
+  const chartData = useQuery(totalRevenueChart, {
+    startDate: mapDate(from),
+    endDate: mapDate(to),
+    plansId: plansId,
+  })
   const { formatAmount } = useCurrency()
 
   const data =

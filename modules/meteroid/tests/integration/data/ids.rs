@@ -90,6 +90,26 @@ pub const PLAN_VERSION_PAID_TRIAL_ID: PlanVersionId =
 pub const COMP_PAID_TRIAL_RATE_ID: PriceComponentId =
     PriceComponentId::from_const(uuid!("019438e0-000c-7000-8000-000000000001"));
 
+// Mock payment provider connector
+pub const MOCK_CONNECTOR_ID: ConnectorId =
+    ConnectorId::from_const(uuid!("019438e0-000d-7000-8000-000000000001"));
+
+// Customer connections (customer to mock provider)
+pub const CUST_UBER_CONNECTION_ID: CustomerConnectionId =
+    CustomerConnectionId::from_const(uuid!("019438e0-000e-7000-8000-000000000001"));
+pub const CUST_SPOTIFY_CONNECTION_ID: CustomerConnectionId =
+    CustomerConnectionId::from_const(uuid!("019438e0-000f-7000-8000-000000000001"));
+
+// Customer payment methods
+pub const CUST_UBER_PAYMENT_METHOD_ID: CustomerPaymentMethodId =
+    CustomerPaymentMethodId::from_const(uuid!("019438e0-0010-7000-8000-000000000001"));
+pub const CUST_SPOTIFY_PAYMENT_METHOD_ID: CustomerPaymentMethodId =
+    CustomerPaymentMethodId::from_const(uuid!("019438e0-0011-7000-8000-000000000001"));
+
+// Historical rates (fixed UUIDs to avoid cache conflicts in parallel tests)
+pub const HISTORICAL_RATE_2024_01_01_ID: Uuid = uuid!("019438e0-0020-7000-8000-000000000001");
+pub const HISTORICAL_RATE_2010_01_01_ID: Uuid = uuid!("019438e0-0021-7000-8000-000000000001");
+
 // Subscriptions
 pub const SUB_SPOTIFY_NOTION_ID: SubscriptionId =
     SubscriptionId::from_const(uuid!("018c3475-bdc5-77dd-9e26-e9a7fdd60426"));

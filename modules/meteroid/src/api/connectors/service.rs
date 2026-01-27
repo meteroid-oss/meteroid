@@ -48,7 +48,7 @@ impl ConnectorsService for ConnectorsServiceComponents {
         let response = ListConnectorsResponse {
             connectors: connectors
                 .into_iter()
-                .map(|x| mapping::connectors::connector_to_server(&x))
+                .filter_map(|x| mapping::connectors::connector_to_server(&x))
                 .collect(),
         };
 
@@ -104,7 +104,7 @@ impl ConnectorsService for ConnectorsServiceComponents {
             .map_err(Into::<ConnectorApiError>::into)?;
 
         Ok(Response::new(ConnectStripeResponse {
-            connector: Some(mapping::connectors::connector_meta_to_server(&res)),
+            connector: mapping::connectors::connector_meta_to_server(&res),
         }))
     }
 
@@ -170,7 +170,7 @@ impl ConnectorsService for ConnectorsServiceComponents {
             .map_err(Into::<ConnectorApiError>::into)?;
 
         Ok(Response::new(UpdateHubspotConnectorResponse {
-            connector: Some(mapping::connectors::connector_to_server(&connector)),
+            connector: mapping::connectors::connector_to_server(&connector),
         }))
     }
 

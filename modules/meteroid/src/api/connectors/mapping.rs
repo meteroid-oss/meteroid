@@ -18,14 +18,27 @@ pub mod connectors {
         }
     }
 
+    /// Converts a domain connector provider to the server/API representation.
+    /// Returns None for Mock connectors, which should not be exposed via API.
     pub fn connector_provider_to_server(
         value: &domain_enum::ConnectorProviderEnum,
-    ) -> server::ConnectorProviderEnum {
+    ) -> Option<server::ConnectorProviderEnum> {
         match *value {
-            domain_enum::ConnectorProviderEnum::Stripe => server::ConnectorProviderEnum::Stripe,
-            domain_enum::ConnectorProviderEnum::Hubspot => server::ConnectorProviderEnum::Hubspot,
+            domain_enum::ConnectorProviderEnum::Stripe => {
+                Some(server::ConnectorProviderEnum::Stripe)
+            }
+            domain_enum::ConnectorProviderEnum::Hubspot => {
+                Some(server::ConnectorProviderEnum::Hubspot)
+            }
             domain_enum::ConnectorProviderEnum::Pennylane => {
-                server::ConnectorProviderEnum::Pennylane
+                Some(server::ConnectorProviderEnum::Pennylane)
+            }
+            domain_enum::ConnectorProviderEnum::Mock => {
+                // Mock connector is for testing only - should never be returned via API
+                log::warn!(
+                    "Attempted to expose Mock connector via API - this should not happen in production"
+                );
+                None
             }
         }
     }
@@ -54,22 +67,28 @@ pub mod connectors {
         }
     }
 
-    pub fn connector_meta_to_server(value: &domain::ConnectorMeta) -> server::Connector {
-        server::Connector {
+    /// Converts a domain ConnectorMeta to server representation.
+    /// Returns None for Mock connectors, which should not be exposed via API.
+    pub fn connector_meta_to_server(value: &domain::ConnectorMeta) -> Option<server::Connector> {
+        let provider = connector_provider_to_server(&value.provider)?;
+        Some(server::Connector {
             id: value.id.as_proto(),
             alias: value.alias.clone(),
             connector_type: connector_type_to_server(&value.connector_type) as i32,
-            provider: connector_provider_to_server(&value.provider) as i32,
+            provider: provider as i32,
             data: None,
-        }
+        })
     }
 
-    pub fn connector_to_server(value: &domain::Connector) -> server::Connector {
-        server::Connector {
+    /// Converts a domain Connector to server representation.
+    /// Returns None for Mock connectors, which should not be exposed via API.
+    pub fn connector_to_server(value: &domain::Connector) -> Option<server::Connector> {
+        let provider = connector_provider_to_server(&value.provider)?;
+        Some(server::Connector {
             id: value.id.as_proto(),
             alias: value.alias.clone(),
             connector_type: connector_type_to_server(&value.connector_type) as i32,
-            provider: connector_provider_to_server(&value.provider) as i32,
+            provider: provider as i32,
             data: value.data.as_ref().and_then(|data| match data {
                 ProviderData::Stripe(_) => None,
                 ProviderData::Hubspot(d) => Some(server::ConnectorData {
@@ -87,8 +106,10 @@ pub mod connectors {
                         },
                     )),
                 }),
+                // Mock is for testing only, no data exposed in API
+                ProviderData::Mock(_) => None,
             }),
-        }
+        })
     }
 
     pub fn stripe_data_to_domain(value: &server::StripeConnector) -> domain::StripeSensitiveData {

@@ -259,7 +259,7 @@ impl CustomersService for CustomerServiceComponents {
                         connectors
                             .iter()
                             .find(|c| c.id == conn.connector_id)
-                            .map(|connector| {
+                            .and_then(|connector| {
                                 let external_company_id = match &connector.data {
                                     Some(meteroid_store::domain::connectors::ProviderData::Hubspot(data)) => {
                                         Some(data.external_company_id.clone())
@@ -539,7 +539,7 @@ impl CustomersService for CustomerServiceComponents {
             );
 
         Ok(Response::new(UpsertCustomerConnectionResponse {
-            connection: Some(connection_proto),
+            connection: connection_proto,
         }))
     }
 

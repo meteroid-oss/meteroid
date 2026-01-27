@@ -196,7 +196,7 @@ mod tests {
     use std::collections::HashMap;
 
     fn clean_sql(sql: &str) -> String {
-        sql.replace('\n', "").replace(' ', "")
+        sql.replace(['\n', ' '], "")
     }
 
     #[test]

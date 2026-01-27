@@ -1,6 +1,6 @@
 //! Repository for scheduled events
 
-use chrono::{NaiveDate, NaiveDateTime, Utc};
+use chrono::{NaiveDate, NaiveDateTime, NaiveTime, Utc};
 use diesel::dsl::sql;
 use diesel::prelude::*;
 use diesel_async::RunQueryDsl;
@@ -98,9 +98,13 @@ impl ScheduledEventRow {
         date: NaiveDate,
     ) -> DbResult<Option<ScheduledEventRow>> {
         use crate::schema::scheduled_event::dsl::{
-            created_at, event_type, processed_at, scheduled_event, status, subscription_id,
-            tenant_id,
+            created_at, event_type, processed_at, scheduled_event, scheduled_time, status,
+            subscription_id, tenant_id,
         };
+
+        // Use range query instead of DATE() function to allow index usage
+        let day_start = date.and_time(NaiveTime::MIN);
+        let day_end = date.succ_opt().unwrap_or(date).and_time(NaiveTime::MIN);
 
         let query = scheduled_event
             .filter(subscription_id.eq(subscription_id_param))
@@ -108,7 +112,8 @@ impl ScheduledEventRow {
             .filter(event_type.eq_any(event_type_param))
             .filter(status.eq(ScheduledEventStatus::Pending))
             .filter(processed_at.is_null())
-            .filter(sql::<diesel::sql_types::Date>("DATE(scheduled_time)").eq(date))
+            .filter(scheduled_time.ge(day_start))
+            .filter(scheduled_time.lt(day_end))
             .order_by((
                 // priority.desc(),
                 created_at.desc(),

@@ -33,6 +33,7 @@ use crate::domain::{PaymentTransaction, Subscription};
 pub use crate::domain::{SlotUpgradeBillingMode, UpdateSlotsResult};
 use crate::store::PgConn;
 pub use invoices::{CustomerDetailsUpdate, InvoiceBillingMode};
+pub use lifecycle::CycleTransitionResult;
 pub use quotes::QuoteConversionResult;
 use stripe_client::client::StripeClient;
 pub use subscriptions::insert::payment_method::PaymentSetupResult;

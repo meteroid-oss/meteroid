@@ -15,7 +15,6 @@ use meteroid_invoicing::{
 use rust_decimal::Decimal;
 use rusty_money::{Money, iso};
 use std::collections::HashMap;
-use std::path::Path;
 use std::str::FromStr;
 
 #[tokio::test]

@@ -8,11 +8,14 @@ import { DetailsSection } from '@/features/dashboard/sections/DetailsSection'
 import { MrrSection } from '@/features/dashboard/sections/MrrSection'
 import { TopSection } from '@/features/dashboard/sections/TopSection'
 import { useInvoicingEntity } from '@/features/settings/hooks/useInvoicingEntity'
+import { useSyncQueries } from '@/hooks/useSyncQueries'
 import { useTenant } from '@/hooks/useTenant'
 import { useQuery } from '@/lib/connectrpc'
 import { me } from '@/rpc/api/users/v1/users-UsersService_connectquery'
 
 export const Dashboard = () => {
+  // Auto-refresh queries based on URL params (e.g., ?_sync=stats after onboarding)
+  useSyncQueries()
   const { isRefetching } = useTenant()
   const { defaultEntity, isLoading: isLoadingEntity } = useInvoicingEntity()
 

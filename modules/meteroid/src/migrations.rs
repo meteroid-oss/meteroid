@@ -14,20 +14,24 @@ pub async fn run(pool: &PgPool) -> Result<(), Box<dyn std::error::Error>> {
     let mut async_wrapper: AsyncConnectionWrapper<PgConn> = AsyncConnectionWrapper::from(conn);
 
     tokio::task::spawn_blocking(move || {
-        async_wrapper
+        let applied = async_wrapper
             .run_pending_migrations(diesel::MIGRATIONS)
             .map_err(DieselMigrationError::ApplyError)
             .expect("Error running migrations");
 
-        let mut all_migrations = async_wrapper
-            .applied_migrations()
-            .map_err(DieselMigrationError::GetMigrationsError)
-            .expect("Error getting migrations");
+        if applied.is_empty() {
+            tracing::info!("Migrations up to date");
+        } else {
+            for migration in &applied {
+                tracing::info!("Migration applied: {}", migration);
+            }
+        }
 
-        all_migrations.sort();
-
-        for migration in all_migrations {
-            tracing::info!("Migration Applied - {}", migration);
+        if let Ok(mut all) = async_wrapper.applied_migrations() {
+            all.sort();
+            if let Some(last) = all.last() {
+                tracing::info!("Latest migration: {}", last);
+            }
         }
     })
     .await?;
@@ -39,6 +43,4 @@ pub async fn run(pool: &PgPool) -> Result<(), Box<dyn std::error::Error>> {
 pub enum DieselMigrationError {
     #[error("ApplyError: {0}")]
     ApplyError(#[source] Box<dyn Error + Send + Sync>),
-    #[error("GetMigrationsError: {0}")]
-    GetMigrationsError(#[source] Box<dyn Error + Send + Sync>),
 }

@@ -22,7 +22,6 @@ interface MrrChartProps {
   to: Date
   chartType?: ChartType
   onChartTypeChange?: (type: ChartType) => void
-  refetchInterval?: number | false
 }
 
 const commonChartProps: LineSvgProps = {
@@ -45,21 +44,14 @@ export const MrrChart = ({
   to,
   chartType,
   onChartTypeChange,
-  refetchInterval,
 }: MrrChartProps) => {
   const theme = useTheme()
 
-  const chartData = useQuery(
-    totalMrrChart,
-    {
-      plansId: plansId,
-      startDate: mapDate(from),
-      endDate: mapDate(to),
-    },
-    {
-      refetchInterval,
-    }
-  )
+  const chartData = useQuery(totalMrrChart, {
+    plansId: plansId,
+    startDate: mapDate(from),
+    endDate: mapDate(to),
+  })
   const { formatAmount } = useCurrency()
 
   const data =

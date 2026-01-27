@@ -183,26 +183,35 @@ pub mod customer {
             .transpose()
     }
 
+    /// Converts a customer connection to proto representation.
+    /// Returns None for Mock connectors, which should not be exposed via API.
     pub fn map_customer_connection_to_proto(
         connection: domain::CustomerConnection,
         provider: ConnectorProviderEnum,
         external_company_id: Option<String>,
-    ) -> server::CustomerConnection {
+    ) -> Option<server::CustomerConnection> {
         use meteroid_grpc::meteroid::api::connectors::v1::ConnectorProviderEnum as ProtoConnectorProvider;
 
         let connector_provider = match provider {
             ConnectorProviderEnum::Stripe => ProtoConnectorProvider::Stripe,
             ConnectorProviderEnum::Hubspot => ProtoConnectorProvider::Hubspot,
             ConnectorProviderEnum::Pennylane => ProtoConnectorProvider::Pennylane,
+            ConnectorProviderEnum::Mock => {
+                // Mock connector is for testing only - should never be returned via API
+                log::warn!(
+                    "Attempted to expose Mock customer connection via API - this should not happen in production"
+                );
+                return None;
+            }
         };
 
-        server::CustomerConnection {
+        Some(server::CustomerConnection {
             id: connection.id.as_proto(),
             connector_id: connection.connector_id.as_proto(),
             external_customer_id: connection.external_customer_id,
             connector_provider: connector_provider.into(),
             external_company_id,
-        }
+        })
     }
 }
 pub mod customer_payment_method {

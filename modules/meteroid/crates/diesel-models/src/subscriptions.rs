@@ -60,6 +60,7 @@ pub struct SubscriptionRow {
     pub purchase_order: Option<String>,
     pub quote_id: Option<QuoteId>,
     pub backdate_invoices: bool,
+    pub processing_started_at: Option<NaiveDateTime>,
 }
 
 #[derive(Insertable, Debug)]
@@ -153,6 +154,7 @@ pub struct SubscriptionCycleRowPatch {
     pub current_period_start: Option<NaiveDate>,
     pub current_period_end: Option<Option<NaiveDate>>,
     pub pending_checkout: Option<bool>,
+    pub processing_started_at: Option<Option<NaiveDateTime>>,
 }
 
 #[derive(AsChangeset)]

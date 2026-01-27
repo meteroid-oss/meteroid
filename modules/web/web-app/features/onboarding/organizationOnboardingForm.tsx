@@ -9,6 +9,7 @@ import { useNavigate } from 'react-router-dom'
 import { z } from 'zod'
 
 import { CountrySelect } from '@/components/CountrySelect'
+import { buildSyncParam } from '@/hooks/useSyncQueries'
 import { AccountingCurrencySelect } from '@/features/onboarding/accountingCurrencySelect'
 import { useZodForm } from '@/hooks/useZodForm'
 import { queryClient } from '@/lib/react-query'
@@ -57,7 +58,7 @@ export const OrganizationOnboardingForm = () => {
           queryKey: createConnectQueryKey(getCurrentOrganizations),
         })
 
-        navigate('/' + res.organization.slug + '?just_onboarded=true')
+        navigate(`/${res.organization.slug}?${buildSyncParam('stats')}`)
       }
     },
   })

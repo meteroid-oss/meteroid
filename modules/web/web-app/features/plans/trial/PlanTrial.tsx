@@ -235,14 +235,14 @@ export function PlanTrialForm({
                 {/* Contextual help based on plan type */}
                 <p className="text-muted-foreground text-xs">
                   {isFreePlan ? (
-                    <>This is a free plan. No payment will ever be required.</>
+                    <>No payment method will be required.</>
                   ) : data.trialIsFree ? (
                     <>
-                      Payment method will be collected at checkout. If trial ends without a valid
-                      payment method, subscription will pause until checkout is completed.
+                      If checkout and automatic charge are set, payment method will be collected at checkout and a charge
+                      will be made when the trial ends.
                     </>
                   ) : (
-                    <>Payment will be collected immediately at checkout.</>
+                    <>This is a paid trial. Only the resolved features are impacted, not the billing period nor the price.</>
                   )}
                 </p>
               </div>

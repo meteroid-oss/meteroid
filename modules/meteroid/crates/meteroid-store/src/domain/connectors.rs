@@ -39,6 +39,7 @@ pub enum ProviderData {
     Stripe(StripePublicData),
     Hubspot(HubspotPublicData),
     Pennylane(PennylanePublicData),
+    Mock(MockPublicData),
 }
 
 json_value_ser!(ProviderData);
@@ -69,6 +70,7 @@ pub enum ProviderSensitiveData {
     Stripe(StripeSensitiveData),
     Hubspot(HubspotSensitiveData),
     Pennylane(PennylaneSensitiveData),
+    Mock(MockSensitiveData),
 }
 
 impl ProviderSensitiveData {
@@ -132,6 +134,19 @@ pub struct PennylaneSensitiveData {
     pub access_token: String,
     pub expires_at: Option<DateTime<Utc>>,
 }
+
+#[derive(Clone, Debug, Serialize, Deserialize, Default)]
+pub struct MockPublicData {
+    #[serde(default)]
+    pub fail_payment_intent: bool,
+    #[serde(default)]
+    pub fail_setup_intent: bool,
+}
+
+json_value_ser!(MockPublicData);
+
+#[derive(Clone, Debug, Serialize, Deserialize, Default)]
+pub struct MockSensitiveData {}
 
 impl Connector {
     pub fn from_row(key: &SecretString, row: ConnectorRow) -> StoreResult<Connector> {
