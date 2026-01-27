@@ -1,7 +1,6 @@
 //! Repository for scheduled events
 
 use chrono::{NaiveDate, NaiveDateTime, NaiveTime, Utc};
-use diesel::dsl::sql;
 use diesel::prelude::*;
 use diesel_async::RunQueryDsl;
 use error_stack::ResultExt;
@@ -131,46 +130,54 @@ impl ScheduledEventRow {
             .into_db_result()
     }
 
-    /// Find due events ready for processing
-    pub async fn find_due_events_for_update(
+    /// Find and claim due events in a single atomic operation.
+    /// Raw SQL is required because:
+    /// 1. FOR UPDATE OF <table> syntax - Diesel's for_update() locks ALL joined tables
+    /// 2. UPDATE ... RETURNING with subquery - not expressible in Diesel's query builder
+    pub async fn find_and_claim_due_events(
         conn: &mut PgConn,
         limit: i64,
     ) -> DbResult<Vec<ScheduledEventRow>> {
-        use crate::schema::scheduled_event::dsl::{
-            event_type, priority, scheduled_event, scheduled_time, status,
-        };
-        use crate::schema::subscription::dsl as sub_dsl;
+        use diesel::sql_types;
 
-        let query = scheduled_event
-            .inner_join(sub_dsl::subscription)
-            .filter(status.eq(ScheduledEventStatus::Pending))
-            .filter(scheduled_time.le(Utc::now().naive_utc()))
-            .filter(
-                // We ignore terminal events related to subscriptions that have unprocessed lifecycle terms
-                // either it's not a terminal event
-                event_type
-                    .eq_any(vec![
-                        ScheduledEventTypeEnum::FinalizeInvoice,
-                        ScheduledEventTypeEnum::RetryPayment,
-                    ])
-                    // or the subscription is terminated
-                    .or(sub_dsl::current_period_end.is_null())
-                    // the event is scheduled before the current period end
-                    .or(sub_dsl::current_period_end
-                        .gt(sql::<diesel::sql_types::Date>("DATE(scheduled_time)").nullable())),
+        let raw_sql = r#"
+            UPDATE scheduled_event
+            SET status = 'PROCESSING', updated_at = NOW()
+            WHERE id IN (
+                SELECT se.id
+                FROM scheduled_event se
+                INNER JOIN subscription s ON se.subscription_id = s.id
+                WHERE se.status = 'PENDING'
+                  AND se.scheduled_time <= $1
+                  AND (
+                      -- Non-lifecycle events: always process
+                      se.event_type IN ('FINALIZE_INVOICE', 'RETRY_PAYMENT')
+                      -- Subscription already terminated: no lifecycle to wait for
+                      OR s.current_period_end IS NULL
+                      -- Event scheduled before period boundary: safe to process now
+                      OR s.current_period_end > se.scheduled_time::date
+                  )
+                ORDER BY se.scheduled_time ASC, se.priority DESC
+                LIMIT $2
+                FOR UPDATE OF se SKIP LOCKED
             )
-            .order_by((scheduled_time.asc(), priority.desc()))
-            .limit(limit)
-            .for_update()
-            .skip_locked()
-            .select(ScheduledEventRow::as_select());
+            RETURNING id, subscription_id, tenant_id, event_type, scheduled_time,
+                      priority, event_data, created_at, updated_at, status,
+                      retries, last_retry_at, error, processed_at, source
+        "#;
+
+        let now = Utc::now().naive_utc();
+
+        let query = diesel::sql_query(raw_sql)
+            .bind::<sql_types::Timestamp, _>(now)
+            .bind::<sql_types::BigInt, _>(limit);
 
         log::debug!("{}", diesel::debug_query::<diesel::pg::Pg, _>(&query));
 
         query
             .get_results(conn)
             .await
-            .attach("Error while fetching due events")
+            .attach("Error while claiming due events")
             .into_db_result()
     }
 
@@ -245,15 +252,16 @@ impl ScheduledEventRow {
             .into_db_result()
     }
 
-    /// cleanup. If the event is older than X minutes and in processing state, mark it for reprocessing
+    /// Cleanup stale PROCESSING events. If an event has been in PROCESSING state
+    /// for more than 5 minutes, reset it to PENDING for retry (worker likely crashed).
     pub async fn retry_timeout_events(conn: &mut PgConn) -> DbResult<()> {
         use crate::schema::scheduled_event::dsl::{
             error, last_retry_at, retries, scheduled_event, scheduled_time, status, updated_at,
         };
 
         let now = Utc::now().naive_utc();
-        let timeout_date = now.checked_sub_signed(chrono::Duration::minutes(30));
-        if timeout_date.is_none() {
+        let timeout_threshold = now.checked_sub_signed(chrono::Duration::minutes(5));
+        if timeout_threshold.is_none() {
             return Ok(());
         }
 
@@ -261,7 +269,8 @@ impl ScheduledEventRow {
             .filter(
                 status
                     .eq(ScheduledEventStatus::Processing)
-                    .and(scheduled_time.le(timeout_date.unwrap())),
+                    // Use updated_at (when marked PROCESSING), not scheduled_time
+                    .and(updated_at.le(timeout_threshold.unwrap())),
             )
             .set((
                 status.eq(ScheduledEventStatus::Pending),

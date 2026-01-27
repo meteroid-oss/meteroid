@@ -14,8 +14,8 @@ use common_domain::ids::{SubscriptionId, TenantId};
 use error_stack::ResultExt;
 use uuid::Uuid;
 
-/// How long before a claim expires and can be picked up by another worker
-const CLAIM_TIMEOUT_MINUTES: i64 = 1;
+/// How long before a claim expires and can be picked up by another worker.
+const CLAIM_TIMEOUT_MINUTES: i64 = 5;
 
 impl SubscriptionRow {
     #[allow(clippy::too_many_arguments)]
@@ -289,13 +289,14 @@ impl SubscriptionRow {
 
         let active_statuses = SubscriptionStatusEnum::not_terminal();
 
-        // Re-validate conditions and lock
+        // Re-validate conditions and lock.
         let query = dsl::subscription
             .filter(dsl::id.eq(id))
             .filter(dsl::current_period_end.le(now.date()))
             .filter(dsl::next_retry.is_null().or(dsl::next_retry.le(now)))
             .filter(dsl::status.eq_any(active_statuses))
-            .for_update();
+            .for_update()
+            .skip_locked();
 
         log::debug!("{}", debug_query::<diesel::pg::Pg, _>(&query));
 

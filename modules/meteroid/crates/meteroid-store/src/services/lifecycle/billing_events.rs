@@ -9,10 +9,10 @@ use chrono::{Duration, NaiveDateTime, Utc};
 use diesel_async::scoped_futures::ScopedFutureExt;
 use diesel_models::enums::SubscriptionStatusEnum;
 use diesel_models::scheduled_events::ScheduledEventRow;
-use futures::future::join_all;
-use uuid::Uuid;
+use futures::stream::StreamExt;
 
-const BATCH_SIZE: i64 = 50;
+const MAX_PARALLEL_PROCESSING: usize = 4;
+const BATCH_SIZE: i64 = (MAX_PARALLEL_PROCESSING * 2) as i64; // Small buffer, small blast radius on crash
 
 impl Services {
     pub async fn cleanup_timeout_scheduled_events(&self) -> StoreResult<()> {
@@ -22,42 +22,20 @@ impl Services {
     }
 
     pub async fn get_and_process_due_events(&self) -> StoreResult<usize> {
-        // Phase 1: Claim events
-        let events = self
-            .store
-            .transaction(|tx| {
-                async move {
-                    let events =
-                        ScheduledEventRow::find_due_events_for_update(tx, BATCH_SIZE).await?;
-
-                    if events.is_empty() {
-                        return Ok(vec![]);
-                    }
-
-                    ScheduledEventRow::mark_as_processing(
-                        tx,
-                        &events.iter().map(|v| v.id).collect::<Vec<Uuid>>(),
-                    )
-                    .await?;
-
-                    Ok(events)
-                }
-                .scope_boxed()
-            })
-            .await?;
+        let mut conn = self.store.get_conn().await?;
+        let events = ScheduledEventRow::find_and_claim_due_events(&mut conn, BATCH_SIZE).await?;
 
         let len = events.len();
-
         if len == 0 {
             return Ok(0);
         }
 
-        // Phase 2: Process each event in parallel
-        let futures = events
-            .into_iter()
-            .map(|event| self.process_single_event(event));
-
-        let results = join_all(futures).await;
+        // Process each event with bounded parallelism
+        let results: Vec<_> = futures::stream::iter(events)
+            .map(|event| self.process_single_event(event))
+            .buffer_unordered(MAX_PARALLEL_PROCESSING)
+            .collect()
+            .await;
 
         // Log any unexpected errors (individual event errors are already handled)
         for result in &results {

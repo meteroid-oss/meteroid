@@ -18,10 +18,11 @@ use diesel_models::subscriptions::{
     SubscriptionCycleErrorRowPatch, SubscriptionCycleRowPatch, SubscriptionRow,
 };
 use error_stack::Report;
-use futures::future::join_all;
+use futures::stream::StreamExt;
 
-const BATCH_SIZE: i64 = 10;
+const BATCH_SIZE: i64 = 8;
 const MAX_CYCLE_RETRIES: i32 = 10;
+const MAX_PARALLEL_PROCESSING: usize = 4;
 
 /// Result of processing cycle transitions
 pub struct CycleTransitionResult {
@@ -61,12 +62,12 @@ impl Services {
             });
         }
 
-        // Phase 2: Process each subscription in parallel
-        let futures = claimed_ids
-            .into_iter()
-            .map(|id| self.process_single_subscription(id));
-
-        let results = join_all(futures).await;
+        // Phase 2: Process each subscription with bounded parallelism.
+        let results: Vec<_> = futures::stream::iter(claimed_ids)
+            .map(|id| self.process_single_subscription(id))
+            .buffer_unordered(MAX_PARALLEL_PROCESSING)
+            .collect()
+            .await;
 
         // Log any errors (they're already handled per-subscription)
         for result in &results {
