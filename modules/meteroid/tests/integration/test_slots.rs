@@ -55,6 +55,29 @@ async fn test_slot_transactions_comprehensive() {
 
     // Test 5: Min/Max limits enforcement
     test_min_max_limits(&services, &store, &mut conn).await;
+}
+
+// separated to keep subscriptions below the batching threshold (cycle & event runners)
+#[tokio::test]
+async fn test_slot_transactions_comprehensive_next() {
+    helpers::init::logging();
+    let (_postgres_container, postgres_connection_string) =
+        meteroid_it::container::start_postgres().await;
+
+    let mock_mailer = Arc::new(MockMailerService::new());
+
+    let setup = meteroid_it::container::start_meteroid_with_clients(
+        postgres_connection_string,
+        SeedLevel::PLANS,
+        Arc::new(MockUsageClient::noop()),
+        mock_mailer.clone(),
+    )
+    .await;
+
+    let store = setup.store.clone();
+    let pool = setup.store.pool.clone();
+    let services = setup.services.clone();
+    let mut conn = pool.get().await.unwrap();
 
     // Test 6: Currency precision (JPY, BHD, USD)
     test_currency_precision(&services, &store, &mut conn).await;
