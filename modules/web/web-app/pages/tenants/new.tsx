@@ -9,7 +9,9 @@ import {
   SelectItem,
 } from '@md/ui'
 import { ChevronLeft, DicesIcon } from 'lucide-react'
+import { nanoid } from 'nanoid'
 import { FunctionComponent } from 'react'
+import { useWatch } from 'react-hook-form'
 import { useNavigate, useParams } from 'react-router-dom'
 import { z } from 'zod'
 
@@ -18,8 +20,6 @@ import { useZodForm } from '@/hooks/useZodForm'
 import { env } from '@/lib/env'
 import { TenantEnvironmentEnum } from '@/rpc/api/tenants/v1/models_pb'
 import { createTenant } from '@/rpc/api/tenants/v1/tenants-TenantsService_connectquery'
-import { nanoid } from 'nanoid'
-import { useWatch } from 'react-hook-form'
 
 const tenantSchema = z.object({
   name: z.string().min(3).max(50),
@@ -111,7 +111,7 @@ export const TenantNew: FunctionComponent = () => {
                     />
                     {env.dx && environment == TenantEnvironmentEnum.SANDBOX ? (
                       <Button
-                        size={'icon'}
+                        size="icon"
                         variant="ghost"
                         type="button"
                         className=""
