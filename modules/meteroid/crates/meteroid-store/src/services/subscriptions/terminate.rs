@@ -34,6 +34,7 @@ impl Services {
             current_period_end: Some(None),
             cycle_index: None, // we don't increase the cycle index on termination
             pending_checkout: None,
+            processing_started_at: None, // no need to clear on termination
         };
 
         patch.patch(conn).await?;

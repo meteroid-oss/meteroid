@@ -974,6 +974,7 @@ diesel::table! {
         purchase_order -> Nullable<Text>,
         quote_id -> Nullable<Uuid>,
         backdate_invoices -> Bool,
+        processing_started_at -> Nullable<Timestamp>,
     }
 }
 

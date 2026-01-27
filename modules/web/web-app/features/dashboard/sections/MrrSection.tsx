@@ -8,8 +8,7 @@ import {
   Separator,
 } from '@md/ui'
 import * as React from 'react'
-import { useEffect, useMemo, useState } from 'react'
-import { useSearchParams } from 'react-router-dom'
+import { useMemo, useState } from 'react'
 
 import {
   DatePresetSelect,
@@ -26,35 +25,13 @@ import { listPlans } from '@/rpc/api/plans/v1/plans-PlansService_connectquery'
 import { ListPlansRequest_SortBy } from '@/rpc/api/plans/v1/plans_pb'
 
 const ALL_PLANS = '_all'
-const ONBOARDING_REFETCH_INTERVAL = 3000 // Refetch every 3 seconds
-const ONBOARDING_REFETCH_DURATION = 12000 // Stop after 12 seconds
 
 export const MrrSection = () => {
-  const [searchParams, setSearchParams] = useSearchParams()
   const [datePreset, setDatePreset] = useState<DateRangePreset>('last90days')
   const range = useMemo(() => getDateRangeFromPreset(datePreset), [datePreset])
   const [chartType, setChartType] = useState<ChartType>('revenue')
 
   const [plan, setPlan] = React.useState<string>(ALL_PLANS)
-
-  // Auto-refresh after onboarding to catch seeded data as it's processed
-  const justOnboarded = searchParams.get('just_onboarded') === 'true'
-  const [refetchInterval, setRefetchInterval] = useState<number | false>(
-    // justOnboarded ? ONBOARDING_REFETCH_INTERVAL : false
-    ONBOARDING_REFETCH_INTERVAL
-  )
-
-  useEffect(() => {
-    console.log('justOnboarded:', justOnboarded)
-    // if (justOnboarded) { TODO only if justOnboarded
-    // Stop refetching after the duration expires
-    const timer = setTimeout(() => {
-      setRefetchInterval(false)
-    }, ONBOARDING_REFETCH_DURATION)
-
-    return () => clearTimeout(timer)
-    // }
-  }, [justOnboarded, setSearchParams])
 
   const plans = useQuery(listPlans, {
     sortBy: ListPlansRequest_SortBy.NAME_ASC,
@@ -94,7 +71,6 @@ export const MrrSection = () => {
             plansId={selectedPlanIds}
             chartType={chartType}
             onChartTypeChange={setChartType}
-            refetchInterval={refetchInterval}
           />
         ) : (
           <MrrChart
@@ -103,7 +79,6 @@ export const MrrSection = () => {
             plansId={selectedPlanIds}
             chartType={chartType}
             onChartTypeChange={setChartType}
-            refetchInterval={refetchInterval}
           />
         )}
         <Separator className="m-2" />

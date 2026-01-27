@@ -1,4 +1,4 @@
-use crate::domain::connectors::{Connector, ProviderData, ProviderSensitiveData};
+use crate::domain::connectors::{Connector, MockPublicData, ProviderData, ProviderSensitiveData};
 use crate::domain::customer_payment_methods::SetupIntent;
 use crate::domain::enums::ConnectorProviderEnum;
 use crate::domain::payment_transactions::PaymentIntent;
@@ -81,6 +81,13 @@ pub fn initialize_payment_provider(
 ) -> Result<Box<dyn PaymentProvider>, Report<PaymentProviderError>> {
     match config.provider {
         ConnectorProviderEnum::Stripe => Ok(Box::new(StripeClient::new())),
+        ConnectorProviderEnum::Mock => {
+            let mock_config = match &config.data {
+                Some(ProviderData::Mock(data)) => data.clone(),
+                _ => MockPublicData::default(),
+            };
+            Ok(Box::new(MockPaymentProvider::new(mock_config)))
+        }
         _ => bail!(PaymentProviderError::Configuration(
             "unknown payment provider".to_owned()
         )),
@@ -436,5 +443,119 @@ impl From<&PaymentMethodTypeEnum> for Option<StripePaymentMethodType> {
             PaymentMethodTypeEnum::Other => None,
             PaymentMethodTypeEnum::Transfer => None,
         }
+    }
+}
+
+/// Mock payment provider for testing payment flows without external dependencies.
+///
+/// This provider simulates payment provider behavior and can be configured to:
+/// - Return successful or failed payment intents
+/// - Return successful or failed setup intents
+///
+/// TODO add webhook
+pub struct MockPaymentProvider {
+    config: MockPublicData,
+}
+
+impl MockPaymentProvider {
+    pub fn new(config: MockPublicData) -> Self {
+        Self { config }
+    }
+}
+
+#[async_trait::async_trait]
+impl PaymentProvider for MockPaymentProvider {
+    async fn create_customer_in_provider(
+        &self,
+        customer: &Customer,
+        _connector: &Connector,
+    ) -> Result<String, Report<PaymentProviderError>> {
+        // Return a mock external customer ID based on our customer ID
+        Ok(format!("mock_cus_{}", customer.id.as_base62()))
+    }
+
+    async fn get_payment_method_from_provider(
+        &self,
+        _connector: &Connector,
+        payment_method_id: &str,
+        _customer_id: &str,
+    ) -> Result<CustomerPaymentMethodFromProvider, Report<PaymentProviderError>> {
+        // Return a mock card payment method
+        Ok(CustomerPaymentMethodFromProvider {
+            external_payment_method_id: payment_method_id.to_string(),
+            payment_method_type: PaymentMethodTypeEnum::Card,
+            account_number_hint: None,
+            card_brand: Some("mock_visa".to_string()),
+            card_last4: Some("4242".to_string()),
+            card_exp_month: Some(12),
+            card_exp_year: Some(2030),
+        })
+    }
+
+    async fn create_setup_intent_in_provider(
+        &self,
+        connection: &CustomerConnection,
+        connector: &Connector,
+        _payment_methods: Vec<PaymentMethodTypeEnum>,
+    ) -> Result<SetupIntent, Report<PaymentProviderError>> {
+        if self.config.fail_setup_intent {
+            return Err(Report::new(PaymentProviderError::SetupIntent(
+                "Mock setup intent failure (configured)".to_string(),
+            )));
+        }
+
+        let intent_id = format!("mock_seti_{}", Uuid::now_v7());
+
+        Ok(SetupIntent {
+            intent_id,
+            client_secret: format!("mock_secret_{}", Uuid::now_v7()),
+            public_key: SecretString::from("mock_pk_test_key".to_string()),
+            provider: ConnectorProviderEnum::Mock,
+            connector_id: connector.id,
+            connection_id: connection.id,
+        })
+    }
+
+    async fn create_payment_intent_in_provider(
+        &self,
+        connector: &Connector,
+        transaction_id: &PaymentTransactionId,
+        _customer_external_id: &str,
+        _payment_method_external_id: &str,
+        _payment_method_type: &PaymentMethodTypeEnum,
+        amount: i64,
+        currency: &str,
+    ) -> Result<PaymentIntent, Report<PaymentProviderError>> {
+        let external_id = format!("mock_pi_{}", Uuid::now_v7());
+
+        let (status, processed_at) = if self.config.fail_payment_intent {
+            (PaymentStatusEnum::Failed.into(), None)
+        } else {
+            (
+                PaymentStatusEnum::Settled.into(),
+                Some(chrono::Utc::now().naive_utc()),
+            )
+        };
+
+        Ok(PaymentIntent {
+            external_id,
+            amount_requested: amount,
+            amount_received: if self.config.fail_payment_intent {
+                None
+            } else {
+                Some(amount)
+            },
+            currency: currency.to_string(),
+            next_action: None,
+            status,
+            processed_at,
+            last_payment_error: if self.config.fail_payment_intent {
+                Some("Mock payment failure (configured)".to_string())
+            } else {
+                None
+            },
+            tenant_id: connector.tenant_id,
+            transaction_id: *transaction_id,
+        })
     }
 }

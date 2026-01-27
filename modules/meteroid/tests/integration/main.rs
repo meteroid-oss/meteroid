@@ -1,9 +1,11 @@
 // cf https://xxchan.me/cs/2023/02/17/optimize-rust-comptime-en.html#step-4-single-binary-integration-test
 
 mod e2e;
+mod harness;
 mod helpers;
 mod metering_it;
 mod meteroid_it;
+mod subscription;
 mod test_add_ons;
 mod test_auth_api_key;
 mod test_auth_jwt;
@@ -27,7 +29,6 @@ mod test_slots;
 mod test_stats;
 mod test_subscription;
 mod test_tenant;
-mod test_trials;
 mod test_user;
 
 mod data;

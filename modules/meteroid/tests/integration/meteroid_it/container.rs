@@ -12,15 +12,70 @@ use meteroid_store::Services;
 use meteroid_store::clients::usage::{MockUsageClient, UsageClient};
 use meteroid_store::store::{PgPool, StoreConfig};
 use std::sync::Arc;
+use std::sync::atomic::{AtomicU32, Ordering};
 use std::time::Duration;
 use stripe_client::client::StripeClient;
 use testcontainers::core::WaitFor;
 use testcontainers::core::wait::LogWaitStrategy;
 use testcontainers::runners::AsyncRunner;
 use testcontainers::{ContainerAsync, GenericImage, ImageExt, TestcontainersError};
+use tokio::sync::OnceCell;
 use tokio::task::JoinHandle;
 use tokio_util::sync::CancellationToken;
 use tonic::transport::Channel;
+
+/// Shared Postgres container and base connection string.
+/// Migrations are run once on the template database.
+static POSTGRES_INSTANCE: OnceCell<SharedPostgres> = OnceCell::const_new();
+static TEST_DB_COUNTER: AtomicU32 = AtomicU32::new(0);
+
+struct SharedPostgres {
+    #[allow(dead_code)]
+    container: ContainerAsync<GenericImage>,
+    base_connection_string: String,
+}
+
+/// Initialize the shared Postgres container and run migrations once.
+async fn get_shared_postgres() -> &'static SharedPostgres {
+    POSTGRES_INSTANCE
+        .get_or_init(|| async {
+            use diesel::sql_query;
+            use diesel_async::RunQueryDsl;
+
+            let container = start_postgres_container().await;
+            let port = container.get_host_port_ipv4(5432).await.unwrap();
+            let base_connection_string =
+                format!("postgres://postgres:postgres@127.0.0.1:{}/postgres", port);
+
+            // Create template database and run migrations once
+            let pool = meteroid_store::store::diesel_make_pg_pool(base_connection_string.clone())
+                .expect("Failed to create pool");
+
+            // Create the template database
+            let mut conn = pool.get().await.unwrap();
+            sql_query("CREATE DATABASE meteroid_template")
+                .execute(&mut conn)
+                .await
+                .ok(); // Ignore if already exists
+
+            // Run migrations on template
+            let template_url = format!(
+                "postgres://postgres:postgres@127.0.0.1:{}/meteroid_template",
+                port
+            );
+            let template_pool = meteroid_store::store::diesel_make_pg_pool(template_url)
+                .expect("Failed to create template pool");
+            migrations::run(&template_pool).await.unwrap();
+
+            log::info!("Shared Postgres container ready with migrations on template");
+
+            SharedPostgres {
+                container,
+                base_connection_string,
+            }
+        })
+        .await
+}
 
 pub struct MeteroidSetup {
     pub token: CancellationToken,
@@ -168,8 +223,9 @@ impl Drop for MeteroidSetup {
     }
 }
 
-pub async fn start_postgres() -> (ContainerAsync<GenericImage>, String) {
-    let container = (|| async {
+/// Start the raw Postgres container (internal use).
+async fn start_postgres_container() -> ContainerAsync<GenericImage> {
+    (|| async {
         let postgres = GenericImage::new("ghcr.io/meteroid-oss/meteroid-postgres", "17.4")
             .with_wait_for(WaitFor::log(LogWaitStrategy::stdout(
                 "database system is ready to accept connections",
@@ -192,14 +248,54 @@ pub async fn start_postgres() -> (ContainerAsync<GenericImage>, String) {
         );
     })
     .await
+    .unwrap()
+}
+
+/// Create a new test database from the template.
+/// Returns the connection string for the new database.
+pub async fn create_test_database() -> String {
+    use diesel::sql_query;
+    use diesel_async::RunQueryDsl;
+
+    let shared = get_shared_postgres().await;
+    let test_id = TEST_DB_COUNTER.fetch_add(1, Ordering::SeqCst);
+    let db_name = format!("test_db_{}", test_id);
+
+    // Create new database from template
+    let pool = meteroid_store::store::diesel_make_pg_pool(shared.base_connection_string.clone())
+        .expect("Failed to create pool");
+    let mut conn = pool.get().await.unwrap();
+    sql_query(format!(
+        "CREATE DATABASE {} TEMPLATE meteroid_template",
+        db_name
+    ))
+    .execute(&mut conn)
+    .await
     .unwrap();
 
+    // Extract port from base connection string
+    let port = shared
+        .base_connection_string
+        .split(':')
+        .next_back()
+        .unwrap()
+        .split('/')
+        .next()
+        .unwrap();
+
+    format!(
+        "postgres://postgres:postgres@127.0.0.1:{}/{}",
+        port, db_name
+    )
+}
+
+/// Legacy function for backwards compatibility.
+/// Prefer using `create_test_database()` for new tests.
+pub async fn start_postgres() -> (ContainerAsync<GenericImage>, String) {
+    let container = start_postgres_container().await;
     let port = container.get_host_port_ipv4(5432).await.unwrap();
-
     let connection_string = format!("postgres://postgres:postgres@127.0.0.1:{}/postgres", port);
-
     log::info!("Started testcontainers PostgreSQL :{}", port);
-
     (container, connection_string)
 }
 

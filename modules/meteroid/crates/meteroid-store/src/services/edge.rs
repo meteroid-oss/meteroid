@@ -1,6 +1,6 @@
 use crate::StoreResult;
 use crate::domain::checkout_sessions::{CheckoutCompletionResult, CheckoutType};
-use crate::domain::enums::PaymentStatusEnum;
+use crate::domain::enums::{BillingPeriodEnum, PaymentStatusEnum};
 use crate::domain::outbox_event::{
     InvoiceEvent, InvoicePdfGeneratedEvent, OutboxEvent, PaymentTransactionEvent,
     QuoteConvertedEvent,
@@ -15,9 +15,11 @@ use crate::errors::{StoreError, StoreErrorReport};
 use crate::repositories::InvoiceInterface;
 use crate::repositories::outbox::OutboxInterface;
 use crate::repositories::subscriptions::CancellationEffectiveAt;
+use crate::services::CycleTransitionResult;
 use crate::services::invoice_lines::invoice_lines::ComputedInvoiceContent;
 use crate::services::{InvoiceBillingMode, ServicesEdge};
 use crate::store::PgConn;
+use crate::utils::periods::calculate_advance_period_range;
 use chrono::{NaiveDate, Utc};
 use common_domain::ids::{
     AppliedCouponId, BaseId, CheckoutSessionId, CustomerConnectionId, CustomerPaymentMethodId,
@@ -106,12 +108,16 @@ impl ServicesEdge {
             .await
     }
 
-    pub async fn get_and_process_cycle_transitions(&self) -> StoreResult<usize> {
+    pub async fn get_and_process_cycle_transitions(&self) -> StoreResult<CycleTransitionResult> {
         self.services.get_and_process_cycle_transitions().await
     }
 
     pub async fn get_and_process_due_events(&self) -> StoreResult<usize> {
         self.services.get_and_process_due_events().await
+    }
+
+    pub async fn cleanup_timeout_scheduled_events(&self) -> StoreResult<()> {
+        self.services.cleanup_timeout_scheduled_events().await
     }
 
     pub async fn buy_customer_credits(
@@ -163,6 +169,7 @@ impl ServicesEdge {
         ))?;
 
         let is_free_trial = subscription.trial_duration.is_some() && plan_version.trial_is_free;
+        let is_paid_trial = subscription.trial_duration.is_some() && !plan_version.trial_is_free;
 
         // Handle coupon if provided - lock and validate before any charging
         if let Some(code) = coupon_code {
@@ -215,6 +222,9 @@ impl ServicesEdge {
         let is_trial_expired = subscription.status == DbSubscriptionStatusEnum::TrialExpired;
 
         if is_free_trial && !is_trial_expired {
+            // Free trial checkout: just save the payment method, don't change the trial period.
+            // The trial period remains unchanged (current_period_start/end stay the same).
+            // Billing will happen when the trial ends via process_cycles.
             let payment_method =
                 diesel_models::customer_payment_methods::CustomerPaymentMethodRow::get_by_id(
                     conn,
@@ -224,21 +234,15 @@ impl ServicesEdge {
                 .await
                 .map_err(|e| StoreError::DatabaseError(e.error))?;
 
-            let trial_duration = subscription.trial_duration.unwrap();
-            let current_period_start = subscription
-                .current_period_end
-                .unwrap_or_else(|| chrono::Utc::now().naive_utc().date());
-            let current_period_end =
-                current_period_start + chrono::Duration::days(i64::from(trial_duration));
-
+            // Keep existing period dates - only update payment method and clear pending_checkout
             SubscriptionRow::activate_subscription_with_payment_method(
                 conn,
                 &subscription_id,
                 &tenant_id,
-                current_period_start,
-                Some(current_period_end),
-                Some(CycleActionEnum::EndTrial),
-                Some(0),
+                subscription.current_period_start,
+                subscription.current_period_end,
+                subscription.next_cycle_action.clone(),
+                subscription.cycle_index,
                 DbSubscriptionStatusEnum::TrialActive,
                 Some(payment_method_id),
                 Some(payment_method.payment_method_type),
@@ -271,9 +275,74 @@ impl ServicesEdge {
                 .ok_or(StoreError::InsertError)
                 .attach("No payment transaction linked to invoice")?;
 
-            let is_pending = payment_transaction.status == PaymentStatusEnum::Pending;
+            // Handle payment status explicitly
+            match payment_transaction.status {
+                PaymentStatusEnum::Pending => {
+                    // Payment is pending (e.g., async payment method like SEPA)
+                    // Return early, subscription activation will happen via webhook
+                    return Ok((Some(payment_transaction), true));
+                }
+                PaymentStatusEnum::Settled => {
+                    // Payment succeeded, proceed with activation below
+                }
+                PaymentStatusEnum::Failed => {
+                    return Err(Report::new(StoreError::CheckoutError)
+                        .attach("Payment failed during checkout"));
+                }
+                PaymentStatusEnum::Cancelled => {
+                    return Err(Report::new(StoreError::CheckoutError)
+                        .attach("Payment was cancelled during checkout"));
+                }
+                PaymentStatusEnum::Ready => {
+                    // Ready means not yet processed - this shouldn't happen after charging
+                    return Err(Report::new(StoreError::CheckoutError)
+                        .attach("Payment was not processed correctly"));
+                }
+            }
 
-            Ok((Some(payment_transaction), is_pending))
+            // Payment succeeded (settled) - activate the subscription
+            // Calculate the billing period using the subscription's actual billing period
+            let current_period_start = detailed_invoice.invoice.invoice_date;
+            let billing_period: BillingPeriodEnum = subscription.period.clone().into();
+            let period = calculate_advance_period_range(
+                current_period_start,
+                subscription.billing_day_anchor as u32,
+                true, // First period
+                &billing_period,
+            );
+            let current_period_end = Some(period.end);
+
+            // Determine status and next action based on trial type
+            let (new_status, next_action) = if is_paid_trial && !is_trial_expired {
+                // Paid trial: go to TrialActive for feature resolution
+                // Billing already happened, trial just affects plan features
+                (
+                    DbSubscriptionStatusEnum::TrialActive,
+                    CycleActionEnum::EndTrial,
+                )
+            } else {
+                // No trial or trial expired: go to Active
+                (
+                    DbSubscriptionStatusEnum::Active,
+                    CycleActionEnum::RenewSubscription,
+                )
+            };
+
+            SubscriptionRow::activate_subscription(
+                conn,
+                &subscription_id,
+                &tenant_id,
+                current_period_start,
+                current_period_end,
+                Some(next_action),
+                Some(0),
+                new_status,
+            )
+            .await
+            .map_err(Into::<Report<StoreError>>::into)?;
+
+            // If we get here, payment was settled
+            Ok((Some(payment_transaction), false))
         }
     }
 

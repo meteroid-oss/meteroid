@@ -84,5 +84,12 @@ services:
       - metering
       - full
 
+  pghero:
+    extends:
+      file: docker-compose.yml
+      service: pghero
+    profiles:
+      - pghero
+
 
 

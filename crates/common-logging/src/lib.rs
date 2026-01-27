@@ -1,6 +1,8 @@
 pub use opentelemetry::KeyValue;
 use opentelemetry::global::meter;
 use opentelemetry::metrics::Meter;
+pub use tracing;
+pub use tracing_subscriber;
 
 pub mod logging;
 pub mod otel;

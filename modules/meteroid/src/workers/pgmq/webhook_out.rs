@@ -46,7 +46,7 @@ impl WebhookOut {
                 match e.status.as_u16() {
                     // there is no svix application created for this tenant, yet
                     // it is auto-created once the tenant accesses the webhook portal the first time
-                    404 => log::info!(
+                    404 => log::debug!(
                         "[svix_404] Skipped webhook {event_id} as the tenant {tenant_id} did not configure webhooks"
                     ),
                     409 => log::info!("[svix_409] Skipped webhook {event_id} as it already exists"),

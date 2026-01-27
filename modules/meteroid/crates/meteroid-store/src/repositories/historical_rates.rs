@@ -3,6 +3,7 @@ use crate::domain::historical_rates::{
 };
 use crate::store::PgConn;
 use crate::{Store, StoreResult};
+use cached::Cached;
 use cached::proc_macro::cached;
 use cached::proc_macro::once;
 use chrono::NaiveDate;
@@ -166,4 +167,25 @@ pub async fn latest_rate_tx(
         to_currency,
         rate,
     ))
+}
+
+/// Clears all cached historical rates.
+///
+/// # Warning
+/// This function is intended for **testing purposes only**. Calling this in production
+/// will cause a temporary performance degradation as the cache needs to be repopulated.
+///
+/// This should be called in tests before each test that uses a fresh database,
+/// to avoid FK constraint violations from cached UUIDs that don't exist in the new database.
+#[doc(hidden)]
+pub async fn clear_historical_rates_cache() {
+    // Clear the #[cached] cache (TimedSizedCache wrapped in async Mutex)
+    GET_HISTORICAL_RATE_FROM_USD_BY_DATE_CACHED
+        .lock()
+        .await
+        .cache_clear();
+
+    // Clear the #[once] cache (RwLock wrapped in Lazy)
+    // The #[once] macro stores Option<(Instant, T)>, setting to None clears it
+    *GET_LATEST_RATE_FROM_USD_CACHED.write().await = None;
 }

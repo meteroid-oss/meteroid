@@ -90,6 +90,7 @@ pub enum ConnectorProviderEnum {
     Stripe,
     Hubspot,
     Pennylane,
+    Mock,
 }
 
 impl ConnectorProviderEnum {
@@ -98,6 +99,7 @@ impl ConnectorProviderEnum {
             ConnectorProviderEnum::Stripe => "stripe",
             ConnectorProviderEnum::Hubspot => "hubspot",
             ConnectorProviderEnum::Pennylane => "pennylane",
+            ConnectorProviderEnum::Mock => "mock",
         }
     }
 }
@@ -263,6 +265,18 @@ pub enum SubscriptionStatusEnum {
     Completed,
     Superseded, // upgrade/downgrade
     Errored,    // failed to process after max retries
+}
+
+impl SubscriptionStatusEnum {
+    pub fn not_terminal() -> Vec<SubscriptionStatusEnum> {
+        vec![
+            SubscriptionStatusEnum::PendingActivation,
+            SubscriptionStatusEnum::PendingCharge,
+            SubscriptionStatusEnum::TrialActive,
+            SubscriptionStatusEnum::Active,
+            SubscriptionStatusEnum::Paused,
+        ]
+    }
 }
 
 #[derive(diesel_derive_enum::DbEnum, Debug, Clone, PartialEq)]

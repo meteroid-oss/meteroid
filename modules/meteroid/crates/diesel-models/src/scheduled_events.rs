@@ -3,9 +3,9 @@ use uuid::Uuid;
 
 use crate::enums::{ScheduledEventStatus, ScheduledEventTypeEnum};
 use common_domain::ids::{SubscriptionId, TenantId};
-use diesel::{Identifiable, Insertable, Queryable, Selectable};
+use diesel::{Identifiable, Insertable, Queryable, QueryableByName, Selectable};
 
-#[derive(Debug, Clone, Queryable, Selectable, Identifiable)]
+#[derive(Debug, Clone, Queryable, QueryableByName, Selectable, Identifiable)]
 #[diesel(table_name = crate::schema::scheduled_event)]
 #[diesel(check_for_backend(diesel::pg::Pg))]
 pub struct ScheduledEventRow {

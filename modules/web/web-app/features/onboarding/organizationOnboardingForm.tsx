@@ -10,6 +10,7 @@ import { z } from 'zod'
 
 import { CountrySelect } from '@/components/CountrySelect'
 import { AccountingCurrencySelect } from '@/features/onboarding/accountingCurrencySelect'
+import { buildSyncParam } from '@/hooks/useSyncQueries'
 import { useZodForm } from '@/hooks/useZodForm'
 import { queryClient } from '@/lib/react-query'
 import { schemas } from '@/lib/schemas'
@@ -57,7 +58,7 @@ export const OrganizationOnboardingForm = () => {
           queryKey: createConnectQueryKey(getCurrentOrganizations),
         })
 
-        navigate('/' + res.organization.slug + '?just_onboarded=true')
+        navigate(`/${res.organization.slug}?${buildSyncParam('stats')}`)
       }
     },
   })

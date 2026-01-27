@@ -9,78 +9,112 @@ use chrono::{Duration, NaiveDateTime, Utc};
 use diesel_async::scoped_futures::ScopedFutureExt;
 use diesel_models::enums::SubscriptionStatusEnum;
 use diesel_models::scheduled_events::ScheduledEventRow;
-use uuid::Uuid;
+use futures::stream::StreamExt;
 
-const BATCH_SIZE: i64 = 50;
+const MAX_PARALLEL_PROCESSING: usize = 4;
+const BATCH_SIZE: i64 = (MAX_PARALLEL_PROCESSING * 2) as i64; // Small buffer, small blast radius on crash
 
 impl Services {
-    pub async fn cleanup(&self) -> StoreResult<()> {
+    pub async fn cleanup_timeout_scheduled_events(&self) -> StoreResult<()> {
         let mut conn = self.store.get_conn().await?;
         ScheduledEventRow::retry_timeout_events(&mut conn).await?;
         Ok(())
     }
 
     pub async fn get_and_process_due_events(&self) -> StoreResult<usize> {
-        let events = self
-            .store
-            .transaction(|tx| {
-                async move {
-                    // TODO we could process non-terminal events without waiting for cycle
-                    let events =
-                        ScheduledEventRow::find_due_events_for_update(tx, BATCH_SIZE).await?;
-
-                    if events.is_empty() {
-                        return Ok(vec![]);
-                    }
-
-                    ScheduledEventRow::mark_as_processing(
-                        tx,
-                        &events.iter().map(|v| v.id).collect::<Vec<Uuid>>(),
-                    )
-                    .await?;
-
-                    Ok(events)
-                }
-                .scope_boxed()
-            })
-            .await?;
+        let mut conn = self.store.get_conn().await?;
+        let events = ScheduledEventRow::find_and_claim_due_events(&mut conn, BATCH_SIZE).await?;
 
         let len = events.len();
-
         if len == 0 {
-            self.cleanup().await?;
             return Ok(0);
         }
 
-        let mut conn = self.store.get_conn().await?;
+        // Process each event with bounded parallelism
+        let results: Vec<_> = futures::stream::iter(events)
+            .map(|event| self.process_single_event(event))
+            .buffer_unordered(MAX_PARALLEL_PROCESSING)
+            .collect()
+            .await;
 
-        self.process_event_batch(&mut conn, events).await?;
+        // Log any unexpected errors (individual event errors are already handled)
+        for result in &results {
+            if let Err(e) = result {
+                log::error!("Unexpected error in event processing: {:?}", e);
+            }
+        }
 
         Ok(len)
     }
 
+    /// Process a single event in its own transaction
+    async fn process_single_event(&self, event: ScheduledEventRow) -> StoreResult<()> {
+        let event_id = event.id;
+        let retries = event.retries;
+
+        self.store
+            .transaction(|conn| {
+                async move {
+                    match self.process_event(conn, event).await {
+                        Ok(()) => {
+                            ScheduledEventRow::mark_as_completed(conn, &[event_id]).await?;
+                        }
+                        Err(err) => {
+                            let inner = err.current_context();
+                            let error_message = format_error_chain(&err);
+
+                            if self.should_retry_event(retries, inner) {
+                                let retry_time = calculate_retry_time(retries);
+                                log::warn!(
+                                    "Scheduled event {} failed (attempt {}/5), retrying at {:?}: {}",
+                                    event_id,
+                                    retries + 1,
+                                    retry_time,
+                                    error_message
+                                );
+                                ScheduledEventRow::retry_event(
+                                    conn,
+                                    &event_id,
+                                    retry_time,
+                                    &error_message,
+                                )
+                                .await?;
+                            } else {
+                                log::error!(
+                                    "Scheduled event {} exceeded max retries, marking as failed: {}",
+                                    event_id,
+                                    error_message
+                                );
+                                ScheduledEventRow::mark_as_failed(conn, &event_id, &error_message)
+                                    .await?;
+                            }
+                        }
+                    }
+                    Ok(())
+                }
+                .scope_boxed()
+            })
+            .await
+    }
+
+    /// Process events sequentially on a provided connection (used by period_transitions)
     pub(super) async fn process_event_batch(
         &self,
         conn: &mut PgConn,
-        event: Vec<ScheduledEventRow>,
+        events: Vec<ScheduledEventRow>,
     ) -> StoreResult<()> {
-        // Process each event TODO batch
-        for event in event {
+        for event in events {
             let event_id = event.id;
             let retries = event.retries;
             match self.process_event(conn, event).await {
                 Ok(()) => {
-                    // Mark as completed
-                    ScheduledEventRow::mark_as_completed(conn, &[event_id]) // TODO batch
-                        .await?;
+                    ScheduledEventRow::mark_as_completed(conn, &[event_id]).await?;
                 }
                 Err(err) => {
                     let inner = err.current_context();
                     let error_message = format_error_chain(&err);
 
-                    // Handle error
                     if self.should_retry_event(retries, inner) {
-                        // Retry logic
                         let retry_time = calculate_retry_time(retries);
                         log::warn!(
                             "Scheduled event {} failed (attempt {}/5), retrying at {:?}: {}",
@@ -92,7 +126,6 @@ impl Services {
                         ScheduledEventRow::retry_event(conn, &event_id, retry_time, &error_message)
                             .await?;
                     } else {
-                        // Mark as failed
                         log::error!(
                             "Scheduled event {} exceeded max retries, marking as failed: {}",
                             event_id,

@@ -37,7 +37,7 @@ pub async fn run_outbox_dispatch(store: Arc<Store>) {
         qty: MessageReadQty(100),
         vt: MessageReadVtSec(10),
         delete_succeeded: false,
-        sleep_duration: std::time::Duration::from_millis(1500),
+        sleep_duration: std::time::Duration::from_millis(100),
         max_read_count: ReadCt(10),
     })
     .await;
@@ -72,7 +72,7 @@ pub async fn run_pdf_render(store: Arc<Store>, pdf_service: Arc<PdfRenderingServ
         qty: MessageReadQty(10),
         vt: MessageReadVtSec(20),
         delete_succeeded: true,
-        sleep_duration: std::time::Duration::from_millis(1500),
+        sleep_duration: std::time::Duration::from_millis(100),
         max_read_count: ReadCt(10),
     })
     .await;
@@ -124,7 +124,7 @@ pub async fn run_webhook_out(store: Arc<Store>, svix: Option<Arc<Svix>>) {
         qty: MessageReadQty(10),
         vt: MessageReadVtSec(20),
         delete_succeeded: true,
-        sleep_duration: std::time::Duration::from_millis(1500),
+        sleep_duration: std::time::Duration::from_millis(1000),
         max_read_count: ReadCt(10),
     })
     .await;
@@ -142,7 +142,7 @@ pub async fn run_hubspot_sync(store: Arc<Store>, hubspot_client: Arc<HubspotClie
         qty: MessageReadQty(50),
         vt: MessageReadVtSec(20),
         delete_succeeded: false,
-        sleep_duration: std::time::Duration::from_millis(1500),
+        sleep_duration: std::time::Duration::from_millis(3000),
         max_read_count: ReadCt(10),
     })
     .await;
@@ -164,12 +164,13 @@ pub async fn run_pennylane_sync(
         qty: MessageReadQty(10),
         vt: MessageReadVtSec(20),
         delete_succeeded: false,
-        sleep_duration: std::time::Duration::from_millis(2000),
+        sleep_duration: std::time::Duration::from_millis(3000),
         max_read_count: ReadCt(10),
     })
     .await;
 }
 
+/// @deprecated use run_noop_metric_sync
 pub async fn run_metric_sync(store: Arc<Store>, usage_client: Arc<dyn UsageClient>) {
     let queue = PgmqQueue::BillableMetricSync;
     let processor = Arc::new(BillableMetricSync::new(
@@ -203,7 +204,7 @@ pub async fn run_noop_metric_sync(store: Arc<Store>) {
         qty: MessageReadQty(10),
         vt: MessageReadVtSec(20),
         delete_succeeded: true,
-        sleep_duration: std::time::Duration::from_millis(1500),
+        sleep_duration: std::time::Duration::from_millis(5000),
         max_read_count: ReadCt(10),
     })
     .await;
@@ -223,7 +224,7 @@ pub async fn run_invoice_orchestration(store: Arc<Store>, services: Arc<Services
         qty: MessageReadQty(10),
         vt: MessageReadVtSec(20),
         delete_succeeded: true,
-        sleep_duration: std::time::Duration::from_millis(1500),
+        sleep_duration: std::time::Duration::from_millis(100),
         max_read_count: ReadCt(10),
     })
     .await;
@@ -244,6 +245,22 @@ pub async fn run_once_invoice_orchestration(store: Arc<Store>, services: Arc<Ser
         MessageReadVtSec(20),
         true,
         ReadCt(10),
+    )
+    .await;
+}
+
+// Used in tests
+pub async fn run_once_payment_request(store: Arc<Store>, services: Arc<Services>) {
+    let queue = PgmqQueue::PaymentRequest;
+    let processor = Arc::new(PaymentRequest::new(services));
+    let _ = crate::workers::pgmq::processor::run_once(
+        queue,
+        processor,
+        store,
+        MessageReadQty(10),
+        MessageReadVtSec(180),
+        true,
+        ReadCt(3),
     )
     .await;
 }
@@ -274,7 +291,7 @@ pub async fn run_email_sender(
         qty: MessageReadQty(10),
         vt: MessageReadVtSec(20),
         delete_succeeded: false,
-        sleep_duration: std::time::Duration::from_millis(1500),
+        sleep_duration: std::time::Duration::from_millis(500),
         max_read_count: ReadCt(10),
     })
     .await;
@@ -292,7 +309,7 @@ pub async fn run_payment_request(store: Arc<Store>, services: Arc<Services>) {
         qty: MessageReadQty(10),
         vt: MessageReadVtSec(180),
         delete_succeeded: true,
-        sleep_duration: std::time::Duration::from_millis(2000),
+        sleep_duration: std::time::Duration::from_millis(100),
         max_read_count: ReadCt(3), // 3 retries. TODO applicative payment retry with mails
     })
     .await;

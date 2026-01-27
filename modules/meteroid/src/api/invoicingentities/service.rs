@@ -190,10 +190,10 @@ impl InvoicingEntitiesService for InvoicingEntitiesServiceComponents {
             .map_err(Into::<InvoicingEntitiesApiError>::into)?;
 
         Ok(Response::new(GetInvoicingEntityProvidersResponse {
-            card_provider: res.card_provider.map(|c| {
+            card_provider: res.card_provider.and_then(|c| {
                 super::super::connectors::mapping::connectors::connector_meta_to_server(&c)
             }),
-            direct_debit_provider: res.direct_debit_provider.map(|c| {
+            direct_debit_provider: res.direct_debit_provider.and_then(|c| {
                 super::super::connectors::mapping::connectors::connector_meta_to_server(&c)
             }),
             bank_account: res
@@ -227,10 +227,10 @@ impl InvoicingEntitiesService for InvoicingEntitiesServiceComponents {
             .map_err(Into::<InvoicingEntitiesApiError>::into)?;
 
         Ok(Response::new(UpdateInvoicingEntityProvidersResponse {
-            card_provider: res.card_provider.map(|c| {
+            card_provider: res.card_provider.and_then(|c| {
                 super::super::connectors::mapping::connectors::connector_meta_to_server(&c)
             }),
-            direct_debit_provider: res.direct_debit_provider.map(|c| {
+            direct_debit_provider: res.direct_debit_provider.and_then(|c| {
                 super::super::connectors::mapping::connectors::connector_meta_to_server(&c)
             }),
             bank_account: res

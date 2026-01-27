@@ -94,6 +94,9 @@ async fn handler(
         ConnectorProviderEnum::Pennylane => bail!(
             errors::AdapterWebhookError::ProviderNotSupported("pennylane".to_owned(),)
         ),
+        ConnectorProviderEnum::Mock => bail!(errors::AdapterWebhookError::ProviderNotSupported(
+            "mock".to_owned(),
+        )),
     };
 
     // - decode body

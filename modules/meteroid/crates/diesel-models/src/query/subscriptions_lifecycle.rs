@@ -1,19 +1,21 @@
 use crate::errors::IntoDbResult;
-use chrono::NaiveDate;
+use chrono::{Duration, NaiveDate, NaiveDateTime, Utc};
 
 use crate::subscriptions::{
     SubscriptionCycleErrorRowPatch, SubscriptionCycleRowPatch, SubscriptionRow,
 };
 use crate::{DbResult, PgConn};
 
-use diesel::dsl::not;
-use diesel::{BoolExpressionMethods, ExpressionMethods, QueryDsl, debug_query};
+use diesel::{BoolExpressionMethods, ExpressionMethods, OptionalExtension, QueryDsl, debug_query};
 use diesel_async::RunQueryDsl;
 
 use crate::enums::{CycleActionEnum, SubscriptionStatusEnum};
 use common_domain::ids::{SubscriptionId, TenantId};
 use error_stack::ResultExt;
 use uuid::Uuid;
+
+/// How long before a claim expires and can be picked up by another worker.
+const CLAIM_TIMEOUT_MINUTES: i64 = 5;
 
 impl SubscriptionRow {
     #[allow(clippy::too_many_arguments)]
@@ -208,39 +210,122 @@ impl SubscriptionRow {
         Ok(())
     }
 
-    pub async fn get_due_subscription_for_update(
+    /// Claims subscription IDs for processing.
+    ///
+    /// Subscriptions are available if:
+    /// - They are due (current_period_end <= today)
+    /// - Not in a retry backoff period
+    /// - Not in a terminal status
+    /// - Not currently claimed (processing_started_at is null or expired)
+    pub async fn claim_due_subscriptions(
         conn: &mut PgConn,
         limit: i64,
-    ) -> DbResult<Vec<SubscriptionRow>> {
+    ) -> DbResult<Vec<SubscriptionId>> {
         use crate::schema::subscription::dsl;
 
-        let now = chrono::Utc::now().naive_utc();
+        let now = Utc::now().naive_utc();
+        let claim_timeout = now - Duration::minutes(CLAIM_TIMEOUT_MINUTES);
 
-        let query = dsl::subscription
+        let active_statuses = SubscriptionStatusEnum::not_terminal();
+
+        // Step 1: Find and lock available subscriptions (prevents concurrent claims)
+        let select_query = dsl::subscription
+            .select(dsl::id)
             .filter(dsl::current_period_end.le(now.date()))
             // Only process if next_retry is null (no error) or next_retry time has passed
             .filter(dsl::next_retry.is_null().or(dsl::next_retry.le(now)))
-            .filter(not(dsl::status.eq_any(vec![
-                SubscriptionStatusEnum::Cancelled,
-                SubscriptionStatusEnum::Completed,
-                SubscriptionStatusEnum::Superseded,
-                SubscriptionStatusEnum::Suspended,
-                SubscriptionStatusEnum::Errored,
-            ])))
+            // Not currently claimed (null or expired claim)
+            .filter(
+                dsl::processing_started_at
+                    .is_null()
+                    .or(dsl::processing_started_at.lt(claim_timeout)),
+            )
+            // Only active statuses eligible for processing
+            .filter(dsl::status.eq_any(active_statuses.clone()))
             .order_by(dsl::current_period_end.asc())
             .limit(limit)
             .for_update()
             .skip_locked();
 
-        log::debug!("{}", debug_query::<diesel::pg::Pg, _>(&query));
+        log::debug!("{}", debug_query::<diesel::pg::Pg, _>(&select_query));
 
-        let res = query
+        let ids: Vec<SubscriptionId> = select_query
             .get_results(conn)
             .await
-            .attach("Error while fetching due subscriptions")
+            .attach("Error while selecting due subscriptions")
             .into_db_result()?;
 
-        Ok(res)
+        if ids.is_empty() {
+            return Ok(vec![]);
+        }
+
+        // Step 2: Claim them by setting processing_started_at
+        let update_query = diesel::update(dsl::subscription)
+            .filter(dsl::id.eq_any(&ids))
+            .set(dsl::processing_started_at.eq(Some(now)));
+
+        log::debug!("{}", debug_query::<diesel::pg::Pg, _>(&update_query));
+
+        update_query
+            .execute(conn)
+            .await
+            .attach("Error while claiming subscriptions")
+            .into_db_result()?;
+
+        Ok(ids)
+    }
+
+    /// Fetches and locks a subscription for processing, re-validating that it's still due.
+    ///
+    /// Returns None if the subscription no longer meets the criteria (e.g., was modified
+    /// between claim and processing).
+    pub async fn get_and_lock_for_processing(
+        conn: &mut PgConn,
+        id: SubscriptionId,
+    ) -> DbResult<Option<SubscriptionRow>> {
+        use crate::schema::subscription::dsl;
+
+        let now = Utc::now().naive_utc();
+
+        let active_statuses = SubscriptionStatusEnum::not_terminal();
+
+        // Re-validate conditions and lock.
+        let query = dsl::subscription
+            .filter(dsl::id.eq(id))
+            .filter(dsl::current_period_end.le(now.date()))
+            .filter(dsl::next_retry.is_null().or(dsl::next_retry.le(now)))
+            .filter(dsl::status.eq_any(active_statuses))
+            .for_update()
+            .skip_locked();
+
+        log::debug!("{}", debug_query::<diesel::pg::Pg, _>(&query));
+
+        query
+            .first(conn)
+            .await
+            .optional()
+            .attach("Error while locking subscription for processing")
+            .into_db_result()
+    }
+
+    /// Releases a claim on a subscription (sets processing_started_at to null).
+    /// Used when processing fails and we want to allow immediate retry by another worker.
+    pub async fn release_claim(conn: &mut PgConn, id: SubscriptionId) -> DbResult<()> {
+        use crate::schema::subscription::dsl;
+
+        let query = diesel::update(dsl::subscription)
+            .filter(dsl::id.eq(id))
+            .set(dsl::processing_started_at.eq(None::<NaiveDateTime>));
+
+        log::debug!("{}", debug_query::<diesel::pg::Pg, _>(&query));
+
+        query
+            .execute(conn)
+            .await
+            .attach("Error while releasing subscription claim")
+            .into_db_result()?;
+
+        Ok(())
     }
 }
 
