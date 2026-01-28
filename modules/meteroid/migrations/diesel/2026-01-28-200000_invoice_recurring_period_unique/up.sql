@@ -11,9 +11,9 @@ ON invoice (subscription_id, invoice_date)
 WHERE subscription_id IS NOT NULL
   AND invoice_type = 'RECURRING'::"InvoiceType"
   AND status <> 'VOID'::"InvoiceStatusEnum"
-  AND created_at >= '2026-01-28T20:00:00Z'::timestamptz;
+  AND created_at >= '2026-01-28T23:00:00Z'::timestamptz;
 
 -- Drop activation_condition and payment_strategy from checkout_session table.
 ALTER TABLE checkout_session DROP COLUMN IF EXISTS activation_condition;
 ALTER TABLE checkout_session DROP COLUMN IF EXISTS payment_strategy;
-ALTER TABLE checkout_session DROP CONSTRAINT checkout_session_created_by_fkey;
+ALTER TABLE checkout_session DROP CONSTRAINT IF EXISTS checkout_session_created_by_fkey;
