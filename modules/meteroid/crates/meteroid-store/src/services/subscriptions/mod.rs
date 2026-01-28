@@ -6,3 +6,5 @@ pub(in crate::services) mod insert;
 pub(crate) mod slots;
 mod terminate;
 pub mod utils;
+
+pub use activate::{PaymentActivationParams, PaymentMethodInfo};

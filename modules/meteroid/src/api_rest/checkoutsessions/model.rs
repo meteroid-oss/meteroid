@@ -1,5 +1,5 @@
 use crate::api_rest::subscriptions::model::{
-    CreateSubscriptionAddOn, CreateSubscriptionComponents, SubscriptionActivationConditionEnum,
+    CreateSubscriptionAddOn, CreateSubscriptionComponents,
 };
 use chrono::{DateTime, NaiveDate, Utc};
 use common_domain::ids::{
@@ -25,17 +25,6 @@ pub enum CheckoutSessionStatus {
 pub enum CheckoutType {
     SelfServe,
     SubscriptionActivation,
-}
-
-#[derive(Debug, Clone, Serialize, Deserialize, ToSchema, PartialEq, Eq)]
-#[serde(rename_all = "SCREAMING_SNAKE_CASE")]
-pub enum PaymentStrategy {
-    /// Uses existing payment method, card checkout if configured, else bank, else external
-    Auto,
-    /// Forces bank transfer only (disables card/DD)
-    Bank,
-    /// Manual/external payment (disables all payment methods including bank display)
-    External,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, ToSchema)]
@@ -64,8 +53,9 @@ pub struct CheckoutSession {
 
 #[derive(Debug, Clone, Serialize, Deserialize, ToSchema)]
 pub struct CreateCheckoutSessionRequest {
-    #[serde(with = "string_serde")]
-    pub customer_id: CustomerId,
+    /// Customer ID or alias
+    #[schema(format = "CustomerId or customer alias")]
+    pub customer_id: String,
     #[serde(with = "string_serde")]
     pub plan_version_id: PlanVersionId,
     pub coupon_code: Option<String>,
@@ -80,7 +70,6 @@ pub struct CreateCheckoutSessionRequest {
     // Additional subscription parameters
     #[schema(value_type = Option<String>, format = "date")]
     pub end_date: Option<NaiveDate>,
-    pub activation_condition: Option<SubscriptionActivationConditionEnum>,
     /// If false, invoices will stay in Draft until manually reviewed and finalized. Default is true.
     pub auto_advance_invoices: Option<bool>,
     /// Automatically try to charge the customer's configured payment method on finalize. Default is true.
@@ -89,7 +78,6 @@ pub struct CreateCheckoutSessionRequest {
     #[schema(value_type = Option<String>, format = "decimal")]
     pub invoice_threshold: Option<rust_decimal::Decimal>,
     pub purchase_order: Option<String>,
-    pub payment_strategy: Option<PaymentStrategy>,
 
     // Complex parameters
     pub components: Option<CreateSubscriptionComponents>,

@@ -120,7 +120,7 @@ impl PortalCheckoutService for PortalCheckoutServiceComponents {
             .map_err(Into::<PortalCheckoutApiError>::into)?;
 
         let checkout = self
-            .build_checkout_response(tenant, subscription_details, invoice_content)
+            .build_checkout_response(tenant, subscription_details.clone(), invoice_content)
             .await?;
 
         Ok(Response::new(GetCheckoutResponse {

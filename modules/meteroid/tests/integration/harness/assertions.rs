@@ -253,6 +253,50 @@ impl<'a> InvoiceAssert<'a> {
         self
     }
 
+    /// Assert the invoice date.
+    pub fn has_invoice_date(self, expected: chrono::NaiveDate) -> Self {
+        assert_eq!(
+            self.invoice.invoice_date,
+            expected,
+            "{}",
+            self.format_msg(&format!(
+                "Expected invoice_date={}, got {}",
+                expected, self.invoice.invoice_date
+            ))
+        );
+        self
+    }
+
+    /// Assert the billing period dates via line items.
+    /// All line items should have matching period dates.
+    pub fn has_period(
+        self,
+        expected_start: chrono::NaiveDate,
+        expected_end: chrono::NaiveDate,
+    ) -> Self {
+        for (i, li) in self.invoice.line_items.iter().enumerate() {
+            assert_eq!(
+                li.start_date,
+                expected_start,
+                "{}",
+                self.format_msg(&format!(
+                    "line_item[{}]: Expected start_date={}, got {}",
+                    i, expected_start, li.start_date
+                ))
+            );
+            assert_eq!(
+                li.end_date,
+                expected_end,
+                "{}",
+                self.format_msg(&format!(
+                    "line_item[{}]: Expected end_date={}, got {}",
+                    i, expected_end, li.end_date
+                ))
+            );
+        }
+        self
+    }
+
     /// Shorthand: Assert invoice is finalized and unpaid.
     #[allow(clippy::wrong_self_convention)]
     pub fn is_finalized_unpaid(self) -> Self {

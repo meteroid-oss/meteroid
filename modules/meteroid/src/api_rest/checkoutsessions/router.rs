@@ -1,25 +1,23 @@
 use axum::extract::{Path, State};
 use axum::{Extension, Json};
 use axum_valid::Valid;
-use common_domain::ids::{CheckoutSessionId, TenantId};
+use common_domain::ids::{AliasOr, CheckoutSessionId, CustomerId, TenantId};
 use common_grpc::middleware::server::auth::AuthorizedAsTenant;
+use std::str::FromStr;
 
 use crate::api_rest::error::RestErrorResponse;
 use crate::api_rest::subscriptions::mapping as sub_mapping;
 use crate::api_rest::{AppState, QueryParams};
 use crate::errors::RestApiError;
-use meteroid_store::domain::SubscriptionActivationCondition;
-use meteroid_store::domain::checkout_sessions::{
-    CheckoutPaymentStrategy, CheckoutType, CreateCheckoutSession,
-};
+use meteroid_store::domain::checkout_sessions::{CheckoutType, CreateCheckoutSession};
 use meteroid_store::jwt_claims::{ResourceAccess, generate_portal_token};
+use meteroid_store::repositories::CustomersInterface;
 use meteroid_store::repositories::checkout_sessions::CheckoutSessionsInterface;
 
 use super::mapping;
 use super::model::{
     CancelCheckoutSessionResponse, CreateCheckoutSessionRequest, CreateCheckoutSessionResponse,
     GetCheckoutSessionResponse, ListCheckoutSessionsQuery, ListCheckoutSessionsResponse,
-    PaymentStrategy,
 };
 
 /// Create a checkout session
@@ -33,6 +31,9 @@ use super::model::{
         (status = 400, description = "Bad request", body = RestErrorResponse),
         (status = 401, description = "Unauthorized", body = RestErrorResponse),
         (status = 500, description = "Internal server error", body = RestErrorResponse)
+    ),
+    security(
+        ("bearer_auth" = [])
     )
 )]
 pub async fn create_checkout_session(
@@ -41,6 +42,28 @@ pub async fn create_checkout_session(
     Json(request): Json<CreateCheckoutSessionRequest>,
 ) -> Result<Json<CreateCheckoutSessionResponse>, RestApiError> {
     let tenant_id = authorized_state.tenant_id;
+
+    // Resolve customer ID or alias
+    let id_or_alias: AliasOr<CustomerId> =
+        AliasOr::from_str(&request.customer_id).map_err(|_| {
+            log::error!("Invalid customer_id format: {}", request.customer_id);
+            RestApiError::InvalidInput
+        })?;
+
+    let customer_id = match id_or_alias {
+        AliasOr::Id(id) => id,
+        AliasOr::Alias(ref alias) => {
+            app_state
+                .store
+                .find_customer_id_by_alias(alias.clone(), tenant_id)
+                .await
+                .map_err(|e| {
+                    log::error!("Failed to resolve customer alias '{}': {:?}", alias, e);
+                    RestApiError::from(e)
+                })?
+                .id
+        }
+    };
 
     // Default 1 hour
     let expires_in_hours = request.expires_in_hours.unwrap_or(1);
@@ -51,20 +74,13 @@ pub async fn create_checkout_session(
         Some(expires_in_hours)
     };
 
-    let activation_condition = request
-        .activation_condition
-        .map(Into::into)
-        .unwrap_or(SubscriptionActivationCondition::OnStart);
-
-    let payment_strategy = request.payment_strategy.map(map_payment_strategy);
-
     let components = request.components.map(Into::into);
 
     let add_ons = request.add_ons.map(sub_mapping::map_add_ons);
 
     let create_session = CreateCheckoutSession {
         tenant_id,
-        customer_id: request.customer_id,
+        customer_id,
         plan_version_id: request.plan_version_id,
         created_by: authorized_state.actor_id,
         billing_start_date: request.billing_start_date,
@@ -72,13 +88,11 @@ pub async fn create_checkout_session(
         net_terms: request.net_terms,
         trial_duration_days: request.trial_duration_days,
         end_date: request.end_date,
-        activation_condition,
         auto_advance_invoices: request.auto_advance_invoices.unwrap_or(true),
         charge_automatically: request.charge_automatically.unwrap_or(true),
         invoice_memo: request.invoice_memo,
         invoice_threshold: request.invoice_threshold,
         purchase_order: request.purchase_order,
-        payment_strategy,
         components,
         add_ons,
         coupon_code: request.coupon_code,
@@ -92,14 +106,22 @@ pub async fn create_checkout_session(
     let session = app_state
         .store
         .create_checkout_session(create_session)
-        .await?;
+        .await
+        .map_err(|e| {
+            log::error!("Failed to create checkout session: {:?}", e);
+            RestApiError::from(e)
+        })?;
 
     let checkout_url = generate_checkout_url(
         &app_state.jwt_secret,
         &app_state.portal_url,
         tenant_id,
         session.id,
-    )?;
+    )
+    .map_err(|e| {
+        log::error!("Failed to generate checkout URL: {:?}", e);
+        e
+    })?;
 
     let rest_session = mapping::domain_to_rest(session, Some(checkout_url));
 
@@ -121,6 +143,9 @@ pub async fn create_checkout_session(
         (status = 404, description = "Not found", body = RestErrorResponse),
         (status = 401, description = "Unauthorized", body = RestErrorResponse),
         (status = 500, description = "Internal server error", body = RestErrorResponse)
+    ),
+    security(
+        ("bearer_auth" = [])
     )
 )]
 pub async fn get_checkout_session(
@@ -163,6 +188,9 @@ pub async fn get_checkout_session(
         (status = 200, description = "List of checkout sessions", body = ListCheckoutSessionsResponse),
         (status = 401, description = "Unauthorized", body = RestErrorResponse),
         (status = 500, description = "Internal server error", body = RestErrorResponse)
+    ),
+    security(
+        ("bearer_auth" = [])
     )
 )]
 pub async fn list_checkout_sessions(
@@ -216,6 +244,9 @@ pub async fn list_checkout_sessions(
         (status = 400, description = "Bad request - session cannot be cancelled", body = RestErrorResponse),
         (status = 401, description = "Unauthorized", body = RestErrorResponse),
         (status = 500, description = "Internal server error", body = RestErrorResponse)
+    ),
+    security(
+        ("bearer_auth" = [])
     )
 )]
 pub async fn cancel_checkout_session(
@@ -251,12 +282,4 @@ fn generate_checkout_url(
     .map_err(|_| RestApiError::StoreError)?;
 
     Ok(format!("{}/checkout?token={}", portal_url, token))
-}
-
-fn map_payment_strategy(ps: PaymentStrategy) -> CheckoutPaymentStrategy {
-    match ps {
-        PaymentStrategy::Auto => CheckoutPaymentStrategy::Auto,
-        PaymentStrategy::Bank => CheckoutPaymentStrategy::Bank,
-        PaymentStrategy::External => CheckoutPaymentStrategy::External,
-    }
 }

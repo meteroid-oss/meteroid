@@ -66,7 +66,12 @@
               }
             }
           }
-        }
+        },
+        "security": [
+          {
+            "bearer_auth": []
+          }
+        ]
       },
       "post": {
         "tags": [
@@ -125,7 +130,12 @@
               }
             }
           }
-        }
+        },
+        "security": [
+          {
+            "bearer_auth": []
+          }
+        ]
       }
     },
     "/api/v1/checkout-sessions/{id}": {
@@ -187,7 +197,12 @@
               }
             }
           }
-        }
+        },
+        "security": [
+          {
+            "bearer_auth": []
+          }
+        ]
       }
     },
     "/api/v1/checkout-sessions/{id}/cancel": {
@@ -259,7 +274,12 @@
               }
             }
           }
-        }
+        },
+        "security": [
+          {
+            "bearer_auth": []
+          }
+        ]
       }
     },
     "/api/v1/credit-notes/{credit_note_id}/download": {
@@ -2416,16 +2436,6 @@
           "plan_version_id"
         ],
         "properties": {
-          "activation_condition": {
-            "oneOf": [
-              {
-                "type": "null"
-              },
-              {
-                "$ref": "#/components/schemas/SubscriptionActivationConditionEnum"
-              }
-            ]
-          },
           "add_ons": {
             "type": [
               "array",
@@ -2486,7 +2496,9 @@
             }
           },
           "customer_id": {
-            "$ref": "#/components/schemas/CustomerId"
+            "type": "string",
+            "format": "CustomerId or customer alias",
+            "description": "Customer ID or alias"
           },
           "end_date": {
             "type": [
@@ -2524,16 +2536,6 @@
               "null"
             ],
             "format": "int32"
-          },
-          "payment_strategy": {
-            "oneOf": [
-              {
-                "type": "null"
-              },
-              {
-                "$ref": "#/components/schemas/PaymentStrategy"
-              }
-            ]
           },
           "plan_version_id": {
             "$ref": "#/components/schemas/PlanVersionId"
@@ -4470,14 +4472,6 @@
           "Settled",
           "Cancelled",
           "Failed"
-        ]
-      },
-      "PaymentStrategy": {
-        "type": "string",
-        "enum": [
-          "AUTO",
-          "BANK",
-          "EXTERNAL"
         ]
       },
       "PaymentTransactionId": {

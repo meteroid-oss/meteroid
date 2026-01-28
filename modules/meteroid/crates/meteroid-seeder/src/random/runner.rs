@@ -332,6 +332,7 @@ pub async fn run(
             charge_automatically: false,
             purchase_order: None,
             backdate_invoices: true,
+            skip_checkout_session: false,
         };
 
         let create_subscription_components = if parameterized_components.is_empty() {

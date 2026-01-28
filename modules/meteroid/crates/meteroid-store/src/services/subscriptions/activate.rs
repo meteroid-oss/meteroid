@@ -1,16 +1,33 @@
 use crate::StoreResult;
 use crate::domain::Subscription;
-use crate::domain::enums::SubscriptionActivationCondition;
+use crate::domain::enums::{BillingPeriodEnum, SubscriptionActivationCondition};
 use crate::errors::StoreError;
 use crate::repositories::SubscriptionInterface;
 use crate::services::Services;
+use crate::store::PgConn;
 use crate::utils::periods::calculate_advance_period_range;
-use chrono::{Days, Duration, Utc};
-use common_domain::ids::{SubscriptionId, TenantId};
+use chrono::{Days, Duration, NaiveDate, Utc};
+use common_domain::ids::{CustomerPaymentMethodId, SubscriptionId, TenantId};
 use diesel_async::scoped_futures::ScopedFutureExt;
-use diesel_models::enums::{CycleActionEnum, SubscriptionStatusEnum};
+use diesel_models::enums::{CycleActionEnum, PaymentMethodTypeEnum, SubscriptionStatusEnum};
 use diesel_models::subscriptions::SubscriptionRow;
 use error_stack::Report;
+
+/// Parameters for activating a subscription after payment confirmation.
+pub struct PaymentActivationParams {
+    pub billing_start_date: NaiveDate,
+    pub trial_duration: Option<i32>,
+    pub billing_day_anchor: u32,
+    pub period: BillingPeriodEnum,
+    /// Optional payment method to set during activation.
+    pub payment_method: Option<PaymentMethodInfo>,
+}
+
+/// Payment method information to attach during activation.
+pub struct PaymentMethodInfo {
+    pub id: CustomerPaymentMethodId,
+    pub method_type: PaymentMethodTypeEnum,
+}
 
 impl Services {
     pub async fn activate_subscription_manual(
@@ -120,5 +137,81 @@ impl Services {
         let subscription: Subscription = db_subscription.try_into()?;
 
         Ok(subscription)
+    }
+
+    /// Activates a subscription after payment has been confirmed.
+    ///
+    /// Handles both trial and non-trial subscriptions:
+    /// - Trial subscriptions are activated with status TrialActive and EndTrial cycle action
+    /// - Non-trial subscriptions are activated with status Active and a full billing cycle
+    ///
+    /// If `payment_method` is provided, it will be set on the subscription during activation.
+    pub async fn activate_subscription_after_payment(
+        &self,
+        conn: &mut PgConn,
+        subscription_id: &SubscriptionId,
+        tenant_id: &TenantId,
+        params: PaymentActivationParams,
+    ) -> Result<(), Report<StoreError>> {
+        let has_trial = params.trial_duration.is_some_and(|d| d > 0);
+
+        let (status, current_period_start, current_period_end, next_cycle_action) = if has_trial {
+            let trial_duration = params.trial_duration.unwrap_or(0);
+            let period_end =
+                params.billing_start_date + chrono::Duration::days(i64::from(trial_duration));
+
+            (
+                SubscriptionStatusEnum::TrialActive,
+                params.billing_start_date,
+                Some(period_end),
+                Some(CycleActionEnum::EndTrial),
+            )
+        } else {
+            let range = calculate_advance_period_range(
+                params.billing_start_date,
+                params.billing_day_anchor,
+                true,
+                &params.period,
+            );
+
+            (
+                SubscriptionStatusEnum::Active,
+                range.start,
+                Some(range.end),
+                Some(CycleActionEnum::RenewSubscription),
+            )
+        };
+
+        if let Some(pm) = params.payment_method {
+            SubscriptionRow::activate_subscription_with_payment_method(
+                conn,
+                subscription_id,
+                tenant_id,
+                current_period_start,
+                current_period_end,
+                next_cycle_action,
+                Some(0),
+                status,
+                Some(pm.id),
+                Some(pm.method_type),
+            )
+            .await
+            .map_err(Into::<Report<StoreError>>::into)?;
+        } else {
+            SubscriptionRow::activate_subscription(
+                conn,
+                subscription_id,
+                tenant_id,
+                current_period_start,
+                current_period_end,
+                next_cycle_action,
+                Some(0),
+                status,
+            )
+            .await
+            .map_err(Into::<Report<StoreError>>::into)?;
+        }
+
+        Ok(())
     }
 }

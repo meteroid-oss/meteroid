@@ -6,7 +6,6 @@ use diesel_models::checkout_sessions::{CheckoutSessionRow, CheckoutSessionRowNew
 use diesel_models::enums::{CheckoutSessionStatusEnum, CheckoutTypeEnum};
 use o2o::o2o;
 use rust_decimal::Decimal;
-use serde::{Deserialize, Serialize};
 use uuid::Uuid;
 
 use crate::domain::enums::SubscriptionPaymentStrategy;
@@ -35,34 +34,6 @@ pub enum CheckoutType {
     SubscriptionActivation,
 }
 
-/// Serializable payment strategy for JSONB storage
-#[derive(Debug, Clone, Serialize, Deserialize)]
-pub enum CheckoutPaymentStrategy {
-    Auto,
-    Bank,
-    External,
-}
-
-impl From<CheckoutPaymentStrategy> for SubscriptionPaymentStrategy {
-    fn from(s: CheckoutPaymentStrategy) -> Self {
-        match s {
-            CheckoutPaymentStrategy::Auto => SubscriptionPaymentStrategy::Auto,
-            CheckoutPaymentStrategy::Bank => SubscriptionPaymentStrategy::Bank,
-            CheckoutPaymentStrategy::External => SubscriptionPaymentStrategy::External,
-        }
-    }
-}
-
-impl From<SubscriptionPaymentStrategy> for CheckoutPaymentStrategy {
-    fn from(s: SubscriptionPaymentStrategy) -> Self {
-        match s {
-            SubscriptionPaymentStrategy::Auto => CheckoutPaymentStrategy::Auto,
-            SubscriptionPaymentStrategy::Bank => CheckoutPaymentStrategy::Bank,
-            SubscriptionPaymentStrategy::External => CheckoutPaymentStrategy::External,
-        }
-    }
-}
-
 #[derive(Debug, Clone)]
 pub struct CheckoutSession {
     pub id: CheckoutSessionId,
@@ -79,7 +50,6 @@ pub struct CheckoutSession {
     pub end_date: Option<NaiveDate>,
 
     // Billing options
-    pub activation_condition: SubscriptionActivationCondition,
     pub auto_advance_invoices: bool,
     pub charge_automatically: bool,
     pub invoice_memo: Option<String>,
@@ -87,7 +57,6 @@ pub struct CheckoutSession {
     pub purchase_order: Option<String>,
 
     // Complex parameters
-    pub payment_strategy: Option<CheckoutPaymentStrategy>,
     pub components: Option<CreateSubscriptionComponents>,
     pub add_ons: Option<CreateSubscriptionAddOns>,
 
@@ -133,14 +102,17 @@ impl CheckoutSession {
             start_date,
             end_date: self.end_date,
             billing_start_date: self.billing_start_date,
-            activation_condition: self.activation_condition.clone(),
+            // Use OnCheckout activation for proper period setup, but skip_checkout_session
+            // prevents creating another checkout session (we're already completing one)
+            activation_condition: SubscriptionActivationCondition::OnCheckout,
             trial_duration: self.trial_duration_days.map(|d| d as u32),
             billing_day_anchor: self.billing_day_anchor.map(|a| a as u16),
-            payment_strategy: self.payment_strategy.clone().map(Into::into),
+            payment_strategy: Some(SubscriptionPaymentStrategy::Auto),
             auto_advance_invoices: self.auto_advance_invoices,
             charge_automatically: self.charge_automatically,
             purchase_order: self.purchase_order.clone(),
             backdate_invoices: false,
+            skip_checkout_session: true,
         }
     }
 
@@ -173,18 +145,6 @@ impl From<CheckoutSessionRow> for CheckoutSession {
     fn from(row: CheckoutSessionRow) -> Self {
         let session_id = row.id;
 
-        // TODO we could mark the subscription as errored
-        let payment_strategy: Option<CheckoutPaymentStrategy> =
-            row.payment_strategy.and_then(|v| {
-                serde_json::from_value(v.clone()).map_err(|e| {
-                    log::error!(
-                        "Failed to deserialize payment_strategy for checkout session {}: {}. Raw value: {:?}",
-                        session_id, e, v
-                    );
-                    e
-                }).ok()
-            });
-
         let components: Option<CreateSubscriptionComponents> = row.components.and_then(|v| {
             serde_json::from_value(v.clone()).map_err(|e| {
                 log::error!(
@@ -216,13 +176,11 @@ impl From<CheckoutSessionRow> for CheckoutSession {
             net_terms: row.net_terms,
             trial_duration_days: row.trial_duration_days,
             end_date: row.end_date,
-            activation_condition: row.activation_condition.into(),
             auto_advance_invoices: row.auto_advance_invoices,
             charge_automatically: row.charge_automatically,
             invoice_memo: row.invoice_memo,
             invoice_threshold: row.invoice_threshold,
             purchase_order: row.purchase_order,
-            payment_strategy,
             components,
             add_ons,
             coupon_code: row.coupon_code,
@@ -253,7 +211,6 @@ pub struct CreateCheckoutSession {
     pub end_date: Option<NaiveDate>,
 
     // Billing options
-    pub activation_condition: SubscriptionActivationCondition,
     pub auto_advance_invoices: bool,
     pub charge_automatically: bool,
     pub invoice_memo: Option<String>,
@@ -261,7 +218,6 @@ pub struct CreateCheckoutSession {
     pub purchase_order: Option<String>,
 
     // Complex parameters
-    pub payment_strategy: Option<CheckoutPaymentStrategy>,
     pub components: Option<CreateSubscriptionComponents>,
     pub add_ons: Option<CreateSubscriptionAddOns>,
 
@@ -282,9 +238,6 @@ impl CreateCheckoutSession {
             .expires_in_hours
             .map(|h| Utc::now() + Duration::hours(h as i64));
 
-        let payment_strategy = self
-            .payment_strategy
-            .and_then(|s| serde_json::to_value(s).ok());
         let components = self.components.and_then(|c| serde_json::to_value(c).ok());
         let add_ons = self.add_ons.and_then(|a| serde_json::to_value(a).ok());
 
@@ -299,13 +252,11 @@ impl CreateCheckoutSession {
             net_terms: self.net_terms,
             trial_duration_days: self.trial_duration_days,
             end_date: self.end_date,
-            activation_condition: self.activation_condition.into(),
             auto_advance_invoices: self.auto_advance_invoices,
             charge_automatically: self.charge_automatically,
             invoice_memo: self.invoice_memo,
             invoice_threshold: self.invoice_threshold,
             purchase_order: self.purchase_order,
-            payment_strategy,
             components,
             add_ons,
             coupon_code: self.coupon_code,

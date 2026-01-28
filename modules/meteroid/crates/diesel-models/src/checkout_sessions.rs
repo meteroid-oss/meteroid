@@ -6,9 +6,7 @@ use diesel::{Identifiable, Insertable, Queryable, Selectable};
 use rust_decimal::Decimal;
 use uuid::Uuid;
 
-use crate::enums::{
-    CheckoutSessionStatusEnum, CheckoutTypeEnum, SubscriptionActivationConditionEnum,
-};
+use crate::enums::{CheckoutSessionStatusEnum, CheckoutTypeEnum};
 
 #[derive(Queryable, Debug, Identifiable, Selectable)]
 #[diesel(table_name = crate::schema::checkout_session)]
@@ -28,14 +26,12 @@ pub struct CheckoutSessionRow {
     pub end_date: Option<NaiveDate>,
 
     // Billing options
-    pub activation_condition: SubscriptionActivationConditionEnum,
     pub auto_advance_invoices: bool,
     pub charge_automatically: bool,
     pub invoice_memo: Option<String>,
     pub invoice_threshold: Option<Decimal>,
     pub purchase_order: Option<String>,
 
-    pub payment_strategy: Option<serde_json::Value>,
     pub components: Option<serde_json::Value>,
     pub add_ons: Option<serde_json::Value>,
 
@@ -71,14 +67,12 @@ pub struct CheckoutSessionRowNew {
     pub end_date: Option<NaiveDate>,
 
     // Billing options
-    pub activation_condition: SubscriptionActivationConditionEnum,
     pub auto_advance_invoices: bool,
     pub charge_automatically: bool,
     pub invoice_memo: Option<String>,
     pub invoice_threshold: Option<Decimal>,
     pub purchase_order: Option<String>,
 
-    pub payment_strategy: Option<serde_json::Value>,
     pub components: Option<serde_json::Value>,
     pub add_ons: Option<serde_json::Value>,
 

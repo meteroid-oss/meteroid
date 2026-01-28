@@ -280,7 +280,6 @@ diesel::table! {
 
 diesel::table! {
     use diesel::sql_types::*;
-    use super::sql_types::SubscriptionActivationConditionEnum;
     use super::sql_types::CheckoutSessionStatusEnum;
     use super::sql_types::CheckoutTypeEnum;
 
@@ -295,13 +294,11 @@ diesel::table! {
         net_terms -> Nullable<Int4>,
         trial_duration_days -> Nullable<Int4>,
         end_date -> Nullable<Date>,
-        activation_condition -> SubscriptionActivationConditionEnum,
         auto_advance_invoices -> Bool,
         charge_automatically -> Bool,
         invoice_memo -> Nullable<Text>,
         invoice_threshold -> Nullable<Numeric>,
         purchase_order -> Nullable<Text>,
-        payment_strategy -> Nullable<Jsonb>,
         components -> Nullable<Jsonb>,
         add_ons -> Nullable<Jsonb>,
         coupon_code -> Nullable<Varchar>,
@@ -1089,7 +1086,6 @@ diesel::joinable!(checkout_session -> customer (customer_id));
 diesel::joinable!(checkout_session -> plan_version (plan_version_id));
 diesel::joinable!(checkout_session -> subscription (subscription_id));
 diesel::joinable!(checkout_session -> tenant (tenant_id));
-diesel::joinable!(checkout_session -> user (created_by));
 diesel::joinable!(coupon -> tenant (tenant_id));
 diesel::joinable!(credit_note -> customer (customer_id));
 diesel::joinable!(credit_note -> invoice (invoice_id));
