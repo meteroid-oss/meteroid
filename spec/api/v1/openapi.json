@@ -20,32 +20,18 @@
         "parameters": [
           {
             "name": "customer_id",
-            "in": "path",
-            "required": true,
+            "in": "query",
+            "required": false,
             "schema": {
-              "oneOf": [
-                {
-                  "type": "null"
-                },
-                {
-                  "$ref": "#/components/schemas/CustomerId"
-                }
-              ]
+              "$ref": "#/components/schemas/CustomerId"
             }
           },
           {
             "name": "status",
-            "in": "path",
-            "required": true,
+            "in": "query",
+            "required": false,
             "schema": {
-              "oneOf": [
-                {
-                  "type": "null"
-                },
-                {
-                  "$ref": "#/components/schemas/CheckoutSessionStatus"
-                }
-              ]
+              "$ref": "#/components/schemas/CheckoutSessionStatus"
             }
           }
         ],

@@ -1,4 +1,4 @@
-use crate::errors::{DatabaseError, DatabaseErrorContainer, IntoDbResult};
+use crate::errors::IntoDbResult;
 use crate::tenants::{TenantRow, TenantRowNew, TenantRowPatch, TenantWithOrganizationRow};
 use crate::{DbResult, PgConn};
 
@@ -212,33 +212,33 @@ impl TenantRow {
         tenant_id: TenantId,
         new_currencies: Vec<String>,
     ) -> DbResult<Vec<String>> {
-        use crate::schema::customer::dsl as c_dsl;
         use crate::schema::tenant::dsl as t_dsl;
         use diesel_async::RunQueryDsl;
 
+        // TODO : commented out as we transition to invoicing-entity default currency
         // Get current currencies and their usage counts in a single query
-        let currency_stats: Vec<(String, i64)> = c_dsl::customer
-            .filter(c_dsl::tenant_id.eq(tenant_id))
-            .group_by(c_dsl::currency)
-            .select((
-                c_dsl::currency,
-                diesel::dsl::count_star().into_sql::<diesel::sql_types::BigInt>(),
-            ))
-            .get_results(conn)
-            .await
-            .attach("Error while fetching tenant currency usage")
-            .into_db_result()?;
-
-        // Check if any currency in use is being removed
-        for (currency, count) in &currency_stats {
-            if !new_currencies.contains(currency) {
-                return Err(DatabaseErrorContainer::from(DatabaseError::CheckViolation(
-                    format!(
-                        "Cannot remove currency {currency} as it is being used by {count} customers"
-                    ),
-                )));
-            }
-        }
+        // let currency_stats: Vec<(String, i64)> = c_dsl::customer
+        //     .filter(c_dsl::tenant_id.eq(tenant_id))
+        //     .group_by(c_dsl::currency)
+        //     .select((
+        //         c_dsl::currency,
+        //         diesel::dsl::count_star().into_sql::<diesel::sql_types::BigInt>(),
+        //     ))
+        //     .get_results(conn)
+        //     .await
+        //     .attach("Error while fetching tenant currency usage")
+        //     .into_db_result()?;
+        //
+        // // Check if any currency in use is being removed
+        // for (currency, count) in &currency_stats {
+        //     if !new_currencies.contains(currency) {
+        //         return Err(DatabaseErrorContainer::from(DatabaseError::CheckViolation(
+        //             format!(
+        //                 "Cannot remove currency {currency} as it is being used by {count} customers"
+        //             ),
+        //         )));
+        //     }
+        // }
 
         // Convert to expected format for available_currencies field
         let new_currencies_option: Vec<Option<String>> =
@@ -253,6 +253,39 @@ impl TenantRow {
             .into_db_result()?;
 
         Ok(new_currencies)
+    }
+
+    pub async fn add_currency_if_missing(
+        conn: &mut PgConn,
+        tenant_id: TenantId,
+        currency: String,
+    ) -> DbResult<()> {
+        use crate::schema::tenant::dsl as t_dsl;
+        use diesel_async::RunQueryDsl;
+
+        let current: Vec<Option<String>> = t_dsl::tenant
+            .filter(t_dsl::id.eq(tenant_id))
+            .select(t_dsl::available_currencies)
+            .first(conn)
+            .await
+            .attach("Error while fetching tenant currencies")
+            .into_db_result()?;
+
+        if !current
+            .iter()
+            .any(|c| c.as_deref().is_some() && c.as_deref().unwrap() == currency)
+        {
+            let mut updated = current;
+            updated.push(Some(currency));
+
+            diesel::update(t_dsl::tenant.filter(t_dsl::id.eq(tenant_id)))
+                .set(t_dsl::available_currencies.eq(&updated))
+                .execute(conn)
+                .await
+                .attach("Error while updating tenant currencies")
+                .into_db_result()?;
+        }
+        Ok(())
     }
 }
 

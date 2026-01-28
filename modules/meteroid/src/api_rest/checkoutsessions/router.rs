@@ -1,5 +1,6 @@
 use axum::extract::{Path, State};
 use axum::{Extension, Json};
+use axum_valid::Valid;
 use common_domain::ids::{CheckoutSessionId, TenantId};
 use common_grpc::middleware::server::auth::AuthorizedAsTenant;
 
@@ -167,7 +168,7 @@ pub async fn get_checkout_session(
 pub async fn list_checkout_sessions(
     Extension(authorized_state): Extension<AuthorizedAsTenant>,
     State(app_state): State<AppState>,
-    QueryParams(query): QueryParams<ListCheckoutSessionsQuery>,
+    Valid(QueryParams(query)): Valid<QueryParams<ListCheckoutSessionsQuery>>,
 ) -> Result<Json<ListCheckoutSessionsResponse>, RestApiError> {
     let tenant_id = authorized_state.tenant_id;
 

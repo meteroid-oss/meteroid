@@ -21,9 +21,27 @@ use common_eventbus::Event;
 use diesel_async::scoped_futures::ScopedFutureExt;
 use diesel_models::customers::{CustomerRow, CustomerRowNew, CustomerRowPatch, CustomerRowUpdate};
 use diesel_models::subscriptions::SubscriptionRow;
+use diesel_models::tenants::TenantRow;
 use error_stack::{Report, bail};
 use meteroid_store_macros::with_conn_delegate;
 use uuid::Uuid;
+
+fn validate_customer_currency(
+    currency: &str,
+    available_currencies: &[Option<String>],
+) -> StoreResult<()> {
+    if !available_currencies
+        .iter()
+        .any(|c| c.as_deref() == Some(currency))
+    {
+        return Err(StoreError::InvalidArgument(format!(
+            "Currency '{}' is not available for this tenant",
+            currency
+        ))
+        .into());
+    }
+    Ok(())
+}
 
 #[with_conn_delegate]
 #[async_trait::async_trait]
@@ -257,6 +275,12 @@ impl CustomersInterface for Store {
         customer: CustomerNew,
         tenant_id: TenantId,
     ) -> StoreResult<Customer> {
+        let mut conn = self.get_conn().await?;
+        let tenant = TenantRow::find_by_id(&mut conn, tenant_id)
+            .await
+            .map_err(Into::<Report<StoreError>>::into)?;
+        validate_customer_currency(&customer.currency, &tenant.available_currencies)?;
+
         let invoicing_entity = self
             .get_invoicing_entity(tenant_id, customer.invoicing_entity_id)
             .await?;
@@ -375,6 +399,15 @@ impl CustomersInterface for Store {
         tenant_id: TenantId,
         customer: CustomerPatch,
     ) -> StoreResult<Option<Customer>> {
+        // Validate currency if provided
+        if let Some(ref currency) = customer.currency {
+            let mut conn = self.get_conn().await?;
+            let tenant = TenantRow::find_by_id(&mut conn, tenant_id)
+                .await
+                .map_err(Into::<Report<StoreError>>::into)?;
+            validate_customer_currency(currency, &tenant.available_currencies)?;
+        }
+
         let is_valid_vat_number_format = customer.is_valid_vat_number_format();
         let mut patch_model: CustomerRowPatch = customer.try_into()?;
         patch_model.vat_number_format_valid = is_valid_vat_number_format;
@@ -453,6 +486,12 @@ impl CustomersInterface for Store {
         customer: CustomerUpdate,
     ) -> StoreResult<Customer> {
         let mut conn = self.get_conn().await?;
+
+        // Validate currency
+        let tenant = TenantRow::find_by_id(&mut conn, tenant_id)
+            .await
+            .map_err(Into::<Report<StoreError>>::into)?;
+        validate_customer_currency(&customer.currency, &tenant.available_currencies)?;
 
         let by_id_or_alias =
             CustomerRow::find_by_id_or_alias(&mut conn, tenant_id, customer.id_or_alias.clone())
@@ -719,6 +758,16 @@ impl Store {
         batch: Vec<CustomerNew>,
         tenant_id: TenantId,
     ) -> StoreResult<Vec<CustomerRowNew>> {
+        let mut conn = self.get_conn().await?;
+        let tenant = TenantRow::find_by_id(&mut conn, tenant_id)
+            .await
+            .map_err(Into::<Report<StoreError>>::into)?;
+
+        // Validate all currencies upfront
+        for customer in &batch {
+            validate_customer_currency(&customer.currency, &tenant.available_currencies)?;
+        }
+
         let invoicing_entities = self.list_invoicing_entities(tenant_id).await?;
         let default_invoicing_entity =
             invoicing_entities

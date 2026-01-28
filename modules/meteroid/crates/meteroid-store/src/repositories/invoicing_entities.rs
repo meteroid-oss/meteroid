@@ -13,6 +13,7 @@ use diesel_models::invoicing_entities::{
     InvoicingEntityRowProvidersPatch,
 };
 use diesel_models::organizations::OrganizationRow;
+use diesel_models::tenants::TenantRow;
 use error_stack::Report;
 use meteroid_store_macros::with_conn_delegate;
 
@@ -253,7 +254,7 @@ impl StoreInternal {
             city: invoicing_entity.city.clone(),
             vat_number: invoicing_entity.vat_number.clone(),
             country,
-            accounting_currency: currency,
+            accounting_currency: currency.clone(),
             tenant_id,
             card_provider_id: None,
             direct_debit_provider_id: None,
@@ -265,6 +266,11 @@ impl StoreInternal {
 
         let invoicing_entity_row = row
             .insert(conn)
+            .await
+            .map_err(Into::<Report<StoreError>>::into)?;
+
+        // Add the currency to tenant's available_currencies if not already present
+        TenantRow::add_currency_if_missing(conn, tenant_id, currency)
             .await
             .map_err(Into::<Report<StoreError>>::into)?;
 
