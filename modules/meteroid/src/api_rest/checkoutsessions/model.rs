@@ -1,3 +1,6 @@
+use crate::api_rest::subscriptions::model::{
+    CreateSubscriptionAddOn, CreateSubscriptionComponents, SubscriptionActivationConditionEnum,
+};
 use chrono::{DateTime, NaiveDate, Utc};
 use common_domain::ids::{
     CheckoutSessionId, CouponId, CustomerId, PlanVersionId, SubscriptionId, string_serde,
@@ -5,10 +8,7 @@ use common_domain::ids::{
 };
 use serde::{Deserialize, Serialize};
 use utoipa::{IntoParams, ToSchema};
-
-use crate::api_rest::subscriptions::model::{
-    CreateSubscriptionAddOn, CreateSubscriptionComponents, SubscriptionActivationConditionEnum,
-};
+use validator::Validate;
 
 #[derive(Debug, Clone, Serialize, Deserialize, ToSchema, PartialEq, Eq)]
 #[serde(rename_all = "SCREAMING_SNAKE_CASE")]
@@ -119,7 +119,8 @@ pub struct ListCheckoutSessionsResponse {
     pub sessions: Vec<CheckoutSession>,
 }
 
-#[derive(Debug, Clone, Deserialize, IntoParams)]
+#[derive(Debug, Clone, Deserialize, IntoParams, ToSchema, Validate)]
+#[into_params(parameter_in = Query)]
 pub struct ListCheckoutSessionsQuery {
     #[serde(default, with = "string_serde_opt")]
     pub customer_id: Option<CustomerId>,
