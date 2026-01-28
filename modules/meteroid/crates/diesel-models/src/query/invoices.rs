@@ -690,6 +690,37 @@ impl InvoiceRow {
             .attach("Error while finding last invoice by subscription id")
             .into_db_result()
     }
+
+    /// Check if a recurring invoice already exists for a subscription and date.
+    /// Returns the existing invoice if found, None otherwise.
+    /// Used to prevent duplicate invoice creation.
+    pub async fn find_existing_recurring_invoice(
+        conn: &mut PgConn,
+        param_tenant_id: TenantId,
+        param_subscription_id: SubscriptionId,
+        param_invoice_date: chrono::NaiveDate,
+    ) -> DbResult<Option<InvoiceRow>> {
+        use crate::enums::InvoiceType;
+        use crate::schema::invoice::dsl as i_dsl;
+        use diesel_async::RunQueryDsl;
+
+        let query = i_dsl::invoice
+            .filter(i_dsl::tenant_id.eq(param_tenant_id))
+            .filter(i_dsl::subscription_id.eq(param_subscription_id))
+            .filter(i_dsl::invoice_date.eq(param_invoice_date))
+            .filter(i_dsl::invoice_type.eq(InvoiceType::Recurring))
+            .filter(i_dsl::status.ne(InvoiceStatusEnum::Void))
+            .select(InvoiceRow::as_select());
+
+        log::debug!("{}", debug_query::<diesel::pg::Pg, _>(&query));
+
+        query
+            .first(conn)
+            .await
+            .optional()
+            .attach("Error while finding existing recurring invoice")
+            .into_db_result()
+    }
 }
 
 impl InvoiceRowLinesPatch {

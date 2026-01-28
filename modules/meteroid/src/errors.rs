@@ -128,9 +128,10 @@ impl IntoResponse for RestApiError {
         log::error!("{:?}", self);
 
         let (status, code) = match self {
-            RestApiError::ObjectStoreError => {
-                (StatusCode::INTERNAL_SERVER_ERROR, ErrorCode::Unauthorized)
-            }
+            RestApiError::ObjectStoreError => (
+                StatusCode::INTERNAL_SERVER_ERROR,
+                ErrorCode::InternalServerError,
+            ),
             RestApiError::ImageLoadingError => (
                 StatusCode::INTERNAL_SERVER_ERROR,
                 ErrorCode::InternalServerError,
@@ -138,9 +139,10 @@ impl IntoResponse for RestApiError {
             RestApiError::Unauthorized => (StatusCode::UNAUTHORIZED, ErrorCode::Unauthorized),
             RestApiError::Forbidden => (StatusCode::FORBIDDEN, ErrorCode::Forbidden),
             RestApiError::InvalidInput => (StatusCode::BAD_REQUEST, ErrorCode::BadRequest),
-            RestApiError::StoreError => {
-                (StatusCode::INTERNAL_SERVER_ERROR, ErrorCode::Unauthorized)
-            }
+            RestApiError::StoreError => (
+                StatusCode::INTERNAL_SERVER_ERROR,
+                ErrorCode::InternalServerError,
+            ),
             RestApiError::NotFound => (StatusCode::NOT_FOUND, ErrorCode::NotFound),
             RestApiError::Conflict => (StatusCode::CONFLICT, ErrorCode::Conflict),
             RestApiError::NotConfigured(_) => (

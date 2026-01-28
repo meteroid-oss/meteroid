@@ -5,10 +5,12 @@ use crate::errors::StoreError;
 use crate::repositories::SubscriptionInterface;
 use crate::repositories::outbox::OutboxInterface;
 use crate::services::Services;
+use crate::services::subscriptions::{PaymentActivationParams, PaymentMethodInfo};
 use crate::utils::periods::calculate_advance_period_range;
-use chrono::Utc;
+use chrono::{Datelike, Utc};
 use diesel_async::scoped_futures::ScopedFutureExt;
 use diesel_models::checkout_sessions::CheckoutSessionRow;
+use diesel_models::customer_payment_methods::CustomerPaymentMethodRow;
 use diesel_models::enums::{CycleActionEnum, SubscriptionActivationConditionEnum};
 use diesel_models::invoices::InvoiceRow;
 use diesel_models::subscriptions::SubscriptionRow;
@@ -365,6 +367,49 @@ impl Services {
                                     .attach("Failed to create invoice for subscription"),
                             )?;
 
+                            // Activate the subscription now that payment is confirmed
+                            let billing_start_date = session
+                                .billing_start_date
+                                .unwrap_or_else(|| Utc::now().date_naive());
+
+                            // Get subscription to determine the period
+                            let subscription = SubscriptionRow::get_subscription_by_id(
+                                conn,
+                                &event.tenant_id,
+                                created_subscription.id,
+                            )
+                            .await?;
+
+                            let billing_day_anchor = session
+                                .billing_day_anchor
+                                .map(|a| a as u32)
+                                .unwrap_or_else(|| billing_start_date.day());
+
+                            let payment_method = CustomerPaymentMethodRow::get_by_id(
+                                conn,
+                                &event.tenant_id,
+                                &charge_result.payment_method_id,
+                            )
+                            .await
+                            .map_err(|e| StoreError::DatabaseError(e.error))?;
+
+                            self.activate_subscription_after_payment(
+                                conn,
+                                &created_subscription.id,
+                                &event.tenant_id,
+                                PaymentActivationParams {
+                                    billing_start_date,
+                                    trial_duration: session.trial_duration_days,
+                                    billing_day_anchor,
+                                    period: subscription.subscription.period.into(),
+                                    payment_method: Some(PaymentMethodInfo {
+                                        id: charge_result.payment_method_id,
+                                        method_type: payment_method.payment_method_type,
+                                    }),
+                                },
+                            )
+                            .await?;
+
                             created_subscription.id
                         }
                         CheckoutType::SubscriptionActivation => {
@@ -396,7 +441,7 @@ impl Services {
                             self.bill_subscription_with_data_tx(
                                 conn,
                                 event.tenant_id,
-                                subscription,
+                                subscription.clone(),
                                 customer,
                                 InvoiceBillingMode::AlreadyPaid {
                                     charge_result: charge_result.clone(),
@@ -404,6 +449,47 @@ impl Services {
                                 },
                             )
                             .await?;
+
+                            // Activate the subscription if it was pending checkout
+                            let should_activate = subscription.subscription.activated_at.is_none()
+                                && subscription.subscription.activation_condition
+                                    == crate::domain::enums::SubscriptionActivationCondition::OnCheckout;
+
+                            if should_activate {
+                                let billing_start_date = subscription
+                                    .subscription
+                                    .billing_start_date
+                                    .unwrap_or_else(|| Utc::now().date_naive());
+
+                                let payment_method = CustomerPaymentMethodRow::get_by_id(
+                                    conn,
+                                    &event.tenant_id,
+                                    &charge_result.payment_method_id,
+                                )
+                                .await
+                                .map_err(|e| StoreError::DatabaseError(e.error))?;
+
+                                self.activate_subscription_after_payment(
+                                    conn,
+                                    &subscription_id,
+                                    &event.tenant_id,
+                                    PaymentActivationParams {
+                                        billing_start_date,
+                                        trial_duration: subscription
+                                            .subscription
+                                            .trial_duration
+                                            .map(|d| d as i32),
+                                        billing_day_anchor: subscription.subscription.billing_day_anchor
+                                            as u32,
+                                        period: subscription.subscription.period,
+                                        payment_method: Some(PaymentMethodInfo {
+                                            id: charge_result.payment_method_id,
+                                            method_type: payment_method.payment_method_type,
+                                        }),
+                                    },
+                                )
+                                .await?;
+                            }
 
                             subscription_id
                         }

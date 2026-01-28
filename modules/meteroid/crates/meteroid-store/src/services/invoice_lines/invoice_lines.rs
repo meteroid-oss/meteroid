@@ -528,6 +528,12 @@ impl Services {
         let component_period_components: Vec<(ComponentPeriods, Vec<&T>)> = component_groups
             .into_iter()
             .filter_map(|(billing_period, components)| {
+                let is_completed = subscription_details
+                    .subscription
+                    .current_period_end
+                    .is_none()
+                    && !subscription_details.subscription.pending_checkout;
+
                 // we calculate the periods range, for each billing_period. There can be advance, arrears, or both
                 let period = calculate_component_period_for_invoice_date(
                     invoice_date,
@@ -536,11 +542,7 @@ impl Services {
                     billing_start_or_resume_date,
                     cycle_index,
                     u32::from(subscription_details.subscription.billing_day_anchor),
-                    subscription_details
-                        .subscription
-                        .current_period_end
-                        .is_none()
-                        && !subscription_details.subscription.pending_checkout,
+                    is_completed,
                 );
 
                 // if period is None - the components are not relevant for this invoice

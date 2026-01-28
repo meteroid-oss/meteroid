@@ -9,6 +9,7 @@ use crate::services::Services;
 use crate::store::PgConn;
 use chrono::{NaiveDate, NaiveTime};
 use common_domain::ids::TenantId;
+use diesel_models::invoices::InvoiceRow;
 use error_stack::ResultExt;
 
 impl Services {
@@ -22,6 +23,20 @@ impl Services {
         let subscription = &subscription_details.subscription;
 
         let invoice_date = subscription.current_period_start;
+
+        // Check if a recurring invoice already exists for this subscription and date.
+        // This prevents duplicate invoice creation (e.g., when cancelling a subscription
+        // that was already billed for the current period).
+        if let Some(existing_invoice) = InvoiceRow::find_existing_recurring_invoice(
+            conn,
+            tenant_id,
+            subscription.id,
+            invoice_date,
+        )
+        .await?
+        {
+            return Ok(Some(existing_invoice.try_into()?));
+        }
 
         // Compute invoice lines for the period
         let invoice_content = self

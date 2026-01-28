@@ -42,12 +42,13 @@ impl Services {
             return Err(Report::new(StoreError::BillingError).attach("Invoice has no amount due"));
         }
 
-        // Check for existing pending transactions
+        // Check for existing transactions that would prevent a new payment
         let existing_transactions =
             PaymentTransactionRow::list_by_invoice_id(conn, invoice_id, tenant_id)
                 .await
                 .map_err(Into::<Report<StoreError>>::into)?;
 
+        // Check for pending transactions - only one payment attempt at a time
         let has_pending_transaction = existing_transactions
             .iter()
             .any(|tx| tx.transaction.status == PaymentStatusEnum::Pending);
@@ -56,6 +57,39 @@ impl Services {
             return Err(Report::new(StoreError::PaymentError(
                 "A payment for this invoice is already being processed. Please wait for it to complete before attempting another payment.".to_string()
             )));
+        }
+
+        // Calculate total of active payments (pending/ready/settled) to prevent over-payment.
+        // This check, combined with SELECT FOR UPDATE on the invoice, ensures atomicity
+        // in a distributed environment.
+        let active_payment_sum: i64 = existing_transactions
+            .iter()
+            .filter(|tx| {
+                matches!(
+                    tx.transaction.status,
+                    PaymentStatusEnum::Pending
+                        | PaymentStatusEnum::Ready
+                        | PaymentStatusEnum::Settled
+                )
+            })
+            .map(|tx| tx.transaction.amount)
+            .sum();
+
+        // Prevent payment if invoice is already fully covered
+        if active_payment_sum >= invoice.invoice.total {
+            return Err(Report::new(StoreError::PaymentError(format!(
+                "Invoice already has sufficient payments. Total: {}, Already paid: {}",
+                invoice.invoice.total, active_payment_sum
+            ))));
+        }
+
+        // Prevent payment if this would exceed the invoice total
+        let proposed_payment = invoice.invoice.amount_due;
+        if active_payment_sum + proposed_payment > invoice.invoice.total {
+            return Err(Report::new(StoreError::PaymentError(format!(
+                "Payment of {} would exceed invoice total. Already paid: {}, Total: {}",
+                proposed_payment, active_payment_sum, invoice.invoice.total
+            ))));
         }
 
         // Create a payment transaction

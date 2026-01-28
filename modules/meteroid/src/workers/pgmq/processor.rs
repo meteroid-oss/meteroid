@@ -56,7 +56,7 @@ pub(crate) async fn run(cfg: ProcessorConfig) {
                 if count.0 > 0 {
                     let elapsed = perf_start.elapsed();
                     let per_msg = elapsed.as_millis() as f64 / count.0 as f64;
-                    log::info!(
+                    log::debug!(
                         "[{}] processed {} messages from pgmq {} in {:?} ({:.2} ms/msg)",
                         cfg.name,
                         count.0,

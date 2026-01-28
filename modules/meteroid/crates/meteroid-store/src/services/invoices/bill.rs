@@ -3,6 +3,7 @@ use crate::domain::scheduled_events::{ScheduledEventData, ScheduledEventNew};
 use crate::domain::{Customer, DetailedInvoice, Invoice, PaymentStatusEnum, SubscriptionDetails};
 use crate::errors::StoreError;
 use crate::repositories::SubscriptionInterface;
+use crate::repositories::outbox::OutboxInterface;
 use crate::services::Services;
 use crate::services::checkout_completion::DirectChargeResult;
 use crate::store::PgConn;
@@ -271,6 +272,36 @@ impl Services {
                     &Some(subscription.clone()),
                 )
                 .await?;
+
+                // Apply the transaction amount to reduce amount_due and mark as paid
+                let updated_invoice_row = InvoiceRow::apply_transaction(
+                    conn,
+                    draft_invoice.id,
+                    tenant_id,
+                    charge_result.amount,
+                )
+                .await?;
+
+                if updated_invoice_row.amount_due == 0 {
+                    InvoiceRow::apply_payment_status(
+                        conn,
+                        draft_invoice.id,
+                        tenant_id,
+                        diesel_models::enums::InvoicePaymentStatus::Paid,
+                        transaction.processed_at,
+                    )
+                    .await?;
+
+                    let invoice: Invoice = updated_invoice_row.try_into()?;
+                    self.store
+                        .insert_outbox_event_tx(
+                            conn,
+                            crate::domain::outbox_event::OutboxEvent::invoice_paid(
+                                (&invoice).into(),
+                            ),
+                        )
+                        .await?;
+                }
             }
         }
 

@@ -20,6 +20,7 @@ use crate::services::invoice_lines::invoice_lines::ComputedInvoiceContent;
 use crate::services::{InvoiceBillingMode, ServicesEdge};
 use crate::store::PgConn;
 use crate::utils::periods::calculate_advance_period_range;
+use chrono::Datelike;
 use chrono::{NaiveDate, Utc};
 use common_domain::ids::{
     AppliedCouponId, BaseId, CheckoutSessionId, CustomerConnectionId, CustomerPaymentMethodId,
@@ -959,6 +960,8 @@ impl ServicesEdge {
             .await?;
 
         let payment_transaction = if let Some(charge_result) = charge_result {
+            let payment_method_id = charge_result.payment_method_id;
+
             let detailed_invoice = self
                 .services
                 .bill_subscription_tx(
@@ -974,6 +977,50 @@ impl ServicesEdge {
                 .ok_or(StoreError::InsertError)
                 .attach("Failed to create invoice for subscription")?;
 
+            // Activate the subscription now that payment is confirmed
+            let payment_method =
+                diesel_models::customer_payment_methods::CustomerPaymentMethodRow::get_by_id(
+                    conn,
+                    &tenant_id,
+                    &payment_method_id,
+                )
+                .await
+                .map_err(|e| StoreError::DatabaseError(e.error))?;
+
+            let has_paid_trial = trial_config.as_ref().is_some_and(|tc| !tc.is_free);
+            let trial_duration = if has_paid_trial {
+                trial_config.as_ref().map(|tc| tc.duration_days as i32)
+            } else {
+                None
+            };
+
+            let subscription =
+                SubscriptionRow::get_subscription_by_id(conn, &tenant_id, created_subscription.id)
+                    .await?;
+
+            let billing_day_anchor = session
+                .billing_day_anchor
+                .map(|a| a as u32)
+                .unwrap_or_else(|| start_date.day());
+
+            self.services
+                .activate_subscription_after_payment(
+                    conn,
+                    &created_subscription.id,
+                    &tenant_id,
+                    crate::services::subscriptions::PaymentActivationParams {
+                        billing_start_date: start_date,
+                        trial_duration,
+                        billing_day_anchor,
+                        period: subscription.subscription.period.into(),
+                        payment_method: Some(crate::services::subscriptions::PaymentMethodInfo {
+                            id: payment_method_id,
+                            method_type: payment_method.payment_method_type,
+                        }),
+                    },
+                )
+                .await?;
+
             detailed_invoice.transactions.into_iter().next()
         } else if is_free_trial {
             let payment_method =
@@ -985,31 +1032,38 @@ impl ServicesEdge {
                 .await
                 .map_err(|e| StoreError::DatabaseError(e.error))?;
 
-            let trial_duration = trial_config
-                .as_ref()
-                .map(|tc| tc.duration_days)
-                .unwrap_or(0);
-            let current_period_start = start_date;
-            let current_period_end =
-                current_period_start + chrono::Duration::days(i64::from(trial_duration));
+            let trial_duration = trial_config.as_ref().map(|tc| tc.duration_days as i32);
 
-            SubscriptionRow::activate_subscription_with_payment_method(
-                conn,
-                &created_subscription.id,
-                &tenant_id,
-                current_period_start,
-                Some(current_period_end),
-                Some(CycleActionEnum::EndTrial),
-                Some(0),
-                DbSubscriptionStatusEnum::TrialActive,
-                Some(payment_method_id),
-                Some(payment_method.payment_method_type),
-            )
-            .await
-            .map_err(Into::<Report<StoreError>>::into)?;
+            let subscription =
+                SubscriptionRow::get_subscription_by_id(conn, &tenant_id, created_subscription.id)
+                    .await?;
+
+            let billing_day_anchor = session
+                .billing_day_anchor
+                .map(|a| a as u32)
+                .unwrap_or_else(|| start_date.day());
+
+            self.services
+                .activate_subscription_after_payment(
+                    conn,
+                    &created_subscription.id,
+                    &tenant_id,
+                    crate::services::subscriptions::PaymentActivationParams {
+                        billing_start_date: start_date,
+                        trial_duration,
+                        billing_day_anchor,
+                        period: subscription.subscription.period.into(),
+                        payment_method: Some(crate::services::subscriptions::PaymentMethodInfo {
+                            id: payment_method_id,
+                            method_type: payment_method.payment_method_type,
+                        }),
+                    },
+                )
+                .await?;
 
             None
         } else {
+            // No payment, no trial - activate directly
             SubscriptionRow::activate_subscription(
                 conn,
                 &created_subscription.id,

@@ -127,6 +127,7 @@ impl SubscriptionBuilder {
                         charge_automatically: self.charge_automatically,
                         purchase_order: None,
                         backdate_invoices: false,
+                        skip_checkout_session: false,
                     },
                     price_components: None,
                     add_ons: None,

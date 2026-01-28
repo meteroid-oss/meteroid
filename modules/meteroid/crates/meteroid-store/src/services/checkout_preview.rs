@@ -3,11 +3,13 @@ use crate::domain::subscription_add_ons::SubscriptionAddOn;
 use crate::domain::subscription_coupons::AppliedCoupon;
 use crate::domain::{
     AppliedCouponDetailed, BillingPeriodEnum, CheckoutSession, CheckoutType, PriceComponent,
-    Subscription, SubscriptionAddOnCustomization, SubscriptionComponent,
-    SubscriptionComponentNewInternal, SubscriptionDetails, SubscriptionStatusEnum, TrialConfig,
+    Subscription, SubscriptionActivationCondition, SubscriptionAddOnCustomization,
+    SubscriptionComponent, SubscriptionComponentNewInternal, SubscriptionDetails,
+    SubscriptionStatusEnum, TrialConfig,
 };
 use crate::errors::StoreError;
 use crate::repositories::add_ons::AddOnInterface;
+use crate::repositories::customer_connection::CustomerConnectionInterface;
 use crate::repositories::customers::CustomersInterfaceAuto;
 use crate::repositories::invoicing_entities::InvoicingEntityInterfaceAuto;
 use crate::repositories::plans::PlansInterface;
@@ -16,7 +18,7 @@ use crate::services::Services;
 use crate::store::PgConn;
 use chrono::{Datelike, Utc};
 use common_domain::ids::{
-    AddOnId, AppliedCouponId, BaseId, SubscriptionAddOnId, SubscriptionId,
+    AddOnId, AppliedCouponId, BaseId, CustomerConnectionId, SubscriptionAddOnId, SubscriptionId,
     SubscriptionPriceComponentId, TenantId,
 };
 use error_stack::Report;
@@ -65,6 +67,11 @@ impl Services {
             .store
             .get_invoicing_entity(tenant_id, Some(customer.invoicing_entity_id))
             .await?;
+
+        // Resolve connection IDs for payment method availability display
+        let (card_connection_id, direct_debit_connection_id) = self
+            .resolve_preview_connection_ids(tenant_id, &customer.id, &invoicing_entity)
+            .await;
 
         let subscription_components = self.build_preview_components(&price_components, session)?;
 
@@ -146,9 +153,9 @@ impl Services {
             start_date: billing_start_date,
             end_date: session.end_date,
             billing_start_date: Some(billing_start_date),
-            card_connection_id: None,
-            direct_debit_connection_id: None,
-            bank_account_id: None,
+            card_connection_id,
+            direct_debit_connection_id,
+            bank_account_id: invoicing_entity.bank_account_id,
             plan_id: plan_with_version.plan.id,
             plan_name: plan_with_version.plan.name.clone(),
             plan_description: plan_with_version.plan.description.clone(),
@@ -160,10 +167,10 @@ impl Services {
             invoice_memo: session.invoice_memo.clone(),
             invoice_threshold: session.invoice_threshold,
             activated_at: None,
-            activation_condition: session.activation_condition.clone(),
+            activation_condition: SubscriptionActivationCondition::OnCheckout,
             mrr_cents: 0,
             period: billing_period,
-            pending_checkout: false,
+            pending_checkout: true,
             conn_meta: None,
             invoicing_entity_id: customer.invoicing_entity_id,
             current_period_start: billing_start_date,
@@ -485,5 +492,42 @@ impl Services {
             coupon,
             applied_coupon: preview_applied,
         }
+    }
+
+    /// Resolves the card and direct debit connection IDs for a customer based on the invoicing entity's providers.
+    /// Returns (card_connection_id, direct_debit_connection_id).
+    async fn resolve_preview_connection_ids(
+        &self,
+        tenant_id: TenantId,
+        customer_id: &common_domain::ids::CustomerId,
+        invoicing_entity: &crate::domain::InvoicingEntity,
+    ) -> (Option<CustomerConnectionId>, Option<CustomerConnectionId>) {
+        // Get the customer's existing connections
+        let customer_connections = self
+            .store
+            .list_connections_by_customer_id(&tenant_id, customer_id)
+            .await
+            .unwrap_or_default();
+
+        // Find card connection by matching connector_id with invoicing entity's card_provider_id
+        let card_connection_id = invoicing_entity.card_provider_id.and_then(|provider_id| {
+            customer_connections
+                .iter()
+                .find(|conn| conn.connector_id == provider_id)
+                .map(|conn| conn.id)
+        });
+
+        // Find direct debit connection by matching connector_id with invoicing entity's direct_debit_provider_id
+        let direct_debit_connection_id =
+            invoicing_entity
+                .direct_debit_provider_id
+                .and_then(|provider_id| {
+                    customer_connections
+                        .iter()
+                        .find(|conn| conn.connector_id == provider_id)
+                        .map(|conn| conn.id)
+                });
+
+        (card_connection_id, direct_debit_connection_id)
     }
 }

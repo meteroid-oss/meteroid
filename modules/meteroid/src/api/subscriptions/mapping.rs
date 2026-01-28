@@ -153,6 +153,7 @@ pub mod subscriptions {
             charge_automatically: param.charge_automatically.unwrap_or(true),
             purchase_order: param.purchase_order,
             backdate_invoices: false,
+            skip_checkout_session: false,
         };
 
         let res = domain::CreateSubscription {

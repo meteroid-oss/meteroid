@@ -28,7 +28,7 @@ use common_domain::ids::{BaseId, QuoteId, SlotTransactionId, SubscriptionId, Ten
 use common_eventbus::{Event, EventBus};
 use diesel_async::scoped_futures::ScopedFutureExt;
 use diesel_models::applied_coupons::AppliedCouponRowNew;
-use diesel_models::checkout_sessions::CheckoutSessionRowNew;
+use diesel_models::checkout_sessions::{CheckoutSessionRow, CheckoutSessionRowNew};
 use diesel_models::enums::CycleActionEnum;
 use diesel_models::plans::PlanRow;
 use diesel_models::slot_transactions::SlotTransactionRow;
@@ -54,6 +54,9 @@ pub struct ProcessedSubscription {
     coupons: Vec<AppliedCouponRowNew>,
     event: SubscriptionEventRow,
     slot_transactions: Vec<SlotTransactionRow>,
+    /// When true, skip checkout session creation even if pending_checkout is true.
+    /// Used for subscriptions created from checkout completion (SelfServe flow).
+    skip_checkout_session: bool,
 }
 
 pub struct DetailedSubscription {
@@ -422,6 +425,7 @@ impl Services {
             coupons: subscription_coupons,
             event,
             slot_transactions,
+            skip_checkout_session: sub.subscription.skip_checkout_session,
         })
     }
 
@@ -635,6 +639,44 @@ impl Services {
                     self.insert_created_outbox_events_tx(conn, &inserted, tenant_id)
                         .await?;
 
+                    // For pending_checkout subscriptions, create checkout sessions inside the transaction
+                    // so the FK constraint on subscription_id is satisfied.
+                    // Skip if skip_checkout_session is true (subscription created from checkout completion).
+                    for (sub, proc) in inserted.iter().zip(processed.iter()) {
+                        if sub.pending_checkout && !proc.skip_checkout_session {
+                            let create_session = CreateCheckoutSession {
+                                tenant_id,
+                                customer_id: sub.customer_id,
+                                plan_version_id: sub.plan_version_id,
+                                created_by: sub.created_by,
+                                billing_start_date: sub.billing_start_date,
+                                billing_day_anchor: Some(sub.billing_day_anchor),
+                                net_terms: Some(sub.net_terms),
+                                trial_duration_days: sub.trial_duration,
+                                end_date: sub.end_date,
+                                auto_advance_invoices: true,
+                                charge_automatically: true,
+                                invoice_memo: sub.invoice_memo.clone(),
+                                invoice_threshold: sub.invoice_threshold,
+                                purchase_order: sub.purchase_order.clone(),
+                                components: None,
+                                add_ons: None,
+                                coupon_code: None,
+                                coupon_ids: vec![],
+                                expires_in_hours: None,
+                                metadata: None,
+                                checkout_type: CheckoutType::SubscriptionActivation,
+                                subscription_id: Some(sub.id),
+                            };
+
+                            let session_row: CheckoutSessionRowNew = create_session.into_row();
+                            session_row
+                                .insert(conn)
+                                .await
+                                .map_err(|e| StoreError::DatabaseError(e.error))?;
+                        }
+                    }
+
                     for sub in &inserted {
                         // Skip billing if subscription is not activated or pending checkout
                         if sub.activated_at.is_none() || sub.pending_checkout {
@@ -672,62 +714,28 @@ impl Services {
             })
             .await?;
 
-        // For pending_checkout subscriptions, create checkout sessions and generate session-based URLs
+        // For pending_checkout subscriptions, generate checkout URLs
+        // (sessions were already created inside the transaction above)
         let mut inserted_with_checkout_urls = Vec::with_capacity(res.len());
 
         for mut sub in res {
             if sub.pending_checkout {
-                // Create a checkout session linked to this subscription
-                // For SubscriptionActivation checkouts, the subscription already exists with all
-                // parameters applied. The checkout session just needs basic info for completion.
-                let create_session = CreateCheckoutSession {
-                    tenant_id,
-                    customer_id: sub.customer_id,
-                    plan_version_id: sub.plan_version_id,
-                    created_by: sub.created_by,
-                    billing_start_date: sub.billing_start_date,
-                    billing_day_anchor: Some(sub.billing_day_anchor),
-                    net_terms: Some(sub.net_terms),
-                    trial_duration_days: sub.trial_duration,
-                    end_date: sub.end_date,
-                    // Use defaults for activation checkout - subscription already has these applied
-                    activation_condition: SubscriptionActivationCondition::OnCheckout,
-                    auto_advance_invoices: true,
-                    charge_automatically: true,
-                    invoice_memo: sub.invoice_memo.clone(),
-                    invoice_threshold: sub.invoice_threshold,
-                    purchase_order: sub.purchase_order.clone(),
-                    payment_strategy: None, // Already set on subscription
-                    components: None,       // Components already applied to subscription
-                    add_ons: None,          // Add-ons already applied to subscription
-                    coupon_code: None,      // Coupons already applied to subscription
-                    coupon_ids: vec![],
-                    expires_in_hours: None, // Use default 24 hours
-                    metadata: None,
-                    checkout_type: CheckoutType::SubscriptionActivation,
-                    subscription_id: Some(sub.id),
-                };
-
-                let session_row: CheckoutSessionRowNew = create_session.into_row();
-                let session_id = session_row.id;
-
-                // Insert the checkout session
-                let mut session_conn = self.store.get_conn().await?;
-                session_row
-                    .insert(&mut session_conn)
-                    .await
-                    .map_err(|e| Report::new(StoreError::DatabaseError(e.error)))?;
-
-                // Generate session-based checkout URL
-                let token = generate_portal_token(
-                    jwt_secret,
-                    tenant_id,
-                    ResourceAccess::CheckoutSession(session_id),
-                )?;
-
-                let checkout_url = format!("{}/checkout?token={}", public_url, token);
-
-                sub.checkout_url = Some(checkout_url);
+                // Query for the checkout session that was created for this subscription
+                let mut conn = self.store.get_conn().await?;
+                if let Some(session) =
+                    CheckoutSessionRow::get_by_subscription(&mut conn, tenant_id, sub.id)
+                        .await
+                        .ok()
+                        .flatten()
+                {
+                    let token = generate_portal_token(
+                        jwt_secret,
+                        tenant_id,
+                        ResourceAccess::CheckoutSession(session.id),
+                    )?;
+                    let checkout_url = format!("{}/checkout?token={}", public_url, token);
+                    sub.checkout_url = Some(checkout_url);
+                }
             }
             inserted_with_checkout_urls.push(sub);
         }

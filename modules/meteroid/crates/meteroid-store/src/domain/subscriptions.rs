@@ -199,6 +199,9 @@ pub struct SubscriptionNew {
     pub charge_automatically: bool,
     pub purchase_order: Option<String>,
     pub backdate_invoices: bool,
+    /// When true, prevents checkout session creation even with OnCheckout activation.
+    /// Used when creating subscriptions from checkout completion (SelfServe flow).
+    pub skip_checkout_session: bool,
 }
 
 pub struct SubscriptionNewEnriched<'a> {
@@ -226,6 +229,8 @@ impl SubscriptionNewEnriched<'_> {
     pub fn map_to_row(&self) -> SubscriptionRowNew {
         let sub = &self.subscription;
 
+        // pending_checkout controls billing logic (is_completed check) - always true for OnCheckout
+        // skip_checkout_session is handled separately in persist_subscriptions_internal
         let pending_checkout = match sub.activation_condition {
             SubscriptionActivationCondition::OnCheckout => self.payment_setup_result.checkout,
             _ => false,
