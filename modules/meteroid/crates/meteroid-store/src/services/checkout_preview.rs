@@ -70,8 +70,8 @@ impl Services {
             customer.invoicing_entity_id,
             tenant_id,
         )
-            .await
-            .map_err(Into::<Report<StoreError>>::into)?;
+        .await
+        .map_err(Into::<Report<StoreError>>::into)?;
 
         let invoicing_entity: InvoicingEntity = invoicing_entity_providers.entity.clone().into();
 
@@ -134,9 +134,9 @@ impl Services {
                     *trialing_plan_id,
                     tenant_id,
                 )
-                    .await
-                    .ok()
-                    .map(|p| p.name)
+                .await
+                .ok()
+                .map(|p| p.name)
             } else {
                 None
             };
@@ -213,8 +213,8 @@ impl Services {
         if applied_coupons.is_empty()
             && let Some(ref code) = session.coupon_code
             && let Ok(preview_coupon) = self
-            .build_preview_coupon(conn, tenant_id, code, &virtual_subscription)
-            .await
+                .build_preview_coupon(conn, tenant_id, code, &virtual_subscription)
+                .await
         {
             applied_coupons.push(preview_coupon);
         }
@@ -227,8 +227,8 @@ impl Services {
                 .unwrap_or(false);
             if !already_added
                 && let Ok(preview_coupon) = self
-                .build_preview_coupon(conn, tenant_id, code, &virtual_subscription)
-                .await
+                    .build_preview_coupon(conn, tenant_id, code, &virtual_subscription)
+                    .await
             {
                 applied_coupons.push(preview_coupon);
             }
