@@ -7,6 +7,7 @@ pub use product_families::ProductFamilyInterface;
 pub use quotes::QuotesInterface;
 pub use subscriptions::SubscriptionInterface;
 pub use tenants::TenantInterface;
+pub use users::UserInterface;
 
 pub mod accounting;
 pub mod bi;

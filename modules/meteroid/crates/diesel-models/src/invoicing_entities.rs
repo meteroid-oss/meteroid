@@ -7,7 +7,7 @@ use common_domain::ids::{
 };
 use diesel::{AsChangeset, Identifiable, Insertable, Queryable, Selectable};
 
-#[derive(Debug, Insertable, Queryable, Identifiable, Selectable)]
+#[derive(Debug, Clone, Insertable, Queryable, Identifiable, Selectable)]
 #[diesel(table_name = crate::schema::invoicing_entity)]
 #[diesel(check_for_backend(diesel::pg::Pg))]
 pub struct InvoicingEntityRow {

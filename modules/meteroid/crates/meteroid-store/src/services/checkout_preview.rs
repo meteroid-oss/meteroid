@@ -2,16 +2,15 @@ use crate::StoreResult;
 use crate::domain::subscription_add_ons::SubscriptionAddOn;
 use crate::domain::subscription_coupons::AppliedCoupon;
 use crate::domain::{
-    AppliedCouponDetailed, BillingPeriodEnum, CheckoutSession, CheckoutType, PriceComponent,
-    Subscription, SubscriptionActivationCondition, SubscriptionAddOnCustomization,
-    SubscriptionComponent, SubscriptionComponentNewInternal, SubscriptionDetails,
-    SubscriptionStatusEnum, TrialConfig,
+    AppliedCouponDetailed, BillingPeriodEnum, CheckoutSession, CheckoutType, InvoicingEntity,
+    InvoicingEntityProviderSensitive, PriceComponent, Subscription,
+    SubscriptionActivationCondition, SubscriptionAddOnCustomization, SubscriptionComponent,
+    SubscriptionComponentNewInternal, SubscriptionDetails, SubscriptionStatusEnum, TrialConfig,
 };
 use crate::errors::StoreError;
 use crate::repositories::add_ons::AddOnInterface;
 use crate::repositories::customer_connection::CustomerConnectionInterface;
 use crate::repositories::customers::CustomersInterfaceAuto;
-use crate::repositories::invoicing_entities::InvoicingEntityInterfaceAuto;
 use crate::repositories::plans::PlansInterface;
 use crate::repositories::price_components::PriceComponentInterface;
 use crate::services::Services;
@@ -21,6 +20,7 @@ use common_domain::ids::{
     AddOnId, AppliedCouponId, BaseId, CustomerConnectionId, SubscriptionAddOnId, SubscriptionId,
     SubscriptionPriceComponentId, TenantId,
 };
+use diesel_models::invoicing_entities::InvoicingEntityProvidersRow;
 use error_stack::Report;
 
 impl Services {
@@ -63,15 +63,28 @@ impl Services {
             .find_customer_by_id(session.customer_id, tenant_id)
             .await?;
 
-        let invoicing_entity = self
-            .store
-            .get_invoicing_entity(tenant_id, Some(customer.invoicing_entity_id))
-            .await?;
+        // Get invoicing entity with full provider data (including connector config)
+        // This is needed to create customer connections if they don't exist
+        let invoicing_entity_providers = InvoicingEntityProvidersRow::resolve_providers_by_id(
+            conn,
+            customer.invoicing_entity_id,
+            tenant_id,
+        )
+            .await
+            .map_err(Into::<Report<StoreError>>::into)?;
 
-        // Resolve connection IDs for payment method availability display
+        let invoicing_entity: InvoicingEntity = invoicing_entity_providers.entity.clone().into();
+
+        let invoicing_entity_sensitive = InvoicingEntityProviderSensitive::from_row(
+            invoicing_entity_providers,
+            &self.store.settings.crypt_key,
+        )?;
+
+        // Resolve or create connection IDs for payment method availability
+        // This ensures customers can set up payment even without an existing connection
         let (card_connection_id, direct_debit_connection_id) = self
-            .resolve_preview_connection_ids(tenant_id, &customer.id, &invoicing_entity)
-            .await;
+            .resolve_or_create_preview_connection_ids(conn, &customer, &invoicing_entity_sensitive)
+            .await?;
 
         let subscription_components = self.build_preview_components(&price_components, session)?;
 
@@ -121,9 +134,9 @@ impl Services {
                     *trialing_plan_id,
                     tenant_id,
                 )
-                .await
-                .ok()
-                .map(|p| p.name)
+                    .await
+                    .ok()
+                    .map(|p| p.name)
             } else {
                 None
             };
@@ -200,8 +213,8 @@ impl Services {
         if applied_coupons.is_empty()
             && let Some(ref code) = session.coupon_code
             && let Ok(preview_coupon) = self
-                .build_preview_coupon(conn, tenant_id, code, &virtual_subscription)
-                .await
+            .build_preview_coupon(conn, tenant_id, code, &virtual_subscription)
+            .await
         {
             applied_coupons.push(preview_coupon);
         }
@@ -214,8 +227,8 @@ impl Services {
                 .unwrap_or(false);
             if !already_added
                 && let Ok(preview_coupon) = self
-                    .build_preview_coupon(conn, tenant_id, code, &virtual_subscription)
-                    .await
+                .build_preview_coupon(conn, tenant_id, code, &virtual_subscription)
+                .await
             {
                 applied_coupons.push(preview_coupon);
             }
@@ -494,40 +507,43 @@ impl Services {
         }
     }
 
-    /// Resolves the card and direct debit connection IDs for a customer based on the invoicing entity's providers.
+    /// Resolves or creates connection IDs for a customer based on the invoicing entity's providers.
+    /// If a customer doesn't have an existing connection to a payment provider, creates one.
+    /// This is essential for self-serve checkout where customers may not have set up payment yet.
     /// Returns (card_connection_id, direct_debit_connection_id).
-    async fn resolve_preview_connection_ids(
+    async fn resolve_or_create_preview_connection_ids(
         &self,
-        tenant_id: TenantId,
-        customer_id: &common_domain::ids::CustomerId,
-        invoicing_entity: &crate::domain::InvoicingEntity,
-    ) -> (Option<CustomerConnectionId>, Option<CustomerConnectionId>) {
+        conn: &mut PgConn,
+        customer: &crate::domain::Customer,
+        invoicing_entity: &InvoicingEntityProviderSensitive,
+    ) -> StoreResult<(Option<CustomerConnectionId>, Option<CustomerConnectionId>)> {
         // Get the customer's existing connections
         let customer_connections = self
             .store
-            .list_connections_by_customer_id(&tenant_id, customer_id)
+            .list_connections_by_customer_id(&customer.tenant_id, &customer.id)
             .await
             .unwrap_or_default();
 
-        // Find card connection by matching connector_id with invoicing entity's card_provider_id
-        let card_connection_id = invoicing_entity.card_provider_id.and_then(|provider_id| {
-            customer_connections
-                .iter()
-                .find(|conn| conn.connector_id == provider_id)
-                .map(|conn| conn.id)
-        });
+        let mut connections = customer_connections;
 
-        // Find direct debit connection by matching connector_id with invoicing entity's direct_debit_provider_id
-        let direct_debit_connection_id =
-            invoicing_entity
-                .direct_debit_provider_id
-                .and_then(|provider_id| {
-                    customer_connections
-                        .iter()
-                        .find(|conn| conn.connector_id == provider_id)
-                        .map(|conn| conn.id)
-                });
+        // Try to use or create a connection to the card provider
+        let card_connection_id = if let Some(card_provider) = &invoicing_entity.card_provider {
+            self.use_or_create_connection(conn, card_provider, customer, &mut connections)
+                .await?
+        } else {
+            None
+        };
 
-        (card_connection_id, direct_debit_connection_id)
+        // Try to use or create a connection to the direct debit provider
+        let direct_debit_connection_id = if let Some(direct_debit_provider) =
+            &invoicing_entity.direct_debit_provider
+        {
+            self.use_or_create_connection(conn, direct_debit_provider, customer, &mut connections)
+                .await?
+        } else {
+            None
+        };
+
+        Ok((card_connection_id, direct_debit_connection_id))
     }
 }
