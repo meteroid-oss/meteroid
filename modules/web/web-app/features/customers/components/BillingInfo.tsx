@@ -86,6 +86,7 @@ export const BillingInfo = ({ customer, isEditing, setIsEditing }: BillingInfoPr
       customer: {
         billingAddress: updatedAddress,
         name: values.name,
+        billingEmail: values.billingEmail || undefined,
         vatNumber: values.vatNumber,
       },
     })
@@ -102,6 +103,7 @@ export const BillingInfo = ({ customer, isEditing, setIsEditing }: BillingInfoPr
       onSubmit={onSubmit}
       onCancel={handleCancel}
       isSubmitting={updateBillingInfoMut.isPending}
+      allowEmailEdit
     />
   )
 }

@@ -51,6 +51,31 @@ pub async fn run_preset(
 
     log::info!("Created tenant '{}'", &tenant.name);
 
+    // Collect all unique currencies from plans and customers in the scenario
+    let mut scenario_currencies: std::collections::HashSet<String> =
+        std::collections::HashSet::new();
+    for plan in &scenario.plans {
+        scenario_currencies.insert(plan.currency.clone());
+    }
+    for customer in &scenario.customers {
+        scenario_currencies.insert(customer.currency.clone());
+    }
+
+    // Add scenario currencies to the tenant's available currencies
+    let mut available_currencies: Vec<String> = tenant
+        .available_currencies
+        .iter()
+        .filter_map(|c| c.clone())
+        .collect();
+    for currency in scenario_currencies {
+        if !available_currencies.contains(&currency) {
+            available_currencies.push(currency);
+        }
+    }
+    store
+        .update_tenant_available_currencies(tenant.id, available_currencies)
+        .await?;
+
     let mut invoicing_entity = store.get_invoicing_entity(tenant.id, None).await?;
 
     // Update invoicing entity with organization details if provided, if it was not configured

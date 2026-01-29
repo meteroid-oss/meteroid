@@ -135,7 +135,7 @@ impl Services {
         }
     }
 
-    async fn use_or_create_connection(
+    pub(crate) async fn use_or_create_connection(
         &self,
         conn: &mut PgConn,
         config: &Connector,

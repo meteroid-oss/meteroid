@@ -30,18 +30,20 @@ interface BillingInfoFormProps {
   isSubmitting?: boolean
   title?: string
   hideActions?: boolean // Hide Save/Cancel buttons when used in a parent form context
+  allowEmailEdit?: boolean // Allow editing email when not already set (for checkout flow)
 }
 
 export const BillingInfoForm = ({
-  customer,
-  methods,
-  onSubmit,
-  onBlur: onBlurAll,
-  onCancel,
-  isSubmitting,
-  title = 'Billing information',
-  hideActions = false,
-}: BillingInfoFormProps) => {
+                                  customer,
+                                  methods,
+                                  onSubmit,
+                                  onBlur: onBlurAll,
+                                  onCancel,
+                                  isSubmitting,
+                                  title = 'Billing information',
+                                  hideActions = false,
+                                  allowEmailEdit = false,
+                                }: BillingInfoFormProps) => {
   const [showTaxNumber, setShowTaxNumber] = useState(!!customer.vatNumber)
 
   const handleBlur = () => {
@@ -51,10 +53,7 @@ export const BillingInfoForm = ({
   return (
     <div className="">
       <Form {...methods}>
-        <form
-          onSubmit={methods.handleSubmit(onSubmit)}
-          className="space-y-4 text-xs font-normal"
-        >
+        <form onSubmit={methods.handleSubmit(onSubmit)} className="space-y-4 text-xs font-normal">
           {title && (
             <div className="flex justify-between items-center mb-2">
               <div className="text-sm font-medium">{title}</div>
@@ -64,7 +63,7 @@ export const BillingInfoForm = ({
           <InputFormField
             name="billingEmail"
             label="Email"
-            disabled
+            disabled={!allowEmailEdit || !!customer.billingEmail}
             control={methods.control}
             placeholder="billing@example.com"
             labelClassName="font-normal text-xs"
