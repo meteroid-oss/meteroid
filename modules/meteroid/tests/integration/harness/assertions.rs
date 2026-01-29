@@ -130,11 +130,10 @@ impl<'a> SubscriptionAssert<'a> {
             .has_next_action(Some(CycleActionEnum::RenewSubscription))
     }
 
-    /// Shorthand: Assert subscription is TrialActive with EndTrial action.
+    /// Shorthand: Assert subscription is TrialActive.
     #[allow(clippy::wrong_self_convention)]
     pub fn is_trial_active(self) -> Self {
         self.has_status(SubscriptionStatusEnum::TrialActive)
-            .has_next_action(Some(CycleActionEnum::EndTrial))
     }
 
     /// Shorthand: Assert subscription is PendingActivation.

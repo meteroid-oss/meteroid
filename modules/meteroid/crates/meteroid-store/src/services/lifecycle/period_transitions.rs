@@ -5,7 +5,7 @@ use crate::store::PgConn;
 use crate::utils::errors::format_error_chain;
 use crate::utils::periods::calculate_advance_period_range;
 use chrono::{Days, Duration, NaiveDate, NaiveDateTime, Utc};
-use common_domain::ids::{BaseId, SubscriptionId};
+use common_domain::ids::SubscriptionId;
 use diesel_async::AsyncConnection;
 use diesel_async::scoped_futures::ScopedFutureExt;
 use diesel_models::enums::{
@@ -316,11 +316,14 @@ impl Services {
         }
     }
 
-    /// Handles the end of a trial period.
+    /// Handles the end of a FREE trial period (via CycleActionEnum::EndTrial).
     ///
-    /// Business logic:
+    /// NOTE: Paid trials do NOT use this code path. They use:
+    /// - CycleActionEnum::RenewSubscription for normal billing cycles
+    /// - ScheduledEventTypeEnum::EndTrial to transition TrialActive → Active
+    ///
+    /// Business logic for FREE trials:
     /// - Free plan: → Active (no invoice ever)
-    /// - Paid trial (trial_is_free=false): → Active (already billed at creation, no new invoice)
     /// - Free trial on paid plan + has payment method: → Active + invoice
     /// - Free trial on paid plan + no payment method: → TrialExpired (awaiting checkout)
     async fn end_trial(
@@ -334,28 +337,7 @@ impl Services {
                 .await?;
 
         let plan = plan_with_version.plan;
-        let version = &plan_with_version.version;
         let is_free_plan = plan.plan_type == PlanTypeEnum::Free;
-
-        // Check if this was a paid trial (already billed at creation)
-        // IMPORTANT: If the plan version is missing and subscription has a trial,
-        // we cannot safely determine if it was a paid or free trial. Return an error
-        // to prevent potential double-billing of paid trials.
-        let was_paid_trial = if subscription.trial_duration.is_some() {
-            match version.as_ref() {
-                Some(v) => !v.trial_is_free,
-                None => {
-                    return Err(Report::new(StoreError::InvalidArgument(format!(
-                        "Cannot end trial for subscription {}: plan version {} not found. \
-                            Cannot determine trial type (paid vs free) for correct billing.",
-                        subscription.id.as_base62(),
-                        subscription.plan_version_id.as_base62()
-                    ))));
-                }
-            }
-        } else {
-            false
-        };
 
         if is_free_plan {
             // Free plan: transition to Active with no billing
@@ -376,28 +358,6 @@ impl Services {
                 new_period_start,
                 new_period_end: Some(period.end),
                 should_bill: false, // Free plan - never bill
-                pending_checkout: false,
-            })
-        } else if was_paid_trial {
-            // Paid trial: already billed at creation, just transition to Active
-            // No new invoice needed - billing cycle continues from current_period_end
-            let new_period_start = subscription
-                .current_period_end
-                .unwrap_or_else(|| Utc::now().naive_utc().date());
-
-            let period = calculate_advance_period_range(
-                new_period_start,
-                subscription.billing_day_anchor as u32,
-                false, // Not first period
-                &(subscription.period.clone().into()),
-            );
-
-            Ok(NextCycle {
-                status: SubscriptionStatusEnum::Active,
-                next_cycle_action: Some(CycleActionEnum::RenewSubscription),
-                new_period_start,
-                new_period_end: Some(period.end),
-                should_bill: false, // Already paid during trial - no new invoice
                 pending_checkout: false,
             })
         } else {

@@ -47,7 +47,7 @@ pub async fn run_plans_seed(pool: &PgPool) {
                 billing_cycles: None,
                 created_by: ids::USER_ID,
                 trialing_plan_id: None,
-                trial_is_free: false,
+                trial_is_free: true,
             }
             .insert(tx)
             .await?;
@@ -65,7 +65,7 @@ pub async fn run_plans_seed(pool: &PgPool) {
                 billing_cycles: None,
                 created_by: ids::USER_ID,
                 trialing_plan_id: None,
-                trial_is_free: false,
+                trial_is_free: true,
             }
             .insert(tx)
             .await?;
@@ -127,7 +127,7 @@ pub async fn run_plans_seed(pool: &PgPool) {
                 billing_cycles: None,
                 created_by: ids::USER_ID,
                 trialing_plan_id: None,
-                trial_is_free: false,
+                trial_is_free: true,
             }
             .insert(tx)
             .await?;
@@ -200,7 +200,7 @@ pub async fn run_plans_seed(pool: &PgPool) {
                 billing_cycles: None,
                 created_by: ids::USER_ID,
                 trialing_plan_id: None,
-                trial_is_free: false,
+                trial_is_free: true,
             }
             .insert(tx)
             .await?;
@@ -268,7 +268,7 @@ pub async fn run_plans_seed(pool: &PgPool) {
                 billing_cycles: None,
                 created_by: ids::USER_ID,
                 trialing_plan_id: None,
-                trial_is_free: false,
+                trial_is_free: true,
             }
             .insert(tx)
             .await?;
@@ -311,7 +311,7 @@ pub async fn run_plans_seed(pool: &PgPool) {
                 billing_cycles: None,
                 created_by: ids::USER_ID,
                 trialing_plan_id: None,
-                trial_is_free: false,
+                trial_is_free: true,
             }
             .insert(tx)
             .await?;

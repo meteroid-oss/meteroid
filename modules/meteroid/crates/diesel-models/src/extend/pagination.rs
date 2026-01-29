@@ -1,5 +1,5 @@
 use diesel::{
-    PgConnection, QueryId, QueryResult,
+    QueryId, QueryResult,
     pg::Pg,
     query_builder::{AstPass, Query, QueryFragment},
     sql_types::BigInt,
@@ -95,9 +95,6 @@ impl<T> Paginated<T> {
 impl<T: Query> Query for Paginated<T> {
     type SqlType = (T::SqlType, BigInt);
 }
-
-// impl<T> diesel_async::RunQueryDsl<AsyncPgConnection> for Paginated<T> {}
-impl<T> diesel::RunQueryDsl<PgConnection> for Paginated<T> {}
 
 impl<T> diesel::RunQueryDsl<AsyncPgConnection> for Paginated<T> {}
 

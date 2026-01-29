@@ -12,6 +12,7 @@ use rstest::rstest;
 
 use crate::data::ids::*;
 use crate::harness::{InvoicesAssertExt, SubscriptionAssertExt, TestEnv, subscription, test_env};
+use diesel_models::enums::CycleActionEnum;
 
 // =============================================================================
 // BASIC RENEWAL TESTS
@@ -217,8 +218,14 @@ async fn test_renewal_after_free_trial_with_checkout_during_trial(#[future] test
 // RENEWAL AFTER PAID TRIAL
 // =============================================================================
 
-/// OnCheckout + Paid Trial: checkout → trial ends → 2 renewals
-/// Total: 3 invoices at the end (1 from checkout + 2 renewals)
+/// OnCheckout + Paid Trial: checkout → renewals
+///
+/// With paid trials, billing is decoupled from trial status:
+/// - Checkout creates invoice 1 (trial active, bills immediately)
+/// - First process_cycles fires both trial end AND month-1 renewal → invoice 2
+/// - Each subsequent process_cycles creates another renewal invoice
+///
+/// Total: 4 invoices at the end (1 from checkout + 3 renewals)
 #[rstest]
 #[tokio::test]
 async fn test_renewal_after_paid_trial(#[future] test_env: TestEnv) {
@@ -239,6 +246,7 @@ async fn test_renewal_after_paid_trial(#[future] test_env: TestEnv) {
     // === Phase 1: PendingActivation ===
     let sub = env.get_subscription(sub_id).await;
     sub.assert()
+        .with_context("Phase 1: PendingActivation")
         .is_pending_activation()
         .has_pending_checkout(true);
 
@@ -267,10 +275,12 @@ async fn test_renewal_after_paid_trial(#[future] test_env: TestEnv) {
     );
     assert!(!is_pending, "Payment should not be pending");
 
-    // After checkout with paid trial, subscription goes to TrialActive
+    // After checkout: TrialActive with 1 invoice
     let sub = env.get_subscription(sub_id).await;
     sub.assert()
+        .with_context("Phase 2: After checkout")
         .is_trial_active()
+        .has_next_action(Some(CycleActionEnum::RenewSubscription)) // Paid trial = normal billing
         .has_pending_checkout(false)
         .has_payment_method(true)
         .has_cycle_index(0);
@@ -280,47 +290,43 @@ async fn test_renewal_after_paid_trial(#[future] test_env: TestEnv) {
     invoices
         .assert()
         .invoice_at(0)
+        .with_context("Invoice 1: at checkout")
         .has_total(9900)
+        .has_invoice_date(start_date)
         .check_prorated(false);
 
-    // === Phase 3: Process trial end → Active (no new invoice) ===
+    // === Phase 3: First process_cycles - trial ends AND renewal fires ===
     env.process_cycles().await;
 
     let sub = env.get_subscription(sub_id).await;
     sub.assert()
+        .with_context("Phase 3: After first process_cycles")
         .is_active()
         .has_pending_checkout(false)
         .has_payment_method(true)
         .has_trial_duration(Some(7))
-        .has_cycle_index(0); // Still cycle 0 for paid trial
+        .has_cycle_index(1); // Cycle advanced due to renewal
 
-    let invoices = env.get_invoices(sub_id).await;
-    invoices.assert().has_count(1); // Still 1 invoice
-
-    let period_end_0 = sub.current_period_end;
-
-    // === Phase 4: First renewal (Cycle 1) ===
-    env.process_cycles().await;
-
-    let sub = env.get_subscription(sub_id).await;
-    sub.assert().is_active().has_cycle_index(1);
-    assert_eq!(
-        Some(sub.current_period_start),
-        period_end_0,
-        "Period start should advance to previous period end"
-    );
-
+    // 2 invoices: checkout + first renewal
     let invoices = env.get_invoices(sub_id).await;
     invoices.assert().has_count(2);
-    invoices.assert().invoice_at(1).has_total(9900);
+    invoices
+        .assert()
+        .invoice_at(1)
+        .with_context("Invoice 2: first renewal")
+        .has_total(9900)
+        .has_invoice_date(NaiveDate::from_ymd_opt(2024, 2, 1).unwrap());
 
     let period_end_1 = sub.current_period_end;
 
-    // === Phase 5: Second renewal (Cycle 2) ===
+    // === Phase 4: Second renewal (Cycle 2) ===
     env.process_cycles().await;
 
     let sub = env.get_subscription(sub_id).await;
-    sub.assert().is_active().has_cycle_index(2);
+    sub.assert()
+        .with_context("Phase 4: Second renewal")
+        .is_active()
+        .has_cycle_index(2);
     assert_eq!(
         Some(sub.current_period_start),
         period_end_1,
@@ -329,6 +335,30 @@ async fn test_renewal_after_paid_trial(#[future] test_env: TestEnv) {
 
     let invoices = env.get_invoices(sub_id).await;
     invoices.assert().has_count(3);
+    invoices
+        .assert()
+        .invoice_at(2)
+        .has_total(9900)
+        .has_invoice_date(NaiveDate::from_ymd_opt(2024, 3, 1).unwrap());
+
+    let period_end_2 = sub.current_period_end;
+
+    // === Phase 5: Third renewal (Cycle 3) ===
+    env.process_cycles().await;
+
+    let sub = env.get_subscription(sub_id).await;
+    sub.assert()
+        .with_context("Phase 5: Third renewal")
+        .is_active()
+        .has_cycle_index(3);
+    assert_eq!(
+        Some(sub.current_period_start),
+        period_end_2,
+        "Period start should advance to previous period end"
+    );
+
+    let invoices = env.get_invoices(sub_id).await;
+    invoices.assert().has_count(4);
 }
 
 // =============================================================================
@@ -696,55 +726,82 @@ async fn test_onstart_free_trial_no_auto_charge(#[future] test_env: TestEnv) {
         .check_prorated(false);
 }
 
-/// OnStart + Paid Trial
-/// Expected: TrialActive immediately + FULL invoice (NOT prorated)
-/// Paid trial = feature resolution phase only, billing is normal from day 1
+/// OnStart + Paid Trial: billing is decoupled from trial status.
+///
+/// Key behavior:
+/// - Paid trial bills immediately using normal billing cycles (RenewSubscription)
+/// - Trial status change (TrialActive → Active) happens via scheduled EndTrial event
+/// - Trial end does NOT create an invoice - only billing cycle renewal does
+///
+/// Expected timeline for 7-day trial with monthly billing:
+/// - Day 0: Invoice 1 (creation), status = TrialActive
+/// - Day 7: Status → Active (no invoice)
+/// - Day 31: Invoice 2 (renewal)
 #[rstest]
 #[tokio::test]
 async fn test_onstart_paid_trial(#[future] test_env: TestEnv) {
     let env = test_env.await;
 
+    let start_date = NaiveDate::from_ymd_opt(2024, 1, 1).unwrap();
+
     let sub_id = subscription()
         .plan_version(PLAN_VERSION_PAID_TRIAL_ID) // $99/month, 7-day PAID trial
+        .start_date(start_date)
         .on_start()
         .trial_days(7)
         .no_auto_charge()
         .create(env.services())
         .await;
 
-    // Verify subscription state - should be TrialActive with immediate FULL invoice
+    // === Phase 1: Initial state ===
     let sub = env.get_subscription(sub_id).await;
     sub.assert()
+        .with_context("Initial state")
         .is_trial_active()
+        .has_next_action(Some(CycleActionEnum::RenewSubscription)) // Paid trial = normal billing
         .has_pending_checkout(false)
         .has_payment_method(false)
-        .has_trial_duration(Some(7));
+        .has_trial_duration(Some(7))
+        .has_cycle_index(0);
 
-    // Paid trial should create FULL invoice immediately (NOT prorated)
-    // Trial only affects feature resolution, not billing
+    // Paid trial creates FULL invoice immediately (NOT prorated)
     let invoices = env.get_invoices(sub_id).await;
     invoices.assert().has_count(1);
     invoices
         .assert()
         .invoice_at(0)
+        .with_context("Invoice 1: at creation")
         .is_finalized_unpaid()
-        .has_total(9900) // Full $99/month - NOT prorated
+        .has_total(9900) // Full $99/month
+        .has_invoice_date(start_date)
         .check_prorated(false);
 
-    // === Process trial end ===
-    // Trial ends but no new invoice - already billed at creation
+    // === Phase 2: process_cycles - trial ends AND renewal fires ===
+    // Both happen because dates are in the past when test runs
     env.process_cycles().await;
 
     let sub = env.get_subscription(sub_id).await;
     sub.assert()
+        .with_context("After process_cycles")
         .is_active()
         .has_pending_checkout(false)
         .has_payment_method(false)
-        .has_trial_duration(Some(7));
+        .has_trial_duration(Some(7))
+        .has_cycle_index(1); // Cycle advanced
 
-    // Still only 1 invoice - paid trials don't create new invoice at trial end
+    // Two invoices: creation + renewal at month end
     let invoices = env.get_invoices(sub_id).await;
-    invoices.assert().has_count(1);
+    invoices.assert().has_count(2);
+
+    // Verify invoice 2 is at month-end, not trial-end
+    let expected_renewal_date = NaiveDate::from_ymd_opt(2024, 2, 1).unwrap();
+    invoices
+        .assert()
+        .invoice_at(1)
+        .with_context("Invoice 2: at renewal")
+        .is_finalized_unpaid()
+        .has_total(9900)
+        .has_invoice_date(expected_renewal_date);
 }
 
 // =============================================================================
