@@ -4642,6 +4642,35 @@
           "CUSTOM"
         ]
       },
+      "PlanUsagePricingModel": {
+        "oneOf": [
+          {
+            "$ref": "#/components/schemas/PerUnitPlanPricing"
+          },
+          {
+            "$ref": "#/components/schemas/TieredPlanPricing"
+          },
+          {
+            "$ref": "#/components/schemas/VolumePlanPricing"
+          },
+          {
+            "$ref": "#/components/schemas/PackagePlanPricing"
+          },
+          {
+            "$ref": "#/components/schemas/MatrixPlanPricing"
+          }
+        ],
+        "discriminator": {
+          "propertyName": "discriminator",
+          "mapping": {
+            "MATRIX": "#/components/schemas/MatrixPlanPricing",
+            "PACKAGE": "#/components/schemas/PackagePlanPricing",
+            "PER_UNIT": "#/components/schemas/PerUnitPlanPricing",
+            "TIERED": "#/components/schemas/TieredPlanPricing",
+            "VOLUME": "#/components/schemas/VolumePlanPricing"
+          }
+        }
+      },
       "PlanVersionId": {
         "type": "string",
         "format": "MeteroidId",
@@ -6056,7 +6085,7 @@
             "$ref": "#/components/schemas/BillableMetricId"
           },
           "pricing": {
-            "$ref": "#/components/schemas/UsagePricingModel"
+            "$ref": "#/components/schemas/PlanUsagePricingModel"
           }
         }
       },
