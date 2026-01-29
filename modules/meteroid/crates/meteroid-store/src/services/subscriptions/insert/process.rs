@@ -4,6 +4,7 @@ use crate::constants::{Currencies, Currency};
 use crate::domain::checkout_sessions::{CheckoutType, CreateCheckoutSession};
 use crate::domain::coupons::Coupon;
 use crate::domain::enums::SubscriptionEventType;
+use crate::domain::scheduled_events::ScheduledEventNew;
 use crate::domain::slot_transactions::{SlotTransaction, SlotTransactionNewInternal};
 use crate::domain::{
     CreateSubscription, CreateSubscriptionAddOns, CreateSubscriptionComponents,
@@ -31,6 +32,7 @@ use diesel_models::applied_coupons::AppliedCouponRowNew;
 use diesel_models::checkout_sessions::{CheckoutSessionRow, CheckoutSessionRowNew};
 use diesel_models::enums::CycleActionEnum;
 use diesel_models::plans::PlanRow;
+use diesel_models::scheduled_events::ScheduledEventRowNew;
 use diesel_models::slot_transactions::SlotTransactionRow;
 use diesel_models::subscription_add_ons::{SubscriptionAddOnRow, SubscriptionAddOnRowNew};
 use diesel_models::subscription_components::{
@@ -54,6 +56,7 @@ pub struct ProcessedSubscription {
     coupons: Vec<AppliedCouponRowNew>,
     event: SubscriptionEventRow,
     slot_transactions: Vec<SlotTransactionRow>,
+    scheduled_events: Vec<ScheduledEventNew>,
     /// When true, skip checkout session creation even if pending_checkout is true.
     /// Used for subscriptions created from checkout completion (SelfServe flow).
     skip_checkout_session: bool,
@@ -264,12 +267,12 @@ impl Services {
 
         let now = chrono::Utc::now().naive_utc();
 
-        // let mut scheduled_event = None;
         let mut current_period_start = billing_start_date;
         let mut current_period_end = None;
         let mut next_cycle_action = None;
         let mut cycle_index = None;
         let mut status = SubscriptionStatusEnum::PendingActivation; // TODO should add pending_checkout ? or we just infer from activation_condition ?
+        let mut scheduled_events: Vec<ScheduledEventNew> = vec![];
 
         // Handle trial: distinguish between free and paid trials
         // - Free trial: billing period = trial duration, no billing until trial ends
@@ -292,6 +295,8 @@ impl Services {
                 } else if has_paid_trial {
                     // Paid trial: period = full billing cycle, bill immediately
                     // Trial only affects feature resolution, not billing
+                    // Use normal RenewSubscription cycle - trial end is handled via scheduled event
+                    let trial_days = effective_trial_duration.unwrap();
                     let range = calculate_advance_period_range(
                         billing_start_date,
                         u32::from(billing_day_anchor),
@@ -302,7 +307,23 @@ impl Services {
                     cycle_index = Some(0);
                     current_period_start = range.start;
                     current_period_end = Some(range.end);
-                    next_cycle_action = Some(CycleActionEnum::EndTrial);
+                    // Use RenewSubscription for normal billing cycle
+                    next_cycle_action = Some(CycleActionEnum::RenewSubscription);
+
+                    // Schedule trial end event at start_date + trial_duration
+                    let scheduled_event = ScheduledEventNew::end_trial(
+                        subscription_id,
+                        tenant_id,
+                        billing_start_date,
+                        trial_days as i32,
+                        "subscription_creation",
+                    )
+                    .ok_or_else(|| {
+                        Report::new(StoreError::InvalidArgument(
+                            "Failed to compute trial end date".to_string(),
+                        ))
+                    })?;
+                    scheduled_events.push(scheduled_event);
                 } else {
                     // No trial: normal billing
                     let range = calculate_advance_period_range(
@@ -425,6 +446,7 @@ impl Services {
             coupons: subscription_coupons,
             event,
             slot_transactions,
+            scheduled_events,
             skip_checkout_session: sub.subscription.skip_checkout_session,
         })
     }
@@ -635,6 +657,19 @@ impl Services {
                     SlotTransactionRow::insert_batch(conn, slot_transactions)
                         .map_err(Into::<StoreErrorReport>::into)
                         .await?;
+
+                    // Insert scheduled events (e.g., EndTrial for paid trials)
+                    let scheduled_events: Vec<ScheduledEventRowNew> = processed
+                        .iter()
+                        .flat_map(|p| &p.scheduled_events)
+                        .cloned()
+                        .map(|e| e.try_into())
+                        .collect::<Result<Vec<_>, _>>()?;
+                    if !scheduled_events.is_empty() {
+                        ScheduledEventRowNew::insert_batch(conn, &scheduled_events)
+                            .map_err(Into::<StoreErrorReport>::into)
+                            .await?;
+                    }
 
                     self.insert_created_outbox_events_tx(conn, &inserted, tenant_id)
                         .await?;

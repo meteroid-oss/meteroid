@@ -5,11 +5,12 @@
 //! - Trial end transitions
 //! - Free vs Paid trial behavior
 
+use chrono::NaiveDate;
 use rstest::rstest;
 
 use crate::data::ids::*;
 use crate::harness::{InvoicesAssertExt, SubscriptionAssertExt, TestEnv, subscription, test_env};
-use diesel_models::enums::SubscriptionStatusEnum;
+use diesel_models::enums::{CycleActionEnum, SubscriptionStatusEnum};
 use meteroid_store::domain::subscription_trial::EffectivePlanSource;
 
 // =============================================================================
@@ -84,7 +85,7 @@ async fn test_after_trial_uses_original_plan(#[future] test_env: TestEnv) {
     let env = test_env.await;
 
     let sub_id = subscription()
-        .plan_version(PLAN_VERSION_PRO_WITH_TRIAL_ID)
+        .plan_version(PLAN_VERSION_PAID_FREE_TRIAL_ID)
         .on_start()
         .trial_days(7)
         .create(env.services())
@@ -103,12 +104,12 @@ async fn test_after_trial_uses_original_plan(#[future] test_env: TestEnv) {
         .await
         .expect("Failed to get effective plan");
 
-    assert_eq!(effective_plan.plan_id, PLAN_PRO_WITH_TRIAL_ID);
+    assert_eq!(effective_plan.plan_id, PLAN_PAID_FREE_TRIAL_ID);
     assert_eq!(
         effective_plan.plan_version_id,
-        PLAN_VERSION_PRO_WITH_TRIAL_ID
+        PLAN_VERSION_PAID_FREE_TRIAL_ID
     );
-    assert_eq!(effective_plan.plan_name, "Free with Trial");
+    assert_eq!(effective_plan.plan_name, "Paid with Free Trial");
     assert_eq!(effective_plan.source, EffectivePlanSource::OriginalPlan);
 }
 
@@ -255,32 +256,101 @@ async fn test_oncheckout_free_trial_auto_charge_no_payment_method_expires(
     invoices.assert().assert_empty();
 }
 
-/// OnStart + Paid Trial ends: becomes Active (no new invoice)
+/// OnStart + Paid Trial: trial end doesn't create invoice, but renewal does.
+///
+/// Key insight: Paid trials decouple billing from trial status.
+/// - Billing: normal monthly cycle (RenewSubscription)
+/// - Trial status: handled by scheduled EndTrial event
+///
+/// Timeline for 7-day paid trial with monthly billing starting Jan 1:
+/// - Day 0 (Jan 1): Invoice 1 created, status = TrialActive
+/// - Day 7 (Jan 8): Trial ends via scheduled event, status = Active, NO new invoice
+/// - Day 31 (Feb 1): Billing cycle ends, Invoice 2 created via RenewSubscription
+///
+/// When process_cycles() runs, both events fire (since all dates are in the past).
 #[rstest]
 #[tokio::test]
-async fn test_onstart_paid_trial_ends_no_new_invoice(#[future] test_env: TestEnv) {
+async fn test_onstart_paid_trial_billing_cycle(#[future] test_env: TestEnv) {
     let env = test_env.await;
 
+    let start_date = NaiveDate::from_ymd_opt(2024, 1, 1).unwrap();
+
     let sub_id = subscription()
-        .plan_version(PLAN_VERSION_PAID_TRIAL_ID)
+        .plan_version(PLAN_VERSION_PAID_TRIAL_ID) // $99/month, paid trial
+        .start_date(start_date)
         .on_start()
         .trial_days(7)
+        .no_auto_charge()
         .create(env.services())
         .await;
 
-    // Verify paid trial created invoice immediately
+    // === Phase 1: Initial state - TrialActive with 1 invoice ===
+    let sub = env.get_subscription(sub_id).await;
+    sub.assert()
+        .with_context("Initial state")
+        .is_trial_active()
+        .has_next_action(Some(CycleActionEnum::RenewSubscription)) // Paid trial uses normal billing
+        .has_trial_duration(Some(7))
+        .has_cycle_index(0);
+
+    // First invoice: covers the first billing period (Jan 1 - Feb 1)
     let invoices = env.get_invoices(sub_id).await;
     invoices.assert().has_count(1);
+    invoices
+        .assert()
+        .invoice_at(0)
+        .with_context("Invoice 1: at creation")
+        .is_finalized_unpaid()
+        .has_total(9900)
+        .has_invoice_date(start_date) // Jan 1
+        .has_period(start_date, NaiveDate::from_ymd_opt(2024, 2, 1).unwrap());
 
-    // Process trial end
+    // === Phase 2: process_cycles fires both trial end AND billing renewal ===
+    // Since we're running in 2026, both Jan 8 (trial end) and Feb 1 (renewal) are past
     env.process_cycles().await;
 
     let sub = env.get_subscription(sub_id).await;
-    sub.assert().is_active().has_trial_duration(Some(7));
+    sub.assert()
+        .with_context("After process_cycles")
+        .is_active() // Trial ended via scheduled event
+        .has_trial_duration(Some(7))
+        .has_cycle_index(1); // Cycle advanced due to renewal
 
-    // Still only 1 invoice
+    // Two invoices: creation + renewal at month-end
     let invoices = env.get_invoices(sub_id).await;
-    invoices.assert().has_count(1);
+    invoices.assert().has_count(2);
+
+    // Invoice 1: still the original at Jan 1
+    invoices
+        .assert()
+        .invoice_at(0)
+        .with_context("Invoice 1: at creation")
+        .has_invoice_date(start_date);
+
+    // Invoice 2: at Feb 1 (billing cycle end), NOT at Jan 8 (trial end)
+    // This proves trial end doesn't create an invoice - the renewal does
+    let expected_renewal_date = NaiveDate::from_ymd_opt(2024, 2, 1).unwrap();
+    invoices
+        .assert()
+        .invoice_at(1)
+        .with_context("Invoice 2: at billing cycle end, not trial end")
+        .is_finalized_unpaid()
+        .has_total(9900)
+        .has_invoice_date(expected_renewal_date)
+        .has_period(
+            expected_renewal_date,
+            NaiveDate::from_ymd_opt(2024, 3, 1).unwrap(),
+        );
+
+    // Verify: no invoice on Jan 8 (trial end date)
+    let trial_end_date = NaiveDate::from_ymd_opt(2024, 1, 8).unwrap();
+    for invoice in invoices.iter() {
+        assert_ne!(
+            invoice.invoice_date, trial_end_date,
+            "No invoice should be dated at trial end ({})",
+            trial_end_date
+        );
+    }
 }
 
 // =============================================================================
@@ -524,4 +594,267 @@ async fn test_oncheckout_trial_with_payment_method_becomes_active(#[future] test
         .with_context("OnCheckout subscription without payment method should be TrialExpired even with auto-charge")
         .is_trial_expired()
         .has_pending_checkout(true);
+}
+
+// =============================================================================
+// PAID TRIAL INVOICE GENERATION BUG REPRODUCTION
+// =============================================================================
+
+/// BUG REPRODUCTION: Paid plan with monthly rate and 90-day paid trial.
+///
+/// This test reproduces a bug where one invoice is missing from the first 4 generated invoices
+/// when you have:
+/// - A paid plan with a monthly rate
+/// - A paid trial giving another plan's features for 90 days
+///
+/// Expected behavior:
+/// - Cycle 0 (creation): 1 invoice created immediately (paid trial bills from day 1)
+/// - Process cycle 1 (month 1 renewal): 2nd invoice
+/// - Process cycle 2 (month 2 renewal): 3rd invoice
+/// - Process cycle 3 (trial ends ~90 days, month 3 renewal): 4th invoice
+///
+/// The trial spans approximately 3 billing periods. After 4 process_cycles calls,
+/// we should have 4 invoices total.
+///
+/// BUG: Currently one invoice is missing because EndTrial incorrectly sets
+/// should_bill=false for paid trials, skipping the invoice at trial end.
+#[rstest]
+#[tokio::test]
+async fn test_paid_trial_90_days_generates_all_invoices(#[future] test_env: TestEnv) {
+    let env = test_env.await;
+
+    let start_date = NaiveDate::from_ymd_opt(2024, 1, 1).unwrap();
+
+    // Create a subscription with:
+    // - Paid plan with monthly rate ($99/month)
+    // - 90-day paid trial giving Enterprise features
+    let sub_id = subscription()
+        .plan_version(PLAN_VERSION_PAID_TRIAL_ID) // $99/month, paid trial with trialing_plan
+        .start_date(start_date)
+        .on_start()
+        .trial_days(90) // 90-day paid trial (overrides default 7-day)
+        .no_auto_charge()
+        .create(env.services())
+        .await;
+
+    // === Initial state: TrialActive with 1 invoice ===
+    // Paid trial bills immediately at creation
+    // Note: Paid trials use RenewSubscription (not EndTrial) for billing cycles
+    // Trial end is handled via scheduled event, not cycle action
+    let sub = env.get_subscription(sub_id).await;
+    sub.assert()
+        .with_context("Initial state")
+        .has_status(SubscriptionStatusEnum::TrialActive)
+        .has_next_action(Some(CycleActionEnum::RenewSubscription)) // Paid trial uses normal renewal
+        .has_trial_duration(Some(90))
+        .has_cycle_index(0);
+
+    let invoices = env.get_invoices(sub_id).await;
+    invoices.assert().has_count(1);
+    invoices
+        .assert()
+        .invoice_at(0)
+        .with_context("Invoice at creation")
+        .is_finalized_unpaid()
+        .has_total(9900); // $99.00
+
+    // === Process cycle 1: First renewal during trial ===
+    env.process_cycles().await;
+
+    let invoices = env.get_invoices(sub_id).await;
+    assert_eq!(invoices.len(), 2, "After cycle 1: should have 2 invoices");
+
+    // === Process cycle 2: Second renewal ===
+    env.process_cycles().await;
+
+    let invoices = env.get_invoices(sub_id).await;
+    assert_eq!(invoices.len(), 3, "After cycle 2: should have 3 invoices");
+
+    // === Process cycle 3: Third renewal (trial should end around here) ===
+    env.process_cycles().await;
+
+    let invoices = env.get_invoices(sub_id).await;
+    assert_eq!(invoices.len(), 4, "After cycle 3: should have 4 invoices");
+
+    // === Process cycle 4: Fourth renewal ===
+    env.process_cycles().await;
+
+    let sub = env.get_subscription(sub_id).await;
+    sub.assert().with_context("After 4 cycles").is_active(); // Should be active after 90-day trial ends
+
+    let invoices = env.get_invoices(sub_id).await;
+    assert_eq!(invoices.len(), 5, "After cycle 4: should have 5 invoices");
+
+    // Debug: Print invoice dates to see the gap
+    println!("Invoice dates (should be consecutive months starting Jan 1, 2024):");
+    for (i, invoice) in invoices.iter().enumerate() {
+        println!("  Invoice {}: {}", i, invoice.invoice_date);
+    }
+
+    // Expected invoice dates for monthly billing starting Jan 1, 2024:
+    // Invoice 0: 2024-01-01 (creation)
+    // Invoice 1: 2024-02-01 (1st renewal)
+    // Invoice 2: 2024-03-01 (2nd renewal)
+    // Invoice 3: 2024-04-01 (3rd renewal, trial ends around here)
+    // Invoice 4: 2024-05-01 (4th renewal)
+    //
+    // BUG: One invoice is missing - check the dates to see the gap
+    let expected_dates = vec![
+        NaiveDate::from_ymd_opt(2024, 1, 1).unwrap(),
+        NaiveDate::from_ymd_opt(2024, 2, 1).unwrap(),
+        NaiveDate::from_ymd_opt(2024, 3, 1).unwrap(),
+        NaiveDate::from_ymd_opt(2024, 4, 1).unwrap(),
+        NaiveDate::from_ymd_opt(2024, 5, 1).unwrap(),
+    ];
+
+    for (i, expected_date) in expected_dates.iter().enumerate() {
+        assert!(
+            invoices.get(i).is_some(),
+            "Missing invoice {}: expected date {}",
+            i,
+            expected_date
+        );
+        assert_eq!(
+            invoices[i].invoice_date, *expected_date,
+            "Invoice {} has wrong date: expected {}, got {}",
+            i, expected_date, invoices[i].invoice_date
+        );
+    }
+}
+
+/// Paid plan with FREE trial (90 days).
+/// - No invoices during trial
+/// - After trial ends (90 days), billing starts
+/// - Each cycle after trial generates an invoice
+#[rstest]
+#[tokio::test]
+async fn test_paid_free_trial_90_days_generates_all_invoices(#[future] test_env: TestEnv) {
+    let env = test_env.await;
+
+    let start_date = NaiveDate::from_ymd_opt(2024, 1, 1).unwrap();
+
+    let sub_id = subscription()
+        .plan_version(PLAN_VERSION_PAID_FREE_TRIAL_ID) // $49/month, FREE trial
+        .start_date(start_date)
+        .on_start()
+        .trial_days(90)
+        .no_auto_charge()
+        .create(env.services())
+        .await;
+
+    // === Initial state: TrialActive with NO invoice ===
+    // Free trial = no billing until trial ends
+    let sub = env.get_subscription(sub_id).await;
+    sub.assert()
+        .with_context("Initial state")
+        .is_trial_active() // Free trial uses EndTrial action
+        .has_trial_duration(Some(90))
+        .has_cycle_index(0);
+
+    let invoices = env.get_invoices(sub_id).await;
+    invoices.assert().has_count(0); // No invoice during free trial
+
+    // === Process cycle 1: Trial ends (90 days), first invoice created ===
+    env.process_cycles().await;
+
+    let sub = env.get_subscription(sub_id).await;
+    sub.assert()
+        .with_context("After trial ends")
+        .is_active()
+        .has_cycle_index(0);
+
+    let invoices = env.get_invoices(sub_id).await;
+    invoices.assert().has_count(1);
+    // First invoice is for the period starting at trial end (90 days from Jan 1 = Mar 31)
+    assert_eq!(
+        invoices[0].invoice_date,
+        NaiveDate::from_ymd_opt(2024, 3, 31).unwrap(),
+        "First invoice should be at trial end date"
+    );
+
+    // === Process cycle 2: First renewal ===
+    env.process_cycles().await;
+
+    let invoices = env.get_invoices(sub_id).await;
+    invoices.assert().has_count(2);
+
+    // === Process cycle 3: Second renewal ===
+    env.process_cycles().await;
+
+    let invoices = env.get_invoices(sub_id).await;
+    invoices.assert().has_count(3);
+
+    // === Process cycle 4: Third renewal ===
+    env.process_cycles().await;
+
+    let invoices = env.get_invoices(sub_id).await;
+    invoices.assert().has_count(4);
+
+    // Verify invoice dates are consecutive months starting from trial end
+    println!("Invoice dates for free trial (should start at trial end Apr 1, 2024):");
+    for (i, invoice) in invoices.iter().enumerate() {
+        println!("  Invoice {}: {}", i, invoice.invoice_date);
+    }
+
+    // 90 days from Jan 1 = Mar 31, then monthly billing anchored to that day
+    let expected_dates = vec![
+        NaiveDate::from_ymd_opt(2024, 3, 31).unwrap(), // Trial end (Jan 1 + 90 days)
+        NaiveDate::from_ymd_opt(2024, 4, 30).unwrap(), // +1 month (Apr 30 because Apr has 30 days)
+        NaiveDate::from_ymd_opt(2024, 5, 31).unwrap(), // +1 month
+        NaiveDate::from_ymd_opt(2024, 6, 30).unwrap(), // +1 month (Jun has 30 days)
+    ];
+
+    for (i, expected_date) in expected_dates.iter().enumerate() {
+        assert_eq!(
+            invoices[i].invoice_date, *expected_date,
+            "Invoice {} has wrong date: expected {}, got {}",
+            i, expected_date, invoices[i].invoice_date
+        );
+    }
+}
+
+/// Free plan with trial (edge case).
+/// - Free plan = no billing ever
+/// - Trial on free plan just delays activation but no invoices regardless
+#[rstest]
+#[tokio::test]
+async fn test_free_plan_with_trial_generates_no_invoices(#[future] test_env: TestEnv) {
+    let env = test_env.await;
+
+    let start_date = NaiveDate::from_ymd_opt(2024, 1, 1).unwrap();
+
+    let sub_id = subscription()
+        .plan_version(PLAN_VERSION_FREE_ID) // Free plan
+        .start_date(start_date)
+        .on_start()
+        .trial_days(90)
+        .no_auto_charge()
+        .create(env.services())
+        .await;
+
+    // === Initial state ===
+    let sub = env.get_subscription(sub_id).await;
+    sub.assert()
+        .with_context("Initial state")
+        .has_trial_duration(Some(90));
+
+    let invoices = env.get_invoices(sub_id).await;
+    invoices.assert().has_count(0); // No invoice - free plan
+
+    // === Process cycles ===
+    env.process_cycles().await;
+    env.process_cycles().await;
+    env.process_cycles().await;
+    env.process_cycles().await;
+
+    // After 4 cycles, should still have no invoices (free plan)
+    let invoices = env.get_invoices(sub_id).await;
+    invoices
+        .assert()
+        .with_context("Free plan should never generate invoices")
+        .has_count(0);
+
+    // Subscription should be active
+    let sub = env.get_subscription(sub_id).await;
+    sub.assert().is_active();
 }

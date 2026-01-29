@@ -218,17 +218,13 @@ pub struct MatrixPlanPricing {
 }
 
 #[derive(Clone, ToSchema, serde::Serialize, serde::Deserialize, Debug)]
-#[serde(tag = "model", rename_all = "snake_case")]
+#[serde(tag = "discriminator", rename_all = "SCREAMING_SNAKE_CASE")]
+#[schema(as = PlanUsagePricingModel)]
 pub enum UsagePricingModel {
-    #[serde(rename = "per_unit")]
     PerUnit(PerUnitPlanPricing),
-    #[serde(rename = "tiered")]
     Tiered(TieredPlanPricing),
-    #[serde(rename = "volume")]
     Volume(VolumePlanPricing),
-    #[serde(rename = "package")]
     Package(PackagePlanPricing),
-    #[serde(rename = "matrix")]
     Matrix(MatrixPlanPricing),
 }
 

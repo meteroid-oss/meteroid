@@ -161,6 +161,7 @@ impl Services {
             ScheduledEventTypeEnum::PauseSubscription => {
                 self.process_pause_subscription(conn, &event).await
             }
+            ScheduledEventTypeEnum::EndTrial => self.process_end_trial(conn, &event).await,
         }
     }
     /// Determine if event should be retried
@@ -266,6 +267,64 @@ impl Services {
         } else {
             log::error!(
                 "Unexpected event data for type PauseSubscription: {:?}, event_id={}",
+                event.event_data,
+                event.id
+            );
+        }
+
+        Ok(())
+    }
+
+    /// Process EndTrial event for paid trials.
+    /// This transitions the subscription from TrialActive to Active.
+    /// Billing continues normally via RenewSubscription - this just handles the status change.
+    async fn process_end_trial(
+        &self,
+        conn: &mut PgConn,
+        event: &ScheduledEvent,
+    ) -> StoreResult<()> {
+        use common_domain::ids::BaseId;
+        use diesel_models::subscriptions::{SubscriptionCycleRowPatch, SubscriptionRow};
+
+        if let ScheduledEventData::EndTrial = &event.event_data {
+            // Get the subscription
+            let subscription = SubscriptionRow::get_subscription_by_id(
+                conn,
+                &event.tenant_id,
+                event.subscription_id,
+            )
+            .await?;
+
+            // Only process if subscription is still in TrialActive status
+            if subscription.subscription.status == SubscriptionStatusEnum::TrialActive {
+                // Transition to Active - billing continues normally via RenewSubscription
+                let patch = SubscriptionCycleRowPatch {
+                    id: event.subscription_id,
+                    tenant_id: event.tenant_id,
+                    status: Some(SubscriptionStatusEnum::Active),
+                    cycle_index: None,
+                    next_cycle_action: None,
+                    current_period_start: None,
+                    current_period_end: None,
+                    pending_checkout: None,
+                    processing_started_at: None,
+                };
+                patch.patch(conn).await?;
+
+                log::info!(
+                    "Paid trial ended for subscription {}, transitioned to Active",
+                    event.subscription_id.as_base62()
+                );
+            } else {
+                log::warn!(
+                    "EndTrial event for subscription {} but status is {:?}, skipping",
+                    event.subscription_id.as_base62(),
+                    subscription.subscription.status
+                );
+            }
+        } else {
+            log::error!(
+                "Unexpected event data for type EndTrial: {:?}, event_id={}",
                 event.event_data,
                 event.id
             );

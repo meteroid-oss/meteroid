@@ -5,6 +5,7 @@ use crate::errors::StoreError;
 use crate::repositories::SubscriptionInterface;
 use crate::repositories::outbox::OutboxInterface;
 use crate::services::Services;
+use crate::services::subscriptions::utils::is_paid_trial;
 use crate::services::subscriptions::{PaymentActivationParams, PaymentMethodInfo};
 use crate::utils::periods::calculate_advance_period_range;
 use chrono::{Datelike, Utc};
@@ -393,6 +394,14 @@ impl Services {
                             .await
                             .map_err(|e| StoreError::DatabaseError(e.error))?;
 
+                            let is_paid_trial_flag = is_paid_trial(
+                                conn,
+                                subscription.subscription.plan_version_id,
+                                event.tenant_id,
+                                session.trial_duration_days.is_some(),
+                            )
+                            .await?;
+
                             self.activate_subscription_after_payment(
                                 conn,
                                 &created_subscription.id,
@@ -400,6 +409,7 @@ impl Services {
                                 PaymentActivationParams {
                                     billing_start_date,
                                     trial_duration: session.trial_duration_days,
+                                    is_paid_trial: is_paid_trial_flag,
                                     billing_day_anchor,
                                     period: subscription.subscription.period.into(),
                                     payment_method: Some(PaymentMethodInfo {
@@ -469,6 +479,14 @@ impl Services {
                                 .await
                                 .map_err(|e| StoreError::DatabaseError(e.error))?;
 
+                                let is_paid_trial_flag = is_paid_trial(
+                                    conn,
+                                    subscription.subscription.plan_version_id,
+                                    event.tenant_id,
+                                    subscription.subscription.trial_duration.is_some(),
+                                )
+                                .await?;
+
                                 self.activate_subscription_after_payment(
                                     conn,
                                     &subscription_id,
@@ -479,6 +497,7 @@ impl Services {
                                             .subscription
                                             .trial_duration
                                             .map(|d| d as i32),
+                                        is_paid_trial: is_paid_trial_flag,
                                         billing_day_anchor: subscription.subscription.billing_day_anchor
                                             as u32,
                                         period: subscription.subscription.period,

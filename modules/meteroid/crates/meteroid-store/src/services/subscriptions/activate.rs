@@ -1,6 +1,7 @@
 use crate::StoreResult;
 use crate::domain::Subscription;
 use crate::domain::enums::{BillingPeriodEnum, SubscriptionActivationCondition};
+use crate::domain::scheduled_events::ScheduledEventNew;
 use crate::errors::StoreError;
 use crate::repositories::SubscriptionInterface;
 use crate::services::Services;
@@ -10,6 +11,7 @@ use chrono::{Days, Duration, NaiveDate, Utc};
 use common_domain::ids::{CustomerPaymentMethodId, SubscriptionId, TenantId};
 use diesel_async::scoped_futures::ScopedFutureExt;
 use diesel_models::enums::{CycleActionEnum, PaymentMethodTypeEnum, SubscriptionStatusEnum};
+use diesel_models::scheduled_events::ScheduledEventRowNew;
 use diesel_models::subscriptions::SubscriptionRow;
 use error_stack::Report;
 
@@ -17,6 +19,7 @@ use error_stack::Report;
 pub struct PaymentActivationParams {
     pub billing_start_date: NaiveDate,
     pub trial_duration: Option<i32>,
+    pub is_paid_trial: bool,
     pub billing_day_anchor: u32,
     pub period: BillingPeriodEnum,
     /// Optional payment method to set during activation.
@@ -141,9 +144,12 @@ impl Services {
 
     /// Activates a subscription after payment has been confirmed.
     ///
-    /// Handles both trial and non-trial subscriptions:
-    /// - Trial subscriptions are activated with status TrialActive and EndTrial cycle action
-    /// - Non-trial subscriptions are activated with status Active and a full billing cycle
+    /// Handles three subscription types:
+    /// - No trial: activated with status Active and RenewSubscription cycle action
+    /// - Free trial: activated with status TrialActive and EndTrial cycle action
+    ///   (billing period = trial duration)
+    /// - Paid trial: activated with status TrialActive and RenewSubscription cycle action
+    ///   (billing period = normal cycle, trial end handled via scheduled event)
     ///
     /// If `payment_method` is provided, it will be set on the subscription during activation.
     pub async fn activate_subscription_after_payment(
@@ -155,32 +161,50 @@ impl Services {
     ) -> Result<(), Report<StoreError>> {
         let has_trial = params.trial_duration.is_some_and(|d| d > 0);
 
-        let (status, current_period_start, current_period_end, next_cycle_action) = if has_trial {
-            let trial_duration = params.trial_duration.unwrap_or(0);
-            let period_end =
-                params.billing_start_date + chrono::Duration::days(i64::from(trial_duration));
+        let (status, current_period_start, current_period_end, next_cycle_action) =
+            if has_trial && params.is_paid_trial {
+                // Paid trial: use normal billing cycle, trial end handled via scheduled event
+                let range = calculate_advance_period_range(
+                    params.billing_start_date,
+                    params.billing_day_anchor,
+                    true,
+                    &params.period,
+                );
 
-            (
-                SubscriptionStatusEnum::TrialActive,
-                params.billing_start_date,
-                Some(period_end),
-                Some(CycleActionEnum::EndTrial),
-            )
-        } else {
-            let range = calculate_advance_period_range(
-                params.billing_start_date,
-                params.billing_day_anchor,
-                true,
-                &params.period,
-            );
+                (
+                    SubscriptionStatusEnum::TrialActive,
+                    range.start,
+                    Some(range.end),
+                    Some(CycleActionEnum::RenewSubscription),
+                )
+            } else if has_trial {
+                // Free trial: billing period = trial duration
+                let trial_duration = params.trial_duration.unwrap_or(0);
+                let period_end =
+                    params.billing_start_date + chrono::Duration::days(i64::from(trial_duration));
 
-            (
-                SubscriptionStatusEnum::Active,
-                range.start,
-                Some(range.end),
-                Some(CycleActionEnum::RenewSubscription),
-            )
-        };
+                (
+                    SubscriptionStatusEnum::TrialActive,
+                    params.billing_start_date,
+                    Some(period_end),
+                    Some(CycleActionEnum::EndTrial),
+                )
+            } else {
+                // No trial: normal billing
+                let range = calculate_advance_period_range(
+                    params.billing_start_date,
+                    params.billing_day_anchor,
+                    true,
+                    &params.period,
+                );
+
+                (
+                    SubscriptionStatusEnum::Active,
+                    range.start,
+                    Some(range.end),
+                    Some(CycleActionEnum::RenewSubscription),
+                )
+            };
 
         if let Some(pm) = params.payment_method {
             SubscriptionRow::activate_subscription_with_payment_method(
@@ -210,6 +234,29 @@ impl Services {
             )
             .await
             .map_err(Into::<Report<StoreError>>::into)?;
+        }
+
+        // For paid trials, schedule the EndTrial event to transition status when trial ends
+        if has_trial
+            && params.is_paid_trial
+            && let Some(trial_days) = params.trial_duration
+        {
+            let scheduled_event = ScheduledEventNew::end_trial(
+                *subscription_id,
+                *tenant_id,
+                params.billing_start_date,
+                trial_days,
+                "payment_activation",
+            )
+            .ok_or_else(|| {
+                Report::new(StoreError::InvalidArgument(
+                    "Failed to compute trial end date".to_string(),
+                ))
+            })?;
+            let insertable: ScheduledEventRowNew = scheduled_event.try_into()?;
+            ScheduledEventRowNew::insert_batch(conn, &[insertable])
+                .await
+                .map_err(Into::<Report<StoreError>>::into)?;
         }
 
         Ok(())

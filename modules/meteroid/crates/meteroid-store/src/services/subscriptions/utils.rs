@@ -27,6 +27,7 @@ use rust_decimal::prelude::*;
 use crate::services::Services;
 use crate::utils::periods::calculate_advance_period_range;
 use common_domain::ids::{AppliedCouponId, BaseId, CouponId, PlanVersionId, TenantId};
+use diesel_models::plans::PlanRow;
 
 pub fn calculate_mrr(
     fee: &SubscriptionFee,
@@ -521,6 +522,23 @@ impl SubscriptionDetails {
 
         Some(periods.end)
     }
+}
+
+pub async fn is_paid_trial(
+    conn: &mut PgConn,
+    plan_version_id: PlanVersionId,
+    tenant_id: TenantId,
+    has_trial: bool,
+) -> StoreResult<bool> {
+    if !has_trial {
+        return Ok(false);
+    }
+
+    let plan_with_version = PlanRow::get_with_version(conn, plan_version_id, tenant_id).await?;
+    Ok(plan_with_version
+        .version
+        .map(|v| !v.trial_is_free)
+        .unwrap_or(false))
 }
 
 impl Services {

@@ -6,6 +6,7 @@ use crate::domain::outbox_event::{
     QuoteConvertedEvent,
 };
 use crate::domain::payment_transactions::PaymentTransaction;
+use crate::domain::scheduled_events::ScheduledEventNew;
 use crate::domain::{
     CheckoutSession, CreateSubscription, CreateSubscriptionFromQuote, CreatedSubscription,
     CustomerBuyCredits, DetailedInvoice, Invoice, QuoteActivityNew, SetupIntent, Subscription,
@@ -33,6 +34,7 @@ use diesel_models::coupons::CouponRow;
 use diesel_models::enums::{CycleActionEnum, SubscriptionStatusEnum as DbSubscriptionStatusEnum};
 use diesel_models::plans::PlanRow;
 use diesel_models::quotes::{QuoteActivityRowNew, QuoteRow};
+use diesel_models::scheduled_events::ScheduledEventRowNew;
 use diesel_models::subscriptions::SubscriptionRow;
 use error_stack::{Report, ResultExt};
 use uuid::Uuid;
@@ -316,10 +318,10 @@ impl ServicesEdge {
             // Determine status and next action based on trial type
             let (new_status, next_action) = if is_paid_trial && !is_trial_expired {
                 // Paid trial: go to TrialActive for feature resolution
-                // Billing already happened, trial just affects plan features
+                // Use RenewSubscription for normal billing cycles - trial end handled via scheduled event
                 (
                     DbSubscriptionStatusEnum::TrialActive,
-                    CycleActionEnum::EndTrial,
+                    CycleActionEnum::RenewSubscription,
                 )
             } else {
                 // No trial or trial expired: go to Active
@@ -341,6 +343,29 @@ impl ServicesEdge {
             )
             .await
             .map_err(Into::<Report<StoreError>>::into)?;
+
+            // For paid trials, schedule the EndTrial event to transition status when trial ends
+            if is_paid_trial
+                && !is_trial_expired
+                && let Some(trial_days) = subscription.trial_duration
+            {
+                let scheduled_event = ScheduledEventNew::end_trial(
+                    subscription_id,
+                    tenant_id,
+                    current_period_start,
+                    trial_days,
+                    "checkout_completion",
+                )
+                .ok_or_else(|| {
+                    Report::new(StoreError::InvalidArgument(
+                        "Failed to compute trial end date".to_string(),
+                    ))
+                })?;
+                let insertable: ScheduledEventRowNew = scheduled_event.try_into()?;
+                ScheduledEventRowNew::insert_batch(conn, &[insertable])
+                    .await
+                    .map_err(Into::<Report<StoreError>>::into)?;
+            }
 
             // If we get here, payment was settled
             Ok((Some(payment_transaction), false))
@@ -1011,6 +1036,7 @@ impl ServicesEdge {
                     crate::services::subscriptions::PaymentActivationParams {
                         billing_start_date: start_date,
                         trial_duration,
+                        is_paid_trial: has_paid_trial,
                         billing_day_anchor,
                         period: subscription.subscription.period.into(),
                         payment_method: Some(crate::services::subscriptions::PaymentMethodInfo {
@@ -1051,6 +1077,7 @@ impl ServicesEdge {
                     crate::services::subscriptions::PaymentActivationParams {
                         billing_start_date: start_date,
                         trial_duration,
+                        is_paid_trial: false, // Free trial
                         billing_day_anchor,
                         period: subscription.subscription.period.into(),
                         payment_method: Some(crate::services::subscriptions::PaymentMethodInfo {

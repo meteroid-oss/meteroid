@@ -52,21 +52,22 @@ pub struct ScheduledEventNew {
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub enum ScheduledEventData {
-    CancelSubscription { reason: Option<String> },
+    CancelSubscription {
+        reason: Option<String>,
+    },
     PauseSubscription,
-    FinalizeInvoice { invoice_id: InvoiceId },
-    RetryPayment { invoice_id: InvoiceId },
-    ApplyPlanChange { new_plan_version_id: PlanVersionId },
-    // Promotions events
-    // ApplyCoupon {
-    //     coupon_id: String,
-    //     discount_amount_cents: Option<i64>,
-    //     discount_percentage: Option<f64>,
-    // },
-    //
-    // RemoveCoupon {
-    //     coupon_id: String,
-    // },
+    FinalizeInvoice {
+        invoice_id: InvoiceId,
+    },
+    RetryPayment {
+        invoice_id: InvoiceId,
+    },
+    ApplyPlanChange {
+        new_plan_version_id: PlanVersionId,
+    },
+    /// End paid trial - transitions subscription from TrialActive to Active
+    /// Billing continues normally via RenewSubscription, this just handles the status change
+    EndTrial,
 }
 
 json_value_serde!(ScheduledEventData);
@@ -79,6 +80,34 @@ impl ScheduledEventData {
             Self::FinalizeInvoice { .. } => ScheduledEventTypeEnum::FinalizeInvoice,
             Self::RetryPayment { .. } => ScheduledEventTypeEnum::RetryPayment,
             Self::ApplyPlanChange { .. } => ScheduledEventTypeEnum::ApplyPlanChange,
+            Self::EndTrial => ScheduledEventTypeEnum::EndTrial,
         }
+    }
+}
+
+impl ScheduledEventNew {
+    /// Creates an EndTrial scheduled event for paid trials.
+    ///
+    /// This event transitions a subscription from TrialActive to Active when the trial period ends.
+    /// Billing continues normally via RenewSubscription - this only handles the status change.
+    ///
+    /// Returns `None` if the trial end date cannot be computed (invalid date arithmetic).
+    pub fn end_trial(
+        subscription_id: SubscriptionId,
+        tenant_id: TenantId,
+        billing_start_date: chrono::NaiveDate,
+        trial_days: i32,
+        source: impl Into<String>,
+    ) -> Option<Self> {
+        let trial_end_date = billing_start_date + chrono::Duration::days(i64::from(trial_days));
+        let scheduled_time = trial_end_date.and_hms_opt(0, 0, 0)?;
+
+        Some(Self {
+            subscription_id,
+            tenant_id,
+            scheduled_time,
+            event_data: ScheduledEventData::EndTrial,
+            source: source.into(),
+        })
     }
 }
