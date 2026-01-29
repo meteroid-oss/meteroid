@@ -4,7 +4,7 @@ use crate::applied_coupons::{
 use crate::errors::IntoDbResult;
 use crate::extend::pagination::{Paginate, PaginatedVec, PaginationRequest};
 use crate::{DbResult, PgConn};
-use common_domain::ids::{AppliedCouponId, CouponId, CustomerId, SubscriptionId, TenantId};
+use common_domain::ids::{AppliedCouponId, BaseId, CouponId, CustomerId, SubscriptionId, TenantId};
 use diesel::{
     BoolExpressionMethods, ExpressionMethods, JoinOnDsl, QueryDsl, SelectableHelper, debug_query,
 };
@@ -63,31 +63,68 @@ impl AppliedCouponRow {
             .into_db_result()
     }
 
+    /// Updates applied coupon state after an invoice is finalized.
+    ///
+    /// This function handles the SQL NULL arithmetic issue where `NULL + 1 = NULL`.
+    /// We use COALESCE in raw SQL to properly increment from NULL.
+    ///
+    /// Database constraints:
+    /// - `applied_count IS NULL OR applied_count > 0` (can't store 0)
+    /// - `applied_amount IS NULL OR applied_amount > 0` (can't store 0)
+    ///
+    /// Logic:
+    /// - `applied_count` is always incremented (starts from NULL -> 1)
+    /// - `applied_amount` is only updated when `amount_delta > 0` to avoid storing 0
     pub async fn refresh_state(
         conn: &mut PgConn,
         id: AppliedCouponId,
         amount_delta: Option<Decimal>,
-    ) -> DbResult<AppliedCouponRow> {
-        use crate::schema::applied_coupon::dsl as ac_dsl;
+    ) -> DbResult<()> {
+        use diesel::sql_query;
+        use diesel::sql_types::{Nullable, Numeric, Timestamp, Uuid as DieselUuid};
 
         let now = chrono::Utc::now().naive_utc();
         let amount_delta = amount_delta.unwrap_or(Decimal::ZERO);
 
-        let query = diesel::update(ac_dsl::applied_coupon)
-            .filter(ac_dsl::id.eq(id))
-            .set((
-                ac_dsl::last_applied_at.eq(now),
-                ac_dsl::applied_count.eq(ac_dsl::applied_count + 1),
-                ac_dsl::applied_amount.eq(ac_dsl::applied_amount + amount_delta),
-            ));
+        if amount_delta > Decimal::ZERO {
+            let query = sql_query(
+                "UPDATE applied_coupon SET \
+                 last_applied_at = $1, \
+                 applied_count = COALESCE(applied_count, 0) + 1, \
+                 applied_amount = COALESCE(applied_amount, 0) + $2 \
+                 WHERE id = $3",
+            )
+            .bind::<Nullable<Timestamp>, _>(Some(now))
+            .bind::<Numeric, _>(amount_delta)
+            .bind::<DieselUuid, _>(id.as_uuid());
 
-        log::debug!("{}", debug_query::<diesel::pg::Pg, _>(&query));
+            log::debug!("{:?}", query);
 
-        query
-            .get_result(conn)
-            .await
-            .attach("Error while finalizing invoice")
-            .into_db_result()
+            query
+                .execute(conn)
+                .await
+                .attach("Error while refreshing applied coupon state")
+                .into_db_result()?;
+        } else {
+            let query = sql_query(
+                "UPDATE applied_coupon SET \
+                 last_applied_at = $1, \
+                 applied_count = COALESCE(applied_count, 0) + 1 \
+                 WHERE id = $2",
+            )
+            .bind::<Nullable<Timestamp>, _>(Some(now))
+            .bind::<DieselUuid, _>(id.as_uuid());
+
+            log::debug!("{:?}", query);
+
+            query
+                .execute(conn)
+                .await
+                .attach("Error while refreshing applied coupon state")
+                .into_db_result()?;
+        }
+
+        Ok(())
     }
 
     /// Returns the set of (coupon_id, customer_id) pairs from the input that already exist in the database

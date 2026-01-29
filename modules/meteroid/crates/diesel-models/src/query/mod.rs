@@ -7,6 +7,7 @@ pub mod bi;
 pub mod billable_metrics;
 pub mod checkout_sessions;
 pub mod connectors;
+pub mod coupon_plans;
 pub mod coupons;
 pub mod credit_notes;
 pub mod customer_balance_txs;

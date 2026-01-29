@@ -1,10 +1,11 @@
 //! Test data builders for creating subscriptions and other entities.
 
 use chrono::NaiveDate;
-use common_domain::ids::{CustomerId, PlanVersionId, SubscriptionId};
+use common_domain::ids::{CouponId, CustomerId, PlanVersionId, SubscriptionId};
 use meteroid_store::Services;
 use meteroid_store::domain::{
-    CreateSubscription, SubscriptionActivationCondition, SubscriptionNew,
+    CreateSubscription, CreateSubscriptionCoupon, CreateSubscriptionCoupons,
+    SubscriptionActivationCondition, SubscriptionNew,
 };
 
 use crate::data::ids::{CUST_UBER_ID, PLAN_VERSION_1_LEETCODE_ID, TENANT_ID, USER_ID};
@@ -18,6 +19,7 @@ pub struct SubscriptionBuilder {
     activation_condition: SubscriptionActivationCondition,
     trial_duration: Option<u32>,
     charge_automatically: bool,
+    coupon_ids: Vec<CouponId>,
 }
 
 impl Default for SubscriptionBuilder {
@@ -29,6 +31,7 @@ impl Default for SubscriptionBuilder {
             activation_condition: SubscriptionActivationCondition::OnStart,
             trial_duration: None,
             charge_automatically: false,
+            coupon_ids: vec![],
         }
     }
 }
@@ -104,8 +107,32 @@ impl SubscriptionBuilder {
         self
     }
 
+    /// Add a coupon to the subscription.
+    pub fn coupon(mut self, coupon_id: CouponId) -> Self {
+        self.coupon_ids.push(coupon_id);
+        self
+    }
+
+    /// Add multiple coupons to the subscription.
+    pub fn coupons(mut self, coupon_ids: Vec<CouponId>) -> Self {
+        self.coupon_ids.extend(coupon_ids);
+        self
+    }
+
     /// Create the subscription using the provided services.
     pub async fn create(self, services: &Services) -> SubscriptionId {
+        let coupons = if self.coupon_ids.is_empty() {
+            None
+        } else {
+            Some(CreateSubscriptionCoupons {
+                coupons: self
+                    .coupon_ids
+                    .into_iter()
+                    .map(|coupon_id| CreateSubscriptionCoupon { coupon_id })
+                    .collect(),
+            })
+        };
+
         services
             .insert_subscription(
                 CreateSubscription {
@@ -131,7 +158,7 @@ impl SubscriptionBuilder {
                     },
                     price_components: None,
                     add_ons: None,
-                    coupons: None,
+                    coupons,
                 },
                 TENANT_ID,
             )

@@ -1,11 +1,14 @@
-import { useMutation } from '@connectrpc/connect-query'
+import { useMutation, useQuery } from '@connectrpc/connect-query'
 import { useQueryClient } from '@tanstack/react-query'
 import {
   Button,
   Calendar,
+  CheckboxFormField,
   FormControl,
   GenericFormField,
   InputFormField,
+  MultiSelectFormField,
+  MultiSelectItem,
   Popover,
   PopoverContent,
   PopoverTrigger,
@@ -25,6 +28,8 @@ import { CatalogEditPanel } from '@/features/productCatalog/generic/CatalogEditP
 import { useZodForm } from '@/hooks/useZodForm'
 import { schemas } from '@/lib/schemas'
 import { createCoupon, listCoupons } from '@/rpc/api/coupons/v1/coupons-CouponsService_connectquery'
+import { listPlans } from '@/rpc/api/plans/v1/plans-PlansService_connectquery'
+import { ListPlansRequest_SortBy } from '@/rpc/api/plans/v1/plans_pb'
 
 const nanoid = customAlphabet('23456789ABCDEFGHJKLMNPQRSTUVWXYZ')
 export const CouponCreatePanel: FunctionComponent = () => {
@@ -37,6 +42,10 @@ export const CouponCreatePanel: FunctionComponent = () => {
     },
   })
 
+  const plansQuery = useQuery(listPlans, {
+    sortBy: ListPlansRequest_SortBy.NAME_ASC,
+  })
+
   const methods = useZodForm({
     schema: schemas.coupons.createCouponSchema,
     defaultValues: {
@@ -47,6 +56,7 @@ export const CouponCreatePanel: FunctionComponent = () => {
       redemptionLimit: undefined,
       recurringValue: undefined,
       reusable: false,
+      planIds: [],
     },
   })
 
@@ -82,6 +92,7 @@ export const CouponCreatePanel: FunctionComponent = () => {
             recurringValue: a.recurringValue,
             redemptionLimit: a.redemptionLimit,
             reusable: a.reusable,
+            planIds: a.planIds ?? [],
           })
           .then(() => void 0)
       }
@@ -203,12 +214,38 @@ export const CouponCreatePanel: FunctionComponent = () => {
               inputMode="numeric"
             />
 
-            {/* 
-TODO change to duration_months
-       
-recurringValue
-reusable
-*/}
+            <InputFormField
+              name="recurringValue"
+              label="Recurring limit"
+              layout="horizontal"
+              control={methods.control}
+              type="number"
+              placeholder="Forever (unlimited billing cycles)"
+              inputMode="numeric"
+            />
+
+            <CheckboxFormField
+              name="reusable"
+              label="Reusable"
+              control={methods.control}
+              layout="horizontal"
+              description="Allow same customer to use this coupon on multiple subscriptions"
+            />
+
+            <MultiSelectFormField
+              name="planIds"
+              label="Restrict to plans"
+              layout="horizontal"
+              control={methods.control}
+              placeholder="All plans (no restriction)"
+              hasSearch
+            >
+              {plansQuery.data?.plans?.map(plan => (
+                <MultiSelectItem key={plan.id} value={plan.id}>
+                  {plan.name}
+                </MultiSelectItem>
+              ))}
+            </MultiSelectFormField>
           </div>
         </section>
       </div>

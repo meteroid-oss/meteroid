@@ -351,6 +351,13 @@ diesel::table! {
 }
 
 diesel::table! {
+    coupon_plan (coupon_id, plan_id) {
+        coupon_id -> Uuid,
+        plan_id -> Uuid,
+    }
+}
+
+diesel::table! {
     use diesel::sql_types::*;
     use super::sql_types::CreditNoteStatus;
 
@@ -1072,6 +1079,8 @@ diesel::joinable!(api_token -> tenant (tenant_id));
 diesel::joinable!(applied_coupon -> coupon (coupon_id));
 diesel::joinable!(applied_coupon -> customer (customer_id));
 diesel::joinable!(applied_coupon -> subscription (subscription_id));
+diesel::joinable!(coupon_plan -> coupon (coupon_id));
+diesel::joinable!(coupon_plan -> plan (plan_id));
 diesel::joinable!(bank_account -> tenant (tenant_id));
 diesel::joinable!(bi_delta_mrr_daily -> historical_rates_from_usd (historical_rate_id));
 diesel::joinable!(bi_mrr_movement_log -> credit_note (credit_note_id));
@@ -1180,6 +1189,7 @@ diesel::allow_tables_to_appear_in_same_query!(
     checkout_session,
     connector,
     coupon,
+    coupon_plan,
     credit_note,
     custom_tax,
     customer,

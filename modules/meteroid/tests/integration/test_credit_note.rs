@@ -71,7 +71,7 @@ async fn test_credit_note_partial_credits() {
         .unwrap();
 
     // 2. Create a plan with 4 price components
-    let (plan_version_id, component_ids) = create_plan_with_4_components(&mut conn).await;
+    let (plan_version_id, _component_ids) = create_plan_with_4_components(&mut conn).await;
 
     // 3. Create customer with custom tax rate (10%)
     let customer_id = create_customer_with_tax(&mut conn, 0).await; // No balance initially
@@ -87,6 +87,7 @@ async fn test_credit_note_partial_credits() {
             redemption_limit: None,
             recurring_value: None,
             reusable: false,
+            plan_ids: vec![],
         })
         .await
         .unwrap()
@@ -762,7 +763,7 @@ async fn test_credit_note_refund_with_applied_credits() {
 
     let invoice = &invoices[0].invoice;
 
-    let res = services
+    let _res = services
         .mark_invoice_as_paid(
             TENANT_ID,
             invoice.id,

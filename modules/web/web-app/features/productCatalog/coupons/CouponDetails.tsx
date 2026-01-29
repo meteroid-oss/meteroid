@@ -1,4 +1,4 @@
-import { disableQuery, useMutation } from '@connectrpc/connect-query'
+import { disableQuery, useMutation, useQuery as useConnectQuery } from '@connectrpc/connect-query'
 import { useQueryClient } from '@tanstack/react-query'
 import {
   Button,
@@ -12,6 +12,8 @@ import {
   DropdownMenuTrigger,
   Form,
   InputFormField,
+  MultiSelectFormField,
+  MultiSelectItem,
   SelectFormField,
   SelectItem,
   Separator,
@@ -37,6 +39,8 @@ import {
   updateCouponStatus,
 } from '@/rpc/api/coupons/v1/coupons-CouponsService_connectquery'
 import { CouponAction } from '@/rpc/api/coupons/v1/coupons_pb'
+import { listPlans } from '@/rpc/api/plans/v1/plans-PlansService_connectquery'
+import { ListPlansRequest_SortBy } from '@/rpc/api/plans/v1/plans_pb'
 import { parseAndFormatDate, parseAndFormatDateOptional } from '@/utils/date'
 import { useTypedParams } from '@/utils/params'
 
@@ -73,6 +77,10 @@ export const CouponDetails: FunctionComponent = () => {
     onSuccess: invalidate,
   })
 
+  const plansQuery = useConnectQuery(listPlans, {
+    sortBy: ListPlansRequest_SortBy.NAME_ASC,
+  })
+
   const [, setTab] = useQueryState<string>('filter', '')
 
   const methods = useZodForm({
@@ -81,6 +89,7 @@ export const CouponDetails: FunctionComponent = () => {
       description: '',
       discountType: 'percentage',
       percentage: undefined,
+      planIds: [],
     },
   })
 
@@ -103,6 +112,7 @@ export const CouponDetails: FunctionComponent = () => {
                 value: { percentage: data.percentage },
               },
       },
+      planIds: data.planIds ?? [],
     })
   }
 
@@ -130,6 +140,7 @@ export const CouponDetails: FunctionComponent = () => {
         coupon.discount?.discountType?.case === 'percentage'
           ? coupon.discount.discountType.value.percentage
           : undefined,
+      planIds: coupon.planIds ?? [],
     })
 
     if (coupon.disabled) {
@@ -239,7 +250,7 @@ export const CouponDetails: FunctionComponent = () => {
                         .then(() => setTab('archived'))
                     }
                   >
-                    Achive
+                    Archive
                   </DropdownMenuItem>
                 )}
 
@@ -270,6 +281,23 @@ export const CouponDetails: FunctionComponent = () => {
             <Property
               label="Last usage"
               value={parseAndFormatDateOptional(coupon.lastRedemptionAt)}
+            />
+            <Property
+              label="Recurring limit"
+              value={
+                coupon.recurringValue
+                  ? `${coupon.recurringValue} billing cycle(s)`
+                  : 'Unlimited'
+              }
+            />
+            <Property label="Reusable" value={coupon.reusable ? 'Yes' : 'No'} />
+            <Property
+              label="Plan restrictions"
+              value={
+                coupon.planIds && coupon.planIds.length > 0
+                  ? `${coupon.planIds.length} plan(s)`
+                  : 'All plans'
+              }
             />
           </div>
           <Separator />
@@ -342,6 +370,21 @@ export const CouponDetails: FunctionComponent = () => {
                     />
                   </>
                 )}
+
+                <MultiSelectFormField
+                  name="planIds"
+                  label="Restrict to plans"
+                  layout="horizontal"
+                  control={methods.control}
+                  placeholder="All plans (no restriction)"
+                  hasSearch
+                >
+                  {plansQuery.data?.plans?.map(plan => (
+                    <MultiSelectItem key={plan.id} value={plan.id}>
+                      {plan.name}
+                    </MultiSelectItem>
+                  ))}
+                </MultiSelectFormField>
               </div>
               <div className="flex justify-end">
                 <Button

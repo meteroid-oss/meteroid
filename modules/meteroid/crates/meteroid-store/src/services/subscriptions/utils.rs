@@ -20,7 +20,9 @@ use crate::domain::outbox_event::OutboxEvent;
 use crate::repositories::historical_rates::HistoricalRatesInterface;
 use diesel_models::DbResult;
 use diesel_models::applied_coupons::{AppliedCouponRow, AppliedCouponRowNew};
+use diesel_models::coupon_plans::CouponPlanRow;
 use diesel_models::coupons::CouponRow;
+use diesel_models::plan_versions::PlanVersionRow;
 use diesel_models::subscriptions::{SubscriptionRow, SubscriptionRowNew};
 use rust_decimal::prelude::*;
 
@@ -215,6 +217,15 @@ pub async fn validate_coupons(
 
     let coupons = CouponRow::list_by_ids_for_update(tx_conn, &coupons_ids, &tenant_id).await?;
 
+    // Fetch plan restrictions for coupons
+    let coupon_plan_restrictions = CouponPlanRow::list_by_coupon_ids(tx_conn, &coupons_ids).await?;
+
+    // Fetch plan_ids for all plan_version_ids in subscriptions
+    let plan_version_ids: Vec<PlanVersionId> =
+        subscriptions.iter().map(|s| s.plan_version_id).collect();
+    let plan_version_to_plan =
+        PlanVersionRow::get_plan_ids_by_version_ids(tx_conn, &plan_version_ids).await?;
+
     let now = chrono::Utc::now().naive_utc();
 
     for coupon in &coupons {
@@ -278,6 +289,26 @@ pub async fn validate_coupons(
                 coupon.code
             )))
             .into());
+        }
+
+        // check plan restrictions
+        if let Some(allowed_plans) = coupon_plan_restrictions.get(&coupon.id)
+            && !allowed_plans.is_empty()
+        {
+            let plan_id = plan_version_to_plan
+                .get(&subscription.plan_version_id)
+                .ok_or(Report::new(DatabaseError::ValidationError(format!(
+                    "Plan not found for subscription {}",
+                    subscription.id
+                ))))?;
+
+            if !allowed_plans.contains(plan_id) {
+                return Err(Report::new(DatabaseError::ValidationError(format!(
+                    "coupon {} cannot be applied to this plan",
+                    coupon.code
+                )))
+                .into());
+            }
         }
     }
 

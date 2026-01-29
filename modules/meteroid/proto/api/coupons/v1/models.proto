@@ -17,6 +17,9 @@ message Coupon {
   uint32 redemption_count = 10;
   optional string last_redemption_at = 11;
   optional string archived_at = 12;
+  optional int32 recurring_value = 13;
+  bool reusable = 14;
+  repeated string plan_ids = 15;
 }
 
 message CouponDiscount {
