@@ -12,11 +12,10 @@ import {
 } from '@ui/components/ui/multi-select'
 import { cn } from '@ui/lib'
 
-
 import { GenericFormField, GenericFormFieldVariantProps } from './generic-form-field'
 
 type MultiSelectFormFieldProps<T extends FieldValues, TName extends FieldPath<T>> = Omit<
-MultiSelectProps,
+  MultiSelectProps,
   'defaultValue' | 'name'
 > &
   UseControllerProps<T, TName> & {
@@ -26,6 +25,7 @@ MultiSelectProps,
     description?: string
     containerClassName?: string
     labelClassName?: string
+    labelTooltip?: React.ReactNode
     contentClassName?: string
     placeholder?: string
     empty?: boolean
@@ -54,12 +54,8 @@ export const MultiSelectFormField = <
   className,
   description,
   placeholder,
-  contentClassName
+  contentClassName,
 }: MultiSelectFormFieldProps<TFieldValues, TName> & GenericFormFieldVariantProps) => {
-
-
- 
-
   return (
     <GenericFormField
       key={key}
@@ -77,22 +73,15 @@ export const MultiSelectFormField = <
       className={cn('flex-row', className)}
       render={({ field, className }) => {
         return (
-          <MultiSelect
-            onValueChange={field.onChange}
-            value={field.value}
-            disabled={disabled}
-          >
-            <MultiSelectTrigger
-              ref={field.ref}
-              className={className}
-            >
+          <MultiSelect onValueChange={field.onChange} value={field.value} disabled={disabled}>
+            <MultiSelectTrigger ref={field.ref} className={className}>
               <MultiSelectValue placeholder={placeholder} />
             </MultiSelectTrigger>
             <MultiSelectContent className={contentClassName} hideWhenDetached>
-            <MultiSelectList>
-              {hasSearch && <MultiSelectSearch placeholder="Input to search" />}
-              {empty && <MultiSelectEmpty />}
-              {children}
+              <MultiSelectList>
+                {hasSearch && <MultiSelectSearch placeholder="Input to search" />}
+                {empty && <MultiSelectEmpty />}
+                {children}
               </MultiSelectList>
             </MultiSelectContent>
           </MultiSelect>
