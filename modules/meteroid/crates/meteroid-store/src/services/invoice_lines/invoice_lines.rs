@@ -195,7 +195,7 @@ impl Services {
             .fold(0, |acc, x| acc + x.amount_subtotal)
             .to_non_negative_u64();
 
-        let subtotal_with_discounts = subtotal - discount_total;
+        let subtotal_with_discounts = subtotal.saturating_sub(discount_total);
         let tax_amount = invoice_lines
             .iter()
             .fold(0, |acc, x| acc + x.tax_amount)
@@ -210,7 +210,10 @@ impl Services {
                 .to_non_negative_u64(),
         );
         let already_paid = prepaid_amount.unwrap_or(0);
-        let amount_due = total - already_paid - applied_credits;
+        let amount_due = total
+            .checked_sub(already_paid)
+            .and_then(|subtotal| subtotal.checked_sub(applied_credits))
+            .unwrap_or(0);
         let subtotal_recurring = invoice_lines
             .iter()
             .filter(|x| x.metric_id.is_none())
@@ -272,7 +275,10 @@ impl Services {
         let total = subtotal_with_discounts + tax_amount;
         let applied_credits = min(total, customer.balance_value_cents.to_non_negative_u64());
         let already_paid = prepaid_amount.unwrap_or(0);
-        let amount_due = total - already_paid - applied_credits;
+        let amount_due = total
+            .checked_sub(already_paid)
+            .and_then(|subtotal| subtotal.checked_sub(applied_credits))
+            .unwrap_or(0);
         let subtotal_recurring = line_items
             .iter()
             .filter(|x| x.metric_id.is_none())

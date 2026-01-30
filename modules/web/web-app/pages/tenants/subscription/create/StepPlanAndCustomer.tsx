@@ -25,6 +25,7 @@ import { createSubscriptionAtom } from '@/pages/tenants/subscription/create/stat
 import { listAddOns } from '@/rpc/api/addons/v1/addons-AddOnsService_connectquery'
 import { listCoupons } from '@/rpc/api/coupons/v1/coupons-CouponsService_connectquery'
 import { ListCouponRequest_CouponFilter } from '@/rpc/api/coupons/v1/coupons_pb'
+import { getPlanWithVersionByVersionId } from '@/rpc/api/plans/v1/plans-PlansService_connectquery'
 
 // TODO confirm & reset form on leave
 export const StepPlanAndCustomer = () => {
@@ -63,6 +64,14 @@ export const StepPlanAndCustomer = () => {
     filter: ListCouponRequest_CouponFilter.ACTIVE,
   })
 
+  const planQuery = useQuery(
+    getPlanWithVersionByVersionId,
+    { localId: planVersionId! },
+    { enabled: !!planVersionId }
+  )
+
+  const selectedPlanId = planQuery.data?.plan?.plan?.id
+
   const availableAddOns = addOnsQuery.data?.addOns || []
   const availableCoupons = couponsQuery.data?.coupons || []
 
@@ -73,6 +82,12 @@ export const StepPlanAndCustomer = () => {
   const filteredCoupons = availableCoupons.filter(coupon =>
     coupon.code.toLowerCase().includes(couponSearch.toLowerCase())
   )
+
+  const isCouponAvailableForPlan = (coupon: (typeof availableCoupons)[0]) => {
+    if (!coupon.planIds || coupon.planIds.length === 0) return true
+    if (!selectedPlanId) return true
+    return coupon.planIds.includes(selectedPlanId)
+  }
 
   const onSubmit = async (data: z.infer<typeof schema>) => {
     setState({
@@ -307,6 +322,7 @@ export const StepPlanAndCustomer = () => {
                     <div className="mt-2 border rounded-md p-2 space-y-1 max-h-32 overflow-y-auto">
                       {filteredCoupons.slice(0, 5).map(coupon => {
                         const isSelected = state.coupons.some(c => c.couponId === coupon.id)
+                        const isAvailable = isCouponAvailableForPlan(coupon)
                         return (
                           <Button
                             key={coupon.id}
@@ -314,7 +330,7 @@ export const StepPlanAndCustomer = () => {
                             variant="ghost"
                             size="sm"
                             className="w-full justify-start text-sm"
-                            disabled={isSelected}
+                            disabled={isSelected || !isAvailable}
                             onClick={() => {
                               setState(prev => ({
                                 ...prev,
@@ -325,11 +341,15 @@ export const StepPlanAndCustomer = () => {
                           >
                             <Gift className="h-3 w-3 mr-2" />
                             {coupon.code}
-                            {isSelected && (
+                            {isSelected ? (
                               <Badge variant="secondary" size="sm" className="ml-auto">
                                 Applied
                               </Badge>
-                            )}
+                            ) : !isAvailable ? (
+                              <span className="ml-auto text-xs text-muted-foreground">
+                                Not available for this plan
+                              </span>
+                            ) : null}
                           </Button>
                         )
                       })}

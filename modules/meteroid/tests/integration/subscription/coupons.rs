@@ -1236,3 +1236,431 @@ async fn test_duplicate_coupon_deduplicated(#[future] test_env: TestEnv) {
         "Duplicate coupon should be deduplicated"
     );
 }
+
+// =============================================================================
+// 100% DISCOUNT COUPON TESTS (ZERO AMOUNT CHECKOUT)
+// =============================================================================
+
+/// OnCheckout + 100% coupon: checkout with zero amount should succeed.
+/// Invoice created with 0 total, subscription activated, no payment transaction.
+#[rstest]
+#[tokio::test]
+async fn test_100_percent_coupon_checkout_succeeds(#[future] test_env: TestEnv) {
+    let env = test_env.await;
+    env.seed_payments().await;
+
+    // Create a 100% discount coupon
+    let coupon_id = env.create_percentage_coupon("FULL100", 100).await;
+
+    let sub_id = subscription()
+        .customer(CUST_UBER_ID)
+        .plan_version(PLAN_VERSION_PAID_FREE_TRIAL_ID) // $49/month
+        .on_checkout()
+        .no_trial()
+        .auto_charge()
+        .coupon(coupon_id)
+        .create(env.services())
+        .await;
+
+    // Start: PendingActivation with pending checkout
+    let sub = env.get_subscription(sub_id).await;
+    sub.assert()
+        .is_pending_activation()
+        .has_pending_checkout(true);
+
+    // No invoices yet
+    let invoices = env.get_invoices(sub_id).await;
+    invoices.assert().assert_empty();
+
+    // Complete checkout with zero amount (100% discount)
+    let mut conn = env.conn().await;
+    let (transaction, is_pending) = env
+        .services()
+        .complete_subscription_checkout_tx(
+            &mut conn,
+            TENANT_ID,
+            sub_id,
+            CUST_UBER_PAYMENT_METHOD_ID,
+            0, // Zero amount due to 100% coupon
+            "EUR".to_string(),
+            None,
+        )
+        .await
+        .expect("Checkout with 100% coupon should succeed");
+
+    // No payment transaction for zero amount
+    assert!(
+        transaction.is_none(),
+        "No payment transaction for zero amount checkout"
+    );
+    assert!(!is_pending, "Should not be pending");
+
+    // After checkout: Active with invoice
+    let sub = env.get_subscription(sub_id).await;
+    sub.assert()
+        .is_active()
+        .has_pending_checkout(false)
+        .has_payment_method(true);
+
+    // Invoice should exist with 0 total
+    let invoices = env.get_invoices(sub_id).await;
+    invoices.assert().has_count(1);
+    invoices
+        .assert()
+        .invoice_at(0)
+        .has_subtotal(4900) // $49.00 base
+        .has_discount(4900) // 100% discount
+        .has_total(0) // $0 total
+        .has_coupons_count(1);
+}
+
+/// OnCheckout + 100% coupon + paid trial: checkout with zero amount should work.
+/// Even with paid trial, if coupon makes it free, no payment needed.
+#[rstest]
+#[tokio::test]
+async fn test_100_percent_coupon_with_paid_trial_checkout(#[future] test_env: TestEnv) {
+    let env = test_env.await;
+    env.seed_payments().await;
+
+    // Create a 100% discount coupon
+    let coupon_id = env.create_percentage_coupon("PAIDTRIAL100", 100).await;
+
+    let sub_id = subscription()
+        .customer(CUST_UBER_ID)
+        .plan_version(PLAN_VERSION_PAID_TRIAL_ID) // $99/month, paid trial
+        .on_checkout()
+        .trial_days(7)
+        .auto_charge()
+        .coupon(coupon_id)
+        .create(env.services())
+        .await;
+
+    // Start: PendingActivation
+    let sub = env.get_subscription(sub_id).await;
+    sub.assert()
+        .is_pending_activation()
+        .has_pending_checkout(true);
+
+    // Complete checkout with zero amount
+    let mut conn = env.conn().await;
+    let (transaction, is_pending) = env
+        .services()
+        .complete_subscription_checkout_tx(
+            &mut conn,
+            TENANT_ID,
+            sub_id,
+            CUST_UBER_PAYMENT_METHOD_ID,
+            0, // Zero amount due to 100% coupon
+            "EUR".to_string(),
+            None,
+        )
+        .await
+        .expect("Checkout with 100% coupon should succeed");
+
+    assert!(transaction.is_none(), "No payment for zero amount");
+    assert!(!is_pending);
+
+    // After checkout: TrialActive (paid trial goes to TrialActive)
+    let sub = env.get_subscription(sub_id).await;
+    sub.assert()
+        .is_trial_active()
+        .has_pending_checkout(false)
+        .has_payment_method(true)
+        .has_trial_duration(Some(7));
+
+    // Invoice with 0 total
+    let invoices = env.get_invoices(sub_id).await;
+    invoices.assert().has_count(1);
+    invoices
+        .assert()
+        .invoice_at(0)
+        .has_subtotal(9900) // $99.00 base
+        .has_discount(9900) // 100% discount
+        .has_total(0)
+        .has_coupons_count(1);
+}
+
+/// 100% coupon limited to 1 cycle: first invoice free, second invoice full price.
+#[rstest]
+#[tokio::test]
+async fn test_100_percent_coupon_limited_cycles(#[future] test_env: TestEnv) {
+    let env = test_env.await;
+    env.seed_payments().await;
+
+    let start_date = NaiveDate::from_ymd_opt(2024, 1, 1).unwrap();
+
+    // Create 100% coupon limited to 1 cycle
+    let coupon_id = env
+        .create_limited_percentage_coupon("ONEFREE", 100, Some(1))
+        .await;
+
+    let sub_id = subscription()
+        .customer(CUST_UBER_ID)
+        .plan_version(PLAN_VERSION_PAID_FREE_TRIAL_ID) // $49/month
+        .start_date(start_date)
+        .on_checkout()
+        .no_trial()
+        .auto_charge()
+        .coupon(coupon_id)
+        .create(env.services())
+        .await;
+
+    // Complete checkout with zero amount
+    let mut conn = env.conn().await;
+    let (transaction, _) = env
+        .services()
+        .complete_subscription_checkout_tx(
+            &mut conn,
+            TENANT_ID,
+            sub_id,
+            CUST_UBER_PAYMENT_METHOD_ID,
+            0,
+            "EUR".to_string(),
+            None,
+        )
+        .await
+        .expect("Checkout should succeed");
+
+    assert!(transaction.is_none(), "No payment for zero amount");
+
+    // First invoice: 100% discount
+    let invoices = env.get_invoices(sub_id).await;
+    invoices.assert().has_count(1);
+    invoices
+        .assert()
+        .invoice_at(0)
+        .with_context("Invoice 1: 100% discount")
+        .has_total(0)
+        .has_coupons_count(1);
+
+    // Finalize to update coupon applied_count
+    env.run_outbox_and_orchestration().await;
+
+    // Process renewal - coupon exhausted
+    env.process_cycles().await;
+
+    let invoices = env.get_invoices(sub_id).await;
+    invoices.assert().has_count(2);
+    invoices
+        .assert()
+        .invoice_at(1)
+        .with_context("Invoice 2: coupon exhausted")
+        .has_total(4900) // Full price
+        .has_coupons_count(0);
+}
+
+/// OnCheckout + 100% coupon + free trial: coupon attaches during checkout.
+/// During free trial, no invoice. After trial ends, invoice with 100% discount.
+#[rstest]
+#[tokio::test]
+async fn test_100_percent_coupon_with_free_trial_checkout(#[future] test_env: TestEnv) {
+    let env = test_env.await;
+    env.seed_payments().await;
+
+    // Create a 100% discount coupon
+    let coupon_id = env.create_percentage_coupon("FREETRIAL100", 100).await;
+
+    let sub_id = subscription()
+        .customer(CUST_UBER_ID)
+        .plan_version(PLAN_VERSION_PAID_FREE_TRIAL_ID) // $49/month, free trial plan
+        .on_checkout()
+        .trial_days(14) // 14-day free trial
+        .auto_charge()
+        .coupon(coupon_id)
+        .create(env.services())
+        .await;
+
+    // Start: TrialActive with pending checkout
+    let sub = env.get_subscription(sub_id).await;
+    sub.assert().is_trial_active().has_pending_checkout(true);
+
+    // No invoices during trial
+    let invoices = env.get_invoices(sub_id).await;
+    invoices.assert().assert_empty();
+
+    // Complete checkout (free trial = no charge, but coupon attached)
+    let mut conn = env.conn().await;
+    let (transaction, _) = env
+        .services()
+        .complete_subscription_checkout_tx(
+            &mut conn,
+            TENANT_ID,
+            sub_id,
+            CUST_UBER_PAYMENT_METHOD_ID,
+            0, // Free trial - no charge
+            "EUR".to_string(),
+            None,
+        )
+        .await
+        .expect("Checkout should complete");
+
+    assert!(
+        transaction.is_none(),
+        "No payment during free trial checkout"
+    );
+
+    // After checkout: still in trial, payment method attached
+    let sub = env.get_subscription(sub_id).await;
+    sub.assert()
+        .is_trial_active()
+        .has_pending_checkout(false)
+        .has_payment_method(true)
+        .has_trial_duration(Some(14));
+
+    // Still no invoices during trial
+    let invoices = env.get_invoices(sub_id).await;
+    invoices.assert().assert_empty();
+
+    // Process trial end -> Active with first invoice
+    env.process_cycles().await;
+
+    let sub = env.get_subscription(sub_id).await;
+    sub.assert().is_active();
+
+    // Invoice should have 100% discount applied
+    let invoices = env.get_invoices(sub_id).await;
+    invoices.assert().has_count(1);
+    invoices
+        .assert()
+        .invoice_at(0)
+        .with_context("Invoice after trial with 100% coupon")
+        .has_subtotal(4900) // $49.00 base
+        .has_discount(4900) // 100% discount
+        .has_total(0) // $0 total
+        .has_coupons_count(1);
+}
+
+/// Multiple coupons are applied sequentially (each on remaining amount).
+/// Two 60% coupons: 60% of $49 = $29.40 off → $19.60, then 60% of $19.60 = $11.76 off → $7.84.
+#[rstest]
+#[tokio::test]
+async fn test_multiple_coupons_sequential_application(#[future] test_env: TestEnv) {
+    let env = test_env.await;
+
+    // Create two 60% coupons
+    let coupon1_id = env.create_percentage_coupon("SIXTY1", 60).await;
+    let coupon2_id = env.create_percentage_coupon("SIXTY2", 60).await;
+
+    let sub_id = subscription()
+        .plan_version(PLAN_VERSION_PAID_FREE_TRIAL_ID) // $49/month
+        .on_start()
+        .no_trial()
+        .coupons(vec![coupon1_id, coupon2_id])
+        .create(env.services())
+        .await;
+
+    let sub = env.get_subscription(sub_id).await;
+    sub.assert().is_active();
+
+    let invoices = env.get_invoices(sub_id).await;
+    invoices.assert().has_count(1);
+
+    // Both coupons applied sequentially
+    let invoice = &invoices[0];
+    assert_eq!(invoice.coupons.len(), 2, "Both coupons should be applied");
+
+    // Sequential application: 60% of 4900 = 2940, remaining 1960
+    // Then 60% of 1960 = 1176, remaining 784
+    // Total discount = 2940 + 1176 = 4116
+    invoices
+        .assert()
+        .invoice_at(0)
+        .has_subtotal(4900) // $49.00 base
+        .has_discount(4116) // Sequential: 2940 + 1176
+        .has_total(784); // $7.84 remaining
+}
+
+/// Multiple 100% coupons: total discount capped at subtotal.
+/// Two 100% coupons should result in 100% total discount, not 200%.
+#[rstest]
+#[tokio::test]
+async fn test_multiple_100_percent_coupons_capped(#[future] test_env: TestEnv) {
+    let env = test_env.await;
+
+    // Create two coupons, going over 100% total
+    let coupon1_id = env.create_percentage_coupon("P1", 90).await;
+    let coupon2_id = env.create_fixed_coupon("FULL2", 10, "EUR").await;
+
+    let sub_id = subscription()
+        .plan_version(PLAN_VERSION_PAID_FREE_TRIAL_ID) // $49/month
+        .on_start()
+        .no_trial()
+        .coupons(vec![coupon1_id, coupon2_id])
+        .create(env.services())
+        .await;
+
+    let sub = env.get_subscription(sub_id).await;
+    sub.assert().is_active();
+
+    let invoices = env.get_invoices(sub_id).await;
+    invoices.assert().has_count(1);
+
+    let invoice = &invoices[0];
+
+    println!("coupons applied: {:#?}", invoice.coupons);
+    assert_eq!(invoice.coupons.len(), 2, "Both coupons should be applied");
+
+    // First 100% coupon takes full discount, second applies to $0 remaining
+    // Total discount should equal subtotal (capped)
+    assert!(
+        invoice.discount <= invoice.subtotal,
+        "Discount ({}) should not exceed subtotal ({})",
+        invoice.discount,
+        invoice.subtotal
+    );
+
+    invoices
+        .assert()
+        .invoice_at(0)
+        .has_subtotal(4900) // $49.00 base
+        .has_discount(4900) // Capped at subtotal
+        .has_total(0); // $0 - fully discounted
+}
+
+/// Fixed coupon exceeding invoice amount: discount capped at subtotal.
+/// A $100 fixed coupon on a $49 plan should only discount $49.
+#[rstest]
+#[tokio::test]
+async fn test_fixed_coupon_exceeds_subtotal_capped(#[future] test_env: TestEnv) {
+    let env = test_env.await;
+
+    // Create a €100 fixed coupon (exceeds plan price of €49)
+    let coupon_id = env.create_fixed_coupon("BIGFIXED", 100, "EUR").await;
+
+    let sub_id = subscription()
+        .plan_version(PLAN_VERSION_PAID_FREE_TRIAL_ID) // $49/month
+        .on_start()
+        .no_trial()
+        .coupon(coupon_id)
+        .create(env.services())
+        .await;
+
+    let sub = env.get_subscription(sub_id).await;
+    sub.assert().is_active();
+
+    let invoices = env.get_invoices(sub_id).await;
+    invoices.assert().has_count(1);
+
+    let invoice = &invoices[0];
+
+    // Discount should be capped at subtotal, not the full $100
+    assert!(
+        invoice.discount <= invoice.subtotal,
+        "Discount ({}) should not exceed subtotal ({})",
+        invoice.discount,
+        invoice.subtotal
+    );
+
+    assert!(
+        invoice.total >= 0,
+        "Total ({}) should not be negative",
+        invoice.total
+    );
+
+    invoices
+        .assert()
+        .invoice_at(0)
+        .has_subtotal(4900) // $49.00 base
+        .has_discount(4900) // Capped at subtotal (not $100)
+        .has_total(0); // $0 - fully discounted
+}

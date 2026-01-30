@@ -275,19 +275,20 @@ export const InvoiceSummary = ({ invoicePaymentData }: InvoicePaymentData) => {
                 <span>{formatCurrency(invoice.subtotal, invoice.currency)}</span>
               </div>
 
-              {invoice.discount && Number(invoice.discount) > 0 && (
-                <div className="flex justify-between">
-                  <span className="text-gray-600">Discount</span>
-                  <span>-{formatCurrency(invoice.discount, invoice.currency)}</span>
-                </div>
-              )}
-
-              {invoice.couponLineItems?.map(coupon => (
-                <div key={coupon.couponId} className="flex justify-between">
-                  <span className="text-gray-600">{coupon.name}</span>
-                  <span>-{formatCurrency(coupon.total, invoice.currency)}</span>
-                </div>
-              ))}
+              {invoice.couponLineItems && invoice.couponLineItems.length > 0
+                ? invoice.couponLineItems.map(coupon => (
+                    <div key={coupon.couponId} className="flex justify-between">
+                      <span className="text-gray-600">{coupon.name}</span>
+                      <span>-{formatCurrency(coupon.total, invoice.currency)}</span>
+                    </div>
+                  ))
+                : invoice.discount &&
+                  Number(invoice.discount) > 0 && (
+                    <div className="flex justify-between">
+                      <span className="text-gray-600">Discount</span>
+                      <span>-{formatCurrency(invoice.discount, invoice.currency)}</span>
+                    </div>
+                  )}
 
               {invoice.taxBreakdown &&
               invoice.taxBreakdown.length > 0 &&

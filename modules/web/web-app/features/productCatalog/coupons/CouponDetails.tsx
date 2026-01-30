@@ -20,10 +20,11 @@ import {
   TextareaFormField,
 } from '@ui/components'
 import { ChevronDown } from 'lucide-react'
-import { FunctionComponent, useMemo } from 'react'
+import { FunctionComponent, useEffect, useMemo } from 'react'
 import { toast } from 'sonner'
 import { z } from 'zod'
 
+import { CopyToClipboardButton } from '@/components/CopyToClipboard'
 import { CurrencySelect } from '@/components/CurrencySelect'
 import { LocalId } from '@/components/LocalId'
 import { Property } from '@/components/Property'
@@ -120,10 +121,9 @@ export const CouponDetails: FunctionComponent = () => {
 
   const coupon = query.data?.coupon
 
-  const status = useMemo(() => {
-    if (!coupon) {
-      return 'Loading'
-    }
+  // Reset form when coupon data loads or changes
+  useEffect(() => {
+    if (!coupon) return
 
     methods.reset({
       amount:
@@ -142,7 +142,12 @@ export const CouponDetails: FunctionComponent = () => {
           : undefined,
       planIds: coupon.planIds ?? [],
     })
+  }, [coupon?.id])
 
+  const status = useMemo(() => {
+    if (!coupon) {
+      return 'Loading'
+    }
     if (coupon.disabled) {
       return 'Disabled'
     }
@@ -170,11 +175,15 @@ export const CouponDetails: FunctionComponent = () => {
     <div className="w-4/5">
       <Card className="min-h-[60%] flex flex-col">
         <CardHeader className="flex flex-row justify-between">
-          <CardTitle className="content-center  xl:space-x-2">
-            <span>{coupon.code}</span>
+          <CardTitle className="content-center xl:space-x-2">
+            <CopyToClipboardButton
+              text={coupon.code}
+              buttonVariant="ghost"
+              buttonClassName="text-base font-semibold px-2"
+            />
             <LocalId
               localId={coupon.localId}
-              className="max-w-24 text-[10px] "
+              className="max-w-24 text-[10px]"
               buttonClassName="p-1 border-10"
             />
           </CardTitle>

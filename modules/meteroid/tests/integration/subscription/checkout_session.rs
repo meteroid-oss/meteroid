@@ -638,3 +638,119 @@ async fn test_checkout_session_no_trial_invoice_dates(#[future] test_env: TestEn
         "Subscription period end should match invoice period"
     );
 }
+
+// =============================================================================
+// CHECKOUT SESSION WITH 100% COUPON (ZERO AMOUNT)
+// =============================================================================
+
+/// Checkout session with 100% coupon: zero amount checkout should succeed.
+/// Creates invoice with 0 total, activates subscription, no payment transaction.
+#[rstest]
+#[tokio::test]
+async fn test_checkout_session_100_percent_coupon(#[future] test_env: TestEnv) {
+    let env = test_env.await;
+    env.seed_payments().await;
+
+    let start_date = NaiveDate::from_ymd_opt(2024, 1, 15).unwrap();
+
+    // Create a 100% discount coupon
+    let coupon_id = env.create_percentage_coupon("SESSION100", 100).await;
+
+    // Create checkout session with coupon - use plan without trial
+    let session = env
+        .store()
+        .create_checkout_session(CreateCheckoutSession {
+            tenant_id: TENANT_ID,
+            customer_id: CUST_UBER_ID,
+            plan_version_id: PLAN_VERSION_1_LEETCODE_ID, // $35/month, no trial
+            created_by: USER_ID,
+            billing_start_date: Some(start_date),
+            billing_day_anchor: Some(15),
+            net_terms: None,
+            trial_duration_days: Some(0), // Explicitly no trial
+            end_date: None,
+            auto_advance_invoices: true,
+            charge_automatically: true,
+            invoice_memo: None,
+            invoice_threshold: None,
+            purchase_order: None,
+            components: None,
+            add_ons: None,
+            coupon_code: None,
+            coupon_ids: vec![coupon_id],
+            expires_in_hours: Some(24),
+            metadata: None,
+            checkout_type: CheckoutType::SelfServe,
+            subscription_id: None,
+        })
+        .await
+        .expect("Failed to create checkout session");
+
+    // Complete checkout with zero amount (100% discount)
+    let result = env
+        .services()
+        .complete_checkout(
+            TENANT_ID,
+            session.id,
+            CUST_UBER_PAYMENT_METHOD_ID,
+            0, // Zero amount due to 100% coupon
+            "EUR".to_string(),
+            None,
+        )
+        .await
+        .expect("Checkout with 100% coupon should succeed");
+
+    let subscription_id = match result {
+        CheckoutCompletionResult::Completed {
+            subscription_id,
+            transaction,
+        } => {
+            assert!(
+                transaction.is_none(),
+                "Should NOT have payment transaction for zero amount"
+            );
+            subscription_id
+        }
+        CheckoutCompletionResult::AwaitingPayment { .. } => {
+            panic!("Zero amount checkout should not be awaiting payment")
+        }
+    };
+
+    // === Verify subscription is active ===
+    let sub = env.get_subscription(subscription_id).await;
+    sub.assert()
+        .is_active()
+        .has_pending_checkout(false)
+        .has_payment_method(true)
+        .has_cycle_index(0);
+
+    // === Verify invoice exists with 0 total ===
+    let invoices = env.get_invoices(subscription_id).await;
+    invoices.assert().has_count(1);
+
+    invoices
+        .assert()
+        .invoice_at(0)
+        .with_context("Invoice with 100% coupon")
+        .has_subtotal(3500) // $35.00 base
+        .has_discount(3500) // 100% discount
+        .has_total(0) // $0 after 100% discount
+        .has_coupons_count(1);
+
+    // === Process renewal - coupon still active (no recurring_value limit) ===
+    env.process_cycles().await;
+
+    let sub = env.get_subscription(subscription_id).await;
+    sub.assert().is_active().has_cycle_index(1);
+
+    let invoices = env.get_invoices(subscription_id).await;
+    invoices.assert().has_count(2);
+
+    // Second invoice also has 100% discount (coupon has no cycle limit)
+    invoices
+        .assert()
+        .invoice_at(1)
+        .with_context("Second invoice with 100% coupon")
+        .has_total(0)
+        .has_coupons_count(1);
+}
