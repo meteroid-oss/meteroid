@@ -4,7 +4,7 @@ use crate::applied_coupons::{
 use crate::errors::IntoDbResult;
 use crate::extend::pagination::{Paginate, PaginatedVec, PaginationRequest};
 use crate::{DbResult, PgConn};
-use common_domain::ids::{AppliedCouponId, BaseId, CouponId, CustomerId, SubscriptionId, TenantId};
+use common_domain::ids::{AppliedCouponId, CouponId, CustomerId, SubscriptionId, TenantId};
 use diesel::{
     BoolExpressionMethods, ExpressionMethods, JoinOnDsl, QueryDsl, SelectableHelper, debug_query,
 };
@@ -66,7 +66,7 @@ impl AppliedCouponRow {
     /// Updates applied coupon state after an invoice is finalized.
     ///
     /// This function handles the SQL NULL arithmetic issue where `NULL + 1 = NULL`.
-    /// We use COALESCE in raw SQL to properly increment from NULL.
+    /// We use coalesce to properly increment from NULL.
     ///
     /// Database constraints:
     /// - `applied_count IS NULL OR applied_count > 0` (can't store 0)
@@ -80,25 +80,31 @@ impl AppliedCouponRow {
         id: AppliedCouponId,
         amount_delta: Option<Decimal>,
     ) -> DbResult<()> {
-        use diesel::sql_query;
-        use diesel::sql_types::{Nullable, Numeric, Timestamp, Uuid as DieselUuid};
+        use crate::schema::applied_coupon::dsl as ac;
+        use diesel::NullableExpressionMethods;
+
+        diesel::define_sql_function! {
+            #[sql_name = "COALESCE"]
+            fn coalesce_int(x: diesel::sql_types::Nullable<diesel::sql_types::Integer>, y: diesel::sql_types::Integer) -> diesel::sql_types::Integer;
+        }
+        diesel::define_sql_function! {
+            #[sql_name = "COALESCE"]
+            fn coalesce_numeric(x: diesel::sql_types::Nullable<diesel::sql_types::Numeric>, y: diesel::sql_types::Numeric) -> diesel::sql_types::Numeric;
+        }
 
         let now = chrono::Utc::now().naive_utc();
         let amount_delta = amount_delta.unwrap_or(Decimal::ZERO);
 
         if amount_delta > Decimal::ZERO {
-            let query = sql_query(
-                "UPDATE applied_coupon SET \
-                 last_applied_at = $1, \
-                 applied_count = COALESCE(applied_count, 0) + 1, \
-                 applied_amount = COALESCE(applied_amount, 0) + $2 \
-                 WHERE id = $3",
-            )
-            .bind::<Nullable<Timestamp>, _>(Some(now))
-            .bind::<Numeric, _>(amount_delta)
-            .bind::<DieselUuid, _>(id.as_uuid());
+            let query = diesel::update(ac::applied_coupon.find(id)).set((
+                ac::last_applied_at.eq(Some(now)),
+                ac::applied_count.eq((coalesce_int(ac::applied_count, 0) + 1).nullable()),
+                ac::applied_amount.eq((coalesce_numeric(ac::applied_amount, Decimal::ZERO)
+                    + amount_delta)
+                    .nullable()),
+            ));
 
-            log::debug!("{:?}", query);
+            log::debug!("{}", debug_query::<diesel::pg::Pg, _>(&query));
 
             query
                 .execute(conn)
@@ -106,16 +112,12 @@ impl AppliedCouponRow {
                 .attach("Error while refreshing applied coupon state")
                 .into_db_result()?;
         } else {
-            let query = sql_query(
-                "UPDATE applied_coupon SET \
-                 last_applied_at = $1, \
-                 applied_count = COALESCE(applied_count, 0) + 1 \
-                 WHERE id = $2",
-            )
-            .bind::<Nullable<Timestamp>, _>(Some(now))
-            .bind::<DieselUuid, _>(id.as_uuid());
+            let query = diesel::update(ac::applied_coupon.find(id)).set((
+                ac::last_applied_at.eq(Some(now)),
+                ac::applied_count.eq((coalesce_int(ac::applied_count, 0) + 1).nullable()),
+            ));
 
-            log::debug!("{:?}", query);
+            log::debug!("{}", debug_query::<diesel::pg::Pg, _>(&query));
 
             query
                 .execute(conn)
