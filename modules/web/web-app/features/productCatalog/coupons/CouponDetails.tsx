@@ -313,12 +313,7 @@ export const CouponDetails: FunctionComponent = () => {
           <Form {...methods}>
             <form
               className="h-full flex flex-col flex-1 justify-between"
-              onSubmit={methods.handleSubmit(
-                async (values: z.infer<typeof schemas.coupons.editComponentSchema>) => {
-                  await onSubmit(values)
-                  methods.reset()
-                }
-              )}
+              onSubmit={methods.handleSubmit(onSubmit)}
             >
               <div className="space-y-4">
                 <TextareaFormField
@@ -399,7 +394,6 @@ export const CouponDetails: FunctionComponent = () => {
                 <Button
                   type="submit"
                   variant="primary"
-                  disabled={!methods.formState.isValid || !methods.formState.isDirty}
                 >
                   Save
                 </Button>

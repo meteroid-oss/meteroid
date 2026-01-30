@@ -19,6 +19,7 @@ const baseEditCouponSchema = z.object({
 const basePercentageDiscount = z.object({
   discountType: z.literal('percentage'),
   percentage: z
+    .coerce
     .number()
     .positive()
     .transform(val => (val ? `${val}` : undefined)),
@@ -27,6 +28,7 @@ const basePercentageDiscount = z.object({
 const baseFixedDiscount = z.object({
   discountType: z.literal('fixed'),
   amount: z
+    .coerce
     .number()
     .positive()
     .transform(val => (val ? `${val}` : undefined)),
