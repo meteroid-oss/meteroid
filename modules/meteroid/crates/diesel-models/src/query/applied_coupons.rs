@@ -63,31 +63,70 @@ impl AppliedCouponRow {
             .into_db_result()
     }
 
+    /// Updates applied coupon state after an invoice is finalized.
+    ///
+    /// This function handles the SQL NULL arithmetic issue where `NULL + 1 = NULL`.
+    /// We use coalesce to properly increment from NULL.
+    ///
+    /// Database constraints:
+    /// - `applied_count IS NULL OR applied_count > 0` (can't store 0)
+    /// - `applied_amount IS NULL OR applied_amount > 0` (can't store 0)
+    ///
+    /// Logic:
+    /// - `applied_count` is always incremented (starts from NULL -> 1)
+    /// - `applied_amount` is only updated when `amount_delta > 0` to avoid storing 0
     pub async fn refresh_state(
         conn: &mut PgConn,
         id: AppliedCouponId,
         amount_delta: Option<Decimal>,
-    ) -> DbResult<AppliedCouponRow> {
-        use crate::schema::applied_coupon::dsl as ac_dsl;
+    ) -> DbResult<()> {
+        use crate::schema::applied_coupon::dsl as ac;
+        use diesel::NullableExpressionMethods;
+
+        diesel::define_sql_function! {
+            #[sql_name = "COALESCE"]
+            fn coalesce_int(x: diesel::sql_types::Nullable<diesel::sql_types::Integer>, y: diesel::sql_types::Integer) -> diesel::sql_types::Integer;
+        }
+        diesel::define_sql_function! {
+            #[sql_name = "COALESCE"]
+            fn coalesce_numeric(x: diesel::sql_types::Nullable<diesel::sql_types::Numeric>, y: diesel::sql_types::Numeric) -> diesel::sql_types::Numeric;
+        }
 
         let now = chrono::Utc::now().naive_utc();
         let amount_delta = amount_delta.unwrap_or(Decimal::ZERO);
 
-        let query = diesel::update(ac_dsl::applied_coupon)
-            .filter(ac_dsl::id.eq(id))
-            .set((
-                ac_dsl::last_applied_at.eq(now),
-                ac_dsl::applied_count.eq(ac_dsl::applied_count + 1),
-                ac_dsl::applied_amount.eq(ac_dsl::applied_amount + amount_delta),
+        if amount_delta > Decimal::ZERO {
+            let query = diesel::update(ac::applied_coupon.find(id)).set((
+                ac::last_applied_at.eq(Some(now)),
+                ac::applied_count.eq((coalesce_int(ac::applied_count, 0) + 1).nullable()),
+                ac::applied_amount.eq((coalesce_numeric(ac::applied_amount, Decimal::ZERO)
+                    + amount_delta)
+                    .nullable()),
             ));
 
-        log::debug!("{}", debug_query::<diesel::pg::Pg, _>(&query));
+            log::debug!("{}", debug_query::<diesel::pg::Pg, _>(&query));
 
-        query
-            .get_result(conn)
-            .await
-            .attach("Error while finalizing invoice")
-            .into_db_result()
+            query
+                .execute(conn)
+                .await
+                .attach("Error while refreshing applied coupon state")
+                .into_db_result()?;
+        } else {
+            let query = diesel::update(ac::applied_coupon.find(id)).set((
+                ac::last_applied_at.eq(Some(now)),
+                ac::applied_count.eq((coalesce_int(ac::applied_count, 0) + 1).nullable()),
+            ));
+
+            log::debug!("{}", debug_query::<diesel::pg::Pg, _>(&query));
+
+            query
+                .execute(conn)
+                .await
+                .attach("Error while refreshing applied coupon state")
+                .into_db_result()?;
+        }
+
+        Ok(())
     }
 
     /// Returns the set of (coupon_id, customer_id) pairs from the input that already exist in the database

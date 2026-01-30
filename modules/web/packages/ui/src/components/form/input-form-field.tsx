@@ -11,8 +11,7 @@ interface Transformer<T> {
 }
 
 interface InputFieldProps<TFieldValues extends FieldValues, TName extends FieldPath<TFieldValues>>
-  extends Omit<InputProps, 'defaultValue' | 'name'>,
-    UseControllerProps<TFieldValues, TName> {
+  extends Omit<InputProps, 'defaultValue' | 'name'>, UseControllerProps<TFieldValues, TName> {
   label?: string
   description?: string
   key?: string
@@ -22,6 +21,7 @@ interface InputFieldProps<TFieldValues extends FieldValues, TName extends FieldP
   transformer?: Transformer<PathValue<TFieldValues, TName>>
   asString?: boolean
   rightLabel?: React.ReactNode
+  labelTooltip?: React.ReactNode
 }
 
 const parseNumber = (value?: string) => (Number.isNaN(Number(value)) ? undefined : Number(value))

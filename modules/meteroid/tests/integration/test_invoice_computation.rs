@@ -616,6 +616,7 @@ async fn create_test_coupon(
         redemption_limit: None,
         recurring_value: None,
         reusable: false,
+        plan_ids: vec![],
     };
 
     store.create_coupon(coupon_new).await.unwrap().id

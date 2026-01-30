@@ -1,5 +1,6 @@
 use crate::domain::coupons::{AppliedCouponsDiscount, CouponDiscount};
 use crate::domain::{AppliedCouponDetailed, CouponLineItem, LineItem};
+use common_domain::ids::BaseId;
 use common_utils::decimals::ToSubunit;
 use common_utils::integers::ToNonNegativeU64;
 use itertools::Itertools;
@@ -69,7 +70,7 @@ pub fn calculate_coupons_discount(
     let applicable_coupons: Vec<&AppliedCouponDetailed> = coupons
         .iter()
         .filter(|x| x.is_invoice_applicable())
-        .sorted_by_key(|x| x.applied_coupon.created_at)
+        .sorted_by_key(|x| (x.applied_coupon.created_at, x.applied_coupon.id.as_uuid()))
         .collect::<Vec<_>>();
 
     let mut applied_coupons_items = vec![];
@@ -82,7 +83,7 @@ pub fn calculate_coupons_discount(
         }
         let discount = match &applicable_coupon.coupon.discount {
             CouponDiscount::Percentage(percentage) => {
-                subtotal_subunits * percentage / Decimal::ONE_HUNDRED
+                (subtotal_subunits * percentage / Decimal::ONE_HUNDRED).min(subtotal_subunits)
             }
             CouponDiscount::Fixed { amount, currency } => {
                 // todo currency conversion

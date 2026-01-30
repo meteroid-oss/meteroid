@@ -2,7 +2,7 @@ use crate::domain::CouponLineItem;
 use crate::errors::{StoreError, StoreErrorReport};
 use crate::json_value_serde;
 use chrono::NaiveDateTime;
-use common_domain::ids::{BaseId, CouponId, TenantId};
+use common_domain::ids::{BaseId, CouponId, PlanId, TenantId};
 use diesel_models::coupons::{
     CouponFilter as CouponFilterDb, CouponRow, CouponRowNew, CouponRowPatch, CouponStatusRowPatch,
 };
@@ -28,6 +28,7 @@ pub struct Coupon {
     pub last_redemption_at: Option<NaiveDateTime>,
     pub archived_at: Option<NaiveDateTime>,
     pub redemption_count: i32,
+    pub plan_ids: Vec<PlanId>, // restrict coupon to specific plans (empty = all plans)
 }
 
 /// Validation error for coupon usage
@@ -181,6 +182,7 @@ impl TryInto<Coupon> for CouponRow {
             last_redemption_at: self.last_redemption_at,
             archived_at: self.archived_at,
             redemption_count: self.redemption_count,
+            plan_ids: Vec::new(), // populated separately from coupon_plan table
         })
     }
 }
@@ -195,6 +197,7 @@ pub struct CouponNew {
     pub redemption_limit: Option<i32>,
     pub recurring_value: Option<i32>,
     pub reusable: bool,
+    pub plan_ids: Vec<PlanId>,
 }
 
 impl TryInto<CouponRowNew> for CouponNew {
@@ -224,6 +227,7 @@ pub struct CouponPatch {
     pub description: Option<String>,
     pub discount: Option<CouponDiscount>,
     pub updated_at: NaiveDateTime,
+    pub plan_ids: Option<Vec<PlanId>>,
 }
 
 #[derive(Clone, Debug, o2o)]

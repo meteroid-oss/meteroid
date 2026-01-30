@@ -50,6 +50,7 @@ async fn test_coupons_basic() {
             redemption_limit: Some(10),
             recurring_value: None,
             reusable: false,
+            plan_ids: vec![],
         })
         .await
         .unwrap()
@@ -88,6 +89,7 @@ async fn test_coupons_basic() {
             coupon_id: created.id.clone(),
             description: "test-desc-edited".into(),
             discount: Some(percentage_discount.clone()),
+            plan_ids: vec![],
         })
         .await
         .unwrap()

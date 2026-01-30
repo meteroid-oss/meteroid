@@ -423,18 +423,18 @@
         text(fill: color.accent, translations.subtotal),
         align(right, text(weight: "regular", format_amount(subtotal))),
 
-        // Show discount if applicable
-        ..if discount > 0 {
+        // Show coupon line items if available, otherwise show generic discount
+        ..if coupons.len() > 0 {
+          for coupon in coupons {
+            (
+              text(fill: color.accent, coupon.name),
+              align(right, text(weight: "regular", "-" + format_amount(coupon.total))),
+            )
+          }
+        } else if discount > 0 {
           (
             text(fill: color.accent, translations.discount),
             align(right, text(weight: "regular", "-" + format_amount(discount))),
-          )
-        },
-
-        ..for coupon in coupons {
-          (
-            text(fill: color.accent, coupon.name),
-            align(right, text(weight: "regular", "-" + format_amount(coupon.total))),
           )
         },
 

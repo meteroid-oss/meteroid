@@ -109,6 +109,57 @@ impl Services {
                     )));
                 }
 
+                // Handle zero amount case (e.g., 100% coupon discount)
+                // No payment needed, just save payment method and finalize
+                if draft_invoice.amount_due == 0 {
+                    // Save the payment method on the subscription
+                    let payment_method = diesel_models::customer_payment_methods::CustomerPaymentMethodRow::get_by_id(
+                        conn,
+                        &tenant_id,
+                        &payment_method_id,
+                    )
+                    .await
+                    .map_err(|e| StoreError::DatabaseError(e.error))?;
+
+                    diesel_models::subscriptions::SubscriptionRow::update_subscription_payment_method(
+                        conn,
+                        subscription.subscription.id,
+                        tenant_id,
+                        Some(payment_method_id),
+                        Some(payment_method.payment_method_type),
+                    )
+                    .await
+                    .map_err(Into::<Report<StoreError>>::into)?;
+
+                    // Finalize the invoice
+                    self.finalize_invoice_tx(
+                        conn,
+                        draft_invoice.id,
+                        tenant_id,
+                        false,
+                        &Some(subscription),
+                    )
+                    .await?;
+
+                    // Mark as paid since amount is 0
+                    InvoiceRow::apply_payment_status(
+                        conn,
+                        draft_invoice.id,
+                        tenant_id,
+                        diesel_models::enums::InvoicePaymentStatus::Paid,
+                        None,
+                    )
+                    .await?;
+
+                    // Get the updated invoice and return with no transactions
+                    let updated_invoice =
+                        InvoiceRow::find_detailed_by_id(conn, tenant_id, draft_invoice.id).await?;
+
+                    return Ok(Some(
+                        DetailedInvoice::try_from(updated_invoice)?.with_transactions(vec![]),
+                    ));
+                }
+
                 // We trigger the payment synchronously but don't finalize the invoice yet, it will be done via the webhook
                 let res = self
                     .process_invoice_payment_tx(
@@ -211,6 +262,18 @@ impl Services {
                     &Some(subscription.clone()),
                 )
                 .await?;
+
+                // Handle zero amount case (e.g., 100% coupon discount)
+                if draft_invoice.amount_due == 0 {
+                    InvoiceRow::apply_payment_status(
+                        conn,
+                        draft_invoice.id,
+                        tenant_id,
+                        diesel_models::enums::InvoicePaymentStatus::Paid,
+                        None,
+                    )
+                    .await?;
+                }
             }
             InvoiceBillingMode::AlreadyPaid {
                 charge_result,

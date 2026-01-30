@@ -34,6 +34,7 @@ message CreateCouponRequest {
   optional int32 redemption_limit = 5;
   optional int32 recurring_value = 6;
   bool reusable = 7;
+  repeated string plan_ids = 8;
 }
 
 message CreateCouponResponse {
@@ -50,6 +51,7 @@ message EditCouponRequest {
   string coupon_id = 1;
   string description = 2;
   CouponDiscount discount = 3;
+  repeated string plan_ids = 4;
 }
 
 message EditCouponResponse {

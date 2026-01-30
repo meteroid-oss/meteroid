@@ -10,11 +10,11 @@ pub mod applied {
                 id: value.id.as_proto(),
                 coupon_id: value.coupon_id.as_proto(),
                 customer_name: value.customer_name,
-                customer_local_id: value.id.as_proto(), // todo remove me
+                customer_local_id: value.customer_id.as_proto(),
                 customer_id: value.customer_id.as_proto(),
                 subscription_id: value.subscription_id.as_proto(),
                 plan_name: value.plan_name,
-                plan_local_id: value.id.as_proto(), // todo remove me
+                plan_local_id: value.plan_id.as_proto(),
                 plan_version: value.plan_version,
                 is_active: value.is_active,
                 applied_amount: value.applied_amount.as_proto(),
@@ -46,6 +46,9 @@ pub mod coupons {
                 last_redemption_at: value.last_redemption_at.as_proto(),
                 redemption_count: value.redemption_count as u32,
                 archived_at: value.archived_at.as_proto(),
+                recurring_value: value.recurring_value,
+                reusable: value.reusable,
+                plan_ids: value.plan_ids.into_iter().map(|id| id.as_proto()).collect(),
             })
         }
     }

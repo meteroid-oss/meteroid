@@ -271,39 +271,37 @@ impl ServicesEdge {
                 .ok_or(StoreError::InsertError)
                 .attach("Failed to bill the subscription")?;
 
-            let payment_transaction = detailed_invoice
-                .transactions
-                .into_iter()
-                .next()
-                .ok_or(StoreError::InsertError)
-                .attach("No payment transaction linked to invoice")?;
+            let payment_transaction = detailed_invoice.transactions.into_iter().next();
 
             // Handle payment status explicitly
-            match payment_transaction.status {
-                PaymentStatusEnum::Pending => {
-                    // Payment is pending (e.g., async payment method like SEPA)
-                    // Return early, subscription activation will happen via webhook
-                    return Ok((Some(payment_transaction), true));
-                }
-                PaymentStatusEnum::Settled => {
-                    // Payment succeeded, proceed with activation below
-                }
-                PaymentStatusEnum::Failed => {
-                    return Err(Report::new(StoreError::CheckoutError)
-                        .attach("Payment failed during checkout"));
-                }
-                PaymentStatusEnum::Cancelled => {
-                    return Err(Report::new(StoreError::CheckoutError)
-                        .attach("Payment was cancelled during checkout"));
-                }
-                PaymentStatusEnum::Ready => {
-                    // Ready means not yet processed - this shouldn't happen after charging
-                    return Err(Report::new(StoreError::CheckoutError)
-                        .attach("Payment was not processed correctly"));
+            // None means zero amount (e.g., 100% coupon) - invoice already finalized and marked paid
+            if let Some(ref txn) = payment_transaction {
+                match txn.status {
+                    PaymentStatusEnum::Pending => {
+                        // Payment is pending (e.g., async payment method like SEPA)
+                        // Return early, subscription activation will happen via webhook
+                        return Ok((payment_transaction, true));
+                    }
+                    PaymentStatusEnum::Settled => {
+                        // Payment succeeded, proceed with activation below
+                    }
+                    PaymentStatusEnum::Failed => {
+                        return Err(Report::new(StoreError::CheckoutError)
+                            .attach("Payment failed during checkout"));
+                    }
+                    PaymentStatusEnum::Cancelled => {
+                        return Err(Report::new(StoreError::CheckoutError)
+                            .attach("Payment was cancelled during checkout"));
+                    }
+                    PaymentStatusEnum::Ready => {
+                        // Ready means not yet processed - this shouldn't happen after charging
+                        return Err(Report::new(StoreError::CheckoutError)
+                            .attach("Payment was not processed correctly"));
+                    }
                 }
             }
 
-            // Payment succeeded (settled) - activate the subscription
+            // Payment succeeded (settled) or zero amount - activate the subscription
             // Calculate the billing period using the subscription's actual billing period
             let current_period_start = detailed_invoice.invoice.invoice_date;
             let billing_period: BillingPeriodEnum = subscription.period.clone().into();
@@ -367,8 +365,8 @@ impl ServicesEdge {
                     .map_err(Into::<Report<StoreError>>::into)?;
             }
 
-            // If we get here, payment was settled
-            Ok((Some(payment_transaction), false))
+            // Return transaction if any (None for zero amount case)
+            Ok((payment_transaction, false))
         }
     }
 
@@ -915,6 +913,9 @@ impl ServicesEdge {
             .as_ref()
             .is_some_and(|tc| tc.is_free);
 
+        // Zero amount due to coupon discount (not free trial)
+        let is_zero_amount = amount_due <= 0 && !is_free_trial;
+
         let charge_result = if is_free_trial || amount_due <= 0 {
             let _method =
                 diesel_models::customer_payment_methods::CustomerPaymentMethodRow::get_by_id(
@@ -1089,8 +1090,71 @@ impl ServicesEdge {
                 .await?;
 
             None
+        } else if is_zero_amount {
+            // Zero amount (e.g., 100% coupon) but not a free trial
+            // Could still be a paid trial with 100% discount
+            // Create invoice (to show line items + discount) and set up billing cycles
+            // Zero amount is already marked as paid by bill_subscription_tx with Immediate mode
+            self.services
+                .bill_subscription_tx(
+                    conn,
+                    tenant_id,
+                    created_subscription.id,
+                    InvoiceBillingMode::Immediate,
+                )
+                .await?
+                .ok_or(StoreError::InsertError)
+                .attach("Failed to create invoice for zero-amount subscription")?;
+
+            let payment_method =
+                diesel_models::customer_payment_methods::CustomerPaymentMethodRow::get_by_id(
+                    conn,
+                    &tenant_id,
+                    &payment_method_id,
+                )
+                .await
+                .map_err(|e| StoreError::DatabaseError(e.error))?;
+
+            let subscription =
+                SubscriptionRow::get_subscription_by_id(conn, &tenant_id, created_subscription.id)
+                    .await?;
+
+            let billing_day_anchor = session
+                .billing_day_anchor
+                .map(|a| a as u32)
+                .unwrap_or_else(|| start_date.day());
+
+            // Check if this is a paid trial (trial exists but is not free)
+            let has_paid_trial = trial_config.as_ref().is_some_and(|tc| !tc.is_free);
+            let trial_duration = if has_paid_trial {
+                trial_config.as_ref().map(|tc| tc.duration_days as i32)
+            } else {
+                None
+            };
+
+            self.services
+                .activate_subscription_after_payment(
+                    conn,
+                    &created_subscription.id,
+                    &tenant_id,
+                    crate::services::subscriptions::PaymentActivationParams {
+                        billing_start_date: start_date,
+                        trial_duration,
+                        is_paid_trial: has_paid_trial,
+                        billing_day_anchor,
+                        period: subscription.subscription.period.into(),
+                        payment_method: Some(crate::services::subscriptions::PaymentMethodInfo {
+                            id: payment_method_id,
+                            method_type: payment_method.payment_method_type,
+                        }),
+                    },
+                )
+                .await?;
+
+            None
         } else {
-            // No payment, no trial - activate directly
+            // No payment, no trial, no zero-amount - this shouldn't happen
+            // but keep as fallback for completely free plans
             SubscriptionRow::activate_subscription(
                 conn,
                 &created_subscription.id,

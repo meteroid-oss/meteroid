@@ -1,4 +1,4 @@
-import { disableQuery, useMutation } from '@connectrpc/connect-query'
+import { disableQuery, useMutation, useQuery as useConnectQuery } from '@connectrpc/connect-query'
 import { useQueryClient } from '@tanstack/react-query'
 import {
   Button,
@@ -12,16 +12,19 @@ import {
   DropdownMenuTrigger,
   Form,
   InputFormField,
+  MultiSelectFormField,
+  MultiSelectItem,
   SelectFormField,
   SelectItem,
   Separator,
   TextareaFormField,
 } from '@ui/components'
 import { ChevronDown } from 'lucide-react'
-import { FunctionComponent, useMemo } from 'react'
+import { FunctionComponent, useEffect, useMemo } from 'react'
 import { toast } from 'sonner'
 import { z } from 'zod'
 
+import { CopyToClipboardButton } from '@/components/CopyToClipboard'
 import { CurrencySelect } from '@/components/CurrencySelect'
 import { LocalId } from '@/components/LocalId'
 import { Property } from '@/components/Property'
@@ -37,6 +40,8 @@ import {
   updateCouponStatus,
 } from '@/rpc/api/coupons/v1/coupons-CouponsService_connectquery'
 import { CouponAction } from '@/rpc/api/coupons/v1/coupons_pb'
+import { listPlans } from '@/rpc/api/plans/v1/plans-PlansService_connectquery'
+import { ListPlansRequest_SortBy } from '@/rpc/api/plans/v1/plans_pb'
 import { parseAndFormatDate, parseAndFormatDateOptional } from '@/utils/date'
 import { useTypedParams } from '@/utils/params'
 
@@ -73,6 +78,10 @@ export const CouponDetails: FunctionComponent = () => {
     onSuccess: invalidate,
   })
 
+  const plansQuery = useConnectQuery(listPlans, {
+    sortBy: ListPlansRequest_SortBy.NAME_ASC,
+  })
+
   const [, setTab] = useQueryState<string>('filter', '')
 
   const methods = useZodForm({
@@ -81,6 +90,7 @@ export const CouponDetails: FunctionComponent = () => {
       description: '',
       discountType: 'percentage',
       percentage: undefined,
+      planIds: [],
     },
   })
 
@@ -103,6 +113,7 @@ export const CouponDetails: FunctionComponent = () => {
                 value: { percentage: data.percentage },
               },
       },
+      planIds: data.planIds ?? [],
     })
   }
 
@@ -110,10 +121,9 @@ export const CouponDetails: FunctionComponent = () => {
 
   const coupon = query.data?.coupon
 
-  const status = useMemo(() => {
-    if (!coupon) {
-      return 'Loading'
-    }
+  // Reset form when coupon data loads or changes
+  useEffect(() => {
+    if (!coupon) return
 
     methods.reset({
       amount:
@@ -130,8 +140,14 @@ export const CouponDetails: FunctionComponent = () => {
         coupon.discount?.discountType?.case === 'percentage'
           ? coupon.discount.discountType.value.percentage
           : undefined,
+      planIds: coupon.planIds ?? [],
     })
+  }, [coupon?.id])
 
+  const status = useMemo(() => {
+    if (!coupon) {
+      return 'Loading'
+    }
     if (coupon.disabled) {
       return 'Disabled'
     }
@@ -159,11 +175,15 @@ export const CouponDetails: FunctionComponent = () => {
     <div className="w-4/5">
       <Card className="min-h-[60%] flex flex-col">
         <CardHeader className="flex flex-row justify-between">
-          <CardTitle className="content-center  xl:space-x-2">
-            <span>{coupon.code}</span>
+          <CardTitle className="content-center xl:space-x-2">
+            <CopyToClipboardButton
+              text={coupon.code}
+              buttonVariant="ghost"
+              buttonClassName="text-base font-semibold px-2"
+            />
             <LocalId
               localId={coupon.localId}
-              className="max-w-24 text-[10px] "
+              className="max-w-24 text-[10px]"
               buttonClassName="p-1 border-10"
             />
           </CardTitle>
@@ -239,7 +259,7 @@ export const CouponDetails: FunctionComponent = () => {
                         .then(() => setTab('archived'))
                     }
                   >
-                    Achive
+                    Archive
                   </DropdownMenuItem>
                 )}
 
@@ -271,17 +291,29 @@ export const CouponDetails: FunctionComponent = () => {
               label="Last usage"
               value={parseAndFormatDateOptional(coupon.lastRedemptionAt)}
             />
+            <Property
+              label="Recurring limit"
+              value={
+                coupon.recurringValue
+                  ? `${coupon.recurringValue} billing cycle(s)`
+                  : 'Unlimited'
+              }
+            />
+            <Property label="Reusable" value={coupon.reusable ? 'Yes' : 'No'} />
+            <Property
+              label="Plan restrictions"
+              value={
+                coupon.planIds && coupon.planIds.length > 0
+                  ? `${coupon.planIds.length} plan(s)`
+                  : 'All plans'
+              }
+            />
           </div>
           <Separator />
           <Form {...methods}>
             <form
               className="h-full flex flex-col flex-1 justify-between"
-              onSubmit={methods.handleSubmit(
-                async (values: z.infer<typeof schemas.coupons.editComponentSchema>) => {
-                  await onSubmit(values)
-                  methods.reset()
-                }
-              )}
+              onSubmit={methods.handleSubmit(onSubmit)}
             >
               <div className="space-y-4">
                 <TextareaFormField
@@ -342,12 +374,26 @@ export const CouponDetails: FunctionComponent = () => {
                     />
                   </>
                 )}
+
+                <MultiSelectFormField
+                  name="planIds"
+                  label="Restrict to plans"
+                  layout="horizontal"
+                  control={methods.control}
+                  placeholder="All plans (no restriction)"
+                  hasSearch
+                >
+                  {plansQuery.data?.plans?.map(plan => (
+                    <MultiSelectItem key={plan.id} value={plan.id}>
+                      {plan.name}
+                    </MultiSelectItem>
+                  ))}
+                </MultiSelectFormField>
               </div>
               <div className="flex justify-end">
                 <Button
                   type="submit"
                   variant="primary"
-                  disabled={!methods.formState.isValid || !methods.formState.isDirty}
                 >
                   Save
                 </Button>

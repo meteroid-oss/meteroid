@@ -263,6 +263,33 @@ impl PlanVersionRow {
             .attach("Error while finding plan version")
             .into_db_result()
     }
+
+    /// Get plan_ids for multiple plan_version_ids
+    pub async fn get_plan_ids_by_version_ids(
+        conn: &mut PgConn,
+        plan_version_ids: &[PlanVersionId],
+    ) -> DbResult<std::collections::HashMap<PlanVersionId, PlanId>> {
+        use crate::schema::plan_version::dsl as pv_dsl;
+        use diesel_async::RunQueryDsl;
+
+        if plan_version_ids.is_empty() {
+            return Ok(std::collections::HashMap::new());
+        }
+
+        let query = pv_dsl::plan_version
+            .filter(pv_dsl::id.eq_any(plan_version_ids))
+            .select((pv_dsl::id, pv_dsl::plan_id));
+
+        log::debug!("{}", debug_query::<diesel::pg::Pg, _>(&query));
+
+        let rows: Vec<(PlanVersionId, PlanId)> = query
+            .load(conn)
+            .await
+            .attach("Error while getting plan_ids by version_ids")
+            .into_db_result()?;
+
+        Ok(rows.into_iter().collect())
+    }
 }
 
 impl PlanVersionRowOverview {

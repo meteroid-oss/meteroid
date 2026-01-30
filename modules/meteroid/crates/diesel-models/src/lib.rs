@@ -29,6 +29,7 @@ pub mod add_ons;
 pub mod applied_coupons;
 pub mod bank_accounts;
 pub mod checkout_sessions;
+pub mod coupon_plans;
 pub mod coupons;
 pub mod customer_balance_txs;
 pub mod customer_payment_methods;

@@ -309,6 +309,49 @@ impl<'a> InvoiceAssert<'a> {
         self.has_status(InvoiceStatusEnum::Finalized)
             .has_payment_status(InvoicePaymentStatus::Paid)
     }
+
+    /// Assert the invoice subtotal (before discounts).
+    #[allow(dead_code)]
+    pub fn has_subtotal(self, expected: i64) -> Self {
+        assert_eq!(
+            self.invoice.subtotal,
+            expected,
+            "{}",
+            self.format_msg(&format!(
+                "Expected subtotal={}, got {}",
+                expected, self.invoice.subtotal
+            ))
+        );
+        self
+    }
+
+    /// Assert the invoice has applied coupons.
+    #[allow(dead_code)]
+    pub fn has_coupons_count(self, expected: usize) -> Self {
+        let actual = self.invoice.coupons.len();
+        assert_eq!(
+            actual,
+            expected,
+            "{}",
+            self.format_msg(&format!("Expected {} coupons, got {}", expected, actual))
+        );
+        self
+    }
+
+    /// Assert the invoice discount total.
+    #[allow(dead_code)]
+    pub fn has_discount(self, expected: i64) -> Self {
+        assert_eq!(
+            self.invoice.discount,
+            expected,
+            "{}",
+            self.format_msg(&format!(
+                "Expected discount={}, got {}",
+                expected, self.invoice.discount
+            ))
+        );
+        self
+    }
 }
 
 /// Extension trait for Invoice to enable fluent assertions.

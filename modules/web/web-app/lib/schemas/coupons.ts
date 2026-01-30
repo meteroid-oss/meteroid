@@ -8,15 +8,18 @@ const baseCreateCouponSchema = z.object({
   redemptionLimit: z.number().int().positive().optional(), // max number of subscriptions that can redeem this
   recurringValue: z.number().int().positive().optional(), // max billing periods that this coupon will be applied to
   reusable: z.boolean().optional(),
+  planIds: z.array(z.string()).optional(), // restrict coupon to specific plans (empty = all plans)
 })
 
 const baseEditCouponSchema = z.object({
   description: z.string().optional(),
+  planIds: z.array(z.string()).optional(),
 })
 
 const basePercentageDiscount = z.object({
   discountType: z.literal('percentage'),
   percentage: z
+    .coerce
     .number()
     .positive()
     .transform(val => (val ? `${val}` : undefined)),
@@ -25,6 +28,7 @@ const basePercentageDiscount = z.object({
 const baseFixedDiscount = z.object({
   discountType: z.literal('fixed'),
   amount: z
+    .coerce
     .number()
     .positive()
     .transform(val => (val ? `${val}` : undefined)),

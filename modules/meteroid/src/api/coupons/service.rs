@@ -5,7 +5,7 @@ use crate::api::coupons::{CouponsServiceComponents, mapping};
 use crate::api::shared::conversions::FromProtoOpt;
 use crate::api::utils::PaginationExt;
 use chrono::NaiveDateTime;
-use common_domain::ids::CouponId;
+use common_domain::ids::{CouponId, PlanId};
 use common_grpc::middleware::server::auth::RequestExt;
 use meteroid_grpc::meteroid::api::coupons::v1::coupons_service_server::CouponsService;
 use meteroid_grpc::meteroid::api::coupons::v1::{
@@ -118,6 +118,12 @@ impl CouponsService for CouponsServiceComponents {
 
         let discount = mapping::coupons::discount::to_domain(req.discount)?;
 
+        let plan_ids = req
+            .plan_ids
+            .into_iter()
+            .map(|id| PlanId::from_proto(&id))
+            .collect::<Result<Vec<_>, _>>()?;
+
         let new = domain::coupons::CouponNew {
             code: req.code,
             description: req.description,
@@ -127,6 +133,7 @@ impl CouponsService for CouponsServiceComponents {
             tenant_id,
             recurring_value: req.recurring_value,
             reusable: req.reusable,
+            plan_ids,
         };
 
         let added = self
@@ -171,12 +178,19 @@ impl CouponsService for CouponsServiceComponents {
 
         let discount = mapping::coupons::discount::to_domain(req.discount)?;
 
+        let plan_ids = req
+            .plan_ids
+            .into_iter()
+            .map(|id| PlanId::from_proto(&id))
+            .collect::<Result<Vec<_>, _>>()?;
+
         let patch = domain::coupons::CouponPatch {
             id: CouponId::from_proto(&req.coupon_id)?,
             tenant_id,
             description: Some(req.description),
             discount: Some(discount),
             updated_at: chrono::Utc::now().naive_utc(),
+            plan_ids: Some(plan_ids),
         };
 
         let updated = self
