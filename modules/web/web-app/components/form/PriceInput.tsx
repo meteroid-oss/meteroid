@@ -42,7 +42,7 @@ export const UncontrolledPriceInput = forwardRef<HTMLInputElement, UncontrolledP
         const multiplier = Math.pow(10, precision)
         const rounded = Math.round(numValue * multiplier) / multiplier
         // Update the input value to show the rounded value
-        e.target.value = rounded.toString()
+        e.target.value = rounded.toFixed(precision)
         // Trigger onChange with the rounded value
         onChange?.(e)
       }

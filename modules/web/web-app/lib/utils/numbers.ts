@@ -21,16 +21,19 @@ export const percentToRate = (percent: number): string => {
 }
 
 export const formatUsage = (quantity: number) => {
-  let rounded
+  let maxDecimals: number
   if (Math.abs(quantity) < 1) {
-    rounded = Number(quantity.toFixed(12))
+    maxDecimals = 12
   } else if (Math.abs(quantity) < 100) {
-    rounded = Number(quantity.toFixed(4))
+    maxDecimals = 4
   } else {
-    rounded = Number(quantity.toFixed(2))
+    maxDecimals = 2
   }
 
-  return rounded.toString() // TODO: consider toLocaleString?
+  return quantity.toLocaleString('en-US', {
+    useGrouping: false,
+    maximumFractionDigits: maxDecimals,
+  })
 }
 
 export const formatCurrency = (amount: bigint | number, currencyCode: string) => {
