@@ -149,7 +149,7 @@ const MatrixSchema = z.object({
       z.object({
         dimension1: dimensionSchema,
         dimension2: dimensionSchema.optional(),
-        price: pricePrecision2Schema,
+        price: pricePrecision8Schema,
       })
     )
     .min(1),
