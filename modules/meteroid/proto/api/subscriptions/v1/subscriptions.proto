@@ -152,6 +152,18 @@ message ActivateSubscriptionResponse {
   optional string invoice_id = 2;
 }
 
+message UpdateSubscriptionRequest {
+  string subscription_id = 1;
+  optional bool charge_automatically = 2;
+  optional bool auto_advance_invoices = 3;
+  optional uint32 net_terms = 4;
+  optional string invoice_memo = 5;
+  optional string purchase_order = 7;
+}
+
+message UpdateSubscriptionResponse {
+  Subscription subscription = 1;
+}
 
 // Service definition
 service SubscriptionsService {
@@ -168,4 +180,5 @@ service SubscriptionsService {
   rpc ActivateSubscription(ActivateSubscriptionRequest) returns (ActivateSubscriptionResponse);
   rpc SyncToHubspot(SyncToHubspotRequest) returns (SyncToHubspotResponse);
   rpc GenerateCheckoutToken(GenerateCheckoutTokenRequest) returns (GenerateCheckoutTokenResponse);
+  rpc UpdateSubscription(UpdateSubscriptionRequest) returns (UpdateSubscriptionResponse);
 }

@@ -315,3 +315,13 @@ pub struct SubscriptionDetails {
     pub checkout_url: Option<String>,
     pub trial_config: Option<TrialConfig>,
 }
+
+#[derive(Clone, Debug)]
+pub struct SubscriptionPatch {
+    pub id: SubscriptionId,
+    pub charge_automatically: Option<bool>,
+    pub auto_advance_invoices: Option<bool>,
+    pub net_terms: Option<u32>,
+    pub invoice_memo: Option<Option<String>>,
+    pub purchase_order: Option<Option<String>>,
+}

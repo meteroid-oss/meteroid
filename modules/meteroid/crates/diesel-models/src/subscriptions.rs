@@ -168,3 +168,14 @@ pub struct SubscriptionCycleErrorRowPatch {
     pub error_count: Option<i32>,
     pub status: Option<SubscriptionStatusEnum>,
 }
+
+#[derive(AsChangeset, Debug)]
+#[diesel(table_name = crate::schema::subscription)]
+#[diesel(check_for_backend(diesel::pg::Pg))]
+pub struct SubscriptionRowPatch {
+    pub charge_automatically: Option<bool>,
+    pub auto_advance_invoices: Option<bool>,
+    pub net_terms: Option<i32>,
+    pub invoice_memo: Option<Option<String>>,
+    pub purchase_order: Option<Option<String>>,
+}

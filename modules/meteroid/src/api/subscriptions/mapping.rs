@@ -4,7 +4,7 @@ pub mod subscriptions {
 
     use crate::api::connectors::mapping::connectors::connection_metadata_to_server;
     use crate::api::shared::conversions::{AsProtoOpt, FromProtoOpt, ProtoConv};
-    use common_domain::ids::{CustomerId, PlanVersionId};
+    use common_domain::ids::{CustomerId, PlanVersionId, SubscriptionId};
     use common_utils::integers::ToNonNegativeU64;
     use meteroid_grpc::meteroid::api::subscriptions::v1 as proto2;
     use meteroid_store::domain::SubscriptionStatusEnum;
@@ -279,6 +279,32 @@ pub mod subscriptions {
                 is_free: tc.is_free,
                 trialing_plan_id: tc.trialing_plan_id.map(|id| id.as_proto()),
                 trialing_plan_name: tc.trialing_plan_name,
+            }),
+        })
+    }
+
+    pub(crate) fn update_request_to_patch(
+        subscription_id: SubscriptionId,
+        req: &proto2::UpdateSubscriptionRequest,
+    ) -> Result<domain::SubscriptionPatch, Status> {
+        Ok(domain::SubscriptionPatch {
+            id: subscription_id,
+            charge_automatically: req.charge_automatically,
+            auto_advance_invoices: req.auto_advance_invoices,
+            net_terms: req.net_terms,
+            invoice_memo: req.invoice_memo.as_ref().map(|m| {
+                if m.is_empty() {
+                    None
+                } else {
+                    Some(m.clone())
+                }
+            }),
+            purchase_order: req.purchase_order.as_ref().map(|p| {
+                if p.is_empty() {
+                    None
+                } else {
+                    Some(p.clone())
+                }
             }),
         })
     }

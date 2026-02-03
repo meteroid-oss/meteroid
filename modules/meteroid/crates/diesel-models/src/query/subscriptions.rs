@@ -1,7 +1,9 @@
 use crate::errors::IntoDbResult;
 use chrono::NaiveDate;
 
-use crate::subscriptions::{SubscriptionForDisplayRow, SubscriptionRow, SubscriptionRowNew};
+use crate::subscriptions::{
+    SubscriptionForDisplayRow, SubscriptionRow, SubscriptionRowNew, SubscriptionRowPatch,
+};
 use crate::{DbResult, PgConn};
 
 use diesel::{
@@ -301,5 +303,29 @@ impl SubscriptionRow {
         )
         .await
         .map(|_| ())
+    }
+
+    pub async fn patch(
+        conn: &mut PgConn,
+        tenant_id_param: &TenantId,
+        subscription_id_param: SubscriptionId,
+        patch: &SubscriptionRowPatch,
+    ) -> DbResult<SubscriptionRow> {
+        use crate::schema::subscription::dsl::{id, subscription, tenant_id};
+
+        let query = diesel::update(
+            subscription
+                .filter(id.eq(subscription_id_param))
+                .filter(tenant_id.eq(tenant_id_param)),
+        )
+        .set(patch);
+
+        log::debug!("{}", debug_query::<diesel::pg::Pg, _>(&query));
+
+        query
+            .get_result(conn)
+            .await
+            .attach("Error while updating subscription")
+            .into_db_result()
     }
 }

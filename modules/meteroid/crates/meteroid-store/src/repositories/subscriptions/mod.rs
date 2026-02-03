@@ -2,7 +2,7 @@ use crate::StoreResult;
 use crate::domain::{
     BillableMetric, ConnectorProviderEnum, Customer, InvoicingEntity, PaginatedVec,
     PaginationRequest, Schedule, Subscription, SubscriptionComponent, SubscriptionComponentNew,
-    SubscriptionDetails, TrialConfig,
+    SubscriptionDetails, SubscriptionPatch, TrialConfig,
 };
 use chrono::NaiveDate;
 use common_domain::ids::{ConnectorId, CustomerId, PlanId, SubscriptionId, TenantId};
@@ -20,7 +20,7 @@ use diesel_models::subscription_add_ons::SubscriptionAddOnRow;
 use diesel_models::subscription_components::{
     SubscriptionComponentRow, SubscriptionComponentRowNew,
 };
-use diesel_models::subscriptions::SubscriptionRow;
+use diesel_models::subscriptions::{SubscriptionRow, SubscriptionRowPatch};
 // TODO we need to always pass the tenant id and match it with the resource, if not within the resource.
 // and even within it's probably still unsafe no ? Ex: creating components against a wrong subscription within a different tenant
 use crate::domain::pgmq::{HubspotSyncRequestEvent, HubspotSyncSubscription, PgmqQueue};
@@ -103,6 +103,12 @@ pub trait SubscriptionInterface {
         conn: &mut PgConn,
         events: Vec<ScheduledEventNew>,
     ) -> StoreResult<Vec<ScheduledEvent>>;
+
+    async fn patch_subscription(
+        &self,
+        tenant_id: TenantId,
+        patch: SubscriptionPatch,
+    ) -> StoreResult<Subscription>;
 }
 
 #[async_trait::async_trait]
@@ -463,6 +469,60 @@ impl SubscriptionInterface for Store {
             .into_iter()
             .map(std::convert::TryInto::try_into)
             .collect::<Result<Vec<_>, _>>()
+    }
+
+    async fn patch_subscription(
+        &self,
+        tenant_id: TenantId,
+        patch: SubscriptionPatch,
+    ) -> StoreResult<Subscription> {
+        use crate::domain::SubscriptionStatusEnum;
+
+        let mut conn = self.get_conn().await?;
+
+        let existing = SubscriptionRow::get_subscription_by_id(&mut conn, &tenant_id, patch.id)
+            .await
+            .map_err(Into::<Report<StoreError>>::into)?;
+
+        let status: SubscriptionStatusEnum = existing.subscription.status.into();
+        if matches!(
+            status,
+            SubscriptionStatusEnum::Cancelled
+                | SubscriptionStatusEnum::Completed
+                | SubscriptionStatusEnum::Superseded
+        ) {
+            bail!(StoreError::InvalidArgument(
+                "Cannot update subscription in terminal state".to_string()
+            ));
+        }
+
+        if patch.charge_automatically == Some(true) {
+            let has_payment_method = existing.subscription.card_connection_id.is_some()
+                || existing.subscription.direct_debit_connection_id.is_some();
+
+            if !has_payment_method {
+                bail!(StoreError::InvalidArgument(
+                    "Cannot enable automatic charging without a payment method".to_string()
+                ));
+            }
+        }
+
+        let row_patch = SubscriptionRowPatch {
+            charge_automatically: patch.charge_automatically,
+            auto_advance_invoices: patch.auto_advance_invoices,
+            net_terms: patch.net_terms.map(|n| n as i32),
+            invoice_memo: patch.invoice_memo,
+            purchase_order: patch.purchase_order,
+        };
+
+        SubscriptionRow::patch(&mut conn, &tenant_id, patch.id, &row_patch)
+            .await
+            .map_err(Into::<Report<StoreError>>::into)?;
+
+        SubscriptionRow::get_subscription_by_id(&mut conn, &tenant_id, patch.id)
+            .await
+            .map_err(Into::<Report<StoreError>>::into)?
+            .try_into()
     }
 }
 

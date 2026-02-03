@@ -13,7 +13,8 @@ use meteroid_grpc::meteroid::api::subscriptions::v1::{
     GetSlotsValueRequest, GetSlotsValueResponse, ListSlotTransactionsRequest,
     ListSlotTransactionsResponse, ListSubscriptionsRequest, ListSubscriptionsResponse,
     PreviewSlotUpdateRequest, PreviewSlotUpdateResponse, SubscriptionDetails, SyncToHubspotRequest,
-    SyncToHubspotResponse, UpdateSlotsRequest, UpdateSlotsResponse,
+    SyncToHubspotResponse, UpdateSlotsRequest, UpdateSlotsResponse, UpdateSubscriptionRequest,
+    UpdateSubscriptionResponse,
 };
 
 use crate::api::shared::conversions::ProtoConv;
@@ -435,6 +436,31 @@ impl SubscriptionsService for SubscriptionServiceComponents {
         Ok(Response::new(ActivateSubscriptionResponse {
             subscription: Some(proto_subscription),
             invoice_id: None, // Invoice creation happens asynchronously via worker
+        }))
+    }
+
+    #[tracing::instrument(skip_all)]
+    async fn update_subscription(
+        &self,
+        request: Request<UpdateSubscriptionRequest>,
+    ) -> Result<Response<UpdateSubscriptionResponse>, Status> {
+        let tenant_id = request.tenant()?;
+        let inner = request.into_inner();
+
+        let subscription_id = SubscriptionId::from_proto(&inner.subscription_id)?;
+
+        let patch = mapping::subscriptions::update_request_to_patch(subscription_id, &inner)?;
+
+        let updated = self
+            .store
+            .patch_subscription(tenant_id, patch)
+            .await
+            .map_err(Into::<SubscriptionApiError>::into)?;
+
+        let proto_subscription = mapping::subscriptions::domain_to_proto(updated)?;
+
+        Ok(Response::new(UpdateSubscriptionResponse {
+            subscription: Some(proto_subscription),
         }))
     }
 }

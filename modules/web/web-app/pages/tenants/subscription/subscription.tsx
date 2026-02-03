@@ -17,6 +17,7 @@ import {
   ChevronLeftIcon,
   Clock,
   ExternalLink,
+  Pencil,
   RefreshCw,
 } from 'lucide-react'
 import { ReactNode, useCallback, useState } from 'react'
@@ -29,6 +30,7 @@ import {
   SyncSubscriptionModal,
 } from '@/features/settings/integrations/SyncSubscriptionModal'
 import { CancelSubscriptionModal } from '@/features/subscriptions/CancelSubscriptionModal'
+import { EditSubscriptionModal } from '@/features/subscriptions/EditSubscriptionModal'
 import { SubscriptionInvoicesCard } from '@/features/subscriptions/InvoicesCard'
 import { SlotTransactionsModal } from '@/features/subscriptions/SlotTransactionsModal'
 import { UpdateSlotModal } from '@/features/subscriptions/UpdateSlotModal'
@@ -199,6 +201,7 @@ export const Subscription = () => {
 
   const [showSyncHubspotModal, setShowSyncHubspotModal] = useState(false)
   const [showCancelModal, setShowCancelModal] = useState(false)
+  const [showEditModal, setShowEditModal] = useState(false)
   const [invoicesRefetch, setInvoicesRefetch] = useState<(() => void) | null>(null)
   const [invoicesIsFetching, setInvoicesIsFetching] = useState(false)
   const [slotUpdateData, setSlotUpdateData] = useState<SlotUpdateData | null>(null)
@@ -324,6 +327,13 @@ export const Subscription = () => {
           customerName={data?.customerName ?? ''}
           planName={data?.planName ?? ''}
           onClose={() => setShowCancelModal(false)}
+          onSuccess={() => subscriptionQuery.refetch()}
+        />
+      )}
+      {showEditModal && data && (
+        <EditSubscriptionModal
+          subscription={data}
+          onClose={() => setShowEditModal(false)}
           onSuccess={() => subscriptionQuery.refetch()}
         />
       )}
@@ -691,20 +701,37 @@ export const Subscription = () => {
           {data.customerAlias && <DetailRow label="Alias" value={data.customerAlias} />}
         </DetailSection>
 
-        <DetailSection title="Billing Information">
-          <DetailRow label="Billing Day" value={data.billingDayAnchor} />
-          <DetailRow label="Net Terms" value={`${data.netTerms} days`} />
-          <DetailRow
-            label="Auto-advance invoices"
-            value={data.autoAdvanceInvoices ? 'Yes' : 'No'}
-          />
-          <DetailRow label="Charge automatically" value={data.chargeAutomatically ? 'Yes' : 'No'} />
-          {data.invoiceMemo && <DetailRow label="Invoice Memo" value={data.invoiceMemo} />}
-          {data.invoiceThreshold && (
-            <DetailRow label="Invoice Threshold" value={data.invoiceThreshold} />
-          )}
-          {data.purchaseOrder && <DetailRow label="Purchase Order" value={data.purchaseOrder} />}
-        </DetailSection>
+        <div className="mb-6">
+          <div className="flex items-center justify-between mb-3">
+            <h3 className="text-lg font-medium text-foreground">Billing Information</h3>
+            <Button
+              variant="ghost"
+              size="sm"
+              onClick={() => setShowEditModal(true)}
+              className="h-7 w-7 p-0"
+              title="Edit billing settings"
+            >
+              <Pencil className="h-3.5 w-3.5" />
+            </Button>
+          </div>
+          <div className="space-y-1">
+            <DetailRow label="Billing Day" value={data.billingDayAnchor} />
+            <DetailRow label="Net Terms" value={`${data.netTerms} days`} />
+            <DetailRow
+              label="Auto-advance invoices"
+              value={data.autoAdvanceInvoices ? 'Yes' : 'No'}
+            />
+            <DetailRow
+              label="Charge automatically"
+              value={data.chargeAutomatically ? 'Yes' : 'No'}
+            />
+            {data.invoiceMemo && <DetailRow label="Invoice Memo" value={data.invoiceMemo} />}
+            {data.invoiceThreshold && (
+              <DetailRow label="Invoice Threshold" value={data.invoiceThreshold} />
+            )}
+            {data.purchaseOrder && <DetailRow label="Purchase Order" value={data.purchaseOrder} />}
+          </div>
+        </div>
 
         <DetailSection title="Integrations">
           {hubspotConnMeta?.externalId ? (
