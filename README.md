@@ -2,20 +2,7 @@
 
 <div align="center">
 
-  **📣 We’re launching on Product Hunt Today!**
 
-  **We'd love your support ❤️ !**
-
-  <a href="https://www.producthunt.com/products/meteroid-2?launch=meteroid-2">
-    <img src="https://img.shields.io/badge/Check%20it%20out%20on%20Product%20Hunt%20%E2%86%92-red?logo=producthunt&logoColor=%23fff&style=for-the-badge" alt="ProductHunt">
-  </a>
-
-
-  <br/>
-   <br/>
-    <br/>
-
-  
   <a href="https://www.meteroid.com?utm_source=github" target="_blank">
   <picture>
     <source media="(prefers-color-scheme: dark)" srcset="assets/meteroid-logo-wordmark--dark.svg">
