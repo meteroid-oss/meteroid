@@ -1200,3 +1200,192 @@ async fn test_auto_charge_renewal_invoices(#[future] test_env: TestEnv) {
     let sub = env.get_subscription(sub_id).await;
     sub.assert().is_active().has_cycle_index(1);
 }
+
+// =============================================================================
+// PROVIDER SWITCHING: CONNECTION REUSE AND CREATION
+// =============================================================================
+
+/// Test that resolving payment methods for the same provider reuses existing connections.
+///
+/// When a customer already has a connection to a provider, resolve_payment_methods
+/// should return the existing connection ID, not create a duplicate.
+#[rstest]
+#[tokio::test]
+async fn test_connection_reuse_same_provider(#[future] test_env: TestEnv) {
+    let env = test_env.await;
+    env.seed_payments().await;
+
+    let customer = env
+        .store()
+        .find_customer_by_id(CUST_UBER_ID, TENANT_ID)
+        .await
+        .expect("customer");
+
+    // Get initial connections
+    let initial_connections = env.get_customer_connections(CUST_UBER_ID).await;
+    let initial_count = initial_connections.len();
+    assert!(
+        initial_count > 0,
+        "Should have at least one connection from seed"
+    );
+
+    // Resolve payment methods multiple times
+    let resolved1 = env
+        .services()
+        .resolve_subscription_payment_methods(TENANT_ID, None, &customer)
+        .await
+        .expect("resolve 1");
+
+    let resolved2 = env
+        .services()
+        .resolve_subscription_payment_methods(TENANT_ID, None, &customer)
+        .await
+        .expect("resolve 2");
+
+    // Should return the same connection ID
+    assert_eq!(
+        resolved1.card_connection_id, resolved2.card_connection_id,
+        "Should reuse the same connection"
+    );
+
+    // Should NOT have created any new connections
+    let final_connections = env.get_customer_connections(CUST_UBER_ID).await;
+    assert_eq!(
+        initial_count,
+        final_connections.len(),
+        "Should not create duplicate connections"
+    );
+}
+
+/// Test that switching providers creates a new connection to the new provider.
+///
+/// Scenario:
+/// 1. Customer has payment method on Provider 1
+/// 2. Invoicing entity switches to Provider 2
+/// 3. resolve_payment_methods creates a NEW connection to Provider 2
+/// 4. The old payment method (on Provider 1) is NOT used
+#[rstest]
+#[tokio::test]
+async fn test_provider_switch_creates_new_connection(#[future] test_env: TestEnv) {
+    let env = test_env.await;
+    env.seed_dual_providers().await;
+
+    let customer = env
+        .store()
+        .find_customer_by_id(CUST_UBER_ID, TENANT_ID)
+        .await
+        .expect("customer");
+
+    // Initial state: invoicing entity uses Provider 1
+    // Customer has connections to both providers from seed_dual_providers
+    let initial_connections = env.get_customer_connections(CUST_UBER_ID).await;
+    let provider1_connection = initial_connections
+        .iter()
+        .find(|c| c.connector_id == MOCK_CONNECTOR_ID)
+        .expect("Should have connection to provider 1");
+
+    // Resolve with Provider 1 - should use existing connection
+    let resolved_p1 = env
+        .services()
+        .resolve_subscription_payment_methods(TENANT_ID, None, &customer)
+        .await
+        .expect("resolve with provider 1");
+
+    assert_eq!(
+        resolved_p1.card_connection_id,
+        Some(provider1_connection.id),
+        "Should use Provider 1 connection"
+    );
+
+    // Switch invoicing entity to Provider 2
+    env.switch_to_provider_2().await;
+
+    // Resolve again - should now use Provider 2's connection
+    let resolved_p2 = env
+        .services()
+        .resolve_subscription_payment_methods(TENANT_ID, None, &customer)
+        .await
+        .expect("resolve with provider 2");
+
+    // Should be a DIFFERENT connection (to Provider 2)
+    assert_ne!(
+        resolved_p1.card_connection_id, resolved_p2.card_connection_id,
+        "Should use different connection after provider switch"
+    );
+
+    // Verify the new connection is to Provider 2
+    let final_connections = env.get_customer_connections(CUST_UBER_ID).await;
+    let p2_connection = final_connections
+        .iter()
+        .find(|c| c.id == resolved_p2.card_connection_id.unwrap())
+        .expect("Should find resolved connection");
+
+    assert_eq!(
+        p2_connection.connector_id, MOCK_CONNECTOR_2_ID,
+        "New connection should be to Provider 2"
+    );
+}
+
+/// Test provider switch when customer has no existing connection to the new provider.
+///
+/// Scenario:
+/// 1. Customer only has connection to Provider 1
+/// 2. Invoicing entity switches to Provider 2
+/// 3. resolve_payment_methods creates a brand new connection to Provider 2
+#[rstest]
+#[tokio::test]
+async fn test_provider_switch_creates_connection_from_scratch(#[future] test_env: TestEnv) {
+    let env = test_env.await;
+
+    // Seed only Provider 1 with payment methods (NOT dual providers)
+    env.seed_payments().await;
+
+    // Also seed Provider 2 connector (but NO customer connection to it)
+    env.seed_mock_payment_provider_2().await;
+
+    let customer = env
+        .store()
+        .find_customer_by_id(CUST_UBER_ID, TENANT_ID)
+        .await
+        .expect("customer");
+
+    // Initial: customer only has connection to Provider 1
+    let initial_connections = env.get_customer_connections(CUST_UBER_ID).await;
+    assert!(
+        initial_connections
+            .iter()
+            .all(|c| c.connector_id == MOCK_CONNECTOR_ID),
+        "Should only have connections to Provider 1 initially"
+    );
+
+    // Switch to Provider 2
+    env.switch_to_provider_2().await;
+
+    // Resolve - should create a NEW connection to Provider 2
+    let resolved = env
+        .services()
+        .resolve_subscription_payment_methods(TENANT_ID, None, &customer)
+        .await
+        .expect("resolve with provider 2");
+
+    assert!(
+        resolved.card_connection_id.is_some(),
+        "Should have a card connection"
+    );
+
+    // Verify new connection was created to Provider 2
+    let final_connections = env.get_customer_connections(CUST_UBER_ID).await;
+    let p2_connection = final_connections
+        .iter()
+        .find(|c| c.connector_id == MOCK_CONNECTOR_2_ID);
+
+    assert!(
+        p2_connection.is_some(),
+        "Should have created a new connection to Provider 2"
+    );
+    assert_eq!(
+        resolved.card_connection_id,
+        p2_connection.map(|c| c.id),
+        "Resolved connection should be the newly created one"
+    );
+}

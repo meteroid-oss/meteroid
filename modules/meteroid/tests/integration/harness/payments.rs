@@ -3,8 +3,9 @@
 //! Provides TestEnv methods for seeding and querying payment-related test data.
 //! The actual seed logic lives in `data/payment.rs`.
 
-use common_domain::ids::{ConnectorId, CustomerConnectionId, CustomerPaymentMethodId};
+use common_domain::ids::{ConnectorId, CustomerConnectionId, CustomerId, CustomerPaymentMethodId};
 use diesel_models::customer_connection::CustomerConnectionRow;
+use diesel_models::invoicing_entities::InvoicingEntityRowProvidersPatch;
 
 use crate::data::ids;
 
@@ -100,5 +101,63 @@ impl TestEnv {
             .find(|c| c.id == payment_method.connection_id)?;
 
         Some((connection.id, connection.connector_id))
+    }
+
+    /// Switch the invoicing entity to use the secondary payment provider.
+    pub async fn switch_to_provider_2(&self) {
+        let mut conn = self
+            .pool()
+            .get()
+            .await
+            .expect("couldn't get db connection from pool");
+
+        InvoicingEntityRowProvidersPatch {
+            id: ids::INVOICING_ENTITY_ID,
+            card_provider_id: Some(Some(ids::MOCK_CONNECTOR_2_ID)),
+            direct_debit_provider_id: None,
+            bank_account_id: None,
+        }
+        .patch_invoicing_entity_providers(&mut conn, ids::TENANT_ID)
+        .await
+        .expect("Failed to switch provider");
+    }
+
+    /// Switch the invoicing entity back to the primary payment provider.
+    pub async fn switch_to_provider_1(&self) {
+        let mut conn = self
+            .pool()
+            .get()
+            .await
+            .expect("couldn't get db connection from pool");
+
+        InvoicingEntityRowProvidersPatch {
+            id: ids::INVOICING_ENTITY_ID,
+            card_provider_id: Some(Some(ids::MOCK_CONNECTOR_ID)),
+            direct_debit_provider_id: None,
+            bank_account_id: None,
+        }
+        .patch_invoicing_entity_providers(&mut conn, ids::TENANT_ID)
+        .await
+        .expect("Failed to switch provider");
+    }
+
+    /// Get all customer connections for a customer.
+    pub async fn get_customer_connections(
+        &self,
+        customer_id: CustomerId,
+    ) -> Vec<CustomerConnectionRow> {
+        let mut conn = self
+            .pool()
+            .get()
+            .await
+            .expect("couldn't get db connection from pool");
+
+        CustomerConnectionRow::list_connections_by_customer_id(
+            &mut conn,
+            &ids::TENANT_ID,
+            &customer_id,
+        )
+        .await
+        .expect("Failed to list connections")
     }
 }

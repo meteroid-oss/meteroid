@@ -19,7 +19,7 @@ import {
 import { useBasePath } from '@/hooks/useBasePath'
 import { useQuery } from '@/lib/connectrpc'
 import { mapDatev2 } from '@/lib/mapping'
-import { createSubscriptionAtom } from '@/pages/tenants/subscription/create/state'
+import { createSubscriptionAtom , PaymentMethodsConfigType } from '@/pages/tenants/subscription/create/state'
 import { listAddOns } from '@/rpc/api/addons/v1/addons-AddOnsService_connectquery'
 import { listCoupons } from '@/rpc/api/coupons/v1/coupons-CouponsService_connectquery'
 import { ListCouponRequest_CouponFilter } from '@/rpc/api/coupons/v1/coupons_pb'
@@ -28,7 +28,13 @@ import { getCustomerById } from '@/rpc/api/customers/v1/customers-CustomersServi
 import { getPlanWithVersionByVersionId } from '@/rpc/api/plans/v1/plans-PlansService_connectquery'
 import { PriceComponent } from '@/rpc/api/pricecomponents/v1/models_pb'
 import { listPriceComponents } from '@/rpc/api/pricecomponents/v1/pricecomponents-PriceComponentsService_connectquery'
-import { ActivationCondition } from '@/rpc/api/subscriptions/v1/models_pb'
+import {
+  ActivationCondition,
+  BankTransfer,
+  External,
+  OnlinePayment,
+  PaymentMethodsConfig,
+} from '@/rpc/api/subscriptions/v1/models_pb'
 import {
   createSubscription,
   listSubscriptions,
@@ -80,6 +86,25 @@ export const StepReviewAndCreate = () => {
     },
   })
 
+  // Build PaymentMethodsConfig from state (simple: just the type, no overrides)
+  const buildProtoPaymentMethodsConfig = (
+    type: PaymentMethodsConfigType
+  ): PaymentMethodsConfig | undefined => {
+    switch (type) {
+      case 'online':
+        // Online without config = inherit from invoicing entity
+        return new PaymentMethodsConfig({ config: { case: 'online', value: new OnlinePayment() } })
+      case 'bankTransfer':
+        return new PaymentMethodsConfig({
+          config: { case: 'bankTransfer', value: new BankTransfer() },
+        })
+      case 'external':
+        return new PaymentMethodsConfig({ config: { case: 'external', value: new External() } })
+      default:
+        return undefined
+    }
+  }
+
   const handleCreate = async () => {
     try {
       // Map billingDay to billingDayAnchor
@@ -101,7 +126,7 @@ export const StepReviewAndCreate = () => {
           purchaseOrder: state.purchaseOrder,
           autoAdvanceInvoices: state.autoAdvanceInvoices,
           chargeAutomatically: state.chargeAutomatically,
-          paymentStrategy: state.paymentStrategy,
+          paymentMethodsConfig: buildProtoPaymentMethodsConfig(state.paymentMethodsType),
           components: {
             parameterizedComponents: state.components.parameterized.map(c => ({
               componentId: c.componentId,

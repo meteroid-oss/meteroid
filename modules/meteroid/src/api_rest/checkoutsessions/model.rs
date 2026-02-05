@@ -49,6 +49,7 @@ pub struct CheckoutSession {
     #[serde(default, with = "string_serde_opt")]
     pub subscription_id: Option<SubscriptionId>,
     pub checkout_url: Option<String>,
+    pub payment_methods_config: Option<PaymentMethodsConfig>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, ToSchema)]

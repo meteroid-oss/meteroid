@@ -212,10 +212,11 @@ impl Store {
             valid_provider_ids.push(provider_id);
         }
 
-        if direct_debit_enabled && let Some(provider_id) = direct_debit_provider_id {
-            if !valid_provider_ids.contains(&provider_id) {
-                valid_provider_ids.push(provider_id);
-            }
+        if direct_debit_enabled
+            && let Some(provider_id) = direct_debit_provider_id
+            && !valid_provider_ids.contains(&provider_id)
+        {
+            valid_provider_ids.push(provider_id);
         }
 
         if valid_provider_ids.is_empty() {

@@ -42,7 +42,6 @@ import { useBasePath } from '@/hooks/useBasePath'
 import { useQuery } from '@/lib/connectrpc'
 import {
   DetailedQuote,
-  PaymentStrategy,
   QuoteComponent,
   QuoteSignature,
   QuoteStatus,
@@ -57,7 +56,7 @@ import {
   publishQuote,
   sendQuote,
 } from '@/rpc/api/quotes/v1/quotes-QuotesService_connectquery'
-import { ActivationCondition } from '@/rpc/api/subscriptions/v1/models_pb'
+import { PaymentMethodsConfig , ActivationCondition } from '@/rpc/api/subscriptions/v1/models_pb'
 import { parseAndFormatDate } from '@/utils/date'
 import { useTypedParams } from '@/utils/params'
 
@@ -386,8 +385,8 @@ export const QuoteDetailView: React.FC<Props> = ({ quote }) => {
               value={formatActivationCondition(quote.quote?.activationCondition)}
             />
             <FlexDetails
-              title="Payment Strategy"
-              value={formatPaymentStrategy(quote.quote?.paymentStrategy)}
+              title="Payment Method"
+              value={formatPaymentMethodsConfig(quote.quote?.paymentMethodsConfig)}
             />
             {quote.quote?.createSubscriptionOnAcceptance && (
               <FlexDetails title="Auto-create Subscription" value="Yes" />
@@ -811,15 +810,16 @@ const formatActivationCondition = (condition?: ActivationCondition): string => {
   }
 }
 
-const formatPaymentStrategy = (strategy?: PaymentStrategy): string => {
-  switch (strategy) {
-    case PaymentStrategy.AUTO:
-      return 'Default'
-    case PaymentStrategy.BANK:
+const formatPaymentMethodsConfig = (config?: PaymentMethodsConfig): string => {
+  if (!config) return 'Online'
+  switch (config.config.case) {
+    case 'online':
+      return 'Online'
+    case 'bankTransfer':
       return 'Bank Transfer'
-    case PaymentStrategy.EXTERNAL:
+    case 'external':
       return 'External'
     default:
-      return 'Default'
+      return 'Online'
   }
 }

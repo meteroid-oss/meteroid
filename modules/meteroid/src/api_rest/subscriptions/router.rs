@@ -9,10 +9,11 @@ use crate::api_rest::error::RestErrorResponse;
 use crate::api_rest::model::PaginationExt;
 use crate::api_rest::subscriptions::mapping::{
     domain_to_rest, domain_to_rest_details, rest_to_domain_create_request,
+    rest_to_domain_update_request,
 };
 use crate::api_rest::subscriptions::model::{
     Subscription, SubscriptionCreateRequest, SubscriptionDetails, SubscriptionListResponse,
-    SubscriptionRequest,
+    SubscriptionRequest, SubscriptionUpdateRequest, SubscriptionUpdateResponse,
 };
 use crate::errors::RestApiError;
 use axum::Extension;
@@ -111,9 +112,9 @@ pub(crate) async fn list_subscriptions(
 #[utoipa::path(
     get,
     tag = "Subscriptions",
-    path = "/api/v1/subscriptions/{id}",
+    path = "/api/v1/subscriptions/{subscription_id}",
     params(
-        ("id" = SubscriptionId, Path, description = "subscription ID")
+        ("subscription_id" = SubscriptionId, Path, description = "Subscription ID")
     ),
     responses(
         (status = 200, description = "Details of subscription", body = SubscriptionDetails),
@@ -129,11 +130,11 @@ pub(crate) async fn list_subscriptions(
 pub(crate) async fn subscription_details(
     Extension(authorized_state): Extension<AuthorizedAsTenant>,
     State(app_state): State<AppState>,
-    Path(id): Path<SubscriptionId>,
+    Path(subscription_id): Path<SubscriptionId>,
 ) -> Result<impl IntoResponse, RestApiError> {
     let res = app_state
         .store
-        .get_subscription_details(authorized_state.tenant_id, id)
+        .get_subscription_details(authorized_state.tenant_id, subscription_id)
         .await
         .map_err(|e| {
             log::error!("Error handling subscription_details: {e}");
@@ -288,5 +289,60 @@ pub(crate) async fn cancel_subscription(
 
     Ok(Json(super::model::CancelSubscriptionResponse {
         subscription: domain_to_rest(subscription)?,
+    }))
+}
+
+/// Update subscription
+///
+/// Update subscription settings like payment configuration, billing options, etc.
+#[utoipa::path(
+    patch,
+    tag = "Subscriptions",
+    path = "/api/v1/subscriptions/{subscription_id}",
+    params(
+        ("subscription_id" = SubscriptionId, Path, description = "Subscription ID"),
+    ),
+    request_body = SubscriptionUpdateRequest,
+    responses(
+        (status = 200, description = "Subscription updated", body = SubscriptionUpdateResponse),
+        (status = 400, description = "Bad request", body = RestErrorResponse),
+        (status = 401, description = "Unauthorized", body = RestErrorResponse),
+        (status = 404, description = "Subscription not found", body = RestErrorResponse),
+        (status = 500, description = "Internal error", body = RestErrorResponse),
+    ),
+    security(
+        ("bearer_auth" = [])
+    )
+)]
+#[axum::debug_handler]
+pub(crate) async fn update_subscription(
+    Extension(authorized_state): Extension<AuthorizedAsTenant>,
+    State(app_state): State<AppState>,
+    Path(subscription_id): Path<SubscriptionId>,
+    Valid(Json(request)): Valid<Json<SubscriptionUpdateRequest>>,
+) -> Result<impl IntoResponse, RestApiError> {
+    let patch = rest_to_domain_update_request(subscription_id, request);
+
+    app_state
+        .store
+        .patch_subscription(authorized_state.tenant_id, patch)
+        .await
+        .map_err(|e| {
+            log::error!("Error handling update_subscription: {e}");
+            RestApiError::from(e)
+        })?;
+
+    let details = app_state
+        .store
+        .get_subscription_details(authorized_state.tenant_id, subscription_id)
+        .await
+        .map_err(|e| {
+            log::error!("Error fetching updated subscription: {e}");
+            RestApiError::from(e)
+        })
+        .and_then(domain_to_rest_details)?;
+
+    Ok(Json(SubscriptionUpdateResponse {
+        subscription: details,
     }))
 }

@@ -40,7 +40,11 @@ impl TestEnv {
         // Step 6: Process payment requests
         run_once_payment_request(store.clone(), services.clone()).await;
 
-        // Step 7-8: Process PaymentTransactionSaved events (triggers subscription activation on settled)
+        // Step 7-8: Process PaymentTransactionSettled events (marks invoice as paid, emits InvoicePaid)
+        run_once_outbox_dispatch(store.clone()).await;
+        run_once_invoice_orchestration(store.clone(), services.clone()).await;
+
+        // Step 9-10: Process InvoicePaid events (triggers TrialExpired → Active transition)
         run_once_outbox_dispatch(store.clone()).await;
         run_once_invoice_orchestration(store, services).await;
     }

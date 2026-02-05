@@ -766,16 +766,23 @@ pub struct SubscriptionListResponse {
     pub pagination_meta: PaginationResponse,
 }
 
-// #[derive(ToSchema, Serialize, Deserialize, Validate, Debug)]
-// pub struct ChangeSubscriptionPlanRequest {
-//     #[serde(with = "string_serde")]
-//     pub new_plan_id: PlanId,
-//     pub new_plan_version: Option<i32>,
-//     pub effective_date: Option<NaiveDate>,
-// }
-//
-// #[derive(ToSchema, Serialize, Deserialize, Debug)]
-// pub struct ChangeSubscriptionPlanResponse {
-//     pub subscription: Subscription,
-//     pub message: String,
-// }
+#[derive(ToSchema, Serialize, Deserialize, Validate, Debug)]
+pub struct SubscriptionUpdateRequest {
+    /// Automatically try to charge the customer's configured payment method on finalize.
+    pub charge_automatically: Option<bool>,
+    /// If false, invoices will stay in Draft until manually reviewed and finalized.
+    pub auto_advance_invoices: Option<bool>,
+    /// Payment terms in days (0 = due on issue)
+    pub net_terms: Option<u32>,
+    /// Default memo for invoices
+    pub invoice_memo: Option<String>,
+    /// Purchase order number
+    pub purchase_order: Option<String>,
+    /// Payment methods configuration (Online, BankTransfer, or External)
+    pub payment_methods_config: Option<PaymentMethodsConfig>,
+}
+
+#[derive(ToSchema, Serialize, Deserialize)]
+pub struct SubscriptionUpdateResponse {
+    pub subscription: SubscriptionDetails,
+}

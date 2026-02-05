@@ -5,20 +5,34 @@ import {
   Form,
   InputFormField,
   Modal,
+  SelectFormField,
+  SelectItem,
   SwitchFormField,
   TextareaFormField,
+  Tooltip,
+  TooltipContent,
+  TooltipProvider,
+  TooltipTrigger,
 } from '@md/ui'
-import { Settings } from 'lucide-react'
 import { useQueryClient } from '@tanstack/react-query'
+import { InfoIcon, Settings } from 'lucide-react'
 import { toast } from 'sonner'
 import { z } from 'zod'
 
 import { useZodForm } from '@/hooks/useZodForm'
 import {
+  BankTransfer,
+  External,
+  OnlinePayment,
+  PaymentMethodsConfig,
+  Subscription,
+} from '@/rpc/api/subscriptions/v1/models_pb'
+import {
   getSubscriptionDetails,
   updateSubscription,
 } from '@/rpc/api/subscriptions/v1/subscriptions-SubscriptionsService_connectquery'
-import { Subscription } from '@/rpc/api/subscriptions/v1/models_pb'
+
+type PaymentMethodsType = 'online' | 'bankTransfer' | 'external'
 
 const editSubscriptionSchema = z.object({
   chargeAutomatically: z.boolean(),
@@ -26,9 +40,37 @@ const editSubscriptionSchema = z.object({
   netTerms: z.coerce.number().int().min(0).max(365),
   invoiceMemo: z.string().max(500).optional(),
   purchaseOrder: z.string().max(100).optional(),
+  paymentMethodsType: z.enum(['online', 'bankTransfer', 'external']),
 })
 
 type EditSubscriptionFormValues = z.infer<typeof editSubscriptionSchema>
+
+const getPaymentMethodsTypeFromProto = (config?: PaymentMethodsConfig): PaymentMethodsType => {
+  if (!config) return 'online'
+  switch (config.config.case) {
+    case 'online':
+      return 'online'
+    case 'bankTransfer':
+      return 'bankTransfer'
+    case 'external':
+      return 'external'
+    default:
+      return 'online'
+  }
+}
+
+const buildProtoPaymentMethodsConfig = (type: PaymentMethodsType): PaymentMethodsConfig => {
+  switch (type) {
+    case 'online':
+      return new PaymentMethodsConfig({ config: { case: 'online', value: new OnlinePayment() } })
+    case 'bankTransfer':
+      return new PaymentMethodsConfig({
+        config: { case: 'bankTransfer', value: new BankTransfer() },
+      })
+    case 'external':
+      return new PaymentMethodsConfig({ config: { case: 'external', value: new External() } })
+  }
+}
 
 interface EditSubscriptionModalProps {
   subscription: Subscription
@@ -43,9 +85,10 @@ export const EditSubscriptionModal = ({
 }: EditSubscriptionModalProps) => {
   const queryClient = useQueryClient()
 
-  const hasPaymentMethod = Boolean(
-    subscription.cardConnectionId || subscription.directDebitConnectionId
-  )
+  // Payment methods capability check: can only charge automatically if using online payment methods
+  const canChargeAutomatically =
+    !subscription.paymentMethodsConfig ||
+    subscription.paymentMethodsConfig.config.case === 'online'
 
   const methods = useZodForm({
     schema: editSubscriptionSchema,
@@ -55,6 +98,7 @@ export const EditSubscriptionModal = ({
       netTerms: subscription.netTerms,
       invoiceMemo: subscription.invoiceMemo ?? '',
       purchaseOrder: subscription.purchaseOrder ?? '',
+      paymentMethodsType: getPaymentMethodsTypeFromProto(subscription.paymentMethodsConfig),
     },
     mode: 'onSubmit',
   })
@@ -78,7 +122,11 @@ export const EditSubscriptionModal = ({
   })
 
   const onSubmit = async (values: EditSubscriptionFormValues) => {
-    if (values.chargeAutomatically && !hasPaymentMethod) {
+    if (
+      values.chargeAutomatically &&
+      !canChargeAutomatically &&
+      values.paymentMethodsType === 'online'
+    ) {
       methods.setError('chargeAutomatically', {
         message: 'Cannot enable automatic charging without a payment method',
       })
@@ -92,6 +140,7 @@ export const EditSubscriptionModal = ({
       netTerms: values.netTerms,
       invoiceMemo: values.invoiceMemo || undefined,
       purchaseOrder: values.purchaseOrder || undefined,
+      paymentMethodsConfig: buildProtoPaymentMethodsConfig(values.paymentMethodsType),
     })
   }
 
@@ -124,9 +173,9 @@ export const EditSubscriptionModal = ({
                 control={methods.control}
                 label="Charge automatically"
                 description="Automatically charge invoices using the customer's payment method"
-                disabled={!hasPaymentMethod && !methods.getValues('chargeAutomatically')}
+                disabled={!canChargeAutomatically && !methods.getValues('chargeAutomatically')}
               />
-              {!hasPaymentMethod && (
+              {!canChargeAutomatically && (
                 <p className="text-xs text-warning ml-10">
                   No payment method configured. Add a payment method to enable automatic charging.
                 </p>
@@ -167,6 +216,34 @@ export const EditSubscriptionModal = ({
               placeholder="PO-12345"
               maxLength={100}
             />
+
+            <div className="space-y-2 pt-2 border-t">
+              <SelectFormField
+                name="paymentMethodsType"
+                label="Payment Methods"
+                control={methods.control}
+                labelTooltip={
+                  <TooltipProvider delayDuration={100}>
+                    <Tooltip>
+                      <TooltipTrigger asChild>
+                        <InfoIcon className="h-4 w-4 text-muted-foreground cursor-help" />
+                      </TooltipTrigger>
+                      <TooltipContent className="max-w-80">
+                        Online: Use card and/or direct debit payments.
+                        <br />
+                        Bank Transfer: Invoice with bank transfer instructions.
+                        <br />
+                        External: Manage payment collection outside the system.
+                      </TooltipContent>
+                    </Tooltip>
+                  </TooltipProvider>
+                }
+              >
+                <SelectItem value="online">Online (card / direct debit)</SelectItem>
+                <SelectItem value="bankTransfer">Bank transfer</SelectItem>
+                <SelectItem value="external">External</SelectItem>
+              </SelectFormField>
+            </div>
           </div>
         </Form>
       </Modal.Content>

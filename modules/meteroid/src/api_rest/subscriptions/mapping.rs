@@ -3,11 +3,12 @@ use crate::api_rest::subscriptions::model::{
     AppliedCoupon, AppliedCouponDetailed, Coupon, CouponDiscount, CreateSubscriptionAddOn,
     CreateSubscriptionComponents, FixedDiscount, PercentageDiscount, Subscription,
     SubscriptionAddOnCustomization, SubscriptionCreateRequest, SubscriptionDetails,
+    SubscriptionUpdateRequest,
 };
 use crate::errors::RestApiError;
-use common_domain::ids::{CouponId, CustomerId, PlanVersionId};
+use common_domain::ids::{CouponId, CustomerId, PlanVersionId, SubscriptionId};
 use meteroid_store::domain;
-use meteroid_store::domain::{CreateSubscription, SubscriptionNew};
+use meteroid_store::domain::{CreateSubscription, SubscriptionNew, SubscriptionPatch};
 use uuid::Uuid;
 
 pub fn domain_to_rest(s: domain::Subscription) -> Result<Subscription, RestApiError> {
@@ -222,5 +223,24 @@ impl From<CreateSubscriptionAddOn> for domain::CreateSubscriptionAddOn {
 pub fn map_add_ons(add_ons: Vec<CreateSubscriptionAddOn>) -> domain::CreateSubscriptionAddOns {
     domain::CreateSubscriptionAddOns {
         add_ons: add_ons.into_iter().map(Into::into).collect(),
+    }
+}
+
+pub fn rest_to_domain_update_request(
+    subscription_id: SubscriptionId,
+    req: SubscriptionUpdateRequest,
+) -> SubscriptionPatch {
+    SubscriptionPatch {
+        id: subscription_id,
+        charge_automatically: req.charge_automatically,
+        auto_advance_invoices: req.auto_advance_invoices,
+        net_terms: req.net_terms,
+        invoice_memo: req
+            .invoice_memo
+            .map(|m| if m.is_empty() { None } else { Some(m) }),
+        purchase_order: req
+            .purchase_order
+            .map(|p| if p.is_empty() { None } else { Some(p) }),
+        payment_methods_config: req.payment_methods_config.map(|c| Some(c.into())),
     }
 }

@@ -47,6 +47,7 @@ import {
 } from '@/rpc/api/plans/v1/plans-PlansService_connectquery'
 import { ListPlansRequest_SortBy } from '@/rpc/api/plans/v1/plans_pb'
 import {
+  PaymentMethodsConfig,
   SubscriptionComponent,
   SubscriptionFee,
   SubscriptionFeeBillingPeriod,
@@ -115,6 +116,21 @@ const StatusBadge = ({ status }: { status: SubscriptionStatus }) => {
       {config.render}
     </span>
   )
+}
+
+// Format payment methods config for display
+const formatPaymentMethodsConfig = (config?: PaymentMethodsConfig): string => {
+  if (!config) return 'Online'
+  switch (config.config.case) {
+    case 'online':
+      return 'Online'
+    case 'bankTransfer':
+      return 'Bank Transfer'
+    case 'external':
+      return 'External'
+    default:
+      return 'Online'
+  }
 }
 
 // Section Title Component
@@ -717,6 +733,10 @@ export const Subscription = () => {
           <div className="space-y-1">
             <DetailRow label="Billing Day" value={data.billingDayAnchor} />
             <DetailRow label="Net Terms" value={`${data.netTerms} days`} />
+            <DetailRow
+              label="Payment Method"
+              value={formatPaymentMethodsConfig(data.paymentMethodsConfig)}
+            />
             <DetailRow
               label="Auto-advance invoices"
               value={data.autoAdvanceInvoices ? 'Yes' : 'No'}
