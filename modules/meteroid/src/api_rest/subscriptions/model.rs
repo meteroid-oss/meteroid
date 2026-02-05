@@ -325,6 +325,10 @@ pub struct SubscriptionCreateRequest {
     /// Payment methods configuration. If not specified, inherits from the invoicing entity.
     #[schema(nullable = false)]
     pub payment_methods_config: Option<PaymentMethodsConfig>,
+    /// Migration mode: when true with a past start_date, skip creating invoices for past cycles.
+    /// The subscription will be set to the current billing period with correct cycle_index.
+    #[schema(nullable = false)]
+    pub skip_past_invoices: Option<bool>,
 }
 
 #[derive(o2o, Clone, ToSchema, Serialize, Deserialize, Debug)]

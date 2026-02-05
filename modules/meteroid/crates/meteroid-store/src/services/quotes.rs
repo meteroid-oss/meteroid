@@ -90,6 +90,7 @@ fn build_subscription_from_quote(
         purchase_order: quote.purchase_order.clone(),
         backdate_invoices: false,
         skip_checkout_session: false,
+        skip_past_invoices: false,
     };
 
     let components: Vec<SubscriptionComponentNewInternal> = detailed_quote

@@ -480,6 +480,7 @@ async fn test_metering_e2e() {
                         auto_advance_invoices: None,
                         charge_automatically: None,
                         payment_methods_config: None,
+                        skip_past_invoices: None,
                     },
                 )
             },

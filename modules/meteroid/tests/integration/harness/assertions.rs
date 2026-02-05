@@ -128,6 +128,54 @@ impl<'a> SubscriptionAssert<'a> {
         self
     }
 
+    /// Assert the current period start date.
+    pub fn has_period_start(self, expected: chrono::NaiveDate) -> Self {
+        assert_eq!(
+            self.sub.current_period_start,
+            expected,
+            "{}",
+            self.format_msg(&format!(
+                "Expected current_period_start={}, got {}",
+                expected, self.sub.current_period_start
+            ))
+        );
+        self
+    }
+
+    /// Assert the current period end date.
+    pub fn has_period_end(self, expected: chrono::NaiveDate) -> Self {
+        assert_eq!(
+            self.sub.current_period_end,
+            Some(expected),
+            "{}",
+            self.format_msg(&format!(
+                "Expected current_period_end={}, got {:?}",
+                expected, self.sub.current_period_end
+            ))
+        );
+        self
+    }
+
+    /// Assert imported_at is set (non-None).
+    pub fn is_imported(self) -> Self {
+        assert!(
+            self.sub.imported_at.is_some(),
+            "{}",
+            self.format_msg("Expected imported_at to be set")
+        );
+        self
+    }
+
+    /// Assert imported_at is not set.
+    pub fn is_not_imported(self) -> Self {
+        assert!(
+            self.sub.imported_at.is_none(),
+            "{}",
+            self.format_msg("Expected imported_at to be None")
+        );
+        self
+    }
+
     /// Shorthand: Assert subscription is Active with RenewSubscription action.
     #[allow(clippy::wrong_self_convention)]
     pub fn is_active(self) -> Self {

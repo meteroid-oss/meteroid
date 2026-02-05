@@ -159,6 +159,7 @@ pub fn rest_to_domain_create_request(
             charge_automatically: sub.charge_automatically.unwrap_or(true),
             backdate_invoices: false,
             skip_checkout_session: false,
+            skip_past_invoices: sub.skip_past_invoices.unwrap_or(false),
 
             payment_methods_config: sub.payment_methods_config.map(Into::into),
             invoice_threshold: None,

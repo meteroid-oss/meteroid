@@ -22,7 +22,9 @@ use crate::services::subscriptions::utils::{
     process_create_subscription_coupons,
 };
 use crate::store::PgConn;
-use crate::utils::periods::calculate_advance_period_range;
+use crate::utils::periods::{
+    calculate_advance_period_range, calculate_elapsed_cycles, find_period_containing_date,
+};
 use crate::{StoreResult, services::Services};
 use chrono::{Datelike, NaiveDate, NaiveTime};
 use common_domain::ids::{BaseId, QuoteId, SlotTransactionId, SubscriptionId, TenantId};
@@ -60,6 +62,8 @@ pub struct ProcessedSubscription {
     /// When true, skip checkout session creation even if pending_checkout is true.
     /// Used for subscriptions created from checkout completion (SelfServe flow).
     skip_checkout_session: bool,
+    /// When true, skip billing for this subscription (migration mode).
+    skip_past_invoices: bool,
 }
 
 pub struct DetailedSubscription {
@@ -230,6 +234,24 @@ impl Services {
             .billing_start_date
             .unwrap_or(sub.subscription.start_date);
 
+        let now = chrono::Utc::now().naive_utc();
+
+        // Validate: skip_past_invoices only makes sense with a past start_date
+        if sub.subscription.skip_past_invoices && sub.subscription.start_date >= now.date() {
+            return Err(Report::new(StoreError::InvalidArgument(
+                "skip_past_invoices requires a past start_date".to_string(),
+            )));
+        }
+
+        // Validate: skip_past_invoices only works with OnStart activation
+        if sub.subscription.skip_past_invoices
+            && sub.subscription.activation_condition != SubscriptionActivationCondition::OnStart
+        {
+            return Err(Report::new(StoreError::InvalidArgument(
+                "skip_past_invoices requires activation_condition to be OnStart".to_string(),
+            )));
+        }
+
         // Use trial_duration from request, or fall back to plan's trial_duration_days
         // Filter out 0 values - a trial of 0 days means no trial
         let effective_trial_duration: Option<u32> = sub
@@ -265,14 +287,13 @@ impl Services {
             _ => None,
         };
 
-        let now = chrono::Utc::now().naive_utc();
-
         let mut current_period_start = billing_start_date;
         let mut current_period_end = None;
         let mut next_cycle_action = None;
         let mut cycle_index = None;
-        let mut status = SubscriptionStatusEnum::PendingActivation; // TODO should add pending_checkout ? or we just infer from activation_condition ?
+        let mut status = SubscriptionStatusEnum::PendingActivation;
         let mut scheduled_events: Vec<ScheduledEventNew> = vec![];
+        let mut imported_at = None;
 
         // Handle trial: distinguish between free and paid trials
         // - Free trial: billing period = trial duration, no billing until trial ends
@@ -283,7 +304,97 @@ impl Services {
 
         if sub.subscription.activation_condition == SubscriptionActivationCondition::OnStart {
             if sub.subscription.start_date <= now.date() {
-                if has_free_trial {
+                // Migration mode: skip past billing, set up subscription at current point
+                if sub.subscription.skip_past_invoices {
+                    imported_at = Some(now);
+
+                    // Calculate effective billing start (post-trial for free trials)
+                    let effective_billing_start = if has_free_trial {
+                        let trial_days = effective_trial_duration.unwrap();
+                        billing_start_date + chrono::Duration::days(i64::from(trial_days))
+                    } else {
+                        billing_start_date
+                    };
+
+                    // Check if trial is still ongoing
+                    let trial_end_date = if has_free_trial || has_paid_trial {
+                        Some(
+                            billing_start_date
+                                + chrono::Duration::days(i64::from(
+                                    effective_trial_duration.unwrap(),
+                                )),
+                        )
+                    } else {
+                        None
+                    };
+                    let trial_still_active =
+                        trial_end_date.map(|d| d > now.date()).unwrap_or(false);
+
+                    if trial_still_active {
+                        // Trial is still ongoing - set up as trial subscription
+                        let trial_days = effective_trial_duration.unwrap();
+                        status = SubscriptionStatusEnum::TrialActive;
+                        cycle_index = Some(0);
+                        current_period_start = billing_start_date;
+                        current_period_end = Some(
+                            billing_start_date + chrono::Duration::days(i64::from(trial_days)),
+                        );
+                        next_cycle_action = Some(CycleActionEnum::EndTrial);
+                        // For paid trial, also schedule the EndTrial event
+                        if has_paid_trial {
+                            let scheduled_event = ScheduledEventNew::end_trial(
+                                subscription_id,
+                                tenant_id,
+                                billing_start_date,
+                                trial_days as i32,
+                                "subscription_creation_migration",
+                            )
+                            .ok_or_else(|| {
+                                Report::new(StoreError::InvalidArgument(
+                                    "Failed to compute trial end date".to_string(),
+                                ))
+                            })?;
+                            scheduled_events.push(scheduled_event);
+                        }
+                    } else {
+                        // Trial has ended (or no trial) - calculate current period based on today
+                        let elapsed = calculate_elapsed_cycles(
+                            effective_billing_start,
+                            now.date(),
+                            &period,
+                            u32::from(billing_day_anchor),
+                        );
+                        let current = find_period_containing_date(
+                            effective_billing_start,
+                            now.date(),
+                            &period,
+                            u32::from(billing_day_anchor),
+                        );
+
+                        status = SubscriptionStatusEnum::Active;
+
+                        // If today is exactly a renewal boundary (period starts today and at least
+                        // one cycle has elapsed), use the ending period instead of the new one.
+                        // This lets the automation pick it up and create the invoice for the
+                        // completed period.
+                        if current.start == now.date() && elapsed > 0 {
+                            let prev = find_period_containing_date(
+                                effective_billing_start,
+                                now.date() - chrono::Duration::days(1),
+                                &period,
+                                u32::from(billing_day_anchor),
+                            );
+                            cycle_index = Some(elapsed - 1);
+                            current_period_start = prev.start;
+                            current_period_end = Some(prev.end);
+                        } else {
+                            cycle_index = Some(elapsed);
+                            current_period_start = current.start;
+                            current_period_end = Some(current.end);
+                        }
+                        next_cycle_action = Some(CycleActionEnum::RenewSubscription);
+                    }
+                } else if has_free_trial {
                     // Free trial: period = trial duration, no billing until trial ends
                     let trial_days = effective_trial_duration.unwrap();
                     status = SubscriptionStatusEnum::TrialActive;
@@ -382,6 +493,7 @@ impl Services {
             cycle_index,
             quote_id,
             effective_trial_duration,
+            imported_at,
         };
 
         let subscription_row = enriched.map_to_row()?;
@@ -448,6 +560,7 @@ impl Services {
             slot_transactions,
             scheduled_events,
             skip_checkout_session: sub.subscription.skip_checkout_session,
+            skip_past_invoices: sub.subscription.skip_past_invoices,
         })
     }
 
@@ -725,9 +838,17 @@ impl Services {
                         }
                     }
 
-                    for sub in &inserted {
+                    for (sub, proc) in inserted.iter().zip(processed.iter()) {
                         // Skip billing if subscription is not activated or pending checkout
                         if sub.activated_at.is_none() || sub.pending_checkout {
+                            continue;
+                        }
+
+                        // Skip billing for migration mode subscriptions.
+                        // The subscription is set up with current_period_end = today,
+                        // so the cycle processing worker will pick it up and generate
+                        // the invoice for the next period.
+                        if proc.skip_past_invoices {
                             continue;
                         }
 

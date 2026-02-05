@@ -5563,6 +5563,10 @@
               "null"
             ]
           },
+          "skip_past_invoices": {
+            "type": "boolean",
+            "description": "Migration mode: when true with a past start_date, skip creating invoices for past cycles.\nThe subscription will be set to the current billing period with correct cycle_index."
+          },
           "start_date": {
             "type": "string",
             "format": "date",

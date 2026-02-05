@@ -1001,6 +1001,7 @@ async fn create_subscription_with_slots(
                     purchase_order: None,
                     backdate_invoices: false,
                     skip_checkout_session: false,
+                    skip_past_invoices: false,
                 },
                 price_components: Some(CreateSubscriptionComponents {
                     parameterized_components: vec![],
