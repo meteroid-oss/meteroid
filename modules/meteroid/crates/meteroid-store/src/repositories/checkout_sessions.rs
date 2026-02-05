@@ -53,7 +53,7 @@ impl CheckoutSessionsInterface for Store {
     ) -> StoreResult<CheckoutSession> {
         let mut conn = self.get_conn().await?;
 
-        let row_new: CheckoutSessionRowNew = params.into_row();
+        let row_new: CheckoutSessionRowNew = params.try_into_row()?;
 
         let row = row_new
             .insert(&mut conn)

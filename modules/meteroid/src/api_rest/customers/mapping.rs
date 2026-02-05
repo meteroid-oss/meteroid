@@ -25,7 +25,6 @@ pub fn domain_to_rest(d: domain::Customer) -> Result<Customer, RestApiError> {
             .map(addresses::mapping::shipping_address::domain_to_rest),
         currency: currencies::mapping::from_str(d.currency.as_str())?,
         invoicing_entity_id: d.invoicing_entity_id,
-        bank_account_id: d.bank_account_id,
         vat_number: d.vat_number,
         custom_taxes: d
             .custom_taxes
@@ -57,7 +56,6 @@ pub fn create_req_to_domain(created_by: Uuid, req: CustomerCreateRequest) -> Cus
             .shipping_address
             .map(addresses::mapping::shipping_address::rest_to_domain),
         force_created_date: None,
-        bank_account_id: req.bank_account_id,
         vat_number: req.vat_number,
         custom_taxes: req
             .custom_taxes
@@ -101,7 +99,6 @@ pub fn update_req_to_domain(
                 rate: t.rate,
             })
             .collect(),
-        bank_account_id: req.bank_account_id,
         is_tax_exempt: req.is_tax_exempt.unwrap_or(false),
     }
 }
@@ -134,7 +131,6 @@ pub fn patch_req_to_domain(id: CustomerId, req: CustomerPatchRequest) -> domain:
                 })
                 .collect()
         }),
-        bank_account_id: req.bank_account_id.map(Some),
         current_payment_method_id: None,
         is_tax_exempt: req.is_tax_exempt,
     }

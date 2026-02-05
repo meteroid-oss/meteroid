@@ -1,9 +1,7 @@
 use chrono::NaiveDateTime;
 use uuid::Uuid;
 
-use common_domain::ids::{
-    BankAccountId, ConnectorId, CustomerId, CustomerPaymentMethodId, InvoicingEntityId, TenantId,
-};
+use common_domain::ids::{CustomerId, CustomerPaymentMethodId, InvoicingEntityId, TenantId};
 use diesel::{AsChangeset, Identifiable, Insertable, Queryable, Selectable};
 
 #[derive(Clone, Debug, Identifiable, Queryable, Selectable)]
@@ -27,10 +25,7 @@ pub struct CustomerRow {
     pub shipping_address: Option<serde_json::Value>,
     pub invoicing_entity_id: InvoicingEntityId,
     pub archived_by: Option<Uuid>,
-    pub bank_account_id: Option<BankAccountId>,
     pub current_payment_method_id: Option<CustomerPaymentMethodId>,
-    pub card_provider_id: Option<ConnectorId>,
-    pub direct_debit_provider_id: Option<ConnectorId>,
     pub vat_number: Option<String>,
     pub invoicing_emails: Vec<Option<String>>,
     pub conn_meta: Option<serde_json::Value>,
@@ -68,10 +63,7 @@ pub struct CustomerRowNew {
     // for seed, else default to None
     pub created_at: Option<NaiveDateTime>,
     pub billing_email: Option<String>,
-    pub bank_account_id: Option<BankAccountId>,
     pub current_payment_method_id: Option<CustomerPaymentMethodId>,
-    pub card_provider_id: Option<ConnectorId>,
-    pub direct_debit_provider_id: Option<ConnectorId>,
     pub vat_number: Option<String>,
     pub invoicing_emails: Vec<Option<String>>,
     pub is_tax_exempt: bool,
@@ -95,7 +87,6 @@ pub struct CustomerRowPatch {
     pub shipping_address: Option<serde_json::Value>,
     pub invoicing_entity_id: Option<InvoicingEntityId>,
     pub vat_number: Option<Option<String>>,
-    pub bank_account_id: Option<Option<BankAccountId>>,
     pub current_payment_method_id: Option<Option<CustomerPaymentMethodId>>,
     pub is_tax_exempt: Option<bool>,
     pub custom_taxes: Option<serde_json::Value>,
@@ -119,7 +110,6 @@ pub struct CustomerRowUpdate {
     pub shipping_address: Option<serde_json::Value>,
     pub invoicing_entity_id: InvoicingEntityId,
     pub vat_number: Option<String>,
-    pub bank_account_id: Option<BankAccountId>,
     pub is_tax_exempt: bool,
     pub custom_taxes: serde_json::Value,
     pub vat_number_format_valid: bool,

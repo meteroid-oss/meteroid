@@ -129,44 +129,8 @@ impl PaymentTransactionInterface for Store {
                         )
                         .await?;
 
-                    // If payment succeeded and there's an invoice, update subscription's payment method
-                    if transaction.status == domain::enums::PaymentStatusEnum::Settled
-                        && let Some(payment_method_id) = transaction.payment_method_id
-                        && let Some(invoice_id) = transaction.invoice_id {
-                            let invoice = diesel_models::invoices::InvoiceRow::find_by_id(
-                                conn,
-                                transaction.tenant_id,
-                                invoice_id,
-                            )
-                            .await
-                            .map_err(Into::<Report<StoreError>>::into)?;
-
-                            if let Some(subscription_id) = invoice.subscription_id {
-                                let payment_method = diesel_models::customer_payment_methods::CustomerPaymentMethodRow::get_by_id(
-                                    conn,
-                                    &transaction.tenant_id,
-                                    &payment_method_id,
-                                )
-                                .await
-                                .map_err(|e| StoreError::DatabaseError(e.error))?;
-
-                                diesel_models::subscriptions::SubscriptionRow::update_subscription_payment_method(
-                                    conn,
-                                    subscription_id,
-                                    transaction.tenant_id,
-                                    Some(payment_method_id),
-                                    Some(payment_method.payment_method_type),
-                                )
-                                .await
-                                .map_err(Into::<Report<StoreError>>::into)?;
-
-                                log::info!(
-                                    "Updated subscription {} with payment method {}",
-                                    subscription_id,
-                                    payment_method_id
-                                );
-                            }
-                        }
+                    // Payment method is resolved dynamically from the customer at billing time
+                    // No need to update the subscription's payment method field
 
                     Ok(transaction)
                 }

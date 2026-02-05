@@ -64,6 +64,8 @@ yarn-error.log*
 # misc
 .DS_Store
 *.pem
+.claude
+.serena
 
 *.key
 
@@ -73,6 +75,3 @@ k8s/*/values.*.yaml
 
 ## Temporary
 sdk
-
-
-.claude

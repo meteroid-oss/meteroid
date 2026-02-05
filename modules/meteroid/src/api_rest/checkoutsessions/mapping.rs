@@ -26,6 +26,7 @@ pub fn domain_to_rest(
         completed_at: session.completed_at,
         subscription_id: session.subscription_id,
         checkout_url,
+        payment_methods_config: session.payment_methods_config.map(Into::into),
     }
 }
 

@@ -1,13 +1,19 @@
 use crate::StoreResult;
 use crate::domain::outbox_event::InvoiceEvent;
 use crate::domain::pgmq::{PgmqMessageNew, PgmqQueue, SendEmailRequest};
+use crate::errors::StoreError;
 use crate::repositories::InvoiceInterface;
 use crate::repositories::customers::CustomersInterfaceAuto;
 use crate::repositories::invoicing_entities::InvoicingEntityInterfaceAuto;
 use crate::repositories::payment_transactions::PaymentTransactionInterface;
 use crate::repositories::pgmq::PgmqInterface;
 use crate::services::Services;
+use crate::utils::periods::calculate_advance_period_range;
 use common_domain::ids::TenantId;
+use diesel_async::scoped_futures::ScopedFutureExt;
+use diesel_models::enums::CycleActionEnum;
+use diesel_models::subscriptions::SubscriptionRow;
+use error_stack::Report;
 
 impl Services {
     pub async fn on_invoice_paid(
@@ -27,6 +33,10 @@ impl Services {
             );
             // TODO: Emit wh events regarding slot activations
         }
+
+        // Activate subscription if needed (TrialExpired → Active on invoice paid)
+        self.activate_subscription_on_invoice_paid(tenant_id, event.invoice_id)
+            .await?;
 
         let receipt = self
             .store
@@ -95,5 +105,67 @@ impl Services {
             .await?;
 
         Ok(())
+    }
+
+    /// Activate subscription when invoice is paid.
+    /// Handles TrialExpired → Active transition for OnCheckout subscriptions.
+    async fn activate_subscription_on_invoice_paid(
+        &self,
+        tenant_id: TenantId,
+        invoice_id: common_domain::ids::InvoiceId,
+    ) -> StoreResult<()> {
+        let invoice = self.store.get_invoice_by_id(tenant_id, invoice_id).await?;
+
+        let subscription_id = match invoice.subscription_id {
+            Some(id) => id,
+            None => return Ok(()), // No subscription, nothing to activate
+        };
+
+        self.store
+            .transaction(|conn| {
+                async move {
+                    let subscription =
+                        SubscriptionRow::get_subscription_by_id(conn, &tenant_id, subscription_id)
+                            .await?;
+
+                    // Only activate if TrialExpired (waiting for payment to activate)
+                    if subscription.subscription.status
+                        != diesel_models::enums::SubscriptionStatusEnum::TrialExpired
+                    {
+                        return Ok(());
+                    }
+
+                    // Trial expired subscription paid - transition to Active
+                    let period_start = subscription.subscription.current_period_start;
+
+                    let range = calculate_advance_period_range(
+                        period_start,
+                        subscription.subscription.billing_day_anchor as u32,
+                        true,
+                        &subscription.subscription.period.into(),
+                    );
+
+                    SubscriptionRow::transition_trial_expired_to_active(
+                        conn,
+                        &subscription_id,
+                        &tenant_id,
+                        range.start,
+                        Some(range.end),
+                        Some(CycleActionEnum::RenewSubscription),
+                        Some(0),
+                    )
+                    .await
+                    .map_err(Into::<Report<StoreError>>::into)?;
+
+                    tracing::info!(
+                        "Activated subscription {} from TrialExpired on invoice paid",
+                        subscription_id
+                    );
+
+                    Ok(())
+                }
+                .scope_boxed()
+            })
+            .await
     }
 }

@@ -4,11 +4,14 @@ pub mod subscriptions {
 
     use crate::api::connectors::mapping::connectors::connection_metadata_to_server;
     use crate::api::shared::conversions::{AsProtoOpt, FromProtoOpt, ProtoConv};
-    use common_domain::ids::{CustomerId, PlanVersionId};
+    use common_domain::ids::{CustomerId, PlanVersionId, SubscriptionId};
     use common_utils::integers::ToNonNegativeU64;
     use meteroid_grpc::meteroid::api::subscriptions::v1 as proto2;
     use meteroid_store::domain::SubscriptionStatusEnum;
     use meteroid_store::domain::enums::SubscriptionActivationCondition;
+    use meteroid_store::domain::subscriptions::{
+        OnlineMethodConfig, OnlineMethodsConfig, PaymentMethodsConfig,
+    };
     use tonic::Status;
     use uuid::Uuid;
 
@@ -22,19 +25,63 @@ pub mod subscriptions {
         }
     }
 
-    fn map_payment_strategy_proto(
-        e: proto2::PaymentStrategy,
-    ) -> meteroid_store::domain::SubscriptionPaymentStrategy {
-        match e {
-            proto2::PaymentStrategy::Auto => {
-                meteroid_store::domain::SubscriptionPaymentStrategy::Auto
-            }
-            proto2::PaymentStrategy::Bank => {
-                meteroid_store::domain::SubscriptionPaymentStrategy::Bank
-            }
-            proto2::PaymentStrategy::External => {
-                meteroid_store::domain::SubscriptionPaymentStrategy::External
-            }
+    fn domain_payment_methods_config_to_proto(
+        config: Option<PaymentMethodsConfig>,
+    ) -> Option<proto2::PaymentMethodsConfig> {
+        config.map(|c| match c {
+            PaymentMethodsConfig::Online { config } => proto2::PaymentMethodsConfig {
+                config: Some(proto2::payment_methods_config::Config::Online(
+                    proto2::OnlinePayment {
+                        config: config.map(|cfg| proto2::OnlineMethodsConfig {
+                            card: cfg
+                                .card
+                                .map(|m| proto2::OnlineMethodConfig { enabled: m.enabled }),
+                            direct_debit: cfg
+                                .direct_debit
+                                .map(|m| proto2::OnlineMethodConfig { enabled: m.enabled }),
+                        }),
+                    },
+                )),
+            },
+            PaymentMethodsConfig::BankTransfer { account_id: _ } => proto2::PaymentMethodsConfig {
+                config: Some(proto2::payment_methods_config::Config::BankTransfer(
+                    proto2::BankTransfer {},
+                )),
+            },
+            PaymentMethodsConfig::External => proto2::PaymentMethodsConfig {
+                config: Some(proto2::payment_methods_config::Config::External(
+                    proto2::External {},
+                )),
+            },
+        })
+    }
+
+    fn proto_payment_methods_config_to_domain(
+        config: Option<proto2::PaymentMethodsConfig>,
+    ) -> Result<Option<PaymentMethodsConfig>, Status> {
+        match config {
+            None => Ok(None),
+            Some(proto_config) => match proto_config.config {
+                None => Ok(Some(PaymentMethodsConfig::Online { config: None })),
+                Some(proto2::payment_methods_config::Config::Online(online)) => {
+                    Ok(Some(PaymentMethodsConfig::Online {
+                        config: online.config.map(|cfg| OnlineMethodsConfig {
+                            card: cfg.card.map(|m| OnlineMethodConfig { enabled: m.enabled }),
+                            direct_debit: cfg
+                                .direct_debit
+                                .map(|m| OnlineMethodConfig { enabled: m.enabled }),
+                        }),
+                    }))
+                }
+                Some(proto2::payment_methods_config::Config::BankTransfer(_)) => {
+                    Ok(Some(PaymentMethodsConfig::BankTransfer {
+                        account_id: None,
+                    }))
+                }
+                Some(proto2::payment_methods_config::Config::External(_)) => {
+                    Ok(Some(PaymentMethodsConfig::External))
+                }
+            },
         }
     }
 
@@ -107,8 +154,6 @@ pub mod subscriptions {
             mrr_cents: s.mrr_cents,
             status,
             checkout_url: None,
-            card_connection_id: s.card_connection_id.map(|id| id.as_proto()),
-            direct_debit_connection_id: s.direct_debit_connection_id.map(|id| id.as_proto()),
             connection_metadata: s.conn_meta.as_ref().map(connection_metadata_to_server),
             purchase_order: s.purchase_order,
             auto_advance_invoices: s.auto_advance_invoices,
@@ -120,6 +165,9 @@ pub mod subscriptions {
             last_error: s.last_error,
             next_retry: s.next_retry.as_proto(),
             quote_id: s.quote_id.map(|id| id.as_proto()),
+            payment_methods_config: domain_payment_methods_config_to_proto(
+                s.payment_methods_config,
+            ),
         })
     }
 
@@ -144,11 +192,9 @@ pub mod subscriptions {
             start_date: NaiveDate::from_proto(param.start_date)?,
             end_date: NaiveDate::from_proto_opt(param.end_date)?,
             trial_duration: param.trial_duration,
-            payment_strategy: param.payment_strategy.and_then(|ps| {
-                proto2::PaymentStrategy::try_from(ps)
-                    .ok()
-                    .map(map_payment_strategy_proto)
-            }),
+            payment_methods_config: proto_payment_methods_config_to_domain(
+                param.payment_methods_config,
+            )?,
             auto_advance_invoices: param.auto_advance_invoices.unwrap_or(true),
             charge_automatically: param.charge_automatically.unwrap_or(true),
             purchase_order: param.purchase_order,
@@ -235,8 +281,6 @@ pub mod subscriptions {
                 mrr_cents: sub.mrr_cents,
                 status,
                 checkout_url: details.checkout_url,
-                card_connection_id: sub.card_connection_id.map(|id| id.as_proto()),
-                direct_debit_connection_id: sub.direct_debit_connection_id.map(|id| id.as_proto()),
                 connection_metadata: sub.conn_meta.as_ref().map(connection_metadata_to_server),
                 purchase_order: sub.purchase_order,
                 auto_advance_invoices: sub.auto_advance_invoices,
@@ -248,6 +292,9 @@ pub mod subscriptions {
                 last_error: sub.last_error,
                 next_retry: sub.next_retry.as_proto(),
                 quote_id: sub.quote_id.map(|id| id.as_proto()),
+                payment_methods_config: domain_payment_methods_config_to_proto(
+                    sub.payment_methods_config,
+                ),
             }),
             schedules: vec![], // TODO
             price_components: details
@@ -280,6 +327,31 @@ pub mod subscriptions {
                 trialing_plan_id: tc.trialing_plan_id.map(|id| id.as_proto()),
                 trialing_plan_name: tc.trialing_plan_name,
             }),
+        })
+    }
+
+    pub(crate) fn update_request_to_patch(
+        subscription_id: SubscriptionId,
+        req: &proto2::UpdateSubscriptionRequest,
+    ) -> Result<domain::SubscriptionPatch, Status> {
+        Ok(domain::SubscriptionPatch {
+            id: subscription_id,
+            charge_automatically: req.charge_automatically,
+            auto_advance_invoices: req.auto_advance_invoices,
+            net_terms: req.net_terms,
+            invoice_memo: req
+                .invoice_memo
+                .as_ref()
+                .map(|m| if m.is_empty() { None } else { Some(m.clone()) }),
+            purchase_order: req
+                .purchase_order
+                .as_ref()
+                .map(|p| if p.is_empty() { None } else { Some(p.clone()) }),
+            payment_methods_config: req
+                .payment_methods_config
+                .as_ref()
+                .map(|proto_config| proto_payment_methods_config_to_domain(Some(*proto_config)))
+                .transpose()?,
         })
     }
 }

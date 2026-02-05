@@ -619,8 +619,6 @@ impl InvoiceLineInner {
         precision: u8,
         metric_id: Option<BillableMetricId>,
     ) -> StoreResult<InvoiceLineInner> {
-        let unit_price_cents = prorate_dec(*rate, proration_factor);
-
         let total = rate * quantity;
 
         let total_cents = prorate(
@@ -631,9 +629,19 @@ impl InvoiceLineInner {
             proration_factor,
         );
 
+        // Derive unit_price from the rounded total to ensure consistency.
+        // For qty=1, this gives exact currency precision.
+        // For qty>1, unit_price × quantity = total exactly.
+        let unit_price = if quantity.is_zero() {
+            Decimal::ZERO
+        } else {
+            let divisor = Decimal::from(10u64.pow(precision as u32));
+            Decimal::from(total_cents as i64) / divisor / quantity
+        };
+
         Ok(InvoiceLineInner {
             quantity: Some(*quantity),
-            unit_price: Some(unit_price_cents),
+            unit_price: Some(unit_price),
             total: total_cents,
             period,
             custom_line_name: None,
@@ -684,16 +692,5 @@ fn prorate(price_cents: i64, proration_factor: Option<f64>) -> u64 {
             only_positive(prorated_price)
         }
         None => only_positive(price_cents),
-    }
-}
-
-fn prorate_dec(price_cents: Decimal, proration_factor: Option<f64>) -> Decimal {
-    match proration_factor {
-        Some(proration_factor) => {
-            let prorated_price =
-                price_cents * Decimal::from_f64(proration_factor).unwrap_or(dec!(1.0));
-            only_positive_decimal(prorated_price)
-        }
-        None => only_positive_decimal(price_cents),
     }
 }

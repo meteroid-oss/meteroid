@@ -8,6 +8,7 @@ use chrono::{Days, Duration, NaiveDate, NaiveDateTime, Utc};
 use common_domain::ids::SubscriptionId;
 use diesel_async::AsyncConnection;
 use diesel_async::scoped_futures::ScopedFutureExt;
+use diesel_models::customer_payment_methods::CustomerPaymentMethodRow;
 use diesel_models::enums::{
     CycleActionEnum, PlanTypeEnum, ScheduledEventTypeEnum, SubscriptionActivationConditionEnum,
     SubscriptionStatusEnum,
@@ -364,32 +365,47 @@ impl Services {
             // Free trial on paid plan: determine next action based on activation condition and payment setup
             let is_on_checkout = subscription.activation_condition
                 == SubscriptionActivationConditionEnum::OnCheckout;
-            let has_payment_method = subscription.payment_method.is_some();
-            let can_auto_charge = subscription.charge_automatically && has_payment_method;
 
-            // OnCheckout without auto-charge capability: require checkout before proceeding
-            // Customer must complete checkout to activate the subscription
-            if is_on_checkout && !can_auto_charge {
+            if is_on_checkout {
+                // OnCheckout: subscription requires successful payment to activate.
+                // Always go to TrialExpired, attempt charge if payment method exists.
+                // On payment success, on_invoice_payment_settled will transition to Active.
+                // On payment failure, stays TrialExpired until customer retries/fixes payment.
+                let has_payment_method = if subscription.charge_automatically {
+                    let payment_methods = CustomerPaymentMethodRow::list_by_customer_id(
+                        conn,
+                        &subscription.tenant_id,
+                        &subscription.customer_id,
+                    )
+                    .await?;
+                    !payment_methods.is_empty()
+                } else {
+                    false
+                };
+
                 let new_period_start = subscription
                     .current_period_end
                     .unwrap_or_else(|| Utc::now().naive_utc().date());
+
+                let period = calculate_advance_period_range(
+                    new_period_start,
+                    subscription.billing_day_anchor as u32,
+                    true,
+                    &(subscription.period.clone().into()),
+                );
 
                 return Ok(NextCycle {
                     status: SubscriptionStatusEnum::TrialExpired,
                     next_cycle_action: None,
                     new_period_start,
-                    new_period_end: None,
-                    should_bill: false,
-                    pending_checkout: true,
+                    new_period_end: Some(period.end),
+                    should_bill: has_payment_method,
+                    pending_checkout: !has_payment_method, // Only pending if no payment method
                 });
             }
 
-            // For all other cases (OnStart, Manual, or OnCheckout with auto-charge):
-            // - OnStart/Manual: subscription was already activated, just transition to billing
-            // - OnCheckout with auto-charge: proceed to Active + charge
-            // In all cases, the subscription becomes Active and an invoice is created.
-            // For OnStart/Manual without auto-charge, the invoice is sent but payment is not
-            // required for the subscription to continue (trust-based billing).
+            // For OnStart/Manual: trust-based billing, subscription already committed.
+            // Invoice is created and subscription becomes Active.
             self.renew_subscription(subscription)
         }
     }

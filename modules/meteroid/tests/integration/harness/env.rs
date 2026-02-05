@@ -16,10 +16,11 @@ use meteroid_store::{Services, Store};
 ///
 /// This provides access to the store, services, and other test infrastructure.
 /// Domain-specific helper methods are implemented in separate modules:
-/// - `coupons.rs` - Coupon creation and management
-/// - `subscriptions.rs` - Subscription queries
-/// - `invoices.rs` - Invoice queries
 /// - `billing.rs` - Billing pipeline processing
+/// - `coupons.rs` - Coupon creation and management
+/// - `invoices.rs` - Invoice queries
+/// - `payments.rs` - Payment provider and payment method helpers
+/// - `subscriptions.rs` - Subscription queries
 pub struct TestEnv {
     pub setup: MeteroidSetup,
     pub _mailer: Arc<MockMailerService>,
@@ -44,26 +45,6 @@ impl TestEnv {
     /// Get a database connection from the pool.
     pub async fn conn(&self) -> PgConn {
         self.pool().get().await.expect("Failed to get connection")
-    }
-
-    /// Seed the mock payment provider.
-    ///
-    /// # Arguments
-    /// * `fail_payment_intent` - If true, payments will fail
-    pub async fn seed_mock_payment_provider(&self, fail_payment_intent: bool) {
-        crate::data::minimal::run_mock_payment_provider_seed(self.pool(), fail_payment_intent)
-            .await;
-    }
-
-    /// Seed customer payment methods (Uber & Spotify).
-    pub async fn seed_customer_payment_methods(&self) {
-        crate::data::minimal::run_customer_payment_methods_seed(self.pool()).await;
-    }
-
-    /// Seed both payment provider and customer payment methods.
-    pub async fn seed_payments(&self) {
-        self.seed_mock_payment_provider(false).await;
-        self.seed_customer_payment_methods().await;
     }
 }
 

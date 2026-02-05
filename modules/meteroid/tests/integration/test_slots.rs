@@ -995,7 +995,7 @@ async fn create_subscription_with_slots(
                         meteroid_store::domain::SubscriptionActivationCondition::OnStart,
                     trial_duration: None,
                     billing_day_anchor: None,
-                    payment_strategy: None,
+                    payment_methods_config: None,
                     auto_advance_invoices: true,
                     charge_automatically: false,
                     purchase_order: None,

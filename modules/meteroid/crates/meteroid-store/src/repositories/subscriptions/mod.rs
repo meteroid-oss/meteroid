@@ -1,13 +1,15 @@
 use crate::StoreResult;
+use crate::domain::subscriptions::PaymentMethodsConfig;
 use crate::domain::{
     BillableMetric, ConnectorProviderEnum, Customer, InvoicingEntity, PaginatedVec,
     PaginationRequest, Schedule, Subscription, SubscriptionComponent, SubscriptionComponentNew,
-    SubscriptionDetails, TrialConfig,
+    SubscriptionDetails, SubscriptionPatch, TrialConfig,
 };
 use chrono::NaiveDate;
 use common_domain::ids::{ConnectorId, CustomerId, PlanId, SubscriptionId, TenantId};
 
 use crate::errors::StoreError;
+use crate::services::validate_charge_automatically_with_provider_ids;
 use crate::store::Store;
 use error_stack::{Report, bail};
 use itertools::Itertools;
@@ -20,7 +22,7 @@ use diesel_models::subscription_add_ons::SubscriptionAddOnRow;
 use diesel_models::subscription_components::{
     SubscriptionComponentRow, SubscriptionComponentRowNew,
 };
-use diesel_models::subscriptions::SubscriptionRow;
+use diesel_models::subscriptions::{SubscriptionRow, SubscriptionRowPatch};
 // TODO we need to always pass the tenant id and match it with the resource, if not within the resource.
 // and even within it's probably still unsafe no ? Ex: creating components against a wrong subscription within a different tenant
 use crate::domain::pgmq::{HubspotSyncRequestEvent, HubspotSyncSubscription, PgmqQueue};
@@ -103,6 +105,12 @@ pub trait SubscriptionInterface {
         conn: &mut PgConn,
         events: Vec<ScheduledEventNew>,
     ) -> StoreResult<Vec<ScheduledEvent>>;
+
+    async fn patch_subscription(
+        &self,
+        tenant_id: TenantId,
+        patch: SubscriptionPatch,
+    ) -> StoreResult<Subscription>;
 }
 
 #[async_trait::async_trait]
@@ -463,6 +471,96 @@ impl SubscriptionInterface for Store {
             .into_iter()
             .map(std::convert::TryInto::try_into)
             .collect::<Result<Vec<_>, _>>()
+    }
+
+    async fn patch_subscription(
+        &self,
+        tenant_id: TenantId,
+        patch: SubscriptionPatch,
+    ) -> StoreResult<Subscription> {
+        use crate::domain::SubscriptionStatusEnum;
+
+        let mut conn = self.get_conn().await?;
+
+        let existing = SubscriptionRow::get_subscription_by_id(&mut conn, &tenant_id, patch.id)
+            .await
+            .map_err(Into::<Report<StoreError>>::into)?;
+
+        let status: SubscriptionStatusEnum = existing.subscription.status.into();
+        if matches!(
+            status,
+            SubscriptionStatusEnum::Cancelled
+                | SubscriptionStatusEnum::Completed
+                | SubscriptionStatusEnum::Superseded
+        ) {
+            bail!(StoreError::InvalidArgument(
+                "Cannot update subscription in terminal state".to_string()
+            ));
+        }
+
+        let effective_charge_automatically = patch
+            .charge_automatically
+            .unwrap_or(existing.subscription.charge_automatically);
+
+        let existing_payment_methods_config: Option<PaymentMethodsConfig> = existing
+            .subscription
+            .payment_methods_config
+            .as_ref()
+            .map(|v| serde_json::from_value(v.clone()))
+            .transpose()
+            .map_err(|e| {
+                StoreError::SerdeError(format!("Failed to parse payment_methods_config: {}", e), e)
+            })?;
+
+        let effective_payment_methods_config = match &patch.payment_methods_config {
+            Some(new_config) => new_config.clone(),
+            None => existing_payment_methods_config,
+        };
+
+        if effective_charge_automatically {
+            let invoicing_entity = InvoicingEntityRow::get_invoicing_entity_by_id_and_tenant(
+                &mut conn,
+                existing.invoicing_entity_id,
+                tenant_id,
+            )
+            .await
+            .map_err(Into::<Report<StoreError>>::into)?;
+
+            validate_charge_automatically_with_provider_ids(
+                effective_charge_automatically,
+                effective_payment_methods_config.as_ref(),
+                invoicing_entity.card_provider_id,
+                invoicing_entity.direct_debit_provider_id,
+            )?;
+        }
+
+        let row_patch = SubscriptionRowPatch {
+            charge_automatically: patch.charge_automatically,
+            auto_advance_invoices: patch.auto_advance_invoices,
+            net_terms: patch.net_terms.map(|n| n as i32),
+            invoice_memo: patch.invoice_memo,
+            purchase_order: patch.purchase_order,
+            payment_methods_config: patch
+                .payment_methods_config
+                .map(|opt| {
+                    opt.map(serde_json::to_value).transpose().map_err(|e| {
+                        StoreError::SerdeError(
+                            "Failed to serialize payment_methods_config".to_string(),
+                            e,
+                        )
+                    })
+                })
+                .transpose()?,
+        };
+
+        SubscriptionRow::patch(&mut conn, &tenant_id, patch.id, &row_patch)
+            .await
+            .map_err(Into::<Report<StoreError>>::into)?;
+
+        SubscriptionRow::get_subscription_by_id(&mut conn, &tenant_id, patch.id)
+            .await
+            .map_err(Into::<Report<StoreError>>::into)?
+            .try_into()
     }
 }
 

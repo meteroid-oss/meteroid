@@ -6,8 +6,7 @@ use crate::api::customers::mapping::customer::{
 };
 use crate::api::utils::PaginationExt;
 use common_domain::ids::{
-    AliasOr, BankAccountId, BaseId, ConnectorId, CustomerConnectionId, CustomerId,
-    InvoicingEntityId,
+    AliasOr, BaseId, ConnectorId, CustomerConnectionId, CustomerId, InvoicingEntityId,
 };
 use common_grpc::middleware::server::auth::RequestExt;
 use error_stack::Report;
@@ -72,7 +71,6 @@ impl CustomersService for CustomerServiceComponents {
                 .transpose()?
                 .map(|v| v.0),
             force_created_date: None,
-            bank_account_id: BankAccountId::from_proto_opt(inner.bank_account_id)?,
             vat_number: inner.vat_number,
             custom_taxes: inner
                 .custom_taxes
@@ -155,7 +153,6 @@ impl CustomersService for CustomerServiceComponents {
                         customer.custom_taxes,
                     )
                     .map_err(Into::<Status>::into)?,
-                    bank_account_id: Some(BankAccountId::from_proto_opt(customer.bank_account_id)?),
                     current_payment_method_id: None,
                     is_tax_exempt: customer.is_tax_exempt,
                 },

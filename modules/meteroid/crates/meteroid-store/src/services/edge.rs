@@ -7,10 +7,11 @@ use crate::domain::outbox_event::{
 };
 use crate::domain::payment_transactions::PaymentTransaction;
 use crate::domain::scheduled_events::ScheduledEventNew;
+use crate::domain::subscriptions::PaymentMethodsConfig;
 use crate::domain::{
     CheckoutSession, CreateSubscription, CreateSubscriptionFromQuote, CreatedSubscription,
-    CustomerBuyCredits, DetailedInvoice, Invoice, QuoteActivityNew, SetupIntent, Subscription,
-    SubscriptionDetails, UpdateInvoiceParams,
+    Customer, CustomerBuyCredits, DetailedInvoice, Invoice, InvoicingEntityProviderSensitive,
+    QuoteActivityNew, SetupIntent, Subscription, SubscriptionDetails, UpdateInvoiceParams,
 };
 use crate::errors::{StoreError, StoreErrorReport};
 use crate::repositories::InvoiceInterface;
@@ -18,6 +19,7 @@ use crate::repositories::outbox::OutboxInterface;
 use crate::repositories::subscriptions::CancellationEffectiveAt;
 use crate::services::CycleTransitionResult;
 use crate::services::invoice_lines::invoice_lines::ComputedInvoiceContent;
+use crate::services::subscriptions::payment_resolution::ResolvedPaymentMethods;
 use crate::services::{InvoiceBillingMode, ServicesEdge};
 use crate::store::PgConn;
 use crate::utils::periods::calculate_advance_period_range;
@@ -225,10 +227,11 @@ impl ServicesEdge {
         let is_trial_expired = subscription.status == DbSubscriptionStatusEnum::TrialExpired;
 
         if is_free_trial && !is_trial_expired {
-            // Free trial checkout: just save the payment method, don't change the trial period.
+            // Free trial checkout: activate the subscription, don't change the trial period.
             // The trial period remains unchanged (current_period_start/end stay the same).
             // Billing will happen when the trial ends via process_cycles.
-            let payment_method =
+            // Validate the payment method exists (it's already saved on the customer)
+            let _payment_method =
                 diesel_models::customer_payment_methods::CustomerPaymentMethodRow::get_by_id(
                     conn,
                     &tenant_id,
@@ -237,8 +240,8 @@ impl ServicesEdge {
                 .await
                 .map_err(|e| StoreError::DatabaseError(e.error))?;
 
-            // Keep existing period dates - only update payment method and clear pending_checkout
-            SubscriptionRow::activate_subscription_with_payment_method(
+            // Keep existing period dates - payment method is resolved dynamically from the customer
+            SubscriptionRow::activate_subscription(
                 conn,
                 &subscription_id,
                 &tenant_id,
@@ -247,8 +250,6 @@ impl ServicesEdge {
                 subscription.next_cycle_action.clone(),
                 subscription.cycle_index,
                 DbSubscriptionStatusEnum::TrialActive,
-                Some(payment_method_id),
-                Some(payment_method.payment_method_type),
             )
             .await
             .map_err(Into::<Report<StoreError>>::into)?;
@@ -404,6 +405,41 @@ impl ServicesEdge {
             .await
     }
 
+    /// Resolves payment methods for a subscription based on its config and current invoicing entity (inherited or overridden)
+    pub async fn resolve_subscription_payment_methods(
+        &self,
+        tenant_id: TenantId,
+        payment_methods_config: Option<&PaymentMethodsConfig>,
+        customer: &Customer,
+    ) -> StoreResult<ResolvedPaymentMethods> {
+        use diesel_models::invoicing_entities::InvoicingEntityProvidersRow;
+
+        let mut conn = self.get_conn().await?;
+
+        let providers_row = InvoicingEntityProvidersRow::resolve_providers_by_id(
+            &mut conn,
+            customer.invoicing_entity_id,
+            tenant_id,
+        )
+        .await
+        .map_err(|err| StoreError::DatabaseError(err.error))?;
+
+        let invoicing_entity_providers = InvoicingEntityProviderSensitive::from_row(
+            providers_row,
+            &self.store.settings.crypt_key,
+        )?;
+
+        self.services
+            .resolve_payment_methods(
+                &mut conn,
+                tenant_id,
+                payment_methods_config,
+                customer,
+                &invoicing_entity_providers,
+            )
+            .await
+    }
+
     pub async fn insert_subscription(
         &self,
         params: CreateSubscription,
@@ -452,10 +488,45 @@ impl ServicesEdge {
             .services
             .build_subscription_details_from_quote(&params, &context)?;
 
-        // For quote conversions, gracefully handle charge_automatically when
-        // payment provider is not configured. This allows quotes to be converted even if
-        // the invoicing entity doesn't have a payment provider set up yet.
-        if sub.subscription.charge_automatically
+        // For quote conversions, gracefully handle charge_automatically when the configuration
+        // is invalid. This allows quotes to be converted even if misconfigured.
+        // We validate and adjust values to be consistent rather than failing.
+        if sub.subscription.charge_automatically {
+            // Check 1: payment_methods_config must be Online (or None which defaults to Online)
+            let is_online_config = match &sub.subscription.payment_methods_config {
+                None => true,
+                Some(PaymentMethodsConfig::Online { .. }) => true,
+                Some(PaymentMethodsConfig::BankTransfer { .. }) => false,
+                Some(PaymentMethodsConfig::External) => false,
+            };
+
+            if !is_online_config {
+                log::warn!(
+                    "Quote conversion: charge_automatically was set to true but payment_methods_config is not Online. Falling back to charge_automatically=false for quote_id={}",
+                    quote_id.as_base62()
+                );
+                sub.subscription.charge_automatically = false;
+            } else if let Some(invoicing_entity_providers) =
+                context.get_invoicing_entity_providers_for_customer(&sub.customer)
+            {
+                // Check 2: Invoicing entity must have an online provider
+                let has_online_provider = invoicing_entity_providers.card_provider.is_some()
+                    || invoicing_entity_providers.direct_debit_provider.is_some();
+
+                if !has_online_provider {
+                    log::warn!(
+                        "Quote conversion: charge_automatically was set to true but no payment provider is configured. Falling back to charge_automatically=false for quote_id={}",
+                        quote_id.as_base62()
+                    );
+                    sub.subscription.charge_automatically = false;
+                }
+            }
+        }
+
+        // For quote conversions, gracefully handle payment_methods_config when
+        // online payment is configured but no payment provider exists.
+        if let Some(ref config) = sub.subscription.payment_methods_config
+            && config.is_online()
             && let Some(invoicing_entity_providers) =
                 context.get_invoicing_entity_providers_for_customer(&sub.customer)
         {
@@ -464,17 +535,16 @@ impl ServicesEdge {
 
             if !has_online_provider {
                 log::warn!(
-                    "Quote conversion: charge_automatically was set to true but no payment provider is configured. Falling back to charge_automatically=false for quote_id={}",
+                    "Quote conversion: payment_methods_config was set to Online but no payment provider is configured. Falling back to External for quote_id={}",
                     quote_id.as_base62()
                 );
-                sub.subscription.charge_automatically = false;
+                sub.subscription.payment_methods_config = Some(PaymentMethodsConfig::External);
             }
         }
 
-        let payment_result = self
-            .services
-            .setup_payment_provider(&mut conn, &sub.subscription, &sub.customer, &context)
-            .await?;
+        let payment_result =
+            self.services
+                .setup_payment_provider(&sub.subscription, &sub.customer, &context)?;
 
         let processed = self.services.process_subscription(
             &sub,
@@ -590,10 +660,9 @@ impl ServicesEdge {
 
         let mut results = Vec::new();
         for sub in subscriptions {
-            let result = self
-                .services
-                .setup_payment_provider(conn, &sub.subscription, &sub.customer, &context)
-                .await?;
+            let result =
+                self.services
+                    .setup_payment_provider(&sub.subscription, &sub.customer, &context)?;
 
             let processed = self
                 .services
@@ -986,8 +1055,6 @@ impl ServicesEdge {
             .await?;
 
         let payment_transaction = if let Some(charge_result) = charge_result {
-            let payment_method_id = charge_result.payment_method_id;
-
             let detailed_invoice = self
                 .services
                 .bill_subscription_tx(
@@ -1004,15 +1071,6 @@ impl ServicesEdge {
                 .attach("Failed to create invoice for subscription")?;
 
             // Activate the subscription now that payment is confirmed
-            let payment_method =
-                diesel_models::customer_payment_methods::CustomerPaymentMethodRow::get_by_id(
-                    conn,
-                    &tenant_id,
-                    &payment_method_id,
-                )
-                .await
-                .map_err(|e| StoreError::DatabaseError(e.error))?;
-
             let has_paid_trial = trial_config.as_ref().is_some_and(|tc| !tc.is_free);
             let trial_duration = if has_paid_trial {
                 trial_config.as_ref().map(|tc| tc.duration_days as i32)
@@ -1040,25 +1098,12 @@ impl ServicesEdge {
                         is_paid_trial: has_paid_trial,
                         billing_day_anchor,
                         period: subscription.subscription.period.into(),
-                        payment_method: Some(crate::services::subscriptions::PaymentMethodInfo {
-                            id: payment_method_id,
-                            method_type: payment_method.payment_method_type,
-                        }),
                     },
                 )
                 .await?;
 
             detailed_invoice.transactions.into_iter().next()
         } else if is_free_trial {
-            let payment_method =
-                diesel_models::customer_payment_methods::CustomerPaymentMethodRow::get_by_id(
-                    conn,
-                    &tenant_id,
-                    &payment_method_id,
-                )
-                .await
-                .map_err(|e| StoreError::DatabaseError(e.error))?;
-
             let trial_duration = trial_config.as_ref().map(|tc| tc.duration_days as i32);
 
             let subscription =
@@ -1081,10 +1126,6 @@ impl ServicesEdge {
                         is_paid_trial: false, // Free trial
                         billing_day_anchor,
                         period: subscription.subscription.period.into(),
-                        payment_method: Some(crate::services::subscriptions::PaymentMethodInfo {
-                            id: payment_method_id,
-                            method_type: payment_method.payment_method_type,
-                        }),
                     },
                 )
                 .await?;
@@ -1105,15 +1146,6 @@ impl ServicesEdge {
                 .await?
                 .ok_or(StoreError::InsertError)
                 .attach("Failed to create invoice for zero-amount subscription")?;
-
-            let payment_method =
-                diesel_models::customer_payment_methods::CustomerPaymentMethodRow::get_by_id(
-                    conn,
-                    &tenant_id,
-                    &payment_method_id,
-                )
-                .await
-                .map_err(|e| StoreError::DatabaseError(e.error))?;
 
             let subscription =
                 SubscriptionRow::get_subscription_by_id(conn, &tenant_id, created_subscription.id)
@@ -1143,10 +1175,6 @@ impl ServicesEdge {
                         is_paid_trial: has_paid_trial,
                         billing_day_anchor,
                         period: subscription.subscription.period.into(),
-                        payment_method: Some(crate::services::subscriptions::PaymentMethodInfo {
-                            id: payment_method_id,
-                            method_type: payment_method.payment_method_type,
-                        }),
                     },
                 )
                 .await?;

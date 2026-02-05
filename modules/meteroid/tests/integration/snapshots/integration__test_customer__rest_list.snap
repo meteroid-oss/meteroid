@@ -15,7 +15,6 @@ expression: "&list"
       "shipping_address": null,
       "currency": "EUR",
       "invoicing_entity_id": "ive_xxx",
-      "bank_account_id": null,
       "vat_number": null,
       "custom_taxes": []
     },
@@ -30,7 +29,6 @@ expression: "&list"
       "shipping_address": null,
       "currency": "EUR",
       "invoicing_entity_id": "ive_xxx",
-      "bank_account_id": null,
       "vat_number": null,
       "custom_taxes": []
     },
@@ -54,7 +52,6 @@ expression: "&list"
       },
       "currency": "EUR",
       "invoicing_entity_id": "ive_xxx",
-      "bank_account_id": null,
       "vat_number": "VAT123456",
       "custom_taxes": [
         {

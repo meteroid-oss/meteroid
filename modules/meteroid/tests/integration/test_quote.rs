@@ -88,7 +88,6 @@ async fn create_test_quote(clients: &AllClients) -> api::quotes::v1::DetailedQuo
                     ],
                     ..Default::default()
                 }),
-                payment_strategy: None,
                 auto_advance_invoices: None,
                 // Defaults to true - the quote conversion will gracefully fall back to false
                 // if no payment provider is configured on the invoicing entity
@@ -98,6 +97,7 @@ async fn create_test_quote(clients: &AllClients) -> api::quotes::v1::DetailedQuo
                 create_subscription_on_acceptance: None,
                 add_ons: None,
                 coupons: None,
+                payment_methods_config: None,
             }),
         }))
         .await

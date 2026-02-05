@@ -30,10 +30,7 @@ async fn test_onstart_no_trial_is_active_immediately(#[future] test_env: TestEnv
         .await;
 
     let sub = env.get_subscription(sub_id).await;
-    sub.assert()
-        .is_active()
-        .has_pending_checkout(false)
-        .has_payment_method(false);
+    sub.assert().is_active().has_pending_checkout(false);
 
     let invoices = env.get_invoices(sub_id).await;
     invoices.assert().has_count(1);
@@ -61,7 +58,6 @@ async fn test_onstart_free_trial_starts_trial(#[future] test_env: TestEnv) {
     sub.assert()
         .is_trial_active()
         .has_pending_checkout(false)
-        .has_payment_method(false)
         .has_trial_duration(Some(14));
 
     let invoices = env.get_invoices(sub_id).await;
@@ -120,8 +116,7 @@ async fn test_oncheckout_no_trial_starts_pending(#[future] test_env: TestEnv) {
     let sub = env.get_subscription(sub_id).await;
     sub.assert()
         .is_pending_activation()
-        .has_pending_checkout(true)
-        .has_payment_method(false);
+        .has_pending_checkout(true);
 
     let invoices = env.get_invoices(sub_id).await;
     invoices.assert().assert_empty();
@@ -148,7 +143,6 @@ async fn test_oncheckout_free_trial_starts_trial_with_pending_checkout(
     sub.assert()
         .is_trial_active()
         .has_pending_checkout(true) // OnCheckout sets pending_checkout even during trial
-        .has_payment_method(false)
         .has_trial_duration(Some(14))
         .has_next_action(Some(CycleActionEnum::EndTrial)); // Trial will end at next cycle
 
@@ -175,7 +169,6 @@ async fn test_oncheckout_paid_trial_starts_pending(#[future] test_env: TestEnv) 
     sub.assert()
         .is_pending_activation()
         .has_pending_checkout(true)
-        .has_payment_method(false)
         .has_trial_duration(Some(7));
 
     let invoices = env.get_invoices(sub_id).await;
@@ -203,8 +196,7 @@ async fn test_manual_no_trial_starts_pending_without_checkout_flag(#[future] tes
     let sub = env.get_subscription(sub_id).await;
     sub.assert()
         .is_pending_activation()
-        .has_pending_checkout(false) // Manual doesn't use pending_checkout
-        .has_payment_method(false);
+        .has_pending_checkout(false); // Manual doesn't use pending_checkout
 
     let invoices = env.get_invoices(sub_id).await;
     invoices.assert().assert_empty();
@@ -535,7 +527,6 @@ async fn test_manual_no_trial(#[future] test_env: TestEnv) {
     sub.assert()
         .is_pending_activation()
         .has_pending_checkout(false) // Manual doesn't use pending_checkout
-        .has_payment_method(false)
         .has_trial_duration(None);
 
     // No invoices before manual activation

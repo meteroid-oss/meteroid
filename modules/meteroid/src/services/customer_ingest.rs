@@ -180,7 +180,6 @@ impl CustomerIngestService {
             billing_address,
             shipping_address,
             force_created_date: None,
-            bank_account_id: None,
             vat_number: csv.vat_number.map(|v| v.0),
             invoicing_entity_id: csv.invoicing_entity_id,
             custom_taxes,

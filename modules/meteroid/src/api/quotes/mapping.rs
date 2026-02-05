@@ -9,9 +9,10 @@ pub mod quotes {
         DetailedQuote, Quote, QuoteActivity, QuoteComponent, QuoteSignature, QuoteStatus,
         RecipientDetails,
     };
+    use meteroid_grpc::meteroid::api::subscriptions::v1 as sub_proto;
     use meteroid_grpc::meteroid::api::subscriptions::v1::ActivationCondition;
     use meteroid_store::domain;
-    use meteroid_store::domain::SubscriptionPaymentStrategy;
+    use meteroid_store::domain::subscriptions::PaymentMethodsConfig;
 
     fn status_domain_to_server(value: domain::enums::QuoteStatusEnum) -> QuoteStatus {
         match value {
@@ -46,6 +47,39 @@ pub mod quotes {
             name: recipient.name.clone(),
             email: recipient.email.clone(),
         }
+    }
+
+    fn payment_methods_config_to_proto(
+        config: Option<PaymentMethodsConfig>,
+    ) -> Option<sub_proto::PaymentMethodsConfig> {
+        config.map(|c| match c {
+            PaymentMethodsConfig::Online { config } => sub_proto::PaymentMethodsConfig {
+                config: Some(sub_proto::payment_methods_config::Config::Online(
+                    sub_proto::OnlinePayment {
+                        config: config.map(|cfg| sub_proto::OnlineMethodsConfig {
+                            card: cfg
+                                .card
+                                .map(|m| sub_proto::OnlineMethodConfig { enabled: m.enabled }),
+                            direct_debit: cfg
+                                .direct_debit
+                                .map(|m| sub_proto::OnlineMethodConfig { enabled: m.enabled }),
+                        }),
+                    },
+                )),
+            },
+            PaymentMethodsConfig::BankTransfer { account_id: _ } => {
+                sub_proto::PaymentMethodsConfig {
+                    config: Some(sub_proto::payment_methods_config::Config::BankTransfer(
+                        sub_proto::BankTransfer {},
+                    )),
+                }
+            }
+            PaymentMethodsConfig::External => sub_proto::PaymentMethodsConfig {
+                config: Some(sub_proto::payment_methods_config::Config::External(
+                    sub_proto::External {},
+                )),
+            },
+        })
     }
 
     pub(crate) fn quote_component_to_proto(
@@ -146,39 +180,19 @@ pub mod quotes {
                 .collect(),
             purchase_order: quote.purchase_order.clone(),
             // Payment configuration fields
-            payment_strategy: Some(payment_strategy_to_proto(&quote.payment_strategy) as i32),
             auto_advance_invoices: quote.auto_advance_invoices,
             charge_automatically: quote.charge_automatically,
             invoice_memo: quote.invoice_memo.clone(),
             invoice_threshold: quote.invoice_threshold.map(|d| d.to_string()),
             create_subscription_on_acceptance: quote.create_subscription_on_acceptance,
+            payment_methods_config: payment_methods_config_to_proto(
+                quote.payment_methods_config.clone(),
+            ),
             // Conversion tracking
             converted_to_subscription_id: quote
                 .converted_to_subscription_id
                 .map(|id| id.as_proto()),
             converted_at: quote.converted_at.as_proto(),
-        }
-    }
-
-    pub fn payment_strategy_to_proto(
-        strategy: &SubscriptionPaymentStrategy,
-    ) -> meteroid_grpc::meteroid::api::quotes::v1::PaymentStrategy {
-        use meteroid_grpc::meteroid::api::quotes::v1::PaymentStrategy;
-        match strategy {
-            SubscriptionPaymentStrategy::Auto => PaymentStrategy::Auto,
-            SubscriptionPaymentStrategy::Bank => PaymentStrategy::Bank,
-            SubscriptionPaymentStrategy::External => PaymentStrategy::External,
-        }
-    }
-
-    pub fn payment_strategy_from_proto(
-        strategy: meteroid_grpc::meteroid::api::quotes::v1::PaymentStrategy,
-    ) -> domain::enums::SubscriptionPaymentStrategy {
-        use meteroid_grpc::meteroid::api::quotes::v1::PaymentStrategy;
-        match strategy {
-            PaymentStrategy::Auto => SubscriptionPaymentStrategy::Auto,
-            PaymentStrategy::Bank => SubscriptionPaymentStrategy::Bank,
-            PaymentStrategy::External => SubscriptionPaymentStrategy::External,
         }
     }
 
@@ -279,5 +293,30 @@ pub mod quotes {
             }
             domain::enums::SubscriptionActivationCondition::Manual => ActivationCondition::Manual,
         }
+    }
+
+    pub fn payment_methods_config_to_domain(
+        config: Option<sub_proto::PaymentMethodsConfig>,
+    ) -> Option<PaymentMethodsConfig> {
+        use meteroid_store::domain::subscriptions::{OnlineMethodConfig, OnlineMethodsConfig};
+
+        config.map(|proto_config| match proto_config.config {
+            None => PaymentMethodsConfig::Online { config: None },
+            Some(sub_proto::payment_methods_config::Config::Online(online)) => {
+                let config = online.config.map(|cfg| OnlineMethodsConfig {
+                    card: cfg.card.map(|m| OnlineMethodConfig { enabled: m.enabled }),
+                    direct_debit: cfg
+                        .direct_debit
+                        .map(|m| OnlineMethodConfig { enabled: m.enabled }),
+                });
+                PaymentMethodsConfig::Online { config }
+            }
+            Some(sub_proto::payment_methods_config::Config::BankTransfer(_)) => {
+                PaymentMethodsConfig::BankTransfer { account_id: None }
+            }
+            Some(sub_proto::payment_methods_config::Config::External(_)) => {
+                PaymentMethodsConfig::External
+            }
+        })
     }
 }

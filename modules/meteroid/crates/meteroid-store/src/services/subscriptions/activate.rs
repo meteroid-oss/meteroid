@@ -8,9 +8,9 @@ use crate::services::Services;
 use crate::store::PgConn;
 use crate::utils::periods::calculate_advance_period_range;
 use chrono::{Days, Duration, NaiveDate, Utc};
-use common_domain::ids::{CustomerPaymentMethodId, SubscriptionId, TenantId};
+use common_domain::ids::{SubscriptionId, TenantId};
 use diesel_async::scoped_futures::ScopedFutureExt;
-use diesel_models::enums::{CycleActionEnum, PaymentMethodTypeEnum, SubscriptionStatusEnum};
+use diesel_models::enums::{CycleActionEnum, SubscriptionStatusEnum};
 use diesel_models::scheduled_events::ScheduledEventRowNew;
 use diesel_models::subscriptions::SubscriptionRow;
 use error_stack::Report;
@@ -22,14 +22,6 @@ pub struct PaymentActivationParams {
     pub is_paid_trial: bool,
     pub billing_day_anchor: u32,
     pub period: BillingPeriodEnum,
-    /// Optional payment method to set during activation.
-    pub payment_method: Option<PaymentMethodInfo>,
-}
-
-/// Payment method information to attach during activation.
-pub struct PaymentMethodInfo {
-    pub id: CustomerPaymentMethodId,
-    pub method_type: PaymentMethodTypeEnum,
 }
 
 impl Services {
@@ -206,35 +198,20 @@ impl Services {
                 )
             };
 
-        if let Some(pm) = params.payment_method {
-            SubscriptionRow::activate_subscription_with_payment_method(
-                conn,
-                subscription_id,
-                tenant_id,
-                current_period_start,
-                current_period_end,
-                next_cycle_action,
-                Some(0),
-                status,
-                Some(pm.id),
-                Some(pm.method_type),
-            )
-            .await
-            .map_err(Into::<Report<StoreError>>::into)?;
-        } else {
-            SubscriptionRow::activate_subscription(
-                conn,
-                subscription_id,
-                tenant_id,
-                current_period_start,
-                current_period_end,
-                next_cycle_action,
-                Some(0),
-                status,
-            )
-            .await
-            .map_err(Into::<Report<StoreError>>::into)?;
-        }
+        // The customer's payment method is resolved dynamically at billing time via payment_methods_config
+
+        SubscriptionRow::activate_subscription(
+            conn,
+            subscription_id,
+            tenant_id,
+            current_period_start,
+            current_period_end,
+            next_cycle_action,
+            Some(0),
+            status,
+        )
+        .await
+        .map_err(Into::<Report<StoreError>>::into)?;
 
         // For paid trials, schedule the EndTrial event to transition status when trial ends
         if has_trial

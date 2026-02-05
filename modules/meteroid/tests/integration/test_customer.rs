@@ -52,7 +52,6 @@ async fn test_customers_basic() {
                 billing_address: None,
                 shipping_address: None,
                 invoicing_entity_id: None,
-                bank_account_id: None,
                 vat_number: None,
                 custom_taxes: vec![],
                 is_tax_exempt: Some(false),
@@ -78,7 +77,6 @@ async fn test_customers_basic() {
                 billing_address: None,
                 shipping_address: None,
                 invoicing_entity_id: None,
-                bank_account_id: None,
                 vat_number: None,
                 custom_taxes: vec![],
                 is_tax_exempt: Some(false),
@@ -231,7 +229,6 @@ async fn test_customers_basic() {
                 invoicing_entity_id: None,
                 vat_number: None,
                 custom_taxes: None,
-                bank_account_id: None,
                 is_tax_exempt: None,
             }),
         })
@@ -385,10 +382,7 @@ async fn rest_api_test(setup: &MeteroidSetup, clients: &AllClients) {
         .await
         .unwrap();
 
-    let created = scrub_customer_json(
-        &mut created,
-        &["id", "invoicing_entity_id", "bank_account_id"],
-    );
+    let created = scrub_customer_json(&mut created, &["id", "invoicing_entity_id"]);
 
     insta::assert_json_snapshot!("rest_created", &created);
 
@@ -414,10 +408,7 @@ async fn rest_api_test(setup: &MeteroidSetup, clients: &AllClients) {
         .unwrap()
         .to_string();
 
-    let get_by_alias = scrub_customer_json(
-        &mut get_by_alias,
-        &["id", "invoicing_entity_id", "bank_account_id"],
-    );
+    let get_by_alias = scrub_customer_json(&mut get_by_alias, &["id", "invoicing_entity_id"]);
 
     insta::assert_json_snapshot!("rest_get_by_alias", &get_by_alias);
 
@@ -435,7 +426,7 @@ async fn rest_api_test(setup: &MeteroidSetup, clients: &AllClients) {
         .await
         .unwrap();
 
-    let list = scrub_customer_json(&mut list, &["id", "invoicing_entity_id", "bank_account_id"]);
+    let list = scrub_customer_json(&mut list, &["id", "invoicing_entity_id"]);
     insta::assert_json_snapshot!("rest_list", &list);
 
     // UPDATE CUSTOMER
@@ -478,10 +469,7 @@ async fn rest_api_test(setup: &MeteroidSetup, clients: &AllClients) {
         .await
         .unwrap();
 
-    let updated = scrub_customer_json(
-        &mut updated,
-        &["id", "invoicing_entity_id", "bank_account_id"],
-    );
+    let updated = scrub_customer_json(&mut updated, &["id", "invoicing_entity_id"]);
     insta::assert_json_snapshot!("rest_updated", &updated);
 
     // DELETE CUSTOMER

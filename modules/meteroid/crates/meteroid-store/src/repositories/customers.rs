@@ -526,7 +526,6 @@ impl CustomersInterface for Store {
             custom_taxes: serde_json::to_value(&customer.custom_taxes).map_err(|e| {
                 StoreError::SerdeError("Failed to serialize custom_taxes".to_string(), e)
             })?,
-            bank_account_id: customer.bank_account_id,
             vat_number_format_valid,
             is_tax_exempt: customer.is_tax_exempt,
         };

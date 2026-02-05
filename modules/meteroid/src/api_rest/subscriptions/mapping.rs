@@ -3,11 +3,12 @@ use crate::api_rest::subscriptions::model::{
     AppliedCoupon, AppliedCouponDetailed, Coupon, CouponDiscount, CreateSubscriptionAddOn,
     CreateSubscriptionComponents, FixedDiscount, PercentageDiscount, Subscription,
     SubscriptionAddOnCustomization, SubscriptionCreateRequest, SubscriptionDetails,
+    SubscriptionUpdateRequest,
 };
 use crate::errors::RestApiError;
-use common_domain::ids::{CouponId, CustomerId, PlanVersionId};
+use common_domain::ids::{CouponId, CustomerId, PlanVersionId, SubscriptionId};
 use meteroid_store::domain;
-use meteroid_store::domain::{CreateSubscription, SubscriptionNew};
+use meteroid_store::domain::{CreateSubscription, SubscriptionNew, SubscriptionPatch};
 use uuid::Uuid;
 
 pub fn domain_to_rest(s: domain::Subscription) -> Result<Subscription, RestApiError> {
@@ -39,6 +40,7 @@ pub fn domain_to_rest(s: domain::Subscription) -> Result<Subscription, RestApiEr
         purchase_order: s.purchase_order,
         auto_advance_invoices: s.auto_advance_invoices,
         charge_automatically: s.charge_automatically,
+        payment_methods_config: s.payment_methods_config.map(Into::into),
     })
 }
 
@@ -82,6 +84,7 @@ pub fn domain_to_rest_details(
         purchase_order: s.subscription.purchase_order,
         auto_advance_invoices: s.subscription.auto_advance_invoices,
         charge_automatically: s.subscription.charge_automatically,
+        payment_methods_config: s.subscription.payment_methods_config.map(Into::into),
         components,
         add_ons,
         applied_coupons,
@@ -157,8 +160,7 @@ pub fn rest_to_domain_create_request(
             backdate_invoices: false,
             skip_checkout_session: false,
 
-            // todo, allow configuring some/all below via rest
-            payment_strategy: None,
+            payment_methods_config: sub.payment_methods_config.map(Into::into),
             invoice_threshold: None,
             billing_start_date: None,
         },
@@ -221,5 +223,24 @@ impl From<CreateSubscriptionAddOn> for domain::CreateSubscriptionAddOn {
 pub fn map_add_ons(add_ons: Vec<CreateSubscriptionAddOn>) -> domain::CreateSubscriptionAddOns {
     domain::CreateSubscriptionAddOns {
         add_ons: add_ons.into_iter().map(Into::into).collect(),
+    }
+}
+
+pub fn rest_to_domain_update_request(
+    subscription_id: SubscriptionId,
+    req: SubscriptionUpdateRequest,
+) -> SubscriptionPatch {
+    SubscriptionPatch {
+        id: subscription_id,
+        charge_automatically: req.charge_automatically,
+        auto_advance_invoices: req.auto_advance_invoices,
+        net_terms: req.net_terms,
+        invoice_memo: req
+            .invoice_memo
+            .map(|m| if m.is_empty() { None } else { Some(m) }),
+        purchase_order: req
+            .purchase_order
+            .map(|p| if p.is_empty() { None } else { Some(p) }),
+        payment_methods_config: req.payment_methods_config.map(|c| Some(c.into())),
     }
 }

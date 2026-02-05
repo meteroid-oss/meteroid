@@ -40,7 +40,7 @@ import {
   listPlans,
 } from '@/rpc/api/plans/v1/plans-PlansService_connectquery'
 import { ListPlansRequest_SortBy } from '@/rpc/api/plans/v1/plans_pb'
-import { ActivationCondition, PaymentStrategy } from '@/rpc/api/subscriptions/v1/models_pb'
+import { ActivationCondition } from '@/rpc/api/subscriptions/v1/models_pb'
 
 const activationConditionToString = (
   condition: ActivationCondition
@@ -72,31 +72,6 @@ const activationConditionFromString = (
   }
 }
 
-const paymentStrategyToString = (strategy: PaymentStrategy): 'AUTO' | 'BANK' | 'EXTERNAL' => {
-  switch (strategy) {
-    case PaymentStrategy.AUTO:
-      return 'AUTO'
-    case PaymentStrategy.BANK:
-      return 'BANK'
-    case PaymentStrategy.EXTERNAL:
-      return 'EXTERNAL'
-    default:
-      return 'AUTO'
-  }
-}
-
-const paymentStrategyFromString = (strategy: 'AUTO' | 'BANK' | 'EXTERNAL'): PaymentStrategy => {
-  switch (strategy) {
-    case 'AUTO':
-      return PaymentStrategy.AUTO
-    case 'BANK':
-      return PaymentStrategy.BANK
-    case 'EXTERNAL':
-      return PaymentStrategy.EXTERNAL
-    default:
-      return PaymentStrategy.AUTO
-  }
-}
 
 export const StepSettings = () => {
   const { previousStep, nextStep } = useWizard()
@@ -156,10 +131,7 @@ export const StepSettings = () => {
         state.activationCondition !== undefined
           ? activationConditionToString(state.activationCondition)
           : 'ON_START',
-      paymentStrategy:
-        state.paymentStrategy !== undefined
-          ? paymentStrategyToString(state.paymentStrategy)
-          : 'AUTO',
+      paymentMethodsType: state.paymentMethodsType,
       netTerms: state.netTerms,
       invoiceMemo: state.invoiceMemo,
       invoiceThreshold: state.invoiceThreshold,
@@ -169,10 +141,10 @@ export const StepSettings = () => {
     },
   })
 
-  // Watch activation condition, payment strategy, and charge automatically for cross-validation
-  const [activationCondition, paymentStrategy, chargeAutomatically] = methods.watch([
+  // Watch activation condition, payment methods type, and charge automatically for cross-validation
+  const [activationCondition, paymentMethodsType, chargeAutomatically] = methods.watch([
     'activationCondition',
-    'paymentStrategy',
+    'paymentMethodsType',
     'chargeAutomatically',
   ])
 
@@ -191,19 +163,22 @@ export const StepSettings = () => {
     }
   }, [hasOnlinePaymentProvider, isLoadingProviders, methods])
 
-  // Auto-set payment strategy to Auto when OnCheckout is selected
+  // Auto-set payment methods type to Online when OnCheckout is selected
   useEffect(() => {
-    if (activationCondition === 'ON_CHECKOUT' && paymentStrategy !== 'AUTO') {
-      methods.setValue('paymentStrategy', 'AUTO')
+    if (activationCondition === 'ON_CHECKOUT' && paymentMethodsType !== 'online') {
+      methods.setValue('paymentMethodsType', 'online')
     }
-  }, [activationCondition, paymentStrategy, methods])
+  }, [activationCondition, paymentMethodsType, methods])
 
-  // Auto-disable chargeAutomatically when Bank or External payment strategy is selected
+  // Auto-disable chargeAutomatically when Bank or External payment methods selected
   useEffect(() => {
-    if ((paymentStrategy === 'BANK' || paymentStrategy === 'EXTERNAL') && chargeAutomatically) {
+    if (
+      (paymentMethodsType === 'bankTransfer' || paymentMethodsType === 'external') &&
+      chargeAutomatically
+    ) {
       methods.setValue('chargeAutomatically', false)
     }
-  }, [paymentStrategy, chargeAutomatically, methods])
+  }, [paymentMethodsType, chargeAutomatically, methods])
 
   const onSubmit = async (data: z.infer<typeof schema>) => {
     setState({
@@ -213,7 +188,7 @@ export const StepSettings = () => {
       billingDay: data.billingDay,
       trialDuration: data.trialDuration,
       activationCondition: activationConditionFromString(data.activationCondition),
-      paymentStrategy: paymentStrategyFromString(data.paymentStrategy),
+      paymentMethodsType: data.paymentMethodsType,
       netTerms: data.netTerms,
       invoiceMemo: data.invoiceMemo,
       invoiceThreshold: data.invoiceThreshold,
@@ -409,9 +384,9 @@ export const StepSettings = () => {
                 </div>
                 <div className="space-y-2">
                   <SelectFormField
-                    name="paymentStrategy"
-                    label="Payment methods strategy"
-                    placeholder="Select payment strategy"
+                    name="paymentMethodsType"
+                    label="Payment methods"
+                    placeholder="Select payment method type"
                     control={methods.control}
                     labelTooltip={
                       <TooltipProvider delayDuration={100}>
@@ -420,20 +395,23 @@ export const StepSettings = () => {
                             <InfoIcon className="h-4 w-4 text-muted-foreground cursor-help" />
                           </TooltipTrigger>
                           <TooltipContent className="max-w-96">
-                            Default strategy will try configured online payment providers first,
-                            then fall back to offline methods. <br />
-                            Bank Transfer and External options restrict payment methods accordingly.
+                            Online: Use card and/or direct debit payments via your payment
+                            providers.
+                            <br />
+                            Bank Transfer: Invoice customers with bank transfer instructions.
+                            <br />
+                            External: Manage payment collection outside the system.
                           </TooltipContent>
                         </Tooltip>
                       </TooltipProvider>
                     }
                   >
-                    <SelectItem value="AUTO">Default</SelectItem>
-                    <SelectItem value="BANK" disabled={activationCondition === 'ON_CHECKOUT'}>
+                    <SelectItem value="online">Online (card / direct debit)</SelectItem>
+                    <SelectItem value="bankTransfer" disabled={activationCondition === 'ON_CHECKOUT'}>
                       Bank transfer
                       {activationCondition === 'ON_CHECKOUT' && ' (unavailable with Checkout)'}
                     </SelectItem>
-                    <SelectItem value="EXTERNAL" disabled={activationCondition === 'ON_CHECKOUT'}>
+                    <SelectItem value="external" disabled={activationCondition === 'ON_CHECKOUT'}>
                       External
                       {activationCondition === 'ON_CHECKOUT' && ' (unavailable with Checkout)'}
                     </SelectItem>
@@ -486,8 +464,9 @@ export const StepSettings = () => {
                             <p className="max-w-xs">
                               {!hasOnlinePaymentProvider
                                 ? 'Requires a card or direct debit payment provider to be configured on the invoicing entity.'
-                                : paymentStrategy === 'BANK' || paymentStrategy === 'EXTERNAL'
-                                  ? 'Not available with Bank or External payment strategies. Switch to Default payment strategy to enable.'
+                                : paymentMethodsType === 'bankTransfer' ||
+                                    paymentMethodsType === 'external'
+                                  ? 'Not available with Bank Transfer or External payment methods. Switch to Online to enable.'
                                   : 'Automatically try charging the customer when an invoice is finalized, if a payment method is configured.'}
                             </p>
                           </TooltipContent>
@@ -505,20 +484,21 @@ export const StepSettings = () => {
                             onCheckedChange={field.onChange}
                             disabled={
                               (!isLoadingProviders && !hasOnlinePaymentProvider) ||
-                              paymentStrategy === 'BANK' ||
-                              paymentStrategy === 'EXTERNAL'
+                              paymentMethodsType === 'bankTransfer' ||
+                              paymentMethodsType === 'external'
                             }
                           />
                           <Label
                             htmlFor="chargeAutomatically"
-                            className={`font-normal text-sm ${(!isLoadingProviders && !hasOnlinePaymentProvider) || paymentStrategy === 'BANK' || paymentStrategy === 'EXTERNAL' ? 'text-muted-foreground' : ''}`}
+                            className={`font-normal text-sm ${(!isLoadingProviders && !hasOnlinePaymentProvider) || paymentMethodsType === 'bankTransfer' || paymentMethodsType === 'external' ? 'text-muted-foreground' : ''}`}
                           >
                             {field.value ? 'Enabled' : 'Disabled'}
                             {!isLoadingProviders && !hasOnlinePaymentProvider
                               ? ' (requires a payment provider)'
-                              : (paymentStrategy === 'BANK' || paymentStrategy === 'EXTERNAL') &&
+                              : (paymentMethodsType === 'bankTransfer' ||
+                                    paymentMethodsType === 'external') &&
                                   field.value
-                                ? ' (disabled by payment strategy)'
+                                ? ' (disabled by payment method)'
                                 : ''}
                           </Label>
                         </div>
@@ -584,7 +564,7 @@ const schema = z
     billingDay: z.enum(['FIRST', 'SUB_START_DAY']).default('SUB_START_DAY'),
     trialDuration: z.number().min(0).optional(),
     activationCondition: z.enum(['ON_START', 'ON_CHECKOUT', 'MANUAL']),
-    paymentStrategy: z.enum(['AUTO', 'BANK', 'EXTERNAL']).default('AUTO'),
+    paymentMethodsType: z.enum(['online', 'bankTransfer', 'external']).default('online'),
     netTerms: z.number().min(0),
     invoiceMemo: z.string().optional(),
     invoiceThreshold: z.string().optional(),
@@ -598,30 +578,30 @@ const schema = z
   })
   .refine(
     data => {
-      // OnCheckout requires Auto payment strategy
-      if (data.activationCondition === 'ON_CHECKOUT' && data.paymentStrategy !== 'AUTO') {
+      // OnCheckout requires online payment methods
+      if (data.activationCondition === 'ON_CHECKOUT' && data.paymentMethodsType !== 'online') {
         return false
       }
       return true
     },
     {
-      message: 'OnCheckout activation requires Auto payment strategy',
+      message: 'OnCheckout activation requires online payment methods',
       path: ['activationCondition'],
     }
   )
   .refine(
     data => {
-      // ChargeAutomatically doesn't make sense with Bank or External strategies
+      // ChargeAutomatically doesn't make sense with Bank or External payment methods
       if (
         data.chargeAutomatically &&
-        (data.paymentStrategy === 'BANK' || data.paymentStrategy === 'EXTERNAL')
+        (data.paymentMethodsType === 'bankTransfer' || data.paymentMethodsType === 'external')
       ) {
         return false
       }
       return true
     },
     {
-      message: 'Automatic charging requires Auto payment strategy',
+      message: 'Automatic charging requires online payment methods',
       path: ['chargeAutomatically'],
     }
   )

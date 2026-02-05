@@ -2,7 +2,9 @@
 import { atomWithReset } from 'jotai/utils'
 
 import { BillingPeriod } from '@/rpc/api/shared/v1/shared_pb'
-import { ActivationCondition, PaymentStrategy } from '@/rpc/api/subscriptions/v1/models_pb'
+import { ActivationCondition } from '@/rpc/api/subscriptions/v1/models_pb'
+
+export type PaymentMethodsConfigType = 'online' | 'bankTransfer' | 'external'
 
 // Subscription-specific fee types (not plan fee types)
 export interface SubscriptionFeeData {
@@ -76,7 +78,7 @@ export interface CreateSubscriptionState {
 
   // Advanced settings
   activationCondition: ActivationCondition
-  paymentStrategy?: PaymentStrategy
+  paymentMethodsType: PaymentMethodsConfigType
   netTerms: number
   invoiceMemo?: string
   invoiceThreshold?: string
@@ -111,7 +113,7 @@ export const createSubscriptionAtom = atomWithReset<CreateSubscriptionState>({
 
   // Advanced settings
   activationCondition: ActivationCondition.ON_START,
-  paymentStrategy: PaymentStrategy.AUTO,
+  paymentMethodsType: 'online',
   netTerms: 30,
   invoiceMemo: undefined,
   invoiceThreshold: undefined,

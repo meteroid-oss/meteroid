@@ -201,10 +201,7 @@ async fn test_oncheckout_free_trial_ends_without_checkout_becomes_expired(
     env.process_cycles().await;
 
     let sub = env.get_subscription(sub_id).await;
-    sub.assert()
-        .is_trial_expired()
-        .has_pending_checkout(true)
-        .has_payment_method(false);
+    sub.assert().is_trial_expired().has_pending_checkout(true);
 
     let invoices = env.get_invoices(sub_id).await;
     invoices.assert().assert_empty();
@@ -232,10 +229,7 @@ async fn test_oncheckout_free_trial_auto_charge_no_payment_method_expires(
 
     // Verify initial state: TrialActive with pending_checkout
     let sub = env.get_subscription(sub_id).await;
-    sub.assert()
-        .is_trial_active()
-        .has_pending_checkout(true)
-        .has_payment_method(false);
+    sub.assert().is_trial_active().has_pending_checkout(true);
 
     let invoices = env.get_invoices(sub_id).await;
     invoices.assert().assert_empty();
@@ -246,10 +240,7 @@ async fn test_oncheckout_free_trial_auto_charge_no_payment_method_expires(
     // Should be TrialExpired because even with auto-charge enabled,
     // there's no payment method on file
     let sub = env.get_subscription(sub_id).await;
-    sub.assert()
-        .is_trial_expired()
-        .has_pending_checkout(true)
-        .has_payment_method(false);
+    sub.assert().is_trial_expired().has_pending_checkout(true);
 
     // No invoices created (trial expired, not activated)
     let invoices = env.get_invoices(sub_id).await;
@@ -530,7 +521,7 @@ async fn test_paid_plan_free_trial_onstart_no_payment_method_becomes_active(
 
     // Verify initial state
     let sub = env.get_subscription(sub_id).await;
-    sub.assert().is_trial_active().has_payment_method(false);
+    sub.assert().is_trial_active();
 
     // Process cycle transitions to end the trial
     env.process_cycles().await;

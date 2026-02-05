@@ -17,6 +17,7 @@ import {
   ChevronLeftIcon,
   Clock,
   ExternalLink,
+  Pencil,
   RefreshCw,
 } from 'lucide-react'
 import { ReactNode, useCallback, useState } from 'react'
@@ -29,6 +30,7 @@ import {
   SyncSubscriptionModal,
 } from '@/features/settings/integrations/SyncSubscriptionModal'
 import { CancelSubscriptionModal } from '@/features/subscriptions/CancelSubscriptionModal'
+import { EditSubscriptionModal } from '@/features/subscriptions/EditSubscriptionModal'
 import { SubscriptionInvoicesCard } from '@/features/subscriptions/InvoicesCard'
 import { SlotTransactionsModal } from '@/features/subscriptions/SlotTransactionsModal'
 import { UpdateSlotModal } from '@/features/subscriptions/UpdateSlotModal'
@@ -45,6 +47,7 @@ import {
 } from '@/rpc/api/plans/v1/plans-PlansService_connectquery'
 import { ListPlansRequest_SortBy } from '@/rpc/api/plans/v1/plans_pb'
 import {
+  PaymentMethodsConfig,
   SubscriptionComponent,
   SubscriptionFee,
   SubscriptionFeeBillingPeriod,
@@ -113,6 +116,21 @@ const StatusBadge = ({ status }: { status: SubscriptionStatus }) => {
       {config.render}
     </span>
   )
+}
+
+// Format payment methods config for display
+const formatPaymentMethodsConfig = (config?: PaymentMethodsConfig): string => {
+  if (!config) return 'Online'
+  switch (config.config.case) {
+    case 'online':
+      return 'Online'
+    case 'bankTransfer':
+      return 'Bank Transfer'
+    case 'external':
+      return 'External'
+    default:
+      return 'Online'
+  }
 }
 
 // Section Title Component
@@ -199,6 +217,7 @@ export const Subscription = () => {
 
   const [showSyncHubspotModal, setShowSyncHubspotModal] = useState(false)
   const [showCancelModal, setShowCancelModal] = useState(false)
+  const [showEditModal, setShowEditModal] = useState(false)
   const [invoicesRefetch, setInvoicesRefetch] = useState<(() => void) | null>(null)
   const [invoicesIsFetching, setInvoicesIsFetching] = useState(false)
   const [slotUpdateData, setSlotUpdateData] = useState<SlotUpdateData | null>(null)
@@ -327,6 +346,13 @@ export const Subscription = () => {
           onSuccess={() => subscriptionQuery.refetch()}
         />
       )}
+      {showEditModal && data && (
+        <EditSubscriptionModal
+          subscription={data}
+          onClose={() => setShowEditModal(false)}
+          onSuccess={() => subscriptionQuery.refetch()}
+        />
+      )}
       {/* Main content area */}
       <div className="flex-1 p-6 pr-0">
         <div className="flex items-center mb-6 w-full justify-between">
@@ -376,6 +402,10 @@ export const Subscription = () => {
                   onClick={() => setShowSyncHubspotModal(true)}
                 >
                   Sync To Hubspot
+                </DropdownMenuItem>
+                <DropdownMenuItem onClick={() => setShowEditModal(true)}>
+                  <Pencil size="16" className="mr-2" />
+                  Edit Billing Settings
                 </DropdownMenuItem>
                 <DropdownMenuItem
                   disabled={!canCancelSubscription}
@@ -695,10 +725,17 @@ export const Subscription = () => {
           <DetailRow label="Billing Day" value={data.billingDayAnchor} />
           <DetailRow label="Net Terms" value={`${data.netTerms} days`} />
           <DetailRow
+            label="Payment Method"
+            value={formatPaymentMethodsConfig(data.paymentMethodsConfig)}
+          />
+          <DetailRow
             label="Auto-advance invoices"
             value={data.autoAdvanceInvoices ? 'Yes' : 'No'}
           />
-          <DetailRow label="Charge automatically" value={data.chargeAutomatically ? 'Yes' : 'No'} />
+          <DetailRow
+            label="Charge automatically"
+            value={data.chargeAutomatically ? 'Yes' : 'No'}
+          />
           {data.invoiceMemo && <DetailRow label="Invoice Memo" value={data.invoiceMemo} />}
           {data.invoiceThreshold && (
             <DetailRow label="Invoice Threshold" value={data.invoiceThreshold} />

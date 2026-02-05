@@ -1,5 +1,6 @@
 use crate::StoreResult;
 use crate::domain::enums::{BillingPeriodEnum, SubscriptionFeeBillingPeriod};
+use crate::domain::subscriptions::PaymentMethodsConfig;
 use crate::domain::{
     CreateSubscriptionAddOns, CreateSubscriptionComponents, CreatedSubscription, PriceComponent,
     Subscription, SubscriptionAddOnCustomization, SubscriptionAddOnNewInternal,
@@ -8,6 +9,7 @@ use crate::domain::{
 use crate::errors::StoreError;
 use crate::store::{PgConn, Store};
 use chrono::NaiveDate;
+use common_domain::ids::ConnectorId;
 use common_utils::decimals::ToSubunit;
 use diesel_models::errors::DatabaseError;
 use error_stack::Report;
@@ -30,6 +32,37 @@ use crate::services::Services;
 use crate::utils::periods::calculate_advance_period_range;
 use common_domain::ids::{AppliedCouponId, BaseId, CouponId, PlanVersionId, TenantId};
 use diesel_models::plans::PlanRow;
+
+/// Validates charge_automatically: requires Online config + at least one online provider.
+pub fn validate_charge_automatically_with_provider_ids(
+    charge_automatically: bool,
+    payment_methods_config: Option<&PaymentMethodsConfig>,
+    card_provider_id: Option<ConnectorId>,
+    direct_debit_provider_id: Option<ConnectorId>,
+) -> StoreResult<()> {
+    if !charge_automatically {
+        return Ok(());
+    }
+
+    let is_online = match payment_methods_config {
+        None | Some(PaymentMethodsConfig::Online { .. }) => true,
+        Some(PaymentMethodsConfig::BankTransfer { .. } | PaymentMethodsConfig::External) => false,
+    };
+
+    if !is_online {
+        return Err(Report::new(StoreError::InvalidArgument(
+            "charge_automatically requires payment_methods_config to be Online".to_string(),
+        )));
+    }
+
+    if card_provider_id.is_none() && direct_debit_provider_id.is_none() {
+        return Err(Report::new(StoreError::InvalidArgument(
+            "charge_automatically requires the invoicing entity to have a payment provider configured (card or direct debit)".to_string(),
+        )));
+    }
+
+    Ok(())
+}
 
 pub fn calculate_mrr(
     fee: &SubscriptionFee,

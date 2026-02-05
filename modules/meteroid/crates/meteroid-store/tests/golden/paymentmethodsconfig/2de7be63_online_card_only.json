@@ -1,0 +1,11 @@
+{
+  "type": "online",
+  "config": {
+    "card": {
+      "enabled": true
+    },
+    "direct_debit": {
+      "enabled": false
+    }
+  }
+}

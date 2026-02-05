@@ -63,15 +63,6 @@ impl QuotesService for QuoteServiceComponents {
             .and_then(|s| chrono::NaiveDate::from_proto_opt(Some(s)).ok())
             .flatten();
 
-        // Parse payment strategy (defaults to Auto if not provided)
-        let payment_strategy = quote
-            .payment_strategy
-            .and_then(|ps| {
-                meteroid_grpc::meteroid::api::quotes::v1::PaymentStrategy::try_from(ps).ok()
-            })
-            .map(mapping::quotes::payment_strategy_from_proto)
-            .unwrap_or(meteroid_store::domain::enums::SubscriptionPaymentStrategy::Auto);
-
         let quote_id = QuoteId::new();
 
         let quote_new = meteroid_store::domain::quotes::QuoteNew {
@@ -119,7 +110,6 @@ impl QuotesService for QuoteServiceComponents {
             sharing_key: Some(uuid::Uuid::new_v4().to_string()),
             recipients,
             // Payment configuration fields
-            payment_strategy,
             auto_advance_invoices: quote.auto_advance_invoices.unwrap_or(true),
             charge_automatically: quote.charge_automatically.unwrap_or(true),
             invoice_memo: quote.invoice_memo,
@@ -129,6 +119,9 @@ impl QuotesService for QuoteServiceComponents {
             create_subscription_on_acceptance: quote
                 .create_subscription_on_acceptance
                 .unwrap_or(false),
+            payment_methods_config: mapping::quotes::payment_methods_config_to_domain(
+                quote.payment_methods_config,
+            ),
         };
 
         // Process quote components (fetch plan price components first)

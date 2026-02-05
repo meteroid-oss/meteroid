@@ -126,13 +126,21 @@ impl PortalCustomerService for PortalCustomerServiceComponents {
             })
             .collect();
 
+        // Resolve payment methods based on customer's invoicing entity (None defaults to Online mode)
+        let resolved = self
+            .services
+            .resolve_subscription_payment_methods(tenant, None, &customer)
+            .await
+            .map_err(Into::<PortalCustomerApiError>::into)?;
+
         let customer_methods = self
             .store
             .list_payment_methods_by_customer(&tenant, &customer.id)
             .await
             .map_err(Into::<PortalCustomerApiError>::into)?;
 
-        let payment_methods = customer_methods
+        let payment_methods = resolved
+            .filter_payment_methods(customer_methods)
             .into_iter()
             .map(crate::api::customers::mapping::customer_payment_method::domain_to_server)
             .collect();
@@ -141,12 +149,8 @@ impl PortalCustomerService for PortalCustomerServiceComponents {
             .map(|v| v.0)
             .map_err(Into::<PortalCustomerApiError>::into)?;
 
-        // Get or create payment connections for this customer
-        let (card_connection_id, direct_debit_connection_id) = self
-            .services
-            .get_or_create_customer_connections(tenant, customer.id, customer.invoicing_entity_id)
-            .await
-            .map_err(Into::<PortalCustomerApiError>::into)?;
+        let card_connection_id = resolved.card_connection_id;
+        let direct_debit_connection_id = resolved.direct_debit_connection_id;
 
         let invoicing_entity = self
             .store

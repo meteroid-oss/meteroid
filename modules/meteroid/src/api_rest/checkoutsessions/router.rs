@@ -93,6 +93,7 @@ pub async fn create_checkout_session(
         invoice_memo: request.invoice_memo,
         invoice_threshold: request.invoice_threshold,
         purchase_order: request.purchase_order,
+        payment_methods_config: request.payment_methods_config.map(Into::into),
         components,
         add_ons,
         coupon_code: request.coupon_code,

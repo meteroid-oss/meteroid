@@ -8,10 +8,9 @@ use o2o::o2o;
 use rust_decimal::Decimal;
 use uuid::Uuid;
 
-use crate::domain::enums::SubscriptionPaymentStrategy;
 use crate::domain::subscription_add_ons::CreateSubscriptionAddOns;
 use crate::domain::subscription_components::CreateSubscriptionComponents;
-use crate::domain::subscriptions::{CreateSubscription, SubscriptionNew};
+use crate::domain::subscriptions::{CreateSubscription, PaymentMethodsConfig, SubscriptionNew};
 use crate::domain::{
     CreateSubscriptionCoupon, CreateSubscriptionCoupons, SubscriptionActivationCondition,
 };
@@ -55,6 +54,9 @@ pub struct CheckoutSession {
     pub invoice_memo: Option<String>,
     pub invoice_threshold: Option<Decimal>,
     pub purchase_order: Option<String>,
+
+    // Payment configuration
+    pub payment_methods_config: Option<PaymentMethodsConfig>,
 
     // Complex parameters
     pub components: Option<CreateSubscriptionComponents>,
@@ -107,7 +109,7 @@ impl CheckoutSession {
             activation_condition: SubscriptionActivationCondition::OnCheckout,
             trial_duration: self.trial_duration_days.map(|d| d as u32),
             billing_day_anchor: self.billing_day_anchor.map(|a| a as u16),
-            payment_strategy: Some(SubscriptionPaymentStrategy::Auto),
+            payment_methods_config: self.payment_methods_config.clone(),
             auto_advance_invoices: self.auto_advance_invoices,
             charge_automatically: self.charge_automatically,
             purchase_order: self.purchase_order.clone(),
@@ -165,6 +167,19 @@ impl From<CheckoutSessionRow> for CheckoutSession {
             }).ok()
         });
 
+        let payment_methods_config: Option<PaymentMethodsConfig> =
+            row.payment_methods_config.and_then(|v| {
+                serde_json::from_value(v.clone())
+                    .map_err(|e| {
+                        log::error!(
+                        "Failed to deserialize payment_methods_config for checkout session {}: {}",
+                        session_id, e
+                    );
+                        e
+                    })
+                    .ok()
+            });
+
         Self {
             id: row.id,
             tenant_id: row.tenant_id,
@@ -181,6 +196,7 @@ impl From<CheckoutSessionRow> for CheckoutSession {
             invoice_memo: row.invoice_memo,
             invoice_threshold: row.invoice_threshold,
             purchase_order: row.purchase_order,
+            payment_methods_config,
             components,
             add_ons,
             coupon_code: row.coupon_code,
@@ -217,6 +233,9 @@ pub struct CreateCheckoutSession {
     pub invoice_threshold: Option<Decimal>,
     pub purchase_order: Option<String>,
 
+    // Payment configuration
+    pub payment_methods_config: Option<PaymentMethodsConfig>,
+
     // Complex parameters
     pub components: Option<CreateSubscriptionComponents>,
     pub add_ons: Option<CreateSubscriptionAddOns>,
@@ -233,15 +252,30 @@ pub struct CreateCheckoutSession {
 }
 
 impl CreateCheckoutSession {
-    pub fn into_row(self) -> CheckoutSessionRowNew {
+    pub fn try_into_row(self) -> Result<CheckoutSessionRowNew, crate::errors::StoreError> {
         let expires_at = self
             .expires_in_hours
             .map(|h| Utc::now() + Duration::hours(h as i64));
 
-        let components = self.components.and_then(|c| serde_json::to_value(c).ok());
-        let add_ons = self.add_ons.and_then(|a| serde_json::to_value(a).ok());
+        let components = self
+            .components
+            .map(serde_json::to_value)
+            .transpose()
+            .map_err(|e| crate::errors::StoreError::SerdeError("components".to_string(), e))?;
+        let add_ons = self
+            .add_ons
+            .map(serde_json::to_value)
+            .transpose()
+            .map_err(|e| crate::errors::StoreError::SerdeError("add_ons".to_string(), e))?;
+        let payment_methods_config = self
+            .payment_methods_config
+            .map(serde_json::to_value)
+            .transpose()
+            .map_err(|e| {
+                crate::errors::StoreError::SerdeError("payment_methods_config".to_string(), e)
+            })?;
 
-        CheckoutSessionRowNew {
+        Ok(CheckoutSessionRowNew {
             id: CheckoutSessionId::new(),
             tenant_id: self.tenant_id,
             customer_id: self.customer_id,
@@ -257,6 +291,7 @@ impl CreateCheckoutSession {
             invoice_memo: self.invoice_memo,
             invoice_threshold: self.invoice_threshold,
             purchase_order: self.purchase_order,
+            payment_methods_config,
             components,
             add_ons,
             coupon_code: self.coupon_code,
@@ -265,7 +300,7 @@ impl CreateCheckoutSession {
             metadata: self.metadata,
             checkout_type: self.checkout_type.into(),
             subscription_id: self.subscription_id,
-        }
+        })
     }
 }
 

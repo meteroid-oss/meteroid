@@ -1,4 +1,6 @@
 use chrono::{NaiveDate, NaiveDateTime};
+use common_domain::ids::BankAccountId;
+use serde::{Deserialize, Serialize};
 
 use crate::domain::connectors::ConnectionMeta;
 use crate::domain::enums::{BillingPeriodEnum, SubscriptionActivationCondition};
@@ -9,20 +11,119 @@ use crate::domain::subscription_components::SubscriptionComponentNewInternal;
 use crate::domain::{
     AppliedCouponDetailed, BillableMetric, CreateSubscriptionComponents, CreateSubscriptionCoupons,
     Customer, InvoicingEntity, PlanForSubscription, Schedule, SubscriptionComponent,
-    SubscriptionPaymentStrategy, SubscriptionStatusEnum,
+    SubscriptionStatusEnum,
 };
-use crate::errors::StoreErrorReport;
+use crate::errors::{StoreError, StoreErrorReport};
 use crate::services::PaymentSetupResult;
 use common_domain::ids::CouponId;
 use common_domain::ids::{
-    BankAccountId, CustomerConnectionId, CustomerId, InvoicingEntityId, PlanId, PlanVersionId,
-    QuoteId, SubscriptionId, TenantId,
+    CustomerId, InvoicingEntityId, PlanId, PlanVersionId, QuoteId, SubscriptionId, TenantId,
 };
 use diesel_models::enums::CycleActionEnum;
 use diesel_models::subscriptions::SubscriptionRowNew;
 use diesel_models::subscriptions::{SubscriptionForDisplayRow, SubscriptionRow};
 use o2o::o2o;
 use uuid::Uuid;
+
+/// Three mutually exclusive payment strategies:
+/// - `Online`: Card and/or direct debit
+/// - `BankTransfer`: Bank transfer only
+/// - `External`: No system payment collection
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+#[serde(tag = "type", rename_all = "snake_case")]
+pub enum PaymentMethodsConfig {
+    /// Card and/or direct debit.
+    Online {
+        /// If None, inherits all online providers from invoicing entity.
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        config: Option<OnlineMethodsConfig>,
+    },
+
+    BankTransfer {
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        account_id: Option<BankAccountId>,
+    },
+
+    External,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq, Default)]
+pub struct OnlineMethodsConfig {
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub card: Option<OnlineMethodConfig>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub direct_debit: Option<OnlineMethodConfig>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+pub struct OnlineMethodConfig {
+    pub enabled: bool,
+}
+
+impl PaymentMethodsConfig {
+    pub fn online() -> Self {
+        Self::Online { config: None }
+    }
+
+    pub fn online_specific(card: bool, direct_debit: bool) -> Self {
+        Self::Online {
+            config: Some(OnlineMethodsConfig {
+                card: Some(OnlineMethodConfig { enabled: card }),
+                direct_debit: Some(OnlineMethodConfig {
+                    enabled: direct_debit,
+                }),
+            }),
+        }
+    }
+
+    pub fn bank_transfer() -> Self {
+        Self::BankTransfer { account_id: None }
+    }
+
+    pub fn external() -> Self {
+        Self::External
+    }
+
+    pub fn is_online(&self) -> bool {
+        matches!(self, Self::Online { .. })
+    }
+
+    pub fn is_bank_transfer(&self) -> bool {
+        matches!(self, Self::BankTransfer { .. })
+    }
+
+    pub fn is_external(&self) -> bool {
+        matches!(self, Self::External)
+    }
+
+    /// For Online with no config (inherit), defaults to true. For non-Online, returns false.
+    pub fn card_enabled(&self) -> bool {
+        match self {
+            Self::Online { config: None } => true,
+            Self::Online { config: Some(c) } => c.card.as_ref().map(|m| m.enabled).unwrap_or(true),
+            _ => false,
+        }
+    }
+
+    /// For Online with no config (inherit), defaults to true. For non-Online, returns false.
+    pub fn direct_debit_enabled(&self) -> bool {
+        match self {
+            Self::Online { config: None } => true,
+            Self::Online { config: Some(c) } => {
+                c.direct_debit.as_ref().map(|m| m.enabled).unwrap_or(true)
+            }
+            _ => false,
+        }
+    }
+
+    pub fn bank_transfer_enabled(&self) -> bool {
+        matches!(self, Self::BankTransfer { .. })
+    }
+
+    pub fn has_online_payment(&self) -> bool {
+        self.is_online() && (self.card_enabled() || self.direct_debit_enabled())
+    }
+}
 
 #[derive(Debug, Clone, o2o)]
 #[from_owned(SubscriptionRow)]
@@ -67,9 +168,6 @@ pub struct Subscription {
     pub start_date: NaiveDate,
     pub end_date: Option<NaiveDate>,
     pub billing_start_date: Option<NaiveDate>,
-    pub card_connection_id: Option<CustomerConnectionId>,
-    pub direct_debit_connection_id: Option<CustomerConnectionId>,
-    pub bank_account_id: Option<BankAccountId>,
     pub plan_id: PlanId,
     pub plan_name: String,
     pub plan_description: Option<String>,
@@ -101,6 +199,7 @@ pub struct Subscription {
     pub next_retry: Option<NaiveDateTime>,
     // Quote to subscription linking
     pub quote_id: Option<QuoteId>,
+    pub payment_methods_config: Option<PaymentMethodsConfig>,
 }
 
 pub enum CyclePosition {
@@ -129,9 +228,6 @@ impl TryFrom<SubscriptionForDisplayRow> for Subscription {
             plan_name: val.plan_name,
             plan_description: val.plan_description,
             plan_version_id: val.subscription.plan_version_id,
-            card_connection_id: val.subscription.card_connection_id,
-            direct_debit_connection_id: val.subscription.direct_debit_connection_id,
-            bank_account_id: val.subscription.bank_account_id,
             version: val.version as u32,
             created_at: val.subscription.created_at,
             created_by: val.subscription.created_by,
@@ -159,6 +255,17 @@ impl TryFrom<SubscriptionForDisplayRow> for Subscription {
             last_error: val.subscription.last_error,
             next_retry: val.subscription.next_retry,
             quote_id: val.subscription.quote_id,
+            payment_methods_config: val
+                .subscription
+                .payment_methods_config
+                .map(serde_json::from_value)
+                .transpose()
+                .map_err(|e| {
+                    crate::errors::StoreError::SerdeError(
+                        format!("Failed to parse payment_methods_config: {}", e),
+                        e,
+                    )
+                })?,
         })
     }
 }
@@ -190,10 +297,7 @@ pub struct SubscriptionNew {
     // if None, defaults to billing_start_date.day
     pub billing_day_anchor: Option<u16>,
 
-    // API only. describes how the subscription should be billed.
-    // Auto is default : uses the existing default method for customer, or attempts a checkout if invoicing entity's PP, or link to bank, or set as external payment
-    // ==> try to simplify TODO
-    pub payment_strategy: Option<SubscriptionPaymentStrategy>,
+    pub payment_methods_config: Option<PaymentMethodsConfig>,
 
     pub auto_advance_invoices: bool,
     pub charge_automatically: bool,
@@ -226,7 +330,7 @@ pub struct SubscriptionNewEnriched<'a> {
 }
 
 impl SubscriptionNewEnriched<'_> {
-    pub fn map_to_row(&self) -> SubscriptionRowNew {
+    pub fn map_to_row(&self) -> Result<SubscriptionRowNew, StoreError> {
         let sub = &self.subscription;
 
         // pending_checkout controls billing logic (is_completed check) - always true for OnCheckout
@@ -236,7 +340,16 @@ impl SubscriptionNewEnriched<'_> {
             _ => false,
         };
 
-        SubscriptionRowNew {
+        let payment_methods_config = sub
+            .payment_methods_config
+            .as_ref()
+            .map(serde_json::to_value)
+            .transpose()
+            .map_err(|e| {
+                StoreError::SerdeError("Failed to serialize payment_methods_config".to_string(), e)
+            })?;
+
+        Ok(SubscriptionRowNew {
             id: self.subscription_id,
             trial_duration: self.effective_trial_duration.map(|x| x as i32),
             customer_id: sub.customer_id,
@@ -247,9 +360,6 @@ impl SubscriptionNewEnriched<'_> {
             end_date: sub.end_date,
             plan_version_id: sub.plan_version_id,
             created_at: chrono::Utc::now().naive_utc(),
-            card_connection_id: self.payment_setup_result.card_connection_id,
-            direct_debit_connection_id: self.payment_setup_result.direct_debit_connection_id,
-            bank_account_id: self.payment_setup_result.bank,
             created_by: sub.created_by,
             net_terms: self.net_terms as i32,
             invoice_memo: sub.invoice_memo.clone(),
@@ -259,7 +369,6 @@ impl SubscriptionNewEnriched<'_> {
             period: self.period.into(),
             start_date: sub.start_date,
             activation_condition: sub.activation_condition.clone().into(),
-            payment_method: self.payment_setup_result.payment_method,
             pending_checkout,
             status: self.status.clone().into(),
             current_period_start: self.current_period_start,
@@ -271,7 +380,8 @@ impl SubscriptionNewEnriched<'_> {
             purchase_order: sub.purchase_order.clone(),
             quote_id: self.quote_id,
             backdate_invoices: sub.backdate_invoices,
-        }
+            payment_methods_config,
+        })
     }
 }
 
@@ -315,3 +425,22 @@ pub struct SubscriptionDetails {
     pub checkout_url: Option<String>,
     pub trial_config: Option<TrialConfig>,
 }
+
+#[derive(Clone, Debug)]
+pub struct SubscriptionPatch {
+    pub id: SubscriptionId,
+    pub charge_automatically: Option<bool>,
+    pub auto_advance_invoices: Option<bool>,
+    pub net_terms: Option<u32>,
+    pub invoice_memo: Option<Option<String>>,
+    pub purchase_order: Option<Option<String>>,
+    /// None = no change, Some(None) = reset to inherit, Some(Some(config)) = set config
+    pub payment_methods_config: Option<Option<PaymentMethodsConfig>>,
+}
+
+golden::golden!(PaymentMethodsConfig, {
+    "online_inherit" => PaymentMethodsConfig::online(),
+    "online_card_only" => PaymentMethodsConfig::online_specific(true, false),
+    "bank_transfer" => PaymentMethodsConfig::bank_transfer(),
+    "external" => PaymentMethodsConfig::external()
+});

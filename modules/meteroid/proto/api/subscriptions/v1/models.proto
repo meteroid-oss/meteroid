@@ -62,8 +62,6 @@ message Subscription {
   optional string checkout_url = 27;
   bool pending_checkout = 36;
 
-  optional string card_connection_id = 30;
-  optional string direct_debit_connection_id = 31;
   optional api.connectors.v1.ConnectionMetadata connection_metadata = 32;
   optional string purchase_order = 33;
   bool auto_advance_invoices = 34;
@@ -78,6 +76,7 @@ message Subscription {
 
   // Quote to subscription linking
   optional string quote_id = 42;
+  optional PaymentMethodsConfig payment_methods_config = 43;
 }
 
 // Trial configuration resolved from the plan version
@@ -139,7 +138,7 @@ message CreateSubscription {
   ActivationCondition activation_condition = 17;
   optional bool auto_advance_invoices = 18;
   optional bool charge_automatically = 19;
-  optional PaymentStrategy payment_strategy = 20;
+  optional PaymentMethodsConfig payment_methods_config = 21;
 }
 
 enum ActivationCondition {
@@ -148,11 +147,32 @@ enum ActivationCondition {
   MANUAL = 2;
 }
 
-enum PaymentStrategy {
-  AUTO = 0;    // Uses existing method, card checkout if configured, else bank, else external
-  BANK = 1;    // Forces bank transfer only (disables card/DD)
-  EXTERNAL = 2; // Manual/external payment (disables all payment methods including bank display)
+// Online, BankTransfer, or External.
+message PaymentMethodsConfig {
+  oneof config {
+    OnlinePayment online = 1;
+    BankTransfer bank_transfer = 2;
+    External external = 3;
+  }
 }
+
+message OnlinePayment {
+  // If not set, inherits all online providers from invoicing entity.
+  optional OnlineMethodsConfig config = 1;
+}
+
+message OnlineMethodsConfig {
+  optional OnlineMethodConfig card = 1;
+  optional OnlineMethodConfig direct_debit = 2;
+}
+
+message OnlineMethodConfig {
+  bool enabled = 1;
+}
+
+message BankTransfer {}
+
+message External {}
 
 message CreateSubscriptionAddOn {
   string add_on_id = 1;

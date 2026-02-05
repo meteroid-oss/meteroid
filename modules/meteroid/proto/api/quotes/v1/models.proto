@@ -15,12 +15,6 @@ enum QuoteStatus {
   CANCELLED = 5;
 }
 
-enum PaymentStrategy {
-  AUTO = 0;
-  BANK = 1;
-  EXTERNAL = 2;
-}
-
 message Quote {
   string id = 1;
   string quote_number = 2;
@@ -59,12 +53,12 @@ message Quote {
   optional string purchase_order = 27;
 
   // Payment configuration fields
-  optional PaymentStrategy payment_strategy = 28;
   bool auto_advance_invoices = 29;
   bool charge_automatically = 30;
   optional string invoice_memo = 31;
   optional string invoice_threshold = 32;
   bool create_subscription_on_acceptance = 33;
+  optional meteroid.api.subscriptions.v1.PaymentMethodsConfig payment_methods_config = 36;
 
   // Conversion tracking
   optional string converted_to_subscription_id = 34;
@@ -173,12 +167,12 @@ message CreateQuote {
   meteroid.api.subscriptions.v1.CreateSubscriptionComponents components = 20;
 
   // Payment configuration fields
-  optional PaymentStrategy payment_strategy = 21;
   optional bool auto_advance_invoices = 22;
   optional bool charge_automatically = 23;
   optional string invoice_memo = 24;
   optional string invoice_threshold = 25;
   optional bool create_subscription_on_acceptance = 26;
+  optional meteroid.api.subscriptions.v1.PaymentMethodsConfig payment_methods_config = 29;
 
   // Add-ons and coupons
   meteroid.api.subscriptions.v1.CreateSubscriptionAddOns add_ons = 27;
