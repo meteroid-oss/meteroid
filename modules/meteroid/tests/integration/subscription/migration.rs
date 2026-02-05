@@ -193,8 +193,8 @@ async fn test_migration_one_year_ago_monthly(#[future] test_env: TestEnv) {
     let env = test_env.await;
 
     let today = chrono::Utc::now().naive_utc().date();
-    // Pick a billing day that is NOT today's day, ensuring we're mid-period.
-    let billing_day = if today.day() == 15 { 10 } else { 15 };
+    // Fixed start date with billing_day=15. Mid-period unless today is the 15th.
+    let billing_day: u32 = if today.day() == 15 { 10 } else { 15 };
     let one_year_ago =
         NaiveDate::from_ymd_opt(today.year() - 1, today.month(), billing_day).unwrap();
 
@@ -210,13 +210,13 @@ async fn test_migration_one_year_ago_monthly(#[future] test_env: TestEnv) {
     let sub = env.get_subscription(sub_id).await;
     sub.assert().is_active().is_imported();
 
-    // Exactly 12 elapsed cycles (mid-period, so find_period returns the current period
-    // and elapsed counts all completed cycles).
+    // ~12 cycles: exactly 12 if billing_day < today.day(), 11 if billing_day > today.day().
     let cycle = sub.cycle_index.unwrap();
+    let expected = if billing_day < today.day() { 12 } else { 11 };
     assert_eq!(
-        cycle, 12,
-        "Expected cycle_index == 12 for 1-year-old monthly sub, got {}",
-        cycle
+        cycle, expected,
+        "Expected cycle_index == {} for 1-year-old monthly sub, got {}",
+        expected, cycle
     );
 
     // current_period_end should be in the future (mid-period).
