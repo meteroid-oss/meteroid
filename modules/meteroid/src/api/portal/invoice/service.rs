@@ -76,17 +76,6 @@ impl PortalInvoiceService for PortalInvoiceServiceComponents {
             .await
             .map_err(Into::<PortalInvoiceApiError>::into)?;
 
-        let customer_methods = self
-            .store
-            .list_payment_methods_by_customer(&tenant, &customer.id)
-            .await
-            .map_err(Into::<PortalInvoiceApiError>::into)?;
-
-        let payment_methods = customer_methods
-            .into_iter()
-            .map(crate::api::customers::mapping::customer_payment_method::domain_to_server)
-            .collect();
-
         let organization = self
             .store
             .get_organization_by_tenant_id(&tenant)
@@ -124,7 +113,21 @@ impl PortalInvoiceService for PortalInvoiceServiceComponents {
 
         let card_connection_id = resolved.card_connection_id;
         let direct_debit_connection_id = resolved.direct_debit_connection_id;
+        let bank_transfer_enabled = resolved.bank_transfer_enabled;
         let bank_account_id_override = resolved.bank_account_id;
+
+        // Fetch customer payment methods and filter to only those usable with resolved connections
+        let customer_methods = self
+            .store
+            .list_payment_methods_by_customer(&tenant, &customer.id)
+            .await
+            .map_err(Into::<PortalInvoiceApiError>::into)?;
+
+        let payment_methods = resolved
+            .filter_payment_methods(customer_methods)
+            .into_iter()
+            .map(crate::api::customers::mapping::customer_payment_method::domain_to_server)
+            .collect();
 
         let mut invoice =
             crate::api::invoices::mapping::invoices::domain_invoice_with_transactions_to_server(
@@ -160,21 +163,28 @@ impl PortalInvoiceService for PortalInvoiceServiceComponents {
 
         log::info!("logo_url: {:?}", logo_url);
 
-        let mut bank_account = None;
-        if card_connection_id.is_none() && direct_debit_connection_id.is_none() {
-            // Get bank account - prefer subscription's bank account (set by payment strategy),
+        // Only show bank account if bank transfer is enabled in the resolved config
+        // For External subscriptions, bank_transfer_enabled is false so no fallback occurs
+        let bank_account = if bank_transfer_enabled
+            && card_connection_id.is_none()
+            && direct_debit_connection_id.is_none()
+        {
+            // Prefer subscription's bank account (set by payment strategy),
             // otherwise use invoicing entity's default
             let bank_account_id_to_use =
                 bank_account_id_override.or(invoicing_entity.bank_account_id);
             if let Some(bank_account_id) = bank_account_id_to_use {
-                bank_account = self
-                    .store
+                self.store
                     .get_bank_account_by_id(bank_account_id, tenant)
                     .await
                     .ok()
                     .map(crate::api::bankaccounts::mapping::bank_accounts::domain_to_proto)
-            };
-        }
+            } else {
+                None
+            }
+        } else {
+            None
+        };
 
         Ok(Response::new(GetInvoiceForPaymentResponse {
             invoice: Some(InvoiceForPayment {

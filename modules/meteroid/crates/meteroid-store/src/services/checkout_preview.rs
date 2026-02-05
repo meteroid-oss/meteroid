@@ -62,7 +62,6 @@ impl Services {
             .find_customer_by_id(session.customer_id, tenant_id)
             .await?;
 
-        // Get invoicing entity for the customer
         let invoicing_entity_providers = InvoicingEntityProvidersRow::resolve_providers_by_id(
             conn,
             customer.invoicing_entity_id,
@@ -73,9 +72,8 @@ impl Services {
 
         let invoicing_entity: InvoicingEntity = invoicing_entity_providers.entity.clone().into();
 
-        // Note: Payment method resolution happens dynamically at checkout time.
-        // For previews, we just use the invoicing entity information.
-
+        // Note: This builds subscription details for invoice computation only.
+        // Payment method resolution is handled separately in build_checkout_response.
         let subscription_components = self.build_preview_components(&price_components, session)?;
 
         let subscription_add_ons = self.build_preview_add_ons(tenant_id, session).await?;

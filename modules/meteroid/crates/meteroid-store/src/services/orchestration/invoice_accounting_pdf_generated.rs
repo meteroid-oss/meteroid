@@ -114,11 +114,8 @@ impl Services {
                         .pgmq_send_batch(PgmqQueue::PaymentRequest, vec![evt?])
                         .await?;
                 }
-                // In all other cases, send the invoice with payment instructions:
-                // - BankTransfer: includes bank account details for wire transfer
-                // - NotConfigured (External config): invoice only, no payment collection
-                // - NotConfigured (no valid payment method): includes pay_online link
-                // - CustomerPaymentMethod + charge_automatically=false: includes pay_online link
+                // In all other cases, send the invoice ready email with a payment link.
+                // The customer can pay via the portal using the link in the email.
                 _ => {
                     self.send_invoice_ready_mail(event, invoice, customer, invoicing_entity)
                         .await?;

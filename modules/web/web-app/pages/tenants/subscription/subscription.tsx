@@ -403,6 +403,10 @@ export const Subscription = () => {
                 >
                   Sync To Hubspot
                 </DropdownMenuItem>
+                <DropdownMenuItem onClick={() => setShowEditModal(true)}>
+                  <Pencil size="16" className="mr-2" />
+                  Edit Billing Settings
+                </DropdownMenuItem>
                 <DropdownMenuItem
                   disabled={!canCancelSubscription}
                   onClick={() => setShowCancelModal(true)}
@@ -717,41 +721,27 @@ export const Subscription = () => {
           {data.customerAlias && <DetailRow label="Alias" value={data.customerAlias} />}
         </DetailSection>
 
-        <div className="mb-6">
-          <div className="flex items-center justify-between mb-3">
-            <h3 className="text-lg font-medium text-foreground">Billing Information</h3>
-            <Button
-              variant="ghost"
-              size="sm"
-              onClick={() => setShowEditModal(true)}
-              className="h-7 w-7 p-0"
-              title="Edit billing settings"
-            >
-              <Pencil className="h-3.5 w-3.5" />
-            </Button>
-          </div>
-          <div className="space-y-1">
-            <DetailRow label="Billing Day" value={data.billingDayAnchor} />
-            <DetailRow label="Net Terms" value={`${data.netTerms} days`} />
-            <DetailRow
-              label="Payment Method"
-              value={formatPaymentMethodsConfig(data.paymentMethodsConfig)}
-            />
-            <DetailRow
-              label="Auto-advance invoices"
-              value={data.autoAdvanceInvoices ? 'Yes' : 'No'}
-            />
-            <DetailRow
-              label="Charge automatically"
-              value={data.chargeAutomatically ? 'Yes' : 'No'}
-            />
-            {data.invoiceMemo && <DetailRow label="Invoice Memo" value={data.invoiceMemo} />}
-            {data.invoiceThreshold && (
-              <DetailRow label="Invoice Threshold" value={data.invoiceThreshold} />
-            )}
-            {data.purchaseOrder && <DetailRow label="Purchase Order" value={data.purchaseOrder} />}
-          </div>
-        </div>
+        <DetailSection title="Billing Information">
+          <DetailRow label="Billing Day" value={data.billingDayAnchor} />
+          <DetailRow label="Net Terms" value={`${data.netTerms} days`} />
+          <DetailRow
+            label="Payment Method"
+            value={formatPaymentMethodsConfig(data.paymentMethodsConfig)}
+          />
+          <DetailRow
+            label="Auto-advance invoices"
+            value={data.autoAdvanceInvoices ? 'Yes' : 'No'}
+          />
+          <DetailRow
+            label="Charge automatically"
+            value={data.chargeAutomatically ? 'Yes' : 'No'}
+          />
+          {data.invoiceMemo && <DetailRow label="Invoice Memo" value={data.invoiceMemo} />}
+          {data.invoiceThreshold && (
+            <DetailRow label="Invoice Threshold" value={data.invoiceThreshold} />
+          )}
+          {data.purchaseOrder && <DetailRow label="Purchase Order" value={data.purchaseOrder} />}
+        </DetailSection>
 
         <DetailSection title="Integrations">
           {hubspotConnMeta?.externalId ? (

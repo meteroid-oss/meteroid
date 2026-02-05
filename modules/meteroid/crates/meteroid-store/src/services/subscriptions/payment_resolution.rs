@@ -3,8 +3,9 @@
 
 use crate::StoreResult;
 use crate::domain::connectors::Connector;
+use crate::domain::enums::PaymentMethodTypeEnum;
 use crate::domain::subscriptions::PaymentMethodsConfig;
-use crate::domain::{Customer, InvoicingEntityProviderSensitive};
+use crate::domain::{Customer, CustomerPaymentMethod, InvoicingEntityProviderSensitive};
 use crate::errors::StoreError;
 use crate::services::Services;
 use crate::store::PgConn;
@@ -29,6 +30,36 @@ impl ResolvedPaymentMethods {
 
     pub fn has_any_payment_method(&self) -> bool {
         self.has_online_payment() || self.bank_account_id.is_some()
+    }
+
+    /// Filters a list of customer payment methods to only include those that are
+    /// usable based on the resolved connection IDs.
+    ///
+    /// - Card methods are included only if they belong to the resolved card connection
+    /// - Direct debit methods are included only if they belong to the resolved DD connection
+    /// - Other payment method types (Transfer, Other) are excluded as they're not usable for online payment
+    pub fn filter_payment_methods(
+        &self,
+        payment_methods: Vec<CustomerPaymentMethod>,
+    ) -> Vec<CustomerPaymentMethod> {
+        payment_methods
+            .into_iter()
+            .filter(|pm| self.is_payment_method_usable(pm))
+            .collect()
+    }
+
+    /// Checks if a specific payment method is usable based on the resolved connections.
+    pub fn is_payment_method_usable(&self, pm: &CustomerPaymentMethod) -> bool {
+        match pm.payment_method_type {
+            PaymentMethodTypeEnum::Card => self.card_connection_id == Some(pm.connection_id),
+            PaymentMethodTypeEnum::DirectDebitSepa
+            | PaymentMethodTypeEnum::DirectDebitAch
+            | PaymentMethodTypeEnum::DirectDebitBacs => {
+                self.direct_debit_connection_id == Some(pm.connection_id)
+            }
+            // Transfer and Other are not usable for online payment
+            PaymentMethodTypeEnum::Transfer | PaymentMethodTypeEnum::Other => false,
+        }
     }
 }
 

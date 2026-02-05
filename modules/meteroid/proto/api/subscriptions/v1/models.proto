@@ -76,8 +76,6 @@ message Subscription {
 
   // Quote to subscription linking
   optional string quote_id = 42;
-
-  // Payment methods configuration
   optional PaymentMethodsConfig payment_methods_config = 43;
 }
 

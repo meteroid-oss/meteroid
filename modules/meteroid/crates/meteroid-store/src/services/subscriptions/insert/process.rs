@@ -384,7 +384,7 @@ impl Services {
             effective_trial_duration,
         };
 
-        let subscription_row = enriched.map_to_row();
+        let subscription_row = enriched.map_to_row()?;
 
         let subscription_coupons = self.process_coupons(&subscription_row, &sub.coupons)?;
 

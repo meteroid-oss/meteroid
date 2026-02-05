@@ -405,16 +405,7 @@ impl ServicesEdge {
             .await
     }
 
-    /// Resolves payment methods for a subscription based on its config and current invoicing entity.
-    ///
-    /// This implements the hybrid approach:
-    /// - `Inherit` (or None): Uses current invoicing entity providers, creating connections if needed
-    /// - `Override`: Uses only enabled payment methods, optionally routing to specific providers
-    ///
-    /// Use this instead of directly reading subscription.card_connection_id to ensure
-    /// payment method changes on the invoicing entity are reflected for Inherit subscriptions.
-    ///
-    /// This method fetches the invoicing entity providers internally, handling sensitive data decryption.
+    /// Resolves payment methods for a subscription based on its config and current invoicing entity (inherited or overridden)
     pub async fn resolve_subscription_payment_methods(
         &self,
         tenant_id: TenantId,
@@ -425,7 +416,6 @@ impl ServicesEdge {
 
         let mut conn = self.get_conn().await?;
 
-        // Fetch the invoicing entity providers with sensitive data
         let providers_row = InvoicingEntityProvidersRow::resolve_providers_by_id(
             &mut conn,
             customer.invoicing_entity_id,

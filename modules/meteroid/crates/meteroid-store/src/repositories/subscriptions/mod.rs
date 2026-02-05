@@ -498,12 +498,10 @@ impl SubscriptionInterface for Store {
             ));
         }
 
-        // Determine effective values after the patch for validation
         let effective_charge_automatically = patch
             .charge_automatically
             .unwrap_or(existing.subscription.charge_automatically);
 
-        // Determine effective payment_methods_config after the patch
         let existing_payment_methods_config: Option<PaymentMethodsConfig> = existing
             .subscription
             .payment_methods_config
@@ -515,13 +513,11 @@ impl SubscriptionInterface for Store {
             })?;
 
         let effective_payment_methods_config = match &patch.payment_methods_config {
-            Some(new_config) => new_config.clone(), // New value from patch (could be Some or None)
-            None => existing_payment_methods_config, // Keep existing
+            Some(new_config) => new_config.clone(),
+            None => existing_payment_methods_config,
         };
 
-        // Validate charge_automatically if it will be true after the patch
         if effective_charge_automatically {
-            // Fetch the invoicing entity to get provider IDs
             let invoicing_entity = InvoicingEntityRow::get_invoicing_entity_by_id_and_tenant(
                 &mut conn,
                 existing.invoicing_entity_id,
@@ -544,11 +540,17 @@ impl SubscriptionInterface for Store {
             net_terms: patch.net_terms.map(|n| n as i32),
             invoice_memo: patch.invoice_memo,
             purchase_order: patch.purchase_order,
-            payment_methods_config: patch.payment_methods_config.map(|opt| {
-                opt.map(|config| {
-                    serde_json::to_value(config).expect("PaymentMethodsConfig serialization")
+            payment_methods_config: patch
+                .payment_methods_config
+                .map(|opt| {
+                    opt.map(serde_json::to_value).transpose().map_err(|e| {
+                        StoreError::SerdeError(
+                            "Failed to serialize payment_methods_config".to_string(),
+                            e,
+                        )
+                    })
                 })
-            }),
+                .transpose()?,
         };
 
         SubscriptionRow::patch(&mut conn, &tenant_id, patch.id, &row_patch)

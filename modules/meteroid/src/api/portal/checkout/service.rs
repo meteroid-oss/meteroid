@@ -266,13 +266,28 @@ impl PortalCheckoutService for PortalCheckoutServiceComponents {
             .await
             .map_err(Into::<PortalCheckoutApiError>::into)?;
 
+        // Resolve payment methods based on subscription's config
+        let resolved = self
+            .services
+            .resolve_subscription_payment_methods(
+                tenant,
+                subscription_details
+                    .subscription
+                    .payment_methods_config
+                    .as_ref(),
+                &customer,
+            )
+            .await
+            .map_err(Into::<PortalCheckoutApiError>::into)?;
+
         let customer_methods = self
             .store
             .list_payment_methods_by_customer(&tenant, &customer.id)
             .await
             .map_err(Into::<PortalCheckoutApiError>::into)?;
 
-        let payment_methods = customer_methods
+        let payment_methods = resolved
+            .filter_payment_methods(customer_methods)
             .into_iter()
             .map(crate::api::customers::mapping::customer_payment_method::domain_to_server)
             .collect();
@@ -451,17 +466,6 @@ impl PortalCheckoutServiceComponents {
 
         let invoicing_entity = &subscription_details.invoicing_entity;
 
-        let customer_methods = self
-            .store
-            .list_payment_methods_by_customer(&tenant, &customer.id)
-            .await
-            .map_err(Into::<PortalCheckoutApiError>::into)?;
-
-        let payment_methods = customer_methods
-            .into_iter()
-            .map(crate::api::customers::mapping::customer_payment_method::domain_to_server)
-            .collect();
-
         let organization = self
             .store
             .get_organization_by_tenant_id(&tenant)
@@ -484,6 +488,19 @@ impl PortalCheckoutServiceComponents {
 
         let card_connection_id = resolved.card_connection_id;
         let direct_debit_connection_id = resolved.direct_debit_connection_id;
+
+        // Fetch customer payment methods and filter to only those usable with resolved connections
+        let customer_methods = self
+            .store
+            .list_payment_methods_by_customer(&tenant, &customer.id)
+            .await
+            .map_err(Into::<PortalCheckoutApiError>::into)?;
+
+        let payment_methods = resolved
+            .filter_payment_methods(customer_methods)
+            .into_iter()
+            .map(crate::api::customers::mapping::customer_payment_method::domain_to_server)
+            .collect();
 
         let bank_account = if let Some(bank_account_id) = resolved.bank_account_id {
             self.store

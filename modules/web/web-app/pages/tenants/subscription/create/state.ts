@@ -4,7 +4,6 @@ import { atomWithReset } from 'jotai/utils'
 import { BillingPeriod } from '@/rpc/api/shared/v1/shared_pb'
 import { ActivationCondition } from '@/rpc/api/subscriptions/v1/models_pb'
 
-// Payment methods configuration types
 export type PaymentMethodsConfigType = 'online' | 'bankTransfer' | 'external'
 
 // Subscription-specific fee types (not plan fee types)

@@ -1672,7 +1672,7 @@
         ]
       }
     },
-    "/api/v1/subscriptions/{id}": {
+    "/api/v1/subscriptions/{subscription_id}": {
       "get": {
         "tags": [
           "Subscriptions"
@@ -1682,9 +1682,9 @@
         "operationId": "subscription_details",
         "parameters": [
           {
-            "name": "id",
+            "name": "subscription_id",
             "in": "path",
-            "description": "subscription ID",
+            "description": "Subscription ID",
             "required": true,
             "schema": {
               "$ref": "#/components/schemas/SubscriptionId"
@@ -1698,6 +1698,92 @@
               "application/json": {
                 "schema": {
                   "$ref": "#/components/schemas/SubscriptionDetails"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Unauthorized",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/RestErrorResponse"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "Subscription not found",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/RestErrorResponse"
+                }
+              }
+            }
+          },
+          "500": {
+            "description": "Internal error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/RestErrorResponse"
+                }
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "bearer_auth": []
+          }
+        ]
+      },
+      "patch": {
+        "tags": [
+          "Subscriptions"
+        ],
+        "summary": "Update subscription",
+        "description": "Update subscription settings like payment configuration, billing options, etc.",
+        "operationId": "update_subscription",
+        "parameters": [
+          {
+            "name": "subscription_id",
+            "in": "path",
+            "description": "Subscription ID",
+            "required": true,
+            "schema": {
+              "$ref": "#/components/schemas/SubscriptionId"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/SubscriptionUpdateRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "description": "Subscription updated",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/SubscriptionUpdateResponse"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Bad request",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/RestErrorResponse"
                 }
               }
             }
@@ -1981,13 +2067,6 @@
           }
         }
       },
-      "BankAccountId": {
-        "type": "string",
-        "format": "MeteroidId",
-        "examples": [
-          "ba_7n42DGM5Tflk9n8mt7Fhc7"
-        ]
-      },
       "BillableMetricId": {
         "type": "string",
         "format": "MeteroidId",
@@ -2213,6 +2292,16 @@
               "null"
             ],
             "format": "int32"
+          },
+          "payment_methods_config": {
+            "oneOf": [
+              {
+                "type": "null"
+              },
+              {
+                "$ref": "#/components/schemas/PaymentMethodsConfig"
+              }
+            ]
           },
           "plan_version_id": {
             "$ref": "#/components/schemas/PlanVersionId"
@@ -2536,6 +2625,17 @@
               "null"
             ],
             "format": "int32"
+          },
+          "payment_methods_config": {
+            "oneOf": [
+              {
+                "type": "null"
+              },
+              {
+                "$ref": "#/components/schemas/PaymentMethodsConfig",
+                "description": "Payment methods configuration. If not specified, inherits from the invoicing entity."
+              }
+            ]
           },
           "plan_version_id": {
             "$ref": "#/components/schemas/PlanVersionId"
@@ -2925,16 +3025,6 @@
               "null"
             ]
           },
-          "bank_account_id": {
-            "oneOf": [
-              {
-                "type": "null"
-              },
-              {
-                "$ref": "#/components/schemas/BankAccountId"
-              }
-            ]
-          },
           "billing_address": {
             "oneOf": [
               {
@@ -3012,16 +3102,6 @@
             "type": [
               "string",
               "null"
-            ]
-          },
-          "bank_account_id": {
-            "oneOf": [
-              {
-                "type": "null"
-              },
-              {
-                "$ref": "#/components/schemas/BankAccountId"
-              }
             ]
           },
           "billing_address": {
@@ -3252,16 +3332,6 @@
               "null"
             ]
           },
-          "bank_account_id": {
-            "oneOf": [
-              {
-                "type": "null"
-              },
-              {
-                "$ref": "#/components/schemas/BankAccountId"
-              }
-            ]
-          },
           "billing_address": {
             "oneOf": [
               {
@@ -3390,16 +3460,6 @@
             "type": [
               "string",
               "null"
-            ]
-          },
-          "bank_account_id": {
-            "oneOf": [
-              {
-                "type": "null"
-              },
-              {
-                "$ref": "#/components/schemas/BankAccountId"
-              }
             ]
           },
           "billing_address": {
@@ -4360,6 +4420,42 @@
           }
         }
       },
+      "OnlineMethodConfig": {
+        "type": "object",
+        "required": [
+          "enabled"
+        ],
+        "properties": {
+          "enabled": {
+            "type": "boolean"
+          }
+        }
+      },
+      "OnlineMethodsConfig": {
+        "type": "object",
+        "properties": {
+          "card": {
+            "oneOf": [
+              {
+                "type": "null"
+              },
+              {
+                "$ref": "#/components/schemas/OnlineMethodConfig"
+              }
+            ]
+          },
+          "direct_debit": {
+            "oneOf": [
+              {
+                "type": "null"
+              },
+              {
+                "$ref": "#/components/schemas/OnlineMethodConfig"
+              }
+            ]
+          }
+        }
+      },
       "PackagePlanPricing": {
         "type": "object",
         "required": [
@@ -4463,6 +4559,70 @@
           "Wallet",
           "Other"
         ]
+      },
+      "PaymentMethodsConfig": {
+        "oneOf": [
+          {
+            "type": "object",
+            "required": [
+              "type"
+            ],
+            "properties": {
+              "config": {
+                "oneOf": [
+                  {
+                    "type": "null"
+                  },
+                  {
+                    "$ref": "#/components/schemas/OnlineMethodsConfig",
+                    "description": "If None, inherits all online providers from invoicing entity."
+                  }
+                ]
+              },
+              "type": {
+                "type": "string",
+                "enum": [
+                  "online"
+                ]
+              }
+            }
+          },
+          {
+            "type": "object",
+            "required": [
+              "type"
+            ],
+            "properties": {
+              "account_id": {
+                "type": [
+                  "string",
+                  "null"
+                ]
+              },
+              "type": {
+                "type": "string",
+                "enum": [
+                  "bank_transfer"
+                ]
+              }
+            }
+          },
+          {
+            "type": "object",
+            "required": [
+              "type"
+            ],
+            "properties": {
+              "type": {
+                "type": "string",
+                "enum": [
+                  "external"
+                ]
+              }
+            }
+          }
+        ],
+        "description": "Online (card/direct debit), BankTransfer, or External."
       },
       "PaymentStatusEnum": {
         "type": "string",
@@ -5133,6 +5293,17 @@
             "description": "Payment terms in days (0 = due on issue)",
             "minimum": 0
           },
+          "payment_methods_config": {
+            "oneOf": [
+              {
+                "type": "null"
+              },
+              {
+                "$ref": "#/components/schemas/PaymentMethodsConfig",
+                "description": "Payment methods configuration (Online, BankTransfer, or External)"
+              }
+            ]
+          },
           "period": {
             "$ref": "#/components/schemas/BillingPeriodEnum",
             "description": "Billing period (monthly, annual, etc.)"
@@ -5376,6 +5547,10 @@
             "format": "int32",
             "minimum": 0
           },
+          "payment_methods_config": {
+            "$ref": "#/components/schemas/PaymentMethodsConfig",
+            "description": "Payment methods configuration. If not specified, inherits from the invoicing entity."
+          },
           "plan_id": {
             "$ref": "#/components/schemas/PlanId"
           },
@@ -5544,6 +5719,16 @@
             "format": "int32",
             "description": "Payment terms in days (0 = due on issue)",
             "minimum": 0
+          },
+          "payment_methods_config": {
+            "oneOf": [
+              {
+                "type": "null"
+              },
+              {
+                "$ref": "#/components/schemas/PaymentMethodsConfig"
+              }
+            ]
           },
           "period": {
             "$ref": "#/components/schemas/BillingPeriodEnum",
@@ -5814,6 +5999,70 @@
           "SUPERSEDED",
           "ERRORED"
         ]
+      },
+      "SubscriptionUpdateRequest": {
+        "type": "object",
+        "properties": {
+          "auto_advance_invoices": {
+            "type": [
+              "boolean",
+              "null"
+            ],
+            "description": "If false, invoices will stay in Draft until manually reviewed and finalized."
+          },
+          "charge_automatically": {
+            "type": [
+              "boolean",
+              "null"
+            ],
+            "description": "Automatically try to charge the customer's configured payment method on finalize."
+          },
+          "invoice_memo": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "description": "Default memo for invoices"
+          },
+          "net_terms": {
+            "type": [
+              "integer",
+              "null"
+            ],
+            "format": "int32",
+            "description": "Payment terms in days (0 = due on issue)",
+            "minimum": 0
+          },
+          "payment_methods_config": {
+            "oneOf": [
+              {
+                "type": "null"
+              },
+              {
+                "$ref": "#/components/schemas/PaymentMethodsConfig",
+                "description": "Payment methods configuration (Online, BankTransfer, or External)"
+              }
+            ]
+          },
+          "purchase_order": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "description": "Purchase order number"
+          }
+        }
+      },
+      "SubscriptionUpdateResponse": {
+        "type": "object",
+        "required": [
+          "subscription"
+        ],
+        "properties": {
+          "subscription": {
+            "$ref": "#/components/schemas/SubscriptionDetails"
+          }
+        }
       },
       "TaxBreakdownItem": {
         "type": "object",

@@ -124,7 +124,9 @@ pub struct QuoteNew {
     pub invoice_memo: Option<String>,
     pub invoice_threshold: Option<Decimal>,
     pub create_subscription_on_acceptance: bool,
-    #[into(~.map(|c| serde_json::to_value(c).expect("PaymentMethodsConfig serialization")))]
+    #[into(~.map(|c| serde_json::to_value(c)).transpose().map_err(|e| {
+    StoreError::SerdeError("Failed to serialize payment_methods_config".to_string(), e)
+    })?)]
     pub payment_methods_config: Option<PaymentMethodsConfig>,
 }
 

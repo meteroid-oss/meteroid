@@ -16,6 +16,7 @@ import {
 } from '@md/ui'
 import { useQueryClient } from '@tanstack/react-query'
 import { InfoIcon, Settings } from 'lucide-react'
+import { useEffect } from 'react'
 import { toast } from 'sonner'
 import { z } from 'zod'
 
@@ -85,11 +86,6 @@ export const EditSubscriptionModal = ({
 }: EditSubscriptionModalProps) => {
   const queryClient = useQueryClient()
 
-  // Payment methods capability check: can only charge automatically if using online payment methods
-  const canChargeAutomatically =
-    !subscription.paymentMethodsConfig ||
-    subscription.paymentMethodsConfig.config.case === 'online'
-
   const methods = useZodForm({
     schema: editSubscriptionSchema,
     defaultValues: {
@@ -102,6 +98,22 @@ export const EditSubscriptionModal = ({
     },
     mode: 'onSubmit',
   })
+
+  // Watch payment methods type and charge automatically for cross-validation
+  const [paymentMethodsType, chargeAutomatically] = methods.watch([
+    'paymentMethodsType',
+    'chargeAutomatically',
+  ])
+
+  // Auto-disable chargeAutomatically when Bank or External payment methods selected
+  useEffect(() => {
+    if (
+      (paymentMethodsType === 'bankTransfer' || paymentMethodsType === 'external') &&
+      chargeAutomatically
+    ) {
+      methods.setValue('chargeAutomatically', false)
+    }
+  }, [paymentMethodsType, chargeAutomatically, methods])
 
   const updateMutation = useMutation(updateSubscription, {
     onSuccess: () => {
@@ -122,17 +134,6 @@ export const EditSubscriptionModal = ({
   })
 
   const onSubmit = async (values: EditSubscriptionFormValues) => {
-    if (
-      values.chargeAutomatically &&
-      !canChargeAutomatically &&
-      values.paymentMethodsType === 'online'
-    ) {
-      methods.setError('chargeAutomatically', {
-        message: 'Cannot enable automatic charging without a payment method',
-      })
-      return
-    }
-
     await updateMutation.mutateAsync({
       subscriptionId: subscription.id,
       chargeAutomatically: values.chargeAutomatically,
@@ -143,6 +144,9 @@ export const EditSubscriptionModal = ({
       paymentMethodsConfig: buildProtoPaymentMethodsConfig(values.paymentMethodsType),
     })
   }
+
+  // Can only enable charge automatically with online payment methods
+  const canChargeAutomatically = paymentMethodsType === 'online'
 
   return (
     <Modal
@@ -167,19 +171,44 @@ export const EditSubscriptionModal = ({
       <Modal.Content>
         <Form {...methods}>
           <div className="space-y-5 py-4">
-            <div className="space-y-2">
+            <SelectFormField
+              name="paymentMethodsType"
+              label="Payment Methods"
+              control={methods.control}
+              labelTooltip={
+                <TooltipProvider delayDuration={100}>
+                  <Tooltip>
+                    <TooltipTrigger asChild>
+                      <InfoIcon className="h-4 w-4 text-muted-foreground cursor-help" />
+                    </TooltipTrigger>
+                    <TooltipContent className="max-w-80">
+                      Online: Use card and/or direct debit payments.
+                      <br />
+                      Bank Transfer: Invoice with bank transfer instructions.
+                      <br />
+                      External: Manage payment collection outside the system.
+                    </TooltipContent>
+                  </Tooltip>
+                </TooltipProvider>
+              }
+            >
+              <SelectItem value="online">Online (card / direct debit)</SelectItem>
+              <SelectItem value="bankTransfer">Bank transfer</SelectItem>
+              <SelectItem value="external">External</SelectItem>
+            </SelectFormField>
+
+            <div className="space-y-2 pt-2 border-t">
               <SwitchFormField
                 name="chargeAutomatically"
                 control={methods.control}
                 label="Charge automatically"
-                description="Automatically charge invoices using the customer's payment method"
-                disabled={!canChargeAutomatically && !methods.getValues('chargeAutomatically')}
+                description={
+                  canChargeAutomatically
+                    ? 'Automatically charge invoices when the customer has a payment method configured'
+                    : 'Only available with Online payment methods'
+                }
+                disabled={!canChargeAutomatically}
               />
-              {!canChargeAutomatically && (
-                <p className="text-xs text-warning ml-10">
-                  No payment method configured. Add a payment method to enable automatic charging.
-                </p>
-              )}
 
               <SwitchFormField
                 name="autoAdvanceInvoices"
@@ -216,34 +245,6 @@ export const EditSubscriptionModal = ({
               placeholder="PO-12345"
               maxLength={100}
             />
-
-            <div className="space-y-2 pt-2 border-t">
-              <SelectFormField
-                name="paymentMethodsType"
-                label="Payment Methods"
-                control={methods.control}
-                labelTooltip={
-                  <TooltipProvider delayDuration={100}>
-                    <Tooltip>
-                      <TooltipTrigger asChild>
-                        <InfoIcon className="h-4 w-4 text-muted-foreground cursor-help" />
-                      </TooltipTrigger>
-                      <TooltipContent className="max-w-80">
-                        Online: Use card and/or direct debit payments.
-                        <br />
-                        Bank Transfer: Invoice with bank transfer instructions.
-                        <br />
-                        External: Manage payment collection outside the system.
-                      </TooltipContent>
-                    </Tooltip>
-                  </TooltipProvider>
-                }
-              >
-                <SelectItem value="online">Online (card / direct debit)</SelectItem>
-                <SelectItem value="bankTransfer">Bank transfer</SelectItem>
-                <SelectItem value="external">External</SelectItem>
-              </SelectFormField>
-            </div>
           </div>
         </Form>
       </Modal.Content>

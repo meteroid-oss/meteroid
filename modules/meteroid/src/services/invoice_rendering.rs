@@ -39,13 +39,11 @@ async fn resolve_payment_info(
             .await
             .change_context(InvoicingRenderError::StoreError)?;
 
-        // Use smart resolution that respects payment_methods_config and provider matching
         let resolved = store
             .resolve_payment_method_for_subscription(invoice.tenant_id, subscription_id)
             .await
             .change_context(InvoicingRenderError::StoreError)?;
 
-        // Get the config to distinguish Online from External when NotConfigured
         let config = subscription
             .payment_methods_config
             .as_ref()

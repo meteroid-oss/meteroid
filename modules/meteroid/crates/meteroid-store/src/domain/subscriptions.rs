@@ -13,7 +13,7 @@ use crate::domain::{
     Customer, InvoicingEntity, PlanForSubscription, Schedule, SubscriptionComponent,
     SubscriptionStatusEnum,
 };
-use crate::errors::StoreErrorReport;
+use crate::errors::{StoreError, StoreErrorReport};
 use crate::services::PaymentSetupResult;
 use common_domain::ids::CouponId;
 use common_domain::ids::{
@@ -26,20 +26,19 @@ use o2o::o2o;
 use uuid::Uuid;
 
 /// Three mutually exclusive payment strategies:
-/// - `Online`: Card and/or direct debit (NEVER bank transfer)
-/// - `BankTransfer`: Bank transfer only (NEVER card/direct debit)
+/// - `Online`: Card and/or direct debit
+/// - `BankTransfer`: Bank transfer only
 /// - `External`: No system payment collection
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
 #[serde(tag = "type", rename_all = "snake_case")]
 pub enum PaymentMethodsConfig {
-    /// Card and/or direct debit. NEVER resolves bank_account.
+    /// Card and/or direct debit.
     Online {
         /// If None, inherits all online providers from invoicing entity.
         #[serde(default, skip_serializing_if = "Option::is_none")]
         config: Option<OnlineMethodsConfig>,
     },
 
-    /// Bank transfer only. NEVER resolves card or direct debit.
     BankTransfer {
         #[serde(default, skip_serializing_if = "Option::is_none")]
         account_id: Option<BankAccountId>,
@@ -200,7 +199,6 @@ pub struct Subscription {
     pub next_retry: Option<NaiveDateTime>,
     // Quote to subscription linking
     pub quote_id: Option<QuoteId>,
-    // Payment methods configuration
     pub payment_methods_config: Option<PaymentMethodsConfig>,
 }
 
@@ -332,7 +330,7 @@ pub struct SubscriptionNewEnriched<'a> {
 }
 
 impl SubscriptionNewEnriched<'_> {
-    pub fn map_to_row(&self) -> SubscriptionRowNew {
+    pub fn map_to_row(&self) -> Result<SubscriptionRowNew, StoreError> {
         let sub = &self.subscription;
 
         // pending_checkout controls billing logic (is_completed check) - always true for OnCheckout
@@ -342,7 +340,16 @@ impl SubscriptionNewEnriched<'_> {
             _ => false,
         };
 
-        SubscriptionRowNew {
+        let payment_methods_config = sub
+            .payment_methods_config
+            .as_ref()
+            .map(serde_json::to_value)
+            .transpose()
+            .map_err(|e| {
+                StoreError::SerdeError("Failed to serialize payment_methods_config".to_string(), e)
+            })?;
+
+        Ok(SubscriptionRowNew {
             id: self.subscription_id,
             trial_duration: self.effective_trial_duration.map(|x| x as i32),
             customer_id: sub.customer_id,
@@ -373,11 +380,8 @@ impl SubscriptionNewEnriched<'_> {
             purchase_order: sub.purchase_order.clone(),
             quote_id: self.quote_id,
             backdate_invoices: sub.backdate_invoices,
-            payment_methods_config: sub
-                .payment_methods_config
-                .as_ref()
-                .map(|c| serde_json::to_value(c).expect("PaymentMethodsConfig serialization")),
-        }
+            payment_methods_config,
+        })
     }
 }
 
