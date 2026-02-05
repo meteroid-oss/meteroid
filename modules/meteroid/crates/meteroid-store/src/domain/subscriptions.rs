@@ -306,6 +306,9 @@ pub struct SubscriptionNew {
     /// When true, prevents checkout session creation even with OnCheckout activation.
     /// Used when creating subscriptions from checkout completion (SelfServe flow).
     pub skip_checkout_session: bool,
+    /// When true with a past start_date, skip creating invoices for past cycles.
+    /// Used for migrations where past billing was handled externally.
+    pub skip_past_invoices: bool,
 }
 
 pub struct SubscriptionNewEnriched<'a> {
@@ -327,6 +330,8 @@ pub struct SubscriptionNewEnriched<'a> {
     pub quote_id: Option<QuoteId>,
     /// Effective trial duration: uses request override if provided, otherwise plan's trial_duration_days
     pub effective_trial_duration: Option<u32>,
+    /// Set to now() when skip_past_invoices is true, to track migrated subscriptions
+    pub imported_at: Option<NaiveDateTime>,
 }
 
 impl SubscriptionNewEnriched<'_> {
@@ -381,6 +386,7 @@ impl SubscriptionNewEnriched<'_> {
             quote_id: self.quote_id,
             backdate_invoices: sub.backdate_invoices,
             payment_methods_config,
+            imported_at: self.imported_at,
         })
     }
 }

@@ -967,6 +967,7 @@ diesel::table! {
         backdate_invoices -> Bool,
         processing_started_at -> Nullable<Timestamp>,
         payment_methods_config -> Nullable<Jsonb>,
+        imported_at -> Nullable<Timestamp>,
     }
 }
 

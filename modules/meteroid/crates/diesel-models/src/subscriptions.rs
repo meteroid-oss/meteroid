@@ -54,6 +54,7 @@ pub struct SubscriptionRow {
     pub backdate_invoices: bool,
     pub processing_started_at: Option<NaiveDateTime>,
     pub payment_methods_config: Option<serde_json::Value>,
+    pub imported_at: Option<NaiveDateTime>,
 }
 
 #[derive(Insertable, Debug)]
@@ -90,6 +91,7 @@ pub struct SubscriptionRowNew {
     pub quote_id: Option<QuoteId>,
     pub backdate_invoices: bool,
     pub payment_methods_config: Option<serde_json::Value>,
+    pub imported_at: Option<NaiveDateTime>,
 }
 
 pub struct CancelSubscriptionParams {

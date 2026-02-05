@@ -240,6 +240,7 @@ pub async fn run_preset(
             purchase_order: None,
             backdate_invoices: true,
             skip_checkout_session: false,
+            skip_past_invoices: false,
         };
 
         subscriptions_to_create.push(store_domain::CreateSubscription {

@@ -562,6 +562,7 @@ async fn create_subscription(services: &Services, params: SubscriptionParams) ->
                     purchase_order: None,
                     backdate_invoices: false,
                     skip_checkout_session: false,
+                    skip_past_invoices: false,
                 },
                 price_components: None,
                 add_ons: None,

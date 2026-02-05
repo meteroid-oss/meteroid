@@ -139,6 +139,9 @@ message CreateSubscription {
   optional bool auto_advance_invoices = 18;
   optional bool charge_automatically = 19;
   optional PaymentMethodsConfig payment_methods_config = 21;
+  // Migration mode: when true with a past start_date, skip creating invoices for past cycles.
+  // The subscription will be set to the current billing period with correct cycle_index.
+  optional bool skip_past_invoices = 22;
 }
 
 enum ActivationCondition {

@@ -72,7 +72,6 @@ const activationConditionFromString = (
   }
 }
 
-
 export const StepSettings = () => {
   const { previousStep, nextStep } = useWizard()
   const [state, setState] = useAtom(createSubscriptionAtom)
@@ -138,14 +137,16 @@ export const StepSettings = () => {
       purchaseOrder: state.purchaseOrder,
       autoAdvanceInvoices: state.autoAdvanceInvoices,
       chargeAutomatically: state.chargeAutomatically,
+      skipPastInvoices: state.skipPastInvoices,
     },
   })
 
-  // Watch activation condition, payment methods type, and charge automatically for cross-validation
-  const [activationCondition, paymentMethodsType, chargeAutomatically] = methods.watch([
+  // Watch activation condition, payment methods type, charge automatically, and fromDate for cross-validation
+  const [activationCondition, paymentMethodsType, chargeAutomatically, fromDate] = methods.watch([
     'activationCondition',
     'paymentMethodsType',
     'chargeAutomatically',
+    'fromDate',
   ])
 
   // Auto-disable chargeAutomatically and reset activationCondition when no online provider
@@ -180,6 +181,20 @@ export const StepSettings = () => {
     }
   }, [paymentMethodsType, chargeAutomatically, methods])
 
+  // Auto-disable skipPastInvoices when activation condition is not ON_START
+  useEffect(() => {
+    if (activationCondition !== 'ON_START' && methods.getValues('skipPastInvoices')) {
+      methods.setValue('skipPastInvoices', false)
+    }
+  }, [activationCondition, methods])
+
+  // Reset skipPastInvoices when fromDate changes to future or is undefined
+  useEffect(() => {
+    if (!fromDate || fromDate >= new Date()) {
+      methods.setValue('skipPastInvoices', false)
+    }
+  }, [fromDate, methods])
+
   const onSubmit = async (data: z.infer<typeof schema>) => {
     setState({
       ...state,
@@ -195,6 +210,7 @@ export const StepSettings = () => {
       purchaseOrder: data.purchaseOrder,
       autoAdvanceInvoices: data.autoAdvanceInvoices,
       chargeAutomatically: data.chargeAutomatically,
+      skipPastInvoices: data.skipPastInvoices,
     })
     nextStep()
   }
@@ -247,6 +263,60 @@ export const StepSettings = () => {
                     />
                   )}
                 />
+                {/* Show only when start date is in the past */}
+                {fromDate && fromDate < new Date(new Date().setHours(0, 0, 0, 0)) && (
+                  <div className="pt-4 border-t space-y-2">
+                    <div className="flex items-center gap-1">
+                      <Label
+                        className={`text-sm font-medium ${activationCondition !== 'ON_START' ? 'text-muted-foreground' : ''}`}
+                      >
+                        Migration Settings
+                      </Label>
+                      <TooltipProvider delayDuration={100}>
+                        <Tooltip>
+                          <TooltipTrigger asChild>
+                            <InfoIcon className="h-4 w-4 text-muted-foreground cursor-help" />
+                          </TooltipTrigger>
+                          <TooltipContent className="max-w-xs">
+                            <p>
+                              {activationCondition !== 'ON_START'
+                                ? 'Requires "On Start Date" activation condition.'
+                                : 'For migrations from another billing system.'}
+                            </p>
+                          </TooltipContent>
+                        </Tooltip>
+                      </TooltipProvider>
+                    </div>
+                    <GenericFormField
+                      control={methods.control}
+                      name="skipPastInvoices"
+                      render={({ field }) => (
+                        <div className="space-y-1">
+                          <div className="flex items-center space-x-2">
+                            <Switch
+                              id="skipPastInvoices"
+                              checked={field.value}
+                              onCheckedChange={field.onChange}
+                              disabled={activationCondition !== 'ON_START'}
+                            />
+                            <Label
+                              htmlFor="skipPastInvoices"
+                              className={`font-normal text-sm ${activationCondition !== 'ON_START' ? 'text-muted-foreground' : ''}`}
+                            >
+                              Skip past invoices
+                              {activationCondition !== 'ON_START' && ' (requires On Start Date)'}
+                            </Label>
+                          </div>
+                          <p className="text-xs text-muted-foreground">
+                            {field.value
+                              ? 'Only future invoices will be emitted (including any arrear fees for the current period).'
+                              : 'Off: All periods since the start date will be invoiced, including past ones.'}
+                          </p>
+                        </div>
+                      )}
+                    />
+                  </div>
+                )}
               </CardContent>
             </Card>
 
@@ -265,7 +335,10 @@ export const StepSettings = () => {
                           {trialingPlanName && (
                             <>
                               {' '}
-                              with <span className="font-medium">&quot;{trialingPlanName}&quot;</span>{' '}
+                              with{' '}
+                              <span className="font-medium">
+                                &quot;{trialingPlanName}&quot;
+                              </span>{' '}
                               features
                             </>
                           )}
@@ -289,9 +362,7 @@ export const StepSettings = () => {
                     />
                   </>
                 ) : (
-                  <p className="text-sm text-muted-foreground">
-                    No trial configured on this plan.
-                  </p>
+                  <p className="text-sm text-muted-foreground">No trial configured on this plan.</p>
                 )}
               </CardContent>
             </Card>
@@ -407,7 +478,10 @@ export const StepSettings = () => {
                     }
                   >
                     <SelectItem value="online">Online (card / direct debit)</SelectItem>
-                    <SelectItem value="bankTransfer" disabled={activationCondition === 'ON_CHECKOUT'}>
+                    <SelectItem
+                      value="bankTransfer"
+                      disabled={activationCondition === 'ON_CHECKOUT'}
+                    >
                       Bank transfer
                       {activationCondition === 'ON_CHECKOUT' && ' (unavailable with Checkout)'}
                     </SelectItem>
@@ -571,6 +645,7 @@ const schema = z
     purchaseOrder: z.string().optional(),
     autoAdvanceInvoices: z.boolean().default(true),
     chargeAutomatically: z.boolean().default(true),
+    skipPastInvoices: z.boolean().default(false),
   })
   .refine(data => !data.toDate || data.toDate > data.fromDate, {
     message: 'Must be greater than the start date',
@@ -603,5 +678,18 @@ const schema = z
     {
       message: 'Automatic charging requires online payment methods',
       path: ['chargeAutomatically'],
+    }
+  )
+  .refine(
+    data => {
+      // skipPastInvoices only works with ON_START activation
+      if (data.skipPastInvoices && data.activationCondition !== 'ON_START') {
+        return false
+      }
+      return true
+    },
+    {
+      message: 'Skip past invoices requires "On Start Date" activation condition',
+      path: ['skipPastInvoices'],
     }
   )

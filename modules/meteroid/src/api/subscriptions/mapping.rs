@@ -200,6 +200,7 @@ pub mod subscriptions {
             purchase_order: param.purchase_order,
             backdate_invoices: false,
             skip_checkout_session: false,
+            skip_past_invoices: param.skip_past_invoices.unwrap_or(false),
         };
 
         let res = domain::CreateSubscription {

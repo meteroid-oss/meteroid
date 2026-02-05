@@ -115,6 +115,7 @@ impl CheckoutSession {
             purchase_order: self.purchase_order.clone(),
             backdate_invoices: false,
             skip_checkout_session: true,
+            skip_past_invoices: false,
         }
     }
 

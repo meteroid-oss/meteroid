@@ -85,6 +85,8 @@ export interface CreateSubscriptionState {
   purchaseOrder?: string
   autoAdvanceInvoices: boolean
   chargeAutomatically: boolean
+  // Migration mode: skip past invoices when start_date is in the past
+  skipPastInvoices: boolean
 
   // Components configuration
   components: {
@@ -120,6 +122,7 @@ export const createSubscriptionAtom = atomWithReset<CreateSubscriptionState>({
   purchaseOrder: undefined,
   autoAdvanceInvoices: true,
   chargeAutomatically: true,
+  skipPastInvoices: false,
 
   // Components configuration
   components: {

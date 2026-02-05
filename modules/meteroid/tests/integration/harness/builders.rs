@@ -22,6 +22,8 @@ pub struct SubscriptionBuilder {
     charge_automatically: bool,
     coupon_ids: Vec<CouponId>,
     payment_methods_config: Option<PaymentMethodsConfig>,
+    skip_past_invoices: bool,
+    end_date: Option<NaiveDate>,
 }
 
 impl Default for SubscriptionBuilder {
@@ -35,6 +37,8 @@ impl Default for SubscriptionBuilder {
             charge_automatically: false,
             coupon_ids: vec![],
             payment_methods_config: None,
+            skip_past_invoices: false,
+            end_date: None,
         }
     }
 }
@@ -133,6 +137,18 @@ impl SubscriptionBuilder {
         self.payment_methods_config(PaymentMethodsConfig::external())
     }
 
+    /// Enable skip_past_invoices (migration mode).
+    pub fn skip_past_invoices(mut self) -> Self {
+        self.skip_past_invoices = true;
+        self
+    }
+
+    /// Set the subscription end date.
+    pub fn end_date(mut self, date: NaiveDate) -> Self {
+        self.end_date = Some(date);
+        self
+    }
+
     /// Create the subscription using the provided services.
     pub async fn create(self, services: &Services) -> SubscriptionId {
         let coupons = if self.coupon_ids.is_empty() {
@@ -158,7 +174,7 @@ impl SubscriptionBuilder {
                         invoice_memo: None,
                         invoice_threshold: None,
                         start_date: self.start_date,
-                        end_date: None,
+                        end_date: self.end_date,
                         billing_start_date: None,
                         activation_condition: self.activation_condition,
                         trial_duration: self.trial_duration,
@@ -169,6 +185,7 @@ impl SubscriptionBuilder {
                         purchase_order: None,
                         backdate_invoices: false,
                         skip_checkout_session: false,
+                        skip_past_invoices: self.skip_past_invoices,
                     },
                     price_components: None,
                     add_ons: None,

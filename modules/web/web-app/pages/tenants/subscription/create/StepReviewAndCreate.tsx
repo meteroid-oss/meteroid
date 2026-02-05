@@ -127,6 +127,7 @@ export const StepReviewAndCreate = () => {
           autoAdvanceInvoices: state.autoAdvanceInvoices,
           chargeAutomatically: state.chargeAutomatically,
           paymentMethodsConfig: buildProtoPaymentMethodsConfig(state.paymentMethodsType),
+          skipPastInvoices: state.skipPastInvoices,
           components: {
             parameterizedComponents: state.components.parameterized.map(c => ({
               componentId: c.componentId,
@@ -437,6 +438,12 @@ export const StepReviewAndCreate = () => {
                       {state.chargeAutomatically ? 'Yes' : 'No'}
                     </div>
                   </div>
+                  {state.skipPastInvoices && (
+                    <div>
+                      <div className="text-xs text-muted-foreground">Migration Mode</div>
+                      <div className="font-medium">Skip past invoices</div>
+                    </div>
+                  )}
                 </div>
 
                 {(state.invoiceMemo || state.invoiceThreshold || state.purchaseOrder) && (
