@@ -93,36 +93,38 @@ impl PortalInvoiceService for PortalInvoiceServiceComponents {
             .await
             .map_err(Into::<PortalInvoiceApiError>::into)?;
 
-        // Determine payment method availability based on subscription payment strategy
-        // If invoice is linked to a subscription, use the subscription's payment configuration
-        // Otherwise, use get_or_create_customer_connections for standalone invoices
-        let (card_connection_id, direct_debit_connection_id, bank_account_id_override) =
-            if let Some(subscription_id) = invoice.invoice.subscription_id {
-                let subscription = self
-                    .store
-                    .get_subscription(tenant, subscription_id)
-                    .await
-                    .map_err(Into::<PortalInvoiceApiError>::into)?;
+        // Resolve payment method availability based on subscription payment configuration
+        // This uses the hybrid approach:
+        // - For subscriptions with Inherit config: uses CURRENT invoicing entity providers
+        // - For subscriptions with Override config: uses specifically enabled methods
+        // - For standalone invoices: creates customer connections if needed
+        let resolved = if let Some(subscription_id) = invoice.invoice.subscription_id {
+            let subscription = self
+                .store
+                .get_subscription(tenant, subscription_id)
+                .await
+                .map_err(Into::<PortalInvoiceApiError>::into)?;
 
-                // Use subscription's payment configuration (respects payment strategy)
-                (
-                    subscription.card_connection_id,
-                    subscription.direct_debit_connection_id,
-                    subscription.bank_account_id,
+            // Resolve payment methods at runtime based on subscription's config
+            self.services
+                .resolve_subscription_payment_methods(
+                    tenant,
+                    subscription.payment_methods_config.as_ref(),
+                    &customer,
                 )
-            } else {
-                // Standalone invoice - create customer connections if needed
-                let (card_conn, dd_conn) = self
-                    .services
-                    .get_or_create_customer_connections(
-                        tenant,
-                        customer.id,
-                        customer.invoicing_entity_id,
-                    )
-                    .await
-                    .map_err(Into::<PortalInvoiceApiError>::into)?;
-                (card_conn, dd_conn, None)
-            };
+                .await
+                .map_err(Into::<PortalInvoiceApiError>::into)?
+        } else {
+            // Standalone invoice - use invoicing entity's providers (equivalent to Inherit)
+            self.services
+                .resolve_subscription_payment_methods(tenant, None, &customer)
+                .await
+                .map_err(Into::<PortalInvoiceApiError>::into)?
+        };
+
+        let card_connection_id = resolved.card_connection_id;
+        let direct_debit_connection_id = resolved.direct_debit_connection_id;
+        let bank_account_id_override = resolved.bank_account_id;
 
         let mut invoice =
             crate::api::invoices::mapping::invoices::domain_invoice_with_transactions_to_server(

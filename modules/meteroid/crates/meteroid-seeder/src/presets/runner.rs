@@ -181,7 +181,6 @@ pub async fn run_preset(
             billing_address: customer.billing_address.clone(),
             created_by: user_id,
             force_created_date: created_at.and_hms_opt(0, 0, 0),
-            bank_account_id: None,
             vat_number: customer.vat_number.clone(),
             alias: customer
                 .alias
@@ -234,7 +233,7 @@ pub async fn run_preset(
             invoice_threshold: None,
             start_date: customer.subscription.start_date,
             end_date: None,
-            payment_strategy: None,
+            payment_methods_config: None,
             billing_start_date: None,
             auto_advance_invoices: true,
             charge_automatically: false,

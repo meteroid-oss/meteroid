@@ -13,7 +13,7 @@ use meteroid_store::clients::usage::MockUsageClient;
 use meteroid_store::domain::enums::InvoiceStatusEnum;
 use meteroid_store::domain::{
     CreateSubscription, CustomerNew, Invoice, OrderByRequest, PaginationRequest,
-    SubscriptionActivationCondition, SubscriptionNew, SubscriptionPaymentStrategy,
+    PaymentMethodsConfig, SubscriptionActivationCondition, SubscriptionNew,
 };
 use meteroid_store::repositories::subscriptions::CancellationEffectiveAt;
 use meteroid_store::repositories::{CustomersInterface, InvoiceInterface};
@@ -88,7 +88,6 @@ async fn test_issuing(
                 invoicing_entity_id: None,
                 force_created_date: None,
                 is_tax_exempt: false,
-                bank_account_id: None,
                 vat_number: None,
                 custom_taxes: vec![],
             },
@@ -557,7 +556,7 @@ async fn create_subscription(services: &Services, params: SubscriptionParams) ->
                     activation_condition: params.activation_condition,
                     trial_duration: params.trial_duration,
                     billing_day_anchor: params.billing_day_anchor,
-                    payment_strategy: params.payment_strategy,
+                    payment_methods_config: params.payment_methods_config,
                     auto_advance_invoices: true,
                     charge_automatically: false,
                     purchase_order: None,
@@ -581,7 +580,7 @@ struct SubscriptionParams {
     pub billing_day_anchor: Option<u16>,
     pub activation_condition: SubscriptionActivationCondition,
     pub trial_duration: Option<u32>,
-    pub payment_strategy: Option<SubscriptionPaymentStrategy>,
+    pub payment_methods_config: Option<PaymentMethodsConfig>,
     pub billing_start_date: Option<NaiveDate>,
 }
 
@@ -593,7 +592,7 @@ impl Default for SubscriptionParams {
             billing_day_anchor: None,
             activation_condition: SubscriptionActivationCondition::OnStart,
             trial_duration: None,
-            payment_strategy: None,
+            payment_methods_config: None,
             billing_start_date: None,
         }
     }

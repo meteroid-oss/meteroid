@@ -1,4 +1,5 @@
 use crate::StoreResult;
+use crate::domain::subscriptions::PaymentMethodsConfig;
 use crate::domain::{
     BillableMetric, ConnectorProviderEnum, Customer, InvoicingEntity, PaginatedVec,
     PaginationRequest, Schedule, Subscription, SubscriptionComponent, SubscriptionComponentNew,
@@ -8,6 +9,7 @@ use chrono::NaiveDate;
 use common_domain::ids::{ConnectorId, CustomerId, PlanId, SubscriptionId, TenantId};
 
 use crate::errors::StoreError;
+use crate::services::validate_charge_automatically_with_provider_ids;
 use crate::store::Store;
 use error_stack::{Report, bail};
 use itertools::Itertools;
@@ -496,15 +498,44 @@ impl SubscriptionInterface for Store {
             ));
         }
 
-        if patch.charge_automatically == Some(true) {
-            let has_payment_method = existing.subscription.card_connection_id.is_some()
-                || existing.subscription.direct_debit_connection_id.is_some();
+        // Determine effective values after the patch for validation
+        let effective_charge_automatically = patch
+            .charge_automatically
+            .unwrap_or(existing.subscription.charge_automatically);
 
-            if !has_payment_method {
-                bail!(StoreError::InvalidArgument(
-                    "Cannot enable automatic charging without a payment method".to_string()
-                ));
-            }
+        // Determine effective payment_methods_config after the patch
+        let existing_payment_methods_config: Option<PaymentMethodsConfig> = existing
+            .subscription
+            .payment_methods_config
+            .as_ref()
+            .map(|v| serde_json::from_value(v.clone()))
+            .transpose()
+            .map_err(|e| {
+                StoreError::SerdeError(format!("Failed to parse payment_methods_config: {}", e), e)
+            })?;
+
+        let effective_payment_methods_config = match &patch.payment_methods_config {
+            Some(new_config) => new_config.clone(), // New value from patch (could be Some or None)
+            None => existing_payment_methods_config, // Keep existing
+        };
+
+        // Validate charge_automatically if it will be true after the patch
+        if effective_charge_automatically {
+            // Fetch the invoicing entity to get provider IDs
+            let invoicing_entity = InvoicingEntityRow::get_invoicing_entity_by_id_and_tenant(
+                &mut conn,
+                existing.invoicing_entity_id,
+                tenant_id,
+            )
+            .await
+            .map_err(Into::<Report<StoreError>>::into)?;
+
+            validate_charge_automatically_with_provider_ids(
+                effective_charge_automatically,
+                effective_payment_methods_config.as_ref(),
+                invoicing_entity.card_provider_id,
+                invoicing_entity.direct_debit_provider_id,
+            )?;
         }
 
         let row_patch = SubscriptionRowPatch {
@@ -513,6 +544,11 @@ impl SubscriptionInterface for Store {
             net_terms: patch.net_terms.map(|n| n as i32),
             invoice_memo: patch.invoice_memo,
             purchase_order: patch.purchase_order,
+            payment_methods_config: patch.payment_methods_config.map(|opt| {
+                opt.map(|config| {
+                    serde_json::to_value(config).expect("PaymentMethodsConfig serialization")
+                })
+            }),
         };
 
         SubscriptionRow::patch(&mut conn, &tenant_id, patch.id, &row_patch)

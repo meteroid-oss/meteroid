@@ -140,7 +140,6 @@ async fn test_main() {
                     billing_address: None,
                     shipping_address: None,
                     invoicing_entity_id: None,
-                    bank_account_id: None,
                     vat_number: None,
                     custom_taxes: vec![],
                     is_tax_exempt: Some(false),

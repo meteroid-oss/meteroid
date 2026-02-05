@@ -159,6 +159,7 @@ message UpdateSubscriptionRequest {
   optional uint32 net_terms = 4;
   optional string invoice_memo = 5;
   optional string purchase_order = 7;
+  optional PaymentMethodsConfig payment_methods_config = 8;
 }
 
 message UpdateSubscriptionResponse {

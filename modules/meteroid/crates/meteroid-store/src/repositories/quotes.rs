@@ -415,12 +415,12 @@ impl QuotesInterface for Store {
                     converted_at: None,
                     recipients: None,
                     activation_condition: None,
-                    payment_strategy: None,
                     auto_advance_invoices: None,
                     charge_automatically: None,
                     invoice_memo: None,
                     invoice_threshold: None,
                     create_subscription_on_acceptance: None,
+                    payment_methods_config: None,
                 };
 
                 let updated_row = QuoteRow::update_by_id(conn, tenant_id, quote_id, update)

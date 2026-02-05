@@ -11,9 +11,9 @@ use crate::errors::{StoreError, StoreErrorReport};
 use crate::{StoreResult, json_value_serde};
 use chrono::{NaiveDate, NaiveDateTime};
 use common_domain::ids::{
-    BankAccountId, BaseId, BillableMetricId, CheckoutSessionId, ConnectorId, CreditNoteId,
-    CustomerId, CustomerPaymentMethodId, EventId, InvoiceId, PaymentTransactionId, PlanId,
-    PlanVersionId, ProductFamilyId, ProductId, QuoteId, StoredDocumentId, SubscriptionId, TenantId,
+    BaseId, BillableMetricId, CheckoutSessionId, ConnectorId, CreditNoteId, CustomerId,
+    CustomerPaymentMethodId, EventId, InvoiceId, PaymentTransactionId, PlanId, PlanVersionId,
+    ProductFamilyId, ProductId, QuoteId, StoredDocumentId, SubscriptionId, TenantId,
 };
 use diesel_models::outbox_event::OutboxEventRowNew;
 use diesel_models::pgmq::PgmqMessageRowNew;
@@ -271,7 +271,6 @@ pub struct CustomerEvent {
     pub billing_address: Option<Address>,
     pub shipping_address: Option<ShippingAddress>,
     pub vat_number: Option<String>,
-    pub bank_account_id: Option<BankAccountId>,
     pub conn_meta: Option<ConnectionMeta>,
 }
 

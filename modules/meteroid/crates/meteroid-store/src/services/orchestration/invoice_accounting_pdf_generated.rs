@@ -1,5 +1,5 @@
 use crate::StoreResult;
-use crate::domain::outbox_event::InvoicePdfGeneratedEvent;
+use crate::domain::outbox_event::{InvoicePdfGeneratedEvent, OutboxEvent};
 use crate::domain::pgmq::{PaymentRequestEvent, PgmqMessageNew, PgmqQueue, SendEmailRequest};
 use crate::domain::{
     Customer, Invoice, InvoicePaymentStatus, InvoicingEntity, ResolvedPaymentMethod,
@@ -7,11 +7,15 @@ use crate::domain::{
 use crate::repositories::customer_payment_methods::CustomerPaymentMethodsInterface;
 use crate::repositories::customers::CustomersInterfaceAuto;
 use crate::repositories::invoicing_entities::InvoicingEntityInterfaceAuto;
+use crate::repositories::outbox::OutboxInterface;
 use crate::repositories::payment_transactions::PaymentTransactionInterface;
 use crate::repositories::pgmq::PgmqInterface;
 use crate::repositories::{InvoiceInterface, SubscriptionInterface};
 use crate::services::Services;
+use chrono::Utc;
 use common_domain::ids::TenantId;
+use diesel_async::scoped_futures::ScopedFutureExt;
+use diesel_models::invoices::InvoiceRow;
 
 impl Services {
     pub async fn on_invoice_accounting_pdf_generated(
@@ -94,6 +98,13 @@ impl Services {
                 subscription.charge_automatically,
             ) {
                 (ResolvedPaymentMethod::CustomerPaymentMethod(payment_method_id), true) => {
+                    // For $0 invoices (e.g., 100% coupon), mark as paid directly without payment
+                    if invoice.amount_due <= 0 {
+                        self.mark_zero_amount_invoice_as_paid(tenant_id, &invoice)
+                            .await?;
+                        return Ok(());
+                    }
+
                     // we trigger auto payment
                     let evt: StoreResult<PgmqMessageNew> =
                         PaymentRequestEvent::new(tenant_id, event.invoice_id, payment_method_id)
@@ -103,9 +114,12 @@ impl Services {
                         .pgmq_send_batch(PgmqQueue::PaymentRequest, vec![evt?])
                         .await?;
                 }
-                // in all other cases, we send the invoice with the means to pay (bank account, payment link, or "contact your account manager"))
+                // In all other cases, send the invoice with payment instructions:
+                // - BankTransfer: includes bank account details for wire transfer
+                // - NotConfigured (External config): invoice only, no payment collection
+                // - NotConfigured (no valid payment method): includes pay_online link
+                // - CustomerPaymentMethod + charge_automatically=false: includes pay_online link
                 _ => {
-                    // we send bank transfer details with invoice
                     self.send_invoice_ready_mail(event, invoice, customer, invoicing_entity)
                         .await?;
                 }
@@ -153,5 +167,45 @@ impl Services {
             .await?;
 
         Ok(())
+    }
+
+    /// Handle $0 invoices (e.g., 100% coupon) - mark as paid and emit invoice_paid event.
+    /// The `on_invoice_paid` handler will take care of subscription activation.
+    async fn mark_zero_amount_invoice_as_paid(
+        &self,
+        tenant_id: TenantId,
+        invoice: &Invoice,
+    ) -> StoreResult<()> {
+        self.store
+            .transaction(|conn| {
+                async move {
+                    let now = Utc::now().naive_utc();
+
+                    // Mark invoice as paid (no payment transaction needed for $0)
+                    InvoiceRow::apply_payment_status(
+                        conn,
+                        invoice.id,
+                        tenant_id,
+                        diesel_models::enums::InvoicePaymentStatus::Paid,
+                        Some(now),
+                    )
+                    .await?;
+
+                    // Emit invoice paid event - this triggers on_invoice_paid which handles
+                    // subscription activation (TrialExpired → Active)
+                    self.store
+                        .insert_outbox_event_tx(conn, OutboxEvent::invoice_paid(invoice.into()))
+                        .await?;
+
+                    tracing::info!(
+                        "Marked zero-amount invoice {} as paid (e.g., 100% coupon)",
+                        invoice.id
+                    );
+
+                    Ok(())
+                }
+                .scope_boxed()
+            })
+            .await
     }
 }

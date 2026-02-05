@@ -1,8 +1,7 @@
 use crate::api_rest::addresses::model::{Address, ShippingAddress};
 use crate::api_rest::currencies::model::Currency;
 use crate::api_rest::model::{PaginatedRequest, PaginationResponse};
-use common_domain::ids::{BankAccountId, CustomerId};
-use common_domain::ids::{InvoicingEntityId, string_serde, string_serde_opt};
+use common_domain::ids::{CustomerId, InvoicingEntityId, string_serde, string_serde_opt};
 use utoipa::{IntoParams, ToSchema};
 use validator::Validate;
 
@@ -46,8 +45,6 @@ pub struct Customer {
     pub currency: Currency,
     #[serde(with = "string_serde")]
     pub invoicing_entity_id: InvoicingEntityId,
-    #[serde(default, with = "string_serde_opt")]
-    pub bank_account_id: Option<BankAccountId>,
     pub vat_number: Option<String>,
     pub custom_taxes: Vec<CustomTaxRate>,
 }
@@ -64,8 +61,6 @@ pub struct CustomerCreateRequest {
     pub shipping_address: Option<ShippingAddress>,
     #[serde(default, with = "string_serde_opt")]
     pub invoicing_entity_id: Option<InvoicingEntityId>,
-    #[serde(default, with = "string_serde_opt")]
-    pub bank_account_id: Option<BankAccountId>,
     pub vat_number: Option<String>,
     pub custom_taxes: Vec<CustomTaxRate>,
     pub is_tax_exempt: Option<bool>,
@@ -83,8 +78,6 @@ pub struct CustomerUpdateRequest {
     pub shipping_address: Option<ShippingAddress>,
     #[serde(with = "string_serde")]
     pub invoicing_entity_id: InvoicingEntityId,
-    #[serde(default, with = "string_serde_opt")]
-    pub bank_account_id: Option<BankAccountId>,
     pub vat_number: Option<String>,
     pub custom_taxes: Vec<CustomTaxRate>,
     pub is_tax_exempt: Option<bool>,
@@ -102,8 +95,6 @@ pub struct CustomerPatchRequest {
     pub shipping_address: Option<ShippingAddress>,
     #[serde(default, with = "string_serde_opt")]
     pub invoicing_entity_id: Option<InvoicingEntityId>,
-    #[serde(default, with = "string_serde_opt")]
-    pub bank_account_id: Option<BankAccountId>,
     pub vat_number: Option<String>,
     pub custom_taxes: Option<Vec<CustomTaxRate>>,
     pub is_tax_exempt: Option<bool>,

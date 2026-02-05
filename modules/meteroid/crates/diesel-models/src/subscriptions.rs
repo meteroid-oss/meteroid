@@ -6,12 +6,10 @@ use chrono::NaiveDateTime;
 use uuid::Uuid;
 
 use crate::enums::{
-    BillingPeriodEnum, CycleActionEnum, PaymentMethodTypeEnum, SubscriptionActivationConditionEnum,
-    SubscriptionStatusEnum,
+    BillingPeriodEnum, CycleActionEnum, SubscriptionActivationConditionEnum, SubscriptionStatusEnum,
 };
 use common_domain::ids::{
-    BankAccountId, CustomerConnectionId, CustomerId, CustomerPaymentMethodId, InvoicingEntityId,
-    PlanId, PlanVersionId, QuoteId, SubscriptionId, TenantId,
+    CustomerId, InvoicingEntityId, PlanId, PlanVersionId, QuoteId, SubscriptionId, TenantId,
 };
 use diesel::{AsChangeset, Identifiable, Insertable, Queryable, Selectable};
 use rust_decimal::Decimal;
@@ -35,13 +33,7 @@ pub struct SubscriptionRow {
     pub currency: String,
     pub mrr_cents: i64,
     pub period: BillingPeriodEnum,
-    pub card_connection_id: Option<CustomerConnectionId>,
-    pub direct_debit_connection_id: Option<CustomerConnectionId>,
-    pub bank_account_id: Option<BankAccountId>,
     pub pending_checkout: bool,
-    // this is used if payment_method is null (ex: payment method deleted) to elect a new payment method/start a checkout
-    pub payment_method_type: Option<PaymentMethodTypeEnum>,
-    pub payment_method: Option<CustomerPaymentMethodId>,
     pub end_date: Option<NaiveDate>,
     pub trial_duration: Option<i32>,
     pub activation_condition: SubscriptionActivationConditionEnum,
@@ -61,6 +53,7 @@ pub struct SubscriptionRow {
     pub quote_id: Option<QuoteId>,
     pub backdate_invoices: bool,
     pub processing_started_at: Option<NaiveDateTime>,
+    pub payment_methods_config: Option<serde_json::Value>,
 }
 
 #[derive(Insertable, Debug)]
@@ -79,14 +72,9 @@ pub struct SubscriptionRowNew {
     pub invoice_threshold: Option<Decimal>,
     pub activated_at: Option<NaiveDateTime>,
     pub currency: String,
-    pub card_connection_id: Option<CustomerConnectionId>,
-    pub direct_debit_connection_id: Option<CustomerConnectionId>,
-    pub bank_account_id: Option<BankAccountId>,
     pub mrr_cents: i64,
     pub period: BillingPeriodEnum,
     pub pending_checkout: bool,
-    pub payment_method: Option<CustomerPaymentMethodId>,
-    // TODO payment_method_type
     pub end_date: Option<NaiveDate>,
     pub trial_duration: Option<i32>,
     pub activation_condition: SubscriptionActivationConditionEnum,
@@ -101,6 +89,7 @@ pub struct SubscriptionRowNew {
     pub purchase_order: Option<String>,
     pub quote_id: Option<QuoteId>,
     pub backdate_invoices: bool,
+    pub payment_methods_config: Option<serde_json::Value>,
 }
 
 pub struct CancelSubscriptionParams {
@@ -178,4 +167,5 @@ pub struct SubscriptionRowPatch {
     pub net_terms: Option<i32>,
     pub invoice_memo: Option<Option<String>>,
     pub purchase_order: Option<Option<String>>,
+    pub payment_methods_config: Option<Option<serde_json::Value>>,
 }

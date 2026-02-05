@@ -462,26 +462,38 @@ impl PortalCheckoutServiceComponents {
             .map(crate::api::customers::mapping::customer_payment_method::domain_to_server)
             .collect();
 
-        let bank_account =
-            if let Some(bank_account_id) = subscription_details.subscription.bank_account_id {
-                self.store
-                    .get_bank_account_by_id(bank_account_id, tenant)
-                    .await
-                    .ok()
-                    .map(crate::api::bankaccounts::mapping::bank_accounts::domain_to_proto)
-            } else {
-                None
-            };
-
         let organization = self
             .store
             .get_organization_by_tenant_id(&tenant)
             .await
             .map_err(Into::<PortalCheckoutApiError>::into)?;
 
-        let card_connection_id = subscription_details.subscription.card_connection_id;
-        let direct_debit_connection_id =
-            subscription_details.subscription.direct_debit_connection_id;
+        // Resolve payment methods at runtime based on subscription's config
+        let resolved = self
+            .services
+            .resolve_subscription_payment_methods(
+                tenant,
+                subscription_details
+                    .subscription
+                    .payment_methods_config
+                    .as_ref(),
+                customer,
+            )
+            .await
+            .map_err(Into::<PortalCheckoutApiError>::into)?;
+
+        let card_connection_id = resolved.card_connection_id;
+        let direct_debit_connection_id = resolved.direct_debit_connection_id;
+
+        let bank_account = if let Some(bank_account_id) = resolved.bank_account_id {
+            self.store
+                .get_bank_account_by_id(bank_account_id, tenant)
+                .await
+                .ok()
+                .map(crate::api::bankaccounts::mapping::bank_accounts::domain_to_proto)
+        } else {
+            None
+        };
 
         let subscription_proto =
             crate::api::subscriptions::mapping::subscriptions::details_domain_to_proto(

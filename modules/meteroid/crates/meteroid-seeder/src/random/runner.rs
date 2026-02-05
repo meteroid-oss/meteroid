@@ -201,7 +201,6 @@ pub async fn run(
                 }),
                 created_by: user_id,
                 force_created_date: date.and_hms_opt(0, 0, 0),
-                bank_account_id: None,
                 vat_number: None,
                 alias: Some(alias),
                 name: company_name.to_string(),
@@ -326,7 +325,7 @@ pub async fn run(
             invoice_threshold: None,
             start_date: billing_start_date,
             end_date: billing_end_date,
-            payment_strategy: None, // TODO
+            payment_methods_config: None, // TODO
             billing_start_date: None,
             auto_advance_invoices: true,
             charge_automatically: false,

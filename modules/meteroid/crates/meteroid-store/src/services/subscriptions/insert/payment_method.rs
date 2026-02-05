@@ -1,42 +1,24 @@
-use crate::domain::enums::{ConnectorTypeEnum, PaymentMethodTypeEnum, PlanTypeEnum};
+use crate::domain::enums::PlanTypeEnum;
+use crate::domain::subscriptions::OnlineMethodsConfig;
 use crate::domain::{
-    Customer, CustomerConnection, InvoicingEntityProviderSensitive,
-    SubscriptionActivationCondition, SubscriptionNew, SubscriptionPaymentStrategy,
+    Customer, InvoicingEntityProviderSensitive, PaymentMethodsConfig,
+    SubscriptionActivationCondition, SubscriptionNew,
 };
 use crate::errors::StoreError;
 
 use super::context::SubscriptionCreationContext;
-use crate::adapters::payment_service_providers::initialize_payment_provider;
-use crate::domain::connectors::Connector;
-use crate::store::PgConn;
 use crate::{StoreResult, services::Services};
-use common_domain::ids::{
-    BankAccountId, BaseId, ConnectorId, CustomerConnectionId, CustomerId, CustomerPaymentMethodId,
-};
-use diesel_models::customer_connection::CustomerConnectionRow;
-use error_stack::{Report, ResultExt};
+use error_stack::Report;
 
 impl Services {
-    /// Sets up the appropriate payment provider for a subscription
-    ///
-    /// This function determines the payment setup strategy based on:
-    /// - The subscription's payment strategy (Auto, Bank, External)
-    /// - The customer's existing payment methods
-    /// - The invoicing entity's available payment providers
-    ///
-    /// The result may include:
-    /// - An existing payment method to use
-    /// - A checkout session to collect payment details
-    /// - A bank account for direct transfers
-    /// - An external payment flag (manual payments)
-    pub(crate) async fn setup_payment_provider(
+    /// Validates payment configuration and determines if checkout is needed.
+    /// Connection creation happens on-demand at checkout time.
+    pub(crate) fn setup_payment_provider(
         &self,
-        conn: &mut PgConn,
         subscription: &SubscriptionNew,
         customer: &Customer,
         context: &SubscriptionCreationContext,
     ) -> StoreResult<PaymentSetupResult> {
-        // Find the plan for this subscription
         let plan = context
             .plans
             .iter()
@@ -47,18 +29,10 @@ impl Services {
                 ))
             })?;
 
-        // Free plans don't need payment setup
         if plan.plan_type == PlanTypeEnum::Free {
             return Ok(PaymentSetupResult::external());
         }
 
-        // Determine payment strategy, defaulting to Auto if not specified
-        let strategy = subscription
-            .payment_strategy
-            .clone()
-            .unwrap_or(SubscriptionPaymentStrategy::Auto);
-
-        // Get invoicing entity payment providers for the customer
         let invoicing_entity_providers = context
             .get_invoicing_entity_providers_for_customer(customer)
             .ok_or_else(|| {
@@ -67,276 +41,104 @@ impl Services {
                 ))
             })?;
 
-        // Validate activation_condition + payment_strategy combination
+        let config = subscription
+            .payment_methods_config
+            .clone()
+            .unwrap_or_else(PaymentMethodsConfig::online);
+
+        let has_online_capability = match &config {
+            PaymentMethodsConfig::Online { config } => {
+                self.has_online_capability(invoicing_entity_providers, config.as_ref())
+            }
+            PaymentMethodsConfig::BankTransfer { .. } | PaymentMethodsConfig::External => false,
+        };
+
         if matches!(
             subscription.activation_condition,
             SubscriptionActivationCondition::OnCheckout
-        ) {
-            // OnCheckout requires Auto strategy (can't checkout with Bank or External)
-            if !matches!(strategy, SubscriptionPaymentStrategy::Auto) {
-                return Err(Report::new(StoreError::InvalidArgument(
-                    "OnCheckout activation requires Auto payment strategy. Use OnStart or Manual with Bank/External strategies.".to_string(),
-                )));
-            }
-
-            // OnCheckout requires at least one online payment provider (card or direct debit)
-            let has_online_provider = invoicing_entity_providers.card_provider.is_some()
-                || invoicing_entity_providers.direct_debit_provider.is_some();
-
-            if !has_online_provider {
-                return Err(Report::new(StoreError::InvalidArgument(
-                    "OnCheckout activation requires a card or direct debit payment provider to be configured on the invoicing entity. Please configure a payment provider or use OnStart/Manual activation.".to_string(),
-                )));
-            }
+        ) && !has_online_capability
+        {
+            return Err(Report::new(StoreError::InvalidArgument(
+                "OnCheckout activation requires card or direct debit to be enabled. Configure a payment provider on the invoicing entity and ensure the subscription uses Online payment config.".to_string(),
+            )));
         }
 
-        // Validate charge_automatically flag
-        if subscription.charge_automatically {
-            // ChargeAutomatically requires at least one online payment provider (card or direct debit)
-            let has_online_provider = invoicing_entity_providers.card_provider.is_some()
-                || invoicing_entity_providers.direct_debit_provider.is_some();
-
-            if !has_online_provider {
-                return Err(Report::new(StoreError::InvalidArgument(
-                    "Automatic charging requires a card or direct debit payment provider to be configured on the invoicing entity. Please configure a payment provider or set charge_automatically to false.".to_string(),
-                )));
-            }
-
-            // ChargeAutomatically doesn't make sense with Bank or External strategies
-            if matches!(
-                strategy,
-                SubscriptionPaymentStrategy::Bank | SubscriptionPaymentStrategy::External
-            ) {
-                return Err(Report::new(StoreError::InvalidArgument(
-                    "Automatic charging requires Auto payment strategy. Set charge_automatically to false when using Bank or External payment strategies.".to_string(),
-                )));
-            }
+        if subscription.charge_automatically && !has_online_capability {
+            return Err(Report::new(StoreError::InvalidArgument(
+                "Automatic charging requires card or direct debit to be enabled. Configure a payment provider or set charge_automatically to false.".to_string(),
+            )));
         }
 
-        // Get customer's existing payment provider connections
-        let connections = context.get_customer_connection_for_customer(customer);
-
-        // Process the payment setup based on the selected strategy
-        match strategy {
-            SubscriptionPaymentStrategy::Auto => {
-                self.setup_auto_payment(
-                    conn,
-                    customer,
-                    invoicing_entity_providers,
-                    connections,
-                    subscription.activation_condition.clone(),
-                )
-                .await
+        match &config {
+            PaymentMethodsConfig::Online { config } => self.setup_online_payment(
+                invoicing_entity_providers,
+                config.as_ref(),
+                subscription.activation_condition.clone(),
+            ),
+            PaymentMethodsConfig::BankTransfer { account_id } => {
+                self.setup_bank_transfer_payment(invoicing_entity_providers, *account_id)
             }
-            SubscriptionPaymentStrategy::Bank => {
-                self.setup_bank_payment(customer, invoicing_entity_providers)
-            }
-            SubscriptionPaymentStrategy::External => Ok(PaymentSetupResult::external()),
+            PaymentMethodsConfig::External => Ok(PaymentSetupResult::external()),
         }
     }
 
-    pub(crate) async fn use_or_create_connection(
+    fn has_online_capability(
         &self,
-        conn: &mut PgConn,
-        config: &Connector,
-        customer: &Customer,
-        customer_connectors: &mut Vec<CustomerConnection>,
-    ) -> StoreResult<Option<CustomerConnectionId>> {
-        if config.connector_type == ConnectorTypeEnum::PaymentProvider {
-            // Find an existing connection to this provider
-            let customer_connector_opt = customer_connectors
-                .iter()
-                .find(|cc| cc.connector_id == config.id && cc.customer_id == customer.id);
-
-            let customer_connection_id = match customer_connector_opt {
-                None => {
-                    // Create a new customer in the payment provider
-                    let provider = initialize_payment_provider(config)
-                        .change_context(StoreError::PaymentProviderError)?;
-                    let external_id = provider
-                        .create_customer_in_provider(customer, config)
-                        .await
-                        .change_context(StoreError::PaymentProviderError)?;
-
-                    let supported_payment_types = vec![];
-
-                    // Connect the customer to the payment provider in our system
-                    let connection_id = self
-                        .connect_customer_payment_provider(
-                            conn,
-                            &customer.id,
-                            &config.id,
-                            &external_id,
-                            supported_payment_types.clone(),
-                        )
-                        .await?;
-
-                    customer_connectors.push(CustomerConnection {
-                        id: connection_id,
-                        customer_id: customer.id,
-                        connector_id: config.id,
-                        supported_payment_types: Some(supported_payment_types),
-                        external_customer_id: external_id,
-                    });
-
-                    connection_id
-                }
-                Some(cc) => cc.id,
-            };
-            Ok(Some(customer_connection_id))
-        } else {
-            Ok(None)
-        }
-    }
-
-    /// Implements the Auto payment strategy with the following priority:
-    /// 1. Use customer's default payment method if available
-    /// 2. Use an existing customer connection to a payment provider
-    /// 3. Create a new customer connection to the invoicing entity's payment provider
-    /// 4. Fall back to associating a bank if available
-    /// 5. Otherwise, use external payment
-    ///
-    /// TODO: Allow payment method selection by ID or type during subscription creation
-    /// TODO: Add support for plan-specific payment method restrictions
-    async fn setup_auto_payment(
-        &self,
-        conn: &mut PgConn,
-        customer: &Customer,
         invoicing_entity_providers: &InvoicingEntityProviderSensitive,
-        customer_connectors: Vec<&CustomerConnection>,
+        online_config: Option<&OnlineMethodsConfig>,
+    ) -> bool {
+        let card_enabled = online_config
+            .and_then(|c| c.card.as_ref())
+            .map(|m| m.enabled)
+            .unwrap_or(true);
+
+        let direct_debit_enabled = online_config
+            .and_then(|c| c.direct_debit.as_ref())
+            .map(|m| m.enabled)
+            .unwrap_or(true);
+
+        (card_enabled && invoicing_entity_providers.card_provider.is_some())
+            || (direct_debit_enabled && invoicing_entity_providers.direct_debit_provider.is_some())
+    }
+
+    fn setup_online_payment(
+        &self,
+        invoicing_entity_providers: &InvoicingEntityProviderSensitive,
+        online_config: Option<&OnlineMethodsConfig>,
         condition: SubscriptionActivationCondition,
     ) -> StoreResult<PaymentSetupResult> {
         let checkout = matches!(condition, SubscriptionActivationCondition::OnCheckout);
 
-        // TODO support customer overrides  customer.card_provider_id + customer.direct_debit_provider_id
-
-        // Check if customer has a default payment service provider connection
-        // if let Some(card_provider_id) = &customer.card_provider_id { ... }
-        // if let Some(card_provider_id) = &customer.direct_debit_provider_id { ... }
-
-        // Try to use or create a connection to the invoicing entity's payment provider
-
-        let mut connections: Vec<CustomerConnection> =
-            customer_connectors.into_iter().cloned().collect();
-
-        let card_connection = if let Some(card_provider) = &invoicing_entity_providers.card_provider
-        {
-            self.use_or_create_connection(conn, card_provider, customer, &mut connections)
-                .await
-        } else {
-            Ok(None)
-        }?;
-
-        let direct_debit_connection = if let Some(direct_debit_provider) =
-            &invoicing_entity_providers.direct_debit_provider
-        {
-            self.use_or_create_connection(conn, direct_debit_provider, customer, &mut connections)
-                .await
-        } else {
-            Ok(None)
-        }?;
-
-        if card_connection.is_some() || direct_debit_connection.is_some() {
-            return Ok(PaymentSetupResult {
-                card_connection_id: card_connection,
-                direct_debit_connection_id: direct_debit_connection,
-                checkout,
-                payment_method: customer.current_payment_method_id,
-                bank: None,
-            });
+        if self.has_online_capability(invoicing_entity_providers, online_config) {
+            return Ok(PaymentSetupResult { checkout });
         }
 
-        // fallback on bank or external
-        self.setup_bank_payment(customer, invoicing_entity_providers)
+        Ok(PaymentSetupResult::external())
     }
 
-    /// Sets up a bank transfer option using the invoicing entity's bank account
-    /// TODO: Allow allow passing one as parameter during subscription creation
-    fn setup_bank_payment(
+    fn setup_bank_transfer_payment(
         &self,
-        customer: &Customer,
-        invoicing_entity: &InvoicingEntityProviderSensitive,
+        invoicing_entity_providers: &InvoicingEntityProviderSensitive,
+        account_id_override: Option<common_domain::ids::BankAccountId>,
     ) -> StoreResult<PaymentSetupResult> {
-        if let Some(bank_account_id) = &customer.bank_account_id {
-            Ok(PaymentSetupResult::with_bank(*bank_account_id))
-        } else if let Some(bank_account) = &invoicing_entity.bank_account {
-            Ok(PaymentSetupResult::with_bank(bank_account.id))
-        } else {
-            Ok(PaymentSetupResult::external())
+        let has_bank_account =
+            account_id_override.is_some() || invoicing_entity_providers.bank_account.is_some();
+
+        if has_bank_account {
+            return Ok(PaymentSetupResult { checkout: false });
         }
-    }
 
-    /// Creates a connection between a customer and a payment provider
-    ///
-    /// This stores the external customer ID from the provider in our system
-    ///
-    /// TODO: Support configurable payment method types beyond just Card
-    async fn connect_customer_payment_provider(
-        &self,
-        conn: &mut PgConn,
-        customer_id: &CustomerId,
-        connector_id: &ConnectorId,
-        external_id: &str,
-        supported_payment_method_types: Vec<PaymentMethodTypeEnum>,
-    ) -> StoreResult<CustomerConnectionId> {
-        let customer_connection: CustomerConnectionRow = CustomerConnection {
-            id: CustomerConnectionId::new(),
-            external_customer_id: external_id.to_string(),
-            customer_id: *customer_id,
-            connector_id: *connector_id,
-            supported_payment_types: Some(supported_payment_method_types),
-        }
-        .into();
-
-        let res = customer_connection
-            .insert(conn)
-            .await
-            .map_err(|err| StoreError::DatabaseError(err.error))?;
-
-        Ok(res.id)
+        Ok(PaymentSetupResult::external())
     }
 }
 
-/// Represents the result of payment setup process
-///
-/// This structure contains all the information needed for handling payments
-/// for a subscription based on the determined payment strategy.
 #[derive(Debug, Clone)]
 pub struct PaymentSetupResult {
-    /// The customer's connection to a payment provider, if applicable
-    pub card_connection_id: Option<CustomerConnectionId>,
-    pub direct_debit_connection_id: Option<CustomerConnectionId>,
-
-    /// Indicates whether a checkout session is needed to collect payment details
     pub checkout: bool,
-
-    /// An existing payment method to use for the subscription
-    pub payment_method: Option<CustomerPaymentMethodId>,
-
-    /// A bank account to use for direct transfers
-    pub bank: Option<BankAccountId>,
 }
 
 impl PaymentSetupResult {
-    /// Creates a payment setup result associating a bank account for direct transfers
-    fn with_bank(bank_account_id: BankAccountId) -> Self {
-        Self {
-            card_connection_id: None,
-            direct_debit_connection_id: None,
-            checkout: false,
-            bank: Some(bank_account_id),
-            payment_method: None,
-        }
-    }
-
-    /// Creates a payment setup result for external/manual payments
-    fn external() -> Self {
-        Self {
-            card_connection_id: None,
-            direct_debit_connection_id: None,
-            checkout: false,
-            payment_method: None,
-            bank: None,
-        }
+    pub(crate) fn external() -> Self {
+        Self { checkout: false }
     }
 }

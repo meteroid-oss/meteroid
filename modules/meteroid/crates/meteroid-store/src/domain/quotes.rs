@@ -4,7 +4,7 @@ use serde::{Deserialize, Serialize};
 
 use crate::domain::{
     Customer, InvoicingEntity, QuoteStatusEnum, SubscriptionActivationCondition, SubscriptionFee,
-    SubscriptionFeeBillingPeriod, SubscriptionPaymentStrategy,
+    SubscriptionFeeBillingPeriod, subscriptions::PaymentMethodsConfig,
 };
 use crate::errors::{StoreError, StoreErrorReport};
 use crate::json_value_serde;
@@ -66,13 +66,15 @@ pub struct Quote {
     pub recipients: Vec<RecipientDetails>,
     pub purchase_order: Option<String>,
     // Payment configuration fields
-    #[from(~.into())]
-    pub payment_strategy: SubscriptionPaymentStrategy,
     pub auto_advance_invoices: bool,
     pub charge_automatically: bool,
     pub invoice_memo: Option<String>,
     pub invoice_threshold: Option<Decimal>,
     pub create_subscription_on_acceptance: bool,
+    #[from(~.map(serde_json::from_value).transpose().map_err(|e| {
+        StoreError::SerdeError("Failed to deserialize payment_methods_config".to_string(), e)
+    })?)]
+    pub payment_methods_config: Option<PaymentMethodsConfig>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -117,13 +119,13 @@ pub struct QuoteNew {
     }) ?)]
     pub recipients: Vec<RecipientDetails>,
     // Payment configuration fields
-    #[into(~.into())]
-    pub payment_strategy: SubscriptionPaymentStrategy,
     pub auto_advance_invoices: bool,
     pub charge_automatically: bool,
     pub invoice_memo: Option<String>,
     pub invoice_threshold: Option<Decimal>,
     pub create_subscription_on_acceptance: bool,
+    #[into(~.map(|c| serde_json::to_value(c).expect("PaymentMethodsConfig serialization")))]
+    pub payment_methods_config: Option<PaymentMethodsConfig>,
 }
 
 #[derive(o2o, Debug, Clone)]

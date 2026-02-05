@@ -8,6 +8,7 @@ mod builders;
 mod coupons;
 mod env;
 mod invoices;
+mod payments;
 mod subscriptions;
 
 pub use assertions::*;

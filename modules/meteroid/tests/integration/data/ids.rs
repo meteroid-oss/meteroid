@@ -90,9 +90,25 @@ pub const PLAN_VERSION_PAID_TRIAL_ID: PlanVersionId =
 pub const COMP_PAID_TRIAL_RATE_ID: PriceComponentId =
     PriceComponentId::from_const(uuid!("019438e0-000c-7000-8000-000000000001"));
 
-// Mock payment provider connector
+// Mock payment provider connector (primary - card)
 pub const MOCK_CONNECTOR_ID: ConnectorId =
     ConnectorId::from_const(uuid!("019438e0-000d-7000-8000-000000000001"));
+
+// Mock payment provider connector (secondary - for testing provider switching)
+pub const MOCK_CONNECTOR_2_ID: ConnectorId =
+    ConnectorId::from_const(uuid!("019438e0-0030-7000-8000-000000000001"));
+
+// Customer connections to secondary provider
+pub const CUST_UBER_CONNECTION_2_ID: CustomerConnectionId =
+    CustomerConnectionId::from_const(uuid!("019438e0-0031-7000-8000-000000000001"));
+
+// Customer payment methods for secondary provider
+pub const CUST_UBER_PAYMENT_METHOD_2_ID: CustomerPaymentMethodId =
+    CustomerPaymentMethodId::from_const(uuid!("019438e0-0032-7000-8000-000000000001"));
+
+// Bank account for bank transfer testing
+pub const TEST_BANK_ACCOUNT_ID: BankAccountId =
+    BankAccountId::from_const(uuid!("019438e0-0033-7000-8000-000000000001"));
 
 // Customer connections (customer to mock provider)
 pub const CUST_UBER_CONNECTION_ID: CustomerConnectionId =

@@ -344,7 +344,6 @@ impl CustomerRow {
                 billing_address.eq(excluded(billing_address)),
                 shipping_address.eq(excluded(shipping_address)),
                 invoicing_entity_id.eq(excluded(invoicing_entity_id)),
-                bank_account_id.eq(excluded(bank_account_id)),
                 vat_number.eq(excluded(vat_number)),
                 invoicing_emails.eq(excluded(invoicing_emails)),
                 is_tax_exempt.eq(excluded(is_tax_exempt)),

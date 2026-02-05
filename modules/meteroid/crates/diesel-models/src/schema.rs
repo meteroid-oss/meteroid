@@ -106,10 +106,6 @@ pub mod sql_types {
     pub struct SubscriptionFeeBillingPeriod;
 
     #[derive(diesel::query_builder::QueryId, diesel::sql_types::SqlType)]
-    #[diesel(postgres_type(name = "SubscriptionPaymentStrategy"))]
-    pub struct SubscriptionPaymentStrategy;
-
-    #[derive(diesel::query_builder::QueryId, diesel::sql_types::SqlType)]
     #[diesel(postgres_type(name = "SubscriptionStatusEnum"))]
     pub struct SubscriptionStatusEnum;
 
@@ -299,6 +295,7 @@ diesel::table! {
         invoice_memo -> Nullable<Text>,
         invoice_threshold -> Nullable<Numeric>,
         purchase_order -> Nullable<Text>,
+        payment_methods_config -> Nullable<Jsonb>,
         components -> Nullable<Jsonb>,
         add_ons -> Nullable<Jsonb>,
         coupon_code -> Nullable<Varchar>,
@@ -422,10 +419,7 @@ diesel::table! {
         shipping_address -> Nullable<Jsonb>,
         invoicing_entity_id -> Uuid,
         archived_by -> Nullable<Uuid>,
-        bank_account_id -> Nullable<Uuid>,
         current_payment_method_id -> Nullable<Uuid>,
-        card_provider_id -> Nullable<Uuid>,
-        direct_debit_provider_id -> Nullable<Uuid>,
         vat_number -> Nullable<Text>,
         invoicing_emails -> Array<Nullable<Text>>,
         conn_meta -> Nullable<Jsonb>,
@@ -762,7 +756,6 @@ diesel::table! {
     use diesel::sql_types::*;
     use super::sql_types::QuoteStatusEnum;
     use super::sql_types::SubscriptionActivationConditionEnum;
-    use super::sql_types::SubscriptionPaymentStrategy;
 
     quote (id) {
         id -> Uuid,
@@ -796,12 +789,12 @@ diesel::table! {
         converted_at -> Nullable<Timestamptz>,
         recipients -> Jsonb,
         purchase_order -> Nullable<Text>,
-        payment_strategy -> SubscriptionPaymentStrategy,
         auto_advance_invoices -> Bool,
         charge_automatically -> Bool,
         invoice_memo -> Nullable<Text>,
         invoice_threshold -> Nullable<Numeric>,
         create_subscription_on_acceptance -> Bool,
+        payment_methods_config -> Nullable<Jsonb>,
     }
 }
 
@@ -932,7 +925,6 @@ diesel::table! {
 diesel::table! {
     use diesel::sql_types::*;
     use super::sql_types::BillingPeriodEnum;
-    use super::sql_types::PaymentMethodTypeEnum;
     use super::sql_types::SubscriptionActivationConditionEnum;
     use super::sql_types::SubscriptionStatusEnum;
     use super::sql_types::CycleActionEnum;
@@ -954,12 +946,7 @@ diesel::table! {
         currency -> Varchar,
         mrr_cents -> Int8,
         period -> BillingPeriodEnum,
-        card_connection_id -> Nullable<Uuid>,
-        direct_debit_connection_id -> Nullable<Uuid>,
-        bank_account_id -> Nullable<Uuid>,
         pending_checkout -> Bool,
-        payment_method_type -> Nullable<PaymentMethodTypeEnum>,
-        payment_method -> Nullable<Uuid>,
         end_date -> Nullable<Date>,
         trial_duration -> Nullable<Int4>,
         activation_condition -> SubscriptionActivationConditionEnum,
@@ -979,6 +966,7 @@ diesel::table! {
         quote_id -> Nullable<Uuid>,
         backdate_invoices -> Bool,
         processing_started_at -> Nullable<Timestamp>,
+        payment_methods_config -> Nullable<Jsonb>,
     }
 }
 
@@ -1079,8 +1067,6 @@ diesel::joinable!(api_token -> tenant (tenant_id));
 diesel::joinable!(applied_coupon -> coupon (coupon_id));
 diesel::joinable!(applied_coupon -> customer (customer_id));
 diesel::joinable!(applied_coupon -> subscription (subscription_id));
-diesel::joinable!(coupon_plan -> coupon (coupon_id));
-diesel::joinable!(coupon_plan -> plan (plan_id));
 diesel::joinable!(bank_account -> tenant (tenant_id));
 diesel::joinable!(bi_delta_mrr_daily -> historical_rates_from_usd (historical_rate_id));
 diesel::joinable!(bi_mrr_movement_log -> credit_note (credit_note_id));
@@ -1096,6 +1082,8 @@ diesel::joinable!(checkout_session -> plan_version (plan_version_id));
 diesel::joinable!(checkout_session -> subscription (subscription_id));
 diesel::joinable!(checkout_session -> tenant (tenant_id));
 diesel::joinable!(coupon -> tenant (tenant_id));
+diesel::joinable!(coupon_plan -> coupon (coupon_id));
+diesel::joinable!(coupon_plan -> plan (plan_id));
 diesel::joinable!(credit_note -> customer (customer_id));
 diesel::joinable!(credit_note -> invoice (invoice_id));
 diesel::joinable!(credit_note -> invoicing_entity (invoicing_entity_id));
@@ -1103,7 +1091,6 @@ diesel::joinable!(credit_note -> plan_version (plan_version_id));
 diesel::joinable!(credit_note -> subscription (subscription_id));
 diesel::joinable!(credit_note -> tenant (tenant_id));
 diesel::joinable!(custom_tax -> invoicing_entity (invoicing_entity_id));
-diesel::joinable!(customer -> bank_account (bank_account_id));
 diesel::joinable!(customer -> invoicing_entity (invoicing_entity_id));
 diesel::joinable!(customer -> tenant (tenant_id));
 diesel::joinable!(customer_balance_pending_tx -> customer (customer_id));
@@ -1161,9 +1148,7 @@ diesel::joinable!(schedule -> plan_version (plan_version_id));
 diesel::joinable!(scheduled_event -> subscription (subscription_id));
 diesel::joinable!(slot_transaction -> invoice (invoice_id));
 diesel::joinable!(slot_transaction -> subscription (subscription_id));
-diesel::joinable!(subscription -> bank_account (bank_account_id));
 diesel::joinable!(subscription -> customer (customer_id));
-diesel::joinable!(subscription -> customer_payment_method (payment_method));
 diesel::joinable!(subscription -> plan_version (plan_version_id));
 diesel::joinable!(subscription -> tenant (tenant_id));
 diesel::joinable!(subscription_add_on -> add_on (add_on_id));

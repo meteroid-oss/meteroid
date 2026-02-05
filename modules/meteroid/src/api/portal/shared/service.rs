@@ -106,7 +106,6 @@ impl PortalSharedService for PortalSharedServiceComponents {
                         .vat_number
                         .map(|v| if v.is_empty() { None } else { Some(v) }),
                     custom_taxes: None,
-                    bank_account_id: None,
                     current_payment_method_id: None,
                     is_tax_exempt: None,
                 },
@@ -258,7 +257,6 @@ impl PortalSharedService for PortalSharedServiceComponents {
             shipping_address: None,
             invoicing_entity_id: None,
             vat_number: None,
-            bank_account_id: None,
             current_payment_method_id: Some(Some(payment_method.id)),
             invoicing_emails: None,
             is_tax_exempt: None,

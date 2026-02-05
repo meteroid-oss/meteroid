@@ -1,14 +1,16 @@
 use crate::domain::customer_payment_methods::CustomerPaymentMethod;
+use crate::domain::subscriptions::PaymentMethodsConfig;
 use crate::domain::{CustomerPaymentMethodNew, ResolvedPaymentMethod};
 use crate::errors::StoreError;
 use crate::{Store, StoreResult};
 use common_domain::ids::{
-    CustomerConnectionId, CustomerId, CustomerPaymentMethodId, SubscriptionId, TenantId,
+    ConnectorId, CustomerConnectionId, CustomerId, CustomerPaymentMethodId, SubscriptionId,
+    TenantId,
 };
 use diesel_models::customer_payment_methods::{
     CustomerPaymentMethodRow, CustomerPaymentMethodRowNew,
 };
-use diesel_models::enums::PaymentMethodTypeEnum;
+use diesel_models::enums::PaymentMethodTypeEnum as DieselPaymentMethodTypeEnum;
 
 #[async_trait::async_trait]
 pub trait CustomerPaymentMethodsInterface {
@@ -139,30 +141,126 @@ impl CustomerPaymentMethodsInterface for Store {
     ) -> StoreResult<ResolvedPaymentMethod> {
         let mut conn = self.get_conn().await?;
 
-        let resolved =
-            CustomerPaymentMethodRow::resolve_subscription_payment_method(&mut conn, tenant_id, id)
+        let context =
+            CustomerPaymentMethodRow::get_subscription_payment_context(&mut conn, tenant_id, id)
                 .await
                 .map_err(|err| StoreError::DatabaseError(err.error))?;
 
-        let resolved = match resolved.subscription_payment_method {
-            Some(PaymentMethodTypeEnum::Transfer) => resolved
-                .subscription_bank_account_id
-                .or(resolved.customer_bank_account_id)
-                .or(resolved.invoicing_entity_bank_account_id)
-                .map_or(
-                    ResolvedPaymentMethod::NotConfigured,
-                    ResolvedPaymentMethod::BankTransfer,
-                ),
-            Some(PaymentMethodTypeEnum::Other) => ResolvedPaymentMethod::NotConfigured,
-            None | Some(_) => resolved
-                .subscription_payment_method_id
-                .or(resolved.customer_payment_method_id)
-                .map_or(
-                    ResolvedPaymentMethod::NotConfigured,
-                    ResolvedPaymentMethod::CustomerPaymentMethod,
-                ),
-        };
+        let config: Option<PaymentMethodsConfig> = context
+            .payment_methods_config
+            .map(serde_json::from_value)
+            .transpose()
+            .map_err(|e| {
+                StoreError::SerdeError(format!("Failed to parse payment_methods_config: {}", e), e)
+            })?;
 
-        Ok(resolved)
+        let config = config.unwrap_or_else(PaymentMethodsConfig::online);
+
+        match config {
+            // External = NEVER auto-charge
+            PaymentMethodsConfig::External => Ok(ResolvedPaymentMethod::NotConfigured),
+
+            PaymentMethodsConfig::BankTransfer { account_id } => {
+                let bank_account_id = account_id.or(context.invoicing_entity_bank_account_id);
+                match bank_account_id {
+                    Some(id) => Ok(ResolvedPaymentMethod::BankTransfer(id)),
+                    None => Ok(ResolvedPaymentMethod::NotConfigured),
+                }
+            }
+
+            PaymentMethodsConfig::Online {
+                config: online_config,
+            } => {
+                self.resolve_online_payment_method(
+                    &mut conn,
+                    &tenant_id,
+                    &context.customer_id,
+                    context.card_provider_id,
+                    context.direct_debit_provider_id,
+                    online_config.as_ref(),
+                )
+                .await
+            }
+        }
+    }
+}
+
+impl Store {
+    /// Prefers card over direct debit.
+    async fn resolve_online_payment_method(
+        &self,
+        conn: &mut crate::store::PgConn,
+        tenant_id: &TenantId,
+        customer_id: &CustomerId,
+        card_provider_id: Option<ConnectorId>,
+        direct_debit_provider_id: Option<ConnectorId>,
+        online_config: Option<&crate::domain::subscriptions::OnlineMethodsConfig>,
+    ) -> StoreResult<ResolvedPaymentMethod> {
+        let card_enabled = online_config
+            .and_then(|c| c.card.as_ref())
+            .map(|m| m.enabled)
+            .unwrap_or(true);
+
+        let direct_debit_enabled = online_config
+            .and_then(|c| c.direct_debit.as_ref())
+            .map(|m| m.enabled)
+            .unwrap_or(true);
+
+        let mut valid_provider_ids: Vec<ConnectorId> = Vec::new();
+
+        if card_enabled && let Some(provider_id) = card_provider_id {
+            valid_provider_ids.push(provider_id);
+        }
+
+        if direct_debit_enabled && let Some(provider_id) = direct_debit_provider_id {
+            if !valid_provider_ids.contains(&provider_id) {
+                valid_provider_ids.push(provider_id);
+            }
+        }
+
+        if valid_provider_ids.is_empty() {
+            return Ok(ResolvedPaymentMethod::NotConfigured);
+        }
+
+        let matching_methods =
+            CustomerPaymentMethodRow::list_customer_payment_methods_by_providers(
+                conn,
+                tenant_id,
+                customer_id,
+                &valid_provider_ids,
+            )
+            .await
+            .map_err(|err| StoreError::DatabaseError(err.error))?;
+
+        let mut best_method = None;
+
+        for method in &matching_methods {
+            let is_card = method.payment_method_type == DieselPaymentMethodTypeEnum::Card;
+            let is_direct_debit = matches!(
+                method.payment_method_type,
+                DieselPaymentMethodTypeEnum::DirectDebitSepa
+                    | DieselPaymentMethodTypeEnum::DirectDebitAch
+                    | DieselPaymentMethodTypeEnum::DirectDebitBacs
+            );
+
+            let provider_matches_card =
+                card_enabled && card_provider_id.is_some_and(|p| p == method.connector_id);
+            let provider_matches_dd = direct_debit_enabled
+                && direct_debit_provider_id.is_some_and(|p| p == method.connector_id);
+
+            if is_card && provider_matches_card {
+                best_method = Some(method.id);
+                break;
+            } else if is_direct_debit && provider_matches_dd && best_method.is_none() {
+                best_method = Some(method.id);
+            }
+        }
+
+        match best_method {
+            Some(payment_method_id) => Ok(ResolvedPaymentMethod::CustomerPaymentMethod(
+                payment_method_id,
+            )),
+            None => Ok(ResolvedPaymentMethod::NotConfigured),
+        }
     }
 }

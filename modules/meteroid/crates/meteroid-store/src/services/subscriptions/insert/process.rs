@@ -8,10 +8,10 @@ use crate::domain::scheduled_events::ScheduledEventNew;
 use crate::domain::slot_transactions::{SlotTransaction, SlotTransactionNewInternal};
 use crate::domain::{
     CreateSubscription, CreateSubscriptionAddOns, CreateSubscriptionComponents,
-    CreateSubscriptionFromQuote, CreatedSubscription, Customer, SlotTransactionStatusEnum,
-    SubscriptionActivationCondition, SubscriptionAddOnNew, SubscriptionAddOnNewInternal,
-    SubscriptionComponentNew, SubscriptionComponentNewInternal, SubscriptionFee, SubscriptionNew,
-    SubscriptionNewEnriched, SubscriptionStatusEnum,
+    CreateSubscriptionFromQuote, CreatedSubscription, Customer, PaymentMethodsConfig,
+    SlotTransactionStatusEnum, SubscriptionActivationCondition, SubscriptionAddOnNew,
+    SubscriptionAddOnNewInternal, SubscriptionComponentNew, SubscriptionComponentNewInternal,
+    SubscriptionFee, SubscriptionNew, SubscriptionNewEnriched, SubscriptionStatusEnum,
 };
 use crate::errors::{StoreError, StoreErrorReport};
 use crate::jwt_claims::{ResourceAccess, generate_portal_token};
@@ -679,6 +679,17 @@ impl Services {
                     // Skip if skip_checkout_session is true (subscription created from checkout completion).
                     for (sub, proc) in inserted.iter().zip(processed.iter()) {
                         if sub.pending_checkout && !proc.skip_checkout_session {
+                            // Deserialize payment_methods_config from the processed subscription
+                            let payment_methods_config: Option<PaymentMethodsConfig> = proc
+                                .subscription
+                                .payment_methods_config
+                                .as_ref()
+                                .map(|v| serde_json::from_value(v.clone()))
+                                .transpose()
+                                .map_err(|e| {
+                                    StoreError::SerdeError("payment_methods_config".to_string(), e)
+                                })?;
+
                             let create_session = CreateCheckoutSession {
                                 tenant_id,
                                 customer_id: sub.customer_id,
@@ -694,6 +705,7 @@ impl Services {
                                 invoice_memo: sub.invoice_memo.clone(),
                                 invoice_threshold: sub.invoice_threshold,
                                 purchase_order: sub.purchase_order.clone(),
+                                payment_methods_config,
                                 components: None,
                                 add_ons: None,
                                 coupon_code: None,
@@ -704,7 +716,8 @@ impl Services {
                                 subscription_id: Some(sub.id),
                             };
 
-                            let session_row: CheckoutSessionRowNew = create_session.into_row();
+                            let session_row: CheckoutSessionRowNew =
+                                create_session.try_into_row()?;
                             session_row
                                 .insert(conn)
                                 .await

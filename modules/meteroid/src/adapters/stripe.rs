@@ -197,7 +197,6 @@ impl Stripe {
             shipping_address: None,
             invoicing_entity_id: None,
             vat_number: None,
-            bank_account_id: None,
             current_payment_method_id: Some(Some(payment_method.id)),
             invoicing_emails: None,
             is_tax_exempt: None,

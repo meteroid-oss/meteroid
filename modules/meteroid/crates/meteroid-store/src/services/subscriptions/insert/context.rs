@@ -1,8 +1,8 @@
 use crate::domain::add_ons::AddOn;
 use crate::domain::coupons::Coupon;
 use crate::domain::{
-    CreateSubscription, CreateSubscriptionFromQuote, Customer, CustomerConnection,
-    InvoicingEntityProviderSensitive, PlanForSubscription, PriceComponent,
+    CreateSubscription, CreateSubscriptionFromQuote, Customer, InvoicingEntityProviderSensitive,
+    PlanForSubscription, PriceComponent,
 };
 use crate::errors::StoreError;
 use crate::store::PgConn;
@@ -10,7 +10,6 @@ use crate::{StoreResult, services::Services};
 use common_domain::ids::{CouponId, CustomerId, PlanVersionId, TenantId};
 use diesel_models::add_ons::AddOnRow;
 use diesel_models::coupons::CouponRow;
-use diesel_models::customer_connection::CustomerConnectionRow;
 use diesel_models::customers::CustomerRow;
 use diesel_models::invoicing_entities::InvoicingEntityProvidersRow;
 use diesel_models::plans::PlanRowForSubscription;
@@ -23,7 +22,6 @@ use std::collections::HashMap;
 #[derive(Debug)]
 pub struct SubscriptionCreationContext {
     pub customers: Vec<Customer>,
-    pub customer_connection: Vec<CustomerConnection>,
     pub plans: Vec<PlanForSubscription>,
     pub price_components_by_plan_version: HashMap<PlanVersionId, Vec<PriceComponent>>,
     pub all_add_ons: Vec<AddOn>,
@@ -39,16 +37,6 @@ impl SubscriptionCreationContext {
         self.invoicing_entity_providers
             .iter()
             .find(|e| e.id == customer.invoicing_entity_id)
-    }
-
-    pub(crate) fn get_customer_connection_for_customer(
-        &self,
-        customer: &Customer,
-    ) -> Vec<&CustomerConnection> {
-        self.customer_connection
-            .iter()
-            .filter(|e| e.customer_id == customer.id)
-            .collect()
     }
 }
 
@@ -72,9 +60,6 @@ impl Services {
         let add_ons = self.get_add_ons(conn, batch, &tenant_id).await?;
         let coupons = self.get_coupons(conn, batch, &tenant_id).await?;
         let customers = self.get_customers(conn, batch, &tenant_id).await?;
-        let customer_connection = self
-            .get_customer_connection(conn, batch, &tenant_id)
-            .await?;
         let invoicing_entities = self
             .list_invoicing_entities(conn, &tenant_id, secret_decoding_key)
             .await?;
@@ -86,7 +71,6 @@ impl Services {
             all_add_ons: add_ons,
             all_coupons: coupons,
             invoicing_entity_providers: invoicing_entities,
-            customer_connection,
         })
     }
 
@@ -208,29 +192,6 @@ impl Services {
             .collect::<StoreResult<Vec<Customer>>>()
     }
 
-    async fn get_customer_connection(
-        &self,
-        conn: &mut PgConn,
-        batch: &[CreateSubscription],
-        tenant_id: &TenantId,
-    ) -> StoreResult<Vec<CustomerConnection>> {
-        let customer_ids: Vec<_> = batch
-            .iter()
-            .map(|c| c.subscription.customer_id)
-            .unique()
-            .collect();
-
-        let res =
-            CustomerConnectionRow::list_connections_by_customer_ids(conn, tenant_id, customer_ids)
-                .await
-                .map_err(Into::<Report<StoreError>>::into)?
-                .into_iter()
-                .map(CustomerConnection::from)
-                .collect();
-
-        Ok(res)
-    }
-
     pub(crate) async fn gather_subscription_context_from_quote(
         &self,
         conn: &mut PgConn,
@@ -252,10 +213,6 @@ impl Services {
             .get_customers_by_ids(conn, &[params.subscription.customer_id], &tenant_id)
             .await?;
 
-        let customer_connection = self
-            .get_customer_connection_by_ids(conn, &[params.subscription.customer_id], &tenant_id)
-            .await?;
-
         let invoicing_entities = self
             .list_invoicing_entities(conn, &tenant_id, secret_decoding_key)
             .await?;
@@ -267,7 +224,6 @@ impl Services {
             all_add_ons: vec![],                              // Not needed for quote conversion
             all_coupons: coupons,
             invoicing_entity_providers: invoicing_entities,
-            customer_connection,
         })
     }
 
@@ -313,25 +269,5 @@ impl Services {
             .collect::<Vec<StoreResult<Customer>>>()
             .into_iter()
             .collect::<StoreResult<Vec<Customer>>>()
-    }
-
-    async fn get_customer_connection_by_ids(
-        &self,
-        conn: &mut PgConn,
-        customer_ids: &[CustomerId],
-        tenant_id: &TenantId,
-    ) -> StoreResult<Vec<CustomerConnection>> {
-        let res = CustomerConnectionRow::list_connections_by_customer_ids(
-            conn,
-            tenant_id,
-            customer_ids.to_vec(),
-        )
-        .await
-        .map_err(Into::<Report<StoreError>>::into)?
-        .into_iter()
-        .map(CustomerConnection::from)
-        .collect();
-
-        Ok(res)
     }
 }

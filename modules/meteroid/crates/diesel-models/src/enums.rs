@@ -132,7 +132,7 @@ pub enum OrganizationUserRole {
     Member,
 }
 
-#[derive(diesel_derive_enum::DbEnum, Debug, Clone)]
+#[derive(diesel_derive_enum::DbEnum, Debug, Clone, Eq, PartialEq)]
 #[ExistingTypePath = "crate::schema::sql_types::PaymentMethodTypeEnum"]
 #[DbValueStyle = "SCREAMING_SNAKE_CASE"]
 pub enum PaymentMethodTypeEnum {
@@ -203,15 +203,6 @@ pub enum SubscriptionFeeBillingPeriod {
     Quarterly,
     Semiannual,
     Annual,
-}
-
-#[derive(diesel_derive_enum::DbEnum, Debug, Clone)]
-#[ExistingTypePath = "crate::schema::sql_types::SubscriptionPaymentStrategy"]
-#[DbValueStyle = "SCREAMING_SNAKE_CASE"]
-pub enum SubscriptionPaymentStrategy {
-    Auto,
-    Bank,
-    External,
 }
 
 #[derive(diesel_derive_enum::DbEnum, Debug, Clone)]

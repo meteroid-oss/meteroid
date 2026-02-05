@@ -39,6 +39,7 @@ pub fn domain_to_rest(s: domain::Subscription) -> Result<Subscription, RestApiEr
         purchase_order: s.purchase_order,
         auto_advance_invoices: s.auto_advance_invoices,
         charge_automatically: s.charge_automatically,
+        payment_methods_config: s.payment_methods_config.map(Into::into),
     })
 }
 
@@ -82,6 +83,7 @@ pub fn domain_to_rest_details(
         purchase_order: s.subscription.purchase_order,
         auto_advance_invoices: s.subscription.auto_advance_invoices,
         charge_automatically: s.subscription.charge_automatically,
+        payment_methods_config: s.subscription.payment_methods_config.map(Into::into),
         components,
         add_ons,
         applied_coupons,
@@ -157,8 +159,7 @@ pub fn rest_to_domain_create_request(
             backdate_invoices: false,
             skip_checkout_session: false,
 
-            // todo, allow configuring some/all below via rest
-            payment_strategy: None,
+            payment_methods_config: sub.payment_methods_config.map(Into::into),
             invoice_threshold: None,
             billing_start_date: None,
         },

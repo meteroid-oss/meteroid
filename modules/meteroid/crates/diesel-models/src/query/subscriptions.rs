@@ -15,9 +15,7 @@ use diesel_async::RunQueryDsl;
 use crate::enums::ConnectorProviderEnum;
 use crate::extend::connection_metadata;
 use crate::extend::pagination::{Paginate, PaginatedVec, PaginationRequest};
-use common_domain::ids::{
-    BaseId, ConnectorId, CustomerId, CustomerPaymentMethodId, PlanId, SubscriptionId, TenantId,
-};
+use common_domain::ids::{BaseId, ConnectorId, CustomerId, PlanId, SubscriptionId, TenantId};
 use error_stack::ResultExt;
 
 impl SubscriptionRowNew {
@@ -109,27 +107,6 @@ impl SubscriptionRow {
             .get_result::<(NaiveDate, Option<NaiveDate>)>(conn)
             .await
             .attach("Error while fetching subscription period by ID")
-            .into_db_result()
-    }
-
-    pub async fn get_subscription_payment_method_by_id(
-        conn: &mut PgConn,
-        tenant_id_param: &TenantId,
-        subscription_id_param: SubscriptionId,
-    ) -> DbResult<Option<CustomerPaymentMethodId>> {
-        use crate::schema::subscription::dsl::{id, payment_method, subscription, tenant_id};
-
-        let query = subscription
-            .filter(id.eq(subscription_id_param))
-            .filter(tenant_id.eq(tenant_id_param))
-            .select(payment_method);
-
-        log::debug!("{}", debug_query::<diesel::pg::Pg, _>(&query));
-
-        query
-            .get_result::<Option<CustomerPaymentMethodId>>(conn)
-            .await
-            .attach("Error while fetching subscription by ID")
             .into_db_result()
     }
 

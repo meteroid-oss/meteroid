@@ -5,13 +5,12 @@ use crate::errors::StoreError;
 use crate::repositories::SubscriptionInterface;
 use crate::repositories::outbox::OutboxInterface;
 use crate::services::Services;
+use crate::services::subscriptions::PaymentActivationParams;
 use crate::services::subscriptions::utils::is_paid_trial;
-use crate::services::subscriptions::{PaymentActivationParams, PaymentMethodInfo};
 use crate::utils::periods::calculate_advance_period_range;
 use chrono::{Datelike, Utc};
 use diesel_async::scoped_futures::ScopedFutureExt;
 use diesel_models::checkout_sessions::CheckoutSessionRow;
-use diesel_models::customer_payment_methods::CustomerPaymentMethodRow;
 use diesel_models::enums::{CycleActionEnum, SubscriptionActivationConditionEnum};
 use diesel_models::invoices::InvoiceRow;
 use diesel_models::subscriptions::SubscriptionRow;
@@ -104,7 +103,7 @@ impl Services {
                                 .await?;
                         }
 
-                        // todo should this be on_invoice_paid?
+                        // Activate subscription if pending checkout (TrialExpired activation is handled by on_invoice_paid)
                         if let Some(subscription_id) = subscription_id.as_ref() {
                             let subscription = SubscriptionRow::get_subscription_by_id(
                                 conn,
@@ -113,39 +112,11 @@ impl Services {
                             )
                             .await?;
 
-                            // Activate subscription if pending checkout
                             let should_activate = subscription.subscription.activated_at.is_none()
                                 && subscription.subscription.activation_condition
                                     == SubscriptionActivationConditionEnum::OnCheckout;
 
-                            // Transition TrialExpired to Active when invoice is paid
-                            let should_activate_from_trial_expired =
-                                subscription.subscription.status
-                                    == diesel_models::enums::SubscriptionStatusEnum::TrialExpired;
-
-                            if should_activate_from_trial_expired {
-                                // Trial expired subscription paid - transition to Active
-                                // Use current_period_start (trial end date), not billing_start_date
-                                let period_start = subscription.subscription.current_period_start;
-
-                                let range = calculate_advance_period_range(
-                                    period_start,
-                                    subscription.subscription.billing_day_anchor as u32,
-                                    true, // Align to billing_day_anchor (prorates for fixed day, full period for anniversary)
-                                    &subscription.subscription.period.into(),
-                                );
-
-                                SubscriptionRow::transition_trial_expired_to_active(
-                                    conn,
-                                    subscription_id,
-                                    &event.tenant_id,
-                                    range.start,
-                                    Some(range.end),
-                                    Some(CycleActionEnum::RenewSubscription),
-                                    Some(0),
-                                )
-                                .await?;
-                            } else if should_activate {
+                            if should_activate {
                                 let billing_start_date = subscription
                                     .subscription
                                     .billing_start_date
@@ -319,13 +290,7 @@ impl Services {
                             )?;
 
                             // Skip provider setup since payment already happened
-                            let payment_result = crate::services::PaymentSetupResult {
-                                card_connection_id: None,
-                                direct_debit_connection_id: None,
-                                checkout: false,
-                                payment_method: Some(charge_result.payment_method_id),
-                                bank: None,
-                            };
+                            let payment_result = crate::services::PaymentSetupResult { checkout: false };
 
                             let processed = self.process_subscription(
                                 &detailed_sub,
@@ -386,14 +351,6 @@ impl Services {
                                 .map(|a| a as u32)
                                 .unwrap_or_else(|| billing_start_date.day());
 
-                            let payment_method = CustomerPaymentMethodRow::get_by_id(
-                                conn,
-                                &event.tenant_id,
-                                &charge_result.payment_method_id,
-                            )
-                            .await
-                            .map_err(|e| StoreError::DatabaseError(e.error))?;
-
                             let is_paid_trial_flag = is_paid_trial(
                                 conn,
                                 subscription.subscription.plan_version_id,
@@ -412,10 +369,6 @@ impl Services {
                                     is_paid_trial: is_paid_trial_flag,
                                     billing_day_anchor,
                                     period: subscription.subscription.period.into(),
-                                    payment_method: Some(PaymentMethodInfo {
-                                        id: charge_result.payment_method_id,
-                                        method_type: payment_method.payment_method_type,
-                                    }),
                                 },
                             )
                             .await?;
@@ -471,14 +424,6 @@ impl Services {
                                     .billing_start_date
                                     .unwrap_or_else(|| Utc::now().date_naive());
 
-                                let payment_method = CustomerPaymentMethodRow::get_by_id(
-                                    conn,
-                                    &event.tenant_id,
-                                    &charge_result.payment_method_id,
-                                )
-                                .await
-                                .map_err(|e| StoreError::DatabaseError(e.error))?;
-
                                 let is_paid_trial_flag = is_paid_trial(
                                     conn,
                                     subscription.subscription.plan_version_id,
@@ -501,10 +446,6 @@ impl Services {
                                         billing_day_anchor: subscription.subscription.billing_day_anchor
                                             as u32,
                                         period: subscription.subscription.period,
-                                        payment_method: Some(PaymentMethodInfo {
-                                            id: charge_result.payment_method_id,
-                                            method_type: payment_method.payment_method_type,
-                                        }),
                                     },
                                 )
                                 .await?;

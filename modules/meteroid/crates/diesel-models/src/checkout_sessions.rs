@@ -32,6 +32,9 @@ pub struct CheckoutSessionRow {
     pub invoice_threshold: Option<Decimal>,
     pub purchase_order: Option<String>,
 
+    // Payment configuration
+    pub payment_methods_config: Option<serde_json::Value>,
+
     pub components: Option<serde_json::Value>,
     pub add_ons: Option<serde_json::Value>,
 
@@ -72,6 +75,9 @@ pub struct CheckoutSessionRowNew {
     pub invoice_memo: Option<String>,
     pub invoice_threshold: Option<Decimal>,
     pub purchase_order: Option<String>,
+
+    // Payment configuration
+    pub payment_methods_config: Option<serde_json::Value>,
 
     pub components: Option<serde_json::Value>,
     pub add_ons: Option<serde_json::Value>,

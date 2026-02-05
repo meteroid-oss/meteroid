@@ -2,8 +2,8 @@ use crate::api_rest::currencies::model::Currency;
 use crate::api_rest::model::{BillingPeriodEnum, PaginatedRequest, PaginationResponse};
 use chrono::NaiveDate;
 use common_domain::ids::{
-    AddOnId, AliasOr, AppliedCouponId, BillableMetricId, CouponId, CustomerId, PlanVersionId,
-    PriceComponentId, ProductId,
+    AddOnId, AliasOr, AppliedCouponId, BankAccountId, BillableMetricId, CouponId, CustomerId,
+    PlanVersionId, PriceComponentId, ProductId,
 };
 use common_domain::ids::{PlanId, string_serde_opt, string_serde_vec_opt};
 use common_domain::ids::{SubscriptionId, string_serde};
@@ -11,6 +11,108 @@ use o2o::o2o;
 use serde::{Deserialize, Serialize};
 use utoipa::{IntoParams, ToSchema};
 use validator::Validate;
+
+/// Online (card/direct debit), BankTransfer, or External.
+#[derive(Clone, ToSchema, Serialize, Deserialize, Debug)]
+#[serde(tag = "type", rename_all = "snake_case")]
+pub enum PaymentMethodsConfig {
+    Online {
+        /// If None, inherits all online providers from invoicing entity.
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        config: Option<OnlineMethodsConfig>,
+    },
+    BankTransfer {
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        #[schema(value_type = Option<String>)]
+        account_id: Option<BankAccountId>,
+    },
+    External,
+}
+
+#[derive(Clone, ToSchema, Serialize, Deserialize, Debug, Default)]
+pub struct OnlineMethodsConfig {
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub card: Option<OnlineMethodConfig>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub direct_debit: Option<OnlineMethodConfig>,
+}
+
+#[derive(Clone, ToSchema, Serialize, Deserialize, Debug)]
+pub struct OnlineMethodConfig {
+    pub enabled: bool,
+}
+
+impl From<PaymentMethodsConfig> for meteroid_store::domain::subscriptions::PaymentMethodsConfig {
+    fn from(config: PaymentMethodsConfig) -> Self {
+        match config {
+            PaymentMethodsConfig::Online { config } => {
+                meteroid_store::domain::subscriptions::PaymentMethodsConfig::Online {
+                    config: config.map(|c| c.into()),
+                }
+            }
+            PaymentMethodsConfig::BankTransfer { account_id } => {
+                meteroid_store::domain::subscriptions::PaymentMethodsConfig::BankTransfer {
+                    account_id,
+                }
+            }
+            PaymentMethodsConfig::External => {
+                meteroid_store::domain::subscriptions::PaymentMethodsConfig::External
+            }
+        }
+    }
+}
+
+impl From<meteroid_store::domain::subscriptions::PaymentMethodsConfig> for PaymentMethodsConfig {
+    fn from(config: meteroid_store::domain::subscriptions::PaymentMethodsConfig) -> Self {
+        match config {
+            meteroid_store::domain::subscriptions::PaymentMethodsConfig::Online { config } => {
+                PaymentMethodsConfig::Online {
+                    config: config.map(|c| c.into()),
+                }
+            }
+            meteroid_store::domain::subscriptions::PaymentMethodsConfig::BankTransfer {
+                account_id,
+            } => PaymentMethodsConfig::BankTransfer { account_id },
+            meteroid_store::domain::subscriptions::PaymentMethodsConfig::External => {
+                PaymentMethodsConfig::External
+            }
+        }
+    }
+}
+
+impl From<OnlineMethodsConfig> for meteroid_store::domain::subscriptions::OnlineMethodsConfig {
+    fn from(config: OnlineMethodsConfig) -> Self {
+        meteroid_store::domain::subscriptions::OnlineMethodsConfig {
+            card: config.card.map(|c| c.into()),
+            direct_debit: config.direct_debit.map(|c| c.into()),
+        }
+    }
+}
+
+impl From<meteroid_store::domain::subscriptions::OnlineMethodsConfig> for OnlineMethodsConfig {
+    fn from(config: meteroid_store::domain::subscriptions::OnlineMethodsConfig) -> Self {
+        OnlineMethodsConfig {
+            card: config.card.map(|c| c.into()),
+            direct_debit: config.direct_debit.map(|c| c.into()),
+        }
+    }
+}
+
+impl From<OnlineMethodConfig> for meteroid_store::domain::subscriptions::OnlineMethodConfig {
+    fn from(config: OnlineMethodConfig) -> Self {
+        meteroid_store::domain::subscriptions::OnlineMethodConfig {
+            enabled: config.enabled,
+        }
+    }
+}
+
+impl From<meteroid_store::domain::subscriptions::OnlineMethodConfig> for OnlineMethodConfig {
+    fn from(config: meteroid_store::domain::subscriptions::OnlineMethodConfig) -> Self {
+        OnlineMethodConfig {
+            enabled: config.enabled,
+        }
+    }
+}
 
 #[derive(ToSchema, IntoParams, Serialize, Deserialize, Validate)]
 #[into_params(parameter_in = Query)]
@@ -73,6 +175,8 @@ pub struct Subscription {
     pub auto_advance_invoices: bool,
     /// Automatically try to charge the customer's configured payment method on finalize.
     pub charge_automatically: bool,
+    /// Payment methods configuration (Online, BankTransfer, or External)
+    pub payment_methods_config: Option<PaymentMethodsConfig>,
 }
 
 #[derive(Clone, ToSchema, Serialize, Deserialize, Debug)]
@@ -175,6 +279,7 @@ pub struct SubscriptionDetails {
     pub purchase_order: Option<String>,
     pub auto_advance_invoices: bool,
     pub charge_automatically: bool,
+    pub payment_methods_config: Option<PaymentMethodsConfig>,
     pub components: Vec<SubscriptionComponent>,
     pub add_ons: Vec<SubscriptionAddOn>,
     pub applied_coupons: Vec<AppliedCouponDetailed>,
@@ -217,9 +322,9 @@ pub struct SubscriptionCreateRequest {
     pub auto_advance_invoices: Option<bool>,
     #[schema(nullable = false)]
     pub charge_automatically: Option<bool>,
-    // #[schema(value_type = Option<String>, format = "decimal")]
-    // #[schema(nullable = false)]
-    // pub invoice_threshold: Option<rust_decimal::Decimal>,
+    /// Payment methods configuration. If not specified, inherits from the invoicing entity.
+    #[schema(nullable = false)]
+    pub payment_methods_config: Option<PaymentMethodsConfig>,
 }
 
 #[derive(o2o, Clone, ToSchema, Serialize, Deserialize, Debug)]

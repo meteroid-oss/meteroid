@@ -3,6 +3,7 @@
 use chrono::NaiveDate;
 use common_domain::ids::{CouponId, CustomerId, PlanVersionId, SubscriptionId};
 use meteroid_store::Services;
+use meteroid_store::domain::subscriptions::PaymentMethodsConfig;
 use meteroid_store::domain::{
     CreateSubscription, CreateSubscriptionCoupon, CreateSubscriptionCoupons,
     SubscriptionActivationCondition, SubscriptionNew,
@@ -20,6 +21,7 @@ pub struct SubscriptionBuilder {
     trial_duration: Option<u32>,
     charge_automatically: bool,
     coupon_ids: Vec<CouponId>,
+    payment_methods_config: Option<PaymentMethodsConfig>,
 }
 
 impl Default for SubscriptionBuilder {
@@ -32,6 +34,7 @@ impl Default for SubscriptionBuilder {
             trial_duration: None,
             charge_automatically: false,
             coupon_ids: vec![],
+            payment_methods_config: None,
         }
     }
 }
@@ -119,6 +122,17 @@ impl SubscriptionBuilder {
         self
     }
 
+    /// Set the payment methods configuration.
+    pub fn payment_methods_config(mut self, config: PaymentMethodsConfig) -> Self {
+        self.payment_methods_config = Some(config);
+        self
+    }
+
+    /// Set external payment (all online methods disabled).
+    pub fn external_payment(self) -> Self {
+        self.payment_methods_config(PaymentMethodsConfig::external())
+    }
+
     /// Create the subscription using the provided services.
     pub async fn create(self, services: &Services) -> SubscriptionId {
         let coupons = if self.coupon_ids.is_empty() {
@@ -149,7 +163,7 @@ impl SubscriptionBuilder {
                         activation_condition: self.activation_condition,
                         trial_duration: self.trial_duration,
                         billing_day_anchor: None,
-                        payment_strategy: None,
+                        payment_methods_config: self.payment_methods_config,
                         auto_advance_invoices: true,
                         charge_automatically: self.charge_automatically,
                         purchase_order: None,

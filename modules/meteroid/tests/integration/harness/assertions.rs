@@ -5,6 +5,8 @@ use diesel_models::subscriptions::SubscriptionRow;
 use meteroid_store::domain::Invoice;
 use meteroid_store::domain::enums::{InvoicePaymentStatus, InvoiceStatusEnum};
 
+use super::TestEnv;
+
 // =============================================================================
 // SUBSCRIPTION ASSERTIONS
 // =============================================================================
@@ -80,16 +82,19 @@ impl<'a> SubscriptionAssert<'a> {
         self
     }
 
-    /// Assert whether payment method is present.
-    pub fn has_payment_method(self, expected: bool) -> Self {
-        let has_pm = self.sub.payment_method.is_some();
+    /// Assert that a subscription has (or doesn't have) resolved payment methods.
+    /// This calls the payment resolution service to check what payment methods
+    /// are actually available based on the subscription's config and customer's connections.
+    pub async fn has_resolved_payment_method(self, env: &TestEnv, expected: bool) -> Self {
+        let resolved = env.resolve_subscription_payment_methods(self.sub).await;
+        let has_pm = resolved.has_any_payment_method();
         assert_eq!(
             has_pm,
             expected,
             "{}",
             self.format_msg(&format!(
-                "Expected has_payment_method={}, got {}",
-                expected, has_pm
+                "Expected has_resolved_payment_method={}, got {} (resolved: {:?})",
+                expected, has_pm, resolved
             ))
         );
         self

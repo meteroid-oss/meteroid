@@ -6,8 +6,8 @@ use crate::json_value_serde;
 use chrono::NaiveDateTime;
 use common_domain::country::CountryCode;
 use common_domain::ids::{
-    AliasOr, BankAccountId, BaseId, ConnectorId, CustomerConnectionId, CustomerId,
-    CustomerPaymentMethodId, InvoicingEntityId, TenantId,
+    AliasOr, BaseId, ConnectorId, CustomerConnectionId, CustomerId, CustomerPaymentMethodId,
+    InvoicingEntityId, TenantId,
 };
 use diesel_models::customer_connection::CustomerConnectionRow;
 use diesel_models::customers::CustomerRow;
@@ -49,10 +49,7 @@ pub struct Customer {
     pub billing_address: Option<Address>,
     #[map(~.map(|v| v.try_into()).transpose()?)]
     pub shipping_address: Option<ShippingAddress>,
-    pub bank_account_id: Option<BankAccountId>,
     pub current_payment_method_id: Option<CustomerPaymentMethodId>,
-    pub card_provider_id: Option<ConnectorId>,
-    pub direct_debit_provider_id: Option<ConnectorId>,
     pub vat_number: Option<String>,
     #[map(~.into_iter().flatten().collect())]
     pub invoicing_emails: Vec<String>,
@@ -88,7 +85,6 @@ pub struct CustomerNew {
     pub invoicing_entity_id: Option<InvoicingEntityId>,
     // for seeding
     pub force_created_date: Option<NaiveDateTime>,
-    pub bank_account_id: Option<BankAccountId>,
     pub vat_number: Option<String>,
     pub custom_taxes: Vec<CustomerCustomTax>,
     pub is_tax_exempt: bool,
@@ -140,10 +136,7 @@ impl TryInto<CustomerRowNew> for CustomerNewWrapper {
                 .map(std::convert::TryInto::try_into)
                 .transpose()?,
             created_at: self.inner.force_created_date,
-            bank_account_id: self.inner.bank_account_id,
             current_payment_method_id: None,
-            direct_debit_provider_id: None,
-            card_provider_id: None,
             vat_number: self.inner.vat_number,
             custom_taxes: serde_json::to_value(&self.inner.custom_taxes).map_err(|e| {
                 StoreError::SerdeError("Failed to serialize custom_taxes".to_string(), e)
@@ -177,7 +170,6 @@ pub struct CustomerPatch {
     StoreError::SerdeError("Failed to serialize custom_taxes".to_string(), e)
     })?)]
     pub custom_taxes: Option<Vec<CustomerCustomTax>>,
-    pub bank_account_id: Option<Option<BankAccountId>>,
     pub current_payment_method_id: Option<Option<CustomerPaymentMethodId>>,
     pub is_tax_exempt: Option<bool>,
 }
@@ -260,7 +252,6 @@ pub struct CustomerUpdate {
     pub invoicing_entity_id: InvoicingEntityId,
     pub vat_number: Option<String>,
     pub custom_taxes: Vec<CustomerCustomTax>,
-    pub bank_account_id: Option<BankAccountId>,
     pub is_tax_exempt: bool,
 }
 

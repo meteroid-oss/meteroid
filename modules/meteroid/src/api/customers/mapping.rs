@@ -112,7 +112,6 @@ pub mod customer {
                     .transpose()?
                     .map(|v| v.0),
                 connection_metadata: value.conn_meta.as_ref().map(connection_metadata_to_server),
-                bank_account_id: value.bank_account_id.map(|v| v.as_proto()),
                 custom_taxes: value
                     .custom_taxes
                     .into_iter()

@@ -260,18 +260,6 @@ impl SubscriptionFeeBillingPeriod {
     }
 }
 
-#[derive(o2o, Serialize, Deserialize, Debug, Clone)]
-#[map_owned(diesel_enums::SubscriptionPaymentStrategy)]
-pub enum SubscriptionPaymentStrategy {
-    Auto, // uses the existing method if exist, do card checkout if standard plan & configured provider, else bank if exists else external
-    Bank,
-    External,
-    // TODO
-    // CustomerPaymentMethod(id)
-    // PaymentProvider(id)
-    // Bank(id)
-}
-
 #[derive(Serialize, Deserialize, Debug, Clone)]
 pub enum BillingType {
     Advance,

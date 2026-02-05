@@ -479,7 +479,7 @@ async fn test_metering_e2e() {
                         purchase_order: None,
                         auto_advance_invoices: None,
                         charge_automatically: None,
-                        payment_strategy: None,
+                        payment_methods_config: None,
                     },
                 )
             },

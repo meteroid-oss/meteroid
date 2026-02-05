@@ -22,7 +22,6 @@ expression: "&created"
   },
   "currency": "EUR",
   "invoicing_entity_id": "ive_xxx",
-  "bank_account_id": null,
   "vat_number": "VAT123456",
   "custom_taxes": [
     {

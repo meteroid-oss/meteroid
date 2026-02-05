@@ -1,6 +1,5 @@
 use crate::enums::{
     QuoteStatusEnum, SubscriptionActivationConditionEnum, SubscriptionFeeBillingPeriod,
-    SubscriptionPaymentStrategy,
 };
 use chrono::{NaiveDate, NaiveDateTime};
 
@@ -49,12 +48,12 @@ pub struct QuoteRow {
     pub recipients: serde_json::Value,
     pub purchase_order: Option<String>,
     // Payment configuration fields
-    pub payment_strategy: SubscriptionPaymentStrategy,
     pub auto_advance_invoices: bool,
     pub charge_automatically: bool,
     pub invoice_memo: Option<String>,
     pub invoice_threshold: Option<rust_decimal::Decimal>,
     pub create_subscription_on_acceptance: bool,
+    pub payment_methods_config: Option<serde_json::Value>,
 }
 
 #[derive(Insertable, Debug)]
@@ -86,12 +85,12 @@ pub struct QuoteRowNew {
     pub sharing_key: Option<String>,
     pub recipients: serde_json::Value,
     // Payment configuration fields
-    pub payment_strategy: SubscriptionPaymentStrategy,
     pub auto_advance_invoices: bool,
     pub charge_automatically: bool,
     pub invoice_memo: Option<String>,
     pub invoice_threshold: Option<rust_decimal::Decimal>,
     pub create_subscription_on_acceptance: bool,
+    pub payment_methods_config: Option<serde_json::Value>,
 }
 
 #[derive(Debug, AsChangeset, Default)]
@@ -124,12 +123,12 @@ pub struct QuoteRowUpdate {
     pub recipients: Option<serde_json::Value>,
     pub updated_at: Option<NaiveDateTime>,
     // Payment configuration fields
-    pub payment_strategy: Option<SubscriptionPaymentStrategy>,
     pub auto_advance_invoices: Option<bool>,
     pub charge_automatically: Option<bool>,
     pub invoice_memo: Option<Option<String>>,
     pub invoice_threshold: Option<Option<rust_decimal::Decimal>>,
     pub create_subscription_on_acceptance: Option<bool>,
+    pub payment_methods_config: Option<Option<serde_json::Value>>,
 }
 
 #[derive(Debug, Queryable, Selectable)]

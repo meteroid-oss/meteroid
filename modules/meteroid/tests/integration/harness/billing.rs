@@ -38,7 +38,11 @@ impl TestEnv {
         run_once_invoice_orchestration(store.clone(), services.clone()).await;
 
         // Step 6: Process payment requests
-        run_once_payment_request(store, services).await;
+        run_once_payment_request(store.clone(), services.clone()).await;
+
+        // Step 7-8: Process PaymentTransactionSaved events (triggers subscription activation on settled)
+        run_once_outbox_dispatch(store.clone()).await;
+        run_once_invoice_orchestration(store, services).await;
     }
 
     /// Simulate PDF generation for all finalized invoices that don't have a PDF yet.

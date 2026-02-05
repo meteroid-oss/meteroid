@@ -1,5 +1,5 @@
 use crate::api_rest::subscriptions::model::{
-    CreateSubscriptionAddOn, CreateSubscriptionComponents,
+    CreateSubscriptionAddOn, CreateSubscriptionComponents, PaymentMethodsConfig,
 };
 use chrono::{DateTime, NaiveDate, Utc};
 use common_domain::ids::{
@@ -90,6 +90,9 @@ pub struct CreateCheckoutSessionRequest {
     // Custom metadata
     #[schema(value_type = Option<serde_json::Value>)]
     pub metadata: Option<serde_json::Value>,
+
+    /// Payment methods configuration. If not specified, inherits from the invoicing entity.
+    pub payment_methods_config: Option<PaymentMethodsConfig>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, ToSchema)]
