@@ -10,7 +10,7 @@ import {
 } from '@ui/components'
 import { useAtom } from 'jotai'
 import { Gift, Plus, Search, Tag, X } from 'lucide-react'
-import { useState } from 'react'
+import { useEffect, useRef, useState } from 'react'
 import { useSearchParams } from 'react-router-dom'
 import { useWizard } from 'react-use-wizard'
 import { z } from 'zod'
@@ -49,6 +49,18 @@ export const StepPlanAndCustomer = () => {
   })
 
   const [customerId, planVersionId] = methods.watch(['customerId', 'planVersionId'])
+
+  // Reset component configs when switching plans to avoid stale component IDs
+  const prevPlanVersionId = useRef(planVersionId)
+  useEffect(() => {
+    if (prevPlanVersionId.current && planVersionId !== prevPlanVersionId.current) {
+      setState(prev => ({
+        ...prev,
+        components: { parameterized: [], overridden: [], extra: [], removed: [] },
+      }))
+    }
+    prevPlanVersionId.current = planVersionId
+  }, [planVersionId, setState])
 
   const addOnsQuery = useQuery(listAddOns, {
     pagination: {

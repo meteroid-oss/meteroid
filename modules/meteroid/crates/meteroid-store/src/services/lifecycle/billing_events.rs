@@ -1,6 +1,7 @@
 use crate::StoreResult;
 use crate::domain::ScheduledEventTypeEnum;
 use crate::domain::scheduled_events::{ScheduledEvent, ScheduledEventData};
+use crate::domain::slot_transactions::SlotTransactionNewInternal;
 use crate::errors::StoreError;
 use crate::repositories::SubscriptionInterface;
 use crate::services::Services;
@@ -244,6 +245,32 @@ impl Services {
             ref component_mappings,
         } = event.event_data
         {
+            // Guard: verify subscription is still in a valid state for plan change
+            let sub = SubscriptionRow::get_subscription_by_id(
+                conn,
+                &event.tenant_id,
+                event.subscription_id,
+            )
+            .await
+            .map_err(Into::<error_stack::Report<StoreError>>::into)?;
+
+            match sub.subscription.status {
+                SubscriptionStatusEnum::Active | SubscriptionStatusEnum::TrialActive => {}
+                other => {
+                    log::warn!(
+                        "Skipping plan change for subscription {} — status is {:?}, event_id={}",
+                        event.subscription_id,
+                        other,
+                        event.id,
+                    );
+                    return Err(StoreError::InvalidArgument(format!(
+                        "Cannot apply plan change: subscription is in {:?} status",
+                        other
+                    ))
+                    .into());
+                }
+            }
+
             // 1. Update subscription's plan_version_id
             SubscriptionRow::update_plan_version(
                 conn,
@@ -336,6 +363,20 @@ impl Services {
                 SubscriptionComponentRow::insert_subscription_component_batch(conn, refs)
                     .await
                     .map_err(Into::<error_stack::Report<StoreError>>::into)?;
+            }
+
+            // Seed slot transactions for newly added Slot components
+            for mapping in component_mappings {
+                if let ComponentMapping::Added { fee, .. } = mapping {
+                    if let Some(tx) =
+                        SlotTransactionNewInternal::from_fee(fee, apply_date)
+                    {
+                        tx.into_row(event.subscription_id)
+                            .insert(conn)
+                            .await
+                            .map_err(Into::<error_stack::Report<StoreError>>::into)?;
+                    }
+                }
             }
 
             // 3. Insert Switch subscription event

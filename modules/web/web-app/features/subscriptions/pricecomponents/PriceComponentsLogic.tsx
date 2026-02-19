@@ -42,7 +42,7 @@ import {
   X,
   Zap,
 } from 'lucide-react'
-import { useMemo, useEffect, useState } from 'react'
+import { useMemo, useEffect, useRef, useState } from 'react'
 
 import { FeeTypePicker } from '@/features/plans/pricecomponents/FeeTypePicker'
 import { ProductBrowser, extractStructuralInfo } from '@/features/plans/pricecomponents/ProductBrowser'
@@ -187,6 +187,9 @@ export const PriceComponentsLogic = ({
   const [overrideComponentId, setOverrideComponentId] = useState<string | null>(null)
   const [editExtraIndex, setEditExtraIndex] = useState<number | null>(null)
 
+  const onValidationChangeRef = useRef(onValidationChange)
+  onValidationChangeRef.current = onValidationChange
+
   const componentsQuery = useQuery(
     listPriceComponents,
     { planVersionId: planVersionId ?? '' },
@@ -227,11 +230,11 @@ export const PriceComponentsLogic = ({
       const isExcluded = state.components.removed.includes(c.id)
       return !isExcluded && requiresConfiguration(c) && !isComponentConfigured(c)
     })
-    onValidationChange?.(
+    onValidationChangeRef.current?.(
       unconfigured.length === 0,
       unconfigured.map(c => `${c.name} requires configuration`)
     )
-  }, [state.components, planComponents, onValidationChange])
+  }, [state.components, planComponents])
 
   // --- State mutations ---
 

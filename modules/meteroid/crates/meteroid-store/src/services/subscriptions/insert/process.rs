@@ -11,7 +11,7 @@ use crate::domain::{
     CreateSubscriptionFromQuote, CreatedSubscription, Customer, PaymentMethodsConfig,
     SlotTransactionStatusEnum, SubscriptionActivationCondition, SubscriptionAddOnNew,
     SubscriptionAddOnNewInternal, SubscriptionComponentNew, SubscriptionComponentNewInternal,
-    SubscriptionFee, SubscriptionNew, SubscriptionNewEnriched, SubscriptionStatusEnum,
+    SubscriptionNew, SubscriptionNewEnriched, SubscriptionStatusEnum,
 };
 use crate::errors::{StoreError, StoreErrorReport};
 use crate::jwt_claims::{ResourceAccess, generate_portal_token};
@@ -26,8 +26,8 @@ use crate::utils::periods::{
     calculate_advance_period_range, calculate_elapsed_cycles, find_period_containing_date,
 };
 use crate::{StoreResult, services::Services};
-use chrono::{Datelike, NaiveDate, NaiveTime};
-use common_domain::ids::{BaseId, QuoteId, SlotTransactionId, SubscriptionId, TenantId};
+use chrono::{Datelike, NaiveDate};
+use common_domain::ids::{BaseId, QuoteId, SubscriptionId, TenantId};
 use common_eventbus::{Event, EventBus};
 use diesel_async::scoped_futures::ScopedFutureExt;
 use diesel_models::applied_coupons::AppliedCouponRowNew;
@@ -673,35 +673,14 @@ fn process_slot_transactions(
 ) -> StoreResult<Vec<SlotTransactionNewInternal>> {
     let mut transactions = vec![];
 
-    fn fee_to_tx(
-        fee: &SubscriptionFee,
-        start_date: NaiveDate,
-    ) -> Option<SlotTransactionNewInternal> {
-        match &fee {
-            SubscriptionFee::Slot {
-                initial_slots,
-                unit,
-                ..
-            } => Some(SlotTransactionNewInternal {
-                id: SlotTransactionId::new(),
-                unit: unit.clone(),
-                delta: 0i32,
-                prev_active_slots: *initial_slots as i32,
-                effective_at: start_date.and_time(NaiveTime::MIN),
-                transaction_at: start_date.and_time(NaiveTime::MIN),
-            }),
-            _ => None,
-        }
-    }
-
     for component in components {
-        if let Some(tx) = fee_to_tx(&component.fee, start_date) {
+        if let Some(tx) = SlotTransactionNewInternal::from_fee(&component.fee, start_date) {
             transactions.push(tx);
         }
     }
 
     for addon in addons {
-        if let Some(tx) = fee_to_tx(&addon.fee, start_date) {
+        if let Some(tx) = SlotTransactionNewInternal::from_fee(&addon.fee, start_date) {
             transactions.push(tx);
         }
     }
