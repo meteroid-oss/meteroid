@@ -96,14 +96,8 @@ message SubscriptionDetails {
   repeated SubscriptionAddOn add_ons = 5;
   repeated meteroid.api.coupons.v1.AppliedCouponDetailed applied_coupons = 6;
   optional TrialConfig trial_config = 7;
-  optional PendingPlanChange pending_plan_change = 8;
 }
 
-message PendingPlanChange {
-  string new_plan_name = 1;
-  string new_plan_version_id = 2;
-  string effective_date = 3;
-}
 
 // TODO replace by subscription or even subscription details
 message CreatedSubscription {
