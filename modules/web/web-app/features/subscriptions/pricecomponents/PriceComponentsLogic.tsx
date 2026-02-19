@@ -1,3 +1,4 @@
+import { disableQuery } from '@connectrpc/connect-query'
 import {
   Badge,
   Button,
@@ -972,7 +973,7 @@ const OverrideFeeModal = ({
 
   const productQuery = useQuery(
     getProduct,
-    originalComponent?.productId ? { productId: originalComponent.productId } : {},
+    originalComponent?.productId ? { productId: originalComponent.productId } : disableQuery,
     { enabled: hasProduct }
   )
   const product = productQuery.data?.product
