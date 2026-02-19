@@ -277,12 +277,7 @@ async fn test_slot_downgrade(services: &Services, store: &Store, _conn: &mut PgC
     .await;
 
     let initial_count = store
-        .get_active_slots_value(
-            TENANT_ID,
-            subscription_id,
-            SLOT_UNIT.to_string(),
-            None,
-        )
+        .get_active_slots_value(TENANT_ID, subscription_id, SLOT_UNIT.to_string(), None)
         .await
         .expect("Failed to get current slots");
 
@@ -308,12 +303,7 @@ async fn test_slot_downgrade(services: &Services, store: &Store, _conn: &mut PgC
 
     // Verify current slots haven't changed yet (deferred)
     let current_count = store
-        .get_active_slots_value(
-            TENANT_ID,
-            subscription_id,
-            SLOT_UNIT.to_string(),
-            None,
-        )
+        .get_active_slots_value(TENANT_ID, subscription_id, SLOT_UNIT.to_string(), None)
         .await
         .expect("Failed to get current slots");
 
@@ -468,12 +458,7 @@ async fn test_concurrent_upgrades(services: &Services, store: &Store, _conn: &mu
     .await;
 
     let initial_count = store
-        .get_active_slots_value(
-            TENANT_ID,
-            subscription_id,
-            SLOT_UNIT.to_string(),
-            None,
-        )
+        .get_active_slots_value(TENANT_ID, subscription_id, SLOT_UNIT.to_string(), None)
         .await
         .expect("Failed to get initial count");
 

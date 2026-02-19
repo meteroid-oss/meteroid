@@ -228,9 +228,10 @@ impl SubscriptionFee {
     /// runtime values like initial_slot_count.
     pub fn apply_parameters(&mut self, params: &ComponentParameters) {
         if let SubscriptionFee::Slot { initial_slots, .. } = self
-            && let Some(count) = params.initial_slot_count {
-                *initial_slots = count;
-            }
+            && let Some(count) = params.initial_slot_count
+        {
+            *initial_slots = count;
+        }
     }
 
     pub fn metric_id(&self) -> Option<BillableMetricId> {
