@@ -1,5 +1,5 @@
 use crate::enums::SubscriptionFeeBillingPeriod;
-use common_domain::ids::{AddOnId, QuoteAddOnId, QuoteId};
+use common_domain::ids::{AddOnId, PriceId, ProductId, QuoteAddOnId, QuoteId};
 use diesel::{Identifiable, Insertable, Queryable, Selectable};
 
 #[derive(Queryable, Debug, Identifiable, Selectable)]
@@ -11,7 +11,9 @@ pub struct QuoteAddOnRow {
     pub quote_id: QuoteId,
     pub add_on_id: AddOnId,
     pub period: SubscriptionFeeBillingPeriod,
-    pub fee: serde_json::Value,
+    pub legacy_fee: Option<serde_json::Value>,
+    pub product_id: Option<ProductId>,
+    pub price_id: Option<PriceId>,
 }
 
 #[derive(Insertable, Debug)]
@@ -23,5 +25,7 @@ pub struct QuoteAddOnRowNew {
     pub quote_id: QuoteId,
     pub add_on_id: AddOnId,
     pub period: SubscriptionFeeBillingPeriod,
-    pub fee: serde_json::Value,
+    pub legacy_fee: Option<serde_json::Value>,
+    pub product_id: Option<ProductId>,
+    pub price_id: Option<PriceId>,
 }

@@ -1,12 +1,18 @@
 use crate::StoreResult;
-use crate::domain::subscriptions::PaymentMethodsConfig;
+use crate::domain::enums::SubscriptionFeeBillingPeriod;
+use crate::domain::prices::{Price, fee_type_billing_period, resolve_subscription_fee};
+use crate::domain::products::Product;
+use crate::domain::subscriptions::{PaymentMethodsConfig, PendingPlanChange};
 use crate::domain::{
     BillableMetric, ConnectorProviderEnum, Customer, InvoicingEntity, PaginatedVec,
     PaginationRequest, Schedule, Subscription, SubscriptionComponent, SubscriptionComponentNew,
     SubscriptionDetails, SubscriptionPatch, TrialConfig,
 };
 use chrono::NaiveDate;
-use common_domain::ids::{ConnectorId, CustomerId, PlanId, SubscriptionId, TenantId};
+use common_domain::ids::{
+    ConnectorId, CustomerId, PlanId, PriceId, ProductId, SubscriptionId, TenantId,
+};
+use std::collections::HashMap;
 
 use crate::errors::StoreError;
 use crate::services::validate_charge_automatically_with_provider_ids;
@@ -17,6 +23,8 @@ use itertools::Itertools;
 use crate::domain::subscription_add_ons::SubscriptionAddOn;
 use diesel_models::applied_coupons::AppliedCouponDetailedRow;
 use diesel_models::billable_metrics::BillableMetricRow;
+use diesel_models::prices::PriceRow;
+use diesel_models::products::ProductRow;
 use diesel_models::schedules::ScheduleRow;
 use diesel_models::subscription_add_ons::SubscriptionAddOnRow;
 use diesel_models::subscription_components::{
@@ -36,7 +44,8 @@ use diesel_models::scheduled_events::ScheduledEventRowNew;
 use meteroid_store_macros::with_conn_delegate;
 
 pub mod slots;
-use crate::domain::scheduled_events::{ScheduledEvent, ScheduledEventNew};
+use crate::domain::scheduled_events::{ScheduledEvent, ScheduledEventData, ScheduledEventNew};
+use diesel_models::scheduled_events::ScheduledEventRow;
 pub use slots::SubscriptionSlotsInterface;
 
 pub enum CancellationEffectiveAt {
@@ -152,17 +161,102 @@ impl SubscriptionInterface for Store {
                 .map(std::convert::TryInto::try_into)
                 .collect::<Result<Vec<_>, Report<_>>>()?;
 
-        let subscription_components: Vec<SubscriptionComponent> =
+        let subscription_component_rows =
             SubscriptionComponentRow::list_subscription_components_by_subscription(
                 conn,
                 &tenant_id,
                 &subscription.id,
             )
             .await
-            .map_err(Into::<Report<StoreError>>::into)?
+            .map_err(Into::<Report<StoreError>>::into)?;
+
+        // Partition by price_id presence for resolution
+        let (rows_with_price, rows_without_price): (Vec<_>, Vec<_>) = subscription_component_rows
+            .into_iter()
+            .partition(|row| row.price_id.is_some());
+
+        // Legacy components: deserialize fee JSONB
+        let mut subscription_components: Vec<SubscriptionComponent> = rows_without_price
             .into_iter()
             .map(std::convert::TryInto::try_into)
             .collect::<Result<Vec<_>, Report<_>>>()?;
+
+        // New-style components: resolve from Products + Prices
+        if !rows_with_price.is_empty() {
+            let price_ids: Vec<PriceId> = rows_with_price
+                .iter()
+                .filter_map(|r| r.price_id)
+                .unique()
+                .collect();
+
+            let price_rows = PriceRow::list_by_ids(conn, &price_ids, tenant_id)
+                .await
+                .map_err(Into::<Report<StoreError>>::into)?;
+
+            let prices_by_id: HashMap<PriceId, Price> = price_rows
+                .into_iter()
+                .map(|row| {
+                    let id = row.id;
+                    Price::try_from(row).map(|p| (id, p))
+                })
+                .collect::<Result<HashMap<_, _>, _>>()?;
+
+            let product_ids: Vec<ProductId> = rows_with_price
+                .iter()
+                .filter_map(|r| r.product_id)
+                .unique()
+                .collect();
+
+            let product_rows = ProductRow::list_by_ids(conn, &product_ids, tenant_id)
+                .await
+                .map_err(Into::<Report<StoreError>>::into)?;
+
+            let products_by_id: HashMap<ProductId, Product> = product_rows
+                .into_iter()
+                .map(|row| {
+                    let id = row.id;
+                    Product::try_from(row).map(|p| (id, p))
+                })
+                .collect::<Result<HashMap<_, _>, _>>()?;
+
+            for row in rows_with_price {
+                let price_id = row.price_id.ok_or_else(|| {
+                    Report::new(StoreError::InvalidArgument(
+                        "Subscription component missing price_id after partition".to_string(),
+                    ))
+                })?;
+
+                // Try to resolve from Product.fee_structure + Price.pricing
+                let resolved = (|| -> Option<(SubscriptionFeeBillingPeriod, crate::domain::SubscriptionFee)> {
+                    let price = prices_by_id.get(&price_id)?;
+                    let product_id = row.product_id?;
+                    let product = products_by_id.get(&product_id)?;
+                    let fee_structure = &product.fee_structure;
+                    let fee = resolve_subscription_fee(fee_structure, &price.pricing, None).ok()?;
+                    let period = fee_type_billing_period(fee_structure)
+                        .unwrap_or_else(|| price.cadence.as_subscription_billing_period());
+                    Some((period, fee))
+                })();
+
+                let component = if let Some((period, fee)) = resolved {
+                    SubscriptionComponent {
+                        id: row.id,
+                        price_component_id: row.price_component_id,
+                        product_id: row.product_id,
+                        subscription_id: row.subscription_id,
+                        name: row.name,
+                        period,
+                        fee,
+                        price_id: row.price_id,
+                    }
+                } else {
+                    // Fallback to fee JSONB if resolution fails
+                    row.try_into()?
+                };
+
+                subscription_components.push(component);
+            }
+        }
 
         let subscription_add_ons: Vec<SubscriptionAddOn> =
             SubscriptionAddOnRow::list_by_subscription_id(conn, &tenant_id, &subscription.id)
@@ -283,6 +377,43 @@ impl SubscriptionInterface for Store {
             }
         };
 
+        // Fetch pending plan change from scheduled events
+        let pending_plan_change = {
+            let pending_events = ScheduledEventRow::get_pending_events_for_subscription(
+                conn,
+                subscription.id,
+                &tenant_id,
+            )
+            .await
+            .map_err(Into::<Report<StoreError>>::into)?;
+
+            let plan_change_event = pending_events.into_iter().find_map(|row| {
+                let event: crate::domain::scheduled_events::ScheduledEvent = row.try_into().ok()?;
+                match event.event_data {
+                    ScheduledEventData::ApplyPlanChange {
+                        new_plan_version_id,
+                        ..
+                    } => Some((new_plan_version_id, event.scheduled_time)),
+                    _ => None,
+                }
+            });
+
+            if let Some((new_plan_version_id, scheduled_time)) = plan_change_event {
+                let plan_with_version =
+                    PlanRow::get_with_version(conn, new_plan_version_id, tenant_id)
+                        .await
+                        .map_err(Into::<Report<StoreError>>::into)?;
+
+                Some(PendingPlanChange {
+                    new_plan_name: plan_with_version.plan.name,
+                    new_plan_version_id,
+                    effective_date: scheduled_time.date(),
+                })
+            } else {
+                None
+            }
+        };
+
         Ok(SubscriptionDetails {
             subscription,
             price_components: subscription_components,
@@ -294,6 +425,7 @@ impl SubscriptionInterface for Store {
             customer,
             invoicing_entity,
             trial_config,
+            pending_plan_change,
         })
     }
 

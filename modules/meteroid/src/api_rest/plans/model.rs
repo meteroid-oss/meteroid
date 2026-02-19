@@ -101,7 +101,8 @@ pub struct PriceComponent {
     #[serde(with = "string_serde")]
     pub id: PriceComponentId,
     pub name: String,
-    pub fee: Fee,
+    #[serde(skip_serializing_if = "Option::is_none", default)]
+    pub fee: Option<Fee>,
     #[serde(
         skip_serializing_if = "Option::is_none",
         default,
@@ -249,7 +250,9 @@ pub struct MatrixDimension {
     pub value: String,
 }
 
-#[derive(o2o, Clone, ToSchema, Deserialize_enum_str, Serialize_enum_str, Debug, PartialEq, Eq)]
+#[derive(
+    o2o, Clone, ToSchema, Deserialize_enum_str, Serialize_enum_str, Debug, PartialEq, Eq, Hash,
+)]
 #[serde(rename_all = "SCREAMING_SNAKE_CASE")]
 #[map_owned(meteroid_store::domain::enums::BillingPeriodEnum)]
 pub enum BillingPeriodEnum {

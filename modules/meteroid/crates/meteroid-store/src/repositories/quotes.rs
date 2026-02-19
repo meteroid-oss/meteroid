@@ -766,8 +766,9 @@ impl QuotesInterface for Store {
                             price_component_id: c.price_component_id,
                             product_id: c.product_id,
                             period: c.period.into(),
-                            fee: serde_json::to_value(&c.fee).unwrap_or_default(),
+                            legacy_fee: Some(serde_json::to_value(&c.fee).unwrap_or_default()),
                             is_override: c.is_override,
+                            price_id: c.price_id,
                         })
                         .collect();
 

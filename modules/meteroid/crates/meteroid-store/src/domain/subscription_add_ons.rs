@@ -1,9 +1,9 @@
 use crate::domain::enums::{BillingPeriodEnum, SubscriptionFeeBillingPeriod};
 use crate::domain::{SubscriptionFee, SubscriptionFeeInterface};
-use crate::errors::StoreErrorReport;
+use crate::errors::{StoreError, StoreErrorReport};
 use chrono::NaiveDateTime;
 use common_domain::ids::{
-    AddOnId, BaseId, PriceComponentId, ProductId, SubscriptionAddOnId, SubscriptionId,
+    AddOnId, BaseId, PriceComponentId, PriceId, ProductId, SubscriptionAddOnId, SubscriptionId,
     SubscriptionPriceComponentId,
 };
 use diesel_models::subscription_add_ons::{SubscriptionAddOnRow, SubscriptionAddOnRowNew};
@@ -18,6 +18,8 @@ pub struct SubscriptionAddOn {
     pub period: SubscriptionFeeBillingPeriod,
     pub fee: SubscriptionFee,
     pub created_at: NaiveDateTime,
+    pub product_id: Option<ProductId>,
+    pub price_id: Option<PriceId>,
 }
 
 impl SubscriptionFeeInterface for SubscriptionAddOn {
@@ -28,7 +30,7 @@ impl SubscriptionFeeInterface for SubscriptionAddOn {
 
     #[inline]
     fn product_id(&self) -> Option<ProductId> {
-        None
+        self.product_id
     }
 
     #[inline]
@@ -66,7 +68,15 @@ impl TryInto<SubscriptionAddOn> for SubscriptionAddOnRow {
     type Error = StoreErrorReport;
 
     fn try_into(self) -> Result<SubscriptionAddOn, Self::Error> {
-        let decoded_fee: SubscriptionFee = self.fee.try_into()?;
+        let decoded_fee: SubscriptionFee = self
+            .legacy_fee
+            .ok_or_else(|| {
+                StoreError::InvalidArgument(
+                    "subscription_add_on has no legacy_fee (v2 rows are resolved by repository)"
+                        .to_string(),
+                )
+            })?
+            .try_into()?;
 
         Ok(SubscriptionAddOn {
             id: self.id,
@@ -76,6 +86,8 @@ impl TryInto<SubscriptionAddOn> for SubscriptionAddOnRow {
             period: self.period.into(),
             fee: decoded_fee,
             created_at: self.created_at,
+            product_id: self.product_id,
+            price_id: self.price_id,
         })
     }
 }
@@ -86,6 +98,8 @@ pub struct SubscriptionAddOnNewInternal {
     pub name: String,
     pub period: SubscriptionFeeBillingPeriod,
     pub fee: SubscriptionFee,
+    pub product_id: Option<ProductId>,
+    pub price_id: Option<PriceId>,
 }
 
 #[derive(Clone, Debug)]
@@ -98,7 +112,7 @@ impl TryInto<SubscriptionAddOnRowNew> for SubscriptionAddOnNew {
     type Error = StoreErrorReport;
 
     fn try_into(self) -> Result<SubscriptionAddOnRowNew, Self::Error> {
-        let fee = self.internal.fee.try_into()?;
+        let legacy_fee: serde_json::Value = self.internal.fee.try_into()?;
 
         Ok(SubscriptionAddOnRowNew {
             id: SubscriptionAddOnId::new(),
@@ -106,7 +120,9 @@ impl TryInto<SubscriptionAddOnRowNew> for SubscriptionAddOnNew {
             add_on_id: self.internal.add_on_id,
             name: self.internal.name,
             period: self.internal.period.into(),
-            fee,
+            legacy_fee: Some(legacy_fee),
+            product_id: self.internal.product_id,
+            price_id: self.internal.price_id,
         })
     }
 }

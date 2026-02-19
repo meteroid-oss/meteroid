@@ -111,6 +111,7 @@ impl PlansService for PlanServiceComponents {
                 search: None,
                 filter_status: vec![],
                 filter_type: vec![],
+                filter_currency: None,
             },
             Some(filter) => PlanFilters {
                 search: filter.search.clone(),
@@ -122,6 +123,7 @@ impl PlansService for PlanServiceComponents {
                     .types()
                     .map(|plan_type| PlanTypeWrapper(plan_type).into())
                     .collect(),
+                filter_currency: filter.currency,
             },
         };
 

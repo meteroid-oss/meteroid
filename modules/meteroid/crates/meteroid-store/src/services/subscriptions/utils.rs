@@ -1,15 +1,17 @@
 use crate::StoreResult;
 use crate::domain::enums::{BillingPeriodEnum, SubscriptionFeeBillingPeriod};
+use crate::domain::price_components::{PriceEntry, ProductRef};
 use crate::domain::subscriptions::PaymentMethodsConfig;
 use crate::domain::{
     CreateSubscriptionAddOns, CreateSubscriptionComponents, CreatedSubscription, PriceComponent,
-    Subscription, SubscriptionAddOnCustomization, SubscriptionAddOnNewInternal,
-    SubscriptionComponentNewInternal, SubscriptionDetails, SubscriptionFee, SubscriptionNew,
+    Subscription, SubscriptionAddOnNewInternal, SubscriptionComponentNewInternal,
+    SubscriptionDetails, SubscriptionFee, SubscriptionNew,
 };
 use crate::errors::StoreError;
+use crate::services::subscriptions::insert::context::ResolvedCustomComponents;
 use crate::store::{PgConn, Store};
 use chrono::NaiveDate;
-use common_domain::ids::ConnectorId;
+use common_domain::ids::{ConnectorId, ProductFamilyId};
 use common_utils::decimals::ToSubunit;
 use diesel_models::errors::DatabaseError;
 use error_stack::Report;
@@ -32,6 +34,18 @@ use crate::services::Services;
 use crate::utils::periods::calculate_advance_period_range;
 use common_domain::ids::{AppliedCouponId, BaseId, CouponId, PlanVersionId, TenantId};
 use diesel_models::plans::PlanRow;
+
+/// A product/price that needs to be created inside the persist transaction.
+#[derive(Debug, Clone)]
+pub struct PendingMaterialization {
+    /// Index into the components vector this materialization belongs to.
+    pub component_index: usize,
+    pub name: String,
+    pub product_ref: ProductRef,
+    pub price_entry: PriceEntry,
+    pub product_family_id: ProductFamilyId,
+    pub currency: String,
+}
 
 /// Validates charge_automatically: requires Online config + at least one online provider.
 pub fn validate_charge_automatically_with_provider_ids(
@@ -107,6 +121,8 @@ pub fn calculate_mrr(
 pub fn process_create_subscription_add_ons(
     create: &Option<CreateSubscriptionAddOns>,
     add_ons: &[AddOn],
+    products: &HashMap<common_domain::ids::ProductId, crate::domain::Product>,
+    prices: &HashMap<common_domain::ids::PriceId, crate::domain::prices::Price>,
 ) -> Result<Vec<SubscriptionAddOnNewInternal>, Report<StoreError>> {
     let mut processed_add_ons = Vec::new();
 
@@ -116,38 +132,18 @@ pub fn process_create_subscription_add_ons(
                 StoreError::ValueNotFound(format!("add-on {} not found", cs_ao.add_on_id)),
             )?;
 
-            match &cs_ao.customization {
-                SubscriptionAddOnCustomization::None => {
-                    let (period, fee) = add_on.fee.to_subscription_fee()?;
-                    processed_add_ons.push(SubscriptionAddOnNewInternal {
-                        add_on_id: add_on.id,
-                        name: add_on.name.clone(),
-                        period,
-                        fee,
-                    });
-                }
-                SubscriptionAddOnCustomization::Override(override_) => {
-                    processed_add_ons.push(SubscriptionAddOnNewInternal {
-                        add_on_id: add_on.id,
-                        name: override_.name.clone(),
-                        period: override_.period,
-                        fee: override_.fee.clone(),
-                    });
-                }
-                SubscriptionAddOnCustomization::Parameterization(param) => {
-                    let (period, fee) = add_on.fee.to_subscription_fee_parameterized(
-                        &param.initial_slot_count,
-                        &param.billing_period,
-                        &param.committed_capacity,
-                    )?;
-                    processed_add_ons.push(SubscriptionAddOnNewInternal {
-                        add_on_id: add_on.id,
-                        name: add_on.name.clone(),
-                        period,
-                        fee,
-                    });
-                }
-            }
+            let resolved = add_on
+                .resolve_customized(products, prices, &cs_ao.customization)
+                .map_err(Report::new)?;
+
+            processed_add_ons.push(SubscriptionAddOnNewInternal {
+                add_on_id: add_on.id,
+                name: resolved.name,
+                period: resolved.period,
+                fee: resolved.fee,
+                product_id: resolved.product_id,
+                price_id: resolved.price_id,
+            });
         }
     }
 
@@ -477,89 +473,137 @@ pub fn process_create_subscription_components(
     param: &Option<CreateSubscriptionComponents>,
     map: &HashMap<PlanVersionId, Vec<PriceComponent>>,
     sub: &SubscriptionNew,
-) -> Result<Vec<SubscriptionComponentNewInternal>, Report<StoreError>> {
+    products: &HashMap<common_domain::ids::ProductId, crate::domain::Product>,
+    resolved: &ResolvedCustomComponents,
+    product_family_id: ProductFamilyId,
+    currency: &str,
+) -> Result<
+    (
+        Vec<SubscriptionComponentNewInternal>,
+        Vec<PendingMaterialization>,
+    ),
+    Report<StoreError>,
+> {
     let mut processed_components = Vec::new();
+    let mut pending_materializations = Vec::new();
 
-    let (parameterized_components, overridden_components, extra_components, remove_components) =
-        if let Some(p) = param {
-            (
-                &p.parameterized_components,
-                &p.overridden_components,
-                &p.extra_components,
-                &p.remove_components,
-            )
-        } else {
-            (&Vec::new(), &Vec::new(), &Vec::new(), &Vec::new())
-        };
+    let (parameterized_components, remove_components) = if let Some(p) = param {
+        (&p.parameterized_components, &p.remove_components)
+    } else {
+        (&Vec::new(), &Vec::new())
+    };
 
     let binding = vec![];
     let plan_price_components = map.get(&sub.plan_version_id).unwrap_or(&binding);
 
-    let mut removed_components = Vec::new();
-
-    // TODO should we add a quick_param or something to not require the component id when creating subscription without complex parameterization ?
-    // basically a top level params with period, initial slots, committed capacity, that can be overriden at the component level
-
     for c in plan_price_components {
         let component_id = c.id;
 
-        // Check parameterized_components
+        // Check overridden_components first (pre-resolved in gather phase).
+        // If there's also a parameterization for this component, apply its parameters
+        // (e.g. initial_slot_count) to the override's fee.
+        if let Some(resolved_override) = resolved.overrides.get(&component_id) {
+            let mut fee = resolved_override.fee.clone();
+            if let Some(parameterized) = parameterized_components
+                .iter()
+                .find(|p| p.component_id == component_id)
+            {
+                fee.apply_parameters(&parameterized.parameters);
+            }
+            let idx = processed_components.len();
+            processed_components.push(SubscriptionComponentNewInternal {
+                price_component_id: resolved_override.price_component_id,
+                product_id: resolved_override.existing_product_id(),
+                name: resolved_override.name.clone(),
+                period: resolved_override.period,
+                fee,
+                is_override: true,
+                price_id: resolved_override.existing_price_id(),
+            });
+            if resolved_override.needs_materialization() {
+                pending_materializations.push(PendingMaterialization {
+                    component_index: idx,
+                    name: resolved_override.name.clone(),
+                    product_ref: resolved_override.product_ref.clone(),
+                    price_entry: resolved_override.price_entry.clone(),
+                    product_family_id,
+                    currency: currency.to_string(),
+                });
+            }
+            continue;
+        }
+
+        // Check parameterized_components (without override)
         if let Some(parameterized) = parameterized_components
             .iter()
             .find(|p| p.component_id == component_id)
         {
-            let (period, fee) = c.fee.to_subscription_fee_parameterized(
-                &parameterized.parameters.initial_slot_count,
-                &parameterized.parameters.billing_period,
-                &parameterized.parameters.committed_capacity,
-            )?;
+            use crate::domain::price_components::ComponentParameters;
+            let params = ComponentParameters {
+                initial_slot_count: parameterized.parameters.initial_slot_count,
+                billing_period: parameterized.parameters.billing_period,
+                committed_capacity: parameterized.parameters.committed_capacity,
+            };
+            let resolved = c
+                .resolve_fee(products, Some(&params))
+                .map_err(Report::new)?;
+
             processed_components.push(SubscriptionComponentNewInternal {
                 price_component_id: Some(c.id),
                 product_id: c.product_id,
                 name: c.name.clone(),
-                period,
-                fee,
+                period: resolved.period,
+                fee: resolved.fee,
                 is_override: false,
+                price_id: resolved.price_id,
             });
-            continue;
-        }
-
-        // Check overridden_components
-        if let Some(overridden) = overridden_components
-            .iter()
-            .find(|o| o.component_id == component_id)
-        {
-            let mut component = overridden.component.clone();
-            component.is_override = true;
-            processed_components.push(component);
             continue;
         }
 
         // Check if the component is in remove_components
         if remove_components.contains(&component_id) {
-            removed_components.push(component_id);
             continue;
         }
 
-        let (period, fee) = c.fee.to_subscription_fee()?;
+        // Default: resolve via v2 path or legacy path
+        let resolved = c.resolve_fee(products, None).map_err(Report::new)?;
 
-        // If the component is not in any of the lists, add it as is
         processed_components.push(SubscriptionComponentNewInternal {
             price_component_id: Some(c.id),
             product_id: c.product_id,
             name: c.name.clone(),
-            period,
-            fee,
+            period: resolved.period,
+            fee: resolved.fee,
             is_override: false,
+            price_id: resolved.price_id,
         });
     }
 
-    // Add extra components
-    for extra in extra_components {
-        processed_components.push(extra.component.clone());
+    // Append pre-resolved extra components
+    for extra in &resolved.extras {
+        let idx = processed_components.len();
+        processed_components.push(SubscriptionComponentNewInternal {
+            price_component_id: None,
+            product_id: extra.existing_product_id(),
+            name: extra.name.clone(),
+            period: extra.period,
+            fee: extra.fee.clone(),
+            is_override: false,
+            price_id: extra.existing_price_id(),
+        });
+        if extra.needs_materialization() {
+            pending_materializations.push(PendingMaterialization {
+                component_index: idx,
+                name: extra.name.clone(),
+                product_ref: extra.product_ref.clone(),
+                price_entry: extra.price_entry.clone(),
+                product_family_id,
+                currency: currency.to_string(),
+            });
+        }
     }
 
-    Ok(processed_components)
+    Ok((processed_components, pending_materializations))
 }
 
 impl SubscriptionDetails {

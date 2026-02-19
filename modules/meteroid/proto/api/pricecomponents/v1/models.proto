@@ -3,121 +3,57 @@ syntax = "proto3";
 package meteroid.api.components.v1;
 
 import "api/shared/v1/shared.proto";
+import "api/prices/v1/models.proto";
 
 message UsageFee {
   string metric_id = 1;
   oneof model {
     string per_unit = 2;
-    TieredAndVolume tiered = 3;
-    TieredAndVolume volume = 4;
-    Package package = 5;
-    Matrix matrix = 6;
+    meteroid.api.prices.v1.UsagePricing.TieredAndVolumePricing tiered = 3;
+    meteroid.api.prices.v1.UsagePricing.TieredAndVolumePricing volume = 4;
+    meteroid.api.prices.v1.UsagePricing.PackagePricing package = 5;
+    meteroid.api.prices.v1.UsagePricing.MatrixPricing matrix = 6;
   }
   meteroid.api.shared.v1.BillingPeriod term = 7;
-
-  message TieredAndVolume {
-    repeated TierRow rows = 1;
-    optional uint64 block_size = 2;
-
-    message TierRow {
-      uint64 first_unit = 1;
-      string unit_price = 3;
-      optional string flat_fee = 4;
-      optional string flat_cap = 5;
-    }
-  }
-
-  message Package {
-    string package_price = 1;
-    uint64 block_size = 2;
-  }
-
-  message Matrix {
-    repeated MatrixRow rows = 1;
-    message MatrixRow {
-      string per_unit_price = 1;
-      MatrixDimension dimension1 = 2;
-      optional MatrixDimension dimension2 = 3;
-    }
-
-    message MatrixDimension {
-      string key = 1;
-      string value = 2;
-    }
-  }
-}
-
-message Fee {
-  message RateFee {
-    repeated TermRate rates = 1;
-  }
-
-  message TermRate {
-    meteroid.api.shared.v1.BillingPeriod term = 1;
-    string price = 2;
-  }
-
-  message SlotFee {
-    repeated TermRate rates = 1;
-    string slot_unit_name = 2;
-    UpgradePolicy upgrade_policy = 3;
-    DowngradePolicy downgrade_policy = 4;
-    optional uint32 minimum_count = 5;
-    optional uint32 quota = 6;
-  }
-
-  message CapacityFee {
-    string metric_id = 1;
-    repeated CapacityThreshold thresholds = 3;
-    meteroid.api.shared.v1.BillingPeriod term = 4;
-
-    message CapacityThreshold {
-      uint64 included_amount = 1;
-      string price = 2;
-      string per_unit_overage = 3;
-    }
-  }
-  // we may drop that and only rely on the rate fee
-  message ExtraRecurringFee {
-    string unit_price = 1;
-    uint32 quantity = 2;
-    BillingType billing_type = 3;
-    optional meteroid.api.shared.v1.BillingPeriod term = 4;
-  }
-
-  // TODO can provide a date in subscription component
-  message OneTimeFee {
-    string unit_price = 1;
-    uint32 quantity = 2;
-  }
-
-  enum BillingType {
-    ARREAR = 0;
-    ADVANCE = 1;
-  }
-
-  enum UpgradePolicy {
-    PRORATED = 0;
-  }
-
-  enum DowngradePolicy {
-    REMOVE_AT_END_OF_PERIOD = 0;
-  }
-
-  oneof fee_type {
-    RateFee rate = 1;
-    SlotFee slot = 2;
-    CapacityFee capacity = 3;
-    UsageFee usage = 5;
-    ExtraRecurringFee extra_recurring = 7;
-    OneTimeFee one_time = 8;
-  }
 }
 
 message PriceComponent {
   string id = 1;
   string name = 2;
-  Fee fee = 3;
   optional string product_id = 4;
   string local_id = 5;
+  repeated meteroid.api.prices.v1.Price prices = 6;
+}
+
+message ProductRef {
+  oneof ref {
+    string existing_product_id = 1;
+    NewProduct new_product = 2;
+  }
+}
+
+message NewProduct {
+  string name = 1;
+  meteroid.api.prices.v1.FeeType fee_type = 2;
+  meteroid.api.prices.v1.FeeStructure fee_structure = 3;
+}
+
+message PriceEntry {
+  oneof entry {
+    string existing_price_id = 1;
+    PriceInput new_price = 2;
+  }
+}
+
+message PriceInput {
+  meteroid.api.shared.v1.BillingPeriod cadence = 1;
+  string currency = 2;
+  oneof pricing {
+    meteroid.api.prices.v1.RatePricing rate_pricing = 3;
+    meteroid.api.prices.v1.SlotPricing slot_pricing = 4;
+    meteroid.api.prices.v1.CapacityPricing capacity_pricing = 5;
+    meteroid.api.prices.v1.UsagePricing usage_pricing = 6;
+    meteroid.api.prices.v1.ExtraRecurringPricing extra_recurring_pricing = 7;
+    meteroid.api.prices.v1.OneTimePricing one_time_pricing = 8;
+  }
 }

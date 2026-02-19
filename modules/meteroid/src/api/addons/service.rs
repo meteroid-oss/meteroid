@@ -2,7 +2,7 @@ use crate::api::addons::AddOnsServiceComponents;
 use crate::api::addons::error::AddOnApiError;
 use crate::api::addons::mapping::addons::AddOnWrapper;
 use crate::api::utils::PaginationExt;
-use common_domain::ids::AddOnId;
+use common_domain::ids::{AddOnId, PriceId, ProductId};
 use common_grpc::middleware::server::auth::RequestExt;
 use meteroid_grpc::meteroid::api::addons::v1::add_ons_service_server::AddOnsService;
 use meteroid_grpc::meteroid::api::addons::v1::{
@@ -55,12 +55,21 @@ impl AddOnsService for AddOnsServiceComponents {
 
         let req = request.into_inner();
 
-        let fee = crate::api::pricecomponents::mapping::components::map_fee_to_domain(req.fee)?;
+        let product_id = req
+            .product_id
+            .map(|id| ProductId::from_proto(&id))
+            .transpose()?;
+        let price_id = req
+            .price_id
+            .map(|id| PriceId::from_proto(&id))
+            .transpose()?;
 
         let new = AddOnNew {
             tenant_id,
             name: req.name,
-            fee,
+            plan_version_id: None,
+            product_id,
+            price_id,
         };
         let added = self
             .store
@@ -106,13 +115,22 @@ impl AddOnsService for AddOnsServiceComponents {
             .add_on
             .ok_or(AddOnApiError::MissingArgument("add_on".into()))?;
 
-        let fee = crate::api::pricecomponents::mapping::components::map_fee_to_domain(add_on.fee)?;
+        let product_id = add_on
+            .product_id
+            .map(|id| ProductId::from_proto(&id))
+            .transpose()?;
+        let price_id = add_on
+            .price_id
+            .map(|id| PriceId::from_proto(&id))
+            .transpose()?;
 
         let patch = AddOnPatch {
             id: AddOnId::from_proto(&add_on.id)?,
             tenant_id,
             name: Some(add_on.name),
-            fee: Some(fee),
+            plan_version_id: None,
+            product_id: product_id.map(Some),
+            price_id: price_id.map(Some),
         };
 
         let edited = self

@@ -10,7 +10,7 @@ use crate::errors::{StoreError, StoreErrorReport};
 use crate::json_value_serde;
 use common_domain::ids::BaseId;
 use common_domain::ids::{
-    AddOnId, CouponId, CustomerId, InvoiceId, PlanVersionId, PriceComponentId, ProductId,
+    AddOnId, CouponId, CustomerId, InvoiceId, PlanVersionId, PriceComponentId, PriceId, ProductId,
     QuoteActivityId, QuoteAddOnId, QuoteCouponId, QuoteId, QuotePriceComponentId, QuoteSignatureId,
     StoredDocumentId, SubscriptionId, TenantId,
 };
@@ -151,34 +151,74 @@ pub struct DetailedQuote {
     pub activities: Vec<QuoteActivity>,
 }
 
-#[derive(Debug, Clone, o2o)]
-#[try_from_owned(QuoteComponentRow, StoreErrorReport)]
+#[derive(Debug, Clone)]
 pub struct QuotePriceComponent {
     pub id: QuotePriceComponentId,
     pub name: String,
     pub quote_id: QuoteId,
     pub price_component_id: Option<PriceComponentId>,
     pub product_id: Option<ProductId>,
-    #[from(~.into())]
     pub period: SubscriptionFeeBillingPeriod,
-    #[from(~.try_into()?)]
     pub fee: SubscriptionFee,
     pub is_override: bool,
+    pub price_id: Option<PriceId>,
 }
 
-#[derive(Debug, Clone, o2o)]
-#[owned_try_into(QuoteComponentRowNew, StoreErrorReport)]
-#[ghosts(id: {QuotePriceComponentId::new()})]
+impl TryFrom<QuoteComponentRow> for QuotePriceComponent {
+    type Error = StoreErrorReport;
+
+    fn try_from(row: QuoteComponentRow) -> Result<Self, Self::Error> {
+        let fee: SubscriptionFee = row
+            .legacy_fee
+            .ok_or_else(|| {
+                StoreError::InvalidArgument("quote_component has no legacy_fee".to_string())
+            })?
+            .try_into()?;
+
+        Ok(QuotePriceComponent {
+            id: row.id,
+            name: row.name,
+            quote_id: row.quote_id,
+            price_component_id: row.price_component_id,
+            product_id: row.product_id,
+            period: row.period.into(),
+            fee,
+            is_override: row.is_override,
+            price_id: row.price_id,
+        })
+    }
+}
+
+#[derive(Debug, Clone)]
 pub struct QuotePriceComponentNew {
     pub name: String,
     pub quote_id: QuoteId,
     pub price_component_id: Option<PriceComponentId>,
     pub product_id: Option<ProductId>,
-    #[into(~.into())]
     pub period: SubscriptionFeeBillingPeriod,
-    #[into(~.try_into()?)]
     pub fee: SubscriptionFee,
     pub is_override: bool,
+    pub price_id: Option<PriceId>,
+}
+
+impl TryInto<QuoteComponentRowNew> for QuotePriceComponentNew {
+    type Error = StoreErrorReport;
+
+    fn try_into(self) -> Result<QuoteComponentRowNew, Self::Error> {
+        let legacy_fee: serde_json::Value = self.fee.try_into()?;
+
+        Ok(QuoteComponentRowNew {
+            id: QuotePriceComponentId::new(),
+            name: self.name,
+            quote_id: self.quote_id,
+            price_component_id: self.price_component_id,
+            product_id: self.product_id,
+            period: self.period.into(),
+            legacy_fee: Some(legacy_fee),
+            is_override: self.is_override,
+            price_id: self.price_id,
+        })
+    }
 }
 
 #[derive(o2o, Debug, Clone)]
@@ -243,30 +283,70 @@ pub struct QuoteSignatureNew {
 }
 
 // Quote Add-On structs
-#[derive(Debug, Clone, o2o)]
-#[try_from_owned(QuoteAddOnRow, StoreErrorReport)]
+#[derive(Debug, Clone)]
 pub struct QuoteAddOn {
     pub id: QuoteAddOnId,
     pub name: String,
     pub quote_id: QuoteId,
     pub add_on_id: AddOnId,
-    #[from(~.into())]
     pub period: SubscriptionFeeBillingPeriod,
-    #[from(~.try_into()?)]
     pub fee: SubscriptionFee,
+    pub product_id: Option<ProductId>,
+    pub price_id: Option<PriceId>,
 }
 
-#[derive(Debug, Clone, o2o)]
-#[owned_try_into(QuoteAddOnRowNew, StoreErrorReport)]
-#[ghosts(id: {QuoteAddOnId::new()})]
+impl TryFrom<QuoteAddOnRow> for QuoteAddOn {
+    type Error = StoreErrorReport;
+
+    fn try_from(row: QuoteAddOnRow) -> Result<Self, Self::Error> {
+        let fee: SubscriptionFee = row
+            .legacy_fee
+            .ok_or_else(|| {
+                StoreError::InvalidArgument("quote_add_on has no legacy_fee".to_string())
+            })?
+            .try_into()?;
+
+        Ok(QuoteAddOn {
+            id: row.id,
+            name: row.name,
+            quote_id: row.quote_id,
+            add_on_id: row.add_on_id,
+            period: row.period.into(),
+            fee,
+            product_id: row.product_id,
+            price_id: row.price_id,
+        })
+    }
+}
+
+#[derive(Debug, Clone)]
 pub struct QuoteAddOnNew {
     pub name: String,
     pub quote_id: QuoteId,
     pub add_on_id: AddOnId,
-    #[into(~.into())]
     pub period: SubscriptionFeeBillingPeriod,
-    #[into(~.try_into()?)]
     pub fee: SubscriptionFee,
+    pub product_id: Option<ProductId>,
+    pub price_id: Option<PriceId>,
+}
+
+impl TryInto<QuoteAddOnRowNew> for QuoteAddOnNew {
+    type Error = StoreErrorReport;
+
+    fn try_into(self) -> Result<QuoteAddOnRowNew, Self::Error> {
+        let legacy_fee: serde_json::Value = self.fee.try_into()?;
+
+        Ok(QuoteAddOnRowNew {
+            id: QuoteAddOnId::new(),
+            name: self.name,
+            quote_id: self.quote_id,
+            add_on_id: self.add_on_id,
+            period: self.period.into(),
+            legacy_fee: Some(legacy_fee),
+            product_id: self.product_id,
+            price_id: self.price_id,
+        })
+    }
 }
 
 // Quote Coupon structs

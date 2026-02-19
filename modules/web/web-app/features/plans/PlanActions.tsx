@@ -8,7 +8,7 @@ import {
   Modal,
 } from '@md/ui'
 import { useQueryClient } from '@tanstack/react-query'
-import { useAtom, useSetAtom } from 'jotai'
+import { useAtom } from 'jotai'
 import { ArchiveIcon, ArchiveRestoreIcon, ChevronDown, PencilIcon } from 'lucide-react'
 import { useEffect, useState } from 'react'
 import { useNavigate } from 'react-router-dom'
@@ -20,7 +20,7 @@ import {
   usePlanOverview,
   usePlanWithVersion,
 } from '@/features/plans/hooks/usePlan'
-import { addedComponentsAtom, editedComponentsAtom } from '@/features/plans/pricecomponents/utils'
+import { editedComponentsAtom } from '@/features/plans/pricecomponents/utils'
 import { useBasePath } from '@/hooks/useBasePath'
 import { PlanStatus } from '@/rpc/api/plans/v1/models_pb'
 import {
@@ -35,13 +35,12 @@ import {
 } from '@/rpc/api/plans/v1/plans-PlansService_connectquery'
 
 export const PlanActions = () => {
-  const [addedComponents] = useAtom(addedComponentsAtom)
   const [editedComponents] = useAtom(editedComponentsAtom)
   const [isBusy, setIsBusy] = useState(false)
   const [isConfirmOpen, setConfirmOpen] = useState(false)
   const queryClient = useQueryClient()
 
-  const wip = addedComponents.length > 0 || editedComponents.length > 0
+  const wip = editedComponents.length > 0
 
   const overview = usePlanOverview()
 
@@ -52,12 +51,10 @@ export const PlanActions = () => {
   const navigate = useNavigate()
   const basePath = useBasePath()
 
-  const setEditedComponents = useSetAtom(editedComponentsAtom)
-  const setAddedComponents = useSetAtom(addedComponentsAtom)
+  const [, setEditedComponents] = useAtom(editedComponentsAtom)
 
   const resetAtoms = () => {
     setEditedComponents([])
-    setAddedComponents([])
   }
 
   useEffect(() => {
@@ -85,11 +82,11 @@ export const PlanActions = () => {
     })
     resetAtoms()
 
-    if (!overview?.activeVersion) {
-      navigate('../')
+    if (overview?.activeVersion) {
+      navigate(`${basePath}/plans/${planWithVersion.plan.id}`)
+    } else {
+      navigate(`${basePath}/plans`)
     }
-
-    // TODO if overview.lastPublishedPlanId, redirect to that one
   }
 
   const publishPlanMutation = useMutation(publishPlanVersion, {
@@ -168,6 +165,8 @@ export const PlanActions = () => {
     }
   }
 
+  const isOutdatedDraft = isDraft && planWithVersion.version?.usesProductPricing === false
+
   return isDraft ? (
     <>
       <div className="text-muted-foreground text-xs  self-center">
@@ -176,21 +175,23 @@ export const PlanActions = () => {
       <div className="flex ">
         <Button
           variant="destructiveGhost"
-          className=" py-1.5 !rounded-r-none"
+          className={`py-1.5 ${isOutdatedDraft ? '' : '!rounded-r-none'}`}
           onClick={confirmDiscardDraft}
           size="sm"
         >
           Discard draft
         </Button>
-        <Button
-          variant="primary"
-          className="font-bold py-1.5 !rounded-l-none"
-          disabled={wip || isBusy}
-          onClick={publishPlan}
-          size="sm"
-        >
-          Publish version
-        </Button>
+        {!isOutdatedDraft && (
+          <Button
+            variant="primary"
+            className="font-bold py-1.5 !rounded-l-none"
+            disabled={wip || isBusy}
+            onClick={publishPlan}
+            size="sm"
+          >
+            Publish version
+          </Button>
+        )}
       </div>
       <ConfirmationModal
         visible={isConfirmOpen}

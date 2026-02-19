@@ -8,8 +8,7 @@ import { useQueryClient } from '@tanstack/react-query'
 import { ColumnDef } from '@tanstack/react-table'
 import { useAtom } from 'jotai'
 import { ChevronDownIcon, ChevronRightIcon, PencilIcon, Trash2Icon } from 'lucide-react'
-import { ReactNode, useCallback, useMemo, useState } from 'react'
-import { P, match } from 'ts-pattern'
+import { useCallback, useMemo, useState } from 'react'
 
 import { LocalId } from '@/components/LocalId'
 import { SimpleTable } from '@/components/table/SimpleTable'
@@ -18,58 +17,59 @@ import { PriceComponentProperty } from '@/features/plans/pricecomponents/compone
 import {
   editedComponentsAtom,
   formatPrice,
-  mapCadence,
   useCurrency,
 } from '@/features/plans/pricecomponents/utils'
 import { useQuery } from '@/lib/connectrpc'
-import {
-  CapacityFee,
-  FeeType,
-  PriceComponent,
-  RateFee,
-  SlotFee,
-  TieredAndVolumeRow,
-  UsageFee,
-  UsagePricingModel,
-} from '@/lib/schemas/plans'
+import { formatCadence } from '@/lib/mapping/prices'
 import { getBillableMetric } from '@/rpc/api/billablemetrics/v1/billablemetrics-BillableMetricsService_connectquery'
 import {
   listPriceComponents,
   removePriceComponent,
 } from '@/rpc/api/pricecomponents/v1/pricecomponents-PriceComponentsService_connectquery'
+import { getProduct } from '@/rpc/api/products/v1/products-ProductsService_connectquery'
 import { useConfirmationModal } from 'providers/ConfirmationProvider'
 
+import type { PriceComponent as ProtoPriceComponent } from '@/rpc/api/pricecomponents/v1/models_pb'
+import type {
+  Price,
+  UsagePricing,
+  UsagePricing_MatrixPricing,
+  UsagePricing_TieredAndVolumePricing,
+} from '@/rpc/api/prices/v1/models_pb'
+
+// --- Main card ---
+
 export const PriceComponentCard: React.FC<{
-  component: PriceComponent
+  component: ProtoPriceComponent
 }> = ({ component }) => {
   const [isCollapsed, setIsCollapsed] = useState(true)
-
   const planWithVersion = usePlanWithVersion()
-
   const queryClient = useQueryClient()
-
   const [, setEditedComponents] = useAtom(editedComponentsAtom)
-
-  const priceElement = useMemo(() => toPriceElements(component.fee), [component])
-
   const isDraft = useIsDraftVersion()
+
+  const summary = useMemo(() => deriveSummary(component.prices), [component.prices])
 
   const deleteComponentMutation = useMutation(removePriceComponent, {
     onSuccess: () => {
       planWithVersion.version &&
-      queryClient.setQueryData(
-        createConnectQueryKey(listPriceComponents, { planVersionId: planWithVersion.version.id }),
-        createProtobufSafeUpdater(listPriceComponents, prev => ({
-          components: prev?.components.filter(c => c.id !== component.id) ?? [],
-        }))
-      )
+        queryClient.setQueryData(
+          createConnectQueryKey(listPriceComponents, {
+            planVersionId: planWithVersion.version.id,
+          }),
+          createProtobufSafeUpdater(listPriceComponents, prev => ({
+            components: prev?.components.filter(c => c.id !== component.id) ?? [],
+          }))
+        )
     },
   })
 
   const showConfirmationModal = useConfirmationModal()
 
   const removeComponent = async () => {
-    showConfirmationModal(() => deleteComponentMutation.mutate({ priceComponentId: component.id }))
+    showConfirmationModal(() =>
+      deleteComponentMutation.mutate({ priceComponentId: component.id })
+    )
   }
 
   const editComponent = () => {
@@ -81,18 +81,22 @@ export const PriceComponentCard: React.FC<{
       className="flex flex-col grow px-4 py-4 border border-border shadow-sm rounded-lg max-w-4xl group bg-card"
       key={component.id}
     >
-      <div className="mt-0.5 flex flex-row min-h-9" onClick={() => setIsCollapsed(!isCollapsed)}>
+      <div
+        className="mt-0.5 flex flex-row min-h-9"
+        onClick={() => setIsCollapsed(!isCollapsed)}
+      >
         <div className="flex flex-row items-center cursor-pointer w-full">
           <div className="mr-2">
             {isCollapsed ? (
-              <ChevronRightIcon className="w-5 l-5 text-accent-1 group-hover:text-muted-foreground"/>
+              <ChevronRightIcon className="w-5 l-5 text-accent-1 group-hover:text-muted-foreground" />
             ) : (
-              <ChevronDownIcon className="w-5 l-5 text-accent-1 group-hover:text-muted-foreground"/>
+              <ChevronDownIcon className="w-5 l-5 text-accent-1 group-hover:text-muted-foreground" />
             )}
           </div>
           <div className="flex items-center gap-2">
             <h4 className="text-base text-accent-1 font-semibold">{component.name}</h4>
-            <LocalId localId={component.localId} className="max-w-24"/>
+            {component.productId && <DisplayProductBadge productId={component.productId} />}
+            <LocalId localId={component.localId} className="max-w-24" />
           </div>
         </div>
         {isDraft && (
@@ -103,7 +107,7 @@ export const PriceComponentCard: React.FC<{
               onClick={removeComponent}
               size="icon"
             >
-              <Trash2Icon size={12} strokeWidth={2}/>
+              <Trash2Icon size={12} strokeWidth={2} />
             </Button>
             <Button
               variant="ghost"
@@ -111,7 +115,7 @@ export const PriceComponentCard: React.FC<{
               onClick={editComponent}
               size="icon"
             >
-              <PencilIcon size={12} strokeWidth={2}/>
+              <PencilIcon size={12} strokeWidth={2} />
             </Button>
           </div>
         )}
@@ -123,291 +127,358 @@ export const PriceComponentCard: React.FC<{
               label="Pricing model"
               className="col-span-1 border-r border-border pr-4"
             >
-              <span>{priceElement?.pricingModel ?? priceElement?.feeType}</span>
+              <span>{summary.pricingModel}</span>
             </PriceComponentProperty>
-            {priceElement?.linkedItem && (
-              <PriceComponentProperty
-                label={priceElement.linkedItem.type}
-                className="col-span-1 border-r border-border pr-4"
-                childrenClassNames="truncate"
-              >
-                {/* <Link to={`/metrics/${price.metric.id}`} target="_blank" rel="noopener noreferrer">
-                  {priceElement.linkedItem.name}
-                </Link> */}
-                {priceElement.linkedItem.item}
-              </PriceComponentProperty>
-            )}
-
-            {priceElement?.fixedQuantity && (
-              <PriceComponentProperty
-                label="Fixed quantity"
-                className="col-span-1 pr-4 border-r border-border"
-              >
-                <span>{priceElement.fixedQuantity}</span>
-              </PriceComponentProperty>
+            {component.productId && (
+              <ProductLinkedItem productId={component.productId} />
             )}
             <PriceComponentProperty
               label="Cadence"
               className="col-span-1 border-r border-border last:border-none pr-4"
             >
-              <span>{priceElement?.cadence}</span>
+              <span>{summary.cadence}</span>
             </PriceComponentProperty>
           </div>
         </div>
         {!isCollapsed && (
-          <div className="mt-6 flex flex-col grow">{renderPricingDetails(component.fee)}</div>
+          <div className="mt-6 flex flex-col grow">
+            <PricingDetails prices={component.prices} />
+          </div>
         )}
       </div>
     </div>
   )
 }
 
-interface PriceElement {
-  feeType: string
-  linkedItem?: { type: string; item: ReactNode }
-  fixedQuantity?: number
+// --- Summary derivation ---
+
+interface PriceSummary {
+  pricingModel: string
   cadence: string
-  pricingModel?: string
 }
 
-const toPriceElements = (feeType: FeeType): PriceElement | undefined => {
-  const mapUsageModel = (model: UsagePricingModel): string =>
-    match(model)
-      .with({ model: 'tiered' }, () => 'Tiered')
-      .with({ model: 'volume' }, () => 'Volume')
-      .with({ model: 'package' }, () => 'Package')
-      .with({ model: 'per_unit' }, () => 'Per Unit')
-      .with({ model: 'matrix' }, () => 'Matrix')
-      .exhaustive()
+function deriveSummary(prices: Price[]): PriceSummary {
+  if (prices.length === 0) return { pricingModel: '-', cadence: '-' }
 
-  return match<FeeType, PriceElement | undefined>(feeType ?? undefined)
-    .with({ fee: 'rate' }, ({ data }) => ({
-      feeType: 'Rate',
-      cadence:
-        data.rates.length === 1
-          ? mapCadence(data.rates[0].term)
-          : data.rates.map(a => mapCadence(a.term)).join(' or '),
-    }))
-    .with({ fee: 'slot' }, ({ data }) => ({
-      feeType: 'Slot-based',
-      linkedItem: { type: 'Unit type', item: data.slotUnitName },
-      cadence:
-        data.rates.length === 1
-          ? mapCadence(data.rates[0].term)
-          : data.rates.map(a => mapCadence(a.term)).join(' or '),
-    }))
-    .with({ fee: 'capacity' }, ({ data }) => ({
-      feeType: 'Committed capacity',
-      linkedItem: {
-        type: 'Billable Metric',
-        item: <DisplayBillableMetric metricId={data.metricId}/>,
+  const pricing = prices[0].pricing
+  const cadences = [...new Set(prices.map(p => formatCadence(p.cadence)))]
+  const cadenceStr = cadences.join(' or ')
+
+  switch (pricing.case) {
+    case 'ratePricing':
+      return { pricingModel: 'Rate', cadence: cadenceStr }
+    case 'slotPricing':
+      return { pricingModel: 'Slot-based', cadence: cadenceStr }
+    case 'capacityPricing':
+      return { pricingModel: 'Committed capacity', cadence: cadenceStr }
+    case 'usagePricing': {
+      const model = pricing.value.model
+      const modelName =
+        model.case === 'perUnit'
+          ? 'Per Unit'
+          : model.case === 'tiered'
+            ? 'Tiered'
+            : model.case === 'volume'
+              ? 'Volume'
+              : model.case === 'package'
+                ? 'Package'
+                : model.case === 'matrix'
+                  ? 'Matrix'
+                  : 'Usage'
+      return { pricingModel: modelName, cadence: cadenceStr }
+    }
+    case 'extraRecurringPricing': {
+      const qty = pricing.value.quantity
+      return {
+        pricingModel: 'Fixed fee',
+        cadence: `${cadenceStr}${qty > 1 ? ` (x${qty})` : ''}`,
+      }
+    }
+    case 'oneTimePricing': {
+      const qty = pricing.value.quantity
+      return {
+        pricingModel: 'Fixed fee',
+        cadence: `One-time${qty > 1 ? ` (x${qty})` : ''}`,
+      }
+    }
+    default:
+      return { pricingModel: '-', cadence: '-' }
+  }
+}
+
+// --- Product-linked structural info (metric, unit name) ---
+
+const ProductLinkedItem = ({ productId }: { productId: string }) => {
+  const product = useQuery(getProduct, { productId })
+  if (!product.data?.product?.feeStructure) return null
+
+  const structure = product.data.product.feeStructure.structure
+  switch (structure.case) {
+    case 'slot':
+      return (
+        <PriceComponentProperty
+          label="Unit type"
+          className="col-span-1 border-r border-border pr-4"
+          childrenClassNames="truncate"
+        >
+          {structure.value.unitName}
+        </PriceComponentProperty>
+      )
+    case 'capacity':
+      return (
+        <PriceComponentProperty
+          label="Billable Metric"
+          className="col-span-1 border-r border-border pr-4"
+          childrenClassNames="truncate"
+        >
+          <DisplayBillableMetric metricId={structure.value.metricId} />
+        </PriceComponentProperty>
+      )
+    case 'usage':
+      return (
+        <PriceComponentProperty
+          label="Billable Metric"
+          className="col-span-1 border-r border-border pr-4"
+          childrenClassNames="truncate"
+        >
+          <DisplayBillableMetric metricId={structure.value.metricId} />
+        </PriceComponentProperty>
+      )
+    default:
+      return null
+  }
+}
+
+// --- Expanded pricing detail ---
+
+const PricingDetails = ({ prices }: { prices: Price[] }) => {
+  if (prices.length === 0) return <span className="text-muted-foreground text-sm">No pricing data</span>
+
+  const pricing = prices[0].pricing
+  switch (pricing.case) {
+    case 'ratePricing':
+      return <RatePricingTable prices={prices} />
+    case 'slotPricing':
+      return <SlotPricingTable prices={prices} />
+    case 'capacityPricing':
+      return <CapacityPricingTable prices={prices} />
+    case 'usagePricing':
+      return <UsagePricingDetail pricing={pricing.value} />
+    case 'extraRecurringPricing':
+      return <SimpleUnitPriceTable unitPrice={pricing.value.unitPrice} />
+    case 'oneTimePricing':
+      return <SimpleUnitPriceTable unitPrice={pricing.value.unitPrice} />
+    default:
+      return null
+  }
+}
+
+// --- Per-type detail tables ---
+
+const RatePricingTable = ({ prices }: { prices: Price[] }) => {
+  const data = prices.map(p => ({
+    term: formatCadence(p.cadence),
+    rate: p.pricing.case === 'ratePricing' ? p.pricing.value.rate : '-',
+  }))
+  return (
+    <SimpleTable
+      columns={[
+        { header: 'Term', accessorKey: 'term' },
+        { header: 'Price', cell: ({ row }) => <DisplayPrice price={row.original.rate} /> },
+      ]}
+      data={data}
+    />
+  )
+}
+
+const SlotPricingTable = ({ prices }: { prices: Price[] }) => {
+  const data = prices.map(p => ({
+    term: formatCadence(p.cadence),
+    unitRate: p.pricing.case === 'slotPricing' ? p.pricing.value.unitRate : '-',
+  }))
+  return (
+    <SimpleTable
+      columns={[
+        { header: 'Term', accessorKey: 'term' },
+        {
+          header: 'Price per slot',
+          cell: ({ row }) => <DisplayPrice price={row.original.unitRate} />,
+        },
+      ]}
+      data={data}
+    />
+  )
+}
+
+const CapacityPricingTable = ({ prices }: { prices: Price[] }) => {
+  const data = prices
+    .filter(p => p.pricing.case === 'capacityPricing')
+    .map(p => {
+      const v = p.pricing.value as { rate: string; included: bigint; overageRate: string }
+      return { rate: v.rate, included: v.included, overageRate: v.overageRate }
+    })
+  return (
+    <SimpleTable
+      columns={[
+        { header: 'Included', accessorFn: row => String(row.included) },
+        { header: 'Rate', cell: ({ row }) => <DisplayPrice price={row.original.rate} /> },
+        {
+          header: 'Overage Rate',
+          cell: ({ row }) => <DisplayPrice price={row.original.overageRate} />,
+        },
+      ]}
+      data={data}
+    />
+  )
+}
+
+const UsagePricingDetail = ({ pricing }: { pricing: UsagePricing }) => {
+  const model = pricing.model
+  switch (model.case) {
+    case 'perUnit':
+      return (
+        <SimpleTable
+          columns={[
+            {
+              header: 'Unit price',
+              cell: () => <DisplayPrice price={model.value} />,
+            },
+          ]}
+          data={[{ unitPrice: model.value }]}
+        />
+      )
+    case 'tiered':
+    case 'volume':
+      return <TieredVolumeTable data={model.value} />
+    case 'package':
+      return (
+        <SimpleTable
+          columns={[
+            { header: 'Block size', accessorFn: row => String(row.blockSize) },
+            {
+              header: 'Block price',
+              cell: ({ row }) => <DisplayPrice price={row.original.packagePrice} />,
+            },
+          ]}
+          data={[model.value]}
+        />
+      )
+    case 'matrix':
+      return <MatrixTable data={model.value} />
+    default:
+      return null
+  }
+}
+
+interface TierRowDisplay {
+  firstUnit: bigint
+  lastUnit?: bigint
+  unitPrice: string
+  flatFee?: string
+  flatCap?: string
+}
+
+const TieredVolumeTable = ({ data }: { data: UsagePricing_TieredAndVolumePricing }) => {
+  const rows: TierRowDisplay[] = data.rows.map((row, idx) => ({
+    firstUnit: row.firstUnit,
+    lastUnit: idx < data.rows.length - 1 ? data.rows[idx + 1].firstUnit : undefined,
+    unitPrice: row.unitPrice,
+    flatFee: row.flatFee,
+    flatCap: row.flatCap,
+  }))
+
+  const hasFlatFee = rows.some(r => r.flatFee != null)
+  const hasFlatCap = rows.some(r => r.flatCap != null)
+
+  const columns: ColumnDef<TierRowDisplay>[] = [
+    { header: 'First unit', accessorFn: row => String(row.firstUnit) },
+    { header: 'Last unit', accessorFn: row => (row.lastUnit != null ? String(row.lastUnit) : '∞') },
+    {
+      header: 'Unit price',
+      cell: ({ row }) => <DisplayPrice price={row.original.unitPrice} />,
+    },
+    ...(hasFlatFee
+      ? [
+          {
+            header: 'Flat fee',
+            cell: ({ row }: { row: { original: TierRowDisplay } }) => (
+              <DisplayPrice price={row.original.flatFee ?? '0'} />
+            ),
+          } as ColumnDef<TierRowDisplay>,
+        ]
+      : []),
+    ...(hasFlatCap
+      ? [
+          {
+            header: 'Flat cap',
+            cell: ({ row }: { row: { original: TierRowDisplay } }) => (
+              <DisplayPrice price={row.original.flatCap ?? '0'} />
+            ),
+          } as ColumnDef<TierRowDisplay>,
+        ]
+      : []),
+  ]
+
+  return <SimpleTable columns={columns} data={rows} />
+}
+
+const MatrixTable = ({ data }: { data: UsagePricing_MatrixPricing }) => {
+  const dimensionHeaders = data.rows[0]
+    ? [data.rows[0].dimension1?.key, data.rows[0].dimension2?.key].filter(Boolean)
+    : ['Dimensions']
+
+  return (
+    <SimpleTable
+      columns={[
+        {
+          header: dimensionHeaders.join(', '),
+          accessorFn: row => {
+            const values = [row.dimension1?.value ?? '']
+            if (row.dimension2) values.push(row.dimension2.value)
+            return values.join(', ')
+          },
+        },
+        {
+          header: 'Unit price',
+          cell: ({ row }) => <DisplayPrice price={row.original.perUnitPrice} />,
+        },
+      ]}
+      data={data.rows}
+    />
+  )
+}
+
+const SimpleUnitPriceTable = ({ unitPrice }: { unitPrice: string }) => (
+  <SimpleTable
+    columns={[
+      {
+        header: 'Unit Price',
+        cell: () => <DisplayPrice price={unitPrice} />,
       },
-      cadence: mapCadence(data.term),
-    }))
-    .with({ fee: 'oneTime' }, ({ data }) => ({
-      feeType: 'Fixed fee',
-      cadence: `One-time ${data.quantity > 1 ? `(x${data.quantity})` : ''}`,
-    }))
-    .with({ fee: 'extraRecurring' }, ({ data }) => ({
-      feeType: 'Fixed fee',
-      cadence: `${data.term ? mapCadence(data.term) : 'Monthly'} ${
-        data.quantity > 1 ? `(x${data.quantity})` : ''
-      } ${data.billingType === 'ADVANCE' ? '' : '(Postpaid)'}`,
-    }))
-    .with({ fee: 'usage' }, ({ data }) => ({
-      feeType: mapUsageModel(data.model),
-      linkedItem: {
-        type: 'Billable Metric',
-        item: <DisplayBillableMetric metricId={data.metricId}/>,
-      },
-      cadence: mapCadence(data.term),
-    }))
-    .exhaustive()
+    ]}
+    data={[{ unitPrice }]}
+  />
+)
+
+// --- Shared display components ---
+
+const DisplayProductBadge = ({ productId }: { productId: string }) => {
+  const product = useQuery(getProduct, { productId })
+  if (product.isLoading || !product.data?.product) return null
+  return (
+    <span className="inline-flex items-center rounded-full px-2 py-0.5 text-xs font-medium bg-brand/10 text-brand">
+      {product.data.product.name}
+    </span>
+  )
 }
 
 const DisplayBillableMetric = ({ metricId }: { metricId: string }) => {
-  // TODO getById
-  const metric = useQuery(getBillableMetric, {
-    id: metricId,
-  })
-
+  const metric = useQuery(getBillableMetric, { id: metricId })
   return metric.isLoading ? <></> : <>{metric.data?.billableMetric?.name}</>
 }
 
 const DisplayPrice = ({ price }: { price: string }) => {
   const currency = useCurrency()
   const formatWithCurrency = useCallback(formatPrice(currency), [currency])
-
   return <>{formatWithCurrency(price)}</>
-}
-const renderPricingDetails = (feeType: FeeType): ReactNode | undefined => {
-  console.log('feeType', feeType)
-  return match<FeeType, ReactNode>(feeType ?? undefined)
-    .with({ fee: 'rate' }, ({ data }) => renderRate(data))
-    .with({ fee: 'oneTime' }, ({ data }) => (
-      <SimpleTable
-        columns={[
-          {
-            header: 'Unit Price',
-            cell: ({ row }) => <DisplayPrice price={row.original.unitPrice}/>,
-          },
-        ]}
-        data={[data]}
-      />
-    ))
-    .with({ fee: 'extraRecurring' }, ({ data }) => (
-      <SimpleTable
-        columns={[
-          {
-            header: 'Unit Price',
-            cell: ({ row }) => <DisplayPrice price={row.original.unitPrice}/>,
-          },
-        ]}
-        data={[data]}
-      />
-    ))
-    .with({ fee: 'capacity' }, ({ data }) => renderCommittedCapacity(data))
-    .with({ fee: 'slot' }, ({ data }) => renderSlotBased(data))
-    .with({ fee: 'usage' }, ({ data }) => renderUsageBased(data))
-    .exhaustive()
-}
-
-const renderRate = (rate: RateFee) => {
-  return (
-    <SimpleTable
-      columns={[
-        {
-          header: 'Term',
-          accessorKey: 'term',
-        },
-        { header: 'Price', cell: ({ row }) => <DisplayPrice price={row.original.price}/> },
-      ]}
-      data={rate.rates}
-    />
-  )
-}
-
-const renderSlotBased = (rate: SlotFee) => {
-  return (
-    <SimpleTable
-      columns={[
-        {
-          header: 'Term',
-          accessorKey: 'term',
-        },
-        {
-          header: 'Price per slot',
-          cell: ({ row }) => <DisplayPrice price={row.original.price}/>,
-        },
-      ]}
-      data={rate.rates}
-    />
-  )
-}
-
-type TieredAndVolumeRowDisplay = TieredAndVolumeRow & { lastUnit?: bigint }
-
-const renderUsageBased = (rate: UsageFee) => {
-  return match(rate.model)
-    .with({ model: 'per_unit' }, ({ data }) => (
-      <SimpleTable
-        columns={[
-          {
-            header: 'Unit price',
-            cell: ({ row }) => <DisplayPrice price={row.original.unitPrice}/>,
-          },
-        ]}
-        data={[data]}
-      />
-    ))
-    .with({ model: 'package' }, ({ data }) => (
-      <SimpleTable
-        columns={[
-          { header: 'Block size', accessorKey: 'blockSize' },
-          {
-            header: 'Block price',
-            cell: ({ row }) => <DisplayPrice price={row.original.packagePrice}/>,
-          },
-        ]}
-        data={[data]}
-      />
-    ))
-    .with({ model: 'matrix' }, ({ data }) => {
-      const dimensionHeaders = data.dimensionRates[0]
-        ? [data.dimensionRates[0].dimension1.key, data.dimensionRates[0].dimension2?.key].filter(
-          Boolean
-        )
-        : ['Dimensions']
-
-      return (
-        <SimpleTable
-          columns={[
-            {
-              header: dimensionHeaders.join(', '),
-              accessorFn: row => {
-                const values = [row.dimension1.value]
-                if (row.dimension2) values.push(row.dimension2.value)
-                return values.join(', ')
-              },
-            },
-            {
-              header: 'Unit price',
-              cell: ({ row }) => <DisplayPrice price={row.original.price}/>,
-            },
-          ]}
-          data={data.dimensionRates}
-        />
-      )
-    })
-    .with(P.union({ model: 'tiered' }, { model: 'volume' }), ({ data }) => {
-      const hasFlatFee = data.rows.some(row => row.flatFee != null)
-      const hasFlatCap = data.rows.some(row => row.flatCap != null)
-
-      const zipWithLastUnit = (rows: TieredAndVolumeRow[]): TieredAndVolumeRowDisplay[] =>
-        rows.map((row, idx) => ({
-          ...row,
-          lastUnit: idx < rows.length - 1 ? rows[idx + 1].firstUnit : undefined,
-        }))
-
-      const columns: ColumnDef<TieredAndVolumeRowDisplay>[] = [
-        { header: 'First unit', accessorKey: 'firstUnit' },
-        { header: 'Last unit', accessorFn: row => row.lastUnit ?? '∞' },
-        {
-          header: 'Unit price',
-          cell: ({ row }) => <DisplayPrice price={row.original.unitPrice}/>,
-        },
-        ...(hasFlatFee
-          ? [
-            {
-              header: 'Flat fee',
-              cell: ({ row }) => <DisplayPrice price={row.original.flatFee ?? '0'}/>,
-            } as ColumnDef<TieredAndVolumeRowDisplay>,
-          ]
-          : []),
-        ...(hasFlatCap
-          ? [
-            {
-              header: 'Flat cap',
-              cell: ({ row }) => <DisplayPrice price={row.original.flatCap ?? '0'}/>,
-            } as ColumnDef<TieredAndVolumeRowDisplay>,
-          ]
-          : []),
-      ]
-
-      return <SimpleTable columns={columns} data={zipWithLastUnit(data.rows)}/>
-    })
-    .exhaustive()
-}
-
-const renderCommittedCapacity = (capacity: CapacityFee) => {
-  return (
-    <SimpleTable
-      columns={[
-        { header: 'Included Amount', accessorKey: 'includedAmount' },
-        { header: 'Price', accessorKey: 'price' },
-        { header: 'Per Unit Overage', accessorKey: 'perUnitOverage' },
-      ]}
-      data={capacity.thresholds}
-    />
-  )
 }

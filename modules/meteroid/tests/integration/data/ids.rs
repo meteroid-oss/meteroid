@@ -126,6 +126,71 @@ pub const CUST_SPOTIFY_PAYMENT_METHOD_ID: CustomerPaymentMethodId =
 pub const HISTORICAL_RATE_2024_01_01_ID: Uuid = uuid!("019438e0-0020-7000-8000-000000000001");
 pub const HISTORICAL_RATE_2010_01_01_ID: Uuid = uuid!("019438e0-0021-7000-8000-000000000001");
 
+// Products (for legacy plans that now require product_id)
+pub const PRODUCT_LEETCODE_RATE_ID: ProductId =
+    ProductId::from_const(uuid!("019438e0-0042-7000-8000-000000000001"));
+pub const PRODUCT_NOTION_SEATS_ID: ProductId =
+    ProductId::from_const(uuid!("019438e0-0043-7000-8000-000000000001"));
+pub const PRODUCT_SUPABASE_ORG_SLOTS_ID: ProductId =
+    ProductId::from_const(uuid!("019438e0-0044-7000-8000-000000000001"));
+pub const PRODUCT_PAID_FREE_TRIAL_RATE_ID: ProductId =
+    ProductId::from_const(uuid!("019438e0-0045-7000-8000-000000000001"));
+pub const PRODUCT_PAID_TRIAL_RATE_ID: ProductId =
+    ProductId::from_const(uuid!("019438e0-0046-7000-8000-000000000001"));
+
+// Prices (for legacy plans migrated to v2)
+pub const PRICE_LEETCODE_RATE_ID: PriceId =
+    PriceId::from_const(uuid!("019438e0-0080-7000-8000-000000000001"));
+pub const PRICE_NOTION_SEATS_MONTHLY_ID: PriceId =
+    PriceId::from_const(uuid!("019438e0-0081-7000-8000-000000000001"));
+pub const PRICE_NOTION_SEATS_ANNUAL_ID: PriceId =
+    PriceId::from_const(uuid!("019438e0-0082-7000-8000-000000000001"));
+pub const PRICE_SUPABASE_ORG_SLOTS_ID: PriceId =
+    PriceId::from_const(uuid!("019438e0-0083-7000-8000-000000000001"));
+pub const PRICE_PAID_FREE_TRIAL_RATE_ID: PriceId =
+    PriceId::from_const(uuid!("019438e0-0084-7000-8000-000000000001"));
+pub const PRICE_PAID_TRIAL_RATE_ID: PriceId =
+    PriceId::from_const(uuid!("019438e0-0085-7000-8000-000000000001"));
+
+// Products (for product-backed plans)
+pub const PRODUCT_PLATFORM_FEE_ID: ProductId =
+    ProductId::from_const(uuid!("019438e0-0040-7000-8000-000000000001"));
+pub const PRODUCT_SEATS_ID: ProductId =
+    ProductId::from_const(uuid!("019438e0-0041-7000-8000-000000000001"));
+
+// Product-backed plans (Starter & Pro)
+pub const PLAN_STARTER_ID: PlanId =
+    PlanId::from_const(uuid!("019438e0-0050-7000-8000-000000000001"));
+pub const PLAN_VERSION_STARTER_ID: PlanVersionId =
+    PlanVersionId::from_const(uuid!("019438e0-0051-7000-8000-000000000001"));
+pub const COMP_STARTER_PLATFORM_FEE_ID: PriceComponentId =
+    PriceComponentId::from_const(uuid!("019438e0-0052-7000-8000-000000000001"));
+pub const COMP_STARTER_SEATS_ID: PriceComponentId =
+    PriceComponentId::from_const(uuid!("019438e0-0053-7000-8000-000000000001"));
+pub const PRICE_STARTER_PLATFORM_FEE_ID: PriceId =
+    PriceId::from_const(uuid!("019438e0-0054-7000-8000-000000000001"));
+pub const PRICE_STARTER_SEATS_ID: PriceId =
+    PriceId::from_const(uuid!("019438e0-0055-7000-8000-000000000001"));
+
+pub const PLAN_PRO_ID: PlanId = PlanId::from_const(uuid!("019438e0-0060-7000-8000-000000000001"));
+pub const PLAN_VERSION_PRO_ID: PlanVersionId =
+    PlanVersionId::from_const(uuid!("019438e0-0061-7000-8000-000000000001"));
+pub const PLAN_VERSION_PRO_DRAFT_ID: PlanVersionId =
+    PlanVersionId::from_const(uuid!("019438e0-0062-7000-8000-000000000001"));
+pub const COMP_PRO_PLATFORM_FEE_ID: PriceComponentId =
+    PriceComponentId::from_const(uuid!("019438e0-0063-7000-8000-000000000001"));
+pub const COMP_PRO_SEATS_ID: PriceComponentId =
+    PriceComponentId::from_const(uuid!("019438e0-0064-7000-8000-000000000001"));
+pub const PRICE_PRO_PLATFORM_FEE_ID: PriceId =
+    PriceId::from_const(uuid!("019438e0-0065-7000-8000-000000000001"));
+pub const PRICE_PRO_SEATS_ID: PriceId =
+    PriceId::from_const(uuid!("019438e0-0066-7000-8000-000000000001"));
+
+// USD plan (for currency mismatch test)
+pub const PLAN_USD_ID: PlanId = PlanId::from_const(uuid!("019438e0-0070-7000-8000-000000000001"));
+pub const PLAN_VERSION_USD_ID: PlanVersionId =
+    PlanVersionId::from_const(uuid!("019438e0-0071-7000-8000-000000000001"));
+
 // Subscriptions
 pub const SUB_SPOTIFY_NOTION_ID: SubscriptionId =
     SubscriptionId::from_const(uuid!("018c3475-bdc5-77dd-9e26-e9a7fdd60426"));

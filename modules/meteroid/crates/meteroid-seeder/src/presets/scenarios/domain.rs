@@ -125,6 +125,7 @@ impl PriceComponent {
     pub fn to_domain(
         &self,
         metrics: &[meteroid_store::domain::BillableMetric],
+        currency: &str,
     ) -> StoreResult<meteroid_store::domain::PriceComponentNewInternal> {
         let maybe_metric_code = self.fee.metric_code();
 
@@ -198,10 +199,31 @@ impl PriceComponent {
             },
         };
 
+        use meteroid_store::domain::price_components::{PriceEntry, PriceInput, ProductRef};
+        use meteroid_store::domain::prices::{extract_fee_structure, extract_pricing};
+
+        let (fee_type_enum, fee_structure) = extract_fee_structure(&domain_fee);
+        let pricing_list = extract_pricing(&domain_fee);
+
+        let prices = pricing_list
+            .into_iter()
+            .map(|(cadence, pricing)| {
+                PriceEntry::New(PriceInput {
+                    cadence,
+                    currency: currency.to_string(),
+                    pricing,
+                })
+            })
+            .collect();
+
         Ok(meteroid_store::domain::PriceComponentNewInternal {
             name: self.name.clone(),
-            fee: domain_fee,
-            product_id: None,
+            product_ref: ProductRef::New {
+                name: self.name.clone(),
+                fee_type: fee_type_enum,
+                fee_structure,
+            },
+            prices,
         })
     }
 }

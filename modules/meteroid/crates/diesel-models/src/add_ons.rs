@@ -1,5 +1,5 @@
 use chrono::NaiveDateTime;
-use common_domain::ids::{AddOnId, TenantId};
+use common_domain::ids::{AddOnId, PlanVersionId, PriceId, ProductId, TenantId};
 use diesel::{AsChangeset, Identifiable, Insertable, Queryable, Selectable};
 
 #[derive(Queryable, Debug, Identifiable, Selectable)]
@@ -8,10 +8,12 @@ use diesel::{AsChangeset, Identifiable, Insertable, Queryable, Selectable};
 pub struct AddOnRow {
     pub id: AddOnId,
     pub name: String,
-    pub fee: serde_json::Value,
     pub tenant_id: TenantId,
     pub created_at: NaiveDateTime,
     pub updated_at: NaiveDateTime,
+    pub plan_version_id: Option<PlanVersionId>,
+    pub product_id: Option<ProductId>,
+    pub price_id: Option<PriceId>,
 }
 
 #[derive(Debug, Default, Insertable)]
@@ -20,8 +22,10 @@ pub struct AddOnRow {
 pub struct AddOnRowNew {
     pub id: AddOnId,
     pub name: String,
-    pub fee: serde_json::Value,
     pub tenant_id: TenantId,
+    pub plan_version_id: Option<PlanVersionId>,
+    pub product_id: Option<ProductId>,
+    pub price_id: Option<PriceId>,
 }
 
 #[derive(AsChangeset)]
@@ -32,6 +36,8 @@ pub struct AddOnRowPatch {
     pub id: AddOnId,
     pub tenant_id: TenantId,
     pub name: Option<String>,
-    pub fee: Option<serde_json::Value>,
+    pub plan_version_id: Option<Option<PlanVersionId>>,
+    pub product_id: Option<Option<ProductId>>,
+    pub price_id: Option<Option<PriceId>>,
     pub updated_at: NaiveDateTime,
 }

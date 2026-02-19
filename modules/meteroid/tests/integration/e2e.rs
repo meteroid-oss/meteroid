@@ -346,7 +346,7 @@ async fn test_metering_e2e() {
 
     let created_metric = created_metric.into_inner();
 
-    let metric_id = created_metric.billable_metric.as_ref().unwrap().id.clone();
+    let _metric_id = created_metric.billable_metric.as_ref().unwrap().id.clone();
 
     // we validate that it was created in clickhouse
 
@@ -405,28 +405,28 @@ async fn test_metering_e2e() {
             api::components::v1::CreatePriceComponentRequest {
                 plan_version_id: plan_version_id.clone(),
                 name: "Capacity".to_string(),
-                fee: Some(api::components::v1::Fee {
-                    fee_type: Some(api::components::v1::fee::FeeType::Capacity(
-                        api::components::v1::fee::CapacityFee {
-                            metric_id: metric_id.to_string(),
-                            thresholds: vec![
-                                api::components::v1::fee::capacity_fee::CapacityThreshold {
-                                    included_amount: 100,
-                                    price: Decimal::new(1200, 2).to_string(),
-                                    per_unit_overage: Decimal::new(5, 2).to_string(),
-                                },
-                                api::components::v1::fee::capacity_fee::CapacityThreshold {
-                                    included_amount: 1000,
-                                    price: Decimal::new(8200, 2).to_string(),
-                                    per_unit_overage: Decimal::new(4, 2).to_string(),
-                                },
-                            ],
-                            term: BillingPeriod::Monthly.into(),
-                        },
+                product: Some(api::components::v1::ProductRef {
+                    r#ref: Some(api::components::v1::product_ref::Ref::ExistingProductId(
+                        "018c344b-da87-7392-bbae-c5c8780adb1b".to_string(),
                     )),
                 }),
-
-                product_id: None,
+                prices: vec![api::components::v1::PriceEntry {
+                    entry: Some(api::components::v1::price_entry::Entry::NewPrice(
+                        api::components::v1::PriceInput {
+                            cadence: BillingPeriod::Monthly.into(),
+                            currency: "EUR".to_string(),
+                            pricing: Some(
+                                api::components::v1::price_input::Pricing::CapacityPricing(
+                                    api::prices::v1::CapacityPricing {
+                                        rate: Decimal::new(1200, 2).to_string(),
+                                        included: 100,
+                                        overage_rate: Decimal::new(5, 2).to_string(),
+                                    },
+                                ),
+                            ),
+                        },
+                    )),
+                }],
             },
         ))
         .await

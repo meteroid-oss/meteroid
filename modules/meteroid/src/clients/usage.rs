@@ -117,7 +117,7 @@ impl UsageClient for MeteringUsageClient {
 
         // Build segmentation filter based on the metric's segmentation matrix
         let segmentation_filter = match metric.segmentation_matrix.clone() {
-            Some(domain::SegmentationMatrix::Single(domain::Dimension { key, values })) => {
+            Some(domain::SegmentationMatrix::Single(domain::Dimension { key, values, .. })) => {
                 Some(SegmentationFilter {
                     filter: Some(segmentation_filter::Filter::Independent(
                         IndependentFilters {

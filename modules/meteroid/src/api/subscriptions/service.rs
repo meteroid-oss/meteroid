@@ -1,4 +1,6 @@
-use common_domain::ids::{CustomerId, PlanId, PriceComponentId, SubscriptionId};
+use common_domain::ids::{
+    BaseId, CustomerId, PlanId, PlanVersionId, PriceComponentId, SubscriptionId,
+};
 use common_grpc::middleware::server::auth::RequestExt;
 use meteroid_store::repositories::subscriptions::slots::SubscriptionSlotsInterfaceAuto;
 use tonic::{Request, Response, Status};
@@ -6,15 +8,17 @@ use tonic::{Request, Response, Status};
 use meteroid_grpc::meteroid::api::subscriptions::v1::subscriptions_service_server::SubscriptionsService;
 
 use meteroid_grpc::meteroid::api::subscriptions::v1::{
-    ActivateSubscriptionRequest, ActivateSubscriptionResponse, CancelSlotTransactionRequest,
-    CancelSlotTransactionResponse, CancelSubscriptionRequest, CancelSubscriptionResponse,
-    CreateSubscriptionRequest, CreateSubscriptionResponse, CreateSubscriptionsRequest,
-    CreateSubscriptionsResponse, GenerateCheckoutTokenRequest, GenerateCheckoutTokenResponse,
-    GetSlotsValueRequest, GetSlotsValueResponse, ListSlotTransactionsRequest,
-    ListSlotTransactionsResponse, ListSubscriptionsRequest, ListSubscriptionsResponse,
-    PreviewSlotUpdateRequest, PreviewSlotUpdateResponse, SubscriptionDetails, SyncToHubspotRequest,
-    SyncToHubspotResponse, UpdateSlotsRequest, UpdateSlotsResponse, UpdateSubscriptionRequest,
-    UpdateSubscriptionResponse,
+    ActivateSubscriptionRequest, ActivateSubscriptionResponse, CancelPlanChangeRequest,
+    CancelPlanChangeResponse, CancelSlotTransactionRequest, CancelSlotTransactionResponse,
+    CancelSubscriptionRequest, CancelSubscriptionResponse, CreateSubscriptionRequest,
+    CreateSubscriptionResponse, CreateSubscriptionsRequest, CreateSubscriptionsResponse,
+    GenerateCheckoutTokenRequest, GenerateCheckoutTokenResponse, GetSlotsValueRequest,
+    GetSlotsValueResponse, ListSlotTransactionsRequest, ListSlotTransactionsResponse,
+    ListSubscriptionsRequest, ListSubscriptionsResponse, PreviewPlanChangeRequest,
+    PreviewPlanChangeResponse, PreviewSlotUpdateRequest, PreviewSlotUpdateResponse,
+    SchedulePlanChangeRequest, SchedulePlanChangeResponse, SubscriptionDetails,
+    SyncToHubspotRequest, SyncToHubspotResponse, UpdateSlotsRequest, UpdateSlotsResponse,
+    UpdateSubscriptionRequest, UpdateSubscriptionResponse,
 };
 
 use crate::api::shared::conversions::ProtoConv;
@@ -462,5 +466,146 @@ impl SubscriptionsService for SubscriptionServiceComponents {
         Ok(Response::new(UpdateSubscriptionResponse {
             subscription: Some(proto_subscription),
         }))
+    }
+
+    #[tracing::instrument(skip_all)]
+    async fn schedule_plan_change(
+        &self,
+        request: Request<SchedulePlanChangeRequest>,
+    ) -> Result<Response<SchedulePlanChangeResponse>, Status> {
+        let tenant_id = request.tenant()?;
+        let inner = request.into_inner();
+
+        let subscription_id = SubscriptionId::from_proto(inner.subscription_id)?;
+        let new_plan_version_id = PlanVersionId::from_proto(inner.new_plan_version_id)?;
+        let component_params =
+            mapping::plan_change::map_component_parameterizations(inner.parameterized_components)?;
+
+        let event = self
+            .services
+            .schedule_plan_change(
+                subscription_id,
+                tenant_id,
+                new_plan_version_id,
+                component_params,
+            )
+            .await
+            .map_err(Into::<SubscriptionApiError>::into)?;
+
+        Ok(Response::new(SchedulePlanChangeResponse {
+            event_id: event.id.to_string(),
+            effective_date: event.scheduled_time.date().to_string(),
+        }))
+    }
+
+    #[tracing::instrument(skip_all)]
+    async fn preview_plan_change(
+        &self,
+        request: Request<PreviewPlanChangeRequest>,
+    ) -> Result<Response<PreviewPlanChangeResponse>, Status> {
+        let tenant_id = request.tenant()?;
+        let inner = request.into_inner();
+
+        let subscription_id = SubscriptionId::from_proto(inner.subscription_id)?;
+        let new_plan_version_id = PlanVersionId::from_proto(inner.new_plan_version_id)?;
+        let component_params =
+            mapping::plan_change::map_component_parameterizations(inner.parameterized_components)?;
+
+        let preview = self
+            .services
+            .preview_plan_change(
+                subscription_id,
+                tenant_id,
+                new_plan_version_id,
+                component_params,
+            )
+            .await
+            .map_err(Into::<SubscriptionApiError>::into)?;
+
+        Ok(Response::new(PreviewPlanChangeResponse {
+            matched: preview
+                .matched
+                .into_iter()
+                .map(|m| {
+                    meteroid_grpc::meteroid::api::subscriptions::v1::PlanChangeMatchedComponent {
+                        product_id: m.product_id.as_base62(),
+                        current_name: m.current_name,
+                        new_name: m.new_name,
+                        current_fee: Some(mapping::price_components::subscription_fee_to_grpc(
+                            &m.current_fee,
+                            m.current_period.as_billing_period_opt().unwrap_or_default(),
+                        )),
+                        current_period:
+                            mapping::price_components::subscription_fee_billing_period_to_grpc(
+                                m.current_period,
+                            )
+                            .into(),
+                        new_fee: Some(mapping::price_components::subscription_fee_to_grpc(
+                            &m.new_fee,
+                            m.new_period.as_billing_period_opt().unwrap_or_default(),
+                        )),
+                        new_period:
+                            mapping::price_components::subscription_fee_billing_period_to_grpc(
+                                m.new_period,
+                            )
+                            .into(),
+                    }
+                })
+                .collect(),
+            added: preview
+                .added
+                .into_iter()
+                .map(|a| {
+                    meteroid_grpc::meteroid::api::subscriptions::v1::PlanChangeAddedComponent {
+                        name: a.name,
+                        fee: Some(mapping::price_components::subscription_fee_to_grpc(
+                            &a.fee,
+                            a.period.as_billing_period_opt().unwrap_or_default(),
+                        )),
+                        period: mapping::price_components::subscription_fee_billing_period_to_grpc(
+                            a.period,
+                        )
+                        .into(),
+                    }
+                })
+                .collect(),
+            removed: preview
+                .removed
+                .into_iter()
+                .map(|r| {
+                    meteroid_grpc::meteroid::api::subscriptions::v1::PlanChangeRemovedComponent {
+                        name: r.name,
+                        current_fee: Some(mapping::price_components::subscription_fee_to_grpc(
+                            &r.current_fee,
+                            r.current_period.as_billing_period_opt().unwrap_or_default(),
+                        )),
+                        current_period:
+                            mapping::price_components::subscription_fee_billing_period_to_grpc(
+                                r.current_period,
+                            )
+                            .into(),
+                    }
+                })
+                .collect(),
+            effective_date: preview.effective_date.to_string(),
+        }))
+    }
+
+    #[tracing::instrument(skip_all)]
+    async fn cancel_plan_change(
+        &self,
+        request: Request<CancelPlanChangeRequest>,
+    ) -> Result<Response<CancelPlanChangeResponse>, Status> {
+        let tenant_id = request.tenant()?;
+        let inner = request.into_inner();
+
+        let subscription_id = SubscriptionId::from_proto(inner.subscription_id)?;
+
+        self.services
+            .cancel_plan_change(subscription_id, tenant_id)
+            .await
+            .map_err(Into::<SubscriptionApiError>::into)?;
+
+        Ok(Response::new(CancelPlanChangeResponse {}))
     }
 }

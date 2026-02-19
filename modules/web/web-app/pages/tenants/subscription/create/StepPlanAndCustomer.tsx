@@ -148,14 +148,16 @@ export const StepPlanAndCustomer = () => {
                   </AlertDescription>
                 </Alert>
               </div> */}
-              <CreateSubscriptionPriceComponents
-                planVersionId={planVersionId}
-                customerId={customerId}
-                onValidationChange={(valid, errors) => {
-                  setIsValid(valid)
-                  setValidationErrors(errors)
-                }}
-              />
+              {planQuery.data?.plan?.version?.currency && (
+                <CreateSubscriptionPriceComponents
+                  planVersionId={planVersionId}
+                  currency={planQuery.data.plan.version.currency}
+                  onValidationChange={(valid, errors) => {
+                    setIsValid(valid)
+                    setValidationErrors(errors)
+                  }}
+                />
+              )}
             </PageSection>
 
             <PageSection

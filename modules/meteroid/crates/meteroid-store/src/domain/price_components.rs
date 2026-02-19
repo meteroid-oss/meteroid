@@ -1,73 +1,260 @@
 use error_stack::Report;
+use std::collections::HashMap;
 
 use uuid::Uuid;
 // TODO duplicate as well
-use super::enums::{BillingPeriodEnum, BillingType, SubscriptionFeeBillingPeriod};
+use super::enums::{BillingPeriodEnum, BillingType, FeeTypeEnum, SubscriptionFeeBillingPeriod};
 
-use crate::domain::SubscriptionFee;
+use crate::domain::prices::{self, FeeStructure, LegacyPricingData, Pricing};
+use crate::domain::{Price, Product, SubscriptionFee};
 use crate::errors::{StoreError, StoreErrorReport};
 use crate::json_value_serde;
-use common_domain::ids::{BaseId, BillableMetricId, PlanVersionId, PriceComponentId, ProductId};
+use common_domain::ids::{
+    BaseId, BillableMetricId, PlanVersionId, PriceComponentId, PriceId, ProductId,
+};
 use diesel_models::price_components::{PriceComponentRow, PriceComponentRowNew};
 use golden::golden;
 use serde::{Deserialize, Serialize};
 
-#[derive(Debug, Clone)]
-pub struct PriceComponent {
-    pub id: PriceComponentId,
-    pub name: String,
-    pub fee: FeeType,
-    pub product_id: Option<ProductId>,
+// ── Write-side types ────────────────────────────────────────────────
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub enum ProductRef {
+    Existing(ProductId),
+    New {
+        name: String,
+        fee_type: FeeTypeEnum,
+        fee_structure: FeeStructure,
+    },
 }
 
-impl TryInto<PriceComponent> for PriceComponentRow {
-    type Error = Report<StoreError>;
-
-    fn try_into(self) -> Result<PriceComponent, Self::Error> {
-        let fee: FeeType = self.fee.try_into()?;
-
-        // TODO we also have plan version id and metric id in the type
-        Ok(PriceComponent {
-            id: self.id,
-            name: self.name,
-            fee,
-            product_id: self.product_id,
-        })
+impl ProductRef {
+    pub fn existing_product_id(&self) -> Option<ProductId> {
+        match self {
+            ProductRef::Existing(id) => Some(*id),
+            ProductRef::New { .. } => None,
+        }
     }
 }
 
-#[derive(Debug, Clone)]
-pub struct PriceComponentNew {
-    pub name: String,
-    pub fee: FeeType,
-    pub product_id: Option<ProductId>,
-    pub plan_version_id: PlanVersionId,
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub enum PriceEntry {
+    Existing(PriceId),
+    New(PriceInput),
 }
 
+impl PriceEntry {
+    pub fn existing_price_id(&self) -> Option<PriceId> {
+        match self {
+            PriceEntry::Existing(id) => Some(*id),
+            PriceEntry::New(_) => None,
+        }
+    }
+}
+
+/// Per-cadence pricing input for creating a price with associated prices.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct PriceInput {
+    pub cadence: BillingPeriodEnum,
+    pub currency: String,
+    pub pricing: Pricing,
+}
+
+/// High-level component definition used by `insert_plan` and the seeder.
 #[derive(Debug, Clone)]
 pub struct PriceComponentNewInternal {
     pub name: String,
-    pub fee: FeeType,
+    pub product_ref: ProductRef,
+    pub prices: Vec<PriceEntry>,
+}
+
+/// Low-level row builder for inserting a PriceComponentRow.
+#[derive(Debug, Clone)]
+pub struct PriceComponentNew {
+    pub name: String,
     pub product_id: Option<ProductId>,
+    pub plan_version_id: PlanVersionId,
 }
 
 impl TryInto<PriceComponentRowNew> for PriceComponentNew {
     type Error = StoreErrorReport;
 
     fn try_into(self) -> Result<PriceComponentRowNew, Self::Error> {
-        let metric = self.fee.metric_id();
-
-        let json_fee: serde_json::Value = self.fee.try_into()?;
-
         Ok(PriceComponentRowNew {
             id: PriceComponentId::new(),
             plan_version_id: self.plan_version_id,
             name: self.name,
-            fee: json_fee,
+            legacy_fee: None,
             product_id: self.product_id,
-            billable_metric_id: metric,
+            billable_metric_id: None,
         })
     }
+}
+
+// ── Read-side types ─────────────────────────────────────────────────
+
+#[derive(Debug, Clone)]
+pub struct PriceComponent {
+    pub id: PriceComponentId,
+    pub name: String,
+    pub product_id: Option<ProductId>,
+    pub prices: Vec<Price>,
+    /// V1 pricing data extracted from Row legacy_fee. No database IDs.
+    /// None for v2 components.
+    pub legacy_pricing: Option<LegacyPricingData>,
+}
+
+impl TryInto<PriceComponent> for PriceComponentRow {
+    type Error = Report<StoreError>;
+
+    fn try_into(self) -> Result<PriceComponent, Self::Error> {
+        Ok(PriceComponent {
+            id: self.id,
+            name: self.name,
+            product_id: self.product_id,
+            prices: Vec::new(),
+            legacy_pricing: None,
+        })
+    }
+}
+
+/// Result of resolving a price component's fee (v1 or v2 path).
+#[derive(Debug, Clone)]
+pub struct ResolvedFee {
+    pub period: SubscriptionFeeBillingPeriod,
+    pub fee: SubscriptionFee,
+    pub price_id: Option<PriceId>,
+}
+
+impl PriceComponent {
+    /// Centralized resolution — all components must have product + prices (v2).
+    /// v1 components get synthesized prices at the repository/context layer.
+    pub fn resolve_subscription_fee(
+        &self,
+        products: &HashMap<ProductId, Product>,
+        params: Option<&ComponentParameters>,
+    ) -> Result<ResolvedFee, StoreError> {
+        let product_id = self.product_id.ok_or_else(|| {
+            StoreError::InvalidArgument(format!("PriceComponent {} has no product_id", self.id))
+        })?;
+
+        let product = products.get(&product_id).ok_or_else(|| {
+            StoreError::InvalidArgument(format!(
+                "Product {} not found for component {}",
+                product_id, self.id
+            ))
+        })?;
+
+        let fee_structure = &product.fee_structure;
+
+        if self.prices.is_empty() {
+            return Err(StoreError::InvalidArgument(format!(
+                "PriceComponent {} has no prices",
+                self.id
+            )));
+        }
+
+        let price = self.select_price(params)?;
+        let fee = prices::resolve_subscription_fee(fee_structure, &price.pricing, params)?;
+        let period = prices::fee_type_billing_period(fee_structure)
+            .unwrap_or_else(|| price.cadence.as_subscription_billing_period());
+
+        Ok(ResolvedFee {
+            period,
+            fee,
+            price_id: Some(price.id),
+        })
+    }
+
+    /// Resolve the fee for a component, handling both v2 (product + prices) and v1 (legacy) paths.
+    pub fn resolve_fee(
+        &self,
+        products: &HashMap<ProductId, Product>,
+        params: Option<&ComponentParameters>,
+    ) -> Result<ResolvedFee, StoreError> {
+        if self.product_id.is_some() && !self.prices.is_empty() {
+            self.resolve_subscription_fee(products, params)
+        } else if let Some(legacy) = &self.legacy_pricing {
+            resolve_legacy_subscription_fee(legacy, params)
+        } else {
+            Err(StoreError::InvalidArgument(format!(
+                "Component {} has no pricing data",
+                self.name
+            )))
+        }
+    }
+
+    fn select_price(&self, params: Option<&ComponentParameters>) -> Result<&Price, StoreError> {
+        if self.prices.len() == 1 {
+            return Ok(&self.prices[0]);
+        }
+
+        let mut candidates: Vec<&Price> = self.prices.iter().collect();
+
+        if let Some(p) = params {
+            // Filter by billing period if specified
+            if let Some(bp) = &p.billing_period {
+                let target = bp.as_subscription_billing_period();
+                candidates.retain(|pr| pr.cadence.as_subscription_billing_period() == target);
+            }
+
+            // Filter by committed capacity (matches Pricing::Capacity { included })
+            if let Some(cap) = p.committed_capacity {
+                candidates.retain(|pr| match &pr.pricing {
+                    super::prices::Pricing::Capacity { included, .. } => *included == cap,
+                    _ => true, // non-capacity prices are unaffected
+                });
+            }
+        }
+
+        match candidates.len() {
+            1 => Ok(candidates[0]),
+            0 => Err(StoreError::InvalidArgument(format!(
+                "No matching price found for component {}",
+                self.id
+            ))),
+            _ => Err(StoreError::InvalidArgument(format!(
+                "Multiple prices match for component {} — provide billing_period or committed_capacity to disambiguate",
+                self.id
+            ))),
+        }
+    }
+}
+
+pub use super::subscription_components::ComponentParameters;
+
+pub fn resolve_legacy_subscription_fee(
+    legacy: &LegacyPricingData,
+    params: Option<&ComponentParameters>,
+) -> Result<ResolvedFee, StoreError> {
+    let (cadence, pricing) = select_legacy_pricing_entry(&legacy.pricing_entries, params)?;
+    let fee = prices::resolve_subscription_fee(&legacy.fee_structure, pricing, params)?;
+    let period = prices::fee_type_billing_period(&legacy.fee_structure)
+        .unwrap_or_else(|| cadence.as_subscription_billing_period());
+    Ok(ResolvedFee {
+        period,
+        fee,
+        price_id: None,
+    })
+}
+
+fn select_legacy_pricing_entry<'a>(
+    entries: &'a [(BillingPeriodEnum, Pricing)],
+    params: Option<&ComponentParameters>,
+) -> Result<&'a (BillingPeriodEnum, Pricing), StoreError> {
+    if entries.len() == 1 {
+        return Ok(&entries[0]);
+    }
+    if let Some(p) = params
+        && let Some(bp) = &p.billing_period
+    {
+        return entries.iter().find(|(c, _)| c == bp).ok_or_else(|| {
+            StoreError::InvalidArgument(format!("No pricing entry for billing period {:?}", bp))
+        });
+    }
+    Err(StoreError::InvalidArgument(
+        "Multiple pricing entries but no billing_period specified".into(),
+    ))
 }
 
 //
@@ -160,240 +347,6 @@ impl FeeType {
             FeeType::Capacity { metric_id, .. } => Some(*metric_id),
             FeeType::Usage { metric_id, .. } => Some(*metric_id),
             _ => None,
-        }
-    }
-
-    pub fn to_subscription_fee(
-        &self,
-    ) -> Result<(SubscriptionFeeBillingPeriod, SubscriptionFee), StoreError> {
-        match self {
-            FeeType::Rate { rates } => {
-                if rates.len() != 1 {
-                    return Err(StoreError::InvalidArgument(format!(
-                        "Expected a single rate or a parametrized component, found: {}",
-                        rates.len()
-                    )));
-                }
-                Ok((
-                    rates[0].term.as_subscription_billing_period(),
-                    SubscriptionFee::Rate {
-                        rate: rates[0].price,
-                    },
-                ))
-            }
-            FeeType::Slot {
-                minimum_count,
-                quota,
-                slot_unit_name,
-                rates,
-                ..
-            } => {
-                if rates.len() != 1 {
-                    return Err(StoreError::InvalidArgument(format!(
-                        "Expected a single rate or a parametrized component, found: {}",
-                        rates.len()
-                    )));
-                }
-
-                Ok((
-                    rates[0].term.as_subscription_billing_period(),
-                    SubscriptionFee::Slot {
-                        unit: slot_unit_name.clone(),
-                        unit_rate: rates[0].price,
-                        min_slots: *minimum_count,
-                        max_slots: *quota,
-                        initial_slots: minimum_count.unwrap_or(0),
-                    },
-                ))
-            }
-            FeeType::Capacity {
-                metric_id,
-                thresholds,
-                cadence,
-            } => {
-                if thresholds.len() != 1 {
-                    return Err(StoreError::InvalidArgument(format!(
-                        "Expected either a single threshold or a parametrized component, found: {}",
-                        thresholds.len()
-                    )));
-                }
-
-                Ok((
-                    cadence.as_subscription_billing_period(),
-                    SubscriptionFee::Capacity {
-                        metric_id: *metric_id,
-                        overage_rate: thresholds[0].per_unit_overage,
-                        included: thresholds[0].included_amount,
-                        rate: thresholds[0].price,
-                    },
-                ))
-            }
-
-            FeeType::OneTime {
-                quantity,
-                unit_price,
-            } => Ok((
-                SubscriptionFeeBillingPeriod::OneTime,
-                SubscriptionFee::OneTime {
-                    rate: *unit_price,
-                    quantity: *quantity,
-                },
-            )),
-            FeeType::Usage {
-                metric_id,
-                pricing,
-                cadence,
-            } => Ok((
-                cadence.as_subscription_billing_period(),
-                SubscriptionFee::Usage {
-                    metric_id: *metric_id,
-                    model: pricing.clone(),
-                },
-            )),
-            FeeType::ExtraRecurring {
-                cadence,
-                unit_price,
-                quantity,
-                billing_type,
-            } => Ok((
-                cadence.as_subscription_billing_period(),
-                SubscriptionFee::Recurring {
-                    rate: *unit_price,
-                    quantity: *quantity,
-                    billing_type: billing_type.clone(),
-                },
-            )),
-        }
-    }
-
-    pub fn to_subscription_fee_parameterized(
-        &self,
-        initial_slot_count: &Option<u32>,
-        billing_period: &Option<BillingPeriodEnum>,
-        committed_capacity: &Option<u64>,
-    ) -> Result<(SubscriptionFeeBillingPeriod, SubscriptionFee), StoreError> {
-        match self {
-            FeeType::Rate { rates } => {
-                if initial_slot_count.is_some() || committed_capacity.is_some() {
-                    return Err(StoreError::InvalidArgument(
-                        "Unexpected parameters for rate fee".to_string(),
-                    ));
-                }
-
-                if let Some(billing_period) = &billing_period {
-                    let rate = rates
-                        .iter()
-                        .find(|r| &r.term == billing_period)
-                        .ok_or_else(|| {
-                            StoreError::InvalidArgument(format!(
-                                "Rate not found for billing period: {billing_period:?}"
-                            ))
-                        })?;
-                    Ok((
-                        billing_period.as_subscription_billing_period(),
-                        SubscriptionFee::Rate { rate: rate.price },
-                    ))
-                } else {
-                    if rates.len() != 1 {
-                        return Err(StoreError::InvalidArgument(format!(
-                            "Expected a single rate, found: {}",
-                            rates.len()
-                        )));
-                    }
-
-                    let rate = &rates[0];
-                    Ok((
-                        rate.term.as_subscription_billing_period(),
-                        SubscriptionFee::Rate { rate: rate.price },
-                    ))
-                }
-            }
-            FeeType::Slot {
-                rates,
-                minimum_count,
-                slot_unit_name,
-                quota,
-                ..
-            } => {
-                let (rate, billing_period) = if let Some(billing_period) = billing_period.as_ref() {
-                    let rate = rates
-                        .iter()
-                        .find(|r| &r.term == billing_period)
-                        .ok_or_else(|| {
-                            StoreError::InvalidArgument(format!(
-                                "Rate not found for billing period: {billing_period:?}"
-                            ))
-                        })?;
-                    (rate, billing_period)
-                } else {
-                    if rates.len() != 1 {
-                        return Err(StoreError::InvalidArgument(format!(
-                            "Expected a single rate, found: {}",
-                            rates.len()
-                        )));
-                    }
-                    (&rates[0], &rates[0].term)
-                };
-
-                let initial_slots =
-                    initial_slot_count.unwrap_or_else(|| minimum_count.unwrap_or(0));
-
-                if committed_capacity.is_some() {
-                    return Err(StoreError::InvalidArgument(
-                        "Unexpected committed capacity for slot fee".to_string(),
-                    ));
-                }
-                Ok((
-                    billing_period.as_subscription_billing_period(),
-                    SubscriptionFee::Slot {
-                        unit: slot_unit_name.clone(),
-                        unit_rate: rate.price,
-                        min_slots: *minimum_count,
-                        max_slots: *quota,
-                        initial_slots,
-                    },
-                ))
-            }
-            FeeType::Capacity {
-                metric_id,
-                thresholds,
-                cadence,
-            } => {
-                let committed_capacity = committed_capacity.ok_or_else(|| {
-                    StoreError::InvalidArgument("Missing committed capacity".to_string())
-                })?;
-
-                let threshold = thresholds
-                    .iter()
-                    .find(|t| t.included_amount == committed_capacity)
-                    .ok_or_else(|| {
-                        StoreError::InvalidArgument(format!(
-                            "Threshold not found for committed capacity: {committed_capacity}"
-                        ))
-                    })?;
-
-                if initial_slot_count.is_some() {
-                    return Err(StoreError::InvalidArgument(
-                        "Unexpected parameters for capacity fee".to_string(),
-                    ));
-                }
-
-                Ok((
-                    cadence.as_subscription_billing_period(),
-                    SubscriptionFee::Capacity {
-                        metric_id: *metric_id,
-                        overage_rate: threshold.per_unit_overage,
-                        included: threshold.included_amount,
-                        rate: threshold.price,
-                    },
-                ))
-            }
-            // all other case should fail, as they just cannot be parametrized
-            FeeType::Usage { .. } | FeeType::ExtraRecurring { .. } | FeeType::OneTime { .. } => {
-                Err(StoreError::InvalidArgument(format!(
-                    "Cannot parameterize fee type: {self:?}"
-                )))
-            }
         }
     }
 }

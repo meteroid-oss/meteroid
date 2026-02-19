@@ -133,4 +133,83 @@ impl ProductRow {
             .attach("Error while fetching products")
             .into_db_result()
     }
+
+    pub async fn list_by_ids(
+        conn: &mut PgConn,
+        ids: &[ProductId],
+        tenant_id: TenantId,
+    ) -> DbResult<Vec<ProductRow>> {
+        use crate::schema::product::dsl as p_dsl;
+        use diesel_async::RunQueryDsl;
+
+        if ids.is_empty() {
+            return Ok(vec![]);
+        }
+
+        let query = p_dsl::product
+            .filter(p_dsl::id.eq_any(ids))
+            .filter(p_dsl::tenant_id.eq(tenant_id))
+            .select(ProductRow::as_select());
+
+        log::debug!("{}", debug_query::<diesel::pg::Pg, _>(&query));
+
+        query
+            .load(conn)
+            .await
+            .attach("Error while listing products by ids")
+            .into_db_result()
+    }
+
+    pub async fn update_fee_structure(
+        conn: &mut PgConn,
+        id: ProductId,
+        tenant_id: TenantId,
+        name: String,
+        description: Option<String>,
+        new_fee_type: crate::enums::FeeTypeEnum,
+        new_fee_structure: serde_json::Value,
+    ) -> DbResult<ProductRow> {
+        use crate::schema::product::dsl as p_dsl;
+        use diesel_async::RunQueryDsl;
+
+        let query = diesel::update(p_dsl::product)
+            .filter(p_dsl::id.eq(id))
+            .filter(p_dsl::tenant_id.eq(tenant_id))
+            .set((
+                p_dsl::name.eq(name),
+                p_dsl::description.eq(description),
+                p_dsl::fee_type.eq(new_fee_type),
+                p_dsl::fee_structure.eq(new_fee_structure),
+                p_dsl::updated_at.eq(diesel::dsl::now),
+            ));
+
+        log::debug!("{}", debug_query::<diesel::pg::Pg, _>(&query));
+
+        query
+            .get_result(conn)
+            .await
+            .attach("Error while updating product fee structure")
+            .into_db_result()
+    }
+
+    pub async fn list_all_by_tenant(
+        conn: &mut PgConn,
+        tenant_id: TenantId,
+    ) -> DbResult<Vec<ProductRow>> {
+        use crate::schema::product::dsl as p_dsl;
+        use diesel_async::RunQueryDsl;
+
+        let query = p_dsl::product
+            .filter(p_dsl::tenant_id.eq(tenant_id))
+            .filter(p_dsl::archived_at.is_null())
+            .select(ProductRow::as_select());
+
+        log::debug!("{}", debug_query::<diesel::pg::Pg, _>(&query));
+
+        query
+            .load(conn)
+            .await
+            .attach("Error while listing all products by tenant")
+            .into_db_result()
+    }
 }

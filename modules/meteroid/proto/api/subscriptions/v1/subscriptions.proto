@@ -4,6 +4,7 @@ package meteroid.api.subscriptions.v1;
 
 
 import "api/subscriptions/v1/models.proto";
+import "api/shared/v1/shared.proto";
 import "common/v1/pagination.proto";
 
 message CreateSubscriptionsRequest {
@@ -166,6 +167,65 @@ message UpdateSubscriptionResponse {
   Subscription subscription = 1;
 }
 
+message PlanChangeComponentParameterization {
+  string component_id = 1;
+  optional meteroid.api.shared.v1.BillingPeriod billing_period = 2;
+  optional uint32 initial_slot_count = 3;
+  optional uint64 committed_capacity = 4;
+}
+
+message SchedulePlanChangeRequest {
+  string subscription_id = 1;
+  string new_plan_version_id = 2;
+  repeated PlanChangeComponentParameterization parameterized_components = 3;
+}
+
+message SchedulePlanChangeResponse {
+  string event_id = 1;
+  string effective_date = 2;
+}
+
+message PreviewPlanChangeRequest {
+  string subscription_id = 1;
+  string new_plan_version_id = 2;
+  repeated PlanChangeComponentParameterization parameterized_components = 3;
+}
+
+message PreviewPlanChangeResponse {
+  repeated PlanChangeMatchedComponent matched = 1;
+  repeated PlanChangeAddedComponent added = 2;
+  repeated PlanChangeRemovedComponent removed = 3;
+  string effective_date = 4;
+}
+
+message PlanChangeMatchedComponent {
+  string product_id = 1;
+  string current_name = 2;
+  string new_name = 3;
+  SubscriptionFee current_fee = 4;
+  SubscriptionFeeBillingPeriod current_period = 5;
+  SubscriptionFee new_fee = 6;
+  SubscriptionFeeBillingPeriod new_period = 7;
+}
+
+message PlanChangeAddedComponent {
+  string name = 1;
+  SubscriptionFee fee = 2;
+  SubscriptionFeeBillingPeriod period = 3;
+}
+
+message PlanChangeRemovedComponent {
+  string name = 1;
+  SubscriptionFee current_fee = 2;
+  SubscriptionFeeBillingPeriod current_period = 3;
+}
+
+message CancelPlanChangeRequest {
+  string subscription_id = 1;
+}
+
+message CancelPlanChangeResponse {}
+
 // Service definition
 service SubscriptionsService {
   rpc CreateSubscription(CreateSubscriptionRequest) returns (CreateSubscriptionResponse);
@@ -182,4 +242,7 @@ service SubscriptionsService {
   rpc SyncToHubspot(SyncToHubspotRequest) returns (SyncToHubspotResponse);
   rpc GenerateCheckoutToken(GenerateCheckoutTokenRequest) returns (GenerateCheckoutTokenResponse);
   rpc UpdateSubscription(UpdateSubscriptionRequest) returns (UpdateSubscriptionResponse);
+  rpc SchedulePlanChange(SchedulePlanChangeRequest) returns (SchedulePlanChangeResponse);
+  rpc PreviewPlanChange(PreviewPlanChangeRequest) returns (PreviewPlanChangeResponse);
+  rpc CancelPlanChange(CancelPlanChangeRequest) returns (CancelPlanChangeResponse);
 }

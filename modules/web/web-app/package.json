@@ -95,6 +95,7 @@
     "build": "tsc && vite build",
     "build:js": "vite build",
     "dev": "vite",
+    "typecheck": "tsc --noEmit",
     "lint": "tsc --noEmit && eslint \"./**/*.ts*\"",
     "lint:fix": "eslint . --ext .ts,.js,.tsx,.jsx --fix",
     "preview": "vite preview",

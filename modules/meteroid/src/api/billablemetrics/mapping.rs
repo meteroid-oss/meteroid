@@ -170,20 +170,27 @@ pub mod metric {
         segmentation_matrix: Option<server::SegmentationMatrix>,
     ) -> Option<SegmentationMatrix> {
         segmentation_matrix.and_then(|sm| match sm.matrix {
-            Some(Matrix::Single(s)) => Some(SegmentationMatrix::Single(Dimension {
-                key: s.dimension.as_ref().unwrap().key.clone(),
-                values: s.dimension.as_ref().unwrap().values.clone(),
-            })),
-            Some(Matrix::Double(d)) => Some(SegmentationMatrix::Double {
-                dimension1: Dimension {
-                    key: d.dimension1.as_ref().unwrap().key.clone(),
-                    values: d.dimension1.as_ref().unwrap().values.clone(),
-                },
-                dimension2: Dimension {
-                    key: d.dimension2.as_ref().unwrap().key.clone(),
-                    values: d.dimension2.as_ref().unwrap().values.clone(),
-                },
-            }),
+            Some(Matrix::Single(s)) => {
+                let dim = s.dimension.as_ref().unwrap();
+                Some(SegmentationMatrix::Single(Dimension {
+                    key: dim.key.clone(),
+                    values: dim.values.clone(),
+                }))
+            }
+            Some(Matrix::Double(d)) => {
+                let d1 = d.dimension1.as_ref().unwrap();
+                let d2 = d.dimension2.as_ref().unwrap();
+                Some(SegmentationMatrix::Double {
+                    dimension1: Dimension {
+                        key: d1.key.clone(),
+                        values: d1.values.clone(),
+                    },
+                    dimension2: Dimension {
+                        key: d2.key.clone(),
+                        values: d2.values.clone(),
+                    },
+                })
+            }
             Some(Matrix::Linked(l)) => Some(SegmentationMatrix::Linked {
                 dimension1_key: l.dimension_key.clone(),
                 dimension2_key: l.linked_dimension_key.clone(),

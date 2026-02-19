@@ -1,11 +1,11 @@
 use crate::StoreResult;
+use crate::domain::Product;
 use crate::domain::subscription_add_ons::SubscriptionAddOn;
 use crate::domain::subscription_coupons::AppliedCoupon;
 use crate::domain::{
     AppliedCouponDetailed, BillingPeriodEnum, CheckoutSession, CheckoutType, InvoicingEntity,
-    PriceComponent, Subscription, SubscriptionActivationCondition, SubscriptionAddOnCustomization,
-    SubscriptionComponent, SubscriptionComponentNewInternal, SubscriptionDetails,
-    SubscriptionStatusEnum, TrialConfig,
+    PriceComponent, Subscription, SubscriptionActivationCondition, SubscriptionComponent,
+    SubscriptionDetails, SubscriptionStatusEnum, TrialConfig,
 };
 use crate::errors::StoreError;
 use crate::repositories::add_ons::AddOnInterface;
@@ -16,11 +16,13 @@ use crate::services::Services;
 use crate::store::PgConn;
 use chrono::{Datelike, Utc};
 use common_domain::ids::{
-    AddOnId, AppliedCouponId, BaseId, SubscriptionAddOnId, SubscriptionId,
+    AddOnId, AppliedCouponId, BaseId, ProductId, SubscriptionAddOnId, SubscriptionId,
     SubscriptionPriceComponentId, TenantId,
 };
 use diesel_models::invoicing_entities::InvoicingEntityProvidersRow;
+use diesel_models::products::ProductRow;
 use error_stack::Report;
+use std::collections::HashMap;
 
 impl Services {
     /// Builds a virtual SubscriptionDetails from a checkout session for invoice preview.
@@ -72,11 +74,46 @@ impl Services {
 
         let invoicing_entity: InvoicingEntity = invoicing_entity_providers.entity.clone().into();
 
+        // Load products referenced by price components for v2 resolution
+        let product_ids: Vec<ProductId> = price_components
+            .iter()
+            .filter_map(|c| c.product_id)
+            .collect();
+        let products_map: HashMap<ProductId, Product> = if product_ids.is_empty() {
+            HashMap::new()
+        } else {
+            ProductRow::list_by_ids(conn, &product_ids, tenant_id)
+                .await
+                .map_err(Into::<Report<StoreError>>::into)?
+                .into_iter()
+                .map(|row| {
+                    let id = row.id;
+                    Product::try_from(row).map(|p| (id, p))
+                })
+                .collect::<Result<HashMap<_, _>, _>>()?
+        };
+
+        // Resolve overrides and extras (read-only fee computation, no row creation)
+        let resolved_custom = self
+            .resolve_preview_custom_components(
+                conn,
+                session,
+                &price_components,
+                &products_map,
+                tenant_id,
+            )
+            .await?;
+
         // Note: This builds subscription details for invoice computation only.
         // Payment method resolution is handled separately in build_checkout_response.
-        let subscription_components = self.build_preview_components(&price_components, session)?;
+        let subscription_components = self.build_preview_components(
+            &price_components,
+            session,
+            &products_map,
+            &resolved_custom,
+        )?;
 
-        let subscription_add_ons = self.build_preview_add_ons(tenant_id, session).await?;
+        let subscription_add_ons = self.build_preview_add_ons(conn, tenant_id, session).await?;
 
         let billing_period = self.extract_billing_period_from_components_and_add_ons(
             &subscription_components,
@@ -231,6 +268,7 @@ impl Services {
             metrics: Vec::new(),
             checkout_url: None,
             trial_config,
+            pending_plan_change: None,
         })
     }
 
@@ -238,16 +276,18 @@ impl Services {
     fn build_subscription_component_from_price_component(
         &self,
         pc: crate::domain::PriceComponent,
+        products: &HashMap<ProductId, Product>,
     ) -> StoreResult<SubscriptionComponent> {
-        let (period, fee) = pc.fee.to_subscription_fee().map_err(Report::new)?;
+        let resolved = pc.resolve_fee(products, None).map_err(Report::new)?;
         Ok(SubscriptionComponent {
             id: SubscriptionPriceComponentId::new(),
             name: pc.name,
             subscription_id: SubscriptionId::new(),
             price_component_id: Some(pc.id),
             product_id: pc.product_id,
-            fee,
-            period,
+            fee: resolved.fee,
+            period: resolved.period,
+            price_id: resolved.price_id,
         })
     }
 
@@ -280,18 +320,15 @@ impl Services {
         &self,
         price_components: &[PriceComponent],
         session: &CheckoutSession,
+        products: &HashMap<ProductId, Product>,
+        resolved_custom: &crate::services::subscriptions::insert::context::ResolvedCustomComponents,
     ) -> StoreResult<Vec<SubscriptionComponent>> {
         let mut processed_components = Vec::new();
 
-        let (parameterized, overridden, extra, remove) = if let Some(ref pc) = session.components {
-            (
-                &pc.parameterized_components,
-                &pc.overridden_components,
-                &pc.extra_components,
-                &pc.remove_components,
-            )
+        let (parameterized, remove) = if let Some(ref pc) = session.components {
+            (&pc.parameterized_components, &pc.remove_components)
         } else {
-            (&Vec::new(), &Vec::new(), &Vec::new(), &Vec::new())
+            (&Vec::new(), &Vec::new())
         };
 
         for pc in price_components {
@@ -305,59 +342,170 @@ impl Services {
                 .iter()
                 .find(|p| p.component_id == component_id)
             {
-                let (period, fee) = pc.fee.to_subscription_fee_parameterized(
-                    &param.parameters.initial_slot_count,
-                    &param.parameters.billing_period,
-                    &param.parameters.committed_capacity,
-                )?;
+                use crate::domain::price_components::ComponentParameters;
+                let params = ComponentParameters {
+                    initial_slot_count: param.parameters.initial_slot_count,
+                    billing_period: param.parameters.billing_period,
+                    committed_capacity: param.parameters.committed_capacity,
+                };
+                let resolved = pc
+                    .resolve_fee(products, Some(&params))
+                    .map_err(Report::new)?;
                 processed_components.push(SubscriptionComponent {
                     id: SubscriptionPriceComponentId::new(),
                     name: pc.name.clone(),
                     subscription_id: SubscriptionId::new(),
                     price_component_id: Some(pc.id),
                     product_id: pc.product_id,
-                    fee,
-                    period,
+                    fee: resolved.fee,
+                    period: resolved.period,
+                    price_id: resolved.price_id,
                 });
                 continue;
             }
 
-            if let Some(ov) = overridden.iter().find(|o| o.component_id == component_id) {
-                processed_components.push(self.internal_to_subscription_component(&ov.component));
+            if let Some(resolved_override) = resolved_custom.overrides.get(&component_id) {
+                processed_components
+                    .push(self.resolved_to_subscription_component(resolved_override));
                 continue;
             }
 
-            let comp = self.build_subscription_component_from_price_component(pc.clone())?;
+            let comp =
+                self.build_subscription_component_from_price_component(pc.clone(), products)?;
             processed_components.push(comp);
         }
 
-        for extra_comp in extra {
-            processed_components
-                .push(self.internal_to_subscription_component(&extra_comp.component));
+        for extra in &resolved_custom.extras {
+            processed_components.push(self.resolved_to_subscription_component(extra));
         }
 
         Ok(processed_components)
     }
 
-    /// Converts a SubscriptionComponentNewInternal to a SubscriptionComponent.
-    fn internal_to_subscription_component(
+    /// Converts a ResolvedCustomComponent to a SubscriptionComponent for preview.
+    fn resolved_to_subscription_component(
         &self,
-        internal: &SubscriptionComponentNewInternal,
+        resolved: &crate::services::subscriptions::insert::context::ResolvedCustomComponent,
     ) -> SubscriptionComponent {
         SubscriptionComponent {
             id: SubscriptionPriceComponentId::new(),
-            name: internal.name.clone(),
+            name: resolved.name.clone(),
             subscription_id: SubscriptionId::new(),
-            price_component_id: internal.price_component_id,
-            product_id: internal.product_id,
-            fee: internal.fee.clone(),
-            period: internal.period,
+            price_component_id: resolved.price_component_id,
+            product_id: resolved.existing_product_id(),
+            fee: resolved.fee.clone(),
+            period: resolved.period,
+            price_id: resolved.existing_price_id(),
         }
+    }
+
+    /// Resolves override and extra component fees for checkout preview (read-only, no row creation).
+    async fn resolve_preview_custom_components(
+        &self,
+        conn: &mut PgConn,
+        session: &CheckoutSession,
+        price_components: &[PriceComponent],
+        products_map: &HashMap<ProductId, Product>,
+        tenant_id: TenantId,
+    ) -> StoreResult<crate::services::subscriptions::insert::context::ResolvedCustomComponents>
+    {
+        use crate::domain::price_components::{PriceEntry, ProductRef};
+        use crate::services::subscriptions::insert::context::{
+            ResolvedCustomComponent, ResolvedCustomComponents, resolve_fee_read_only,
+        };
+
+        let mut overrides = HashMap::new();
+        let mut extras = Vec::new();
+
+        if let Some(ref components) = session.components {
+            for ov in &components.overridden_components {
+                let plan_comp = price_components
+                    .iter()
+                    .find(|c| c.id == ov.component_id)
+                    .ok_or_else(|| {
+                        Report::new(StoreError::InvalidArgument(format!(
+                            "Override component {} not found in plan",
+                            ov.component_id
+                        )))
+                    })?;
+
+                let product_id = plan_comp.product_id.ok_or_else(|| {
+                    Report::new(StoreError::InvalidArgument(format!(
+                        "Cannot override component {} — it has no product_id",
+                        plan_comp.id
+                    )))
+                })?;
+
+                let product = products_map.get(&product_id).ok_or_else(|| {
+                    Report::new(StoreError::InvalidArgument(format!(
+                        "Product {} not found for override component {}",
+                        product_id, plan_comp.id
+                    )))
+                })?;
+
+                let (fee, period) =
+                    resolve_fee_read_only(conn, &product.fee_structure, &ov.price_entry, tenant_id)
+                        .await?;
+
+                overrides.insert(
+                    ov.component_id,
+                    ResolvedCustomComponent {
+                        name: ov.name.clone(),
+                        fee,
+                        period,
+                        price_component_id: Some(plan_comp.id),
+                        product_ref: ProductRef::Existing(product_id),
+                        price_entry: ov.price_entry.clone(),
+                    },
+                );
+            }
+
+            for extra in &components.extra_components {
+                let fee_structure = match &extra.product_ref {
+                    ProductRef::Existing(pid) => {
+                        if let Some(p) = products_map.get(pid) {
+                            p.fee_structure.clone()
+                        } else {
+                            let row = ProductRow::find_by_id_and_tenant_id(conn, *pid, tenant_id)
+                                .await
+                                .map_err(Into::<Report<StoreError>>::into)?;
+                            let product = Product::try_from(row)?;
+                            product.fee_structure
+                        }
+                    }
+                    ProductRef::New { fee_structure, .. } => fee_structure.clone(),
+                };
+
+                if matches!(extra.product_ref, ProductRef::New { .. })
+                    && matches!(extra.price_entry, PriceEntry::Existing(_))
+                {
+                    return Err(Report::new(StoreError::InvalidArgument(
+                        "Cannot use existing price with a new product".to_string(),
+                    )));
+                }
+
+                let (fee, period) =
+                    resolve_fee_read_only(conn, &fee_structure, &extra.price_entry, tenant_id)
+                        .await?;
+
+                extras.push(ResolvedCustomComponent {
+                    name: extra.name.clone(),
+                    fee,
+                    period,
+                    price_component_id: None,
+                    product_ref: extra.product_ref.clone(),
+                    price_entry: extra.price_entry.clone(),
+                });
+            }
+        }
+
+        Ok(ResolvedCustomComponents { overrides, extras })
     }
 
     /// Builds add-ons from session.add_ons if present.
     async fn build_preview_add_ons(
         &self,
+        conn: &mut PgConn,
         tenant_id: TenantId,
         session: &CheckoutSession,
     ) -> StoreResult<Vec<SubscriptionAddOn>> {
@@ -376,6 +524,39 @@ impl Services {
             .list_add_ons_by_ids(tenant_id, add_on_ids)
             .await?;
 
+        // Load products and prices referenced by add-ons
+        let ao_product_ids: Vec<ProductId> = add_ons.iter().filter_map(|a| a.product_id).collect();
+        let ao_products_map: HashMap<ProductId, Product> = if ao_product_ids.is_empty() {
+            HashMap::new()
+        } else {
+            ProductRow::list_by_ids(conn, &ao_product_ids, tenant_id)
+                .await
+                .map_err(Into::<Report<StoreError>>::into)?
+                .into_iter()
+                .map(|row| {
+                    let id = row.id;
+                    Product::try_from(row).map(|p| (id, p))
+                })
+                .collect::<Result<HashMap<_, _>, _>>()?
+        };
+
+        let ao_price_ids: Vec<common_domain::ids::PriceId> =
+            add_ons.iter().filter_map(|a| a.price_id).collect();
+        let ao_prices_map: HashMap<common_domain::ids::PriceId, crate::domain::prices::Price> =
+            if ao_price_ids.is_empty() {
+                HashMap::new()
+            } else {
+                diesel_models::prices::PriceRow::list_by_ids(conn, &ao_price_ids, tenant_id)
+                    .await
+                    .map_err(Into::<Report<StoreError>>::into)?
+                    .into_iter()
+                    .map(|row| {
+                        let id = row.id;
+                        crate::domain::prices::Price::try_from(row).map(|p| (id, p))
+                    })
+                    .collect::<Result<HashMap<_, _>, _>>()?
+            };
+
         let mut result = Vec::new();
 
         for create_ao in &create_add_ons.add_ons {
@@ -389,30 +570,19 @@ impl Services {
                     )))
                 })?;
 
-            let (period, fee) = match &create_ao.customization {
-                SubscriptionAddOnCustomization::None => add_on.fee.to_subscription_fee()?,
-                SubscriptionAddOnCustomization::Override(ov) => (ov.period, ov.fee.clone()),
-                SubscriptionAddOnCustomization::Parameterization(param) => {
-                    add_on.fee.to_subscription_fee_parameterized(
-                        &param.initial_slot_count,
-                        &param.billing_period,
-                        &param.committed_capacity,
-                    )?
-                }
-            };
-
-            let name = match &create_ao.customization {
-                SubscriptionAddOnCustomization::Override(ov) => ov.name.clone(),
-                _ => add_on.name.clone(),
-            };
+            let resolved = add_on
+                .resolve_customized(&ao_products_map, &ao_prices_map, &create_ao.customization)
+                .map_err(Report::new)?;
 
             result.push(SubscriptionAddOn {
                 id: SubscriptionAddOnId::new(),
                 subscription_id: SubscriptionId::new(),
                 add_on_id: add_on.id,
-                name,
-                period,
-                fee,
+                name: resolved.name,
+                period: resolved.period,
+                fee: resolved.fee,
+                product_id: resolved.product_id,
+                price_id: resolved.price_id,
                 created_at: chrono::Utc::now().naive_utc(),
             });
         }

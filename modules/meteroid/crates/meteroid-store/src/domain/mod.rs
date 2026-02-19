@@ -15,6 +15,7 @@ pub use organizations::*;
 pub use payment_transactions::*;
 pub use plans::*;
 pub use price_components::*;
+pub use prices::*;
 pub use product_families::*;
 pub use products::*;
 pub use quotes::*;
@@ -33,6 +34,7 @@ pub mod invoices;
 pub mod plans;
 
 pub mod price_components;
+pub mod prices;
 pub mod tenants;
 
 pub mod add_ons;
@@ -65,6 +67,7 @@ pub mod schedules;
 pub mod slot_transactions;
 pub mod stats;
 pub mod subscription_add_ons;
+pub mod subscription_changes;
 pub mod subscription_components;
 pub mod subscription_coupons;
 pub mod subscription_trial;

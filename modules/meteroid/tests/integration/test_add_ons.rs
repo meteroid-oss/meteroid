@@ -21,22 +21,14 @@ async fn test_add_ons_basic() {
         "testslug",
     );
 
-    let one_time_fee = api::components::v1::Fee {
-        fee_type: Some(api::components::v1::fee::FeeType::OneTime(
-            api::components::v1::fee::OneTimeFee {
-                unit_price: "10".into(),
-                quantity: 5,
-            },
-        )),
-    };
-
-    // create add-on
+    // create add-on (v2: no fee, just name; product_id/price_id are optional)
     let created = clients
         .add_ons
         .clone()
         .create_add_on(api::addons::v1::CreateAddOnRequest {
             name: "test-add-on".into(),
-            fee: Some(one_time_fee.clone()),
+            product_id: None,
+            price_id: None,
         })
         .await
         .unwrap()
@@ -45,7 +37,8 @@ async fn test_add_ons_basic() {
         .unwrap();
 
     assert_eq!(created.name.as_str(), "test-add-on");
-    assert_eq!(created.fee.as_ref(), Some(one_time_fee).as_ref());
+    assert!(created.product_id.is_none());
+    assert!(created.price_id.is_none());
 
     // list add-ons
     let add_ons = clients

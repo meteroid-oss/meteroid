@@ -660,7 +660,10 @@ impl From<UsagePricingModel> for meteroid_store::domain::price_components::Usage
 #[derive(o2o, ToSchema, Serialize, Deserialize, Clone, Debug)]
 #[owned_into(meteroid_store::domain::subscription_components::SubscriptionComponentNewInternal)]
 #[from_owned(meteroid_store::domain::subscription_components::SubscriptionComponent)]
-#[ghosts(is_override: {@.price_component_id.is_some()})]
+#[ghosts(
+    is_override: {@.price_component_id.is_some()},
+    price_id: {None},
+)]
 pub struct SubscriptionComponent {
     #[serde(default, with = "string_serde_opt")]
     pub price_component_id: Option<PriceComponentId>,
@@ -691,20 +694,44 @@ pub struct ComponentParameters {
     pub committed_capacity: Option<u64>,
 }
 
-#[derive(o2o, ToSchema, Serialize, Deserialize, Clone, Debug)]
-#[owned_into(meteroid_store::domain::subscription_components::ComponentOverride)]
+#[derive(ToSchema, Serialize, Deserialize, Clone, Debug)]
 pub struct ComponentOverride {
     #[serde(with = "string_serde")]
     pub component_id: PriceComponentId,
-    #[map(~.into())]
-    pub component: SubscriptionComponent,
+    pub name: String,
+    #[schema(value_type = Object)]
+    pub price_entry: meteroid_store::domain::price_components::PriceEntry,
 }
 
-#[derive(o2o, ToSchema, Serialize, Deserialize, Clone, Debug)]
-#[owned_into(meteroid_store::domain::subscription_components::ExtraComponent)]
+impl From<ComponentOverride>
+    for meteroid_store::domain::subscription_components::ComponentOverride
+{
+    fn from(val: ComponentOverride) -> Self {
+        Self {
+            component_id: val.component_id,
+            name: val.name,
+            price_entry: val.price_entry,
+        }
+    }
+}
+
+#[derive(ToSchema, Serialize, Deserialize, Clone, Debug)]
 pub struct ExtraComponent {
-    #[map(~.into())]
-    pub component: SubscriptionComponent,
+    pub name: String,
+    #[schema(value_type = Object)]
+    pub product_ref: meteroid_store::domain::price_components::ProductRef,
+    #[schema(value_type = Object)]
+    pub price_entry: meteroid_store::domain::price_components::PriceEntry,
+}
+
+impl From<ExtraComponent> for meteroid_store::domain::subscription_components::ExtraComponent {
+    fn from(val: ExtraComponent) -> Self {
+        Self {
+            name: val.name,
+            product_ref: val.product_ref,
+            price_entry: val.price_entry,
+        }
+    }
 }
 
 #[derive(o2o, ToSchema, Serialize, Deserialize, Clone, Debug)]

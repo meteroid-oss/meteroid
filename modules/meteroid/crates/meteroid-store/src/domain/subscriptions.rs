@@ -419,6 +419,13 @@ pub struct TrialConfig {
 }
 
 #[derive(Debug, Clone)]
+pub struct PendingPlanChange {
+    pub new_plan_name: String,
+    pub new_plan_version_id: PlanVersionId,
+    pub effective_date: NaiveDate,
+}
+
+#[derive(Debug, Clone)]
 pub struct SubscriptionDetails {
     pub subscription: Subscription,
     pub invoicing_entity: InvoicingEntity,
@@ -430,6 +437,7 @@ pub struct SubscriptionDetails {
     pub metrics: Vec<BillableMetric>,
     pub checkout_url: Option<String>,
     pub trial_config: Option<TrialConfig>,
+    pub pending_plan_change: Option<PendingPlanChange>,
 }
 
 #[derive(Clone, Debug)]

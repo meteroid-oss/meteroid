@@ -1,7 +1,5 @@
 import { PriceComponentCard } from '@/features/plans/pricecomponents/PriceComponentCard'
 import { useQuery } from '@/lib/connectrpc'
-import { mapFeeType } from '@/lib/mapping/feesFromGrpc'
-import { PriceComponent } from '@/lib/schemas/plans'
 import { PlanVersion } from '@/rpc/api/plans/v1/models_pb'
 import { listPriceComponents } from '@/rpc/api/pricecomponents/v1/pricecomponents-PriceComponentsService_connectquery'
 
@@ -12,16 +10,7 @@ export const PriceComponentOverview = ({ planVersionId }: { planVersionId: PlanV
       planVersionId: planVersionId ?? '',
     },
     { enabled: Boolean(planVersionId) }
-  )?.data?.components?.map(
-    c =>
-      ({
-        id: c.id,
-        name: c.name,
-        localId: c.localId,
-        fee: c.fee ? mapFeeType(c.fee.feeType) : undefined,
-        productId: c.productId,
-      }) as PriceComponent
-  )
+  )?.data?.components
 
   return (
     <div className="grid gap-y-4">

@@ -1,4 +1,5 @@
 use std::sync::Arc;
+use std::sync::atomic::AtomicBool;
 use tokio::signal;
 
 use common_build_info::BuildInfo;
@@ -46,6 +47,8 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     bootstrap::bootstrap_once(store.clone(), svix.clone()).await?;
     setup_eventbus_handlers(store.clone(), config.clone()).await;
 
+    let ready = Arc::new(AtomicBool::new(true));
+
     let object_store_service = Arc::new(S3Storage::try_new(
         &config.object_store_uri,
         &config.object_store_prefix,
@@ -70,6 +73,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         stripe_adapter.clone(),
         store.clone(),
         services.clone(),
+        ready.clone(),
     );
 
     tokio::select! {

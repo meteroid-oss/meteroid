@@ -8,24 +8,19 @@ import {
   SlotsDesignCard,
   UsageBasedDesignCard,
 } from '@/features/plans/onboarding/PricingModelDesignCards'
-import { useAddComponent } from '@/features/plans/pricecomponents/utils'
-import { PriceComponentType } from '@/features/plans/types'
 
 export const PlanOnboardingModal: FC = () => {
+  const navigate = useNavigate()
+
   const onSelectCancel = () => {
     navigate('..')
   }
 
-  const addComponent = useAddComponent()
-
-  const navigate = useNavigate()
-
-  const startWithPricingModel = (model: PriceComponentType) => {
-    addComponent(model)
-    navigate('..')
+  const startWithPricingModel = () => {
+    navigate('../add-component')
   }
 
-  const [selected, setSelected] = useState<PriceComponentType | null>(null)
+  const [selected, setSelected] = useState<string | null>(null)
 
   return (
     <Modal
@@ -41,7 +36,7 @@ export const PlanOnboardingModal: FC = () => {
           </Button>
           <Button
             variant="primary"
-            onClick={() => startWithPricingModel(selected ?? 'rate')}
+            onClick={() => startWithPricingModel()}
             disabled={!selected}
           >
             Continue

@@ -1,12 +1,15 @@
 use chrono::NaiveDateTime;
-use common_domain::ids::{ProductFamilyId, ProductId, TenantId};
-use diesel_models::products::ProductRow;
-use o2o::o2o;
+use common_domain::ids::{BaseId, ProductFamilyId, ProductId, TenantId};
+use diesel_models::products::{ProductRow, ProductRowNew};
+use error_stack::Report;
 use uuid::Uuid;
 
-#[derive(Clone, Debug, o2o)]
-#[from_owned(ProductRow)]
-#[owned_into(ProductRow)]
+use super::enums::FeeTypeEnum;
+use super::prices::Price;
+use crate::domain::prices::FeeStructure;
+use crate::errors::StoreError;
+
+#[derive(Clone, Debug)]
 pub struct Product {
     pub id: ProductId,
     pub name: String,
@@ -17,6 +20,36 @@ pub struct Product {
     pub archived_at: Option<NaiveDateTime>,
     pub tenant_id: TenantId,
     pub product_family_id: ProductFamilyId,
+    pub fee_type: FeeTypeEnum,
+    pub fee_structure: FeeStructure,
+}
+
+impl TryFrom<ProductRow> for Product {
+    type Error = Report<StoreError>;
+
+    fn try_from(row: ProductRow) -> Result<Self, Self::Error> {
+        let fee_structure =
+            serde_json::from_value::<FeeStructure>(row.fee_structure).map_err(|e| {
+                Report::new(StoreError::SerdeError(
+                    "Failed to deserialize FeeStructure".to_string(),
+                    e,
+                ))
+            })?;
+
+        Ok(Product {
+            id: row.id,
+            name: row.name,
+            description: row.description,
+            created_at: row.created_at,
+            created_by: row.created_by,
+            updated_at: row.updated_at,
+            archived_at: row.archived_at,
+            tenant_id: row.tenant_id,
+            product_family_id: row.product_family_id,
+            fee_type: row.fee_type.into(),
+            fee_structure,
+        })
+    }
 }
 
 #[derive(Clone, Debug)]
@@ -26,4 +59,36 @@ pub struct ProductNew {
     pub created_by: Uuid,
     pub tenant_id: TenantId,
     pub family_id: ProductFamilyId,
+    pub fee_type: FeeTypeEnum,
+    pub fee_structure: FeeStructure,
+}
+
+#[derive(Clone, Debug)]
+pub struct ProductWithLatestPrice {
+    pub product: Product,
+    pub latest_price: Option<Price>,
+}
+
+impl TryFrom<ProductNew> for ProductRowNew {
+    type Error = Report<StoreError>;
+
+    fn try_from(new: ProductNew) -> Result<Self, Self::Error> {
+        let fee_structure = serde_json::to_value(&new.fee_structure).map_err(|e| {
+            Report::new(StoreError::SerdeError(
+                "Failed to serialize FeeStructure".to_string(),
+                e,
+            ))
+        })?;
+
+        Ok(ProductRowNew {
+            id: ProductId::new(),
+            name: new.name,
+            description: new.description,
+            created_by: new.created_by,
+            tenant_id: new.tenant_id,
+            product_family_id: new.family_id,
+            fee_type: new.fee_type.into(),
+            fee_structure,
+        })
+    }
 }

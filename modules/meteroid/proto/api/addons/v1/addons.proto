@@ -3,7 +3,6 @@ syntax = "proto3";
 package meteroid.api.addons.v1;
 
 import "api/addons/v1/models.proto";
-import "api/pricecomponents/v1/models.proto";
 import "common/v1/pagination.proto";
 
 message ListAddOnRequest {
@@ -18,7 +17,8 @@ message ListAddOnResponse {
 
 message CreateAddOnRequest {
   string name = 2;
-  meteroid.api.components.v1.Fee fee = 3;
+  optional string product_id = 4;
+  optional string price_id = 5;
 }
 
 message CreateAddOnResponse {

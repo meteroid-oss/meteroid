@@ -38,6 +38,10 @@ pub mod sql_types {
     pub struct CycleActionEnum;
 
     #[derive(diesel::query_builder::QueryId, diesel::sql_types::SqlType)]
+    #[diesel(postgres_type(name = "FeeTypeEnum"))]
+    pub struct FeeTypeEnum;
+
+    #[derive(diesel::query_builder::QueryId, diesel::sql_types::SqlType)]
     #[diesel(postgres_type(name = "InvoicePaymentStatus"))]
     pub struct InvoicePaymentStatus;
 
@@ -126,10 +130,12 @@ diesel::table! {
     add_on (id) {
         id -> Uuid,
         name -> Text,
-        fee -> Jsonb,
         tenant_id -> Uuid,
         created_at -> Timestamp,
         updated_at -> Timestamp,
+        plan_version_id -> Nullable<Uuid>,
+        product_id -> Nullable<Uuid>,
+        price_id -> Nullable<Uuid>,
     }
 }
 
@@ -295,7 +301,6 @@ diesel::table! {
         invoice_memo -> Nullable<Text>,
         invoice_threshold -> Nullable<Numeric>,
         purchase_order -> Nullable<Text>,
-        payment_methods_config -> Nullable<Jsonb>,
         components -> Nullable<Jsonb>,
         add_ons -> Nullable<Jsonb>,
         coupon_code -> Nullable<Varchar>,
@@ -307,6 +312,7 @@ diesel::table! {
         subscription_id -> Nullable<Uuid>,
         metadata -> Nullable<Jsonb>,
         checkout_type -> CheckoutTypeEnum,
+        payment_methods_config -> Nullable<Jsonb>,
     }
 }
 
@@ -681,6 +687,13 @@ diesel::table! {
 }
 
 diesel::table! {
+    plan_component_price (plan_component_id, price_id) {
+        plan_component_id -> Uuid,
+        price_id -> Uuid,
+    }
+}
+
+diesel::table! {
     plan_version (id) {
         id -> Uuid,
         is_draft_version -> Bool,
@@ -696,6 +709,24 @@ diesel::table! {
         created_by -> Uuid,
         trialing_plan_id -> Nullable<Uuid>,
         trial_is_free -> Bool,
+        uses_product_pricing -> Bool,
+    }
+}
+
+diesel::table! {
+    use diesel::sql_types::*;
+    use super::sql_types::BillingPeriodEnum;
+
+    price (id) {
+        id -> Uuid,
+        product_id -> Uuid,
+        cadence -> BillingPeriodEnum,
+        currency -> Text,
+        pricing -> Jsonb,
+        tenant_id -> Uuid,
+        created_at -> Timestamp,
+        created_by -> Uuid,
+        archived_at -> Nullable<Timestamp>,
     }
 }
 
@@ -703,7 +734,7 @@ diesel::table! {
     price_component (id) {
         id -> Uuid,
         name -> Text,
-        fee -> Jsonb,
+        legacy_fee -> Nullable<Jsonb>,
         plan_version_id -> Uuid,
         product_id -> Nullable<Uuid>,
         billable_metric_id -> Nullable<Uuid>,
@@ -711,6 +742,9 @@ diesel::table! {
 }
 
 diesel::table! {
+    use diesel::sql_types::*;
+    use super::sql_types::FeeTypeEnum;
+
     product (id) {
         id -> Uuid,
         name -> Text,
@@ -721,6 +755,8 @@ diesel::table! {
         archived_at -> Nullable<Timestamp>,
         tenant_id -> Uuid,
         product_family_id -> Uuid,
+        fee_type -> FeeTypeEnum,
+        fee_structure -> Jsonb,
     }
 }
 
@@ -823,7 +859,9 @@ diesel::table! {
         quote_id -> Uuid,
         add_on_id -> Uuid,
         period -> SubscriptionFeeBillingPeriod,
-        fee -> Jsonb,
+        legacy_fee -> Nullable<Jsonb>,
+        product_id -> Nullable<Uuid>,
+        price_id -> Nullable<Uuid>,
     }
 }
 
@@ -838,8 +876,9 @@ diesel::table! {
         price_component_id -> Nullable<Uuid>,
         product_id -> Nullable<Uuid>,
         period -> SubscriptionFeeBillingPeriod,
-        fee -> Jsonb,
+        legacy_fee -> Nullable<Jsonb>,
         is_override -> Bool,
+        price_id -> Nullable<Uuid>,
     }
 }
 
@@ -981,8 +1020,10 @@ diesel::table! {
         subscription_id -> Uuid,
         add_on_id -> Uuid,
         period -> SubscriptionFeeBillingPeriod,
-        fee -> Jsonb,
+        legacy_fee -> Nullable<Jsonb>,
         created_at -> Timestamp,
+        product_id -> Nullable<Uuid>,
+        price_id -> Nullable<Uuid>,
     }
 }
 
@@ -997,7 +1038,8 @@ diesel::table! {
         price_component_id -> Nullable<Uuid>,
         product_id -> Nullable<Uuid>,
         period -> SubscriptionFeeBillingPeriod,
-        fee -> Jsonb,
+        legacy_fee -> Nullable<Jsonb>,
+        price_id -> Nullable<Uuid>,
     }
 }
 
@@ -1063,6 +1105,9 @@ diesel::table! {
     }
 }
 
+diesel::joinable!(add_on -> plan_version (plan_version_id));
+diesel::joinable!(add_on -> price (price_id));
+diesel::joinable!(add_on -> product (product_id));
 diesel::joinable!(add_on -> tenant (tenant_id));
 diesel::joinable!(api_token -> tenant (tenant_id));
 diesel::joinable!(applied_coupon -> coupon (coupon_id));
@@ -1121,6 +1166,10 @@ diesel::joinable!(payment_transaction -> invoice (invoice_id));
 diesel::joinable!(payment_transaction -> tenant (tenant_id));
 diesel::joinable!(plan -> product_family (product_family_id));
 diesel::joinable!(plan -> tenant (tenant_id));
+diesel::joinable!(plan_component_price -> price (price_id));
+diesel::joinable!(plan_component_price -> price_component (plan_component_id));
+diesel::joinable!(price -> product (product_id));
+diesel::joinable!(price -> tenant (tenant_id));
 diesel::joinable!(price_component -> billable_metric (billable_metric_id));
 diesel::joinable!(price_component -> plan_version (plan_version_id));
 diesel::joinable!(price_component -> product (product_id));
@@ -1138,7 +1187,10 @@ diesel::joinable!(quote -> plan_version (plan_version_id));
 diesel::joinable!(quote -> tenant (tenant_id));
 diesel::joinable!(quote_activity -> quote (quote_id));
 diesel::joinable!(quote_add_on -> add_on (add_on_id));
+diesel::joinable!(quote_add_on -> price (price_id));
+diesel::joinable!(quote_add_on -> product (product_id));
 diesel::joinable!(quote_add_on -> quote (quote_id));
+diesel::joinable!(quote_component -> price (price_id));
 diesel::joinable!(quote_component -> price_component (price_component_id));
 diesel::joinable!(quote_component -> product (product_id));
 diesel::joinable!(quote_component -> quote (quote_id));
@@ -1153,7 +1205,10 @@ diesel::joinable!(subscription -> customer (customer_id));
 diesel::joinable!(subscription -> plan_version (plan_version_id));
 diesel::joinable!(subscription -> tenant (tenant_id));
 diesel::joinable!(subscription_add_on -> add_on (add_on_id));
+diesel::joinable!(subscription_add_on -> price (price_id));
+diesel::joinable!(subscription_add_on -> product (product_id));
 diesel::joinable!(subscription_add_on -> subscription (subscription_id));
+diesel::joinable!(subscription_component -> price (price_id));
 diesel::joinable!(subscription_component -> price_component (price_component_id));
 diesel::joinable!(subscription_component -> product (product_id));
 diesel::joinable!(subscription_component -> subscription (subscription_id));
@@ -1192,7 +1247,9 @@ diesel::allow_tables_to_appear_in_same_query!(
     outbox_event,
     payment_transaction,
     plan,
+    plan_component_price,
     plan_version,
+    price,
     price_component,
     product,
     product_accounting,

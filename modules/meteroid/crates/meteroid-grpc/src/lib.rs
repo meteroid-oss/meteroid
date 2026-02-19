@@ -114,6 +114,12 @@ pub mod meteroid {
             }
         }
 
+        pub mod prices {
+            pub mod v1 {
+                tonic::include_proto!("meteroid.api.prices.v1");
+            }
+        }
+
         pub mod productfamilies {
             pub mod v1 {
                 tonic::include_proto!("meteroid.api.productfamilies.v1");

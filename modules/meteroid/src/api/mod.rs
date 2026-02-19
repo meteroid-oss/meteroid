@@ -23,6 +23,7 @@ pub mod organizations;
 pub mod plans;
 pub mod portal;
 pub mod pricecomponents;
+pub mod prices;
 pub mod productfamilies;
 pub mod productitems;
 pub mod quotes;

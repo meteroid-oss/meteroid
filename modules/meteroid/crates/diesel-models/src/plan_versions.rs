@@ -22,6 +22,7 @@ pub struct PlanVersionRow {
     pub created_by: Uuid,
     pub trialing_plan_id: Option<PlanId>,
     pub trial_is_free: bool,
+    pub uses_product_pricing: bool,
 }
 
 #[derive(Debug, Insertable, Default)]
@@ -41,6 +42,7 @@ pub struct PlanVersionRowNew {
     pub created_by: Uuid,
     pub trialing_plan_id: Option<PlanId>,
     pub trial_is_free: bool,
+    pub uses_product_pricing: bool,
 }
 
 #[derive(Debug, Queryable, Identifiable, Selectable)]

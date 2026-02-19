@@ -45,6 +45,7 @@ id_type!(StoredDocumentId, "doc_");
 id_type!(SlotTransactionId, "slot_tx_");
 id_type!(CustomTaxId, "tax_");
 id_type!(CheckoutSessionId, "che_");
+id_type!(PriceId, "pri_");
 
 #[derive(Debug)]
 pub struct IdError(pub(crate) String);

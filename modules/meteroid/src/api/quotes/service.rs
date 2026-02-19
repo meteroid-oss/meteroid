@@ -2,7 +2,9 @@ use super::{QuoteServiceComponents, mapping};
 use crate::api::quotes::error::QuoteApiError;
 use crate::api::shared::conversions::FromProtoOpt;
 use crate::api::utils::PaginationExt;
-use common_domain::ids::{AddOnId, BaseId, CouponId, CustomerId, PlanVersionId, QuoteId};
+use common_domain::ids::{
+    AddOnId, BaseId, CouponId, CustomerId, PlanVersionId, PriceId, ProductId, QuoteId,
+};
 use common_grpc::middleware::server::auth::RequestExt;
 use meteroid_grpc::meteroid::api::quotes::v1::{
     CancelQuoteRequest, CancelQuoteResponse, ConvertQuoteToSubscriptionRequest,
@@ -29,6 +31,8 @@ use crate::api::subscriptions::mapping::price_components::create_subscription_co
 use common_utils::rng::UPPER_ALPHANUMERIC;
 use meteroid_store::repositories::add_ons::AddOnInterface;
 use meteroid_store::repositories::price_components::PriceComponentInterface;
+use meteroid_store::repositories::prices::PriceInterface;
+use meteroid_store::repositories::products::ProductInterface;
 
 #[tonic::async_trait]
 impl QuotesService for QuoteServiceComponents {
@@ -124,7 +128,7 @@ impl QuotesService for QuoteServiceComponents {
             ),
         };
 
-        // Process quote components (fetch plan price components first)
+        // Process quote components (fetch plan price components + products + prices first)
         let quote_components = if let Some(components) = quote.components {
             let price_components = self
                 .store
@@ -132,9 +136,68 @@ impl QuotesService for QuoteServiceComponents {
                 .await
                 .map_err(Into::<QuoteApiError>::into)?;
 
+            let create_components = create_subscription_components_from_grpc(components)?;
+
+            // Load products referenced by price components
+            let pc_product_ids: Vec<ProductId> = price_components
+                .iter()
+                .filter_map(|c| c.product_id)
+                .collect();
+            let mut products_map = std::collections::HashMap::new();
+            if !pc_product_ids.is_empty() {
+                for pid in &pc_product_ids {
+                    if let Ok(product) = self.store.find_product_by_id(*pid, tenant_id).await {
+                        products_map.insert(product.id, product);
+                    }
+                }
+            }
+
+            // Also load products from extra components (product library)
+            for extra in &create_components.extra_components {
+                if let meteroid_store::domain::price_components::ProductRef::Existing(pid) =
+                    &extra.product_ref
+                    && !products_map.contains_key(pid)
+                {
+                    let product = self
+                        .store
+                        .find_product_by_id(*pid, tenant_id)
+                        .await
+                        .map_err(Into::<QuoteApiError>::into)?;
+                    products_map.insert(product.id, product);
+                }
+            }
+
+            // Batch-load all existing prices from overrides and extras
+            let existing_price_ids: Vec<PriceId> = create_components
+                .overridden_components
+                .iter()
+                .filter_map(|ov| ov.price_entry.existing_price_id())
+                .chain(
+                    create_components
+                        .extra_components
+                        .iter()
+                        .filter_map(|ex| ex.price_entry.existing_price_id()),
+                )
+                .collect();
+
+            let prices_map: std::collections::HashMap<PriceId, _> = if existing_price_ids.is_empty()
+            {
+                std::collections::HashMap::new()
+            } else {
+                self.store
+                    .list_prices_by_ids(&existing_price_ids, tenant_id)
+                    .await
+                    .map_err(Into::<QuoteApiError>::into)?
+                    .into_iter()
+                    .map(|p| (p.id, p))
+                    .collect()
+            };
+
             process_quote_components(
-                &create_subscription_components_from_grpc(components)?,
+                &create_components,
                 &price_components,
+                &products_map,
+                &prices_map,
                 quote_id,
             )?
         } else {
@@ -155,7 +218,36 @@ impl QuotesService for QuoteServiceComponents {
                     .await
                     .map_err(Into::<QuoteApiError>::into)?;
 
-                process_quote_add_ons(&create_add_ons, &add_ons, quote_id)?
+                // Collect product_ids and price_ids from add-ons for fee resolution
+                let product_ids: Vec<ProductId> =
+                    add_ons.iter().filter_map(|a| a.product_id).collect();
+                let price_ids: Vec<PriceId> = add_ons.iter().filter_map(|a| a.price_id).collect();
+
+                let mut products_map = std::collections::HashMap::new();
+                for pid in &product_ids {
+                    let product = self
+                        .store
+                        .find_product_by_id(*pid, tenant_id)
+                        .await
+                        .map_err(Into::<QuoteApiError>::into)?;
+                    products_map.insert(product.id, product);
+                }
+
+                let prices = self
+                    .store
+                    .list_prices_by_ids(&price_ids, tenant_id)
+                    .await
+                    .map_err(Into::<QuoteApiError>::into)?;
+                let prices_map: std::collections::HashMap<PriceId, _> =
+                    prices.into_iter().map(|p| (p.id, p)).collect();
+
+                process_quote_add_ons(
+                    &create_add_ons,
+                    &add_ons,
+                    &products_map,
+                    &prices_map,
+                    quote_id,
+                )?
             } else {
                 vec![]
             }
@@ -478,8 +570,13 @@ impl QuotesService for QuoteServiceComponents {
 fn process_quote_components(
     components: &CreateSubscriptionComponents,
     price_components: &[PriceComponent],
+    products: &std::collections::HashMap<ProductId, meteroid_store::domain::Product>,
+    prices: &std::collections::HashMap<PriceId, meteroid_store::domain::Price>,
     quote_id: QuoteId,
 ) -> Result<Vec<QuotePriceComponentNew>, Status> {
+    use meteroid_store::domain::price_components::{ComponentParameters, PriceEntry, ProductRef};
+    use meteroid_store::domain::prices::resolve_fee_from_entry;
+
     let mut processed_components = Vec::new();
 
     // Process parameterized components
@@ -488,13 +585,13 @@ fn process_quote_components(
             .iter()
             .find(|pc| pc.id == parameterized.component_id)
         {
-            let (period, fee) = price_component
-                .fee
-                .to_subscription_fee_parameterized(
-                    &parameterized.parameters.initial_slot_count,
-                    &parameterized.parameters.billing_period,
-                    &parameterized.parameters.committed_capacity,
-                )
+            let params = ComponentParameters {
+                initial_slot_count: parameterized.parameters.initial_slot_count,
+                billing_period: parameterized.parameters.billing_period,
+                committed_capacity: parameterized.parameters.committed_capacity,
+            };
+            let resolved = price_component
+                .resolve_subscription_fee(products, Some(&params))
                 .map_err(|e| Status::internal(format!("Failed to process component fee: {e}")))?;
 
             processed_components.push(QuotePriceComponentNew {
@@ -502,9 +599,10 @@ fn process_quote_components(
                 quote_id,
                 price_component_id: Some(price_component.id),
                 product_id: price_component.product_id,
-                period,
-                fee,
+                period: resolved.period,
+                fee: resolved.fee,
                 is_override: false,
+                price_id: resolved.price_id,
             });
         }
     }
@@ -515,28 +613,71 @@ fn process_quote_components(
             .iter()
             .find(|pc| pc.id == overridden.component_id)
         {
+            let product_id = price_component.product_id.ok_or_else(|| {
+                Status::invalid_argument(format!(
+                    "Cannot override component {} — it has no product_id",
+                    price_component.id
+                ))
+            })?;
+
+            let product = products.get(&product_id).ok_or_else(|| {
+                Status::internal(format!(
+                    "Product {} not found for override component {}",
+                    product_id, price_component.id
+                ))
+            })?;
+
+            let (fee, period) =
+                resolve_fee_from_entry(&product.fee_structure, &overridden.price_entry, prices)
+                    .map_err(|e| {
+                        Status::internal(format!("Failed to resolve override fee: {e}"))
+                    })?;
+
             processed_components.push(QuotePriceComponentNew {
-                name: overridden.component.name.clone(),
+                name: overridden.name.clone(),
                 quote_id,
                 price_component_id: Some(price_component.id),
-                product_id: overridden.component.product_id,
-                period: overridden.component.period,
-                fee: overridden.component.fee.clone(),
+                product_id: Some(product_id),
+                period,
+                fee,
                 is_override: true,
+                price_id: overridden.price_entry.existing_price_id(),
             });
         }
     }
 
     // Process extra components
     for extra in &components.extra_components {
+        let fee_structure = match &extra.product_ref {
+            ProductRef::Existing(pid) => {
+                let product = products.get(pid).ok_or_else(|| {
+                    Status::internal(format!("Product {} not found for extra component", pid))
+                })?;
+                product.fee_structure.clone()
+            }
+            ProductRef::New { fee_structure, .. } => fee_structure.clone(),
+        };
+
+        if matches!(extra.product_ref, ProductRef::New { .. })
+            && matches!(extra.price_entry, PriceEntry::Existing(_))
+        {
+            return Err(Status::invalid_argument(
+                "Cannot use existing price with a new product",
+            ));
+        }
+
+        let (fee, period) = resolve_fee_from_entry(&fee_structure, &extra.price_entry, prices)
+            .map_err(|e| Status::internal(format!("Failed to resolve extra component fee: {e}")))?;
+
         processed_components.push(QuotePriceComponentNew {
-            name: extra.component.name.clone(),
+            name: extra.name.clone(),
             quote_id,
             price_component_id: None,
-            product_id: extra.component.product_id,
-            period: extra.component.period,
-            fee: extra.component.fee.clone(),
-            is_override: true,
+            product_id: extra.product_ref.existing_product_id(),
+            period,
+            fee,
+            is_override: false,
+            price_id: extra.price_entry.existing_price_id(),
         });
     }
 
@@ -562,18 +703,21 @@ fn process_quote_components(
             continue;
         }
 
-        let (period, fee) = price_component.fee.to_subscription_fee().map_err(|e| {
-            Status::internal(format!("Failed to process default component fee: {e}"))
-        })?;
+        let resolved = price_component
+            .resolve_subscription_fee(products, None)
+            .map_err(|e| {
+                Status::internal(format!("Failed to process default component fee: {e}"))
+            })?;
 
         processed_components.push(QuotePriceComponentNew {
             name: price_component.name.clone(),
             quote_id,
             price_component_id: Some(price_component.id),
             product_id: price_component.product_id,
-            period,
-            fee,
+            period: resolved.period,
+            fee: resolved.fee,
             is_override: false,
+            price_id: resolved.price_id,
         });
     }
 
@@ -583,10 +727,13 @@ fn process_quote_components(
 fn process_quote_add_ons(
     create_add_ons: &CreateSubscriptionAddOns,
     add_ons: &[AddOn],
+    products: &std::collections::HashMap<
+        common_domain::ids::ProductId,
+        meteroid_store::domain::Product,
+    >,
+    prices: &std::collections::HashMap<common_domain::ids::PriceId, meteroid_store::domain::Price>,
     quote_id: QuoteId,
 ) -> Result<Vec<QuoteAddOnNew>, Status> {
-    use meteroid_store::domain::SubscriptionAddOnCustomization;
-
     let mut processed_add_ons = Vec::new();
 
     for cs_ao in &create_add_ons.add_ons {
@@ -595,47 +742,19 @@ fn process_quote_add_ons(
             .find(|x| x.id == cs_ao.add_on_id)
             .ok_or_else(|| Status::not_found(format!("Add-on {} not found", cs_ao.add_on_id)))?;
 
-        match &cs_ao.customization {
-            SubscriptionAddOnCustomization::None => {
-                let (period, fee) = add_on
-                    .fee
-                    .to_subscription_fee()
-                    .map_err(|e| Status::internal(format!("Failed to process add-on fee: {e}")))?;
-                processed_add_ons.push(QuoteAddOnNew {
-                    quote_id,
-                    add_on_id: add_on.id,
-                    name: add_on.name.clone(),
-                    period,
-                    fee,
-                });
-            }
-            SubscriptionAddOnCustomization::Override(override_) => {
-                processed_add_ons.push(QuoteAddOnNew {
-                    quote_id,
-                    add_on_id: add_on.id,
-                    name: override_.name.clone(),
-                    period: override_.period,
-                    fee: override_.fee.clone(),
-                });
-            }
-            SubscriptionAddOnCustomization::Parameterization(param) => {
-                let (period, fee) = add_on
-                    .fee
-                    .to_subscription_fee_parameterized(
-                        &param.initial_slot_count,
-                        &param.billing_period,
-                        &param.committed_capacity,
-                    )
-                    .map_err(|e| Status::internal(format!("Failed to process add-on fee: {e}")))?;
-                processed_add_ons.push(QuoteAddOnNew {
-                    quote_id,
-                    add_on_id: add_on.id,
-                    name: add_on.name.clone(),
-                    period,
-                    fee,
-                });
-            }
-        }
+        let resolved = add_on
+            .resolve_customized(products, prices, &cs_ao.customization)
+            .map_err(|e| Status::internal(format!("Failed to resolve add-on fee: {e}")))?;
+
+        processed_add_ons.push(QuoteAddOnNew {
+            quote_id,
+            add_on_id: add_on.id,
+            name: resolved.name,
+            period: resolved.period,
+            fee: resolved.fee,
+            product_id: resolved.product_id,
+            price_id: resolved.price_id,
+        });
     }
 
     Ok(processed_add_ons)

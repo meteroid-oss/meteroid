@@ -31,8 +31,8 @@ export const AddonsTable: FunctionComponent<AddonsTableProps> = ({
       },
 
       {
-        header: 'Fee type',
-        cell: ({ row }) => <span>{row.original.fee?.feeType.case}</span>,
+        header: 'Product',
+        cell: ({ row }) => <span>{row.original.productId ? 'Linked' : '—'}</span>,
         enableSorting: false,
       },
 

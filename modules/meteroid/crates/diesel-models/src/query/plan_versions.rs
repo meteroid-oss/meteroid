@@ -7,7 +7,7 @@ use crate::plan_versions::{
 use crate::{DbResult, PgConn};
 
 use crate::extend::pagination::{Paginate, PaginatedVec, PaginationRequest};
-use common_domain::ids::{PlanId, PlanVersionId, TenantId};
+use common_domain::ids::{PlanId, PlanVersionId, ProductFamilyId, TenantId};
 use diesel::prelude::{ExpressionMethods, QueryDsl};
 use diesel::{JoinOnDsl, OptionalExtension, SelectableHelper, debug_query};
 use error_stack::ResultExt;
@@ -47,6 +47,26 @@ impl PlanVersionRow {
             .first(conn)
             .await
             .attach("Error while finding plan version by id")
+            .into_db_result()
+    }
+
+    pub async fn get_product_family_id(
+        conn: &mut PgConn,
+        id: PlanVersionId,
+        tenant_id: TenantId,
+    ) -> DbResult<ProductFamilyId> {
+        use crate::schema::plan::dsl as p_dsl;
+        use crate::schema::plan_version::dsl as pv_dsl;
+        use diesel_async::RunQueryDsl;
+
+        pv_dsl::plan_version
+            .inner_join(p_dsl::plan.on(pv_dsl::plan_id.eq(p_dsl::id)))
+            .filter(pv_dsl::id.eq(id))
+            .filter(p_dsl::tenant_id.eq(tenant_id))
+            .select(p_dsl::product_family_id)
+            .first(conn)
+            .await
+            .attach("Error while getting product_family_id for plan version")
             .into_db_result()
     }
 
@@ -261,6 +281,32 @@ impl PlanVersionRow {
             .first::<PlanVersionId>(conn)
             .await
             .attach("Error while finding plan version")
+            .into_db_result()
+    }
+
+    pub async fn list_by_ids_and_tenant_id(
+        conn: &mut PgConn,
+        ids: &[PlanVersionId],
+        tenant_id: TenantId,
+    ) -> DbResult<Vec<PlanVersionRow>> {
+        use crate::schema::plan_version::dsl as pv_dsl;
+        use diesel_async::RunQueryDsl;
+
+        if ids.is_empty() {
+            return Ok(Vec::new());
+        }
+
+        let query = pv_dsl::plan_version
+            .filter(pv_dsl::id.eq_any(ids))
+            .filter(pv_dsl::tenant_id.eq(tenant_id))
+            .select(PlanVersionRow::as_select());
+
+        log::debug!("{}", debug_query::<diesel::pg::Pg, _>(&query));
+
+        query
+            .load(conn)
+            .await
+            .attach("Error while listing plan versions by ids")
             .into_db_result()
     }
 

@@ -25,6 +25,7 @@ mod invoices;
 mod lifecycle;
 mod orchestration;
 mod payment;
+mod prices;
 mod quotes;
 mod subscriptions;
 mod webhooks;

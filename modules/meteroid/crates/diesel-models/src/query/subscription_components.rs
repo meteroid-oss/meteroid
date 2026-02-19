@@ -7,7 +7,9 @@ use crate::{DbResult, PgConn};
 use diesel::debug_query;
 use error_stack::ResultExt;
 
-use common_domain::ids::{SubscriptionId, TenantId};
+use common_domain::ids::{
+    PriceComponentId, PriceId, SubscriptionId, SubscriptionPriceComponentId, TenantId,
+};
 use diesel::{ExpressionMethods, QueryDsl, SelectableHelper};
 use itertools::Itertools;
 
@@ -94,5 +96,117 @@ impl SubscriptionComponentRow {
 
         let grouped = res.into_iter().into_group_map_by(|c| c.subscription_id);
         Ok(grouped)
+    }
+
+    pub async fn list_by_product_id(
+        conn: &mut PgConn,
+        product_id: &common_domain::ids::ProductId,
+        tenant_id: &TenantId,
+    ) -> DbResult<Vec<SubscriptionComponentRow>> {
+        use crate::schema::subscription_component::dsl as sc_dsl;
+        use diesel_async::RunQueryDsl;
+
+        let query = sc_dsl::subscription_component
+            .inner_join(crate::schema::subscription::table)
+            .filter(sc_dsl::product_id.eq(product_id))
+            .filter(crate::schema::subscription::tenant_id.eq(tenant_id))
+            .select(SubscriptionComponentRow::as_select());
+
+        log::debug!("{}", debug_query::<diesel::pg::Pg, _>(&query));
+
+        query
+            .get_results(conn)
+            .await
+            .attach("Error while listing subscription components by product id")
+            .into_db_result()
+    }
+
+    pub async fn count_active_subscriptions_by_product_id(
+        conn: &mut PgConn,
+        product_id: &common_domain::ids::ProductId,
+        tenant_id: &TenantId,
+    ) -> DbResult<i64> {
+        use crate::enums::SubscriptionStatusEnum;
+        use crate::schema::subscription_component::dsl as sc_dsl;
+        use diesel::AggregateExpressionMethods;
+        use diesel::dsl::count;
+        use diesel_async::RunQueryDsl;
+
+        let active_statuses = vec![
+            SubscriptionStatusEnum::PendingActivation,
+            SubscriptionStatusEnum::PendingCharge,
+            SubscriptionStatusEnum::TrialActive,
+            SubscriptionStatusEnum::Active,
+        ];
+
+        let query = sc_dsl::subscription_component
+            .inner_join(crate::schema::subscription::table)
+            .filter(sc_dsl::product_id.eq(product_id))
+            .filter(crate::schema::subscription::tenant_id.eq(tenant_id))
+            .filter(crate::schema::subscription::status.eq_any(active_statuses))
+            .select(count(sc_dsl::subscription_id).aggregate_distinct());
+
+        log::debug!("{}", debug_query::<diesel::pg::Pg, _>(&query));
+
+        query
+            .get_result(conn)
+            .await
+            .attach("Error while counting active subscriptions by product id")
+            .into_db_result()
+    }
+
+    pub async fn update_for_plan_change(
+        conn: &mut PgConn,
+        component_id: SubscriptionPriceComponentId,
+        new_price_component_id: PriceComponentId,
+        new_price_id: Option<PriceId>,
+        new_name: String,
+        new_fee: serde_json::Value,
+        new_period: crate::enums::SubscriptionFeeBillingPeriod,
+    ) -> DbResult<()> {
+        use crate::schema::subscription_component::dsl as sc_dsl;
+        use diesel_async::RunQueryDsl;
+
+        let query = diesel::update(sc_dsl::subscription_component)
+            .filter(sc_dsl::id.eq(component_id))
+            .set((
+                sc_dsl::price_component_id.eq(Some(new_price_component_id)),
+                sc_dsl::price_id.eq(new_price_id),
+                sc_dsl::name.eq(new_name),
+                sc_dsl::legacy_fee.eq(new_fee),
+                sc_dsl::period.eq(new_period),
+            ));
+
+        log::debug!("{}", debug_query::<diesel::pg::Pg, _>(&query));
+
+        query
+            .execute(conn)
+            .await
+            .attach("Error while updating subscription component for plan change")
+            .map(|_| ())
+            .into_db_result()
+    }
+
+    pub async fn delete_by_ids(
+        conn: &mut PgConn,
+        ids: &[SubscriptionPriceComponentId],
+    ) -> DbResult<()> {
+        use crate::schema::subscription_component::dsl as sc_dsl;
+        use diesel_async::RunQueryDsl;
+
+        if ids.is_empty() {
+            return Ok(());
+        }
+
+        let query = diesel::delete(sc_dsl::subscription_component).filter(sc_dsl::id.eq_any(ids));
+
+        log::debug!("{}", debug_query::<diesel::pg::Pg, _>(&query));
+
+        query
+            .execute(conn)
+            .await
+            .attach("Error while deleting subscription components")
+            .map(|_| ())
+            .into_db_result()
     }
 }

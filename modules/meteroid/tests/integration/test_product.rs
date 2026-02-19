@@ -42,6 +42,12 @@ async fn test_products_basic() {
             name: "product_name".into(),
             description: Some("product_description".into()),
             family_local_id: family.local_id.clone(),
+            fee_type: api::prices::v1::FeeType::Rate.into(),
+            fee_structure: Some(api::prices::v1::FeeStructure {
+                structure: Some(api::prices::v1::fee_structure::Structure::Rate(
+                    api::prices::v1::fee_structure::RateStructure {},
+                )),
+            }),
         })
         .await
         .unwrap()

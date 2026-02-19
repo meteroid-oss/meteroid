@@ -242,9 +242,30 @@ impl Services {
                     subscription.id,
                     event
                 );
+                let is_plan_change = event.event_type == ScheduledEventTypeEnum::ApplyPlanChange;
+
                 ScheduledEventRow::mark_as_processing(conn, &[event.id]).await?;
                 self.process_event_batch(conn, vec![event]).await?;
-                return Ok(());
+
+                if !is_plan_change {
+                    // Terminal events (cancel, pause): clear processing claim and stop.
+                    SubscriptionCycleRowPatch {
+                        id: subscription.id,
+                        tenant_id: subscription.tenant_id,
+                        status: None,
+                        next_cycle_action: None,
+                        current_period_start: None,
+                        current_period_end: None,
+                        cycle_index: None,
+                        pending_checkout: None,
+                        processing_started_at: Some(None),
+                    }
+                    .patch(conn)
+                    .await?;
+
+                    return Ok(());
+                }
+                // Plan change: fall through to advance period and bill at new prices.
             }
         }
 

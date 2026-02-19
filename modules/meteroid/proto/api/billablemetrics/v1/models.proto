@@ -64,7 +64,7 @@ message SegmentationMatrix {
   }
 }
 
-// For updating dimension values only 
+// For updating dimension values only
 message SegmentationMatrixValuesUpdate {
   oneof values {
     SingleDimensionValues single = 1;

@@ -5,7 +5,9 @@ use crate::api_rest::plans::model::{
     SlotPlanFee, TermRate, TierRow, TieredPlanPricing, TrialConfig, UsagePlanFee,
     UsagePricingModel, VolumePlanPricing,
 };
+use common_domain::ids::ProductId;
 use meteroid_store::domain;
+use meteroid_store::domain::products::Product;
 use std::collections::HashMap;
 
 pub fn plan_to_rest(
@@ -13,13 +15,14 @@ pub fn plan_to_rest(
     version: domain::PlanVersion,
     price_components: Vec<domain::price_components::PriceComponent>,
     product_family_name: String,
+    products: &HashMap<ProductId, Product>,
 ) -> Plan {
     let rest_components: Vec<PriceComponent> = price_components
         .iter()
-        .map(price_component_to_rest)
+        .map(|c| price_component_to_rest(c, products))
         .collect();
 
-    let available_parameters = extract_available_parameters(&price_components);
+    let available_parameters = extract_available_parameters(&price_components, products);
 
     let trial = if let Some(trial_duration) = version.trial_duration_days {
         Some(TrialConfig {
@@ -52,11 +55,20 @@ pub fn plan_to_rest(
     }
 }
 
-fn price_component_to_rest(component: &domain::price_components::PriceComponent) -> PriceComponent {
+fn price_component_to_rest(
+    component: &domain::price_components::PriceComponent,
+    _products: &HashMap<ProductId, Product>,
+) -> PriceComponent {
+    // For v1 components, populate fee from legacy_pricing for REST backward compat
+    let fee = component
+        .legacy_pricing
+        .as_ref()
+        .map(|legacy| fee_type_to_rest(&legacy.fee_type));
+
     PriceComponent {
         id: component.id,
         name: component.name.clone(),
-        fee: fee_type_to_rest(&component.fee),
+        fee,
         product_id: component.product_id,
     }
 }
@@ -192,7 +204,11 @@ fn matrix_row_to_rest(row: &domain::price_components::MatrixRow) -> MatrixRow {
 
 fn extract_available_parameters(
     price_components: &[domain::price_components::PriceComponent],
+    products: &HashMap<ProductId, Product>,
 ) -> AvailableParameters {
+    use domain::enums::FeeTypeEnum;
+    use domain::prices::Pricing;
+
     let mut billing_periods: HashMap<String, Vec<BillingPeriodEnum>> = HashMap::new();
     let mut capacity_thresholds: HashMap<String, Vec<u64>> = HashMap::new();
     let mut slot_components: Vec<String> = Vec::new();
@@ -200,26 +216,85 @@ fn extract_available_parameters(
     for component in price_components {
         let component_id = component.id.to_string();
 
-        match &component.fee {
-            domain::price_components::FeeType::Rate { rates } if rates.len() > 1 => {
-                let periods: Vec<BillingPeriodEnum> = rates.iter().map(|r| r.term.into()).collect();
-                billing_periods.insert(component_id, periods);
-            }
-            domain::price_components::FeeType::Slot { rates, .. } => {
-                if rates.len() > 1 {
-                    let periods: Vec<BillingPeriodEnum> =
-                        rates.iter().map(|r| r.term.into()).collect();
-                    billing_periods.insert(component_id.clone(), periods);
+        // For v2 components, use prices. For v1, use legacy_pricing entries.
+        if !component.prices.is_empty() {
+            let fee_type = component
+                .product_id
+                .and_then(|pid| products.get(&pid))
+                .map(|p| &p.fee_type);
+
+            let is_slot = fee_type == Some(&FeeTypeEnum::Slot);
+            let is_capacity = fee_type == Some(&FeeTypeEnum::Capacity);
+
+            if component.prices.len() > 1 || is_slot {
+                let cadences: Vec<BillingPeriodEnum> = component
+                    .prices
+                    .iter()
+                    .map(|p| p.cadence.into())
+                    .collect::<std::collections::HashSet<_>>()
+                    .into_iter()
+                    .collect();
+
+                if cadences.len() > 1 {
+                    billing_periods.insert(component_id.clone(), cadences);
                 }
+            }
+
+            if is_slot {
                 slot_components.push(component_id);
+            } else if is_capacity && component.prices.len() > 1 {
+                let values: Vec<u64> = component
+                    .prices
+                    .iter()
+                    .filter_map(|p| match &p.pricing {
+                        Pricing::Capacity { included, .. } => Some(*included),
+                        _ => None,
+                    })
+                    .collect();
+                if values.len() > 1 {
+                    capacity_thresholds.insert(component_id, values);
+                }
             }
-            domain::price_components::FeeType::Capacity { thresholds, .. }
-                if thresholds.len() > 1 =>
-            {
-                let values: Vec<u64> = thresholds.iter().map(|t| t.included_amount).collect();
-                capacity_thresholds.insert(component_id, values);
+        } else if let Some(legacy) = &component.legacy_pricing {
+            // V1 legacy path: derive parameters from legacy pricing entries
+            let is_slot = matches!(
+                legacy.fee_type,
+                domain::price_components::FeeType::Slot { .. }
+            );
+            let is_capacity = matches!(
+                legacy.fee_type,
+                domain::price_components::FeeType::Capacity { .. }
+            );
+
+            if legacy.pricing_entries.len() > 1 || is_slot {
+                let cadences: Vec<BillingPeriodEnum> = legacy
+                    .pricing_entries
+                    .iter()
+                    .map(|(c, _)| (*c).into())
+                    .collect::<std::collections::HashSet<_>>()
+                    .into_iter()
+                    .collect();
+
+                if cadences.len() > 1 {
+                    billing_periods.insert(component_id.clone(), cadences);
+                }
             }
-            _ => {}
+
+            if is_slot {
+                slot_components.push(component_id);
+            } else if is_capacity && legacy.pricing_entries.len() > 1 {
+                let values: Vec<u64> = legacy
+                    .pricing_entries
+                    .iter()
+                    .filter_map(|(_, p)| match p {
+                        Pricing::Capacity { included, .. } => Some(*included),
+                        _ => None,
+                    })
+                    .collect();
+                if values.len() > 1 {
+                    capacity_thresholds.insert(component_id, values);
+                }
+            }
         }
     }
 

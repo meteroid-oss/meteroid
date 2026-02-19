@@ -7,7 +7,7 @@ import PageHeading from '@/components/PageHeading/PageHeading'
 
 interface CatalogHeaderProps {
   heading: string
-  newButtonText: string
+  newButtonText?: string
   isLoading: boolean
   refetch: () => void
   setEditPanelVisible: (visible: boolean) => void
@@ -27,9 +27,11 @@ export const CatalogHeader: FunctionComponent<CatalogHeaderProps> = ({
       <div className="flex flex-row items-center justify-between">
         <PageHeading>{heading}</PageHeading>
         <div className="flex flex-row gap-2">
-          <Button hasIcon variant="primary" onClick={() => setEditPanelVisible(true)} size="sm">
-            <PlusIcon size={10} /> {newButtonText}
-          </Button>
+          {newButtonText && (
+            <Button hasIcon variant="primary" onClick={() => setEditPanelVisible(true)} size="sm">
+              <PlusIcon size={10} /> {newButtonText}
+            </Button>
+          )}
         </div>
       </div>
       <div className="flex flex-row items-center gap-2">

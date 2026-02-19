@@ -8,7 +8,7 @@ import { PlanVersion } from '@/rpc/api/plans/v1/models_pb'
 
 interface QuotePriceComponentsWrapperProps {
   planVersionId: PlanVersion['id']
-  customerId?: string
+  currency: string
   onValidationChange?: (isValid: boolean, errors: string[]) => void
   onStateChange?: (state: PriceComponentsState) => void
   initialState?: PriceComponentsState
@@ -16,7 +16,7 @@ interface QuotePriceComponentsWrapperProps {
 
 export const QuotePriceComponentsWrapper = ({
   planVersionId,
-  customerId,
+  currency,
   onValidationChange,
   onStateChange,
   initialState,
@@ -40,7 +40,7 @@ export const QuotePriceComponentsWrapper = ({
   return (
     <PriceComponentsLogic
       planVersionId={planVersionId}
-      customerId={customerId}
+      currency={currency}
       state={state}
       onStateChange={handleStateChange}
       onValidationChange={onValidationChange}

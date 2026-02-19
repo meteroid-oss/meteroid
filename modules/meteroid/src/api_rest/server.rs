@@ -32,6 +32,7 @@ pub async fn start_rest_server(
     stripe_adapter: Arc<Stripe>,
     store: Store,
     services: Services,
+    ready: std::sync::Arc<std::sync::atomic::AtomicBool>,
 ) -> Result<(), Box<dyn std::error::Error>> {
     let app_state = AppState {
         object_store,
@@ -40,6 +41,7 @@ pub async fn start_rest_server(
         stripe_adapter,
         jwt_secret: config.jwt_secret,
         portal_url: config.public_url, // self-hosted - same url
+        ready,
     };
 
     let auth_layer =
@@ -55,7 +57,7 @@ pub async fn start_rest_server(
         .into();
 
     let app = Router::new()
-        .route("/health", get(|| async { "OK" }))
+        .route("/health", get(health_check))
         .route("/id/{id}", get(resolve_id))
         .route(
             "/api-docs/openapi.json",
@@ -106,6 +108,16 @@ pub async fn start_rest_server(
     axum::serve(listener, app.into_make_service()).await?;
 
     Ok(())
+}
+
+async fn health_check(
+    axum::extract::State(state): axum::extract::State<AppState>,
+) -> impl IntoResponse {
+    if state.ready.load(std::sync::atomic::Ordering::Acquire) {
+        (StatusCode::OK, "OK")
+    } else {
+        (StatusCode::SERVICE_UNAVAILABLE, "NOT_READY")
+    }
 }
 
 async fn handler_404(uri: Uri) -> impl IntoResponse {

@@ -1,0 +1,68 @@
+syntax = "proto3";
+
+package meteroid.api.prices.v1;
+
+import "api/prices/v1/models.proto";
+
+message ListPricesByProductRequest {
+  string product_id = 1;
+}
+
+message ListPricesByProductResponse {
+  repeated Price prices = 1;
+}
+
+// Matrix mutation messages
+// These endpoints manage which dimension combinations exist across all matrix prices,
+// with per-currency pricing for added rows.
+
+message MatrixDimensionKey {
+  UsagePricing.MatrixPricing.MatrixDimension dimension1 = 1;
+  optional UsagePricing.MatrixPricing.MatrixDimension dimension2 = 2;
+}
+
+message MatrixRowAdd {
+  UsagePricing.MatrixPricing.MatrixDimension dimension1 = 1;
+  optional UsagePricing.MatrixPricing.MatrixDimension dimension2 = 2;
+  // Per-unit price keyed by currency code (e.g. "USD" -> "0.05").
+  // Applied to all matrix prices of the matching currency.
+  // Currencies not present in the map default to "0".
+  map<string, string> per_unit_prices = 3;
+}
+
+message UpdateMatrixPricesRequest {
+  string product_id = 1;
+  // Dimension combinations to add to all matrix prices, each with per-currency prices
+  repeated MatrixRowAdd add_rows = 2;
+  // Dimension combinations to remove from all matrix prices
+  repeated MatrixDimensionKey remove_rows = 3;
+}
+
+message UpdateMatrixPricesResponse {
+  repeated Price prices = 1;
+}
+
+message PreviewMatrixUpdateRequest {
+  string product_id = 1;
+  repeated MatrixDimensionKey add_rows = 2;
+  repeated MatrixDimensionKey remove_rows = 3;
+}
+
+message PreviewMatrixUpdateResponse {
+  uint32 affected_prices = 1;
+  uint32 affected_subscriptions = 2;
+  uint32 rows_to_add = 3;
+  uint32 rows_to_remove = 4;
+  repeated AffectedPlan affected_plans = 5;
+}
+
+message AffectedPlan {
+  string plan_name = 1;
+  repeated int32 versions = 2;
+}
+
+service PricesService {
+  rpc ListPricesByProduct(ListPricesByProductRequest) returns (ListPricesByProductResponse) {}
+  rpc UpdateMatrixPrices(UpdateMatrixPricesRequest) returns (UpdateMatrixPricesResponse) {}
+  rpc PreviewMatrixUpdate(PreviewMatrixUpdateRequest) returns (PreviewMatrixUpdateResponse) {}
+}

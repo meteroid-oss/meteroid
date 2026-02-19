@@ -128,6 +128,7 @@ pub async fn run_preset(
     let mut created_plans = vec![];
 
     for plan in scenario.plans {
+        let currency = plan.currency.clone();
         let created = store
             .insert_plan(store_domain::FullPlanNew {
                 plan: store_domain::PlanNew {
@@ -150,7 +151,7 @@ pub async fn run_preset(
                 price_components: plan
                     .components
                     .into_iter()
-                    .map(|component| component.to_domain(&created_metrics))
+                    .map(|component| component.to_domain(&created_metrics, &currency))
                     .collect::<Result<Vec<_>, _>>()?,
             })
             .await?;

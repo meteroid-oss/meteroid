@@ -1,108 +1,25 @@
-import { atom, useAtomValue, useSetAtom } from 'jotai'
-import { nanoid } from 'nanoid'
-import { DeepPartial } from 'react-hook-form'
+import { atom, useAtomValue } from 'jotai'
+import {
+  ActivityIcon,
+  ArmchairIcon,
+  ArrowDownIcon,
+  Clock4Icon,
+  ParkingMeterIcon,
+  UngroupIcon,
+} from 'lucide-react'
 import { match } from 'ts-pattern'
 
 import { usePlanWithVersion } from '@/features/plans/hooks/usePlan'
-import { PriceComponent, PriceComponentType } from '@/features/plans/types'
+import { BillingPeriod } from '@/rpc/api/shared/v1/shared_pb'
 
-interface AddedComponent {
-  ref: string
-  component: DeepPartial<PriceComponent>
-}
+import type { ComponentFeeType } from '@/features/pricing/conversions'
+import type { Price } from '@/rpc/api/prices/v1/models_pb'
+import type { LucideIcon } from 'lucide-react'
 
-export const addedComponentsAtom = atom<AddedComponent[]>([])
 export const editedComponentsAtom = atom<string[]>([])
 
-const defaults: Record<PriceComponentType, DeepPartial<PriceComponent>> = {
-  rate: {
-    name: 'Subscription Rate',
-    // product: {
-    //   name: 'Subscription rate',
-    // },
-    fee: {
-      fee: 'rate',
-      data: {
-        rates: [],
-      },
-    },
-  },
-  slot: {
-    name: 'Seats',
-    fee: {
-      fee: 'slot',
-      data: {
-        rates: [],
-        downgradePolicy: 'REMOVE_AT_END_OF_PERIOD',
-        upgradePolicy: 'PRORATED',
-        minimumCount: 1,
-        slotUnitName: 'Seats',
-      },
-    },
-  },
-  capacity: {
-    name: 'Capacity commitment',
-    fee: {
-      fee: 'capacity',
-      data: {
-        thresholds: [],
-        term: 'MONTHLY',
-      },
-    },
-  },
-  usage: {
-    name: 'Usage-based fee',
-    fee: {
-      fee: 'usage',
-      data: {
-        model: {
-          model: 'per_unit',
-          data: {},
-        },
-        term: 'MONTHLY',
-      },
-    },
-  },
-  extraRecurring: {
-    name: 'Recurring Charge',
-    fee: {
-      fee: 'extraRecurring',
-      data: {
-        term: 'MONTHLY',
-        billingType: 'ADVANCE',
-        quantity: 1,
-      },
-    },
-  },
-  oneTime: {
-    name: 'One-time fee',
-    fee: {
-      fee: 'oneTime',
-      data: {
-        quantity: 1,
-        unitPrice: '0',
-      },
-    },
-  },
-}
-
-export const useAddComponent = () => {
-  const setComponentsBeingCreated = useSetAtom(addedComponentsAtom)
-  return (fee: PriceComponentType) => {
-    const defaultValue = defaults[fee]
-    const ref = nanoid()
-    setComponentsBeingCreated(old => [...old, { ref, component: defaultValue }])
-  }
-}
-
-export const useAddedComponents = () => {
-  const added = useAtomValue(addedComponentsAtom)
-  return added
-}
-
 export const useEditedComponents = () => {
-  const added = useAtomValue(editedComponentsAtom)
-  return added
+  return useAtomValue(editedComponentsAtom)
 }
 
 export const formatPrice = (currency: string) => (price: string) => {
@@ -118,11 +35,12 @@ export const formatPrice = (currency: string) => (price: string) => {
 
 export const useCurrency = () => {
   const { version } = usePlanWithVersion()
-
-  return version?.currency ?? 'USD' // TODO
+  return version?.currency ?? 'USD'
 }
 
-export const mapCadence = (cadence: 'ANNUAL' | 'SEMIANNUAL' | 'QUARTERLY' | 'MONTHLY' | 'COMMITTED'): string => {
+export const mapCadence = (
+  cadence: 'ANNUAL' | 'SEMIANNUAL' | 'QUARTERLY' | 'MONTHLY' | 'COMMITTED'
+): string => {
   return match(cadence)
     .with('ANNUAL', () => 'Annual')
     .with('SEMIANNUAL', () => 'Semiannual')
@@ -133,7 +51,7 @@ export const mapCadence = (cadence: 'ANNUAL' | 'SEMIANNUAL' | 'QUARTERLY' | 'MON
 }
 
 export const feeTypeToHuman = (
-  type: 'rate' | 'slot' | 'capacity' | 'usage' | 'extraRecurring' | 'oneTime'
+  type: ComponentFeeType
 ) => {
   return match(type)
     .with('rate', () => 'Subscription Rate')
@@ -143,4 +61,60 @@ export const feeTypeToHuman = (
     .with('oneTime', () => 'One-time charge')
     .with('extraRecurring', () => 'Recurring charge')
     .exhaustive()
+}
+
+export function feeTypeIcon(type: ComponentFeeType): LucideIcon {
+  switch (type) {
+    case 'rate': return UngroupIcon
+    case 'slot': return ArmchairIcon
+    case 'capacity': return ParkingMeterIcon
+    case 'usage': return ActivityIcon
+    case 'oneTime': return ArrowDownIcon
+    case 'extraRecurring': return Clock4Icon
+  }
+}
+
+function cadenceShortLabel(cadence: BillingPeriod): string {
+  switch (cadence) {
+    case BillingPeriod.MONTHLY: return 'mo'
+    case BillingPeriod.QUARTERLY: return 'qtr'
+    case BillingPeriod.SEMIANNUAL: return '6mo'
+    case BillingPeriod.ANNUAL: return 'yr'
+  }
+}
+
+export function priceSummaryBadges(
+  feeType: ComponentFeeType,
+  latestPrice?: Price,
+  currency?: string,
+): string[] {
+  const fmt = currency ? formatPrice(currency) : (p: string) => p
+
+  if (!latestPrice?.pricing?.case) return [feeTypeToHuman(feeType)]
+
+  const cadence = cadenceShortLabel(latestPrice.cadence)
+
+  switch (latestPrice.pricing.case) {
+    case 'ratePricing':
+      return [`${fmt(latestPrice.pricing.value.rate)} / ${cadence}`]
+    case 'slotPricing':
+      return ['UNIT PRICE', `${fmt(latestPrice.pricing.value.unitRate)} / seat`]
+    case 'capacityPricing':
+      return [`${fmt(latestPrice.pricing.value.rate)} / ${cadence}`, 'CAPACITY']
+    case 'usagePricing': {
+      const model = latestPrice.pricing.value.model
+      if (model.case === 'perUnit') return ['PER UNIT', `${fmt(model.value)} / unit`]
+      if (model.case === 'tiered') return ['TIERED']
+      if (model.case === 'volume') return ['VOLUME']
+      if (model.case === 'package') return ['PACKAGE']
+      if (model.case === 'matrix') return ['MATRIX']
+      return ['USAGE']
+    }
+    case 'extraRecurringPricing':
+      return [`${fmt(latestPrice.pricing.value.unitPrice)} / ${cadence}`]
+    case 'oneTimePricing':
+      return [`${fmt(latestPrice.pricing.value.unitPrice)}`]
+    default:
+      return [feeTypeToHuman(feeType)]
+  }
 }

@@ -83,6 +83,7 @@ async fn list_plans_handler(
                 full_plan.version,
                 full_plan.price_components,
                 full_plan.product_family.name,
+                &full_plan.products,
             )
         })
         .collect::<Vec<_>>();
@@ -146,5 +147,6 @@ async fn get_plan_details_handler(
         full_plan.version,
         full_plan.price_components,
         full_plan.product_family.name,
+        &full_plan.products,
     ))
 }

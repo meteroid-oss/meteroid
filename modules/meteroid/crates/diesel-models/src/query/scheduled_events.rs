@@ -334,7 +334,7 @@ impl ScheduledEventRow {
         let query = diesel::update(scheduled_event)
             .filter(id.eq(event_id_param))
             .set((
-                status.eq(ScheduledEventStatus::Cancelled),
+                status.eq(ScheduledEventStatus::Canceled),
                 error.eq(Some(reason.to_string())),
                 updated_at.eq(Utc::now().naive_utc()),
             ));
