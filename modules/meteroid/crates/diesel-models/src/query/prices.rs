@@ -105,34 +105,6 @@ impl PriceRow {
             .into_db_result()
     }
 
-    pub async fn list_by_product_ids(
-        conn: &mut PgConn,
-        product_ids: &[ProductId],
-        tenant_id: TenantId,
-    ) -> DbResult<Vec<PriceRow>> {
-        use crate::schema::price::dsl as p_dsl;
-        use diesel_async::RunQueryDsl;
-
-        if product_ids.is_empty() {
-            return Ok(vec![]);
-        }
-
-        let query = p_dsl::price
-            .filter(p_dsl::product_id.eq_any(product_ids))
-            .filter(p_dsl::tenant_id.eq(tenant_id))
-            .filter(p_dsl::archived_at.is_null())
-            .select(PriceRow::as_select());
-
-        log::debug!("{}", debug_query::<diesel::pg::Pg, _>(&query));
-
-        query
-            .load(conn)
-            .await
-            .attach("Error while listing prices by product ids")
-            .into_db_result()
-    }
-
-
     pub async fn latest_by_product_ids_and_currency(
         conn: &mut PgConn,
         product_ids: &[ProductId],

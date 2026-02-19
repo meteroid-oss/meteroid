@@ -328,43 +328,14 @@ impl PriceComponentInterface for Store {
     ) -> StoreResult<PriceComponent> {
         use diesel_models::products::ProductRow;
 
-        let mut conn = self.get_conn().await?;
-
         let product_id = price_component.product_id.ok_or_else(|| {
             Report::new(StoreError::InvalidArgument(
                 "product_id is required when creating prices".to_string(),
             ))
         })?;
 
-        // Validate product belongs to tenant
-        ProductRow::find_by_id_and_tenant_id(&mut conn, product_id, tenant_id)
-            .await
-            .map_err(Into::<Report<StoreError>>::into)?;
+        let component_row_new: PriceComponentRowNew = price_component.try_into()?;
 
-        // Validate price currencies match plan version
-        let pv = PlanVersionRow::find_by_id_and_tenant_id(
-            &mut conn,
-            price_component.plan_version_id,
-            tenant_id,
-        )
-        .await
-        .map_err(Into::<Report<StoreError>>::into)?;
-        for pi in &prices {
-            if pi.currency != pv.currency {
-                return Err(Report::new(StoreError::InvalidArgument(format!(
-                    "Price currency '{}' does not match plan version currency '{}'",
-                    pi.currency, pv.currency
-                ))));
-            }
-        }
-
-        // Insert the price component
-        let component_row_new = price_component.try_into()?;
-        let inserted = PriceComponentRow::insert(&mut conn, component_row_new)
-            .await
-            .map_err(Into::<Report<StoreError>>::into)?;
-
-        // Create Price entities
         let price_rows_new: Vec<PriceRowNew> = prices
             .iter()
             .map(|pi| {
@@ -386,31 +357,65 @@ impl PriceComponentInterface for Store {
             })
             .collect::<Result<Vec<_>, Report<StoreError>>>()?;
 
-        let price_rows = PriceRowNew::insert_batch(&mut conn, &price_rows_new)
-            .await
-            .map_err(Into::<Report<StoreError>>::into)?;
+        self.transaction(|conn| {
+            async move {
+                // Validate product belongs to tenant
+                ProductRow::find_by_id_and_tenant_id(conn, product_id, tenant_id)
+                    .await
+                    .map_err(Into::<Report<StoreError>>::into)?;
 
-        // Create plan_component_price join rows
-        let pcp_rows_new: Vec<PlanComponentPriceRowNew> = price_rows
-            .iter()
-            .map(|pr| PlanComponentPriceRowNew {
-                plan_component_id: inserted.id,
-                price_id: pr.id,
-            })
-            .collect();
+                // Validate price currencies match plan version
+                let pv = PlanVersionRow::find_by_id_and_tenant_id(
+                    conn,
+                    component_row_new.plan_version_id,
+                    tenant_id,
+                )
+                .await
+                .map_err(Into::<Report<StoreError>>::into)?;
+                for pi in &prices {
+                    if pi.currency != pv.currency {
+                        return Err(Report::new(StoreError::InvalidArgument(format!(
+                            "Price currency '{}' does not match plan version currency '{}'",
+                            pi.currency, pv.currency
+                        ))));
+                    }
+                }
 
-        PlanComponentPriceRowNew::insert_batch(&mut conn, &pcp_rows_new)
-            .await
-            .map_err(Into::<Report<StoreError>>::into)?;
+                // Insert the price component
+                let inserted = PriceComponentRow::insert(conn, component_row_new)
+                    .await
+                    .map_err(Into::<Report<StoreError>>::into)?;
 
-        // Convert to domain
-        let mut component: PriceComponent = inserted.try_into()?;
-        component.prices = price_rows
-            .into_iter()
-            .map(|row| Price::try_from(row).map_err(Into::<Report<StoreError>>::into))
-            .collect::<Result<Vec<_>, _>>()?;
+                // Create Price entities
+                let price_rows = PriceRowNew::insert_batch(conn, &price_rows_new)
+                    .await
+                    .map_err(Into::<Report<StoreError>>::into)?;
 
-        Ok(component)
+                // Create plan_component_price join rows
+                let pcp_rows_new: Vec<PlanComponentPriceRowNew> = price_rows
+                    .iter()
+                    .map(|pr| PlanComponentPriceRowNew {
+                        plan_component_id: inserted.id,
+                        price_id: pr.id,
+                    })
+                    .collect();
+
+                PlanComponentPriceRowNew::insert_batch(conn, &pcp_rows_new)
+                    .await
+                    .map_err(Into::<Report<StoreError>>::into)?;
+
+                // Convert to domain
+                let mut component: PriceComponent = inserted.try_into()?;
+                component.prices = price_rows
+                    .into_iter()
+                    .map(|row| Price::try_from(row).map_err(Into::<Report<StoreError>>::into))
+                    .collect::<Result<Vec<_>, _>>()?;
+
+                Ok(component)
+            }
+            .scope_boxed()
+        })
+        .await
     }
 
     async fn create_price_component_batch(
@@ -482,34 +487,15 @@ impl PriceComponentInterface for Store {
     ) -> StoreResult<PriceComponent> {
         use diesel_models::products::ProductRow;
 
-        let mut conn = self.get_conn().await?;
-
         let product_id = price_component.product_id.ok_or_else(|| {
             Report::new(StoreError::InvalidArgument(
                 "product_id is required when updating prices".to_string(),
             ))
         })?;
 
-        // Validate product belongs to tenant
-        ProductRow::find_by_id_and_tenant_id(&mut conn, product_id, tenant_id)
-            .await
-            .map_err(Into::<Report<StoreError>>::into)?;
-
-        // Validate price currencies match plan version
-        let pv = PlanVersionRow::find_by_id_and_tenant_id(&mut conn, plan_version_id, tenant_id)
-            .await
-            .map_err(Into::<Report<StoreError>>::into)?;
-        for pi in &prices {
-            if pi.currency != pv.currency {
-                return Err(Report::new(StoreError::InvalidArgument(format!(
-                    "Price currency '{}' does not match plan version currency '{}'",
-                    pi.currency, pv.currency
-                ))));
-            }
-        }
-
+        let component_id = price_component.id;
         let pc_row = PriceComponentRow {
-            id: price_component.id,
+            id: component_id,
             plan_version_id,
             name: price_component.name,
             product_id: price_component.product_id,
@@ -517,22 +503,6 @@ impl PriceComponentInterface for Store {
             billable_metric_id: None,
         };
 
-        let updated = pc_row
-            .update(&mut conn, tenant_id)
-            .await
-            .map_err(Into::<Report<StoreError>>::into)?
-            .ok_or_else(|| {
-                Report::new(StoreError::InvalidArgument(
-                    "Price component not found".to_string(),
-                ))
-            })?;
-
-        // Delete old join rows for this component
-        PlanComponentPriceRow::delete_by_component_id(&mut conn, price_component.id)
-            .await
-            .map_err(Into::<Report<StoreError>>::into)?;
-
-        // Create new Price entities
         let price_rows_new: Vec<PriceRowNew> = prices
             .iter()
             .map(|pi| {
@@ -554,30 +524,71 @@ impl PriceComponentInterface for Store {
             })
             .collect::<Result<Vec<_>, Report<StoreError>>>()?;
 
-        let price_rows = PriceRowNew::insert_batch(&mut conn, &price_rows_new)
-            .await
-            .map_err(Into::<Report<StoreError>>::into)?;
+        self.transaction(|conn| {
+            async move {
+                // Validate product belongs to tenant
+                ProductRow::find_by_id_and_tenant_id(conn, product_id, tenant_id)
+                    .await
+                    .map_err(Into::<Report<StoreError>>::into)?;
 
-        // Create new join rows
-        let pcp_rows_new: Vec<PlanComponentPriceRowNew> = price_rows
-            .iter()
-            .map(|pr| PlanComponentPriceRowNew {
-                plan_component_id: updated.id,
-                price_id: pr.id,
-            })
-            .collect();
+                // Validate price currencies match plan version
+                let pv =
+                    PlanVersionRow::find_by_id_and_tenant_id(conn, plan_version_id, tenant_id)
+                        .await
+                        .map_err(Into::<Report<StoreError>>::into)?;
+                for pi in &prices {
+                    if pi.currency != pv.currency {
+                        return Err(Report::new(StoreError::InvalidArgument(format!(
+                            "Price currency '{}' does not match plan version currency '{}'",
+                            pi.currency, pv.currency
+                        ))));
+                    }
+                }
 
-        PlanComponentPriceRowNew::insert_batch(&mut conn, &pcp_rows_new)
-            .await
-            .map_err(Into::<Report<StoreError>>::into)?;
+                let updated = pc_row
+                    .update(conn, tenant_id)
+                    .await
+                    .map_err(Into::<Report<StoreError>>::into)?
+                    .ok_or_else(|| {
+                        Report::new(StoreError::InvalidArgument(
+                            "Price component not found".to_string(),
+                        ))
+                    })?;
 
-        let mut component: PriceComponent = updated.try_into()?;
-        component.prices = price_rows
-            .into_iter()
-            .map(|row| Price::try_from(row).map_err(Into::<Report<StoreError>>::into))
-            .collect::<Result<Vec<_>, _>>()?;
+                // Delete old join rows for this component
+                PlanComponentPriceRow::delete_by_component_id(conn, component_id)
+                    .await
+                    .map_err(Into::<Report<StoreError>>::into)?;
 
-        Ok(component)
+                // Create new Price entities
+                let price_rows = PriceRowNew::insert_batch(conn, &price_rows_new)
+                    .await
+                    .map_err(Into::<Report<StoreError>>::into)?;
+
+                // Create new join rows
+                let pcp_rows_new: Vec<PlanComponentPriceRowNew> = price_rows
+                    .iter()
+                    .map(|pr| PlanComponentPriceRowNew {
+                        plan_component_id: updated.id,
+                        price_id: pr.id,
+                    })
+                    .collect();
+
+                PlanComponentPriceRowNew::insert_batch(conn, &pcp_rows_new)
+                    .await
+                    .map_err(Into::<Report<StoreError>>::into)?;
+
+                let mut component: PriceComponent = updated.try_into()?;
+                component.prices = price_rows
+                    .into_iter()
+                    .map(|row| Price::try_from(row).map_err(Into::<Report<StoreError>>::into))
+                    .collect::<Result<Vec<_>, _>>()?;
+
+                Ok(component)
+            }
+            .scope_boxed()
+        })
+        .await
     }
 
     async fn create_price_component_from_ref(
@@ -589,71 +600,75 @@ impl PriceComponentInterface for Store {
         tenant_id: TenantId,
         created_by: Uuid,
     ) -> StoreResult<PriceComponent> {
-        let mut conn = self.get_conn().await?;
-
-        let plan_version =
-            PlanVersionRow::find_by_id_and_tenant_id(&mut conn, plan_version_id, tenant_id)
-                .await
-                .map_err(Into::<Report<StoreError>>::into)?;
-        let product_family_id =
-            PlanVersionRow::get_product_family_id(&mut conn, plan_version_id, tenant_id)
-                .await
-                .map_err(Into::<Report<StoreError>>::into)?;
-
         let internal = PriceComponentNewInternal {
             name,
             product_ref,
             prices: price_entries,
         };
 
-        let (product_id, price_ids) = resolve_component_internal(
-            &mut conn,
-            &internal,
-            tenant_id,
-            created_by,
-            product_family_id,
-            &plan_version.currency,
-        )
-        .await?;
+        self.transaction(|conn| {
+            async move {
+                let plan_version =
+                    PlanVersionRow::find_by_id_and_tenant_id(conn, plan_version_id, tenant_id)
+                        .await
+                        .map_err(Into::<Report<StoreError>>::into)?;
+                let product_family_id =
+                    PlanVersionRow::get_product_family_id(conn, plan_version_id, tenant_id)
+                        .await
+                        .map_err(Into::<Report<StoreError>>::into)?;
 
-        // Insert the price component row
-        let component_row_new = PriceComponentRowNew {
-            id: PriceComponentId::new(),
-            name: internal.name,
-            legacy_fee: None,
-            plan_version_id,
-            product_id: Some(product_id),
-            billable_metric_id: None,
-        };
-        let inserted = component_row_new
-            .insert(&mut conn)
-            .await
-            .map_err(Into::<Report<StoreError>>::into)?;
+                let (product_id, price_ids) = resolve_component_internal(
+                    conn,
+                    &internal,
+                    tenant_id,
+                    created_by,
+                    product_family_id,
+                    &plan_version.currency,
+                )
+                .await?;
 
-        // Create plan_component_price join rows
-        let pcp_rows_new: Vec<PlanComponentPriceRowNew> = price_ids
-            .iter()
-            .map(|pid| PlanComponentPriceRowNew {
-                plan_component_id: inserted.id,
-                price_id: *pid,
-            })
-            .collect();
+                // Insert the price component row
+                let component_row_new = PriceComponentRowNew {
+                    id: PriceComponentId::new(),
+                    name: internal.name,
+                    legacy_fee: None,
+                    plan_version_id,
+                    product_id: Some(product_id),
+                    billable_metric_id: None,
+                };
+                let inserted = component_row_new
+                    .insert(conn)
+                    .await
+                    .map_err(Into::<Report<StoreError>>::into)?;
 
-        PlanComponentPriceRowNew::insert_batch(&mut conn, &pcp_rows_new)
-            .await
-            .map_err(Into::<Report<StoreError>>::into)?;
+                // Create plan_component_price join rows
+                let pcp_rows_new: Vec<PlanComponentPriceRowNew> = price_ids
+                    .iter()
+                    .map(|pid| PlanComponentPriceRowNew {
+                        plan_component_id: inserted.id,
+                        price_id: *pid,
+                    })
+                    .collect();
 
-        // Load the prices to return them
-        let price_rows = PriceRow::list_by_ids(&mut conn, &price_ids, tenant_id)
-            .await
-            .map_err(Into::<Report<StoreError>>::into)?;
+                PlanComponentPriceRowNew::insert_batch(conn, &pcp_rows_new)
+                    .await
+                    .map_err(Into::<Report<StoreError>>::into)?;
 
-        let mut component: PriceComponent = inserted.try_into()?;
-        component.prices = price_rows
-            .into_iter()
-            .map(|row| Price::try_from(row).map_err(Into::<Report<StoreError>>::into))
-            .collect::<Result<Vec<_>, _>>()?;
+                // Load the prices to return them
+                let price_rows = PriceRow::list_by_ids(conn, &price_ids, tenant_id)
+                    .await
+                    .map_err(Into::<Report<StoreError>>::into)?;
 
-        Ok(component)
+                let mut component: PriceComponent = inserted.try_into()?;
+                component.prices = price_rows
+                    .into_iter()
+                    .map(|row| Price::try_from(row).map_err(Into::<Report<StoreError>>::into))
+                    .collect::<Result<Vec<_>, _>>()?;
+
+                Ok(component)
+            }
+            .scope_boxed()
+        })
+        .await
     }
 }

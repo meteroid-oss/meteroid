@@ -1,4 +1,4 @@
-use common_domain::ids::{ProductId, TenantId};
+use common_domain::ids::{PriceId, ProductId, TenantId};
 use diesel_models::plans::PlanRow;
 use diesel_models::prices::PriceRow;
 use diesel_models::products::ProductRow;
@@ -155,6 +155,7 @@ impl Services {
             .map_err(Into::<Report<StoreError>>::into)?;
 
         let mut affected_prices_count = 0;
+        let mut affected_price_ids: Vec<PriceId> = Vec::new();
         let mut rows_to_add = 0;
         let mut rows_to_remove = 0;
 
@@ -191,11 +192,10 @@ impl Services {
 
                 if price_affected {
                     affected_prices_count += 1;
+                    affected_price_ids.push(price_row.id);
                 }
             }
         }
-
-        let affected_price_ids: Vec<_> = prices.iter().map(|p| p.id).collect();
 
         let affected_subscriptions_count =
             SubscriptionComponentRow::count_active_subscriptions_by_product_id(

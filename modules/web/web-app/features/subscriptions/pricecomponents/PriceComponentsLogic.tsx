@@ -102,11 +102,11 @@ function feeTypeIcon(feeType: ComponentFeeType) {
 function feeTypeLabel(feeType: ComponentFeeType): string {
   switch (feeType) {
     case 'rate':
-      return 'Fixed'
+      return 'Rate'
     case 'usage':
       return 'Usage'
     case 'slot':
-      return 'Per Seat'
+      return 'Slot'
     case 'capacity':
       return 'Capacity'
     case 'oneTime':

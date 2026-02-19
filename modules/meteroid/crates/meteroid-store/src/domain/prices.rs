@@ -45,6 +45,18 @@ pub enum UsageModel {
     Matrix,
 }
 
+impl From<&UsagePricingModel> for UsageModel {
+    fn from(model: &UsagePricingModel) -> Self {
+        match model {
+            UsagePricingModel::PerUnit { .. } => UsageModel::PerUnit,
+            UsagePricingModel::Tiered { .. } => UsageModel::Tiered,
+            UsagePricingModel::Volume { .. } => UsageModel::Volume,
+            UsagePricingModel::Package { .. } => UsageModel::Package,
+            UsagePricingModel::Matrix { .. } => UsageModel::Matrix,
+        }
+    }
+}
+
 // monetary config stored on Price.pricing
 #[derive(Serialize, Deserialize, Clone, Debug)]
 #[serde(tag = "type")]
@@ -162,13 +174,6 @@ pub struct MatrixUpdatePreview {
     pub affected_plans: Vec<AffectedPlan>,
 }
 
-#[derive(Clone, Debug)]
-pub struct LegacyPlanVersionPreview {
-    pub plan_version_id: uuid::Uuid,
-    pub plan_name: String,
-    pub version: i32,
-    pub subscription_count: i64,
-}
 
 // Resolution: Product (FeeStructure) + Price (Pricing) → SubscriptionFee
 pub fn resolve_subscription_fee(
@@ -269,18 +274,11 @@ pub fn extract_fee_structure(fee: &FeeType) -> (FeeTypeEnum, FeeStructure) {
         FeeType::Usage {
             metric_id, pricing, ..
         } => {
-            let model = match pricing {
-                UsagePricingModel::PerUnit { .. } => UsageModel::PerUnit,
-                UsagePricingModel::Tiered { .. } => UsageModel::Tiered,
-                UsagePricingModel::Volume { .. } => UsageModel::Volume,
-                UsagePricingModel::Package { .. } => UsageModel::Package,
-                UsagePricingModel::Matrix { .. } => UsageModel::Matrix,
-            };
             (
                 FeeTypeEnum::Usage,
                 FeeStructure::Usage {
                     metric_id: *metric_id,
-                    model,
+                    model: UsageModel::from(pricing),
                 },
             )
         }
@@ -321,10 +319,8 @@ pub fn extract_pricing(fee: &FeeType) -> Vec<(BillingPeriodEnum, Pricing)> {
         FeeType::Capacity {
             thresholds, cadence, ..
         } => {
-            // Capacity has a single cadence but potentially multiple thresholds.
-            // For now, we create one Pricing per threshold at the component's cadence.
-            // In practice, the plan-level price component has multiple thresholds
-            // that the subscriber picks from. We pick the first as the default price.
+            // Each threshold becomes a separate Price; the subscriber selects
+            // the desired tier via `committed_capacity` in ComponentParameters.
             thresholds
                 .iter()
                 .map(|t| {

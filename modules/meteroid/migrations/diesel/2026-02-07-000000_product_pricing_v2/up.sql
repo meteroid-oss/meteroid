@@ -14,7 +14,7 @@ CREATE TABLE price (
     created_by UUID NOT NULL,
     archived_at TIMESTAMP
 );
-CREATE INDEX idx_price_product ON price(product_id);
+CREATE INDEX idx_price_product_currency ON price(product_id, currency);
 CREATE INDEX idx_price_tenant ON price(tenant_id);
 
 -- 2. Junction table for plan components (multi-price)

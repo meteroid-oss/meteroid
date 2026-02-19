@@ -95,13 +95,6 @@ export const AddComponentPanel = () => {
     formData: Record<string, unknown>
     feeType: ComponentFeeType
   }) => {
-    console.log('Adding existing product with data:', {
-      productId,
-      componentName,
-      formData,
-      feeType,
-    })
-
     if (!version?.id) return
 
     const pricingType = toPricingTypeFromFeeType(

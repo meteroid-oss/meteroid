@@ -1,7 +1,7 @@
 use crate::errors::IntoDbResult;
 use crate::plan_component_prices::{PlanComponentPriceRow, PlanComponentPriceRowNew};
 use crate::{DbResult, PgConn};
-use common_domain::ids::{PriceComponentId, PriceId};
+use common_domain::ids::PriceComponentId;
 use diesel::{ExpressionMethods, QueryDsl, SelectableHelper, debug_query};
 use error_stack::ResultExt;
 
@@ -42,54 +42,6 @@ impl PlanComponentPriceRow {
             .load(conn)
             .await
             .attach("Error while listing plan component prices by component ids")
-            .into_db_result()
-    }
-
-    pub async fn list_by_price_ids(
-        conn: &mut PgConn,
-        price_ids: &[PriceId],
-    ) -> DbResult<Vec<PlanComponentPriceRow>> {
-        use crate::schema::plan_component_price::dsl as pcp_dsl;
-        use diesel_async::RunQueryDsl;
-
-        if price_ids.is_empty() {
-            return Ok(vec![]);
-        }
-
-        let query = pcp_dsl::plan_component_price
-            .filter(pcp_dsl::price_id.eq_any(price_ids))
-            .select(PlanComponentPriceRow::as_select());
-
-        log::debug!("{}", debug_query::<diesel::pg::Pg, _>(&query));
-
-        query
-            .load(conn)
-            .await
-            .attach("Error while listing plan component prices by price ids")
-            .into_db_result()
-    }
-
-    pub async fn delete_by_price_ids(
-        conn: &mut PgConn,
-        price_ids: &[PriceId],
-    ) -> DbResult<()> {
-        use crate::schema::plan_component_price::dsl as pcp_dsl;
-        use diesel_async::RunQueryDsl;
-
-        if price_ids.is_empty() {
-            return Ok(());
-        }
-
-        let query = diesel::delete(pcp_dsl::plan_component_price)
-            .filter(pcp_dsl::price_id.eq_any(price_ids));
-
-        log::debug!("{}", debug_query::<diesel::pg::Pg, _>(&query));
-
-        query
-            .execute(conn)
-            .await
-            .attach("Error while deleting plan component prices by price ids")
-            .map(|_| ())
             .into_db_result()
     }
 

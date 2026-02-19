@@ -153,56 +153,6 @@ impl SubscriptionComponentRow {
             .into_db_result()
     }
 
-    pub async fn list_by_price_ids(
-        conn: &mut PgConn,
-        price_ids: &[PriceId],
-    ) -> DbResult<Vec<SubscriptionComponentRow>> {
-        use crate::schema::subscription_component::dsl as sc_dsl;
-        use diesel_async::RunQueryDsl;
-
-        if price_ids.is_empty() {
-            return Ok(vec![]);
-        }
-
-        let query = sc_dsl::subscription_component
-            .filter(sc_dsl::price_id.eq_any(price_ids))
-            .select(SubscriptionComponentRow::as_select());
-
-        log::debug!("{}", debug_query::<diesel::pg::Pg, _>(&query));
-
-        query
-            .get_results(conn)
-            .await
-            .attach("Error while listing subscription components by price ids")
-            .into_db_result()
-    }
-
-    pub async fn update_price_id_and_fee(
-        conn: &mut PgConn,
-        component_id: SubscriptionPriceComponentId,
-        new_price_id: PriceId,
-        new_fee: serde_json::Value,
-    ) -> DbResult<()> {
-        use crate::schema::subscription_component::dsl as sc_dsl;
-        use diesel_async::RunQueryDsl;
-
-        let query = diesel::update(sc_dsl::subscription_component)
-            .filter(sc_dsl::id.eq(component_id))
-            .set((
-                sc_dsl::price_id.eq(Some(new_price_id)),
-                sc_dsl::legacy_fee.eq(new_fee),
-            ));
-
-        log::debug!("{}", debug_query::<diesel::pg::Pg, _>(&query));
-
-        query
-            .execute(conn)
-            .await
-            .attach("Error while updating subscription component price and fee")
-            .map(|_| ())
-            .into_db_result()
-    }
-
     pub async fn update_for_plan_change(
         conn: &mut PgConn,
         component_id: SubscriptionPriceComponentId,

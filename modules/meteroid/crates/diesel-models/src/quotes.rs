@@ -203,19 +203,6 @@ pub struct QuoteActivityRowNew {
     pub user_agent: Option<String>,
 }
 
-#[derive(Insertable, Debug)]
-#[diesel(table_name = crate::schema::quote_activity)]
-pub struct QuotePriceComponentNew {
-    pub id: QuoteActivityId,
-    pub quote_id: QuoteId,
-    pub activity_type: String,
-    pub description: String,
-    pub actor_type: String,
-    pub actor_id: Option<String>,
-    pub actor_name: Option<String>,
-    pub ip_address: Option<String>,
-    pub user_agent: Option<String>,
-}
 
 #[derive(Queryable, Debug, Identifiable, Selectable)]
 #[diesel(table_name = crate::schema::quote_component)]

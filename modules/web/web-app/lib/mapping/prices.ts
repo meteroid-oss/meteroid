@@ -26,6 +26,8 @@ export function formatCadence(cadence: BillingPeriod): string {
       return 'Monthly'
     case BillingPeriod.QUARTERLY:
       return 'Quarterly'
+    case BillingPeriod.SEMIANNUAL:
+      return 'Semiannual'
     case BillingPeriod.ANNUAL:
       return 'Annual'
     default:

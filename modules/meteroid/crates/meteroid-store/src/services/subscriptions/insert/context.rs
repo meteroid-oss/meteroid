@@ -271,19 +271,18 @@ impl Services {
             .any(|r| !prices_by_component.contains_key(&r.id) && r.legacy_fee.is_some());
 
         if has_v1 {
-            let mut plan_versions: HashMap<
+            let plan_version_list =
+                diesel_models::plan_versions::PlanVersionRow::list_by_ids_and_tenant_id(
+                    conn,
+                    plan_version_ids,
+                    tenant_id,
+                )
+                .await
+                .map_err(Into::<Report<StoreError>>::into)?;
+            let plan_versions: HashMap<
                 PlanVersionId,
                 diesel_models::plan_versions::PlanVersionRow,
-            > = HashMap::new();
-            for pv_id in plan_version_ids {
-                let pv =
-                    diesel_models::plan_versions::PlanVersionRow::find_by_id_and_tenant_id(
-                        conn, *pv_id, tenant_id,
-                    )
-                    .await
-                    .map_err(Into::<Report<StoreError>>::into)?;
-                plan_versions.insert(*pv_id, pv);
-            }
+            > = plan_version_list.into_iter().map(|pv| (pv.id, pv)).collect();
 
             for (pv_id, rows) in &rows_by_version {
                 for row in rows {

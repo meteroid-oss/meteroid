@@ -636,6 +636,15 @@ impl PlansInterface for Store {
                     .await
                     .map_err(Into::<Report<StoreError>>::into)?;
 
+                // Fetch destination components once for reuse below
+                let dst_components = PriceComponentRow::list_by_plan_version_id(
+                    conn,
+                    auth_tenant_id,
+                    new.id,
+                )
+                .await
+                .map_err(Into::<Report<StoreError>>::into)?;
+
                 // Clone plan_component_price entries: map old→new component IDs by matching on (name, product_id)
                 let src_component_ids: Vec<_> = src_components.iter().map(|c| c.id).collect();
                 let src_pcp_rows =
@@ -644,17 +653,9 @@ impl PlansInterface for Store {
                         .map_err(Into::<Report<StoreError>>::into)?;
 
                 if !src_pcp_rows.is_empty() {
-                    let dst_components = PriceComponentRow::list_by_plan_version_id(
-                        conn,
-                        auth_tenant_id,
-                        new.id,
-                    )
-                    .await
-                    .map_err(Into::<Report<StoreError>>::into)?;
-
                     // Build mapping: (name, product_id) → new component id
                     let dst_map: std::collections::HashMap<_, _> = dst_components
-                        .into_iter()
+                        .iter()
                         .map(|c| ((c.name.clone(), c.product_id), c.id))
                         .collect();
 
@@ -686,14 +687,6 @@ impl PlansInterface for Store {
                             .await
                             .map_err(Into::<Report<StoreError>>::into)?;
                     let product_family_id = plan_with_version.plan.product_family_id;
-
-                    let dst_components = PriceComponentRow::list_by_plan_version_id(
-                        conn,
-                        auth_tenant_id,
-                        new.id,
-                    )
-                    .await
-                    .map_err(Into::<Report<StoreError>>::into)?;
 
                     let dst_component_ids: Vec<_> =
                         dst_components.iter().map(|c| c.id).collect();

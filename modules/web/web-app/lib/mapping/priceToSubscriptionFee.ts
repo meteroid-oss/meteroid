@@ -1,4 +1,5 @@
 import { Price } from '@/rpc/api/prices/v1/models_pb'
+import { formatCadence } from '@/lib/mapping/prices'
 import { UsageFee } from '@/rpc/api/pricecomponents/v1/models_pb'
 import { BillingPeriod } from '@/rpc/api/shared/v1/shared_pb'
 import { formatCurrencyNoRounding } from '@/lib/utils/numbers'
@@ -224,29 +225,14 @@ export function getComponentPricingFromPrice(
   }
 }
 
-/**
- * Get billing period label from a Price's cadence.
- */
-export function getBillingPeriodLabel(period: BillingPeriod): string {
-  switch (period) {
-    case BillingPeriod.MONTHLY:
-      return 'Monthly'
-    case BillingPeriod.QUARTERLY:
-      return 'Quarterly'
-    case BillingPeriod.SEMIANNUAL:
-      return 'Semiannual'
-    case BillingPeriod.ANNUAL:
-      return 'Annual'
-    default:
-      return 'Monthly'
-  }
-}
+/** @deprecated Use `formatCadence` from `@/lib/mapping/prices` instead. */
+export const getBillingPeriodLabel = formatCadence
 
 export function getPriceBillingLabel(price: Price): string {
   if (price.pricing.case === 'oneTimePricing') {
     return 'One-time'
   }
-  return getBillingPeriodLabel(price.cadence)
+  return formatCadence(price.cadence)
 }
 
 /**
