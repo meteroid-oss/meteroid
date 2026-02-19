@@ -20,7 +20,6 @@ message UsageFee {
 message PriceComponent {
   string id = 1;
   string name = 2;
-  reserved 3; // was: Fee fee
   optional string product_id = 4;
   string local_id = 5;
   repeated meteroid.api.prices.v1.Price prices = 6;

@@ -43,7 +43,6 @@ message SegmentationMatrix {
   message Dimension {
     string key = 1;
     repeated string values = 2;
-    repeated string deprecated_values = 3;
   }
 
   message SegmentationMatrixSingle {

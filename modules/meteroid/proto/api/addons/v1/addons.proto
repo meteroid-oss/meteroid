@@ -17,7 +17,6 @@ message ListAddOnResponse {
 
 message CreateAddOnRequest {
   string name = 2;
-  reserved 3; // was: Fee fee
   optional string product_id = 4;
   optional string price_id = 5;
 }

@@ -10,10 +10,12 @@ use crate::meteroid_it::container::SeedLevel;
 use common_domain::ids::{PriceComponentId, SubscriptionId};
 use meteroid_mailer::service::MockMailerService;
 use meteroid_store::clients::usage::MockUsageClient;
+use meteroid_store::domain::enums::BillingPeriodEnum;
+use meteroid_store::domain::price_components::{PriceEntry, PriceInput};
+use meteroid_store::domain::prices::Pricing;
 use meteroid_store::domain::{
-    ComponentOverride, CreateSubscription, CreateSubscriptionComponents, SlotUpgradeBillingMode,
-    SubscriptionComponentNewInternal, SubscriptionFee, SubscriptionFeeBillingPeriod,
-    SubscriptionNew,
+    ComponentOverride, ComponentParameterization, ComponentParameters, CreateSubscription,
+    CreateSubscriptionComponents, SlotUpgradeBillingMode, SubscriptionNew,
 };
 use meteroid_store::repositories::InvoiceInterface;
 use meteroid_store::repositories::subscriptions::slots::SubscriptionSlotsInterfaceAuto;
@@ -1004,24 +1006,24 @@ async fn create_subscription_with_slots(
                     skip_past_invoices: false,
                 },
                 price_components: Some(CreateSubscriptionComponents {
-                    parameterized_components: vec![],
+                    parameterized_components: vec![ComponentParameterization {
+                        component_id: COMP_NOTION_SEATS_ID,
+                        parameters: ComponentParameters {
+                            initial_slot_count: Some(initial_slots),
+                        },
+                    }],
                     overridden_components: vec![ComponentOverride {
                         component_id: COMP_NOTION_SEATS_ID,
-                        component: SubscriptionComponentNewInternal {
-                            price_component_id: Some(COMP_NOTION_SEATS_ID),
-                            product_id: None,
-                            name: unit_name.to_string(),
-                            period: SubscriptionFeeBillingPeriod::Monthly,
-                            fee: SubscriptionFee::Slot {
-                                unit: unit_name.to_string(),
+                        name: unit_name.to_string(),
+                        price_entry: PriceEntry::New(PriceInput {
+                            cadence: BillingPeriodEnum::Monthly,
+                            currency: "EUR".to_string(),
+                            pricing: Pricing::Slot {
                                 unit_rate,
                                 min_slots,
                                 max_slots,
-                                initial_slots,
                             },
-                            is_override: false,
-                            price_id: None,
-                        },
+                        }),
                     }],
                     extra_components: vec![],
                     remove_components: vec![],

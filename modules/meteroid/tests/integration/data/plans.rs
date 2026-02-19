@@ -205,8 +205,6 @@ pub async fn run_plans_seed(pool: &PgPool) {
                 fee_type: DieselFeeTypeEnum::Slot,
                 fee_structure: serde_json::to_value(&FeeStructure::Slot {
                     unit_name: "Seats".to_string(),
-                    min_slots: Some(1),
-                    max_slots: None,
                     upgrade_policy: UpgradePolicy::Prorated,
                     downgrade_policy: DowngradePolicy::RemoveAtEndOfPeriod,
                 })
@@ -253,6 +251,8 @@ pub async fn run_plans_seed(pool: &PgPool) {
                 currency: "EUR".to_string(),
                 pricing: serde_json::to_value(&Pricing::Slot {
                     unit_rate: Decimal::new(1000, 2),
+                    min_slots: Some(1),
+                    max_slots: None,
                 })
                 .unwrap(),
                 tenant_id: ids::TENANT_ID,
@@ -268,6 +268,8 @@ pub async fn run_plans_seed(pool: &PgPool) {
                 currency: "EUR".to_string(),
                 pricing: serde_json::to_value(&Pricing::Slot {
                     unit_rate: Decimal::new(9600, 2),
+                    min_slots: Some(1),
+                    max_slots: None,
                 })
                 .unwrap(),
                 tenant_id: ids::TENANT_ID,
@@ -346,8 +348,6 @@ pub async fn run_plans_seed(pool: &PgPool) {
                 fee_type: DieselFeeTypeEnum::Slot,
                 fee_structure: serde_json::to_value(&FeeStructure::Slot {
                     unit_name: "Organization".to_string(),
-                    min_slots: Some(1),
-                    max_slots: None,
                     upgrade_policy: UpgradePolicy::Prorated,
                     downgrade_policy: DowngradePolicy::RemoveAtEndOfPeriod,
                 })
@@ -388,6 +388,8 @@ pub async fn run_plans_seed(pool: &PgPool) {
                 currency: "EUR".to_string(),
                 pricing: serde_json::to_value(&Pricing::Slot {
                     unit_rate: Decimal::new(2500, 2),
+                    min_slots: Some(1),
+                    max_slots: None,
                 })
                 .unwrap(),
                 tenant_id: ids::TENANT_ID,
@@ -779,8 +781,6 @@ pub async fn run_plans_seed(pool: &PgPool) {
                 fee_type: DieselFeeTypeEnum::Slot,
                 fee_structure: serde_json::to_value(&FeeStructure::Slot {
                     unit_name: "seat".to_string(),
-                    min_slots: Some(1),
-                    max_slots: Some(100),
                     upgrade_policy: UpgradePolicy::Prorated,
                     downgrade_policy: DowngradePolicy::RemoveAtEndOfPeriod,
                 })
@@ -976,7 +976,11 @@ impl SeedComponent {
                 upgrade_policy: UpgradePolicy::Prorated,
                 downgrade_policy: DowngradePolicy::RemoveAtEndOfPeriod,
             },
-            pricing: Pricing::Slot { unit_rate },
+            pricing: Pricing::Slot {
+                unit_rate,
+                min_slots: Some(1),
+                max_slots: None,
+            },
         }
     }
 }

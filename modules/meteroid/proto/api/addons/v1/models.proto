@@ -5,7 +5,6 @@ package meteroid.api.addons.v1;
 message AddOn {
   string id = 1;
   string name = 2;
-  reserved 3; // was: Fee fee
   string local_id = 4;
   optional string product_id = 5;
   optional string price_id = 6;

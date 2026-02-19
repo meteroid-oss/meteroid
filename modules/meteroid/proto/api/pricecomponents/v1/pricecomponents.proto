@@ -7,7 +7,6 @@ import "api/pricecomponents/v1/models.proto";
 message EditPriceComponentRequest {
   string plan_version_id = 1;
   PriceComponent component = 2;
-  reserved 3;
   repeated PriceEntry prices = 4;
 }
 

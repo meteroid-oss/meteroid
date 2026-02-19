@@ -32,11 +32,10 @@ message MatrixRowAdd {
 
 message UpdateMatrixPricesRequest {
   string product_id = 1;
-  reserved 2, 3;
   // Dimension combinations to add to all matrix prices, each with per-currency prices
-  repeated MatrixRowAdd add_rows = 4;
+  repeated MatrixRowAdd add_rows = 2;
   // Dimension combinations to remove from all matrix prices
-  repeated MatrixDimensionKey remove_rows = 5;
+  repeated MatrixDimensionKey remove_rows = 3;
 }
 
 message UpdateMatrixPricesResponse {
@@ -45,18 +44,16 @@ message UpdateMatrixPricesResponse {
 
 message PreviewMatrixUpdateRequest {
   string product_id = 1;
-  reserved 2, 3;
-  repeated MatrixDimensionKey add_rows = 4;
-  repeated MatrixDimensionKey remove_rows = 5;
+  repeated MatrixDimensionKey add_rows = 2;
+  repeated MatrixDimensionKey remove_rows = 3;
 }
 
 message PreviewMatrixUpdateResponse {
   uint32 affected_prices = 1;
   uint32 affected_subscriptions = 2;
-  reserved 3;
-  uint32 rows_to_add = 4;
-  uint32 rows_to_remove = 5;
-  repeated AffectedPlan affected_plans = 6;
+  uint32 rows_to_add = 3;
+  uint32 rows_to_remove = 4;
+  repeated AffectedPlan affected_plans = 5;
 }
 
 message AffectedPlan {

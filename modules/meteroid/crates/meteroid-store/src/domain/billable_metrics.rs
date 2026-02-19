@@ -41,8 +41,6 @@ pub struct BillableMetric {
 pub struct Dimension {
     pub key: String,
     pub values: Vec<String>,
-    #[serde(default, skip_serializing_if = "Vec::is_empty")]
-    pub deprecated_values: Vec<String>,
 }
 
 #[derive(Clone, Debug, Serialize, Deserialize)]

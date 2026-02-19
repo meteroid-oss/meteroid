@@ -2356,14 +2356,18 @@
         "type": "object",
         "required": [
           "component_id",
-          "component"
+          "name",
+          "price_entry"
         ],
         "properties": {
-          "component": {
-            "$ref": "#/components/schemas/SubscriptionComponent"
-          },
           "component_id": {
             "$ref": "#/components/schemas/PriceComponentId"
+          },
+          "name": {
+            "type": "string"
+          },
+          "price_entry": {
+            "type": "object"
           }
         }
       },
@@ -3600,11 +3604,19 @@
       "ExtraComponent": {
         "type": "object",
         "required": [
-          "component"
+          "name",
+          "product_ref",
+          "price_entry"
         ],
         "properties": {
-          "component": {
-            "$ref": "#/components/schemas/SubscriptionComponent"
+          "name": {
+            "type": "string"
+          },
+          "price_entry": {
+            "type": "object"
+          },
+          "product_ref": {
+            "type": "object"
           }
         }
       },
@@ -4842,12 +4854,18 @@
         "type": "object",
         "required": [
           "id",
-          "name",
-          "fee"
+          "name"
         ],
         "properties": {
           "fee": {
-            "$ref": "#/components/schemas/Fee"
+            "oneOf": [
+              {
+                "type": "null"
+              },
+              {
+                "$ref": "#/components/schemas/Fee"
+              }
+            ]
           },
           "id": {
             "$ref": "#/components/schemas/PriceComponentId"
