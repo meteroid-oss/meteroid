@@ -1,8 +1,9 @@
 import { Badge } from '@md/ui'
 import { createElement } from 'react'
 
-import type { ComponentFeeType } from '@/features/pricing/conversions'
 import { feeTypeIcon } from '@/features/plans/pricecomponents/utils'
+
+import type { ComponentFeeType } from '@/features/pricing/conversions'
 
 interface FeeTypeOption {
   type: ComponentFeeType

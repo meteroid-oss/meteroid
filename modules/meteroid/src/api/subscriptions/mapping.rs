@@ -406,11 +406,9 @@ pub mod price_components {
             .into_iter()
             .map(|c| {
                 let component_id = PriceComponentId::from_proto(&c.component_id)?;
-                let price_entry = price_entries_from_proto(vec![c
-                    .price
-                    .ok_or_else(|| {
-                        Status::invalid_argument("Missing override price entry".to_string())
-                    })?])?
+                let price_entry = price_entries_from_proto(vec![c.price.ok_or_else(|| {
+                    Status::invalid_argument("Missing override price entry".to_string())
+                })?])?
                 .into_iter()
                 .next()
                 .ok_or_else(|| {
@@ -430,11 +428,9 @@ pub mod price_components {
             .into_iter()
             .map(|c| {
                 let product_ref = product_ref_from_proto(c.product)?;
-                let price_entry = price_entries_from_proto(vec![c
-                    .price
-                    .ok_or_else(|| {
-                        Status::invalid_argument("Missing extra component price entry".to_string())
-                    })?])?
+                let price_entry = price_entries_from_proto(vec![c.price.ok_or_else(|| {
+                    Status::invalid_argument("Missing extra component price entry".to_string())
+                })?])?
                 .into_iter()
                 .next()
                 .ok_or_else(|| {
@@ -764,7 +760,6 @@ pub mod price_components {
             api_shared::BillingPeriod::Annual => domain::enums::BillingPeriodEnum::Annual,
         }
     }
-
 
     fn billing_period_to_grpc(period: BillingPeriodEnum) -> api_shared::BillingPeriod {
         match period {

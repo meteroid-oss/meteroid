@@ -174,7 +174,6 @@ pub struct MatrixUpdatePreview {
     pub affected_plans: Vec<AffectedPlan>,
 }
 
-
 // Resolution: Product (FeeStructure) + Price (Pricing) → SubscriptionFee
 pub fn resolve_subscription_fee(
     structure: &FeeStructure,
@@ -234,12 +233,16 @@ pub fn resolve_subscription_fee(
             quantity: *quantity,
             billing_type: billing_type.clone(),
         }),
-        (FeeStructure::OneTime {}, Pricing::OneTime { unit_price, quantity }) => {
-            Ok(SubscriptionFee::OneTime {
-                rate: *unit_price,
-                quantity: *quantity,
-            })
-        }
+        (
+            FeeStructure::OneTime {},
+            Pricing::OneTime {
+                unit_price,
+                quantity,
+            },
+        ) => Ok(SubscriptionFee::OneTime {
+            rate: *unit_price,
+            quantity: *quantity,
+        }),
         _ => Err(StoreError::InvalidArgument(format!(
             "Mismatched FeeStructure and Pricing variants: {:?} vs {:?}",
             std::mem::discriminant(structure),
@@ -273,15 +276,13 @@ pub fn extract_fee_structure(fee: &FeeType) -> (FeeTypeEnum, FeeStructure) {
         ),
         FeeType::Usage {
             metric_id, pricing, ..
-        } => {
-            (
-                FeeTypeEnum::Usage,
-                FeeStructure::Usage {
-                    metric_id: *metric_id,
-                    model: UsageModel::from(pricing),
-                },
-            )
-        }
+        } => (
+            FeeTypeEnum::Usage,
+            FeeStructure::Usage {
+                metric_id: *metric_id,
+                model: UsageModel::from(pricing),
+            },
+        ),
         FeeType::ExtraRecurring { billing_type, .. } => (
             FeeTypeEnum::ExtraRecurring,
             FeeStructure::ExtraRecurring {
@@ -317,7 +318,9 @@ pub fn extract_pricing(fee: &FeeType) -> Vec<(BillingPeriodEnum, Pricing)> {
             })
             .collect(),
         FeeType::Capacity {
-            thresholds, cadence, ..
+            thresholds,
+            cadence,
+            ..
         } => {
             // Each threshold becomes a separate Price; the subscriber selects
             // the desired tier via `committed_capacity` in ComponentParameters.

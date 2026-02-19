@@ -135,10 +135,7 @@ impl PriceComponent {
         params: Option<&ComponentParameters>,
     ) -> Result<ResolvedFee, StoreError> {
         let product_id = self.product_id.ok_or_else(|| {
-            StoreError::InvalidArgument(format!(
-                "PriceComponent {} has no product_id",
-                self.id
-            ))
+            StoreError::InvalidArgument(format!("PriceComponent {} has no product_id", self.id))
         })?;
 
         let product = products.get(&product_id).ok_or_else(|| {
@@ -248,18 +245,12 @@ fn select_legacy_pricing_entry<'a>(
     if entries.len() == 1 {
         return Ok(&entries[0]);
     }
-    if let Some(p) = params {
-        if let Some(bp) = &p.billing_period {
-            return entries
-                .iter()
-                .find(|(c, _)| c == bp)
-                .ok_or_else(|| {
-                    StoreError::InvalidArgument(format!(
-                        "No pricing entry for billing period {:?}",
-                        bp
-                    ))
-                });
-        }
+    if let Some(p) = params
+        && let Some(bp) = &p.billing_period
+    {
+        return entries.iter().find(|(c, _)| c == bp).ok_or_else(|| {
+            StoreError::InvalidArgument(format!("No pricing entry for billing period {:?}", bp))
+        });
     }
     Err(StoreError::InvalidArgument(
         "Multiple pricing entries but no billing_period specified".into(),
@@ -358,7 +349,6 @@ impl FeeType {
             _ => None,
         }
     }
-
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]

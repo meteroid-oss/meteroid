@@ -6,10 +6,10 @@ import { Wizard } from 'react-use-wizard'
 
 import PageHeading from '@/components/PageHeading/PageHeading'
 import { useQuery } from '@/lib/connectrpc'
-import { changePlanAtom } from '@/pages/tenants/subscription/changePlan/state'
 import { StepConfirm } from '@/pages/tenants/subscription/changePlan/StepConfirm'
 import { StepReviewMapping } from '@/pages/tenants/subscription/changePlan/StepReviewMapping'
 import { StepSelectPlan } from '@/pages/tenants/subscription/changePlan/StepSelectPlan'
+import { changePlanAtom } from '@/pages/tenants/subscription/changePlan/state'
 import { getSubscriptionDetails } from '@/rpc/api/subscriptions/v1/subscriptions-SubscriptionsService_connectquery'
 import { useTypedParams } from '@/utils/params'
 

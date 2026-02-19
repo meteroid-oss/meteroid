@@ -15,12 +15,13 @@ import {
 import { ColumnDef } from '@tanstack/react-table'
 import { PlusIcon, XIcon } from 'lucide-react'
 import { memo, useCallback, useEffect, useMemo, useState } from 'react'
-import { Control, useFieldArray, useFormContext, useWatch } from 'react-hook-form'
+import { Control, FieldValues, useFieldArray, useFormContext, useWatch } from 'react-hook-form'
 
 import { UncontrolledPriceInput } from '@/components/form/PriceInput'
 import { SimpleTable } from '@/components/table/SimpleTable'
 
 import { PricingType, type TierRowSchema } from './schemas'
+
 import type { z } from 'zod'
 
 type TierRow = z.infer<typeof TierRowSchema>
@@ -37,8 +38,7 @@ export interface DimensionCombination {
 
 interface PricingFieldsProps {
   pricingType: PricingType
-  // eslint-disable-next-line @typescript-eslint/no-explicit-any
-  control: Control<any>
+  control: Control<FieldValues>
   currency: string
   /** For matrix pricing: dimension headers to display */
   dimensionHeaders?: string[]
@@ -94,7 +94,7 @@ function RatePricingFields({
   control,
   currency,
 }: {
-  control: Control<any>
+  control: Control<FieldValues>
   currency: string
 }) {
   return (
@@ -115,7 +115,7 @@ function SlotPricingFields({
   control,
   currency,
 }: {
-  control: Control<any>
+  control: Control<FieldValues>
   currency: string
 }) {
   return (
@@ -154,7 +154,7 @@ function CapacityPricingFields({
   control,
   currency,
 }: {
-  control: Control<any>
+  control: Control<FieldValues>
   currency: string
 }) {
   const { fields, append, remove } = useFieldArray({
@@ -217,7 +217,12 @@ function CapacityPricingFields({
             control={control}
             name={`thresholds.${row.index}.overageRate`}
             render={({ field }) => (
-              <UncontrolledPriceInput {...field} currency={currency} showCurrency={false} precision={8} />
+              <UncontrolledPriceInput
+                {...field}
+                currency={currency}
+                showCurrency={false}
+                precision={8}
+              />
             )}
           />
         ),
@@ -238,7 +243,10 @@ function CapacityPricingFields({
 
   return (
     <>
-      <SimpleTable columns={columns} data={fields as unknown as { included: number; rate: string; overageRate: string }[]} />
+      <SimpleTable
+        columns={columns}
+        data={fields as unknown as { included: number; rate: string; overageRate: string }[]}
+      />
       <Button variant="link" onClick={addThreshold}>
         + Add threshold
       </Button>
@@ -252,7 +260,7 @@ function PerUnitPricingFields({
   control,
   currency,
 }: {
-  control: Control<any>
+  control: Control<FieldValues>
   currency: string
 }) {
   return (
@@ -261,12 +269,7 @@ function PerUnitPricingFields({
       name="unitPrice"
       label="Price per unit"
       render={({ field }) => (
-        <UncontrolledPriceInput
-          {...field}
-          currency={currency}
-          className="max-w-xs"
-          precision={8}
-        />
+        <UncontrolledPriceInput {...field} currency={currency} className="max-w-xs" precision={8} />
       )}
     />
   )
@@ -278,7 +281,7 @@ function TierTableFields({
   control,
   currency,
 }: {
-  control: Control<any>
+  control: Control<FieldValues>
   currency: string
 }) {
   const { fields, append, remove } = useFieldArray({
@@ -429,7 +432,16 @@ function TierTableFields({
           ),
       },
     ],
-    [control, currency, fields.length, remove, showFlatFee, showFlatCap, toggleFlatFee, toggleFlatCap]
+    [
+      control,
+      currency,
+      fields.length,
+      remove,
+      showFlatFee,
+      showFlatCap,
+      toggleFlatFee,
+      toggleFlatCap,
+    ]
   )
 
   return (
@@ -443,7 +455,7 @@ function TierTableFields({
 }
 
 const FirstUnitField = memo(
-  ({ control, rowIndex }: { control: Control<any>; rowIndex: number }) => {
+  ({ control, rowIndex }: { control: Control<FieldValues>; rowIndex: number }) => {
     const prevRowValue = useWatch({
       control,
       name: `rows.${rowIndex - 1}`,
@@ -483,7 +495,7 @@ const LastUnitCell = ({
   control,
   rowIndex,
 }: {
-  control: Control<any>
+  control: Control<FieldValues>
   rowIndex: number
 }) => {
   const nextRow = useWatch({
@@ -500,7 +512,7 @@ function PackagePricingFields({
   control,
   currency,
 }: {
-  control: Control<any>
+  control: Control<FieldValues>
   currency: string
 }) {
   return (
@@ -538,8 +550,7 @@ const areDimensionsEqual = (d1: DimensionCombination, d2: DimensionCombination):
     d1.dimension1.value === d2.dimension1.value &&
     (!d1.dimension2 ||
       !d2.dimension2 ||
-      (d1.dimension2.key === d2.dimension2.key &&
-        d1.dimension2.value === d2.dimension2.value))
+      (d1.dimension2.key === d2.dimension2.key && d1.dimension2.value === d2.dimension2.value))
   )
 }
 
@@ -555,7 +566,7 @@ function MatrixPricingFields({
   dimensionHeaders,
   validCombinations,
 }: {
-  control: Control<any>
+  control: Control<FieldValues>
   currency: string
   dimensionHeaders?: string[]
   validCombinations?: DimensionCombination[]
@@ -574,9 +585,7 @@ function MatrixPricingFields({
 
     const newRows = validCombinations.filter(
       combo =>
-        !currentRows.some(row =>
-          areDimensionsEqual(row as unknown as DimensionCombination, combo)
-        )
+        !currentRows.some(row => areDimensionsEqual(row as unknown as DimensionCombination, combo))
     )
 
     if (newRows.length > 0) {
@@ -592,7 +601,7 @@ function MatrixPricingFields({
     [validCombinations]
   )
 
-  const headers = dimensionHeaders ?? ['Dimension 1']
+  const headers = useMemo(() => dimensionHeaders ?? ['Dimension 1'], [dimensionHeaders])
 
   const columns = useMemo<ColumnDef<MatrixRow>[]>(
     () => [
@@ -677,7 +686,7 @@ function ExtraRecurringPricingFields({
   control,
   currency,
 }: {
-  control: Control<any>
+  control: Control<FieldValues>
   currency: string
 }) {
   return (
@@ -708,7 +717,7 @@ function OneTimePricingFields({
   control,
   currency,
 }: {
-  control: Control<any>
+  control: Control<FieldValues>
   currency: string
 }) {
   return (

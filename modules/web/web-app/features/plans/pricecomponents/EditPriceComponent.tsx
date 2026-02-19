@@ -12,12 +12,6 @@ import { ScopeProvider } from 'jotai-scope'
 import { ReactNode, useMemo } from 'react'
 import { z } from 'zod'
 
-import type { ComponentFeeType } from '@/features/pricing/conversions'
-import {
-  buildPriceInputs,
-  wrapAsNewPriceEntries,
-  toPricingTypeFromFeeType,
-} from '@/features/pricing/conversions'
 import { usePlanWithVersion } from '@/features/plans/hooks/usePlan'
 import { EditPriceComponentCard } from '@/features/plans/pricecomponents/EditPriceComponentCard'
 import { extractStructuralInfo } from '@/features/plans/pricecomponents/ProductBrowser'
@@ -27,9 +21,13 @@ import {
   getComponentSchema,
 } from '@/features/plans/pricecomponents/ProductPricingForm'
 import { editedComponentsAtom, useCurrency } from '@/features/plans/pricecomponents/utils'
-import { useQuery } from '@/lib/connectrpc'
+import {
+  buildPriceInputs,
+  wrapAsNewPriceEntries,
+  toPricingTypeFromFeeType,
+} from '@/features/pricing/conversions'
 import { useZodForm } from '@/hooks/useZodForm'
-import type { PriceComponent as ProtoPriceComponent } from '@/rpc/api/pricecomponents/v1/models_pb'
+import { useQuery } from '@/lib/connectrpc'
 import {
   editPriceComponent as editPriceComponentMutation,
   listPriceComponents as listPriceComponentsQuery,
@@ -37,6 +35,9 @@ import {
 import { getProduct } from '@/rpc/api/products/v1/products-ProductsService_connectquery'
 
 import { componentFeeTypeAtom, componentNameAtom } from './atoms'
+
+import type { ComponentFeeType } from '@/features/pricing/conversions'
+import type { PriceComponent as ProtoPriceComponent } from '@/rpc/api/pricecomponents/v1/models_pb'
 
 // --- Helpers ---
 

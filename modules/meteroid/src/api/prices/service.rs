@@ -1,17 +1,17 @@
 use common_domain::ids::ProductId;
 use common_grpc::middleware::server::auth::RequestExt;
 use meteroid_grpc::meteroid::api::prices::v1::{
-    prices_service_server::PricesService, ListPricesByProductRequest, ListPricesByProductResponse,
-    PreviewMatrixUpdateRequest, PreviewMatrixUpdateResponse, UpdateMatrixPricesRequest,
-    UpdateMatrixPricesResponse,
+    ListPricesByProductRequest, ListPricesByProductResponse, PreviewMatrixUpdateRequest,
+    PreviewMatrixUpdateResponse, UpdateMatrixPricesRequest, UpdateMatrixPricesResponse,
+    prices_service_server::PricesService,
 };
 use meteroid_store::repositories::prices::PriceInterface;
 use tonic::{Request, Response, Status};
 
 use crate::api::prices::error::PriceApiError;
 use crate::api::prices::mapping::prices::{
-    matrix_preview_from_proto, matrix_price_update_from_proto, matrix_update_preview_to_proto,
-    PriceWrapper,
+    PriceWrapper, matrix_preview_from_proto, matrix_price_update_from_proto,
+    matrix_update_preview_to_proto,
 };
 
 use super::PricesServiceComponents;

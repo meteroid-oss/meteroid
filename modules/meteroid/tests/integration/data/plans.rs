@@ -1,9 +1,11 @@
 use super::ids;
+use common_domain::ids::*;
 use diesel_async::AsyncConnection;
 use diesel_async::scoped_futures::ScopedFutureExt;
+use diesel_models::PgConn;
 use diesel_models::enums::{
-    BillingPeriodEnum as DieselBillingPeriodEnum, FeeTypeEnum as DieselFeeTypeEnum,
-    PlanStatusEnum, PlanTypeEnum,
+    BillingPeriodEnum as DieselBillingPeriodEnum, FeeTypeEnum as DieselFeeTypeEnum, PlanStatusEnum,
+    PlanTypeEnum,
 };
 use diesel_models::errors::DatabaseErrorContainer;
 use diesel_models::plan_component_prices::PlanComponentPriceRowNew;
@@ -16,8 +18,6 @@ use meteroid_store::domain::prices::{FeeStructure, Pricing};
 use meteroid_store::domain::{
     BillingPeriodEnum, DowngradePolicy, FeeType, TermRate, UpgradePolicy,
 };
-use common_domain::ids::*;
-use diesel_models::PgConn;
 use meteroid_store::store::PgPool;
 use rust_decimal::Decimal;
 
@@ -204,13 +204,13 @@ pub async fn run_plans_seed(pool: &PgPool) {
                 product_family_id: ids::PRODUCT_FAMILY_ID,
                 fee_type: DieselFeeTypeEnum::Slot,
                 fee_structure: serde_json::to_value(&FeeStructure::Slot {
-                        unit_name: "Seats".to_string(),
-                        min_slots: Some(1),
-                        max_slots: None,
-                        upgrade_policy: UpgradePolicy::Prorated,
-                        downgrade_policy: DowngradePolicy::RemoveAtEndOfPeriod,
-                    })
-                    .unwrap(),
+                    unit_name: "Seats".to_string(),
+                    min_slots: Some(1),
+                    max_slots: None,
+                    upgrade_policy: UpgradePolicy::Prorated,
+                    downgrade_policy: DowngradePolicy::RemoveAtEndOfPeriod,
+                })
+                .unwrap(),
             }
             .insert(tx)
             .await?;
@@ -345,13 +345,13 @@ pub async fn run_plans_seed(pool: &PgPool) {
                 product_family_id: ids::PRODUCT_FAMILY_ID,
                 fee_type: DieselFeeTypeEnum::Slot,
                 fee_structure: serde_json::to_value(&FeeStructure::Slot {
-                        unit_name: "Organization".to_string(),
-                        min_slots: Some(1),
-                        max_slots: None,
-                        upgrade_policy: UpgradePolicy::Prorated,
-                        downgrade_policy: DowngradePolicy::RemoveAtEndOfPeriod,
-                    })
-                    .unwrap(),
+                    unit_name: "Organization".to_string(),
+                    min_slots: Some(1),
+                    max_slots: None,
+                    upgrade_policy: UpgradePolicy::Prorated,
+                    downgrade_policy: DowngradePolicy::RemoveAtEndOfPeriod,
+                })
+                .unwrap(),
             }
             .insert(tx)
             .await?;
@@ -997,7 +997,10 @@ async fn seed_product_backed_plan(
     PlanRowNew {
         id: plan.plan_id,
         name: plan.plan_name.to_string(),
-        description: Some(format!("{} plan with product-backed pricing", plan.plan_name)),
+        description: Some(format!(
+            "{} plan with product-backed pricing",
+            plan.plan_name
+        )),
         created_by: ids::USER_ID,
         tenant_id: ids::TENANT_ID,
         product_family_id: ids::PRODUCT_FAMILY_ID,

@@ -30,22 +30,20 @@ pub mod prices {
 
     pub fn pricing_to_proto(pricing: &Pricing) -> Option<proto::price::Pricing> {
         match pricing {
-            Pricing::Rate { rate } => Some(proto::price::Pricing::RatePricing(
-                proto::RatePricing {
+            Pricing::Rate { rate } => {
+                Some(proto::price::Pricing::RatePricing(proto::RatePricing {
                     rate: rate.as_proto(),
-                },
-            )),
+                }))
+            }
             Pricing::Slot {
                 unit_rate,
                 min_slots,
                 max_slots,
-            } => Some(proto::price::Pricing::SlotPricing(
-                proto::SlotPricing {
-                    unit_rate: unit_rate.as_proto(),
-                    min_slots: *min_slots,
-                    max_slots: *max_slots,
-                },
-            )),
+            } => Some(proto::price::Pricing::SlotPricing(proto::SlotPricing {
+                unit_rate: unit_rate.as_proto(),
+                min_slots: *min_slots,
+                max_slots: *max_slots,
+            })),
             Pricing::Capacity {
                 rate,
                 included,
@@ -126,9 +124,7 @@ pub mod prices {
         }
     }
 
-    pub fn matrix_row_to_proto(
-        row: &MatrixRow,
-    ) -> proto::usage_pricing::matrix_pricing::MatrixRow {
+    pub fn matrix_row_to_proto(row: &MatrixRow) -> proto::usage_pricing::matrix_pricing::MatrixRow {
         proto::usage_pricing::matrix_pricing::MatrixRow {
             per_unit_price: row.per_unit_price.as_proto(),
             dimension1: Some(proto::usage_pricing::matrix_pricing::MatrixDimension {
@@ -145,9 +141,7 @@ pub mod prices {
     }
 
     pub fn pricing_from_proto(
-        pricing_oneof: Option<
-            meteroid_grpc::meteroid::api::components::v1::price_input::Pricing,
-        >,
+        pricing_oneof: Option<meteroid_grpc::meteroid::api::components::v1::price_input::Pricing>,
     ) -> Result<Pricing, Status> {
         use meteroid_grpc::meteroid::api::components::v1::price_input::Pricing as P;
         match pricing_oneof {
@@ -180,7 +174,9 @@ pub mod prices {
         }
     }
 
-    pub fn usage_model_from_proto(usage: &proto::UsagePricing) -> Result<UsagePricingModel, Status> {
+    pub fn usage_model_from_proto(
+        usage: &proto::UsagePricing,
+    ) -> Result<UsagePricingModel, Status> {
         match usage.model.as_ref() {
             Some(proto::usage_pricing::Model::PerUnit(rate_str)) => {
                 let rate = Decimal::from_proto_ref(rate_str)?;

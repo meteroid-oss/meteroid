@@ -1,4 +1,6 @@
-use crate::domain::enums::{ScheduledEventStatus, ScheduledEventTypeEnum, SubscriptionFeeBillingPeriod};
+use crate::domain::enums::{
+    ScheduledEventStatus, ScheduledEventTypeEnum, SubscriptionFeeBillingPeriod,
+};
 use crate::domain::subscription_components::SubscriptionFee;
 use crate::errors::StoreErrorReport;
 use crate::json_value_serde;

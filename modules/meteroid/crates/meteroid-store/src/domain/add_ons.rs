@@ -1,7 +1,9 @@
 use crate::domain::enums::SubscriptionFeeBillingPeriod;
-use crate::domain::prices;
 use crate::domain::price_components::{ComponentParameters, ResolvedFee};
-use crate::domain::subscription_add_ons::{SubscriptionAddOnCustomization, SubscriptionAddOnParameterization};
+use crate::domain::prices;
+use crate::domain::subscription_add_ons::{
+    SubscriptionAddOnCustomization, SubscriptionAddOnParameterization,
+};
 use crate::domain::subscription_components::SubscriptionFee;
 use crate::domain::{Price, Product};
 use crate::errors::StoreError;
@@ -53,10 +55,16 @@ impl AddOn {
         })?;
 
         let product = products.get(&product_id).ok_or_else(|| {
-            StoreError::InvalidArgument(format!("Product {} not found for add-on {}", product_id, self.id))
+            StoreError::InvalidArgument(format!(
+                "Product {} not found for add-on {}",
+                product_id, self.id
+            ))
         })?;
         let price = prices.get(&price_id).ok_or_else(|| {
-            StoreError::InvalidArgument(format!("Price {} not found for add-on {}", price_id, self.id))
+            StoreError::InvalidArgument(format!(
+                "Price {} not found for add-on {}",
+                price_id, self.id
+            ))
         })?;
 
         let fee_structure = &product.fee_structure;
@@ -95,15 +103,13 @@ impl AddOn {
                     price_id: resolved.price_id,
                 })
             }
-            SubscriptionAddOnCustomization::Override(ov) => {
-                Ok(ResolvedAddOn {
-                    name: ov.name.clone(),
-                    period: ov.period,
-                    fee: ov.fee.clone(),
-                    product_id: self.product_id,
-                    price_id: self.price_id,
-                })
-            }
+            SubscriptionAddOnCustomization::Override(ov) => Ok(ResolvedAddOn {
+                name: ov.name.clone(),
+                period: ov.period,
+                fee: ov.fee.clone(),
+                product_id: self.product_id,
+                price_id: self.price_id,
+            }),
             SubscriptionAddOnCustomization::Parameterization(param) => {
                 let params = Self::params_from_addon_parameterization(param);
                 let resolved = self.resolve_subscription_fee(products, prices, Some(&params))?;
@@ -118,7 +124,9 @@ impl AddOn {
         }
     }
 
-    fn params_from_addon_parameterization(param: &SubscriptionAddOnParameterization) -> ComponentParameters {
+    fn params_from_addon_parameterization(
+        param: &SubscriptionAddOnParameterization,
+    ) -> ComponentParameters {
         ComponentParameters {
             initial_slot_count: param.initial_slot_count,
             billing_period: param.billing_period,

@@ -26,7 +26,6 @@ import { z } from 'zod'
 
 import { usePlanWithVersion } from '@/features/plans/hooks/usePlan'
 import { feeTypeIcon, feeTypeToHuman, useCurrency } from '@/features/plans/pricecomponents/utils'
-import type { ComponentFeeType } from '@/features/pricing/conversions'
 import {
   buildExistingProductRef,
   buildNewProductRef,
@@ -43,6 +42,8 @@ import {
 import { FeeTypePicker } from './FeeTypePicker'
 import { ProductBrowser } from './ProductBrowser'
 import { ProductPricingForm } from './ProductPricingForm'
+
+import type { ComponentFeeType } from '@/features/pricing/conversions'
 
 // --- Identity schema ---
 

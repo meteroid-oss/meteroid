@@ -1,4 +1,6 @@
-use common_domain::ids::{BaseId, CustomerId, PlanId, PlanVersionId, PriceComponentId, SubscriptionId};
+use common_domain::ids::{
+    BaseId, CustomerId, PlanId, PlanVersionId, PriceComponentId, SubscriptionId,
+};
 use common_grpc::middleware::server::auth::RequestExt;
 use meteroid_store::repositories::subscriptions::slots::SubscriptionSlotsInterfaceAuto;
 use tonic::{Request, Response, Status};
@@ -533,12 +535,20 @@ impl SubscriptionsService for SubscriptionServiceComponents {
                             &m.current_fee,
                             m.current_period.as_billing_period_opt().unwrap_or_default(),
                         )),
-                        current_period: mapping::price_components::subscription_fee_billing_period_to_grpc(m.current_period).into(),
+                        current_period:
+                            mapping::price_components::subscription_fee_billing_period_to_grpc(
+                                m.current_period,
+                            )
+                            .into(),
                         new_fee: Some(mapping::price_components::subscription_fee_to_grpc(
                             &m.new_fee,
                             m.new_period.as_billing_period_opt().unwrap_or_default(),
                         )),
-                        new_period: mapping::price_components::subscription_fee_billing_period_to_grpc(m.new_period).into(),
+                        new_period:
+                            mapping::price_components::subscription_fee_billing_period_to_grpc(
+                                m.new_period,
+                            )
+                            .into(),
                     }
                 })
                 .collect(),
@@ -552,7 +562,10 @@ impl SubscriptionsService for SubscriptionServiceComponents {
                             &a.fee,
                             a.period.as_billing_period_opt().unwrap_or_default(),
                         )),
-                        period: mapping::price_components::subscription_fee_billing_period_to_grpc(a.period).into(),
+                        period: mapping::price_components::subscription_fee_billing_period_to_grpc(
+                            a.period,
+                        )
+                        .into(),
                     }
                 })
                 .collect(),
@@ -566,7 +579,11 @@ impl SubscriptionsService for SubscriptionServiceComponents {
                             &r.current_fee,
                             r.current_period.as_billing_period_opt().unwrap_or_default(),
                         )),
-                        current_period: mapping::price_components::subscription_fee_billing_period_to_grpc(r.current_period).into(),
+                        current_period:
+                            mapping::price_components::subscription_fee_billing_period_to_grpc(
+                                r.current_period,
+                            )
+                            .into(),
                     }
                 })
                 .collect(),

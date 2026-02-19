@@ -6,19 +6,19 @@ use diesel_models::subscription_components::SubscriptionComponentRow;
 use error_stack::Report;
 use uuid::Uuid;
 
+use crate::StoreResult;
 use crate::domain::price_components::{MatrixRow, UsagePricingModel};
 use crate::domain::prices::{
     AffectedPlan, FeeStructure, MatrixDimensionKey, MatrixPriceUpdate, MatrixUpdatePreview, Price,
     Pricing, UsageModel,
 };
 use crate::errors::StoreError;
-use crate::StoreResult;
 
 use super::Services;
 
 fn dimension_key_matches(row: &MatrixRow, key: &MatrixDimensionKey) -> bool {
-    let d1_match = row.dimension1.key == key.dimension1.key
-        && row.dimension1.value == key.dimension1.value;
+    let d1_match =
+        row.dimension1.key == key.dimension1.key && row.dimension1.value == key.dimension1.value;
     let d2_match = match (&row.dimension2, &key.dimension2) {
         (None, None) => true,
         (Some(a), Some(b)) => a.key == b.key && a.value == b.value,
@@ -56,10 +56,9 @@ impl Services {
     ) -> StoreResult<Vec<Price>> {
         let mut conn = self.store.get_conn().await?;
 
-        let product_row =
-            ProductRow::find_by_id_and_tenant_id(&mut conn, product_id, tenant_id)
-                .await
-                .map_err(Into::<Report<StoreError>>::into)?;
+        let product_row = ProductRow::find_by_id_and_tenant_id(&mut conn, product_id, tenant_id)
+            .await
+            .map_err(Into::<Report<StoreError>>::into)?;
 
         validate_matrix_product(&product_row.fee_structure)?;
 
@@ -143,10 +142,9 @@ impl Services {
     ) -> StoreResult<MatrixUpdatePreview> {
         let mut conn = self.store.get_conn().await?;
 
-        let product_row =
-            ProductRow::find_by_id_and_tenant_id(&mut conn, product_id, tenant_id)
-                .await
-                .map_err(Into::<Report<StoreError>>::into)?;
+        let product_row = ProductRow::find_by_id_and_tenant_id(&mut conn, product_id, tenant_id)
+            .await
+            .map_err(Into::<Report<StoreError>>::into)?;
 
         validate_matrix_product(&product_row.fee_structure)?;
 
@@ -160,14 +158,13 @@ impl Services {
         let mut rows_to_remove = 0;
 
         for price_row in &prices {
-            let pricing: Pricing = serde_json::from_value(price_row.pricing.clone()).map_err(
-                |e| {
+            let pricing: Pricing =
+                serde_json::from_value(price_row.pricing.clone()).map_err(|e| {
                     Report::new(StoreError::SerdeError(
                         "Failed to deserialize Pricing".to_string(),
                         e,
                     ))
-                },
-            )?;
+                })?;
 
             if let Pricing::Usage(UsagePricingModel::Matrix { rates }) = pricing {
                 let mut price_affected = false;

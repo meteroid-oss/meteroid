@@ -4,8 +4,8 @@ use crate::domain::price_components::{PriceEntry, ProductRef};
 use crate::domain::subscriptions::PaymentMethodsConfig;
 use crate::domain::{
     CreateSubscriptionAddOns, CreateSubscriptionComponents, CreatedSubscription, PriceComponent,
-    Subscription, SubscriptionAddOnNewInternal,
-    SubscriptionComponentNewInternal, SubscriptionDetails, SubscriptionFee, SubscriptionNew,
+    Subscription, SubscriptionAddOnNewInternal, SubscriptionComponentNewInternal,
+    SubscriptionDetails, SubscriptionFee, SubscriptionNew,
 };
 use crate::errors::StoreError;
 use crate::services::subscriptions::insert::context::ResolvedCustomComponents;
@@ -477,8 +477,13 @@ pub fn process_create_subscription_components(
     resolved: &ResolvedCustomComponents,
     product_family_id: ProductFamilyId,
     currency: &str,
-) -> Result<(Vec<SubscriptionComponentNewInternal>, Vec<PendingMaterialization>), Report<StoreError>>
-{
+) -> Result<
+    (
+        Vec<SubscriptionComponentNewInternal>,
+        Vec<PendingMaterialization>,
+    ),
+    Report<StoreError>,
+> {
     let mut processed_components = Vec::new();
     let mut pending_materializations = Vec::new();
 

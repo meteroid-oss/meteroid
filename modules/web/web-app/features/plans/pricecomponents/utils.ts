@@ -7,13 +7,14 @@ import {
   ParkingMeterIcon,
   UngroupIcon,
 } from 'lucide-react'
-import type { LucideIcon } from 'lucide-react'
 import { match } from 'ts-pattern'
 
-import type { ComponentFeeType } from '@/features/pricing/conversions'
 import { usePlanWithVersion } from '@/features/plans/hooks/usePlan'
-import type { Price } from '@/rpc/api/prices/v1/models_pb'
 import { BillingPeriod } from '@/rpc/api/shared/v1/shared_pb'
+
+import type { ComponentFeeType } from '@/features/pricing/conversions'
+import type { Price } from '@/rpc/api/prices/v1/models_pb'
+import type { LucideIcon } from 'lucide-react'
 
 export const editedComponentsAtom = atom<string[]>([])
 

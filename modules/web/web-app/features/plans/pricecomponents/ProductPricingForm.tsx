@@ -16,7 +16,6 @@ import { z } from 'zod'
 import { UncontrolledPriceInput } from '@/components/form/PriceInput'
 import { usePlanOverview } from '@/features/plans/hooks/usePlan'
 import { PricingFields } from '@/features/pricing/PricingFields'
-import { useMatrixDimensions } from '@/hooks/useMatrixDimensions'
 import {
   CapacityComponentSchema,
   ExtraRecurringComponentSchema,
@@ -25,7 +24,6 @@ import {
   SlotComponentSchema,
   UsageFormSchema,
 } from '@/features/pricing/componentSchemas'
-import type { ComponentFeeType } from '@/features/pricing/conversions'
 import { pricesToFormData, toPricingTypeFromFeeType } from '@/features/pricing/conversions'
 import {
   CapacityPricingSchema,
@@ -40,13 +38,15 @@ import {
   pricingDefaults,
 } from '@/features/pricing/schemas'
 import { useBasePath } from '@/hooks/useBasePath'
+import { useMatrixDimensions } from '@/hooks/useMatrixDimensions'
 import { useZodForm, type Methods } from '@/hooks/useZodForm'
 import { useQuery } from '@/lib/connectrpc'
 import {
   getBillableMetric,
   listBillableMetrics,
 } from '@/rpc/api/billablemetrics/v1/billablemetrics-BillableMetricsService_connectquery'
-import type { BillableMetric } from '@/rpc/api/billablemetrics/v1/models_pb'
+
+import type { ComponentFeeType } from '@/features/pricing/conversions'
 import type { Price } from '@/rpc/api/prices/v1/models_pb'
 
 // --- Schemas ---

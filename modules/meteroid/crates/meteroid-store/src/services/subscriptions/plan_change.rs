@@ -1,8 +1,10 @@
+use crate::StoreResult;
+use crate::domain::SubscriptionStatusEnum;
 use crate::domain::enums::SubscriptionFeeBillingPeriod;
 use crate::domain::price_components::resolve_legacy_subscription_fee;
 use crate::domain::prices::{
-    fee_type_billing_period, resolve_subscription_fee, LegacyPricingData, Price, Pricing,
-    extract_legacy_pricing,
+    LegacyPricingData, Price, Pricing, extract_legacy_pricing, fee_type_billing_period,
+    resolve_subscription_fee,
 };
 use crate::domain::products::Product;
 use crate::domain::scheduled_events::{
@@ -14,12 +16,10 @@ use crate::domain::subscription_changes::{
 use crate::domain::subscription_components::{
     ComponentParameterization, ComponentParameters, SubscriptionComponent,
 };
-use crate::domain::SubscriptionStatusEnum;
 use crate::errors::StoreError;
 use crate::repositories::SubscriptionInterface;
 use crate::services::Services;
 use crate::store::PgConn;
-use crate::StoreResult;
 use chrono::NaiveTime;
 use common_domain::ids::{PlanVersionId, PriceComponentId, ProductId, SubscriptionId, TenantId};
 use diesel_async::scoped_futures::ScopedFutureExt;
@@ -79,14 +79,13 @@ impl Services {
                     validate_subscription_for_plan_change(&subscription.subscription.status)?;
 
                     // Reject if there's already a pending plan change
-                    let pending_events =
-                        ScheduledEventRow::get_pending_events_for_subscription(
-                            conn,
-                            subscription_id,
-                            &tenant_id,
-                        )
-                        .await
-                        .map_err(Into::<Report<StoreError>>::into)?;
+                    let pending_events = ScheduledEventRow::get_pending_events_for_subscription(
+                        conn,
+                        subscription_id,
+                        &tenant_id,
+                    )
+                    .await
+                    .map_err(Into::<Report<StoreError>>::into)?;
 
                     if pending_events.iter().any(|e| {
                         e.event_type
@@ -123,14 +122,13 @@ impl Services {
                     }
 
                     // Load target components with prices and legacy data
-                    let target_components =
-                        load_target_components_with_prices(
-                            conn,
-                            tenant_id,
-                            new_plan_version_id,
-                            target_version.currency.clone(),
-                        )
-                        .await?;
+                    let target_components = load_target_components_with_prices(
+                        conn,
+                        tenant_id,
+                        new_plan_version_id,
+                        target_version.currency.clone(),
+                    )
+                    .await?;
 
                     // Load products for fee_structure resolution (v2 only)
                     let products = load_products_for_components(
@@ -151,11 +149,14 @@ impl Services {
 
                     // Schedule at current_period_end
                     let effective_date =
-                        subscription.subscription.current_period_end.ok_or_else(|| {
-                            Report::new(StoreError::InvalidArgument(
-                                "Subscription has no current_period_end".to_string(),
-                            ))
-                        })?;
+                        subscription
+                            .subscription
+                            .current_period_end
+                            .ok_or_else(|| {
+                                Report::new(StoreError::InvalidArgument(
+                                    "Subscription has no current_period_end".to_string(),
+                                ))
+                            })?;
 
                     let events = self
                         .store
@@ -201,10 +202,9 @@ impl Services {
         validate_subscription_for_plan_change(&subscription.subscription.status)?;
 
         // Validate target plan version
-        let target_plan =
-            PlanRow::get_with_version(&mut conn, new_plan_version_id, tenant_id)
-                .await
-                .map_err(Into::<Report<StoreError>>::into)?;
+        let target_plan = PlanRow::get_with_version(&mut conn, new_plan_version_id, tenant_id)
+            .await
+            .map_err(Into::<Report<StoreError>>::into)?;
 
         let target_version = target_plan.version.ok_or_else(|| {
             Report::new(StoreError::ValueNotFound(
@@ -226,8 +226,13 @@ impl Services {
         }
 
         // Load target components with prices and legacy data
-        let target_components =
-            load_target_components_with_prices(&mut conn, tenant_id, new_plan_version_id, target_version.currency.clone()).await?;
+        let target_components = load_target_components_with_prices(
+            &mut conn,
+            tenant_id,
+            new_plan_version_id,
+            target_version.currency.clone(),
+        )
+        .await?;
 
         // Load products for fee_structure resolution (v2 only)
         let products = load_products_for_components(
@@ -260,17 +265,15 @@ impl Services {
         self.store
             .transaction(|conn| {
                 async move {
-                    SubscriptionRow::lock_subscription_for_update(conn, subscription_id)
-                        .await?;
+                    SubscriptionRow::lock_subscription_for_update(conn, subscription_id).await?;
 
-                    let pending_events =
-                        ScheduledEventRow::get_pending_events_for_subscription(
-                            conn,
-                            subscription_id,
-                            &tenant_id,
-                        )
-                        .await
-                        .map_err(Into::<Report<StoreError>>::into)?;
+                    let pending_events = ScheduledEventRow::get_pending_events_for_subscription(
+                        conn,
+                        subscription_id,
+                        &tenant_id,
+                    )
+                    .await
+                    .map_err(Into::<Report<StoreError>>::into)?;
 
                     let plan_change_event = pending_events.iter().find(|e| {
                         e.event_type
@@ -279,13 +282,9 @@ impl Services {
 
                     match plan_change_event {
                         Some(event) => {
-                            ScheduledEventRow::cancel_event(
-                                conn,
-                                &event.id,
-                                "Cancelled by user",
-                            )
-                            .await
-                            .map_err(Into::<Report<StoreError>>::into)?;
+                            ScheduledEventRow::cancel_event(conn, &event.id, "Cancelled by user")
+                                .await
+                                .map_err(Into::<Report<StoreError>>::into)?;
                             Ok(())
                         }
                         None => Err(Report::new(StoreError::ValueNotFound(
@@ -359,11 +358,11 @@ async fn load_target_components_with_prices(
     // Extract legacy pricing for v1 components
     let mut legacy_by_component: HashMap<PriceComponentId, LegacyPricingData> = HashMap::new();
     for row in &component_rows {
-        if !prices_by_component.contains_key(&row.id) {
-            if let Some(legacy_json) = &row.legacy_fee {
-                let legacy = extract_legacy_pricing(legacy_json, currency.clone())?;
-                legacy_by_component.insert(row.id, legacy);
-            }
+        if !prices_by_component.contains_key(&row.id)
+            && let Some(legacy_json) = &row.legacy_fee
+        {
+            let legacy = extract_legacy_pricing(legacy_json, currency.clone())?;
+            legacy_by_component.insert(row.id, legacy);
         }
     }
 
@@ -439,7 +438,14 @@ fn resolve_target_fee(
     products: &HashMap<ProductId, Product>,
     explicit_params: Option<&ComponentParameters>,
     ported_period: Option<SubscriptionFeeBillingPeriod>,
-) -> Result<(SubscriptionFeeBillingPeriod, crate::domain::SubscriptionFee, Option<common_domain::ids::PriceId>), Report<StoreError>> {
+) -> Result<
+    (
+        SubscriptionFeeBillingPeriod,
+        crate::domain::SubscriptionFee,
+        Option<common_domain::ids::PriceId>,
+    ),
+    Report<StoreError>,
+> {
     match &target.pricing {
         TargetPricing::V2 { product_id, prices } => {
             let product = products.get(product_id).ok_or_else(|| {
@@ -496,16 +502,16 @@ fn select_target_price<'a>(
     }
 
     // 2. If still ambiguous, try ported period from matched current component
-    if candidates.len() > 1 {
-        if let Some(period) = ported_period {
-            let by_period: Vec<&Price> = candidates
-                .iter()
-                .filter(|p| p.cadence.as_subscription_billing_period() == period)
-                .copied()
-                .collect();
-            if !by_period.is_empty() {
-                candidates = by_period;
-            }
+    if candidates.len() > 1
+        && let Some(period) = ported_period
+    {
+        let by_period: Vec<&Price> = candidates
+            .iter()
+            .filter(|p| p.cadence.as_subscription_billing_period() == period)
+            .copied()
+            .collect();
+        if !by_period.is_empty() {
+            candidates = by_period;
         }
     }
 
@@ -597,8 +603,7 @@ fn build_component_mappings(
         }
 
         // No match found — this is a new component
-        let (period, fee, price_id) =
-            resolve_target_fee(target, products, explicit_params, None)?;
+        let (period, fee, price_id) = resolve_target_fee(target, products, explicit_params, None)?;
 
         mappings.push(ComponentMapping::Added {
             target_component_id: target.id,

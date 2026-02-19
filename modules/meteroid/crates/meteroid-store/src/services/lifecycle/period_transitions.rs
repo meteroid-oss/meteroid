@@ -242,8 +242,7 @@ impl Services {
                     subscription.id,
                     event
                 );
-                let is_plan_change =
-                    event.event_type == ScheduledEventTypeEnum::ApplyPlanChange;
+                let is_plan_change = event.event_type == ScheduledEventTypeEnum::ApplyPlanChange;
 
                 ScheduledEventRow::mark_as_processing(conn, &[event.id]).await?;
                 self.process_event_batch(conn, vec![event]).await?;

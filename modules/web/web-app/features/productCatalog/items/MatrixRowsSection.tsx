@@ -17,18 +17,21 @@ import { ChevronDown, ChevronRight } from 'lucide-react'
 import { useCallback, useMemo, useState } from 'react'
 import { toast } from 'sonner'
 
+import { useMatrixDimensions } from '@/hooks/useMatrixDimensions'
 import { useQuery } from '@/lib/connectrpc'
 import { getBillableMetric } from '@/rpc/api/billablemetrics/v1/billablemetrics-BillableMetricsService_connectquery'
-import type { BillableMetric } from '@/rpc/api/billablemetrics/v1/models_pb'
-import type { Price } from '@/rpc/api/prices/v1/models_pb'
 import { UsagePricing_MatrixPricing_MatrixDimension } from '@/rpc/api/prices/v1/models_pb'
 import {
   listPricesByProduct,
   previewMatrixUpdate,
   updateMatrixPrices,
 } from '@/rpc/api/prices/v1/prices-PricesService_connectquery'
-import type { PreviewMatrixUpdateResponse } from '@/rpc/api/prices/v1/prices_pb'
 import { MatrixDimensionKey, MatrixRowAdd } from '@/rpc/api/prices/v1/prices_pb'
+
+import type { BillableMetric } from '@/rpc/api/billablemetrics/v1/models_pb'
+import type { Price } from '@/rpc/api/prices/v1/models_pb'
+import type { PreviewMatrixUpdateResponse } from '@/rpc/api/prices/v1/prices_pb'
+
 
 interface MatrixRowsSectionProps {
   productId: string
@@ -66,47 +69,23 @@ function extractMatrixRows(price: Price): DimensionCombo[] {
   }))
 }
 
-function useMatrixDimensions(metric: BillableMetric | undefined): {
+function useMatrixDimensionCombos(metric: BillableMetric | undefined): {
   headers: string[]
   validCombos: DimensionCombo[]
 } {
-  return useMemo(() => {
-    const seg = metric?.segmentationMatrix
-    if (!seg?.matrix) return { headers: [], validCombos: [] }
-
-    const matrix = seg.matrix
-    if (matrix.case === 'single') {
-      const dim = matrix.value?.dimension
-      const key = dim?.key ?? ''
-      return {
-        headers: [key],
-        validCombos: (dim?.values ?? []).map(v => ({ d1Key: key, d1Value: v })),
-      }
-    }
-    if (matrix.case === 'double') {
-      const d1 = matrix.value?.dimension1
-      const d2 = matrix.value?.dimension2
-      const k1 = d1?.key ?? ''
-      const k2 = d2?.key ?? ''
-      return {
-        headers: [k1, k2],
-        validCombos: (d1?.values ?? []).flatMap(v1 =>
-          (d2?.values ?? []).map(v2 => ({ d1Key: k1, d1Value: v1, d2Key: k2, d2Value: v2 }))
-        ),
-      }
-    }
-    if (matrix.case === 'linked') {
-      const k1 = matrix.value.dimensionKey
-      const k2 = matrix.value.linkedDimensionKey
-      return {
-        headers: [k1, k2],
-        validCombos: Object.entries(matrix.value.values).flatMap(([k, v]) =>
-          v.values.map(linkedV => ({ d1Key: k1, d1Value: k, d2Key: k2, d2Value: linkedV }))
-        ),
-      }
-    }
-    return { headers: [], validCombos: [] }
-  }, [metric])
+  const { dimensionHeaders, validCombinations } = useMatrixDimensions(metric)
+  return useMemo(
+    () => ({
+      headers: dimensionHeaders ?? [],
+      validCombos: (validCombinations ?? []).map(c => ({
+        d1Key: c.dimension1.key,
+        d1Value: c.dimension1.value,
+        d2Key: c.dimension2?.key,
+        d2Value: c.dimension2?.value,
+      })),
+    }),
+    [dimensionHeaders, validCombinations]
+  )
 }
 
 function buildDisplayRows(
@@ -173,7 +152,7 @@ export const MatrixRowsSection = ({ productId, metricId, currencies }: MatrixRow
     { refetchOnWindowFocus: 'always', refetchOnMount: 'always' }
   )
 
-  const { headers, validCombos } = useMatrixDimensions(metricQuery.data?.billableMetric)
+  const { headers, validCombos } = useMatrixDimensionCombos(metricQuery.data?.billableMetric)
   const prices = pricesQuery.data?.prices ?? []
 
   const priceCombos = useMemo(() => {

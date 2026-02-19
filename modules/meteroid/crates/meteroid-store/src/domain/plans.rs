@@ -3,6 +3,7 @@ use diesel_models::plan_versions::PlanVersionRow;
 use diesel_models::plan_versions::PlanVersionRowNew;
 use diesel_models::plan_versions::PlanVersionRowOverview;
 use diesel_models::plan_versions::PlanVersionRowPatch;
+use diesel_models::plans::PlanFilters as PlanFiltersDb;
 use diesel_models::plans::PlanRow;
 use diesel_models::plans::PlanRowForSubscription;
 use diesel_models::plans::PlanRowNew;
@@ -10,7 +11,6 @@ use diesel_models::plans::PlanRowOverview;
 use diesel_models::plans::PlanRowPatch;
 use diesel_models::plans::PlanVersionRowInfo;
 use diesel_models::plans::PlanWithVersionRow;
-use diesel_models::plans::{PlanFilters as PlanFiltersDb};
 
 use super::enums::{PlanStatusEnum, PlanTypeEnum};
 use common_domain::ids::{BaseId, PlanId, PlanVersionId, ProductFamilyId, ProductId, TenantId};

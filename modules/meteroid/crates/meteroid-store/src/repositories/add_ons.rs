@@ -73,14 +73,13 @@ impl AddOnInterface for Store {
 
         // Validate price belongs to product if both are provided
         if let (Some(product_id), Some(price_id)) = (add_on.product_id, add_on.price_id) {
-            let price_row =
-                diesel_models::prices::PriceRow::find_by_id_and_tenant_id(
-                    &mut conn,
-                    price_id,
-                    add_on.tenant_id,
-                )
-                .await
-                .map_err(Into::<Report<StoreError>>::into)?;
+            let price_row = diesel_models::prices::PriceRow::find_by_id_and_tenant_id(
+                &mut conn,
+                price_id,
+                add_on.tenant_id,
+            )
+            .await
+            .map_err(Into::<Report<StoreError>>::into)?;
             if price_row.product_id != product_id {
                 return Err(Report::new(StoreError::InvalidArgument(format!(
                     "Price {} belongs to product {}, not {}",
@@ -107,22 +106,20 @@ impl AddOnInterface for Store {
             let effective_product_id = if let Some(Some(pid)) = add_on.product_id {
                 Some(pid)
             } else {
-                let existing =
-                    AddOnRow::get_by_id(&mut conn, add_on.tenant_id, add_on.id)
-                        .await
-                        .map_err(Into::<Report<StoreError>>::into)?;
+                let existing = AddOnRow::get_by_id(&mut conn, add_on.tenant_id, add_on.id)
+                    .await
+                    .map_err(Into::<Report<StoreError>>::into)?;
                 existing.product_id
             };
 
             if let Some(product_id) = effective_product_id {
-                let price_row =
-                    diesel_models::prices::PriceRow::find_by_id_and_tenant_id(
-                        &mut conn,
-                        price_id,
-                        add_on.tenant_id,
-                    )
-                    .await
-                    .map_err(Into::<Report<StoreError>>::into)?;
+                let price_row = diesel_models::prices::PriceRow::find_by_id_and_tenant_id(
+                    &mut conn,
+                    price_id,
+                    add_on.tenant_id,
+                )
+                .await
+                .map_err(Into::<Report<StoreError>>::into)?;
                 if price_row.product_id != product_id {
                     return Err(Report::new(StoreError::InvalidArgument(format!(
                         "Price {} belongs to product {}, not {}",

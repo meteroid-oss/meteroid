@@ -1,8 +1,8 @@
 #[cfg(feature = "metering-server")]
 use envconfig::Envconfig;
 use std::error::Error;
-use std::sync::atomic::AtomicBool;
 use std::sync::Arc;
+use std::sync::atomic::AtomicBool;
 use tokio::signal;
 
 use common_build_info::BuildInfo;

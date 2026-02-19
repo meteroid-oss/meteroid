@@ -28,12 +28,13 @@ impl TryFrom<ProductRow> for Product {
     type Error = Report<StoreError>;
 
     fn try_from(row: ProductRow) -> Result<Self, Self::Error> {
-        let fee_structure = serde_json::from_value::<FeeStructure>(row.fee_structure).map_err(|e| {
-            Report::new(StoreError::SerdeError(
-                "Failed to deserialize FeeStructure".to_string(),
-                e,
-            ))
-        })?;
+        let fee_structure =
+            serde_json::from_value::<FeeStructure>(row.fee_structure).map_err(|e| {
+                Report::new(StoreError::SerdeError(
+                    "Failed to deserialize FeeStructure".to_string(),
+                    e,
+                ))
+            })?;
 
         Ok(Product {
             id: row.id,

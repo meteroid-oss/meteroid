@@ -1,6 +1,6 @@
+import { getBillingPeriodLabel, getPrice, getPriceBillingLabel } from '@/lib/mapping/priceToSubscriptionFee'
 import { PriceComponent as GrpcPriceComponent } from '@/rpc/api/pricecomponents/v1/models_pb'
 import { BillingPeriod } from '@/rpc/api/shared/v1/shared_pb'
-import { getBillingPeriodLabel, getPrice, getPriceBillingLabel } from '@/lib/mapping/priceToSubscriptionFee'
 
 /**
  * Get billing period label for a gRPC PriceComponent.

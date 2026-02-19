@@ -1,7 +1,7 @@
 pub mod components {
     use crate::api::domain_mapping::billing_period;
     use crate::api::prices::mapping::prices::{
-        cadence_from_proto, pricing_from_proto, pricing_to_proto, PriceWrapper,
+        PriceWrapper, cadence_from_proto, pricing_from_proto, pricing_to_proto,
     };
     use crate::api::productitems::mapping::products::{
         fee_structure_from_proto, fee_type_from_proto,
@@ -99,10 +99,7 @@ pub mod components {
     pub fn price_inputs_from_proto(
         inputs: Vec<api::PriceInput>,
     ) -> Result<Vec<PriceInput>, Status> {
-        inputs
-            .into_iter()
-            .map(price_input_from_proto)
-            .collect()
+        inputs.into_iter().map(price_input_from_proto).collect()
     }
 
     fn price_input_from_proto(pi: api::PriceInput) -> Result<PriceInput, Status> {

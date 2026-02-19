@@ -1,7 +1,7 @@
 import { useMemo } from 'react'
 
-import type { BillableMetric } from '@/rpc/api/billablemetrics/v1/models_pb'
 import type { DimensionCombination } from '@/features/pricing/PricingFields'
+import type { BillableMetric } from '@/rpc/api/billablemetrics/v1/models_pb'
 
 export function useMatrixDimensions(billableMetric: BillableMetric | undefined): {
   dimensionHeaders: string[] | undefined

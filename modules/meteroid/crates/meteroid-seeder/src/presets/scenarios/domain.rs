@@ -199,8 +199,8 @@ impl PriceComponent {
             },
         };
 
-        use meteroid_store::domain::prices::{extract_fee_structure, extract_pricing};
         use meteroid_store::domain::price_components::{PriceEntry, PriceInput, ProductRef};
+        use meteroid_store::domain::prices::{extract_fee_structure, extract_pricing};
 
         let (fee_type_enum, fee_structure) = extract_fee_structure(&domain_fee);
         let pricing_list = extract_pricing(&domain_fee);

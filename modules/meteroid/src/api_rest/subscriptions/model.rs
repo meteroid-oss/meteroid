@@ -703,7 +703,9 @@ pub struct ComponentOverride {
     pub price_entry: meteroid_store::domain::price_components::PriceEntry,
 }
 
-impl From<ComponentOverride> for meteroid_store::domain::subscription_components::ComponentOverride {
+impl From<ComponentOverride>
+    for meteroid_store::domain::subscription_components::ComponentOverride
+{
     fn from(val: ComponentOverride) -> Self {
         Self {
             component_id: val.component_id,

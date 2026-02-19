@@ -171,9 +171,7 @@ impl TryFrom<QuoteComponentRow> for QuotePriceComponent {
         let fee: SubscriptionFee = row
             .legacy_fee
             .ok_or_else(|| {
-                StoreError::InvalidArgument(
-                    "quote_component has no legacy_fee".to_string(),
-                )
+                StoreError::InvalidArgument("quote_component has no legacy_fee".to_string())
             })?
             .try_into()?;
 
@@ -304,9 +302,7 @@ impl TryFrom<QuoteAddOnRow> for QuoteAddOn {
         let fee: SubscriptionFee = row
             .legacy_fee
             .ok_or_else(|| {
-                StoreError::InvalidArgument(
-                    "quote_add_on has no legacy_fee".to_string(),
-                )
+                StoreError::InvalidArgument("quote_add_on has no legacy_fee".to_string())
             })?
             .try_into()?;
 

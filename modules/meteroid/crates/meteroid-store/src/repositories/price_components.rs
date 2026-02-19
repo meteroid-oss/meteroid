@@ -9,12 +9,12 @@ use crate::store::{PgConn, Store};
 use common_domain::ids::{
     BaseId, PlanVersionId, PriceComponentId, PriceId, ProductFamilyId, ProductId, TenantId,
 };
+use diesel_async::scoped_futures::ScopedFutureExt;
 use diesel_models::plan_component_prices::{PlanComponentPriceRow, PlanComponentPriceRowNew};
 use diesel_models::plan_versions::PlanVersionRow;
 use diesel_models::price_components::{PriceComponentRow, PriceComponentRowNew};
 use diesel_models::prices::{PriceRow, PriceRowNew};
 use diesel_models::products::ProductRowNew;
-use diesel_async::scoped_futures::ScopedFutureExt;
 use error_stack::Report;
 use std::collections::HashMap;
 use uuid::Uuid;
@@ -219,14 +219,12 @@ impl PriceComponentInterface for Store {
         let mut prices_by_component: HashMap<PriceComponentId, Vec<Price>> = HashMap::new();
 
         if !component_ids.is_empty() {
-            let pcp_rows =
-                PlanComponentPriceRow::list_by_component_ids(&mut conn, &component_ids)
-                    .await
-                    .map_err(Into::<Report<StoreError>>::into)?;
+            let pcp_rows = PlanComponentPriceRow::list_by_component_ids(&mut conn, &component_ids)
+                .await
+                .map_err(Into::<Report<StoreError>>::into)?;
 
             if !pcp_rows.is_empty() {
-                let price_ids: Vec<PriceId> =
-                    pcp_rows.iter().map(|pcp| pcp.price_id).collect();
+                let price_ids: Vec<PriceId> = pcp_rows.iter().map(|pcp| pcp.price_id).collect();
                 let price_rows = PriceRow::list_by_ids(&mut conn, &price_ids, tenant_id)
                     .await
                     .map_err(Into::<Report<StoreError>>::into)?;
@@ -256,20 +254,17 @@ impl PriceComponentInterface for Store {
             .iter()
             .any(|r| !prices_by_component.contains_key(&r.id) && r.legacy_fee.is_some());
         if has_v1 {
-            let pv = PlanVersionRow::find_by_id_and_tenant_id(
-                &mut conn,
-                plan_version_id,
-                tenant_id,
-            )
-            .await
-            .map_err(Into::<Report<StoreError>>::into)?;
+            let pv =
+                PlanVersionRow::find_by_id_and_tenant_id(&mut conn, plan_version_id, tenant_id)
+                    .await
+                    .map_err(Into::<Report<StoreError>>::into)?;
 
             for row in &component_rows {
-                if !prices_by_component.contains_key(&row.id) {
-                    if let Some(legacy_json) = &row.legacy_fee {
-                        let legacy = extract_legacy_pricing(legacy_json, pv.currency.clone())?;
-                        legacy_by_component.insert(row.id, legacy);
-                    }
+                if !prices_by_component.contains_key(&row.id)
+                    && let Some(legacy_json) = &row.legacy_fee
+                {
+                    let legacy = extract_legacy_pricing(legacy_json, pv.currency.clone())?;
+                    legacy_by_component.insert(row.id, legacy);
                 }
             }
         }
@@ -408,7 +403,7 @@ impl PriceComponentInterface for Store {
                 let mut component: PriceComponent = inserted.try_into()?;
                 component.prices = price_rows
                     .into_iter()
-                    .map(|row| Price::try_from(row).map_err(Into::<Report<StoreError>>::into))
+                    .map(Price::try_from)
                     .collect::<Result<Vec<_>, _>>()?;
 
                 Ok(component)
@@ -532,10 +527,9 @@ impl PriceComponentInterface for Store {
                     .map_err(Into::<Report<StoreError>>::into)?;
 
                 // Validate price currencies match plan version
-                let pv =
-                    PlanVersionRow::find_by_id_and_tenant_id(conn, plan_version_id, tenant_id)
-                        .await
-                        .map_err(Into::<Report<StoreError>>::into)?;
+                let pv = PlanVersionRow::find_by_id_and_tenant_id(conn, plan_version_id, tenant_id)
+                    .await
+                    .map_err(Into::<Report<StoreError>>::into)?;
                 for pi in &prices {
                     if pi.currency != pv.currency {
                         return Err(Report::new(StoreError::InvalidArgument(format!(
@@ -581,7 +575,7 @@ impl PriceComponentInterface for Store {
                 let mut component: PriceComponent = updated.try_into()?;
                 component.prices = price_rows
                     .into_iter()
-                    .map(|row| Price::try_from(row).map_err(Into::<Report<StoreError>>::into))
+                    .map(Price::try_from)
                     .collect::<Result<Vec<_>, _>>()?;
 
                 Ok(component)
@@ -662,7 +656,7 @@ impl PriceComponentInterface for Store {
                 let mut component: PriceComponent = inserted.try_into()?;
                 component.prices = price_rows
                     .into_iter()
-                    .map(|row| Price::try_from(row).map_err(Into::<Report<StoreError>>::into))
+                    .map(Price::try_from)
                     .collect::<Result<Vec<_>, _>>()?;
 
                 Ok(component)

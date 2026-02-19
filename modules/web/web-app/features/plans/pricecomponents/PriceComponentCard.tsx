@@ -22,19 +22,20 @@ import {
 import { useQuery } from '@/lib/connectrpc'
 import { formatCadence } from '@/lib/mapping/prices'
 import { getBillableMetric } from '@/rpc/api/billablemetrics/v1/billablemetrics-BillableMetricsService_connectquery'
-import type { PriceComponent as ProtoPriceComponent } from '@/rpc/api/pricecomponents/v1/models_pb'
 import {
   listPriceComponents,
   removePriceComponent,
 } from '@/rpc/api/pricecomponents/v1/pricecomponents-PriceComponentsService_connectquery'
+import { getProduct } from '@/rpc/api/products/v1/products-ProductsService_connectquery'
+import { useConfirmationModal } from 'providers/ConfirmationProvider'
+
+import type { PriceComponent as ProtoPriceComponent } from '@/rpc/api/pricecomponents/v1/models_pb'
 import type {
   Price,
   UsagePricing,
   UsagePricing_MatrixPricing,
   UsagePricing_TieredAndVolumePricing,
 } from '@/rpc/api/prices/v1/models_pb'
-import { getProduct } from '@/rpc/api/products/v1/products-ProductsService_connectquery'
-import { useConfirmationModal } from 'providers/ConfirmationProvider'
 
 // --- Main card ---
 

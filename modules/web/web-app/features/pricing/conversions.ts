@@ -20,8 +20,9 @@ import {
 import { BillingPeriod } from '@/rpc/api/shared/v1/shared_pb'
 
 import { formDataToProtoPricing, protoPricingToFormData } from './mapping'
-import type { PricingType } from './schemas'
 import { pricingDefaults } from './schemas'
+
+import type { PricingType } from './schemas'
 
 // --- Cadence helpers ---
 

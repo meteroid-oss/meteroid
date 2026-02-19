@@ -230,9 +230,13 @@ impl Services {
         event: &ScheduledEvent,
     ) -> StoreResult<()> {
         use crate::domain::scheduled_events::ComponentMapping;
-        use crate::domain::subscription_components::{SubscriptionComponentNew, SubscriptionComponentNewInternal};
+        use crate::domain::subscription_components::{
+            SubscriptionComponentNew, SubscriptionComponentNewInternal,
+        };
         use crate::services::subscriptions::utils::calculate_mrr;
-        use diesel_models::subscription_components::{SubscriptionComponentRow, SubscriptionComponentRowNew};
+        use diesel_models::subscription_components::{
+            SubscriptionComponentRow, SubscriptionComponentRowNew,
+        };
         use diesel_models::subscriptions::SubscriptionRow;
 
         if let ScheduledEventData::ApplyPlanChange {
@@ -355,11 +359,7 @@ impl Services {
             // 4. Recalculate MRR
             let sub_details = self
                 .store
-                .get_subscription_details_with_conn(
-                    conn,
-                    event.tenant_id,
-                    event.subscription_id,
-                )
+                .get_subscription_details_with_conn(conn, event.tenant_id, event.subscription_id)
                 .await?;
 
             let precision = crate::constants::Currencies::resolve_currency_precision(
@@ -390,9 +390,18 @@ impl Services {
                 "Applied plan change for subscription {}: plan_version={}, matched={}, added={}, removed={}, mrr_delta={}",
                 event.subscription_id,
                 new_plan_version_id,
-                component_mappings.iter().filter(|m| matches!(m, ComponentMapping::Matched { .. })).count(),
-                component_mappings.iter().filter(|m| matches!(m, ComponentMapping::Added { .. })).count(),
-                component_mappings.iter().filter(|m| matches!(m, ComponentMapping::Removed { .. })).count(),
+                component_mappings
+                    .iter()
+                    .filter(|m| matches!(m, ComponentMapping::Matched { .. }))
+                    .count(),
+                component_mappings
+                    .iter()
+                    .filter(|m| matches!(m, ComponentMapping::Added { .. }))
+                    .count(),
+                component_mappings
+                    .iter()
+                    .filter(|m| matches!(m, ComponentMapping::Removed { .. }))
+                    .count(),
                 mrr_delta,
             );
         } else {

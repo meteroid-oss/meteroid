@@ -1,10 +1,11 @@
 
 import { atomWithReset } from 'jotai/utils'
 
-import type { ComponentFeeType } from '@/features/pricing'
 import { Price } from '@/rpc/api/prices/v1/models_pb'
 import { BillingPeriod } from '@/rpc/api/shared/v1/shared_pb'
 import { ActivationCondition } from '@/rpc/api/subscriptions/v1/models_pb'
+
+import type { ComponentFeeType } from '@/features/pricing'
 
 export type PaymentMethodsConfigType = 'online' | 'bankTransfer' | 'external'
 

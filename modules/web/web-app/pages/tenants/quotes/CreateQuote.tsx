@@ -34,8 +34,6 @@ import { z } from 'zod'
 
 import { CustomerSelect } from '@/features/customers/CustomerSelect'
 import { SubscribablePlanVersionSelect } from '@/features/plans/SubscribablePlanVersionSelect'
-import { QuotePriceComponentsWrapper } from '@/features/quotes/QuotePriceComponentsWrapper'
-import { QuoteView } from '@/features/quotes/QuoteView'
 import {
   buildExistingProductRef,
   buildNewProductRef,
@@ -44,6 +42,8 @@ import {
   toPricingTypeFromFeeType,
   wrapAsNewPriceEntries,
 } from '@/features/pricing'
+import { QuotePriceComponentsWrapper } from '@/features/quotes/QuotePriceComponentsWrapper'
+import { QuoteView } from '@/features/quotes/QuoteView'
 import { PriceComponentsState } from '@/features/subscriptions/pricecomponents/PriceComponentsLogic'
 import { useBasePath } from '@/hooks/useBasePath'
 import { useZodForm } from '@/hooks/useZodForm'

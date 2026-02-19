@@ -8,7 +8,9 @@ use crate::domain::{
 use crate::errors::StoreError;
 use crate::store::PgConn;
 use crate::{StoreResult, services::Services};
-use common_domain::ids::{CouponId, CustomerId, PlanVersionId, PriceComponentId, PriceId, ProductId, TenantId};
+use common_domain::ids::{
+    CouponId, CustomerId, PlanVersionId, PriceComponentId, PriceId, ProductId, TenantId,
+};
 use diesel_models::add_ons::AddOnRow;
 use diesel_models::coupons::CouponRow;
 use diesel_models::customers::CustomerRow;
@@ -140,7 +142,8 @@ impl Services {
         };
 
         // Load prices referenced by add-ons
-        let addon_price_ids: Vec<PriceId> = add_ons.iter().filter_map(|a| a.price_id).unique().collect();
+        let addon_price_ids: Vec<PriceId> =
+            add_ons.iter().filter_map(|a| a.price_id).unique().collect();
         let addon_prices_by_id = if addon_price_ids.is_empty() {
             HashMap::new()
         } else {
@@ -162,13 +165,7 @@ impl Services {
 
         // Resolve extras and overrides for each subscription in batch (read-only fee computation)
         let resolved_custom_components = self
-            .resolve_custom_components(
-                conn,
-                batch,
-                &price_components,
-                &products_by_id,
-                tenant_id,
-            )
+            .resolve_custom_components(conn, batch, &price_components, &products_by_id, tenant_id)
             .await?;
 
         Ok(SubscriptionCreationContext {
@@ -233,10 +230,9 @@ impl Services {
         // Load v2 prices via plan_component_price join
         let mut prices_by_component: HashMap<PriceComponentId, Vec<Price>> = HashMap::new();
         if !all_component_ids.is_empty() {
-            let pcp_rows =
-                PlanComponentPriceRow::list_by_component_ids(conn, &all_component_ids)
-                    .await
-                    .map_err(Into::<Report<StoreError>>::into)?;
+            let pcp_rows = PlanComponentPriceRow::list_by_component_ids(conn, &all_component_ids)
+                .await
+                .map_err(Into::<Report<StoreError>>::into)?;
 
             if !pcp_rows.is_empty() {
                 let price_ids: Vec<PriceId> = pcp_rows.iter().map(|pcp| pcp.price_id).collect();
@@ -282,18 +278,19 @@ impl Services {
             let plan_versions: HashMap<
                 PlanVersionId,
                 diesel_models::plan_versions::PlanVersionRow,
-            > = plan_version_list.into_iter().map(|pv| (pv.id, pv)).collect();
+            > = plan_version_list
+                .into_iter()
+                .map(|pv| (pv.id, pv))
+                .collect();
 
             for (pv_id, rows) in &rows_by_version {
                 for row in rows {
-                    if !prices_by_component.contains_key(&row.id) {
-                        if let Some(pv) = plan_versions.get(pv_id) {
-                            if let Some(legacy_json) = &row.legacy_fee {
-                                let legacy =
-                                    extract_legacy_pricing(legacy_json, pv.currency.clone())?;
-                                legacy_by_component.insert(row.id, legacy);
-                            }
-                        }
+                    if !prices_by_component.contains_key(&row.id)
+                        && let Some(pv) = plan_versions.get(pv_id)
+                        && let Some(legacy_json) = &row.legacy_fee
+                    {
+                        let legacy = extract_legacy_pricing(legacy_json, pv.currency.clone())?;
+                        legacy_by_component.insert(row.id, legacy);
                     }
                 }
             }
@@ -464,16 +461,15 @@ impl Services {
 
                 // Resolve overrides (product is always existing — from the plan component)
                 for ov in &components.overridden_components {
-                    let plan_comp =
-                        plan_comps
-                            .iter()
-                            .find(|c| c.id == ov.component_id)
-                            .ok_or_else(|| {
-                                Report::new(StoreError::InvalidArgument(format!(
-                                    "Override component {} not found in plan",
-                                    ov.component_id
-                                )))
-                            })?;
+                    let plan_comp = plan_comps
+                        .iter()
+                        .find(|c| c.id == ov.component_id)
+                        .ok_or_else(|| {
+                            Report::new(StoreError::InvalidArgument(format!(
+                                "Override component {} not found in plan",
+                                ov.component_id
+                            )))
+                        })?;
 
                     let product_id = plan_comp.product_id.ok_or_else(|| {
                         Report::new(StoreError::InvalidArgument(format!(
@@ -538,13 +534,9 @@ impl Services {
                         )));
                     }
 
-                    let (fee, period) = resolve_fee_read_only(
-                        conn,
-                        &fee_structure,
-                        &extra.price_entry,
-                        tenant_id,
-                    )
-                    .await?;
+                    let (fee, period) =
+                        resolve_fee_read_only(conn, &fee_structure, &extra.price_entry, tenant_id)
+                            .await?;
 
                     extras.push(ResolvedCustomComponent {
                         name: extra.name.clone(),

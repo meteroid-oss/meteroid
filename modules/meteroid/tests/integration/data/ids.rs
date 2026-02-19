@@ -172,8 +172,7 @@ pub const PRICE_STARTER_PLATFORM_FEE_ID: PriceId =
 pub const PRICE_STARTER_SEATS_ID: PriceId =
     PriceId::from_const(uuid!("019438e0-0055-7000-8000-000000000001"));
 
-pub const PLAN_PRO_ID: PlanId =
-    PlanId::from_const(uuid!("019438e0-0060-7000-8000-000000000001"));
+pub const PLAN_PRO_ID: PlanId = PlanId::from_const(uuid!("019438e0-0060-7000-8000-000000000001"));
 pub const PLAN_VERSION_PRO_ID: PlanVersionId =
     PlanVersionId::from_const(uuid!("019438e0-0061-7000-8000-000000000001"));
 pub const PLAN_VERSION_PRO_DRAFT_ID: PlanVersionId =
@@ -188,8 +187,7 @@ pub const PRICE_PRO_SEATS_ID: PriceId =
     PriceId::from_const(uuid!("019438e0-0066-7000-8000-000000000001"));
 
 // USD plan (for currency mismatch test)
-pub const PLAN_USD_ID: PlanId =
-    PlanId::from_const(uuid!("019438e0-0070-7000-8000-000000000001"));
+pub const PLAN_USD_ID: PlanId = PlanId::from_const(uuid!("019438e0-0070-7000-8000-000000000001"));
 pub const PLAN_VERSION_USD_ID: PlanVersionId =
     PlanVersionId::from_const(uuid!("019438e0-0071-7000-8000-000000000001"));
 

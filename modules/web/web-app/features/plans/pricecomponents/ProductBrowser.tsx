@@ -3,15 +3,16 @@ import { ChevronDownIcon, ChevronUpIcon, Loader2Icon, SearchIcon } from 'lucide-
 import { createElement, useCallback, useEffect, useMemo, useRef, useState } from 'react'
 
 import { feeTypeIcon, priceSummaryBadges } from '@/features/plans/pricecomponents/utils'
-import type { ComponentFeeType } from '@/features/pricing/conversions'
 import { useDebounceValue } from '@/hooks/useDebounce'
 import { useQuery } from '@/lib/connectrpc'
-import type { FeeStructure } from '@/rpc/api/prices/v1/models_pb'
 import { FeeStructure_UsageModel, FeeType } from '@/rpc/api/prices/v1/models_pb'
-import type { ProductWithPrice } from '@/rpc/api/products/v1/models_pb'
 import { listProductsWithPrices } from '@/rpc/api/products/v1/products-ProductsService_connectquery'
 
 import { ProductPricingForm, type StructuralInfo } from './ProductPricingForm'
+
+import type { ComponentFeeType } from '@/features/pricing/conversions'
+import type { FeeStructure } from '@/rpc/api/prices/v1/models_pb'
+import type { ProductWithPrice } from '@/rpc/api/products/v1/models_pb'
 
 function feeTypeColor(type: ComponentFeeType): { bg: string; text: string } {
   switch (type) {

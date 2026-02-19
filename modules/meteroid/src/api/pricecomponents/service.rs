@@ -135,7 +135,7 @@ impl PriceComponentsService for PriceComponentServiceComponents {
         let product_id = edit_comp
             .product_id
             .as_ref()
-            .map(|id| ProductId::from_proto(id))
+            .map(ProductId::from_proto)
             .transpose()?
             .ok_or_else(|| Status::invalid_argument("product_id is required"))?;
 

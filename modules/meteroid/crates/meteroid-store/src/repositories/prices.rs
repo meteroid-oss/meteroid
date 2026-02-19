@@ -1,7 +1,7 @@
+use crate::StoreResult;
 use crate::domain::Price;
 use crate::errors::StoreError;
 use crate::store::Store;
-use crate::StoreResult;
 use common_domain::ids::{PriceId, ProductId, TenantId};
 use diesel_models::prices::PriceRow;
 use error_stack::Report;
@@ -33,9 +33,7 @@ impl PriceInterface for Store {
             .await
             .map_err(Into::<Report<StoreError>>::into)?;
 
-        rows.into_iter()
-            .map(|row| Price::try_from(row).map_err(Into::<Report<StoreError>>::into))
-            .collect()
+        rows.into_iter().map(Price::try_from).collect()
     }
 
     async fn list_prices_by_ids(
@@ -49,8 +47,6 @@ impl PriceInterface for Store {
             .await
             .map_err(Into::<Report<StoreError>>::into)?;
 
-        rows.into_iter()
-            .map(|row| Price::try_from(row).map_err(Into::<Report<StoreError>>::into))
-            .collect()
+        rows.into_iter().map(Price::try_from).collect()
     }
 }

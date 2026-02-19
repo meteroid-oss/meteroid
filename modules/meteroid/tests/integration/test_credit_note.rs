@@ -1251,7 +1251,10 @@ async fn create_plan_with_4_components(
                     tenant_id: TENANT_ID,
                     product_family_id: PRODUCT_FAMILY_ID,
                     fee_type: DieselFeeTypeEnum::Rate,
-                    fee_structure: serde_json::to_value(&meteroid_store::domain::prices::FeeStructure::Rate {}).unwrap(),
+                    fee_structure: serde_json::to_value(
+                        &meteroid_store::domain::prices::FeeStructure::Rate {},
+                    )
+                    .unwrap(),
                 }
                 .insert(tx)
                 .await?;
@@ -1259,14 +1262,16 @@ async fn create_plan_with_4_components(
                 PriceComponentRowNew {
                     id: *component_id,
                     name: format!("Component {}", i + 1),
-                    legacy_fee: Some(FeeType::Rate {
-                        rates: vec![TermRate {
-                            price,
-                            term: BillingPeriodEnum::Monthly,
-                        }],
-                    }
-                    .try_into()
-                    .unwrap()),
+                    legacy_fee: Some(
+                        FeeType::Rate {
+                            rates: vec![TermRate {
+                                price,
+                                term: BillingPeriodEnum::Monthly,
+                            }],
+                        }
+                        .try_into()
+                        .unwrap(),
+                    ),
                     plan_version_id,
                     product_id: Some(product_id),
                     billable_metric_id: None,

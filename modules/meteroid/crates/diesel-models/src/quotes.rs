@@ -203,7 +203,6 @@ pub struct QuoteActivityRowNew {
     pub user_agent: Option<String>,
 }
 
-
 #[derive(Queryable, Debug, Identifiable, Selectable)]
 #[diesel(table_name = crate::schema::quote_component)]
 #[diesel(check_for_backend(diesel::pg::Pg))]

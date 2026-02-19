@@ -20,10 +20,7 @@ impl PriceRowNew {
             .into_db_result()
     }
 
-    pub async fn insert_batch(
-        conn: &mut PgConn,
-        batch: &[PriceRowNew],
-    ) -> DbResult<Vec<PriceRow>> {
+    pub async fn insert_batch(conn: &mut PgConn, batch: &[PriceRowNew]) -> DbResult<Vec<PriceRow>> {
         use crate::schema::price::dsl::price;
         use diesel_async::RunQueryDsl;
 
@@ -159,11 +156,7 @@ impl PriceRow {
             .into_db_result()
     }
 
-    pub async fn archive(
-        conn: &mut PgConn,
-        id: PriceId,
-        tenant_id: TenantId,
-    ) -> DbResult<()> {
+    pub async fn archive(conn: &mut PgConn, id: PriceId, tenant_id: TenantId) -> DbResult<()> {
         use crate::schema::price::dsl as p_dsl;
         use diesel_async::RunQueryDsl;
 

@@ -142,7 +142,7 @@ pub mod products {
             UsageModel::Tiered => prices_proto::fee_structure::UsageModel::Tiered,
             UsageModel::Volume => prices_proto::fee_structure::UsageModel::Volume,
             UsageModel::Package => prices_proto::fee_structure::UsageModel::Package,
-            UsageModel::Matrix { .. } => prices_proto::fee_structure::UsageModel::Matrix,
+            UsageModel::Matrix => prices_proto::fee_structure::UsageModel::Matrix,
         }
     }
 
@@ -163,9 +163,7 @@ pub mod products {
         bt: &domain::enums::BillingType,
     ) -> prices_proto::fee_structure::BillingType {
         match bt {
-            domain::enums::BillingType::Arrears => {
-                prices_proto::fee_structure::BillingType::Arrear
-            }
+            domain::enums::BillingType::Arrears => prices_proto::fee_structure::BillingType::Arrear,
             domain::enums::BillingType::Advance => {
                 prices_proto::fee_structure::BillingType::Advance
             }
@@ -186,9 +184,7 @@ pub mod products {
         }
     }
 
-    fn upgrade_policy_to_proto(
-        p: &UpgradePolicy,
-    ) -> prices_proto::fee_structure::UpgradePolicy {
+    fn upgrade_policy_to_proto(p: &UpgradePolicy) -> prices_proto::fee_structure::UpgradePolicy {
         match p {
             UpgradePolicy::Prorated => prices_proto::fee_structure::UpgradePolicy::Prorated,
         }

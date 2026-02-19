@@ -170,10 +170,9 @@ impl SubscriptionInterface for Store {
             .map_err(Into::<Report<StoreError>>::into)?;
 
         // Partition by price_id presence for resolution
-        let (rows_with_price, rows_without_price): (Vec<_>, Vec<_>) =
-            subscription_component_rows
-                .into_iter()
-                .partition(|row| row.price_id.is_some());
+        let (rows_with_price, rows_without_price): (Vec<_>, Vec<_>) = subscription_component_rows
+            .into_iter()
+            .partition(|row| row.price_id.is_some());
 
         // Legacy components: deserialize fee JSONB
         let mut subscription_components: Vec<SubscriptionComponent> = rows_without_price

@@ -7,7 +7,9 @@ use crate::{DbResult, PgConn};
 use diesel::debug_query;
 use error_stack::ResultExt;
 
-use common_domain::ids::{PriceComponentId, PriceId, SubscriptionId, SubscriptionPriceComponentId, TenantId};
+use common_domain::ids::{
+    PriceComponentId, PriceId, SubscriptionId, SubscriptionPriceComponentId, TenantId,
+};
 use diesel::{ExpressionMethods, QueryDsl, SelectableHelper};
 use itertools::Itertools;
 
@@ -126,8 +128,8 @@ impl SubscriptionComponentRow {
     ) -> DbResult<i64> {
         use crate::enums::SubscriptionStatusEnum;
         use crate::schema::subscription_component::dsl as sc_dsl;
-        use diesel::dsl::count;
         use diesel::AggregateExpressionMethods;
+        use diesel::dsl::count;
         use diesel_async::RunQueryDsl;
 
         let active_statuses = vec![
@@ -196,8 +198,7 @@ impl SubscriptionComponentRow {
             return Ok(());
         }
 
-        let query = diesel::delete(sc_dsl::subscription_component)
-            .filter(sc_dsl::id.eq_any(ids));
+        let query = diesel::delete(sc_dsl::subscription_component).filter(sc_dsl::id.eq_any(ids));
 
         log::debug!("{}", debug_query::<diesel::pg::Pg, _>(&query));
 

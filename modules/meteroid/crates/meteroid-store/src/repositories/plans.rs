@@ -1,30 +1,34 @@
 use crate::StoreResult;
 use crate::store::{PgConn, Store};
 
+use crate::domain::price_components::FeeType;
+use crate::domain::prices::{
+    LegacyPricingData, extract_fee_structure, extract_legacy_pricing, extract_pricing,
+};
 use crate::domain::{
     FullPlan, FullPlanNew, OrderByRequest, PaginatedVec, PaginationRequest, Plan,
     PlanAndVersionPatch, PlanFilters, PlanOverview, PlanPatch, PlanStatusEnum, PlanTypeEnum,
     PlanVersion, PlanVersionFilter, PlanVersionNew, PlanWithVersion, Price, PriceComponent,
     PriceComponentNew, Product, ProductFamilyOverview, TrialPatch,
 };
-use crate::domain::prices::{LegacyPricingData, extract_fee_structure, extract_legacy_pricing, extract_pricing};
 use crate::errors::StoreError;
 use crate::repositories::price_components::resolve_component_internal;
-use common_domain::ids::{BaseId, PlanId, PlanVersionId, PriceComponentId, ProductFamilyId, ProductId, TenantId};
+use common_domain::ids::PriceId;
+use common_domain::ids::{
+    BaseId, PlanId, PlanVersionId, PriceComponentId, ProductFamilyId, ProductId, TenantId,
+};
 use common_eventbus::Event;
 use diesel_async::scoped_futures::ScopedFutureExt;
+use diesel_models::plan_component_prices::{PlanComponentPriceRow, PlanComponentPriceRowNew};
 use diesel_models::plan_versions::{
     PlanVersionRow, PlanVersionRowNew, PlanVersionRowPatch, PlanVersionTrialRowPatch,
 };
 use diesel_models::plans::{FullPlanRow, PlanRow, PlanRowNew, PlanRowOverview, PlanRowPatch};
-use diesel_models::plan_component_prices::{PlanComponentPriceRow, PlanComponentPriceRowNew};
 use diesel_models::price_components::PriceComponentRow;
 use diesel_models::prices::{PriceRow, PriceRowNew};
 use diesel_models::product_families::ProductFamilyRow;
 use diesel_models::products::{ProductRow, ProductRowNew};
 use diesel_models::tenants::TenantRow;
-use crate::domain::price_components::FeeType;
-use common_domain::ids::PriceId;
 use error_stack::Report;
 use std::collections::HashMap;
 use uuid::Uuid;
@@ -195,18 +199,16 @@ async fn convert_full_plan_row(
             .collect();
 
         if !v1_ids.is_empty() {
-            let raw_rows =
-                PriceComponentRow::list_by_plan_version_id(conn, tenant_id, version.id)
-                    .await
-                    .map_err(Into::<Report<StoreError>>::into)?;
+            let raw_rows = PriceComponentRow::list_by_plan_version_id(conn, tenant_id, version.id)
+                .await
+                .map_err(Into::<Report<StoreError>>::into)?;
 
             for raw_row in &raw_rows {
-                if v1_ids.contains(&raw_row.id) {
-                    if let Some(legacy_json) = &raw_row.legacy_fee {
-                        let legacy =
-                            extract_legacy_pricing(legacy_json, version.currency.clone())?;
-                        legacy_by_component.insert(raw_row.id, legacy);
-                    }
+                if v1_ids.contains(&raw_row.id)
+                    && let Some(legacy_json) = &raw_row.legacy_fee
+                {
+                    let legacy = extract_legacy_pricing(legacy_json, version.currency.clone())?;
+                    legacy_by_component.insert(raw_row.id, legacy);
                 }
             }
         }
@@ -624,26 +626,20 @@ impl PlansInterface for Store {
                 .map_err(Into::<Report<StoreError>>::into)?;
 
                 // Fetch source components before cloning (need the ID mapping)
-                let src_components = PriceComponentRow::list_by_plan_version_id(
-                    conn,
-                    auth_tenant_id,
-                    original.id,
-                )
-                .await
-                .map_err(Into::<Report<StoreError>>::into)?;
+                let src_components =
+                    PriceComponentRow::list_by_plan_version_id(conn, auth_tenant_id, original.id)
+                        .await
+                        .map_err(Into::<Report<StoreError>>::into)?;
 
                 PriceComponentRow::clone_all(conn, original.id, new.id)
                     .await
                     .map_err(Into::<Report<StoreError>>::into)?;
 
                 // Fetch destination components once for reuse below
-                let dst_components = PriceComponentRow::list_by_plan_version_id(
-                    conn,
-                    auth_tenant_id,
-                    new.id,
-                )
-                .await
-                .map_err(Into::<Report<StoreError>>::into)?;
+                let dst_components =
+                    PriceComponentRow::list_by_plan_version_id(conn, auth_tenant_id, new.id)
+                        .await
+                        .map_err(Into::<Report<StoreError>>::into)?;
 
                 // Clone plan_component_price entries: map old→new component IDs by matching on (name, product_id)
                 let src_component_ids: Vec<_> = src_components.iter().map(|c| c.id).collect();
@@ -662,8 +658,9 @@ impl PlansInterface for Store {
                     let new_pcp_rows: Vec<PlanComponentPriceRowNew> = src_pcp_rows
                         .iter()
                         .filter_map(|pcp| {
-                            let src_comp =
-                                src_components.iter().find(|c| c.id == pcp.plan_component_id)?;
+                            let src_comp = src_components
+                                .iter()
+                                .find(|c| c.id == pcp.plan_component_id)?;
                             let dst_id =
                                 dst_map.get(&(src_comp.name.clone(), src_comp.product_id))?;
                             Some(PlanComponentPriceRowNew {
@@ -688,8 +685,7 @@ impl PlansInterface for Store {
                             .map_err(Into::<Report<StoreError>>::into)?;
                     let product_family_id = plan_with_version.plan.product_family_id;
 
-                    let dst_component_ids: Vec<_> =
-                        dst_components.iter().map(|c| c.id).collect();
+                    let dst_component_ids: Vec<_> = dst_components.iter().map(|c| c.id).collect();
                     let existing_pcp =
                         PlanComponentPriceRow::list_by_component_ids(conn, &dst_component_ids)
                             .await
@@ -704,8 +700,8 @@ impl PlansInterface for Store {
                         }
 
                         if let Some(ref legacy_fee_value) = comp.legacy_fee {
-                            let fee: FeeType =
-                                serde_json::from_value(legacy_fee_value.clone()).map_err(|e| {
+                            let fee: FeeType = serde_json::from_value(legacy_fee_value.clone())
+                                .map_err(|e| {
                                     Report::new(StoreError::SerdeError(
                                         "Failed to parse legacy_fee".to_string(),
                                         e,

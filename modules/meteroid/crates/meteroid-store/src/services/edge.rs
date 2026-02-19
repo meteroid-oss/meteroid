@@ -710,7 +710,12 @@ impl ServicesEdge {
         component_params: Vec<crate::domain::subscription_components::ComponentParameterization>,
     ) -> StoreResult<crate::domain::scheduled_events::ScheduledEvent> {
         self.services
-            .schedule_plan_change(subscription_id, tenant_id, new_plan_version_id, component_params)
+            .schedule_plan_change(
+                subscription_id,
+                tenant_id,
+                new_plan_version_id,
+                component_params,
+            )
             .await
     }
 
@@ -722,7 +727,12 @@ impl ServicesEdge {
         component_params: Vec<crate::domain::subscription_components::ComponentParameterization>,
     ) -> StoreResult<crate::domain::subscription_changes::PlanChangePreview> {
         self.services
-            .preview_plan_change(subscription_id, tenant_id, new_plan_version_id, component_params)
+            .preview_plan_change(
+                subscription_id,
+                tenant_id,
+                new_plan_version_id,
+                component_params,
+            )
             .await
     }
 
@@ -758,7 +768,6 @@ impl ServicesEdge {
             .preview_matrix_update(tenant_id, product_id, update)
             .await
     }
-
 
     pub async fn on_invoice_accounting_pdf_generated(
         &self,

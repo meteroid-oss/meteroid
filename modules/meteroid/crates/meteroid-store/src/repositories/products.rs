@@ -88,16 +88,15 @@ impl ProductInterface for Store {
             .insert(&mut conn)
             .await
             .map_err(Into::into)
-            .and_then(|row| row.try_into().map_err(Into::into))
+            .and_then(|row| row.try_into())
     }
 
     async fn update_product(&self, update: ProductUpdate) -> StoreResult<Product> {
         let mut conn = self.get_conn().await?;
 
-        let existing =
-            ProductRow::find_by_id_and_tenant_id(&mut conn, update.id, update.tenant_id)
-                .await
-                .map_err(Into::<Report<StoreError>>::into)?;
+        let existing = ProductRow::find_by_id_and_tenant_id(&mut conn, update.id, update.tenant_id)
+            .await
+            .map_err(Into::<Report<StoreError>>::into)?;
 
         // fee_type is immutable: if caller tries to change it, reject
         if let Some(new_fee_type) = update.fee_type {
@@ -131,7 +130,7 @@ impl ProductInterface for Store {
         )
         .await
         .map_err(Into::into)
-        .and_then(|row| row.try_into().map_err(Into::into))
+        .and_then(|row| row.try_into())
     }
 
     async fn find_product_by_id(
@@ -144,7 +143,7 @@ impl ProductInterface for Store {
         ProductRow::find_by_id_and_tenant_id(&mut conn, id, auth_tenant_id)
             .await
             .map_err(Into::into)
-            .and_then(|row| row.try_into().map_err(Into::into))
+            .and_then(|row| row.try_into())
     }
 
     async fn list_products(
@@ -166,13 +165,8 @@ impl ProductInterface for Store {
         .await
         .map_err(Into::<Report<StoreError>>::into)?;
 
-        let items: Result<Vec<Product>, _> = rows
-            .items
-            .into_iter()
-            .map(|row| {
-                Product::try_from(row).map_err(Into::<Report<StoreError>>::into)
-            })
-            .collect();
+        let items: Result<Vec<Product>, _> =
+            rows.items.into_iter().map(Product::try_from).collect();
 
         Ok(PaginatedVec {
             items: items?,
@@ -202,13 +196,8 @@ impl ProductInterface for Store {
         .await
         .map_err(Into::<Report<StoreError>>::into)?;
 
-        let items: Result<Vec<Product>, _> = rows
-            .items
-            .into_iter()
-            .map(|row| {
-                Product::try_from(row).map_err(Into::<Report<StoreError>>::into)
-            })
-            .collect();
+        let items: Result<Vec<Product>, _> =
+            rows.items.into_iter().map(Product::try_from).collect();
 
         Ok(PaginatedVec {
             items: items?,
@@ -256,7 +245,7 @@ impl ProductInterface for Store {
         let products: Vec<Product> = rows
             .items
             .into_iter()
-            .map(|row| Product::try_from(row).map_err(Into::<Report<StoreError>>::into))
+            .map(Product::try_from)
             .collect::<Result<Vec<_>, _>>()?;
 
         // Step 2: Batch-fetch latest price per product for the given currency
@@ -273,8 +262,7 @@ impl ProductInterface for Store {
         let mut price_map: HashMap<ProductId, Price> = HashMap::new();
         for row in price_rows {
             let product_id = row.product_id;
-            let price =
-                Price::try_from(row).map_err(Into::<Report<StoreError>>::into)?;
+            let price = Price::try_from(row)?;
             price_map.insert(product_id, price);
         }
 

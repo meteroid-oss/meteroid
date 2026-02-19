@@ -1,7 +1,6 @@
 import { z } from 'zod'
 
-import { FeeType } from '@/rpc/api/prices/v1/models_pb'
-import { FeeStructure_UsageModel } from '@/rpc/api/prices/v1/models_pb'
+import { FeeType , FeeStructure_UsageModel } from '@/rpc/api/prices/v1/models_pb'
 
 const isValidNumber = (str: string) => !isNaN(parseFloat(str)) && isFinite(parseFloat(str))
 const isPrecise = (str: string, precision: number) => {

@@ -582,8 +582,13 @@ impl Services {
         context: &SubscriptionCreationContext,
         resolved: &super::context::ResolvedCustomComponents,
         plan: &crate::domain::PlanForSubscription,
-    ) -> Result<(Vec<SubscriptionComponentNewInternal>, Vec<PendingMaterialization>), StoreErrorReport>
-    {
+    ) -> Result<
+        (
+            Vec<SubscriptionComponentNewInternal>,
+            Vec<PendingMaterialization>,
+        ),
+        StoreErrorReport,
+    > {
         process_create_subscription_components(
             components,
             &context.price_components_by_plan_version,
@@ -753,7 +758,13 @@ impl Services {
                 async move {
                     // Materialize pending products/prices inside the transaction.
                     // Builds a map of (sub_idx, comp_idx) → (product_id, price_id) for patching.
-                    let mut materialized: HashMap<(usize, usize), (common_domain::ids::ProductId, Option<common_domain::ids::PriceId>)> = HashMap::new();
+                    let mut materialized: HashMap<
+                        (usize, usize),
+                        (
+                            common_domain::ids::ProductId,
+                            Option<common_domain::ids::PriceId>,
+                        ),
+                    > = HashMap::new();
                     for (sub_idx, proc) in processed.iter().enumerate() {
                         for mat in &proc.pending_materializations {
                             use crate::domain::price_components::PriceComponentNewInternal;
@@ -787,7 +798,9 @@ impl Services {
                     let mut patched_components: Vec<SubscriptionComponentRowNew> = Vec::new();
                     for (sub_idx, proc) in processed.iter().enumerate() {
                         for (comp_idx, comp) in proc.components.iter().enumerate() {
-                            if let Some((product_id, price_id)) = materialized.get(&(sub_idx, comp_idx)) {
+                            if let Some((product_id, price_id)) =
+                                materialized.get(&(sub_idx, comp_idx))
+                            {
                                 let mut patched = comp.clone();
                                 patched.product_id = Some(*product_id);
                                 patched.price_id = *price_id;

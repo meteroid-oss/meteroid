@@ -1,8 +1,8 @@
-import { Price } from '@/rpc/api/prices/v1/models_pb'
 import { formatCadence } from '@/lib/mapping/prices'
-import { UsageFee } from '@/rpc/api/pricecomponents/v1/models_pb'
-import { BillingPeriod } from '@/rpc/api/shared/v1/shared_pb'
 import { formatCurrencyNoRounding } from '@/lib/utils/numbers'
+import { UsageFee , PriceComponent } from '@/rpc/api/pricecomponents/v1/models_pb'
+import { Price , FeeStructure_BillingType } from '@/rpc/api/prices/v1/models_pb'
+import { BillingPeriod } from '@/rpc/api/shared/v1/shared_pb'
 import {
   SubscriptionFee,
   SubscriptionFee_CapacitySubscriptionFee,
@@ -12,9 +12,7 @@ import {
   SubscriptionFee_SlotSubscriptionFee,
   SubscriptionFeeBillingPeriod,
 } from '@/rpc/api/subscriptions/v1/models_pb'
-import { FeeStructure_BillingType } from '@/rpc/api/prices/v1/models_pb'
 
-import { PriceComponent } from '@/rpc/api/pricecomponents/v1/models_pb'
 
 /**
  * Get the first (and currently only) price from a PriceComponent.

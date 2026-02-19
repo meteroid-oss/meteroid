@@ -18,8 +18,8 @@ use serde::de::DeserializeOwned;
 use serde::{Deserialize, Deserializer, de};
 use std::fmt;
 use std::str::FromStr;
-use std::sync::atomic::AtomicBool;
 use std::sync::Arc;
+use std::sync::atomic::AtomicBool;
 use utoipa_axum::router::OpenApiRouter;
 
 mod addresses;
