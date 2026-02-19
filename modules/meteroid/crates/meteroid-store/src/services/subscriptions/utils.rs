@@ -499,7 +499,41 @@ pub fn process_create_subscription_components(
     for c in plan_price_components {
         let component_id = c.id;
 
-        // Check parameterized_components
+        // Check overridden_components first (pre-resolved in gather phase).
+        // If there's also a parameterization for this component, apply its parameters
+        // (e.g. initial_slot_count) to the override's fee.
+        if let Some(resolved_override) = resolved.overrides.get(&component_id) {
+            let mut fee = resolved_override.fee.clone();
+            if let Some(parameterized) = parameterized_components
+                .iter()
+                .find(|p| p.component_id == component_id)
+            {
+                fee.apply_parameters(&parameterized.parameters);
+            }
+            let idx = processed_components.len();
+            processed_components.push(SubscriptionComponentNewInternal {
+                price_component_id: resolved_override.price_component_id,
+                product_id: resolved_override.existing_product_id(),
+                name: resolved_override.name.clone(),
+                period: resolved_override.period,
+                fee,
+                is_override: true,
+                price_id: resolved_override.existing_price_id(),
+            });
+            if resolved_override.needs_materialization() {
+                pending_materializations.push(PendingMaterialization {
+                    component_index: idx,
+                    name: resolved_override.name.clone(),
+                    product_ref: resolved_override.product_ref.clone(),
+                    price_entry: resolved_override.price_entry.clone(),
+                    product_family_id,
+                    currency: currency.to_string(),
+                });
+            }
+            continue;
+        }
+
+        // Check parameterized_components (without override)
         if let Some(parameterized) = parameterized_components
             .iter()
             .find(|p| p.component_id == component_id)
@@ -523,31 +557,6 @@ pub fn process_create_subscription_components(
                 is_override: false,
                 price_id: resolved.price_id,
             });
-            continue;
-        }
-
-        // Check overridden_components (pre-resolved in gather phase)
-        if let Some(resolved_override) = resolved.overrides.get(&component_id) {
-            let idx = processed_components.len();
-            processed_components.push(SubscriptionComponentNewInternal {
-                price_component_id: resolved_override.price_component_id,
-                product_id: resolved_override.existing_product_id(),
-                name: resolved_override.name.clone(),
-                period: resolved_override.period,
-                fee: resolved_override.fee.clone(),
-                is_override: true,
-                price_id: resolved_override.existing_price_id(),
-            });
-            if resolved_override.needs_materialization() {
-                pending_materializations.push(PendingMaterialization {
-                    component_index: idx,
-                    name: resolved_override.name.clone(),
-                    product_ref: resolved_override.product_ref.clone(),
-                    price_entry: resolved_override.price_entry.clone(),
-                    product_family_id,
-                    currency: currency.to_string(),
-                });
-            }
             continue;
         }
 

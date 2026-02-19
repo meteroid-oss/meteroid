@@ -22,6 +22,9 @@ use meteroid_store::repositories::subscriptions::slots::SubscriptionSlotsInterfa
 use meteroid_store::store::PgConn;
 use meteroid_store::{Services, Store};
 
+/// The slot unit name comes from the Product's FeeStructure, not the component override name.
+const SLOT_UNIT: &str = "Seats";
+
 #[tokio::test]
 async fn test_slot_transactions_comprehensive() {
     helpers::init::logging();
@@ -98,11 +101,8 @@ async fn test_slot_transactions_comprehensive_next() {
 }
 
 async fn test_optimistic_upgrade(services: &Services, store: &Store) {
-    let unit = "optimistic-test-seats";
-
     let (subscription_id, slot_component_id) = create_subscription_with_slots(
         services,
-        unit,
         Decimal::from_str("10.00").unwrap(), // $10 per slot
         Some(1),                             // min 1 slot
         Some(100),                           // max 100 slots
@@ -149,7 +149,7 @@ async fn test_optimistic_upgrade(services: &Services, store: &Store) {
     assert!(line_item.is_prorated, "Line item should be prorated");
 
     let count = store
-        .get_active_slots_value(TENANT_ID, subscription_id, unit.to_string(), None)
+        .get_active_slots_value(TENANT_ID, subscription_id, SLOT_UNIT.to_string(), None)
         .await
         .expect("Failed to get current slots");
 
@@ -159,7 +159,6 @@ async fn test_optimistic_upgrade(services: &Services, store: &Store) {
 async fn test_on_invoice_paid_upgrade(services: &Services, store: &Store) {
     let (subscription_id, slot_component_id) = create_subscription_with_slots(
         services,
-        "on-invoice-paid-seats",
         Decimal::from_str("15.00").unwrap(),
         Some(1),
         Some(100),
@@ -219,7 +218,7 @@ async fn test_on_invoice_paid_upgrade(services: &Services, store: &Store) {
         .get_active_slots_value(
             TENANT_ID,
             subscription_id,
-            "on-invoice-paid-seats".to_string(),
+            SLOT_UNIT.to_string(),
             NaiveDate::from_ymd_opt(2024, 1, 30).map(|t| t.and_time(NaiveTime::MIN)),
         )
         .await
@@ -233,7 +232,6 @@ async fn test_on_invoice_paid_upgrade(services: &Services, store: &Store) {
 async fn test_on_checkout_preview(services: &Services, _store: &Store, _conn: &mut PgConn) {
     let (subscription_id, slot_component_id) = create_subscription_with_slots(
         services,
-        "on-checkout-preview-seats",
         Decimal::from_str("20.00").unwrap(),
         Some(1),
         Some(100),
@@ -271,7 +269,6 @@ async fn test_on_checkout_preview(services: &Services, _store: &Store, _conn: &m
 async fn test_slot_downgrade(services: &Services, store: &Store, _conn: &mut PgConn) {
     let (subscription_id, slot_component_id) = create_subscription_with_slots(
         services,
-        "downgrade-test-seats",
         Decimal::from_str("12.00").unwrap(),
         Some(1),
         Some(100),
@@ -283,7 +280,7 @@ async fn test_slot_downgrade(services: &Services, store: &Store, _conn: &mut PgC
         .get_active_slots_value(
             TENANT_ID,
             subscription_id,
-            "downgrade-test-seats".to_string(),
+            SLOT_UNIT.to_string(),
             None,
         )
         .await
@@ -314,7 +311,7 @@ async fn test_slot_downgrade(services: &Services, store: &Store, _conn: &mut PgC
         .get_active_slots_value(
             TENANT_ID,
             subscription_id,
-            "downgrade-test-seats".to_string(),
+            SLOT_UNIT.to_string(),
             None,
         )
         .await
@@ -329,7 +326,6 @@ async fn test_slot_downgrade(services: &Services, store: &Store, _conn: &mut PgC
 async fn test_min_max_limits(services: &Services, _store: &Store, _conn: &mut PgConn) {
     let (subscription_id, slot_component_id) = create_subscription_with_slots(
         services,
-        "limit-test-seats",
         Decimal::from_str("5.00").unwrap(),
         Some(1),  // min 1 slot
         Some(50), // max 50 slots
@@ -377,7 +373,6 @@ async fn test_min_max_limits(services: &Services, _store: &Store, _conn: &mut Pg
 async fn test_currency_precision(services: &Services, store: &Store, _conn: &mut PgConn) {
     let (subscription_id, slot_component_id) = create_subscription_with_slots(
         services,
-        "precision-test-seats",
         Decimal::from_str("25.50").unwrap(), // Price with cents
         Some(1),
         Some(100),
@@ -417,7 +412,6 @@ async fn test_currency_precision(services: &Services, store: &Store, _conn: &mut
 async fn test_input_validation(services: &Services, _store: &Store, _conn: &mut PgConn) {
     let (subscription_id, slot_component_id) = create_subscription_with_slots(
         services,
-        "validation-test-seats",
         Decimal::from_str("10.00").unwrap(),
         Some(1),
         Some(100),
@@ -466,7 +460,6 @@ async fn test_input_validation(services: &Services, _store: &Store, _conn: &mut 
 async fn test_concurrent_upgrades(services: &Services, store: &Store, _conn: &mut PgConn) {
     let (subscription_id, slot_component_id) = create_subscription_with_slots(
         services,
-        "concurrent-test-seats",
         Decimal::from_str("8.00").unwrap(),
         Some(1),
         Some(100),
@@ -478,7 +471,7 @@ async fn test_concurrent_upgrades(services: &Services, store: &Store, _conn: &mu
         .get_active_slots_value(
             TENANT_ID,
             subscription_id,
-            "concurrent-test-seats".to_string(),
+            SLOT_UNIT.to_string(),
             None,
         )
         .await
@@ -543,7 +536,7 @@ async fn test_concurrent_upgrades(services: &Services, store: &Store, _conn: &mu
         .get_active_slots_value(
             TENANT_ID,
             subscription_id,
-            "concurrent-test-seats".to_string(),
+            SLOT_UNIT.to_string(),
             NaiveDate::from_ymd_opt(2024, 1, 15).map(|t| t.and_time(NaiveTime::MIN)),
         )
         .await
@@ -557,12 +550,9 @@ async fn test_concurrent_upgrades(services: &Services, store: &Store, _conn: &mu
 }
 
 async fn test_temporal_slot_changes(services: &Services, store: &Store) {
-    let unit = "temporal-test-seats";
-
     // Create subscription starting on 2024-01-01 with 5 slots
     let (subscription_id, slot_component_id) = create_subscription_with_slots(
         services,
-        unit,
         Decimal::from_str("10.00").unwrap(), // $10 per slot
         Some(0),                             // min 0 slots
         Some(100),                           // max 100 slots
@@ -574,7 +564,7 @@ async fn test_temporal_slot_changes(services: &Services, store: &Store) {
         .get_active_slots_value(
             TENANT_ID,
             subscription_id,
-            unit.to_string(),
+            SLOT_UNIT.to_string(),
             NaiveDate::from_ymd_opt(2024, 1, 1).map(|t| t.and_time(NaiveTime::MIN)),
         )
         .await
@@ -582,7 +572,7 @@ async fn test_temporal_slot_changes(services: &Services, store: &Store) {
     assert_eq!(slots, 5, "Should start with 5 slots");
 
     // Check initial invoice count (should have 1 invoice for initial subscription)
-    let mut invoices = get_invoices_for_subscription(store, subscription_id, unit).await;
+    let mut invoices = get_invoices_for_subscription(store, subscription_id, SLOT_UNIT).await;
     assert_eq!(invoices.len(), 1, "Should have 1 initial invoice");
 
     // Mid-period: Add 2 slots (immediate effect)
@@ -616,14 +606,14 @@ async fn test_temporal_slot_changes(services: &Services, store: &Store) {
         .get_active_slots_value(
             TENANT_ID,
             subscription_id,
-            unit.to_string(),
+            SLOT_UNIT.to_string(),
             NaiveDate::from_ymd_opt(2024, 1, 15).map(|t| t.and_time(NaiveTime::MIN)),
         )
         .await
         .expect("Failed to get slots after upgrade");
     assert_eq!(slots, 7, "Should have 7 active slots");
 
-    invoices = get_invoices_for_subscription(store, subscription_id, unit).await;
+    invoices = get_invoices_for_subscription(store, subscription_id, SLOT_UNIT).await;
     assert_eq!(invoices.len(), 2, "Should have 2 invoices after upgrade");
 
     // Verify the upgrade invoice has correct details
@@ -631,7 +621,7 @@ async fn test_temporal_slot_changes(services: &Services, store: &Store) {
     let upgrade_line = upgrade_invoice
         .line_items
         .iter()
-        .find(|line| line.name.contains(unit))
+        .find(|line| line.name.contains(SLOT_UNIT))
         .expect("Should have slot line item");
     assert_eq!(
         upgrade_line.quantity,
@@ -671,7 +661,7 @@ async fn test_temporal_slot_changes(services: &Services, store: &Store) {
         .get_active_slots_value(
             TENANT_ID,
             subscription_id,
-            unit.to_string(),
+            SLOT_UNIT.to_string(),
             NaiveDate::from_ymd_opt(2024, 1, 15).map(|t| t.and_time(NaiveTime::MIN)),
         )
         .await
@@ -696,7 +686,7 @@ async fn test_temporal_slot_changes(services: &Services, store: &Store) {
     );
 
     // Check invoice count after downgrade (should still be 2, no new invoice)
-    invoices = get_invoices_for_subscription(store, subscription_id, unit).await;
+    invoices = get_invoices_for_subscription(store, subscription_id, SLOT_UNIT).await;
     assert_eq!(
         invoices.len(),
         2,
@@ -711,7 +701,7 @@ async fn test_temporal_slot_changes(services: &Services, store: &Store) {
         .get_active_slots_value(
             TENANT_ID,
             subscription_id,
-            unit.to_string(),
+            SLOT_UNIT.to_string(),
             NaiveDate::from_ymd_opt(2024, 2, 1).map(|t| t.and_time(NaiveTime::MIN)),
         )
         .await
@@ -719,7 +709,7 @@ async fn test_temporal_slot_changes(services: &Services, store: &Store) {
     assert_eq!(slots, 2, "Should have 2 slots after downgrade takes effect");
 
     // Check invoice count after billing cycle (should have 3 invoices now - new period invoice)
-    invoices = get_invoices_for_subscription(store, subscription_id, unit).await;
+    invoices = get_invoices_for_subscription(store, subscription_id, SLOT_UNIT).await;
     assert_eq!(
         invoices.len(),
         3,
@@ -730,17 +720,14 @@ async fn test_temporal_slot_changes(services: &Services, store: &Store) {
     let _new_period_line = new_period_invoice
         .line_items
         .iter()
-        .find(|line| line.name.contains(unit))
+        .find(|line| line.name.contains(SLOT_UNIT))
         .expect("Should have slot line item");
 }
 
 async fn test_mixed_pending_and_active(services: &Services, store: &Store) {
-    let unit = "mixed-mode-test-seats";
-
     // Create subscription starting with 10 slots
     let (subscription_id, slot_component_id) = create_subscription_with_slots(
         services,
-        unit,
         Decimal::from_str("10.00").unwrap(),
         Some(1),
         Some(100),
@@ -753,7 +740,7 @@ async fn test_mixed_pending_and_active(services: &Services, store: &Store) {
         .get_active_slots_value(
             TENANT_ID,
             subscription_id,
-            unit.to_string(),
+            SLOT_UNIT.to_string(),
             NaiveDate::from_ymd_opt(2024, 1, 1).map(|t| t.and_time(NaiveTime::MIN)),
         )
         .await
@@ -785,7 +772,7 @@ async fn test_mixed_pending_and_active(services: &Services, store: &Store) {
         .get_active_slots_value(
             TENANT_ID,
             subscription_id,
-            unit.to_string(),
+            SLOT_UNIT.to_string(),
             NaiveDate::from_ymd_opt(2024, 1, 2).map(|t| t.and_time(NaiveTime::MIN)),
         )
         .await
@@ -820,7 +807,7 @@ async fn test_mixed_pending_and_active(services: &Services, store: &Store) {
         .get_active_slots_value(
             TENANT_ID,
             subscription_id,
-            unit.to_string(),
+            SLOT_UNIT.to_string(),
             NaiveDate::from_ymd_opt(2024, 1, 3).map(|t| t.and_time(NaiveTime::MIN)),
         )
         .await
@@ -858,7 +845,7 @@ async fn test_mixed_pending_and_active(services: &Services, store: &Store) {
         .get_active_slots_value(
             TENANT_ID,
             subscription_id,
-            unit.to_string(),
+            SLOT_UNIT.to_string(),
             NaiveDate::from_ymd_opt(2024, 1, 4).map(|t| t.and_time(NaiveTime::MIN)),
         )
         .await
@@ -892,7 +879,7 @@ async fn test_mixed_pending_and_active(services: &Services, store: &Store) {
         .get_active_slots_value(
             TENANT_ID,
             subscription_id,
-            unit.to_string(),
+            SLOT_UNIT.to_string(),
             NaiveDate::from_ymd_opt(2024, 1, 4).map(|t| t.and_time(NaiveTime::MIN)),
         )
         .await
@@ -924,7 +911,7 @@ async fn test_mixed_pending_and_active(services: &Services, store: &Store) {
 
     // Final verification: count should be initial + 8 (10 + 1 + 5 + 1 + 1 = 18)
     let final_count = store
-        .get_active_slots_value(TENANT_ID, subscription_id, unit.to_string(), None)
+        .get_active_slots_value(TENANT_ID, subscription_id, SLOT_UNIT.to_string(), None)
         .await
         .expect("Failed to get final slots count");
     assert_eq!(
@@ -966,7 +953,7 @@ async fn get_invoices_for_subscription(
                 .invoice
                 .line_items
                 .iter()
-                .any(|line| line.name.contains(unit))
+                .any(|line| line.name.contains(SLOT_UNIT))
         })
         .map(|inv_with_customer| inv_with_customer.invoice)
         .collect()
@@ -974,7 +961,6 @@ async fn get_invoices_for_subscription(
 
 async fn create_subscription_with_slots(
     services: &Services,
-    unit_name: &str,
     unit_rate: Decimal,
     min_slots: Option<u32>,
     max_slots: Option<u32>,
@@ -1016,7 +1002,7 @@ async fn create_subscription_with_slots(
                     }],
                     overridden_components: vec![ComponentOverride {
                         component_id: COMP_NOTION_SEATS_ID,
-                        name: unit_name.to_string(),
+                        name: "Seats".to_string(),
                         price_entry: PriceEntry::New(PriceInput {
                             cadence: BillingPeriodEnum::Monthly,
                             currency: "EUR".to_string(),

@@ -223,6 +223,16 @@ pub enum SubscriptionFee {
 json_value_serde!(SubscriptionFee);
 
 impl SubscriptionFee {
+    /// Apply subscription-level parameters to an already-resolved fee.
+    /// Used when an override provides the pricing and a parameterization provides
+    /// runtime values like initial_slot_count.
+    pub fn apply_parameters(&mut self, params: &ComponentParameters) {
+        if let SubscriptionFee::Slot { initial_slots, .. } = self
+            && let Some(count) = params.initial_slot_count {
+                *initial_slots = count;
+            }
+    }
+
     pub fn metric_id(&self) -> Option<BillableMetricId> {
         match self {
             SubscriptionFee::Usage { metric_id, .. } => Some(*metric_id),
