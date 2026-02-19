@@ -40,11 +40,7 @@ impl AddOnInterface for Store {
             .map_err(Into::<Report<StoreError>>::into)?;
 
         Ok(PaginatedVec {
-            items: add_ons
-                .items
-                .into_iter()
-                .map(std::convert::TryInto::try_into)
-                .collect::<Result<Vec<_>, _>>()?,
+            items: add_ons.items.into_iter().map(Into::into).collect(),
             total_pages: add_ons.total_pages,
             total_results: add_ons.total_results,
         })
@@ -60,7 +56,7 @@ impl AddOnInterface for Store {
         AddOnRow::list_by_ids(&mut conn, &ids, &tenant_id)
             .await
             .map_err(Into::<Report<StoreError>>::into)
-            .and_then(|x| x.into_iter().map(TryInto::try_into).collect())
+            .map(|x| x.into_iter().map(Into::into).collect())
     }
 
     async fn get_add_on_by_id(&self, tenant_id: TenantId, id: AddOnId) -> StoreResult<AddOn> {
@@ -69,31 +65,80 @@ impl AddOnInterface for Store {
         AddOnRow::get_by_id(&mut conn, tenant_id, id)
             .await
             .map_err(Into::into)
-            .and_then(TryInto::try_into)
+            .map(Into::into)
     }
 
     async fn create_add_on(&self, add_on: AddOnNew) -> StoreResult<AddOn> {
         let mut conn = self.get_conn().await?;
 
-        let add_on: AddOnRowNew = add_on.try_into()?;
+        // Validate price belongs to product if both are provided
+        if let (Some(product_id), Some(price_id)) = (add_on.product_id, add_on.price_id) {
+            let price_row =
+                diesel_models::prices::PriceRow::find_by_id_and_tenant_id(
+                    &mut conn,
+                    price_id,
+                    add_on.tenant_id,
+                )
+                .await
+                .map_err(Into::<Report<StoreError>>::into)?;
+            if price_row.product_id != product_id {
+                return Err(Report::new(StoreError::InvalidArgument(format!(
+                    "Price {} belongs to product {}, not {}",
+                    price_id, price_row.product_id, product_id
+                ))));
+            }
+        }
+
+        let add_on: AddOnRowNew = add_on.into();
 
         add_on
             .insert(&mut conn)
             .await
             .map_err(Into::<Report<StoreError>>::into)
-            .and_then(TryInto::try_into)
+            .map(Into::into)
     }
 
     async fn update_add_on(&self, add_on: AddOnPatch) -> StoreResult<AddOn> {
         let mut conn = self.get_conn().await?;
 
-        let add_on: AddOnRowPatch = add_on.try_into()?;
+        // If updating price_id, validate it belongs to the product
+        if let Some(Some(price_id)) = add_on.price_id {
+            // Get the effective product_id (from patch if changing, else from existing)
+            let effective_product_id = if let Some(Some(pid)) = add_on.product_id {
+                Some(pid)
+            } else {
+                let existing =
+                    AddOnRow::get_by_id(&mut conn, add_on.tenant_id, add_on.id)
+                        .await
+                        .map_err(Into::<Report<StoreError>>::into)?;
+                existing.product_id
+            };
+
+            if let Some(product_id) = effective_product_id {
+                let price_row =
+                    diesel_models::prices::PriceRow::find_by_id_and_tenant_id(
+                        &mut conn,
+                        price_id,
+                        add_on.tenant_id,
+                    )
+                    .await
+                    .map_err(Into::<Report<StoreError>>::into)?;
+                if price_row.product_id != product_id {
+                    return Err(Report::new(StoreError::InvalidArgument(format!(
+                        "Price {} belongs to product {}, not {}",
+                        price_id, price_row.product_id, product_id
+                    ))));
+                }
+            }
+        }
+
+        let add_on: AddOnRowPatch = add_on.into();
 
         add_on
             .patch(&mut conn)
             .await
             .map_err(Into::<Report<StoreError>>::into)
-            .and_then(TryInto::try_into)
+            .map(Into::into)
     }
 
     async fn delete_add_on(&self, id: AddOnId, tenant_id: TenantId) -> StoreResult<()> {

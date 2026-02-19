@@ -1,10 +1,10 @@
 use super::enums::{BillingPeriodEnum, BillingType, SubscriptionFeeBillingPeriod};
 use crate::domain::UsagePricingModel;
-use crate::errors::StoreErrorReport;
+use crate::errors::{StoreError, StoreErrorReport};
 use crate::json_value_serde;
 use common_domain::ids::{
-    BaseId, BillableMetricId, PriceComponentId, ProductId, SubscriptionAddOnId, SubscriptionId,
-    SubscriptionPriceComponentId,
+    BaseId, BillableMetricId, PriceComponentId, PriceId, ProductId, SubscriptionAddOnId,
+    SubscriptionId, SubscriptionPriceComponentId,
 };
 use diesel_models::subscription_components::{
     SubscriptionComponentRow, SubscriptionComponentRowNew,
@@ -31,6 +31,7 @@ pub struct SubscriptionComponent {
     pub name: String,
     pub period: SubscriptionFeeBillingPeriod,
     pub fee: SubscriptionFee,
+    pub price_id: Option<PriceId>,
 }
 
 impl SubscriptionFeeInterface for SubscriptionComponent {
@@ -79,7 +80,15 @@ impl TryInto<SubscriptionComponent> for SubscriptionComponentRow {
     type Error = StoreErrorReport;
 
     fn try_into(self) -> Result<SubscriptionComponent, Self::Error> {
-        let decoded_fee: SubscriptionFee = self.fee.try_into()?;
+        let decoded_fee: SubscriptionFee = self
+            .legacy_fee
+            .ok_or_else(|| {
+                StoreError::InvalidArgument(
+                    "subscription_component has no legacy_fee (v2 rows are resolved by repository)"
+                        .to_string(),
+                )
+            })?
+            .try_into()?;
 
         Ok(SubscriptionComponent {
             id: self.id,
@@ -89,6 +98,7 @@ impl TryInto<SubscriptionComponent> for SubscriptionComponentRow {
             name: self.name,
             period: self.period.into(),
             fee: decoded_fee,
+            price_id: self.price_id,
         })
     }
 }
@@ -113,7 +123,7 @@ impl TryInto<SubscriptionComponentRowNew> for SubscriptionComponentNew {
     type Error = StoreErrorReport;
 
     fn try_into(self) -> Result<SubscriptionComponentRowNew, Self::Error> {
-        let fee = self.internal.fee.try_into()?;
+        let legacy_fee: serde_json::Value = self.internal.fee.try_into()?;
 
         Ok(SubscriptionComponentRowNew {
             id: SubscriptionPriceComponentId::new(),
@@ -122,7 +132,8 @@ impl TryInto<SubscriptionComponentRowNew> for SubscriptionComponentNew {
             product_id: self.internal.product_id,
             name: self.internal.name,
             period: self.internal.period.into(),
-            fee,
+            legacy_fee: Some(legacy_fee),
+            price_id: self.internal.price_id,
         })
     }
 }
@@ -151,12 +162,15 @@ pub struct ComponentParameters {
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct ComponentOverride {
     pub component_id: PriceComponentId,
-    pub component: SubscriptionComponentNewInternal,
+    pub name: String,
+    pub price_entry: crate::domain::price_components::PriceEntry,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct ExtraComponent {
-    pub component: SubscriptionComponentNewInternal,
+    pub name: String,
+    pub product_ref: crate::domain::price_components::ProductRef,
+    pub price_entry: crate::domain::price_components::PriceEntry,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -168,6 +182,7 @@ pub struct SubscriptionComponentNewInternal {
     // pub mrr_value: Option<rust_decimal::Decimal>, // TODO
     pub fee: SubscriptionFee,
     pub is_override: bool,
+    pub price_id: Option<PriceId>,
 }
 
 // TODO golden tests

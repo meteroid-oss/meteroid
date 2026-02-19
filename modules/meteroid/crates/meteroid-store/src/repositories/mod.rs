@@ -34,6 +34,7 @@ pub mod outbox;
 pub mod payment_transactions;
 pub mod pgmq;
 pub mod price_components;
+pub mod prices;
 pub mod product_families;
 pub mod products;
 pub mod quotes;

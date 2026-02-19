@@ -2,6 +2,7 @@
 
 use common_domain::ids::SubscriptionId;
 use diesel_models::customers::CustomerRow;
+use diesel_models::subscription_components::SubscriptionComponentRow;
 use diesel_models::subscriptions::SubscriptionRow;
 use meteroid_store::domain::Customer;
 use meteroid_store::domain::subscriptions::PaymentMethodsConfig;
@@ -19,6 +20,21 @@ impl TestEnv {
             .await
             .expect("Failed to get subscription")
             .subscription
+    }
+
+    /// Get subscription component rows for a subscription.
+    pub async fn get_subscription_components(
+        &self,
+        subscription_id: SubscriptionId,
+    ) -> Vec<SubscriptionComponentRow> {
+        let mut conn = self.conn().await;
+        SubscriptionComponentRow::list_subscription_components_by_subscription(
+            &mut conn,
+            &TENANT_ID,
+            &subscription_id,
+        )
+        .await
+        .expect("Failed to get subscription components")
     }
 
     /// Resolve payment methods for a subscription.

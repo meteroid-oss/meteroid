@@ -1,13 +1,7 @@
 import { FunctionComponent } from 'react'
 
-import { PriceComponentPanel } from '@/features/plans/pricing/PriceComponentPanel'
+import { AddComponentPanel } from '@/features/plans/pricecomponents/AddComponentPanel'
 
 export const CreatePriceComponent: FunctionComponent = () => {
-  // const setEditPanelVisible = () => navigate('new')
-
-  return (
-    <>
-      <PriceComponentPanel />
-    </>
-  )
+  return <AddComponentPanel />
 }

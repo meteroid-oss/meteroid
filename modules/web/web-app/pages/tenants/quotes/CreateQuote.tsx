@@ -37,16 +37,23 @@ import { SubscribablePlanVersionSelect } from '@/features/plans/SubscribablePlan
 import { QuotePriceComponentsWrapper } from '@/features/quotes/QuotePriceComponentsWrapper'
 import { QuoteView } from '@/features/quotes/QuoteView'
 import {
-  mapExtraComponentToSubscriptionComponent,
-  mapOverrideComponentToSubscriptionComponent,
-  PriceComponentsState,
-} from '@/features/subscriptions/pricecomponents/PriceComponentsLogic'
+  buildExistingProductRef,
+  buildNewProductRef,
+  buildPriceInputs,
+  formDataToPrice,
+  toPricingTypeFromFeeType,
+  wrapAsNewPriceEntries,
+} from '@/features/pricing'
+import { PriceComponentsState } from '@/features/subscriptions/pricecomponents/PriceComponentsLogic'
 import { useBasePath } from '@/hooks/useBasePath'
-import { useCurrency } from '@/hooks/useCurrency'
 import { useZodForm } from '@/hooks/useZodForm'
 import { useQuery } from '@/lib/connectrpc'
 import { mapDatev2 } from '@/lib/mapping'
-import { ComponentParameterization } from '@/pages/tenants/subscription/create/state'
+import {
+  getPrice,
+  priceToSubscriptionFee,
+  priceToSubscriptionPeriod,
+} from '@/lib/mapping/priceToSubscriptionFee'
 import { listAddOns } from '@/rpc/api/addons/v1/addons-AddOnsService_connectquery'
 import { listCoupons } from '@/rpc/api/coupons/v1/coupons-CouponsService_connectquery'
 import { ListCouponRequest_CouponFilter } from '@/rpc/api/coupons/v1/coupons_pb'
@@ -61,7 +68,6 @@ import {
   listPlans,
 } from '@/rpc/api/plans/v1/plans-PlansService_connectquery'
 import { ListPlansRequest_SortBy } from '@/rpc/api/plans/v1/plans_pb'
-import { PriceComponent } from '@/rpc/api/pricecomponents/v1/models_pb'
 import { listPriceComponents } from '@/rpc/api/pricecomponents/v1/pricecomponents-PriceComponentsService_connectquery'
 import {
   CreateQuoteCoupon,
@@ -73,24 +79,17 @@ import {
 } from '@/rpc/api/quotes/v1/models_pb'
 import { createQuote } from '@/rpc/api/quotes/v1/quotes-QuotesService_connectquery'
 import { CreateQuoteRequest } from '@/rpc/api/quotes/v1/quotes_pb'
-import { BillingPeriod } from '@/rpc/api/shared/v1/shared_pb'
 import {
   ActivationCondition,
   BankTransfer,
   CreateSubscriptionAddOn,
   CreateSubscriptionAddOns,
   CreateSubscriptionComponents,
+  CreateSubscriptionComponents_ComponentOverride,
+  CreateSubscriptionComponents_ExtraComponent,
   External,
   OnlinePayment,
   PaymentMethodsConfig,
-  SubscriptionComponentNewInternal,
-  SubscriptionFee,
-  SubscriptionFee_CapacitySubscriptionFee,
-  SubscriptionFee_ExtraRecurringSubscriptionFee,
-  SubscriptionFee_OneTimeSubscriptionFee,
-  SubscriptionFee_RateSubscriptionFee,
-  SubscriptionFee_SlotSubscriptionFee,
-  SubscriptionFeeBillingPeriod,
 } from '@/rpc/api/subscriptions/v1/models_pb'
 
 const recipientSchema = z.object({
@@ -102,7 +101,6 @@ const createQuoteSchema = z.object({
   quote_number: z.string().min(1, 'Quote number is required'),
   customer_id: z.string().min(1, 'Customer is required'),
   plan_version_id: z.string().min(1, 'Plan is required'),
-  currency: z.string().min(1, 'Currency is required'),
   start_date: z.date().optional(),
   billing_start_date: z.date().optional(),
   end_date: z.date().optional(),
@@ -189,15 +187,12 @@ export const CreateQuote = () => {
     },
   })
 
-  const { currency } = useCurrency()
-
   const methods = useZodForm({
     schema: createQuoteSchema,
     defaultValues: {
       quote_number: `Q-${new Date().toISOString().slice(0, 10).replace(/-/g, '')}-${nanoid(5)}`,
       customer_id: '',
       plan_version_id: '',
-      currency: currency,
       net_terms: 30,
       recipients: [{ name: '', email: '' }],
       // Advanced settings defaults
@@ -257,6 +252,7 @@ export const CreateQuote = () => {
     sortBy: ListPlansRequest_SortBy.NAME_ASC,
   })
 
+  const planCurrency = planQuery.data?.plan?.version?.currency
   const planTrialConfig = planQuery.data?.plan?.version?.trialConfig
   const planType = planQuery.data?.plan?.plan?.planType
   const isFreePlan = planType === PlanType.FREE
@@ -266,12 +262,6 @@ export const CreateQuote = () => {
     ? plansQuery.data?.plans.find(p => p.id === planTrialConfig.trialingPlanId)?.name
     : undefined
 
-  useEffect(() => {
-    if (planQuery.data?.plan?.version?.currency) {
-      methods.setValue('currency', planQuery.data.plan.version.currency)
-    }
-  }, [planQuery.data?.plan])
-
   const invoicingEntityQuery = useQuery(
     getInvoicingEntity,
     {
@@ -279,12 +269,6 @@ export const CreateQuote = () => {
     },
     { enabled: Boolean(customerQuery.data?.customer?.invoicingEntityId) }
   )
-
-  useEffect(() => {
-    if (!planQuery.data?.plan?.version?.currency && currency) {
-      methods.setValue('currency', currency)
-    }
-  }, [currency, planQuery.data?.plan?.version?.currency])
 
   const priceComponentsQuery = useQuery(
     listPriceComponents,
@@ -373,13 +357,39 @@ export const CreateQuote = () => {
 
   const onSubmit = async (data: CreateQuoteFormData) => {
     try {
-      const configuredComponents = extractConfiguredComponents(priceComponentsState)
+      if (!planCurrency) throw new Error('Currency is required')
 
       const subscriptionComponents = new CreateSubscriptionComponents({
-        parameterizedComponents: configuredComponents.parameterizedComponents,
-        overriddenComponents: configuredComponents.overriddenComponents,
-        extraComponents: configuredComponents.extraComponents,
-        removeComponents: configuredComponents.removedComponentIds,
+        parameterizedComponents: priceComponentsState.components.parameterized,
+        overriddenComponents: priceComponentsState.components.overridden.map(c => {
+          const pricingType = toPricingTypeFromFeeType(
+            c.feeType,
+            c.formData.usageModel as string | undefined
+          )
+          return new CreateSubscriptionComponents_ComponentOverride({
+            componentId: c.componentId,
+            name: c.name,
+            price: wrapAsNewPriceEntries(
+              buildPriceInputs(pricingType, c.formData as Record<string, unknown>, planCurrency)
+            )[0],
+          })
+        }),
+        extraComponents: priceComponentsState.components.extra.map(c => {
+          const pricingType = toPricingTypeFromFeeType(
+            c.feeType,
+            c.formData.usageModel as string | undefined
+          )
+          return new CreateSubscriptionComponents_ExtraComponent({
+            name: c.name,
+            product: c.productId
+              ? buildExistingProductRef(c.productId)
+              : buildNewProductRef(c.name, c.feeType, c.formData as Record<string, unknown>),
+            price: wrapAsNewPriceEntries(
+              buildPriceInputs(pricingType, c.formData as Record<string, unknown>, planCurrency)
+            )[0],
+          })
+        }),
+        removeComponents: priceComponentsState.components.removed,
       })
 
       // Build add-ons
@@ -396,7 +406,7 @@ export const CreateQuote = () => {
         quoteNumber: data.quote_number,
         planVersionId: data.plan_version_id,
         customerId: data.customer_id,
-        currency: data.currency ?? planQuery.data?.plan?.version?.currency,
+        currency: planCurrency,
         startDate: data.start_date ? mapDatev2(data.start_date) : undefined,
         billingStartDate: data.billing_start_date ? mapDatev2(data.billing_start_date) : undefined,
         endDate: data.end_date ? mapDatev2(data.end_date) : undefined,
@@ -451,7 +461,7 @@ export const CreateQuote = () => {
       quoteNumber: data.quote_number,
       planVersionId: data.plan_version_id,
       customerId: data.customer_id,
-      currency: data.currency ?? planQuery.data?.plan?.version?.currency,
+      currency: planCurrency,
       startDate: data.start_date ? mapDatev2(data.start_date) : mapDatev2(new Date()),
       billingStartDate: data.billing_start_date ? mapDatev2(data.billing_start_date) : undefined,
       endDate: data.end_date ? mapDatev2(data.end_date) : undefined,
@@ -479,47 +489,75 @@ export const CreateQuote = () => {
 
   const getPreviewPricingComponents = () => {
     const priceComponentsData = priceComponentsQuery.data?.components || []
+    if (!planCurrency) return []
 
-    console.log('getPreviewPricingComponents priceComponentsData', priceComponentsData)
+    const { parameterized, overridden, extra, removed } = priceComponentsState.components
 
-    const configuredComponents = extractConfiguredComponents(priceComponentsState)
-
-    const mapParameterized = (c: ComponentParameterization) => {
-      const pc = priceComponentsData.find(pc => pc.id === c.componentId)
-      if (!pc) {
-        return null
-      }
-      return mapParameterizedComponentToSubscriptionComponent(c, pc)
-    }
-
-    // Create default components for plan components that haven't been configured
+    // Default plan components (not removed, not parameterized, not overridden)
     const defaultPlanComponents = priceComponentsData
       .filter(
         pc =>
-          !configuredComponents.removedComponentIds.includes(pc.id) &&
-          !configuredComponents.parameterizedComponents.some(c => c.componentId === pc.id) &&
-          !configuredComponents.overriddenComponents.some(c => c.componentId === pc.id)
+          !removed.includes(pc.id) &&
+          !parameterized.some(c => c.componentId === pc.id) &&
+          !overridden.some(c => c.componentId === pc.id)
       )
-      .map(pc => mapDefaultComponentToSubscriptionComponent(pc))
+      .flatMap(pc => {
+        const price = getPrice(pc)
+        if (!price) return []
+        return [
+          {
+            id: pc.id,
+            name: pc.name,
+            period: priceToSubscriptionPeriod(price),
+            fee: priceToSubscriptionFee(price),
+          },
+        ]
+      })
 
-    console.log('defaultPlanComponents', defaultPlanComponents)
+    // Parameterized plan components
+    const parameterizedComponents = parameterized.flatMap(c => {
+      const pc = priceComponentsData.find(pc => pc.id === c.componentId)
+      if (!pc) return []
+      const price = getPrice(pc)
+      if (!price) return []
+      return [
+        {
+          id: pc.id,
+          name: pc.name,
+          period: priceToSubscriptionPeriod(price),
+          fee: priceToSubscriptionFee(price, { initialSlotCount: c.initialSlotCount }),
+        },
+      ]
+    })
 
-    const allSubscriptionComponents = [
+    // Override components — derive display Price from formData
+    const overriddenComponents = overridden.map(c => {
+      const price = formDataToPrice(c.feeType, c.formData as Record<string, unknown>, planCurrency)
+      return {
+        id: c.componentId,
+        name: c.name,
+        period: priceToSubscriptionPeriod(price),
+        fee: priceToSubscriptionFee(price),
+      }
+    })
+
+    // Extra components — derive display Price from formData
+    const extraComponents = extra.map(c => {
+      const price = formDataToPrice(c.feeType, c.formData as Record<string, unknown>, planCurrency)
+      return {
+        id: c.name,
+        name: c.name,
+        period: priceToSubscriptionPeriod(price),
+        fee: priceToSubscriptionFee(price),
+      }
+    })
+
+    return [
       ...defaultPlanComponents,
-      ...configuredComponents.parameterizedComponents
-        .map(mapParameterized)
-        .filter((c): c is SubscriptionComponentNewInternal => c !== null),
-      ...configuredComponents.overriddenComponents.map(c => c.component),
-      ...configuredComponents.extraComponents.map(c => c.component),
+      ...parameterizedComponents,
+      ...overriddenComponents,
+      ...extraComponents,
     ]
-
-    return allSubscriptionComponents.map(comp => ({
-      id: comp.priceComponentId || comp.name,
-      name: comp.name,
-      isOverride: !comp.priceComponentId,
-      period: comp.period || SubscriptionFeeBillingPeriod.MONTHLY,
-      fee: comp.fee,
-    }))
   }
 
   if (previewMode) {
@@ -621,14 +659,12 @@ export const CreateQuote = () => {
                       )}
                     />
 
-                    <InputFormField
-                      name="currency"
-                      label="Currency"
-                      control={methods.control}
-                      disabled
-                      className="w-[180px]"
-                      layout="horizontal"
-                    />
+                    <div className="space-y-0 grid gap-2 md:grid md:grid-cols-12 items-center">
+                      <Label className="col-span-4 text-xs text-muted-foreground">Currency</Label>
+                      <span className="col-span-8 text-sm">
+                        {planCurrency ?? 'Select a plan'}
+                      </span>
+                    </div>
                   </div>
                 </CardContent>
               </Card>
@@ -685,7 +721,7 @@ export const CreateQuote = () => {
               </Card>
 
               {/* Subscription Pricing */}
-              {planVersionId && customerId && (
+              {planVersionId && customerId && planCurrency && (
                 <Card>
                   <CardHeader>
                     <CardTitle>Subscription Pricing</CardTitle>
@@ -696,7 +732,7 @@ export const CreateQuote = () => {
                   <CardContent className="space-y-4">
                     <QuotePriceComponentsWrapper
                       planVersionId={planVersionId}
-                      customerId={customerId}
+                      currency={planCurrency}
                       onValidationChange={(isValid, errors) =>
                         setPricingValidation({ isValid, errors })
                       }
@@ -1330,7 +1366,7 @@ export const CreateQuote = () => {
                     </div>
                     <div className="flex justify-between">
                       <span>Currency:</span>
-                      <span className="text-muted-foreground">{methods.watch('currency')}</span>
+                      <span className="text-muted-foreground">{planCurrency ?? '—'}</span>
                     </div>
                     <div className="flex justify-between">
                       <span>Pricing:</span>
@@ -1355,234 +1391,5 @@ export const CreateQuote = () => {
   )
 }
 
-const extractConfiguredComponents = (state: PriceComponentsState) => {
-  return {
-    parameterizedComponents: state.components.parameterized,
 
-    overriddenComponents: state.components.overridden.map(c => ({
-      componentId: c.componentId,
-      component: mapOverrideComponentToSubscriptionComponent(c),
-    })),
 
-    extraComponents: state.components.extra.map(c => ({
-      component: mapExtraComponentToSubscriptionComponent(c),
-    })),
-
-    removedComponentIds: state.components.removed,
-  }
-}
-
-// Common fee mapping logic shared between parameterized and default components
-const createSubscriptionFee = (
-  priceComponent: PriceComponent,
-  config?: {
-    billingPeriod?: BillingPeriod
-    committedCapacity?: bigint
-    initialSlotCount?: number
-  }
-): SubscriptionFee => {
-  const fee = new SubscriptionFee()
-
-  if (priceComponent.fee?.feeType?.case === 'capacity') {
-    const capacityFee = priceComponent.fee.feeType.value
-    let selectedThreshold = capacityFee.thresholds?.[0] // Default to first threshold
-
-    // If specific capacity is configured, find matching threshold
-    if (config?.committedCapacity !== undefined) {
-      const matchingThreshold = capacityFee.thresholds.find(
-        t => t.includedAmount === config.committedCapacity
-      )
-      if (matchingThreshold) {
-        selectedThreshold = matchingThreshold
-      }
-    }
-
-    if (selectedThreshold) {
-      fee.fee = {
-        case: 'capacity',
-        value: new SubscriptionFee_CapacitySubscriptionFee({
-          rate: selectedThreshold.price,
-          included: selectedThreshold.includedAmount,
-          overageRate: selectedThreshold.perUnitOverage,
-          metricId: capacityFee.metricId,
-        }),
-      }
-    }
-  } else if (priceComponent.fee?.feeType?.case === 'rate') {
-    const rateFee = priceComponent.fee.feeType.value
-    let selectedRate = rateFee.rates?.[0] // Default to first rate
-
-    // If specific billing period is configured, find matching rate
-    if (config?.billingPeriod !== undefined) {
-      const matchingRate = rateFee.rates.find(r => {
-        return r.term === config.billingPeriod
-      })
-      if (matchingRate) {
-        selectedRate = matchingRate
-      }
-    }
-
-    if (selectedRate) {
-      fee.fee = {
-        case: 'rate',
-        value: new SubscriptionFee_RateSubscriptionFee({
-          rate: selectedRate.price,
-        }),
-      }
-    }
-  } else if (priceComponent.fee?.feeType?.case === 'slot') {
-    const slotFee = priceComponent.fee.feeType.value
-    let unitRate = slotFee.rates?.[0]?.price || '0'
-
-    // If specific billing period is configured and multiple rates exist, find matching rate
-    if (config?.billingPeriod !== undefined && slotFee.rates.length > 1) {
-      const matchingRate = slotFee.rates.find(r => {
-        return r.term === config.billingPeriod
-      })
-      if (matchingRate) {
-        unitRate = matchingRate.price
-      }
-    }
-
-    const initialSlots = config?.initialSlotCount ?? slotFee.minimumCount ?? 1
-
-    fee.fee = {
-      case: 'slot',
-      value: new SubscriptionFee_SlotSubscriptionFee({
-        unit: slotFee.slotUnitName,
-        unitRate,
-        initialSlots,
-        minSlots: slotFee.minimumCount,
-        maxSlots: slotFee.quota,
-      }),
-    }
-  } else if (priceComponent.fee?.feeType?.case === 'usage') {
-    // Usage fees can be passed through directly as they share the same UsageFee type
-    const usageFee = priceComponent.fee.feeType.value
-    fee.fee = {
-      case: 'usage',
-      value: usageFee,
-    }
-  } else if (priceComponent.fee?.feeType?.case === 'oneTime') {
-    const oneTimeFee = priceComponent.fee.feeType.value
-    const quantity = oneTimeFee.quantity || 1
-    const unitPrice = oneTimeFee.unitPrice || '0'
-    const total = (parseFloat(unitPrice) * quantity).toString()
-
-    fee.fee = {
-      case: 'oneTime',
-      value: new SubscriptionFee_OneTimeSubscriptionFee({
-        rate: unitPrice,
-        quantity,
-        total,
-      }),
-    }
-  } else if (priceComponent.fee?.feeType?.case === 'extraRecurring') {
-    const recurringFee = priceComponent.fee.feeType.value
-    const quantity = recurringFee.quantity || 1
-    const unitPrice = recurringFee.unitPrice || '0'
-    const total = (parseFloat(unitPrice) * quantity).toString()
-
-    fee.fee = {
-      case: 'recurring',
-      value: new SubscriptionFee_ExtraRecurringSubscriptionFee({
-        rate: unitPrice,
-        quantity,
-        total,
-        billingType: recurringFee.billingType,
-      }),
-    }
-  }
-
-  return fee
-}
-
-const mapParameterizedComponentToSubscriptionComponent = (
-  component: ComponentParameterization,
-  priceComponent: PriceComponent
-): SubscriptionComponentNewInternal => {
-  const subscriptionComponent = new SubscriptionComponentNewInternal({
-    priceComponentId: component.componentId,
-    name: priceComponent.name,
-    period:
-      component.billingPeriod !== undefined
-        ? component.billingPeriod === BillingPeriod.MONTHLY
-          ? SubscriptionFeeBillingPeriod.MONTHLY
-          : component.billingPeriod === BillingPeriod.QUARTERLY
-            ? SubscriptionFeeBillingPeriod.QUARTERLY
-            : component.billingPeriod === BillingPeriod.ANNUAL
-              ? SubscriptionFeeBillingPeriod.YEARLY
-              : SubscriptionFeeBillingPeriod.MONTHLY
-        : SubscriptionFeeBillingPeriod.MONTHLY,
-  })
-
-  subscriptionComponent.fee = createSubscriptionFee(priceComponent, {
-    billingPeriod: component.billingPeriod,
-    committedCapacity: component.committedCapacity,
-    initialSlotCount: component.initialSlotCount,
-  })
-  return subscriptionComponent
-}
-
-const mapDefaultComponentToSubscriptionComponent = (
-  priceComponent: PriceComponent
-): SubscriptionComponentNewInternal => {
-  // Determine the billing period based on fee type
-  let period = SubscriptionFeeBillingPeriod.MONTHLY // Default
-
-  if (priceComponent.fee?.feeType?.case === 'usage') {
-    // For usage fees, use the term from the usage fee
-    const usageFee = priceComponent.fee.feeType.value
-    period = mapBillingPeriodToSubscriptionPeriod(usageFee.term)
-  } else if (priceComponent.fee?.feeType?.case === 'oneTime') {
-    period = SubscriptionFeeBillingPeriod.ONE_TIME
-  } else if (priceComponent.fee?.feeType?.case === 'rate') {
-    // Use the first rate's term
-    const rateFee = priceComponent.fee.feeType.value
-    if (rateFee.rates?.[0]?.term !== undefined) {
-      period = mapBillingPeriodToSubscriptionPeriod(rateFee.rates[0].term)
-    }
-  } else if (priceComponent.fee?.feeType?.case === 'slot') {
-    // Use the first rate's term
-    const slotFee = priceComponent.fee.feeType.value
-    if (slotFee.rates?.[0]?.term !== undefined) {
-      period = mapBillingPeriodToSubscriptionPeriod(slotFee.rates[0].term)
-    }
-  } else if (priceComponent.fee?.feeType?.case === 'capacity') {
-    // Use the term from capacity fee
-    const capacityFee = priceComponent.fee.feeType.value
-    if (capacityFee.term !== undefined) {
-      period = mapBillingPeriodToSubscriptionPeriod(capacityFee.term)
-    }
-  } else if (priceComponent.fee?.feeType?.case === 'extraRecurring') {
-    // Use the term from extra recurring fee if available
-    const recurringFee = priceComponent.fee.feeType.value
-    if (recurringFee.term !== undefined) {
-      period = mapBillingPeriodToSubscriptionPeriod(recurringFee.term)
-    }
-  }
-
-  const subscriptionComponent = new SubscriptionComponentNewInternal({
-    priceComponentId: priceComponent.id,
-    name: priceComponent.name,
-    period,
-  })
-
-  subscriptionComponent.fee = createSubscriptionFee(priceComponent) // No config = use defaults
-  return subscriptionComponent
-}
-
-const mapBillingPeriodToSubscriptionPeriod = (
-  billingPeriod: BillingPeriod
-): SubscriptionFeeBillingPeriod => {
-  switch (billingPeriod) {
-    case BillingPeriod.MONTHLY:
-      return SubscriptionFeeBillingPeriod.MONTHLY
-    case BillingPeriod.QUARTERLY:
-      return SubscriptionFeeBillingPeriod.QUARTERLY
-    case BillingPeriod.ANNUAL:
-      return SubscriptionFeeBillingPeriod.YEARLY
-    default:
-      return SubscriptionFeeBillingPeriod.MONTHLY
-  }
-}

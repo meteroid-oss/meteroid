@@ -11,5 +11,5 @@ interface ProductsHeaderProps {
 }
 
 export const ProductsHeader: FunctionComponent<ProductsHeaderProps> = props => {
-  return <CatalogHeader {...props} newButtonText="New product" />
+  return <CatalogHeader {...props} />
 }

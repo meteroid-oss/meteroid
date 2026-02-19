@@ -12,6 +12,7 @@ import {
   TableRow,
 } from '@md/ui'
 import {
+  ArrowLeftRight,
   ArrowUpDownIcon,
   ChevronDown,
   ChevronLeftIcon,
@@ -407,6 +408,13 @@ export const Subscription = () => {
                   <Pencil size="16" className="mr-2" />
                   Edit Billing Settings
                 </DropdownMenuItem>
+                {(data.status === SubscriptionStatus.ACTIVE ||
+                  data.status === SubscriptionStatus.TRIALING) && (
+                  <DropdownMenuItem onClick={() => navigate('change-plan')}>
+                    <ArrowLeftRight size="16" className="mr-2" />
+                    Change Plan
+                  </DropdownMenuItem>
+                )}
                 <DropdownMenuItem
                   disabled={!canCancelSubscription}
                   onClick={() => setShowCancelModal(true)}

@@ -20,6 +20,7 @@ message PlanFilters {
   optional string search = 1;
   repeated PlanType types = 2;
   repeated PlanStatus statuses = 3;
+  optional string currency = 4;
 }
 
 message PlanBillingConfiguration {
@@ -64,6 +65,7 @@ message PlanVersion {
   string currency = 6;
   optional int32 period_start_day = 8;
   int32 net_terms = 9;
+  bool uses_product_pricing = 10;
 }
 
 message ListPlanVersion {

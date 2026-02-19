@@ -5,10 +5,11 @@ use crate::meteroid_it::container::SeedLevel;
 use chrono::NaiveDate;
 use common_domain::country::CountryCode;
 use common_domain::ids::{BaseId, CustomerId, PlanVersionId, PriceComponentId};
-use diesel_models::enums::{PlanStatusEnum, PlanTypeEnum};
+use diesel_models::enums::{FeeTypeEnum as DieselFeeTypeEnum, PlanStatusEnum, PlanTypeEnum};
 use diesel_models::plan_versions::PlanVersionRowNew;
 use diesel_models::plans::{PlanRowNew, PlanRowPatch};
 use diesel_models::price_components::PriceComponentRowNew;
+use diesel_models::products::ProductRowNew;
 use meteroid::workers::pgmq::processors::{
     run_once_invoice_orchestration, run_once_outbox_dispatch,
 };
@@ -1222,6 +1223,7 @@ async fn create_plan_with_4_components(
                 created_by: USER_ID,
                 trialing_plan_id: None,
                 trial_is_free: false,
+                uses_product_pricing: true,
             }
             .insert(tx)
             .await?;
@@ -1240,19 +1242,33 @@ async fn create_plan_with_4_components(
             // Create 4 components with prices: 1000, 2000, 3000, 4000 cents
             for (i, component_id) in component_ids.iter().enumerate() {
                 let price = rust_decimal::Decimal::new(((i + 1) * 1000) as i64, 2);
+                let product_id = common_domain::ids::ProductId::new();
+                ProductRowNew {
+                    id: product_id,
+                    name: format!("Component {} Product", i + 1),
+                    description: None,
+                    created_by: USER_ID,
+                    tenant_id: TENANT_ID,
+                    product_family_id: PRODUCT_FAMILY_ID,
+                    fee_type: DieselFeeTypeEnum::Rate,
+                    fee_structure: serde_json::to_value(&meteroid_store::domain::prices::FeeStructure::Rate {}).unwrap(),
+                }
+                .insert(tx)
+                .await?;
+
                 PriceComponentRowNew {
                     id: *component_id,
                     name: format!("Component {}", i + 1),
-                    fee: FeeType::Rate {
+                    legacy_fee: Some(FeeType::Rate {
                         rates: vec![TermRate {
                             price,
                             term: BillingPeriodEnum::Monthly,
                         }],
                     }
                     .try_into()
-                    .unwrap(),
+                    .unwrap()),
                     plan_version_id,
-                    product_id: None,
+                    product_id: Some(product_id),
                     billable_metric_id: None,
                 }
                 .insert(tx)

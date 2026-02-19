@@ -75,3 +75,4 @@ k8s/*/values.*.yaml
 
 ## Temporary
 sdk
+docs

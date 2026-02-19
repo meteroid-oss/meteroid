@@ -18,6 +18,7 @@ use serde::de::DeserializeOwned;
 use serde::{Deserialize, Deserializer, de};
 use std::fmt;
 use std::str::FromStr;
+use std::sync::atomic::AtomicBool;
 use std::sync::Arc;
 use utoipa_axum::router::OpenApiRouter;
 
@@ -61,6 +62,7 @@ pub struct AppState {
     pub stripe_adapter: Arc<Stripe>,
     pub jwt_secret: SecretString,
     pub portal_url: String,
+    pub ready: Arc<AtomicBool>,
 }
 
 /// Serde deserialization decorator to map empty Strings to None,

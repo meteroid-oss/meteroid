@@ -65,6 +65,7 @@ pub struct PlanRowForSubscription {
     pub plan_type: PlanTypeEnum,
     pub trial_duration_days: Option<i32>,
     pub trial_is_free: bool,
+    pub product_family_id: ProductFamilyId,
 }
 
 #[derive(Debug, Queryable)]
@@ -119,4 +120,5 @@ pub struct PlanFilters {
     pub search: Option<String>,
     pub filter_status: Vec<PlanStatusEnum>,
     pub filter_type: Vec<PlanTypeEnum>,
+    pub filter_currency: Option<String>,
 }

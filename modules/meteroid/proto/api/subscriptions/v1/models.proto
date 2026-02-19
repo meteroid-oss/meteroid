@@ -4,6 +4,7 @@ import "api/shared/v1/shared.proto";
 
 import "api/schedules/v1/models.proto";
 import "api/pricecomponents/v1/models.proto";
+import "api/prices/v1/models.proto";
 import "api/coupons/v1/models.proto";
 import "api/connectors/v1/models.proto";
 
@@ -234,11 +235,14 @@ message CreateSubscriptionComponents {
 
   message ComponentOverride {
     string component_id = 1;
-    SubscriptionComponentNewInternal component = 2;
+    string name = 2;
+    meteroid.api.components.v1.PriceEntry price = 3;
   }
 
   message ExtraComponent {
-    SubscriptionComponentNewInternal component = 1;
+    string name = 1;
+    meteroid.api.components.v1.ProductRef product = 2;
+    meteroid.api.components.v1.PriceEntry price = 3;
   }
 }
 
@@ -267,6 +271,7 @@ message SubscriptionComponentNewInternal {
   string name = 3;
   SubscriptionFeeBillingPeriod period = 4;
   SubscriptionFee fee = 5;
+  optional string price_id = 6;
 }
 
 enum SubscriptionFeeBillingPeriod {
@@ -331,7 +336,7 @@ message SubscriptionFee {
     string rate = 1;
     uint32 quantity = 2;
     string total = 3;
-    meteroid.api.components.v1.Fee.BillingType billing_type = 4;
+    meteroid.api.prices.v1.FeeStructure.BillingType billing_type = 4;
   }
 
   message CapacitySubscriptionFee {
@@ -347,7 +352,7 @@ message SubscriptionFee {
     optional uint32 min_slots = 3;
     optional uint32 max_slots = 4;
     uint32 initial_slots = 5;
-    meteroid.api.components.v1.Fee.UpgradePolicy upgrade_policy = 6;
-    meteroid.api.components.v1.Fee.DowngradePolicy downgrade_policy = 7;
+    meteroid.api.prices.v1.FeeStructure.UpgradePolicy upgrade_policy = 6;
+    meteroid.api.prices.v1.FeeStructure.DowngradePolicy downgrade_policy = 7;
   }
 }

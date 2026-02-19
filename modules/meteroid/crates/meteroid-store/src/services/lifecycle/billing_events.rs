@@ -2,12 +2,13 @@ use crate::StoreResult;
 use crate::domain::ScheduledEventTypeEnum;
 use crate::domain::scheduled_events::{ScheduledEvent, ScheduledEventData};
 use crate::errors::StoreError;
+use crate::repositories::SubscriptionInterface;
 use crate::services::Services;
 use crate::store::PgConn;
 use crate::utils::errors::format_error_chain;
 use chrono::{Duration, NaiveDateTime, Utc};
 use diesel_async::scoped_futures::ScopedFutureExt;
-use diesel_models::enums::SubscriptionStatusEnum;
+use diesel_models::enums::{SubscriptionEventType, SubscriptionStatusEnum};
 use diesel_models::scheduled_events::ScheduledEventRow;
 use futures::stream::StreamExt;
 
@@ -228,21 +229,175 @@ impl Services {
         conn: &mut PgConn,
         event: &ScheduledEvent,
     ) -> StoreResult<()> {
-        if let ScheduledEventData::ApplyPlanChange { .. } = &event.event_data {
-            self.terminate_subscription(
-                conn,
-                event.tenant_id,
-                event.subscription_id,
-                event.scheduled_time.date(),
-                SubscriptionStatusEnum::Superseded,
-            )
-            .await?;
+        use crate::domain::scheduled_events::ComponentMapping;
+        use crate::domain::subscription_components::{SubscriptionComponentNew, SubscriptionComponentNewInternal};
+        use crate::services::subscriptions::utils::calculate_mrr;
+        use diesel_models::subscription_components::{SubscriptionComponentRow, SubscriptionComponentRowNew};
+        use diesel_models::subscriptions::SubscriptionRow;
 
-            // TODO we need more things in that event, to be able to initiate the subscription
-            todo!();
+        if let ScheduledEventData::ApplyPlanChange {
+            new_plan_version_id,
+            ref component_mappings,
+        } = event.event_data
+        {
+            // 1. Update subscription's plan_version_id
+            SubscriptionRow::update_plan_version(
+                conn,
+                &event.subscription_id,
+                &event.tenant_id,
+                new_plan_version_id,
+            )
+            .await
+            .map_err(Into::<error_stack::Report<StoreError>>::into)?;
+
+            // 2. Process component mappings
+            let mut components_to_delete = Vec::new();
+            let mut components_to_insert: Vec<SubscriptionComponentRowNew> = Vec::new();
+            let apply_date = event.scheduled_time.date();
+
+            for mapping in component_mappings {
+                match mapping {
+                    ComponentMapping::Matched {
+                        current_component_id,
+                        target_component_id,
+                        price_id,
+                        name,
+                        fee,
+                        period,
+                        ..
+                    } => {
+                        let fee_json: serde_json::Value = fee.clone().try_into().map_err(|_| {
+                            StoreError::InvalidArgument(
+                                "Failed to serialize fee for plan change".to_string(),
+                            )
+                        })?;
+
+                        SubscriptionComponentRow::update_for_plan_change(
+                            conn,
+                            *current_component_id,
+                            *target_component_id,
+                            Some(*price_id),
+                            name.clone(),
+                            fee_json,
+                            (*period).into(),
+                        )
+                        .await
+                        .map_err(Into::<error_stack::Report<StoreError>>::into)?;
+                    }
+                    ComponentMapping::Added {
+                        target_component_id,
+                        product_id,
+                        price_id,
+                        name,
+                        fee,
+                        period,
+                    } => {
+                        let row_new: SubscriptionComponentRowNew = SubscriptionComponentNew {
+                            subscription_id: event.subscription_id,
+                            internal: SubscriptionComponentNewInternal {
+                                price_component_id: Some(*target_component_id),
+                                product_id: *product_id,
+                                name: name.clone(),
+                                period: *period,
+                                fee: fee.clone(),
+                                is_override: false,
+                                price_id: *price_id,
+                            },
+                        }
+                        .try_into()
+                        .map_err(|_| {
+                            StoreError::InvalidArgument(
+                                "Failed to convert new component for plan change".to_string(),
+                            )
+                        })?;
+
+                        components_to_insert.push(row_new);
+                    }
+                    ComponentMapping::Removed {
+                        current_component_id,
+                    } => {
+                        components_to_delete.push(*current_component_id);
+                    }
+                }
+            }
+
+            // Delete removed components
+            SubscriptionComponentRow::delete_by_ids(conn, &components_to_delete)
+                .await
+                .map_err(Into::<error_stack::Report<StoreError>>::into)?;
+
+            // Insert new components
+            if !components_to_insert.is_empty() {
+                let refs: Vec<&SubscriptionComponentRowNew> = components_to_insert.iter().collect();
+                SubscriptionComponentRow::insert_subscription_component_batch(conn, refs)
+                    .await
+                    .map_err(Into::<error_stack::Report<StoreError>>::into)?;
+            }
+
+            // 3. Insert Switch subscription event
+            let sub_event = diesel_models::subscription_events::SubscriptionEventRow {
+                id: uuid::Uuid::now_v7(),
+                subscription_id: event.subscription_id,
+                event_type: SubscriptionEventType::Switch,
+                details: Some(serde_json::json!({
+                    "new_plan_version_id": new_plan_version_id.to_string(),
+                })),
+                created_at: chrono::Utc::now().naive_utc(),
+                mrr_delta: None, // MRR delta computed below
+                bi_mrr_movement_log_id: None,
+                applies_to: apply_date,
+            };
+            sub_event
+                .insert(conn)
+                .await
+                .map_err(Into::<error_stack::Report<StoreError>>::into)?;
+
+            // 4. Recalculate MRR
+            let sub_details = self
+                .store
+                .get_subscription_details_with_conn(
+                    conn,
+                    event.tenant_id,
+                    event.subscription_id,
+                )
+                .await?;
+
+            let precision = crate::constants::Currencies::resolve_currency_precision(
+                &sub_details.subscription.currency,
+            )
+            .unwrap_or(2);
+
+            let new_mrr: i64 = sub_details
+                .price_components
+                .iter()
+                .map(|c| calculate_mrr(&c.fee, &c.period, precision))
+                .sum();
+
+            let old_mrr = sub_details.subscription.mrr_cents as i64;
+            let mrr_delta = new_mrr - old_mrr;
+
+            if mrr_delta != 0 {
+                SubscriptionRow::update_subscription_mrr_delta(
+                    conn,
+                    event.subscription_id,
+                    mrr_delta,
+                )
+                .await
+                .map_err(Into::<error_stack::Report<StoreError>>::into)?;
+            }
+
+            log::info!(
+                "Applied plan change for subscription {}: plan_version={}, matched={}, added={}, removed={}, mrr_delta={}",
+                event.subscription_id,
+                new_plan_version_id,
+                component_mappings.iter().filter(|m| matches!(m, ComponentMapping::Matched { .. })).count(),
+                component_mappings.iter().filter(|m| matches!(m, ComponentMapping::Added { .. })).count(),
+                component_mappings.iter().filter(|m| matches!(m, ComponentMapping::Removed { .. })).count(),
+                mrr_delta,
+            );
         } else {
             log::error!(
-                "Unexpected event data for type CancelSubscription: {:?}, event_id={}",
+                "Unexpected event data for type ApplyPlanChange: {:?}, event_id={}",
                 event.event_data,
                 event.id
             );

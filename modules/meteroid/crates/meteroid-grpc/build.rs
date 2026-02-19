@@ -27,6 +27,7 @@ fn generate_grpc_types(root: &Path) -> Result<(), Report<BuildError>> {
         "organizations",
         "plans",
         "pricecomponents",
+        "prices",
         "productfamilies",
         "products",
         "quotes",

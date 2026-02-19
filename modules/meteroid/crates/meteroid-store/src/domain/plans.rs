@@ -10,17 +10,17 @@ use diesel_models::plans::PlanRowOverview;
 use diesel_models::plans::PlanRowPatch;
 use diesel_models::plans::PlanVersionRowInfo;
 use diesel_models::plans::PlanWithVersionRow;
-use diesel_models::plans::{FullPlanRow, PlanFilters as PlanFiltersDb};
+use diesel_models::plans::{PlanFilters as PlanFiltersDb};
 
 use super::enums::{PlanStatusEnum, PlanTypeEnum};
-use common_domain::ids::{BaseId, PlanId, PlanVersionId, ProductFamilyId, TenantId};
+use common_domain::ids::{BaseId, PlanId, PlanVersionId, ProductFamilyId, ProductId, TenantId};
 use o2o::o2o;
+use std::collections::HashMap;
 use uuid::Uuid;
 
-use crate::StoreResult;
 use crate::domain::ProductFamilyOverview;
 use crate::domain::price_components::{PriceComponent, PriceComponentNewInternal};
-use crate::errors::StoreErrorReport;
+use crate::domain::products::Product;
 
 #[derive(Debug, Clone)]
 pub enum PlanVersionFilter {
@@ -124,6 +124,7 @@ impl PlanVersionNew {
             net_terms: self.internal.net_terms,
             currency: self.internal.currency.unwrap_or(tenant_currency),
             billing_cycles: self.internal.billing_cycles,
+            uses_product_pricing: true,
         }
     }
 }
@@ -163,6 +164,7 @@ pub struct PlanVersion {
     pub trialing_plan_id: Option<PlanId>,
     pub trial_is_free: bool,
     pub trial_duration_days: Option<i32>,
+    pub uses_product_pricing: bool,
 }
 
 #[derive(Clone, Debug, o2o)]
@@ -224,6 +226,7 @@ pub struct PlanForSubscription {
     pub plan_type: PlanTypeEnum,
     pub trial_duration_days: Option<i32>,
     pub trial_is_free: bool,
+    pub product_family_id: ProductFamilyId,
 }
 
 #[derive(Clone, Debug, o2o)]
@@ -261,17 +264,13 @@ pub struct PlanWithVersion {
     pub version: Option<PlanVersion>,
 }
 
-#[derive(Debug, Clone, o2o)]
-#[try_from_owned(FullPlanRow, StoreErrorReport)]
+#[derive(Debug, Clone)]
 pub struct FullPlan {
-    #[from(~.into())]
     pub plan: Plan,
-    #[from(~.into())]
     pub version: PlanVersion,
-    #[from(~.into_iter().map(| v | v.try_into()).collect::<StoreResult<Vec<_>>>()?)]
     pub price_components: Vec<PriceComponent>,
-    #[from(~.into())]
     pub product_family: ProductFamilyOverview,
+    pub products: HashMap<ProductId, Product>,
 }
 
 pub struct TrialPatch {
@@ -288,4 +287,5 @@ pub struct PlanFilters {
     pub filter_status: Vec<PlanStatusEnum>,
     #[into(~.into_iter().map(| v | v.into()).collect::< Vec < _ >> ())]
     pub filter_type: Vec<PlanTypeEnum>,
+    pub filter_currency: Option<String>,
 }

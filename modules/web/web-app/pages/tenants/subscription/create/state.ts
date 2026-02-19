@@ -1,31 +1,12 @@
 
 import { atomWithReset } from 'jotai/utils'
 
+import type { ComponentFeeType } from '@/features/pricing'
+import { Price } from '@/rpc/api/prices/v1/models_pb'
 import { BillingPeriod } from '@/rpc/api/shared/v1/shared_pb'
 import { ActivationCondition } from '@/rpc/api/subscriptions/v1/models_pb'
 
 export type PaymentMethodsConfigType = 'online' | 'bankTransfer' | 'external'
-
-// Subscription-specific fee types (not plan fee types)
-export interface SubscriptionFeeData {
-  unitPrice: string
-  quantity?: number
-  // Slot-specific
-  slotUnitName?: string
-  minSlots?: number
-  maxSlots?: number
-  // Capacity-specific
-  includedAmount?: string
-  overageRate?: string
-  metricId?: string
-  // Rate-specific
-  billingType?: 'ARREAR' | 'ADVANCE'
-}
-
-export interface SubscriptionFeeType {
-  fee: 'rate' | 'oneTime' | 'extraRecurring' | 'slot' | 'capacity' | 'usage'
-  data: SubscriptionFeeData
-}
 
 // Component configuration types
 export interface ComponentParameterization {
@@ -38,13 +19,17 @@ export interface ComponentParameterization {
 export interface ComponentOverride {
   componentId: string
   name: string
-  fee: SubscriptionFeeType
+  feeType: ComponentFeeType
+  formData: Record<string, unknown>
+  productId?: string
 }
 
 export interface ExtraComponent {
   name: string
-  fee: SubscriptionFeeType
-  billingPeriod?: BillingPeriod
+  description?: string
+  feeType: ComponentFeeType
+  formData: Record<string, unknown>
+  productId?: string
 }
 
 export interface CreateSubscriptionAddOn {
@@ -56,7 +41,7 @@ export interface CreateSubscriptionAddOn {
   }
   override?: {
     name: string
-    fee: SubscriptionFeeType
+    price: Price
   }
 }
 
@@ -85,7 +70,6 @@ export interface CreateSubscriptionState {
   purchaseOrder?: string
   autoAdvanceInvoices: boolean
   chargeAutomatically: boolean
-  // Migration mode: skip past invoices when start_date is in the past
   skipPastInvoices: boolean
 
   // Components configuration
@@ -102,18 +86,15 @@ export interface CreateSubscriptionState {
 }
 
 export const createSubscriptionAtom = atomWithReset<CreateSubscriptionState>({
-  // Basic info
   customerId: undefined,
   planVersionId: undefined,
 
-  // Timing & billing
   startDate: new Date(),
   endDate: undefined,
   billingDayAnchor: undefined,
   billingDay: 'SUB_START_DAY',
   trialDuration: undefined,
 
-  // Advanced settings
   activationCondition: ActivationCondition.ON_START,
   paymentMethodsType: 'online',
   netTerms: 30,
@@ -124,7 +105,6 @@ export const createSubscriptionAtom = atomWithReset<CreateSubscriptionState>({
   chargeAutomatically: true,
   skipPastInvoices: false,
 
-  // Components configuration
   components: {
     parameterized: [],
     overridden: [],
@@ -132,7 +112,6 @@ export const createSubscriptionAtom = atomWithReset<CreateSubscriptionState>({
     removed: []
   },
 
-  // Add-ons & coupons
   addOns: [],
   coupons: []
 })

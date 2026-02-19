@@ -16,6 +16,7 @@ types:
     - meteroid.api.invoices.v1.InvoicesService
     - meteroid.api.plans.v1.PlansService
     - meteroid.api.components.v1.PriceComponentsService
+    - meteroid.api.prices.v1.PricesService
     - meteroid.api.productfamilies.v1.ProductFamiliesService
     - meteroid.api.products.v1.ProductsService
     - meteroid.api.quotes.v1.QuotesService

@@ -3,7 +3,7 @@ import { InfoIcon } from '@md/icons'
 import { Alert, Button, Tabs, TabsContent, TabsList, TabsTrigger } from '@md/ui'
 import { PaginationState } from '@tanstack/react-table'
 import { ScopeProvider } from 'jotai-scope'
-import { ChevronLeftIcon, ExternalLinkIcon, Plus } from 'lucide-react'
+import { AlertTriangleIcon, ChevronLeftIcon, ExternalLinkIcon, Plus } from 'lucide-react'
 import { ReactNode, useState } from 'react'
 import { Link, useNavigate, useParams } from 'react-router-dom'
 
@@ -19,7 +19,7 @@ import {
   usePlanWithVersion,
 } from '@/features/plans/hooks/usePlan'
 import { PriceComponentSection } from '@/features/plans/pricecomponents/PriceComponentSection'
-import { addedComponentsAtom, editedComponentsAtom } from '@/features/plans/pricecomponents/utils'
+import { editedComponentsAtom } from '@/features/plans/pricecomponents/utils'
 import { PlanTrial } from '@/features/plans/trial/PlanTrial'
 import { SubscriptionsTable } from '@/features/subscriptions'
 import { useBasePath } from '@/hooks/useBasePath'
@@ -37,6 +37,7 @@ export const PlanBuilder: React.FC<Props> = ({ children }) => {
 
   const isDraft = useIsDraftVersion()
   const overview = usePlanOverview()
+  const { version } = usePlanWithVersion()
 
   // Only show the draft alert when:
   // 1. Not viewing the draft itself (!isDraft)
@@ -46,7 +47,7 @@ export const PlanBuilder: React.FC<Props> = ({ children }) => {
   const showDraftAlert = !isDraft && overview?.hasDraftVersion && !planVersion
 
   return (
-    <ScopeProvider atoms={[addedComponentsAtom, editedComponentsAtom]}>
+    <ScopeProvider atoms={[editedComponentsAtom]}>
       <div className="flex h-full w-full flex-col space-y-4">
         <section className="flex justify-between pb-2 border-b border-border">
           <div className="flex space-x-2 flex-row items-center">
@@ -61,7 +62,17 @@ export const PlanBuilder: React.FC<Props> = ({ children }) => {
           </div>
         </section>
 
-        {isDraft && <PlanBody/>}
+        {isDraft && version && !version.usesProductPricing && (
+          <div className="relative">
+            <div className="opacity-20 pointer-events-none select-none" aria-hidden>
+              <PlanBody/>
+            </div>
+            <div className="absolute inset-0 flex items-start justify-center pt-16">
+              <OutdatedDraftAlert />
+            </div>
+          </div>
+        )}
+        {isDraft && (!version || version.usesProductPricing) && <PlanBody/>}
         {!isDraft && (
           <>
             {showDraftAlert && (
@@ -112,6 +123,21 @@ export const PlanBuilder: React.FC<Props> = ({ children }) => {
       </div>
       {children}
     </ScopeProvider>
+  )
+}
+
+const OutdatedDraftAlert = () => {
+  return (
+    <div className="flex flex-col items-center justify-center py-16 gap-4">
+      <div className="flex items-center gap-2 text-warning">
+        <AlertTriangleIcon size={20} />
+        <span className="text-sm font-medium">Outdated draft</span>
+      </div>
+      <p className="text-sm text-muted-foreground text-center max-w-md">
+        This draft was created before a pricing model update and is no longer editable.
+        Please discard it and create a new version from the published plan.
+      </p>
+    </div>
   )
 }
 

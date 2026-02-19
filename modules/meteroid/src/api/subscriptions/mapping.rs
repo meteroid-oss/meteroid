@@ -360,16 +360,17 @@ pub mod subscriptions {
 pub mod price_components {
     // In meteroid/src/subscription/mod.rs
 
+    use crate::api::pricecomponents::mapping::components::{
+        price_entries_from_proto, product_ref_from_proto,
+    };
     use crate::api::shared::conversions::ProtoConv;
-    use itertools::Itertools;
     use meteroid_grpc::meteroid::api::components::v1 as api_components;
+    use meteroid_grpc::meteroid::api::prices::v1 as api_prices;
     use meteroid_grpc::meteroid::api::shared::v1 as api_shared;
     use meteroid_grpc::meteroid::api::subscriptions::v1 as api;
     use meteroid_store::domain;
 
-    use common_domain::ids::{BillableMetricId, PriceComponentId, ProductId};
-    use meteroid_grpc::meteroid::api::components::v1::usage_fee::TieredAndVolume;
-    use meteroid_grpc::meteroid::api::components::v1::usage_fee::matrix::MatrixDimension;
+    use common_domain::ids::{BillableMetricId, PriceComponentId};
     use meteroid_store::domain::BillingPeriodEnum;
     use tonic::{Code, Result, Status};
 
@@ -405,16 +406,21 @@ pub mod price_components {
             .into_iter()
             .map(|c| {
                 let component_id = PriceComponentId::from_proto(&c.component_id)?;
-                let component = c
-                    .component
+                let price_entry = price_entries_from_proto(vec![c
+                    .price
                     .ok_or_else(|| {
-                        Status::invalid_argument("Missing overridden component data".to_string())
-                    })
-                    .and_then(subscription_component_new_internal_from_grpc)?;
+                        Status::invalid_argument("Missing override price entry".to_string())
+                    })?])?
+                .into_iter()
+                .next()
+                .ok_or_else(|| {
+                    Status::invalid_argument("Missing override price entry".to_string())
+                })?;
 
                 Ok::<_, Status>(domain::ComponentOverride {
                     component_id,
-                    component,
+                    name: c.name,
+                    price_entry,
                 })
             })
             .collect::<Result<Vec<_>, _>>()?;
@@ -423,14 +429,23 @@ pub mod price_components {
             .extra_components
             .into_iter()
             .map(|c| {
-                let component = c
-                    .component
+                let product_ref = product_ref_from_proto(c.product)?;
+                let price_entry = price_entries_from_proto(vec![c
+                    .price
                     .ok_or_else(|| {
-                        Status::invalid_argument("Missing extra component data".to_string())
-                    })
-                    .and_then(subscription_component_new_internal_from_grpc)?;
+                        Status::invalid_argument("Missing extra component price entry".to_string())
+                    })?])?
+                .into_iter()
+                .next()
+                .ok_or_else(|| {
+                    Status::invalid_argument("Missing extra component price entry".to_string())
+                })?;
 
-                Ok::<_, Status>(domain::ExtraComponent { component })
+                Ok::<_, Status>(domain::ExtraComponent {
+                    name: c.name,
+                    product_ref,
+                    price_entry,
+                })
             })
             .collect::<Result<Vec<_>, _>>()?;
 
@@ -468,25 +483,6 @@ pub mod price_components {
                 api::SubscriptionFeeBillingPeriod::Yearly
             }
         }
-    }
-
-    fn subscription_component_new_internal_from_grpc(
-        component: api::SubscriptionComponentNewInternal,
-    ) -> Result<domain::SubscriptionComponentNewInternal> {
-        Ok(domain::SubscriptionComponentNewInternal {
-            period: subscription_fee_billing_period_from_grpc(component.period())?,
-            price_component_id: component
-                .price_component_id
-                .map(|id| PriceComponentId::from_proto(&id))
-                .transpose()?,
-            product_id: component
-                .product_id
-                .map(ProductId::from_proto)
-                .transpose()?,
-            name: component.name.clone(),
-            fee: subscription_fee_from_grpc(&component.fee)?,
-            is_override: false,
-        })
     }
 
     pub fn subscription_component_to_grpc(
@@ -589,77 +585,37 @@ pub mod price_components {
         model: &domain::UsagePricingModel,
         cadence: BillingPeriodEnum,
     ) -> api_components::UsageFee {
-        match model {
-            domain::UsagePricingModel::PerUnit { rate } => api_components::UsageFee {
-                metric_id: metric_id.as_proto(),
-                model: Some(api_components::usage_fee::Model::PerUnit(rate.as_proto())),
-                term: billing_period_to_grpc(cadence).into(),
-            },
-            domain::UsagePricingModel::Tiered { tiers, block_size } => api_components::UsageFee {
-                metric_id: metric_id.as_proto(),
-                model: Some(api_components::usage_fee::Model::Tiered(
-                    api_components::usage_fee::TieredAndVolume {
-                        rows: tiers.iter().map(tier_row_to_grpc).collect(),
-                        block_size: *block_size,
-                    },
-                )),
-                term: billing_period_to_grpc(cadence).into(),
-            },
-            domain::UsagePricingModel::Volume { tiers, block_size } => api_components::UsageFee {
-                metric_id: metric_id.as_proto(),
-                model: Some(api_components::usage_fee::Model::Volume(
-                    api_components::usage_fee::TieredAndVolume {
-                        rows: tiers.iter().map(tier_row_to_grpc).collect(),
-                        block_size: *block_size,
-                    },
-                )),
-                term: billing_period_to_grpc(cadence).into(),
-            },
-            domain::UsagePricingModel::Package { block_size, rate } => api_components::UsageFee {
-                metric_id: metric_id.as_proto(),
-                model: Some(api_components::usage_fee::Model::Package(
-                    api_components::usage_fee::Package {
-                        block_size: *block_size,
-                        package_price: rate.as_proto(),
-                    },
-                )),
-                term: billing_period_to_grpc(cadence).into(),
-            },
-            domain::UsagePricingModel::Matrix { rates } => api_components::UsageFee {
-                metric_id: metric_id.as_proto(),
-                model: Some(api_components::usage_fee::Model::Matrix(
-                    api_components::usage_fee::Matrix {
-                        rows: rates
-                            .iter()
-                            .map(|r| api_components::usage_fee::matrix::MatrixRow {
-                                dimension1: Some(
-                                    api_components::usage_fee::matrix::MatrixDimension {
-                                        key: r.dimension1.key.clone(),
-                                        value: r.dimension1.value.clone(),
-                                    },
-                                ),
-                                dimension2: r.dimension2.as_ref().map(|d| MatrixDimension {
-                                    key: d.key.clone(),
-                                    value: d.value.clone(),
-                                }),
-                                per_unit_price: r.per_unit_price.as_proto(),
-                            })
-                            .collect(),
-                    },
-                )),
-                term: billing_period_to_grpc(cadence).into(),
-            },
+        use crate::api::prices::mapping::prices::usage_model_to_proto;
+
+        let pricing = usage_model_to_proto(model);
+        let fee_model = pricing.model.map(usage_pricing_model_to_fee);
+
+        api_components::UsageFee {
+            metric_id: metric_id.as_proto(),
+            model: fee_model,
+            term: billing_period_to_grpc(cadence).into(),
         }
     }
 
-    pub fn tier_row_to_grpc(
-        tier: &domain::TierRow,
-    ) -> api_components::usage_fee::tiered_and_volume::TierRow {
-        api_components::usage_fee::tiered_and_volume::TierRow {
-            first_unit: tier.first_unit,
-            unit_price: tier.rate.as_proto(),
-            flat_fee: tier.flat_fee.map(|fee| fee.as_proto()),
-            flat_cap: tier.flat_cap.map(|cap| cap.as_proto()),
+    fn usage_pricing_model_to_fee(
+        model: api_prices::usage_pricing::Model,
+    ) -> api_components::usage_fee::Model {
+        match model {
+            api_prices::usage_pricing::Model::PerUnit(v) => {
+                api_components::usage_fee::Model::PerUnit(v)
+            }
+            api_prices::usage_pricing::Model::Tiered(v) => {
+                api_components::usage_fee::Model::Tiered(v)
+            }
+            api_prices::usage_pricing::Model::Volume(v) => {
+                api_components::usage_fee::Model::Volume(v)
+            }
+            api_prices::usage_pricing::Model::Package(v) => {
+                api_components::usage_fee::Model::Package(v)
+            }
+            api_prices::usage_pricing::Model::Matrix(v) => {
+                api_components::usage_fee::Model::Matrix(v)
+            }
         }
     }
 
@@ -723,96 +679,35 @@ pub mod price_components {
     pub fn usage_pricing_model_from_grpc(
         usage: &api_components::UsageFee,
     ) -> Result<domain::UsagePricingModel, Status> {
-        match usage.model.as_ref() {
-            Some(api_components::usage_fee::Model::PerUnit(per_unit)) => {
-                let per_unit = rust_decimal::Decimal::from_proto_ref(per_unit)?;
-                Ok(domain::UsagePricingModel::PerUnit { rate: per_unit })
-            }
-            Some(api_components::usage_fee::Model::Tiered(tiered)) => {
-                validate_tiered_and_volume(tiered)?;
+        use crate::api::prices::mapping::prices::usage_model_from_proto;
 
-                let tiers = tiered
-                    .rows
-                    .iter()
-                    .map(tier_row_from_grpc)
-                    .collect::<Result<Vec<_>, _>>()?;
-                Ok(domain::UsagePricingModel::Tiered {
-                    tiers,
-                    block_size: None, // TODO
-                })
-            }
-            Some(api_components::usage_fee::Model::Volume(volume)) => {
-                validate_tiered_and_volume(volume)?;
-
-                let tiers = volume
-                    .rows
-                    .iter()
-                    .map(tier_row_from_grpc)
-                    .collect::<Result<Vec<_>, _>>()?;
-                Ok(domain::UsagePricingModel::Volume {
-                    tiers,
-                    block_size: None, // TODO
-                })
-            }
-            Some(api_components::usage_fee::Model::Package(package)) => {
-                let block_size = package.block_size;
-                let rate = rust_decimal::Decimal::from_proto_ref(&package.package_price)?;
-                Ok(domain::UsagePricingModel::Package { block_size, rate })
-            }
-            Some(api_components::usage_fee::Model::Matrix(matrix)) => {
-                let rates = matrix
-                    .rows
-                    .iter()
-                    .map(|r| {
-                        let dimension1 = r
-                            .dimension1
-                            .as_ref()
-                            .ok_or(Status::invalid_argument("Missing dimension1"))?;
-
-                        Ok::<_, Status>(domain::MatrixRow {
-                            dimension1: domain::MatrixDimension {
-                                key: dimension1.key.clone(),
-                                value: dimension1.value.clone(),
-                            },
-                            dimension2: r.dimension2.as_ref().map(|d| domain::MatrixDimension {
-                                key: d.key.clone(),
-                                value: d.value.clone(),
-                            }),
-                            per_unit_price: rust_decimal::Decimal::from_proto_ref(
-                                &r.per_unit_price,
-                            )?,
-                        })
-                    })
-                    .collect::<Result<Vec<_>, _>>()?;
-                Ok(domain::UsagePricingModel::Matrix { rates })
-            }
-            None => Err(Status::new(
-                Code::InvalidArgument,
-                "Missing usage pricing model",
-            )),
-        }
+        let pricing_model = usage.model.as_ref().map(fee_model_to_usage_pricing);
+        let as_pricing = api_prices::UsagePricing {
+            model: pricing_model,
+        };
+        usage_model_from_proto(&as_pricing)
     }
 
-    pub fn tier_row_from_grpc(
-        tier: &api_components::usage_fee::tiered_and_volume::TierRow,
-    ) -> Result<domain::TierRow, Status> {
-        let rate = rust_decimal::Decimal::from_proto_ref(&tier.unit_price)?;
-        let flat_fee = tier
-            .flat_fee
-            .as_ref()
-            .map(rust_decimal::Decimal::from_proto_ref)
-            .transpose()?;
-        let flat_cap = tier
-            .flat_cap
-            .as_ref()
-            .map(rust_decimal::Decimal::from_proto_ref)
-            .transpose()?;
-        Ok(domain::TierRow {
-            first_unit: tier.first_unit,
-            rate,
-            flat_fee,
-            flat_cap,
-        })
+    fn fee_model_to_usage_pricing(
+        model: &api_components::usage_fee::Model,
+    ) -> api_prices::usage_pricing::Model {
+        match model {
+            api_components::usage_fee::Model::PerUnit(v) => {
+                api_prices::usage_pricing::Model::PerUnit(v.clone())
+            }
+            api_components::usage_fee::Model::Tiered(v) => {
+                api_prices::usage_pricing::Model::Tiered(v.clone())
+            }
+            api_components::usage_fee::Model::Volume(v) => {
+                api_prices::usage_pricing::Model::Volume(v.clone())
+            }
+            api_components::usage_fee::Model::Package(v) => {
+                api_prices::usage_pricing::Model::Package(v.clone())
+            }
+            api_components::usage_fee::Model::Matrix(v) => {
+                api_prices::usage_pricing::Model::Matrix(v.clone())
+            }
+        }
     }
 
     pub fn subscription_fee_billing_period_from_grpc(
@@ -838,20 +733,24 @@ pub mod price_components {
     }
 
     pub fn billing_type_from_grpc(
-        billing_type: api_components::fee::BillingType,
+        billing_type: api_prices::fee_structure::BillingType,
     ) -> Result<domain::enums::BillingType, Status> {
         match billing_type {
-            api_components::fee::BillingType::Arrear => Ok(domain::enums::BillingType::Arrears),
-            api_components::fee::BillingType::Advance => Ok(domain::enums::BillingType::Advance),
+            api_prices::fee_structure::BillingType::Arrear => {
+                Ok(domain::enums::BillingType::Arrears)
+            }
+            api_prices::fee_structure::BillingType::Advance => {
+                Ok(domain::enums::BillingType::Advance)
+            }
         }
     }
 
     pub fn billing_type_to_grpc(
         billing_type: domain::enums::BillingType,
-    ) -> api_components::fee::BillingType {
+    ) -> api_prices::fee_structure::BillingType {
         match billing_type {
-            domain::enums::BillingType::Arrears => api_components::fee::BillingType::Arrear,
-            domain::enums::BillingType::Advance => api_components::fee::BillingType::Advance,
+            domain::enums::BillingType::Arrears => api_prices::fee_structure::BillingType::Arrear,
+            domain::enums::BillingType::Advance => api_prices::fee_structure::BillingType::Advance,
         }
     }
 
@@ -866,22 +765,6 @@ pub mod price_components {
         }
     }
 
-    /// rows must non-empty, sorted by `first_unit` asc and unique by `first_unit`
-    fn validate_tiered_and_volume(tiered_and_volume: &TieredAndVolume) -> Result<(), Status> {
-        let is_sorted_and_unique = tiered_and_volume
-            .rows
-            .iter()
-            .map(|r| r.first_unit)
-            .tuple_windows()
-            .all(|(a, b)| a < b);
-
-        if tiered_and_volume.rows.is_empty() || !is_sorted_and_unique {
-            return Err(Status::invalid_argument(
-                "TieredAndVolume rows must be non-empty, sorted in ascending order and unique",
-            ));
-        }
-        Ok(())
-    }
 
     fn billing_period_to_grpc(period: BillingPeriodEnum) -> api_shared::BillingPeriod {
         match period {
@@ -982,6 +865,44 @@ pub mod ext {
         billing_type_from_grpc, billing_type_to_grpc, usage_pricing_model_from_grpc,
         usage_pricing_model_to_grpc,
     };
+}
+
+pub mod plan_change {
+    use super::price_components::map_billing_period_from_grpc;
+    use common_domain::ids::PriceComponentId;
+    use meteroid_grpc::meteroid::api::shared::v1 as api_shared;
+    use meteroid_grpc::meteroid::api::subscriptions::v1 as api;
+    use meteroid_store::domain::subscription_components::{
+        ComponentParameterization, ComponentParameters,
+    };
+    use tonic::Status;
+
+    pub fn map_component_parameterizations(
+        protos: Vec<api::PlanChangeComponentParameterization>,
+    ) -> Result<Vec<ComponentParameterization>, Status> {
+        protos
+            .into_iter()
+            .map(|p| {
+                let component_id = PriceComponentId::from_proto(&p.component_id)?;
+
+                let billing_period = p
+                    .billing_period
+                    .map(api_shared::BillingPeriod::try_from)
+                    .transpose()
+                    .map_err(|_| Status::invalid_argument("Invalid billing period"))?
+                    .map(map_billing_period_from_grpc);
+
+                Ok(ComponentParameterization {
+                    component_id,
+                    parameters: ComponentParameters {
+                        initial_slot_count: p.initial_slot_count,
+                        billing_period,
+                        committed_capacity: p.committed_capacity,
+                    },
+                })
+            })
+            .collect()
+    }
 }
 
 pub mod coupons {

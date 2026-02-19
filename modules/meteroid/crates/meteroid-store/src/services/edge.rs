@@ -27,7 +27,7 @@ use chrono::Datelike;
 use chrono::{NaiveDate, Utc};
 use common_domain::ids::{
     AppliedCouponId, BaseId, CheckoutSessionId, CustomerConnectionId, CustomerPaymentMethodId,
-    InvoiceId, SubscriptionId, TenantId,
+    InvoiceId, PlanVersionId, SubscriptionId, TenantId,
 };
 use diesel_async::scoped_futures::ScopedFutureExt;
 use diesel_models::applied_coupons::AppliedCouponRowNew;
@@ -701,6 +701,64 @@ impl ServicesEdge {
             .cancel_subscription(subscription_id, tenant_id, reason, effective_at, actor)
             .await
     }
+
+    pub async fn schedule_plan_change(
+        &self,
+        subscription_id: SubscriptionId,
+        tenant_id: TenantId,
+        new_plan_version_id: PlanVersionId,
+        component_params: Vec<crate::domain::subscription_components::ComponentParameterization>,
+    ) -> StoreResult<crate::domain::scheduled_events::ScheduledEvent> {
+        self.services
+            .schedule_plan_change(subscription_id, tenant_id, new_plan_version_id, component_params)
+            .await
+    }
+
+    pub async fn preview_plan_change(
+        &self,
+        subscription_id: SubscriptionId,
+        tenant_id: TenantId,
+        new_plan_version_id: PlanVersionId,
+        component_params: Vec<crate::domain::subscription_components::ComponentParameterization>,
+    ) -> StoreResult<crate::domain::subscription_changes::PlanChangePreview> {
+        self.services
+            .preview_plan_change(subscription_id, tenant_id, new_plan_version_id, component_params)
+            .await
+    }
+
+    pub async fn cancel_plan_change(
+        &self,
+        subscription_id: SubscriptionId,
+        tenant_id: TenantId,
+    ) -> StoreResult<()> {
+        self.services
+            .cancel_plan_change(subscription_id, tenant_id)
+            .await
+    }
+
+    pub async fn update_matrix_prices(
+        &self,
+        tenant_id: TenantId,
+        product_id: common_domain::ids::ProductId,
+        update: crate::domain::prices::MatrixPriceUpdate,
+        actor: uuid::Uuid,
+    ) -> StoreResult<Vec<crate::domain::prices::Price>> {
+        self.services
+            .update_matrix_prices(tenant_id, product_id, update, actor)
+            .await
+    }
+
+    pub async fn preview_matrix_update(
+        &self,
+        tenant_id: TenantId,
+        product_id: common_domain::ids::ProductId,
+        update: &crate::domain::prices::MatrixPriceUpdate,
+    ) -> StoreResult<crate::domain::prices::MatrixUpdatePreview> {
+        self.services
+            .preview_matrix_update(tenant_id, product_id, update)
+            .await
+    }
+
 
     pub async fn on_invoice_accounting_pdf_generated(
         &self,

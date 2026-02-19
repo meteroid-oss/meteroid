@@ -1,229 +1,117 @@
 pub mod components {
     use crate::api::domain_mapping::billing_period;
-
-    use crate::api::shared::conversions::ProtoConv;
-    use crate::api::subscriptions::ext::{
-        billing_type_from_grpc, billing_type_to_grpc, usage_pricing_model_from_grpc,
-        usage_pricing_model_to_grpc,
+    use crate::api::prices::mapping::prices::{
+        cadence_from_proto, pricing_from_proto, pricing_to_proto, PriceWrapper,
     };
+    use crate::api::productitems::mapping::products::{
+        fee_structure_from_proto, fee_type_from_proto,
+    };
+    use common_domain::ids::{PriceId, ProductId};
     use meteroid_grpc::meteroid::api::components::v1 as api;
-
-    use meteroid_grpc::meteroid::api::shared::v1 as api_shared;
-
-    use common_domain::ids::{BillableMetricId, PlanVersionId, PriceComponentId, ProductId};
+    use meteroid_grpc::meteroid::api::prices::v1 as proto;
     use meteroid_store::domain::price_components as domain;
-    use rust_decimal::Decimal;
+    use meteroid_store::repositories::price_components::PriceInput;
     use tonic::Status;
 
-    // TODO dedicated mapping error instead of status
-    pub fn create_api_to_domain(
-        comp: api::CreatePriceComponentRequest,
-    ) -> Result<domain::PriceComponentNew, Status> {
-        Ok(domain::PriceComponentNew {
-            name: comp.name,
-            fee: map_fee_to_domain(comp.fee)?,
-            product_id: ProductId::from_proto_opt(comp.product_id)?,
-            plan_version_id: PlanVersionId::from_proto(&comp.plan_version_id)?,
-        })
-    }
-
-    pub fn edit_api_to_domain(
-        comp: api::EditPriceComponentRequest,
-    ) -> Result<domain::PriceComponent, Status> {
-        let component = comp
-            .component
-            .ok_or(Status::invalid_argument("component is missing"))?;
-
-        Ok(domain::PriceComponent {
-            name: component.name,
-            fee: map_fee_to_domain(component.fee)?,
-            product_id: ProductId::from_proto_opt(component.product_id)?,
-            id: PriceComponentId::from_proto(&component.id)?,
-        })
-    }
-
-    pub fn map_fee_to_domain(fee: Option<api::Fee>) -> Result<domain::FeeType, Status> {
-        match fee.as_ref().and_then(|fee| fee.fee_type.as_ref()) {
-            Some(s) => match s {
-                api::fee::FeeType::Rate(fee) => Ok::<_, Status>(domain::FeeType::Rate {
-                    rates: fee
-                        .rates
-                        .iter()
-                        .map(|rate| {
-                            Ok::<_, Status>(domain::TermRate {
-                                term: billing_period::from_proto(rate.term()),
-                                price: Decimal::from_proto_ref(&rate.price)?,
-                            })
-                        })
-                        .collect::<Result<Vec<_>, _>>()?,
-                }),
-                api::fee::FeeType::Slot(fee) => Ok(domain::FeeType::Slot {
-                    minimum_count: fee.minimum_count,
-                    slot_unit_name: fee.slot_unit_name.clone(),
-                    upgrade_policy: domain::UpgradePolicy::Prorated,
-                    downgrade_policy: domain::DowngradePolicy::RemoveAtEndOfPeriod,
-                    quota: fee.quota,
-                    rates: fee
-                        .rates
-                        .iter()
-                        .map(|rate| {
-                            Ok::<_, Status>(domain::TermRate {
-                                term: billing_period::from_proto(rate.term()),
-                                price: Decimal::from_proto_ref(&rate.price)?,
-                            })
-                        })
-                        .collect::<Result<Vec<_>, _>>()?,
-                }),
-                api::fee::FeeType::Capacity(fee) => Ok(domain::FeeType::Capacity {
-                    metric_id: BillableMetricId::from_proto(&fee.metric_id)?,
-                    thresholds: fee
-                        .thresholds
-                        .iter()
-                        .map(|threshold| {
-                            Ok::<_, Status>(domain::CapacityThreshold {
-                                price: Decimal::from_proto_ref(&threshold.price)?,
-                                per_unit_overage: Decimal::from_proto_ref(
-                                    &threshold.per_unit_overage,
-                                )?,
-                                included_amount: threshold.included_amount,
-                            })
-                        })
-                        .collect::<Result<Vec<_>, _>>()?,
-                    cadence: billing_period::from_proto(fee.term()),
-                }),
-                api::fee::FeeType::ExtraRecurring(fee) => {
-                    let cadence = fee
-                        .term
-                        .ok_or(Status::invalid_argument("recurring fee term is missing"))?;
-                    let cadence = api_shared::BillingPeriod::try_from(cadence)
-                        .map_err(|_| Status::invalid_argument("invalid billing period"))?;
-
-                    Ok(domain::FeeType::ExtraRecurring {
-                        unit_price: Decimal::from_proto_ref(&fee.unit_price)?,
-                        quantity: fee.quantity,
-                        billing_type: billing_type_from_grpc(fee.billing_type())?,
-                        cadence: billing_period::from_proto(cadence),
-                    })
-                }
-                api::fee::FeeType::OneTime(fee) => Ok(domain::FeeType::OneTime {
-                    quantity: fee.quantity,
-                    unit_price: Decimal::from_proto_ref(&fee.unit_price)?,
-                }),
-                api::fee::FeeType::Usage(fee) => {
-                    let mapped = usage_pricing_model_from_grpc(fee)?;
-
-                    Ok(domain::FeeType::Usage {
-                        metric_id: BillableMetricId::from_proto(&fee.metric_id)?,
-                        pricing: mapped,
-                        cadence: billing_period::from_proto(fee.term()),
-                    })
-                }
-            },
-            None => Err(Status::invalid_argument("fee is missing")),
-        }
-    }
-
     pub fn domain_to_api(comp: domain::PriceComponent) -> api::PriceComponent {
+        let prices = if !comp.prices.is_empty() {
+            // V2: real prices
+            comp.prices
+                .into_iter()
+                .map(|p| PriceWrapper::from(p).0)
+                .collect()
+        } else if let Some(legacy) = &comp.legacy_pricing {
+            // V1: map legacy entries to proto Prices with empty IDs
+            legacy
+                .pricing_entries
+                .iter()
+                .map(|(cadence, pricing)| proto::Price {
+                    id: String::new(),
+                    product_id: String::new(),
+                    cadence: billing_period::to_proto(*cadence).into(),
+                    currency: legacy.currency.clone(),
+                    pricing: pricing_to_proto(pricing),
+                    created_at: None,
+                    archived_at: None,
+                })
+                .collect()
+        } else {
+            vec![]
+        };
+
         api::PriceComponent {
             id: comp.id.as_proto(),
             local_id: comp.id.as_proto(),
             name: comp.name.to_string(),
-            fee: Some(map_fee_domain_to_api(comp.fee)),
-            product_id: comp.product_id.map(|x| x.as_proto()),
+            product_id: comp.product_id.map(|p| p.as_proto()),
+            prices,
         }
     }
 
-    pub fn map_fee_domain_to_api(fee: domain::FeeType) -> api::Fee {
-        let fee_type = match fee {
-            domain::FeeType::Rate { rates } => {
-                let rates = rates
-                    .into_iter()
-                    .map(|rate| api::fee::TermRate {
-                        term: billing_period::to_proto(rate.term).into(),
-                        price: rate.price.as_proto(),
-                    })
-                    .collect();
-
-                api::fee::FeeType::Rate(api::fee::RateFee { rates })
+    pub fn product_ref_from_proto(
+        product: Option<api::ProductRef>,
+    ) -> Result<domain::ProductRef, Status> {
+        let product = product.ok_or_else(|| Status::invalid_argument("product is required"))?;
+        match product.r#ref {
+            Some(api::product_ref::Ref::ExistingProductId(id)) => {
+                let product_id = ProductId::from_proto(id)?;
+                Ok(domain::ProductRef::Existing(product_id))
             }
-            domain::FeeType::Slot {
-                minimum_count,
-                slot_unit_name,
-                upgrade_policy: _,
-                downgrade_policy: _,
-                quota,
-                rates,
-            } => {
-                let rates = rates
-                    .into_iter()
-                    .map(|rate| api::fee::TermRate {
-                        term: billing_period::to_proto(rate.term).into(),
-                        price: rate.price.as_proto(),
-                    })
-                    .collect();
-
-                api::fee::FeeType::Slot(api::fee::SlotFee {
-                    minimum_count,
-                    slot_unit_name,
-                    upgrade_policy: api::fee::UpgradePolicy::Prorated.into(),
-                    quota,
-                    rates,
-                    downgrade_policy: api::fee::DowngradePolicy::RemoveAtEndOfPeriod.into(),
+            Some(api::product_ref::Ref::NewProduct(np)) => {
+                let fee_type = fee_type_from_proto(np.fee_type)?;
+                let fee_structure = np
+                    .fee_structure
+                    .ok_or_else(|| Status::invalid_argument("fee_structure is required"))?;
+                let fee_structure = fee_structure_from_proto(fee_structure)?;
+                Ok(domain::ProductRef::New {
+                    name: np.name,
+                    fee_type,
+                    fee_structure,
                 })
             }
-            domain::FeeType::Capacity {
-                metric_id,
-                thresholds,
-                cadence,
-            } => {
-                let thresholds = thresholds
-                    .into_iter()
-                    .map(|threshold| api::fee::capacity_fee::CapacityThreshold {
-                        price: threshold.price.as_proto(),
-                        per_unit_overage: threshold.per_unit_overage.as_proto(),
-                        included_amount: threshold.included_amount,
-                    })
-                    .collect();
-
-                api::fee::FeeType::Capacity(api::fee::CapacityFee {
-                    metric_id: metric_id.as_proto(),
-                    thresholds,
-                    term: billing_period::to_proto(cadence).into(),
-                })
-            }
-            domain::FeeType::ExtraRecurring {
-                unit_price,
-                quantity,
-                billing_type,
-                cadence,
-            } => {
-                api::fee::FeeType::ExtraRecurring(api::fee::ExtraRecurringFee {
-                    unit_price: unit_price.as_proto(),
-                    quantity,
-                    billing_type: billing_type_to_grpc(billing_type).into(),
-                    term: Some(billing_period::to_proto(cadence).into()), // TODO when is that optional ??
-                })
-            }
-            domain::FeeType::OneTime {
-                quantity,
-                unit_price,
-            } => api::fee::FeeType::OneTime(api::fee::OneTimeFee {
-                quantity,
-                unit_price: unit_price.as_proto(),
-            }),
-            domain::FeeType::Usage {
-                metric_id,
-                pricing,
-                cadence,
-            } => {
-                let model = usage_pricing_model_to_grpc(&metric_id, &pricing, cadence);
-
-                api::fee::FeeType::Usage(model)
-            }
-        };
-
-        api::Fee {
-            fee_type: Some(fee_type),
+            None => Err(Status::invalid_argument(
+                "product ref must specify existing_product_id or new_product",
+            )),
         }
+    }
+
+    pub fn price_entries_from_proto(
+        entries: Vec<api::PriceEntry>,
+    ) -> Result<Vec<domain::PriceEntry>, Status> {
+        entries
+            .into_iter()
+            .map(|entry| match entry.entry {
+                Some(api::price_entry::Entry::ExistingPriceId(id)) => {
+                    let price_id = PriceId::from_proto(id)?;
+                    Ok(domain::PriceEntry::Existing(price_id))
+                }
+                Some(api::price_entry::Entry::NewPrice(pi)) => {
+                    let price_input = price_input_from_proto(pi)?;
+                    Ok(domain::PriceEntry::New(price_input))
+                }
+                None => Err(Status::invalid_argument(
+                    "price entry must specify existing_price_id or new_price",
+                )),
+            })
+            .collect()
+    }
+
+    pub fn price_inputs_from_proto(
+        inputs: Vec<api::PriceInput>,
+    ) -> Result<Vec<PriceInput>, Status> {
+        inputs
+            .into_iter()
+            .map(price_input_from_proto)
+            .collect()
+    }
+
+    fn price_input_from_proto(pi: api::PriceInput) -> Result<PriceInput, Status> {
+        let cadence = cadence_from_proto(pi.cadence)?;
+        let pricing = pricing_from_proto(pi.pricing)?;
+        Ok(PriceInput {
+            cadence,
+            currency: pi.currency,
+            pricing,
+        })
     }
 }

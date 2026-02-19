@@ -12,7 +12,7 @@ use crate::extend::order::OrderByRequest;
 use crate::extend::pagination::{Paginate, PaginatedVec, PaginationRequest};
 
 use crate::price_components::PriceComponentRow;
-use common_domain::ids::{PlanId, PlanVersionId, ProductFamilyId, TenantId};
+use common_domain::ids::{PlanId, PlanVersionId, PriceId, ProductFamilyId, TenantId};
 use diesel::NullableExpressionMethods;
 use diesel::{
     BelongingToDsl, BoolExpressionMethods, ExpressionMethods, JoinOnDsl, PgTextExpressionMethods,
@@ -291,6 +291,40 @@ impl PlanRow {
 
         Ok(())
     }
+
+    /// Returns (plan_name, version) pairs for all plans linked to the given price_ids
+    /// through plan_component_price -> price_component -> plan_version -> plan.
+    pub async fn list_plan_info_by_price_ids(
+        conn: &mut PgConn,
+        price_ids: &[PriceId],
+    ) -> DbResult<Vec<(String, i32)>> {
+        use crate::schema::plan::dsl as p_dsl;
+        use crate::schema::plan_component_price::dsl as pcp_dsl;
+        use crate::schema::plan_version::dsl as pv_dsl;
+        use crate::schema::price_component::dsl as pc_dsl;
+        use diesel_async::RunQueryDsl;
+
+        if price_ids.is_empty() {
+            return Ok(vec![]);
+        }
+
+        let query = pcp_dsl::plan_component_price
+            .inner_join(pc_dsl::price_component.on(pcp_dsl::plan_component_id.eq(pc_dsl::id)))
+            .inner_join(pv_dsl::plan_version.on(pc_dsl::plan_version_id.eq(pv_dsl::id)))
+            .inner_join(p_dsl::plan.on(pv_dsl::plan_id.eq(p_dsl::id)))
+            .filter(pcp_dsl::price_id.eq_any(price_ids))
+            .select((p_dsl::name, pv_dsl::version))
+            .distinct()
+            .order((p_dsl::name.asc(), pv_dsl::version.asc()));
+
+        log::debug!("{}", debug_query::<diesel::pg::Pg, _>(&query));
+
+        query
+            .load::<(String, i32)>(conn)
+            .await
+            .attach("Error while listing plan info by price ids")
+            .into_db_result()
+    }
 }
 
 impl FullPlanRow {
@@ -328,6 +362,10 @@ impl FullPlanRow {
 
         if let Some(search) = filters.search.filter(|s| !s.is_empty()) {
             query = query.filter(p_dsl::name.ilike(format!("%{}%", search)));
+        }
+
+        if let Some(currency) = filters.filter_currency {
+            query = query.filter(pv_dsl::currency.eq(currency));
         }
 
         match order_by {
@@ -527,6 +565,14 @@ impl PlanRowOverview {
             query = query.filter(p_dsl::name.ilike(format!("%{search}%")));
         }
 
+        if let Some(currency) = filters.filter_currency {
+            query = query.filter(
+                active_version_alias
+                    .field(plan_version::currency)
+                    .eq(currency),
+            );
+        }
+
         match order_by {
             OrderByRequest::NameAsc => query = query.order(p_dsl::name.asc()),
             OrderByRequest::NameDesc => query = query.order(p_dsl::name.desc()),
@@ -587,6 +633,7 @@ impl PlanRowForSubscription {
                 p_dsl::plan_type,
                 pv_dsl::trial_duration_days,
                 pv_dsl::trial_is_free,
+                p_dsl::product_family_id,
             ));
 
         log::debug!("{}", debug_query::<diesel::pg::Pg, _>(&query));
@@ -605,6 +652,7 @@ impl PlanRowForSubscription {
                     PlanTypeEnum,
                     Option<i32>,
                     bool,
+                    ProductFamilyId,
                 )>| {
                     rows.into_iter()
                         .map(
@@ -616,6 +664,7 @@ impl PlanRowForSubscription {
                                 plan_type,
                                 trial_duration_days,
                                 trial_is_free,
+                                product_family_id,
                             )| {
                                 PlanRowForSubscription {
                                     version_id,
@@ -625,6 +674,7 @@ impl PlanRowForSubscription {
                                     plan_type,
                                     trial_duration_days,
                                     trial_is_free,
+                                    product_family_id,
                                 }
                             },
                         )

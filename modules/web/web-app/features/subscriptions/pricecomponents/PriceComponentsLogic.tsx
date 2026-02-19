@@ -1,4 +1,3 @@
-import { zodResolver } from '@hookform/resolvers/zod'
 import {
   Badge,
   Button,
@@ -10,22 +9,22 @@ import {
   DialogContent,
   DialogHeader,
   DialogTitle,
-  Form,
-  FormControl,
-  FormField,
-  FormItem,
-  FormLabel,
-  FormMessage,
   Input,
   Label,
   Popover,
   PopoverContent,
   PopoverTrigger,
+  ScrollArea,
   Select,
   SelectContent,
   SelectItem,
   SelectTrigger,
   SelectValue,
+  Tabs,
+  TabsContent,
+  TabsList,
+  TabsTrigger,
+  Textarea,
 } from '@ui/components'
 import { cn } from '@ui/lib'
 import {
@@ -42,43 +41,32 @@ import {
   X,
   Zap,
 } from 'lucide-react'
-import { useEffect, useState } from 'react'
-import { useForm } from 'react-hook-form'
-import { z } from 'zod'
+import { useMemo, useEffect, useState } from 'react'
 
-import {
-  getBillingPeriodLabel,
-  getExtraComponentBillingPeriodLabel,
-  getSchemaComponentBillingPeriodLabel,
-  mapTermToBillingPeriod,
-} from '@/features/subscriptions/utils/billingPeriods'
+import { FeeTypePicker } from '@/features/plans/pricecomponents/FeeTypePicker'
+import { ProductBrowser, extractStructuralInfo } from '@/features/plans/pricecomponents/ProductBrowser'
+import { ProductPricingForm } from '@/features/plans/pricecomponents/ProductPricingForm'
+import { type ComponentFeeType, feeTypeFromPrice, formDataToPrice } from '@/features/pricing'
 import { useQuery } from '@/lib/connectrpc'
-import { mapFeeType } from '@/lib/mapping/feesFromGrpc'
-import { PriceComponent } from '@/lib/schemas/plans'
+import {
+  formatUsagePriceSummary,
+  getBillingPeriodLabel,
+  getPrice,
+  getPriceBillingLabel,
+  getPriceUnitPrice,
+} from '@/lib/mapping/priceToSubscriptionFee'
 import {
   ComponentOverride,
   ComponentParameterization,
   ExtraComponent,
-  SubscriptionFeeData,
-  SubscriptionFeeType,
 } from '@/pages/tenants/subscription/create/state'
-import { getCustomerById } from '@/rpc/api/customers/v1/customers-CustomersService_connectquery'
 import { PlanVersion } from '@/rpc/api/plans/v1/models_pb'
-import { Fee_BillingType } from '@/rpc/api/pricecomponents/v1/models_pb'
+import { PriceComponent as ProtoPriceComponent } from '@/rpc/api/pricecomponents/v1/models_pb'
 import { listPriceComponents } from '@/rpc/api/pricecomponents/v1/pricecomponents-PriceComponentsService_connectquery'
-import { BillingPeriod as SharedBillingPeriod } from '@/rpc/api/shared/v1/shared_pb'
-import {
-  SubscriptionComponentNewInternal,
-  SubscriptionFee,
-  SubscriptionFee_CapacitySubscriptionFee,
-  SubscriptionFee_ExtraRecurringSubscriptionFee,
-  SubscriptionFee_OneTimeSubscriptionFee,
-  SubscriptionFee_RateSubscriptionFee,
-  SubscriptionFee_SlotSubscriptionFee,
-  SubscriptionFeeBillingPeriod,
-} from '@/rpc/api/subscriptions/v1/models_pb'
+import { getProduct } from '@/rpc/api/products/v1/products-ProductsService_connectquery'
 
-// Types for the component state
+// --- State types ---
+
 export interface PriceComponentsState {
   components: {
     removed: string[]
@@ -88,19 +76,107 @@ export interface PriceComponentsState {
   }
 }
 
-// Props for the shared logic component
+// --- Helpers ---
+
+function deriveFeeType(component: ProtoPriceComponent): ComponentFeeType {
+  const price = component.prices[0]
+  if (!price) return 'rate'
+  return feeTypeFromPrice(price)
+}
+
+function feeTypeIcon(feeType: ComponentFeeType) {
+  switch (feeType) {
+    case 'rate':
+      return <Calendar className="h-4 w-4" />
+    case 'usage':
+      return <Activity className="h-4 w-4" />
+    case 'slot':
+      return <Users className="h-4 w-4" />
+    case 'capacity':
+      return <Zap className="h-4 w-4" />
+    default:
+      return <Package className="h-4 w-4" />
+  }
+}
+
+function feeTypeLabel(feeType: ComponentFeeType): string {
+  switch (feeType) {
+    case 'rate':
+      return 'Fixed'
+    case 'usage':
+      return 'Usage'
+    case 'slot':
+      return 'Per Seat'
+    case 'capacity':
+      return 'Capacity'
+    case 'oneTime':
+      return 'One-time'
+    case 'extraRecurring':
+      return 'Recurring'
+  }
+}
+
+function formatCurrency(price: string | number, currency: string): string {
+  const amount = typeof price === 'string' ? parseFloat(price || '0') : price
+  return amount.toLocaleString(undefined, {
+    style: 'currency',
+    currency,
+    minimumFractionDigits: 2,
+    maximumFractionDigits: 2,
+  })
+}
+
+function getComponentBillingLabel(
+  component: ProtoPriceComponent,
+  configuration?: ComponentParameterization
+): string {
+  if (configuration?.billingPeriod !== undefined) {
+    return getBillingPeriodLabel(configuration.billingPeriod)
+  }
+  const price = component.prices[0]
+  if (price) return getPriceBillingLabel(price)
+  return 'Monthly'
+}
+
+function getDisplayUnitPrice(
+  component: ProtoPriceComponent,
+  configuration?: ComponentParameterization,
+  override?: ComponentOverride,
+  currency?: string
+): number {
+  // Override takes priority — derive display price from formData
+  if (override && currency) {
+    const displayPrice = formDataToPrice(override.feeType, override.formData, currency)
+    return getPriceUnitPrice(displayPrice)
+  }
+
+  // For capacity: match selected threshold
+  if (configuration?.committedCapacity !== undefined) {
+    const matched = component.prices.find(
+      p =>
+        p.pricing.case === 'capacityPricing' &&
+        p.pricing.value.included === configuration.committedCapacity
+    )
+    if (matched) return getPriceUnitPrice(matched)
+  }
+
+  const price = component.prices[0]
+  return price ? getPriceUnitPrice(price) : 0
+}
+
+// --- Main component ---
+
 interface PriceComponentsLogicProps {
   planVersionId: PlanVersion['id']
-  customerId?: string
+  currency: string
   state: PriceComponentsState
   onStateChange: (state: PriceComponentsState) => void
   onValidationChange?: (isValid: boolean, errors: string[]) => void
 }
 
-// The shared logic component - this contains all the business logic
 export const PriceComponentsLogic = ({
   planVersionId,
-  customerId,
+  currency,
   state,
   onStateChange,
   onValidationChange,
@@ -110,44 +186,55 @@ export const PriceComponentsLogic = ({
   const [overrideComponentId, setOverrideComponentId] = useState<string | null>(null)
   const [editExtraIndex, setEditExtraIndex] = useState<number | null>(null)
 
-  const planPriceComponentsQuery = useQuery(
+  const componentsQuery = useQuery(
     listPriceComponents,
-    {
-      planVersionId: planVersionId ?? '',
-    },
+    { planVersionId: planVersionId ?? '' },
     { enabled: Boolean(planVersionId) }
   )
-
-  const customerQuery = useQuery(getCustomerById, { id: customerId! }, { enabled: !!customerId })
-
-  const planPriceComponents = planPriceComponentsQuery?.data?.components.map(
-    c =>
-      ({
-        id: c.id,
-        name: c.name,
-        localId: c.localId,
-        fee: c.fee ? mapFeeType(c.fee.feeType) : undefined,
-        productId: c.productId,
-      }) as PriceComponent
-  )
-
-  const customer = customerQuery.data?.customer
-  const currency = customer?.currency || 'USD'
-
-  // Validation effect
-  useEffect(() => {
-    const unconfiguredComponents = getUnconfiguredComponents()
-    const isValid = unconfiguredComponents.length === 0
-    const errors = unconfiguredComponents.map(c => `${c.name} requires configuration`)
-
-    onValidationChange?.(isValid, errors)
-  }, [state.components, planPriceComponents, onValidationChange])
+  const planComponents = componentsQuery?.data?.components ?? []
 
   const setState = (updater: (prev: PriceComponentsState) => PriceComponentsState) => {
     onStateChange(updater(state))
   }
 
-  const toggleComponentRemoval = (componentId: string) => {
+  // --- Configuration logic ---
+
+  const requiresConfiguration = (component: ProtoPriceComponent): boolean => {
+    if (state.components.overridden.some(o => o.componentId === component.id)) return false
+    const feeType = deriveFeeType(component)
+    if (feeType === 'slot') return true
+    if (feeType === 'capacity' && component.prices.length > 1) return true
+    return false
+  }
+
+  const isComponentConfigured = (component: ProtoPriceComponent): boolean => {
+    if (!requiresConfiguration(component)) return true
+    if (state.components.overridden.some(o => o.componentId === component.id)) return true
+
+    const config = state.components.parameterized.find(p => p.componentId === component.id)
+    if (!config) return false
+
+    const feeType = deriveFeeType(component)
+    if (feeType === 'slot') return config.initialSlotCount !== undefined
+    if (feeType === 'capacity' && component.prices.length > 1)
+      return config.committedCapacity !== undefined
+    return false
+  }
+
+  useEffect(() => {
+    const unconfigured = planComponents.filter(c => {
+      const isExcluded = state.components.removed.includes(c.id)
+      return !isExcluded && requiresConfiguration(c) && !isComponentConfigured(c)
+    })
+    onValidationChange?.(
+      unconfigured.length === 0,
+      unconfigured.map(c => `${c.name} requires configuration`)
+    )
+  }, [state.components, planComponents, onValidationChange])
+
+  // --- State mutations ---
+
+  const toggleRemoval = (componentId: string) => {
     setState(prev => ({
       ...prev,
       components: {
@@ -155,7 +242,6 @@ export const PriceComponentsLogic = ({
         removed: prev.components.removed.includes(componentId)
           ? prev.components.removed.filter(id => id !== componentId)
           : [...prev.components.removed, componentId],
-        // Clear any configuration if removing
         parameterized: prev.components.removed.includes(componentId)
           ? prev.components.parameterized
           : prev.components.parameterized.filter(p => p.componentId !== componentId),
@@ -163,62 +249,24 @@ export const PriceComponentsLogic = ({
     }))
   }
 
-  const getComponentConfiguration = (
-    componentId: string
-  ): ComponentParameterization | undefined => {
-    return state.components.parameterized.find(p => p.componentId === componentId)
-  }
-
-  const updateComponentConfiguration = (
-    componentId: string,
-    config: Partial<ComponentParameterization>
-  ) => {
+  const updateConfiguration = (componentId: string, config: Partial<ComponentParameterization>) => {
     setState(prev => {
       const existing = prev.components.parameterized.find(p => p.componentId === componentId)
-
-      if (existing) {
-        return {
-          ...prev,
-          components: {
-            ...prev.components,
-            parameterized: prev.components.parameterized.map(p =>
-              p.componentId === componentId ? { ...p, ...config } : p
-            ),
-          },
-        }
-      } else {
-        return {
-          ...prev,
-          components: {
-            ...prev.components,
-            parameterized: [...prev.components.parameterized, { componentId, ...config }],
-          },
-        }
+      return {
+        ...prev,
+        components: {
+          ...prev.components,
+          parameterized: existing
+            ? prev.components.parameterized.map(p =>
+                p.componentId === componentId ? { ...p, ...config } : p
+              )
+            : [...prev.components.parameterized, { componentId, ...config }],
+        },
       }
     })
   }
 
-  const addExtraComponent = (component: ExtraComponent) => {
-    setState(prev => ({
-      ...prev,
-      components: {
-        ...prev.components,
-        extra: [...prev.components.extra, component],
-      },
-    }))
-  }
-
-  const removeExtraComponent = (index: number) => {
-    setState(prev => ({
-      ...prev,
-      components: {
-        ...prev.components,
-        extra: prev.components.extra.filter((_, i) => i !== index),
-      },
-    }))
-  }
-
-  const addComponentOverride = (componentId: string, override: ComponentOverride) => {
+  const addOverride = (componentId: string, override: ComponentOverride) => {
     setState(prev => ({
       ...prev,
       components: {
@@ -227,13 +275,12 @@ export const PriceComponentsLogic = ({
           ...prev.components.overridden.filter(o => o.componentId !== componentId),
           override,
         ],
-        // Remove from parameterized if overriding
         parameterized: prev.components.parameterized.filter(p => p.componentId !== componentId),
       },
     }))
   }
 
-  const removeComponentOverride = (componentId: string) => {
+  const removeOverride = (componentId: string) => {
     setState(prev => ({
       ...prev,
       components: {
@@ -243,120 +290,81 @@ export const PriceComponentsLogic = ({
     }))
   }
 
-  const getComponentOverride = (componentId: string): ComponentOverride | undefined => {
-    return state.components.overridden.find(o => o.componentId === componentId)
+  const addExtra = (component: ExtraComponent) => {
+    setState(prev => ({
+      ...prev,
+      components: { ...prev.components, extra: [...prev.components.extra, component] },
+    }))
   }
 
-  const requiresConfiguration = (component: PriceComponent): boolean => {
-    // Component requires configuration if it has configurable options and isn't overridden
-    const isOverridden = state.components.overridden.some(o => o.componentId === component.id)
-    if (isOverridden) return false
-
-    const feeType = component.fee.fee
-    // Rate components with multiple billing periods require configuration
-    if (feeType === 'rate' && component.fee.data.rates?.length > 1) return true
-    // Slot components always require configuration for seat count
-    if (feeType === 'slot') return true
-    // Capacity components with thresholds require configuration
-    if (feeType === 'capacity' && component.fee.data.thresholds?.length > 0) return true
-
-    return false
+  const removeExtra = (index: number) => {
+    setState(prev => ({
+      ...prev,
+      components: {
+        ...prev.components,
+        extra: prev.components.extra.filter((_, i) => i !== index),
+      },
+    }))
   }
 
-  const isComponentConfigured = (component: PriceComponent): boolean => {
-    if (!requiresConfiguration(component)) return true
-
-    const isOverridden = state.components.overridden.some(o => o.componentId === component.id)
-    if (isOverridden) return true
-
-    const configuration = state.components.parameterized.find(p => p.componentId === component.id)
-    if (!configuration) return false
-
-    const feeType = component.fee.fee
-
-    // Check that all required parameters are configured for each fee type
-    if (feeType === 'rate' && component.fee.data.rates?.length > 1) {
-      // Rate components with multiple periods need billing period selected
-      return configuration.billingPeriod !== undefined
-    }
-
-    if (feeType === 'slot') {
-      // Slot components need initial slot count
-      const hasSlotCount = configuration.initialSlotCount !== undefined
-
-      // If there are multiple billing periods, also need billing period selected
-      if (component.fee.data.rates?.length > 1) {
-        return hasSlotCount && configuration.billingPeriod !== undefined
-      }
-
-      return hasSlotCount
-    }
-
-    if (feeType === 'capacity' && component.fee.data.thresholds?.length > 0) {
-      // Capacity components need committed capacity selected
-      return configuration.committedCapacity !== undefined
-    }
-
-    return false
+  const updateExtra = (index: number, component: ExtraComponent) => {
+    setState(prev => ({
+      ...prev,
+      components: {
+        ...prev.components,
+        extra: prev.components.extra.map((c, i) => (i === index ? component : c)),
+      },
+    }))
   }
 
-  const getUnconfiguredComponents = () => {
-    return (
-      planPriceComponents?.filter(component => {
-        const isExcluded = state.components.removed.includes(component.id)
-        return !isExcluded && requiresConfiguration(component) && !isComponentConfigured(component)
-      }) || []
-    )
-  }
+  // --- Render ---
 
   return (
     <div className="space-y-3">
-      {/* Plan Components */}
-      {planPriceComponents?.map(component => {
+      {planComponents.map(component => {
         const isExcluded = state.components.removed.includes(component.id)
-        const configuration = getComponentConfiguration(component.id)
-        const override = getComponentOverride(component.id)
-        const isConfigured = isComponentConfigured(component)
+        const configuration = state.components.parameterized.find(
+          p => p.componentId === component.id
+        )
+        const override = state.components.overridden.find(o => o.componentId === component.id)
         const isOverridden = !!override
         const isEditing = editingComponentId === component.id
-        const needsConfiguration =
-          requiresConfiguration(component) && !isConfigured && !isOverridden && !isExcluded
+        const configured = isComponentConfigured(component)
+        const needsConfig =
+          requiresConfiguration(component) && !configured && !isOverridden && !isExcluded
 
         return (
           <CompactPriceComponentCard
             key={component.id}
             component={component}
             isExcluded={isExcluded}
-            isConfigured={isConfigured}
+            isConfigured={configured}
             isOverridden={isOverridden}
             isEditing={isEditing}
-            needsConfiguration={needsConfiguration}
+            needsConfiguration={needsConfig}
             configuration={configuration}
             override={override}
             currency={currency}
-            onToggleExclude={() => toggleComponentRemoval(component.id)}
+            onToggleExclude={() => toggleRemoval(component.id)}
             onStartEdit={() => setEditingComponentId(component.id)}
             onEndEdit={() => setEditingComponentId(null)}
-            onUpdateConfiguration={config => updateComponentConfiguration(component.id, config)}
+            onUpdateConfiguration={config => updateConfiguration(component.id, config)}
             onStartOverride={() => setOverrideComponentId(component.id)}
-            onRemoveOverride={() => removeComponentOverride(component.id)}
+            onRemoveOverride={() => removeOverride(component.id)}
           />
         )
       })}
 
-      {/* Extra Components */}
-      {state.components.extra.map((extraComponent, index) => (
+      {state.components.extra.map((extra, index) => (
         <ExtraComponentCard
           key={`extra-${index}`}
-          component={extraComponent}
-          index={index}
+          component={extra}
           currency={currency}
           onEdit={() => setEditExtraIndex(index)}
-          onRemove={() => removeExtraComponent(index)}
+          onRemove={() => removeExtra(index)}
         />
       ))}
 
-      {/* Add Fee Button */}
       <Button
         type="button"
         variant="outline"
@@ -367,60 +375,55 @@ export const PriceComponentsLogic = ({
         Add a fee
       </Button>
 
-      {!planPriceComponents?.length && !state.components.extra.length && (
+      {!planComponents.length && !state.components.extra.length && (
         <span className="text-muted-foreground">No price components</span>
       )}
 
-      {/* Add Fee Modal */}
       {showAddFeeModal && (
         <AddFeeModal
           onClose={() => setShowAddFeeModal(false)}
-          onAdd={addExtraComponent}
+          onAdd={addExtra}
           currency={currency}
         />
       )}
 
-      {/* Override Component Modal */}
-      {overrideComponentId && (
-        <OverrideFeeModal
-          componentId={overrideComponentId}
-          originalComponent={planPriceComponents?.find(c => c.id === overrideComponentId)}
-          existingOverride={getComponentOverride(overrideComponentId)}
-          onClose={() => setOverrideComponentId(null)}
-          onSave={override => {
-            addComponentOverride(overrideComponentId, override)
-            setOverrideComponentId(null)
-          }}
-          currency={currency}
-        />
-      )}
+      {overrideComponentId &&
+        (() => {
+          const original = planComponents.find(c => c.id === overrideComponentId)
+          return (
+            <OverrideFeeModal
+              componentId={overrideComponentId}
+              originalComponent={original}
+              onClose={() => setOverrideComponentId(null)}
+              onSave={override => {
+                addOverride(overrideComponentId, override)
+                setOverrideComponentId(null)
+              }}
+              currency={currency}
+            />
+          )
+        })()}
 
-      {/* Edit Extra Component Modal */}
       {editExtraIndex !== null && (
         <AddFeeModal
           onClose={() => setEditExtraIndex(null)}
           onAdd={component => {
-            setState(prev => ({
-              ...prev,
-              components: {
-                ...prev.components,
-                extra: prev.components.extra.map((c, i) => (i === editExtraIndex ? component : c)),
-              },
-            }))
+            updateExtra(editExtraIndex, component)
             setEditExtraIndex(null)
           }}
           currency={currency}
           initialValues={state.components.extra[editExtraIndex]}
-          isEditing={true}
+          isEditing
         />
       )}
     </div>
   )
 }
 
-// Re-export all the existing components from the original file
+// --- Compact plan component card ---
+
 interface CompactPriceComponentCardProps {
-  component: PriceComponent
+  component: ProtoPriceComponent
   isExcluded: boolean
   isConfigured: boolean
   isOverridden: boolean
@@ -454,123 +457,18 @@ const CompactPriceComponentCard = ({
   onStartOverride,
   onRemoveOverride,
 }: CompactPriceComponentCardProps) => {
-  const getFeeTypeIcon = (fee: string) => {
-    switch (fee) {
-      case 'rate':
-        return <Calendar className="h-4 w-4" />
-      case 'usage':
-        return <Activity className="h-4 w-4" />
-      case 'slot':
-        return <Users className="h-4 w-4" />
-      case 'capacity':
-        return <Zap className="h-4 w-4" />
-      default:
-        return <Package className="h-4 w-4" />
-    }
-  }
-
-  const getFeeTypeDisplay = (fee: string) => {
-    switch (fee) {
-      case 'rate':
-        return 'Fixed'
-      case 'usage':
-        return 'Usage'
-      case 'slot': {
-        const slotUnitName =
-          component.fee.fee === 'slot' ? component.fee.data.slotUnitName || 'seat' : 'seat'
-        return `Per ${slotUnitName}`
-      }
-      case 'capacity':
-        return 'Capacity'
-      case 'oneTime':
-        return 'One-time'
-      case 'extraRecurring':
-        return 'Recurring'
-      default:
-        return fee
-    }
-  }
-
-  const getPrice = () => {
-    // If overridden, show override price
-    if (isOverridden && override?.fee) {
-      return getPriceFromFee(override.fee)
-    }
-
-    // Otherwise show configured or default price
-    if (
-      (component.fee.fee === 'rate' || component.fee.fee === 'slot') &&
-      component.fee.data.rates?.length > 0
-    ) {
-      if (configuration?.billingPeriod !== undefined) {
-        const rate = component.fee.data.rates.find(r => {
-          switch (configuration.billingPeriod) {
-            case SharedBillingPeriod.MONTHLY:
-              return r.term === 'MONTHLY'
-            case SharedBillingPeriod.QUARTERLY:
-              return r.term === 'QUARTERLY'
-            case SharedBillingPeriod.SEMIANNUAL:
-              return r.term === 'SEMIANNUAL'
-            case SharedBillingPeriod.ANNUAL:
-              return r.term === 'ANNUAL'
-            default:
-              return false
-          }
-        })
-        if (rate) return rate.price
-      }
-      return component.fee.data.rates[0].price
-    }
-
-    if (component.fee.fee === 'capacity' && component.fee.data.thresholds?.length > 0) {
-      if (configuration?.committedCapacity !== undefined) {
-        const threshold = component.fee.data.thresholds.find(
-          t => BigInt(t.includedAmount) === configuration.committedCapacity
-        )
-        if (threshold) return threshold.price
-      }
-      return component.fee.data.thresholds[0].price
-    }
-    if (component.fee.fee === 'usage' && component.fee.data.model.model === 'per_unit') {
-      return component.fee.data.model.data.unitPrice
-    }
-    if (component.fee.fee === 'oneTime') {
-      return component.fee.data.unitPrice
-    }
-    if (component.fee.fee === 'extraRecurring') {
-      return component.fee.data.unitPrice
-    }
-    return '0'
-  }
-
-  const getPriceFromFee = (fee: SubscriptionFeeType): string => {
-    if (fee.data?.unitPrice) {
-      return fee.data.unitPrice
-    }
-    return '0'
-  }
-
-  const formatPrice = (price: string | number) => {
-    const amount = typeof price === 'string' ? parseFloat(price || '0') : price
-    return amount.toLocaleString(undefined, {
-      style: 'currency',
-      currency,
-      minimumFractionDigits: 2,
-      maximumFractionDigits: 2,
-    })
-  }
+  const feeType = deriveFeeType(component)
+  const unitPrice = getDisplayUnitPrice(component, configuration, override, currency)
+  const billingLabel = getComponentBillingLabel(component, configuration)
 
   const canConfigure = () => {
     if (isOverridden) return false
-    const feeType = component.fee.fee
-    if (feeType === 'rate' && component.fee.data.rates?.length > 1) return true
     if (feeType === 'slot') return true
-    if (feeType === 'capacity' && component.fee.data.thresholds?.length > 0) return true
+    if (feeType === 'capacity' && component.prices.length > 1) return true
     return false
   }
 
-  const getPriceDisplay = () => {
-    // If component needs configuration, show warning instead of price
+  const renderPriceDisplay = () => {
     if (needsConfiguration && !isExcluded) {
       return (
         <div className="text-right">
@@ -579,47 +477,48 @@ const CompactPriceComponentCard = ({
       )
     }
 
-    const unitPrice = parseFloat(getPrice())
-    const billingPeriodLabel = getSchemaComponentBillingPeriodLabel(component, configuration)
-
-    // Check if this is an overridden component with quantity
-    if (isOverridden && override?.fee?.data?.quantity && override.fee.data.quantity > 1) {
-      const quantity = override.fee.data.quantity
-      const totalPrice = unitPrice * quantity
+    // Slot with configured count
+    if (
+      feeType === 'slot' &&
+      configuration?.initialSlotCount &&
+      configuration.initialSlotCount > 1
+    ) {
+      const total = unitPrice * configuration.initialSlotCount
       return (
         <div className="text-right">
           <div className="flex items-center justify-end gap-1">
             <span>
-              {formatPrice(unitPrice)} × {quantity}
+              {formatCurrency(unitPrice, currency)} × {configuration.initialSlotCount} slots
             </span>
             <Badge variant="secondary" size="sm">
-              {billingPeriodLabel}
+              {billingLabel}
             </Badge>
           </div>
-          <div className="text-xs text-muted-foreground">{formatPrice(totalPrice)}</div>
+          <div className="text-xs text-muted-foreground">{formatCurrency(total, currency)}</div>
         </div>
       )
     }
 
-    // Check if this is a slot component with configured slot count
-    if (
-      component.fee.fee === 'slot' &&
-      configuration?.initialSlotCount &&
-      configuration.initialSlotCount > 1
-    ) {
-      const slotCount = configuration.initialSlotCount
-      const totalPrice = unitPrice * slotCount
+    // Usage-based: show model + rate summary instead of €0.00
+    if (feeType === 'usage') {
+      const displayPrice = override
+        ? formDataToPrice(override.feeType, override.formData, currency)
+        : getPrice(component)
+      const usage = displayPrice ? formatUsagePriceSummary(displayPrice, currency) : undefined
       return (
         <div className="text-right">
           <div className="flex items-center justify-end gap-1">
-            <span>
-              {formatPrice(unitPrice)} × {slotCount} slots
-            </span>
+            {usage ? (
+              <span>
+                {usage.model && <><span className="text-muted-foreground">{usage.model}</span>{' '}</>}{usage.amount}
+              </span>
+            ) : (
+              <span className="text-muted-foreground">Metered</span>
+            )}
             <Badge variant="secondary" size="sm">
-              {billingPeriodLabel}
+              {billingLabel}
             </Badge>
           </div>
-          <div className="text-xs text-muted-foreground">{formatPrice(totalPrice)}</div>
         </div>
       )
     }
@@ -627,9 +526,9 @@ const CompactPriceComponentCard = ({
     return (
       <div className="text-right">
         <div className="flex items-center justify-end gap-1">
-          <span>{formatPrice(unitPrice)}</span>
+          <span>{formatCurrency(unitPrice, currency)}</span>
           <Badge variant="secondary" size="sm">
-            {billingPeriodLabel}
+            {billingLabel}
           </Badge>
         </div>
       </div>
@@ -639,84 +538,15 @@ const CompactPriceComponentCard = ({
   const renderConfiguration = () => {
     if (!isEditing || isExcluded) return null
 
-    const feeType = component.fee.fee
-
-    if (feeType === 'rate' && component.fee.data.rates?.length > 1) {
-      return (
-        <div className="space-y-2">
-          <Label className="text-xs">Billing Period</Label>
-          <Select
-            value={configuration?.billingPeriod?.toString() || ''}
-            onValueChange={value =>
-              onUpdateConfiguration({ billingPeriod: parseInt(value) as SharedBillingPeriod })
-            }
-          >
-            <SelectTrigger className="h-8 text-xs">
-              <SelectValue placeholder="Select period" />
-            </SelectTrigger>
-            <SelectContent>
-              {component.fee.data.rates.map(rate => {
-                const period = mapTermToBillingPeriod(rate.term)
-                return (
-                  <SelectItem key={rate.term} value={period.toString()}>
-                    <div className="flex justify-between items-center w-full">
-                      <span>{rate.term.toLowerCase()}</span>
-                      <span className="text-muted-foreground ml-2">{formatPrice(rate.price)}</span>
-                    </div>
-                  </SelectItem>
-                )
-              })}
-            </SelectContent>
-          </Select>
-        </div>
-      )
-    }
-
     if (feeType === 'slot') {
       return (
         <div className="space-y-2">
-          {component.fee.data.rates?.length > 1 && (
-            <>
-              <Label className="text-xs">Billing Period</Label>
-              <Select
-                value={configuration?.billingPeriod?.toString() || ''}
-                onValueChange={value =>
-                  onUpdateConfiguration({ billingPeriod: parseInt(value) as SharedBillingPeriod })
-                }
-              >
-                <SelectTrigger className="h-8 text-xs">
-                  <SelectValue placeholder="Select period" />
-                </SelectTrigger>
-                <SelectContent>
-                  {component.fee.data.rates.map(rate => {
-                    const period = mapTermToBillingPeriod(rate.term)
-                    return (
-                      <SelectItem key={rate.term} value={period.toString()}>
-                        <div className="flex justify-between items-center w-full">
-                          <span>{rate.term.toLowerCase()}</span>
-                          <span className="text-muted-foreground ml-2">
-                            {formatPrice(rate.price)}/
-                            {component.fee.fee === 'slot'
-                              ? component.fee.data.slotUnitName || 'seat'
-                              : 'seat'}
-                          </span>
-                        </div>
-                      </SelectItem>
-                    )
-                  })}
-                </SelectContent>
-              </Select>
-            </>
-          )}
-          <Label className="text-xs">
-            Initial{' '}
-            {component.fee.fee === 'slot' ? component.fee.data.slotUnitName || 'Seats' : 'Seats'}
-          </Label>
+          <Label className="text-xs">Initial Seats</Label>
           <Input
             type="number"
             min="0"
             className="h-8 text-xs"
-            placeholder={`Number of ${component.fee.fee === 'slot' ? component.fee.data.slotUnitName || 'seats' : 'seats'}`}
+            placeholder="Number of seats"
             value={configuration?.initialSlotCount || ''}
             onChange={e => {
               const value = e.target.value ? parseInt(e.target.value) : undefined
@@ -727,7 +557,7 @@ const CompactPriceComponentCard = ({
       )
     }
 
-    if (feeType === 'capacity' && component.fee.data.thresholds?.length > 0) {
+    if (feeType === 'capacity' && component.prices.length > 1) {
       return (
         <div className="space-y-2">
           <Select
@@ -738,19 +568,21 @@ const CompactPriceComponentCard = ({
               <SelectValue placeholder="Select capacity" />
             </SelectTrigger>
             <SelectContent>
-              {component.fee.data.thresholds.map(threshold => (
-                <SelectItem
-                  key={threshold.includedAmount}
-                  value={threshold.includedAmount.toString()}
-                >
-                  <div className="flex justify-between items-center w-full">
-                    <span>{threshold.includedAmount.toString()} included</span>
-                    <span className="text-muted-foreground ml-2">
-                      {formatPrice(threshold.price)}
-                    </span>
-                  </div>
-                </SelectItem>
-              ))}
+              {component.prices
+                .filter(p => p.pricing.case === 'capacityPricing')
+                .map(p => {
+                  const cap = p.pricing.value as { included: bigint; rate: string }
+                  return (
+                    <SelectItem key={cap.included.toString()} value={cap.included.toString()}>
+                      <div className="flex justify-between items-center w-full">
+                        <span>{cap.included.toString()} included</span>
+                        <span className="text-muted-foreground ml-2">
+                          {formatCurrency(cap.rate, currency)}
+                        </span>
+                      </div>
+                    </SelectItem>
+                  )
+                })}
             </SelectContent>
           </Select>
         </div>
@@ -762,27 +594,24 @@ const CompactPriceComponentCard = ({
 
   return (
     <Card
-      className={`transition-all duration-200 hover:shadow-sm ${
-        isExcluded
-          ? 'opacity-50 bg-muted/30'
-          : needsConfiguration
-            ? 'bg-card  text-card-foreground'
-            : ''
-      }`}
+      className={cn(
+        'transition-all duration-200 hover:shadow-sm',
+        isExcluded && 'opacity-50 bg-muted/30',
+        needsConfiguration && 'bg-card text-card-foreground'
+      )}
     >
       <CardHeader className="p-3">
         <div className="flex items-center justify-between">
           <div className="flex items-center gap-3 flex-1">
-            <div className="text-muted-foreground">{getFeeTypeIcon(component.fee.fee)}</div>
+            <div className="text-muted-foreground">{feeTypeIcon(feeType)}</div>
             <div className="flex-1">
               <div className="flex items-center gap-2">
                 <CardTitle className={cn('text-sm font-medium', isExcluded && 'line-through')}>
                   {isOverridden && override?.name ? override.name : component.name}
                 </CardTitle>
                 <Badge variant="outline" size="sm">
-                  {getFeeTypeDisplay(component.fee.fee)}
+                  {feeTypeLabel(feeType)}
                 </Badge>
-
                 {isOverridden && (
                   <Badge variant="destructive" size="sm">
                     Custom Price
@@ -791,7 +620,7 @@ const CompactPriceComponentCard = ({
               </div>
             </div>
             <div className={cn('text-sm font-medium', isExcluded && 'line-through')}>
-              {getPriceDisplay()}
+              {renderPriceDisplay()}
             </div>
           </div>
           <div className="flex gap-1 ml-4">
@@ -831,7 +660,6 @@ const CompactPriceComponentCard = ({
                   size="sm"
                   type="button"
                   onClick={onStartOverride}
-                  disabled
                   title={isOverridden ? 'Edit custom pricing' : 'Override with custom pricing'}
                 >
                   <Edit2 className="h-3 w-3" />
@@ -864,23 +692,12 @@ const CompactPriceComponentCard = ({
       {isConfigured && !isEditing && (
         <CardContent className="px-3 pb-3 pt-0">
           <div className="text-xs text-muted-foreground">
-            {configuration?.billingPeriod !== undefined && (
-              <span>Billing: {getBillingPeriodLabel(configuration.billingPeriod)}</span>
-            )}
             {configuration?.initialSlotCount !== undefined && (
-              <span>
-                {configuration.billingPeriod !== undefined && ' • '}
-                {component.fee.fee === 'slot'
-                  ? component.fee.data.slotUnitName || 'Seats'
-                  : 'Seats'}
-                : {configuration.initialSlotCount}
-              </span>
+              <span>Seats: {configuration.initialSlotCount}</span>
             )}
             {configuration?.committedCapacity !== undefined && (
               <span>
-                {(configuration.billingPeriod !== undefined ||
-                  configuration.initialSlotCount !== undefined) &&
-                  ' • '}
+                {configuration.initialSlotCount !== undefined && ' • '}
                 Capacity: {configuration.committedCapacity.toString()}
               </span>
             )}
@@ -891,62 +708,23 @@ const CompactPriceComponentCard = ({
   )
 }
 
-// Extra Component Card
-interface ExtraComponentCardProps {
+// --- Extra component card ---
+
+const ExtraComponentCard = ({
+  component,
+  currency,
+  onEdit,
+  onRemove,
+}: {
   component: ExtraComponent
-  index: number
   currency: string
   onEdit: () => void
   onRemove: () => void
-}
-
-const ExtraComponentCard = ({ component, currency, onEdit, onRemove }: ExtraComponentCardProps) => {
-  const formatPrice = (price: string | number) => {
-    const amount = typeof price === 'string' ? parseFloat(price || '0') : price
-    return amount.toLocaleString(undefined, {
-      style: 'currency',
-      currency,
-      minimumFractionDigits: 2,
-      maximumFractionDigits: 2,
-    })
-  }
-
-  const unitPrice = parseFloat(component.fee?.data?.unitPrice || '0')
-  const quantity = component.fee?.data?.quantity || 1
-  const totalPrice = unitPrice * quantity
-
-  const getPriceDisplay = () => {
-    const billingPeriodLabel = getExtraComponentBillingPeriodLabel(
-      component.fee?.fee,
-      component.billingPeriod
-    )
-
-    if (quantity > 1) {
-      return (
-        <div className="text-sm font-medium text-right">
-          <div className="flex items-center justify-end gap-1">
-            <span>
-              {formatPrice(unitPrice)} × {quantity}
-            </span>
-            <Badge variant="secondary" size="sm">
-              {billingPeriodLabel}
-            </Badge>
-          </div>
-          <div className="text-xs text-muted-foreground">{formatPrice(totalPrice)}</div>
-        </div>
-      )
-    }
-    return (
-      <div className="text-sm font-medium text-right">
-        <div className="flex items-center justify-end gap-1">
-          <span>{formatPrice(unitPrice)}</span>
-          <Badge variant="secondary" size="sm">
-            {billingPeriodLabel}
-          </Badge>
-        </div>
-      </div>
-    )
-  }
+}) => {
+  const displayPrice = formDataToPrice(component.feeType, component.formData, currency)
+  const unitPrice = getPriceUnitPrice(displayPrice)
+  const billingLabel = getPriceBillingLabel(displayPrice)
+  const isUsage = displayPrice.pricing.case === 'usagePricing'
 
   return (
     <Card className="transition-all duration-200 hover:shadow-sm">
@@ -964,7 +742,25 @@ const ExtraComponentCard = ({ component, currency, onEdit, onRemove }: ExtraComp
                 </Badge>
               </div>
             </div>
-            {getPriceDisplay()}
+            <div className="text-sm font-medium text-right">
+              <div className="flex items-center justify-end gap-1">
+                {isUsage ? (
+                  (() => {
+                    const usage = formatUsagePriceSummary(displayPrice, currency)
+                    return (
+                      <span>
+                        {usage.model && <><span className="text-muted-foreground">{usage.model}</span>{' '}</>}{usage.amount}
+                      </span>
+                    )
+                  })()
+                ) : (
+                  <span>{formatCurrency(unitPrice, currency)}</span>
+                )}
+                <Badge variant="secondary" size="sm">
+                  {billingLabel}
+                </Badge>
+              </div>
+            </div>
           </div>
           <div className="flex gap-1 ml-4">
             <Button variant="ghost" size="sm" type="button" onClick={onEdit}>
@@ -980,24 +776,7 @@ const ExtraComponentCard = ({ component, currency, onEdit, onRemove }: ExtraComp
   )
 }
 
-// Add Fee Modal - Enhanced schema for complete fee types
-const addFeeSchema = z.object({
-  name: z.string().min(1, 'Name is required'),
-  feeType: z.enum(['rate', 'oneTime', 'extraRecurring', 'slot', 'capacity', 'usage']),
-  unitPrice: z.string().min(1, 'Price is required'),
-  quantity: z.number().positive().int().default(1),
-  billingPeriod: z.number().optional(),
-  // Slot-specific fields
-  slotUnitName: z.string().optional(),
-  minSlots: z.number().positive().int().optional(),
-  maxSlots: z.number().positive().int().optional(),
-  // Capacity-specific fields
-  includedAmount: z.string().optional(),
-  overageRate: z.string().optional(),
-  metricId: z.string().optional(),
-  // Rate-specific fields
-  billingType: z.enum(['ARREAR', 'ADVANCE']).default('ARREAR'),
-})
+// --- Add Fee Modal — two tabs: product library + custom fee ---
 
 interface AddFeeModalProps {
   onClose: () => void
@@ -1014,336 +793,168 @@ const AddFeeModal = ({
   initialValues,
   isEditing = false,
 }: AddFeeModalProps) => {
-  const form = useForm<z.infer<typeof addFeeSchema>>({
-    resolver: zodResolver(addFeeSchema),
-    defaultValues: {
-      name: initialValues?.name || '',
-      feeType: initialValues?.fee?.fee || 'oneTime',
-      unitPrice: initialValues?.fee?.data?.unitPrice || '',
-      quantity: initialValues?.fee?.data?.quantity || 1,
-      billingPeriod: initialValues?.billingPeriod,
-    },
-  })
+  // Custom tab state
+  const [customStep, setCustomStep] = useState<'identity' | 'feeType' | 'pricing'>(
+    initialValues ? 'pricing' : 'identity'
+  )
+  const [name, setName] = useState(initialValues?.name || '')
+  const [description, setDescription] = useState(initialValues?.description || '')
+  const [feeType, setFeeType] = useState<ComponentFeeType | null>(
+    initialValues?.feeType ?? null
+  )
 
-  const onSubmit = (values: z.infer<typeof addFeeSchema>) => {
-    let componentData: SubscriptionFeeData = {
-      unitPrice: values.unitPrice,
-      quantity: values.quantity,
-    }
+  const handleFeeTypeSelect = (ft: ComponentFeeType) => {
+    setFeeType(ft)
+    setCustomStep('pricing')
+  }
 
-    // Add type-specific data
-    if (values.feeType === 'slot') {
-      componentData = {
-        ...componentData,
-        slotUnitName: values.slotUnitName || 'seat',
-        minSlots: values.minSlots,
-        maxSlots: values.maxSlots,
-      }
-    } else if (values.feeType === 'capacity') {
-      componentData = {
-        ...componentData,
-        includedAmount: values.includedAmount,
-        overageRate: values.overageRate,
-        metricId: values.metricId,
-      }
-    } else if (values.feeType === 'extraRecurring') {
-      componentData = {
-        ...componentData,
-        billingType: values.billingType,
-      }
-    }
-
-    const component: ExtraComponent = {
-      name: values.name,
-      fee: {
-        fee: values.feeType,
-        data: componentData,
-      },
-      billingPeriod: values.billingPeriod as SharedBillingPeriod | undefined,
-    }
-    onAdd(component)
+  const handleCustomSubmit = (formData: Record<string, unknown>) => {
+    if (!feeType) return
+    onAdd({ name, description: description || undefined, feeType, formData, productId: undefined })
     onClose()
   }
 
-  const handleSubmit = (e: React.FormEvent) => {
-    e.preventDefault()
-    e.stopPropagation()
-    form.handleSubmit(onSubmit)(e)
+  const handleProductAdd = ({
+    productId,
+    componentName,
+    formData,
+    feeType: ft,
+  }: {
+    productId: string
+    componentName: string
+    formData: Record<string, unknown>
+    feeType: ComponentFeeType
+  }) => {
+    onAdd({ name: componentName, feeType: ft, formData, productId })
+    onClose()
+  }
+
+  // For editing, show just the pricing form directly
+  if (isEditing) {
+    return (
+      <Dialog open={true} onOpenChange={onClose}>
+        <DialogContent className="sm:max-w-[540px] max-h-[85vh] overflow-y-auto">
+          <DialogHeader>
+            <DialogTitle>Edit Fee</DialogTitle>
+          </DialogHeader>
+          {feeType && (
+            <div className="space-y-4">
+              <div className="text-sm font-medium">
+                {name} — {feeTypeLabel(feeType)}
+              </div>
+              <ProductPricingForm
+                feeType={feeType}
+                currency={currency}
+                editableStructure
+                onSubmit={handleCustomSubmit}
+                submitLabel="Save Changes"
+              />
+            </div>
+          )}
+        </DialogContent>
+      </Dialog>
+    )
   }
 
   return (
     <Dialog open={true} onOpenChange={onClose}>
-      <DialogContent className="sm:max-w-[425px]">
+      <DialogContent className="sm:max-w-[600px] max-h-[85vh] flex flex-col">
         <DialogHeader>
-          <DialogTitle>{isEditing ? 'Edit Custom Fee' : 'Add Custom Fee'}</DialogTitle>
+          <DialogTitle>Add a Fee</DialogTitle>
         </DialogHeader>
-        <Form {...form}>
-          <form onSubmit={handleSubmit} className="space-y-4">
-            <FormField
-              control={form.control}
-              name="name"
-              render={({ field }) => (
-                <FormItem>
-                  <FormLabel>Fee Name</FormLabel>
-                  <FormControl>
-                    <Input placeholder="e.g., Setup Fee, Custom Service" {...field} />
-                  </FormControl>
-                  <FormMessage />
-                </FormItem>
-              )}
-            />
+        <Tabs defaultValue="product" className="flex flex-col flex-1 overflow-hidden">
+          <TabsList className="w-full grid grid-cols-2">
+            <TabsTrigger value="product">From Product</TabsTrigger>
+            <TabsTrigger value="custom">Custom Fee</TabsTrigger>
+          </TabsList>
 
-            <FormField
-              control={form.control}
-              name="feeType"
-              render={({ field }) => (
-                <FormItem>
-                  <FormLabel>Fee Type</FormLabel>
-                  <Select onValueChange={field.onChange} defaultValue={field.value}>
-                    <FormControl>
-                      <SelectTrigger>
-                        <SelectValue placeholder="Select fee type" />
-                      </SelectTrigger>
-                    </FormControl>
-                    <SelectContent>
-                      <SelectItem value="oneTime">One-time Fee</SelectItem>
-                      <SelectItem value="extraRecurring">Recurring Fee</SelectItem>
-                      <SelectItem value="rate">Fixed Rate</SelectItem>
-                      <SelectItem value="slot">Per Slot/Seat</SelectItem>
-                      <SelectItem disabled value="capacity">
-                        Capacity-based
-                      </SelectItem>
-                      <SelectItem disabled value="usage">
-                        Usage-based
-                      </SelectItem>
-                    </SelectContent>
-                  </Select>
-                  <FormMessage />
-                </FormItem>
-              )}
-            />
+          {/* Product Library Tab */}
+          <TabsContent value="product" className="flex-1 overflow-hidden mt-4">
+            <ScrollArea className="h-[55vh]">
+              <ProductBrowser currency={currency} onAdd={handleProductAdd} submitLabel="Add Fee" />
+            </ScrollArea>
+          </TabsContent>
 
-            {form.watch('feeType') !== 'oneTime' && (
-              <FormField
-                control={form.control}
-                name="billingPeriod"
-                render={({ field }) => (
-                  <FormItem>
-                    <FormLabel>Billing Period</FormLabel>
-                    <Select
-                      onValueChange={value => field.onChange(parseInt(value))}
-                      defaultValue={field.value?.toString()}
-                    >
-                      <FormControl>
-                        <SelectTrigger>
-                          <SelectValue placeholder="Select billing period" />
-                        </SelectTrigger>
-                      </FormControl>
-                      <SelectContent>
-                        <SelectItem value={SharedBillingPeriod.MONTHLY.toString()}>
-                          Monthly
-                        </SelectItem>
-                        <SelectItem value={SharedBillingPeriod.QUARTERLY.toString()}>
-                          Quarterly
-                        </SelectItem>
-                        <SelectItem value={SharedBillingPeriod.SEMIANNUAL.toString()}>
-                          Semiannual
-                        </SelectItem>
-                        <SelectItem value={SharedBillingPeriod.ANNUAL.toString()}>
-                          Annual
-                        </SelectItem>
-                      </SelectContent>
-                    </Select>
-                    <FormMessage />
-                  </FormItem>
-                )}
-              />
-            )}
-
-            <FormField
-              control={form.control}
-              name="unitPrice"
-              render={({ field }) => (
-                <FormItem>
-                  <FormLabel>Price ({currency})</FormLabel>
-                  <FormControl>
-                    <Input type="number" step="0.01" min="0" placeholder="0.00" {...field} />
-                  </FormControl>
-                  <FormMessage />
-                </FormItem>
-              )}
-            />
-
-            <FormField
-              control={form.control}
-              name="quantity"
-              render={({ field }) => (
-                <FormItem>
-                  <FormLabel>Quantity</FormLabel>
-                  <FormControl>
-                    <Input
-                      type="number"
-                      min="1"
-                      placeholder="1"
-                      {...field}
-                      onChange={e => field.onChange(parseInt(e.target.value) || 1)}
-                    />
-                  </FormControl>
-                  <FormMessage />
-                </FormItem>
-              )}
-            />
-
-            {/* Slot-specific fields */}
-            {form.watch('feeType') === 'slot' && (
-              <>
-                <FormField
-                  control={form.control}
-                  name="slotUnitName"
-                  render={({ field }) => (
-                    <FormItem>
-                      <FormLabel>Slot Unit Name</FormLabel>
-                      <FormControl>
-                        <Input placeholder="e.g., seat, user, license" {...field} />
-                      </FormControl>
-                      <FormMessage />
-                    </FormItem>
-                  )}
-                />
-                <div className="grid grid-cols-2 gap-4">
-                  <FormField
-                    control={form.control}
-                    name="minSlots"
-                    render={({ field }) => (
-                      <FormItem>
-                        <FormLabel>Min Slots</FormLabel>
-                        <FormControl>
-                          <Input
-                            type="number"
-                            min="1"
-                            {...field}
-                            onChange={e => field.onChange(parseInt(e.target.value) || undefined)}
-                          />
-                        </FormControl>
-                        <FormMessage />
-                      </FormItem>
-                    )}
-                  />
-                  <FormField
-                    control={form.control}
-                    name="maxSlots"
-                    render={({ field }) => (
-                      <FormItem>
-                        <FormLabel>Max Slots</FormLabel>
-                        <FormControl>
-                          <Input
-                            type="number"
-                            min="1"
-                            {...field}
-                            onChange={e => field.onChange(parseInt(e.target.value) || undefined)}
-                          />
-                        </FormControl>
-                        <FormMessage />
-                      </FormItem>
-                    )}
+          {/* Custom Fee Tab */}
+          <TabsContent value="custom" className="flex-1 overflow-y-auto mt-4">
+            {customStep === 'identity' && (
+              <div className="space-y-4">
+                <div>
+                  <Label className="text-sm">Product name</Label>
+                  <Input
+                    className="mt-1"
+                    placeholder="e.g., Setup Fee, Custom Service"
+                    value={name}
+                    onChange={e => setName(e.target.value)}
+                    autoFocus
                   />
                 </div>
-              </>
-            )}
-
-            {/* Capacity-specific fields */}
-            {form.watch('feeType') === 'capacity' && (
-              <>
-                <FormField
-                  control={form.control}
-                  name="includedAmount"
-                  render={({ field }) => (
-                    <FormItem>
-                      <FormLabel>Included Amount</FormLabel>
-                      <FormControl>
-                        <Input type="number" placeholder="e.g., 1000" {...field} />
-                      </FormControl>
-                      <FormMessage />
-                    </FormItem>
-                  )}
-                />
-                <FormField
-                  control={form.control}
-                  name="overageRate"
-                  render={({ field }) => (
-                    <FormItem>
-                      <FormLabel>Overage Rate ({currency})</FormLabel>
-                      <FormControl>
-                        <Input type="number" step="0.01" placeholder="0.00" {...field} />
-                      </FormControl>
-                      <FormMessage />
-                    </FormItem>
-                  )}
-                />
-                <FormField
-                  control={form.control}
-                  name="metricId"
-                  render={({ field }) => (
-                    <FormItem>
-                      <FormLabel>Metric ID</FormLabel>
-                      <FormControl>
-                        <Input placeholder="metric_id" {...field} />
-                      </FormControl>
-                      <FormMessage />
-                    </FormItem>
-                  )}
-                />
-              </>
-            )}
-
-            {/* Extra recurring specific fields */}
-            {form.watch('feeType') === 'extraRecurring' && (
-              <FormField
-                control={form.control}
-                name="billingType"
-                render={({ field }) => (
-                  <FormItem>
-                    <FormLabel>Billing Type</FormLabel>
-                    <Select onValueChange={field.onChange} defaultValue={field.value}>
-                      <FormControl>
-                        <SelectTrigger>
-                          <SelectValue placeholder="Select billing type" />
-                        </SelectTrigger>
-                      </FormControl>
-                      <SelectContent>
-                        <SelectItem value="ARREAR">In Arrears</SelectItem>
-                        <SelectItem value="ADVANCE">In Advance</SelectItem>
-                      </SelectContent>
-                    </Select>
-                    <FormMessage />
-                  </FormItem>
+                <div>
+                  <Label className="text-sm">Description (optional)</Label>
+                  <Textarea
+                    className="mt-1"
+                    placeholder="Brief description"
+                    value={description}
+                    onChange={e => setDescription(e.target.value)}
+                  />
+                </div>
+                {name.length > 0 && (
+                  <div className="flex justify-end">
+                    <Button type="button" onClick={() => setCustomStep('feeType')}>
+                      Next
+                    </Button>
+                  </div>
                 )}
-              />
+              </div>
             )}
 
-            <div className="flex justify-end gap-2">
-              <Button type="button" variant="ghost" onClick={onClose}>
-                Cancel
-              </Button>
-              <Button type="submit">{isEditing ? 'Save Changes' : 'Add Fee'}</Button>
-            </div>
-          </form>
-        </Form>
+            {customStep === 'feeType' && (
+              <div className="space-y-4">
+                <button
+                  type="button"
+                  onClick={() => setCustomStep('identity')}
+                  className="flex items-center gap-1 text-sm text-muted-foreground hover:text-foreground"
+                >
+                  ← Back
+                </button>
+                <div className="text-sm font-medium">{name}</div>
+                <FeeTypePicker onSelect={handleFeeTypeSelect} />
+              </div>
+            )}
+
+            {customStep === 'pricing' && feeType && (
+              <div className="space-y-4">
+                <button
+                  type="button"
+                  onClick={() => setCustomStep('feeType')}
+                  className="flex items-center gap-1 text-sm text-muted-foreground hover:text-foreground"
+                >
+                  ← Back
+                </button>
+                <div className="text-sm font-medium">
+                  {name} — {feeTypeLabel(feeType)}
+                </div>
+                <ProductPricingForm
+                  feeType={feeType}
+                  currency={currency}
+                  editableStructure
+                  onSubmit={handleCustomSubmit}
+                  submitLabel="Add Fee"
+                />
+              </div>
+            )}
+          </TabsContent>
+        </Tabs>
       </DialogContent>
     </Dialog>
   )
 }
 
-// Override Fee Modal
-const overrideFeeSchema = z.object({
-  name: z.string().min(1, 'Name is required'),
-  unitPrice: z.string().min(1, 'Price is required'),
-})
+// --- Override Fee Modal — reuses ProductPricingForm ---
 
 interface OverrideFeeModalProps {
   componentId: string
-  originalComponent?: PriceComponent
-  existingOverride?: ComponentOverride
+  originalComponent?: ProtoPriceComponent
   onClose: () => void
   onSave: (override: ComponentOverride) => void
   currency: string
@@ -1352,223 +963,52 @@ interface OverrideFeeModalProps {
 const OverrideFeeModal = ({
   componentId,
   originalComponent,
-  existingOverride,
   onClose,
   onSave,
   currency,
 }: OverrideFeeModalProps) => {
-  const form = useForm<z.infer<typeof overrideFeeSchema>>({
-    resolver: zodResolver(overrideFeeSchema),
-    defaultValues: {
-      name: existingOverride?.name || originalComponent?.name || '',
-      unitPrice: existingOverride?.fee?.data?.unitPrice || '',
-    },
-  })
+  const feeType = originalComponent ? deriveFeeType(originalComponent) : 'rate'
+  const hasProduct = !!originalComponent?.productId
 
-  const onSubmit = (values: z.infer<typeof overrideFeeSchema>) => {
-    const override: ComponentOverride = {
+  const productQuery = useQuery(
+    getProduct,
+    originalComponent?.productId ? { productId: originalComponent.productId } : {},
+    { enabled: hasProduct }
+  )
+  const product = productQuery.data?.product
+
+  const structural = useMemo(
+    () => (product ? extractStructuralInfo(feeType, product.feeStructure) : undefined),
+    [feeType, product]
+  )
+
+  const handleSubmit = (formData: Record<string, unknown>) => {
+    onSave({
       componentId,
-      name: values.name,
-      fee: {
-        // Simplified override - could be extended based on original component type
-        fee: 'oneTime',
-        data: {
-          unitPrice: values.unitPrice,
-          quantity: 1,
-        },
-      },
-    }
-    onSave(override)
-  }
-
-  const handleSubmit = (e: React.FormEvent) => {
-    e.preventDefault()
-    e.stopPropagation()
-    form.handleSubmit(onSubmit)(e)
+      name: originalComponent?.name || '',
+      feeType,
+      formData,
+      productId: originalComponent?.productId,
+    })
   }
 
   return (
     <Dialog open={true} onOpenChange={onClose}>
-      <DialogContent className="sm:max-w-[425px]">
+      <DialogContent className="sm:max-w-[500px] max-h-[80vh] overflow-y-auto">
         <DialogHeader>
-          <DialogTitle>Override Component Pricing</DialogTitle>
+          <DialogTitle>Override: {originalComponent?.name}</DialogTitle>
         </DialogHeader>
-        <Form {...form}>
-          <form onSubmit={handleSubmit} className="space-y-4">
-            <FormField
-              control={form.control}
-              name="name"
-              render={({ field }) => (
-                <FormItem>
-                  <FormLabel>Component Name</FormLabel>
-                  <FormControl>
-                    <Input {...field} />
-                  </FormControl>
-                  <FormMessage />
-                </FormItem>
-              )}
-            />
-
-            <FormField
-              control={form.control}
-              name="unitPrice"
-              render={({ field }) => (
-                <FormItem>
-                  <FormLabel>Override Price ({currency})</FormLabel>
-                  <FormControl>
-                    <Input type="number" step="0.01" min="0" placeholder="0.00" {...field} />
-                  </FormControl>
-                  <FormMessage />
-                </FormItem>
-              )}
-            />
-
-            <div className="flex justify-end gap-2">
-              <Button type="button" variant="ghost" onClick={onClose}>
-                Cancel
-              </Button>
-              <Button type="submit">Save Override</Button>
-            </div>
-          </form>
-        </Form>
+        <ProductPricingForm
+          feeType={feeType}
+          currency={currency}
+          existingPrice={originalComponent ? getPrice(originalComponent) : undefined}
+          structuralInfo={structural}
+          editableStructure={!hasProduct}
+          onSubmit={handleSubmit}
+          submitLabel="Save Override"
+        />
       </DialogContent>
     </Dialog>
   )
 }
 
-// Helper functions
-
-// Fee mapping functions
-const mapExtraComponentToSubscriptionComponent = (
-  component: ExtraComponent
-): SubscriptionComponentNewInternal => {
-  let period = SubscriptionFeeBillingPeriod.ONE_TIME // Default
-  if (component.billingPeriod !== undefined) {
-    switch (component.billingPeriod) {
-      case SharedBillingPeriod.MONTHLY:
-        period = SubscriptionFeeBillingPeriod.MONTHLY
-        break
-      case SharedBillingPeriod.QUARTERLY:
-        period = SubscriptionFeeBillingPeriod.QUARTERLY
-        break
-      case SharedBillingPeriod.SEMIANNUAL:
-        period = SubscriptionFeeBillingPeriod.SEMIANNUAL
-        break
-      case SharedBillingPeriod.ANNUAL:
-        period = SubscriptionFeeBillingPeriod.YEARLY
-        break
-    }
-  }
-
-  const subscriptionComponent = new SubscriptionComponentNewInternal({
-    name: component.name,
-    period,
-  })
-
-  const fee = new SubscriptionFee()
-
-  if (component.fee.fee === 'oneTime') {
-    fee.fee = {
-      case: 'oneTime',
-      value: new SubscriptionFee_OneTimeSubscriptionFee({
-        rate: component.fee.data.unitPrice,
-        quantity: component.fee.data.quantity || 1,
-        total: (
-          parseFloat(component.fee.data.unitPrice) * (component.fee.data.quantity || 1)
-        ).toString(),
-      }),
-    }
-  } else if (component.fee.fee === 'extraRecurring') {
-    fee.fee = {
-      case: 'recurring',
-      value: new SubscriptionFee_ExtraRecurringSubscriptionFee({
-        rate: component.fee.data.unitPrice,
-        quantity: component.fee.data.quantity || 1,
-        total: (
-          parseFloat(component.fee.data.unitPrice) * (component.fee.data.quantity || 1)
-        ).toString(),
-        billingType: Fee_BillingType.ARREAR, // Default
-      }),
-    }
-  } else if (component.fee.fee === 'rate') {
-    fee.fee = {
-      case: 'rate',
-      value: new SubscriptionFee_RateSubscriptionFee({
-        rate: component.fee.data.unitPrice,
-      }),
-    }
-  } else if (component.fee.fee === 'slot') {
-    fee.fee = {
-      case: 'slot',
-      value: new SubscriptionFee_SlotSubscriptionFee({
-        unit: component.fee.data.slotUnitName || 'seat',
-        unitRate: component.fee.data.unitPrice,
-        minSlots: component.fee.data.minSlots,
-        maxSlots: component.fee.data.maxSlots,
-      }),
-    }
-  } else if (component.fee.fee === 'capacity') {
-    fee.fee = {
-      case: 'capacity',
-      value: new SubscriptionFee_CapacitySubscriptionFee({
-        rate: component.fee.data.unitPrice,
-        included: BigInt(component.fee.data.includedAmount || '0'),
-        overageRate: component.fee.data.overageRate || '0',
-        metricId: component.fee.data.metricId || '',
-      }),
-    }
-  }
-
-  subscriptionComponent.fee = fee
-  return subscriptionComponent
-}
-
-const mapOverrideComponentToSubscriptionComponent = (
-  override: ComponentOverride
-): SubscriptionComponentNewInternal => {
-  const subscriptionComponent = new SubscriptionComponentNewInternal({
-    priceComponentId: override.componentId,
-    name: override.name,
-    period: SubscriptionFeeBillingPeriod.ONE_TIME, // Default for overrides
-  })
-
-  const fee = new SubscriptionFee()
-
-  if (override.fee.fee === 'oneTime') {
-    fee.fee = {
-      case: 'oneTime',
-      value: new SubscriptionFee_OneTimeSubscriptionFee({
-        rate: override.fee.data.unitPrice,
-        quantity: override.fee.data.quantity || 1,
-        total: (
-          parseFloat(override.fee.data.unitPrice) * (override.fee.data.quantity || 1)
-        ).toString(),
-      }),
-    }
-  } else if (override.fee.fee === 'extraRecurring') {
-    fee.fee = {
-      case: 'recurring',
-      value: new SubscriptionFee_ExtraRecurringSubscriptionFee({
-        rate: override.fee.data.unitPrice,
-        quantity: override.fee.data.quantity || 1,
-        total: (
-          parseFloat(override.fee.data.unitPrice) * (override.fee.data.quantity || 1)
-        ).toString(),
-        billingType: Fee_BillingType.ARREAR,
-      }),
-    }
-  } else if (override.fee.fee === 'rate') {
-    fee.fee = {
-      case: 'rate',
-      value: new SubscriptionFee_RateSubscriptionFee({
-        rate: override.fee.data.unitPrice,
-      }),
-    }
-  }
-
-  subscriptionComponent.fee = fee
-  return subscriptionComponent
-}
-
-// Export mapping functions for use in StepReviewAndCreate
-export { mapExtraComponentToSubscriptionComponent, mapOverrideComponentToSubscriptionComponent }

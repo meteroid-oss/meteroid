@@ -103,6 +103,7 @@ fn build_subscription_from_quote(
             period: c.period,
             fee: c.fee.clone(),
             is_override: c.is_override,
+            price_id: None,
         })
         .collect();
 
@@ -114,6 +115,8 @@ fn build_subscription_from_quote(
             name: a.name.clone(),
             period: a.period,
             fee: a.fee.clone(),
+            product_id: a.product_id,
+            price_id: a.price_id,
         })
         .collect();
 

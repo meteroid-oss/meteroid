@@ -7,13 +7,13 @@ import { PriceComponentsLogic } from './PriceComponentsLogic'
 
 interface CreateSubscriptionPriceComponentsProps {
   planVersionId: PlanVersion['id']
-  customerId?: string
+  currency: string
   onValidationChange?: (isValid: boolean, errors: string[]) => void
 }
 
 export const CreateSubscriptionPriceComponents = ({
   planVersionId,
-  customerId,
+  currency,
   onValidationChange,
 }: CreateSubscriptionPriceComponentsProps) => {
   const [state, setState] = useAtom(createSubscriptionAtom)
@@ -21,7 +21,7 @@ export const CreateSubscriptionPriceComponents = ({
   return (
     <PriceComponentsLogic
       planVersionId={planVersionId}
-      customerId={customerId}
+      currency={currency}
       state={state}
       onStateChange={a => setState({ ...state, ...a })}
       onValidationChange={onValidationChange}

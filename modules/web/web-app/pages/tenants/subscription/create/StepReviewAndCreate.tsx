@@ -9,17 +9,27 @@ import { toast } from 'sonner'
 
 import { PageSection } from '@/components/layouts/shared/PageSection'
 import {
-  mapExtraComponentToSubscriptionComponent,
-  mapOverrideComponentToSubscriptionComponent,
-} from '@/features/subscriptions/pricecomponents/PriceComponentsLogic'
-import {
-  getApiComponentBillingPeriodLabel,
-  getExtraComponentBillingPeriodLabel,
-} from '@/features/subscriptions/utils/billingPeriods'
+  buildExistingProductRef,
+  buildNewProductRef,
+  buildPriceInputs,
+  formDataToPrice,
+  toPricingTypeFromFeeType,
+  wrapAsNewPriceEntries,
+} from '@/features/pricing'
+import { getApiComponentBillingPeriodLabel } from '@/features/subscriptions/utils/billingPeriods'
 import { useBasePath } from '@/hooks/useBasePath'
 import { useQuery } from '@/lib/connectrpc'
 import { mapDatev2 } from '@/lib/mapping'
-import { createSubscriptionAtom , PaymentMethodsConfigType } from '@/pages/tenants/subscription/create/state'
+import {
+  formatUsagePriceSummary,
+  getComponentPricingFromPrice,
+  getPrice,
+  getPriceBillingLabel,
+} from '@/lib/mapping/priceToSubscriptionFee'
+import {
+  createSubscriptionAtom,
+  PaymentMethodsConfigType,
+} from '@/pages/tenants/subscription/create/state'
 import { listAddOns } from '@/rpc/api/addons/v1/addons-AddOnsService_connectquery'
 import { listCoupons } from '@/rpc/api/coupons/v1/coupons-CouponsService_connectquery'
 import { ListCouponRequest_CouponFilter } from '@/rpc/api/coupons/v1/coupons_pb'
@@ -86,6 +96,20 @@ export const StepReviewAndCreate = () => {
     },
   })
 
+  const allComponents = componentsQuery.data?.components || []
+  const includedComponents = allComponents.filter(c => !state.components.removed.includes(c.id))
+  const currency = planQuery.data?.plan?.version?.currency
+
+  const selectedAddOns =
+    addOnsQuery.data?.addOns.filter(a => state.addOns.some(sa => sa.addOnId === a.id)) || []
+
+  const selectedCoupons =
+    couponsQuery.data?.coupons.filter(c => state.coupons.some(sc => sc.couponId === c.id)) || []
+
+  if (!currency) {
+    return <div>Loading plan...</div>
+  }
+
   // Build PaymentMethodsConfig from state (simple: just the type, no overrides)
   const buildProtoPaymentMethodsConfig = (
     type: PaymentMethodsConfigType
@@ -135,13 +159,36 @@ export const StepReviewAndCreate = () => {
               billingPeriod: c.billingPeriod,
               committedCapacity: c.committedCapacity,
             })),
-            overriddenComponents: state.components.overridden.map(c => ({
-              componentId: c.componentId,
-              component: mapOverrideComponentToSubscriptionComponent(c),
-            })),
-            extraComponents: state.components.extra.map(c => ({
-              component: mapExtraComponentToSubscriptionComponent(c),
-            })),
+            overriddenComponents: state.components.overridden.map(c => {
+              const pricingType = toPricingTypeFromFeeType(
+                c.feeType,
+                c.feeType === 'usage' ? (c.formData.usageModel as string) : undefined
+              )
+              const priceEntries = wrapAsNewPriceEntries(
+                buildPriceInputs(pricingType, c.formData, currency)
+              )
+              return {
+                componentId: c.componentId,
+                name: c.name,
+                price: priceEntries[0],
+              }
+            }),
+            extraComponents: state.components.extra.map(c => {
+              const pricingType = toPricingTypeFromFeeType(
+                c.feeType,
+                c.feeType === 'usage' ? (c.formData.usageModel as string) : undefined
+              )
+              const priceEntries = wrapAsNewPriceEntries(
+                buildPriceInputs(pricingType, c.formData, currency)
+              )
+              return {
+                name: c.name,
+                product: c.productId
+                  ? buildExistingProductRef(c.productId)
+                  : buildNewProductRef(c.name, c.feeType, c.formData),
+                price: priceEntries[0],
+              }
+            }),
             removeComponents: state.components.removed,
           },
           addOns: {
@@ -205,120 +252,40 @@ export const StepReviewAndCreate = () => {
     const configuration = state.components.parameterized.find(p => p.componentId === component.id)
     const override = state.components.overridden.find(o => o.componentId === component.id)
 
-    // If overridden, return override pricing
-    if (override?.fee?.data?.unitPrice) {
-      const unitPrice = parseFloat(override.fee.data.unitPrice)
-      const quantity = override.fee.data.quantity || 1
+    // If overridden, derive display price from formData
+    if (override) {
+      const displayPrice = formDataToPrice(override.feeType, override.formData, currency)
+      const info = getComponentPricingFromPrice(displayPrice)
       return {
-        unitPrice,
-        quantity,
-        total: unitPrice * quantity,
+        ...info,
         isOverride: true,
-        isMetered: false,
         billingPeriod: undefined,
       }
     }
 
-    // Extract base price from component
-    let unitPrice = 0
-    let quantity = 1
-
-    if (component.fee?.feeType?.value) {
-      const feeType = component.fee.feeType.case
-      switch (feeType) {
-        case 'rate': {
-          const rateFeeData = component.fee.feeType.value
-
-          if (rateFeeData.rates && rateFeeData.rates.length > 0) {
-            // Use configured billing period rate if available
-            if (configuration?.billingPeriod !== undefined) {
-              const rate = rateFeeData.rates.find(r => r.term === configuration.billingPeriod)
-              if (rate) unitPrice = parseFloat(rate.price)
-            } else {
-              unitPrice = parseFloat(rateFeeData.rates[0].price)
-            }
-          }
-          break
-        }
-        case 'slot': {
-          const slotFeeData = component.fee.feeType.value
-          if (slotFeeData.rates && slotFeeData.rates.length > 0) {
-            // Use configured billing period rate if available
-            if (configuration?.billingPeriod !== undefined) {
-              const rate = slotFeeData.rates.find(r => r.term == configuration.billingPeriod)
-
-              if (rate) unitPrice = parseFloat(rate.price)
-            } else {
-              unitPrice = parseFloat(slotFeeData.rates[0].price)
-            }
-          }
-          quantity = configuration?.initialSlotCount || 1
-          break
-        }
-
-        case 'capacity': {
-          const capacityFeeData = component.fee.feeType.value
-          if (capacityFeeData.thresholds && capacityFeeData.thresholds.length > 0) {
-            if (configuration?.committedCapacity !== undefined) {
-              const threshold = capacityFeeData.thresholds.find(
-                t => BigInt(t.includedAmount) === configuration.committedCapacity
-              )
-              if (threshold) {
-                unitPrice = parseFloat(threshold.price)
-              }
-            } else {
-              unitPrice = parseFloat(capacityFeeData.thresholds[0].price)
-            }
-          }
-          break
-        }
-        case 'usage':
-          // Usage pricing is complex (tiers, blocks, per unit, package, matrix)
-          // we don't try to calculate a simple price - will be marked as metered
-          return {
-            unitPrice: 0,
-            quantity: 1,
-            total: 0,
-            isOverride: false,
-            isMetered: true,
-            billingPeriod: undefined,
-          }
-        case 'oneTime': {
-          const oneTimeFeeData = component.fee.feeType.value
-          unitPrice = parseFloat(oneTimeFeeData.unitPrice)
-          break
-        }
-
-        case 'extraRecurring': {
-          const recFeeData = component.fee.feeType.value
-          unitPrice = parseFloat(recFeeData.unitPrice)
-          break
-        }
+    // Extract base price from the component's first price
+    const price = component.prices[0]
+    if (!price) {
+      return {
+        unitPrice: 0,
+        quantity: 1,
+        total: 0,
+        isOverride: false,
+        isMetered: false,
+        billingPeriod: configuration?.billingPeriod,
       }
     }
 
+    const info = getComponentPricingFromPrice(price, {
+      initialSlotCount: configuration?.initialSlotCount,
+    })
+
     return {
-      unitPrice,
-      quantity,
-      total: unitPrice * quantity,
+      ...info,
       isOverride: false,
-      isMetered: false,
       billingPeriod: configuration?.billingPeriod,
     }
   }
-
-  const allComponents = componentsQuery.data?.components || []
-  const includedComponents = allComponents.filter(c => !state.components.removed.includes(c.id))
-  const currency = customerQuery.data?.customer?.currency || 'USD'
-
-  const selectedAddOns =
-    addOnsQuery.data?.addOns.filter(a => state.addOns.some(sa => sa.addOnId === a.id)) || []
-
-  const selectedCoupons =
-    couponsQuery.data?.coupons.filter(c => state.coupons.some(sc => sc.couponId === c.id)) || []
-
-  console.log('includedComponents', includedComponents)
-  console.log('selectedCoupons', selectedCoupons)
 
   // Calculate coupon discount
   const getCouponDiscount = (coupon: Coupon, subtotal: number) => {
@@ -334,6 +301,7 @@ export const StepReviewAndCreate = () => {
 
     return 0
   }
+
   return (
     <div className="space-y-6">
       <PageSection
@@ -342,14 +310,14 @@ export const StepReviewAndCreate = () => {
           subtitle: 'Review all configuration before creating the subscription',
         }}
       >
-        <div className="grid grid-cols-1 lg:grid-cols-3 gap-8">
+        <div className="grid grid-cols-1 xl:grid-cols-3 gap-8">
           {/* Left Column - Customer & Subscription Details */}
-          <div className="lg:col-span-2 space-y-6">
+          <div className="xl:col-span-2 space-y-6">
             {/* Customer & Plan Info */}
             <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
               <Card>
                 <CardHeader className="flex flex-row items-center gap-2">
-                  <User className="h-5 w-5"/>
+                  <User className="h-5 w-5" />
                   <CardTitle className="text-base">Customer</CardTitle>
                 </CardHeader>
                 <CardContent className="space-y-3">
@@ -361,16 +329,12 @@ export const StepReviewAndCreate = () => {
                       {customerQuery.data?.customer?.id}
                     </div>
                   </div>
-                  <div>
-                    <div className="text-xs text-muted-foreground">Currency</div>
-                    <div className="text-sm font-medium">{currency}</div>
-                  </div>
                 </CardContent>
               </Card>
 
               <Card>
                 <CardHeader className="flex flex-row items-center gap-2">
-                  <Package className="h-5 w-5"/>
+                  <Package className="h-5 w-5" />
                   <CardTitle className="text-base">Plan</CardTitle>
                 </CardHeader>
                 <CardContent className="space-y-3">
@@ -382,6 +346,10 @@ export const StepReviewAndCreate = () => {
                       {planQuery.data?.plan?.plan?.description}
                     </div>
                   </div>
+                  <div>
+                    <div className="text-xs text-muted-foreground">Currency</div>
+                    <div className="text-sm font-medium">{currency}</div>
+                  </div>
                 </CardContent>
               </Card>
             </div>
@@ -389,7 +357,7 @@ export const StepReviewAndCreate = () => {
             {/* Timeline & Settings */}
             <Card>
               <CardHeader className="flex flex-row items-center gap-2">
-                <Calendar className="h-5 w-5"/>
+                <Calendar className="h-5 w-5" />
                 <CardTitle className="text-base">Subscription Details</CardTitle>
               </CardHeader>
               <CardContent>
@@ -428,15 +396,11 @@ export const StepReviewAndCreate = () => {
                   </div>
                   <div>
                     <div className="text-xs text-muted-foreground">Auto-advance</div>
-                    <div className="font-medium">
-                      {state.autoAdvanceInvoices ? 'Yes' : 'No'}
-                    </div>
+                    <div className="font-medium">{state.autoAdvanceInvoices ? 'Yes' : 'No'}</div>
                   </div>
                   <div>
                     <div className="text-xs text-muted-foreground">Charge auto.</div>
-                    <div className="font-medium">
-                      {state.chargeAutomatically ? 'Yes' : 'No'}
-                    </div>
+                    <div className="font-medium">{state.chargeAutomatically ? 'Yes' : 'No'}</div>
                   </div>
                   {state.skipPastInvoices && (
                     <div>
@@ -477,7 +441,7 @@ export const StepReviewAndCreate = () => {
                 {selectedAddOns.length > 0 && (
                   <Card>
                     <CardHeader className="flex flex-row items-center gap-2">
-                      <PlusIcon className="h-5 w-5"/>
+                      <PlusIcon className="h-5 w-5" />
                       <CardTitle className="text-base">Add-ons ({selectedAddOns.length})</CardTitle>
                     </CardHeader>
                     <CardContent>
@@ -498,7 +462,7 @@ export const StepReviewAndCreate = () => {
                 {selectedCoupons.length > 0 && (
                   <Card>
                     <CardHeader className="flex flex-row items-center gap-2">
-                      <Tag className="h-5 w-5"/>
+                      <Tag className="h-5 w-5" />
                       <CardTitle className="text-base">
                         Coupons ({selectedCoupons.length})
                       </CardTitle>
@@ -548,7 +512,9 @@ export const StepReviewAndCreate = () => {
                             className="flex items-start justify-between text-sm"
                           >
                             <div className="flex-1 pr-2 min-h-9">
-                              <div className="font-medium">{override?.name || component.name}</div>
+                              <div className="font-medium">
+                                {override?.name || component.name}
+                              </div>
                               {pricing.quantity > 1 && !pricing.isMetered && (
                                 <div className="text-xs text-muted-foreground">
                                   {formatPrice(pricing.unitPrice, currency)} × {pricing.quantity}
@@ -557,12 +523,38 @@ export const StepReviewAndCreate = () => {
                             </div>
                             <div className="text-right font-medium">
                               {pricing.isMetered ? (
-                                <div className="flex items-center justify-end gap-1">
-                                  <span className="text-muted-foreground text-xs">Metered</span>
-                                  <Badge variant="secondary" size="sm">
-                                    {getApiComponentBillingPeriodLabel(component, configuration)}
-                                  </Badge>
-                                </div>
+                                (() => {
+                                  const price = override
+                                    ? formDataToPrice(override.feeType, override.formData, currency)
+                                    : getPrice(component)
+                                  const usage = price
+                                    ? formatUsagePriceSummary(price, currency)
+                                    : undefined
+                                  return (
+                                    <div className="flex items-center justify-end gap-1">
+                                      {usage ? (
+                                        <span>
+                                          {usage.model && (
+                                            <>
+                                              <span className="text-muted-foreground">
+                                                {usage.model}
+                                              </span>{' '}
+                                            </>
+                                          )}
+                                          {usage.amount}
+                                        </span>
+                                      ) : (
+                                        <span className="text-muted-foreground">Metered</span>
+                                      )}
+                                      <Badge variant="secondary" size="sm">
+                                        {getApiComponentBillingPeriodLabel(
+                                          component,
+                                          configuration
+                                        )}
+                                      </Badge>
+                                    </div>
+                                  )
+                                })()
                               ) : (
                                 <div className="flex items-center justify-end gap-1">
                                   <span>
@@ -589,29 +581,50 @@ export const StepReviewAndCreate = () => {
                     <h4 className="font-medium text-xs mb-3">Extra Components</h4>
                     <div className="space-y-2">
                       {state.components.extra.map((component, index) => {
-                        const unitPrice = parseFloat(component.fee?.data?.unitPrice || '0')
-                        const quantity = component.fee?.data?.quantity || 1
-                        const total = unitPrice * quantity
+                        const displayPrice = formDataToPrice(
+                          component.feeType,
+                          component.formData,
+                          currency
+                        )
+                        const pricing = getComponentPricingFromPrice(displayPrice)
 
                         return (
                           <div key={index} className="flex items-start justify-between text-sm">
                             <div className="flex-1 pr-2 min-h-9">
                               <div className="font-medium">{component.name}</div>
-                              {quantity > 1 && (
+                              {pricing.quantity > 1 && !pricing.isMetered && (
                                 <div className="text-xs text-muted-foreground">
-                                  {formatPrice(unitPrice, currency)} × {quantity}
+                                  {formatPrice(pricing.unitPrice, currency)} × {pricing.quantity}
                                 </div>
                               )}
                             </div>
                             <div className="text-right font-medium">
                               <div className="flex items-center justify-end gap-1">
-                                <span>
-                                  {quantity > 1
-                                    ? formatPrice(total, currency)
-                                    : formatPrice(unitPrice, currency)}
-                                </span>
+                                {pricing.isMetered ? (
+                                  (() => {
+                                    const usage = formatUsagePriceSummary(displayPrice, currency)
+                                    return (
+                                      <span>
+                                        {usage.model && (
+                                          <>
+                                            <span className="text-muted-foreground">
+                                              {usage.model}
+                                            </span>{' '}
+                                          </>
+                                        )}
+                                        {usage.amount}
+                                      </span>
+                                    )
+                                  })()
+                                ) : (
+                                  <span>
+                                    {pricing.quantity > 1
+                                      ? formatPrice(pricing.total, currency)
+                                      : formatPrice(pricing.unitPrice, currency)}
+                                  </span>
+                                )}
                                 <Badge variant="secondary" size="sm">
-                                  {getExtraComponentBillingPeriodLabel(component.fee?.fee)}
+                                  {getPriceBillingLabel(displayPrice)}
                                 </Badge>
                               </div>
                             </div>
@@ -658,9 +671,17 @@ export const StepReviewAndCreate = () => {
 
                   // Add extra components
                   state.components.extra.forEach(component => {
-                    const unitPrice = parseFloat(component.fee?.data?.unitPrice || '0')
-                    const quantity = component.fee?.data?.quantity || 1
-                    subtotal += unitPrice * quantity
+                    const displayPrice = formDataToPrice(
+                      component.feeType,
+                      component.formData,
+                      currency
+                    )
+                    const pricing = getComponentPricingFromPrice(displayPrice)
+                    if (pricing.isMetered) {
+                      hasMetered = true
+                    } else {
+                      subtotal += pricing.total
+                    }
                   })
 
                   // Calculate total discount from coupons

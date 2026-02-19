@@ -17,9 +17,9 @@ use crate::errors::{StoreError, StoreErrorReport};
 use crate::jwt_claims::{ResourceAccess, generate_portal_token};
 use crate::services::InvoiceBillingMode;
 use crate::services::subscriptions::utils::{
-    apply_coupons, apply_coupons_without_validation, calculate_mrr, extract_billing_period,
-    process_create_subscription_add_ons, process_create_subscription_components,
-    process_create_subscription_coupons,
+    PendingMaterialization, apply_coupons, apply_coupons_without_validation, calculate_mrr,
+    extract_billing_period, process_create_subscription_add_ons,
+    process_create_subscription_components, process_create_subscription_coupons,
 };
 use crate::store::PgConn;
 use crate::utils::periods::{
@@ -45,6 +45,7 @@ use diesel_models::subscriptions::{SubscriptionRow, SubscriptionRowNew};
 use error_stack::{Report, ResultExt};
 use futures::TryFutureExt;
 use secrecy::SecretString;
+use std::collections::HashMap;
 use std::sync::Arc;
 use tracing::log;
 use uuid::Uuid;
@@ -59,6 +60,8 @@ pub struct ProcessedSubscription {
     event: SubscriptionEventRow,
     slot_transactions: Vec<SlotTransactionRow>,
     scheduled_events: Vec<ScheduledEventNew>,
+    /// Products/prices that need to be created inside the persist transaction.
+    pending_materializations: Vec<PendingMaterialization>,
     /// When true, skip checkout session creation even if pending_checkout is true.
     /// Used for subscriptions created from checkout completion (SelfServe flow).
     skip_checkout_session: bool,
@@ -72,9 +75,9 @@ pub struct DetailedSubscription {
     add_ons: Vec<SubscriptionAddOnNewInternal>,
     coupons: Vec<Coupon>,
     pub customer: Customer,
-    // pub invoicing_entity: InvoicingEntityProviderSensitive,
     currency: Currency,
     pub slot_transactions: Vec<SlotTransactionNewInternal>,
+    pub pending_materializations: Vec<PendingMaterialization>,
 }
 
 impl Services {
@@ -83,77 +86,83 @@ impl Services {
         batch: &[CreateSubscription],
         context: &SubscriptionCreationContext,
     ) -> StoreResult<Vec<DetailedSubscription>> {
-        batch
-            .iter()
-            .map(|params| {
-                let CreateSubscription {
-                    subscription,
-                    price_components,
-                    add_ons,
-                    coupons,
-                } = params;
+        let mut results = Vec::new();
 
-                let customer = context
-                    .customers
+        for (idx, params) in batch.iter().enumerate() {
+            let CreateSubscription {
+                subscription,
+                price_components,
+                add_ons,
+                coupons,
+            } = params;
+
+            let customer = context
+                .customers
+                .iter()
+                .find(|c| c.id == subscription.customer_id)
+                .ok_or(Report::new(StoreError::InsertError))
+                .attach("Customer not found")?;
+
+            let plan = context
+                .plans
+                .iter()
+                .find(|p| p.version_id == subscription.plan_version_id)
+                .ok_or(Report::new(StoreError::ValueNotFound(
+                    "Plan id not found".to_string(),
+                )))?;
+
+            let subscription_currency = &plan.currency.clone();
+
+            let currency = Currencies::resolve_currency(subscription_currency)
+                .ok_or(StoreError::InsertError)
+                .attach("Failed to resolve currency")?
+                .clone();
+
+            let resolved = context
+                .resolved_custom_components
+                .get(idx)
+                .ok_or(Report::new(StoreError::InsertError))
+                .attach("Missing resolved custom components for batch index")?;
+
+            let (components, pending_materializations) =
+                self.process_components(price_components, subscription, context, resolved, plan)?;
+            let subscription_add_ons = self.process_add_ons(add_ons, context)?;
+
+            let slot_transactions = process_slot_transactions(
+                &components,
+                &subscription_add_ons,
+                subscription.start_date,
+            )?;
+
+            let coupons_resolved = if let Some(coupons) = coupons {
+                context
+                    .all_coupons
                     .iter()
-                    .find(|c| c.id == subscription.customer_id)
-                    .ok_or(Report::new(StoreError::InsertError))
-                    .attach("Customer not found")?;
+                    .filter(|c| {
+                        coupons
+                            .coupons
+                            .iter()
+                            .any(|coupon| c.id == coupon.coupon_id)
+                    })
+                    .cloned()
+                    .collect::<Vec<_>>()
+            } else {
+                vec![]
+            };
 
-                let plan = context
-                    .plans
-                    .iter()
-                    .find(|p| p.version_id == subscription.plan_version_id)
-                    .ok_or(Report::new(StoreError::ValueNotFound(
-                        "Plan id not found".to_string(),
-                    )))?;
+            results.push(DetailedSubscription {
+                subscription: subscription.clone(),
+                components,
+                add_ons: subscription_add_ons,
+                coupons: coupons_resolved,
+                customer: customer.clone(),
+                currency,
+                slot_transactions,
+                pending_materializations,
+            });
+        }
 
-                let subscription_currency = &plan.currency.clone();
-
-                let currency = Currencies::resolve_currency(subscription_currency)
-                    .ok_or(StoreError::InsertError)
-                    .attach("Failed to resolve currency")?
-                    .clone();
-
-                let components =
-                    self.process_components(price_components, subscription, context)?;
-                let subscription_add_ons = self.process_add_ons(add_ons, context)?;
-
-                let slot_transactions = process_slot_transactions(
-                    &components,
-                    &subscription_add_ons,
-                    subscription.start_date,
-                )?;
-
-                let coupons = if let Some(coupons) = coupons {
-                    context
-                        .all_coupons
-                        .iter()
-                        .filter(|c| {
-                            coupons
-                                .coupons
-                                .iter()
-                                .any(|coupon| c.id == coupon.coupon_id)
-                        })
-                        .cloned()
-                        .collect::<Vec<_>>()
-                } else {
-                    vec![]
-                };
-
-                Ok({
-                    DetailedSubscription {
-                        subscription: subscription.clone(),
-                        components,
-                        add_ons: subscription_add_ons,
-                        coupons,
-                        customer: customer.clone(),
-                        currency,
-                        slot_transactions,
-                    }
-                })
-            })
-            .collect::<Result<Vec<DetailedSubscription>, _>>()
+        Ok(results)
     }
 
     pub(crate) fn build_subscription_details_from_quote(
@@ -206,6 +215,7 @@ impl Services {
             customer: customer.clone(),
             currency,
             slot_transactions,
+            pending_materializations: vec![], // Quotes have pre-resolved products/prices
         })
     }
 
@@ -559,6 +569,7 @@ impl Services {
             event,
             slot_transactions,
             scheduled_events,
+            pending_materializations: sub.pending_materializations.clone(),
             skip_checkout_session: sub.subscription.skip_checkout_session,
             skip_past_invoices: sub.subscription.skip_past_invoices,
         })
@@ -569,11 +580,18 @@ impl Services {
         components: &Option<CreateSubscriptionComponents>,
         subscription: &SubscriptionNew,
         context: &SubscriptionCreationContext,
-    ) -> Result<Vec<SubscriptionComponentNewInternal>, StoreErrorReport> {
+        resolved: &super::context::ResolvedCustomComponents,
+        plan: &crate::domain::PlanForSubscription,
+    ) -> Result<(Vec<SubscriptionComponentNewInternal>, Vec<PendingMaterialization>), StoreErrorReport>
+    {
         process_create_subscription_components(
             components,
             &context.price_components_by_plan_version,
             subscription,
+            &context.products_by_id,
+            resolved,
+            plan.product_family_id,
+            &plan.currency,
         )
     }
 
@@ -582,7 +600,12 @@ impl Services {
         add_ons: &Option<CreateSubscriptionAddOns>,
         context: &SubscriptionCreationContext,
     ) -> Result<Vec<SubscriptionAddOnNewInternal>, StoreErrorReport> {
-        process_create_subscription_add_ons(add_ons, &context.all_add_ons)
+        process_create_subscription_add_ons(
+            add_ons,
+            &context.all_add_ons,
+            &context.products_by_id,
+            &context.addon_prices_by_id,
+        )
     }
 
     fn process_coupons(
@@ -728,9 +751,53 @@ impl Services {
             .store
             .transaction_with(conn, |conn| {
                 async move {
-                    // Flatten collections for batch insertion
+                    // Materialize pending products/prices inside the transaction.
+                    // Builds a map of (sub_idx, comp_idx) → (product_id, price_id) for patching.
+                    let mut materialized: HashMap<(usize, usize), (common_domain::ids::ProductId, Option<common_domain::ids::PriceId>)> = HashMap::new();
+                    for (sub_idx, proc) in processed.iter().enumerate() {
+                        for mat in &proc.pending_materializations {
+                            use crate::domain::price_components::PriceComponentNewInternal;
+                            use crate::repositories::price_components::resolve_component_internal;
+
+                            let internal = PriceComponentNewInternal {
+                                name: mat.name.clone(),
+                                product_ref: mat.product_ref.clone(),
+                                prices: vec![mat.price_entry.clone()],
+                            };
+                            let (product_id, price_ids) = resolve_component_internal(
+                                conn,
+                                &internal,
+                                tenant_id,
+                                proc.subscription.created_by,
+                                mat.product_family_id,
+                                &mat.currency,
+                            )
+                            .await?;
+
+                            materialized.insert(
+                                (sub_idx, mat.component_index),
+                                (product_id, price_ids.into_iter().next()),
+                            );
+                        }
+                    }
+
+                    // Flatten collections for batch insertion, patching materialized components.
                     let subscriptions: Vec<_> = processed.iter().map(|p| &p.subscription).collect();
-                    let components: Vec<_> = processed.iter().flat_map(|p| &p.components).collect();
+
+                    let mut patched_components: Vec<SubscriptionComponentRowNew> = Vec::new();
+                    for (sub_idx, proc) in processed.iter().enumerate() {
+                        for (comp_idx, comp) in proc.components.iter().enumerate() {
+                            if let Some((product_id, price_id)) = materialized.get(&(sub_idx, comp_idx)) {
+                                let mut patched = comp.clone();
+                                patched.product_id = Some(*product_id);
+                                patched.price_id = *price_id;
+                                patched_components.push(patched);
+                            } else {
+                                patched_components.push(comp.clone());
+                            }
+                        }
+                    }
+                    let components: Vec<_> = patched_components.iter().collect();
                     let add_ons: Vec<_> = processed.iter().flat_map(|p| &p.add_ons).collect();
                     let coupons: Vec<_> = processed.iter().flat_map(|p| &p.coupons).collect();
                     let events: Vec<_> = processed.iter().map(|p| &p.event).collect();

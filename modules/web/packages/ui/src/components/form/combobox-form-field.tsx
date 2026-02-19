@@ -19,8 +19,10 @@ import { Popover, PopoverContent, PopoverTrigger } from '../ui/popover'
 import { FormControl, FormDescription, FormField, FormItem, FormLabel, FormMessage } from './form'
 import { genericFormFieldVariants as genVariants } from './generic-form-field'
 
-interface FormComboboxProps<TFieldValues extends FieldValues, TName extends FieldPath<TFieldValues>>
-  extends Omit<ControllerProps<TFieldValues, TName>, 'render'> {
+interface FormComboboxProps<
+  TFieldValues extends FieldValues,
+  TName extends FieldPath<TFieldValues>,
+> extends Omit<ControllerProps<TFieldValues, TName>, 'render'> {
   control: Control<TFieldValues>
   options: { label: React.ReactNode; value: string; keywords?: string[] }[]
   label?: string
@@ -59,7 +61,7 @@ export function ComboboxFormField<
       render={({ field }) => (
         <FormItem className={cn(genVariants.formField({ layout }), containerClassName)}>
           {label && (
-            <FormLabel className={cn(genVariants.label({ layout }), labelClassName)}>
+            <FormLabel className={cn('my-2', genVariants.label({ layout }), labelClassName)}>
               {label}
             </FormLabel>
           )}
@@ -78,7 +80,7 @@ export function ComboboxFormField<
                 >
                   {field.value
                     ? options.find(option => option.value === field.value)?.label
-                    : placeholder ?? `Select ${unit}`}
+                    : (placeholder ?? `Select ${unit}`)}
                   <CaretSortIcon className="ml-2 h-4 w-4 shrink-0 opacity-50" />
                 </Button>
               </FormControl>

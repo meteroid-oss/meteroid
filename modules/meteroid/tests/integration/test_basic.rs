@@ -93,15 +93,27 @@ async fn test_main() {
             api::components::v1::CreatePriceComponentRequest {
                 plan_version_id: plan_version.clone().id,
                 name: "One Time".to_string(),
-                fee: Some(api::components::v1::Fee {
-                    fee_type: Some(api::components::v1::fee::FeeType::OneTime(
-                        api::components::v1::fee::OneTimeFee {
-                            unit_price: Decimal::new(100, 2).to_string(),
-                            quantity: 1,
-                        },
+                product: Some(api::components::v1::ProductRef {
+                    r#ref: Some(api::components::v1::product_ref::Ref::ExistingProductId(
+                        "018c344b-da87-7392-bbae-c5c8780adb1b".to_string(),
                     )),
                 }),
-                product_id: None,
+                prices: vec![api::components::v1::PriceEntry {
+                    entry: Some(api::components::v1::price_entry::Entry::NewPrice(
+                        api::components::v1::PriceInput {
+                            cadence: api::shared::v1::BillingPeriod::Monthly.into(),
+                            currency: "EUR".to_string(),
+                            pricing: Some(
+                                api::components::v1::price_input::Pricing::OneTimePricing(
+                                    api::prices::v1::OneTimePricing {
+                                        unit_price: Decimal::new(100, 2).to_string(),
+                                        quantity: 1,
+                                    },
+                                ),
+                            ),
+                        },
+                    )),
+                }],
             },
         ))
         .await

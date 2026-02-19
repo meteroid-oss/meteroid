@@ -82,6 +82,7 @@ pub mod plans {
                 currency: value.currency,
                 net_terms: value.net_terms,
                 period_start_day: value.period_start_day.map(i32::from),
+                uses_product_pricing: value.uses_product_pricing,
             })
         }
     }

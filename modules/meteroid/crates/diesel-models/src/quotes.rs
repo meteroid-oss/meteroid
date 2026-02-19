@@ -5,8 +5,8 @@ use chrono::{NaiveDate, NaiveDateTime};
 
 use crate::customers::CustomerRow;
 use common_domain::ids::{
-    CustomerId, InvoiceId, PlanVersionId, PriceComponentId, ProductId, QuoteActivityId, QuoteId,
-    QuotePriceComponentId, QuoteSignatureId, StoredDocumentId, SubscriptionId, TenantId,
+    CustomerId, InvoiceId, PlanVersionId, PriceComponentId, PriceId, ProductId, QuoteActivityId,
+    QuoteId, QuotePriceComponentId, QuoteSignatureId, StoredDocumentId, SubscriptionId, TenantId,
 };
 use diesel::{AsChangeset, Identifiable, Insertable, Queryable, Selectable};
 
@@ -227,8 +227,9 @@ pub struct QuoteComponentRow {
     pub price_component_id: Option<PriceComponentId>,
     pub product_id: Option<ProductId>,
     pub period: SubscriptionFeeBillingPeriod,
-    pub fee: serde_json::Value,
+    pub legacy_fee: Option<serde_json::Value>,
     pub is_override: bool,
+    pub price_id: Option<PriceId>,
 }
 
 #[derive(Insertable, Debug)]
@@ -240,6 +241,7 @@ pub struct QuoteComponentRowNew {
     pub price_component_id: Option<PriceComponentId>,
     pub product_id: Option<ProductId>,
     pub period: SubscriptionFeeBillingPeriod,
-    pub fee: serde_json::Value,
+    pub legacy_fee: Option<serde_json::Value>,
     pub is_override: bool,
+    pub price_id: Option<PriceId>,
 }

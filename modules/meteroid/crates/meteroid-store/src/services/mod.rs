@@ -27,6 +27,7 @@ mod orchestration;
 mod payment;
 mod quotes;
 mod subscriptions;
+mod prices;
 mod webhooks;
 
 use crate::domain::{PaymentTransaction, Subscription};

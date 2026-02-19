@@ -170,20 +170,30 @@ pub mod metric {
         segmentation_matrix: Option<server::SegmentationMatrix>,
     ) -> Option<SegmentationMatrix> {
         segmentation_matrix.and_then(|sm| match sm.matrix {
-            Some(Matrix::Single(s)) => Some(SegmentationMatrix::Single(Dimension {
-                key: s.dimension.as_ref().unwrap().key.clone(),
-                values: s.dimension.as_ref().unwrap().values.clone(),
-            })),
-            Some(Matrix::Double(d)) => Some(SegmentationMatrix::Double {
-                dimension1: Dimension {
-                    key: d.dimension1.as_ref().unwrap().key.clone(),
-                    values: d.dimension1.as_ref().unwrap().values.clone(),
-                },
-                dimension2: Dimension {
-                    key: d.dimension2.as_ref().unwrap().key.clone(),
-                    values: d.dimension2.as_ref().unwrap().values.clone(),
-                },
-            }),
+            Some(Matrix::Single(s)) => {
+                let dim = s.dimension.as_ref().unwrap();
+                Some(SegmentationMatrix::Single(Dimension {
+                    key: dim.key.clone(),
+                    values: dim.values.clone(),
+                    deprecated_values: dim.deprecated_values.clone(),
+                }))
+            }
+            Some(Matrix::Double(d)) => {
+                let d1 = d.dimension1.as_ref().unwrap();
+                let d2 = d.dimension2.as_ref().unwrap();
+                Some(SegmentationMatrix::Double {
+                    dimension1: Dimension {
+                        key: d1.key.clone(),
+                        values: d1.values.clone(),
+                        deprecated_values: d1.deprecated_values.clone(),
+                    },
+                    dimension2: Dimension {
+                        key: d2.key.clone(),
+                        values: d2.values.clone(),
+                        deprecated_values: d2.deprecated_values.clone(),
+                    },
+                })
+            }
             Some(Matrix::Linked(l)) => Some(SegmentationMatrix::Linked {
                 dimension1_key: l.dimension_key.clone(),
                 dimension2_key: l.linked_dimension_key.clone(),
@@ -203,11 +213,12 @@ pub mod metric {
         segmentation_matrix
             .map(|sm| server::SegmentationMatrix {
                 matrix: match sm {
-                    SegmentationMatrix::Single(Dimension { key, values }) => Some(
+                    SegmentationMatrix::Single(Dimension { key, values, deprecated_values }) => Some(
                         server::segmentation_matrix::Matrix::Single(server::segmentation_matrix::SegmentationMatrixSingle {
                             dimension: Some(server::segmentation_matrix::Dimension {
                                 key,
                                 values,
+                                deprecated_values,
                             })
                         })
                     ),
@@ -216,10 +227,12 @@ pub mod metric {
                             dimension1: Some(server::segmentation_matrix::Dimension {
                                 key: dimension1.key,
                                 values: dimension1.values,
+                                deprecated_values: dimension1.deprecated_values,
                             }),
                             dimension2: Some(server::segmentation_matrix::Dimension {
                                 key: dimension2.key,
                                 values: dimension2.values,
+                                deprecated_values: dimension2.deprecated_values,
                             }),
                         }))
                     }
@@ -320,6 +333,7 @@ pub mod metric {
                 Some(SegmentationMatrix::Single(Dimension {
                     key: dim.key,
                     values: new_values.values,
+                    deprecated_values: dim.deprecated_values,
                 }))
             }
             (
@@ -332,10 +346,12 @@ pub mod metric {
                 dimension1: Dimension {
                     key: dimension1.key,
                     values: new_values.dimension1_values,
+                    deprecated_values: dimension1.deprecated_values,
                 },
                 dimension2: Dimension {
                     key: dimension2.key,
                     values: new_values.dimension2_values,
+                    deprecated_values: dimension2.deprecated_values,
                 },
             }),
             (

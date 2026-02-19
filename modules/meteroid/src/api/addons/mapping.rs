@@ -7,13 +7,10 @@ pub mod addons {
         fn from(value: domain::add_ons::AddOn) -> Self {
             Self(server::AddOn {
                 id: value.id.to_string(),
-                local_id: value.id.to_string(), //todo remove me
+                local_id: value.id.to_string(),
                 name: value.name,
-                fee: Some(
-                    crate::api::pricecomponents::mapping::components::map_fee_domain_to_api(
-                        value.fee,
-                    ),
-                ),
+                product_id: value.product_id.map(|p| p.as_proto()),
+                price_id: value.price_id.map(|p| p.as_proto()),
             })
         }
     }

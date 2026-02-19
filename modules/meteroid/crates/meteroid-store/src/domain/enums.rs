@@ -67,6 +67,17 @@ impl Ord for BillingPeriodEnum {
     }
 }
 
+#[derive(o2o, Serialize, Deserialize, Debug, Clone, Copy, PartialEq, Eq)]
+#[map_owned(diesel_enums::FeeTypeEnum)]
+pub enum FeeTypeEnum {
+    Rate,
+    Slot,
+    Capacity,
+    Usage,
+    ExtraRecurring,
+    OneTime,
+}
+
 #[derive(o2o, Serialize, Deserialize, Debug, Clone, Eq, PartialEq)]
 #[map_owned(diesel_enums::CreditNoteStatus)]
 pub enum CreditNoteStatus {
@@ -342,7 +353,7 @@ pub enum ScheduledEventStatus {
     Processing,
     Completed,
     Failed,
-    Cancelled,
+    Canceled,
 }
 
 #[derive(o2o, Serialize, Deserialize, Debug, Clone, PartialEq, Eq, Default)]

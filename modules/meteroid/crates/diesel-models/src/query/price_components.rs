@@ -31,7 +31,6 @@ impl PriceComponentRowNew {
     }
 }
 
-// TODO check tenants in all methods
 impl PriceComponentRow {
     pub async fn get_by_id(
         conn: &mut PgConn,
@@ -123,11 +122,17 @@ impl PriceComponentRow {
     pub async fn get_by_plan_version_ids(
         conn: &mut PgConn,
         plan_version_ids: &[PlanVersionId],
+        param_tenant_id: TenantId,
     ) -> DbResult<HashMap<PlanVersionId, Vec<PriceComponentRow>>> {
+        use crate::schema::plan_version::dsl as pv_dsl;
         use crate::schema::price_component::dsl::{plan_version_id, price_component};
         use diesel_async::RunQueryDsl;
 
-        let query = price_component.filter(plan_version_id.eq_any(plan_version_ids));
+        let query = price_component
+            .inner_join(pv_dsl::plan_version)
+            .filter(plan_version_id.eq_any(plan_version_ids))
+            .filter(pv_dsl::tenant_id.eq(param_tenant_id))
+            .select(PriceComponentRow::as_select());
 
         log::debug!("{}", debug_query::<diesel::pg::Pg, _>(&query));
 
@@ -204,6 +209,28 @@ impl PriceComponentRow {
         Ok(())
     }
 
+    pub async fn list_all_by_tenant(
+        conn: &mut PgConn,
+        tenant_id: TenantId,
+    ) -> DbResult<Vec<PriceComponentRow>> {
+        use crate::schema::plan_version::dsl as pv_dsl;
+        use crate::schema::price_component::dsl as pc_dsl;
+        use diesel_async::RunQueryDsl;
+
+        let query = pc_dsl::price_component
+            .inner_join(pv_dsl::plan_version)
+            .filter(pv_dsl::tenant_id.eq(tenant_id))
+            .select(PriceComponentRow::as_select());
+
+        log::debug!("{}", debug_query::<diesel::pg::Pg, _>(&query));
+
+        query
+            .get_results(conn)
+            .await
+            .attach("Error while listing all price components by tenant")
+            .into_db_result()
+    }
+
     pub async fn clone_all(
         conn: &mut PgConn,
         src_plan_version_id: PlanVersionId,
@@ -221,7 +248,7 @@ impl PriceComponentRow {
             .select((
                 gen_random_uuid(),
                 pc_dsl::name,
-                pc_dsl::fee,
+                pc_dsl::legacy_fee,
                 diesel::dsl::sql::<diesel::sql_types::Uuid>(
                     format!("'{}'", dst_plan_version_id.as_uuid()).as_str(),
                 ),
@@ -232,7 +259,7 @@ impl PriceComponentRow {
             .into_columns((
                 pc_dsl::id,
                 pc_dsl::name,
-                pc_dsl::fee,
+                pc_dsl::legacy_fee,
                 pc_dsl::plan_version_id,
                 pc_dsl::product_id,
                 pc_dsl::billable_metric_id,

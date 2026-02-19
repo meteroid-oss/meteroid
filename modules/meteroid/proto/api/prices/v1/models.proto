@@ -1,0 +1,156 @@
+syntax = "proto3";
+
+package meteroid.api.prices.v1;
+
+import "api/shared/v1/shared.proto";
+import "google/protobuf/timestamp.proto";
+
+enum FeeType {
+  RATE = 0;
+  SLOT = 1;
+  CAPACITY = 2;
+  USAGE = 3;
+  EXTRA_RECURRING = 4;
+  ONE_TIME = 5;
+}
+
+message Price {
+  string id = 1;
+  string product_id = 2;
+  meteroid.api.shared.v1.BillingPeriod cadence = 3;
+  string currency = 4;
+  oneof pricing {
+    RatePricing rate_pricing = 5;
+    SlotPricing slot_pricing = 6;
+    CapacityPricing capacity_pricing = 7;
+    UsagePricing usage_pricing = 8;
+    ExtraRecurringPricing extra_recurring_pricing = 9;
+    OneTimePricing one_time_pricing = 10;
+  }
+  google.protobuf.Timestamp created_at = 11;
+  optional google.protobuf.Timestamp archived_at = 12;
+}
+
+message RatePricing {
+  string rate = 1;
+}
+
+message SlotPricing {
+  string unit_rate = 1;
+  optional uint32 min_slots = 2;
+  optional uint32 max_slots = 3;
+}
+
+message CapacityPricing {
+  string rate = 1;
+  uint64 included = 2;
+  string overage_rate = 3;
+}
+
+message UsagePricing {
+  oneof model {
+    string per_unit = 1;
+    TieredAndVolumePricing tiered = 2;
+    TieredAndVolumePricing volume = 3;
+    PackagePricing package = 4;
+    MatrixPricing matrix = 5;
+  }
+
+  message TieredAndVolumePricing {
+    repeated TierRow rows = 1;
+    optional uint64 block_size = 2;
+
+    message TierRow {
+      uint64 first_unit = 1;
+      string unit_price = 2;
+      optional string flat_fee = 3;
+      optional string flat_cap = 4;
+    }
+  }
+
+  message PackagePricing {
+    string package_price = 1;
+    uint64 block_size = 2;
+  }
+
+  message MatrixPricing {
+    repeated MatrixRow rows = 1;
+
+    message MatrixRow {
+      string per_unit_price = 1;
+      MatrixDimension dimension1 = 2;
+      optional MatrixDimension dimension2 = 3;
+    }
+
+    message MatrixDimension {
+      string key = 1;
+      string value = 2;
+    }
+  }
+}
+
+message ExtraRecurringPricing {
+  string unit_price = 1;
+  uint32 quantity = 2;
+}
+
+message OneTimePricing {
+  string unit_price = 1;
+  uint32 quantity = 2;
+}
+
+message FeeStructure {
+  oneof structure {
+    RateStructure rate = 1;
+    SlotStructure slot = 2;
+    CapacityStructure capacity = 3;
+    UsageStructure usage = 4;
+    ExtraRecurringStructure extra_recurring = 5;
+    OneTimeStructure one_time = 6;
+  }
+
+  message RateStructure {}
+
+  message SlotStructure {
+    string unit_name = 1;
+    reserved 2, 3;
+    UpgradePolicy upgrade_policy = 4;
+    DowngradePolicy downgrade_policy = 5;
+  }
+
+  enum UpgradePolicy {
+    PRORATED = 0;
+  }
+
+  enum DowngradePolicy {
+    REMOVE_AT_END_OF_PERIOD = 0;
+  }
+
+  message CapacityStructure {
+    string metric_id = 1;
+  }
+
+  message UsageStructure {
+    string metric_id = 1;
+    UsageModel model = 2;
+  }
+
+  enum UsageModel {
+    PER_UNIT = 0;
+    TIERED = 1;
+    VOLUME = 2;
+    PACKAGE = 3;
+    MATRIX = 4;
+  }
+
+  message ExtraRecurringStructure {
+    BillingType billing_type = 1;
+  }
+
+  enum BillingType {
+    ARREAR = 0;
+    ADVANCE = 1;
+  }
+
+  message OneTimeStructure {}
+}

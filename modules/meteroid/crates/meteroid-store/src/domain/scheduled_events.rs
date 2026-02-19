@@ -1,8 +1,12 @@
-use crate::domain::enums::{ScheduledEventStatus, ScheduledEventTypeEnum};
+use crate::domain::enums::{ScheduledEventStatus, ScheduledEventTypeEnum, SubscriptionFeeBillingPeriod};
+use crate::domain::subscription_components::SubscriptionFee;
 use crate::errors::StoreErrorReport;
 use crate::json_value_serde;
 use chrono::NaiveDateTime;
-use common_domain::ids::{InvoiceId, PlanVersionId, SubscriptionId, TenantId};
+use common_domain::ids::{
+    InvoiceId, PlanVersionId, PriceComponentId, PriceId, ProductId, SubscriptionId,
+    SubscriptionPriceComponentId, TenantId,
+};
 use diesel_models::scheduled_events::ScheduledEventRow;
 use diesel_models::scheduled_events::ScheduledEventRowNew;
 use o2o::o2o;
@@ -64,6 +68,7 @@ pub enum ScheduledEventData {
     },
     ApplyPlanChange {
         new_plan_version_id: PlanVersionId,
+        component_mappings: Vec<ComponentMapping>,
     },
     /// End paid trial - transitions subscription from TrialActive to Active
     /// Billing continues normally via RenewSubscription, this just handles the status change
@@ -83,6 +88,33 @@ impl ScheduledEventData {
             Self::EndTrial => ScheduledEventTypeEnum::EndTrial,
         }
     }
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub enum ComponentMapping {
+    /// Component matched by product_id between current and target plans
+    Matched {
+        current_component_id: SubscriptionPriceComponentId,
+        target_component_id: PriceComponentId,
+        product_id: ProductId,
+        price_id: PriceId,
+        name: String,
+        fee: SubscriptionFee,
+        period: SubscriptionFeeBillingPeriod,
+    },
+    /// Component in target plan but not in current (new)
+    Added {
+        target_component_id: PriceComponentId,
+        product_id: Option<ProductId>,
+        price_id: Option<PriceId>,
+        name: String,
+        fee: SubscriptionFee,
+        period: SubscriptionFeeBillingPeriod,
+    },
+    /// Component in current plan but not in target (to be removed)
+    Removed {
+        current_component_id: SubscriptionPriceComponentId,
+    },
 }
 
 impl ScheduledEventNew {

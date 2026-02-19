@@ -31,6 +31,18 @@ pub enum BillingPeriodEnum {
     Annual,
 }
 
+#[derive(diesel_derive_enum::DbEnum, Debug, Clone, PartialEq, Eq)]
+#[ExistingTypePath = "crate::schema::sql_types::FeeTypeEnum"]
+#[DbValueStyle = "SCREAMING_SNAKE_CASE"]
+pub enum FeeTypeEnum {
+    Rate,
+    Slot,
+    Capacity,
+    Usage,
+    ExtraRecurring,
+    OneTime,
+}
+
 #[derive(diesel_derive_enum::DbEnum, Debug, Clone, Eq, PartialEq)]
 #[ExistingTypePath = "crate::schema::sql_types::CreditNoteStatus"]
 #[DbValueStyle = "SCREAMING_SNAKE_CASE"]
@@ -301,7 +313,7 @@ pub enum ScheduledEventStatus {
     Processing,
     Completed,
     Failed,
-    Cancelled,
+    Canceled,
 }
 
 #[derive(diesel_derive_enum::DbEnum, Debug, Clone, Copy, PartialEq, Eq)]

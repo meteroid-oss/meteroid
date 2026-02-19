@@ -1,5 +1,1 @@
-import { PriceComponent, FeeType } from '@/lib/schemas/plans'
-
-export type PriceComponentType = FeeType['fee']
-
-export type { PriceComponent }
+export type { ComponentFeeType as PriceComponentType } from '@/features/pricing/conversions'

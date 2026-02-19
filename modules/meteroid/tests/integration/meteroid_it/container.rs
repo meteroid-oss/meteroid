@@ -139,12 +139,14 @@ pub async fn start_meteroid_with_port(
     let stripe = Arc::new(StripeClient::new());
     let stripe_adapter = Arc::new(Stripe { client: stripe });
 
+    let ready = std::sync::Arc::new(std::sync::atomic::AtomicBool::new(true));
     let rest_server = meteroid::api_rest::server::start_rest_server(
         config.clone(),
         in_memory_object_store(),
         stripe_adapter,
         store.clone(),
         services.clone(),
+        ready,
     );
 
     let join_handle_meteroid = tokio::spawn(async move {

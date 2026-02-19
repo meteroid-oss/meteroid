@@ -1,100 +1,115 @@
 import {
   createConnectQueryKey,
   createProtobufSafeUpdater,
+  disableQuery,
   useMutation,
 } from '@connectrpc/connect-query'
+import { Form } from '@md/ui'
 import { useQueryClient } from '@tanstack/react-query'
-import { useAtom, useSetAtom } from 'jotai'
+import { useSetAtom } from 'jotai'
 import { useHydrateAtoms } from 'jotai/utils'
 import { ScopeProvider } from 'jotai-scope'
-import { ReactNode } from 'react'
-import { DeepPartial } from 'react-hook-form'
-import { match } from 'ts-pattern'
+import { ReactNode, useMemo } from 'react'
+import { z } from 'zod'
 
-import { usePlanWithVersion } from '@/features/plans/hooks/usePlan'
-import { CapacityForm } from '@/features/plans/pricecomponents/components/CapacityForm'
-import { OneTimeForm } from '@/features/plans/pricecomponents/components/OneTimeForm'
-import { RecurringForm } from '@/features/plans/pricecomponents/components/RecurringForm'
-import { SlotsForm } from '@/features/plans/pricecomponents/components/SlotsForm'
-import { SubscriptionRateForm } from '@/features/plans/pricecomponents/components/SubscriptionRateForm'
-import { UsageBasedForm } from '@/features/plans/pricecomponents/components/UsageBasedForm'
-import { addedComponentsAtom, editedComponentsAtom } from '@/features/plans/pricecomponents/utils'
-import { mapFee } from '@/lib/mapping/feesToGrpc'
-import { FormPriceComponent, PriceComponent, formPriceComponentSchema } from '@/lib/schemas/plans'
+import type { ComponentFeeType } from '@/features/pricing/conversions'
 import {
-  createPriceComponent as createPriceComponentMutation,
+  buildPriceInputs,
+  wrapAsNewPriceEntries,
+  toPricingTypeFromFeeType,
+} from '@/features/pricing/conversions'
+import { usePlanWithVersion } from '@/features/plans/hooks/usePlan'
+import { EditPriceComponentCard } from '@/features/plans/pricecomponents/EditPriceComponentCard'
+import { extractStructuralInfo } from '@/features/plans/pricecomponents/ProductBrowser'
+import {
+  PriceComponentFormContent,
+  buildDefaultsFromPrices,
+  getComponentSchema,
+} from '@/features/plans/pricecomponents/ProductPricingForm'
+import { editedComponentsAtom, useCurrency } from '@/features/plans/pricecomponents/utils'
+import { useQuery } from '@/lib/connectrpc'
+import { useZodForm } from '@/hooks/useZodForm'
+import type { PriceComponent as ProtoPriceComponent } from '@/rpc/api/pricecomponents/v1/models_pb'
+import {
   editPriceComponent as editPriceComponentMutation,
   listPriceComponents as listPriceComponentsQuery,
 } from '@/rpc/api/pricecomponents/v1/pricecomponents-PriceComponentsService_connectquery'
+import { getProduct } from '@/rpc/api/products/v1/products-ProductsService_connectquery'
 
-import { componentFeeTypeAtom, componentNameAtom, editedComponentAtom } from './atoms'
+import { componentFeeTypeAtom, componentNameAtom } from './atoms'
 
-interface CreatePriceComponentProps {
-  createRef: string
-  component: DeepPartial<PriceComponent>
+// --- Helpers ---
+
+function deriveFeeType(component: ProtoPriceComponent): ComponentFeeType {
+  if (component.prices.length > 0) {
+    const pricing = component.prices[0].pricing
+    switch (pricing.case) {
+      case 'ratePricing':
+        return 'rate'
+      case 'slotPricing':
+        return 'slot'
+      case 'capacityPricing':
+        return 'capacity'
+      case 'usagePricing':
+        return 'usage'
+      case 'extraRecurringPricing':
+        return 'extraRecurring'
+      case 'oneTimePricing':
+        return 'oneTime'
+    }
+  }
+  return 'rate'
 }
 
-export const CreatePriceComponent = ({ createRef, component }: CreatePriceComponentProps) => {
-  const setAddedComponents = useSetAtom(addedComponentsAtom)
-
-  const { version } = usePlanWithVersion()
-
-  const queryClient = useQueryClient()
-
-  const createPriceComponent = useMutation(createPriceComponentMutation, {
-    onSuccess: data => {
-      if (!version?.id) return
-      setAddedComponents(components => components.filter(comp => comp.ref !== createRef))
-
-      if (data.component) {
-        queryClient.setQueryData(
-          createConnectQueryKey(listPriceComponentsQuery, {
-            planVersionId: version.id,
-          }),
-          createProtobufSafeUpdater(listPriceComponentsQuery, prev => ({
-            components: [...(prev?.components ?? []), data.component!],
-          }))
-        )
-      }
-    },
-  })
-
-  const cancel = () => {
-    // TODO confirm
-    setAddedComponents(components => components.filter(comp => comp.ref !== createRef))
-  }
-
-  const onSubmit = (data: FormPriceComponent) => {
-    const validated = formPriceComponentSchema.safeParse(data)
-
-    console.log('validated', validated)
-    if (!version?.id) return
-
-    createPriceComponent.mutate({
-      planVersionId: version.id,
-      // productId: undefined, // TODO
-      name: data.name,
-      fee: mapFee(data.fee),
-    })
-  }
-
-  return (
-    <ProviderWrapper init={component}>
-      <PriceComponentForm cancel={cancel} onSubmit={onSubmit}/>
-    </ProviderWrapper>
-  )
-}
+// --- Edit component ---
 
 interface EditPriceComponentProps {
-  component: PriceComponent
+  component: ProtoPriceComponent
 }
 
 export const EditPriceComponent = ({ component }: EditPriceComponentProps) => {
   const setEditedComponents = useSetAtom(editedComponentsAtom)
-
   const { version } = usePlanWithVersion()
-
   const queryClient = useQueryClient()
+  const currency = useCurrency()
+
+  const feeType = deriveFeeType(component)
+  const hasProduct = !!component.productId
+
+  // Fetch the product to get structural info (slot unit name, metric, billing type, etc.)
+  const productQuery = useQuery(
+    getProduct,
+    component.productId ? { productId: component.productId } : disableQuery
+  )
+  const product = productQuery.data?.product
+
+  const structural = useMemo(
+    () => (product ? extractStructuralInfo(feeType, product.feeStructure) : undefined),
+    [feeType, product]
+  )
+
+  // Derive usage model from existing prices (available synchronously) for schema selection
+  const usageModelFromPrices = useMemo(() => {
+    if (feeType !== 'usage' || component.prices.length === 0) return undefined
+    const pricing = component.prices[0].pricing
+    if (pricing.case !== 'usagePricing') return undefined
+    const protoToForm: Record<string, string> = {
+      perUnit: 'per_unit', tiered: 'tiered', volume: 'volume', package: 'package', matrix: 'matrix',
+    }
+    return protoToForm[pricing.value.model.case ?? ''] ?? 'per_unit'
+  }, [feeType, component.prices])
+
+  const defaultValues = useMemo(
+    () => buildDefaultsFromPrices(feeType, component.prices),
+    [feeType, component.prices]
+  )
+
+  const schema = useMemo(
+    () => getComponentSchema(feeType, hasProduct ? 'pricingOnly' : 'full', usageModelFromPrices),
+    [feeType, hasProduct, usageModelFromPrices]
+  )
+
+  const methods = useZodForm({ schema: schema as z.ZodType, defaultValues })
 
   const editPriceComponent = useMutation(editPriceComponentMutation, {
     onSuccess: data => {
@@ -109,13 +124,9 @@ export const EditPriceComponent = ({ component }: EditPriceComponentProps) => {
           createProtobufSafeUpdater(listPriceComponentsQuery, prev => {
             const idx = prev?.components?.findIndex(comp => comp.id === component.id) ?? -1
             if (idx === -1 || !data.component) return prev
-            // now we update the componet it idx with the new data
             const updated = [...(prev?.components ?? [])]
             updated[idx] = data.component
-
-            return {
-              components: updated,
-            }
+            return { components: updated }
           })
         )
       }
@@ -123,74 +134,87 @@ export const EditPriceComponent = ({ component }: EditPriceComponentProps) => {
   })
 
   const cancel = () => {
-    // TODO confirm
     setEditedComponents(components => components.filter(comp => comp !== component.id))
   }
 
-  const onSubmit = (data: FormPriceComponent) => {
-    if (!version?.id) return
-    editPriceComponent.mutate({
-      planVersionId: version.id,
-      component: {
-        id: component.id,
-        fee: mapFee(data.fee),
-        name: data.name,
-        productId: undefined, // TODO
+  const onSubmit = () => {
+    methods.handleSubmit(
+      (formData) => {
+        if (!version?.id) return
+
+        const pricingType = toPricingTypeFromFeeType(
+          feeType,
+          feeType === 'usage' ? (structural?.usageModel ?? usageModelFromPrices ?? (formData as Record<string, unknown>).usageModel as string) : undefined
+        )
+        const priceInputs = buildPriceInputs(pricingType, formData as Record<string, unknown>, currency)
+
+        editPriceComponent.mutate({
+          planVersionId: version.id,
+          component: {
+            id: component.id,
+            name: component.name,
+            productId: component.productId,
+          },
+          prices: wrapAsNewPriceEntries(priceInputs),
+        })
       },
-    })
+      errors => {
+        console.error('Edit form validation errors:', errors)
+        console.error('Current form values:', methods.getValues())
+      }
+    )()
   }
 
   return (
-    <ProviderWrapper init={component}>
-      <PriceComponentForm cancel={cancel} onSubmit={onSubmit}/>
+    <ProviderWrapper name={component.name} feeType={feeType}>
+      <Form {...methods}>
+        <EditPriceComponentCard cancel={cancel} submit={onSubmit}>
+          <PriceComponentFormContent
+            feeType={feeType}
+            currency={currency}
+            methods={methods}
+            structural={structural}
+            editableStructure={!hasProduct}
+            isEdit
+          />
+        </EditPriceComponentCard>
+      </Form>
     </ProviderWrapper>
   )
 }
 
+// --- Provider wrapper ---
+
 const ProviderWrapper = ({
   children,
-  init,
+  name,
+  feeType,
 }: {
   children: ReactNode
-  init: DeepPartial<PriceComponent>
+  name: string
+  feeType: ComponentFeeType
 }) => {
   return (
-    <ScopeProvider atoms={[editedComponentAtom]}>
-      <HydrateAtoms initialValues={init}>{children}</HydrateAtoms>
+    <ScopeProvider atoms={[componentNameAtom, componentFeeTypeAtom]}>
+      <HydrateAtoms name={name} feeType={feeType}>
+        {children}
+      </HydrateAtoms>
     </ScopeProvider>
   )
 }
 
-interface PriceComponentFormProps {
-  cancel: () => void
-  onSubmit: (data: FormPriceComponent) => void
-}
-
-const PriceComponentForm = ({ cancel, onSubmit: _onSubmit }: PriceComponentFormProps) => {
-  const [feeType] = useAtom(componentFeeTypeAtom)
-  const [name] = useAtom(componentNameAtom)
-
-  const onSubmit = (data: FormPriceComponent['fee']['data']) => {
-    _onSubmit({ fee: { fee: feeType!, data } as FormPriceComponent['fee'], name: name! })
-  }
-
-  return match<typeof feeType, ReactNode>(feeType)
-    .with('rate', () => <SubscriptionRateForm cancel={cancel} onSubmit={onSubmit}/>)
-    .with('slot', () => <SlotsForm cancel={cancel} onSubmit={onSubmit}/>)
-    .with('capacity', () => <CapacityForm cancel={cancel} onSubmit={onSubmit}/>)
-    .with('usage', () => <UsageBasedForm cancel={cancel} onSubmit={onSubmit}/>)
-    .with('extraRecurring', () => <RecurringForm cancel={cancel} onSubmit={onSubmit}/>)
-    .with('oneTime', () => <OneTimeForm cancel={cancel} onSubmit={onSubmit}/>)
-    .otherwise(() => <div>Unknown fee type. Please contact support</div>)
-}
-
 const HydrateAtoms = ({
-  initialValues,
+  name,
+  feeType,
   children,
 }: {
-  initialValues: DeepPartial<PriceComponent>
+  name: string
+  feeType: ComponentFeeType
   children: ReactNode
 }) => {
-  useHydrateAtoms([[editedComponentAtom, initialValues]])
+  useHydrateAtoms([
+    [componentNameAtom, name],
+    [componentFeeTypeAtom, feeType],
+  ])
   return children
 }

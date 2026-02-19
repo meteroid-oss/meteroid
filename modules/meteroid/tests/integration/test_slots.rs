@@ -1020,6 +1020,7 @@ async fn create_subscription_with_slots(
                                 initial_slots,
                             },
                             is_override: false,
+                            price_id: None,
                         },
                     }],
                     extra_components: vec![],

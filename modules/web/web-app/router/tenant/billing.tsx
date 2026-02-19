@@ -7,6 +7,7 @@ import { Invoice, Invoices } from '@/pages/tenants/invoice'
 import { InvoiceCreate } from '@/pages/tenants/invoice/invoiceCreate'
 import { CreateQuote, Quote, Quotes } from '@/pages/tenants/quotes'
 import { Subscriptions } from '@/pages/tenants/subscription'
+import { ChangePlanWizard } from '@/pages/tenants/subscription/changePlan/ChangePlanWizard'
 import { Subscription } from '@/pages/tenants/subscription/subscription'
 import { SubscriptionCreate } from '@/pages/tenants/subscription/subscriptionCreate'
 
@@ -27,6 +28,10 @@ export const billingRoutes: RouteObject = {
         {
           path: ':subscriptionId',
           element: <Subscription />,
+        },
+        {
+          path: ':subscriptionId/change-plan',
+          element: <ChangePlanWizard />,
         },
         {
           path: 'create',

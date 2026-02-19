@@ -2,6 +2,7 @@ syntax = "proto3";
 
 package meteroid.api.products.v1;
 
+import "api/prices/v1/models.proto";
 import "google/protobuf/timestamp.proto";
 
 message Product {
@@ -10,10 +11,18 @@ message Product {
   optional string description = 3;
   google.protobuf.Timestamp created_at = 4;
   string local_id = 5;
+  optional meteroid.api.prices.v1.FeeType fee_type = 6;
+  optional meteroid.api.prices.v1.FeeStructure fee_structure = 7;
 }
 
 message ProductMeta {
   string id = 1;
   string name = 2;
   string local_id = 3;
+  optional meteroid.api.prices.v1.FeeType fee_type = 4;
+}
+
+message ProductWithPrice {
+  Product product = 1;
+  optional meteroid.api.prices.v1.Price latest_price = 2;
 }

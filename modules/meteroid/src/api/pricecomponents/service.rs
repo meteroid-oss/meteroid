@@ -1,4 +1,4 @@
-use common_domain::ids::{BaseId, PlanVersionId, PriceComponentId};
+use common_domain::ids::{BaseId, PlanVersionId, PriceComponentId, ProductId};
 use common_grpc::middleware::server::auth::RequestExt;
 use meteroid_grpc::meteroid::api::components::v1::{
     CreatePriceComponentRequest, CreatePriceComponentResponse, EditPriceComponentRequest,
@@ -8,6 +8,7 @@ use meteroid_grpc::meteroid::api::components::v1::{
 };
 use tonic::{Request, Response, Status};
 
+use meteroid_store::domain::price_components as domain;
 use meteroid_store::repositories::price_components::PriceComponentInterface;
 
 use crate::api::pricecomponents::error::PriceComponentApiError;
@@ -57,18 +58,32 @@ impl PriceComponentsService for PriceComponentServiceComponents {
         let tenant_id = request.tenant()?;
         let req = request.into_inner();
 
-        let mapped = mapping::components::create_api_to_domain(req.clone())?;
+        let plan_version_id = PlanVersionId::from_proto(&req.plan_version_id)?;
+        let product_ref = mapping::components::product_ref_from_proto(req.product)?;
+        let price_entries = mapping::components::price_entries_from_proto(req.prices)?;
+
+        if price_entries.is_empty() {
+            return Err(Status::invalid_argument("prices must not be empty"));
+        }
 
         let component = self
             .store
-            .create_price_component(mapped)
+            .create_price_component_from_ref(
+                req.name,
+                product_ref,
+                price_entries,
+                plan_version_id,
+                tenant_id,
+                actor,
+            )
             .await
             .map_err(|err| {
                 PriceComponentApiError::StoreError(
-                    "Failed to create price components".to_string(),
+                    "Failed to create price component".to_string(),
                     Box::new(err.into_error()),
                 )
             })?;
+
         let response = mapping::components::domain_to_api(component.clone());
 
         let _ = self
@@ -95,12 +110,52 @@ impl PriceComponentsService for PriceComponentServiceComponents {
         let tenant_id = request.tenant()?;
         let req = request.into_inner();
 
-        let component = mapping::components::edit_api_to_domain(req.clone())?;
         let plan_version_id = PlanVersionId::from_proto(&req.plan_version_id)?;
+        let price_entries = mapping::components::price_entries_from_proto(req.prices)?;
+
+        // For edit, all entries must be new prices (replace all)
+        let price_inputs: Vec<_> = price_entries
+            .into_iter()
+            .map(|entry| match entry {
+                domain::PriceEntry::New(input) => Ok(input),
+                domain::PriceEntry::Existing(_) => Err(Status::invalid_argument(
+                    "edit_price_component does not support existing price references; send all prices as new",
+                )),
+            })
+            .collect::<Result<_, _>>()?;
+
+        if price_inputs.is_empty() {
+            return Err(Status::invalid_argument("prices must not be empty"));
+        }
+
+        let edit_comp = req
+            .component
+            .ok_or(Status::invalid_argument("component is missing"))?;
+        let component_id = PriceComponentId::from_proto(&edit_comp.id)?;
+        let product_id = edit_comp
+            .product_id
+            .as_ref()
+            .map(|id| ProductId::from_proto(id))
+            .transpose()?
+            .ok_or_else(|| Status::invalid_argument("product_id is required"))?;
+
+        let component = domain::PriceComponent {
+            name: edit_comp.name,
+            product_id: Some(product_id),
+            id: component_id,
+            prices: Vec::new(),
+            legacy_pricing: None,
+        };
 
         let component = self
             .store
-            .update_price_component(component, tenant_id, plan_version_id)
+            .update_price_component_with_prices(
+                component,
+                price_inputs,
+                tenant_id,
+                plan_version_id,
+                actor,
+            )
             .await
             .map_err(|err| {
                 PriceComponentApiError::StoreError(
@@ -108,7 +163,6 @@ impl PriceComponentsService for PriceComponentServiceComponents {
                     Box::new(err.into_error()),
                 )
             })?;
-        let component = component.ok_or(Status::internal("No element was updated"))?;
 
         let response = mapping::components::domain_to_api(component.clone());
 

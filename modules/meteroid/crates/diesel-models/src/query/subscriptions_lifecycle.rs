@@ -10,7 +10,7 @@ use diesel::{BoolExpressionMethods, ExpressionMethods, OptionalExtension, QueryD
 use diesel_async::RunQueryDsl;
 
 use crate::enums::{CycleActionEnum, SubscriptionStatusEnum};
-use common_domain::ids::{SubscriptionId, TenantId};
+use common_domain::ids::{PlanVersionId, SubscriptionId, TenantId};
 use error_stack::ResultExt;
 use uuid::Uuid;
 
@@ -234,6 +234,30 @@ impl SubscriptionRow {
             .optional()
             .attach("Error while locking subscription for processing")
             .into_db_result()
+    }
+
+    pub async fn update_plan_version(
+        conn: &mut PgConn,
+        subscription_id: &SubscriptionId,
+        tenant_id: &TenantId,
+        new_plan_version_id: PlanVersionId,
+    ) -> DbResult<()> {
+        use crate::schema::subscription::dsl as s_dsl;
+
+        let query = diesel::update(s_dsl::subscription)
+            .filter(s_dsl::id.eq(subscription_id))
+            .filter(s_dsl::tenant_id.eq(tenant_id))
+            .set(s_dsl::plan_version_id.eq(new_plan_version_id));
+
+        log::debug!("{}", debug_query::<diesel::pg::Pg, _>(&query));
+
+        query
+            .execute(conn)
+            .await
+            .attach("Error while updating subscription plan version")
+            .into_db_result()?;
+
+        Ok(())
     }
 
     /// Releases a claim on a subscription (sets processing_started_at to null).

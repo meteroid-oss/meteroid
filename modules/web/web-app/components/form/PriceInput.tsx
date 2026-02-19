@@ -23,7 +23,7 @@ export const UncontrolledPriceInput = forwardRef<HTMLInputElement, UncontrolledP
       currency,
       showCurrency = true,
       className,
-      placeholder,
+      placeholder = '0.00',
       value,
       onChange,
       precision = 2,
@@ -38,12 +38,11 @@ export const UncontrolledPriceInput = forwardRef<HTMLInputElement, UncontrolledP
     const handleBlur = (e: React.FocusEvent<HTMLInputElement>) => {
       const numValue = e.target.valueAsNumber
       if (!isNaN(numValue)) {
-        // Round to the specified precision
-        const multiplier = Math.pow(10, precision)
-        const rounded = Math.round(numValue * multiplier) / multiplier
-        // Update the input value to show the rounded value
-        e.target.value = rounded.toFixed(precision)
-        // Trigger onChange with the rounded value
+        e.target.value = new Intl.NumberFormat('en-US', {
+          minimumFractionDigits: 2,
+          maximumFractionDigits: precision,
+          useGrouping: false,
+        }).format(numValue)
         onChange?.(e)
       }
       props.onBlur?.(e)
@@ -84,7 +83,7 @@ export const UncontrolledPriceInput = forwardRef<HTMLInputElement, UncontrolledP
           min="0"
           className={cn(
             displaySymbol ? 'pl-8' : '',
-            'py-1.5 pl-8 pr-2 bg-input block w-full sm:text-sm border border-border rounded-md focus:outline-none focus:ring-1 focus:ring-ring ',
+            'py-1.5 pl-8 pr-2 bg-input block w-full sm:text-sm border border-border rounded-md focus:outline-none focus:ring-1 focus:ring-ring placeholder:text-muted-foreground',
             disabled ? 'opacity-50' : '',
             showCurrency ? 'pr-12' : 'text-right',
             inputClassName

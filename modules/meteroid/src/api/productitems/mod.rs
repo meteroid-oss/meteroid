@@ -2,7 +2,7 @@ use meteroid_grpc::meteroid::api::products::v1::products_service_server::Product
 use meteroid_store::Store;
 
 mod error;
-mod mapping;
+pub(crate) mod mapping;
 mod service;
 
 pub struct ProductServiceComponents {

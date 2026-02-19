@@ -1,7 +1,7 @@
 use chrono::NaiveDateTime;
 
 use crate::enums::SubscriptionFeeBillingPeriod;
-use common_domain::ids::{AddOnId, SubscriptionAddOnId, SubscriptionId};
+use common_domain::ids::{AddOnId, PriceId, ProductId, SubscriptionAddOnId, SubscriptionId};
 use diesel::{Identifiable, Insertable, Queryable, Selectable};
 
 #[derive(Queryable, Debug, Identifiable, Selectable)]
@@ -13,8 +13,10 @@ pub struct SubscriptionAddOnRow {
     pub subscription_id: SubscriptionId,
     pub add_on_id: AddOnId,
     pub period: SubscriptionFeeBillingPeriod,
-    pub fee: serde_json::Value,
+    pub legacy_fee: Option<serde_json::Value>,
     pub created_at: NaiveDateTime,
+    pub product_id: Option<ProductId>,
+    pub price_id: Option<PriceId>,
 }
 
 #[derive(Insertable, Debug)]
@@ -26,5 +28,7 @@ pub struct SubscriptionAddOnRowNew {
     pub subscription_id: SubscriptionId,
     pub add_on_id: AddOnId,
     pub period: SubscriptionFeeBillingPeriod,
-    pub fee: serde_json::Value,
+    pub legacy_fee: Option<serde_json::Value>,
+    pub product_id: Option<ProductId>,
+    pub price_id: Option<PriceId>,
 }

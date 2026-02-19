@@ -1,8 +1,7 @@
-import { disableQuery } from '@connectrpc/connect-query'
 import { Fragment, FunctionComponent, useState } from 'react'
 import { toast } from 'sonner'
 
-import { ProductEditPanel } from '@/features/productCatalog/items/ProductEditPanel'
+import { ProductDetailPanel } from '@/features/productCatalog/items/ProductDetailPanel'
 import { ProductsHeader } from '@/features/productCatalog/items/ProductItemsHeader'
 import { ProductsTable } from '@/features/productCatalog/items/ProductItemsTable'
 import { useQuery } from '@/lib/connectrpc'
@@ -11,13 +10,15 @@ import { listProducts } from '@/rpc/api/products/v1/products-ProductsService_con
 import type { PaginationState } from '@tanstack/react-table'
 
 export const Products: FunctionComponent = () => {
-  const [editPanelVisible, setEditPanelVisible] = useState(false)
+  const [selectedProductId, setSelectedProductId] = useState<string | null>(null)
   const [pagination, setPagination] = useState<PaginationState>({
     pageIndex: 0,
     pageSize: 20,
   })
 
-  const productsQuery = useQuery(listProducts, /*familyLocalId ? { familyLocalId } :*/ disableQuery)
+  const productsQuery = useQuery(listProducts, {
+    pagination: { perPage: pagination.pageSize, page: pagination.pageIndex },
+  })
   const data = productsQuery.data?.products ?? []
   const isLoading = productsQuery.isLoading
   const totalCount = productsQuery.data?.paginationMeta?.totalItems ?? 0
@@ -30,7 +31,7 @@ export const Products: FunctionComponent = () => {
     <Fragment>
       <ProductsHeader
         heading="Product Items"
-        setEditPanelVisible={setEditPanelVisible}
+        setEditPanelVisible={() => false}
         isLoading={isLoading}
         refetch={refetch}
         setSearch={() => {
@@ -43,8 +44,12 @@ export const Products: FunctionComponent = () => {
         setPagination={setPagination}
         totalCount={totalCount}
         isLoading={isLoading}
+        onProductClick={product => setSelectedProductId(product.id)}
       />
-      <ProductEditPanel visible={editPanelVisible} closePanel={() => setEditPanelVisible(false)} />
+      <ProductDetailPanel
+        productId={selectedProductId}
+        onClose={() => setSelectedProductId(null)}
+      />
     </Fragment>
   )
 }

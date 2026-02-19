@@ -32,9 +32,6 @@ pub struct CheckoutSessionRow {
     pub invoice_threshold: Option<Decimal>,
     pub purchase_order: Option<String>,
 
-    // Payment configuration
-    pub payment_methods_config: Option<serde_json::Value>,
-
     pub components: Option<serde_json::Value>,
     pub add_ons: Option<serde_json::Value>,
 
@@ -50,6 +47,8 @@ pub struct CheckoutSessionRow {
     pub subscription_id: Option<SubscriptionId>,
     pub metadata: Option<serde_json::Value>,
     pub checkout_type: CheckoutTypeEnum,
+    // Payment configuration
+    pub payment_methods_config: Option<serde_json::Value>,
 }
 
 #[derive(Debug, Insertable)]
