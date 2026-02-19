@@ -7,9 +7,7 @@ use chrono::NaiveDate;
 use rstest::rstest;
 
 use crate::data::ids::*;
-use crate::harness::{
-    InvoiceAssertExt, InvoicesAssertExt, SubscriptionAssertExt, TestEnv, subscription, test_env,
-};
+use crate::harness::{InvoicesAssertExt, SubscriptionAssertExt, TestEnv, subscription, test_env};
 
 // =============================================================================
 // PREVIEW

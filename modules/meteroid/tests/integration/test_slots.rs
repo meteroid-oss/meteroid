@@ -1010,6 +1010,8 @@ async fn create_subscription_with_slots(
                         component_id: COMP_NOTION_SEATS_ID,
                         parameters: ComponentParameters {
                             initial_slot_count: Some(initial_slots),
+                            billing_period: None,
+                            committed_capacity: None,
                         },
                     }],
                     overridden_components: vec![ComponentOverride {

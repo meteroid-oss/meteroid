@@ -2,7 +2,7 @@ use crate::StoreResult;
 use crate::domain::enums::SubscriptionFeeBillingPeriod;
 use crate::domain::prices::{Price, fee_type_billing_period, resolve_subscription_fee};
 use crate::domain::products::Product;
-use crate::domain::subscriptions::PaymentMethodsConfig;
+use crate::domain::subscriptions::{PaymentMethodsConfig, PendingPlanChange};
 use crate::domain::{
     BillableMetric, ConnectorProviderEnum, Customer, InvoicingEntity, PaginatedVec,
     PaginationRequest, Schedule, Subscription, SubscriptionComponent, SubscriptionComponentNew,
@@ -44,7 +44,8 @@ use diesel_models::scheduled_events::ScheduledEventRowNew;
 use meteroid_store_macros::with_conn_delegate;
 
 pub mod slots;
-use crate::domain::scheduled_events::{ScheduledEvent, ScheduledEventNew};
+use crate::domain::scheduled_events::{ScheduledEvent, ScheduledEventData, ScheduledEventNew};
+use diesel_models::scheduled_events::ScheduledEventRow;
 pub use slots::SubscriptionSlotsInterface;
 
 pub enum CancellationEffectiveAt {
@@ -376,6 +377,43 @@ impl SubscriptionInterface for Store {
             }
         };
 
+        // Fetch pending plan change from scheduled events
+        let pending_plan_change = {
+            let pending_events = ScheduledEventRow::get_pending_events_for_subscription(
+                conn,
+                subscription.id,
+                &tenant_id,
+            )
+            .await
+            .map_err(Into::<Report<StoreError>>::into)?;
+
+            let plan_change_event = pending_events.into_iter().find_map(|row| {
+                let event: crate::domain::scheduled_events::ScheduledEvent = row.try_into().ok()?;
+                match event.event_data {
+                    ScheduledEventData::ApplyPlanChange {
+                        new_plan_version_id,
+                        ..
+                    } => Some((new_plan_version_id, event.scheduled_time)),
+                    _ => None,
+                }
+            });
+
+            if let Some((new_plan_version_id, scheduled_time)) = plan_change_event {
+                let plan_with_version =
+                    PlanRow::get_with_version(conn, new_plan_version_id, tenant_id)
+                        .await
+                        .map_err(Into::<Report<StoreError>>::into)?;
+
+                Some(PendingPlanChange {
+                    new_plan_name: plan_with_version.plan.name,
+                    new_plan_version_id,
+                    effective_date: scheduled_time.date(),
+                })
+            } else {
+                None
+            }
+        };
+
         Ok(SubscriptionDetails {
             subscription,
             price_components: subscription_components,
@@ -387,6 +425,7 @@ impl SubscriptionInterface for Store {
             customer,
             invoicing_entity,
             trial_config,
+            pending_plan_change,
         })
     }
 
