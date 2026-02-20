@@ -293,6 +293,7 @@ pub struct QuoteAddOn {
     pub fee: SubscriptionFee,
     pub product_id: Option<ProductId>,
     pub price_id: Option<PriceId>,
+    pub quantity: i32,
 }
 
 impl TryFrom<QuoteAddOnRow> for QuoteAddOn {
@@ -315,6 +316,7 @@ impl TryFrom<QuoteAddOnRow> for QuoteAddOn {
             fee,
             product_id: row.product_id,
             price_id: row.price_id,
+            quantity: row.quantity,
         })
     }
 }
@@ -328,6 +330,7 @@ pub struct QuoteAddOnNew {
     pub fee: SubscriptionFee,
     pub product_id: Option<ProductId>,
     pub price_id: Option<PriceId>,
+    pub quantity: i32,
 }
 
 impl TryInto<QuoteAddOnRowNew> for QuoteAddOnNew {
@@ -345,6 +348,7 @@ impl TryInto<QuoteAddOnRowNew> for QuoteAddOnNew {
             legacy_fee: Some(legacy_fee),
             product_id: self.product_id,
             price_id: self.price_id,
+            quantity: self.quantity,
         })
     }
 }

@@ -220,8 +220,8 @@ impl QuotesService for QuoteServiceComponents {
 
                 // Collect product_ids and price_ids from add-ons for fee resolution
                 let product_ids: Vec<ProductId> =
-                    add_ons.iter().filter_map(|a| a.product_id).collect();
-                let price_ids: Vec<PriceId> = add_ons.iter().filter_map(|a| a.price_id).collect();
+                    add_ons.iter().map(|a| a.product_id).collect();
+                let price_ids: Vec<PriceId> = add_ons.iter().map(|a| a.price_id).collect();
 
                 let mut products_map = std::collections::HashMap::new();
                 for pid in &product_ids {
@@ -754,6 +754,7 @@ fn process_quote_add_ons(
             fee: resolved.fee,
             product_id: resolved.product_id,
             price_id: resolved.price_id,
+            quantity: cs_ao.quantity as i32,
         });
     }
 

@@ -18,6 +18,7 @@ import {
   usePlanOverview,
   usePlanWithVersion,
 } from '@/features/plans/hooks/usePlan'
+import { AddOnSection } from '@/features/plans/addons/AddOnSection'
 import { PriceComponentSection } from '@/features/plans/pricecomponents/PriceComponentSection'
 import { editedComponentsAtom } from '@/features/plans/pricecomponents/utils'
 import { PlanTrial } from '@/features/plans/trial/PlanTrial'
@@ -283,16 +284,7 @@ const PlanBody = () => {
         </>
       )}
 
-      <PageSection
-        header={{
-          title: 'Addons',
-          subtitle: 'Define the addons that can be associated with this plan',
-        }}
-      >
-        <div className="space-x-4 ">
-          <SimpleTable headTrClasses="!hidden" columns={[]} data={[]} emptyMessage="No addons"/>
-        </div>
-      </PageSection>
+      <AddOnSection />
     </>
   )
 }

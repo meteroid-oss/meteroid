@@ -14,6 +14,7 @@ pub struct QuoteAddOnRow {
     pub legacy_fee: Option<serde_json::Value>,
     pub product_id: Option<ProductId>,
     pub price_id: Option<PriceId>,
+    pub quantity: i32,
 }
 
 #[derive(Insertable, Debug)]
@@ -28,4 +29,5 @@ pub struct QuoteAddOnRowNew {
     pub legacy_fee: Option<serde_json::Value>,
     pub product_id: Option<ProductId>,
     pub price_id: Option<PriceId>,
+    pub quantity: i32,
 }

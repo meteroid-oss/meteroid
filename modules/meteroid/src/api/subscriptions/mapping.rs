@@ -772,9 +772,9 @@ pub mod price_components {
 }
 
 pub mod add_ons {
+    use crate::api::pricecomponents::mapping::components::price_entries_from_proto;
     use crate::api::subscriptions::mapping::price_components::{
-        map_billing_period_from_grpc, subscription_fee_billing_period_from_grpc,
-        subscription_fee_billing_period_to_grpc, subscription_fee_from_grpc,
+        map_billing_period_from_grpc, subscription_fee_billing_period_to_grpc,
         subscription_fee_to_grpc,
     };
     use common_domain::ids::AddOnId;
@@ -796,6 +796,7 @@ pub mod add_ons {
                 &add_on.fee,
                 add_on.period.as_billing_period_opt().unwrap_or_default(),
             )),
+            quantity: add_on.quantity as u32,
         }
     }
 
@@ -815,18 +816,25 @@ pub mod add_ons {
         data: api::CreateSubscriptionAddOn,
     ) -> tonic::Result<domain::CreateSubscriptionAddOn> {
         let id = AddOnId::from_proto(&data.add_on_id)?;
+        let quantity = if data.quantity == 0 { 1 } else { data.quantity };
 
         let customization: domain::SubscriptionAddOnCustomization = match data.customization {
-            Some(api::create_subscription_add_on::Customization::Override(override_)) => {
-                let fee = subscription_fee_from_grpc(&override_.fee)?;
+            Some(api::create_subscription_add_on::Customization::PriceOverride(ov)) => {
+                let price_entry = ov
+                    .price_entry
+                    .ok_or_else(|| {
+                        Status::invalid_argument("price_entry is required for price override")
+                    })?;
+                let entries = price_entries_from_proto(vec![price_entry])?;
+                let entry = entries.into_iter().next().ok_or_else(|| {
+                    Status::invalid_argument("price_entry is required for price override")
+                })?;
+
                 Ok::<domain::SubscriptionAddOnCustomization, Status>(
-                    domain::SubscriptionAddOnCustomization::Override(
-                        domain::SubscriptionAddOnOverride {
-                            name: override_.name.clone(),
-                            period: subscription_fee_billing_period_from_grpc(override_.period())?,
-                            fee,
-                        },
-                    ),
+                    domain::SubscriptionAddOnCustomization::PriceOverride {
+                        name: ov.name,
+                        price_entry: entry,
+                    },
                 )
             }
             Some(api::create_subscription_add_on::Customization::Parameterization(param)) => {
@@ -851,6 +859,7 @@ pub mod add_ons {
         Ok(domain::CreateSubscriptionAddOn {
             add_on_id: id,
             customization,
+            quantity,
         })
     }
 }

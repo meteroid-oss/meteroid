@@ -247,6 +247,7 @@ pub mod quotes {
                 &add_on.fee,
                 add_on.period.as_billing_period_opt().unwrap_or_default(),
             )),
+            quantity: add_on.quantity as u32,
         }
     }
 

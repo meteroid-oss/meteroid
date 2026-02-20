@@ -1,16 +1,24 @@
 use crate::api::addons::AddOnsServiceComponents;
 use crate::api::addons::error::AddOnApiError;
-use crate::api::addons::mapping::addons::AddOnWrapper;
+use crate::api::addons::mapping::addons::{AddOnWrapper, PlanVersionAddOnWrapper};
+use crate::api::pricecomponents::mapping::components::{
+    price_entries_from_proto, product_ref_from_proto,
+};
 use crate::api::utils::PaginationExt;
-use common_domain::ids::{AddOnId, PriceId, ProductId};
+use common_domain::ids::{AddOnId, PlanVersionId, PriceId};
 use common_grpc::middleware::server::auth::RequestExt;
 use meteroid_grpc::meteroid::api::addons::v1::add_ons_service_server::AddOnsService;
 use meteroid_grpc::meteroid::api::addons::v1::{
-    CreateAddOnRequest, CreateAddOnResponse, EditAddOnRequest, EditAddOnResponse, ListAddOnRequest,
-    ListAddOnResponse, RemoveAddOnRequest, RemoveAddOnResponse,
+    AttachAddOnToPlanVersionRequest, AttachAddOnToPlanVersionResponse, CreateAddOnRequest,
+    CreateAddOnResponse, DetachAddOnFromPlanVersionRequest, DetachAddOnFromPlanVersionResponse,
+    EditAddOnRequest, EditAddOnResponse, GetAddOnRequest, GetAddOnResponse,
+    ListAddOnRequest, ListAddOnResponse, ListPlanVersionAddOnsRequest,
+    ListPlanVersionAddOnsResponse, RemoveAddOnRequest, RemoveAddOnResponse,
 };
-use meteroid_store::domain::add_ons::{AddOnNew, AddOnPatch};
+use meteroid_store::domain::add_ons::AddOnPatch;
+use meteroid_store::domain::plan_version_add_ons::PlanVersionAddOnNew;
 use meteroid_store::repositories::add_ons::AddOnInterface;
+use meteroid_store::repositories::plan_version_add_ons::PlanVersionAddOnInterface;
 use tonic::{Request, Response, Status};
 
 #[tonic::async_trait]
@@ -21,14 +29,19 @@ impl AddOnsService for AddOnsServiceComponents {
         request: Request<ListAddOnRequest>,
     ) -> Result<Response<ListAddOnResponse>, Status> {
         let tenant_id = request.tenant()?;
-
         let req = request.into_inner();
 
+        let plan_version_id = req
+            .plan_version_id
+            .as_deref()
+            .filter(|s| !s.is_empty())
+            .map(|s| PlanVersionId::from_proto(s))
+            .transpose()?;
         let pagination_req = req.pagination.into_domain();
 
         let add_ons = self
             .store
-            .list_add_ons(tenant_id, pagination_req, req.search)
+            .list_add_ons(tenant_id, plan_version_id, pagination_req, req.search)
             .await
             .map_err(Into::<AddOnApiError>::into)?;
 
@@ -51,35 +64,79 @@ impl AddOnsService for AddOnsServiceComponents {
         &self,
         request: Request<CreateAddOnRequest>,
     ) -> Result<Response<CreateAddOnResponse>, Status> {
+        let actor = request.actor()?;
         let tenant_id = request.tenant()?;
-
         let req = request.into_inner();
 
-        let product_id = req
-            .product_id
-            .map(|id| ProductId::from_proto(&id))
-            .transpose()?;
-        let price_id = req
-            .price_id
-            .map(|id| PriceId::from_proto(&id))
-            .transpose()?;
+        let product_ref = product_ref_from_proto(req.product)?;
+        let price_entries = price_entries_from_proto(req.price.into_iter().collect())?;
+        let price_entry = price_entries
+            .into_iter()
+            .next()
+            .ok_or_else(|| Status::invalid_argument("price is required"))?;
 
-        let new = AddOnNew {
-            tenant_id,
-            name: req.name,
-            plan_version_id: None,
-            product_id,
-            price_id,
-        };
         let added = self
             .store
-            .create_add_on(new)
+            .create_add_on_from_ref(req.name, product_ref, price_entry, tenant_id, actor)
+            .await
+            .map(|x| {
+                // Update the catalog add-on with description/constraints if provided
+                x
+            })
+            .map_err(Into::<AddOnApiError>::into)?;
+
+        // If description or constraints were set, patch the add-on
+        let has_patch = req.description.is_some()
+            || req.self_serviceable
+            || req.max_instances_per_subscription.is_some();
+
+        let final_addon = if has_patch {
+            let patch = AddOnPatch {
+                id: added.id,
+                tenant_id,
+                name: None,
+                price_id: None,
+                description: req.description.map(Some),
+                self_serviceable: if req.self_serviceable {
+                    Some(true)
+                } else {
+                    None
+                },
+                max_instances_per_subscription: req.max_instances_per_subscription.map(Some),
+            };
+            self.store
+                .update_add_on(patch, None, actor)
+                .await
+                .map(|x| AddOnWrapper::from(x).0)
+                .map_err(Into::<AddOnApiError>::into)?
+        } else {
+            AddOnWrapper::from(added).0
+        };
+
+        Ok(Response::new(CreateAddOnResponse {
+            add_on: Some(final_addon),
+        }))
+    }
+
+    #[tracing::instrument(skip_all)]
+    async fn get_add_on(
+        &self,
+        request: Request<GetAddOnRequest>,
+    ) -> Result<Response<GetAddOnResponse>, Status> {
+        let tenant_id = request.tenant()?;
+        let req = request.into_inner();
+
+        let add_on_id = AddOnId::from_proto(&req.add_on_id)?;
+
+        let add_on = self
+            .store
+            .get_add_on_by_id(tenant_id, add_on_id)
             .await
             .map(|x| AddOnWrapper::from(x).0)
             .map_err(Into::<AddOnApiError>::into)?;
 
-        Ok(Response::new(CreateAddOnResponse {
-            add_on: Some(added),
+        Ok(Response::new(GetAddOnResponse {
+            add_on: Some(add_on),
         }))
     }
 
@@ -89,7 +146,6 @@ impl AddOnsService for AddOnsServiceComponents {
         request: Request<RemoveAddOnRequest>,
     ) -> Result<Response<RemoveAddOnResponse>, Status> {
         let tenant_id = request.tenant()?;
-
         let req = request.into_inner();
 
         let add_on_id = AddOnId::from_proto(&req.add_on_id)?;
@@ -107,41 +163,125 @@ impl AddOnsService for AddOnsServiceComponents {
         &self,
         request: Request<EditAddOnRequest>,
     ) -> Result<Response<EditAddOnResponse>, Status> {
+        let actor = request.actor()?;
         let tenant_id = request.tenant()?;
-
         let req = request.into_inner();
 
-        let add_on = req
-            .add_on
-            .ok_or(AddOnApiError::MissingArgument("add_on".into()))?;
+        let add_on_id = AddOnId::from_proto(&req.add_on_id)?;
 
-        let product_id = add_on
-            .product_id
-            .map(|id| ProductId::from_proto(&id))
-            .transpose()?;
-        let price_id = add_on
-            .price_id
-            .map(|id| PriceId::from_proto(&id))
-            .transpose()?;
+        let price_entry = if let Some(entry) = req.price {
+            let entries = price_entries_from_proto(vec![entry])?;
+            entries.into_iter().next()
+        } else {
+            None
+        };
+
+        let name = if req.name.is_empty() {
+            None
+        } else {
+            Some(req.name)
+        };
 
         let patch = AddOnPatch {
-            id: AddOnId::from_proto(&add_on.id)?,
+            id: add_on_id,
             tenant_id,
-            name: Some(add_on.name),
-            plan_version_id: None,
-            product_id: product_id.map(Some),
-            price_id: price_id.map(Some),
+            name,
+            price_id: None,
+            description: req.description.map(Some),
+            self_serviceable: req.self_serviceable,
+            max_instances_per_subscription: req.max_instances_per_subscription.map(Some),
         };
 
         let edited = self
             .store
-            .update_add_on(patch)
+            .update_add_on(patch, price_entry, actor)
             .await
             .map(|x| AddOnWrapper::from(x).0)
             .map_err(Into::<AddOnApiError>::into)?;
 
         Ok(Response::new(EditAddOnResponse {
             add_on: Some(edited),
+        }))
+    }
+
+    #[tracing::instrument(skip_all)]
+    async fn attach_add_on_to_plan_version(
+        &self,
+        request: Request<AttachAddOnToPlanVersionRequest>,
+    ) -> Result<Response<AttachAddOnToPlanVersionResponse>, Status> {
+        let tenant_id = request.tenant()?;
+        let req = request.into_inner();
+
+        let plan_version_id = PlanVersionId::from_proto(&req.plan_version_id)?;
+        let add_on_id = AddOnId::from_proto(&req.add_on_id)?;
+        let price_id = req
+            .price_id
+            .as_deref()
+            .filter(|s| !s.is_empty())
+            .map(|s| PriceId::from_proto(s))
+            .transpose()?;
+
+        let new = PlanVersionAddOnNew {
+            plan_version_id,
+            add_on_id,
+            price_id,
+            self_serviceable: req.self_serviceable,
+            max_instances_per_subscription: req.max_instances_per_subscription,
+            tenant_id,
+        };
+
+        let result = self
+            .store
+            .attach_add_on_to_plan_version(new)
+            .await
+            .map(|x| PlanVersionAddOnWrapper::from(x).0)
+            .map_err(Into::<AddOnApiError>::into)?;
+
+        Ok(Response::new(AttachAddOnToPlanVersionResponse {
+            plan_version_add_on: Some(result),
+        }))
+    }
+
+    #[tracing::instrument(skip_all)]
+    async fn detach_add_on_from_plan_version(
+        &self,
+        request: Request<DetachAddOnFromPlanVersionRequest>,
+    ) -> Result<Response<DetachAddOnFromPlanVersionResponse>, Status> {
+        let tenant_id = request.tenant()?;
+        let req = request.into_inner();
+
+        let plan_version_id = PlanVersionId::from_proto(&req.plan_version_id)?;
+        let add_on_id = AddOnId::from_proto(&req.add_on_id)?;
+
+        self.store
+            .detach_add_on_from_plan_version(plan_version_id, add_on_id, tenant_id)
+            .await
+            .map_err(Into::<AddOnApiError>::into)?;
+
+        Ok(Response::new(DetachAddOnFromPlanVersionResponse {}))
+    }
+
+    #[tracing::instrument(skip_all)]
+    async fn list_plan_version_add_ons(
+        &self,
+        request: Request<ListPlanVersionAddOnsRequest>,
+    ) -> Result<Response<ListPlanVersionAddOnsResponse>, Status> {
+        let tenant_id = request.tenant()?;
+        let req = request.into_inner();
+
+        let plan_version_id = PlanVersionId::from_proto(&req.plan_version_id)?;
+
+        let result = self
+            .store
+            .list_plan_version_add_ons(plan_version_id, tenant_id)
+            .await
+            .map_err(Into::<AddOnApiError>::into)?;
+
+        Ok(Response::new(ListPlanVersionAddOnsResponse {
+            plan_version_add_ons: result
+                .into_iter()
+                .map(|x| PlanVersionAddOnWrapper::from(x).0)
+                .collect(),
         }))
     }
 }

@@ -9,6 +9,7 @@ import { Coupons } from '@/pages/tenants/billing/coupons'
 import { CreateAddon } from '@/pages/tenants/billing/createAddon'
 import { CreateCoupon } from '@/pages/tenants/billing/createCoupon'
 import { Plans } from '@/pages/tenants/billing/plans'
+import { CreateAddOn } from '@/pages/tenants/billing/plans/createAddOn'
 import { CreatePriceComponent } from '@/pages/tenants/billing/plans/createPriceComponent'
 import { PlanEdit } from '@/pages/tenants/billing/plans/edit'
 import { PlanOnboardingComponent } from '@/pages/tenants/billing/plans/onboarding'
@@ -73,6 +74,10 @@ export const productCatalogRoutes: RouteObject = {
                 {
                   path: 'edit-overview',
                   element: <DetailsFormModal />,
+                },
+                {
+                  path: 'add-addon',
+                  element: <CreateAddOn />,
                 },
 
                 // TODO component/:priceComponentId

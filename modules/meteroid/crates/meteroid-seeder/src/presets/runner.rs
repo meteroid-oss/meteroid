@@ -126,9 +126,29 @@ pub async fn run_preset(
     }
 
     let mut created_plans = vec![];
+    let mut product_by_name: HashMap<String, common_domain::ids::ProductId> = HashMap::new();
 
     for plan in scenario.plans {
         let currency = plan.currency.clone();
+
+        let mut components: Vec<store_domain::PriceComponentNewInternal> = plan
+            .components
+            .into_iter()
+            .map(|component| component.to_domain(&created_metrics, &currency))
+            .collect::<Result<Vec<_>, _>>()?;
+
+        // Reuse existing products when a product with the same name was already created
+        for comp in &mut components {
+            if let store_domain::price_components::ProductRef::New { name, .. } =
+                &comp.product_ref
+            {
+                if let Some(&pid) = product_by_name.get(name) {
+                    comp.product_ref =
+                        store_domain::price_components::ProductRef::Existing(pid);
+                }
+            }
+        }
+
         let created = store
             .insert_plan(store_domain::FullPlanNew {
                 plan: store_domain::PlanNew {
@@ -148,13 +168,14 @@ pub async fn run_preset(
                     currency: Some(plan.currency),
                     billing_cycles: None, // TODO drop
                 },
-                price_components: plan
-                    .components
-                    .into_iter()
-                    .map(|component| component.to_domain(&created_metrics, &currency))
-                    .collect::<Result<Vec<_>, _>>()?,
+                price_components: components,
             })
             .await?;
+
+        // Track products by name for reuse in subsequent plans
+        for (pid, product) in &created.products {
+            product_by_name.entry(product.name.clone()).or_insert(*pid);
+        }
 
         log::info!("Created plan '{}'", &created.plan.name);
         created_plans.push(created);

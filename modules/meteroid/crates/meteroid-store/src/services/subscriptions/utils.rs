@@ -143,6 +143,7 @@ pub fn process_create_subscription_add_ons(
                 fee: resolved.fee,
                 product_id: resolved.product_id,
                 price_id: resolved.price_id,
+                quantity: cs_ao.quantity,
             });
         }
     }

@@ -9,6 +9,7 @@ import {
   Input,
 } from '@ui/components'
 import { useAtom } from 'jotai'
+import { disableQuery } from '@connectrpc/connect-query'
 import { Gift, Plus, Search, Tag, X } from 'lucide-react'
 import { useEffect, useRef, useState } from 'react'
 import { useSearchParams } from 'react-router-dom'
@@ -21,6 +22,8 @@ import { SubscribablePlanVersionSelect } from '@/features/plans/SubscribablePlan
 import { CreateSubscriptionPriceComponents } from '@/features/subscriptions/pricecomponents/CreateSubscriptionPriceComponents'
 import { useZodForm } from '@/hooks/useZodForm'
 import { useQuery } from '@/lib/connectrpc'
+import { feeTypeEnumToComponentFeeType } from '@/features/plans/addons/AddOnCard'
+import { feeTypeToHuman, priceSummaryBadges } from '@/features/plans/pricecomponents/utils'
 import { createSubscriptionAtom } from '@/pages/tenants/subscription/create/state'
 import { listAddOns } from '@/rpc/api/addons/v1/addons-AddOnsService_connectquery'
 import { listCoupons } from '@/rpc/api/coupons/v1/coupons-CouponsService_connectquery'
@@ -62,12 +65,18 @@ export const StepPlanAndCustomer = () => {
     prevPlanVersionId.current = planVersionId
   }, [planVersionId, setState])
 
-  const addOnsQuery = useQuery(listAddOns, {
-    pagination: {
-      perPage: 100,
-      page: 0,
-    },
-  })
+  const addOnsQuery = useQuery(
+    listAddOns,
+    planVersionId
+      ? {
+          planVersionId,
+          pagination: {
+            perPage: 100,
+            page: 0,
+          },
+        }
+      : disableQuery
+  )
   const couponsQuery = useQuery(listCoupons, {
     pagination: {
       perPage: 100,
@@ -194,6 +203,16 @@ export const StepPlanAndCustomer = () => {
                     <div className="grid gap-2 mb-3">
                       {state.addOns.map(addon => {
                         const addOnData = availableAddOns.find(a => a.id === addon.addOnId)
+                        const feeLabel = addOnData
+                          ? feeTypeToHuman(feeTypeEnumToComponentFeeType(addOnData.feeType))
+                          : undefined
+                        const priceBadge = addOnData
+                          ? priceSummaryBadges(
+                              feeTypeEnumToComponentFeeType(addOnData.feeType),
+                              addOnData.price,
+                              planQuery.data?.plan?.version?.currency
+                            ).join(' / ')
+                          : undefined
                         return (
                           <Card key={addon.addOnId} className="border-green-200 bg-green-50/30">
                             <CardHeader className="p-3 flex flex-row items-center justify-between">
@@ -201,9 +220,14 @@ export const StepPlanAndCustomer = () => {
                                 <CardTitle className="text-sm">
                                   {addOnData?.name || addon.addOnId}
                                 </CardTitle>
-                                <Badge variant="secondary" size="sm">
-                                  Add-on
-                                </Badge>
+                                {feeLabel && (
+                                  <Badge variant="outline" size="sm">
+                                    {feeLabel}
+                                  </Badge>
+                                )}
+                                {priceBadge && (
+                                  <span className="text-xs text-muted-foreground">{priceBadge}</span>
+                                )}
                               </div>
                               <Button
                                 type="button"
@@ -260,6 +284,9 @@ export const StepPlanAndCustomer = () => {
                           >
                             <Plus className="h-3 w-3 mr-2" />
                             {addOn.name}
+                            <span className="text-xs text-muted-foreground ml-1">
+                              {feeTypeToHuman(feeTypeEnumToComponentFeeType(addOn.feeType))}
+                            </span>
                             {isSelected && (
                               <Badge variant="secondary" size="sm" className="ml-auto">
                                 Added

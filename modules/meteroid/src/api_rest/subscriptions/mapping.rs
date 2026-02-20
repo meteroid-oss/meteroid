@@ -213,10 +213,14 @@ impl From<CreateSubscriptionAddOn> for domain::CreateSubscriptionAddOn {
                 Some(SubscriptionAddOnCustomization::Parameterization(p)) => {
                     domain::SubscriptionAddOnCustomization::Parameterization(p.into())
                 }
-                Some(SubscriptionAddOnCustomization::Override(o)) => {
-                    domain::SubscriptionAddOnCustomization::Override(o.into())
+                Some(SubscriptionAddOnCustomization::PriceOverride(o)) => {
+                    domain::SubscriptionAddOnCustomization::PriceOverride {
+                        name: o.name,
+                        price_entry: o.price_entry,
+                    }
                 }
             },
+            quantity: if add_on.quantity == 0 { 1 } else { add_on.quantity },
         }
     }
 }

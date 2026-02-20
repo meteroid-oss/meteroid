@@ -181,10 +181,11 @@ message External {}
 
 message CreateSubscriptionAddOn {
   string add_on_id = 1;
+  uint32 quantity = 4;
 
   oneof customization {
     AddOnParameterization parameterization = 2;
-    AddOnOverride override = 3;
+    AddOnPriceOverride price_override = 3;
   }
 
   message AddOnParameterization {
@@ -193,10 +194,9 @@ message CreateSubscriptionAddOn {
     optional uint64 committed_capacity = 3;
   }
 
-  message AddOnOverride {
-    string name = 1;
-    SubscriptionFeeBillingPeriod period = 2;
-    SubscriptionFee fee = 3;
+  message AddOnPriceOverride {
+    optional string name = 1;
+    meteroid.api.components.v1.PriceEntry price_entry = 2;
   }
 }
 
@@ -211,6 +211,7 @@ message SubscriptionAddOn {
   string name = 4;
   SubscriptionFeeBillingPeriod period = 5;
   SubscriptionFee fee = 6;
+  uint32 quantity = 7;
 }
 
 message CreateSubscriptionCoupon {

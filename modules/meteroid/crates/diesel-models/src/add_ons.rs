@@ -1,5 +1,5 @@
 use chrono::NaiveDateTime;
-use common_domain::ids::{AddOnId, PlanVersionId, PriceId, ProductId, TenantId};
+use common_domain::ids::{AddOnId, PriceId, ProductId, TenantId};
 use diesel::{AsChangeset, Identifiable, Insertable, Queryable, Selectable};
 
 #[derive(Queryable, Debug, Identifiable, Selectable)]
@@ -11,21 +11,25 @@ pub struct AddOnRow {
     pub tenant_id: TenantId,
     pub created_at: NaiveDateTime,
     pub updated_at: NaiveDateTime,
-    pub plan_version_id: Option<PlanVersionId>,
-    pub product_id: Option<ProductId>,
-    pub price_id: Option<PriceId>,
+    pub product_id: ProductId,
+    pub price_id: PriceId,
+    pub description: Option<String>,
+    pub self_serviceable: bool,
+    pub max_instances_per_subscription: Option<i32>,
 }
 
-#[derive(Debug, Default, Insertable)]
+#[derive(Debug, Insertable)]
 #[diesel(table_name = crate::schema::add_on)]
 #[diesel(check_for_backend(diesel::pg::Pg))]
 pub struct AddOnRowNew {
     pub id: AddOnId,
     pub name: String,
     pub tenant_id: TenantId,
-    pub plan_version_id: Option<PlanVersionId>,
-    pub product_id: Option<ProductId>,
-    pub price_id: Option<PriceId>,
+    pub product_id: ProductId,
+    pub price_id: PriceId,
+    pub description: Option<String>,
+    pub self_serviceable: bool,
+    pub max_instances_per_subscription: Option<i32>,
 }
 
 #[derive(AsChangeset)]
@@ -36,8 +40,9 @@ pub struct AddOnRowPatch {
     pub id: AddOnId,
     pub tenant_id: TenantId,
     pub name: Option<String>,
-    pub plan_version_id: Option<Option<PlanVersionId>>,
-    pub product_id: Option<Option<ProductId>>,
-    pub price_id: Option<Option<PriceId>>,
+    pub price_id: Option<PriceId>,
+    pub description: Option<Option<String>>,
+    pub self_serviceable: Option<bool>,
+    pub max_instances_per_subscription: Option<Option<i32>>,
     pub updated_at: NaiveDateTime,
 }

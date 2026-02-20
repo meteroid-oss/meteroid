@@ -76,12 +76,18 @@ export const StepReviewAndCreate = () => {
     { enabled: !!state.planVersionId }
   )
 
-  const addOnsQuery = useQuery(listAddOns, {
-    pagination: {
-      perPage: 100,
-      page: 0,
-    },
-  })
+  const addOnsQuery = useQuery(
+    listAddOns,
+    state.planVersionId
+      ? {
+          planVersionId: state.planVersionId,
+          pagination: {
+            perPage: 100,
+            page: 0,
+          },
+        }
+      : { planVersionId: '', pagination: { perPage: 100, page: 0 } }
+  )
   const couponsQuery = useQuery(listCoupons, {
     pagination: {
       perPage: 100,
@@ -194,17 +200,15 @@ export const StepReviewAndCreate = () => {
           addOns: {
             addOns: state.addOns.map(a => ({
               addOnId: a.addOnId,
+              quantity: a.quantity ?? 1,
               ...(a.parameterization && {
-                parameterization: {
-                  initialSlotCount: a.parameterization.initialSlotCount,
-                  billingPeriod: a.parameterization.billingPeriod,
-                  committedCapacity: a.parameterization.committedCapacity,
-                },
-              }),
-              ...(a.override && {
-                override: {
-                  name: a.override.name,
-                  // TODO: Map fee properly
+                customization: {
+                  case: 'parameterization' as const,
+                  value: {
+                    initialSlotCount: a.parameterization.initialSlotCount,
+                    billingPeriod: a.parameterization.billingPeriod,
+                    committedCapacity: a.parameterization.committedCapacity,
+                  },
                 },
               }),
             })),
@@ -640,16 +644,26 @@ export const StepReviewAndCreate = () => {
                   <div>
                     <h4 className="font-medium text-xs mb-3">Add-ons</h4>
                     <div className="space-y-2">
-                      {selectedAddOns.map(addOn => (
-                        <div key={addOn.id} className="flex items-start justify-between text-sm">
-                          <div className="flex-1 pr-2 min-h-9">
-                            <div className="font-medium">{addOn.name}</div>
+                      {selectedAddOns.map(addOn => {
+                        const price = addOn.price
+                        const pricing = price ? getComponentPricingFromPrice(price) : undefined
+                        return (
+                          <div key={addOn.id} className="flex items-start justify-between text-sm">
+                            <div className="flex-1 pr-2 min-h-9">
+                              <div className="font-medium">{addOn.name}</div>
+                            </div>
+                            <div className="text-right font-medium">
+                              {pricing && !pricing.isMetered ? (
+                                <span>{formatPrice(pricing.total, currency)}</span>
+                              ) : pricing?.isMetered ? (
+                                <span className="text-muted-foreground">Metered</span>
+                              ) : (
+                                <span className="text-muted-foreground text-xs">Included</span>
+                              )}
+                            </div>
                           </div>
-                          <div className="text-right font-medium text-muted-foreground text-xs">
-                            Included
-                          </div>
-                        </div>
-                      ))}
+                        )
+                      })}
                     </div>
                   </div>
                 )}

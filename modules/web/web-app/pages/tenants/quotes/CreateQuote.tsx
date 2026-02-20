@@ -33,6 +33,8 @@ import { useNavigate } from 'react-router-dom'
 import { z } from 'zod'
 
 import { CustomerSelect } from '@/features/customers/CustomerSelect'
+import { feeTypeEnumToComponentFeeType } from '@/features/plans/addons/AddOnCard'
+import { feeTypeToHuman, priceSummaryBadges } from '@/features/plans/pricecomponents/utils'
 import { SubscribablePlanVersionSelect } from '@/features/plans/SubscribablePlanVersionSelect'
 import {
   buildExistingProductRef,
@@ -279,12 +281,18 @@ export const CreateQuote = () => {
   )
 
   // Add-ons and coupons queries
-  const addOnsQuery = useQuery(listAddOns, {
-    pagination: {
-      perPage: 100,
-      page: 0,
-    },
-  })
+  const addOnsQuery = useQuery(
+    listAddOns,
+    planVersionId
+      ? {
+          planVersionId,
+          pagination: {
+            perPage: 100,
+            page: 0,
+          },
+        }
+      : disableQuery
+  )
 
   const couponsQuery = useQuery(listCoupons, {
     pagination: {
@@ -394,7 +402,7 @@ export const CreateQuote = () => {
 
       // Build add-ons
       const addOns = new CreateSubscriptionAddOns({
-        addOns: selectedAddOns.map(a => new CreateSubscriptionAddOn({ addOnId: a.addOnId })),
+        addOns: selectedAddOns.map(a => new CreateSubscriptionAddOn({ addOnId: a.addOnId, quantity: 1 })),
       })
 
       // Build coupons
@@ -778,6 +786,16 @@ export const CreateQuote = () => {
                           <div className="grid gap-2 mb-3">
                             {selectedAddOns.map(addon => {
                               const addOnData = availableAddOns.find(a => a.id === addon.addOnId)
+                              const feeLabel = addOnData
+                                ? feeTypeToHuman(feeTypeEnumToComponentFeeType(addOnData.feeType))
+                                : undefined
+                              const priceBadge = addOnData
+                                ? priceSummaryBadges(
+                                    feeTypeEnumToComponentFeeType(addOnData.feeType),
+                                    addOnData.price,
+                                    planCurrency
+                                  ).join(' / ')
+                                : undefined
                               return (
                                 <Card
                                   key={addon.addOnId}
@@ -788,9 +806,14 @@ export const CreateQuote = () => {
                                       <CardTitle className="text-sm">
                                         {addOnData?.name || addon.addOnId}
                                       </CardTitle>
-                                      <Badge variant="secondary" size="sm">
-                                        Add-on
-                                      </Badge>
+                                      {feeLabel && (
+                                        <Badge variant="outline" size="sm">
+                                          {feeLabel}
+                                        </Badge>
+                                      )}
+                                      {priceBadge && (
+                                        <span className="text-xs text-muted-foreground">{priceBadge}</span>
+                                      )}
                                     </div>
                                     <Button
                                       type="button"
@@ -843,6 +866,9 @@ export const CreateQuote = () => {
                                 >
                                   <Plus className="h-3 w-3 mr-2" />
                                   {addOn.name}
+                                  <span className="text-xs text-muted-foreground ml-1">
+                                    {feeTypeToHuman(feeTypeEnumToComponentFeeType(addOn.feeType))}
+                                  </span>
                                   {isSelected && (
                                     <Badge variant="secondary" size="sm" className="ml-auto">
                                       Added

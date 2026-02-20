@@ -2,7 +2,7 @@ use crate::add_ons::{AddOnRow, AddOnRowNew, AddOnRowPatch};
 use crate::errors::IntoDbResult;
 use crate::extend::pagination::{Paginate, PaginatedVec, PaginationRequest};
 use crate::{DbResult, PgConn};
-use common_domain::ids::{AddOnId, TenantId};
+use common_domain::ids::{AddOnId, PlanVersionId, TenantId};
 use diesel::{ExpressionMethods, PgTextExpressionMethods, QueryDsl, SelectableHelper, debug_query};
 use diesel_async::RunQueryDsl;
 use error_stack::ResultExt;
@@ -45,9 +45,11 @@ impl AddOnRow {
             .into_db_result()
     }
 
+    /// List add-ons for a tenant. If `plan_version_id` is provided, filters through the junction table.
     pub async fn list_by_tenant_id(
         conn: &mut PgConn,
         tenant_id: TenantId,
+        plan_version_id: Option<PlanVersionId>,
         pagination: PaginationRequest,
         search: Option<String>,
     ) -> DbResult<PaginatedVec<AddOnRow>> {
@@ -56,6 +58,16 @@ impl AddOnRow {
         let mut query = ao_dsl::add_on
             .filter(ao_dsl::tenant_id.eq(tenant_id))
             .into_boxed();
+
+        if let Some(pv_id) = plan_version_id {
+            use crate::schema::plan_version_add_on::dsl as pva_dsl;
+
+            let add_on_ids_subquery = pva_dsl::plan_version_add_on
+                .filter(pva_dsl::plan_version_id.eq(pv_id))
+                .select(pva_dsl::add_on_id);
+
+            query = query.filter(ao_dsl::id.eq_any(add_on_ids_subquery));
+        }
 
         if let Some(search) = search {
             query = query.filter(ao_dsl::name.ilike(format!("%{search}%")));

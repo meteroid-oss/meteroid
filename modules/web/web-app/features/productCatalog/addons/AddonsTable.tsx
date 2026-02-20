@@ -4,6 +4,8 @@ import { useMemo } from 'react'
 import { useNavigate } from 'react-router-dom'
 
 import { LocalId } from '@/components/LocalId'
+import { feeTypeEnumToComponentFeeType } from '@/features/plans/addons/AddOnCard'
+import { feeTypeToHuman } from '@/features/plans/pricecomponents/utils'
 import { StandardTable } from '@/components/table/StandardTable'
 import { ListAddOnResponse } from '@/rpc/api/addons/v1/addons_pb'
 import { AddOn } from '@/rpc/api/addons/v1/models_pb'
@@ -26,13 +28,36 @@ export const AddonsTable: FunctionComponent<AddonsTableProps> = ({
     () => [
       {
         header: 'Name',
-        cell: ({ row }) => <span>{row.original.name}</span>,
+        cell: ({ row }) => (
+          <div>
+            <span className="font-medium">{row.original.name}</span>
+            {row.original.description && (
+              <span className="block text-xs text-muted-foreground truncate max-w-xs">
+                {row.original.description}
+              </span>
+            )}
+          </div>
+        ),
         enableSorting: false,
       },
 
       {
-        header: 'Product',
-        cell: ({ row }) => <span>{row.original.productId ? 'Linked' : '—'}</span>,
+        header: 'Fee Type',
+        cell: ({ row }) => (
+          <span className="text-sm">
+            {feeTypeToHuman(feeTypeEnumToComponentFeeType(row.original.feeType))}
+          </span>
+        ),
+        enableSorting: false,
+      },
+
+      {
+        header: 'Self-service',
+        cell: ({ row }) => (
+          <span className="text-sm text-muted-foreground">
+            {row.original.selfServiceable ? 'Yes' : 'No'}
+          </span>
+        ),
         enableSorting: false,
       },
 

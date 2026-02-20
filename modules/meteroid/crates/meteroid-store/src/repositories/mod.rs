@@ -33,6 +33,7 @@ pub mod organizations;
 pub mod outbox;
 pub mod payment_transactions;
 pub mod pgmq;
+pub mod plan_version_add_ons;
 pub mod price_components;
 pub mod prices;
 pub mod product_families;

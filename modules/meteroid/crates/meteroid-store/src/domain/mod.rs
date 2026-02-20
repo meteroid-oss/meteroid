@@ -58,6 +58,7 @@ pub mod oauth;
 pub mod organizations;
 pub mod outbox_event;
 pub mod payment_transactions;
+pub mod plan_version_add_ons;
 pub mod pgmq;
 pub mod product_families;
 pub mod products;

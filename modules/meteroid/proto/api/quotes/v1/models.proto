@@ -101,6 +101,7 @@ message QuoteAddOn {
   string name = 4;
   meteroid.api.subscriptions.v1.SubscriptionFeeBillingPeriod period = 5;
   meteroid.api.subscriptions.v1.SubscriptionFee fee = 6;
+  uint32 quantity = 7;
 }
 
 message QuoteCoupon {

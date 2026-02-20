@@ -636,7 +636,7 @@ impl Services {
 
         let ao_mrr: i64 = add_ons
             .iter()
-            .map(|c| calculate_mrr(&c.fee, &c.period, precision))
+            .map(|c| calculate_mrr(&c.fee, &c.period, precision) * c.quantity as i64)
             .sum();
 
         let mrr_delta = cmrr + ao_mrr;
