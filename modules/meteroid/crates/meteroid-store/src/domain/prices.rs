@@ -98,6 +98,7 @@ pub struct Price {
     pub created_at: NaiveDateTime,
     pub created_by: Uuid,
     pub archived_at: Option<NaiveDateTime>,
+    pub catalog: bool,
 }
 
 impl TryFrom<PriceRow> for Price {
@@ -121,6 +122,7 @@ impl TryFrom<PriceRow> for Price {
             created_at: row.created_at,
             created_by: row.created_by,
             archived_at: row.archived_at,
+            catalog: row.catalog,
         })
     }
 }

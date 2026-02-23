@@ -12,6 +12,7 @@ message CreateProductRequest {
   string family_local_id = 3;
   meteroid.api.prices.v1.FeeType fee_type = 4;
   meteroid.api.prices.v1.FeeStructure fee_structure = 5;
+  optional bool catalog = 6;
 }
 
 message CreateProductResponse {
@@ -33,6 +34,7 @@ message UpdateProductResponse {
 message ListProductsRequest {
   optional string family_local_id = 1;
   meteroid.common.v1.Pagination pagination = 2;
+  optional bool catalog_only = 3;
 }
 
 message ListProductsResponse {
@@ -44,6 +46,7 @@ message SearchProductsRequest {
   optional string family_local_id = 1;
   optional string query = 2;
   meteroid.common.v1.Pagination pagination = 3;
+  optional bool catalog_only = 4;
 }
 
 message SearchProductsResponse {
@@ -68,6 +71,7 @@ message ListProductsWithPricesRequest {
   string currency = 2;
   optional string query = 3;
   meteroid.common.v1.Pagination pagination = 4;
+  optional bool catalog_only = 5;
 }
 
 message ListProductsWithPricesResponse {

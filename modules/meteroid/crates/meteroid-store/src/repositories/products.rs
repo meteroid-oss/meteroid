@@ -43,6 +43,7 @@ pub trait ProductInterface {
         &self,
         auth_tenant_id: TenantId,
         family_id: Option<ProductFamilyId>,
+        catalog_only: bool,
         pagination: PaginationRequest,
         order_by: OrderByRequest,
     ) -> StoreResult<PaginatedVec<Product>>;
@@ -51,6 +52,7 @@ pub trait ProductInterface {
         auth_tenant_id: TenantId,
         family_id: Option<ProductFamilyId>,
         query: &str,
+        catalog_only: bool,
         pagination: PaginationRequest,
         order_by: OrderByRequest,
     ) -> StoreResult<PaginatedVec<Product>>;
@@ -60,6 +62,7 @@ pub trait ProductInterface {
         family_id: Option<ProductFamilyId>,
         currency: &str,
         query: Option<&str>,
+        catalog_only: bool,
         pagination: PaginationRequest,
     ) -> StoreResult<PaginatedVec<ProductWithLatestPrice>>;
 }
@@ -87,6 +90,7 @@ impl ProductInterface for Store {
                     e,
                 ))
             })?,
+            catalog: product.catalog,
         };
 
         insertable
@@ -169,6 +173,7 @@ impl ProductInterface for Store {
         &self,
         auth_tenant_id: TenantId,
         family_id: Option<ProductFamilyId>,
+        catalog_only: bool,
         pagination: PaginationRequest,
         order_by: OrderByRequest,
     ) -> StoreResult<PaginatedVec<Product>> {
@@ -178,6 +183,7 @@ impl ProductInterface for Store {
             &mut conn,
             auth_tenant_id,
             family_id,
+            catalog_only,
             pagination.into(),
             order_by.into(),
         )
@@ -199,6 +205,7 @@ impl ProductInterface for Store {
         auth_tenant_id: TenantId,
         family_id: Option<ProductFamilyId>,
         query: &str,
+        catalog_only: bool,
         pagination: PaginationRequest,
         order_by: OrderByRequest,
     ) -> StoreResult<PaginatedVec<Product>> {
@@ -209,6 +216,7 @@ impl ProductInterface for Store {
             auth_tenant_id,
             family_id,
             query,
+            catalog_only,
             pagination.into(),
             order_by.into(),
         )
@@ -231,6 +239,7 @@ impl ProductInterface for Store {
         family_id: Option<ProductFamilyId>,
         currency: &str,
         query: Option<&str>,
+        catalog_only: bool,
         pagination: PaginationRequest,
     ) -> StoreResult<PaginatedVec<ProductWithLatestPrice>> {
         let mut conn = self.get_conn().await?;
@@ -243,6 +252,7 @@ impl ProductInterface for Store {
                     auth_tenant_id,
                     family_id,
                     q,
+                    catalog_only,
                     pagination.into(),
                     OrderByRequest::NameAsc.into(),
                 )
@@ -253,6 +263,7 @@ impl ProductInterface for Store {
                     &mut conn,
                     auth_tenant_id,
                     family_id,
+                    catalog_only,
                     pagination.into(),
                     OrderByRequest::NameAsc.into(),
                 )

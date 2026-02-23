@@ -825,6 +825,7 @@ impl QuotesInterface for Store {
                         created_by,
                         mat.product_family_id,
                         &mat.currency,
+                        false,
                     )
                     .await?;
                     if let Some(price_id) = price_ids.into_iter().next() {

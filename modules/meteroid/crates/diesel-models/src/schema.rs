@@ -743,6 +743,7 @@ diesel::table! {
         created_at -> Timestamp,
         created_by -> Uuid,
         archived_at -> Nullable<Timestamp>,
+        catalog -> Bool,
     }
 }
 
@@ -773,6 +774,7 @@ diesel::table! {
         product_family_id -> Uuid,
         fee_type -> FeeTypeEnum,
         fee_structure -> Jsonb,
+        catalog -> Bool,
     }
 }
 

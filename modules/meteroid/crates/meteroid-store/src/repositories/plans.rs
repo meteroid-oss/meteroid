@@ -330,6 +330,7 @@ impl PlansInterface for Store {
                             inserted.created_by,
                             product_family.id,
                             &inserted_plan_version_new.currency,
+                            true,
                         )
                         .await?;
 
@@ -728,6 +729,7 @@ impl PlansInterface for Store {
                                             ))
                                         },
                                     )?,
+                                    catalog: true,
                                 }
                                 .insert(conn)
                                 .await
@@ -759,6 +761,7 @@ impl PlansInterface for Store {
                                     })?,
                                     tenant_id: auth_tenant_id,
                                     created_by: auth_actor,
+                                    catalog: true,
                                 }
                                 .insert(conn)
                                 .await

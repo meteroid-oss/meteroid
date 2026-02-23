@@ -20,6 +20,7 @@ pub struct ProductRow {
     pub product_family_id: ProductFamilyId,
     pub fee_type: FeeTypeEnum,
     pub fee_structure: serde_json::Value,
+    pub catalog: bool,
 }
 
 #[derive(Debug, Insertable)]
@@ -34,4 +35,5 @@ pub struct ProductRowNew {
     pub product_family_id: ProductFamilyId,
     pub fee_type: FeeTypeEnum,
     pub fee_structure: serde_json::Value,
+    pub catalog: bool,
 }
