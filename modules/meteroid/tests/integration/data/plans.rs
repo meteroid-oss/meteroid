@@ -102,6 +102,7 @@ pub async fn run_plans_seed(pool: &PgPool) {
                 product_family_id: ids::PRODUCT_FAMILY_ID,
                 fee_type: DieselFeeTypeEnum::Rate,
                 fee_structure: serde_json::to_value(&FeeStructure::Rate {}).unwrap(),
+                catalog: true,
             }
             .insert(tx)
             .await?;
@@ -137,6 +138,7 @@ pub async fn run_plans_seed(pool: &PgPool) {
                 .unwrap(),
                 tenant_id: ids::TENANT_ID,
                 created_by: ids::USER_ID,
+                catalog: true,
             }
             .insert(tx)
             .await?;
@@ -209,6 +211,7 @@ pub async fn run_plans_seed(pool: &PgPool) {
                     downgrade_policy: DowngradePolicy::RemoveAtEndOfPeriod,
                 })
                 .unwrap(),
+                catalog: true,
             }
             .insert(tx)
             .await?;
@@ -257,6 +260,7 @@ pub async fn run_plans_seed(pool: &PgPool) {
                 .unwrap(),
                 tenant_id: ids::TENANT_ID,
                 created_by: ids::USER_ID,
+                catalog: true,
             }
             .insert(tx)
             .await?;
@@ -274,6 +278,7 @@ pub async fn run_plans_seed(pool: &PgPool) {
                 .unwrap(),
                 tenant_id: ids::TENANT_ID,
                 created_by: ids::USER_ID,
+                catalog: true,
             }
             .insert(tx)
             .await?;
@@ -352,6 +357,7 @@ pub async fn run_plans_seed(pool: &PgPool) {
                     downgrade_policy: DowngradePolicy::RemoveAtEndOfPeriod,
                 })
                 .unwrap(),
+                catalog: true,
             }
             .insert(tx)
             .await?;
@@ -394,6 +400,7 @@ pub async fn run_plans_seed(pool: &PgPool) {
                 .unwrap(),
                 tenant_id: ids::TENANT_ID,
                 created_by: ids::USER_ID,
+                catalog: true,
             }
             .insert(tx)
             .await?;
@@ -601,6 +608,7 @@ pub async fn run_plans_seed(pool: &PgPool) {
                 product_family_id: ids::PRODUCT_FAMILY_ID,
                 fee_type: DieselFeeTypeEnum::Rate,
                 fee_structure: serde_json::to_value(&FeeStructure::Rate {}).unwrap(),
+                catalog: true,
             }
             .insert(tx)
             .await?;
@@ -636,6 +644,7 @@ pub async fn run_plans_seed(pool: &PgPool) {
                 .unwrap(),
                 tenant_id: ids::TENANT_ID,
                 created_by: ids::USER_ID,
+                catalog: true,
             }
             .insert(tx)
             .await?;
@@ -706,6 +715,7 @@ pub async fn run_plans_seed(pool: &PgPool) {
                 product_family_id: ids::PRODUCT_FAMILY_ID,
                 fee_type: DieselFeeTypeEnum::Rate,
                 fee_structure: serde_json::to_value(&FeeStructure::Rate {}).unwrap(),
+                catalog: true,
             }
             .insert(tx)
             .await?;
@@ -741,6 +751,7 @@ pub async fn run_plans_seed(pool: &PgPool) {
                 .unwrap(),
                 tenant_id: ids::TENANT_ID,
                 created_by: ids::USER_ID,
+                catalog: true,
             }
             .insert(tx)
             .await?;
@@ -767,6 +778,7 @@ pub async fn run_plans_seed(pool: &PgPool) {
                 product_family_id: ids::PRODUCT_FAMILY_ID,
                 fee_type: DieselFeeTypeEnum::Rate,
                 fee_structure: serde_json::to_value(&FeeStructure::Rate {}).unwrap(),
+                catalog: true,
             }
             .insert(tx)
             .await?;
@@ -785,6 +797,7 @@ pub async fn run_plans_seed(pool: &PgPool) {
                     downgrade_policy: DowngradePolicy::RemoveAtEndOfPeriod,
                 })
                 .unwrap(),
+                catalog: true,
             }
             .insert(tx)
             .await?;
@@ -1087,6 +1100,7 @@ async fn seed_product_backed_plan(
             pricing: serde_json::to_value(&comp.pricing).unwrap(),
             tenant_id: ids::TENANT_ID,
             created_by: ids::USER_ID,
+            catalog: true,
         }
         .insert(tx)
         .await?;

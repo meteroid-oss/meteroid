@@ -32,6 +32,7 @@ pub async fn resolve_component_internal(
     created_by: Uuid,
     product_family_id: ProductFamilyId,
     expected_currency: &str,
+    catalog: bool,
 ) -> StoreResult<(ProductId, Vec<PriceId>)> {
     let product_id = match &internal.product_ref {
         ProductRef::Existing(pid) => *pid,
@@ -54,6 +55,7 @@ pub async fn resolve_component_internal(
                         e,
                     ))
                 })?,
+                catalog,
             }
             .insert(conn)
             .await
@@ -116,6 +118,7 @@ pub async fn resolve_component_internal(
                     pricing: pricing_json,
                     tenant_id,
                     created_by,
+                    catalog,
                 }
                 .insert(conn)
                 .await
@@ -348,6 +351,7 @@ impl PriceComponentInterface for Store {
                     pricing: pricing_json,
                     tenant_id,
                     created_by,
+                    catalog: true,
                 })
             })
             .collect::<Result<Vec<_>, Report<StoreError>>>()?;
@@ -515,6 +519,7 @@ impl PriceComponentInterface for Store {
                     pricing: pricing_json,
                     tenant_id,
                     created_by,
+                    catalog: true,
                 })
             })
             .collect::<Result<Vec<_>, Report<StoreError>>>()?;
@@ -618,6 +623,7 @@ impl PriceComponentInterface for Store {
                     created_by,
                     product_family_id,
                     &plan_version.currency,
+                    true,
                 )
                 .await?;
 

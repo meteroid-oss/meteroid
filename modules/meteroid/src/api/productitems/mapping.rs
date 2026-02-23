@@ -23,6 +23,7 @@ pub mod products {
                 created_at: Some(chrono_to_timestamp(product.created_at)),
                 fee_type: Some(fee_type_to_proto(product.fee_type)),
                 fee_structure: Some(fee_structure_to_proto(product.fee_structure)),
+                catalog: product.catalog,
             })
         }
     }
@@ -35,6 +36,7 @@ pub mod products {
                 local_id: product.id.as_proto(),
                 name: product.name,
                 fee_type: Some(fee_type_to_proto(product.fee_type)),
+                catalog: product.catalog,
             })
         }
     }

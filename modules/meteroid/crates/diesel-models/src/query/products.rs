@@ -54,6 +54,7 @@ impl ProductRow {
         conn: &mut PgConn,
         tenant_id: TenantId,
         family_id: Option<ProductFamilyId>,
+        catalog_only: bool,
         pagination: PaginationRequest,
         order_by: OrderByRequest,
     ) -> DbResult<PaginatedVec<ProductRow>> {
@@ -64,6 +65,10 @@ impl ProductRow {
             .inner_join(pf_dsl::product_family.on(p_dsl::product_family_id.eq(pf_dsl::id)))
             .filter(p_dsl::tenant_id.eq(tenant_id))
             .into_boxed();
+
+        if catalog_only {
+            query = query.filter(p_dsl::catalog.eq(true));
+        }
 
         if let Some(family_id) = family_id {
             query = query.filter(pf_dsl::id.eq(family_id));
@@ -96,6 +101,7 @@ impl ProductRow {
         tenant_id: TenantId,
         family_id: Option<ProductFamilyId>,
         query: &str,
+        catalog_only: bool,
         pagination: PaginationRequest,
         order_by: OrderByRequest,
     ) -> DbResult<PaginatedVec<ProductRow>> {
@@ -107,6 +113,10 @@ impl ProductRow {
             .filter(p_dsl::tenant_id.eq(tenant_id))
             .filter(p_dsl::name.ilike(format!("%{query}%")))
             .into_boxed();
+
+        if catalog_only {
+            query = query.filter(p_dsl::catalog.eq(true));
+        }
 
         if let Some(family_id) = family_id {
             query = query.filter(pf_dsl::id.eq(family_id));
@@ -195,14 +205,21 @@ impl ProductRow {
     pub async fn list_all_by_tenant(
         conn: &mut PgConn,
         tenant_id: TenantId,
+        catalog_only: bool,
     ) -> DbResult<Vec<ProductRow>> {
         use crate::schema::product::dsl as p_dsl;
         use diesel_async::RunQueryDsl;
 
-        let query = p_dsl::product
+        let mut query = p_dsl::product
             .filter(p_dsl::tenant_id.eq(tenant_id))
             .filter(p_dsl::archived_at.is_null())
-            .select(ProductRow::as_select());
+            .into_boxed();
+
+        if catalog_only {
+            query = query.filter(p_dsl::catalog.eq(true));
+        }
+
+        let query = query.select(ProductRow::as_select());
 
         log::debug!("{}", debug_query::<diesel::pg::Pg, _>(&query));
 

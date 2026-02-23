@@ -48,6 +48,7 @@ async fn test_products_basic() {
                     api::prices::v1::fee_structure::RateStructure {},
                 )),
             }),
+            catalog: None,
         })
         .await
         .unwrap()
@@ -80,6 +81,7 @@ async fn test_products_basic() {
         .list_products(api::products::v1::ListProductsRequest {
             family_local_id: Some(family.local_id.clone()),
             pagination: None,
+            catalog_only: None,
         })
         .await
         .unwrap()
@@ -97,6 +99,7 @@ async fn test_products_basic() {
             family_local_id: Some(family.local_id.clone()),
             query: Some("_nAm".to_string()),
             pagination: None,
+            catalog_only: None,
         })
         .await
         .unwrap()

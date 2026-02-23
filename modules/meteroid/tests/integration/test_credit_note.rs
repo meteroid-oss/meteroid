@@ -1255,6 +1255,7 @@ async fn create_plan_with_4_components(
                         &meteroid_store::domain::prices::FeeStructure::Rate {},
                     )
                     .unwrap(),
+                    catalog: true,
                 }
                 .insert(tx)
                 .await?;

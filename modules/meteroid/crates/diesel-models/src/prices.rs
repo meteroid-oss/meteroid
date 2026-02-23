@@ -18,6 +18,7 @@ pub struct PriceRow {
     pub created_at: NaiveDateTime,
     pub created_by: Uuid,
     pub archived_at: Option<NaiveDateTime>,
+    pub catalog: bool,
 }
 
 #[derive(Debug, Insertable)]
@@ -31,4 +32,5 @@ pub struct PriceRowNew {
     pub pricing: serde_json::Value,
     pub tenant_id: TenantId,
     pub created_by: Uuid,
+    pub catalog: bool,
 }

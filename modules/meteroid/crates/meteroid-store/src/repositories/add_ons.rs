@@ -238,6 +238,7 @@ impl AddOnInterface for Store {
                     created_by,
                     product_family_id,
                     &currency,
+                    true,
                 )
                 .await?;
 
@@ -338,6 +339,7 @@ impl AddOnInterface for Store {
                                 pricing: pricing_json,
                                 tenant_id,
                                 created_by,
+                                catalog: true,
                             }
                             .insert(conn)
                             .await

@@ -22,6 +22,7 @@ pub struct Product {
     pub product_family_id: ProductFamilyId,
     pub fee_type: FeeTypeEnum,
     pub fee_structure: FeeStructure,
+    pub catalog: bool,
 }
 
 impl TryFrom<ProductRow> for Product {
@@ -48,6 +49,7 @@ impl TryFrom<ProductRow> for Product {
             product_family_id: row.product_family_id,
             fee_type: row.fee_type.into(),
             fee_structure,
+            catalog: row.catalog,
         })
     }
 }
@@ -61,6 +63,7 @@ pub struct ProductNew {
     pub family_id: ProductFamilyId,
     pub fee_type: FeeTypeEnum,
     pub fee_structure: FeeStructure,
+    pub catalog: bool,
 }
 
 #[derive(Clone, Debug)]
@@ -89,6 +92,7 @@ impl TryFrom<ProductNew> for ProductRowNew {
             product_family_id: new.family_id,
             fee_type: new.fee_type.into(),
             fee_structure,
+            catalog: new.catalog,
         })
     }
 }

@@ -13,6 +13,7 @@ message Product {
   string local_id = 5;
   optional meteroid.api.prices.v1.FeeType fee_type = 6;
   optional meteroid.api.prices.v1.FeeStructure fee_structure = 7;
+  bool catalog = 8;
 }
 
 message ProductMeta {
@@ -20,6 +21,7 @@ message ProductMeta {
   string name = 2;
   string local_id = 3;
   optional meteroid.api.prices.v1.FeeType fee_type = 4;
+  bool catalog = 5;
 }
 
 message ProductWithPrice {

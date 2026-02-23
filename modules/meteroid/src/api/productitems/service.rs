@@ -52,6 +52,7 @@ impl ProductsService for ProductServiceComponents {
                 family_id: ProductFamilyId::from_proto(req.family_local_id)?,
                 fee_type,
                 fee_structure,
+                catalog: req.catalog.unwrap_or(true),
             })
             .await
             .map_err(Into::<ProductApiError>::into)
@@ -104,11 +105,14 @@ impl ProductsService for ProductServiceComponents {
 
         let order_by = OrderByRequest::IdAsc;
 
+        let catalog_only = req.catalog_only.unwrap_or(true);
+
         let res = self
             .store
             .list_products(
                 tenant_id,
                 ProductFamilyId::from_proto_opt(req.family_local_id)?,
+                catalog_only,
                 pagination_req,
                 order_by,
             )
@@ -140,12 +144,15 @@ impl ProductsService for ProductServiceComponents {
 
         let order_by = OrderByRequest::IdAsc;
 
+        let catalog_only = req.catalog_only.unwrap_or(true);
+
         let res = self
             .store
             .search_products(
                 tenant_id,
                 ProductFamilyId::from_proto_opt(req.family_local_id)?,
                 req.query.unwrap_or_default().as_str(), // todo add some validation on the query
+                catalog_only,
                 pagination_req,
                 order_by,
             )
@@ -232,6 +239,8 @@ impl ProductsService for ProductServiceComponents {
 
         let pagination_req = req.pagination.into_domain();
 
+        let catalog_only = req.catalog_only.unwrap_or(true);
+
         let res = self
             .store
             .list_products_with_latest_price(
@@ -239,6 +248,7 @@ impl ProductsService for ProductServiceComponents {
                 ProductFamilyId::from_proto_opt(req.family_local_id)?,
                 &req.currency,
                 req.query.as_deref(),
+                catalog_only,
                 pagination_req,
             )
             .await
