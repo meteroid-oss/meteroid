@@ -2,7 +2,9 @@ use crate::domain::plan_version_add_ons::{PlanVersionAddOn, PlanVersionAddOnNew}
 use crate::errors::StoreError;
 use crate::{Store, StoreResult};
 use common_domain::ids::{AddOnId, PlanVersionId, TenantId};
+use diesel_models::add_ons::AddOnRow;
 use diesel_models::plan_version_add_ons::{PlanVersionAddOnRow, PlanVersionAddOnRowNew};
+use diesel_models::prices::PriceRow;
 use error_stack::Report;
 
 #[async_trait::async_trait]
@@ -39,6 +41,25 @@ impl PlanVersionAddOnInterface for Store {
         new: PlanVersionAddOnNew,
     ) -> StoreResult<PlanVersionAddOn> {
         let mut conn = self.get_conn().await?;
+
+        // Verify the add-on belongs to this tenant
+        let add_on = AddOnRow::get_by_id(&mut conn, new.tenant_id, new.add_on_id)
+            .await
+            .map_err(Into::<Report<StoreError>>::into)?;
+
+        // Validate price_id override belongs to the add-on's product
+        if let Some(price_id) = new.price_id {
+            let price_row =
+                PriceRow::find_by_id_and_tenant_id(&mut conn, price_id, new.tenant_id)
+                    .await
+                    .map_err(Into::<Report<StoreError>>::into)?;
+            if price_row.product_id != add_on.product_id {
+                return Err(Report::new(StoreError::InvalidArgument(format!(
+                    "Price {} belongs to product {}, not add-on product {}",
+                    price_id, price_row.product_id, add_on.product_id
+                ))));
+            }
+        }
 
         let row_new: PlanVersionAddOnRowNew = new.into();
 

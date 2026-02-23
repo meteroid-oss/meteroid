@@ -16,6 +16,7 @@ pub struct AddOnRow {
     pub description: Option<String>,
     pub self_serviceable: bool,
     pub max_instances_per_subscription: Option<i32>,
+    pub archived_at: Option<NaiveDateTime>,
 }
 
 #[derive(Debug, Insertable)]

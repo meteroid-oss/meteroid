@@ -3,7 +3,7 @@ use crate::api_rest::model::{BillingPeriodEnum, PaginatedRequest, PaginationResp
 use chrono::NaiveDate;
 use common_domain::ids::{
     AddOnId, AliasOr, AppliedCouponId, BankAccountId, BillableMetricId, CouponId, CustomerId,
-    PlanVersionId, PriceComponentId, ProductId,
+    PlanVersionId, PriceComponentId, ProductId, SubscriptionAddOnId,
 };
 use common_domain::ids::{PlanId, string_serde_opt, string_serde_vec_opt};
 use common_domain::ids::{SubscriptionId, string_serde};
@@ -744,6 +744,8 @@ pub struct SubscriptionAddOnPriceOverride {
 #[derive(ToSchema, Serialize, Deserialize, Clone, Debug)]
 pub struct SubscriptionAddOn {
     #[serde(default, with = "string_serde")]
+    pub id: SubscriptionAddOnId,
+    #[serde(default, with = "string_serde")]
     pub add_on_id: AddOnId,
     pub name: String,
     pub period: SubscriptionFeeBillingPeriodEnum,
@@ -754,11 +756,12 @@ pub struct SubscriptionAddOn {
 impl From<meteroid_store::domain::subscription_add_ons::SubscriptionAddOn> for SubscriptionAddOn {
     fn from(val: meteroid_store::domain::subscription_add_ons::SubscriptionAddOn) -> Self {
         SubscriptionAddOn {
+            id: val.id,
             add_on_id: val.add_on_id,
             name: val.name,
             period: val.period.into(),
             fee: val.fee.into(),
-            quantity: val.quantity as u32,
+            quantity: val.quantity.max(0) as u32,
         }
     }
 }

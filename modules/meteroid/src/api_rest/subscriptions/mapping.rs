@@ -220,7 +220,11 @@ impl From<CreateSubscriptionAddOn> for domain::CreateSubscriptionAddOn {
                     }
                 }
             },
-            quantity: if add_on.quantity == 0 { 1 } else { add_on.quantity },
+            quantity: if add_on.quantity == 0 {
+                1
+            } else {
+                add_on.quantity.min(i32::MAX as u32) as i32
+            },
         }
     }
 }

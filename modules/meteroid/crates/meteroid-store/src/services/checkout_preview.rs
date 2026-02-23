@@ -584,7 +584,7 @@ impl Services {
                 product_id: resolved.product_id,
                 price_id: resolved.price_id,
                 created_at: chrono::Utc::now().naive_utc(),
-                quantity: create_ao.quantity as i32,
+                quantity: create_ao.quantity,
             });
         }
 

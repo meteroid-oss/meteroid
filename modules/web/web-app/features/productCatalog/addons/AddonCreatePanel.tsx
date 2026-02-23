@@ -1,32 +1,39 @@
 import {
-  createConnectQueryKey,
   useMutation,
 } from '@connectrpc/connect-query'
 import {
-  Button,
-  Form,
-  InputFormField,
+  Input,
+  Label,
+  RadioGroup,
+  RadioGroupItem,
   ScrollArea,
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
   Sheet,
   SheetContent,
   SheetDescription,
   SheetHeader,
   SheetTitle,
+  Switch,
   Tabs,
   TabsContent,
   TabsList,
   TabsTrigger,
+  Tooltip,
+  TooltipContent,
+  TooltipProvider,
+  TooltipTrigger,
 } from '@md/ui'
 import { useQueryClient } from '@tanstack/react-query'
-import { ArrowLeftIcon, PencilIcon } from 'lucide-react'
-import { createElement, useState } from 'react'
+import { InfoIcon } from 'lucide-react'
+import { useId, useState } from 'react'
 import { useNavigate } from 'react-router-dom'
-import { z } from 'zod'
 
-import { FeeTypePicker } from '@/features/plans/pricecomponents/FeeTypePicker'
+import { CustomCreationFlow, IdentitySchema } from '@/features/addons/CustomCreationFlow'
 import { ProductBrowser } from '@/features/plans/pricecomponents/ProductBrowser'
-import { ProductPricingForm } from '@/features/plans/pricecomponents/ProductPricingForm'
-import { feeTypeIcon, feeTypeToHuman } from '@/features/plans/pricecomponents/utils'
 import {
   buildExistingProductRef,
   buildNewProductRef,
@@ -35,23 +42,28 @@ import {
   wrapAsNewPriceEntries,
 } from '@/features/pricing/conversions'
 import { useZodForm } from '@/hooks/useZodForm'
+import { useQuery } from '@/lib/connectrpc'
 import {
   createAddOn,
   listAddOns,
 } from '@/rpc/api/addons/v1/addons-AddOnsService_connectquery'
+import { listTenantCurrencies } from '@/rpc/api/tenants/v1/tenants-TenantsService_connectquery'
 
 import type { ComponentFeeType } from '@/features/pricing/conversions'
 
-const IdentitySchema = z.object({
-  productName: z.string().min(1, 'Product name is required'),
-  description: z.string().max(2048).optional(),
-})
+type InstanceMode = 'single' | 'multiple' | 'unlimited'
 
 export const AddonCreatePanel = () => {
   const navigate = useNavigate()
   const queryClient = useQueryClient()
-  // Use a default currency for the catalog - TODO: get from tenant settings
-  const currency = 'USD'
+  const switchId = useId()
+
+  const activeCurrenciesQuery = useQuery(listTenantCurrencies)
+  const activeCurrencies = activeCurrenciesQuery.data?.currencies ?? []
+  const [currency, setCurrency] = useState<string | undefined>(undefined)
+  const [selfServiceable, setSelfServiceable] = useState(false)
+  const [instanceMode, setInstanceMode] = useState<InstanceMode>('single')
+  const [multipleMax, setMultipleMax] = useState(2)
 
   const [customStep, setCustomStep] = useState<'identity' | 'feeType' | 'form'>('identity')
   const [customName, setCustomName] = useState('')
@@ -63,10 +75,13 @@ export const AddonCreatePanel = () => {
     defaultValues: { productName: '', description: '' },
   })
 
+  const maxInstancesPerSubscription =
+    instanceMode === 'single' ? 1 : instanceMode === 'multiple' ? multipleMax : undefined
+
   const createAddOnMutation = useMutation(createAddOn, {
     onSuccess: () => {
       queryClient.invalidateQueries({
-        queryKey: createConnectQueryKey(listAddOns, {}),
+        queryKey: [listAddOns.service.typeName],
       })
       navigate('..')
     },
@@ -83,6 +98,7 @@ export const AddonCreatePanel = () => {
     formData: Record<string, unknown>
     feeType: ComponentFeeType
   }) => {
+    if (!currency) return
     const pricingType = toPricingTypeFromFeeType(
       feeType,
       feeType === 'usage' ? (formData.usageModel as string) : undefined
@@ -94,11 +110,13 @@ export const AddonCreatePanel = () => {
       name: componentName,
       product,
       price: wrapAsNewPriceEntries(priceInputs)[0],
+      selfServiceable,
+      maxInstancesPerSubscription,
     })
   }
 
   const handleCreateNewProduct = (formData: Record<string, unknown>) => {
-    if (!selectedFeeType) return
+    if (!selectedFeeType || !currency) return
 
     const pricingType = toPricingTypeFromFeeType(
       selectedFeeType,
@@ -112,6 +130,8 @@ export const AddonCreatePanel = () => {
       description: customDescription || undefined,
       product,
       price: wrapAsNewPriceEntries(priceInputs)[0],
+      selfServiceable,
+      maxInstancesPerSubscription,
     })
   }
 
@@ -130,165 +150,121 @@ export const AddonCreatePanel = () => {
           <SheetTitle>New Add-on</SheetTitle>
           <SheetDescription>Create a new catalog add-on</SheetDescription>
         </SheetHeader>
-        <Tabs defaultValue="library" className="flex flex-col h-[calc(100%-80px)]">
-          <TabsList className="w-full grid grid-cols-2 mb-4">
-            <TabsTrigger value="library">From Product</TabsTrigger>
-            <TabsTrigger value="custom" onClick={resetCustomFlow}>
-              Custom
-            </TabsTrigger>
-          </TabsList>
-          <TabsContent value="library" className="flex-1 overflow-hidden mt-0">
-            <ScrollArea className="h-full">
-              <ProductBrowser
-                currency={currency}
-                onAdd={handleAddExistingProduct}
-                submitLabel="Create Add-on"
-              />
-            </ScrollArea>
-          </TabsContent>
-          <TabsContent value="custom" className="flex-1 overflow-hidden mt-0">
-            <ScrollArea className="h-full">
-              <CustomCreationFlow
-                step={customStep}
-                name={customName}
-                description={customDescription}
-                selectedFeeType={selectedFeeType}
-                identityMethods={identityMethods}
-                currency={currency}
-                onIdentitySubmit={data => {
-                  setCustomName(data.productName)
-                  setCustomDescription(data.description ?? '')
-                  setCustomStep('feeType')
-                }}
-                onFeeTypeSelect={ft => {
-                  setSelectedFeeType(ft)
-                  setCustomStep('form')
-                }}
-                onBack={step => setCustomStep(step)}
-                onSubmit={handleCreateNewProduct}
-              />
-            </ScrollArea>
-          </TabsContent>
-        </Tabs>
+        <div className="space-y-4 mb-4 pb-4 border-b border-border">
+          <div className="flex items-center gap-3">
+            <Label className="text-sm font-medium text-muted-foreground w-36">Currency</Label>
+            <Select value={currency} onValueChange={setCurrency}>
+              <SelectTrigger className="w-[120px]">
+                <SelectValue placeholder="Select" />
+              </SelectTrigger>
+              <SelectContent>
+                {activeCurrencies.map(c => (
+                  <SelectItem key={c} value={c}>
+                    {c}
+                  </SelectItem>
+                ))}
+              </SelectContent>
+            </Select>
+          </div>
+          <div className="flex items-center gap-3">
+            <Label htmlFor={switchId} className="text-sm font-medium text-muted-foreground w-36">
+              Self-service
+            </Label>
+            <Switch id={switchId} checked={selfServiceable} onCheckedChange={setSelfServiceable} />
+          </div>
+          <div className="flex items-start gap-3">
+            <div className="flex items-center gap-1.5 w-36 pt-2 shrink-0">
+              <Label className="text-sm font-medium text-muted-foreground">Instances</Label>
+              <TooltipProvider delayDuration={100}>
+                <Tooltip>
+                  <TooltipTrigger asChild>
+                    <InfoIcon className="h-3.5 w-3.5 text-muted-foreground cursor-help" />
+                  </TooltipTrigger>
+                  <TooltipContent className="max-w-64">
+                    How many times this add-on can be added to a single subscription.
+                  </TooltipContent>
+                </Tooltip>
+              </TooltipProvider>
+            </div>
+            <RadioGroup
+              value={instanceMode}
+              onValueChange={v => setInstanceMode(v as InstanceMode)}
+              className="flex items-center gap-4"
+            >
+              <div className="flex items-center gap-1.5">
+                <RadioGroupItem value="single" id="inst-single" />
+                <Label htmlFor="inst-single" className="text-sm font-normal cursor-pointer">
+                  Single
+                </Label>
+              </div>
+              <div className="flex items-center gap-1.5">
+                <RadioGroupItem value="multiple" id="inst-multiple" />
+                <Label htmlFor="inst-multiple" className="text-sm font-normal cursor-pointer">
+                  Multiple
+                </Label>
+                {instanceMode === 'multiple' && (
+                  <Input
+                    type="number"
+                    min={2}
+                    value={multipleMax}
+                    onChange={e => setMultipleMax(Math.max(2, parseInt(e.target.value) || 2))}
+                    className="w-16 h-7 text-sm"
+                  />
+                )}
+              </div>
+              <div className="flex items-center gap-1.5">
+                <RadioGroupItem value="unlimited" id="inst-unlimited" />
+                <Label htmlFor="inst-unlimited" className="text-sm font-normal cursor-pointer">
+                  Unlimited
+                </Label>
+              </div>
+            </RadioGroup>
+          </div>
+        </div>
+        {currency && (
+          <Tabs defaultValue="library" className="flex flex-col h-[calc(100%-220px)]">
+            <TabsList className="w-full grid grid-cols-2 mb-4">
+              <TabsTrigger value="library">From Product</TabsTrigger>
+              <TabsTrigger value="custom" onClick={resetCustomFlow}>
+                Custom
+              </TabsTrigger>
+            </TabsList>
+            <TabsContent value="library" className="flex-1 overflow-hidden mt-0">
+              <ScrollArea className="h-full">
+                <ProductBrowser
+                  currency={currency}
+                  onAdd={handleAddExistingProduct}
+                  submitLabel="Create Add-on"
+                />
+              </ScrollArea>
+            </TabsContent>
+            <TabsContent value="custom" className="flex-1 overflow-hidden mt-0">
+              <ScrollArea className="h-full">
+                <CustomCreationFlow
+                  step={customStep}
+                  name={customName}
+                  description={customDescription}
+                  selectedFeeType={selectedFeeType}
+                  identityMethods={identityMethods}
+                  currency={currency}
+                  onIdentitySubmit={data => {
+                    setCustomName(data.productName)
+                    setCustomDescription(data.description ?? '')
+                    setCustomStep('feeType')
+                  }}
+                  onFeeTypeSelect={ft => {
+                    setSelectedFeeType(ft)
+                    setCustomStep('form')
+                  }}
+                  onBack={step => setCustomStep(step)}
+                  onSubmit={handleCreateNewProduct}
+                />
+              </ScrollArea>
+            </TabsContent>
+          </Tabs>
+        )}
       </SheetContent>
     </Sheet>
   )
 }
 
-// --- Custom creation stepped flow ---
-
-interface CustomCreationFlowProps {
-  step: 'identity' | 'feeType' | 'form'
-  name: string
-  description: string
-  selectedFeeType: ComponentFeeType | null
-  // eslint-disable-next-line @typescript-eslint/no-explicit-any
-  identityMethods: any
-  currency: string
-  onIdentitySubmit: (data: { productName: string; description?: string }) => void
-  onFeeTypeSelect: (feeType: ComponentFeeType) => void
-  onBack: (step: 'identity' | 'feeType') => void
-  onSubmit: (formData: Record<string, unknown>) => void
-}
-
-const CustomCreationFlow = ({
-  step,
-  name,
-  description,
-  selectedFeeType,
-  identityMethods,
-  currency,
-  onIdentitySubmit,
-  onFeeTypeSelect,
-  onBack,
-  onSubmit,
-}: CustomCreationFlowProps) => {
-  switch (step) {
-    case 'identity':
-      return (
-        <Form {...identityMethods}>
-          <div className="space-y-4">
-            <InputFormField
-              name="productName"
-              label="Product name"
-              control={identityMethods.control}
-            />
-            <InputFormField
-              name="description"
-              label="Description (optional)"
-              control={identityMethods.control}
-            />
-            <div className="flex justify-end pt-2">
-              <Button type="button" onClick={identityMethods.handleSubmit(onIdentitySubmit)}>
-                Next
-              </Button>
-            </div>
-          </div>
-        </Form>
-      )
-    case 'feeType':
-      return (
-        <div className="space-y-4">
-          <button
-            type="button"
-            onClick={() => onBack('identity')}
-            className="flex items-center gap-1 text-sm text-muted-foreground hover:text-foreground transition-colors"
-          >
-            <ArrowLeftIcon size={14} />
-            Back
-          </button>
-          <FeeTypePicker onSelect={onFeeTypeSelect} />
-        </div>
-      )
-    case 'form':
-      if (!selectedFeeType) return null
-      return (
-        <div className="space-y-4">
-          <button
-            type="button"
-            onClick={() => onBack('feeType')}
-            className="flex items-center gap-1 text-sm text-muted-foreground hover:text-foreground transition-colors"
-          >
-            <ArrowLeftIcon size={14} />
-            Back
-          </button>
-          <div className="rounded-lg border border-border bg-card">
-            <div className="flex items-center gap-3 px-4 py-3 border-b border-border">
-              <span className="text-muted-foreground">
-                {createElement(feeTypeIcon(selectedFeeType), { size: 20 })}
-              </span>
-              <div className="flex-1 min-w-0">
-                <div className="flex items-center gap-2">
-                  <span className="text-sm font-medium truncate">{name}</span>
-                  <button
-                    type="button"
-                    onClick={() => onBack('identity')}
-                    className="text-muted-foreground hover:text-foreground transition-colors"
-                  >
-                    <PencilIcon size={12} />
-                  </button>
-                </div>
-                {description && (
-                  <span className="text-xs text-muted-foreground truncate block">
-                    {description}
-                  </span>
-                )}
-              </div>
-              <span className="text-xs text-muted-foreground">
-                {feeTypeToHuman(selectedFeeType)}
-              </span>
-            </div>
-            <div className="p-4">
-              <ProductPricingForm
-                feeType={selectedFeeType}
-                currency={currency}
-                editableStructure
-                onSubmit={onSubmit}
-                submitLabel="Create Add-on"
-              />
-            </div>
-          </div>
-        </div>
-      )
-  }
-}

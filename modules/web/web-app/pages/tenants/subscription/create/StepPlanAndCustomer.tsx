@@ -1,29 +1,22 @@
 import {
-  Badge,
   Button,
-  Card,
-  CardHeader,
-  CardTitle,
   Form,
   GenericFormField,
-  Input,
 } from '@ui/components'
 import { useAtom } from 'jotai'
 import { disableQuery } from '@connectrpc/connect-query'
-import { Gift, Plus, Search, Tag, X } from 'lucide-react'
 import { useEffect, useRef, useState } from 'react'
 import { useSearchParams } from 'react-router-dom'
 import { useWizard } from 'react-use-wizard'
 import { z } from 'zod'
 
 import { PageSection } from '@/components/layouts/shared/PageSection'
+import { AddOnCouponSelector } from '@/features/addons/AddOnCouponSelector'
 import { CustomerSelect } from '@/features/customers/CustomerSelect'
 import { SubscribablePlanVersionSelect } from '@/features/plans/SubscribablePlanVersionSelect'
 import { CreateSubscriptionPriceComponents } from '@/features/subscriptions/pricecomponents/CreateSubscriptionPriceComponents'
 import { useZodForm } from '@/hooks/useZodForm'
 import { useQuery } from '@/lib/connectrpc'
-import { feeTypeEnumToComponentFeeType } from '@/features/plans/addons/AddOnCard'
-import { feeTypeToHuman, priceSummaryBadges } from '@/features/plans/pricecomponents/utils'
 import { createSubscriptionAtom } from '@/pages/tenants/subscription/create/state'
 import { listAddOns } from '@/rpc/api/addons/v1/addons-AddOnsService_connectquery'
 import { listCoupons } from '@/rpc/api/coupons/v1/coupons-CouponsService_connectquery'
@@ -35,8 +28,6 @@ export const StepPlanAndCustomer = () => {
   const { nextStep } = useWizard()
   const [state, setState] = useAtom(createSubscriptionAtom)
   const [searchParams] = useSearchParams()
-  const [addOnSearch, setAddOnSearch] = useState('')
-  const [couponSearch, setCouponSearch] = useState('')
   const [isValid, setIsValid] = useState(true)
   const [validationErrors, setValidationErrors] = useState<string[]>([])
 
@@ -95,14 +86,6 @@ export const StepPlanAndCustomer = () => {
 
   const availableAddOns = addOnsQuery.data?.addOns || []
   const availableCoupons = couponsQuery.data?.coupons || []
-
-  const filteredAddOns = availableAddOns.filter(addOn =>
-    addOn.name.toLowerCase().includes(addOnSearch.toLowerCase())
-  )
-
-  const filteredCoupons = availableCoupons.filter(coupon =>
-    coupon.code.toLowerCase().includes(couponSearch.toLowerCase())
-  )
 
   const isCouponAvailableForPlan = (coupon: (typeof availableCoupons)[0]) => {
     if (!coupon.planIds || coupon.planIds.length === 0) return true
@@ -188,216 +171,35 @@ export const StepPlanAndCustomer = () => {
                 subtitle: 'Optional enhancements and promotional offers',
               }}
             >
-              {/* Add-ons Section */}
-              <div className="space-y-4">
-                <div>
-                  <h3 className="text-sm font-medium mb-3 flex items-center gap-2">
-                    <Plus className="h-4 w-4 text-green-500" />
-                    Add-ons
-                    <Badge variant="outline" size="sm">
-                      {state.addOns.length} selected
-                    </Badge>
-                  </h3>
-
-                  {state.addOns.length > 0 ? (
-                    <div className="grid gap-2 mb-3">
-                      {state.addOns.map(addon => {
-                        const addOnData = availableAddOns.find(a => a.id === addon.addOnId)
-                        const feeLabel = addOnData
-                          ? feeTypeToHuman(feeTypeEnumToComponentFeeType(addOnData.feeType))
-                          : undefined
-                        const priceBadge = addOnData
-                          ? priceSummaryBadges(
-                              feeTypeEnumToComponentFeeType(addOnData.feeType),
-                              addOnData.price,
-                              planQuery.data?.plan?.version?.currency
-                            ).join(' / ')
-                          : undefined
-                        return (
-                          <Card key={addon.addOnId} className="border-green-200 bg-green-50/30">
-                            <CardHeader className="p-3 flex flex-row items-center justify-between">
-                              <div className="flex items-center gap-2">
-                                <CardTitle className="text-sm">
-                                  {addOnData?.name || addon.addOnId}
-                                </CardTitle>
-                                {feeLabel && (
-                                  <Badge variant="outline" size="sm">
-                                    {feeLabel}
-                                  </Badge>
-                                )}
-                                {priceBadge && (
-                                  <span className="text-xs text-muted-foreground">{priceBadge}</span>
-                                )}
-                              </div>
-                              <Button
-                                type="button"
-                                variant="ghost"
-                                size="sm"
-                                onClick={() => {
-                                  setState(prev => ({
-                                    ...prev,
-                                    addOns: prev.addOns.filter(a => a.addOnId !== addon.addOnId),
-                                  }))
-                                }}
-                              >
-                                <X className="h-3 w-3" />
-                              </Button>
-                            </CardHeader>
-                          </Card>
-                        )
-                      })}
-                    </div>
-                  ) : (
-                    <p className="text-sm text-muted-foreground mb-3">No add-ons selected</p>
-                  )}
-
-                  <div className="relative">
-                    <Search className="absolute left-2 top-2.5 h-4 w-4 text-muted-foreground" />
-                    <Input
-                      type="search"
-                      placeholder="Search available add-ons..."
-                      value={addOnSearch}
-                      onChange={e => setAddOnSearch(e.target.value)}
-                      className="pl-8 h-9"
-                    />
-                  </div>
-
-                  {addOnSearch && filteredAddOns.length > 0 && (
-                    <div className="mt-2 border rounded-md p-2 space-y-1 max-h-32 overflow-y-auto">
-                      {filteredAddOns.slice(0, 5).map(addOn => {
-                        const isSelected = state.addOns.some(a => a.addOnId === addOn.id)
-                        return (
-                          <Button
-                            key={addOn.id}
-                            type="button"
-                            variant="ghost"
-                            size="sm"
-                            className="w-full justify-start text-sm"
-                            disabled={isSelected}
-                            onClick={() => {
-                              setState(prev => ({
-                                ...prev,
-                                addOns: [...prev.addOns, { addOnId: addOn.id }],
-                              }))
-                              setAddOnSearch('')
-                            }}
-                          >
-                            <Plus className="h-3 w-3 mr-2" />
-                            {addOn.name}
-                            <span className="text-xs text-muted-foreground ml-1">
-                              {feeTypeToHuman(feeTypeEnumToComponentFeeType(addOn.feeType))}
-                            </span>
-                            {isSelected && (
-                              <Badge variant="secondary" size="sm" className="ml-auto">
-                                Added
-                              </Badge>
-                            )}
-                          </Button>
-                        )
-                      })}
-                    </div>
-                  )}
-                </div>
-
-                {/* Coupons Section */}
-                <div className="border-t pt-4">
-                  <h3 className="text-sm font-medium mb-3 flex items-center gap-2">
-                    <Tag className="h-4 w-4 text-purple-500" />
-                    Discount Coupons
-                    <Badge variant="outline" size="sm">
-                      {state.coupons.length} applied
-                    </Badge>
-                  </h3>
-
-                  {state.coupons.length > 0 ? (
-                    <div className="grid gap-2 mb-3">
-                      {state.coupons.map(coupon => {
-                        const couponData = availableCoupons.find(c => c.id === coupon.couponId)
-                        return (
-                          <Card key={coupon.couponId} className="bg-card text-card-foreground">
-                            <CardHeader className="p-3 flex flex-row items-center justify-between">
-                              <div className="flex items-center gap-2">
-                                <CardTitle className="text-sm">
-                                  {couponData?.code || coupon.couponId}
-                                </CardTitle>
-                                <Badge variant="secondary" size="sm">
-                                  Discount
-                                </Badge>
-                              </div>
-                              <Button
-                                type="button"
-                                variant="ghost"
-                                size="sm"
-                                onClick={() => {
-                                  setState(prev => ({
-                                    ...prev,
-                                    coupons: prev.coupons.filter(
-                                      c => c.couponId !== coupon.couponId
-                                    ),
-                                  }))
-                                }}
-                              >
-                                <X className="h-3 w-3" />
-                              </Button>
-                            </CardHeader>
-                          </Card>
-                        )
-                      })}
-                    </div>
-                  ) : (
-                    <p className="text-sm text-muted-foreground mb-3">No coupons applied</p>
-                  )}
-
-                  <div className="relative">
-                    <Search className="absolute left-2 top-2.5 h-4 w-4 text-muted-foreground" />
-                    <Input
-                      type="search"
-                      placeholder="Search by coupon code..."
-                      value={couponSearch}
-                      onChange={e => setCouponSearch(e.target.value)}
-                      className="pl-8 h-9"
-                    />
-                  </div>
-
-                  {couponSearch && filteredCoupons.length > 0 && (
-                    <div className="mt-2 border rounded-md p-2 space-y-1 max-h-32 overflow-y-auto">
-                      {filteredCoupons.slice(0, 5).map(coupon => {
-                        const isSelected = state.coupons.some(c => c.couponId === coupon.id)
-                        const isAvailable = isCouponAvailableForPlan(coupon)
-                        return (
-                          <Button
-                            key={coupon.id}
-                            type="button"
-                            variant="ghost"
-                            size="sm"
-                            className="w-full justify-start text-sm"
-                            disabled={isSelected || !isAvailable}
-                            onClick={() => {
-                              setState(prev => ({
-                                ...prev,
-                                coupons: [...prev.coupons, { couponId: coupon.id }],
-                              }))
-                              setCouponSearch('')
-                            }}
-                          >
-                            <Gift className="h-3 w-3 mr-2" />
-                            {coupon.code}
-                            {isSelected ? (
-                              <Badge variant="secondary" size="sm" className="ml-auto">
-                                Applied
-                              </Badge>
-                            ) : !isAvailable ? (
-                              <span className="ml-auto text-xs text-muted-foreground">
-                                Not available for this plan
-                              </span>
-                            ) : null}
-                          </Button>
-                        )
-                      })}
-                    </div>
-                  )}
-                </div>
-              </div>
+              <AddOnCouponSelector
+                selectedAddOns={state.addOns}
+                onAddOnAdd={id =>
+                  setState(prev => ({ ...prev, addOns: [...prev.addOns, { addOnId: id }] }))
+                }
+                onAddOnRemove={id =>
+                  setState(prev => ({
+                    ...prev,
+                    addOns: prev.addOns.filter(a => a.addOnId !== id),
+                  }))
+                }
+                availableAddOns={availableAddOns}
+                selectedCoupons={state.coupons}
+                onCouponAdd={id =>
+                  setState(prev => ({
+                    ...prev,
+                    coupons: [...prev.coupons, { couponId: id }],
+                  }))
+                }
+                onCouponRemove={id =>
+                  setState(prev => ({
+                    ...prev,
+                    coupons: prev.coupons.filter(c => c.couponId !== id),
+                  }))
+                }
+                availableCoupons={availableCoupons}
+                isCouponAvailable={isCouponAvailableForPlan}
+                currency={planQuery.data?.plan?.version?.currency}
+              />
             </PageSection>
 
             <div className="flex gap-2 justify-end">

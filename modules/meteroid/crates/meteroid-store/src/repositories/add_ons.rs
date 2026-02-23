@@ -38,13 +38,16 @@ pub trait AddOnInterface {
         name: String,
         product_ref: ProductRef,
         price_entry: PriceEntry,
+        description: Option<String>,
+        self_serviceable: bool,
+        max_instances_per_subscription: Option<i32>,
         tenant_id: TenantId,
         created_by: Uuid,
     ) -> StoreResult<AddOn>;
 
     async fn update_add_on(&self, patch: AddOnPatch, price_entry: Option<PriceEntry>, created_by: Uuid) -> StoreResult<AddOn>;
 
-    async fn delete_add_on(&self, id: AddOnId, tenant_id: TenantId) -> StoreResult<()>;
+    async fn archive_add_on(&self, id: AddOnId, tenant_id: TenantId) -> StoreResult<()>;
 }
 
 /// Eagerly load fee_type and price for a list of add-on rows
@@ -184,6 +187,9 @@ impl AddOnInterface for Store {
         name: String,
         product_ref: ProductRef,
         price_entry: PriceEntry,
+        description: Option<String>,
+        self_serviceable: bool,
+        max_instances_per_subscription: Option<i32>,
         tenant_id: TenantId,
         created_by: Uuid,
     ) -> StoreResult<AddOn> {
@@ -212,21 +218,19 @@ impl AddOnInterface for Store {
                         .map_err(Into::<Report<StoreError>>::into)?
                 };
 
-                let currency = {
-                    use diesel::QueryDsl;
-                    use diesel_async::RunQueryDsl;
-                    use diesel_models::schema::tenant::dsl as t_dsl;
-                    use diesel::ExpressionMethods;
-                    use error_stack::ResultExt;
-                    use diesel_models::errors::IntoDbResult;
-                    t_dsl::tenant
-                        .filter(t_dsl::id.eq(tenant_id))
-                        .select(t_dsl::reporting_currency)
-                        .first::<String>(conn)
-                        .await
-                        .attach("Error finding tenant currency")
-                        .into_db_result()
-                        .map_err(Into::<Report<StoreError>>::into)?
+                let currency = match &internal.prices.first() {
+                    Some(PriceEntry::New(input)) => input.currency.clone(),
+                    Some(PriceEntry::Existing(pid)) => {
+                        PriceRow::find_by_id_and_tenant_id(conn, *pid, tenant_id)
+                            .await
+                            .map_err(Into::<Report<StoreError>>::into)?
+                            .currency
+                    }
+                    None => {
+                        return Err(Report::new(StoreError::InvalidArgument(
+                            "At least one price entry is required".into(),
+                        )));
+                    }
                 };
 
                 let (product_id, price_ids) = resolve_component_internal(
@@ -251,9 +255,9 @@ impl AddOnInterface for Store {
                     tenant_id,
                     product_id,
                     price_id,
-                    description: None,
-                    self_serviceable: false,
-                    max_instances_per_subscription: None,
+                    description,
+                    self_serviceable,
+                    max_instances_per_subscription,
                 };
 
                 let row = row_new
@@ -330,11 +334,7 @@ impl AddOnInterface for Store {
                     None
                 };
 
-                let row_patch: AddOnRowPatch = AddOnPatch {
-                    price_id: new_price_id.or(patch.price_id),
-                    ..patch
-                }
-                .into();
+                let row_patch: AddOnRowPatch = patch.into_row_patch(new_price_id);
 
                 let row = row_patch
                     .patch(conn)
@@ -351,10 +351,10 @@ impl AddOnInterface for Store {
         .await
     }
 
-    async fn delete_add_on(&self, id: AddOnId, tenant_id: TenantId) -> StoreResult<()> {
+    async fn archive_add_on(&self, id: AddOnId, tenant_id: TenantId) -> StoreResult<()> {
         let mut conn = self.get_conn().await?;
 
-        AddOnRow::delete(&mut conn, id, tenant_id)
+        AddOnRow::archive(&mut conn, id, tenant_id)
             .await
             .map_err(Into::<Report<StoreError>>::into)
     }

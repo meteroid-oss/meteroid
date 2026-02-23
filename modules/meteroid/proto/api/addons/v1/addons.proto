@@ -18,6 +18,7 @@ message ListAddOnResponse {
 }
 
 message CreateAddOnRequest {
+  reserved 1;
   string name = 2;
   meteroid.api.components.v1.ProductRef product = 3;
   meteroid.api.components.v1.PriceEntry price = 4;

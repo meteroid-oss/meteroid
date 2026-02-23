@@ -132,6 +132,22 @@ pub fn process_create_subscription_add_ons(
                 StoreError::ValueNotFound(format!("add-on {} not found", cs_ao.add_on_id)),
             )?;
 
+            if cs_ao.quantity < 1 {
+                return Err(Report::new(StoreError::InvalidArgument(format!(
+                    "add-on {} quantity must be >= 1",
+                    cs_ao.add_on_id
+                ))));
+            }
+
+            if let Some(max) = add_on.max_instances_per_subscription {
+                if cs_ao.quantity > max {
+                    return Err(Report::new(StoreError::InvalidArgument(format!(
+                        "add-on {} quantity {} exceeds max_instances_per_subscription {}",
+                        cs_ao.add_on_id, cs_ao.quantity, max
+                    ))));
+                }
+            }
+
             let resolved = add_on
                 .resolve_customized(products, prices, &cs_ao.customization)
                 .map_err(Report::new)?;

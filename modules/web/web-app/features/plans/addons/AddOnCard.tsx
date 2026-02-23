@@ -5,18 +5,18 @@ import {
 } from '@connectrpc/connect-query'
 import { Button } from '@md/ui'
 import { useQueryClient } from '@tanstack/react-query'
-import { Trash2Icon } from 'lucide-react'
+import { ChevronDownIcon, ChevronRightIcon, Trash2Icon } from 'lucide-react'
+import { useMemo, useState } from 'react'
 
 import { LocalId } from '@/components/LocalId'
 import { useIsDraftVersion, usePlanWithVersion } from '@/features/plans/hooks/usePlan'
 import { PriceComponentProperty } from '@/features/plans/pricecomponents/components/PriceComponentProperty'
+import { PricingDetailsView } from '@/features/plans/pricecomponents/components/PricingDetailsView'
 import {
-  feeTypeIcon,
-  feeTypeToHuman,
-  priceSummaryBadges,
-  useCurrency,
-} from '@/features/plans/pricecomponents/utils'
-import { formatCadence } from '@/lib/mapping/prices'
+  deriveSummary,
+  ProductLinkedItem,
+} from '@/features/plans/pricecomponents/PriceComponentCard'
+import { useCurrency } from '@/features/plans/pricecomponents/utils'
 import {
   detachAddOnFromPlanVersion,
   listAddOns,
@@ -49,17 +49,15 @@ interface Props {
 }
 
 export const AddOnCard: React.FC<Props> = ({ addOn }) => {
+  const [isCollapsed, setIsCollapsed] = useState(true)
   const planWithVersion = usePlanWithVersion()
   const queryClient = useQueryClient()
   const isDraft = useIsDraftVersion()
   const currency = useCurrency()
   const showConfirmationModal = useConfirmationModal()
 
-  const componentFeeType = feeTypeEnumToComponentFeeType(addOn.feeType)
-  const Icon = feeTypeIcon(componentFeeType)
-  const feeLabel = feeTypeToHuman(componentFeeType)
-  const priceBadges = priceSummaryBadges(componentFeeType, addOn.price, currency)
-  const cadence = addOn.price ? formatCadence(addOn.price.cadence) : '-'
+  const prices = addOn.price ? [addOn.price] : []
+  const summary = useMemo(() => deriveSummary(prices), [addOn.price])
 
   const detachMutation = useMutation(detachAddOnFromPlanVersion, {
     onSuccess: () => {
@@ -88,14 +86,25 @@ export const AddOnCard: React.FC<Props> = ({ addOn }) => {
 
   return (
     <div className="flex flex-col grow px-4 py-4 border border-border shadow-sm rounded-lg max-w-4xl group bg-card">
-      <div className="flex flex-row items-center min-h-9">
-        <div className="flex items-center gap-2 flex-grow">
-          <Icon className="w-4 h-4 text-muted-foreground" />
-          <h4 className="text-base text-accent-1 font-semibold">{addOn.name}</h4>
-          <span className="inline-flex items-center rounded-full px-2 py-0.5 text-xs font-medium bg-muted text-muted-foreground">
-            {feeLabel}
-          </span>
-          <LocalId localId={addOn.localId} className="max-w-24" />
+      <div
+        className="mt-0.5 flex flex-row min-h-9"
+        onClick={() => setIsCollapsed(!isCollapsed)}
+      >
+        <div className="flex flex-row items-center cursor-pointer w-full">
+          <div className="mr-2">
+            {isCollapsed ? (
+              <ChevronRightIcon className="w-5 l-5 text-accent-1 group-hover:text-muted-foreground" />
+            ) : (
+              <ChevronDownIcon className="w-5 l-5 text-accent-1 group-hover:text-muted-foreground" />
+            )}
+          </div>
+          <div className="flex items-center gap-2">
+            <h4 className="text-base text-accent-1 font-semibold">{addOn.name}</h4>
+            <span className="inline-flex items-center rounded-full px-2 py-0.5 text-xs font-medium bg-muted text-muted-foreground">
+              Add-on
+            </span>
+            <LocalId localId={addOn.id} className="max-w-24" />
+          </div>
         </div>
         {isDraft && (
           <div className="hidden group-hover:flex">
@@ -110,24 +119,31 @@ export const AddOnCard: React.FC<Props> = ({ addOn }) => {
           </div>
         )}
       </div>
-      <div className="flex flex-col grow px-6 mt-2">
-        <div className="grid grid-cols-3 gap-x-6">
-          <PriceComponentProperty
-            label="Pricing model"
-            className="col-span-1 border-r border-border pr-4"
-          >
-            <span>{feeLabel}</span>
-          </PriceComponentProperty>
-          <PriceComponentProperty
-            label="Price"
-            className="col-span-1 border-r border-border pr-4"
-          >
-            <span>{priceBadges.join(' / ')}</span>
-          </PriceComponentProperty>
-          <PriceComponentProperty label="Cadence" className="col-span-1">
-            <span>{cadence}</span>
-          </PriceComponentProperty>
+      <div className="flex flex-col grow px-7">
+        <div className="flex flex-col">
+          <div className="grid grid-cols-3 gap-x-6 mt-4">
+            <PriceComponentProperty
+              label="Pricing model"
+              className="col-span-1 border-r border-border pr-4"
+            >
+              <span>{summary.pricingModel}</span>
+            </PriceComponentProperty>
+            {addOn.productId && (
+              <ProductLinkedItem productId={addOn.productId} />
+            )}
+            <PriceComponentProperty
+              label="Cadence"
+              className="col-span-1 border-r border-border last:border-none pr-4"
+            >
+              <span>{summary.cadence}</span>
+            </PriceComponentProperty>
+          </div>
         </div>
+        {!isCollapsed && (
+          <div className="mt-6 flex flex-col grow">
+            <PricingDetailsView prices={prices} currency={currency} />
+          </div>
+        )}
       </div>
     </div>
   )

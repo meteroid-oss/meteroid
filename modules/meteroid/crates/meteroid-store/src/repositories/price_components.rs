@@ -31,7 +31,7 @@ pub async fn resolve_component_internal(
     tenant_id: TenantId,
     created_by: Uuid,
     product_family_id: ProductFamilyId,
-    plan_version_currency: &str,
+    expected_currency: &str,
 ) -> StoreResult<(ProductId, Vec<PriceId>)> {
     let product_id = match &internal.product_ref {
         ProductRef::Existing(pid) => *pid,
@@ -81,10 +81,10 @@ pub async fn resolve_component_internal(
                         pid, price_row.product_id, product_id
                     ))));
                 }
-                if price_row.currency != plan_version_currency {
+                if price_row.currency != expected_currency {
                     return Err(Report::new(StoreError::InvalidArgument(format!(
-                        "Price {} currency '{}' does not match plan version currency '{}'",
-                        pid, price_row.currency, plan_version_currency
+                        "Price {} currency '{}' does not match expected currency '{}'",
+                        pid, price_row.currency, expected_currency
                     ))));
                 }
                 if price_row.archived_at.is_some() {
@@ -96,10 +96,10 @@ pub async fn resolve_component_internal(
                 price_ids.push(*pid);
             }
             PriceEntry::New(input) => {
-                if input.currency != plan_version_currency {
+                if input.currency != expected_currency {
                     return Err(Report::new(StoreError::InvalidArgument(format!(
-                        "Price currency '{}' does not match plan version currency '{}'",
-                        input.currency, plan_version_currency
+                        "Price currency '{}' does not match expected currency '{}'",
+                        input.currency, expected_currency
                     ))));
                 }
                 let pricing_json = serde_json::to_value(&input.pricing).map_err(|e| {

@@ -42,7 +42,6 @@ export const sidebarItems = {
         {
           title: 'Addons',
           url: 'addons',
-          disabled: true,
         },
         {
           title: 'Features',

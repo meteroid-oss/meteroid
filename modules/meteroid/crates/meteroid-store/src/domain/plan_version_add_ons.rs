@@ -1,7 +1,6 @@
 use chrono::NaiveDateTime;
-use common_domain::ids::{AddOnId, PlanVersionAddOnId, PlanVersionId, PriceId, TenantId};
+use common_domain::ids::{AddOnId, BaseId, PlanVersionAddOnId, PlanVersionId, PriceId, TenantId};
 use diesel_models::plan_version_add_ons::{PlanVersionAddOnRow, PlanVersionAddOnRowNew};
-use uuid::Uuid;
 
 #[derive(Debug, Clone)]
 pub struct PlanVersionAddOn {
@@ -18,7 +17,7 @@ pub struct PlanVersionAddOn {
 impl From<PlanVersionAddOnRow> for PlanVersionAddOn {
     fn from(row: PlanVersionAddOnRow) -> Self {
         PlanVersionAddOn {
-            id: PlanVersionAddOnId::from(row.id),
+            id: row.id,
             plan_version_id: row.plan_version_id,
             add_on_id: row.add_on_id,
             price_id: row.price_id,
@@ -43,7 +42,7 @@ pub struct PlanVersionAddOnNew {
 impl From<PlanVersionAddOnNew> for PlanVersionAddOnRowNew {
     fn from(new: PlanVersionAddOnNew) -> Self {
         PlanVersionAddOnRowNew {
-            id: Uuid::now_v7(),
+            id: PlanVersionAddOnId::new(),
             plan_version_id: new.plan_version_id,
             add_on_id: new.add_on_id,
             price_id: new.price_id,

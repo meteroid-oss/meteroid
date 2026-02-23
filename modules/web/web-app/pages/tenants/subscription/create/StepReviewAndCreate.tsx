@@ -1,4 +1,4 @@
-import { useMutation } from '@connectrpc/connect-query'
+import { disableQuery, useMutation } from '@connectrpc/connect-query'
 import { useQueryClient } from '@tanstack/react-query'
 import { Badge, Button, Card, CardContent, CardHeader, CardTitle } from '@ui/components'
 import { useAtom } from 'jotai'
@@ -86,7 +86,7 @@ export const StepReviewAndCreate = () => {
             page: 0,
           },
         }
-      : { planVersionId: '', pagination: { perPage: 100, page: 0 } }
+      : disableQuery
   )
   const couponsQuery = useQuery(listCoupons, {
     pagination: {
@@ -722,7 +722,7 @@ export const StepReviewAndCreate = () => {
                             return (
                               <div
                                 key={coupon.id}
-                                className="flex justify-between text-sm text-green-600"
+                                className="flex justify-between text-sm text-success"
                               >
                                 <span>- {coupon.code}</span>
                                 <span>-{formatPrice(discount, currency)}</span>

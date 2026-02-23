@@ -796,7 +796,7 @@ pub mod add_ons {
                 &add_on.fee,
                 add_on.period.as_billing_period_opt().unwrap_or_default(),
             )),
-            quantity: add_on.quantity as u32,
+            quantity: add_on.quantity.max(0) as u32,
         }
     }
 
@@ -816,7 +816,13 @@ pub mod add_ons {
         data: api::CreateSubscriptionAddOn,
     ) -> tonic::Result<domain::CreateSubscriptionAddOn> {
         let id = AddOnId::from_proto(&data.add_on_id)?;
-        let quantity = if data.quantity == 0 { 1 } else { data.quantity };
+        let quantity: i32 = if data.quantity == 0 {
+            1
+        } else {
+            i32::try_from(data.quantity).map_err(|_| {
+                Status::invalid_argument("quantity exceeds maximum allowed value")
+            })?
+        };
 
         let customization: domain::SubscriptionAddOnCustomization = match data.customization {
             Some(api::create_subscription_add_on::Customization::PriceOverride(ov)) => {

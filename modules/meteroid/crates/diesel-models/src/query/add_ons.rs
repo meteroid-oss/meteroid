@@ -57,6 +57,7 @@ impl AddOnRow {
 
         let mut query = ao_dsl::add_on
             .filter(ao_dsl::tenant_id.eq(tenant_id))
+            .filter(ao_dsl::archived_at.is_null())
             .into_boxed();
 
         if let Some(pv_id) = plan_version_id {
@@ -87,20 +88,22 @@ impl AddOnRow {
             .into_db_result()
     }
 
-    pub async fn delete(conn: &mut PgConn, id: AddOnId, tenant_id: TenantId) -> DbResult<()> {
+    pub async fn archive(conn: &mut PgConn, id: AddOnId, tenant_id: TenantId) -> DbResult<()> {
         use crate::schema::add_on::dsl as ao_dsl;
 
-        let query = diesel::delete(ao_dsl::add_on)
+        let query = diesel::update(ao_dsl::add_on)
             .filter(ao_dsl::id.eq(id))
-            .filter(ao_dsl::tenant_id.eq(tenant_id));
+            .filter(ao_dsl::tenant_id.eq(tenant_id))
+            .filter(ao_dsl::archived_at.is_null())
+            .set(ao_dsl::archived_at.eq(diesel::dsl::now));
 
         log::debug!("{}", debug_query::<diesel::pg::Pg, _>(&query));
 
         query
             .execute(conn)
             .await
-            .tap_err(|e| log::error!("Error while deleting add-on: {e:?}"))
-            .attach("Error while deleting add-on")
+            .tap_err(|e| log::error!("Error while archiving add-on: {e:?}"))
+            .attach("Error while archiving add-on")
             .into_db_result()?;
 
         Ok(())

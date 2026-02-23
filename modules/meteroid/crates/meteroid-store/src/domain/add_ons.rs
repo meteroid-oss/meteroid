@@ -24,6 +24,7 @@ pub struct AddOn {
     pub description: Option<String>,
     pub self_serviceable: bool,
     pub max_instances_per_subscription: Option<i32>,
+    pub archived_at: Option<NaiveDateTime>,
     // Eagerly loaded
     pub fee_type: Option<FeeTypeEnum>,
     pub price: Option<Price>,
@@ -42,6 +43,7 @@ impl From<AddOnRow> for AddOn {
             description: row.description,
             self_serviceable: row.self_serviceable,
             max_instances_per_subscription: row.max_instances_per_subscription,
+            archived_at: row.archived_at,
             fee_type: None,
             price: None,
         }
@@ -228,22 +230,21 @@ pub struct AddOnPatch {
     pub id: AddOnId,
     pub tenant_id: TenantId,
     pub name: Option<String>,
-    pub price_id: Option<PriceId>,
     pub description: Option<Option<String>>,
     pub self_serviceable: Option<bool>,
     pub max_instances_per_subscription: Option<Option<i32>>,
 }
 
-impl From<AddOnPatch> for AddOnRowPatch {
-    fn from(patch: AddOnPatch) -> Self {
+impl AddOnPatch {
+    pub fn into_row_patch(self, price_id: Option<PriceId>) -> AddOnRowPatch {
         AddOnRowPatch {
-            id: patch.id,
-            tenant_id: patch.tenant_id,
-            name: patch.name,
-            price_id: patch.price_id,
-            description: patch.description,
-            self_serviceable: patch.self_serviceable,
-            max_instances_per_subscription: patch.max_instances_per_subscription,
+            id: self.id,
+            tenant_id: self.tenant_id,
+            name: self.name,
+            price_id,
+            description: self.description,
+            self_serviceable: self.self_serviceable,
+            max_instances_per_subscription: self.max_instances_per_subscription,
             updated_at: chrono::Utc::now().naive_utc(),
         }
     }

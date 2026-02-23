@@ -77,44 +77,22 @@ impl AddOnsService for AddOnsServiceComponents {
 
         let added = self
             .store
-            .create_add_on_from_ref(req.name, product_ref, price_entry, tenant_id, actor)
+            .create_add_on_from_ref(
+                req.name,
+                product_ref,
+                price_entry,
+                req.description,
+                req.self_serviceable,
+                req.max_instances_per_subscription,
+                tenant_id,
+                actor,
+            )
             .await
-            .map(|x| {
-                // Update the catalog add-on with description/constraints if provided
-                x
-            })
+            .map(|x| AddOnWrapper::from(x).0)
             .map_err(Into::<AddOnApiError>::into)?;
 
-        // If description or constraints were set, patch the add-on
-        let has_patch = req.description.is_some()
-            || req.self_serviceable
-            || req.max_instances_per_subscription.is_some();
-
-        let final_addon = if has_patch {
-            let patch = AddOnPatch {
-                id: added.id,
-                tenant_id,
-                name: None,
-                price_id: None,
-                description: req.description.map(Some),
-                self_serviceable: if req.self_serviceable {
-                    Some(true)
-                } else {
-                    None
-                },
-                max_instances_per_subscription: req.max_instances_per_subscription.map(Some),
-            };
-            self.store
-                .update_add_on(patch, None, actor)
-                .await
-                .map(|x| AddOnWrapper::from(x).0)
-                .map_err(Into::<AddOnApiError>::into)?
-        } else {
-            AddOnWrapper::from(added).0
-        };
-
         Ok(Response::new(CreateAddOnResponse {
-            add_on: Some(final_addon),
+            add_on: Some(added),
         }))
     }
 
@@ -151,7 +129,7 @@ impl AddOnsService for AddOnsServiceComponents {
         let add_on_id = AddOnId::from_proto(&req.add_on_id)?;
 
         self.store
-            .delete_add_on(add_on_id, tenant_id)
+            .archive_add_on(add_on_id, tenant_id)
             .await
             .map_err(Into::<AddOnApiError>::into)?;
 
@@ -186,7 +164,6 @@ impl AddOnsService for AddOnsServiceComponents {
             id: add_on_id,
             tenant_id,
             name,
-            price_id: None,
             description: req.description.map(Some),
             self_serviceable: req.self_serviceable,
             max_instances_per_subscription: req.max_instances_per_subscription.map(Some),

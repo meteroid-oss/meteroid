@@ -3,6 +3,7 @@ import { Navigate, RouteObject } from 'react-router-dom'
 import { NotImplemented } from '@/features/NotImplemented'
 import { PlanCreateInitModal } from '@/features/plans/PlanCreateInitModal'
 import { DetailsFormModal } from '@/features/plans/create/details/DetailsFormModal'
+import { AddonDetails } from '@/pages/tenants/billing/addonDetails'
 import { Addons } from '@/pages/tenants/billing/addons'
 import { CouponDetails } from '@/pages/tenants/billing/couponDetails'
 import { Coupons } from '@/pages/tenants/billing/coupons'
@@ -109,6 +110,10 @@ export const productCatalogRoutes: RouteObject = {
             {
               path: 'add-addon',
               element: <CreateAddon />,
+            },
+            {
+              path: ':addonId',
+              element: <AddonDetails />,
             },
           ],
         },

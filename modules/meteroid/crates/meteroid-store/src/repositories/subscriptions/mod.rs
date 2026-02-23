@@ -171,72 +171,56 @@ impl SubscriptionInterface for Store {
             .map_err(Into::<Report<StoreError>>::into)?;
 
         // Partition by price_id presence for resolution
-        let (rows_with_price, rows_without_price): (Vec<_>, Vec<_>) = subscription_component_rows
-            .into_iter()
-            .partition(|row| row.price_id.is_some());
+        let (comp_rows_with_price, comp_rows_without_price): (Vec<_>, Vec<_>) =
+            subscription_component_rows
+                .into_iter()
+                .partition(|row| row.price_id.is_some());
 
         // Legacy components: deserialize fee JSONB
-        let mut subscription_components: Vec<SubscriptionComponent> = rows_without_price
+        let mut subscription_components: Vec<SubscriptionComponent> = comp_rows_without_price
             .into_iter()
             .map(std::convert::TryInto::try_into)
             .collect::<Result<Vec<_>, Report<_>>>()?;
 
-        // New-style components: resolve from Products + Prices
-        if !rows_with_price.is_empty() {
-            let price_ids: Vec<PriceId> = rows_with_price
-                .iter()
-                .filter_map(|r| r.price_id)
-                .unique()
-                .collect();
-
-            let price_rows = PriceRow::list_by_ids(conn, &price_ids, tenant_id)
+        let subscription_add_on_rows =
+            SubscriptionAddOnRow::list_by_subscription_id(conn, &tenant_id, &subscription.id)
                 .await
                 .map_err(Into::<Report<StoreError>>::into)?;
 
-            let prices_by_id: HashMap<PriceId, Price> = price_rows
+        let (addon_rows_with_price, addon_rows_without_price): (Vec<_>, Vec<_>) =
+            subscription_add_on_rows
                 .into_iter()
-                .map(|row| {
-                    let id = row.id;
-                    Price::try_from(row).map(|p| (id, p))
-                })
-                .collect::<Result<HashMap<_, _>, _>>()?;
+                .partition(|row| row.price_id.is_some());
 
-            let product_ids: Vec<ProductId> = rows_with_price
-                .iter()
-                .filter_map(|r| r.product_id)
-                .unique()
-                .collect();
+        // Legacy add-ons: deserialize fee JSONB
+        let mut subscription_add_ons: Vec<SubscriptionAddOn> = addon_rows_without_price
+            .into_iter()
+            .map(std::convert::TryInto::try_into)
+            .collect::<Result<Vec<_>, Report<_>>>()?;
 
-            let product_rows = ProductRow::list_by_ids(conn, &product_ids, tenant_id)
-                .await
-                .map_err(Into::<Report<StoreError>>::into)?;
+        // Resolve new-style components and add-ons from Products + Prices
+        if !comp_rows_with_price.is_empty() || !addon_rows_with_price.is_empty() {
+            let (prices_by_id, products_by_id) = fetch_prices_and_products(
+                conn,
+                tenant_id,
+                comp_rows_with_price
+                    .iter()
+                    .filter_map(|r| r.price_id)
+                    .chain(addon_rows_with_price.iter().filter_map(|r| r.price_id)),
+                comp_rows_with_price
+                    .iter()
+                    .filter_map(|r| r.product_id)
+                    .chain(addon_rows_with_price.iter().filter_map(|r| r.product_id)),
+            )
+            .await?;
 
-            let products_by_id: HashMap<ProductId, Product> = product_rows
-                .into_iter()
-                .map(|row| {
-                    let id = row.id;
-                    Product::try_from(row).map(|p| (id, p))
-                })
-                .collect::<Result<HashMap<_, _>, _>>()?;
-
-            for row in rows_with_price {
-                let price_id = row.price_id.ok_or_else(|| {
-                    Report::new(StoreError::InvalidArgument(
-                        "Subscription component missing price_id after partition".to_string(),
-                    ))
-                })?;
-
-                // Try to resolve from Product.fee_structure + Price.pricing
-                let resolved = (|| -> Option<(SubscriptionFeeBillingPeriod, crate::domain::SubscriptionFee)> {
-                    let price = prices_by_id.get(&price_id)?;
-                    let product_id = row.product_id?;
-                    let product = products_by_id.get(&product_id)?;
-                    let fee_structure = &product.fee_structure;
-                    let fee = resolve_subscription_fee(fee_structure, &price.pricing, None).ok()?;
-                    let period = fee_type_billing_period(fee_structure)
-                        .unwrap_or_else(|| price.cadence.as_subscription_billing_period());
-                    Some((period, fee))
-                })();
+            for row in comp_rows_with_price {
+                let resolved = resolve_fee_from_maps(
+                    row.price_id,
+                    row.product_id,
+                    &prices_by_id,
+                    &products_by_id,
+                );
 
                 let component = if let Some((period, fee)) = resolved {
                     SubscriptionComponent {
@@ -250,21 +234,40 @@ impl SubscriptionInterface for Store {
                         price_id: row.price_id,
                     }
                 } else {
-                    // Fallback to fee JSONB if resolution fails
                     row.try_into()?
                 };
 
                 subscription_components.push(component);
             }
-        }
 
-        let subscription_add_ons: Vec<SubscriptionAddOn> =
-            SubscriptionAddOnRow::list_by_subscription_id(conn, &tenant_id, &subscription.id)
-                .await
-                .map_err(Into::<Report<StoreError>>::into)?
-                .into_iter()
-                .map(std::convert::TryInto::try_into)
-                .collect::<Result<Vec<_>, Report<_>>>()?;
+            for row in addon_rows_with_price {
+                let resolved = resolve_fee_from_maps(
+                    row.price_id,
+                    row.product_id,
+                    &prices_by_id,
+                    &products_by_id,
+                );
+
+                let add_on = if let Some((period, fee)) = resolved {
+                    SubscriptionAddOn {
+                        id: row.id,
+                        subscription_id: row.subscription_id,
+                        add_on_id: row.add_on_id,
+                        name: row.name,
+                        period,
+                        fee,
+                        created_at: row.created_at,
+                        product_id: row.product_id,
+                        price_id: row.price_id,
+                        quantity: row.quantity,
+                    }
+                } else {
+                    row.try_into()?
+                };
+
+                subscription_add_ons.push(add_on);
+            }
+        }
 
         let mut metric_ids = subscription_components
             .iter()
@@ -722,3 +725,54 @@ impl SubscriptionInterface for Store {
 //
 //     }
 // }
+
+async fn fetch_prices_and_products(
+    conn: &mut PgConn,
+    tenant_id: TenantId,
+    price_ids: impl Iterator<Item = PriceId>,
+    product_ids: impl Iterator<Item = ProductId>,
+) -> StoreResult<(HashMap<PriceId, Price>, HashMap<ProductId, Product>)> {
+    let price_ids: Vec<PriceId> = price_ids.unique().collect();
+    let product_ids: Vec<ProductId> = product_ids.unique().collect();
+
+    let price_rows = PriceRow::list_by_ids(conn, &price_ids, tenant_id)
+        .await
+        .map_err(Into::<Report<StoreError>>::into)?;
+
+    let prices_by_id: HashMap<PriceId, Price> = price_rows
+        .into_iter()
+        .map(|row| {
+            let id = row.id;
+            Price::try_from(row).map(|p| (id, p))
+        })
+        .collect::<Result<HashMap<_, _>, _>>()?;
+
+    let product_rows = ProductRow::list_by_ids(conn, &product_ids, tenant_id)
+        .await
+        .map_err(Into::<Report<StoreError>>::into)?;
+
+    let products_by_id: HashMap<ProductId, Product> = product_rows
+        .into_iter()
+        .map(|row| {
+            let id = row.id;
+            Product::try_from(row).map(|p| (id, p))
+        })
+        .collect::<Result<HashMap<_, _>, _>>()?;
+
+    Ok((prices_by_id, products_by_id))
+}
+
+fn resolve_fee_from_maps(
+    price_id: Option<PriceId>,
+    product_id: Option<ProductId>,
+    prices_by_id: &HashMap<PriceId, Price>,
+    products_by_id: &HashMap<ProductId, Product>,
+) -> Option<(SubscriptionFeeBillingPeriod, crate::domain::SubscriptionFee)> {
+    let price = prices_by_id.get(&price_id?)?;
+    let product = products_by_id.get(&product_id?)?;
+    let fee_structure = &product.fee_structure;
+    let fee = resolve_subscription_fee(fee_structure, &price.pricing, None).ok()?;
+    let period = fee_type_billing_period(fee_structure)
+        .unwrap_or_else(|| price.cadence.as_subscription_billing_period());
+    Some((period, fee))
+}

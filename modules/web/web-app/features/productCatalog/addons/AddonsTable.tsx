@@ -63,8 +63,8 @@ export const AddonsTable: FunctionComponent<AddonsTableProps> = ({
 
       {
         header: 'API Handle',
-        id: 'localId',
-        cell: ({ row }) => <LocalId localId={row.original.localId} className="max-w-16" />,
+        id: 'id',
+        cell: ({ row }) => <LocalId localId={row.original.id} className="max-w-16" />,
       },
     ],
     [navigate]
@@ -79,7 +79,7 @@ export const AddonsTable: FunctionComponent<AddonsTableProps> = ({
       setPagination={setPagination}
       totalCount={addonsQuery.data?.paginationMeta?.totalItems ?? 0}
       isLoading={addonsQuery.isLoading}
-      rowLink={row => `${row.original.localId}`}
+      rowLink={row => `${row.original.id}`}
     />
   )
 }

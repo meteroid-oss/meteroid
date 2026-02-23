@@ -223,15 +223,13 @@ impl QuotesService for QuoteServiceComponents {
                     add_ons.iter().map(|a| a.product_id).collect();
                 let price_ids: Vec<PriceId> = add_ons.iter().map(|a| a.price_id).collect();
 
-                let mut products_map = std::collections::HashMap::new();
-                for pid in &product_ids {
-                    let product = self
-                        .store
-                        .find_product_by_id(*pid, tenant_id)
-                        .await
-                        .map_err(Into::<QuoteApiError>::into)?;
-                    products_map.insert(product.id, product);
-                }
+                let products = self
+                    .store
+                    .find_products_by_ids(&product_ids, tenant_id)
+                    .await
+                    .map_err(Into::<QuoteApiError>::into)?;
+                let products_map: std::collections::HashMap<ProductId, _> =
+                    products.into_iter().map(|p| (p.id, p)).collect();
 
                 let prices = self
                     .store
@@ -754,7 +752,7 @@ fn process_quote_add_ons(
             fee: resolved.fee,
             product_id: resolved.product_id,
             price_id: resolved.price_id,
-            quantity: cs_ao.quantity as i32,
+            quantity: cs_ao.quantity,
         });
     }
 

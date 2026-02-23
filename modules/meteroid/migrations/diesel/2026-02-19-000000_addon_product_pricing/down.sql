@@ -1,5 +1,4 @@
 -- Remove indexes
-DROP INDEX IF EXISTS idx_add_on_tenant;
 DROP INDEX IF EXISTS idx_plan_version_add_on_add_on;
 DROP INDEX IF EXISTS idx_plan_version_add_on_plan_version;
 
@@ -19,6 +18,7 @@ UPDATE add_on SET plan_version_id = pva.plan_version_id
 FROM plan_version_add_on pva WHERE pva.add_on_id = add_on.id;
 
 -- Remove new columns from add_on
+ALTER TABLE add_on DROP COLUMN archived_at;
 ALTER TABLE add_on DROP COLUMN max_instances_per_subscription;
 ALTER TABLE add_on DROP COLUMN self_serviceable;
 ALTER TABLE add_on DROP COLUMN description;

@@ -103,7 +103,7 @@ pub struct SubscriptionAddOnNewInternal {
     pub fee: SubscriptionFee,
     pub product_id: Option<ProductId>,
     pub price_id: Option<PriceId>,
-    pub quantity: u32,
+    pub quantity: i32,
 }
 
 #[derive(Clone, Debug)]
@@ -127,7 +127,7 @@ impl TryInto<SubscriptionAddOnRowNew> for SubscriptionAddOnNew {
             legacy_fee: Some(legacy_fee),
             product_id: self.internal.product_id,
             price_id: self.internal.price_id,
-            quantity: self.internal.quantity as i32,
+            quantity: self.internal.quantity,
         })
     }
 }
@@ -153,7 +153,7 @@ pub enum SubscriptionAddOnCustomization {
 pub struct CreateSubscriptionAddOn {
     pub add_on_id: AddOnId,
     pub customization: SubscriptionAddOnCustomization,
-    pub quantity: u32,
+    pub quantity: i32,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]

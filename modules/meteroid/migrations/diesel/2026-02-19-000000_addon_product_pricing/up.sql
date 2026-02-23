@@ -29,11 +29,15 @@ DELETE FROM add_on WHERE product_id IS NULL OR price_id IS NULL;
 ALTER TABLE add_on ALTER COLUMN product_id SET NOT NULL;
 ALTER TABLE add_on ALTER COLUMN price_id SET NOT NULL;
 
--- 6. Add quantity to subscription/quote add-ons
-ALTER TABLE subscription_add_on ADD COLUMN quantity INTEGER NOT NULL DEFAULT 1;
-ALTER TABLE quote_add_on ADD COLUMN quantity INTEGER NOT NULL DEFAULT 1;
+-- 6. Add quantity to subscription/quote add-ons (must be >= 1)
+ALTER TABLE subscription_add_on ADD COLUMN quantity INTEGER NOT NULL DEFAULT 1
+  CHECK (quantity >= 1);
+ALTER TABLE quote_add_on ADD COLUMN quantity INTEGER NOT NULL DEFAULT 1
+  CHECK (quantity >= 1);
 
--- 7. Indexes
+-- 7. Add archived_at for soft-delete
+ALTER TABLE add_on ADD COLUMN archived_at TIMESTAMP;
+
+-- 8. Indexes (add_on_tenant_id_idx already exists from initial migration)
 CREATE INDEX idx_plan_version_add_on_plan_version ON plan_version_add_on(plan_version_id);
 CREATE INDEX idx_plan_version_add_on_add_on ON plan_version_add_on(add_on_id);
-CREATE INDEX idx_add_on_tenant ON add_on(tenant_id);

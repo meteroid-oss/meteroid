@@ -138,6 +138,7 @@ diesel::table! {
         description -> Nullable<Text>,
         self_serviceable -> Bool,
         max_instances_per_subscription -> Nullable<Int4>,
+        archived_at -> Nullable<Timestamp>,
     }
 }
 
