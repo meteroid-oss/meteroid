@@ -310,16 +310,18 @@ async fn test_plan_change_replaces_existing(#[future] test_env: TestEnv) {
 
     // Only one pending plan change should exist
     let mut conn = env.conn().await;
-    let pending = diesel_models::scheduled_events::ScheduledEventRow::get_pending_events_for_subscription(
-        &mut conn,
-        sub_id,
-        &TENANT_ID,
-    )
-    .await
-    .expect("query pending events");
+    let pending =
+        diesel_models::scheduled_events::ScheduledEventRow::get_pending_events_for_subscription(
+            &mut conn, sub_id, &TENANT_ID,
+        )
+        .await
+        .expect("query pending events");
 
     assert_eq!(pending.len(), 1, "should have exactly one pending event");
-    assert_eq!(pending[0].id, second_event.id, "pending event should be the second one");
+    assert_eq!(
+        pending[0].id, second_event.id,
+        "pending event should be the second one"
+    );
 }
 
 /// Cannot schedule on a pending subscription.
