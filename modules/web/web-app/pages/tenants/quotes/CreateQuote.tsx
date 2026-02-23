@@ -471,9 +471,22 @@ export const CreateQuote = () => {
 
     const components: PartialMessage<QuoteComponent>[] = getPreviewPricingComponents()
 
+    const addOnItems = selectedAddOns.map(sel => {
+      const addOn = availableAddOns.find(a => a.id === sel.addOnId)
+      if (!addOn?.price) return undefined
+      return {
+        id: addOn.id,
+        name: addOn.name,
+        quantity: 1,
+        period: priceToSubscriptionPeriod(addOn.price),
+        fee: priceToSubscriptionFee(addOn.price),
+      }
+    }).filter(Boolean)
+
     return new DetailedQuote({
       quote,
       components,
+      addOns: addOnItems,
       customer: customerQuery.data?.customer,
       invoicingEntity: invoicingEntityQuery.data?.entity,
     })

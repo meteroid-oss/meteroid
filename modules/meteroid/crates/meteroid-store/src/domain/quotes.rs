@@ -337,7 +337,11 @@ impl TryInto<QuoteAddOnRowNew> for QuoteAddOnNew {
     type Error = StoreErrorReport;
 
     fn try_into(self) -> Result<QuoteAddOnRowNew, Self::Error> {
-        let legacy_fee: serde_json::Value = self.fee.try_into()?;
+        let legacy_fee = if self.price_id.is_some() {
+            None
+        } else {
+            Some(self.fee.try_into()?)
+        };
 
         Ok(QuoteAddOnRowNew {
             id: QuoteAddOnId::new(),
@@ -345,7 +349,7 @@ impl TryInto<QuoteAddOnRowNew> for QuoteAddOnNew {
             quote_id: self.quote_id,
             add_on_id: self.add_on_id,
             period: self.period.into(),
-            legacy_fee: Some(legacy_fee),
+            legacy_fee,
             product_id: self.product_id,
             price_id: self.price_id,
             quantity: self.quantity,

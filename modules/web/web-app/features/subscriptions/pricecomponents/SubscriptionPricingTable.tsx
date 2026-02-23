@@ -18,6 +18,7 @@ interface Props {
   currency: string
   className?: string
   labelClassName?: string
+  label?: string
 }
 
 // Map billing period to display format
@@ -86,13 +87,14 @@ export const SubscriptionPricingTable: FC<Props> = ({
   currency,
   className = '',
   labelClassName,
+  label = 'Pricing',
 }) => {
   console.log('SubscriptionPricingTable components', components)
   if (!components || components.length === 0) {
     return (
       <div className={cn('bg-card rounded-lg shadow-sm', className)}>
         <div className={cn('p-4 border-b border-border', labelClassName)}>
-          <h3 className="text-md font-medium text-foreground">Pricing</h3>
+          <h3 className="text-md font-medium text-foreground">{label}</h3>
         </div>
         <div className="p-8 text-center text-muted-foreground">
           No pricing components configured
@@ -104,7 +106,7 @@ export const SubscriptionPricingTable: FC<Props> = ({
   return (
     <div className={cn('bg-card rounded-lg shadow-sm', className)}>
       <div className={cn('p-4 border-b border-border', labelClassName)}>
-        <h3 className="text-md font-medium text-foreground">Pricing</h3>
+        <h3 className="text-md font-medium text-foreground">{label}</h3>
       </div>
       <div className="overflow-hidden">
         <table className="w-full">

@@ -23,6 +23,7 @@ import {
 import { editedComponentsAtom } from '@/features/plans/pricecomponents/utils'
 import { useBasePath } from '@/hooks/useBasePath'
 import { PlanStatus } from '@/rpc/api/plans/v1/models_pb'
+import { listAddOns } from '@/rpc/api/addons/v1/addons-AddOnsService_connectquery'
 import {
   archivePlan,
   copyVersionToDraft,
@@ -94,6 +95,7 @@ export const PlanActions = () => {
       queryClient.invalidateQueries({ queryKey: [getPlanOverview.service.typeName] })
       queryClient.invalidateQueries({ queryKey: [getPlanWithVersion.service.typeName] })
       queryClient.invalidateQueries({ queryKey: [listPlans.service.typeName] })
+      queryClient.invalidateQueries({ queryKey: [listAddOns.service.typeName] })
 
       const version = res.planVersion?.version
       setIsBusy(false)

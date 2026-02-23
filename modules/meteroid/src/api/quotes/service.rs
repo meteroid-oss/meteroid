@@ -42,6 +42,7 @@ impl QuotesService for QuoteServiceComponents {
         request: Request<CreateQuoteRequest>,
     ) -> Result<Response<CreateQuoteResponse>, Status> {
         let tenant_id = request.tenant()?;
+        let actor = request.actor()?;
         let inner = request.into_inner();
 
         let quote = inner
@@ -204,8 +205,18 @@ impl QuotesService for QuoteServiceComponents {
             vec![]
         };
 
+        // Load plan info for product_family_id (needed for add-on materialization)
+        use meteroid_store::repositories::plans::PlansInterface;
+        let plan_with_version = self
+            .store
+            .get_plan_by_version_id(plan_version_id, tenant_id)
+            .await
+            .map_err(Into::<QuoteApiError>::into)?;
+
         // Process quote add-ons (fetch add-on details first)
-        let quote_add_ons = if let Some(add_ons_proto) = quote.add_ons {
+        let (quote_add_ons, pending_addon_materializations) = if let Some(add_ons_proto) =
+            quote.add_ons
+        {
             let create_add_ons = create_subscription_add_ons_from_grpc(add_ons_proto)?;
 
             if !create_add_ons.add_ons.is_empty() {
@@ -219,8 +230,7 @@ impl QuotesService for QuoteServiceComponents {
                     .map_err(Into::<QuoteApiError>::into)?;
 
                 // Collect product_ids and price_ids from add-ons for fee resolution
-                let product_ids: Vec<ProductId> =
-                    add_ons.iter().map(|a| a.product_id).collect();
+                let product_ids: Vec<ProductId> = add_ons.iter().map(|a| a.product_id).collect();
                 let price_ids: Vec<PriceId> = add_ons.iter().map(|a| a.price_id).collect();
 
                 let products = self
@@ -245,12 +255,18 @@ impl QuotesService for QuoteServiceComponents {
                     &products_map,
                     &prices_map,
                     quote_id,
+                    plan_with_version.plan.product_family_id,
+                    &plan_with_version
+                        .version
+                        .as_ref()
+                        .map(|v| v.currency.as_str())
+                        .unwrap_or(&quote_new.currency),
                 )?
             } else {
-                vec![]
+                (vec![], vec![])
             }
         } else {
-            vec![]
+            (vec![], vec![])
         };
 
         // Process quote coupons
@@ -275,7 +291,14 @@ impl QuotesService for QuoteServiceComponents {
         // Create quote with all details in a single transaction
         let created_quote = self
             .store
-            .insert_quote_with_details(quote_new, quote_components, quote_add_ons, quote_coupons)
+            .insert_quote_with_details(
+                quote_new,
+                quote_components,
+                quote_add_ons,
+                quote_coupons,
+                pending_addon_materializations,
+                actor,
+            )
             .await
             .map_err(Into::<QuoteApiError>::into)?;
 
@@ -731,8 +754,20 @@ fn process_quote_add_ons(
     >,
     prices: &std::collections::HashMap<common_domain::ids::PriceId, meteroid_store::domain::Price>,
     quote_id: QuoteId,
-) -> Result<Vec<QuoteAddOnNew>, Status> {
+    product_family_id: common_domain::ids::ProductFamilyId,
+    currency: &str,
+) -> Result<
+    (
+        Vec<QuoteAddOnNew>,
+        Vec<meteroid_store::services::PendingMaterialization>,
+    ),
+    Status,
+> {
+    use meteroid_store::domain::price_components::{PriceEntry, ProductRef};
+    use meteroid_store::services::PendingMaterialization;
+
     let mut processed_add_ons = Vec::new();
+    let mut pending_materializations = Vec::new();
 
     for cs_ao in &create_add_ons.add_ons {
         let add_on = add_ons
@@ -743,6 +778,21 @@ fn process_quote_add_ons(
         let resolved = add_on
             .resolve_customized(products, prices, &cs_ao.customization)
             .map_err(|e| Status::internal(format!("Failed to resolve add-on fee: {e}")))?;
+
+        let idx = processed_add_ons.len();
+
+        if resolved.price_id.is_none() {
+            if let Some(PriceEntry::New(_)) = &resolved.price_entry {
+                pending_materializations.push(PendingMaterialization {
+                    component_index: idx,
+                    name: resolved.name.clone(),
+                    product_ref: ProductRef::Existing(add_on.product_id),
+                    price_entry: resolved.price_entry.clone().unwrap(),
+                    product_family_id,
+                    currency: currency.to_string(),
+                });
+            }
+        }
 
         processed_add_ons.push(QuoteAddOnNew {
             quote_id,
@@ -756,5 +806,5 @@ fn process_quote_add_ons(
         });
     }
 
-    Ok(processed_add_ons)
+    Ok((processed_add_ons, pending_materializations))
 }

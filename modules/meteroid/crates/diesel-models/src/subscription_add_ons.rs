@@ -20,7 +20,7 @@ pub struct SubscriptionAddOnRow {
     pub quantity: i32,
 }
 
-#[derive(Insertable, Debug)]
+#[derive(Insertable, Debug, Clone)]
 #[diesel(table_name = crate::schema::subscription_add_on)]
 #[diesel(check_for_backend(diesel::pg::Pg))]
 pub struct SubscriptionAddOnRowNew {

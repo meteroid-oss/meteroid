@@ -214,6 +214,7 @@ const QuotePortalView: FC<QuotePortalViewProps> = ({ quoteData }) => {
                 <QuoteView
                   quote={{
                     components: quoteData.components,
+                    addOns: quoteData.addOns,
                     quote: quoteData.quote,
                     customer: quoteData.customer,
                     invoicingEntity: quoteData.entity,

@@ -116,7 +116,11 @@ impl TryInto<SubscriptionAddOnRowNew> for SubscriptionAddOnNew {
     type Error = StoreErrorReport;
 
     fn try_into(self) -> Result<SubscriptionAddOnRowNew, Self::Error> {
-        let legacy_fee: serde_json::Value = self.internal.fee.try_into()?;
+        let legacy_fee = if self.internal.price_id.is_some() {
+            None
+        } else {
+            Some(self.internal.fee.try_into()?)
+        };
 
         Ok(SubscriptionAddOnRowNew {
             id: SubscriptionAddOnId::new(),
@@ -124,7 +128,7 @@ impl TryInto<SubscriptionAddOnRowNew> for SubscriptionAddOnNew {
             add_on_id: self.internal.add_on_id,
             name: self.internal.name,
             period: self.internal.period.into(),
-            legacy_fee: Some(legacy_fee),
+            legacy_fee,
             product_id: self.internal.product_id,
             price_id: self.internal.price_id,
             quantity: self.internal.quantity,

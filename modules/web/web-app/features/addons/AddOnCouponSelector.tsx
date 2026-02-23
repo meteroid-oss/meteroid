@@ -1,8 +1,9 @@
 import { Badge, Input } from '@md/ui'
-import { Check, Gift, Plus, Search, Tag } from 'lucide-react'
+import { Check, ChevronDownIcon, ChevronRightIcon, Gift, Plus, Search, Tag } from 'lucide-react'
 import { useState } from 'react'
 
 import { feeTypeEnumToComponentFeeType } from '@/features/plans/addons/AddOnCard'
+import { PricingDetailsView } from '@/features/plans/pricecomponents/components/PricingDetailsView'
 import { feeTypeToHuman, priceSummaryBadges } from '@/features/plans/pricecomponents/utils'
 
 import type { AddOn } from '@/rpc/api/addons/v1/models_pb'
@@ -35,6 +36,7 @@ export const AddOnCouponSelector = ({
 }: AddOnCouponSelectorProps) => {
   const [addOnSearch, setAddOnSearch] = useState('')
   const [couponSearch, setCouponSearch] = useState('')
+  const [expandedAddOnId, setExpandedAddOnId] = useState<string | null>(null)
 
   const filteredAddOns = addOnSearch
     ? availableAddOns.filter(a => a.name.toLowerCase().includes(addOnSearch.toLowerCase()))
@@ -76,41 +78,67 @@ export const AddOnCouponSelector = ({
                 />
               </div>
             )}
-            <div className="space-y-1 max-h-48 overflow-y-auto">
+            <div className="space-y-1 max-h-64 overflow-y-auto">
               {filteredAddOns.map(addOn => {
                 const isSelected = selectedAddOns.some(a => a.addOnId === addOn.id)
+                const isExpanded = expandedAddOnId === addOn.id
                 const feeType = feeTypeEnumToComponentFeeType(addOn.feeType)
                 const feeLabel = feeTypeToHuman(feeType)
                 const priceBadge = priceSummaryBadges(feeType, addOn.price, currency).join(' / ')
+                const addOnCurrency = currency ?? addOn.price?.currency ?? 'USD'
 
                 return (
-                  <button
+                  <div
                     key={addOn.id}
-                    type="button"
-                    className={`w-full flex items-center gap-3 px-3 py-2 rounded-md text-left transition-colors ${
+                    className={`rounded-md transition-colors ${
                       isSelected
                         ? 'bg-success/10 border border-success/30'
-                        : 'hover:bg-muted/50 border border-transparent'
+                        : 'border border-transparent hover:bg-muted/50'
                     }`}
-                    onClick={() => (isSelected ? onAddOnRemove(addOn.id) : onAddOnAdd(addOn.id))}
                   >
-                    <div
-                      className={`flex-shrink-0 w-5 h-5 rounded border flex items-center justify-center ${
-                        isSelected
-                          ? 'bg-success border-success text-success-foreground'
-                          : 'border-border'
-                      }`}
-                    >
-                      {isSelected && <Check className="h-3 w-3" />}
+                    <div className="flex items-center gap-3 px-3 py-2">
+                      <button
+                        type="button"
+                        className="flex-shrink-0 text-muted-foreground hover:text-foreground"
+                        onClick={() => setExpandedAddOnId(isExpanded ? null : addOn.id)}
+                      >
+                        {isExpanded ? (
+                          <ChevronDownIcon className="w-4 h-4" />
+                        ) : (
+                          <ChevronRightIcon className="w-4 h-4" />
+                        )}
+                      </button>
+                      <button
+                        type="button"
+                        className="flex items-center gap-3 flex-1 min-w-0 text-left"
+                        onClick={() => (isSelected ? onAddOnRemove(addOn.id) : onAddOnAdd(addOn.id))}
+                      >
+                        <div
+                          className={`flex-shrink-0 w-5 h-5 rounded border flex items-center justify-center ${
+                            isSelected
+                              ? 'bg-success border-success text-success-foreground'
+                              : 'border-border'
+                          }`}
+                        >
+                          {isSelected && <Check className="h-3 w-3" />}
+                        </div>
+                        <div className="flex-1 min-w-0">
+                          <span className="text-sm font-medium">{addOn.name}</span>
+                        </div>
+                        <Badge variant="outline" size="sm" className="flex-shrink-0">
+                          {feeLabel}
+                        </Badge>
+                        <span className="text-xs text-muted-foreground flex-shrink-0">
+                          {priceBadge}
+                        </span>
+                      </button>
                     </div>
-                    <div className="flex-1 min-w-0">
-                      <span className="text-sm font-medium">{addOn.name}</span>
-                    </div>
-                    <Badge variant="outline" size="sm" className="flex-shrink-0">
-                      {feeLabel}
-                    </Badge>
-                    <span className="text-xs text-muted-foreground flex-shrink-0">{priceBadge}</span>
-                  </button>
+                    {isExpanded && addOn.price && (
+                      <div className="px-3 pb-3 pt-0 border-t border-border mx-3 mt-0">
+                        <PricingDetailsView prices={[addOn.price]} currency={addOnCurrency} />
+                      </div>
+                    )}
+                  </div>
                 )
               })}
               {addOnSearch && filteredAddOns.length === 0 && (

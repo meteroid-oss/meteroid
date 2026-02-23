@@ -1,8 +1,8 @@
 use crate::errors::IntoDbResult;
 use crate::plan_version_add_ons::{PlanVersionAddOnRow, PlanVersionAddOnRowNew};
 use crate::{DbResult, PgConn};
-use common_domain::ids::{AddOnId, PlanVersionId, TenantId};
-use diesel::{ExpressionMethods, QueryDsl, SelectableHelper, debug_query};
+use common_domain::ids::{AddOnId, BaseId, PlanVersionId, TenantId};
+use diesel::{ExpressionMethods, Insertable, QueryDsl, SelectableHelper, debug_query};
 use diesel_async::RunQueryDsl;
 use error_stack::ResultExt;
 use tap::TapFallible;
@@ -65,6 +65,50 @@ impl PlanVersionAddOnRow {
             .await
             .tap_err(|e| log::error!("Error while listing plan_version_add_ons by add_on_id: {e:?}"))
             .attach("Error while listing plan_version_add_ons by add_on_id")
+            .into_db_result()
+    }
+
+    pub async fn clone_all(
+        conn: &mut PgConn,
+        src_plan_version_id: PlanVersionId,
+        dst_plan_version_id: PlanVersionId,
+    ) -> DbResult<usize> {
+        use crate::schema::plan_version_add_on::dsl as pva_dsl;
+
+        diesel::define_sql_function! {
+            fn gen_random_uuid() -> diesel::sql_types::Uuid;
+        }
+
+        let query = pva_dsl::plan_version_add_on
+            .filter(pva_dsl::plan_version_id.eq(src_plan_version_id))
+            .select((
+                gen_random_uuid(),
+                diesel::dsl::sql::<diesel::sql_types::Uuid>(
+                    format!("'{}'", dst_plan_version_id.as_uuid()).as_str(),
+                ),
+                pva_dsl::add_on_id,
+                pva_dsl::price_id,
+                pva_dsl::self_serviceable,
+                pva_dsl::max_instances_per_subscription,
+                pva_dsl::tenant_id,
+            ))
+            .insert_into(pva_dsl::plan_version_add_on)
+            .into_columns((
+                pva_dsl::id,
+                pva_dsl::plan_version_id,
+                pva_dsl::add_on_id,
+                pva_dsl::price_id,
+                pva_dsl::self_serviceable,
+                pva_dsl::max_instances_per_subscription,
+                pva_dsl::tenant_id,
+            ));
+
+        log::debug!("{}", debug_query::<diesel::pg::Pg, _>(&query));
+
+        query
+            .execute(conn)
+            .await
+            .attach("Error while cloning plan_version_add_ons")
             .into_db_result()
     }
 

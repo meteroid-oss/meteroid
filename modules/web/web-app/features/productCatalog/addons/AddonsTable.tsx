@@ -5,7 +5,7 @@ import { useNavigate } from 'react-router-dom'
 
 import { LocalId } from '@/components/LocalId'
 import { feeTypeEnumToComponentFeeType } from '@/features/plans/addons/AddOnCard'
-import { feeTypeToHuman } from '@/features/plans/pricecomponents/utils'
+import { feeTypeToHuman, priceSummaryBadges } from '@/features/plans/pricecomponents/utils'
 import { StandardTable } from '@/components/table/StandardTable'
 import { ListAddOnResponse } from '@/rpc/api/addons/v1/addons_pb'
 import { AddOn } from '@/rpc/api/addons/v1/models_pb'
@@ -48,6 +48,20 @@ export const AddonsTable: FunctionComponent<AddonsTableProps> = ({
             {feeTypeToHuman(feeTypeEnumToComponentFeeType(row.original.feeType))}
           </span>
         ),
+        enableSorting: false,
+      },
+
+      {
+        header: 'Price',
+        cell: ({ row }) => {
+          const feeType = feeTypeEnumToComponentFeeType(row.original.feeType)
+          const badges = priceSummaryBadges(feeType, row.original.price, row.original.price?.currency)
+          return (
+            <span className="text-sm text-muted-foreground">
+              {badges.join(' / ')}
+            </span>
+          )
+        },
         enableSorting: false,
       },
 

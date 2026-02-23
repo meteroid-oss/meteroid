@@ -123,8 +123,11 @@ pub fn process_create_subscription_add_ons(
     add_ons: &[AddOn],
     products: &HashMap<common_domain::ids::ProductId, crate::domain::Product>,
     prices: &HashMap<common_domain::ids::PriceId, crate::domain::prices::Price>,
-) -> Result<Vec<SubscriptionAddOnNewInternal>, Report<StoreError>> {
+    product_family_id: ProductFamilyId,
+    currency: &str,
+) -> Result<(Vec<SubscriptionAddOnNewInternal>, Vec<PendingMaterialization>), Report<StoreError>> {
     let mut processed_add_ons = Vec::new();
+    let mut pending_materializations = Vec::new();
 
     if let Some(create) = create {
         for cs_ao in &create.add_ons {
@@ -152,6 +155,22 @@ pub fn process_create_subscription_add_ons(
                 .resolve_customized(products, prices, &cs_ao.customization)
                 .map_err(Report::new)?;
 
+            let idx = processed_add_ons.len();
+
+            // If price_id is None and the override uses PriceEntry::New, we need materialization
+            if resolved.price_id.is_none() {
+                if let Some(PriceEntry::New(_)) = &resolved.price_entry {
+                    pending_materializations.push(PendingMaterialization {
+                        component_index: idx,
+                        name: resolved.name.clone(),
+                        product_ref: ProductRef::Existing(add_on.product_id),
+                        price_entry: resolved.price_entry.clone().unwrap(),
+                        product_family_id,
+                        currency: currency.to_string(),
+                    });
+                }
+            }
+
             processed_add_ons.push(SubscriptionAddOnNewInternal {
                 add_on_id: add_on.id,
                 name: resolved.name,
@@ -164,7 +183,7 @@ pub fn process_create_subscription_add_ons(
         }
     }
 
-    Ok(processed_add_ons)
+    Ok((processed_add_ons, pending_materializations))
 }
 
 pub fn process_create_subscription_coupons(

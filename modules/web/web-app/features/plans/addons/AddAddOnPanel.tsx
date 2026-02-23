@@ -18,7 +18,7 @@ import {
   TabsTrigger,
 } from '@md/ui'
 import { useQueryClient } from '@tanstack/react-query'
-import { Check, Plus } from 'lucide-react'
+import { Check, ChevronDownIcon, ChevronRightIcon, Plus } from 'lucide-react'
 import { useState } from 'react'
 import { useNavigate } from 'react-router-dom'
 import { toast } from 'sonner'
@@ -26,6 +26,7 @@ import { toast } from 'sonner'
 import { CustomCreationFlow, IdentitySchema } from '@/features/addons/CustomCreationFlow'
 import { usePlanWithVersion } from '@/features/plans/hooks/usePlan'
 import { feeTypeEnumToComponentFeeType } from '@/features/plans/addons/AddOnCard'
+import { PricingDetailsView } from '@/features/plans/pricecomponents/components/PricingDetailsView'
 import { ProductBrowser } from '@/features/plans/pricecomponents/ProductBrowser'
 import {
   feeTypeIcon,
@@ -265,6 +266,8 @@ const CatalogBrowser = ({
   onAttach,
   isAttaching,
 }: CatalogBrowserProps) => {
+  const [expandedId, setExpandedId] = useState<string | null>(null)
+
   return (
     <div className="space-y-4">
       <div className="relative">
@@ -284,6 +287,7 @@ const CatalogBrowser = ({
         <div className="space-y-2">
           {addOns.map(addOn => {
             const isAttached = attachedIds.has(addOn.id)
+            const isExpanded = expandedId === addOn.id
             const componentFeeType = feeTypeEnumToComponentFeeType(addOn.feeType)
             const Icon = feeTypeIcon(componentFeeType)
             const feeLabel = feeTypeToHuman(componentFeeType)
@@ -293,39 +297,57 @@ const CatalogBrowser = ({
             return (
               <div
                 key={addOn.id}
-                className="flex items-center gap-3 p-3 border border-border rounded-lg bg-card"
+                className="border border-border rounded-lg bg-card"
               >
-                <Icon className="w-4 h-4 text-muted-foreground shrink-0" />
-                <div className="flex-1 min-w-0">
-                  <div className="flex items-center gap-2">
-                    <span className="text-sm font-medium truncate">{addOn.name}</span>
-                    <Badge variant="outline" size="sm">
-                      {feeLabel}
-                    </Badge>
-                  </div>
-                  <div className="flex items-center gap-2 mt-0.5">
-                    <span className="text-xs text-muted-foreground">
-                      {priceBadges.join(' / ')}
-                    </span>
-                    <span className="text-xs text-muted-foreground">{cadence}</span>
-                  </div>
-                </div>
-                {isAttached ? (
-                  <Badge variant="secondary" size="sm" className="shrink-0">
-                    <Check className="h-3 w-3 mr-1" />
-                    Attached
-                  </Badge>
-                ) : (
-                  <Button
-                    variant="outline"
-                    size="sm"
-                    onClick={() => onAttach(addOn)}
-                    disabled={isAttaching}
-                    className="shrink-0"
+                <div className="flex items-center gap-3 p-3">
+                  <button
+                    type="button"
+                    className="shrink-0 text-muted-foreground hover:text-foreground"
+                    onClick={() => setExpandedId(isExpanded ? null : addOn.id)}
                   >
-                    <Plus className="h-3 w-3 mr-1" />
-                    Attach
-                  </Button>
+                    {isExpanded ? (
+                      <ChevronDownIcon className="w-4 h-4" />
+                    ) : (
+                      <ChevronRightIcon className="w-4 h-4" />
+                    )}
+                  </button>
+                  <Icon className="w-4 h-4 text-muted-foreground shrink-0" />
+                  <div className="flex-1 min-w-0">
+                    <div className="flex items-center gap-2">
+                      <span className="text-sm font-medium truncate">{addOn.name}</span>
+                      <Badge variant="outline" size="sm">
+                        {feeLabel}
+                      </Badge>
+                    </div>
+                    <div className="flex items-center gap-2 mt-0.5">
+                      <span className="text-xs text-muted-foreground">
+                        {priceBadges.join(' / ')}
+                      </span>
+                      <span className="text-xs text-muted-foreground">{cadence}</span>
+                    </div>
+                  </div>
+                  {isAttached ? (
+                    <Badge variant="secondary" size="sm" className="shrink-0">
+                      <Check className="h-3 w-3 mr-1" />
+                      Attached
+                    </Badge>
+                  ) : (
+                    <Button
+                      variant="outline"
+                      size="sm"
+                      onClick={() => onAttach(addOn)}
+                      disabled={isAttaching}
+                      className="shrink-0"
+                    >
+                      <Plus className="h-3 w-3 mr-1" />
+                      Attach
+                    </Button>
+                  )}
+                </div>
+                {isExpanded && addOn.price && (
+                  <div className="px-3 pb-3 pt-0 border-t border-border mt-0">
+                    <PricingDetailsView prices={[addOn.price]} currency={currency} />
+                  </div>
                 )}
               </div>
             )

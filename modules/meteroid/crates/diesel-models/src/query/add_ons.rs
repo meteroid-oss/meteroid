@@ -118,7 +118,8 @@ impl AddOnRow {
 
         let query = ao_dsl::add_on
             .filter(ao_dsl::id.eq_any(ids))
-            .filter(ao_dsl::tenant_id.eq(tenant_id));
+            .filter(ao_dsl::tenant_id.eq(tenant_id))
+            .filter(ao_dsl::archived_at.is_null());
 
         log::debug!("{}", debug_query::<diesel::pg::Pg, _>(&query));
 

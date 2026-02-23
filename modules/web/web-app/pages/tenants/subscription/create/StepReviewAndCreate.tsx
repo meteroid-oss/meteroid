@@ -698,6 +698,19 @@ export const StepReviewAndCreate = () => {
                     }
                   })
 
+                  // Add add-ons
+                  selectedAddOns.forEach(addOn => {
+                    const price = addOn.price
+                    const pricing = price ? getComponentPricingFromPrice(price) : undefined
+                    if (pricing) {
+                      if (pricing.isMetered) {
+                        hasMetered = true
+                      } else {
+                        subtotal += pricing.total
+                      }
+                    }
+                  })
+
                   // Calculate total discount from coupons
                   let totalDiscount = 0
                   selectedCoupons.forEach(coupon => {

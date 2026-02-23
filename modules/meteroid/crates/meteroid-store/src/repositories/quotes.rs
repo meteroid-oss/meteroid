@@ -10,7 +10,7 @@ use crate::domain::{
         QuoteSignatureNew,
     },
 };
-use crate::errors::StoreError;
+use crate::errors::{StoreError, StoreErrorReport};
 use crate::jwt_claims::{ResourceAccess, generate_portal_token};
 use crate::repositories::pgmq::PgmqInterface;
 use crate::store::Store;
@@ -128,12 +128,17 @@ pub trait QuotesInterface {
     async fn list_quote_coupons(&self, quote_id: QuoteId) -> StoreResult<Vec<QuoteCoupon>>;
 
     /// Creates a quote with all its related data (components, add-ons, coupons) in a single transaction.
+    /// Add-ons with pending materializations will have their prices created inside the transaction.
     async fn insert_quote_with_details(
         &self,
         quote: QuoteNew,
         components: Vec<QuotePriceComponentNew>,
         add_ons: Vec<QuoteAddOnNew>,
         coupons: Vec<QuoteCouponNew>,
+        pending_addon_materializations: Vec<
+            crate::services::PendingMaterialization,
+        >,
+        created_by: uuid::Uuid,
     ) -> StoreResult<Quote>;
 
     /// Cancels a quote, preventing future signature.
@@ -724,6 +729,10 @@ impl QuotesInterface for Store {
         components: Vec<QuotePriceComponentNew>,
         add_ons: Vec<QuoteAddOnNew>,
         coupons: Vec<QuoteCouponNew>,
+        pending_addon_materializations: Vec<
+            crate::services::PendingMaterialization,
+        >,
+        created_by: uuid::Uuid,
     ) -> StoreResult<Quote> {
         use diesel_models::customers::CustomerRow;
 
@@ -745,6 +754,8 @@ impl QuotesInterface for Store {
                     ))
                     .into());
                 }
+
+                let tenant_id = quote.tenant_id;
 
                 // Insert the quote
                 let quote_row: QuoteRowNew = quote.try_into()?;
@@ -777,12 +788,48 @@ impl QuotesInterface for Store {
                         .map_err(Into::<Report<StoreError>>::into)?;
                 }
 
-                // Insert add-ons if any
+                // Materialize add-on prices inside the transaction
+                let mut materialized_addon_prices: std::collections::HashMap<
+                    usize,
+                    common_domain::ids::PriceId,
+                > = std::collections::HashMap::new();
+                for mat in &pending_addon_materializations {
+                    use crate::domain::price_components::PriceComponentNewInternal;
+                    use crate::repositories::price_components::resolve_component_internal;
+
+                    let internal = PriceComponentNewInternal {
+                        name: mat.name.clone(),
+                        product_ref: mat.product_ref.clone(),
+                        prices: vec![mat.price_entry.clone()],
+                    };
+                    let (_product_id, price_ids) = resolve_component_internal(
+                        conn,
+                        &internal,
+                        tenant_id,
+                        created_by,
+                        mat.product_family_id,
+                        &mat.currency,
+                    )
+                    .await?;
+                    if let Some(price_id) = price_ids.into_iter().next() {
+                        materialized_addon_prices.insert(mat.component_index, price_id);
+                    }
+                }
+
+                // Insert add-ons if any, patching materialized prices
                 if !add_ons.is_empty() {
                     let add_on_rows: Vec<QuoteAddOnRowNew> = add_ons
                         .into_iter()
-                        .map(std::convert::TryInto::try_into)
-                        .collect::<Result<Vec<_>, _>>()?;
+                        .enumerate()
+                        .map(|(idx, ao)| {
+                            let mut row: QuoteAddOnRowNew = ao.try_into()?;
+                            if let Some(price_id) = materialized_addon_prices.get(&idx) {
+                                row.price_id = Some(*price_id);
+                                row.legacy_fee = None;
+                            }
+                            Ok(row)
+                        })
+                        .collect::<Result<Vec<_>, StoreErrorReport>>()?;
 
                     QuoteAddOnRowNew::insert_batch(&add_on_rows, conn)
                         .await

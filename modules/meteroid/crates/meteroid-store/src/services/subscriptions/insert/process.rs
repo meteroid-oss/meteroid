@@ -60,8 +60,10 @@ pub struct ProcessedSubscription {
     event: SubscriptionEventRow,
     slot_transactions: Vec<SlotTransactionRow>,
     scheduled_events: Vec<ScheduledEventNew>,
-    /// Products/prices that need to be created inside the persist transaction.
+    /// Products/prices that need to be created inside the persist transaction (components).
     pending_materializations: Vec<PendingMaterialization>,
+    /// Products/prices that need to be created inside the persist transaction (add-ons).
+    pending_addon_materializations: Vec<PendingMaterialization>,
     /// When true, skip checkout session creation even if pending_checkout is true.
     /// Used for subscriptions created from checkout completion (SelfServe flow).
     skip_checkout_session: bool,
@@ -78,6 +80,7 @@ pub struct DetailedSubscription {
     currency: Currency,
     pub slot_transactions: Vec<SlotTransactionNewInternal>,
     pub pending_materializations: Vec<PendingMaterialization>,
+    pub pending_addon_materializations: Vec<PendingMaterialization>,
 }
 
 impl Services {
@@ -126,7 +129,8 @@ impl Services {
 
             let (components, pending_materializations) =
                 self.process_components(price_components, subscription, context, resolved, plan)?;
-            let subscription_add_ons = self.process_add_ons(add_ons, context)?;
+            let (subscription_add_ons, pending_addon_materializations) =
+                self.process_add_ons(add_ons, context, plan)?;
 
             let slot_transactions = process_slot_transactions(
                 &components,
@@ -159,6 +163,7 @@ impl Services {
                 currency,
                 slot_transactions,
                 pending_materializations,
+                pending_addon_materializations,
             });
         }
 
@@ -216,6 +221,7 @@ impl Services {
             currency,
             slot_transactions,
             pending_materializations: vec![], // Quotes have pre-resolved products/prices
+            pending_addon_materializations: vec![], // Quotes have pre-resolved add-on prices
         })
     }
 
@@ -570,6 +576,7 @@ impl Services {
             slot_transactions,
             scheduled_events,
             pending_materializations: sub.pending_materializations.clone(),
+            pending_addon_materializations: sub.pending_addon_materializations.clone(),
             skip_checkout_session: sub.subscription.skip_checkout_session,
             skip_past_invoices: sub.subscription.skip_past_invoices,
         })
@@ -604,12 +611,21 @@ impl Services {
         &self,
         add_ons: &Option<CreateSubscriptionAddOns>,
         context: &SubscriptionCreationContext,
-    ) -> Result<Vec<SubscriptionAddOnNewInternal>, StoreErrorReport> {
+        plan: &crate::domain::PlanForSubscription,
+    ) -> Result<
+        (
+            Vec<SubscriptionAddOnNewInternal>,
+            Vec<PendingMaterialization>,
+        ),
+        StoreErrorReport,
+    > {
         process_create_subscription_add_ons(
             add_ons,
             &context.all_add_ons,
             &context.products_by_id,
             &context.addon_prices_by_id,
+            plan.product_family_id,
+            &plan.currency,
         )
     }
 
@@ -771,6 +787,41 @@ impl Services {
                         }
                     }
 
+                    // Materialize pending add-on products/prices inside the transaction.
+                    let mut materialized_addons: HashMap<
+                        (usize, usize),
+                        (
+                            common_domain::ids::ProductId,
+                            Option<common_domain::ids::PriceId>,
+                        ),
+                    > = HashMap::new();
+                    for (sub_idx, proc) in processed.iter().enumerate() {
+                        for mat in &proc.pending_addon_materializations {
+                            use crate::domain::price_components::PriceComponentNewInternal;
+                            use crate::repositories::price_components::resolve_component_internal;
+
+                            let internal = PriceComponentNewInternal {
+                                name: mat.name.clone(),
+                                product_ref: mat.product_ref.clone(),
+                                prices: vec![mat.price_entry.clone()],
+                            };
+                            let (_product_id, price_ids) = resolve_component_internal(
+                                conn,
+                                &internal,
+                                tenant_id,
+                                proc.subscription.created_by,
+                                mat.product_family_id,
+                                &mat.currency,
+                            )
+                            .await?;
+
+                            materialized_addons.insert(
+                                (sub_idx, mat.component_index),
+                                (_product_id, price_ids.into_iter().next()),
+                            );
+                        }
+                    }
+
                     // Flatten collections for batch insertion, patching materialized components.
                     let subscriptions: Vec<_> = processed.iter().map(|p| &p.subscription).collect();
 
@@ -790,7 +841,24 @@ impl Services {
                         }
                     }
                     let components: Vec<_> = patched_components.iter().collect();
-                    let add_ons: Vec<_> = processed.iter().flat_map(|p| &p.add_ons).collect();
+
+                    // Patch materialized add-on rows
+                    let mut patched_add_ons: Vec<SubscriptionAddOnRowNew> = Vec::new();
+                    for (sub_idx, proc) in processed.iter().enumerate() {
+                        for (addon_idx, add_on) in proc.add_ons.iter().enumerate() {
+                            if let Some((_product_id, price_id)) =
+                                materialized_addons.get(&(sub_idx, addon_idx))
+                            {
+                                let mut patched = add_on.clone();
+                                patched.price_id = *price_id;
+                                patched.legacy_fee = None;
+                                patched_add_ons.push(patched);
+                            } else {
+                                patched_add_ons.push(add_on.clone());
+                            }
+                        }
+                    }
+                    let add_ons: Vec<_> = patched_add_ons.iter().collect();
                     let coupons: Vec<_> = processed.iter().flat_map(|p| &p.coupons).collect();
                     let events: Vec<_> = processed.iter().map(|p| &p.event).collect();
                     let slot_transactions: Vec<_> = processed
