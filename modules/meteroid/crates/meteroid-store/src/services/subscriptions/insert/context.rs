@@ -142,8 +142,7 @@ impl Services {
         };
 
         // Load prices referenced by add-ons
-        let addon_price_ids: Vec<PriceId> =
-            add_ons.iter().map(|a| a.price_id).unique().collect();
+        let addon_price_ids: Vec<PriceId> = add_ons.iter().map(|a| a.price_id).unique().collect();
         let addon_prices_by_id = if addon_price_ids.is_empty() {
             HashMap::new()
         } else {

@@ -1,6 +1,7 @@
 use crate::domain::enums::{FeeTypeEnum, SubscriptionFeeBillingPeriod};
 use crate::domain::price_components::{ComponentParameters, PriceEntry, ResolvedFee};
 use crate::domain::prices;
+use crate::domain::prices::FeeStructure;
 use crate::domain::subscription_add_ons::{
     SubscriptionAddOnCustomization, SubscriptionAddOnParameterization,
 };
@@ -27,6 +28,7 @@ pub struct AddOn {
     pub archived_at: Option<NaiveDateTime>,
     // Eagerly loaded
     pub fee_type: Option<FeeTypeEnum>,
+    pub fee_structure: Option<FeeStructure>,
     pub price: Option<Price>,
 }
 
@@ -45,6 +47,7 @@ impl From<AddOnRow> for AddOn {
             max_instances_per_subscription: row.max_instances_per_subscription,
             archived_at: row.archived_at,
             fee_type: None,
+            fee_structure: None,
             price: None,
         }
     }
@@ -125,11 +128,8 @@ impl AddOn {
                                 price_id, self.id
                             ))
                         })?;
-                        let fee = prices::resolve_subscription_fee(
-                            fee_structure,
-                            &price.pricing,
-                            None,
-                        )?;
+                        let fee =
+                            prices::resolve_subscription_fee(fee_structure, &price.pricing, None)?;
                         let period = prices::fee_type_billing_period(fee_structure)
                             .unwrap_or_else(|| price.cadence.as_subscription_billing_period());
                         Ok(ResolvedAddOn {
@@ -147,8 +147,8 @@ impl AddOn {
                             &price_input.pricing,
                             None,
                         )?;
-                        let period = prices::fee_type_billing_period(fee_structure)
-                            .unwrap_or_else(|| {
+                        let period =
+                            prices::fee_type_billing_period(fee_structure).unwrap_or_else(|| {
                                 price_input.cadence.as_subscription_billing_period()
                             });
                         Ok(ResolvedAddOn {

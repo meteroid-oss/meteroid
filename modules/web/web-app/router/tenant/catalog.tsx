@@ -8,6 +8,7 @@ import { Addons } from '@/pages/tenants/billing/addons'
 import { CouponDetails } from '@/pages/tenants/billing/couponDetails'
 import { Coupons } from '@/pages/tenants/billing/coupons'
 import { CreateAddon } from '@/pages/tenants/billing/createAddon'
+import { EditAddon } from '@/pages/tenants/billing/editAddon'
 import { CreateCoupon } from '@/pages/tenants/billing/createCoupon'
 import { Plans } from '@/pages/tenants/billing/plans'
 import { CreateAddOn } from '@/pages/tenants/billing/plans/createAddOn'
@@ -114,6 +115,10 @@ export const productCatalogRoutes: RouteObject = {
             {
               path: ':addonId',
               element: <AddonDetails />,
+            },
+            {
+              path: 'edit/:addonId',
+              element: <EditAddon />,
             },
           ],
         },

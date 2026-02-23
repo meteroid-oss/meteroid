@@ -139,13 +139,10 @@ pub async fn run_preset(
 
         // Reuse existing products when a product with the same name was already created
         for comp in &mut components {
-            if let store_domain::price_components::ProductRef::New { name, .. } =
-                &comp.product_ref
+            if let store_domain::price_components::ProductRef::New { name, .. } = &comp.product_ref
+                && let Some(&pid) = product_by_name.get(name)
             {
-                if let Some(&pid) = product_by_name.get(name) {
-                    comp.product_ref =
-                        store_domain::price_components::ProductRef::Existing(pid);
-                }
+                comp.product_ref = store_domain::price_components::ProductRef::Existing(pid);
             }
         }
 

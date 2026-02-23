@@ -139,16 +139,18 @@ impl Services {
             )?;
 
             let coupons_resolved = if let Some(coupons) = coupons {
-                context
-                    .all_coupons
+                // Preserve request order so applied_coupon UUIDs (and thus discount
+                // application order) match the order the caller specified.
+                coupons
+                    .coupons
                     .iter()
-                    .filter(|c| {
-                        coupons
-                            .coupons
+                    .filter_map(|req| {
+                        context
+                            .all_coupons
                             .iter()
-                            .any(|coupon| c.id == coupon.coupon_id)
+                            .find(|c| c.id == req.coupon_id)
+                            .cloned()
                     })
-                    .cloned()
                     .collect::<Vec<_>>()
             } else {
                 vec![]
@@ -205,11 +207,10 @@ impl Services {
         let slot_transactions =
             process_slot_transactions(&components, &add_ons, subscription.start_date)?;
 
-        let coupons: Vec<Coupon> = context
-            .all_coupons
+        let coupons: Vec<Coupon> = params
+            .coupon_ids
             .iter()
-            .filter(|c| params.coupon_ids.contains(&c.id))
-            .cloned()
+            .filter_map(|id| context.all_coupons.iter().find(|c| c.id == *id).cloned())
             .collect();
 
         Ok(DetailedSubscription {

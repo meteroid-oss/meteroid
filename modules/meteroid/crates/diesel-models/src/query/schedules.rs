@@ -5,8 +5,10 @@ use crate::{DbResult, PgConn};
 
 use error_stack::ResultExt;
 
-use common_domain::ids::{BaseId, PlanVersionId, SubscriptionId, TenantId};
-use diesel::{ExpressionMethods, Insertable, JoinOnDsl, QueryDsl, SelectableHelper, debug_query};
+use common_domain::ids::{PlanVersionId, SubscriptionId, TenantId};
+use diesel::{
+    ExpressionMethods, Insertable, IntoSql, JoinOnDsl, QueryDsl, SelectableHelper, debug_query,
+};
 
 impl ScheduleRowNew {
     pub async fn insert(&self, conn: &mut PgConn) -> DbResult<ScheduleRow> {
@@ -138,9 +140,7 @@ impl ScheduleRow {
             .select((
                 gen_random_uuid(),
                 s_dsl::billing_period,
-                diesel::dsl::sql::<diesel::sql_types::Uuid>(
-                    format!("'{}'", dst_plan_version_id.as_uuid()).as_str(),
-                ),
+                dst_plan_version_id.into_sql::<diesel::sql_types::Uuid>(),
                 s_dsl::ramps,
             ))
             .insert_into(s_dsl::schedule)

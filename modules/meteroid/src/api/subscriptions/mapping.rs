@@ -363,7 +363,6 @@ pub mod price_components {
     use crate::api::pricecomponents::mapping::components::{
         price_entries_from_proto, product_ref_from_proto,
     };
-    use crate::api::shared::conversions::ProtoConv;
     use meteroid_grpc::meteroid::api::components::v1 as api_components;
     use meteroid_grpc::meteroid::api::prices::v1 as api_prices;
     use meteroid_grpc::meteroid::api::shared::v1 as api_shared;
@@ -372,7 +371,7 @@ pub mod price_components {
 
     use common_domain::ids::{BillableMetricId, PriceComponentId};
     use meteroid_store::domain::BillingPeriodEnum;
-    use tonic::{Code, Result, Status};
+    use tonic::{Result, Status};
 
     pub fn create_subscription_components_from_grpc(
         data: api::CreateSubscriptionComponents,
@@ -615,119 +614,6 @@ pub mod price_components {
         }
     }
 
-    pub fn subscription_fee_from_grpc(
-        grpc_fee: &Option<api::SubscriptionFee>,
-    ) -> Result<domain::SubscriptionFee, Status> {
-        match grpc_fee.as_ref().and_then(|fee| fee.fee.as_ref()) {
-            Some(api::subscription_fee::Fee::Rate(rate)) => {
-                let rate = rust_decimal::Decimal::from_proto_ref(&rate.rate)?;
-                Ok(domain::SubscriptionFee::Rate { rate })
-            }
-            Some(api::subscription_fee::Fee::OneTime(one_time)) => {
-                let rate = rust_decimal::Decimal::from_proto_ref(&one_time.rate)?;
-                Ok(domain::SubscriptionFee::OneTime {
-                    rate,
-                    quantity: one_time.quantity,
-                })
-            }
-            Some(api::subscription_fee::Fee::Recurring(recurring)) => {
-                let rate = rust_decimal::Decimal::from_proto_ref(&recurring.rate)?;
-                let billing_type = billing_type_from_grpc(recurring.billing_type())?;
-                Ok(domain::SubscriptionFee::Recurring {
-                    rate,
-                    quantity: recurring.quantity,
-                    billing_type,
-                })
-            }
-            Some(api::subscription_fee::Fee::Capacity(capacity)) => {
-                let rate = rust_decimal::Decimal::from_proto_ref(&capacity.rate)?;
-                let overage_rate = rust_decimal::Decimal::from_proto_ref(&capacity.overage_rate)?;
-                let metric_id = BillableMetricId::from_proto(&capacity.metric_id)?;
-                Ok(domain::SubscriptionFee::Capacity {
-                    rate,
-                    included: capacity.included,
-                    overage_rate,
-                    metric_id,
-                })
-            }
-            Some(api::subscription_fee::Fee::Slot(slot)) => {
-                let unit_rate = rust_decimal::Decimal::from_proto_ref(&slot.unit_rate)?;
-                Ok(domain::SubscriptionFee::Slot {
-                    unit: slot.unit.clone(),
-                    unit_rate,
-                    min_slots: slot.min_slots,
-                    max_slots: slot.max_slots,
-                    initial_slots: slot.initial_slots,
-                })
-            }
-            Some(api::subscription_fee::Fee::Usage(usage)) => {
-                let metric_id = BillableMetricId::from_proto(&usage.metric_id)?;
-                let model = usage_pricing_model_from_grpc(usage)?;
-                Ok(domain::SubscriptionFee::Usage { metric_id, model })
-            }
-            None => Err(Status::new(
-                Code::InvalidArgument,
-                "Missing subscription fee",
-            )),
-        }
-    }
-
-    pub fn usage_pricing_model_from_grpc(
-        usage: &api_components::UsageFee,
-    ) -> Result<domain::UsagePricingModel, Status> {
-        use crate::api::prices::mapping::prices::usage_model_from_proto;
-
-        let pricing_model = usage.model.as_ref().map(fee_model_to_usage_pricing);
-        let as_pricing = api_prices::UsagePricing {
-            model: pricing_model,
-        };
-        usage_model_from_proto(&as_pricing)
-    }
-
-    fn fee_model_to_usage_pricing(
-        model: &api_components::usage_fee::Model,
-    ) -> api_prices::usage_pricing::Model {
-        match model {
-            api_components::usage_fee::Model::PerUnit(v) => {
-                api_prices::usage_pricing::Model::PerUnit(v.clone())
-            }
-            api_components::usage_fee::Model::Tiered(v) => {
-                api_prices::usage_pricing::Model::Tiered(v.clone())
-            }
-            api_components::usage_fee::Model::Volume(v) => {
-                api_prices::usage_pricing::Model::Volume(v.clone())
-            }
-            api_components::usage_fee::Model::Package(v) => {
-                api_prices::usage_pricing::Model::Package(v.clone())
-            }
-            api_components::usage_fee::Model::Matrix(v) => {
-                api_prices::usage_pricing::Model::Matrix(v.clone())
-            }
-        }
-    }
-
-    pub fn subscription_fee_billing_period_from_grpc(
-        period: api::SubscriptionFeeBillingPeriod,
-    ) -> Result<domain::enums::SubscriptionFeeBillingPeriod, Status> {
-        match period {
-            api::SubscriptionFeeBillingPeriod::OneTime => {
-                Ok(domain::enums::SubscriptionFeeBillingPeriod::OneTime)
-            }
-            api::SubscriptionFeeBillingPeriod::Monthly => {
-                Ok(domain::enums::SubscriptionFeeBillingPeriod::Monthly)
-            }
-            api::SubscriptionFeeBillingPeriod::Quarterly => {
-                Ok(domain::enums::SubscriptionFeeBillingPeriod::Quarterly)
-            }
-            api::SubscriptionFeeBillingPeriod::Semiannual => {
-                Ok(domain::enums::SubscriptionFeeBillingPeriod::Semiannual)
-            }
-            api::SubscriptionFeeBillingPeriod::Yearly => {
-                Ok(domain::enums::SubscriptionFeeBillingPeriod::Annual)
-            } // _ => Err(Status::new(Code::InvalidArgument, "Invalid billing period")),
-        }
-    }
-
     pub fn billing_type_from_grpc(
         billing_type: api_prices::fee_structure::BillingType,
     ) -> Result<domain::enums::BillingType, Status> {
@@ -819,18 +705,15 @@ pub mod add_ons {
         let quantity: i32 = if data.quantity == 0 {
             1
         } else {
-            i32::try_from(data.quantity).map_err(|_| {
-                Status::invalid_argument("quantity exceeds maximum allowed value")
-            })?
+            i32::try_from(data.quantity)
+                .map_err(|_| Status::invalid_argument("quantity exceeds maximum allowed value"))?
         };
 
         let customization: domain::SubscriptionAddOnCustomization = match data.customization {
             Some(api::create_subscription_add_on::Customization::PriceOverride(ov)) => {
-                let price_entry = ov
-                    .price_entry
-                    .ok_or_else(|| {
-                        Status::invalid_argument("price_entry is required for price override")
-                    })?;
+                let price_entry = ov.price_entry.ok_or_else(|| {
+                    Status::invalid_argument("price_entry is required for price override")
+                })?;
                 let entries = price_entries_from_proto(vec![price_entry])?;
                 let entry = entries.into_iter().next().ok_or_else(|| {
                     Status::invalid_argument("price_entry is required for price override")
@@ -872,8 +755,7 @@ pub mod add_ons {
 
 pub mod ext {
     pub use super::price_components::{
-        billing_type_from_grpc, billing_type_to_grpc, usage_pricing_model_from_grpc,
-        usage_pricing_model_to_grpc,
+        billing_type_from_grpc, billing_type_to_grpc, usage_pricing_model_to_grpc,
     };
 }
 

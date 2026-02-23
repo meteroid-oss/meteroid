@@ -7,6 +7,11 @@ import {
   Badge,
   Button,
   ScrollArea,
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
   Sheet,
   SheetContent,
   SheetDescription,
@@ -19,7 +24,9 @@ import {
 } from '@md/ui'
 import { useQueryClient } from '@tanstack/react-query'
 import { Check, ChevronDownIcon, ChevronRightIcon, Plus } from 'lucide-react'
-import { useState } from 'react'
+import { useEffect, useState } from 'react'
+
+import { useDebounceValue } from '@/hooks/useDebounce'
 import { useNavigate } from 'react-router-dom'
 import { toast } from 'sonner'
 
@@ -49,6 +56,7 @@ import {
   createAddOn,
   listAddOns,
 } from '@/rpc/api/addons/v1/addons-AddOnsService_connectquery'
+import { listProductFamilies } from '@/rpc/api/productfamilies/v1/productfamilies-ProductFamiliesService_connectquery'
 
 import type { AddOn } from '@/rpc/api/addons/v1/models_pb'
 import type { ComponentFeeType } from '@/features/pricing/conversions'
@@ -59,11 +67,24 @@ export const AddAddOnPanel = () => {
   const queryClient = useQueryClient()
   const currency = useCurrency()
 
+  const familiesQuery = useQuery(listProductFamilies)
+  const families = (familiesQuery.data?.productFamilies ?? []).sort((a, b) =>
+    a.id > b.id ? 1 : -1
+  )
+  const [productFamilyLocalId, setProductFamilyLocalId] = useState<string | undefined>()
+
+  useEffect(() => {
+    if (families[0]?.localId) {
+      setProductFamilyLocalId(families[0].localId)
+    }
+  }, [families])
+
   const [customStep, setCustomStep] = useState<'identity' | 'feeType' | 'form'>('identity')
   const [customName, setCustomName] = useState('')
   const [customDescription, setCustomDescription] = useState('')
   const [selectedFeeType, setSelectedFeeType] = useState<ComponentFeeType | null>(null)
   const [catalogSearch, setCatalogSearch] = useState('')
+  const debouncedSearch = useDebounceValue(catalogSearch, 300)
 
   const identityMethods = useZodForm({
     schema: IdentitySchema,
@@ -73,7 +94,7 @@ export const AddAddOnPanel = () => {
   // Query all catalog add-ons (no plan filter)
   const catalogAddOns = useQuery(listAddOns, {
     pagination: { perPage: 100, page: 0 },
-    search: catalogSearch || undefined,
+    search: debouncedSearch || undefined,
   })
 
   // Query add-ons already attached to this plan version
@@ -149,6 +170,7 @@ export const AddAddOnPanel = () => {
       name: componentName,
       product,
       price: wrapAsNewPriceEntries(priceInputs)[0],
+      productFamilyLocalId,
     })
   }
 
@@ -167,6 +189,7 @@ export const AddAddOnPanel = () => {
       description: customDescription || undefined,
       product,
       price: wrapAsNewPriceEntries(priceInputs)[0],
+      productFamilyLocalId,
     })
   }
 
@@ -185,6 +208,25 @@ export const AddAddOnPanel = () => {
           <SheetTitle>Add-on Catalog</SheetTitle>
           <SheetDescription>Attach an existing add-on or create a new one</SheetDescription>
         </SheetHeader>
+        {families.length > 1 && (
+          <div className="flex items-center gap-2 mb-4">
+            <label className="text-sm font-medium text-muted-foreground whitespace-nowrap">
+              Product line
+            </label>
+            <Select value={productFamilyLocalId} onValueChange={setProductFamilyLocalId}>
+              <SelectTrigger className="max-w-[240px]">
+                <SelectValue placeholder="Select a product line" />
+              </SelectTrigger>
+              <SelectContent>
+                {families.map(f => (
+                  <SelectItem value={f.localId} key={f.localId}>
+                    {f.name}
+                  </SelectItem>
+                ))}
+              </SelectContent>
+            </Select>
+          </div>
+        )}
         <Tabs defaultValue="catalog" className="flex flex-col h-[calc(100%-80px)]">
           <TabsList className="w-full grid grid-cols-3 mb-4">
             <TabsTrigger value="catalog">Catalog</TabsTrigger>

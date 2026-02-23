@@ -1,8 +1,8 @@
 use crate::errors::IntoDbResult;
 use crate::plan_version_add_ons::{PlanVersionAddOnRow, PlanVersionAddOnRowNew};
 use crate::{DbResult, PgConn};
-use common_domain::ids::{AddOnId, BaseId, PlanVersionId, TenantId};
-use diesel::{ExpressionMethods, Insertable, QueryDsl, SelectableHelper, debug_query};
+use common_domain::ids::{AddOnId, PlanVersionId, TenantId};
+use diesel::{ExpressionMethods, Insertable, IntoSql, QueryDsl, SelectableHelper, debug_query};
 use diesel_async::RunQueryDsl;
 use error_stack::ResultExt;
 use tap::TapFallible;
@@ -63,7 +63,9 @@ impl PlanVersionAddOnRow {
         query
             .get_results(conn)
             .await
-            .tap_err(|e| log::error!("Error while listing plan_version_add_ons by add_on_id: {e:?}"))
+            .tap_err(|e| {
+                log::error!("Error while listing plan_version_add_ons by add_on_id: {e:?}")
+            })
             .attach("Error while listing plan_version_add_ons by add_on_id")
             .into_db_result()
     }
@@ -83,9 +85,7 @@ impl PlanVersionAddOnRow {
             .filter(pva_dsl::plan_version_id.eq(src_plan_version_id))
             .select((
                 gen_random_uuid(),
-                diesel::dsl::sql::<diesel::sql_types::Uuid>(
-                    format!("'{}'", dst_plan_version_id.as_uuid()).as_str(),
-                ),
+                dst_plan_version_id.into_sql::<diesel::sql_types::Uuid>(),
                 pva_dsl::add_on_id,
                 pva_dsl::price_id,
                 pva_dsl::self_serviceable,

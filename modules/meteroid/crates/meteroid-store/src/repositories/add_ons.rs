@@ -5,7 +5,7 @@ use crate::domain::{PaginatedVec, PaginationRequest, Price};
 use crate::errors::StoreError;
 use crate::repositories::price_components::resolve_component_internal;
 use crate::{Store, StoreResult};
-use common_domain::ids::{AddOnId, BaseId, PlanVersionId, TenantId};
+use common_domain::ids::{AddOnId, BaseId, PlanVersionId, ProductFamilyId, TenantId};
 use diesel_async::scoped_futures::ScopedFutureExt;
 use diesel_models::add_ons::{AddOnRow, AddOnRowNew, AddOnRowPatch};
 use diesel_models::prices::PriceRow;
@@ -33,6 +33,7 @@ pub trait AddOnInterface {
 
     async fn create_add_on(&self, add_on: AddOnNew) -> StoreResult<AddOn>;
 
+    #[allow(clippy::too_many_arguments)]
     async fn create_add_on_from_ref(
         &self,
         name: String,
@@ -43,9 +44,15 @@ pub trait AddOnInterface {
         max_instances_per_subscription: Option<i32>,
         tenant_id: TenantId,
         created_by: Uuid,
+        product_family_id: ProductFamilyId,
     ) -> StoreResult<AddOn>;
 
-    async fn update_add_on(&self, patch: AddOnPatch, price_entry: Option<PriceEntry>, created_by: Uuid) -> StoreResult<AddOn>;
+    async fn update_add_on(
+        &self,
+        patch: AddOnPatch,
+        price_entry: Option<PriceEntry>,
+        created_by: Uuid,
+    ) -> StoreResult<AddOn>;
 
     async fn archive_add_on(&self, id: AddOnId, tenant_id: TenantId) -> StoreResult<()>;
 }
@@ -84,12 +91,14 @@ pub(crate) async fn enrich_add_ons(
     let add_ons = rows
         .into_iter()
         .map(|row| {
-            let fee_type: Option<FeeTypeEnum> = products
-                .get(&row.product_id)
-                .map(|p| p.fee_type.clone().into());
+            let product = products.get(&row.product_id);
+            let fee_type: Option<FeeTypeEnum> = product.map(|p| p.fee_type.clone().into());
+            let fee_structure =
+                product.and_then(|p| serde_json::from_value(p.fee_structure.clone()).ok());
             let price = prices.get(&row.price_id).cloned();
             let mut addon: AddOn = row.into();
             addon.fee_type = fee_type;
+            addon.fee_structure = fee_structure;
             addon.price = price;
             addon
         })
@@ -158,9 +167,10 @@ impl AddOnInterface for Store {
     async fn create_add_on(&self, add_on: AddOnNew) -> StoreResult<AddOn> {
         let mut conn = self.get_conn().await?;
 
-        let price_row = PriceRow::find_by_id_and_tenant_id(&mut conn, add_on.price_id, add_on.tenant_id)
-            .await
-            .map_err(Into::<Report<StoreError>>::into)?;
+        let price_row =
+            PriceRow::find_by_id_and_tenant_id(&mut conn, add_on.price_id, add_on.tenant_id)
+                .await
+                .map_err(Into::<Report<StoreError>>::into)?;
         if price_row.product_id != add_on.product_id {
             return Err(Report::new(StoreError::InvalidArgument(format!(
                 "Price {} belongs to product {}, not {}",
@@ -182,6 +192,7 @@ impl AddOnInterface for Store {
             .ok_or_else(|| Report::new(StoreError::InvalidArgument("Add-on not found".into())))
     }
 
+    #[allow(clippy::too_many_arguments)]
     async fn create_add_on_from_ref(
         &self,
         name: String,
@@ -192,6 +203,7 @@ impl AddOnInterface for Store {
         max_instances_per_subscription: Option<i32>,
         tenant_id: TenantId,
         created_by: Uuid,
+        product_family_id: ProductFamilyId,
     ) -> StoreResult<AddOn> {
         let internal = PriceComponentNewInternal {
             name: name.clone(),
@@ -201,23 +213,6 @@ impl AddOnInterface for Store {
 
         self.transaction(|conn| {
             async move {
-                let product_family_id = {
-                    use diesel::QueryDsl;
-                    use diesel_async::RunQueryDsl;
-                    use diesel_models::schema::product_family::dsl as pf_dsl;
-                    use diesel::ExpressionMethods;
-                    use error_stack::ResultExt;
-                    use diesel_models::errors::IntoDbResult;
-                    pf_dsl::product_family
-                        .filter(pf_dsl::tenant_id.eq(tenant_id))
-                        .select(pf_dsl::id)
-                        .first::<common_domain::ids::ProductFamilyId>(conn)
-                        .await
-                        .attach("Error finding product family for tenant")
-                        .into_db_result()
-                        .map_err(Into::<Report<StoreError>>::into)?
-                };
-
                 let currency = match &internal.prices.first() {
                     Some(PriceEntry::New(input)) => input.currency.clone(),
                     Some(PriceEntry::Existing(pid)) => {
@@ -290,6 +285,11 @@ impl AddOnInterface for Store {
                     .await
                     .map_err(Into::<Report<StoreError>>::into)?;
 
+                let existing_price =
+                    PriceRow::find_by_id_and_tenant_id(conn, existing.price_id, tenant_id)
+                        .await
+                        .map_err(Into::<Report<StoreError>>::into)?;
+
                 let new_price_id = if let Some(entry) = price_entry {
                     match entry {
                         PriceEntry::Existing(pid) => {
@@ -303,9 +303,22 @@ impl AddOnInterface for Store {
                                     pid, price_row.product_id, existing.product_id
                                 ))));
                             }
+                            if price_row.currency != existing_price.currency {
+                                return Err(Report::new(StoreError::InvalidArgument(format!(
+                                    "Price {} currency '{}' does not match add-on currency '{}'",
+                                    pid, price_row.currency, existing_price.currency
+                                ))));
+                            }
                             Some(pid)
                         }
                         PriceEntry::New(input) => {
+                            if input.currency != existing_price.currency {
+                                return Err(Report::new(StoreError::InvalidArgument(format!(
+                                    "Price currency '{}' does not match add-on currency '{}'",
+                                    input.currency, existing_price.currency
+                                ))));
+                            }
+
                             let pricing_json =
                                 serde_json::to_value(&input.pricing).map_err(|e| {
                                     Report::new(StoreError::SerdeError(

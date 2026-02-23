@@ -10,12 +10,14 @@ message AddOn {
   string name = 2;
   optional string description = 3;
   reserved 4;
+  string price_id = 5;
   string product_id = 6;
   meteroid.api.prices.v1.FeeType fee_type = 7;
   meteroid.api.prices.v1.Price price = 8;
   bool self_serviceable = 9;
   optional int32 max_instances_per_subscription = 10;
   optional google.protobuf.Timestamp archived_at = 11;
+  optional meteroid.api.prices.v1.FeeStructure fee_structure = 12;
 }
 
 message PlanVersionAddOn {

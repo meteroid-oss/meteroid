@@ -46,7 +46,10 @@ impl Services {
             conn,
             subscription_id,
             &tenant_id,
-            &format!("Subscription terminated with status {:?}", terminate_with_state),
+            &format!(
+                "Subscription terminated with status {:?}",
+                terminate_with_state
+            ),
         )
         .await
         .map_err(Into::<error_stack::Report<StoreError>>::into)?;

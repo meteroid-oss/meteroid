@@ -367,15 +367,13 @@ impl Services {
 
             // Seed slot transactions for newly added Slot components
             for mapping in component_mappings {
-                if let ComponentMapping::Added { fee, .. } = mapping {
-                    if let Some(tx) =
-                        SlotTransactionNewInternal::from_fee(fee, apply_date)
-                    {
-                        tx.into_row(event.subscription_id)
-                            .insert(conn)
-                            .await
-                            .map_err(Into::<error_stack::Report<StoreError>>::into)?;
-                    }
+                if let ComponentMapping::Added { fee, .. } = mapping
+                    && let Some(tx) = SlotTransactionNewInternal::from_fee(fee, apply_date)
+                {
+                    tx.into_row(event.subscription_id)
+                        .insert(conn)
+                        .await
+                        .map_err(Into::<error_stack::Report<StoreError>>::into)?;
                 }
             }
 
@@ -408,12 +406,19 @@ impl Services {
             )
             .unwrap_or(2);
 
-            let new_mrr: i64 = sub_details
+            let component_mrr: i64 = sub_details
                 .price_components
                 .iter()
                 .map(|c| calculate_mrr(&c.fee, &c.period, precision))
                 .sum();
 
+            let add_on_mrr: i64 = sub_details
+                .add_ons
+                .iter()
+                .map(|a| calculate_mrr(&a.fee, &a.period, precision) * a.quantity as i64)
+                .sum();
+
+            let new_mrr = component_mrr + add_on_mrr;
             let old_mrr = sub_details.subscription.mrr_cents as i64;
             let mrr_delta = new_mrr - old_mrr;
 

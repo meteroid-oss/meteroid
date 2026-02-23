@@ -49,10 +49,9 @@ impl PlanVersionAddOnInterface for Store {
 
         // Validate price_id override belongs to the add-on's product
         if let Some(price_id) = new.price_id {
-            let price_row =
-                PriceRow::find_by_id_and_tenant_id(&mut conn, price_id, new.tenant_id)
-                    .await
-                    .map_err(Into::<Report<StoreError>>::into)?;
+            let price_row = PriceRow::find_by_id_and_tenant_id(&mut conn, price_id, new.tenant_id)
+                .await
+                .map_err(Into::<Report<StoreError>>::into)?;
             if price_row.product_id != add_on.product_id {
                 return Err(Report::new(StoreError::InvalidArgument(format!(
                     "Price {} belongs to product {}, not add-on product {}",
@@ -91,13 +90,10 @@ impl PlanVersionAddOnInterface for Store {
     ) -> StoreResult<Vec<PlanVersionAddOn>> {
         let mut conn = self.get_conn().await?;
 
-        let rows = PlanVersionAddOnRow::list_by_plan_version_id(
-            &mut conn,
-            plan_version_id,
-            tenant_id,
-        )
-        .await
-        .map_err(Into::<Report<StoreError>>::into)?;
+        let rows =
+            PlanVersionAddOnRow::list_by_plan_version_id(&mut conn, plan_version_id, tenant_id)
+                .await
+                .map_err(Into::<Report<StoreError>>::into)?;
 
         Ok(rows.into_iter().map(Into::into).collect())
     }

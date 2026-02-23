@@ -125,7 +125,13 @@ pub fn process_create_subscription_add_ons(
     prices: &HashMap<common_domain::ids::PriceId, crate::domain::prices::Price>,
     product_family_id: ProductFamilyId,
     currency: &str,
-) -> Result<(Vec<SubscriptionAddOnNewInternal>, Vec<PendingMaterialization>), Report<StoreError>> {
+) -> Result<
+    (
+        Vec<SubscriptionAddOnNewInternal>,
+        Vec<PendingMaterialization>,
+    ),
+    Report<StoreError>,
+> {
     let mut processed_add_ons = Vec::new();
     let mut pending_materializations = Vec::new();
 
@@ -142,13 +148,13 @@ pub fn process_create_subscription_add_ons(
                 ))));
             }
 
-            if let Some(max) = add_on.max_instances_per_subscription {
-                if cs_ao.quantity > max {
-                    return Err(Report::new(StoreError::InvalidArgument(format!(
-                        "add-on {} quantity {} exceeds max_instances_per_subscription {}",
-                        cs_ao.add_on_id, cs_ao.quantity, max
-                    ))));
-                }
+            if let Some(max) = add_on.max_instances_per_subscription
+                && cs_ao.quantity > max
+            {
+                return Err(Report::new(StoreError::InvalidArgument(format!(
+                    "add-on {} quantity {} exceeds max_instances_per_subscription {}",
+                    cs_ao.add_on_id, cs_ao.quantity, max
+                ))));
             }
 
             let resolved = add_on
@@ -158,17 +164,17 @@ pub fn process_create_subscription_add_ons(
             let idx = processed_add_ons.len();
 
             // If price_id is None and the override uses PriceEntry::New, we need materialization
-            if resolved.price_id.is_none() {
-                if let Some(PriceEntry::New(_)) = &resolved.price_entry {
-                    pending_materializations.push(PendingMaterialization {
-                        component_index: idx,
-                        name: resolved.name.clone(),
-                        product_ref: ProductRef::Existing(add_on.product_id),
-                        price_entry: resolved.price_entry.clone().unwrap(),
-                        product_family_id,
-                        currency: currency.to_string(),
-                    });
-                }
+            if resolved.price_id.is_none()
+                && let Some(PriceEntry::New(_)) = &resolved.price_entry
+            {
+                pending_materializations.push(PendingMaterialization {
+                    component_index: idx,
+                    name: resolved.name.clone(),
+                    product_ref: ProductRef::Existing(add_on.product_id),
+                    price_entry: resolved.price_entry.clone().unwrap(),
+                    product_family_id,
+                    currency: currency.to_string(),
+                });
             }
 
             processed_add_ons.push(SubscriptionAddOnNewInternal {

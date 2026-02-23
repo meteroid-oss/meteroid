@@ -2,7 +2,7 @@
 CREATE TABLE plan_version_add_on (
     id UUID PRIMARY KEY,
     plan_version_id UUID NOT NULL REFERENCES plan_version(id),
-    add_on_id UUID NOT NULL REFERENCES add_on(id) ON DELETE CASCADE,
+    add_on_id UUID NOT NULL REFERENCES add_on(id) ON DELETE RESTRICT,
     price_id UUID REFERENCES price(id),
     self_serviceable BOOLEAN,
     max_instances_per_subscription INTEGER,

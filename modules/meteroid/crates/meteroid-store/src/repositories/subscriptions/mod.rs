@@ -726,7 +726,7 @@ impl SubscriptionInterface for Store {
 //     }
 // }
 
-async fn fetch_prices_and_products(
+pub(crate) async fn fetch_prices_and_products(
     conn: &mut PgConn,
     tenant_id: TenantId,
     price_ids: impl Iterator<Item = PriceId>,
@@ -762,7 +762,7 @@ async fn fetch_prices_and_products(
     Ok((prices_by_id, products_by_id))
 }
 
-fn resolve_fee_from_maps(
+pub(crate) fn resolve_fee_from_maps(
     price_id: Option<PriceId>,
     product_id: Option<ProductId>,
     prices_by_id: &HashMap<PriceId, Price>,

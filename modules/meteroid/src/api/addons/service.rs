@@ -5,20 +5,21 @@ use crate::api::pricecomponents::mapping::components::{
     price_entries_from_proto, product_ref_from_proto,
 };
 use crate::api::utils::PaginationExt;
-use common_domain::ids::{AddOnId, PlanVersionId, PriceId};
+use common_domain::ids::{AddOnId, PlanVersionId, PriceId, ProductFamilyId};
 use common_grpc::middleware::server::auth::RequestExt;
 use meteroid_grpc::meteroid::api::addons::v1::add_ons_service_server::AddOnsService;
 use meteroid_grpc::meteroid::api::addons::v1::{
     AttachAddOnToPlanVersionRequest, AttachAddOnToPlanVersionResponse, CreateAddOnRequest,
     CreateAddOnResponse, DetachAddOnFromPlanVersionRequest, DetachAddOnFromPlanVersionResponse,
-    EditAddOnRequest, EditAddOnResponse, GetAddOnRequest, GetAddOnResponse,
-    ListAddOnRequest, ListAddOnResponse, ListPlanVersionAddOnsRequest,
-    ListPlanVersionAddOnsResponse, RemoveAddOnRequest, RemoveAddOnResponse,
+    EditAddOnRequest, EditAddOnResponse, GetAddOnRequest, GetAddOnResponse, ListAddOnRequest,
+    ListAddOnResponse, ListPlanVersionAddOnsRequest, ListPlanVersionAddOnsResponse,
+    RemoveAddOnRequest, RemoveAddOnResponse,
 };
 use meteroid_store::domain::add_ons::AddOnPatch;
 use meteroid_store::domain::plan_version_add_ons::PlanVersionAddOnNew;
 use meteroid_store::repositories::add_ons::AddOnInterface;
 use meteroid_store::repositories::plan_version_add_ons::PlanVersionAddOnInterface;
+use meteroid_store::repositories::product_families::ProductFamilyInterface;
 use tonic::{Request, Response, Status};
 
 #[tonic::async_trait]
@@ -35,7 +36,7 @@ impl AddOnsService for AddOnsServiceComponents {
             .plan_version_id
             .as_deref()
             .filter(|s| !s.is_empty())
-            .map(|s| PlanVersionId::from_proto(s))
+            .map(PlanVersionId::from_proto)
             .transpose()?;
         let pagination_req = req.pagination.into_domain();
 
@@ -75,6 +76,17 @@ impl AddOnsService for AddOnsServiceComponents {
             .next()
             .ok_or_else(|| Status::invalid_argument("price is required"))?;
 
+        let pf_id = match req.product_family_local_id.filter(|s| !s.is_empty()) {
+            Some(id) => ProductFamilyId::from_proto(id)?,
+            None => {
+                self.store
+                    .find_default_product_family(tenant_id)
+                    .await
+                    .map_err(Into::<AddOnApiError>::into)?
+                    .id
+            }
+        };
+
         let added = self
             .store
             .create_add_on_from_ref(
@@ -86,6 +98,7 @@ impl AddOnsService for AddOnsServiceComponents {
                 req.max_instances_per_subscription,
                 tenant_id,
                 actor,
+                pf_id,
             )
             .await
             .map(|x| AddOnWrapper::from(x).0)
@@ -195,7 +208,7 @@ impl AddOnsService for AddOnsServiceComponents {
             .price_id
             .as_deref()
             .filter(|s| !s.is_empty())
-            .map(|s| PriceId::from_proto(s))
+            .map(PriceId::from_proto)
             .transpose()?;
 
         let new = PlanVersionAddOnNew {

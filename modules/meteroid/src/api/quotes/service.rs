@@ -139,34 +139,33 @@ impl QuotesService for QuoteServiceComponents {
 
             let create_components = create_subscription_components_from_grpc(components)?;
 
-            // Load products referenced by price components
+            // Load products referenced by price components and extra components
             let pc_product_ids: Vec<ProductId> = price_components
                 .iter()
                 .filter_map(|c| c.product_id)
-                .collect();
-            let mut products_map = std::collections::HashMap::new();
-            if !pc_product_ids.is_empty() {
-                for pid in &pc_product_ids {
-                    if let Ok(product) = self.store.find_product_by_id(*pid, tenant_id).await {
-                        products_map.insert(product.id, product);
+                .chain(create_components.extra_components.iter().filter_map(|ex| {
+                    if let meteroid_store::domain::price_components::ProductRef::Existing(pid) =
+                        &ex.product_ref
+                    {
+                        Some(*pid)
+                    } else {
+                        None
                     }
-                }
-            }
+                }))
+                .collect();
 
-            // Also load products from extra components (product library)
-            for extra in &create_components.extra_components {
-                if let meteroid_store::domain::price_components::ProductRef::Existing(pid) =
-                    &extra.product_ref
-                    && !products_map.contains_key(pid)
-                {
-                    let product = self
-                        .store
-                        .find_product_by_id(*pid, tenant_id)
-                        .await
-                        .map_err(Into::<QuoteApiError>::into)?;
-                    products_map.insert(product.id, product);
-                }
-            }
+            let products_map: std::collections::HashMap<ProductId, _> = if pc_product_ids.is_empty()
+            {
+                std::collections::HashMap::new()
+            } else {
+                self.store
+                    .find_products_by_ids(&pc_product_ids, tenant_id)
+                    .await
+                    .map_err(Into::<QuoteApiError>::into)?
+                    .into_iter()
+                    .map(|p| (p.id, p))
+                    .collect()
+            };
 
             // Batch-load all existing prices from overrides and extras
             let existing_price_ids: Vec<PriceId> = create_components
@@ -213,6 +212,11 @@ impl QuotesService for QuoteServiceComponents {
             .await
             .map_err(Into::<QuoteApiError>::into)?;
 
+        let plan_version = plan_with_version
+            .version
+            .as_ref()
+            .ok_or_else(|| QuoteApiError::InvalidArgument("Plan version not found".to_string()))?;
+
         // Process quote add-ons (fetch add-on details first)
         let (quote_add_ons, pending_addon_materializations) = if let Some(add_ons_proto) =
             quote.add_ons
@@ -256,11 +260,7 @@ impl QuotesService for QuoteServiceComponents {
                     &prices_map,
                     quote_id,
                     plan_with_version.plan.product_family_id,
-                    &plan_with_version
-                        .version
-                        .as_ref()
-                        .map(|v| v.currency.as_str())
-                        .unwrap_or(&quote_new.currency),
+                    &plan_version.currency,
                 )?
             } else {
                 (vec![], vec![])
@@ -781,17 +781,17 @@ fn process_quote_add_ons(
 
         let idx = processed_add_ons.len();
 
-        if resolved.price_id.is_none() {
-            if let Some(PriceEntry::New(_)) = &resolved.price_entry {
-                pending_materializations.push(PendingMaterialization {
-                    component_index: idx,
-                    name: resolved.name.clone(),
-                    product_ref: ProductRef::Existing(add_on.product_id),
-                    price_entry: resolved.price_entry.clone().unwrap(),
-                    product_family_id,
-                    currency: currency.to_string(),
-                });
-            }
+        if resolved.price_id.is_none()
+            && let Some(PriceEntry::New(_)) = &resolved.price_entry
+        {
+            pending_materializations.push(PendingMaterialization {
+                component_index: idx,
+                name: resolved.name.clone(),
+                product_ref: ProductRef::Existing(add_on.product_id),
+                price_entry: resolved.price_entry.clone().unwrap(),
+                product_family_id,
+                currency: currency.to_string(),
+            });
         }
 
         processed_add_ons.push(QuoteAddOnNew {

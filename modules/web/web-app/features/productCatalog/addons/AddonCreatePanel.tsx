@@ -29,7 +29,7 @@ import {
 } from '@md/ui'
 import { useQueryClient } from '@tanstack/react-query'
 import { InfoIcon } from 'lucide-react'
-import { useId, useState } from 'react'
+import { useEffect, useId, useState } from 'react'
 import { useNavigate } from 'react-router-dom'
 
 import { CustomCreationFlow, IdentitySchema } from '@/features/addons/CustomCreationFlow'
@@ -48,6 +48,7 @@ import {
   listAddOns,
 } from '@/rpc/api/addons/v1/addons-AddOnsService_connectquery'
 import { listTenantCurrencies } from '@/rpc/api/tenants/v1/tenants-TenantsService_connectquery'
+import { listProductFamilies } from '@/rpc/api/productfamilies/v1/productfamilies-ProductFamiliesService_connectquery'
 
 import type { ComponentFeeType } from '@/features/pricing/conversions'
 
@@ -57,6 +58,18 @@ export const AddonCreatePanel = () => {
   const navigate = useNavigate()
   const queryClient = useQueryClient()
   const switchId = useId()
+
+  const familiesQuery = useQuery(listProductFamilies)
+  const families = (familiesQuery.data?.productFamilies ?? []).sort((a, b) =>
+    a.id > b.id ? 1 : -1
+  )
+  const [productFamilyLocalId, setProductFamilyLocalId] = useState<string | undefined>()
+
+  useEffect(() => {
+    if (families[0]?.localId) {
+      setProductFamilyLocalId(families[0].localId)
+    }
+  }, [families])
 
   const activeCurrenciesQuery = useQuery(listTenantCurrencies)
   const activeCurrencies = activeCurrenciesQuery.data?.currencies ?? []
@@ -112,6 +125,7 @@ export const AddonCreatePanel = () => {
       price: wrapAsNewPriceEntries(priceInputs)[0],
       selfServiceable,
       maxInstancesPerSubscription,
+      productFamilyLocalId,
     })
   }
 
@@ -132,6 +146,7 @@ export const AddonCreatePanel = () => {
       price: wrapAsNewPriceEntries(priceInputs)[0],
       selfServiceable,
       maxInstancesPerSubscription,
+      productFamilyLocalId,
     })
   }
 
@@ -151,6 +166,23 @@ export const AddonCreatePanel = () => {
           <SheetDescription>Create a new catalog add-on</SheetDescription>
         </SheetHeader>
         <div className="space-y-4 mb-4 pb-4 border-b border-border">
+          {families.length > 1 && (
+            <div className="flex items-center gap-3">
+              <Label className="text-sm font-medium text-muted-foreground w-36">Product line</Label>
+              <Select value={productFamilyLocalId} onValueChange={setProductFamilyLocalId}>
+                <SelectTrigger className="w-[180px]">
+                  <SelectValue placeholder="Select" />
+                </SelectTrigger>
+                <SelectContent>
+                  {families.map(f => (
+                    <SelectItem key={f.localId} value={f.localId}>
+                      {f.name}
+                    </SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
+            </div>
+          )}
           <div className="flex items-center gap-3">
             <Label className="text-sm font-medium text-muted-foreground w-36">Currency</Label>
             <Select value={currency} onValueChange={setCurrency}>

@@ -10,7 +10,7 @@ import {
   Skeleton,
 } from '@md/ui'
 import { useQueryClient } from '@tanstack/react-query'
-import { Trash2Icon } from 'lucide-react'
+import { PencilIcon, Trash2Icon } from 'lucide-react'
 import { useNavigate, useParams } from 'react-router-dom'
 
 import { LocalId } from '@/components/LocalId'
@@ -89,14 +89,23 @@ export const AddonDetailPanel = () => {
                   {Icon && <Icon className="w-5 h-5 text-muted-foreground" />}
                   <h3 className="text-lg font-semibold">{addOn.name}</h3>
                 </div>
-                <Button
-                  variant="ghost"
-                  size="icon"
-                  className="text-destructive hover:text-destructive"
-                  onClick={handleRemove}
-                >
-                  <Trash2Icon size={16} />
-                </Button>
+                <div className="flex items-center gap-1">
+                  <Button
+                    variant="ghost"
+                    size="icon"
+                    onClick={() => navigate(`../edit/${addOn.id}`)}
+                  >
+                    <PencilIcon size={16} />
+                  </Button>
+                  <Button
+                    variant="ghost"
+                    size="icon"
+                    className="text-destructive hover:text-destructive"
+                    onClick={handleRemove}
+                  >
+                    <Trash2Icon size={16} />
+                  </Button>
+                </div>
               </div>
               <LocalId localId={addOn.id} className="max-w-24" />
               {addOn.description && (

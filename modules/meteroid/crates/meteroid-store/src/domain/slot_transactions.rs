@@ -56,10 +56,7 @@ impl SlotTransactionNewInternal {
     }
 
     /// Convert into a row ready for insertion.
-    pub fn into_row(
-        self,
-        subscription_id: SubscriptionId,
-    ) -> SlotTransactionRow {
+    pub fn into_row(self, subscription_id: SubscriptionId) -> SlotTransactionRow {
         SlotTransactionRow {
             id: self.id,
             subscription_id,

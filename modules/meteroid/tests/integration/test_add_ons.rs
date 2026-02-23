@@ -32,11 +32,9 @@ async fn test_add_ons_basic() {
                         name: "Test Add-on Product".into(),
                         fee_type: api::prices::v1::FeeType::Rate.into(),
                         fee_structure: Some(api::prices::v1::FeeStructure {
-                            structure: Some(
-                                api::prices::v1::fee_structure::Structure::Rate(
-                                    api::prices::v1::fee_structure::RateStructure {},
-                                ),
-                            ),
+                            structure: Some(api::prices::v1::fee_structure::Structure::Rate(
+                                api::prices::v1::fee_structure::RateStructure {},
+                            )),
                         }),
                     },
                 )),
@@ -46,19 +44,18 @@ async fn test_add_ons_basic() {
                     api::components::v1::PriceInput {
                         cadence: api::shared::v1::BillingPeriod::Monthly.into(),
                         currency: "USD".into(),
-                        pricing: Some(
-                            api::components::v1::price_input::Pricing::RatePricing(
-                                api::prices::v1::RatePricing {
-                                    rate: "9.99".into(),
-                                },
-                            ),
-                        ),
+                        pricing: Some(api::components::v1::price_input::Pricing::RatePricing(
+                            api::prices::v1::RatePricing {
+                                rate: "9.99".into(),
+                            },
+                        )),
                     },
                 )),
             }),
             description: Some("A test add-on".into()),
             self_serviceable: true,
             max_instances_per_subscription: Some(3),
+            product_family_local_id: None,
         })
         .await
         .unwrap()

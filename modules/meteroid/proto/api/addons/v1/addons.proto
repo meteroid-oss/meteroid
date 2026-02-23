@@ -25,6 +25,7 @@ message CreateAddOnRequest {
   optional string description = 5;
   bool self_serviceable = 6;
   optional int32 max_instances_per_subscription = 7;
+  optional string product_family_local_id = 8;
 }
 
 message CreateAddOnResponse {

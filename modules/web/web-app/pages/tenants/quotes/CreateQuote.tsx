@@ -28,6 +28,7 @@ import { customAlphabet } from 'nanoid'
 import { useEffect, useState } from 'react'
 import { useFieldArray } from 'react-hook-form'
 import { useNavigate } from 'react-router-dom'
+import { toast } from 'sonner'
 import { z } from 'zod'
 
 import { AddOnCouponSelector } from '@/features/addons/AddOnCouponSelector'
@@ -181,7 +182,7 @@ export const CreateQuote = () => {
       navigate(`${basePath}/quotes/${data.quote?.quote?.id}`)
     },
     onError: error => {
-      console.error('Failed to create quote:', error)
+      toast.error(`Failed to create quote: ${error.message}`)
     },
   })
 
@@ -433,7 +434,8 @@ export const CreateQuote = () => {
 
       await createQuoteMutation.mutateAsync(request)
     } catch (error) {
-      console.error('Failed to create quote:', error)
+      const message = error instanceof Error ? error.message : 'Unknown error'
+      toast.error(`Failed to create quote: ${message}`)
     }
   }
 
@@ -471,17 +473,17 @@ export const CreateQuote = () => {
 
     const components: PartialMessage<QuoteComponent>[] = getPreviewPricingComponents()
 
-    const addOnItems = selectedAddOns.map(sel => {
+    const addOnItems = selectedAddOns.flatMap(sel => {
       const addOn = availableAddOns.find(a => a.id === sel.addOnId)
-      if (!addOn?.price) return undefined
-      return {
+      if (!addOn?.price) return []
+      return [{
         id: addOn.id,
         name: addOn.name,
         quantity: 1,
         period: priceToSubscriptionPeriod(addOn.price),
         fee: priceToSubscriptionFee(addOn.price),
-      }
-    }).filter(Boolean)
+      }]
+    })
 
     return new DetailedQuote({
       quote,

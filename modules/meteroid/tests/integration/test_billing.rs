@@ -669,7 +669,8 @@ async fn test_mrr_cancellation_at_period_boundary(
     let subscription = get_subscription_row(conn, subscription_id).await;
     assert_eq!(subscription.status, SubscriptionStatusEnum::Cancelled);
     assert_eq!(
-        subscription.mrr_cents, 0,
+        subscription.mrr_cents,
+        0,
         "MRR must be 0 after period-boundary cancellation, got {} (negative={}, as u64={})",
         subscription.mrr_cents,
         subscription.mrr_cents < 0,

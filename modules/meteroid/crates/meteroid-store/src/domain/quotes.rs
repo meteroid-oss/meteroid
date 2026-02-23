@@ -205,7 +205,11 @@ impl TryInto<QuoteComponentRowNew> for QuotePriceComponentNew {
     type Error = StoreErrorReport;
 
     fn try_into(self) -> Result<QuoteComponentRowNew, Self::Error> {
-        let legacy_fee: serde_json::Value = self.fee.try_into()?;
+        let legacy_fee = if self.price_id.is_some() {
+            None
+        } else {
+            Some(self.fee.try_into()?)
+        };
 
         Ok(QuoteComponentRowNew {
             id: QuotePriceComponentId::new(),
@@ -214,7 +218,7 @@ impl TryInto<QuoteComponentRowNew> for QuotePriceComponentNew {
             price_component_id: self.price_component_id,
             product_id: self.product_id,
             period: self.period.into(),
-            legacy_fee: Some(legacy_fee),
+            legacy_fee,
             is_override: self.is_override,
             price_id: self.price_id,
         })

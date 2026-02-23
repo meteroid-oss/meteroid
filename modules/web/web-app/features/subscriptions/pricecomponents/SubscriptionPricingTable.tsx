@@ -55,13 +55,10 @@ const SubscriptionFeeDetail = ({
   currency: string
 }) => {
   if (!fee || !fee.fee.case) {
-    console.log('No fee information', fee)
-
     return <span className="text-muted-foreground">No fee information</span>
   }
 
   const formatted = formatSubscriptionFee(fee, currency)
-  console.log('formatted', formatted)
 
   return (
     <div className="space-y-1">
@@ -89,7 +86,6 @@ export const SubscriptionPricingTable: FC<Props> = ({
   labelClassName,
   label = 'Pricing',
 }) => {
-  console.log('SubscriptionPricingTable components', components)
   if (!components || components.length === 0) {
     return (
       <div className={cn('bg-card rounded-lg shadow-sm', className)}>
@@ -134,7 +130,9 @@ export const SubscriptionPricingTable: FC<Props> = ({
                   index % 2 === 0 ? 'bg-card' : 'bg-muted/10 border-t border-b border-border'
                 }
               >
-                <td className="px-4 py-3 text-sm font-medium text-foreground align-top">{component.name}</td>
+                <td className="px-4 py-3 text-sm font-medium text-foreground align-top">
+                  {component.name}
+                </td>
                 <td className="px-4 py-3 text-sm text-muted-foreground align-top">
                   {formatBillingPeriod(component.period)}
                 </td>
