@@ -40,9 +40,17 @@ impl AddOnsService for AddOnsServiceComponents {
             .transpose()?;
         let pagination_req = req.pagination.into_domain();
 
+        let currency = req.currency.filter(|s| !s.is_empty());
+
         let add_ons = self
             .store
-            .list_add_ons(tenant_id, plan_version_id, pagination_req, req.search)
+            .list_add_ons(
+                tenant_id,
+                plan_version_id,
+                pagination_req,
+                req.search,
+                currency,
+            )
             .await
             .map_err(Into::<AddOnApiError>::into)?;
 

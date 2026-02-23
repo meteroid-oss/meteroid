@@ -10,6 +10,7 @@ message ListAddOnRequest {
   optional string plan_version_id = 1;
   optional string search = 2;
   meteroid.common.v1.Pagination pagination = 3;
+  optional string currency = 4;
 }
 
 message ListAddOnResponse {

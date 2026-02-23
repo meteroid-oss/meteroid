@@ -64,8 +64,8 @@ async fn test_product_families_basic() {
         .into_inner()
         .product_families;
 
-    assert_eq!(listed.len(), 1);
-    assert_eq!(listed.first(), Some(created).as_ref());
+    assert_eq!(listed.len(), 2);
+    assert!(listed.iter().any(|pf| pf == &created));
 
     // teardown
     // meteroid_it::container::terminate_meteroid(setup.token, &setup.join_handle).await

@@ -90,10 +90,11 @@ export const AddAddOnPanel = () => {
     defaultValues: { productName: '', description: '' },
   })
 
-  // Query all catalog add-ons (no plan filter)
+  // Query catalog add-ons filtered by plan currency
   const catalogAddOns = useQuery(listAddOns, {
     pagination: { perPage: 100, page: 0 },
     search: debouncedSearch || undefined,
+    currency,
   })
 
   // Query add-ons already attached to this plan version
@@ -332,7 +333,8 @@ const CatalogBrowser = ({
             const componentFeeType = feeTypeEnumToComponentFeeType(addOn.feeType)
             const Icon = feeTypeIcon(componentFeeType)
             const feeLabel = feeTypeToHuman(componentFeeType)
-            const priceBadges = priceSummaryBadges(componentFeeType, addOn.price, currency)
+            const addOnCurrency = addOn.price?.currency ?? currency
+            const priceBadges = priceSummaryBadges(componentFeeType, addOn.price, addOnCurrency)
             const cadence = addOn.price ? formatCadence(addOn.price.cadence) : '-'
 
             return (
@@ -387,7 +389,7 @@ const CatalogBrowser = ({
                 </div>
                 {isExpanded && addOn.price && (
                   <div className="px-3 pb-3 pt-0 border-t border-border mt-0">
-                    <PricingDetailsView prices={[addOn.price]} currency={currency} />
+                    <PricingDetailsView prices={[addOn.price]} currency={addOnCurrency} />
                   </div>
                 )}
               </div>

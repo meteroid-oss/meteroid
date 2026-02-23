@@ -4,6 +4,7 @@ use crate::{Store, StoreResult};
 use common_domain::ids::{AddOnId, PlanVersionId, TenantId};
 use diesel_models::add_ons::AddOnRow;
 use diesel_models::plan_version_add_ons::{PlanVersionAddOnRow, PlanVersionAddOnRowNew};
+use diesel_models::plan_versions::PlanVersionRow;
 use diesel_models::prices::PriceRow;
 use error_stack::Report;
 
@@ -46,6 +47,22 @@ impl PlanVersionAddOnInterface for Store {
         let add_on = AddOnRow::get_by_id(&mut conn, new.tenant_id, new.add_on_id)
             .await
             .map_err(Into::<Report<StoreError>>::into)?;
+
+        // Validate the add-on's price currency matches the plan version's currency
+        let plan_version =
+            PlanVersionRow::find_by_id_and_tenant_id(&mut conn, new.plan_version_id, new.tenant_id)
+                .await
+                .map_err(Into::<Report<StoreError>>::into)?;
+        let addon_price =
+            PriceRow::find_by_id_and_tenant_id(&mut conn, add_on.price_id, new.tenant_id)
+                .await
+                .map_err(Into::<Report<StoreError>>::into)?;
+        if addon_price.currency != plan_version.currency {
+            return Err(Report::new(StoreError::InvalidArgument(format!(
+                "Add-on currency '{}' does not match plan version currency '{}'",
+                addon_price.currency, plan_version.currency
+            ))));
+        }
 
         // Validate price_id override belongs to the add-on's product
         if let Some(price_id) = new.price_id {

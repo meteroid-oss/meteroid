@@ -21,6 +21,7 @@ pub trait AddOnInterface {
         plan_version_id: Option<PlanVersionId>,
         pagination: PaginationRequest,
         search: Option<String>,
+        currency: Option<String>,
     ) -> StoreResult<PaginatedVec<AddOn>>;
 
     async fn list_add_ons_by_ids(
@@ -115,6 +116,7 @@ impl AddOnInterface for Store {
         plan_version_id: Option<PlanVersionId>,
         pagination: PaginationRequest,
         search: Option<String>,
+        currency: Option<String>,
     ) -> StoreResult<PaginatedVec<AddOn>> {
         let mut conn = self.get_conn().await?;
 
@@ -124,6 +126,7 @@ impl AddOnInterface for Store {
             plan_version_id,
             pagination.into(),
             search,
+            currency,
         )
         .await
         .map_err(Into::<Report<StoreError>>::into)?;

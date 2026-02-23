@@ -53,7 +53,8 @@ export const AddOnCard: React.FC<Props> = ({ addOn }) => {
   const planWithVersion = usePlanWithVersion()
   const queryClient = useQueryClient()
   const isDraft = useIsDraftVersion()
-  const currency = useCurrency()
+  const planCurrency = useCurrency()
+  const currency = addOn.price?.currency ?? planCurrency
   const showConfirmationModal = useConfirmationModal()
 
   const prices = addOn.price ? [addOn.price] : []

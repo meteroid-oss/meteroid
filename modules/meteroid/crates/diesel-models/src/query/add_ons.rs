@@ -46,12 +46,14 @@ impl AddOnRow {
     }
 
     /// List add-ons for a tenant. If `plan_version_id` is provided, filters through the junction table.
+    /// If `currency` is provided, filters add-ons whose price matches that currency.
     pub async fn list_by_tenant_id(
         conn: &mut PgConn,
         tenant_id: TenantId,
         plan_version_id: Option<PlanVersionId>,
         pagination: PaginationRequest,
         search: Option<String>,
+        currency: Option<String>,
     ) -> DbResult<PaginatedVec<AddOnRow>> {
         use crate::schema::add_on::dsl as ao_dsl;
 
@@ -68,6 +70,16 @@ impl AddOnRow {
                 .select(pva_dsl::add_on_id);
 
             query = query.filter(ao_dsl::id.eq_any(add_on_ids_subquery));
+        }
+
+        if let Some(currency) = currency {
+            use crate::schema::price::dsl as p_dsl;
+
+            let price_ids_subquery = p_dsl::price
+                .filter(p_dsl::currency.eq(currency))
+                .select(p_dsl::id);
+
+            query = query.filter(ao_dsl::price_id.eq_any(price_ids_subquery));
         }
 
         if let Some(search) = search {
