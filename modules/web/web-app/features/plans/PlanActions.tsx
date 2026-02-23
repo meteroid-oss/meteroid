@@ -22,8 +22,8 @@ import {
 } from '@/features/plans/hooks/usePlan'
 import { editedComponentsAtom } from '@/features/plans/pricecomponents/utils'
 import { useBasePath } from '@/hooks/useBasePath'
-import { PlanStatus } from '@/rpc/api/plans/v1/models_pb'
 import { listAddOns } from '@/rpc/api/addons/v1/addons-AddOnsService_connectquery'
+import { PlanStatus } from '@/rpc/api/plans/v1/models_pb'
 import {
   archivePlan,
   copyVersionToDraft,

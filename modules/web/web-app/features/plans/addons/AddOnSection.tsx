@@ -3,8 +3,8 @@ import { Button } from '@md/ui'
 import { useNavigate } from 'react-router-dom'
 
 import { PageSection } from '@/components/layouts/shared/PageSection'
-import { useIsDraftVersion, usePlanWithVersion } from '@/features/plans/hooks/usePlan'
 import { AddOnCard } from '@/features/plans/addons/AddOnCard'
+import { useIsDraftVersion, usePlanWithVersion } from '@/features/plans/hooks/usePlan'
 import { useQuery } from '@/lib/connectrpc'
 import { listAddOns } from '@/rpc/api/addons/v1/addons-AddOnsService_connectquery'
 

@@ -4,9 +4,9 @@ import { useMemo } from 'react'
 import { useNavigate } from 'react-router-dom'
 
 import { LocalId } from '@/components/LocalId'
+import { StandardTable } from '@/components/table/StandardTable'
 import { feeTypeEnumToComponentFeeType } from '@/features/plans/addons/AddOnCard'
 import { feeTypeToHuman, priceSummaryBadges } from '@/features/plans/pricecomponents/utils'
-import { StandardTable } from '@/components/table/StandardTable'
 import { ListAddOnResponse } from '@/rpc/api/addons/v1/addons_pb'
 import { AddOn } from '@/rpc/api/addons/v1/models_pb'
 

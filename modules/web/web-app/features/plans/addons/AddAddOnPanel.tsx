@@ -25,16 +25,14 @@ import {
 import { useQueryClient } from '@tanstack/react-query'
 import { Check, ChevronDownIcon, ChevronRightIcon, Plus } from 'lucide-react'
 import { useEffect, useState } from 'react'
-
-import { useDebounceValue } from '@/hooks/useDebounce'
 import { useNavigate } from 'react-router-dom'
 import { toast } from 'sonner'
 
 import { CustomCreationFlow, IdentitySchema } from '@/features/addons/CustomCreationFlow'
-import { usePlanWithVersion } from '@/features/plans/hooks/usePlan'
 import { feeTypeEnumToComponentFeeType } from '@/features/plans/addons/AddOnCard'
-import { PricingDetailsView } from '@/features/plans/pricecomponents/components/PricingDetailsView'
+import { usePlanWithVersion } from '@/features/plans/hooks/usePlan'
 import { ProductBrowser } from '@/features/plans/pricecomponents/ProductBrowser'
+import { PricingDetailsView } from '@/features/plans/pricecomponents/components/PricingDetailsView'
 import {
   feeTypeIcon,
   feeTypeToHuman,
@@ -48,9 +46,10 @@ import {
   toPricingTypeFromFeeType,
   wrapAsNewPriceEntries,
 } from '@/features/pricing/conversions'
-import { formatCadence } from '@/lib/mapping/prices'
+import { useDebounceValue } from '@/hooks/useDebounce'
 import { useZodForm } from '@/hooks/useZodForm'
 import { useQuery } from '@/lib/connectrpc'
+import { formatCadence } from '@/lib/mapping/prices'
 import {
   attachAddOnToPlanVersion,
   createAddOn,
@@ -58,8 +57,8 @@ import {
 } from '@/rpc/api/addons/v1/addons-AddOnsService_connectquery'
 import { listProductFamilies } from '@/rpc/api/productfamilies/v1/productfamilies-ProductFamiliesService_connectquery'
 
-import type { AddOn } from '@/rpc/api/addons/v1/models_pb'
 import type { ComponentFeeType } from '@/features/pricing/conversions'
+import type { AddOn } from '@/rpc/api/addons/v1/models_pb'
 
 export const AddAddOnPanel = () => {
   const navigate = useNavigate()

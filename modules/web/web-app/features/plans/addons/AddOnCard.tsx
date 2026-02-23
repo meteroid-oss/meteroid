@@ -10,12 +10,12 @@ import { useMemo, useState } from 'react'
 
 import { LocalId } from '@/components/LocalId'
 import { useIsDraftVersion, usePlanWithVersion } from '@/features/plans/hooks/usePlan'
-import { PriceComponentProperty } from '@/features/plans/pricecomponents/components/PriceComponentProperty'
-import { PricingDetailsView } from '@/features/plans/pricecomponents/components/PricingDetailsView'
 import {
   deriveSummary,
   ProductLinkedItem,
 } from '@/features/plans/pricecomponents/PriceComponentCard'
+import { PriceComponentProperty } from '@/features/plans/pricecomponents/components/PriceComponentProperty'
+import { PricingDetailsView } from '@/features/plans/pricecomponents/components/PricingDetailsView'
 import { useCurrency } from '@/features/plans/pricecomponents/utils'
 import {
   detachAddOnFromPlanVersion,
@@ -24,8 +24,8 @@ import {
 import { FeeType } from '@/rpc/api/prices/v1/models_pb'
 import { useConfirmationModal } from 'providers/ConfirmationProvider'
 
-import type { AddOn } from '@/rpc/api/addons/v1/models_pb'
 import type { ComponentFeeType } from '@/features/pricing/conversions'
+import type { AddOn } from '@/rpc/api/addons/v1/models_pb'
 
 export function feeTypeEnumToComponentFeeType(feeType: FeeType): ComponentFeeType {
   switch (feeType) {

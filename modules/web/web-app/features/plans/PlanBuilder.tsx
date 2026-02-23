@@ -12,13 +12,13 @@ import { PageSection } from '@/components/layouts/shared/PageSection'
 import { SimpleTable } from '@/components/table/SimpleTable'
 import { ListPlanVersionTab } from '@/features/plans/ListPlanVersion'
 import { PlanActions } from '@/features/plans/PlanActions'
+import { AddOnSection } from '@/features/plans/addons/AddOnSection'
 import { PlanOverview } from '@/features/plans/details/PlanDetails'
 import {
   useIsDraftVersion,
   usePlanOverview,
   usePlanWithVersion,
 } from '@/features/plans/hooks/usePlan'
-import { AddOnSection } from '@/features/plans/addons/AddOnSection'
 import { PriceComponentSection } from '@/features/plans/pricecomponents/PriceComponentSection'
 import { editedComponentsAtom } from '@/features/plans/pricecomponents/utils'
 import { PlanTrial } from '@/features/plans/trial/PlanTrial'
