@@ -96,8 +96,24 @@ message SubscriptionDetails {
   repeated SubscriptionAddOn add_ons = 5;
   repeated meteroid.api.coupons.v1.AppliedCouponDetailed applied_coupons = 6;
   optional TrialConfig trial_config = 7;
+  repeated PendingScheduledEvent pending_events = 8;
 }
 
+enum ScheduledEventType {
+  PLAN_CHANGE = 0;
+  CANCEL = 1;
+  PAUSE = 2;
+  END_TRIAL = 3;
+}
+
+message PendingScheduledEvent {
+  string id = 1;
+  ScheduledEventType event_type = 2;
+  string scheduled_date = 3;
+  optional string new_plan_name = 4;
+  optional string new_plan_version_id = 5;
+  optional string cancel_reason = 6;
+}
 
 // TODO replace by subscription or even subscription details
 message CreatedSubscription {

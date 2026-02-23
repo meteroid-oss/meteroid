@@ -14,12 +14,14 @@ import {
 import {
   ArrowLeftRight,
   ArrowUpDownIcon,
+  CalendarClock,
   ChevronDown,
   ChevronLeftIcon,
   Clock,
   ExternalLink,
   Pencil,
   RefreshCw,
+  X,
 } from 'lucide-react'
 import { ReactNode, useCallback, useState } from 'react'
 import { Link, useNavigate } from 'react-router-dom'
@@ -49,6 +51,8 @@ import {
 import { ListPlansRequest_SortBy } from '@/rpc/api/plans/v1/plans_pb'
 import {
   PaymentMethodsConfig,
+  PendingScheduledEvent,
+  ScheduledEventType,
   SubscriptionComponent,
   SubscriptionFee,
   SubscriptionFeeBillingPeriod,
@@ -56,6 +60,7 @@ import {
 } from '@/rpc/api/subscriptions/v1/models_pb'
 import {
   activateSubscription,
+  cancelScheduledEvent,
   generateCheckoutToken,
   getSlotsValue,
   getSubscriptionDetails,
@@ -201,6 +206,78 @@ const formatFeeType = (fee: SubscriptionFee | undefined) => {
   if (fee.fee.case === 'usage') return 'Usage'
 
   return 'Unknown'
+}
+
+const scheduledEventLabel = (event: PendingScheduledEvent): { message: string; variant: 'default' | 'warning' | 'destructive' } => {
+  switch (event.eventType) {
+    case ScheduledEventType.PLAN_CHANGE:
+      return {
+        message: `Plan change to "${event.newPlanName}" scheduled for ${parseAndFormatDate(event.scheduledDate)}`,
+        variant: 'default',
+      }
+    case ScheduledEventType.CANCEL:
+      return {
+        message: `Cancellation scheduled for ${parseAndFormatDate(event.scheduledDate)}${event.cancelReason ? ` (${event.cancelReason})` : ''}`,
+        variant: 'destructive',
+      }
+    case ScheduledEventType.PAUSE:
+      return {
+        message: `Pause scheduled for ${parseAndFormatDate(event.scheduledDate)}`,
+        variant: 'warning',
+      }
+    case ScheduledEventType.END_TRIAL:
+      return {
+        message: `Trial ending on ${parseAndFormatDate(event.scheduledDate)}`,
+        variant: 'warning',
+      }
+    default:
+      return {
+        message: `Scheduled event on ${parseAndFormatDate(event.scheduledDate)}`,
+        variant: 'default',
+      }
+  }
+}
+
+const ScheduledEventBanner = ({
+  event,
+  onCancelled,
+}: {
+  event: PendingScheduledEvent
+  subscriptionId: string
+  onCancelled: () => void
+}) => {
+  const cancelMutation = useMutation(cancelScheduledEvent, {
+    onSuccess: () => {
+      toast.success('Scheduled event cancelled')
+      onCancelled()
+    },
+    onError: (error: Error) => {
+      toast.error(`Failed to cancel: ${error.message}`)
+    },
+  })
+
+  const { message, variant } = scheduledEventLabel(event)
+
+  return (
+    <Alert variant={variant}>
+      <div className="flex items-center justify-between gap-2">
+        <div className="flex items-center gap-2">
+          <CalendarClock className="h-4 w-4 shrink-0" />
+          <span className="text-sm">{message}</span>
+        </div>
+        <Button
+          variant="ghost"
+          size="sm"
+          className="h-7 w-7 p-0 shrink-0"
+          onClick={() => cancelMutation.mutate({ eventId: event.id })}
+          disabled={cancelMutation.isPending}
+          title="Cancel scheduled event"
+        >
+          <X className="h-4 w-4" />
+        </Button>
+      </div>
+    </Alert>
+  )
 }
 
 interface SlotUpdateData {
@@ -471,6 +548,20 @@ export const Subscription = () => {
               )}
             </div>
           </Alert>
+        )}
+
+        {/* Pending scheduled events */}
+        {details.pendingEvents.length > 0 && (
+          <div className="space-y-2 mb-6">
+            {details.pendingEvents.map(event => (
+              <ScheduledEventBanner
+                key={event.id}
+                event={event}
+                subscriptionId={data.id}
+                onCancelled={() => subscriptionQuery.refetch()}
+              />
+            ))}
+          </div>
         )}
 
         {/* Revenue summary card */}

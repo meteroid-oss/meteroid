@@ -746,6 +746,16 @@ impl ServicesEdge {
             .await
     }
 
+    pub async fn cancel_scheduled_event(
+        &self,
+        event_id: common_domain::ids::ScheduledEventId,
+        tenant_id: TenantId,
+    ) -> StoreResult<()> {
+        self.services
+            .cancel_scheduled_event(event_id, tenant_id)
+            .await
+    }
+
     pub async fn update_matrix_prices(
         &self,
         tenant_id: TenantId,

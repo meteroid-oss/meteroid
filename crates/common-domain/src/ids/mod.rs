@@ -47,6 +47,7 @@ id_type!(CustomTaxId, "tax_");
 id_type!(CheckoutSessionId, "che_");
 id_type!(PlanVersionAddOnId, "pva_");
 id_type!(PriceId, "pri_");
+id_type!(ScheduledEventId, "sev_");
 
 #[derive(Debug)]
 pub struct IdError(pub(crate) String);

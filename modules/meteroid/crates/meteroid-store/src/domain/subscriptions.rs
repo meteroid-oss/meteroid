@@ -3,7 +3,9 @@ use common_domain::ids::BankAccountId;
 use serde::{Deserialize, Serialize};
 
 use crate::domain::connectors::ConnectionMeta;
-use crate::domain::enums::{BillingPeriodEnum, SubscriptionActivationCondition};
+use crate::domain::enums::{
+    BillingPeriodEnum, ScheduledEventTypeEnum, SubscriptionActivationCondition,
+};
 use crate::domain::subscription_add_ons::{
     CreateSubscriptionAddOns, SubscriptionAddOn, SubscriptionAddOnNewInternal,
 };
@@ -419,10 +421,13 @@ pub struct TrialConfig {
 }
 
 #[derive(Debug, Clone)]
-pub struct PendingPlanChange {
-    pub new_plan_name: String,
-    pub new_plan_version_id: PlanVersionId,
-    pub effective_date: NaiveDate,
+pub struct PendingScheduledEvent {
+    pub id: common_domain::ids::ScheduledEventId,
+    pub event_type: ScheduledEventTypeEnum,
+    pub scheduled_date: NaiveDate,
+    pub new_plan_name: Option<String>,
+    pub new_plan_version_id: Option<PlanVersionId>,
+    pub cancel_reason: Option<String>,
 }
 
 #[derive(Debug, Clone)]
@@ -437,7 +442,7 @@ pub struct SubscriptionDetails {
     pub metrics: Vec<BillableMetric>,
     pub checkout_url: Option<String>,
     pub trial_config: Option<TrialConfig>,
-    pub pending_plan_change: Option<PendingPlanChange>,
+    pub pending_events: Vec<PendingScheduledEvent>,
 }
 
 #[derive(Clone, Debug)]

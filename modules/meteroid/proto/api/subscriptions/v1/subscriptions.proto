@@ -226,6 +226,12 @@ message CancelPlanChangeRequest {
 
 message CancelPlanChangeResponse {}
 
+message CancelScheduledEventRequest {
+  string event_id = 1;
+}
+
+message CancelScheduledEventResponse {}
+
 // Service definition
 service SubscriptionsService {
   rpc CreateSubscription(CreateSubscriptionRequest) returns (CreateSubscriptionResponse);
@@ -245,4 +251,5 @@ service SubscriptionsService {
   rpc SchedulePlanChange(SchedulePlanChangeRequest) returns (SchedulePlanChangeResponse);
   rpc PreviewPlanChange(PreviewPlanChangeRequest) returns (PreviewPlanChangeResponse);
   rpc CancelPlanChange(CancelPlanChangeRequest) returns (CancelPlanChangeResponse);
+  rpc CancelScheduledEvent(CancelScheduledEventRequest) returns (CancelScheduledEventResponse);
 }

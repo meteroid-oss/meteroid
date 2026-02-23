@@ -40,9 +40,9 @@ impl Services {
 
         patch.patch(conn).await?;
 
-        // Cancel any pending lifecycle events (plan change, pause, etc.) to prevent
-        // stale events from executing on a terminated subscription.
-        let cancelled_count = ScheduledEventRow::cancel_pending_lifecycle_events(
+        // Cancel all pending subscription-level events (lifecycle + EndTrial).
+        // Billing events (FinalizeInvoice, RetryPayment) are preserved.
+        let cancelled_count = ScheduledEventRow::cancel_pending_subscription_events(
             conn,
             subscription_id,
             &tenant_id,

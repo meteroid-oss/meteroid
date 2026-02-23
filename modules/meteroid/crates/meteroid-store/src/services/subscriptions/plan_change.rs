@@ -78,23 +78,15 @@ impl Services {
 
                     validate_subscription_for_plan_change(&subscription.subscription.status)?;
 
-                    // Reject if there's already a pending plan change
-                    let pending_events = ScheduledEventRow::get_pending_events_for_subscription(
+                    // Cancel all pending lifecycle events (plan change, cancellation, pause, etc.)
+                    ScheduledEventRow::cancel_pending_lifecycle_events(
                         conn,
                         subscription_id,
                         &tenant_id,
+                        "Replaced by new plan change",
                     )
                     .await
                     .map_err(Into::<Report<StoreError>>::into)?;
-
-                    if pending_events.iter().any(|e| {
-                        e.event_type
-                            == diesel_models::enums::ScheduledEventTypeEnum::ApplyPlanChange
-                    }) {
-                        return Err(Report::new(StoreError::InvalidArgument(
-                            "A plan change is already scheduled for this subscription".to_string(),
-                        )));
-                    }
 
                     // Validate target plan version
                     let target_plan =
@@ -295,6 +287,33 @@ impl Services {
                 .scope_boxed()
             })
             .await
+    }
+
+    pub(in crate::services) async fn cancel_scheduled_event(
+        &self,
+        event_id: common_domain::ids::ScheduledEventId,
+        tenant_id: TenantId,
+    ) -> StoreResult<()> {
+        let mut conn = self.store.get_conn().await?;
+
+        let event = ScheduledEventRow::get_by_id(&mut conn, event_id, &tenant_id)
+            .await
+            .map_err(Into::<Report<StoreError>>::into)?;
+
+        if !matches!(
+            event.status,
+            diesel_models::enums::ScheduledEventStatus::Pending
+        ) {
+            return Err(Report::new(StoreError::InvalidArgument(
+                "Only pending events can be cancelled".to_string(),
+            )));
+        }
+
+        ScheduledEventRow::cancel_event(&mut conn, &event_id, "Cancelled by user")
+            .await
+            .map_err(Into::<Report<StoreError>>::into)?;
+
+        Ok(())
     }
 }
 
