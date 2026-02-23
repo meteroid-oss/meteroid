@@ -22,6 +22,7 @@ import { feeTypeLabel, formatCadence, formatPricingSummary } from '@/lib/mapping
 import { FeeStructure_BillingType, FeeStructure_UsageModel } from '@/rpc/api/prices/v1/models_pb'
 import { listPricesByProduct } from '@/rpc/api/prices/v1/prices-PricesService_connectquery'
 import { getProduct } from '@/rpc/api/products/v1/products-ProductsService_connectquery'
+import { parseAndFormatDate } from '@/utils/date'
 
 import { MatrixRowsSection } from './MatrixRowsSection'
 
@@ -115,7 +116,7 @@ export const ProductDetailPanel = ({ productId, onClose }: ProductDetailPanelPro
                 {product.createdAt && (
                   <DetailRow
                     label="Created"
-                    value={product.createdAt.toDate().toLocaleDateString()}
+                    value={parseAndFormatDate(product.createdAt)}
                   />
                 )}
               </div>

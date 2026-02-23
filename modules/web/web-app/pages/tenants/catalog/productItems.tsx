@@ -1,22 +1,23 @@
 import { Fragment, FunctionComponent, useState } from 'react'
-import { toast } from 'sonner'
 
 import { ProductDetailPanel } from '@/features/productCatalog/items/ProductDetailPanel'
 import { ProductsHeader } from '@/features/productCatalog/items/ProductItemsHeader'
 import { ProductsTable } from '@/features/productCatalog/items/ProductItemsTable'
 import { useQuery } from '@/lib/connectrpc'
-import { listProducts } from '@/rpc/api/products/v1/products-ProductsService_connectquery'
+import { searchProducts } from '@/rpc/api/products/v1/products-ProductsService_connectquery'
 
 import type { PaginationState } from '@tanstack/react-table'
 
 export const Products: FunctionComponent = () => {
   const [selectedProductId, setSelectedProductId] = useState<string | null>(null)
+  const [search, setSearch] = useState<string | undefined>(undefined)
   const [pagination, setPagination] = useState<PaginationState>({
     pageIndex: 0,
     pageSize: 20,
   })
 
-  const productsQuery = useQuery(listProducts, {
+  const productsQuery = useQuery(searchProducts, {
+    query: search || undefined,
     pagination: { perPage: pagination.pageSize, page: pagination.pageIndex },
   })
   const data = productsQuery.data?.products ?? []
@@ -27,6 +28,11 @@ export const Products: FunctionComponent = () => {
     productsQuery.refetch()
   }
 
+  const handleSearch = (value: string | undefined) => {
+    setSearch(value)
+    setPagination(prev => ({ ...prev, pageIndex: 0 }))
+  }
+
   return (
     <Fragment>
       <ProductsHeader
@@ -34,9 +40,7 @@ export const Products: FunctionComponent = () => {
         setEditPanelVisible={() => false}
         isLoading={isLoading}
         refetch={refetch}
-        setSearch={() => {
-          toast.error('Search not implemented')
-        }}
+        setSearch={handleSearch}
       />
       <ProductsTable
         data={data}

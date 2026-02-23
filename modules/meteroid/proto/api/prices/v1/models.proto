@@ -3,7 +3,6 @@ syntax = "proto3";
 package meteroid.api.prices.v1;
 
 import "api/shared/v1/shared.proto";
-import "google/protobuf/timestamp.proto";
 
 enum FeeType {
   RATE = 0;
@@ -27,8 +26,8 @@ message Price {
     ExtraRecurringPricing extra_recurring_pricing = 9;
     OneTimePricing one_time_pricing = 10;
   }
-  google.protobuf.Timestamp created_at = 11;
-  optional google.protobuf.Timestamp archived_at = 12;
+  optional string created_at = 11;
+  optional string archived_at = 12;
 }
 
 message RatePricing {

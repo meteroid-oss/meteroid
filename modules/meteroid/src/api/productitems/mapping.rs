@@ -1,6 +1,7 @@
 pub mod products {
     use crate::api::prices::mapping::prices::PriceWrapper;
-    use crate::api::shared::mapping::datetime::chrono_to_timestamp;
+    use crate::api::shared::conversions::ProtoConv;
+
     use common_domain::ids::BillableMetricId;
     use meteroid_grpc::meteroid::api::prices::v1 as prices_proto;
     use meteroid_grpc::meteroid::api::products::v1::{Product, ProductMeta, ProductWithPrice};
@@ -20,7 +21,7 @@ pub mod products {
                 local_id: product.id.as_proto(),
                 name: product.name,
                 description: product.description,
-                created_at: Some(chrono_to_timestamp(product.created_at)),
+                created_at: product.created_at.as_proto(),
                 fee_type: Some(fee_type_to_proto(product.fee_type)),
                 fee_structure: Some(fee_structure_to_proto(product.fee_structure)),
                 catalog: product.catalog,
@@ -36,6 +37,8 @@ pub mod products {
                 local_id: product.id.as_proto(),
                 name: product.name,
                 fee_type: Some(fee_type_to_proto(product.fee_type)),
+                description: product.description,
+                created_at: product.created_at.as_proto(),
                 catalog: product.catalog,
             })
         }
