@@ -279,10 +279,10 @@ async fn test_plan_change_rejects_currency_mismatch(#[future] test_env: TestEnv)
     assert!(result.is_err(), "should reject currency mismatch");
 }
 
-/// Cannot schedule two plan changes on same subscription.
+/// Scheduling a second plan change replaces (cancels) the first one.
 #[rstest]
 #[tokio::test]
-async fn test_plan_change_rejects_duplicate(#[future] test_env: TestEnv) {
+async fn test_plan_change_replaces_existing(#[future] test_env: TestEnv) {
     let env = test_env.await;
 
     let sub_id = subscription()
@@ -293,18 +293,35 @@ async fn test_plan_change_rejects_duplicate(#[future] test_env: TestEnv) {
         .await;
 
     // First schedule succeeds
-    env.services()
+    let first_event = env
+        .services()
         .schedule_plan_change(sub_id, TENANT_ID, PLAN_VERSION_PRO_ID, vec![])
         .await
         .expect("first schedule should succeed");
 
-    // Second schedule should fail
-    let result = env
+    // Second schedule should also succeed, replacing the first
+    let second_event = env
         .services()
         .schedule_plan_change(sub_id, TENANT_ID, PLAN_VERSION_PRO_ID, vec![])
-        .await;
+        .await
+        .expect("second schedule should succeed (replaces first)");
 
-    assert!(result.is_err(), "should reject duplicate plan change");
+    assert_ne!(first_event.id, second_event.id, "should be a new event");
+
+    // Only one pending plan change should exist
+    let mut conn = env.conn().await;
+    let pending =
+        diesel_models::scheduled_events::ScheduledEventRow::get_pending_events_for_subscription(
+            &mut conn, sub_id, &TENANT_ID,
+        )
+        .await
+        .expect("query pending events");
+
+    assert_eq!(pending.len(), 1, "should have exactly one pending event");
+    assert_eq!(
+        pending[0].id, second_event.id,
+        "pending event should be the second one"
+    );
 }
 
 /// Cannot schedule on a pending subscription.

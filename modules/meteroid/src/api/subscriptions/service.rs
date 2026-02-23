@@ -9,16 +9,16 @@ use meteroid_grpc::meteroid::api::subscriptions::v1::subscriptions_service_serve
 
 use meteroid_grpc::meteroid::api::subscriptions::v1::{
     ActivateSubscriptionRequest, ActivateSubscriptionResponse, CancelPlanChangeRequest,
-    CancelPlanChangeResponse, CancelSlotTransactionRequest, CancelSlotTransactionResponse,
-    CancelSubscriptionRequest, CancelSubscriptionResponse, CreateSubscriptionRequest,
-    CreateSubscriptionResponse, CreateSubscriptionsRequest, CreateSubscriptionsResponse,
-    GenerateCheckoutTokenRequest, GenerateCheckoutTokenResponse, GetSlotsValueRequest,
-    GetSlotsValueResponse, ListSlotTransactionsRequest, ListSlotTransactionsResponse,
-    ListSubscriptionsRequest, ListSubscriptionsResponse, PreviewPlanChangeRequest,
-    PreviewPlanChangeResponse, PreviewSlotUpdateRequest, PreviewSlotUpdateResponse,
-    SchedulePlanChangeRequest, SchedulePlanChangeResponse, SubscriptionDetails,
-    SyncToHubspotRequest, SyncToHubspotResponse, UpdateSlotsRequest, UpdateSlotsResponse,
-    UpdateSubscriptionRequest, UpdateSubscriptionResponse,
+    CancelPlanChangeResponse, CancelScheduledEventRequest, CancelScheduledEventResponse,
+    CancelSlotTransactionRequest, CancelSlotTransactionResponse, CancelSubscriptionRequest,
+    CancelSubscriptionResponse, CreateSubscriptionRequest, CreateSubscriptionResponse,
+    CreateSubscriptionsRequest, CreateSubscriptionsResponse, GenerateCheckoutTokenRequest,
+    GenerateCheckoutTokenResponse, GetSlotsValueRequest, GetSlotsValueResponse,
+    ListSlotTransactionsRequest, ListSlotTransactionsResponse, ListSubscriptionsRequest,
+    ListSubscriptionsResponse, PreviewPlanChangeRequest, PreviewPlanChangeResponse,
+    PreviewSlotUpdateRequest, PreviewSlotUpdateResponse, SchedulePlanChangeRequest,
+    SchedulePlanChangeResponse, SubscriptionDetails, SyncToHubspotRequest, SyncToHubspotResponse,
+    UpdateSlotsRequest, UpdateSlotsResponse, UpdateSubscriptionRequest, UpdateSubscriptionResponse,
 };
 
 use crate::api::shared::conversions::ProtoConv;
@@ -607,5 +607,23 @@ impl SubscriptionsService for SubscriptionServiceComponents {
             .map_err(Into::<SubscriptionApiError>::into)?;
 
         Ok(Response::new(CancelPlanChangeResponse {}))
+    }
+
+    #[tracing::instrument(skip_all)]
+    async fn cancel_scheduled_event(
+        &self,
+        request: Request<CancelScheduledEventRequest>,
+    ) -> Result<Response<CancelScheduledEventResponse>, Status> {
+        let tenant_id = request.tenant()?;
+        let inner = request.into_inner();
+
+        let event_id = common_domain::ids::ScheduledEventId::from_proto(inner.event_id)?;
+
+        self.services
+            .cancel_scheduled_event(event_id, tenant_id)
+            .await
+            .map_err(Into::<SubscriptionApiError>::into)?;
+
+        Ok(Response::new(CancelScheduledEventResponse {}))
     }
 }

@@ -1,7 +1,8 @@
-import { useMutation } from '@connectrpc/connect-query'
-import { Button, Card, CardContent, CardHeader, CardTitle } from '@md/ui'
+import { createConnectQueryKey, useMutation } from '@connectrpc/connect-query'
+import { Alert, Button, Card, CardContent, CardHeader, CardTitle } from '@md/ui'
+import { useQueryClient } from '@tanstack/react-query'
 import { useAtom } from 'jotai'
-import { ArrowRight, Calendar } from 'lucide-react'
+import { AlertTriangle, ArrowRight, Calendar } from 'lucide-react'
 import { useMemo } from 'react'
 import { useNavigate } from 'react-router-dom'
 import { useWizard } from 'react-use-wizard'
@@ -12,16 +13,46 @@ import {
   PricingComponent,
   SubscriptionPricingTable,
 } from '@/features/subscriptions/pricecomponents/SubscriptionPricingTable'
+import { useQuery } from '@/lib/connectrpc'
 import { changePlanAtom } from '@/pages/tenants/subscription/changePlan/state'
-import { schedulePlanChange } from '@/rpc/api/subscriptions/v1/subscriptions-SubscriptionsService_connectquery'
+import { ScheduledEventType } from '@/rpc/api/subscriptions/v1/models_pb'
+import {
+  getSubscriptionDetails,
+  schedulePlanChange,
+} from '@/rpc/api/subscriptions/v1/subscriptions-SubscriptionsService_connectquery'
 import { parseAndFormatDate } from '@/utils/date'
+
+const scheduledEventLabel = (eventType: ScheduledEventType): string => {
+  switch (eventType) {
+    case ScheduledEventType.PLAN_CHANGE:
+      return 'Pending plan change'
+    case ScheduledEventType.CANCEL:
+      return 'Pending cancellation'
+    case ScheduledEventType.PAUSE:
+      return 'Pending pause'
+    case ScheduledEventType.END_TRIAL:
+      return 'Pending trial end'
+    default:
+      return 'Pending event'
+  }
+}
 
 export const StepConfirm = () => {
   const navigate = useNavigate()
+  const queryClient = useQueryClient()
   const { previousStep } = useWizard()
   const [state] = useAtom(changePlanAtom)
 
   const scheduleMut = useMutation(schedulePlanChange)
+
+  const subscriptionQuery = useQuery(
+    getSubscriptionDetails,
+    { subscriptionId: state.subscriptionId },
+    { enabled: Boolean(state.subscriptionId) }
+  )
+  const pendingEvents = (subscriptionQuery.data?.pendingEvents ?? []).filter(
+    e => e.eventType !== ScheduledEventType.END_TRIAL
+  )
 
   const preview = state.preview
   const currency = state.currency || 'USD'
@@ -54,6 +85,11 @@ export const StepConfirm = () => {
       toast.success(
         `Plan change scheduled for ${result.effectiveDate ? parseAndFormatDate(result.effectiveDate) : 'end of current period'}`
       )
+      await queryClient.invalidateQueries({
+        queryKey: createConnectQueryKey(getSubscriptionDetails, {
+          subscriptionId: state.subscriptionId,
+        }),
+      })
       navigate('..')
     } catch (error) {
       const message = error instanceof Error ? error.message : 'Failed to schedule plan change'
@@ -114,6 +150,28 @@ export const StepConfirm = () => {
             currency={currency}
             labelClassName="px-4 py-3"
           />
+
+          {pendingEvents.length > 0 && (
+            <Alert variant="warning">
+              <div className="flex items-start gap-2">
+                <AlertTriangle className="h-4 w-4 shrink-0 mt-0.5" />
+                <div>
+                  <span className="text-sm font-medium">
+                    Scheduling this plan change will cancel the following pending events:
+                  </span>
+                  <ul className="text-sm mt-1 list-disc list-inside">
+                    {pendingEvents.map(event => (
+                      <li key={event.id}>
+                        {scheduledEventLabel(event.eventType)}
+                        {event.newPlanName ? ` to "${event.newPlanName}"` : ''}
+                        {event.scheduledDate ? ` on ${parseAndFormatDate(event.scheduledDate)}` : ''}
+                      </li>
+                    ))}
+                  </ul>
+                </div>
+              </div>
+            </Alert>
+          )}
         </div>
       </PageSection>
 

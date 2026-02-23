@@ -6,19 +6,18 @@ use crate::errors::StoreErrorReport;
 use crate::json_value_serde;
 use chrono::NaiveDateTime;
 use common_domain::ids::{
-    InvoiceId, PlanVersionId, PriceComponentId, PriceId, ProductId, SubscriptionId,
-    SubscriptionPriceComponentId, TenantId,
+    BaseId, InvoiceId, PlanVersionId, PriceComponentId, PriceId, ProductId, ScheduledEventId,
+    SubscriptionId, SubscriptionPriceComponentId, TenantId,
 };
 use diesel_models::scheduled_events::ScheduledEventRow;
 use diesel_models::scheduled_events::ScheduledEventRowNew;
 use o2o::o2o;
 use serde::{Deserialize, Serialize};
-use uuid::Uuid;
 
 #[derive(Clone, Debug, o2o)]
 #[try_from_owned(ScheduledEventRow, StoreErrorReport)]
 pub struct ScheduledEvent {
-    pub id: Uuid,
+    pub id: ScheduledEventId,
     pub subscription_id: SubscriptionId,
     pub tenant_id: TenantId,
     #[from(~.into())]
@@ -41,7 +40,7 @@ pub struct ScheduledEvent {
 #[derive(Clone, Debug, o2o)]
 #[owned_try_into(ScheduledEventRowNew, StoreErrorReport)]
 #[ghosts(
-    id: Uuid::now_v7(),
+    id: common_domain::ids::ScheduledEventId::new(),
     event_type: @.event_data.to_event_type_enum().into(),
     status: diesel_models::enums::ScheduledEventStatus::Pending,
     priority: 0,

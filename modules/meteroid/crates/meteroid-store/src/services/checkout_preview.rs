@@ -268,7 +268,7 @@ impl Services {
             metrics: Vec::new(),
             checkout_url: None,
             trial_config,
-            pending_plan_change: None,
+            pending_events: Vec::new(),
         })
     }
 

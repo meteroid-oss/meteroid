@@ -1,15 +1,14 @@
 use chrono::NaiveDateTime;
-use uuid::Uuid;
 
 use crate::enums::{ScheduledEventStatus, ScheduledEventTypeEnum};
-use common_domain::ids::{SubscriptionId, TenantId};
+use common_domain::ids::{ScheduledEventId, SubscriptionId, TenantId};
 use diesel::{Identifiable, Insertable, Queryable, QueryableByName, Selectable};
 
 #[derive(Debug, Clone, Queryable, QueryableByName, Selectable, Identifiable)]
 #[diesel(table_name = crate::schema::scheduled_event)]
 #[diesel(check_for_backend(diesel::pg::Pg))]
 pub struct ScheduledEventRow {
-    pub id: Uuid,
+    pub id: ScheduledEventId,
     pub subscription_id: SubscriptionId,
     pub tenant_id: TenantId,
     pub event_type: ScheduledEventTypeEnum,
@@ -30,7 +29,7 @@ pub struct ScheduledEventRow {
 #[diesel(table_name = crate::schema::scheduled_event)]
 #[diesel(check_for_backend(diesel::pg::Pg))]
 pub struct ScheduledEventRowNew {
-    pub id: Uuid,
+    pub id: ScheduledEventId,
     pub subscription_id: SubscriptionId,
     pub tenant_id: TenantId,
     pub event_type: ScheduledEventTypeEnum,

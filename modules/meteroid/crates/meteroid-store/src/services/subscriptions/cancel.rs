@@ -16,6 +16,7 @@ use diesel_models::subscriptions::SubscriptionRow;
 use crate::domain::scheduled_events::{ScheduledEventData, ScheduledEventNew};
 use crate::services::Services;
 use common_domain::ids::{SubscriptionId, TenantId};
+use diesel_models::scheduled_events::ScheduledEventRow;
 
 impl Services {
     pub(in crate::services) async fn cancel_subscription(
@@ -34,6 +35,16 @@ impl Services {
                         .store
                         .get_subscription_details_with_conn(conn, tenant_id, subscription_id)
                         .await?;
+
+                    // Cancel all pending lifecycle events before scheduling the new cancellation
+                    ScheduledEventRow::cancel_pending_lifecycle_events(
+                        conn,
+                        subscription_id,
+                        &tenant_id,
+                        "Replaced by subscription cancellation",
+                    )
+                    .await
+                    .map_err(Into::<Report<StoreError>>::into)?;
 
                     let now = chrono::Utc::now().naive_utc();
 

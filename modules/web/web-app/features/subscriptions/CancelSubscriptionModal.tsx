@@ -1,5 +1,6 @@
 import { useMutation } from '@connectrpc/connect-query'
 import {
+  Alert,
   DialogDescription,
   DialogTitle,
   Input,
@@ -9,15 +10,21 @@ import {
   RadioGroupItem,
   Textarea,
 } from '@md/ui'
-import { XCircle } from 'lucide-react'
+import { AlertTriangle, XCircle } from 'lucide-react'
 import { useState } from 'react'
 import { toast } from 'sonner'
 
-import { cancelSubscription } from '@/rpc/api/subscriptions/v1/subscriptions-SubscriptionsService_connectquery'
+import { useQuery } from '@/lib/connectrpc'
+import { ScheduledEventType } from '@/rpc/api/subscriptions/v1/models_pb'
+import {
+  cancelSubscription,
+  getSubscriptionDetails,
+} from '@/rpc/api/subscriptions/v1/subscriptions-SubscriptionsService_connectquery'
 import {
   CancelSubscriptionRequest_BillingPeriodEnd,
   CancelSubscriptionRequest_Immediate,
 } from '@/rpc/api/subscriptions/v1/subscriptions_pb'
+import { parseAndFormatDate } from '@/utils/date'
 
 interface CancelSubscriptionModalProps {
   subscriptionId: string
@@ -39,6 +46,15 @@ export const CancelSubscriptionModal = ({
   const [reason, setReason] = useState('')
   const [timing, setTiming] = useState<CancellationTiming>('billing_period_end')
   const [specificDate, setSpecificDate] = useState('')
+
+  const subscriptionQuery = useQuery(
+    getSubscriptionDetails,
+    { subscriptionId },
+    { enabled: Boolean(subscriptionId) }
+  )
+  const pendingEvents = (subscriptionQuery.data?.pendingEvents ?? []).filter(
+    e => e.eventType !== ScheduledEventType.CANCEL && e.eventType !== ScheduledEventType.END_TRIAL
+  )
 
   const cancelMutation = useMutation(cancelSubscription, {
     onSuccess: () => {
@@ -121,6 +137,34 @@ export const CancelSubscriptionModal = ({
     >
       <Modal.Content>
         <div className="space-y-4 py-4">
+          {pendingEvents.length > 0 && (
+            <Alert variant="warning">
+              <div className="flex items-start gap-2">
+                <AlertTriangle className="h-4 w-4 shrink-0 mt-0.5" />
+                <div className="text-sm">
+                  <span className="font-medium">
+                    This will cancel the following pending events:
+                  </span>
+                  <ul className="mt-1 list-disc list-inside">
+                    {pendingEvents.map(event => (
+                      <li key={event.id}>
+                        {event.eventType === ScheduledEventType.PLAN_CHANGE
+                          ? `Plan change to "${event.newPlanName}"`
+                          : event.eventType === ScheduledEventType.PAUSE
+                            ? 'Pause'
+                            : event.eventType === ScheduledEventType.END_TRIAL
+                              ? 'Trial end'
+                              : 'Event'}
+                        {event.scheduledDate
+                          ? ` on ${parseAndFormatDate(event.scheduledDate)}`
+                          : ''}
+                      </li>
+                    ))}
+                  </ul>
+                </div>
+              </div>
+            </Alert>
+          )}
           <div>
             <Label className="text-sm font-medium mb-3 block">
               When should the cancellation take effect?
