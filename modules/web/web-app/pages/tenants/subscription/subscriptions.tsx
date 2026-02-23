@@ -47,6 +47,7 @@ export const Subscriptions = () => {
         refetch={refetch}
         statusFilter={statusFilter}
         setStatusFilter={setStatusFilter}
+        onImportSuccess={() => subscriptionsQuery.refetch()}
       />
       <SubscriptionsTable
         data={data}

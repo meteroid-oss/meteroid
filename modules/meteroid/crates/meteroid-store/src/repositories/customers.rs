@@ -85,6 +85,12 @@ pub trait CustomersInterface {
         ids: Vec<CustomerId>,
     ) -> StoreResult<Vec<Customer>>;
 
+    async fn list_customers_by_ids(
+        &self,
+        tenant_id: TenantId,
+        ids: Vec<CustomerId>,
+    ) -> StoreResult<Vec<Customer>>;
+
     async fn insert_customer(
         &self,
         customer: CustomerNew,
@@ -265,6 +271,23 @@ impl CustomersInterface for Store {
             .map_err(Into::<Report<StoreError>>::into)?
             .into_iter()
             .map(std::convert::TryInto::try_into)
+            .collect::<Vec<Result<Customer, Report<StoreError>>>>()
+            .into_iter()
+            .collect::<Result<Vec<_>, _>>()
+    }
+
+    async fn list_customers_by_ids(
+        &self,
+        tenant_id: TenantId,
+        ids: Vec<CustomerId>,
+    ) -> StoreResult<Vec<Customer>> {
+        let mut conn = self.get_conn().await?;
+
+        CustomerRow::list_by_ids(&mut conn, &tenant_id, ids)
+            .await
+            .map_err(Into::<Report<StoreError>>::into)?
+            .into_iter()
+            .map(TryInto::try_into)
             .collect::<Vec<Result<Customer, Report<StoreError>>>>()
             .into_iter()
             .collect::<Result<Vec<_>, _>>()

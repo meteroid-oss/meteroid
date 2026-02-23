@@ -310,6 +310,33 @@ impl PlanVersionRow {
             .into_db_result()
     }
 
+    pub async fn list_published_by_plan_ids(
+        conn: &mut PgConn,
+        plan_ids: &[PlanId],
+        tenant_id: TenantId,
+    ) -> DbResult<Vec<PlanVersionRow>> {
+        use crate::schema::plan_version::dsl as pv_dsl;
+        use diesel_async::RunQueryDsl;
+
+        if plan_ids.is_empty() {
+            return Ok(Vec::new());
+        }
+
+        let query = pv_dsl::plan_version
+            .filter(pv_dsl::plan_id.eq_any(plan_ids))
+            .filter(pv_dsl::tenant_id.eq(tenant_id))
+            .filter(pv_dsl::is_draft_version.eq(false))
+            .select(PlanVersionRow::as_select());
+
+        log::debug!("{}", debug_query::<diesel::pg::Pg, _>(&query));
+
+        query
+            .load(conn)
+            .await
+            .attach("Error while listing published plan versions by plan ids")
+            .into_db_result()
+    }
+
     /// Get plan_ids for multiple plan_version_ids
     pub async fn get_plan_ids_by_version_ids(
         conn: &mut PgConn,

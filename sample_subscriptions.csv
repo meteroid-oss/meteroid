@@ -1,0 +1,3 @@
+idempotency_key,customer_id_or_alias,plan_id,plan_version,start_date,activation_condition,auto_advance_invoices,billing_day_anchor,charge_automatically,end_date,net_terms,payment_method,purchase_order,skip_past_invoices
+sub-import-001,cus_6jjT0uColE41UH18hPBqQe,plan_6QosfzMUEMrGU48maF4YRw,,2026-03-01,ON_START_DATE,true,1,false,,,ONLINE,,false
+sub-import-002,cus_5pqMQvGdmTf6HsEePocS3Q,plan_6QosfzMUEMrGU48maF4YRw,1,2026-04-01,MANUAL,false,15,false,2027-04-01,30,BANK_TRANSFER,PO-2026-0042,true
