@@ -1,0 +1,87 @@
+syntax = "proto3";
+
+package meteroid.portal.subscription.v1;
+
+message SubscriptionDetails {
+  string id = 1;
+  string plan_name = 2;
+  string plan_id = 3;
+  string plan_version_id = 4;
+  string status = 5;
+  optional string current_period_end = 6;
+  uint64 mrr_cents = 7;
+  string currency = 8;
+  bool can_change_plan = 9;
+  optional string scheduled_plan_change = 10;
+  optional string scheduled_plan_change_date = 11;
+}
+
+message AvailablePlan {
+  string plan_id = 1;
+  string plan_version_id = 2;
+  string plan_name = 3;
+  optional string description = 4;
+  int32 self_service_rank = 5;
+  bool is_current = 6;
+}
+
+message ComponentChangePreview {
+  string component_name = 1;
+  string action = 2;
+  optional string old_value = 3;
+  optional string new_value = 4;
+}
+
+message PlanChangePreview {
+  string effective_date = 1;
+  repeated ComponentChangePreview component_changes = 2;
+}
+
+message GetSubscriptionDetailsRequest {
+  string subscription_id = 1;
+}
+
+message GetSubscriptionDetailsResponse {
+  SubscriptionDetails subscription = 1;
+}
+
+message ListAvailablePlansRequest {
+  string subscription_id = 1;
+}
+
+message ListAvailablePlansResponse {
+  repeated AvailablePlan plans = 1;
+}
+
+message PreviewPlanChangeRequest {
+  string subscription_id = 1;
+  string new_plan_version_id = 2;
+}
+
+message PreviewPlanChangeResponse {
+  PlanChangePreview preview = 1;
+  string new_plan_name = 2;
+}
+
+message ConfirmPlanChangeRequest {
+  string subscription_id = 1;
+  string new_plan_version_id = 2;
+}
+
+message ConfirmPlanChangeResponse {
+  string scheduled_for = 1;
+}
+
+message CancelScheduledPlanChangeRequest {
+  string subscription_id = 1;
+}
+
+message CancelScheduledPlanChangeResponse {}
+
+service PortalSubscriptionService {
+  rpc GetSubscriptionDetails(GetSubscriptionDetailsRequest) returns (GetSubscriptionDetailsResponse);
+  rpc ListAvailablePlans(ListAvailablePlansRequest) returns (ListAvailablePlansResponse);
+  rpc PreviewPlanChange(PreviewPlanChangeRequest) returns (PreviewPlanChangeResponse);
+  rpc ConfirmPlanChange(ConfirmPlanChangeRequest) returns (ConfirmPlanChangeResponse);
+  rpc CancelScheduledPlanChange(CancelScheduledPlanChangeRequest) returns (CancelScheduledPlanChangeResponse);
+}

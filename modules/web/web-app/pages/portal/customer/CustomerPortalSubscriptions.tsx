@@ -18,10 +18,9 @@ export const CustomerPortalSubscriptions = ({
   const [searchParams] = useSearchParams()
   const token = searchParams.get('token')
 
-  const handleSubscriptionClick = (_subscriptionId: string) => {
+  const handleSubscriptionClick = (subscriptionId: string) => {
     if (!token) return
-    // TODO support subscription management page, or at least add actions directly here
-    // window.open(`/portal/subscription/${subscriptionId}?token=${token}`, '_blank')
+    window.open(`/portal/subscription/${subscriptionId}?token=${token}`, '_blank')
   }
   if (subscriptions.length === 0) {
     return (
@@ -48,12 +47,12 @@ export const CustomerPortalSubscriptions = ({
             <span className="text-sm text-gray-500">/ month</span>
           </div>
         </div>
-        {/* <button
+        <button
           onClick={() => handleSubscriptionClick(primarySubscription.id)}
           className="text-xs text-gray-600 hover:text-gray-900 font-medium"
         >
           Manage →
-        </button> */}
+        </button>
       </div>
 
       {primarySubscription.nextBillingDate && (

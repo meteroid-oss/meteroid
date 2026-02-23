@@ -1,8 +1,8 @@
 use crate::errors::IntoDbResult;
 use crate::plan_versions::{PlanVersionFilter, PlanVersionRow};
 use crate::plans::{
-    _FullPlanRowEmbed, FullPlanRow, PlanFilters, PlanRow, PlanRowForSubscription, PlanRowNew,
-    PlanRowOverview, PlanRowPatch, PlanWithVersionRow,
+    SelfServicePlanRow, _FullPlanRowEmbed, FullPlanRow, PlanFilters, PlanRow,
+    PlanRowForSubscription, PlanRowNew, PlanRowOverview, PlanRowPatch, PlanWithVersionRow,
 };
 
 use crate::{DbResult, PgConn};
@@ -154,6 +154,7 @@ impl PlanRow {
                     .nullable(),
                 draft_version_alias.field(pv_dsl::id).nullable(),
                 diesel::dsl::sql::<diesel::sql_types::Nullable<diesel::sql_types::BigInt>>("null"),
+                p_dsl::self_service_rank,
             ));
 
         log::debug!("{}", debug_query::<diesel::pg::Pg, _>(&query));
@@ -546,6 +547,7 @@ impl PlanRowOverview {
                     .nullable(),
                 draft_version_alias.field(pv_dsl::id).nullable(),
                 active_subscriptions_count_subselect,
+                p_dsl::self_service_rank,
             ))
             .into_boxed();
 
@@ -681,5 +683,47 @@ impl PlanRowForSubscription {
                         .collect()
                 },
             )
+    }
+}
+
+impl SelfServicePlanRow {
+    pub async fn list_self_service_plans(
+        conn: &mut PgConn,
+        tenant_id: TenantId,
+        product_family_id: ProductFamilyId,
+        currency: &str,
+        exclude_plan_id: PlanId,
+    ) -> DbResult<Vec<SelfServicePlanRow>> {
+        use crate::schema::plan::dsl as p_dsl;
+        use crate::schema::plan_version::dsl as pv_dsl;
+        use diesel_async::RunQueryDsl;
+
+        let query = p_dsl::plan
+            .inner_join(pv_dsl::plan_version.on(
+                pv_dsl::id.nullable().eq(p_dsl::active_version_id)
+            ))
+            .filter(p_dsl::tenant_id.eq(tenant_id))
+            .filter(p_dsl::product_family_id.eq(product_family_id))
+            .filter(p_dsl::status.eq(PlanStatusEnum::Active))
+            .filter(p_dsl::plan_type.ne(PlanTypeEnum::Custom))
+            .filter(p_dsl::self_service_rank.is_not_null())
+            .filter(p_dsl::id.ne(exclude_plan_id))
+            .filter(pv_dsl::currency.eq(currency))
+            .order(p_dsl::self_service_rank.asc())
+            .select((
+                p_dsl::id,
+                p_dsl::name,
+                p_dsl::description,
+                pv_dsl::id,
+                p_dsl::self_service_rank.assume_not_null(),
+            ));
+
+        log::debug!("{}", debug_query::<diesel::pg::Pg, _>(&query));
+
+        query
+            .load(conn)
+            .await
+            .attach("Error while listing self-service plans")
+            .into_db_result()
     }
 }

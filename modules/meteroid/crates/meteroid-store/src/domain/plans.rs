@@ -145,6 +145,7 @@ pub struct Plan {
     pub status: PlanStatusEnum,
     pub active_version_id: Option<PlanVersionId>,
     pub draft_version_id: Option<PlanVersionId>,
+    pub self_service_rank: Option<i32>,
 }
 
 #[derive(Debug, Clone, PartialEq, o2o)]
@@ -186,6 +187,7 @@ pub struct PlanOverview {
     #[from(draft_version, ~.is_some())]
     pub has_draft_version: bool,
     pub subscription_count: Option<i64>,
+    pub self_service_rank: Option<i32>,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, o2o)]
@@ -253,6 +255,7 @@ pub struct PlanPatch {
     pub name: Option<String>,
     pub description: Option<Option<String>>,
     pub active_version_id: Option<Option<PlanVersionId>>,
+    pub self_service_rank: Option<Option<i32>>,
 }
 
 #[derive(Debug, Clone, PartialEq, o2o)]
@@ -277,6 +280,15 @@ pub struct TrialPatch {
     pub plan_version_id: PlanVersionId,
     pub tenant_id: TenantId,
     pub trial: Option<PlanTrial>,
+}
+
+#[derive(Debug, Clone)]
+pub struct SelfServicePlan {
+    pub plan_id: PlanId,
+    pub plan_name: String,
+    pub description: Option<String>,
+    pub plan_version_id: PlanVersionId,
+    pub self_service_rank: i32,
 }
 
 #[derive(Debug, o2o)]

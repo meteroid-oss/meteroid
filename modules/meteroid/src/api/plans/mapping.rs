@@ -99,6 +99,7 @@ pub mod plans {
                     plan_status: PlanStatusWrapper::from(value.plan.status).0 as i32,
                     active_version_id: value.plan.active_version_id.map(|x| x.as_proto()),
                     draft_version_id: value.plan.draft_version_id.map(|x| x.as_proto()),
+                    self_service_rank: value.plan.self_service_rank,
                 }),
                 version: Some(PlanVersionWrapper::from(value.version).0),
             })
@@ -117,6 +118,7 @@ pub mod plans {
                     plan_status: PlanStatusWrapper::from(value.plan.status).0 as i32,
                     active_version_id: value.plan.active_version_id.map(|x| x.as_proto()),
                     draft_version_id: value.plan.draft_version_id.map(|x| x.as_proto()),
+                    self_service_rank: value.plan.self_service_rank,
                 }),
                 version: value.version.map(|v| PlanVersionWrapper::from(v).0),
             })
@@ -184,6 +186,7 @@ pub mod plans {
                     trial_duration_days: v.trial_duration_days.map(|x| x as u32),
                 }),
                 subscription_count: value.subscription_count.map_or(0, |x| x as u32),
+                self_service_rank: value.self_service_rank,
             })
         }
     }

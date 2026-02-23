@@ -34,6 +34,7 @@ types:
     - meteroid.portal.customer.v1.PortalCustomerService
     - meteroid.portal.shared.v1.PortalSharedService
     - meteroid.portal.invoice.v1.PortalInvoiceService
+    - meteroid.portal.subscription.v1.PortalSubscriptionService
 plugins:
   - plugin: buf.build/bufbuild/es:v1.7.1
     opt:

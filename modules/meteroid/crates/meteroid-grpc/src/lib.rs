@@ -226,6 +226,11 @@ pub mod meteroid {
                 tonic::include_proto!("meteroid.portal.quotes.v1");
             }
         }
+        pub mod subscription {
+            pub mod v1 {
+                tonic::include_proto!("meteroid.portal.subscription.v1");
+            }
+        }
     }
 }
 

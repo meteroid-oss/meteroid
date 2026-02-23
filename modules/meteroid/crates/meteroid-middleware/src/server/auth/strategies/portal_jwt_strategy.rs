@@ -90,6 +90,7 @@ pub async fn authorize_portal(
                 && !gm.service.starts_with("meteroid.portal.checkout.")
                 && !gm.service.starts_with("meteroid.portal.shared.")
                 && !gm.service.starts_with("meteroid.portal.customer.")
+                && !gm.service.starts_with("meteroid.portal.subscription.")
             {
                 return Err(Status::permission_denied("Unauthorized"));
             }

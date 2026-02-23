@@ -686,6 +686,7 @@ diesel::table! {
         status -> PlanStatusEnum,
         active_version_id -> Nullable<Uuid>,
         draft_version_id -> Nullable<Uuid>,
+        self_service_rank -> Nullable<Int4>,
     }
 }
 

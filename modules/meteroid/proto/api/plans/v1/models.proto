@@ -92,6 +92,7 @@ message Plan {
   //  PlanVersion version = 8;
   optional string active_version_id = 11;
   optional string draft_version_id = 12;
+  optional int32 self_service_rank = 13;
 }
 
 message PlanOverview {
@@ -108,7 +109,7 @@ message PlanOverview {
 
   string product_family_local_id = 11;
   string product_family_name = 12;
-
+  optional int32 self_service_rank = 13;
 
   message ActiveVersionInfo {
     string id = 1;
