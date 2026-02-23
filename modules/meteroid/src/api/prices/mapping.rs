@@ -1,7 +1,7 @@
 pub mod prices {
     use crate::api::domain_mapping::billing_period;
     use crate::api::shared::conversions::ProtoConv;
-    use crate::api::shared::mapping::datetime::chrono_to_timestamp;
+
     use meteroid_grpc::meteroid::api::prices::v1 as proto;
     use meteroid_grpc::meteroid::api::shared::v1 as api_shared;
     use meteroid_store::domain;
@@ -22,8 +22,8 @@ pub mod prices {
                 cadence: billing_period::to_proto(price.cadence).into(),
                 currency: price.currency,
                 pricing: pricing_to_proto(&price.pricing),
-                created_at: Some(chrono_to_timestamp(price.created_at)),
-                archived_at: price.archived_at.map(chrono_to_timestamp),
+                created_at: Some(price.created_at.as_proto()),
+                archived_at: price.archived_at.map(|d| d.as_proto()),
             })
         }
     }

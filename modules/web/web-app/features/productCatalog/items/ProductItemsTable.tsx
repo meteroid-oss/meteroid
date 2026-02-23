@@ -1,9 +1,12 @@
 import { ColumnDef, PaginationState } from '@tanstack/react-table'
-import { EyeIcon } from 'lucide-react'
 import { FC, useMemo } from 'react'
 
+import { LocalId } from '@/components/LocalId'
 import { StandardTable } from '@/components/table/StandardTable'
+import { feeTypeLabel } from '@/lib/mapping/prices'
+import { FeeType } from '@/rpc/api/prices/v1/models_pb'
 import { ProductMeta } from '@/rpc/api/products/v1/models_pb'
+import { parseAndFormatDate } from '@/utils/date'
 
 import type { OnChangeFn } from '@tanstack/react-table'
 
@@ -27,30 +30,48 @@ export const ProductsTable: FC<ProductsTableProps> = ({
     () => [
       {
         header: 'Name',
-        accessorKey: 'name',
-      },
-      {
-        header: 'Local ID',
-        accessorKey: 'localId',
-        cell: ({ getValue }) => (
-          <span className="font-mono text-xs text-muted-foreground">{getValue<string>()}</span>
-        ),
-      },
-      {
-        accessorKey: 'id',
-        header: '',
-        className: 'w-2',
         cell: ({ row }) => (
           <button
-            onClick={e => {
-              e.stopPropagation()
-              onProductClick?.(row.original)
-            }}
-            className="cursor-pointer text-muted-foreground hover:text-foreground"
+            className="text-left cursor-pointer"
+            onClick={() => onProductClick?.(row.original)}
           >
-            <EyeIcon size={16} />
+            <span className="font-medium">{row.original.name}</span>
+            {row.original.description && (
+              <span className="block text-xs text-muted-foreground truncate max-w-xs">
+                {row.original.description}
+              </span>
+            )}
           </button>
         ),
+        enableSorting: false,
+      },
+      {
+        header: 'Fee Type',
+        cell: ({ row }) => {
+          const ft = row.original.feeType
+          if (ft === undefined) return null
+          return <span className="text-sm">{feeTypeLabel(ft as FeeType)}</span>
+        },
+        enableSorting: false,
+      },
+      {
+        header: 'API Handle',
+        id: 'localId',
+        cell: ({ row }) => <LocalId localId={row.original.localId} className="max-w-16" />,
+        enableSorting: false,
+      },
+      {
+        header: 'Created',
+        cell: ({ row }) => {
+          const ts = row.original.createdAt
+          if (!ts) return null
+          return (
+            <span className="text-sm text-muted-foreground">
+              {parseAndFormatDate(ts)}
+            </span>
+          )
+        },
+        enableSorting: false,
       },
     ],
     [onProductClick]
