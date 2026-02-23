@@ -1,6 +1,4 @@
 import {
-  createConnectQueryKey,
-  createProtobufSafeUpdater,
   useMutation,
 } from '@connectrpc/connect-query'
 import { Button } from '@md/ui'
@@ -62,16 +60,9 @@ export const AddOnCard: React.FC<Props> = ({ addOn }) => {
 
   const detachMutation = useMutation(detachAddOnFromPlanVersion, {
     onSuccess: () => {
-      if (planWithVersion.version) {
-        queryClient.setQueryData(
-          createConnectQueryKey(listAddOns, {
-            planVersionId: planWithVersion.version.id,
-          }),
-          createProtobufSafeUpdater(listAddOns, prev => ({
-            addOns: prev?.addOns.filter(a => a.id !== addOn.id) ?? [],
-          }))
-        )
-      }
+      queryClient.invalidateQueries({
+        queryKey: [listAddOns.service.typeName],
+      })
     },
   })
 

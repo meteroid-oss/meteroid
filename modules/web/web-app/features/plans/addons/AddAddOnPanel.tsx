@@ -1,5 +1,4 @@
 import {
-  createConnectQueryKey,
   disableQuery,
   useMutation,
 } from '@connectrpc/connect-query'
@@ -107,11 +106,9 @@ export const AddAddOnPanel = () => {
 
   const attachMutation = useMutation(attachAddOnToPlanVersion, {
     onSuccess: () => {
-      if (version?.id) {
-        queryClient.invalidateQueries({
-          queryKey: createConnectQueryKey(listAddOns, { planVersionId: version.id }),
-        })
-      }
+      queryClient.invalidateQueries({
+        queryKey: [listAddOns.service.typeName],
+      })
       navigate('..')
     },
     onError: error => {

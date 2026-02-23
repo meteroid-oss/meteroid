@@ -79,6 +79,7 @@ async fn test_add_ons_basic() {
             plan_version_id: None,
             search: None,
             pagination: None,
+            currency: None,
         })
         .await
         .unwrap()
@@ -145,6 +146,7 @@ async fn test_add_ons_basic() {
             plan_version_id: None,
             search: None,
             pagination: None,
+            currency: None,
         })
         .await
         .unwrap()
