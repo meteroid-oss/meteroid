@@ -114,6 +114,12 @@ impl PortalQuoteService for PortalQuoteServiceComponents {
             .map(crate::api::quotes::mapping::quotes::quote_component_to_proto)
             .collect::<Vec<_>>();
 
+        let proto_add_ons = detailed_quote
+            .add_ons
+            .iter()
+            .map(crate::api::quotes::mapping::quotes::quote_add_on_to_proto)
+            .collect::<Vec<_>>();
+
         let entity = Some(
             crate::api::invoicingentities::mapping::invoicing_entities::domain_to_public_proto(
                 detailed_quote.invoicing_entity.clone(),
@@ -126,6 +132,7 @@ impl PortalQuoteService for PortalQuoteServiceComponents {
                 customer: Some(proto_customer),
                 entity,
                 components: proto_components,
+                add_ons: proto_add_ons,
                 signatures: proto_signatures,
                 recipients: recipients_with_status,
                 current_recipient_email,

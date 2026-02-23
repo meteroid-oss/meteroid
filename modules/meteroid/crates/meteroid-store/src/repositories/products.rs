@@ -34,6 +34,11 @@ pub trait ProductInterface {
         id: ProductId,
         auth_tenant_id: TenantId,
     ) -> StoreResult<Product>;
+    async fn find_products_by_ids(
+        &self,
+        ids: &[ProductId],
+        auth_tenant_id: TenantId,
+    ) -> StoreResult<Vec<Product>>;
     async fn list_products(
         &self,
         auth_tenant_id: TenantId,
@@ -144,6 +149,20 @@ impl ProductInterface for Store {
             .await
             .map_err(Into::into)
             .and_then(|row| row.try_into())
+    }
+
+    async fn find_products_by_ids(
+        &self,
+        ids: &[ProductId],
+        auth_tenant_id: TenantId,
+    ) -> StoreResult<Vec<Product>> {
+        let mut conn = self.get_conn().await?;
+
+        let rows = ProductRow::list_by_ids(&mut conn, ids, auth_tenant_id)
+            .await
+            .map_err(Into::<Report<StoreError>>::into)?;
+
+        rows.into_iter().map(|r| r.try_into()).collect()
     }
 
     async fn list_products(

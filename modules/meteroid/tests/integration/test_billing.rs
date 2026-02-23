@@ -6,7 +6,8 @@ use crate::helpers;
 use crate::meteroid_it;
 use crate::meteroid_it::container::SeedLevel;
 use common_domain::ids::SubscriptionId;
-use diesel_models::enums::{CycleActionEnum, SubscriptionStatusEnum};
+use diesel_models::enums::{CycleActionEnum, SubscriptionEventType, SubscriptionStatusEnum};
+use diesel_models::subscription_events::SubscriptionEventRow;
 use diesel_models::subscriptions::SubscriptionRow;
 use meteroid_mailer::service::MockMailerService;
 use meteroid_store::clients::usage::MockUsageClient;
@@ -57,6 +58,10 @@ async fn test_lifecycle_billing() {
     test_subscription_cancellation_race_condition(&services, &store, &mut conn).await;
 
     test_issuing(&services, &store, mock_mailer.clone(), &mut conn).await;
+
+    // MRR overflow regression tests
+    test_mrr_cancellation_after_multiple_cycles(&services, &store, &mut conn).await;
+    test_mrr_cancellation_at_period_boundary(&services, &store, &mut conn).await;
 
     // TODO next tests :
     // - ubb
@@ -459,6 +464,257 @@ async fn test_subscription_cancellation_race_condition(
     assert!(subscription.next_cycle_action.is_none());
     assert_eq!(subscription.current_period_start, cancel_date);
     assert!(subscription.current_period_end.is_none());
+    assert_eq!(subscription.mrr_cents, 0);
+}
+
+/// Regression test for MRR overflow after cancellation.
+///
+/// The bug: create_churn_mrr_log in terminate.rs unconditionally applies
+/// update_subscription_mrr_delta. If process_mrr (invoices.rs) also processes the
+/// Cancelled subscription event (via an invoice inserted at the cancel date), the delta
+/// is applied twice, making mrr_cents negative. The negative i64 then wraps to a huge
+/// u64 (billions/quintillions) when converted to the domain Subscription type.
+///
+/// This test verifies:
+/// 1. mrr_cents is exactly 0 after cancellation (no double-counting)
+/// 2. mrr_cents is never negative (would cause u64 overflow)
+/// 3. The Cancelled subscription event is properly linked to the BI MRR movement log
+/// 4. Idempotency: repeated lifecycle processing doesn't change mrr_cents
+async fn test_mrr_cancellation_after_multiple_cycles(
+    services: &Services,
+    store: &Store,
+    conn: &mut PgConn,
+) {
+    log::info!(">>> Testing MRR cancellation after multiple billing cycles (overflow regression)");
+
+    let start_date = NaiveDate::from_ymd_opt(2024, 5, 1).unwrap();
+    let expected_mrr = 3500i64;
+
+    let subscription_id = create_subscription(
+        services,
+        SubscriptionParams {
+            start_date,
+            ..Default::default()
+        },
+    )
+    .await;
+
+    // Verify initial MRR is positive and correct
+    let subscription = get_subscription_row(conn, subscription_id).await;
+    assert_eq!(subscription.mrr_cents, expected_mrr);
+    assert!(
+        subscription.mrr_cents >= 0,
+        "MRR must never be negative (would overflow to u64::MAX)"
+    );
+
+    // Verify the Created event was linked to a BI MRR movement log via process_mrr
+    let created_event = SubscriptionEventRow::fetch_by_subscription_id_and_event_type(
+        conn,
+        subscription_id,
+        SubscriptionEventType::Created,
+        start_date,
+    )
+    .await
+    .unwrap();
+    // process_mrr does NOT set bi_mrr_movement_log_id — this is a known gap
+    // The Created event's MRR delta is applied by process_mrr on invoice insertion
+    assert!(created_event.is_some());
+
+    // Run through 3 billing cycles to build up state
+    for cycle in 1..=3 {
+        services.get_and_process_cycle_transitions().await.unwrap();
+        services.get_and_process_due_events().await.unwrap();
+
+        let subscription = get_subscription_row(conn, subscription_id).await;
+        assert_eq!(subscription.status, SubscriptionStatusEnum::Active);
+        assert_eq!(
+            subscription.mrr_cents, expected_mrr,
+            "MRR should remain stable across billing cycles (cycle {})",
+            cycle
+        );
+        assert!(
+            subscription.mrr_cents >= 0,
+            "MRR must never be negative at cycle {}",
+            cycle
+        );
+    }
+
+    let invoices = get_invoices(store, subscription_id).await;
+    assert_eq!(invoices.len(), 4); // initial + 3 renewals
+
+    // Cancel mid-period with a specific date
+    let cancel_date = NaiveDate::from_ymd_opt(2024, 8, 15).unwrap();
+    services
+        .cancel_subscription(
+            subscription_id,
+            TENANT_ID,
+            Some("MRR overflow test".to_string()),
+            CancellationEffectiveAt::Date(cancel_date),
+            USER_ID,
+        )
+        .await
+        .unwrap();
+
+    // MRR should still be positive while cancellation is pending
+    let subscription = get_subscription_row(conn, subscription_id).await;
+    assert_eq!(subscription.mrr_cents, expected_mrr);
+
+    // Process the cancellation through the lifecycle
+    services.get_and_process_cycle_transitions().await.unwrap();
+    services.get_and_process_due_events().await.unwrap();
+
+    // CRITICAL: mrr_cents must be exactly 0, not negative (which would overflow to u64::MAX)
+    let subscription = get_subscription_row(conn, subscription_id).await;
+    assert_eq!(subscription.status, SubscriptionStatusEnum::Cancelled);
+    assert_eq!(
+        subscription.mrr_cents, 0,
+        "MRR must be exactly 0 after cancellation, got {} (negative would overflow to billions as u64)",
+        subscription.mrr_cents
+    );
+    assert!(
+        subscription.mrr_cents >= 0,
+        "MRR is negative ({}), would overflow to {} as u64",
+        subscription.mrr_cents,
+        subscription.mrr_cents as u64
+    );
+
+    // Verify the Cancelled event was linked to the BI MRR movement log by create_churn_mrr_log
+    let cancelled_event = SubscriptionEventRow::fetch_by_subscription_id_and_event_type(
+        conn,
+        subscription_id,
+        SubscriptionEventType::Cancelled,
+        cancel_date,
+    )
+    .await
+    .unwrap();
+    assert!(
+        cancelled_event.is_some(),
+        "Cancelled subscription event should exist"
+    );
+    let cancelled_event = cancelled_event.unwrap();
+    assert_eq!(cancelled_event.mrr_delta, Some(-expected_mrr));
+    assert!(
+        cancelled_event.bi_mrr_movement_log_id.is_some(),
+        "Cancelled event should be linked to a BI MRR movement log (idempotency marker)"
+    );
+
+    // Idempotency: repeated processing must not change mrr_cents
+    services.get_and_process_cycle_transitions().await.unwrap();
+    services.get_and_process_due_events().await.unwrap();
+
+    let subscription = get_subscription_row(conn, subscription_id).await;
+    assert_eq!(subscription.status, SubscriptionStatusEnum::Cancelled);
+    assert_eq!(
+        subscription.mrr_cents, 0,
+        "MRR must remain 0 after repeated lifecycle processing"
+    );
+}
+
+/// Tests MRR handling when cancellation falls exactly on a period boundary.
+///
+/// This is an edge case because the cycle transition checks for scheduled events
+/// at new_period_start. If the cancel date matches the period boundary, the cycle
+/// transition processes the cancellation inline (without creating a renewal invoice first).
+///
+/// If the order of operations were reversed (bill first, check events second),
+/// process_mrr would pick up the Cancelled event from the renewal invoice and
+/// create_churn_mrr_log would apply the delta again — causing the double-counting bug.
+async fn test_mrr_cancellation_at_period_boundary(
+    services: &Services,
+    store: &Store,
+    conn: &mut PgConn,
+) {
+    log::info!(">>> Testing MRR cancellation at period boundary (overflow regression)");
+
+    let start_date = NaiveDate::from_ymd_opt(2024, 6, 1).unwrap();
+    let expected_mrr = 3500i64;
+
+    let subscription_id = create_subscription(
+        services,
+        SubscriptionParams {
+            start_date,
+            ..Default::default()
+        },
+    )
+    .await;
+
+    // Run one billing cycle
+    services.get_and_process_cycle_transitions().await.unwrap();
+    services.get_and_process_due_events().await.unwrap();
+
+    let subscription = get_subscription_row(conn, subscription_id).await;
+    assert_eq!(subscription.mrr_cents, expected_mrr);
+    let period_end = subscription.current_period_end.unwrap();
+
+    // Cancel exactly at the period boundary.
+    // We use Date(period_end) instead of EndOfBillingPeriod because the latter
+    // computes the period relative to the real wall-clock date, which mismatches
+    // our synthetic 2024 test dates.
+    services
+        .cancel_subscription(
+            subscription_id,
+            TENANT_ID,
+            Some("period boundary test".to_string()),
+            CancellationEffectiveAt::Date(period_end),
+            USER_ID,
+        )
+        .await
+        .unwrap();
+
+    // Process: cycle transition should find the cancel event at the next period start
+    // and handle it inline (without billing first)
+    services.get_and_process_cycle_transitions().await.unwrap();
+    services.get_and_process_due_events().await.unwrap();
+
+    let subscription = get_subscription_row(conn, subscription_id).await;
+    assert_eq!(subscription.status, SubscriptionStatusEnum::Cancelled);
+    assert_eq!(
+        subscription.mrr_cents,
+        0,
+        "MRR must be 0 after period-boundary cancellation, got {} (negative={}, as u64={})",
+        subscription.mrr_cents,
+        subscription.mrr_cents < 0,
+        subscription.mrr_cents as u64
+    );
+    assert!(
+        subscription.mrr_cents >= 0,
+        "MRR went negative ({}) — double-counting bug in create_churn_mrr_log",
+        subscription.mrr_cents
+    );
+
+    // Verify the cancel event's applies_to matches the period end
+    let cancelled_event = SubscriptionEventRow::fetch_by_subscription_id_and_event_type(
+        conn,
+        subscription_id,
+        SubscriptionEventType::Cancelled,
+        period_end,
+    )
+    .await
+    .unwrap();
+    assert!(
+        cancelled_event.is_some(),
+        "Cancelled event should exist at period end date {}",
+        period_end
+    );
+    let cancelled_event = cancelled_event.unwrap();
+    assert_eq!(cancelled_event.mrr_delta, Some(-expected_mrr));
+    assert!(
+        cancelled_event.bi_mrr_movement_log_id.is_some(),
+        "Cancelled event must be linked to BI MRR movement log"
+    );
+
+    // No further invoices should be created
+    let invoices = get_invoices(store, subscription_id).await;
+    assert!(
+        invoices.len() <= 3,
+        "No extra invoices should be created during termination"
+    );
+
+    // Idempotency
+    services.get_and_process_cycle_transitions().await.unwrap();
+    services.get_and_process_due_events().await.unwrap();
+
+    let subscription = get_subscription_row(conn, subscription_id).await;
     assert_eq!(subscription.mrr_cents, 0);
 }
 

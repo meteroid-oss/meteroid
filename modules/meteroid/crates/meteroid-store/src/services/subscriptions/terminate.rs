@@ -9,6 +9,7 @@ use diesel_models::bi::BiMrrMovementLogRowNew;
 use diesel_models::enums::{MrrMovementType, SubscriptionEventType, SubscriptionStatusEnum};
 use diesel_models::invoices::InvoiceRow;
 use diesel_models::query::bi::MrrDailyUpsertInput;
+use diesel_models::scheduled_events::ScheduledEventRow;
 use diesel_models::subscription_events::SubscriptionEventRow;
 use diesel_models::subscriptions::{SubscriptionCycleRowPatch, SubscriptionRow};
 use error_stack::Report;
@@ -38,6 +39,28 @@ impl Services {
         };
 
         patch.patch(conn).await?;
+
+        // Cancel any pending lifecycle events (plan change, pause, etc.) to prevent
+        // stale events from executing on a terminated subscription.
+        let cancelled_count = ScheduledEventRow::cancel_pending_lifecycle_events(
+            conn,
+            subscription_id,
+            &tenant_id,
+            &format!(
+                "Subscription terminated with status {:?}",
+                terminate_with_state
+            ),
+        )
+        .await
+        .map_err(Into::<error_stack::Report<StoreError>>::into)?;
+
+        if cancelled_count > 0 {
+            log::info!(
+                "Cancelled {} pending lifecycle events for terminated subscription {}",
+                cancelled_count,
+                subscription_id,
+            );
+        }
 
         self.bill_subscription_tx(
             conn,

@@ -10,6 +10,7 @@ use diesel_models::historical_rates_from_usd::HistoricalRatesFromUsdRowNew;
 use diesel_models::invoicing_entities::InvoicingEntityRow;
 use diesel_models::organization_members::OrganizationMemberRow;
 use diesel_models::organizations::{OrganizationRow, OrganizationRowNew};
+use diesel_models::product_families::ProductFamilyRowNew;
 use diesel_models::tenants::TenantRowNew;
 use diesel_models::users::UserRowNew;
 use meteroid_store::store::PgPool;
@@ -60,6 +61,13 @@ pub async fn run_minimal_seed(pool: &PgPool) {
             environment: TenantEnvironmentEnum::Development,
             available_currencies: vec![Some("EUR".to_string()), Some("USD".to_string())],
             disable_emails: true
+        }.insert(tx).await?;
+
+        // create default product family
+        ProductFamilyRowNew {
+            id: ids::PRODUCT_FAMILY_ID,
+            name: "Default".to_string(),
+            tenant_id: ids::TENANT_ID,
         }.insert(tx).await?;
 
         // create api token

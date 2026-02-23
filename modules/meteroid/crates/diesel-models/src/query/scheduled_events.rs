@@ -348,6 +348,45 @@ impl ScheduledEventRow {
             .map(|_| ())
             .into_db_result()
     }
+
+    /// Cancel all pending lifecycle events for a subscription (plan change, pause, etc.).
+    /// Used when terminating a subscription to prevent stale events from executing.
+    pub async fn cancel_pending_lifecycle_events(
+        conn: &mut PgConn,
+        subscription_id_param: SubscriptionId,
+        tenant_id_param: &TenantId,
+        reason: &str,
+    ) -> DbResult<usize> {
+        use crate::schema::scheduled_event::dsl::{
+            error, event_type, scheduled_event, status, subscription_id, tenant_id, updated_at,
+        };
+
+        let lifecycle_types = vec![
+            ScheduledEventTypeEnum::ApplyPlanChange,
+            ScheduledEventTypeEnum::PauseSubscription,
+            ScheduledEventTypeEnum::CancelSubscription,
+            ScheduledEventTypeEnum::EndTrial,
+        ];
+
+        let query = diesel::update(scheduled_event)
+            .filter(subscription_id.eq(subscription_id_param))
+            .filter(tenant_id.eq(tenant_id_param))
+            .filter(status.eq(ScheduledEventStatus::Pending))
+            .filter(event_type.eq_any(lifecycle_types))
+            .set((
+                status.eq(ScheduledEventStatus::Canceled),
+                error.eq(Some(reason.to_string())),
+                updated_at.eq(Utc::now().naive_utc()),
+            ));
+
+        log::debug!("{}", diesel::debug_query::<diesel::pg::Pg, _>(&query));
+
+        query
+            .execute(conn)
+            .await
+            .attach("Error while canceling pending lifecycle events")
+            .into_db_result()
+    }
 }
 
 impl ScheduledEventRowNew {

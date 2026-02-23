@@ -545,13 +545,12 @@ function PackagePricingFields({
 // --- Matrix ---
 
 const areDimensionsEqual = (d1: DimensionCombination, d2: DimensionCombination): boolean => {
-  return (
-    d1.dimension1.key === d2.dimension1.key &&
-    d1.dimension1.value === d2.dimension1.value &&
-    (!d1.dimension2 ||
-      !d2.dimension2 ||
-      (d1.dimension2.key === d2.dimension2.key && d1.dimension2.value === d2.dimension2.value))
-  )
+  if (d1.dimension1.key !== d2.dimension1.key || d1.dimension1.value !== d2.dimension1.value) {
+    return false
+  }
+  if (!d1.dimension2 && !d2.dimension2) return true
+  if (!d1.dimension2 || !d2.dimension2) return false
+  return d1.dimension2.key === d2.dimension2.key && d1.dimension2.value === d2.dimension2.value
 }
 
 interface MatrixRow {

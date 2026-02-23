@@ -3,11 +3,14 @@ syntax = "proto3";
 package meteroid.api.addons.v1;
 
 import "api/addons/v1/models.proto";
+import "api/pricecomponents/v1/models.proto";
 import "common/v1/pagination.proto";
 
 message ListAddOnRequest {
-  optional string search = 1;
-  meteroid.common.v1.Pagination pagination = 2;
+  optional string plan_version_id = 1;
+  optional string search = 2;
+  meteroid.common.v1.Pagination pagination = 3;
+  optional string currency = 4;
 }
 
 message ListAddOnResponse {
@@ -16,12 +19,25 @@ message ListAddOnResponse {
 }
 
 message CreateAddOnRequest {
+  reserved 1;
   string name = 2;
-  optional string product_id = 4;
-  optional string price_id = 5;
+  meteroid.api.components.v1.ProductRef product = 3;
+  meteroid.api.components.v1.PriceEntry price = 4;
+  optional string description = 5;
+  bool self_serviceable = 6;
+  optional int32 max_instances_per_subscription = 7;
+  optional string product_family_local_id = 8;
 }
 
 message CreateAddOnResponse {
+  AddOn add_on = 1;
+}
+
+message GetAddOnRequest {
+  string add_on_id = 1;
+}
+
+message GetAddOnResponse {
   AddOn add_on = 1;
 }
 
@@ -32,16 +48,53 @@ message RemoveAddOnRequest {
 message RemoveAddOnResponse {}
 
 message EditAddOnRequest {
-  AddOn add_on = 1;
+  string add_on_id = 1;
+  string name = 2;
+  meteroid.api.components.v1.PriceEntry price = 3;
+  optional string description = 4;
+  optional bool self_serviceable = 5;
+  optional int32 max_instances_per_subscription = 6;
 }
 
 message EditAddOnResponse {
   AddOn add_on = 1;
 }
 
+// Plan-version add-on junction management
+message AttachAddOnToPlanVersionRequest {
+  string plan_version_id = 1;
+  string add_on_id = 2;
+  optional string price_id = 3;
+  optional bool self_serviceable = 4;
+  optional int32 max_instances_per_subscription = 5;
+}
+
+message AttachAddOnToPlanVersionResponse {
+  PlanVersionAddOn plan_version_add_on = 1;
+}
+
+message DetachAddOnFromPlanVersionRequest {
+  string plan_version_id = 1;
+  string add_on_id = 2;
+}
+
+message DetachAddOnFromPlanVersionResponse {}
+
+message ListPlanVersionAddOnsRequest {
+  string plan_version_id = 1;
+}
+
+message ListPlanVersionAddOnsResponse {
+  repeated PlanVersionAddOn plan_version_add_ons = 1;
+}
+
 service AddOnsService {
   rpc ListAddOns(ListAddOnRequest) returns (ListAddOnResponse) {}
   rpc CreateAddOn(CreateAddOnRequest) returns (CreateAddOnResponse) {}
+  rpc GetAddOn(GetAddOnRequest) returns (GetAddOnResponse) {}
   rpc RemoveAddOn(RemoveAddOnRequest) returns (RemoveAddOnResponse) {}
   rpc EditAddOn(EditAddOnRequest) returns (EditAddOnResponse) {}
+  rpc AttachAddOnToPlanVersion(AttachAddOnToPlanVersionRequest) returns (AttachAddOnToPlanVersionResponse) {}
+  rpc DetachAddOnFromPlanVersion(DetachAddOnFromPlanVersionRequest) returns (DetachAddOnFromPlanVersionResponse) {}
+  rpc ListPlanVersionAddOns(ListPlanVersionAddOnsRequest) returns (ListPlanVersionAddOnsResponse) {}
 }

@@ -39,6 +39,7 @@ pub use quotes::QuoteConversionResult;
 use stripe_client::client::StripeClient;
 pub use subscriptions::insert::payment_method::PaymentSetupResult;
 pub use subscriptions::payment_resolution;
+pub use subscriptions::utils::PendingMaterialization;
 pub use subscriptions::utils::validate_charge_automatically_with_provider_ids;
 
 // INTERNAL. Share connections

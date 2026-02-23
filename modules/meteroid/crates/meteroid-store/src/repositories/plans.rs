@@ -783,6 +783,14 @@ impl PlansInterface for Store {
                     .await
                     .map_err(Into::<Report<StoreError>>::into)?;
 
+                diesel_models::plan_version_add_ons::PlanVersionAddOnRow::clone_all(
+                    conn,
+                    original.id,
+                    new.id,
+                )
+                .await
+                .map_err(Into::<Report<StoreError>>::into)?;
+
                 PlanRowPatch {
                     id: original.plan_id,
                     tenant_id: original.tenant_id,

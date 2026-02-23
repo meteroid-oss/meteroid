@@ -2,10 +2,29 @@ syntax = "proto3";
 
 package meteroid.api.addons.v1;
 
+import "api/prices/v1/models.proto";
+import "google/protobuf/timestamp.proto";
+
 message AddOn {
   string id = 1;
   string name = 2;
-  string local_id = 4;
-  optional string product_id = 5;
-  optional string price_id = 6;
+  optional string description = 3;
+  reserved 4;
+  string price_id = 5;
+  string product_id = 6;
+  meteroid.api.prices.v1.FeeType fee_type = 7;
+  meteroid.api.prices.v1.Price price = 8;
+  bool self_serviceable = 9;
+  optional int32 max_instances_per_subscription = 10;
+  optional google.protobuf.Timestamp archived_at = 11;
+  optional meteroid.api.prices.v1.FeeStructure fee_structure = 12;
+}
+
+message PlanVersionAddOn {
+  string id = 1;
+  string plan_version_id = 2;
+  string add_on_id = 3;
+  optional string price_id = 4;
+  optional bool self_serviceable = 5;
+  optional int32 max_instances_per_subscription = 6;
 }

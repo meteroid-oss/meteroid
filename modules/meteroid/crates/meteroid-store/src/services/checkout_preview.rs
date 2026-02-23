@@ -525,7 +525,7 @@ impl Services {
             .await?;
 
         // Load products and prices referenced by add-ons
-        let ao_product_ids: Vec<ProductId> = add_ons.iter().filter_map(|a| a.product_id).collect();
+        let ao_product_ids: Vec<ProductId> = add_ons.iter().map(|a| a.product_id).collect();
         let ao_products_map: HashMap<ProductId, Product> = if ao_product_ids.is_empty() {
             HashMap::new()
         } else {
@@ -541,7 +541,7 @@ impl Services {
         };
 
         let ao_price_ids: Vec<common_domain::ids::PriceId> =
-            add_ons.iter().filter_map(|a| a.price_id).collect();
+            add_ons.iter().map(|a| a.price_id).collect();
         let ao_prices_map: HashMap<common_domain::ids::PriceId, crate::domain::prices::Price> =
             if ao_price_ids.is_empty() {
                 HashMap::new()
@@ -584,6 +584,7 @@ impl Services {
                 product_id: resolved.product_id,
                 price_id: resolved.price_id,
                 created_at: chrono::Utc::now().naive_utc(),
+                quantity: create_ao.quantity,
             });
         }
 

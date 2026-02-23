@@ -4,7 +4,6 @@ use diesel_async::scoped_futures::ScopedFutureExt;
 use diesel_models::billable_metrics::BillableMetricRowNew;
 use diesel_models::enums::BillingMetricAggregateEnum;
 use diesel_models::errors::DatabaseErrorContainer;
-use diesel_models::product_families::ProductFamilyRowNew;
 use meteroid_store::store::PgPool;
 
 pub async fn run_meters_seed(pool: &PgPool) {
@@ -15,14 +14,6 @@ pub async fn run_meters_seed(pool: &PgPool) {
 
     conn.transaction(|tx| {
         async move {
-            ProductFamilyRowNew {
-                id: ids::PRODUCT_FAMILY_ID,
-                name: "Default".to_string(),
-                tenant_id: ids::TENANT_ID,
-            }
-            .insert(tx)
-            .await?;
-
             BillableMetricRowNew {
                 id: ids::METRIC_DATABASE_SIZE,
                 name: "Database size (GB)".to_string(),

@@ -3,7 +3,7 @@ use crate::api_rest::model::{BillingPeriodEnum, PaginatedRequest, PaginationResp
 use chrono::NaiveDate;
 use common_domain::ids::{
     AddOnId, AliasOr, AppliedCouponId, BankAccountId, BillableMetricId, CouponId, CustomerId,
-    PlanVersionId, PriceComponentId, ProductId,
+    PlanVersionId, PriceComponentId, ProductId, SubscriptionAddOnId,
 };
 use common_domain::ids::{PlanId, string_serde_opt, string_serde_vec_opt};
 use common_domain::ids::{SubscriptionId, string_serde};
@@ -734,26 +734,36 @@ impl From<ExtraComponent> for meteroid_store::domain::subscription_components::E
     }
 }
 
-#[derive(o2o, ToSchema, Serialize, Deserialize, Clone, Debug)]
-#[map_owned(meteroid_store::domain::subscription_add_ons::SubscriptionAddOnOverride)]
-pub struct SubscriptionAddOnOverride {
-    pub name: String,
-    #[map(~.into())]
-    pub period: SubscriptionFeeBillingPeriodEnum,
-    #[map(~.into())]
-    pub fee: SubscriptionFee,
+#[derive(ToSchema, Serialize, Deserialize, Clone, Debug)]
+pub struct SubscriptionAddOnPriceOverride {
+    pub name: Option<String>,
+    #[schema(value_type = Object)]
+    pub price_entry: meteroid_store::domain::price_components::PriceEntry,
 }
 
-#[derive(o2o, ToSchema, Serialize, Deserialize, Clone, Debug)]
-#[from_owned(meteroid_store::domain::subscription_add_ons::SubscriptionAddOn)]
+#[derive(ToSchema, Serialize, Deserialize, Clone, Debug)]
 pub struct SubscriptionAddOn {
+    #[serde(default, with = "string_serde")]
+    pub id: SubscriptionAddOnId,
     #[serde(default, with = "string_serde")]
     pub add_on_id: AddOnId,
     pub name: String,
-    #[map(~.into())]
     pub period: SubscriptionFeeBillingPeriodEnum,
-    #[map(~.into())]
     pub fee: SubscriptionFee,
+    pub quantity: u32,
+}
+
+impl From<meteroid_store::domain::subscription_add_ons::SubscriptionAddOn> for SubscriptionAddOn {
+    fn from(val: meteroid_store::domain::subscription_add_ons::SubscriptionAddOn) -> Self {
+        SubscriptionAddOn {
+            id: val.id,
+            add_on_id: val.add_on_id,
+            name: val.name,
+            period: val.period.into(),
+            fee: val.fee.into(),
+            quantity: val.quantity.max(0) as u32,
+        }
+    }
 }
 
 #[derive(o2o, ToSchema, Serialize, Deserialize, Clone, Debug)]
@@ -768,7 +778,7 @@ pub struct SubscriptionAddOnParameterization {
 #[derive(ToSchema, Serialize, Deserialize, Clone, Debug)]
 #[serde(tag = "discriminator", rename_all = "SCREAMING_SNAKE_CASE")]
 pub enum SubscriptionAddOnCustomization {
-    Override(SubscriptionAddOnOverride),
+    PriceOverride(SubscriptionAddOnPriceOverride),
     Parameterization(SubscriptionAddOnParameterization),
 }
 
@@ -777,6 +787,12 @@ pub struct CreateSubscriptionAddOn {
     #[serde(with = "string_serde")]
     pub add_on_id: AddOnId,
     pub customization: Option<SubscriptionAddOnCustomization>,
+    #[serde(default = "default_quantity")]
+    pub quantity: u32,
+}
+
+fn default_quantity() -> u32 {
+    1
 }
 
 #[derive(ToSchema, Serialize, Deserialize, Validate, Debug)]

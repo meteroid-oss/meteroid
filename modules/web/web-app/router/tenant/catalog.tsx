@@ -3,12 +3,15 @@ import { Navigate, RouteObject } from 'react-router-dom'
 import { NotImplemented } from '@/features/NotImplemented'
 import { PlanCreateInitModal } from '@/features/plans/PlanCreateInitModal'
 import { DetailsFormModal } from '@/features/plans/create/details/DetailsFormModal'
+import { AddonDetails } from '@/pages/tenants/billing/addonDetails'
 import { Addons } from '@/pages/tenants/billing/addons'
 import { CouponDetails } from '@/pages/tenants/billing/couponDetails'
 import { Coupons } from '@/pages/tenants/billing/coupons'
 import { CreateAddon } from '@/pages/tenants/billing/createAddon'
 import { CreateCoupon } from '@/pages/tenants/billing/createCoupon'
+import { EditAddon } from '@/pages/tenants/billing/editAddon'
 import { Plans } from '@/pages/tenants/billing/plans'
+import { CreateAddOn } from '@/pages/tenants/billing/plans/createAddOn'
 import { CreatePriceComponent } from '@/pages/tenants/billing/plans/createPriceComponent'
 import { PlanEdit } from '@/pages/tenants/billing/plans/edit'
 import { PlanOnboardingComponent } from '@/pages/tenants/billing/plans/onboarding'
@@ -74,6 +77,10 @@ export const productCatalogRoutes: RouteObject = {
                   path: 'edit-overview',
                   element: <DetailsFormModal />,
                 },
+                {
+                  path: 'add-addon',
+                  element: <CreateAddOn />,
+                },
 
                 // TODO component/:priceComponentId
               ],
@@ -104,6 +111,14 @@ export const productCatalogRoutes: RouteObject = {
             {
               path: 'add-addon',
               element: <CreateAddon />,
+            },
+            {
+              path: ':addonId',
+              element: <AddonDetails />,
+            },
+            {
+              path: 'edit/:addonId',
+              element: <EditAddon />,
             },
           ],
         },

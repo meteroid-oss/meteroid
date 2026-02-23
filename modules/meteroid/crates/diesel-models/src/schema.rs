@@ -133,9 +133,12 @@ diesel::table! {
         tenant_id -> Uuid,
         created_at -> Timestamp,
         updated_at -> Timestamp,
-        plan_version_id -> Nullable<Uuid>,
-        product_id -> Nullable<Uuid>,
-        price_id -> Nullable<Uuid>,
+        product_id -> Uuid,
+        price_id -> Uuid,
+        description -> Nullable<Text>,
+        self_serviceable -> Bool,
+        max_instances_per_subscription -> Nullable<Int4>,
+        archived_at -> Nullable<Timestamp>,
     }
 }
 
@@ -714,6 +717,19 @@ diesel::table! {
 }
 
 diesel::table! {
+    plan_version_add_on (id) {
+        id -> Uuid,
+        plan_version_id -> Uuid,
+        add_on_id -> Uuid,
+        price_id -> Nullable<Uuid>,
+        self_serviceable -> Nullable<Bool>,
+        max_instances_per_subscription -> Nullable<Int4>,
+        tenant_id -> Uuid,
+        created_at -> Timestamp,
+    }
+}
+
+diesel::table! {
     use diesel::sql_types::*;
     use super::sql_types::BillingPeriodEnum;
 
@@ -862,6 +878,7 @@ diesel::table! {
         legacy_fee -> Nullable<Jsonb>,
         product_id -> Nullable<Uuid>,
         price_id -> Nullable<Uuid>,
+        quantity -> Int4,
     }
 }
 
@@ -1024,6 +1041,7 @@ diesel::table! {
         created_at -> Timestamp,
         product_id -> Nullable<Uuid>,
         price_id -> Nullable<Uuid>,
+        quantity -> Int4,
     }
 }
 
@@ -1105,7 +1123,6 @@ diesel::table! {
     }
 }
 
-diesel::joinable!(add_on -> plan_version (plan_version_id));
 diesel::joinable!(add_on -> price (price_id));
 diesel::joinable!(add_on -> product (product_id));
 diesel::joinable!(add_on -> tenant (tenant_id));
@@ -1168,6 +1185,10 @@ diesel::joinable!(plan -> product_family (product_family_id));
 diesel::joinable!(plan -> tenant (tenant_id));
 diesel::joinable!(plan_component_price -> price (price_id));
 diesel::joinable!(plan_component_price -> price_component (plan_component_id));
+diesel::joinable!(plan_version_add_on -> add_on (add_on_id));
+diesel::joinable!(plan_version_add_on -> plan_version (plan_version_id));
+diesel::joinable!(plan_version_add_on -> price (price_id));
+diesel::joinable!(plan_version_add_on -> tenant (tenant_id));
 diesel::joinable!(price -> product (product_id));
 diesel::joinable!(price -> tenant (tenant_id));
 diesel::joinable!(price_component -> billable_metric (billable_metric_id));
@@ -1249,6 +1270,7 @@ diesel::allow_tables_to_appear_in_same_query!(
     plan,
     plan_component_price,
     plan_version,
+    plan_version_add_on,
     price,
     price_component,
     product,

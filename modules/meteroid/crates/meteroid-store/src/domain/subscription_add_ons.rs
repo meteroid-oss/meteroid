@@ -1,4 +1,5 @@
 use crate::domain::enums::{BillingPeriodEnum, SubscriptionFeeBillingPeriod};
+use crate::domain::price_components::PriceEntry;
 use crate::domain::{SubscriptionFee, SubscriptionFeeInterface};
 use crate::errors::{StoreError, StoreErrorReport};
 use chrono::NaiveDateTime;
@@ -20,6 +21,7 @@ pub struct SubscriptionAddOn {
     pub created_at: NaiveDateTime,
     pub product_id: Option<ProductId>,
     pub price_id: Option<PriceId>,
+    pub quantity: i32,
 }
 
 impl SubscriptionFeeInterface for SubscriptionAddOn {
@@ -88,6 +90,7 @@ impl TryInto<SubscriptionAddOn> for SubscriptionAddOnRow {
             created_at: self.created_at,
             product_id: self.product_id,
             price_id: self.price_id,
+            quantity: self.quantity,
         })
     }
 }
@@ -100,6 +103,7 @@ pub struct SubscriptionAddOnNewInternal {
     pub fee: SubscriptionFee,
     pub product_id: Option<ProductId>,
     pub price_id: Option<PriceId>,
+    pub quantity: i32,
 }
 
 #[derive(Clone, Debug)]
@@ -112,7 +116,11 @@ impl TryInto<SubscriptionAddOnRowNew> for SubscriptionAddOnNew {
     type Error = StoreErrorReport;
 
     fn try_into(self) -> Result<SubscriptionAddOnRowNew, Self::Error> {
-        let legacy_fee: serde_json::Value = self.internal.fee.try_into()?;
+        let legacy_fee = if self.internal.price_id.is_some() {
+            None
+        } else {
+            Some(self.internal.fee.try_into()?)
+        };
 
         Ok(SubscriptionAddOnRowNew {
             id: SubscriptionAddOnId::new(),
@@ -120,18 +128,12 @@ impl TryInto<SubscriptionAddOnRowNew> for SubscriptionAddOnNew {
             add_on_id: self.internal.add_on_id,
             name: self.internal.name,
             period: self.internal.period.into(),
-            legacy_fee: Some(legacy_fee),
+            legacy_fee,
             product_id: self.internal.product_id,
             price_id: self.internal.price_id,
+            quantity: self.internal.quantity,
         })
     }
-}
-
-#[derive(Debug, Clone, Serialize, Deserialize)]
-pub struct SubscriptionAddOnOverride {
-    pub name: String,
-    pub period: SubscriptionFeeBillingPeriod,
-    pub fee: SubscriptionFee,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -143,7 +145,10 @@ pub struct SubscriptionAddOnParameterization {
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub enum SubscriptionAddOnCustomization {
-    Override(SubscriptionAddOnOverride),
+    PriceOverride {
+        name: Option<String>,
+        price_entry: PriceEntry,
+    },
     Parameterization(SubscriptionAddOnParameterization),
     None,
 }
@@ -152,6 +157,7 @@ pub enum SubscriptionAddOnCustomization {
 pub struct CreateSubscriptionAddOn {
     pub add_on_id: AddOnId,
     pub customization: SubscriptionAddOnCustomization,
+    pub quantity: i32,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]

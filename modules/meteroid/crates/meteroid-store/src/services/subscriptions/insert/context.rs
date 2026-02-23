@@ -124,7 +124,7 @@ impl Services {
         let product_ids: Vec<ProductId> = price_components
             .values()
             .flat_map(|comps| comps.iter().filter_map(|c| c.product_id))
-            .chain(add_ons.iter().filter_map(|a| a.product_id))
+            .chain(add_ons.iter().map(|a| a.product_id))
             .unique()
             .collect();
         let products_by_id: HashMap<ProductId, Product> = if product_ids.is_empty() {
@@ -142,8 +142,7 @@ impl Services {
         };
 
         // Load prices referenced by add-ons
-        let addon_price_ids: Vec<PriceId> =
-            add_ons.iter().filter_map(|a| a.price_id).unique().collect();
+        let addon_price_ids: Vec<PriceId> = add_ons.iter().map(|a| a.price_id).unique().collect();
         let addon_prices_by_id = if addon_price_ids.is_empty() {
             HashMap::new()
         } else {

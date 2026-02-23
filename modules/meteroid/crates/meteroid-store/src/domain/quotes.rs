@@ -205,7 +205,11 @@ impl TryInto<QuoteComponentRowNew> for QuotePriceComponentNew {
     type Error = StoreErrorReport;
 
     fn try_into(self) -> Result<QuoteComponentRowNew, Self::Error> {
-        let legacy_fee: serde_json::Value = self.fee.try_into()?;
+        let legacy_fee = if self.price_id.is_some() {
+            None
+        } else {
+            Some(self.fee.try_into()?)
+        };
 
         Ok(QuoteComponentRowNew {
             id: QuotePriceComponentId::new(),
@@ -214,7 +218,7 @@ impl TryInto<QuoteComponentRowNew> for QuotePriceComponentNew {
             price_component_id: self.price_component_id,
             product_id: self.product_id,
             period: self.period.into(),
-            legacy_fee: Some(legacy_fee),
+            legacy_fee,
             is_override: self.is_override,
             price_id: self.price_id,
         })
@@ -293,6 +297,7 @@ pub struct QuoteAddOn {
     pub fee: SubscriptionFee,
     pub product_id: Option<ProductId>,
     pub price_id: Option<PriceId>,
+    pub quantity: i32,
 }
 
 impl TryFrom<QuoteAddOnRow> for QuoteAddOn {
@@ -315,6 +320,7 @@ impl TryFrom<QuoteAddOnRow> for QuoteAddOn {
             fee,
             product_id: row.product_id,
             price_id: row.price_id,
+            quantity: row.quantity,
         })
     }
 }
@@ -328,13 +334,18 @@ pub struct QuoteAddOnNew {
     pub fee: SubscriptionFee,
     pub product_id: Option<ProductId>,
     pub price_id: Option<PriceId>,
+    pub quantity: i32,
 }
 
 impl TryInto<QuoteAddOnRowNew> for QuoteAddOnNew {
     type Error = StoreErrorReport;
 
     fn try_into(self) -> Result<QuoteAddOnRowNew, Self::Error> {
-        let legacy_fee: serde_json::Value = self.fee.try_into()?;
+        let legacy_fee = if self.price_id.is_some() {
+            None
+        } else {
+            Some(self.fee.try_into()?)
+        };
 
         Ok(QuoteAddOnRowNew {
             id: QuoteAddOnId::new(),
@@ -342,9 +353,10 @@ impl TryInto<QuoteAddOnRowNew> for QuoteAddOnNew {
             quote_id: self.quote_id,
             add_on_id: self.add_on_id,
             period: self.period.into(),
-            legacy_fee: Some(legacy_fee),
+            legacy_fee,
             product_id: self.product_id,
             price_id: self.price_id,
+            quantity: self.quantity,
         })
     }
 }

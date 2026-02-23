@@ -83,6 +83,12 @@ function cadenceShortLabel(cadence: BillingPeriod): string {
   }
 }
 
+function priceRange(prices: number[], fmt: (p: string) => string): string {
+  const min = Math.min(...prices)
+  const max = Math.max(...prices)
+  return min === max ? fmt(String(min)) : `${fmt(String(min))}–${fmt(String(max))}`
+}
+
 export function priceSummaryBadges(
   feeType: ComponentFeeType,
   latestPrice?: Price,
@@ -103,12 +109,24 @@ export function priceSummaryBadges(
       return [`${fmt(latestPrice.pricing.value.rate)} / ${cadence}`, 'CAPACITY']
     case 'usagePricing': {
       const model = latestPrice.pricing.value.model
-      if (model.case === 'perUnit') return ['PER UNIT', `${fmt(model.value)} / unit`]
-      if (model.case === 'tiered') return ['TIERED']
-      if (model.case === 'volume') return ['VOLUME']
-      if (model.case === 'package') return ['PACKAGE']
-      if (model.case === 'matrix') return ['MATRIX']
-      return ['USAGE']
+      if (model.case === 'perUnit') return [`${fmt(model.value)} / unit`]
+      if (model.case === 'tiered' || model.case === 'volume') {
+        const label = model.case === 'tiered' ? 'Tiered' : 'Volume'
+        const prices = model.value.rows.map(r => parseFloat(r.unitPrice)).filter(n => !isNaN(n))
+        if (prices.length === 0) return [label]
+        const range = priceRange(prices, fmt)
+        return [`${label}: ${range} / unit`]
+      }
+      if (model.case === 'package') {
+        return [`${fmt(model.value.packagePrice)} / ${model.value.blockSize} units`]
+      }
+      if (model.case === 'matrix') {
+        const prices = model.value.rows.map(r => parseFloat(r.perUnitPrice)).filter(n => !isNaN(n))
+        if (prices.length === 0) return ['Matrix']
+        const range = priceRange(prices, fmt)
+        return [`Matrix: ${range} / unit`]
+      }
+      return ['Usage']
     }
     case 'extraRecurringPricing':
       return [`${fmt(latestPrice.pricing.value.unitPrice)} / ${cadence}`]

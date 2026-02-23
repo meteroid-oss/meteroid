@@ -24,7 +24,7 @@ import {
 import { env } from '@/lib/env'
 import { Customer } from '@/rpc/api/customers/v1/models_pb'
 import { InvoicingEntityPublic } from '@/rpc/api/invoicingentities/v1/models_pb'
-import { Quote, QuoteComponent, QuoteSignature } from '@/rpc/api/quotes/v1/models_pb'
+import { Quote, QuoteAddOn, QuoteComponent, QuoteSignature } from '@/rpc/api/quotes/v1/models_pb'
 import { setQuotePurchaseOrder } from '@/rpc/portal/quotes/v1/quotes-PortalQuoteService_connectquery'
 import { parseAndFormatDate, parseAndFormatDateTime } from '@/utils/date'
 
@@ -34,6 +34,7 @@ export interface QuoteViewProps {
     invoicingEntity?: PlainMessage<InvoicingEntityPublic>
     customer?: PlainMessage<Customer>
     components?: PlainMessage<QuoteComponent>[]
+    addOns?: PlainMessage<QuoteAddOn>[]
     signatures?: PlainMessage<QuoteSignature>[]
   }
   mode?: 'preview' | 'detailed' | 'portal'
@@ -242,6 +243,29 @@ export const QuoteView: FC<QuoteViewProps> = ({
     )
   }
 
+  const renderAddOns = () => {
+    const addOns = quote.addOns
+    if (!addOns || addOns.length === 0 || !quote.quote?.currency) return null
+
+    const addOnComponents: PricingComponent[] = addOns.map(addOn => ({
+      id: addOn.id,
+      name: addOn.name + (addOn.quantity > 1 ? ` (x${addOn.quantity})` : ''),
+      period: addOn.period,
+      fee: addOn.fee,
+    }))
+
+    return (
+      <div className="mb-8">
+        <SubscriptionPricingTable
+          components={addOnComponents}
+          currency={quote.quote.currency}
+          labelClassName="px-0"
+          label="Add-ons"
+        />
+      </div>
+    )
+  }
+
   const renderSubscriptionDetails = () => {
     if (!quote.quote) return null
 
@@ -374,6 +398,7 @@ export const QuoteView: FC<QuoteViewProps> = ({
           {renderFromToSection()}
           {renderOverview()}
           {renderSubscriptionComponents()}
+          {renderAddOns()}
           {renderSubscriptionDetails()}
           {renderAdditionalInfo()}
           {renderSignatureArea()}

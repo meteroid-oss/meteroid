@@ -5,6 +5,8 @@ import { useNavigate } from 'react-router-dom'
 
 import { LocalId } from '@/components/LocalId'
 import { StandardTable } from '@/components/table/StandardTable'
+import { feeTypeEnumToComponentFeeType } from '@/features/plans/addons/AddOnCard'
+import { feeTypeToHuman, priceSummaryBadges } from '@/features/plans/pricecomponents/utils'
 import { ListAddOnResponse } from '@/rpc/api/addons/v1/addons_pb'
 import { AddOn } from '@/rpc/api/addons/v1/models_pb'
 
@@ -26,20 +28,57 @@ export const AddonsTable: FunctionComponent<AddonsTableProps> = ({
     () => [
       {
         header: 'Name',
-        cell: ({ row }) => <span>{row.original.name}</span>,
+        cell: ({ row }) => (
+          <div>
+            <span className="font-medium">{row.original.name}</span>
+            {row.original.description && (
+              <span className="block text-xs text-muted-foreground truncate max-w-xs">
+                {row.original.description}
+              </span>
+            )}
+          </div>
+        ),
         enableSorting: false,
       },
 
       {
-        header: 'Product',
-        cell: ({ row }) => <span>{row.original.productId ? 'Linked' : '—'}</span>,
+        header: 'Fee Type',
+        cell: ({ row }) => (
+          <span className="text-sm">
+            {feeTypeToHuman(feeTypeEnumToComponentFeeType(row.original.feeType))}
+          </span>
+        ),
+        enableSorting: false,
+      },
+
+      {
+        header: 'Price',
+        cell: ({ row }) => {
+          const feeType = feeTypeEnumToComponentFeeType(row.original.feeType)
+          const badges = priceSummaryBadges(feeType, row.original.price, row.original.price?.currency)
+          return (
+            <span className="text-sm text-muted-foreground">
+              {badges.join(' / ')}
+            </span>
+          )
+        },
+        enableSorting: false,
+      },
+
+      {
+        header: 'Self-service',
+        cell: ({ row }) => (
+          <span className="text-sm text-muted-foreground">
+            {row.original.selfServiceable ? 'Yes' : 'No'}
+          </span>
+        ),
         enableSorting: false,
       },
 
       {
         header: 'API Handle',
-        id: 'localId',
-        cell: ({ row }) => <LocalId localId={row.original.localId} className="max-w-16" />,
+        id: 'id',
+        cell: ({ row }) => <LocalId localId={row.original.id} className="max-w-16" />,
       },
     ],
     [navigate]
@@ -54,7 +93,7 @@ export const AddonsTable: FunctionComponent<AddonsTableProps> = ({
       setPagination={setPagination}
       totalCount={addonsQuery.data?.paginationMeta?.totalItems ?? 0}
       isLoading={addonsQuery.isLoading}
-      rowLink={row => `${row.original.localId}`}
+      rowLink={row => `${row.original.id}`}
     />
   )
 }

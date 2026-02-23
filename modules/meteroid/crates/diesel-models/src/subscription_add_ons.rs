@@ -17,9 +17,10 @@ pub struct SubscriptionAddOnRow {
     pub created_at: NaiveDateTime,
     pub product_id: Option<ProductId>,
     pub price_id: Option<PriceId>,
+    pub quantity: i32,
 }
 
-#[derive(Insertable, Debug)]
+#[derive(Insertable, Debug, Clone)]
 #[diesel(table_name = crate::schema::subscription_add_on)]
 #[diesel(check_for_backend(diesel::pg::Pg))]
 pub struct SubscriptionAddOnRowNew {
@@ -31,4 +32,5 @@ pub struct SubscriptionAddOnRowNew {
     pub legacy_fee: Option<serde_json::Value>,
     pub product_id: Option<ProductId>,
     pub price_id: Option<PriceId>,
+    pub quantity: i32,
 }

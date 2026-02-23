@@ -18,6 +18,7 @@ interface Props {
   currency: string
   className?: string
   labelClassName?: string
+  label?: string
 }
 
 // Map billing period to display format
@@ -54,13 +55,10 @@ const SubscriptionFeeDetail = ({
   currency: string
 }) => {
   if (!fee || !fee.fee.case) {
-    console.log('No fee information', fee)
-
     return <span className="text-muted-foreground">No fee information</span>
   }
 
   const formatted = formatSubscriptionFee(fee, currency)
-  console.log('formatted', formatted)
 
   return (
     <div className="space-y-1">
@@ -86,13 +84,13 @@ export const SubscriptionPricingTable: FC<Props> = ({
   currency,
   className = '',
   labelClassName,
+  label = 'Pricing',
 }) => {
-  console.log('SubscriptionPricingTable components', components)
   if (!components || components.length === 0) {
     return (
       <div className={cn('bg-card rounded-lg shadow-sm', className)}>
         <div className={cn('p-4 border-b border-border', labelClassName)}>
-          <h3 className="text-md font-medium text-foreground">Pricing</h3>
+          <h3 className="text-md font-medium text-foreground">{label}</h3>
         </div>
         <div className="p-8 text-center text-muted-foreground">
           No pricing components configured
@@ -104,7 +102,7 @@ export const SubscriptionPricingTable: FC<Props> = ({
   return (
     <div className={cn('bg-card rounded-lg shadow-sm', className)}>
       <div className={cn('p-4 border-b border-border', labelClassName)}>
-        <h3 className="text-md font-medium text-foreground">Pricing</h3>
+        <h3 className="text-md font-medium text-foreground">{label}</h3>
       </div>
       <div className="overflow-hidden">
         <table className="w-full">
@@ -132,7 +130,9 @@ export const SubscriptionPricingTable: FC<Props> = ({
                   index % 2 === 0 ? 'bg-card' : 'bg-muted/10 border-t border-b border-border'
                 }
               >
-                <td className="px-4 py-3 text-sm font-medium text-foreground align-top">{component.name}</td>
+                <td className="px-4 py-3 text-sm font-medium text-foreground align-top">
+                  {component.name}
+                </td>
                 <td className="px-4 py-3 text-sm text-muted-foreground align-top">
                   {formatBillingPeriod(component.period)}
                 </td>

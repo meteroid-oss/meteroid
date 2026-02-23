@@ -2,7 +2,7 @@ use crate::add_ons::{AddOnRow, AddOnRowNew, AddOnRowPatch};
 use crate::errors::IntoDbResult;
 use crate::extend::pagination::{Paginate, PaginatedVec, PaginationRequest};
 use crate::{DbResult, PgConn};
-use common_domain::ids::{AddOnId, TenantId};
+use common_domain::ids::{AddOnId, PlanVersionId, TenantId};
 use diesel::{ExpressionMethods, PgTextExpressionMethods, QueryDsl, SelectableHelper, debug_query};
 use diesel_async::RunQueryDsl;
 use error_stack::ResultExt;
@@ -45,17 +45,42 @@ impl AddOnRow {
             .into_db_result()
     }
 
+    /// List add-ons for a tenant. If `plan_version_id` is provided, filters through the junction table.
+    /// If `currency` is provided, filters add-ons whose price matches that currency.
     pub async fn list_by_tenant_id(
         conn: &mut PgConn,
         tenant_id: TenantId,
+        plan_version_id: Option<PlanVersionId>,
         pagination: PaginationRequest,
         search: Option<String>,
+        currency: Option<String>,
     ) -> DbResult<PaginatedVec<AddOnRow>> {
         use crate::schema::add_on::dsl as ao_dsl;
 
         let mut query = ao_dsl::add_on
             .filter(ao_dsl::tenant_id.eq(tenant_id))
+            .filter(ao_dsl::archived_at.is_null())
             .into_boxed();
+
+        if let Some(pv_id) = plan_version_id {
+            use crate::schema::plan_version_add_on::dsl as pva_dsl;
+
+            let add_on_ids_subquery = pva_dsl::plan_version_add_on
+                .filter(pva_dsl::plan_version_id.eq(pv_id))
+                .select(pva_dsl::add_on_id);
+
+            query = query.filter(ao_dsl::id.eq_any(add_on_ids_subquery));
+        }
+
+        if let Some(currency) = currency {
+            use crate::schema::price::dsl as p_dsl;
+
+            let price_ids_subquery = p_dsl::price
+                .filter(p_dsl::currency.eq(currency))
+                .select(p_dsl::id);
+
+            query = query.filter(ao_dsl::price_id.eq_any(price_ids_subquery));
+        }
 
         if let Some(search) = search {
             query = query.filter(ao_dsl::name.ilike(format!("%{search}%")));
@@ -75,20 +100,22 @@ impl AddOnRow {
             .into_db_result()
     }
 
-    pub async fn delete(conn: &mut PgConn, id: AddOnId, tenant_id: TenantId) -> DbResult<()> {
+    pub async fn archive(conn: &mut PgConn, id: AddOnId, tenant_id: TenantId) -> DbResult<()> {
         use crate::schema::add_on::dsl as ao_dsl;
 
-        let query = diesel::delete(ao_dsl::add_on)
+        let query = diesel::update(ao_dsl::add_on)
             .filter(ao_dsl::id.eq(id))
-            .filter(ao_dsl::tenant_id.eq(tenant_id));
+            .filter(ao_dsl::tenant_id.eq(tenant_id))
+            .filter(ao_dsl::archived_at.is_null())
+            .set(ao_dsl::archived_at.eq(diesel::dsl::now));
 
         log::debug!("{}", debug_query::<diesel::pg::Pg, _>(&query));
 
         query
             .execute(conn)
             .await
-            .tap_err(|e| log::error!("Error while deleting add-on: {e:?}"))
-            .attach("Error while deleting add-on")
+            .tap_err(|e| log::error!("Error while archiving add-on: {e:?}"))
+            .attach("Error while archiving add-on")
             .into_db_result()?;
 
         Ok(())
@@ -103,7 +130,8 @@ impl AddOnRow {
 
         let query = ao_dsl::add_on
             .filter(ao_dsl::id.eq_any(ids))
-            .filter(ao_dsl::tenant_id.eq(tenant_id));
+            .filter(ao_dsl::tenant_id.eq(tenant_id))
+            .filter(ao_dsl::archived_at.is_null());
 
         log::debug!("{}", debug_query::<diesel::pg::Pg, _>(&query));
 

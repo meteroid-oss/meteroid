@@ -4,10 +4,10 @@ use std::collections::HashMap;
 
 use crate::{DbResult, PgConn};
 
-use common_domain::ids::BaseId;
 use common_domain::ids::{PlanVersionId, PriceComponentId, TenantId};
 use diesel::{
-    ExpressionMethods, Insertable, OptionalExtension, QueryDsl, SelectableHelper, debug_query,
+    ExpressionMethods, Insertable, IntoSql, OptionalExtension, QueryDsl, SelectableHelper,
+    debug_query,
 };
 use error_stack::ResultExt;
 use itertools::Itertools;
@@ -249,9 +249,7 @@ impl PriceComponentRow {
                 gen_random_uuid(),
                 pc_dsl::name,
                 pc_dsl::legacy_fee,
-                diesel::dsl::sql::<diesel::sql_types::Uuid>(
-                    format!("'{}'", dst_plan_version_id.as_uuid()).as_str(),
-                ),
+                dst_plan_version_id.into_sql::<diesel::sql_types::Uuid>(),
                 pc_dsl::product_id,
                 pc_dsl::billable_metric_id,
             ))

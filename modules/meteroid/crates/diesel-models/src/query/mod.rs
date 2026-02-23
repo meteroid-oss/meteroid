@@ -24,6 +24,7 @@ pub mod outbox_event;
 pub mod payment_transactions;
 pub mod pgmq;
 pub mod plan_component_prices;
+pub mod plan_version_add_ons;
 pub mod plan_versions;
 pub mod plans;
 pub mod price_components;

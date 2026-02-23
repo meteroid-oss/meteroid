@@ -2688,6 +2688,11 @@
                 "$ref": "#/components/schemas/SubscriptionAddOnCustomization"
               }
             ]
+          },
+          "quantity": {
+            "type": "integer",
+            "format": "int32",
+            "minimum": 0
           }
         }
       },
@@ -5384,7 +5389,8 @@
         "required": [
           "name",
           "period",
-          "fee"
+          "fee",
+          "quantity"
         ],
         "properties": {
           "add_on_id": {
@@ -5393,18 +5399,26 @@
           "fee": {
             "$ref": "#/components/schemas/SubscriptionFee"
           },
+          "id": {
+            "$ref": "#/components/schemas/SubscriptionAddOnId"
+          },
           "name": {
             "type": "string"
           },
           "period": {
             "$ref": "#/components/schemas/SubscriptionFeeBillingPeriodEnum"
+          },
+          "quantity": {
+            "type": "integer",
+            "format": "int32",
+            "minimum": 0
           }
         }
       },
       "SubscriptionAddOnCustomization": {
         "oneOf": [
           {
-            "$ref": "#/components/schemas/SubscriptionAddOnOverride"
+            "$ref": "#/components/schemas/SubscriptionAddOnPriceOverride"
           },
           {
             "$ref": "#/components/schemas/SubscriptionAddOnParameterization"
@@ -5413,29 +5427,17 @@
         "discriminator": {
           "propertyName": "discriminator",
           "mapping": {
-            "OVERRIDE": "#/components/schemas/SubscriptionAddOnOverride",
-            "PARAMETERIZATION": "#/components/schemas/SubscriptionAddOnParameterization"
+            "PARAMETERIZATION": "#/components/schemas/SubscriptionAddOnParameterization",
+            "PRICE_OVERRIDE": "#/components/schemas/SubscriptionAddOnPriceOverride"
           }
         }
       },
-      "SubscriptionAddOnOverride": {
-        "type": "object",
-        "required": [
-          "name",
-          "period",
-          "fee"
-        ],
-        "properties": {
-          "fee": {
-            "$ref": "#/components/schemas/SubscriptionFee"
-          },
-          "name": {
-            "type": "string"
-          },
-          "period": {
-            "$ref": "#/components/schemas/SubscriptionFeeBillingPeriodEnum"
-          }
-        }
+      "SubscriptionAddOnId": {
+        "type": "string",
+        "format": "MeteroidId",
+        "examples": [
+          "sub_add_7n42DGM5Tflk9n8mt7Fhc7"
+        ]
       },
       "SubscriptionAddOnParameterization": {
         "type": "object",
@@ -5465,6 +5467,23 @@
             ],
             "format": "int32",
             "minimum": 0
+          }
+        }
+      },
+      "SubscriptionAddOnPriceOverride": {
+        "type": "object",
+        "required": [
+          "price_entry"
+        ],
+        "properties": {
+          "name": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "price_entry": {
+            "type": "object"
           }
         }
       },

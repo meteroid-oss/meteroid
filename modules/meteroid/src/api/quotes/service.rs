@@ -42,6 +42,7 @@ impl QuotesService for QuoteServiceComponents {
         request: Request<CreateQuoteRequest>,
     ) -> Result<Response<CreateQuoteResponse>, Status> {
         let tenant_id = request.tenant()?;
+        let actor = request.actor()?;
         let inner = request.into_inner();
 
         let quote = inner
@@ -138,34 +139,33 @@ impl QuotesService for QuoteServiceComponents {
 
             let create_components = create_subscription_components_from_grpc(components)?;
 
-            // Load products referenced by price components
+            // Load products referenced by price components and extra components
             let pc_product_ids: Vec<ProductId> = price_components
                 .iter()
                 .filter_map(|c| c.product_id)
-                .collect();
-            let mut products_map = std::collections::HashMap::new();
-            if !pc_product_ids.is_empty() {
-                for pid in &pc_product_ids {
-                    if let Ok(product) = self.store.find_product_by_id(*pid, tenant_id).await {
-                        products_map.insert(product.id, product);
+                .chain(create_components.extra_components.iter().filter_map(|ex| {
+                    if let meteroid_store::domain::price_components::ProductRef::Existing(pid) =
+                        &ex.product_ref
+                    {
+                        Some(*pid)
+                    } else {
+                        None
                     }
-                }
-            }
+                }))
+                .collect();
 
-            // Also load products from extra components (product library)
-            for extra in &create_components.extra_components {
-                if let meteroid_store::domain::price_components::ProductRef::Existing(pid) =
-                    &extra.product_ref
-                    && !products_map.contains_key(pid)
-                {
-                    let product = self
-                        .store
-                        .find_product_by_id(*pid, tenant_id)
-                        .await
-                        .map_err(Into::<QuoteApiError>::into)?;
-                    products_map.insert(product.id, product);
-                }
-            }
+            let products_map: std::collections::HashMap<ProductId, _> = if pc_product_ids.is_empty()
+            {
+                std::collections::HashMap::new()
+            } else {
+                self.store
+                    .find_products_by_ids(&pc_product_ids, tenant_id)
+                    .await
+                    .map_err(Into::<QuoteApiError>::into)?
+                    .into_iter()
+                    .map(|p| (p.id, p))
+                    .collect()
+            };
 
             // Batch-load all existing prices from overrides and extras
             let existing_price_ids: Vec<PriceId> = create_components
@@ -204,8 +204,23 @@ impl QuotesService for QuoteServiceComponents {
             vec![]
         };
 
+        // Load plan info for product_family_id (needed for add-on materialization)
+        use meteroid_store::repositories::plans::PlansInterface;
+        let plan_with_version = self
+            .store
+            .get_plan_by_version_id(plan_version_id, tenant_id)
+            .await
+            .map_err(Into::<QuoteApiError>::into)?;
+
+        let plan_version = plan_with_version
+            .version
+            .as_ref()
+            .ok_or_else(|| QuoteApiError::InvalidArgument("Plan version not found".to_string()))?;
+
         // Process quote add-ons (fetch add-on details first)
-        let quote_add_ons = if let Some(add_ons_proto) = quote.add_ons {
+        let (quote_add_ons, pending_addon_materializations) = if let Some(add_ons_proto) =
+            quote.add_ons
+        {
             let create_add_ons = create_subscription_add_ons_from_grpc(add_ons_proto)?;
 
             if !create_add_ons.add_ons.is_empty() {
@@ -219,19 +234,16 @@ impl QuotesService for QuoteServiceComponents {
                     .map_err(Into::<QuoteApiError>::into)?;
 
                 // Collect product_ids and price_ids from add-ons for fee resolution
-                let product_ids: Vec<ProductId> =
-                    add_ons.iter().filter_map(|a| a.product_id).collect();
-                let price_ids: Vec<PriceId> = add_ons.iter().filter_map(|a| a.price_id).collect();
+                let product_ids: Vec<ProductId> = add_ons.iter().map(|a| a.product_id).collect();
+                let price_ids: Vec<PriceId> = add_ons.iter().map(|a| a.price_id).collect();
 
-                let mut products_map = std::collections::HashMap::new();
-                for pid in &product_ids {
-                    let product = self
-                        .store
-                        .find_product_by_id(*pid, tenant_id)
-                        .await
-                        .map_err(Into::<QuoteApiError>::into)?;
-                    products_map.insert(product.id, product);
-                }
+                let products = self
+                    .store
+                    .find_products_by_ids(&product_ids, tenant_id)
+                    .await
+                    .map_err(Into::<QuoteApiError>::into)?;
+                let products_map: std::collections::HashMap<ProductId, _> =
+                    products.into_iter().map(|p| (p.id, p)).collect();
 
                 let prices = self
                     .store
@@ -247,12 +259,14 @@ impl QuotesService for QuoteServiceComponents {
                     &products_map,
                     &prices_map,
                     quote_id,
+                    plan_with_version.plan.product_family_id,
+                    &plan_version.currency,
                 )?
             } else {
-                vec![]
+                (vec![], vec![])
             }
         } else {
-            vec![]
+            (vec![], vec![])
         };
 
         // Process quote coupons
@@ -277,7 +291,14 @@ impl QuotesService for QuoteServiceComponents {
         // Create quote with all details in a single transaction
         let created_quote = self
             .store
-            .insert_quote_with_details(quote_new, quote_components, quote_add_ons, quote_coupons)
+            .insert_quote_with_details(
+                quote_new,
+                quote_components,
+                quote_add_ons,
+                quote_coupons,
+                pending_addon_materializations,
+                actor,
+            )
             .await
             .map_err(Into::<QuoteApiError>::into)?;
 
@@ -733,8 +754,20 @@ fn process_quote_add_ons(
     >,
     prices: &std::collections::HashMap<common_domain::ids::PriceId, meteroid_store::domain::Price>,
     quote_id: QuoteId,
-) -> Result<Vec<QuoteAddOnNew>, Status> {
+    product_family_id: common_domain::ids::ProductFamilyId,
+    currency: &str,
+) -> Result<
+    (
+        Vec<QuoteAddOnNew>,
+        Vec<meteroid_store::services::PendingMaterialization>,
+    ),
+    Status,
+> {
+    use meteroid_store::domain::price_components::{PriceEntry, ProductRef};
+    use meteroid_store::services::PendingMaterialization;
+
     let mut processed_add_ons = Vec::new();
+    let mut pending_materializations = Vec::new();
 
     for cs_ao in &create_add_ons.add_ons {
         let add_on = add_ons
@@ -746,6 +779,21 @@ fn process_quote_add_ons(
             .resolve_customized(products, prices, &cs_ao.customization)
             .map_err(|e| Status::internal(format!("Failed to resolve add-on fee: {e}")))?;
 
+        let idx = processed_add_ons.len();
+
+        if resolved.price_id.is_none()
+            && let Some(PriceEntry::New(_)) = &resolved.price_entry
+        {
+            pending_materializations.push(PendingMaterialization {
+                component_index: idx,
+                name: resolved.name.clone(),
+                product_ref: ProductRef::Existing(add_on.product_id),
+                price_entry: resolved.price_entry.clone().unwrap(),
+                product_family_id,
+                currency: currency.to_string(),
+            });
+        }
+
         processed_add_ons.push(QuoteAddOnNew {
             quote_id,
             add_on_id: add_on.id,
@@ -754,8 +802,9 @@ fn process_quote_add_ons(
             fee: resolved.fee,
             product_id: resolved.product_id,
             price_id: resolved.price_id,
+            quantity: cs_ao.quantity,
         });
     }
 
-    Ok(processed_add_ons)
+    Ok((processed_add_ons, pending_materializations))
 }

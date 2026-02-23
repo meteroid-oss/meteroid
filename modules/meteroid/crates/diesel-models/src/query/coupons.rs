@@ -238,7 +238,8 @@ impl CouponRow {
 
         let query = c_dsl::coupon
             .filter(c_dsl::tenant_id.eq(tenant_id))
-            .filter(c_dsl::code.eq_any(codes));
+            .filter(c_dsl::code.eq_any(codes))
+            .filter(c_dsl::archived_at.is_null());
 
         log::debug!("{}", debug_query::<diesel::pg::Pg, _>(&query));
 

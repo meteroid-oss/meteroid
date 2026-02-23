@@ -1,7 +1,6 @@
 
 import { atomWithReset } from 'jotai/utils'
 
-import { Price } from '@/rpc/api/prices/v1/models_pb'
 import { BillingPeriod } from '@/rpc/api/shared/v1/shared_pb'
 import { ActivationCondition } from '@/rpc/api/subscriptions/v1/models_pb'
 
@@ -35,14 +34,11 @@ export interface ExtraComponent {
 
 export interface CreateSubscriptionAddOn {
   addOnId: string
+  quantity?: number
   parameterization?: {
     initialSlotCount?: number
     billingPeriod?: BillingPeriod
     committedCapacity?: bigint
-  }
-  override?: {
-    name: string
-    price: Price
   }
 }
 
