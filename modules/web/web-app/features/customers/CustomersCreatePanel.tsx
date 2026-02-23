@@ -71,16 +71,17 @@ export const CustomersCreatePanel = ({ visible, closePanel }: CustomersCreatePan
   })
 
   // Set default invoicing entity when loaded
+  const { setValue } = methods
   useEffect(() => {
     if (listInvoicingEntitiesQuery.data?.entities) {
       const defaultEntity = listInvoicingEntitiesQuery.data.entities.find(
         entity => entity.isDefault
       )
       if (defaultEntity) {
-        methods.setValue('invoicingEntity', defaultEntity.id)
+        setValue('invoicingEntity', defaultEntity.id)
       }
     }
-  }, [listInvoicingEntitiesQuery.data?.entities, methods])
+  }, [listInvoicingEntitiesQuery.data?.entities, setValue])
 
   const safeClosePanel = () => {
     const isDirty = methods.formState.isDirty

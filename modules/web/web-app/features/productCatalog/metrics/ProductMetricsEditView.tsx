@@ -709,14 +709,15 @@ export const ProductMetricsEditView = ({ metricId }: ProductMetricsEditViewProps
                               control={methods.control}
                               name="linkedDimensionValues"
                               render={({ field }) => (
-                                <>
-                                  <LinkedDimensionsEditor
-                                    value={field.value}
-                                    onChange={field.onChange}
-                                    primaryKey={dimensionKeys.linkedKey}
-                                    linkedKey={dimensionKeys.linkedLinkedKey}
-                                  />
-                                </>
+                                <LinkedDimensionsEditor
+                                  value={field.value}
+                                  onChange={val => {
+                                    field.onChange(val)
+                                    methods.trigger('linkedDimensionValues')
+                                  }}
+                                  primaryKey={dimensionKeys.linkedKey}
+                                  linkedKey={dimensionKeys.linkedLinkedKey}
+                                />
                               )}
                             />
                           </div>
