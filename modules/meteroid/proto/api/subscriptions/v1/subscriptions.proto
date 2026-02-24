@@ -302,3 +302,28 @@ service SubscriptionsService {
   rpc GetUpcomingInvoice(GetUpcomingInvoiceRequest) returns (GetUpcomingInvoiceResponse);
   rpc GetSubscriptionComponentUsage(GetSubscriptionComponentUsageRequest) returns (GetSubscriptionComponentUsageResponse);
 }
+
+message IngestCsvRequest {
+  FileData file = 1;
+  string delimiter = 2;
+  bool fail_on_error = 3;
+}
+
+message IngestCsvResponse {
+  int32 total_rows = 1;
+  int32 successful_rows = 2;
+  repeated IngestionFailure failures = 3;
+}
+
+message IngestionFailure {
+  int32 row_number = 1;
+  string reason = 2;
+}
+
+message FileData {
+  bytes data = 1;
+}
+
+service SubscriptionsIngestService {
+  rpc IngestCsv(IngestCsvRequest) returns (IngestCsvResponse) {}
+}

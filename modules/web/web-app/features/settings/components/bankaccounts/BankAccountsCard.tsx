@@ -1,4 +1,4 @@
-import { createConnectQueryKey , useMutation } from '@connectrpc/connect-query'
+import { createConnectQueryKey, useMutation } from '@connectrpc/connect-query'
 import { Badge, Button, Card, Spinner } from '@md/ui'
 import { useQueryClient } from '@tanstack/react-query'
 import { Plus, Trash2 } from 'lucide-react'
@@ -6,6 +6,7 @@ import { useState } from 'react'
 import { toast } from 'sonner'
 
 import ConfirmationModal from '@/components/ConfirmationModal'
+import { CopyToClipboardButton } from '@/components/CopyToClipboard'
 import { useQuery } from '@/lib/connectrpc'
 import {
   deleteBankAccount,
@@ -65,7 +66,7 @@ export const BankAccountsCard = () => {
               </p>
             </div>
             <Button size="sm" onClick={() => setShowAddModal(true)} className="gap-2">
-              <Plus className="h-4 w-4" />
+              <Plus className="h-4 w-4"/>
               Add Bank Account
             </Button>
           </div>
@@ -73,7 +74,7 @@ export const BankAccountsCard = () => {
           <div className="border rounded-lg">
             {bankAccountsQuery.isLoading ? (
               <div className="p-8 text-center">
-                <Spinner />
+                <Spinner/>
               </div>
             ) : bankAccountsQuery.data?.accounts.length === 0 ? (
               <div className="p-8 text-center text-muted-foreground text-xs">
@@ -99,13 +100,20 @@ export const BankAccountsCard = () => {
                         {formatBankAccount(account)}
                       </p>
                     </div>
+                    <div className="flex items-center gap-1">
+                      <span className="text-sm text-muted-foreground font-mono">ID:</span>
+                      <CopyToClipboardButton
+                        text={account.id}
+                        buttonClassName="h-5 text-sm text-muted-foreground font-mono"
+                      />
+                    </div>
                     <Button
                       size="sm"
                       variant="ghost"
                       onClick={() => setAccountToDelete(account)}
                       className="text-destructive hover:text-destructive"
                     >
-                      <Trash2 className="h-4 w-4" />
+                      <Trash2 className="h-4 w-4"/>
                     </Button>
                   </div>
                 ))}
@@ -115,7 +123,7 @@ export const BankAccountsCard = () => {
         </div>
       </Card>
 
-      <AddBankAccountModal open={showAddModal} onClose={() => setShowAddModal(false)} />
+      <AddBankAccountModal open={showAddModal} onClose={() => setShowAddModal(false)}/>
 
       <ConfirmationModal
         visible={!!accountToDelete}

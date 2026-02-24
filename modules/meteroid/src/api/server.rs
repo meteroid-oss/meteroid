@@ -11,8 +11,10 @@ use crate::api;
 use crate::api::cors::cors;
 use crate::services::credit_note_rendering::CreditNotePreviewRenderingService;
 use crate::services::customer_ingest::CustomerIngestService;
+use crate::services::idempotency::InMemoryIdempotencyService;
 use crate::services::invoice_rendering::InvoicePreviewRenderingService;
 use crate::services::storage::ObjectStoreService;
+use crate::services::subscription_ingest::SubscriptionIngestService;
 
 use super::super::config::Config;
 
@@ -123,6 +125,12 @@ pub async fn start_api_server(
             store.clone(),
             services.clone(),
             config.jwt_secret.clone(),
+        ))
+        .add_service(api::subscriptions::ingest_service(
+            SubscriptionIngestService::new(
+                services.clone(),
+                Arc::new(InMemoryIdempotencyService::new()),
+            ),
         ))
         .add_service(api::taxes::service(store.clone()))
         .add_service(api::webhooksout::service(svix))

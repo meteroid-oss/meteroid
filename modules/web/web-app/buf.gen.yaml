@@ -23,6 +23,7 @@ types:
     - meteroid.api.schedules.v1.SchedulesService
     - meteroid.api.stats.v1.StatsService
     - meteroid.api.subscriptions.v1.SubscriptionsService
+    - meteroid.api.subscriptions.v1.SubscriptionsIngestService
     - meteroid.api.tenants.v1.TenantsService
     - meteroid.api.users.v1.UsersService
     - meteroid.api.organizations.v1.OrganizationsService

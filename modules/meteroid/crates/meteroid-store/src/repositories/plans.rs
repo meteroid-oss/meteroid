@@ -140,6 +140,12 @@ pub trait PlansInterface {
         currency: &str,
         exclude_plan_id: PlanId,
     ) -> StoreResult<Vec<SelfServicePlan>>;
+
+    async fn list_published_versions_by_plan_ids(
+        &self,
+        plan_ids: Vec<PlanId>,
+        auth_tenant_id: TenantId,
+    ) -> StoreResult<Vec<PlanVersion>>;
 }
 
 /// Convert a FullPlanRow into a FullPlan with prices and products loaded.
@@ -1074,5 +1080,17 @@ impl PlansInterface for Store {
                 self_service_rank: r.self_service_rank,
             })
             .collect())
+    }
+
+    async fn list_published_versions_by_plan_ids(
+        &self,
+        plan_ids: Vec<PlanId>,
+        auth_tenant_id: TenantId,
+    ) -> StoreResult<Vec<PlanVersion>> {
+        let mut conn = self.get_conn().await?;
+        PlanVersionRow::list_published_by_plan_ids(&mut conn, &plan_ids, auth_tenant_id)
+            .await
+            .map(|rows| rows.into_iter().map(Into::into).collect())
+            .map_err(Into::into)
     }
 }
