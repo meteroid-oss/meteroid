@@ -925,3 +925,76 @@ pub mod slot_transactions {
         })
     }
 }
+
+pub mod upcoming {
+    use crate::api::invoices::mapping::invoices::{
+        domain_coupon_line_item_to_server, domain_invoice_lines_to_server,
+        domain_tax_breakdown_to_server,
+    };
+    use crate::api::shared::conversions::ProtoConv;
+    use meteroid_grpc::meteroid::api::subscriptions::v1::{
+        GetSubscriptionComponentUsageResponse, UpcomingInvoice, UsageDataPoint,
+    };
+    use meteroid_store::domain::SubscriptionDetails;
+    use meteroid_store::services::clients::usage::WindowedUsageData;
+    use meteroid_store::services::invoice_lines::invoice_lines::ComputedInvoiceContent;
+
+    pub fn computed_content_to_upcoming_proto(
+        content: ComputedInvoiceContent,
+        details: &SubscriptionDetails,
+    ) -> UpcomingInvoice {
+        let invoice_date = details
+            .subscription
+            .current_period_end
+            .unwrap_or_else(|| chrono::Utc::now().date_naive());
+        let net_terms = details.subscription.net_terms;
+        let due_date = invoice_date + chrono::Duration::days(net_terms as i64);
+
+        UpcomingInvoice {
+            currency: details.subscription.currency.clone(),
+            invoice_date: invoice_date.as_proto(),
+            line_items: domain_invoice_lines_to_server(content.invoice_lines),
+            coupon_line_items: domain_coupon_line_item_to_server(content.applied_coupons),
+            tax_breakdown: content
+                .tax_breakdown
+                .iter()
+                .map(domain_tax_breakdown_to_server)
+                .collect(),
+            subtotal: content.subtotal,
+            subtotal_recurring: content.subtotal_recurring,
+            tax_amount: content.tax_amount,
+            total: content.total,
+            amount_due: content.amount_due,
+            applied_credits: content.applied_credits,
+            discount: content.discount,
+            period_start: details.subscription.current_period_start.as_proto(),
+            period_end: details
+                .subscription
+                .current_period_end
+                .map(|d| d.as_proto())
+                .unwrap_or_default(),
+            plan_name: Some(details.subscription.plan_name.clone()),
+            due_date: Some(due_date.as_proto()),
+            net_terms: net_terms as i32,
+        }
+    }
+
+    pub fn windowed_usage_to_proto(
+        usage: WindowedUsageData,
+    ) -> GetSubscriptionComponentUsageResponse {
+        GetSubscriptionComponentUsageResponse {
+            data_points: usage
+                .data
+                .into_iter()
+                .map(|point| UsageDataPoint {
+                    window_start: point.window_start.to_string(),
+                    window_end: point.window_end.to_string(),
+                    value: point.value.to_string(),
+                    dimensions: point.dimensions,
+                })
+                .collect(),
+            period_start: usage.period.start.to_string(),
+            period_end: usage.period.end.to_string(),
+        }
+    }
+}

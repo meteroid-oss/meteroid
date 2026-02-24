@@ -4,6 +4,7 @@ package meteroid.api.subscriptions.v1;
 
 
 import "api/subscriptions/v1/models.proto";
+import "api/invoices/v1/models.proto";
 import "api/shared/v1/shared.proto";
 import "common/v1/pagination.proto";
 
@@ -232,6 +233,52 @@ message CancelScheduledEventRequest {
 
 message CancelScheduledEventResponse {}
 
+message GetUpcomingInvoiceRequest {
+  string subscription_id = 1;
+}
+
+message GetUpcomingInvoiceResponse {
+  UpcomingInvoice invoice = 1;
+}
+
+message UpcomingInvoice {
+  string currency = 1;
+  string invoice_date = 2;
+  repeated meteroid.api.invoices.v1.LineItem line_items = 3;
+  repeated meteroid.api.invoices.v1.CouponLineItem coupon_line_items = 4;
+  repeated meteroid.api.invoices.v1.TaxBreakdownItem tax_breakdown = 5;
+  int64 subtotal = 6;
+  int64 subtotal_recurring = 7;
+  int64 tax_amount = 8;
+  int64 total = 9;
+  int64 amount_due = 10;
+  int64 applied_credits = 11;
+  int64 discount = 12;
+  string period_start = 13;
+  string period_end = 14;
+  optional string plan_name = 15;
+  optional string due_date = 16;
+  int32 net_terms = 17;
+}
+
+message GetSubscriptionComponentUsageRequest {
+  string subscription_id = 1;
+  string metric_id = 2;
+}
+
+message GetSubscriptionComponentUsageResponse {
+  repeated UsageDataPoint data_points = 1;
+  string period_start = 2;
+  string period_end = 3;
+}
+
+message UsageDataPoint {
+  string window_start = 1;
+  string window_end = 2;
+  string value = 3;
+  map<string, string> dimensions = 4;
+}
+
 // Service definition
 service SubscriptionsService {
   rpc CreateSubscription(CreateSubscriptionRequest) returns (CreateSubscriptionResponse);
@@ -252,4 +299,6 @@ service SubscriptionsService {
   rpc PreviewPlanChange(PreviewPlanChangeRequest) returns (PreviewPlanChangeResponse);
   rpc CancelPlanChange(CancelPlanChangeRequest) returns (CancelPlanChangeResponse);
   rpc CancelScheduledEvent(CancelScheduledEventRequest) returns (CancelScheduledEventResponse);
+  rpc GetUpcomingInvoice(GetUpcomingInvoiceRequest) returns (GetUpcomingInvoiceResponse);
+  rpc GetSubscriptionComponentUsage(GetSubscriptionComponentUsageRequest) returns (GetSubscriptionComponentUsageResponse);
 }

@@ -170,7 +170,8 @@ export const ProductMetricsCreatePanel = ({
         usageGroupKey: metric.usageGroupKey || undefined,
       })
     }
-  }, [sourceMetricQuery.data, methods])
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [sourceMetricQuery.data])
 
   useEffect(() => {
     if (families[0]?.localId) {

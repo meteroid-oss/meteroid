@@ -131,8 +131,7 @@ message LineItem {
   optional string product_id = 14;
   optional string metric_id = 15; // TODO same as product id ?
   optional string description = 16;
-
-
+  map<string, string> group_by_dimensions = 17;
 }
 
 message SubLineItem {

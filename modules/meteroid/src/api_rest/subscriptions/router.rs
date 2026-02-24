@@ -12,8 +12,9 @@ use crate::api_rest::subscriptions::mapping::{
     rest_to_domain_update_request,
 };
 use crate::api_rest::subscriptions::model::{
-    Subscription, SubscriptionCreateRequest, SubscriptionDetails, SubscriptionListResponse,
-    SubscriptionRequest, SubscriptionUpdateRequest, SubscriptionUpdateResponse,
+    MetricUsageSummary, Subscription, SubscriptionCreateRequest, SubscriptionDetails,
+    SubscriptionListResponse, SubscriptionRequest, SubscriptionUpdateRequest,
+    SubscriptionUpdateResponse, SubscriptionUsageResponse, UsageDataPointRest,
 };
 use crate::errors::RestApiError;
 use axum::Extension;
@@ -27,6 +28,7 @@ use meteroid_store::repositories::subscriptions::{
     CancellationEffectiveAt, SubscriptionInterfaceAuto,
 };
 use meteroid_store::repositories::{CustomersInterface, PlansInterface, SubscriptionInterface};
+use rust_decimal::Decimal;
 
 /// List subscriptions
 ///
@@ -344,5 +346,97 @@ pub(crate) async fn update_subscription(
 
     Ok(Json(SubscriptionUpdateResponse {
         subscription: details,
+    }))
+}
+
+/// Get subscription usage
+///
+/// Retrieve usage data for all usage-based components of a subscription in the current billing period.
+#[utoipa::path(
+    get,
+    tag = "Subscriptions",
+    path = "/api/v1/subscriptions/{subscription_id}/usage",
+    params(
+        ("subscription_id" = SubscriptionId, Path, description = "Subscription ID"),
+    ),
+    responses(
+        (status = 200, description = "Subscription usage data", body = SubscriptionUsageResponse),
+        (status = 401, description = "Unauthorized", body = RestErrorResponse),
+        (status = 404, description = "Subscription not found", body = RestErrorResponse),
+        (status = 500, description = "Internal error", body = RestErrorResponse),
+    ),
+    security(
+        ("bearer_auth" = [])
+    )
+)]
+#[axum::debug_handler]
+pub(crate) async fn get_subscription_usage(
+    Extension(authorized_state): Extension<AuthorizedAsTenant>,
+    State(app_state): State<AppState>,
+    Path(subscription_id): Path<SubscriptionId>,
+) -> Result<impl IntoResponse, RestApiError> {
+    let details = app_state
+        .store
+        .get_subscription_details(authorized_state.tenant_id, subscription_id)
+        .await
+        .map_err(|e| {
+            log::error!("Error fetching subscription details for usage: {e}");
+            RestApiError::from(e)
+        })?;
+
+    let period_start = details.subscription.current_period_start;
+    let period_end = details
+        .subscription
+        .current_period_end
+        .unwrap_or_else(|| chrono::Utc::now().date_naive() + chrono::Duration::days(1));
+
+    // Collect usage-based metrics from components and add-ons
+    let usage_metric_ids: Vec<_> = details.metrics.iter().map(|m| m.id).collect();
+
+    let mut metrics = Vec::new();
+    for metric_id in usage_metric_ids {
+        let usage = app_state
+            .services
+            .get_subscription_component_usage(&details, metric_id)
+            .await
+            .map_err(|e| {
+                log::error!("Error fetching usage for metric {metric_id}: {e}");
+                RestApiError::from(e)
+            })?;
+
+        let metric = details
+            .metrics
+            .iter()
+            .find(|m| m.id == metric_id)
+            .ok_or(RestApiError::NotFound)?;
+
+        let total_value = usage
+            .data
+            .iter()
+            .fold(Decimal::ZERO, |acc, p| acc + p.value);
+
+        metrics.push(MetricUsageSummary {
+            metric_id,
+            metric_name: metric.name.clone(),
+            metric_code: metric.code.clone(),
+            total_value,
+            data_points: usage
+                .data
+                .into_iter()
+                .map(|p| UsageDataPointRest {
+                    window_start: p.window_start,
+                    window_end: p.window_end,
+                    value: p.value,
+                    dimensions: p.dimensions,
+                })
+                .collect(),
+        });
+    }
+
+    Ok(Json(SubscriptionUsageResponse {
+        subscription_id,
+        period_start,
+        period_end,
+        metrics,
     }))
 }

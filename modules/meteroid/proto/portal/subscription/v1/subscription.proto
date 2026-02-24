@@ -2,6 +2,7 @@ syntax = "proto3";
 
 package meteroid.portal.subscription.v1;
 
+import "api/invoices/v1/models.proto";
 import "api/prices/v1/models.proto";
 import "api/subscriptions/v1/models.proto";
 
@@ -102,10 +103,53 @@ message CancelScheduledEventRequest {
 
 message CancelScheduledEventResponse {}
 
+message GetUpcomingInvoiceRequest {
+  string subscription_id = 1;
+}
+
+message GetUpcomingInvoiceResponse {
+  PortalUpcomingInvoice invoice = 1;
+}
+
+message PortalUpcomingInvoice {
+  string currency = 1;
+  string invoice_date = 2;
+  repeated meteroid.api.invoices.v1.LineItem line_items = 3;
+  repeated meteroid.api.invoices.v1.CouponLineItem coupon_line_items = 4;
+  int64 subtotal = 5;
+  int64 tax_amount = 6;
+  int64 total = 7;
+  int64 amount_due = 8;
+  int64 discount = 9;
+  string period_start = 10;
+  string period_end = 11;
+  optional string plan_name = 12;
+}
+
+message GetSubscriptionComponentUsageRequest {
+  string subscription_id = 1;
+  string metric_id = 2;
+}
+
+message GetSubscriptionComponentUsageResponse {
+  repeated PortalUsageDataPoint data_points = 1;
+  string period_start = 2;
+  string period_end = 3;
+}
+
+message PortalUsageDataPoint {
+  string window_start = 1;
+  string window_end = 2;
+  string value = 3;
+  map<string, string> dimensions = 4;
+}
+
 service PortalSubscriptionService {
   rpc GetSubscriptionDetails(GetSubscriptionDetailsRequest) returns (GetSubscriptionDetailsResponse);
   rpc ListAvailablePlans(ListAvailablePlansRequest) returns (ListAvailablePlansResponse);
   rpc PreviewPlanChange(PreviewPlanChangeRequest) returns (PreviewPlanChangeResponse);
   rpc ConfirmPlanChange(ConfirmPlanChangeRequest) returns (ConfirmPlanChangeResponse);
   rpc CancelScheduledEvent(CancelScheduledEventRequest) returns (CancelScheduledEventResponse);
+  rpc GetUpcomingInvoice(GetUpcomingInvoiceRequest) returns (GetUpcomingInvoiceResponse);
+  rpc GetSubscriptionComponentUsage(GetSubscriptionComponentUsageRequest) returns (GetSubscriptionComponentUsageResponse);
 }

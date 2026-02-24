@@ -1,31 +1,34 @@
 import { useMutation } from '@connectrpc/connect-query'
 import { Skeleton } from '@md/ui'
-import { AlertCircle, ArrowLeft, ArrowRight, Check, Clock } from 'lucide-react'
+import { AlertCircle, ArrowLeft, ArrowRight, Check, ChevronDown, ChevronRight, Clock } from 'lucide-react'
 import { useState } from 'react'
 import { useParams, useSearchParams } from 'react-router-dom'
 
+import { UsageBarChartDisplay } from '@/features/subscriptions/UsageBarChart'
 import { useQuery } from '@/lib/connectrpc'
 import { FeeType } from '@/rpc/api/prices/v1/models_pb'
 import { SubscriptionFeeBillingPeriod } from '@/rpc/api/subscriptions/v1/models_pb'
 import {
   cancelScheduledEvent,
   confirmPlanChange,
+  getSubscriptionComponentUsage,
   getSubscriptionDetails,
+  getUpcomingInvoice,
   listAvailablePlans,
   previewPlanChange,
 } from '@/rpc/portal/subscription/v1/subscription-PortalSubscriptionService_connectquery'
 import { PendingEventType } from '@/rpc/portal/subscription/v1/subscription_pb'
-import { formatCurrencyNoRounding } from '@/utils/numbers'
+import { parseAndFormatDate } from '@/utils/date'
+import { formatCurrency, formatCurrencyNoRounding } from '@/utils/numbers'
 import { useForceTheme } from 'providers/ThemeProvider'
 
-import type { AvailablePlan, ComponentFee } from '@/rpc/portal/subscription/v1/subscription_pb'
+import type {
+  AvailablePlan,
+  ComponentFee,
+  PortalUpcomingInvoice,
+} from '@/rpc/portal/subscription/v1/subscription_pb'
 
 type Mode = 'idle' | 'changing' | 'confirmed'
-
-const formatDate = (dateString: string): string => {
-  const date = new Date(dateString)
-  return date.toLocaleDateString('en-US', { month: 'long', day: 'numeric', year: 'numeric' })
-}
 
 const cadenceLabel = (cadence: SubscriptionFeeBillingPeriod): string => {
   switch (cadence) {
@@ -94,6 +97,11 @@ export const PortalSubscription = () => {
     previewPlanChange,
     { subscriptionId: subscriptionId!, newPlanVersionId: selectedPlan?.planVersionId ?? '' },
     { enabled: mode === 'changing' && !!selectedPlan }
+  )
+  const upcomingInvoiceQuery = useQuery(
+    getUpcomingInvoice,
+    { subscriptionId: subscriptionId! },
+    { enabled: mode === 'idle' && !!detailsQuery.data?.subscription }
   )
 
   const confirmMutation = useMutation(confirmPlanChange)
@@ -192,9 +200,12 @@ export const PortalSubscription = () => {
       {mode === 'idle' && (
         <IdleView
           sub={sub}
+          subscriptionId={subscriptionId!}
           onChangePlan={handleStartChange}
           onCancelChange={handleCancelScheduledEvent}
           isCancelling={cancelMutation.isPending}
+          upcomingInvoice={upcomingInvoiceQuery.data?.invoice}
+          isLoadingInvoice={upcomingInvoiceQuery.isLoading}
         />
       )}
       {mode === 'changing' && (
@@ -226,9 +237,12 @@ export const PortalSubscription = () => {
 
 function IdleView({
   sub,
+  subscriptionId,
   onChangePlan,
   onCancelChange,
   isCancelling,
+  upcomingInvoice,
+  isLoadingInvoice,
 }: {
   sub: {
     planName: string
@@ -239,9 +253,12 @@ function IdleView({
     canChangePlan: boolean
     pendingEvent?: { eventType: PendingEventType; scheduledDate: string; newPlanName?: string; cancelReason?: string }
   }
+  subscriptionId: string
   onChangePlan: () => void
   onCancelChange: () => void
   isCancelling: boolean
+  upcomingInvoice?: PortalUpcomingInvoice
+  isLoadingInvoice: boolean
 }) {
   const statusLower = sub.status.toLowerCase().replace('_', ' ')
   const isActive = statusLower === 'active'
@@ -279,7 +296,7 @@ function IdleView({
 
           {sub.currentPeriodEnd && (
             <p className="text-sm text-gray-500 mt-4">
-              Current period ends {formatDate(sub.currentPeriodEnd)}
+              Current period ends {parseAndFormatDate(sub.currentPeriodEnd)}
             </p>
           )}
         </div>
@@ -318,7 +335,7 @@ function IdleView({
                       : 'Cancellation scheduled'}
                   </p>
                   <p className="text-xs text-gray-500 mt-0.5">
-                    Effective {formatDate(sub.pendingEvent.scheduledDate)}
+                    Effective {parseAndFormatDate(sub.pendingEvent.scheduledDate)}
                   </p>
                 </div>
               </div>
@@ -346,8 +363,236 @@ function IdleView({
           </div>
         )}
       </div>
+
+      {/* Upcoming invoice */}
+      {!isLoadingInvoice && upcomingInvoice && subscriptionId && (
+        <PortalUpcomingInvoiceCard invoice={upcomingInvoice} subscriptionId={subscriptionId} />
+      )}
+      {isLoadingInvoice && (
+        <Skeleton height={80} className="rounded-xl mt-6" />
+      )}
     </div>
   )
+}
+
+// ---------------------------------------------------------------------------
+// Portal Upcoming Invoice Card
+// ---------------------------------------------------------------------------
+
+function PortalUpcomingInvoiceCard({ invoice, subscriptionId }: { invoice: PortalUpcomingInvoice; subscriptionId: string }) {
+  const [expanded, setExpanded] = useState(false)
+  const currency = invoice.currency
+
+  return (
+    <div className="bg-white rounded-xl border border-gray-200 shadow-sm overflow-hidden mt-6">
+      <button
+        className="w-full px-6 sm:px-8 py-5 flex items-center justify-between cursor-pointer hover:bg-gray-50/50 transition-colors"
+        onClick={() => setExpanded(!expanded)}
+      >
+        <div className="flex items-center gap-3">
+          {expanded ? (
+            <ChevronDown className="h-4 w-4 text-gray-400" />
+          ) : (
+            <ChevronRight className="h-4 w-4 text-gray-400" />
+          )}
+          <div className="text-left">
+            <p className="text-sm font-semibold text-gray-900">Upcoming Invoice</p>
+            <p className="text-xs text-gray-500 mt-0.5">
+              {parseAndFormatDate(invoice.periodStart)} &mdash; {parseAndFormatDate(invoice.periodEnd)}
+              {invoice.lineItems.length > 0 && (
+                <span className="ml-1.5">
+                  &middot; {invoice.lineItems.length} item
+                  {invoice.lineItems.length !== 1 ? 's' : ''}
+                </span>
+              )}
+            </p>
+          </div>
+        </div>
+        <span className="text-lg font-semibold text-gray-900 tabular-nums">
+          {formatCurrency(Number(invoice.total), currency)}
+        </span>
+      </button>
+
+      {expanded && (
+        <div className="border-t border-gray-100">
+          {/* Line items */}
+          <div className="divide-y divide-gray-100">
+            {invoice.lineItems.map((line, idx) => (
+              <PortalLineItemRow
+                key={line.id || idx}
+                line={line}
+                currency={currency}
+                subscriptionId={subscriptionId}
+              />
+            ))}
+          </div>
+
+          {/* Coupons */}
+          {invoice.couponLineItems.length > 0 && (
+            <div className="border-t border-gray-100 px-6 sm:px-8 py-3 space-y-1">
+              {invoice.couponLineItems.map((coupon, idx) => (
+                <div key={idx} className="flex justify-between text-sm">
+                  <span className="text-gray-500">Coupon: {coupon.name}</span>
+                  <span className="text-green-600 font-medium tabular-nums">
+                    -{formatCurrency(Number(coupon.total), currency)}
+                  </span>
+                </div>
+              ))}
+            </div>
+          )}
+
+          {/* Totals */}
+          <div className="border-t border-gray-100 px-6 sm:px-8 py-4 bg-gray-50/50 space-y-1.5">
+            {invoice.discount > 0 && (
+              <div className="flex justify-between text-sm text-gray-500">
+                <span>Discount</span>
+                <span className="tabular-nums">
+                  -{formatCurrency(Number(invoice.discount), currency)}
+                </span>
+              </div>
+            )}
+            {invoice.taxAmount > 0 && (
+              <div className="flex justify-between text-sm text-gray-500">
+                <span>Tax</span>
+                <span className="tabular-nums">
+                  {formatCurrency(Number(invoice.taxAmount), currency)}
+                </span>
+              </div>
+            )}
+            <div className="flex justify-between text-sm font-semibold text-gray-900 pt-1 border-t border-gray-200">
+              <span>Total</span>
+              <span className="tabular-nums">
+                {formatCurrency(Number(invoice.total), currency)}
+              </span>
+            </div>
+            {invoice.amountDue !== invoice.total && (
+              <div className="flex justify-between text-sm font-semibold text-gray-900">
+                <span>Amount due</span>
+                <span className="tabular-nums">
+                  {formatCurrency(Number(invoice.amountDue), currency)}
+                </span>
+              </div>
+            )}
+          </div>
+        </div>
+      )}
+    </div>
+  )
+}
+
+function PortalLineItemRow({
+  line,
+  currency,
+  subscriptionId,
+}: {
+  line: PortalUpcomingInvoice['lineItems'][number]
+  currency: string
+  subscriptionId: string
+}) {
+  const [showUsage, setShowUsage] = useState(false)
+  const [showSubLines, setShowSubLines] = useState(false)
+  const hasMetric = Boolean(line.metricId)
+  const hasSubLines = line.subLineItems.length > 0
+
+  const usageQuery = useQuery(
+    getSubscriptionComponentUsage,
+    { subscriptionId, metricId: line.metricId ?? '' },
+    { enabled: showUsage && hasMetric }
+  )
+
+  return (
+    <div>
+      {/* Component header */}
+      <div className="px-6 sm:px-8 py-2.5 flex items-center justify-between">
+        <div className="min-w-0 flex-1">
+          <p className="text-sm text-gray-900 font-medium truncate">{line.name}</p>
+        </div>
+        <span className="text-sm font-medium text-gray-900 tabular-nums ml-4">
+          {formatCurrency(Number(line.subtotal), currency)}
+        </span>
+      </div>
+
+      {/* Simple line: qty × price shown inline */}
+      {!hasSubLines && line.quantity && line.unitPrice && (
+        <div className="px-6 sm:px-8 -mt-1.5 pb-1">
+          <p className="text-xs text-gray-500 tabular-nums">
+            {line.quantity} &times; {formatCurrencyNoRounding(line.unitPrice, currency)}
+          </p>
+        </div>
+      )}
+
+      {/* Subline toggle + rows */}
+      {hasSubLines && (
+        <div className="px-6 sm:px-8 -mt-1 pb-1.5">
+          <button
+            className="text-[11px] text-blue-600 hover:underline cursor-pointer flex items-center gap-1 mb-0.5"
+            onClick={() => setShowSubLines(!showSubLines)}
+          >
+            <ChevronDown
+              className={`h-3 w-3 transition-transform ${showSubLines ? '' : '-rotate-90'}`}
+            />
+            {showSubLines
+              ? 'Hide breakdown'
+              : `${line.subLineItems.length} line items`}
+          </button>
+          {showSubLines &&
+            line.subLineItems.map((sub, idx) => {
+              const label = formatPortalSubLineName(sub)
+              return (
+                <div key={idx} className="flex items-baseline justify-between py-px text-[12px]">
+                  <span className="text-gray-500 pl-3">{label}</span>
+                  <div className="flex items-baseline gap-4 ml-4">
+                    <span className="text-gray-400 tabular-nums text-[11px]">
+                      {sub.quantity && sub.unitPrice
+                        ? `${sub.quantity} × ${formatCurrencyNoRounding(sub.unitPrice, currency)}`
+                        : ''}
+                    </span>
+                    <span className="text-gray-500 tabular-nums w-16 text-right">
+                      {formatCurrency(Number(sub.total), currency)}
+                    </span>
+                  </div>
+                </div>
+              )
+            })}
+        </div>
+      )}
+
+      {/* Usage details toggle + chart */}
+      {hasMetric && (
+        <div className="px-6 sm:px-8 pb-2.5">
+          <button
+            className="text-[11px] text-blue-600 hover:underline cursor-pointer flex items-center gap-1"
+            onClick={() => setShowUsage(!showUsage)}
+          >
+            <ChevronDown
+              className={`h-3 w-3 transition-transform ${showUsage ? '' : '-rotate-90'}`}
+            />
+            {showUsage ? 'Hide usage details' : 'Show usage details'}
+          </button>
+          {showUsage && usageQuery.data && (
+            <div className="mt-2">
+              <UsageBarChartDisplay
+                data={usageQuery.data}
+                groupByDimensions={
+                  Object.keys(line.groupByDimensions).length > 0
+                    ? line.groupByDimensions
+                    : undefined
+                }
+              />
+            </div>
+          )}
+        </div>
+      )}
+    </div>
+  )
+}
+
+function formatPortalSubLineName(sub: PortalUpcomingInvoice['lineItems'][number]['subLineItems'][number]): string {
+  if (sub.sublineAttributes.case === 'matrix') {
+    const m = sub.sublineAttributes.value
+    return m.dimension2Value ? `${m.dimension1Value} / ${m.dimension2Value}` : m.dimension1Value
+  }
+  return sub.name
 }
 
 // ---------------------------------------------------------------------------
@@ -489,7 +734,7 @@ function PlanChangeView({
                 <p className="text-sm text-gray-700">
                   Your plan will change to{' '}
                   <span className="font-medium">{preview.newPlanName}</span> on your next billing
-                  cycle ({formatDate(preview.preview.effectiveDate)}).
+                  cycle ({parseAndFormatDate(preview.preview.effectiveDate)}).
                 </p>
               </div>
             </div>
@@ -594,7 +839,7 @@ function ConfirmedView({
       <h2 className="text-xl font-semibold text-gray-900 mb-2">Plan change confirmed</h2>
       {scheduledFor && (
         <p className="text-sm text-gray-500 mb-8 leading-relaxed">
-          Your plan will switch on {formatDate(scheduledFor)}.
+          Your plan will switch on {parseAndFormatDate(scheduledFor)}.
           <br />
           Your current features remain active until then.
         </p>
