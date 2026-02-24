@@ -1235,6 +1235,7 @@ async fn create_plan_with_4_components(
                 description: None,
                 active_version_id: Some(Some(plan_version_id)),
                 draft_version_id: None,
+                self_service_rank: None,
             }
             .update(tx)
             .await?;

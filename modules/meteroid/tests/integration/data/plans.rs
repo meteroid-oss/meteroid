@@ -89,6 +89,7 @@ pub async fn run_plans_seed(pool: &PgPool) {
                 description: None,
                 active_version_id: Some(Some(ids::PLAN_VERSION_1_LEETCODE_ID)),
                 draft_version_id: Some(Some(ids::PLAN_VERSION_2_LEETCODE_ID)),
+                self_service_rank: None,
             }
             .update(tx)
             .await?;
@@ -193,6 +194,7 @@ pub async fn run_plans_seed(pool: &PgPool) {
                 description: None,
                 active_version_id: Some(Some(ids::PLAN_VERSION_NOTION_ID)),
                 draft_version_id: None,
+                self_service_rank: None,
             }
             .update(tx)
             .await?;
@@ -339,6 +341,7 @@ pub async fn run_plans_seed(pool: &PgPool) {
                 description: None,
                 active_version_id: Some(Some(ids::PLAN_VERSION_SUPABASE_ID)),
                 draft_version_id: None,
+                self_service_rank: None,
             }
             .update(tx)
             .await?;
@@ -456,6 +459,7 @@ pub async fn run_plans_seed(pool: &PgPool) {
                 description: None,
                 active_version_id: Some(Some(ids::PLAN_VERSION_FREE_ID)),
                 draft_version_id: None,
+                self_service_rank: None,
             }
             .update(tx)
             .await?;
@@ -500,6 +504,7 @@ pub async fn run_plans_seed(pool: &PgPool) {
                 description: None,
                 active_version_id: Some(Some(ids::PLAN_VERSION_ENTERPRISE_ID)),
                 draft_version_id: None,
+                self_service_rank: None,
             }
             .update(tx)
             .await?;
@@ -548,6 +553,7 @@ pub async fn run_plans_seed(pool: &PgPool) {
                 description: None,
                 active_version_id: Some(Some(ids::PLAN_VERSION_PRO_WITH_TRIAL_ID)),
                 draft_version_id: None,
+                self_service_rank: None,
             }
             .update(tx)
             .await?;
@@ -595,6 +601,7 @@ pub async fn run_plans_seed(pool: &PgPool) {
                 description: None,
                 active_version_id: Some(Some(ids::PLAN_VERSION_PAID_FREE_TRIAL_ID)),
                 draft_version_id: None,
+                self_service_rank: None,
             }
             .update(tx)
             .await?;
@@ -702,6 +709,7 @@ pub async fn run_plans_seed(pool: &PgPool) {
                 description: None,
                 active_version_id: Some(Some(ids::PLAN_VERSION_PAID_TRIAL_ID)),
                 draft_version_id: None,
+                self_service_rank: None,
             }
             .update(tx)
             .await?;
@@ -908,6 +916,7 @@ pub async fn run_plans_seed(pool: &PgPool) {
                 description: None,
                 active_version_id: Some(Some(ids::PLAN_VERSION_USD_ID)),
                 draft_version_id: None,
+                self_service_rank: None,
             }
             .update(tx)
             .await?;
@@ -1074,6 +1083,7 @@ async fn seed_product_backed_plan(
         description: None,
         active_version_id: Some(Some(plan.plan_version_id)),
         draft_version_id: plan.draft_version.as_ref().map(|d| Some(d.id)),
+        self_service_rank: None,
     }
     .update(tx)
     .await?;
