@@ -3,6 +3,7 @@ mod draft;
 mod finalize;
 mod issue;
 mod refresh;
+mod upcoming;
 mod update;
 
 pub use bill::InvoiceBillingMode;

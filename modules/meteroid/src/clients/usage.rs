@@ -20,7 +20,8 @@ use metering_grpc::meteroid::metering::v1::{
 };
 use meteroid_store::clients::usage::{
     CsvIngestionFailure, CsvIngestionOptions, CsvIngestionResult, EventSearchOptions,
-    EventSearchResult, GroupedUsageData, Metadata, UsageClient, UsageData,
+    EventSearchResult, GroupedUsageData, Metadata, UsageClient, UsageData, WindowedUsageData,
+    WindowedUsagePoint,
 };
 use meteroid_store::domain::{BillableMetric, Period};
 use meteroid_store::errors::StoreError;
@@ -214,6 +215,145 @@ impl UsageClient for MeteringUsageClient {
             .collect();
 
         Ok(UsageData { data, period })
+    }
+
+    async fn fetch_windowed_usage(
+        &self,
+        tenant_id: &TenantId,
+        customer_id: &CustomerId,
+        metric: &BillableMetric,
+        period: Period,
+    ) -> StoreResult<WindowedUsageData> {
+        if period.start >= period.end {
+            bail!(StoreError::InvalidArgument("invalid period".to_string()));
+        }
+
+        let aggregation_type = match metric.aggregation_type {
+            domain::enums::BillingMetricAggregateEnum::Count => AggregationType::Count,
+            domain::enums::BillingMetricAggregateEnum::Latest => AggregationType::Latest,
+            domain::enums::BillingMetricAggregateEnum::Max => AggregationType::Max,
+            domain::enums::BillingMetricAggregateEnum::Min => AggregationType::Min,
+            domain::enums::BillingMetricAggregateEnum::Mean => AggregationType::Mean,
+            domain::enums::BillingMetricAggregateEnum::Sum => AggregationType::Sum,
+            domain::enums::BillingMetricAggregateEnum::CountDistinct => {
+                AggregationType::CountDistinct
+            }
+        } as i32;
+
+        let segmentation_filter = match metric.segmentation_matrix.clone() {
+            Some(domain::SegmentationMatrix::Single(domain::Dimension { key, values, .. })) => {
+                Some(SegmentationFilter {
+                    filter: Some(segmentation_filter::Filter::Independent(
+                        IndependentFilters {
+                            filters: vec![Filter {
+                                property_name: key,
+                                property_value: values,
+                            }],
+                        },
+                    )),
+                })
+            }
+            Some(domain::SegmentationMatrix::Double {
+                dimension1,
+                dimension2,
+            }) => Some(SegmentationFilter {
+                filter: Some(segmentation_filter::Filter::Independent(
+                    IndependentFilters {
+                        filters: vec![
+                            Filter {
+                                property_name: dimension1.key,
+                                property_value: dimension1.values,
+                            },
+                            Filter {
+                                property_name: dimension2.key,
+                                property_value: dimension2.values,
+                            },
+                        ],
+                    },
+                )),
+            }),
+            Some(domain::SegmentationMatrix::Linked {
+                dimension1_key,
+                dimension2_key,
+                values,
+            }) => {
+                let linked_values = values
+                    .into_iter()
+                    .map(|(k, v)| (k, LinkedDimensionValues { values: v }))
+                    .collect();
+
+                Some(SegmentationFilter {
+                    filter: Some(segmentation_filter::Filter::Linked(LinkedFilters {
+                        dimension1_key,
+                        dimension2_key,
+                        linked_values,
+                    })),
+                })
+            }
+            None => None,
+        };
+
+        let request = QueryMeterRequest {
+            tenant_id: tenant_id.as_proto(),
+            meter_slug: metric.id.to_string(),
+            code: metric.code.clone(),
+            meter_aggregation_type: aggregation_type,
+            customer_ids: vec![customer_id.to_string()],
+            from: Some(date_to_timestamp(period.start)),
+            to: Some(date_to_timestamp(period.end)),
+            group_by_properties: metric
+                .usage_group_key
+                .as_ref()
+                .map(|k| vec![k.clone()])
+                .unwrap_or_default(),
+            window_size: QueryWindowSize::Day.into(),
+            timezone: None,
+            segmentation_filter,
+            value_property: metric.aggregation_key.clone(),
+        };
+
+        let mut metering_client_mut = self.usage_grpc_client.clone();
+        let response: QueryMeterResponse = metering_client_mut
+            .query_meter(request)
+            .await
+            .change_context(StoreError::MeteringServiceError)
+            .attach("Failed to query meter (windowed)")?
+            .into_inner();
+
+        let data: Vec<WindowedUsagePoint> = response
+            .usage
+            .into_iter()
+            .filter_map(|usage| {
+                let value: Decimal = usage.value.and_then(|v| v.try_into().ok())?;
+                let window_start = usage
+                    .window_start
+                    .map(|ts| {
+                        chrono::DateTime::from_timestamp(ts.seconds, ts.nanos as u32)
+                            .map(|dt| dt.date_naive())
+                    })
+                    .flatten()?;
+                let window_end = usage
+                    .window_end
+                    .map(|ts| {
+                        chrono::DateTime::from_timestamp(ts.seconds, ts.nanos as u32)
+                            .map(|dt| dt.date_naive())
+                    })
+                    .flatten()?;
+
+                Some(WindowedUsagePoint {
+                    window_start,
+                    window_end,
+                    value,
+                    dimensions: usage
+                        .dimensions
+                        .into_iter()
+                        .map(|(k, v)| (k, v.value.unwrap_or_default()))
+                        .collect(),
+                })
+            })
+            .collect();
+
+        Ok(WindowedUsageData { data, period })
     }
 
     async fn ingest_events_from_csv(

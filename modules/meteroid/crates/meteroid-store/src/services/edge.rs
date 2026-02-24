@@ -18,6 +18,7 @@ use crate::repositories::InvoiceInterface;
 use crate::repositories::outbox::OutboxInterface;
 use crate::repositories::subscriptions::CancellationEffectiveAt;
 use crate::services::CycleTransitionResult;
+use crate::services::clients::usage::WindowedUsageData;
 use crate::services::invoice_lines::invoice_lines::ComputedInvoiceContent;
 use crate::services::subscriptions::payment_resolution::ResolvedPaymentMethods;
 use crate::services::{InvoiceBillingMode, ServicesEdge};
@@ -60,6 +61,25 @@ impl ServicesEdge {
                 prepaid_amount,
                 None,
             )
+            .await
+    }
+
+    pub async fn compute_upcoming_invoice(
+        &self,
+        subscription_details: &SubscriptionDetails,
+    ) -> StoreResult<ComputedInvoiceContent> {
+        self.services
+            .compute_upcoming_invoice(&mut self.get_conn().await?, subscription_details)
+            .await
+    }
+
+    pub async fn get_subscription_component_usage(
+        &self,
+        subscription_details: &SubscriptionDetails,
+        metric_id: common_domain::ids::BillableMetricId,
+    ) -> StoreResult<WindowedUsageData> {
+        self.services
+            .get_subscription_component_usage(subscription_details, metric_id)
             .await
     }
 

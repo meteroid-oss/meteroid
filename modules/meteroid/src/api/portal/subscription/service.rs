@@ -1,7 +1,7 @@
 use crate::api::portal::subscription::PortalSubscriptionServiceComponents;
 use crate::api::portal::subscription::error::PortalSubscriptionApiError;
 use crate::api::shared::conversions::ProtoConv;
-use common_domain::ids::{PlanVersionId, SubscriptionId};
+use common_domain::ids::{BillableMetricId, PlanVersionId, SubscriptionId};
 use common_grpc::middleware::server::auth::RequestExt;
 use meteroid_grpc::meteroid::api::prices::v1 as prices_proto;
 use meteroid_grpc::meteroid::api::subscriptions::v1 as sub_proto;
@@ -492,5 +492,110 @@ impl PortalSubscriptionService for PortalSubscriptionServiceComponents {
             .map_err(Into::<PortalSubscriptionApiError>::into)?;
 
         Ok(Response::new(CancelScheduledEventResponse {}))
+    }
+
+    #[tracing::instrument(skip_all)]
+    async fn get_upcoming_invoice(
+        &self,
+        request: Request<GetUpcomingInvoiceRequest>,
+    ) -> Result<Response<GetUpcomingInvoiceResponse>, Status> {
+        let tenant_id = request.tenant()?;
+        let customer_id = request.portal_resource()?.customer()?;
+        let inner = request.into_inner();
+
+        let subscription_id = SubscriptionId::from_proto(&inner.subscription_id)?;
+
+        let details = self
+            .store
+            .get_subscription_details(tenant_id, subscription_id)
+            .await
+            .map_err(Into::<PortalSubscriptionApiError>::into)?;
+
+        if details.subscription.customer_id != customer_id {
+            return Err(PortalSubscriptionApiError::Unauthorized.into());
+        }
+
+        let content = self
+            .services
+            .compute_upcoming_invoice(&details)
+            .await
+            .map_err(Into::<PortalSubscriptionApiError>::into)?;
+
+        use crate::api::invoices::mapping::invoices::{
+            domain_coupon_line_item_to_server, domain_invoice_lines_to_server,
+        };
+        use crate::api::shared::conversions::ProtoConv;
+
+        let invoice_date = details
+            .subscription
+            .current_period_end
+            .unwrap_or_else(|| chrono::Utc::now().date_naive());
+
+        let invoice = PortalUpcomingInvoice {
+            currency: details.subscription.currency.clone(),
+            invoice_date: invoice_date.as_proto(),
+            line_items: domain_invoice_lines_to_server(content.invoice_lines),
+            coupon_line_items: domain_coupon_line_item_to_server(content.applied_coupons),
+            subtotal: content.subtotal,
+            tax_amount: content.tax_amount,
+            total: content.total,
+            amount_due: content.amount_due,
+            discount: content.discount,
+            period_start: details.subscription.current_period_start.as_proto(),
+            period_end: details
+                .subscription
+                .current_period_end
+                .map(|d| d.as_proto())
+                .unwrap_or_default(),
+            plan_name: Some(details.subscription.plan_name.clone()),
+        };
+
+        Ok(Response::new(GetUpcomingInvoiceResponse {
+            invoice: Some(invoice),
+        }))
+    }
+
+    #[tracing::instrument(skip_all)]
+    async fn get_subscription_component_usage(
+        &self,
+        request: Request<GetSubscriptionComponentUsageRequest>,
+    ) -> Result<Response<GetSubscriptionComponentUsageResponse>, Status> {
+        let tenant_id = request.tenant()?;
+        let customer_id = request.portal_resource()?.customer()?;
+        let inner = request.into_inner();
+
+        let subscription_id = SubscriptionId::from_proto(&inner.subscription_id)?;
+        let metric_id = BillableMetricId::from_proto(&inner.metric_id)?;
+
+        let details = self
+            .store
+            .get_subscription_details(tenant_id, subscription_id)
+            .await
+            .map_err(Into::<PortalSubscriptionApiError>::into)?;
+
+        if details.subscription.customer_id != customer_id {
+            return Err(PortalSubscriptionApiError::Unauthorized.into());
+        }
+
+        let usage = self
+            .services
+            .get_subscription_component_usage(&details, metric_id)
+            .await
+            .map_err(Into::<PortalSubscriptionApiError>::into)?;
+
+        Ok(Response::new(GetSubscriptionComponentUsageResponse {
+            data_points: usage
+                .data
+                .into_iter()
+                .map(|point| PortalUsageDataPoint {
+                    window_start: point.window_start.to_string(),
+                    window_end: point.window_end.to_string(),
+                    value: point.value.to_string(),
+                    dimensions: point.dimensions,
+                })
+                .collect(),
+            period_start: usage.period.start.to_string(),
+            period_end: usage.period.end.to_string(),
+        }))
     }
 }

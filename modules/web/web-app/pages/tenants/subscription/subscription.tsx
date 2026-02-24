@@ -35,6 +35,7 @@ import {
 import { CancelSubscriptionModal } from '@/features/subscriptions/CancelSubscriptionModal'
 import { EditSubscriptionModal } from '@/features/subscriptions/EditSubscriptionModal'
 import { SubscriptionInvoicesCard } from '@/features/subscriptions/InvoicesCard'
+import { UpcomingInvoiceCard } from '@/features/subscriptions/UpcomingInvoiceCard'
 import { SlotTransactionsModal } from '@/features/subscriptions/SlotTransactionsModal'
 import { UpdateSlotModal } from '@/features/subscriptions/UpdateSlotModal'
 import { formatSubscriptionFee } from '@/features/subscriptions/utils/fees'
@@ -779,6 +780,13 @@ export const Subscription = () => {
             </div>
           </div>
         )}
+
+        {/* Upcoming Invoice - only for active/trialing subscriptions with a current period */}
+        {(data.status === SubscriptionStatus.ACTIVE ||
+          data.status === SubscriptionStatus.TRIALING) &&
+          data.currentPeriodStart && (
+            <UpcomingInvoiceCard subscriptionId={data.id} currency={data.currency} />
+          )}
 
         <div className="bg-card rounded-lg border border-border shadow-sm mb-6">
           <div className="p-4 border-b border-border flex items-center justify-between">

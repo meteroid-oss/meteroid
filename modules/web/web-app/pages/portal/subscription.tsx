@@ -1,6 +1,6 @@
 import { useMutation } from '@connectrpc/connect-query'
 import { Skeleton } from '@md/ui'
-import { AlertCircle, ArrowLeft, ArrowRight, Check, Clock } from 'lucide-react'
+import { AlertCircle, ArrowLeft, ArrowRight, Check, ChevronDown, ChevronRight, Clock } from 'lucide-react'
 import { useState } from 'react'
 import { useParams, useSearchParams } from 'react-router-dom'
 
@@ -10,15 +10,22 @@ import { SubscriptionFeeBillingPeriod } from '@/rpc/api/subscriptions/v1/models_
 import {
   cancelScheduledEvent,
   confirmPlanChange,
+  getSubscriptionComponentUsage,
   getSubscriptionDetails,
+  getUpcomingInvoice,
   listAvailablePlans,
   previewPlanChange,
 } from '@/rpc/portal/subscription/v1/subscription-PortalSubscriptionService_connectquery'
 import { PendingEventType } from '@/rpc/portal/subscription/v1/subscription_pb'
-import { formatCurrencyNoRounding } from '@/utils/numbers'
+import { formatCurrency, formatCurrencyNoRounding } from '@/utils/numbers'
+import { UsageBarChartDisplay } from '@/features/subscriptions/UsageBarChart'
 import { useForceTheme } from 'providers/ThemeProvider'
 
-import type { AvailablePlan, ComponentFee } from '@/rpc/portal/subscription/v1/subscription_pb'
+import type {
+  AvailablePlan,
+  ComponentFee,
+  PortalUpcomingInvoice,
+} from '@/rpc/portal/subscription/v1/subscription_pb'
 
 type Mode = 'idle' | 'changing' | 'confirmed'
 
@@ -94,6 +101,11 @@ export const PortalSubscription = () => {
     previewPlanChange,
     { subscriptionId: subscriptionId!, newPlanVersionId: selectedPlan?.planVersionId ?? '' },
     { enabled: mode === 'changing' && !!selectedPlan }
+  )
+  const upcomingInvoiceQuery = useQuery(
+    getUpcomingInvoice,
+    { subscriptionId: subscriptionId! },
+    { enabled: mode === 'idle' && !!detailsQuery.data?.subscription }
   )
 
   const confirmMutation = useMutation(confirmPlanChange)
@@ -192,9 +204,12 @@ export const PortalSubscription = () => {
       {mode === 'idle' && (
         <IdleView
           sub={sub}
+          subscriptionId={subscriptionId!}
           onChangePlan={handleStartChange}
           onCancelChange={handleCancelScheduledEvent}
           isCancelling={cancelMutation.isPending}
+          upcomingInvoice={upcomingInvoiceQuery.data?.invoice}
+          isLoadingInvoice={upcomingInvoiceQuery.isLoading}
         />
       )}
       {mode === 'changing' && (
@@ -226,9 +241,12 @@ export const PortalSubscription = () => {
 
 function IdleView({
   sub,
+  subscriptionId,
   onChangePlan,
   onCancelChange,
   isCancelling,
+  upcomingInvoice,
+  isLoadingInvoice,
 }: {
   sub: {
     planName: string
@@ -239,9 +257,12 @@ function IdleView({
     canChangePlan: boolean
     pendingEvent?: { eventType: PendingEventType; scheduledDate: string; newPlanName?: string; cancelReason?: string }
   }
+  subscriptionId: string
   onChangePlan: () => void
   onCancelChange: () => void
   isCancelling: boolean
+  upcomingInvoice?: PortalUpcomingInvoice
+  isLoadingInvoice: boolean
 }) {
   const statusLower = sub.status.toLowerCase().replace('_', ' ')
   const isActive = statusLower === 'active'
@@ -346,6 +367,171 @@ function IdleView({
           </div>
         )}
       </div>
+
+      {/* Upcoming invoice */}
+      {!isLoadingInvoice && upcomingInvoice && subscriptionId && (
+        <PortalUpcomingInvoiceCard invoice={upcomingInvoice} subscriptionId={subscriptionId} />
+      )}
+      {isLoadingInvoice && (
+        <Skeleton height={80} className="rounded-xl mt-6" />
+      )}
+    </div>
+  )
+}
+
+// ---------------------------------------------------------------------------
+// Portal Upcoming Invoice Card
+// ---------------------------------------------------------------------------
+
+function PortalUpcomingInvoiceCard({ invoice, subscriptionId }: { invoice: PortalUpcomingInvoice; subscriptionId: string }) {
+  const [expanded, setExpanded] = useState(false)
+  const currency = invoice.currency
+
+  return (
+    <div className="bg-white rounded-xl border border-gray-200 shadow-sm overflow-hidden mt-6">
+      <button
+        className="w-full px-6 sm:px-8 py-5 flex items-center justify-between cursor-pointer hover:bg-gray-50/50 transition-colors"
+        onClick={() => setExpanded(!expanded)}
+      >
+        <div className="flex items-center gap-3">
+          {expanded ? (
+            <ChevronDown className="h-4 w-4 text-gray-400" />
+          ) : (
+            <ChevronRight className="h-4 w-4 text-gray-400" />
+          )}
+          <div className="text-left">
+            <p className="text-sm font-semibold text-gray-900">Upcoming Invoice</p>
+            <p className="text-xs text-gray-500 mt-0.5">
+              {formatDate(invoice.periodStart)} &mdash; {formatDate(invoice.periodEnd)}
+              {invoice.lineItems.length > 0 && (
+                <span className="ml-1.5">
+                  &middot; {invoice.lineItems.length} item
+                  {invoice.lineItems.length !== 1 ? 's' : ''}
+                </span>
+              )}
+            </p>
+          </div>
+        </div>
+        <span className="text-lg font-semibold text-gray-900 tabular-nums">
+          {formatCurrency(Number(invoice.total), currency)}
+        </span>
+      </button>
+
+      {expanded && (
+        <div className="border-t border-gray-100">
+          {/* Line items */}
+          <div className="divide-y divide-gray-100">
+            {invoice.lineItems.map((line, idx) => (
+              <PortalLineItemRow
+                key={line.id || idx}
+                line={line}
+                currency={currency}
+                subscriptionId={subscriptionId}
+              />
+            ))}
+          </div>
+
+          {/* Coupons */}
+          {invoice.couponLineItems.length > 0 && (
+            <div className="border-t border-gray-100 px-6 sm:px-8 py-3 space-y-1">
+              {invoice.couponLineItems.map((coupon, idx) => (
+                <div key={idx} className="flex justify-between text-sm">
+                  <span className="text-gray-500">Coupon: {coupon.name}</span>
+                  <span className="text-green-600 font-medium tabular-nums">
+                    -{formatCurrency(Number(coupon.total), currency)}
+                  </span>
+                </div>
+              ))}
+            </div>
+          )}
+
+          {/* Totals */}
+          <div className="border-t border-gray-100 px-6 sm:px-8 py-4 bg-gray-50/50 space-y-1.5">
+            {invoice.discount > 0 && (
+              <div className="flex justify-between text-sm text-gray-500">
+                <span>Discount</span>
+                <span className="tabular-nums">
+                  -{formatCurrency(Number(invoice.discount), currency)}
+                </span>
+              </div>
+            )}
+            {invoice.taxAmount > 0 && (
+              <div className="flex justify-between text-sm text-gray-500">
+                <span>Tax</span>
+                <span className="tabular-nums">
+                  {formatCurrency(Number(invoice.taxAmount), currency)}
+                </span>
+              </div>
+            )}
+            <div className="flex justify-between text-sm font-semibold text-gray-900 pt-1 border-t border-gray-200">
+              <span>Total</span>
+              <span className="tabular-nums">
+                {formatCurrency(Number(invoice.total), currency)}
+              </span>
+            </div>
+            {invoice.amountDue !== invoice.total && (
+              <div className="flex justify-between text-sm font-semibold text-gray-900">
+                <span>Amount due</span>
+                <span className="tabular-nums">
+                  {formatCurrency(Number(invoice.amountDue), currency)}
+                </span>
+              </div>
+            )}
+          </div>
+        </div>
+      )}
+    </div>
+  )
+}
+
+function PortalLineItemRow({
+  line,
+  currency,
+  subscriptionId,
+}: {
+  line: PortalUpcomingInvoice['lineItems'][number]
+  currency: string
+  subscriptionId: string
+}) {
+  const [showUsage, setShowUsage] = useState(false)
+  const hasMetric = Boolean(line.metricId)
+
+  const usageQuery = useQuery(
+    getSubscriptionComponentUsage,
+    { subscriptionId, metricId: line.metricId ?? '' },
+    { enabled: showUsage && hasMetric }
+  )
+
+  return (
+    <div>
+      <div className="px-6 sm:px-8 py-3 flex items-center justify-between">
+        <div className="min-w-0 flex-1">
+          <div className="flex items-center gap-1.5">
+            <p className="text-sm text-gray-900 font-medium truncate">{line.name}</p>
+            {hasMetric && (
+              <button
+                className="text-[10px] text-blue-600 hover:underline cursor-pointer"
+                onClick={() => setShowUsage(!showUsage)}
+              >
+                {showUsage ? 'hide usage' : 'usage'}
+              </button>
+            )}
+          </div>
+          {line.quantity && line.unitPrice && (
+            <p className="text-xs text-gray-500 mt-0.5 tabular-nums">
+              {line.quantity} &times; {line.unitPrice}
+            </p>
+          )}
+        </div>
+        <span className="text-sm font-medium text-gray-900 tabular-nums ml-4">
+          {formatCurrency(Number(line.subtotal), currency)}
+        </span>
+      </div>
+      {showUsage && hasMetric && usageQuery.data && (
+        <div className="px-6 sm:px-8 pb-3">
+          <UsageBarChartDisplay data={usageQuery.data} />
+        </div>
+      )}
     </div>
   )
 }

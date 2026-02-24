@@ -544,6 +544,16 @@ impl Services {
                 "metric with id {metric_id}"
             )))?;
 
+        log::info!(
+            "Fetching usage for metric {} ({}), subscription {}, customer {}, period {} -> {}",
+            metric.name,
+            metric_id,
+            subscription_details.subscription.id,
+            subscription_details.subscription.customer_id,
+            period.start,
+            period.end,
+        );
+
         let usage = self
             .usage_client
             .fetch_usage(
@@ -553,6 +563,13 @@ impl Services {
                 period,
             )
             .await?;
+
+        log::info!(
+            "Usage result for metric {} ({}): {} data points",
+            metric.name,
+            metric_id,
+            usage.data.len(),
+        );
 
         if let Some(factor) = metric.unit_conversion_factor {
             if factor == 0 {
@@ -629,14 +646,19 @@ impl InvoiceLineInner {
             proration_factor,
         );
 
-        // Derive unit_price from the rounded total to ensure consistency.
-        // For qty=1, this gives exact currency precision.
-        // For qty>1, unit_price × quantity = total exactly.
-        let unit_price = if quantity.is_zero() {
-            Decimal::ZERO
+        // When prorated, derive unit_price from the rounded total so that
+        // unit_price × quantity = total exactly.
+        // When not prorated, use the original rate directly to avoid precision
+        // artifacts from rounding total_cents then dividing back by quantity.
+        let unit_price = if proration_factor.is_some() {
+            if quantity.is_zero() {
+                Decimal::ZERO
+            } else {
+                let divisor = Decimal::from(10u64.pow(precision as u32));
+                Decimal::from(total_cents as i64) / divisor / quantity
+            }
         } else {
-            let divisor = Decimal::from(10u64.pow(precision as u32));
-            Decimal::from(total_cents as i64) / divisor / quantity
+            *rate
         };
 
         Ok(InvoiceLineInner {

@@ -1,5 +1,5 @@
 use common_domain::ids::{
-    BaseId, CustomerId, PlanId, PlanVersionId, PriceComponentId, SubscriptionId,
+    BaseId, BillableMetricId, CustomerId, PlanId, PlanVersionId, PriceComponentId, SubscriptionId,
 };
 use common_grpc::middleware::server::auth::RequestExt;
 use meteroid_store::repositories::subscriptions::slots::SubscriptionSlotsInterfaceAuto;
@@ -13,12 +13,14 @@ use meteroid_grpc::meteroid::api::subscriptions::v1::{
     CancelSlotTransactionRequest, CancelSlotTransactionResponse, CancelSubscriptionRequest,
     CancelSubscriptionResponse, CreateSubscriptionRequest, CreateSubscriptionResponse,
     CreateSubscriptionsRequest, CreateSubscriptionsResponse, GenerateCheckoutTokenRequest,
-    GenerateCheckoutTokenResponse, GetSlotsValueRequest, GetSlotsValueResponse,
-    ListSlotTransactionsRequest, ListSlotTransactionsResponse, ListSubscriptionsRequest,
-    ListSubscriptionsResponse, PreviewPlanChangeRequest, PreviewPlanChangeResponse,
-    PreviewSlotUpdateRequest, PreviewSlotUpdateResponse, SchedulePlanChangeRequest,
-    SchedulePlanChangeResponse, SubscriptionDetails, SyncToHubspotRequest, SyncToHubspotResponse,
-    UpdateSlotsRequest, UpdateSlotsResponse, UpdateSubscriptionRequest, UpdateSubscriptionResponse,
+    GenerateCheckoutTokenResponse, GetSubscriptionComponentUsageRequest,
+    GetSubscriptionComponentUsageResponse, GetSlotsValueRequest, GetSlotsValueResponse,
+    GetUpcomingInvoiceRequest, GetUpcomingInvoiceResponse, ListSlotTransactionsRequest,
+    ListSlotTransactionsResponse, ListSubscriptionsRequest, ListSubscriptionsResponse,
+    PreviewPlanChangeRequest, PreviewPlanChangeResponse, PreviewSlotUpdateRequest,
+    PreviewSlotUpdateResponse, SchedulePlanChangeRequest, SchedulePlanChangeResponse,
+    SubscriptionDetails, SyncToHubspotRequest, SyncToHubspotResponse, UpdateSlotsRequest,
+    UpdateSlotsResponse, UpdateSubscriptionRequest, UpdateSubscriptionResponse,
 };
 
 use crate::api::shared::conversions::ProtoConv;
@@ -625,5 +627,62 @@ impl SubscriptionsService for SubscriptionServiceComponents {
             .map_err(Into::<SubscriptionApiError>::into)?;
 
         Ok(Response::new(CancelScheduledEventResponse {}))
+    }
+
+    #[tracing::instrument(skip_all)]
+    async fn get_upcoming_invoice(
+        &self,
+        request: Request<GetUpcomingInvoiceRequest>,
+    ) -> Result<Response<GetUpcomingInvoiceResponse>, Status> {
+        let tenant_id = request.tenant()?;
+        let inner = request.into_inner();
+
+        let subscription_id = SubscriptionId::from_proto(inner.subscription_id)?;
+
+        let details = self
+            .store
+            .get_subscription_details(tenant_id, subscription_id)
+            .await
+            .map_err(Into::<SubscriptionApiError>::into)?;
+
+        let content = self
+            .services
+            .compute_upcoming_invoice(&details)
+            .await
+            .map_err(Into::<SubscriptionApiError>::into)?;
+
+        let invoice = mapping::upcoming::computed_content_to_upcoming_proto(content, &details);
+
+        Ok(Response::new(GetUpcomingInvoiceResponse {
+            invoice: Some(invoice),
+        }))
+    }
+
+    #[tracing::instrument(skip_all)]
+    async fn get_subscription_component_usage(
+        &self,
+        request: Request<GetSubscriptionComponentUsageRequest>,
+    ) -> Result<Response<GetSubscriptionComponentUsageResponse>, Status> {
+        let tenant_id = request.tenant()?;
+        let inner = request.into_inner();
+
+        let subscription_id = SubscriptionId::from_proto(inner.subscription_id)?;
+        let metric_id = BillableMetricId::from_proto(inner.metric_id)?;
+
+        let details = self
+            .store
+            .get_subscription_details(tenant_id, subscription_id)
+            .await
+            .map_err(Into::<SubscriptionApiError>::into)?;
+
+        let usage = self
+            .services
+            .get_subscription_component_usage(&details, metric_id)
+            .await
+            .map_err(Into::<SubscriptionApiError>::into)?;
+
+        Ok(Response::new(mapping::upcoming::windowed_usage_to_proto(
+            usage,
+        )))
     }
 }

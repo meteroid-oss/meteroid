@@ -20,6 +20,20 @@ pub struct GroupedUsageData {
 }
 
 #[derive(Debug, Clone)]
+pub struct WindowedUsageData {
+    pub data: Vec<WindowedUsagePoint>,
+    pub period: Period,
+}
+
+#[derive(Debug, Clone)]
+pub struct WindowedUsagePoint {
+    pub window_start: NaiveDate,
+    pub window_end: NaiveDate,
+    pub value: Decimal,
+    pub dimensions: HashMap<String, String>,
+}
+
+#[derive(Debug, Clone)]
 pub struct Metadata {
     pub key: String,
     pub value: String,
@@ -95,6 +109,15 @@ pub trait UsageClient: Send + Sync {
         metric: &BillableMetric,
         period: Period,
     ) -> StoreResult<UsageData>;
+
+    async fn fetch_windowed_usage(
+        &self,
+        tenant_id: &TenantId,
+        customer_id: &CustomerId,
+        metric: &BillableMetric,
+        period: Period,
+    ) -> StoreResult<WindowedUsageData>;
+
     async fn ingest_events_from_csv(
         &self,
         tenant_id: &TenantId,
@@ -153,6 +176,19 @@ impl UsageClient for MockUsageClient {
                 period: period.clone(),
             });
         Ok(usage_data)
+    }
+
+    async fn fetch_windowed_usage(
+        &self,
+        _tenant_id: &TenantId,
+        _customer_id: &CustomerId,
+        _metric: &BillableMetric,
+        period: Period,
+    ) -> StoreResult<WindowedUsageData> {
+        Ok(WindowedUsageData {
+            data: vec![],
+            period,
+        })
     }
 
     async fn ingest_events_from_csv(

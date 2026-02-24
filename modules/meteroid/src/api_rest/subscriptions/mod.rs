@@ -13,4 +13,5 @@ pub fn subscription_routes() -> OpenApiRouter<AppState> {
         .routes(routes!(router::subscription_details))
         .routes(routes!(router::cancel_subscription))
         .routes(routes!(router::update_subscription))
+        .routes(routes!(router::get_subscription_usage))
 }
