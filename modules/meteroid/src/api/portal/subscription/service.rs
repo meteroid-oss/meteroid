@@ -7,7 +7,9 @@ use meteroid_grpc::meteroid::api::prices::v1 as prices_proto;
 use meteroid_grpc::meteroid::api::subscriptions::v1 as sub_proto;
 use meteroid_grpc::meteroid::portal::subscription::v1::portal_subscription_service_server::PortalSubscriptionService;
 use meteroid_grpc::meteroid::portal::subscription::v1::*;
-use meteroid_store::domain::enums::{BillingPeriodEnum, SubscriptionFeeBillingPeriod};
+use meteroid_store::domain::enums::{
+    BillingPeriodEnum, ScheduledEventTypeEnum, SubscriptionFeeBillingPeriod,
+};
 use meteroid_store::domain::plans::FullPlan;
 use meteroid_store::domain::prices::Pricing;
 use meteroid_store::domain::subscription_components::{SubscriptionComponent, SubscriptionFee};
@@ -253,14 +255,20 @@ impl PortalSubscriptionService for PortalSubscriptionServiceComponents {
             headline_fee,
             currency: details.subscription.currency.clone(),
             can_change_plan,
-            scheduled_plan_change: details
-                .pending_plan_change
-                .as_ref()
-                .map(|pc| pc.new_plan_name.clone()),
-            scheduled_plan_change_date: details
-                .pending_plan_change
-                .as_ref()
-                .map(|pc| pc.effective_date.as_proto()),
+            pending_event: details.pending_events.into_iter().find_map(|e| {
+                let event_type = match e.event_type {
+                    ScheduledEventTypeEnum::ApplyPlanChange => PendingEventType::PlanChange,
+                    ScheduledEventTypeEnum::CancelSubscription => PendingEventType::Cancel,
+                    _ => return None,
+                };
+                Some(PendingEvent {
+                    id: e.id.as_proto(),
+                    event_type: event_type.into(),
+                    scheduled_date: e.scheduled_date.as_proto(),
+                    new_plan_name: e.new_plan_name,
+                    cancel_reason: e.cancel_reason,
+                })
+            }),
         };
 
         Ok(Response::new(GetSubscriptionDetailsResponse {
@@ -456,15 +464,16 @@ impl PortalSubscriptionService for PortalSubscriptionServiceComponents {
     }
 
     #[tracing::instrument(skip_all)]
-    async fn cancel_scheduled_plan_change(
+    async fn cancel_scheduled_event(
         &self,
-        request: Request<CancelScheduledPlanChangeRequest>,
-    ) -> Result<Response<CancelScheduledPlanChangeResponse>, Status> {
+        request: Request<CancelScheduledEventRequest>,
+    ) -> Result<Response<CancelScheduledEventResponse>, Status> {
         let tenant_id = request.tenant()?;
         let customer_id = request.portal_resource()?.customer()?;
         let inner = request.into_inner();
 
         let subscription_id = SubscriptionId::from_proto(&inner.subscription_id)?;
+        let event_id = common_domain::ids::ScheduledEventId::from_proto(&inner.event_id)?;
 
         // Verify ownership
         let details = self
@@ -478,10 +487,10 @@ impl PortalSubscriptionService for PortalSubscriptionServiceComponents {
         }
 
         self.services
-            .cancel_plan_change(subscription_id, tenant_id)
+            .cancel_scheduled_event(event_id, tenant_id)
             .await
             .map_err(Into::<PortalSubscriptionApiError>::into)?;
 
-        Ok(Response::new(CancelScheduledPlanChangeResponse {}))
+        Ok(Response::new(CancelScheduledEventResponse {}))
     }
 }

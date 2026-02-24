@@ -8,12 +8,13 @@ import { useQuery } from '@/lib/connectrpc'
 import { FeeType } from '@/rpc/api/prices/v1/models_pb'
 import { SubscriptionFeeBillingPeriod } from '@/rpc/api/subscriptions/v1/models_pb'
 import {
-  cancelScheduledPlanChange,
+  cancelScheduledEvent,
   confirmPlanChange,
   getSubscriptionDetails,
   listAvailablePlans,
   previewPlanChange,
 } from '@/rpc/portal/subscription/v1/subscription-PortalSubscriptionService_connectquery'
+import { PendingEventType } from '@/rpc/portal/subscription/v1/subscription_pb'
 import { formatCurrencyNoRounding } from '@/utils/numbers'
 import { useForceTheme } from 'providers/ThemeProvider'
 
@@ -96,7 +97,7 @@ export const PortalSubscription = () => {
   )
 
   const confirmMutation = useMutation(confirmPlanChange)
-  const cancelMutation = useMutation(cancelScheduledPlanChange)
+  const cancelMutation = useMutation(cancelScheduledEvent)
 
   const handleBackToPortal = () => {
     if (token) {
@@ -121,9 +122,10 @@ export const PortalSubscription = () => {
     setMode('confirmed')
   }
 
-  const handleCancelScheduledChange = async () => {
-    if (!subscriptionId) return
-    await cancelMutation.mutateAsync({ subscriptionId })
+  const handleCancelScheduledEvent = async () => {
+    const eventId = detailsQuery.data?.subscription?.pendingEvent?.id
+    if (!subscriptionId || !eventId) return
+    await cancelMutation.mutateAsync({ subscriptionId, eventId })
     detailsQuery.refetch()
   }
 
@@ -191,7 +193,7 @@ export const PortalSubscription = () => {
         <IdleView
           sub={sub}
           onChangePlan={handleStartChange}
-          onCancelChange={handleCancelScheduledChange}
+          onCancelChange={handleCancelScheduledEvent}
           isCancelling={cancelMutation.isPending}
         />
       )}
@@ -235,8 +237,7 @@ function IdleView({
     currentPeriodEnd?: string
     status: string
     canChangePlan: boolean
-    scheduledPlanChange?: string
-    scheduledPlanChangeDate?: string
+    pendingEvent?: { eventType: PendingEventType; scheduledDate: string; newPlanName?: string; cancelReason?: string }
   }
   onChangePlan: () => void
   onCancelChange: () => void
@@ -283,23 +284,42 @@ function IdleView({
           )}
         </div>
 
-        {/* Scheduled change banner */}
-        {sub.scheduledPlanChange && (
-          <div className="border-t border-gray-100 bg-blue-50/60 px-6 sm:px-8 py-4">
+        {/* Scheduled event banner */}
+        {sub.pendingEvent && (
+          <div
+            className={`border-t border-gray-100 px-6 sm:px-8 py-4 ${
+              sub.pendingEvent.eventType === PendingEventType.CANCEL
+                ? 'bg-amber-50/60'
+                : 'bg-blue-50/60'
+            }`}
+          >
             <div className="flex items-center justify-between gap-4">
               <div className="flex items-center gap-3 min-w-0">
-                <div className="w-8 h-8 rounded-full bg-blue-100 flex items-center justify-center flex-shrink-0">
-                  <Clock size={15} className="text-blue-600" />
+                <div
+                  className={`w-8 h-8 rounded-full flex items-center justify-center flex-shrink-0 ${
+                    sub.pendingEvent.eventType === PendingEventType.CANCEL
+                      ? 'bg-amber-100'
+                      : 'bg-blue-100'
+                  }`}
+                >
+                  <Clock
+                    size={15}
+                    className={
+                      sub.pendingEvent.eventType === PendingEventType.CANCEL
+                        ? 'text-amber-600'
+                        : 'text-blue-600'
+                    }
+                  />
                 </div>
                 <div className="min-w-0">
                   <p className="text-sm font-medium text-gray-900 truncate">
-                    Switching to {sub.scheduledPlanChange}
+                    {sub.pendingEvent.eventType === PendingEventType.PLAN_CHANGE
+                      ? `Switching to ${sub.pendingEvent.newPlanName}`
+                      : 'Cancellation scheduled'}
                   </p>
-                  {sub.scheduledPlanChangeDate && (
-                    <p className="text-xs text-gray-500 mt-0.5">
-                      Effective {formatDate(sub.scheduledPlanChangeDate)}
-                    </p>
-                  )}
+                  <p className="text-xs text-gray-500 mt-0.5">
+                    Effective {formatDate(sub.pendingEvent.scheduledDate)}
+                  </p>
                 </div>
               </div>
               <button
@@ -307,14 +327,14 @@ function IdleView({
                 disabled={isCancelling}
                 className="text-sm text-gray-500 hover:text-gray-900 font-medium flex-shrink-0 disabled:opacity-50 transition-colors"
               >
-                {isCancelling ? 'Cancelling...' : 'Cancel'}
+                {isCancelling ? 'Revoking...' : 'Revoke'}
               </button>
             </div>
           </div>
         )}
 
         {/* Change plan CTA */}
-        {sub.canChangePlan && !sub.scheduledPlanChange && (
+        {sub.canChangePlan && !sub.pendingEvent && (
           <div className="border-t border-gray-100 px-6 sm:px-8 py-4">
             <button
               onClick={onChangePlan}

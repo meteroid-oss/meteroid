@@ -5,6 +5,19 @@ package meteroid.portal.subscription.v1;
 import "api/prices/v1/models.proto";
 import "api/subscriptions/v1/models.proto";
 
+enum PendingEventType {
+  PLAN_CHANGE = 0;
+  CANCEL = 1;
+}
+
+message PendingEvent {
+  string id = 1;
+  PendingEventType event_type = 2;
+  string scheduled_date = 3;
+  optional string new_plan_name = 4;
+  optional string cancel_reason = 5;
+}
+
 message SubscriptionDetails {
   string id = 1;
   string plan_name = 2;
@@ -15,8 +28,7 @@ message SubscriptionDetails {
   optional ComponentFee headline_fee = 7;
   string currency = 8;
   bool can_change_plan = 9;
-  optional string scheduled_plan_change = 10;
-  optional string scheduled_plan_change_date = 11;
+  optional PendingEvent pending_event = 10;
 }
 
 message AvailablePlan {
@@ -83,16 +95,17 @@ message ConfirmPlanChangeResponse {
   string scheduled_for = 1;
 }
 
-message CancelScheduledPlanChangeRequest {
+message CancelScheduledEventRequest {
   string subscription_id = 1;
+  string event_id = 2;
 }
 
-message CancelScheduledPlanChangeResponse {}
+message CancelScheduledEventResponse {}
 
 service PortalSubscriptionService {
   rpc GetSubscriptionDetails(GetSubscriptionDetailsRequest) returns (GetSubscriptionDetailsResponse);
   rpc ListAvailablePlans(ListAvailablePlansRequest) returns (ListAvailablePlansResponse);
   rpc PreviewPlanChange(PreviewPlanChangeRequest) returns (PreviewPlanChangeResponse);
   rpc ConfirmPlanChange(ConfirmPlanChangeRequest) returns (ConfirmPlanChangeResponse);
-  rpc CancelScheduledPlanChange(CancelScheduledPlanChangeRequest) returns (CancelScheduledPlanChangeResponse);
+  rpc CancelScheduledEvent(CancelScheduledEventRequest) returns (CancelScheduledEventResponse);
 }
