@@ -34,7 +34,15 @@ export const UpcomingInvoiceCard = ({ subscriptionId, currency }: UpcomingInvoic
     )
   }
 
-  if (invoiceQuery.isError || !invoiceQuery.data?.invoice) {
+  if (invoiceQuery.isError) {
+    return (
+      <div className="bg-card rounded-lg border border-border shadow-sm mb-6 p-4 text-sm text-muted-foreground">
+        Failed to load upcoming invoice preview.
+      </div>
+    )
+  }
+
+  if (!invoiceQuery.data?.invoice) {
     return null
   }
 

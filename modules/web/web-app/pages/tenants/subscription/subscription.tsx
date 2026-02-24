@@ -244,7 +244,6 @@ const ScheduledEventBanner = ({
   onCancelled,
 }: {
   event: PendingScheduledEvent
-  subscriptionId: string
   onCancelled: () => void
 }) => {
   const cancelMutation = useMutation(cancelScheduledEvent, {
@@ -558,7 +557,6 @@ export const Subscription = () => {
               <ScheduledEventBanner
                 key={event.id}
                 event={event}
-                subscriptionId={data.id}
                 onCancelled={() => subscriptionQuery.refetch()}
               />
             ))}

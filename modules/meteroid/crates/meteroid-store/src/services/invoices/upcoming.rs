@@ -67,19 +67,20 @@ impl Services {
                 )))
             })?;
 
-        let period_start = subscription_details.subscription.current_period_start;
-        let today = chrono::Utc::now().date_naive();
-        let period_end = subscription_details
-            .subscription
-            .current_period_end
-            .unwrap_or(today);
-        // Use today if period hasn't ended yet
-        let effective_end = std::cmp::min(period_end, today);
-
         let period = Period {
-            start: period_start,
-            end: effective_end,
+            start: subscription_details.subscription.current_period_start,
+            end: subscription_details
+                .subscription
+                .current_period_end
+                .unwrap_or_else(|| chrono::Utc::now().date_naive() + chrono::Duration::days(1)),
         };
+
+        if period.start >= period.end {
+            return Ok(WindowedUsageData {
+                data: vec![],
+                period,
+            });
+        }
 
         self.usage_client
             .fetch_windowed_usage(

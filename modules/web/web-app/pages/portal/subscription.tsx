@@ -18,6 +18,7 @@ import {
   previewPlanChange,
 } from '@/rpc/portal/subscription/v1/subscription-PortalSubscriptionService_connectquery'
 import { PendingEventType } from '@/rpc/portal/subscription/v1/subscription_pb'
+import { parseAndFormatDate } from '@/utils/date'
 import { formatCurrency, formatCurrencyNoRounding } from '@/utils/numbers'
 import { useForceTheme } from 'providers/ThemeProvider'
 
@@ -28,11 +29,6 @@ import type {
 } from '@/rpc/portal/subscription/v1/subscription_pb'
 
 type Mode = 'idle' | 'changing' | 'confirmed'
-
-const formatDate = (dateString: string): string => {
-  const date = new Date(dateString)
-  return date.toLocaleDateString('en-US', { month: 'long', day: 'numeric', year: 'numeric' })
-}
 
 const cadenceLabel = (cadence: SubscriptionFeeBillingPeriod): string => {
   switch (cadence) {
@@ -300,7 +296,7 @@ function IdleView({
 
           {sub.currentPeriodEnd && (
             <p className="text-sm text-gray-500 mt-4">
-              Current period ends {formatDate(sub.currentPeriodEnd)}
+              Current period ends {parseAndFormatDate(sub.currentPeriodEnd)}
             </p>
           )}
         </div>
@@ -339,7 +335,7 @@ function IdleView({
                       : 'Cancellation scheduled'}
                   </p>
                   <p className="text-xs text-gray-500 mt-0.5">
-                    Effective {formatDate(sub.pendingEvent.scheduledDate)}
+                    Effective {parseAndFormatDate(sub.pendingEvent.scheduledDate)}
                   </p>
                 </div>
               </div>
@@ -402,7 +398,7 @@ function PortalUpcomingInvoiceCard({ invoice, subscriptionId }: { invoice: Porta
           <div className="text-left">
             <p className="text-sm font-semibold text-gray-900">Upcoming Invoice</p>
             <p className="text-xs text-gray-500 mt-0.5">
-              {formatDate(invoice.periodStart)} &mdash; {formatDate(invoice.periodEnd)}
+              {parseAndFormatDate(invoice.periodStart)} &mdash; {parseAndFormatDate(invoice.periodEnd)}
               {invoice.lineItems.length > 0 && (
                 <span className="ml-1.5">
                   &middot; {invoice.lineItems.length} item
@@ -738,7 +734,7 @@ function PlanChangeView({
                 <p className="text-sm text-gray-700">
                   Your plan will change to{' '}
                   <span className="font-medium">{preview.newPlanName}</span> on your next billing
-                  cycle ({formatDate(preview.preview.effectiveDate)}).
+                  cycle ({parseAndFormatDate(preview.preview.effectiveDate)}).
                 </p>
               </div>
             </div>
@@ -843,7 +839,7 @@ function ConfirmedView({
       <h2 className="text-xl font-semibold text-gray-900 mb-2">Plan change confirmed</h2>
       {scheduledFor && (
         <p className="text-sm text-gray-500 mb-8 leading-relaxed">
-          Your plan will switch on {formatDate(scheduledFor)}.
+          Your plan will switch on {parseAndFormatDate(scheduledFor)}.
           <br />
           Your current features remain active until then.
         </p>

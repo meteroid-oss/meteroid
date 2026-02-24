@@ -200,17 +200,17 @@ impl UsageClient for MeteringUsageClient {
         let data: Vec<GroupedUsageData> = response
             .usage
             .into_iter()
-            .map(|usage| {
-                let value: Decimal = usage.value.and_then(|v| v.try_into().ok()).unwrap();
+            .filter_map(|usage| {
+                let value: Decimal = usage.value.and_then(|v| v.try_into().ok())?;
 
-                GroupedUsageData {
+                Some(GroupedUsageData {
                     value,
                     dimensions: usage
                         .dimensions
                         .into_iter()
-                        .map(|(k, v)| (k, v.value.unwrap_or(String::new())))
+                        .filter_map(|(k, v)| v.value.filter(|s| !s.is_empty()).map(|v| (k, v)))
                         .collect(),
-                }
+                })
             })
             .collect();
 
@@ -341,7 +341,7 @@ impl UsageClient for MeteringUsageClient {
                     dimensions: usage
                         .dimensions
                         .into_iter()
-                        .map(|(k, v)| (k, v.value.unwrap_or_default()))
+                        .filter_map(|(k, v)| v.value.filter(|s| !s.is_empty()).map(|v| (k, v)))
                         .collect(),
                 })
             })

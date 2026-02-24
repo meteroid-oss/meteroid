@@ -384,9 +384,11 @@ pub(crate) async fn get_subscription_usage(
             RestApiError::from(e)
         })?;
 
-    let today = chrono::Utc::now().date_naive();
     let period_start = details.subscription.current_period_start;
-    let period_end = details.subscription.current_period_end.unwrap_or(today);
+    let period_end = details
+        .subscription
+        .current_period_end
+        .unwrap_or_else(|| chrono::Utc::now().date_naive() + chrono::Duration::days(1));
 
     // Collect usage-based metrics from components and add-ons
     let usage_metric_ids: Vec<_> = details.metrics.iter().map(|m| m.id).collect();
@@ -402,7 +404,11 @@ pub(crate) async fn get_subscription_usage(
                 RestApiError::from(e)
             })?;
 
-        let metric = details.metrics.iter().find(|m| m.id == metric_id).unwrap();
+        let metric = details
+            .metrics
+            .iter()
+            .find(|m| m.id == metric_id)
+            .ok_or(RestApiError::NotFound)?;
 
         let total_value = usage
             .data
