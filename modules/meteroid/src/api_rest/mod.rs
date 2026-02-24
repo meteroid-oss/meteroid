@@ -7,6 +7,7 @@ use crate::api_rest::invoices::invoice_routes;
 use crate::api_rest::plans::plan_routes;
 use crate::api_rest::productfamilies::product_family_routes;
 use crate::api_rest::subscriptions::subscription_routes;
+use crate::api_rest::usage::usage_routes;
 use crate::services::storage::ObjectStoreService;
 use axum::extract::FromRequestParts;
 use axum::response::{IntoResponse, Response};
@@ -40,6 +41,7 @@ mod plans;
 mod productfamilies;
 pub mod server;
 mod subscriptions;
+mod usage;
 pub mod webhooks;
 
 pub fn api_routes() -> OpenApiRouter<AppState> {
@@ -52,6 +54,7 @@ pub fn api_routes() -> OpenApiRouter<AppState> {
         .merge(credit_note_routes())
         .merge(checkout_session_routes())
         .merge(event_routes())
+        .merge(usage_routes())
 }
 
 #[derive(Clone)]

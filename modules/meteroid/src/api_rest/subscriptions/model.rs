@@ -833,32 +833,3 @@ pub struct SubscriptionUpdateRequest {
 pub struct SubscriptionUpdateResponse {
     pub subscription: SubscriptionDetails,
 }
-
-#[derive(ToSchema, Serialize, Deserialize)]
-pub struct SubscriptionUsageResponse {
-    #[schema(value_type = String)]
-    #[serde(with = "string_serde")]
-    pub subscription_id: SubscriptionId,
-    pub period_start: NaiveDate,
-    pub period_end: NaiveDate,
-    pub metrics: Vec<MetricUsageSummary>,
-}
-
-#[derive(ToSchema, Serialize, Deserialize)]
-pub struct MetricUsageSummary {
-    #[schema(value_type = String)]
-    #[serde(with = "string_serde")]
-    pub metric_id: BillableMetricId,
-    pub metric_name: String,
-    pub metric_code: String,
-    pub total_value: rust_decimal::Decimal,
-    pub data_points: Vec<UsageDataPointRest>,
-}
-
-#[derive(ToSchema, Serialize, Deserialize)]
-pub struct UsageDataPointRest {
-    pub window_start: NaiveDate,
-    pub window_end: NaiveDate,
-    pub value: rust_decimal::Decimal,
-    pub dimensions: std::collections::HashMap<String, String>,
-}

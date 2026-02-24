@@ -118,6 +118,16 @@ pub trait UsageClient: Send + Sync {
         period: Period,
     ) -> StoreResult<WindowedUsageData>;
 
+    /// Fetch aggregated usage for a metric over a period.
+    /// If `customer_id` is Some, scoped to that customer; if None, cross-customer aggregation.
+    async fn fetch_usage_summary(
+        &self,
+        tenant_id: &TenantId,
+        customer_id: Option<&CustomerId>,
+        metric: &BillableMetric,
+        period: Period,
+    ) -> StoreResult<UsageData>;
+
     async fn ingest_events_from_csv(
         &self,
         tenant_id: &TenantId,
@@ -189,6 +199,28 @@ impl UsageClient for MockUsageClient {
             data: vec![],
             period,
         })
+    }
+
+    async fn fetch_usage_summary(
+        &self,
+        _tenant_id: &TenantId,
+        _customer_id: Option<&CustomerId>,
+        metric: &BillableMetric,
+        period: Period,
+    ) -> StoreResult<UsageData> {
+        let params = MockUsageDataParams {
+            metric_id: metric.id,
+            invoice_date: period.end,
+        };
+        let usage_data = self
+            .data
+            .get(&params)
+            .cloned()
+            .unwrap_or_else(|| UsageData {
+                data: vec![],
+                period: period.clone(),
+            });
+        Ok(usage_data)
     }
 
     async fn ingest_events_from_csv(

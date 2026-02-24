@@ -47,7 +47,7 @@ pub async fn create_checkout_session(
     let id_or_alias: AliasOr<CustomerId> =
         AliasOr::from_str(&request.customer_id).map_err(|_| {
             log::error!("Invalid customer_id format: {}", request.customer_id);
-            RestApiError::InvalidInput
+            RestApiError::InvalidInput("invalid customer_id format".to_string())
         })?;
 
     let customer_id = match id_or_alias {

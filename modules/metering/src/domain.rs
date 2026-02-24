@@ -75,7 +75,7 @@ pub struct Usage {
     pub window_start: DateTime<Utc>,
     pub window_end: DateTime<Utc>,
     pub value: f64,
-    pub customer_id: String,
+    pub customer_id: Option<String>,
     pub group_by: HashMap<String, Option<String>>,
 }
 

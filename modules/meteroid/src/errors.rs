@@ -107,8 +107,8 @@ pub enum RestApiError {
     StoreError,
     #[error("Forbidden")]
     Forbidden,
-    #[error("Invalid input")]
-    InvalidInput,
+    #[error("Invalid input: {0}")]
+    InvalidInput(String),
     #[error("Resource not found")]
     NotFound,
     #[error("Conflict")]
@@ -138,7 +138,7 @@ impl IntoResponse for RestApiError {
             ),
             RestApiError::Unauthorized => (StatusCode::UNAUTHORIZED, ErrorCode::Unauthorized),
             RestApiError::Forbidden => (StatusCode::FORBIDDEN, ErrorCode::Forbidden),
-            RestApiError::InvalidInput => (StatusCode::BAD_REQUEST, ErrorCode::BadRequest),
+            RestApiError::InvalidInput(_) => (StatusCode::BAD_REQUEST, ErrorCode::BadRequest),
             RestApiError::StoreError => (
                 StatusCode::INTERNAL_SERVER_ERROR,
                 ErrorCode::InternalServerError,
@@ -181,6 +181,7 @@ impl From<Report<StoreError>> for RestApiError {
         match err.current_context() {
             StoreError::ValueNotFound(_) => RestApiError::NotFound,
             StoreError::DuplicateValue { .. } => RestApiError::Conflict,
+            StoreError::InvalidArgument(msg) => RestApiError::InvalidInput(msg.clone()),
             _ => RestApiError::StoreError,
         }
     }
@@ -191,7 +192,9 @@ impl From<tonic::Status> for RestApiError {
         match status.code() {
             tonic::Code::NotFound => RestApiError::NotFound,
             tonic::Code::AlreadyExists => RestApiError::Conflict,
-            tonic::Code::InvalidArgument => RestApiError::InvalidInput,
+            tonic::Code::InvalidArgument => {
+                RestApiError::InvalidInput(status.message().to_string())
+            }
             tonic::Code::Unauthenticated => RestApiError::Unauthorized,
             tonic::Code::PermissionDenied => RestApiError::Forbidden,
             _ => RestApiError::StoreError,

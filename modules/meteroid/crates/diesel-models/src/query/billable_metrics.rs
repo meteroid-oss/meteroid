@@ -103,6 +103,25 @@ impl BillableMetricRow {
             .into_db_result()
     }
 
+    pub async fn list_active(
+        conn: &mut PgConn,
+        tenant_id_param: &TenantId,
+    ) -> DbResult<Vec<BillableMetricRow>> {
+        use crate::schema::billable_metric::dsl::{
+            archived_at, billable_metric, created_at, tenant_id,
+        };
+        use diesel_async::RunQueryDsl;
+
+        billable_metric
+            .filter(tenant_id.eq(tenant_id_param))
+            .filter(archived_at.is_null())
+            .order(created_at.asc())
+            .get_results(conn)
+            .await
+            .attach("Error while listing active billable metrics")
+            .into_db_result()
+    }
+
     pub async fn list_by_code(
         conn: &mut PgConn,
         tenant_id_param: &TenantId,

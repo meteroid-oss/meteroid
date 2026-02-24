@@ -38,6 +38,75 @@ fn extract_error_message(status: &tonic::Status) -> String {
     status.message().to_string()
 }
 
+fn map_aggregation_type(agg: &domain::enums::BillingMetricAggregateEnum) -> i32 {
+    (match agg {
+        domain::enums::BillingMetricAggregateEnum::Count => AggregationType::Count,
+        domain::enums::BillingMetricAggregateEnum::Latest => AggregationType::Latest,
+        domain::enums::BillingMetricAggregateEnum::Max => AggregationType::Max,
+        domain::enums::BillingMetricAggregateEnum::Min => AggregationType::Min,
+        domain::enums::BillingMetricAggregateEnum::Mean => AggregationType::Mean,
+        domain::enums::BillingMetricAggregateEnum::Sum => AggregationType::Sum,
+        domain::enums::BillingMetricAggregateEnum::CountDistinct => AggregationType::CountDistinct,
+    }) as i32
+}
+
+fn build_segmentation_filter(
+    matrix: Option<domain::SegmentationMatrix>,
+) -> Option<SegmentationFilter> {
+    match matrix {
+        Some(domain::SegmentationMatrix::Single(domain::Dimension { key, values, .. })) => {
+            Some(SegmentationFilter {
+                filter: Some(segmentation_filter::Filter::Independent(
+                    IndependentFilters {
+                        filters: vec![Filter {
+                            property_name: key,
+                            property_value: values,
+                        }],
+                    },
+                )),
+            })
+        }
+        Some(domain::SegmentationMatrix::Double {
+            dimension1,
+            dimension2,
+        }) => Some(SegmentationFilter {
+            filter: Some(segmentation_filter::Filter::Independent(
+                IndependentFilters {
+                    filters: vec![
+                        Filter {
+                            property_name: dimension1.key,
+                            property_value: dimension1.values,
+                        },
+                        Filter {
+                            property_name: dimension2.key,
+                            property_value: dimension2.values,
+                        },
+                    ],
+                },
+            )),
+        }),
+        Some(domain::SegmentationMatrix::Linked {
+            dimension1_key,
+            dimension2_key,
+            values,
+        }) => {
+            let linked_values = values
+                .into_iter()
+                .map(|(k, v)| (k, LinkedDimensionValues { values: v }))
+                .collect();
+
+            Some(SegmentationFilter {
+                filter: Some(segmentation_filter::Filter::Linked(LinkedFilters {
+                    dimension1_key,
+                    dimension2_key,
+                    linked_values,
+                })),
+            })
+        }
+        None => None,
+    }
+}
+
 #[derive(Clone, Debug)]
 pub struct MeteringUsageClient {
     usage_grpc_client: UsageQueryServiceClient<LayeredClientService>,
@@ -104,80 +173,14 @@ impl UsageClient for MeteringUsageClient {
             bail!(StoreError::InvalidArgument("invalid period".to_string()));
         }
 
-        let aggregation_type = match metric.aggregation_type {
-            domain::enums::BillingMetricAggregateEnum::Count => AggregationType::Count,
-            domain::enums::BillingMetricAggregateEnum::Latest => AggregationType::Latest,
-            domain::enums::BillingMetricAggregateEnum::Max => AggregationType::Max,
-            domain::enums::BillingMetricAggregateEnum::Min => AggregationType::Min,
-            domain::enums::BillingMetricAggregateEnum::Mean => AggregationType::Mean,
-            domain::enums::BillingMetricAggregateEnum::Sum => AggregationType::Sum,
-            domain::enums::BillingMetricAggregateEnum::CountDistinct => {
-                AggregationType::CountDistinct
-            }
-        } as i32;
-
-        // Build segmentation filter based on the metric's segmentation matrix
-        let segmentation_filter = match metric.segmentation_matrix.clone() {
-            Some(domain::SegmentationMatrix::Single(domain::Dimension { key, values, .. })) => {
-                Some(SegmentationFilter {
-                    filter: Some(segmentation_filter::Filter::Independent(
-                        IndependentFilters {
-                            filters: vec![Filter {
-                                property_name: key,
-                                property_value: values,
-                            }],
-                        },
-                    )),
-                })
-            }
-            Some(domain::SegmentationMatrix::Double {
-                dimension1,
-                dimension2,
-            }) => Some(SegmentationFilter {
-                filter: Some(segmentation_filter::Filter::Independent(
-                    IndependentFilters {
-                        filters: vec![
-                            Filter {
-                                property_name: dimension1.key,
-                                property_value: dimension1.values,
-                            },
-                            Filter {
-                                property_name: dimension2.key,
-                                property_value: dimension2.values,
-                            },
-                        ],
-                    },
-                )),
-            }),
-            Some(domain::SegmentationMatrix::Linked {
-                dimension1_key,
-                dimension2_key,
-                values,
-            }) => {
-                let linked_values = values
-                    .into_iter()
-                    .map(|(k, v)| (k, LinkedDimensionValues { values: v }))
-                    .collect();
-
-                Some(SegmentationFilter {
-                    filter: Some(segmentation_filter::Filter::Linked(LinkedFilters {
-                        dimension1_key,
-                        dimension2_key,
-                        linked_values,
-                    })),
-                })
-            }
-            None => None,
-        };
-
         let request = QueryMeterRequest {
             tenant_id: tenant_id.as_proto(),
             meter_slug: metric.id.to_string(),
             code: metric.code.clone(),
-            meter_aggregation_type: aggregation_type,
+            meter_aggregation_type: map_aggregation_type(&metric.aggregation_type),
             customer_ids: vec![customer_id.to_string()],
             from: Some(date_to_timestamp(period.start)),
-            to: Some(date_to_timestamp(period.end)), // exclusive TODO check
+            to: Some(date_to_timestamp(period.end)),
             group_by_properties: metric
                 .usage_group_key
                 .as_ref()
@@ -185,7 +188,7 @@ impl UsageClient for MeteringUsageClient {
                 .unwrap_or_default(),
             window_size: QueryWindowSize::AggregateAll.into(),
             timezone: None,
-            segmentation_filter,
+            segmentation_filter: build_segmentation_filter(metric.segmentation_matrix.clone()),
             value_property: metric.aggregation_key.clone(),
         };
 
@@ -228,76 +231,11 @@ impl UsageClient for MeteringUsageClient {
             bail!(StoreError::InvalidArgument("invalid period".to_string()));
         }
 
-        let aggregation_type = match metric.aggregation_type {
-            domain::enums::BillingMetricAggregateEnum::Count => AggregationType::Count,
-            domain::enums::BillingMetricAggregateEnum::Latest => AggregationType::Latest,
-            domain::enums::BillingMetricAggregateEnum::Max => AggregationType::Max,
-            domain::enums::BillingMetricAggregateEnum::Min => AggregationType::Min,
-            domain::enums::BillingMetricAggregateEnum::Mean => AggregationType::Mean,
-            domain::enums::BillingMetricAggregateEnum::Sum => AggregationType::Sum,
-            domain::enums::BillingMetricAggregateEnum::CountDistinct => {
-                AggregationType::CountDistinct
-            }
-        } as i32;
-
-        let segmentation_filter = match metric.segmentation_matrix.clone() {
-            Some(domain::SegmentationMatrix::Single(domain::Dimension { key, values, .. })) => {
-                Some(SegmentationFilter {
-                    filter: Some(segmentation_filter::Filter::Independent(
-                        IndependentFilters {
-                            filters: vec![Filter {
-                                property_name: key,
-                                property_value: values,
-                            }],
-                        },
-                    )),
-                })
-            }
-            Some(domain::SegmentationMatrix::Double {
-                dimension1,
-                dimension2,
-            }) => Some(SegmentationFilter {
-                filter: Some(segmentation_filter::Filter::Independent(
-                    IndependentFilters {
-                        filters: vec![
-                            Filter {
-                                property_name: dimension1.key,
-                                property_value: dimension1.values,
-                            },
-                            Filter {
-                                property_name: dimension2.key,
-                                property_value: dimension2.values,
-                            },
-                        ],
-                    },
-                )),
-            }),
-            Some(domain::SegmentationMatrix::Linked {
-                dimension1_key,
-                dimension2_key,
-                values,
-            }) => {
-                let linked_values = values
-                    .into_iter()
-                    .map(|(k, v)| (k, LinkedDimensionValues { values: v }))
-                    .collect();
-
-                Some(SegmentationFilter {
-                    filter: Some(segmentation_filter::Filter::Linked(LinkedFilters {
-                        dimension1_key,
-                        dimension2_key,
-                        linked_values,
-                    })),
-                })
-            }
-            None => None,
-        };
-
         let request = QueryMeterRequest {
             tenant_id: tenant_id.as_proto(),
             meter_slug: metric.id.to_string(),
             code: metric.code.clone(),
-            meter_aggregation_type: aggregation_type,
+            meter_aggregation_type: map_aggregation_type(&metric.aggregation_type),
             customer_ids: vec![customer_id.to_string()],
             from: Some(date_to_timestamp(period.start)),
             to: Some(date_to_timestamp(period.end)),
@@ -308,7 +246,7 @@ impl UsageClient for MeteringUsageClient {
                 .unwrap_or_default(),
             window_size: QueryWindowSize::Day.into(),
             timezone: None,
-            segmentation_filter,
+            segmentation_filter: build_segmentation_filter(metric.segmentation_matrix.clone()),
             value_property: metric.aggregation_key.clone(),
         };
 
@@ -348,6 +286,68 @@ impl UsageClient for MeteringUsageClient {
             .collect();
 
         Ok(WindowedUsageData { data, period })
+    }
+
+    async fn fetch_usage_summary(
+        &self,
+        tenant_id: &TenantId,
+        customer_id: Option<&CustomerId>,
+        metric: &BillableMetric,
+        period: Period,
+    ) -> StoreResult<UsageData> {
+        if period.start >= period.end {
+            bail!(StoreError::InvalidArgument("invalid period".to_string()));
+        }
+
+        let customer_ids = customer_id
+            .map(|id| vec![id.to_string()])
+            .unwrap_or_default();
+
+        let request = QueryMeterRequest {
+            tenant_id: tenant_id.as_proto(),
+            meter_slug: metric.id.to_string(),
+            code: metric.code.clone(),
+            meter_aggregation_type: map_aggregation_type(&metric.aggregation_type),
+            customer_ids,
+            from: Some(date_to_timestamp(period.start)),
+            to: Some(date_to_timestamp(period.end)),
+            group_by_properties: metric
+                .usage_group_key
+                .as_ref()
+                .map(|k| vec![k.clone()])
+                .unwrap_or_default(),
+            window_size: QueryWindowSize::AggregateAll.into(),
+            timezone: None,
+            segmentation_filter: build_segmentation_filter(metric.segmentation_matrix.clone()),
+            value_property: metric.aggregation_key.clone(),
+        };
+
+        let mut metering_client_mut = self.usage_grpc_client.clone();
+        let response: QueryMeterResponse = metering_client_mut
+            .query_meter(request)
+            .await
+            .change_context(StoreError::MeteringServiceError)
+            .attach("Failed to query meter (summary)")?
+            .into_inner();
+
+        let data: Vec<GroupedUsageData> = response
+            .usage
+            .into_iter()
+            .filter_map(|usage| {
+                let value: Decimal = usage.value.and_then(|v| v.try_into().ok())?;
+
+                Some(GroupedUsageData {
+                    value,
+                    dimensions: usage
+                        .dimensions
+                        .into_iter()
+                        .filter_map(|(k, v)| v.value.filter(|s| !s.is_empty()).map(|v| (k, v)))
+                        .collect(),
+                })
+            })
+            .collect();
+
+        Ok(UsageData { data, period })
     }
 
     async fn ingest_events_from_csv(

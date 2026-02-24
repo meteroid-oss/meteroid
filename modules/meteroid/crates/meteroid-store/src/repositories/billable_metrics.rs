@@ -38,6 +38,12 @@ pub trait BillableMetricInterface {
         code: String,
     ) -> StoreResult<Vec<BillableMetric>>;
 
+    /// List all non-archived billable metrics for a tenant (full objects, no pagination).
+    async fn list_active_billable_metrics(
+        &self,
+        tenant_id: TenantId,
+    ) -> StoreResult<Vec<BillableMetric>>;
+
     async fn archive_billable_metric(
         &self,
         id: BillableMetricId,
@@ -197,6 +203,20 @@ impl BillableMetricInterface for Store {
         let mut conn = self.get_conn().await?;
 
         BillableMetricRow::list_by_code(&mut conn, &tenant_id, code.as_str())
+            .await
+            .map_err(Into::<Report<StoreError>>::into)?
+            .into_iter()
+            .map(TryInto::try_into)
+            .collect()
+    }
+
+    async fn list_active_billable_metrics(
+        &self,
+        tenant_id: TenantId,
+    ) -> StoreResult<Vec<BillableMetric>> {
+        let mut conn = self.get_conn().await?;
+
+        BillableMetricRow::list_active(&mut conn, &tenant_id)
             .await
             .map_err(Into::<Report<StoreError>>::into)?
             .into_iter()

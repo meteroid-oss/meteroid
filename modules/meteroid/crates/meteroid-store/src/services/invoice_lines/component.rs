@@ -544,16 +544,6 @@ impl Services {
                 "metric with id {metric_id}"
             )))?;
 
-        log::info!(
-            "Fetching usage for metric {} ({}), subscription {}, customer {}, period {} -> {}",
-            metric.name,
-            metric_id,
-            subscription_details.subscription.id,
-            subscription_details.subscription.customer_id,
-            period.start,
-            period.end,
-        );
-
         let usage = self
             .usage_client
             .fetch_usage(
@@ -563,13 +553,6 @@ impl Services {
                 period,
             )
             .await?;
-
-        log::info!(
-            "Usage result for metric {} ({}): {} data points",
-            metric.name,
-            metric_id,
-            usage.data.len(),
-        );
 
         if let Some(factor) = metric.unit_conversion_factor {
             if factor == 0 {
