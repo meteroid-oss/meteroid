@@ -130,7 +130,9 @@ pub(crate) async fn get_product_family_by_id_or_alias(
     // todo introduce alias
     let id = match id_or_alias {
         AliasOr::Id(id) => Ok(id),
-        AliasOr::Alias(_) => Err(RestApiError::InvalidInput("alias not supported".to_string())),
+        AliasOr::Alias(_) => Err(RestApiError::InvalidInput(
+            "alias not supported".to_string(),
+        )),
     }?;
 
     app_state

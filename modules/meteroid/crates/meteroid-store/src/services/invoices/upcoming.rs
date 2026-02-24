@@ -31,7 +31,6 @@ impl Services {
             .current_period_end
             .unwrap_or_else(|| chrono::Utc::now().date_naive());
 
-
         self.compute_invoice(conn, &invoice_date, &details, None, None)
             .await
     }

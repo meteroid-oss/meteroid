@@ -46,9 +46,7 @@ fn map_aggregation_type(agg: &domain::enums::BillingMetricAggregateEnum) -> i32 
         domain::enums::BillingMetricAggregateEnum::Min => AggregationType::Min,
         domain::enums::BillingMetricAggregateEnum::Mean => AggregationType::Mean,
         domain::enums::BillingMetricAggregateEnum::Sum => AggregationType::Sum,
-        domain::enums::BillingMetricAggregateEnum::CountDistinct => {
-            AggregationType::CountDistinct
-        }
+        domain::enums::BillingMetricAggregateEnum::CountDistinct => AggregationType::CountDistinct,
     }) as i32
 }
 

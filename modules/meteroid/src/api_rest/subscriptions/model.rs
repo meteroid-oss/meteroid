@@ -833,4 +833,3 @@ pub struct SubscriptionUpdateRequest {
 pub struct SubscriptionUpdateResponse {
     pub subscription: SubscriptionDetails,
 }
-

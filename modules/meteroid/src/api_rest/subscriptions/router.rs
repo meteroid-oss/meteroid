@@ -346,4 +346,3 @@ pub(crate) async fn update_subscription(
         subscription: details,
     }))
 }
-

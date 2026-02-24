@@ -3,8 +3,8 @@ use super::model::{
     UsageSummaryQuery,
 };
 use crate::api_rest::AppState;
-use crate::api_rest::error::RestErrorResponse;
 use crate::api_rest::QueryParams;
+use crate::api_rest::error::RestErrorResponse;
 use crate::errors::RestApiError;
 use axum::extract::{Path, State};
 use axum::response::IntoResponse;
@@ -13,9 +13,9 @@ use axum_valid::Valid;
 use common_domain::ids::{AliasOr, BillableMetricId, CustomerId, SubscriptionId};
 use common_grpc::middleware::server::auth::AuthorizedAsTenant;
 use meteroid_store::domain::{BillableMetric, Period};
+use meteroid_store::repositories::CustomersInterface;
 use meteroid_store::repositories::billable_metrics::BillableMetricInterface;
 use meteroid_store::repositories::subscriptions::SubscriptionInterfaceAuto;
-use meteroid_store::repositories::CustomersInterface;
 use rust_decimal::Decimal;
 
 /// Get customer usage
@@ -55,12 +55,7 @@ pub(crate) async fn get_customer_usage(
             RestApiError::from(e)
         })?;
 
-    let metrics = load_metrics(
-        &app_state,
-        authorized_state.tenant_id,
-        query.metric_id,
-    )
-    .await?;
+    let metrics = load_metrics(&app_state, authorized_state.tenant_id, query.metric_id).await?;
 
     let period = Period {
         start: query.start_date,
@@ -187,12 +182,7 @@ pub(crate) async fn get_usage_summary(
     State(app_state): State<AppState>,
     Valid(QueryParams(query)): Valid<QueryParams<UsageSummaryQuery>>,
 ) -> Result<impl IntoResponse, RestApiError> {
-    let metrics = load_metrics(
-        &app_state,
-        authorized_state.tenant_id,
-        query.metric_id,
-    )
-    .await?;
+    let metrics = load_metrics(&app_state, authorized_state.tenant_id, query.metric_id).await?;
 
     let period = Period {
         start: query.start_date,

@@ -544,7 +544,6 @@ impl Services {
                 "metric with id {metric_id}"
             )))?;
 
-
         let usage = self
             .usage_client
             .fetch_usage(
@@ -554,7 +553,6 @@ impl Services {
                 period,
             )
             .await?;
-
 
         if let Some(factor) = metric.unit_conversion_factor {
             if factor == 0 {
