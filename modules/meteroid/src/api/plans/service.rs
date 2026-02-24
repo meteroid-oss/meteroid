@@ -290,21 +290,21 @@ impl PlansService for PlanServiceComponents {
         let req = request.into_inner();
         let plan_id = PlanId::from_proto(&req.plan_id)?;
 
-        let res =
-            self.store
-                .patch_published_plan(PlanPatch {
-                    id: plan_id,
-                    tenant_id,
-                    name: Some(req.name),
-                    description: Some(req.description),
-                    active_version_id: None,
-                    self_service_rank: req
-                        .self_service_rank
-                        .map(|v| if v > 0 { Some(v) } else { None }),
-                })
-                .await
-                .map(|x| PlanOverviewWrapper::from(x).0)
-                .map_err(Into::<PlanApiError>::into)?;
+        let res = self
+            .store
+            .patch_published_plan(PlanPatch {
+                id: plan_id,
+                tenant_id,
+                name: Some(req.name),
+                description: Some(req.description),
+                active_version_id: None,
+                self_service_rank: req
+                    .self_service_rank
+                    .map(|v| if v > 0 { Some(v) } else { None }),
+            })
+            .await
+            .map(|x| PlanOverviewWrapper::from(x).0)
+            .map_err(Into::<PlanApiError>::into)?;
 
         Ok(Response::new(UpdatePublishedPlanOverviewResponse {
             plan_overview: Some(res),
