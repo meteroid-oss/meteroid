@@ -386,17 +386,10 @@ pub(crate) async fn get_subscription_usage(
 
     let today = chrono::Utc::now().date_naive();
     let period_start = details.subscription.current_period_start;
-    let period_end = details
-        .subscription
-        .current_period_end
-        .unwrap_or(today);
+    let period_end = details.subscription.current_period_end.unwrap_or(today);
 
     // Collect usage-based metrics from components and add-ons
-    let usage_metric_ids: Vec<_> = details
-        .metrics
-        .iter()
-        .map(|m| m.id)
-        .collect();
+    let usage_metric_ids: Vec<_> = details.metrics.iter().map(|m| m.id).collect();
 
     let mut metrics = Vec::new();
     for metric_id in usage_metric_ids {

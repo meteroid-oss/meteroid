@@ -4,6 +4,7 @@ import { AlertCircle, ArrowLeft, ArrowRight, Check, ChevronDown, ChevronRight, C
 import { useState } from 'react'
 import { useParams, useSearchParams } from 'react-router-dom'
 
+import { UsageBarChartDisplay } from '@/features/subscriptions/UsageBarChart'
 import { useQuery } from '@/lib/connectrpc'
 import { FeeType } from '@/rpc/api/prices/v1/models_pb'
 import { SubscriptionFeeBillingPeriod } from '@/rpc/api/subscriptions/v1/models_pb'
@@ -18,7 +19,6 @@ import {
 } from '@/rpc/portal/subscription/v1/subscription-PortalSubscriptionService_connectquery'
 import { PendingEventType } from '@/rpc/portal/subscription/v1/subscription_pb'
 import { formatCurrency, formatCurrencyNoRounding } from '@/utils/numbers'
-import { UsageBarChartDisplay } from '@/features/subscriptions/UsageBarChart'
 import { useForceTheme } from 'providers/ThemeProvider'
 
 import type {
@@ -494,7 +494,9 @@ function PortalLineItemRow({
   subscriptionId: string
 }) {
   const [showUsage, setShowUsage] = useState(false)
+  const [showSubLines, setShowSubLines] = useState(false)
   const hasMetric = Boolean(line.metricId)
+  const hasSubLines = line.subLineItems.length > 0
 
   const usageQuery = useQuery(
     getSubscriptionComponentUsage,
@@ -504,36 +506,97 @@ function PortalLineItemRow({
 
   return (
     <div>
-      <div className="px-6 sm:px-8 py-3 flex items-center justify-between">
+      {/* Component header */}
+      <div className="px-6 sm:px-8 py-2.5 flex items-center justify-between">
         <div className="min-w-0 flex-1">
-          <div className="flex items-center gap-1.5">
-            <p className="text-sm text-gray-900 font-medium truncate">{line.name}</p>
-            {hasMetric && (
-              <button
-                className="text-[10px] text-blue-600 hover:underline cursor-pointer"
-                onClick={() => setShowUsage(!showUsage)}
-              >
-                {showUsage ? 'hide usage' : 'usage'}
-              </button>
-            )}
-          </div>
-          {line.quantity && line.unitPrice && (
-            <p className="text-xs text-gray-500 mt-0.5 tabular-nums">
-              {line.quantity} &times; {line.unitPrice}
-            </p>
-          )}
+          <p className="text-sm text-gray-900 font-medium truncate">{line.name}</p>
         </div>
         <span className="text-sm font-medium text-gray-900 tabular-nums ml-4">
           {formatCurrency(Number(line.subtotal), currency)}
         </span>
       </div>
-      {showUsage && hasMetric && usageQuery.data && (
-        <div className="px-6 sm:px-8 pb-3">
-          <UsageBarChartDisplay data={usageQuery.data} />
+
+      {/* Simple line: qty × price shown inline */}
+      {!hasSubLines && line.quantity && line.unitPrice && (
+        <div className="px-6 sm:px-8 -mt-1.5 pb-1">
+          <p className="text-xs text-gray-500 tabular-nums">
+            {line.quantity} &times; {formatCurrencyNoRounding(line.unitPrice, currency)}
+          </p>
+        </div>
+      )}
+
+      {/* Subline toggle + rows */}
+      {hasSubLines && (
+        <div className="px-6 sm:px-8 -mt-1 pb-1.5">
+          <button
+            className="text-[11px] text-blue-600 hover:underline cursor-pointer flex items-center gap-1 mb-0.5"
+            onClick={() => setShowSubLines(!showSubLines)}
+          >
+            <ChevronDown
+              className={`h-3 w-3 transition-transform ${showSubLines ? '' : '-rotate-90'}`}
+            />
+            {showSubLines
+              ? 'Hide breakdown'
+              : `${line.subLineItems.length} line items`}
+          </button>
+          {showSubLines &&
+            line.subLineItems.map((sub, idx) => {
+              const label = formatPortalSubLineName(sub)
+              return (
+                <div key={idx} className="flex items-baseline justify-between py-px text-[12px]">
+                  <span className="text-gray-500 pl-3">{label}</span>
+                  <div className="flex items-baseline gap-4 ml-4">
+                    <span className="text-gray-400 tabular-nums text-[11px]">
+                      {sub.quantity && sub.unitPrice
+                        ? `${sub.quantity} × ${formatCurrencyNoRounding(sub.unitPrice, currency)}`
+                        : ''}
+                    </span>
+                    <span className="text-gray-500 tabular-nums w-16 text-right">
+                      {formatCurrency(Number(sub.total), currency)}
+                    </span>
+                  </div>
+                </div>
+              )
+            })}
+        </div>
+      )}
+
+      {/* Usage details toggle + chart */}
+      {hasMetric && (
+        <div className="px-6 sm:px-8 pb-2.5">
+          <button
+            className="text-[11px] text-blue-600 hover:underline cursor-pointer flex items-center gap-1"
+            onClick={() => setShowUsage(!showUsage)}
+          >
+            <ChevronDown
+              className={`h-3 w-3 transition-transform ${showUsage ? '' : '-rotate-90'}`}
+            />
+            {showUsage ? 'Hide usage details' : 'Show usage details'}
+          </button>
+          {showUsage && usageQuery.data && (
+            <div className="mt-2">
+              <UsageBarChartDisplay
+                data={usageQuery.data}
+                groupByDimensions={
+                  Object.keys(line.groupByDimensions).length > 0
+                    ? line.groupByDimensions
+                    : undefined
+                }
+              />
+            </div>
+          )}
         </div>
       )}
     </div>
   )
+}
+
+function formatPortalSubLineName(sub: PortalUpcomingInvoice['lineItems'][number]['subLineItems'][number]): string {
+  if (sub.sublineAttributes.case === 'matrix') {
+    const m = sub.sublineAttributes.value
+    return m.dimension2Value ? `${m.dimension1Value} / ${m.dimension2Value}` : m.dimension1Value
+  }
+  return sub.name
 }
 
 // ---------------------------------------------------------------------------

@@ -90,6 +90,7 @@ pub mod invoices {
                     is_prorated: line.is_prorated,
                     product_id: line.product_id.map(|x| x.as_proto()),
                     description: line.description,
+                    group_by_dimensions: line.group_by_dimensions.unwrap_or_default(),
                     sub_line_items: line.sub_lines.into_iter().map(
                         |sub_line| {
                             let attributes = match sub_line.attributes {

@@ -272,7 +272,8 @@ export const ProductPricingForm = ({
       prevPriceId.current = newId
       methods.reset(defaults)
     }
-  }, [existingPrice?.id, defaults, methods])
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [existingPrice?.id, defaults])
 
   return (
     <Form {...methods}>

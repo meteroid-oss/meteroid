@@ -979,7 +979,9 @@ pub mod upcoming {
         }
     }
 
-    pub fn windowed_usage_to_proto(usage: WindowedUsageData) -> GetSubscriptionComponentUsageResponse {
+    pub fn windowed_usage_to_proto(
+        usage: WindowedUsageData,
+    ) -> GetSubscriptionComponentUsageResponse {
         GetSubscriptionComponentUsageResponse {
             data_points: usage
                 .data

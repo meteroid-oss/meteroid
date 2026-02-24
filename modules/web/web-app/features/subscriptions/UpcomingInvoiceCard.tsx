@@ -3,6 +3,7 @@ import { ChevronDown, ChevronRight } from 'lucide-react'
 import { useState } from 'react'
 
 import { useQuery } from '@/lib/connectrpc'
+import { SubLineItem } from '@/rpc/api/invoices/v1/models_pb'
 import { getUpcomingInvoice } from '@/rpc/api/subscriptions/v1/subscriptions-SubscriptionsService_connectquery'
 import { UpcomingInvoice } from '@/rpc/api/subscriptions/v1/subscriptions_pb'
 import { parseAndFormatDate } from '@/utils/date'
@@ -97,7 +98,6 @@ const InvoiceDetails = ({
     <div className="border-t border-border">
       {/* Metadata */}
       <div className="px-4 py-3 flex gap-6 text-xs text-muted-foreground border-b border-border bg-muted/5">
-        {invoice.planName && <span>Plan: {invoice.planName}</span>}
         <span>Invoice date: {parseAndFormatDate(invoice.invoiceDate)}</span>
         {invoice.dueDate && <span>Due: {parseAndFormatDate(invoice.dueDate)}</span>}
         <span>Net terms: {invoice.netTerms} days</span>
@@ -129,7 +129,7 @@ const InvoiceDetails = ({
                 line={line}
                 currency={currency}
                 subscriptionId={subscriptionId}
-                isEven={idx % 2 === 0}
+                isLast={idx === invoice.lineItems.length - 1}
               />
             ))}
           </tbody>
@@ -198,31 +198,26 @@ interface LineItemRowProps {
   line: UpcomingInvoice['lineItems'][number]
   currency: string
   subscriptionId: string
-  isEven: boolean
+  isLast: boolean
 }
 
-const LineItemRow = ({ line, currency, subscriptionId, isEven }: LineItemRowProps) => {
+const LineItemRow = ({ line, currency, subscriptionId, isLast }: LineItemRowProps) => {
   const [showUsage, setShowUsage] = useState(false)
+  const [showSubLines, setShowSubLines] = useState(false)
   const hasMetric = Boolean(line.metricId)
+  const hasSubLines = line.subLineItems.length > 0
 
   return (
     <>
-      <tr className={isEven ? 'bg-card' : 'bg-muted/10'}>
-        <td className="px-4 py-2 text-sm">
-          <div className="flex items-center gap-1">
+      {/* Component header row */}
+      <tr className={!isLast && !hasSubLines && !hasMetric ? 'border-b border-border/50' : ''}>
+        <td className="px-4 pt-2 pb-1 text-sm" colSpan={hasSubLines ? 3 : 1}>
+          <div className="flex items-center gap-1.5">
             <span className="font-medium text-foreground">{line.name}</span>
             {line.isProrated && (
               <span className="text-[10px] bg-muted text-muted-foreground px-1 rounded">
                 prorated
               </span>
-            )}
-            {hasMetric && (
-              <button
-                className="text-[10px] text-brand hover:underline ml-1 cursor-pointer"
-                onClick={() => setShowUsage(!showUsage)}
-              >
-                {showUsage ? 'hide usage' : 'usage'}
-              </button>
             )}
           </div>
           {line.startDate && line.endDate && (
@@ -233,36 +228,104 @@ const LineItemRow = ({ line, currency, subscriptionId, isEven }: LineItemRowProp
           {line.description && (
             <div className="text-[11px] text-muted-foreground">{line.description}</div>
           )}
-          {/* Sub line items */}
-          {line.subLineItems.length > 0 && (
-            <div className="mt-1 space-y-0.5">
-              {line.subLineItems.map((sub, idx) => (
-                <div key={idx} className="text-[11px] text-muted-foreground flex gap-4">
-                  <span>{sub.name}</span>
-                  {sub.quantity && <span>qty: {sub.quantity}</span>}
-                  <span>{formatCurrency(Number(sub.total), currency)}</span>
-                </div>
-              ))}
-            </div>
-          )}
         </td>
-        <td className="px-4 py-2 text-sm text-right text-muted-foreground tabular-nums">
-          {line.quantity ?? '-'}
-        </td>
-        <td className="px-4 py-2 text-sm text-right text-muted-foreground tabular-nums">
-          {line.unitPrice ? formatCurrencyNoRounding(line.unitPrice, currency) : '-'}
-        </td>
-        <td className="px-4 py-2 text-sm text-right font-medium text-foreground tabular-nums">
+        {!hasSubLines && (
+          <>
+            <td className="px-4 pt-2 pb-1 text-sm text-right text-muted-foreground tabular-nums">
+              {line.quantity ?? '-'}
+            </td>
+            <td className="px-4 pt-2 pb-1 text-sm text-right text-muted-foreground tabular-nums">
+              {line.unitPrice ? formatCurrencyNoRounding(line.unitPrice, currency) : '-'}
+            </td>
+          </>
+        )}
+        <td className="px-4 pt-2 pb-1 text-sm text-right font-medium text-foreground tabular-nums">
           {formatCurrency(Number(line.subtotal), currency)}
         </td>
       </tr>
-      {showUsage && line.metricId && (
-        <tr>
-          <td colSpan={4} className="px-4 py-3 bg-muted/5">
-            <UsageBarChart subscriptionId={subscriptionId} metricId={line.metricId} />
+
+      {/* Subline toggle + rows */}
+      {hasSubLines && (
+        <>
+          <tr>
+            <td colSpan={4} className="px-4 pb-1">
+              <button
+                className="text-[11px] text-brand hover:underline cursor-pointer flex items-center gap-1"
+                onClick={() => setShowSubLines(!showSubLines)}
+              >
+                <ChevronDown
+                  className={`h-3 w-3 transition-transform ${showSubLines ? '' : '-rotate-90'}`}
+                />
+                {showSubLines ? 'Hide breakdown' : `${line.subLineItems.length} line items`}
+              </button>
+            </td>
+          </tr>
+          {showSubLines &&
+            line.subLineItems.map((sub, idx) => (
+              <tr key={idx}>
+                <td className="pl-8 pr-4 py-0.5 text-[12px] text-muted-foreground">
+                  {formatSubLineName(sub)}
+                </td>
+                <td
+                  colSpan={2}
+                  className="px-4 py-0.5 text-[12px] text-right text-muted-foreground/70 tabular-nums"
+                >
+                  {sub.quantity && sub.unitPrice
+                    ? `${sub.quantity} × ${formatCurrencyNoRounding(sub.unitPrice, currency)}`
+                    : ''}
+                </td>
+                <td className="px-4 py-0.5 text-[12px] text-right text-muted-foreground tabular-nums">
+                  {formatCurrency(Number(sub.total), currency)}
+                </td>
+              </tr>
+            ))}
+        </>
+      )}
+
+      {/* Usage details toggle + chart */}
+      {hasMetric && (
+        <tr className={!isLast ? 'border-b border-border/50' : ''}>
+          <td colSpan={4} className="px-4 pt-0.5 pb-2">
+            <button
+              className="text-[11px] text-brand hover:underline cursor-pointer flex items-center gap-1"
+              onClick={() => setShowUsage(!showUsage)}
+            >
+              <ChevronDown
+                className={`h-3 w-3 transition-transform ${showUsage ? '' : '-rotate-90'}`}
+              />
+              {showUsage ? 'Hide usage details' : 'Show usage details'}
+            </button>
+            {showUsage && line.metricId && (
+              <div className="mt-2">
+                <UsageBarChart
+                  subscriptionId={subscriptionId}
+                  metricId={line.metricId}
+                  groupByDimensions={
+                    Object.keys(line.groupByDimensions).length > 0
+                      ? line.groupByDimensions
+                      : undefined
+                  }
+                />
+              </div>
+            )}
           </td>
+        </tr>
+      )}
+
+      {/* Bottom border for items without metric toggle */}
+      {!hasMetric && hasSubLines && !isLast && (
+        <tr className="border-b border-border/50">
+          <td colSpan={4} className="h-0" />
         </tr>
       )}
     </>
   )
+}
+
+function formatSubLineName(sub: SubLineItem): string {
+  if (sub.sublineAttributes.case === 'matrix') {
+    const m = sub.sublineAttributes.value
+    return m.dimension2Value ? `${m.dimension1Value} / ${m.dimension2Value}` : m.dimension1Value
+  }
+  return sub.name
 }

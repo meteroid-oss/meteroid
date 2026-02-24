@@ -325,20 +325,14 @@ impl UsageClient for MeteringUsageClient {
             .into_iter()
             .filter_map(|usage| {
                 let value: Decimal = usage.value.and_then(|v| v.try_into().ok())?;
-                let window_start = usage
-                    .window_start
-                    .map(|ts| {
-                        chrono::DateTime::from_timestamp(ts.seconds, ts.nanos as u32)
-                            .map(|dt| dt.date_naive())
-                    })
-                    .flatten()?;
-                let window_end = usage
-                    .window_end
-                    .map(|ts| {
-                        chrono::DateTime::from_timestamp(ts.seconds, ts.nanos as u32)
-                            .map(|dt| dt.date_naive())
-                    })
-                    .flatten()?;
+                let window_start = usage.window_start.and_then(|ts| {
+                    chrono::DateTime::from_timestamp(ts.seconds, ts.nanos as u32)
+                        .map(|dt| dt.date_naive())
+                })?;
+                let window_end = usage.window_end.and_then(|ts| {
+                    chrono::DateTime::from_timestamp(ts.seconds, ts.nanos as u32)
+                        .map(|dt| dt.date_naive())
+                })?;
 
                 Some(WindowedUsagePoint {
                     window_start,

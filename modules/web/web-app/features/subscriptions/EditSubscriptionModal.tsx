@@ -113,7 +113,8 @@ export const EditSubscriptionModal = ({
     ) {
       methods.setValue('chargeAutomatically', false)
     }
-  }, [paymentMethodsType, chargeAutomatically, methods])
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [paymentMethodsType, chargeAutomatically])
 
   const updateMutation = useMutation(updateSubscription, {
     onSuccess: () => {

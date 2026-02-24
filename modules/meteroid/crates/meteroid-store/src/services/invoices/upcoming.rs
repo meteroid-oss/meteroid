@@ -1,10 +1,10 @@
+use crate::StoreResult;
 use crate::domain::{Period, SubscriptionDetails};
+use crate::errors::StoreError;
 use crate::services::Services;
 use crate::services::clients::usage::WindowedUsageData;
 use crate::services::invoice_lines::invoice_lines::ComputedInvoiceContent;
 use crate::store::PgConn;
-use crate::StoreResult;
-use crate::errors::StoreError;
 use common_domain::ids::BillableMetricId;
 use error_stack::Report;
 
@@ -39,7 +39,12 @@ impl Services {
             next_cycle,
             details.subscription.current_period_start,
             details.subscription.current_period_end,
-            details.metrics.iter().map(|m| m.name.as_str()).collect::<Vec<_>>().join(", "),
+            details
+                .metrics
+                .iter()
+                .map(|m| m.name.as_str())
+                .collect::<Vec<_>>()
+                .join(", "),
         );
 
         self.compute_invoice(conn, &invoice_date, &details, None, None)
