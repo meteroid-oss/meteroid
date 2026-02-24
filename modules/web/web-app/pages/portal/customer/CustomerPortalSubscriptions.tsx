@@ -1,7 +1,6 @@
-import { useSearchParams } from 'react-router-dom'
+import { useNavigate, useSearchParams } from 'react-router-dom'
 
 import { SubscriptionSummary } from '@/rpc/portal/customer/v1/models_pb'
-import { formatCurrency } from '@/utils/numbers'
 
 interface CustomerPortalSubscriptionsProps {
   subscriptions: SubscriptionSummary[]
@@ -18,10 +17,11 @@ export const CustomerPortalSubscriptions = ({
   const [searchParams] = useSearchParams()
   const token = searchParams.get('token')
 
-  const handleSubscriptionClick = (_subscriptionId: string) => {
+  const navigate = useNavigate()
+
+  const handleSubscriptionClick = (subscriptionId: string) => {
     if (!token) return
-    // TODO support subscription management page, or at least add actions directly here
-    // window.open(`/portal/subscription/${subscriptionId}?token=${token}`, '_blank')
+    navigate(`/portal/subscription/${subscriptionId}?token=${token}`)
   }
   if (subscriptions.length === 0) {
     return (
@@ -38,22 +38,16 @@ export const CustomerPortalSubscriptions = ({
     <div>
       <div className="flex items-start justify-between mb-3">
         <div>
-          <h3 className="text-base font-semibold text-gray-900 mb-1.5">
+          <h3 className="text-base font-semibold text-gray-900">
             {primarySubscription.planName}
           </h3>
-          <div className="flex items-baseline gap-1.5">
-            <span className="text-2xl font-semibold text-gray-900">
-              {formatCurrency(Number(primarySubscription.mrrCents), primarySubscription.currency)}
-            </span>
-            <span className="text-sm text-gray-500">/ month</span>
-          </div>
         </div>
-        {/* <button
+        <button
           onClick={() => handleSubscriptionClick(primarySubscription.id)}
           className="text-xs text-gray-600 hover:text-gray-900 font-medium"
         >
           Manage →
-        </button> */}
+        </button>
       </div>
 
       {primarySubscription.nextBillingDate && (
@@ -75,9 +69,6 @@ export const CustomerPortalSubscriptions = ({
               >
                 <div>
                   <div className="text-sm font-medium text-gray-900">{subscription.planName}</div>
-                  <div className="text-xs text-gray-500 mt-0.5">
-                    {formatCurrency(Number(subscription.mrrCents), subscription.currency)} / month
-                  </div>
                 </div>
               </div>
             ))}

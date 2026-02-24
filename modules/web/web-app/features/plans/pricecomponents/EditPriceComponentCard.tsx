@@ -1,6 +1,6 @@
 import { Button } from '@md/ui'
 import { useAtom } from 'jotai'
-import { CheckIcon, ChevronDownIcon, ChevronRightIcon, PencilIcon, XIcon } from 'lucide-react'
+import { CheckIcon, ChevronDownIcon, ChevronRightIcon, XIcon } from 'lucide-react'
 import { ReactNode, useState } from 'react'
 
 import { feeTypeToHuman } from '@/features/plans/pricecomponents/utils'
@@ -84,10 +84,10 @@ const EditableComponentName = () => {
       ) : (
         <h4
           className="text-base text-accent-1 font-semibold flex space-x-2 items-center"
-          onClick={() => setIsEditing(true)}
+          // onClick={() => setIsEditing(true)}
         >
           <span>{name}</span>
-          <PencilIcon size={12} strokeWidth={2} />
+          {/* <PencilIcon size={12} strokeWidth={2} /> */}
         </h4>
       )}
     </div>

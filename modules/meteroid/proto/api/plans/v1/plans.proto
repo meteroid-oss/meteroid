@@ -100,6 +100,7 @@ message UpdatePublishedPlanOverviewRequest {
   string plan_version_id = 2;
   string name = 3;
   optional string description = 4;
+  optional int32 self_service_rank = 5;
 }
 
 message UpdatePublishedPlanOverviewResponse {

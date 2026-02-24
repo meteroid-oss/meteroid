@@ -25,6 +25,7 @@ pub struct PlanRow {
     pub status: PlanStatusEnum,
     pub active_version_id: Option<PlanVersionId>,
     pub draft_version_id: Option<PlanVersionId>,
+    pub self_service_rank: Option<i32>,
 }
 
 #[derive(Debug, Default, Insertable)]
@@ -54,6 +55,7 @@ pub struct PlanRowOverview {
     pub active_version: Option<PlanVersionRowInfo>,
     pub draft_version: Option<PlanVersionId>,
     pub subscription_count: Option<i64>,
+    pub self_service_rank: Option<i32>,
 }
 
 #[derive(Debug, Queryable)]
@@ -114,6 +116,16 @@ pub struct PlanRowPatch {
     pub description: Option<Option<String>>,
     pub active_version_id: Option<Option<PlanVersionId>>,
     pub draft_version_id: Option<Option<PlanVersionId>>,
+    pub self_service_rank: Option<Option<i32>>,
+}
+
+#[derive(Debug, Queryable)]
+pub struct SelfServicePlanRow {
+    pub plan_id: PlanId,
+    pub plan_name: String,
+    pub description: Option<String>,
+    pub plan_version_id: PlanVersionId,
+    pub self_service_rank: i32,
 }
 
 pub struct PlanFilters {

@@ -1,6 +1,5 @@
 use error_stack::Report;
 use std::collections::HashMap;
-
 use uuid::Uuid;
 // TODO duplicate as well
 use super::enums::{BillingPeriodEnum, BillingType, FeeTypeEnum, SubscriptionFeeBillingPeriod};

@@ -9,7 +9,7 @@ use crate::domain::{
     FullPlan, FullPlanNew, OrderByRequest, PaginatedVec, PaginationRequest, Plan,
     PlanAndVersionPatch, PlanFilters, PlanOverview, PlanPatch, PlanStatusEnum, PlanTypeEnum,
     PlanVersion, PlanVersionFilter, PlanVersionNew, PlanWithVersion, Price, PriceComponent,
-    PriceComponentNew, Product, ProductFamilyOverview, TrialPatch,
+    PriceComponentNew, Product, ProductFamilyOverview, SelfServicePlan, TrialPatch,
 };
 use crate::errors::StoreError;
 use crate::repositories::price_components::resolve_component_internal;
@@ -23,7 +23,9 @@ use diesel_models::plan_component_prices::{PlanComponentPriceRow, PlanComponentP
 use diesel_models::plan_versions::{
     PlanVersionRow, PlanVersionRowNew, PlanVersionRowPatch, PlanVersionTrialRowPatch,
 };
-use diesel_models::plans::{FullPlanRow, PlanRow, PlanRowNew, PlanRowOverview, PlanRowPatch};
+use diesel_models::plans::{
+    FullPlanRow, PlanRow, PlanRowNew, PlanRowOverview, PlanRowPatch, SelfServicePlanRow,
+};
 use diesel_models::price_components::PriceComponentRow;
 use diesel_models::prices::{PriceRow, PriceRowNew};
 use diesel_models::product_families::ProductFamilyRow;
@@ -130,6 +132,14 @@ pub trait PlansInterface {
     async fn patch_trial(&self, patch: TrialPatch) -> StoreResult<PlanWithVersion>;
     async fn archive_plan(&self, id: PlanId, auth_tenant_id: TenantId) -> StoreResult<()>;
     async fn unarchive_plan(&self, id: PlanId, auth_tenant_id: TenantId) -> StoreResult<()>;
+
+    async fn list_self_service_plans(
+        &self,
+        tenant_id: TenantId,
+        product_family_id: ProductFamilyId,
+        currency: &str,
+        exclude_plan_id: PlanId,
+    ) -> StoreResult<Vec<SelfServicePlan>>;
 }
 
 /// Convert a FullPlanRow into a FullPlan with prices and products loaded.
@@ -313,6 +323,7 @@ impl PlansInterface for Store {
                         description: None,
                         active_version_id,
                         draft_version_id,
+                        self_service_rank: None,
                     }
                     .update(conn)
                     .await
@@ -589,6 +600,7 @@ impl PlansInterface for Store {
                     description: None,
                     active_version_id: None,
                     draft_version_id: Some(None),
+                    self_service_rank: None,
                 }
                 .update(conn)
                 .await
@@ -801,6 +813,7 @@ impl PlansInterface for Store {
                     description: None,
                     active_version_id: None,
                     draft_version_id: Some(Some(new.id)),
+                    self_service_rank: None,
                 }
                 .update(conn)
                 .await
@@ -839,6 +852,7 @@ impl PlansInterface for Store {
                         description: None,
                         active_version_id: Some(Some(published.id)),
                         draft_version_id: Some(None),
+                        self_service_rank: None,
                     }
                     .update(conn)
                     .await
@@ -886,6 +900,7 @@ impl PlansInterface for Store {
                         description: None,
                         active_version_id: None,
                         draft_version_id: Some(None),
+                        self_service_rank: None,
                     }
                     .update(conn)
                     .await
@@ -953,6 +968,7 @@ impl PlansInterface for Store {
                         name: patch.name,
                         description: patch.description,
                         active_version_id: None,
+                        self_service_rank: None,
                     }
                     .into();
 
@@ -1027,5 +1043,36 @@ impl PlansInterface for Store {
         PlanRow::unarchive(&mut conn, id, auth_tenant_id)
             .await
             .map_err(Into::into)
+    }
+
+    async fn list_self_service_plans(
+        &self,
+        tenant_id: TenantId,
+        product_family_id: ProductFamilyId,
+        currency: &str,
+        exclude_plan_id: PlanId,
+    ) -> StoreResult<Vec<SelfServicePlan>> {
+        let mut conn = self.get_conn().await?;
+
+        let rows = SelfServicePlanRow::list_self_service_plans(
+            &mut conn,
+            tenant_id,
+            product_family_id,
+            currency,
+            exclude_plan_id,
+        )
+        .await
+        .map_err(Into::<Report<StoreError>>::into)?;
+
+        Ok(rows
+            .into_iter()
+            .map(|r| SelfServicePlan {
+                plan_id: r.plan_id,
+                plan_name: r.plan_name,
+                description: r.description,
+                plan_version_id: r.plan_version_id,
+                self_service_rank: r.self_service_rank,
+            })
+            .collect())
     }
 }

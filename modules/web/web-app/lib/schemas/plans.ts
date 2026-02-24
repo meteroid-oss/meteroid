@@ -12,6 +12,7 @@ export const editPlanSchema = z.object({
   planName: z.string().nonempty('Name is required').max(256),
   description: z.string().max(2048).optional(),
   netTerms: z.number().int(),
+  selfServiceRank: z.number().int().positive().optional().or(z.literal(0)),
 })
 
 const isValidNumber = (str: string) => {

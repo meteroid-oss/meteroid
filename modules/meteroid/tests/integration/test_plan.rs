@@ -277,6 +277,7 @@ async fn test_plans_basic() {
             plan_version_id: created_version.id.clone(),
             name: "new-plan-name".to_string(),
             description: Some("new-plan-desc".to_string()),
+            self_service_rank: None,
         })
         .await
         .unwrap()

@@ -298,6 +298,9 @@ impl PlansService for PlanServiceComponents {
                 name: Some(req.name),
                 description: Some(req.description),
                 active_version_id: None,
+                self_service_rank: req
+                    .self_service_rank
+                    .map(|v| if v > 0 { Some(v) } else { None }),
             })
             .await
             .map(|x| PlanOverviewWrapper::from(x).0)

@@ -52,6 +52,7 @@ fn generate_grpc_types(root: &Path) -> Result<(), Report<BuildError>> {
     proto_files.push(root.join("proto/portal/shared/v1/shared.proto"));
     proto_files.push(root.join("proto/portal/customer/v1/customer.proto"));
     proto_files.push(root.join("proto/portal/quotes/v1/quotes.proto"));
+    proto_files.push(root.join("proto/portal/subscription/v1/subscription.proto"));
 
     for proto_file in &proto_files {
         println!("cargo:rerun-if-changed={}", proto_file.display());

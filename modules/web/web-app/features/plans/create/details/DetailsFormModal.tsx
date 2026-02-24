@@ -54,6 +54,7 @@ const BasicDetailedForm = ({ plan, version }: Props) => {
       description: plan?.description,
       planName: plan.name,
       netTerms: version.netTerms,
+      selfServiceRank: plan?.selfServiceRank ?? undefined,
     },
   })
 
@@ -91,6 +92,7 @@ const BasicDetailedForm = ({ plan, version }: Props) => {
         description: data.description,
         planId: plan.id,
         planVersionId: version.id,
+        selfServiceRank: data.selfServiceRank || 0,
       })
     }
 
@@ -126,6 +128,19 @@ const BasicDetailedForm = ({ plan, version }: Props) => {
                 placeholder="This plan gives access to ..."
                 layout="horizontal"
               />
+              {!isDraft && (
+                <InputFormField
+                  name="selfServiceRank"
+                  label="Self-service rank"
+                  layout="horizontal"
+                  control={methods.control}
+                  type="number"
+                  placeholder="Not set"
+                  min={0}
+                  step={1}
+                  className="w-[100px]"
+                />
+              )}
             </div>
           </div>
         </div>

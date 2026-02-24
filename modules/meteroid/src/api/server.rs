@@ -157,6 +157,10 @@ pub async fn start_api_server(
             services.clone(),
             object_store.clone(),
         ))
+        .add_service(api::portal::subscription::service(
+            store.clone(),
+            services.clone(),
+        ))
         .serve(config.grpc_listen_addr)
         .await?;
 
