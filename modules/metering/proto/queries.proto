@@ -60,7 +60,7 @@ message QueryMeterResponse {
   repeated Usage usage = 1;
 
   message Usage {
-    string customer_id = 1; // or external id, whichever is configured. TODO what about cost meters ?
+    optional string customer_id = 1;
     meteroid.common.v1.Decimal value = 2;
     google.protobuf.Timestamp window_start = 3;
     google.protobuf.Timestamp window_end = 4;

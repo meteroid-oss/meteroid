@@ -128,10 +128,15 @@ impl Connector for ClickhouseConnector {
                 .ok_or(ConnectorError::QueryError)
                 .attach("Missing value field")?;
 
-            let customer_id = row
-                .get_string("customer_id")
-                .ok_or(ConnectorError::QueryError)
-                .attach("Missing customer_id field")?;
+            let customer_id = if params.customer_ids.is_empty() {
+                None
+            } else {
+                Some(
+                    row.get_string("customer_id")
+                        .ok_or(ConnectorError::QueryError)
+                        .attach("Missing customer_id field")?,
+                )
+            };
 
             let mut group_by: HashMap<String, Option<String>> = HashMap::new();
 

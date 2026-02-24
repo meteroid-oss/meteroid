@@ -1905,13 +1905,107 @@
         ]
       }
     },
-    "/api/v1/subscriptions/{subscription_id}/usage": {
+    "/api/v1/usage/customer/{customer_id}": {
       "get": {
         "tags": [
-          "Subscriptions"
+          "Usage"
+        ],
+        "summary": "Get customer usage",
+        "description": "Retrieve aggregated usage data for a customer over a specified period.",
+        "operationId": "get_customer_usage",
+        "parameters": [
+          {
+            "name": "customer_id",
+            "in": "path",
+            "description": "Customer ID or alias",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "start_date",
+            "in": "query",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "date"
+            }
+          },
+          {
+            "name": "end_date",
+            "in": "query",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "date"
+            }
+          },
+          {
+            "name": "metric_id",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Customer usage data",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/UsageResponse"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Unauthorized",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/RestErrorResponse"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "Customer not found",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/RestErrorResponse"
+                }
+              }
+            }
+          },
+          "500": {
+            "description": "Internal error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/RestErrorResponse"
+                }
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "bearer_auth": []
+          }
+        ]
+      }
+    },
+    "/api/v1/usage/subscription/{subscription_id}": {
+      "get": {
+        "tags": [
+          "Usage"
         ],
         "summary": "Get subscription usage",
-        "description": "Retrieve usage data for all usage-based components of a subscription in the current billing period.",
+        "description": "Retrieve aggregated usage data for a subscription's usage-based components.\nIf start_date/end_date are omitted, defaults to the current billing period.",
         "operationId": "get_subscription_usage",
         "parameters": [
           {
@@ -1922,6 +2016,32 @@
             "schema": {
               "$ref": "#/components/schemas/SubscriptionId"
             }
+          },
+          {
+            "name": "start_date",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "string",
+              "format": "date"
+            }
+          },
+          {
+            "name": "end_date",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "string",
+              "format": "date"
+            }
+          },
+          {
+            "name": "metric_id",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "string"
+            }
           }
         ],
         "responses": {
@@ -1930,7 +2050,7 @@
             "content": {
               "application/json": {
                 "schema": {
-                  "$ref": "#/components/schemas/SubscriptionUsageResponse"
+                  "$ref": "#/components/schemas/UsageResponse"
                 }
               }
             }
@@ -1947,6 +2067,81 @@
           },
           "404": {
             "description": "Subscription not found",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/RestErrorResponse"
+                }
+              }
+            }
+          },
+          "500": {
+            "description": "Internal error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/RestErrorResponse"
+                }
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "bearer_auth": []
+          }
+        ]
+      }
+    },
+    "/api/v1/usage/summary": {
+      "get": {
+        "tags": [
+          "Usage"
+        ],
+        "summary": "Get usage summary",
+        "description": "Retrieve aggregated usage data across all customers for the tenant.",
+        "operationId": "get_usage_summary",
+        "parameters": [
+          {
+            "name": "start_date",
+            "in": "query",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "date"
+            }
+          },
+          {
+            "name": "end_date",
+            "in": "query",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "date"
+            }
+          },
+          {
+            "name": "metric_id",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Usage summary",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/UsageResponse"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Unauthorized",
             "content": {
               "application/json": {
                 "schema": {
@@ -3779,6 +3974,28 @@
           }
         }
       },
+      "GroupedUsage": {
+        "type": "object",
+        "required": [
+          "value",
+          "dimensions"
+        ],
+        "properties": {
+          "dimensions": {
+            "type": "object",
+            "additionalProperties": {
+              "type": "string"
+            },
+            "propertyNames": {
+              "type": "string"
+            }
+          },
+          "value": {
+            "type": "string",
+            "format": "decimal"
+          }
+        }
+      },
       "IngestEventsRequest": {
         "type": "object",
         "required": [
@@ -4469,20 +4686,20 @@
           }
         }
       },
-      "MetricUsageSummary": {
+      "MetricUsage": {
         "type": "object",
         "required": [
           "metric_id",
           "metric_name",
           "metric_code",
           "total_value",
-          "data_points"
+          "grouped_usage"
         ],
         "properties": {
-          "data_points": {
+          "grouped_usage": {
             "type": "array",
             "items": {
-              "$ref": "#/components/schemas/UsageDataPointRest"
+              "$ref": "#/components/schemas/GroupedUsage"
             }
           },
           "metric_code": {
@@ -4495,7 +4712,8 @@
             "type": "string"
           },
           "total_value": {
-            "type": "string"
+            "type": "string",
+            "format": "decimal"
           }
         }
       },
@@ -6203,34 +6421,6 @@
           }
         }
       },
-      "SubscriptionUsageResponse": {
-        "type": "object",
-        "required": [
-          "subscription_id",
-          "period_start",
-          "period_end",
-          "metrics"
-        ],
-        "properties": {
-          "metrics": {
-            "type": "array",
-            "items": {
-              "$ref": "#/components/schemas/MetricUsageSummary"
-            }
-          },
-          "period_end": {
-            "type": "string",
-            "format": "date"
-          },
-          "period_start": {
-            "type": "string",
-            "format": "date"
-          },
-          "subscription_id": {
-            "type": "string"
-          }
-        }
-      },
       "TaxBreakdownItem": {
         "type": "object",
         "required": [
@@ -6470,37 +6660,6 @@
           "NONE"
         ]
       },
-      "UsageDataPointRest": {
-        "type": "object",
-        "required": [
-          "window_start",
-          "window_end",
-          "value",
-          "dimensions"
-        ],
-        "properties": {
-          "dimensions": {
-            "type": "object",
-            "additionalProperties": {
-              "type": "string"
-            },
-            "propertyNames": {
-              "type": "string"
-            }
-          },
-          "value": {
-            "type": "string"
-          },
-          "window_end": {
-            "type": "string",
-            "format": "date"
-          },
-          "window_start": {
-            "type": "string",
-            "format": "date"
-          }
-        }
-      },
       "UsageFee": {
         "type": "object",
         "required": [
@@ -6562,6 +6721,30 @@
             "PER_UNIT": "#/components/schemas/PerUnitPricing",
             "TIERED": "#/components/schemas/TieredPricing",
             "VOLUME": "#/components/schemas/VolumePricing"
+          }
+        }
+      },
+      "UsageResponse": {
+        "type": "object",
+        "required": [
+          "period_start",
+          "period_end",
+          "usage"
+        ],
+        "properties": {
+          "period_end": {
+            "type": "string",
+            "format": "date"
+          },
+          "period_start": {
+            "type": "string",
+            "format": "date"
+          },
+          "usage": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/MetricUsage"
+            }
           }
         }
       },

@@ -31,21 +31,6 @@ impl Services {
             .current_period_end
             .unwrap_or_else(|| chrono::Utc::now().date_naive());
 
-        log::info!(
-            "Computing upcoming invoice for subscription {}: invoice_date={}, cycle_index={}->{}, period_start={}, period_end={:?}, metrics={}",
-            details.subscription.id,
-            invoice_date,
-            current_cycle,
-            next_cycle,
-            details.subscription.current_period_start,
-            details.subscription.current_period_end,
-            details
-                .metrics
-                .iter()
-                .map(|m| m.name.as_str())
-                .collect::<Vec<_>>()
-                .join(", "),
-        );
 
         self.compute_invoice(conn, &invoice_date, &details, None, None)
             .await
