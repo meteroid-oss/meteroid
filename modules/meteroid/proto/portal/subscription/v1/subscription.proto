@@ -2,6 +2,9 @@ syntax = "proto3";
 
 package meteroid.portal.subscription.v1;
 
+import "api/prices/v1/models.proto";
+import "api/subscriptions/v1/models.proto";
+
 message SubscriptionDetails {
   string id = 1;
   string plan_name = 2;
@@ -9,7 +12,7 @@ message SubscriptionDetails {
   string plan_version_id = 4;
   string status = 5;
   optional string current_period_end = 6;
-  uint64 mrr_cents = 7;
+  optional ComponentFee headline_fee = 7;
   string currency = 8;
   bool can_change_plan = 9;
   optional string scheduled_plan_change = 10;
@@ -23,13 +26,21 @@ message AvailablePlan {
   optional string description = 4;
   int32 self_service_rank = 5;
   bool is_current = 6;
+  optional ComponentFee headline_fee = 7;
+}
+
+message ComponentFee {
+  meteroid.api.prices.v1.FeeType fee_type = 1;
+  string amount = 2;
+  meteroid.api.subscriptions.v1.SubscriptionFeeBillingPeriod cadence = 3;
+  optional string unit = 4;
 }
 
 message ComponentChangePreview {
   string component_name = 1;
-  string action = 2;
-  optional string old_value = 3;
-  optional string new_value = 4;
+  bool is_new = 2;
+  optional ComponentFee current_fee = 3;
+  ComponentFee new_fee = 4;
 }
 
 message PlanChangePreview {

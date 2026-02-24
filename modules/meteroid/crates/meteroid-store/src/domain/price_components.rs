@@ -1,6 +1,5 @@
 use error_stack::Report;
 use std::collections::HashMap;
-use std::fmt::Display;
 use uuid::Uuid;
 // TODO duplicate as well
 use super::enums::{BillingPeriodEnum, BillingType, FeeTypeEnum, SubscriptionFeeBillingPeriod};
@@ -279,7 +278,6 @@ pub enum UsagePricingModel {
         rates: Vec<MatrixRow>,
     },
 }
-
 
 #[derive(Serialize, Deserialize, Clone, Debug)]
 pub struct MatrixRow {

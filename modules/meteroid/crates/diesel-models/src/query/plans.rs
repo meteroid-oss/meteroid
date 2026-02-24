@@ -1,8 +1,8 @@
 use crate::errors::IntoDbResult;
 use crate::plan_versions::{PlanVersionFilter, PlanVersionRow};
 use crate::plans::{
-    SelfServicePlanRow, _FullPlanRowEmbed, FullPlanRow, PlanFilters, PlanRow,
-    PlanRowForSubscription, PlanRowNew, PlanRowOverview, PlanRowPatch, PlanWithVersionRow,
+    _FullPlanRowEmbed, FullPlanRow, PlanFilters, PlanRow, PlanRowForSubscription, PlanRowNew,
+    PlanRowOverview, PlanRowPatch, PlanWithVersionRow, SelfServicePlanRow,
 };
 
 use crate::{DbResult, PgConn};
@@ -699,9 +699,7 @@ impl SelfServicePlanRow {
         use diesel_async::RunQueryDsl;
 
         let query = p_dsl::plan
-            .inner_join(pv_dsl::plan_version.on(
-                pv_dsl::id.nullable().eq(p_dsl::active_version_id)
-            ))
+            .inner_join(pv_dsl::plan_version.on(pv_dsl::id.nullable().eq(p_dsl::active_version_id)))
             .filter(p_dsl::tenant_id.eq(tenant_id))
             .filter(p_dsl::product_family_id.eq(product_family_id))
             .filter(p_dsl::status.eq(PlanStatusEnum::Active))
