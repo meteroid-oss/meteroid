@@ -1,0 +1,138 @@
+name: Preview – Dispatch
+
+# Listens for /preview and /stop-preview comments on PRs.
+# - /preview      → triggers the long-running preview-run.yml job
+# - /stop-preview → finds the running preview job for this PR and cancels it
+
+on:
+  issue_comment:
+    types: [created]
+
+permissions:
+  contents: read
+  pull-requests: write
+  issues: write
+  actions: write   # needed to cancel workflow runs
+
+jobs:
+  dispatch:
+    name: Dispatch preview command
+    runs-on: ubuntu-latest
+    if: |
+      github.event.issue.pull_request != null &&
+      (startsWith(github.event.comment.body, '/preview') ||
+       startsWith(github.event.comment.body, '/stop-preview'))
+    steps:
+      - name: Check write permission
+        id: perm
+        uses: actions/github-script@v7
+        with:
+          result-encoding: string
+          script: |
+            try {
+              const { data } = await github.rest.repos.getCollaboratorPermissionLevel({
+                owner: context.repo.owner,
+                repo: context.repo.repo,
+                username: context.actor,
+              });
+              return ['admin', 'maintain', 'write'].includes(data.permission) ? 'true' : 'false';
+            } catch (_) { return 'false'; }
+
+      - name: Deny unauthorized user
+        if: steps.perm.outputs.result == 'false'
+        uses: actions/github-script@v7
+        with:
+          script: |
+            await github.rest.issues.createComment({
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              issue_number: context.issue.number,
+              body: '⛔ Only collaborators with write access can manage preview environments.',
+            });
+
+      - name: React with rocket
+        if: steps.perm.outputs.result == 'true'
+        uses: actions/github-script@v7
+        with:
+          script: |
+            await github.rest.reactions.createForIssueComment({
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              comment_id: context.payload.comment.id,
+              content: 'rocket',
+            });
+
+      # ── /preview → start ──────────────────────────────────────────────────
+      - name: Dispatch start
+        if: |
+          steps.perm.outputs.result == 'true' &&
+          startsWith(github.event.comment.body, '/preview') &&
+          !startsWith(github.event.comment.body, '/stop-preview')
+        uses: actions/github-script@v7
+        with:
+          github-token: ${{ secrets.GITHUB_TOKEN }}
+          script: |
+            await github.rest.actions.createWorkflowDispatch({
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              workflow_id: 'preview-run.yml',
+              ref: context.payload.repository.default_branch,
+              inputs: { pr_number: String(context.issue.number) },
+            });
+
+      # ── /stop-preview → cancel the running job ────────────────────────────
+      - name: Cancel running preview
+        if: |
+          steps.perm.outputs.result == 'true' &&
+          startsWith(github.event.comment.body, '/stop-preview')
+        uses: actions/github-script@v7
+        env:
+          PR_NUMBER: ${{ github.event.issue.number }}
+        with:
+          github-token: ${{ secrets.GITHUB_TOKEN }}
+          script: |
+            const prNumber = process.env.PR_NUMBER;
+            const targetName = `Preview PR #${prNumber}`;
+
+            // Find the in-progress run for this PR
+            const { data } = await github.rest.actions.listWorkflowRuns({
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              workflow_id: 'preview-run.yml',
+              status: 'in_progress',
+              per_page: 50,
+            });
+
+            const run = data.workflow_runs.find(r => r.name === targetName);
+            if (run) {
+              await github.rest.actions.cancelWorkflowRun({
+                owner: context.repo.owner,
+                repo: context.repo.repo,
+                run_id: run.id,
+              });
+              core.info(`Cancelled run ${run.id} (${targetName})`);
+            } else {
+              // Also check queued
+              const { data: queued } = await github.rest.actions.listWorkflowRuns({
+                owner: context.repo.owner,
+                repo: context.repo.repo,
+                workflow_id: 'preview-run.yml',
+                status: 'queued',
+                per_page: 50,
+              });
+              const queuedRun = queued.workflow_runs.find(r => r.name === targetName);
+              if (queuedRun) {
+                await github.rest.actions.cancelWorkflowRun({
+                  owner: context.repo.owner,
+                  repo: context.repo.repo,
+                  run_id: queuedRun.id,
+                });
+              } else {
+                await github.rest.issues.createComment({
+                  owner: context.repo.owner,
+                  repo: context.repo.repo,
+                  issue_number: parseInt(prNumber),
+                  body: `ℹ️ No active preview environment found for PR #${prNumber}.`,
+                });
+              }
+            }
