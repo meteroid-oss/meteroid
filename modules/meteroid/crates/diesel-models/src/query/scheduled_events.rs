@@ -33,7 +33,7 @@ impl ScheduledEventRow {
             .into_db_result()
     }
 
-    /// Get pending events for a subscription
+    /// Get all pending events for a subscription (internal use)
     pub async fn get_pending_events_for_subscription(
         conn: &mut PgConn,
         subscription_id_param: SubscriptionId,
@@ -55,6 +55,41 @@ impl ScheduledEventRow {
             .get_results(conn)
             .await
             .attach("Error while fetching pending scheduled events")
+            .into_db_result()
+    }
+
+    /// Get pending user-visible events for a subscription.
+    /// Filters to lifecycle events (plan change, cancel, pause, end trial) only —
+    /// excludes internal billing events (finalize invoice, retry payment).
+    pub async fn get_pending_user_visible_events_for_subscription(
+        conn: &mut PgConn,
+        subscription_id_param: SubscriptionId,
+        tenant_id_param: &TenantId,
+    ) -> DbResult<Vec<ScheduledEventRow>> {
+        use crate::schema::scheduled_event::dsl::{
+            event_type, scheduled_event, scheduled_time, status, subscription_id, tenant_id,
+        };
+
+        let visible_types = vec![
+            ScheduledEventTypeEnum::ApplyPlanChange,
+            ScheduledEventTypeEnum::CancelSubscription,
+            ScheduledEventTypeEnum::PauseSubscription,
+            ScheduledEventTypeEnum::EndTrial,
+        ];
+
+        let query = scheduled_event
+            .filter(subscription_id.eq(subscription_id_param))
+            .filter(tenant_id.eq(tenant_id_param))
+            .filter(status.eq(ScheduledEventStatus::Pending))
+            .filter(event_type.eq_any(visible_types))
+            .order_by(scheduled_time.asc());
+
+        log::debug!("{}", diesel::debug_query::<diesel::pg::Pg, _>(&query));
+
+        query
+            .get_results(conn)
+            .await
+            .attach("Error while fetching pending user-visible scheduled events")
             .into_db_result()
     }
 
