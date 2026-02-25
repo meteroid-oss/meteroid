@@ -380,9 +380,9 @@ impl SubscriptionInterface for Store {
             }
         };
 
-        // Fetch pending scheduled events
+        // Fetch pending user-visible scheduled events (excludes internal billing events)
         let pending_events = {
-            let event_rows = ScheduledEventRow::get_pending_events_for_subscription(
+            let event_rows = ScheduledEventRow::get_pending_user_visible_events_for_subscription(
                 conn,
                 subscription.id,
                 &tenant_id,

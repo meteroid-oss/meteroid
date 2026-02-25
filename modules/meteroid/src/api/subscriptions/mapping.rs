@@ -331,28 +331,30 @@ pub mod subscriptions {
             pending_events: details
                 .pending_events
                 .into_iter()
-                .map(pending_event_to_proto)
+                .filter_map(pending_event_to_proto)
                 .collect(),
         })
     }
 
-    fn pending_event_to_proto(event: PendingScheduledEvent) -> proto2::PendingScheduledEvent {
+    fn pending_event_to_proto(
+        event: PendingScheduledEvent,
+    ) -> Option<proto2::PendingScheduledEvent> {
         let event_type = match event.event_type {
             ScheduledEventTypeEnum::ApplyPlanChange => proto2::ScheduledEventType::PlanChange,
             ScheduledEventTypeEnum::CancelSubscription => proto2::ScheduledEventType::Cancel,
             ScheduledEventTypeEnum::PauseSubscription => proto2::ScheduledEventType::Pause,
             ScheduledEventTypeEnum::EndTrial => proto2::ScheduledEventType::EndTrial,
-            _ => proto2::ScheduledEventType::Cancel, // fallback for non-displayable types
+            _ => return None,
         };
 
-        proto2::PendingScheduledEvent {
+        Some(proto2::PendingScheduledEvent {
             id: event.id.as_proto(),
             event_type: event_type.into(),
             scheduled_date: event.scheduled_date.as_proto(),
             new_plan_name: event.new_plan_name,
             new_plan_version_id: event.new_plan_version_id.map(|id| id.as_proto()),
             cancel_reason: event.cancel_reason,
-        }
+        })
     }
 
     pub(crate) fn update_request_to_patch(

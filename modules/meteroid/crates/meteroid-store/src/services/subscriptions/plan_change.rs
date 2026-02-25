@@ -309,6 +309,18 @@ impl Services {
             )));
         }
 
+        // Only user-initiated lifecycle events can be cancelled via API
+        if !matches!(
+            event.event_type,
+            diesel_models::enums::ScheduledEventTypeEnum::ApplyPlanChange
+                | diesel_models::enums::ScheduledEventTypeEnum::CancelSubscription
+                | diesel_models::enums::ScheduledEventTypeEnum::PauseSubscription
+        ) {
+            return Err(Report::new(StoreError::InvalidArgument(
+                "This event type cannot be cancelled".to_string(),
+            )));
+        }
+
         ScheduledEventRow::cancel_event(&mut conn, &event_id, "Cancelled by user")
             .await
             .map_err(Into::<Report<StoreError>>::into)?;
