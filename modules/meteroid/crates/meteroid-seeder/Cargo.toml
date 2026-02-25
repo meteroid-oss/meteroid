@@ -23,8 +23,6 @@ rand_distr.workspace = true
 fake.workspace = true
 rand_chacha.workspace = true
 rusty-money.workspace = true
-ndarray.workspace = true
-ndarray-interp.workspace = true
 educe = { workspace = true, default-features = false, features=["Default"] }
 nanoid = { workspace = true }
 async-trait = { workspace = true }
