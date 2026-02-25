@@ -7,3 +7,4 @@ mod migration;
 mod payment_methods_config;
 mod plan_change;
 mod trials;
+mod usage;

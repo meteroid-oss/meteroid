@@ -62,16 +62,21 @@ impl Services {
             );
         }
 
-        self.bill_subscription_tx(
-            conn,
-            tenant_id,
-            subscription_id,
-            InvoiceBillingMode::AwaitGracePeriodIfApplicable,
-        )
-        .await?;
+        let invoice_created = self
+            .bill_subscription_tx(
+                conn,
+                tenant_id,
+                subscription_id,
+                InvoiceBillingMode::AwaitGracePeriodIfApplicable,
+            )
+            .await?
+            .is_some();
 
-        // Create churn MRR movement log for cancellations (non-blocking to avoid failing cancellations)
-        if terminate_with_state == SubscriptionStatusEnum::Cancelled
+        // Create churn MRR movement log only when no invoice was created.
+        // When an invoice IS created, `process_mrr` (called during invoice insertion)
+        // already handles the MRR delta and movement logs for the Cancelled event.
+        if !invoice_created
+            && terminate_with_state == SubscriptionStatusEnum::Cancelled
             && let Err(e) = self
                 .create_churn_mrr_log(conn, tenant_id, subscription_id, date)
                 .await

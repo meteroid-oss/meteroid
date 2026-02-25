@@ -14,7 +14,8 @@ use diesel_models::plans::{PlanRowNew, PlanRowPatch};
 use diesel_models::price_components::PriceComponentRowNew;
 use diesel_models::prices::PriceRowNew;
 use diesel_models::products::ProductRowNew;
-use meteroid_store::domain::prices::{FeeStructure, Pricing};
+use meteroid_store::domain::price_components::UsagePricingModel;
+use meteroid_store::domain::prices::{FeeStructure, Pricing, UsageModel};
 use meteroid_store::domain::{
     BillingPeriodEnum, DowngradePolicy, FeeType, TermRate, UpgradePolicy,
 };
@@ -919,6 +920,163 @@ pub async fn run_plans_seed(pool: &PgPool) {
                 self_service_rank: None,
             }
             .update(tx)
+            .await?;
+
+            // --- Usage Plan (Rate + Usage component for arrear billing tests) ---
+
+            PlanRowNew {
+                id: ids::PLAN_USAGE_ID,
+                name: "Usage Plan".to_string(),
+                description: Some("Plan with rate + usage-based component".to_string()),
+                created_by: ids::USER_ID,
+                tenant_id: ids::TENANT_ID,
+                product_family_id: ids::PRODUCT_FAMILY_ID,
+                plan_type: PlanTypeEnum::Standard,
+                status: PlanStatusEnum::Active,
+            }
+            .insert(tx)
+            .await?;
+
+            PlanVersionRowNew {
+                id: ids::PLAN_VERSION_USAGE_ID,
+                is_draft_version: false,
+                plan_id: ids::PLAN_USAGE_ID,
+                version: 1,
+                trial_duration_days: None,
+                tenant_id: ids::TENANT_ID,
+                period_start_day: None,
+                net_terms: 0,
+                currency: "EUR".to_string(),
+                billing_cycles: None,
+                created_by: ids::USER_ID,
+                trialing_plan_id: None,
+                trial_is_free: true,
+                uses_product_pricing: true,
+            }
+            .insert(tx)
+            .await?;
+
+            PlanRowPatch {
+                id: ids::PLAN_USAGE_ID,
+                tenant_id: ids::TENANT_ID,
+                name: None,
+                description: None,
+                active_version_id: Some(Some(ids::PLAN_VERSION_USAGE_ID)),
+                draft_version_id: None,
+                self_service_rank: None,
+            }
+            .update(tx)
+            .await?;
+
+            // Rate component (EUR 20/month advance) — reuses shared PRODUCT_PLATFORM_FEE_ID
+            PriceComponentRowNew {
+                id: ids::COMP_USAGE_RATE_ID,
+                name: "Platform Fee".to_string(),
+                legacy_fee: Some(
+                    FeeType::Rate {
+                        rates: vec![TermRate {
+                            price: Decimal::new(2000, 2), // EUR 20.00/month
+                            term: BillingPeriodEnum::Monthly,
+                        }],
+                    }
+                    .try_into()
+                    .unwrap(),
+                ),
+                plan_version_id: ids::PLAN_VERSION_USAGE_ID,
+                product_id: Some(ids::PRODUCT_PLATFORM_FEE_ID),
+                billable_metric_id: None,
+            }
+            .insert(tx)
+            .await?;
+
+            PriceRowNew {
+                id: ids::PRICE_USAGE_RATE_ID,
+                product_id: ids::PRODUCT_PLATFORM_FEE_ID,
+                cadence: DieselBillingPeriodEnum::Monthly,
+                currency: "EUR".to_string(),
+                pricing: serde_json::to_value(&Pricing::Rate {
+                    rate: Decimal::new(2000, 2),
+                })
+                .unwrap(),
+                tenant_id: ids::TENANT_ID,
+                created_by: ids::USER_ID,
+                catalog: true,
+            }
+            .insert(tx)
+            .await?;
+
+            PlanComponentPriceRowNew::insert_batch(
+                tx,
+                &[PlanComponentPriceRowNew {
+                    plan_component_id: ids::COMP_USAGE_RATE_ID,
+                    price_id: ids::PRICE_USAGE_RATE_ID,
+                }],
+            )
+            .await?;
+
+            // Bandwidth usage product + component (per-unit EUR 0.10, arrear, linked to METRIC_BANDWIDTH)
+            ProductRowNew {
+                id: ids::PRODUCT_BANDWIDTH_ID,
+                name: "Bandwidth".to_string(),
+                description: None,
+                created_by: ids::USER_ID,
+                tenant_id: ids::TENANT_ID,
+                product_family_id: ids::PRODUCT_FAMILY_ID,
+                fee_type: DieselFeeTypeEnum::Usage,
+                fee_structure: serde_json::to_value(&FeeStructure::Usage {
+                    metric_id: ids::METRIC_BANDWIDTH,
+                    model: UsageModel::PerUnit,
+                })
+                .unwrap(),
+                catalog: true,
+            }
+            .insert(tx)
+            .await?;
+
+            PriceComponentRowNew {
+                id: ids::COMP_USAGE_BANDWIDTH_ID,
+                name: "Bandwidth".to_string(),
+                legacy_fee: Some(
+                    FeeType::Usage {
+                        metric_id: ids::METRIC_BANDWIDTH,
+                        pricing: UsagePricingModel::PerUnit {
+                            rate: Decimal::new(10, 2), // EUR 0.10/unit
+                        },
+                        cadence: BillingPeriodEnum::Monthly,
+                    }
+                    .try_into()
+                    .unwrap(),
+                ),
+                plan_version_id: ids::PLAN_VERSION_USAGE_ID,
+                product_id: Some(ids::PRODUCT_BANDWIDTH_ID),
+                billable_metric_id: Some(ids::METRIC_BANDWIDTH),
+            }
+            .insert(tx)
+            .await?;
+
+            PriceRowNew {
+                id: ids::PRICE_USAGE_BANDWIDTH_ID,
+                product_id: ids::PRODUCT_BANDWIDTH_ID,
+                cadence: DieselBillingPeriodEnum::Monthly,
+                currency: "EUR".to_string(),
+                pricing: serde_json::to_value(&Pricing::Usage(UsagePricingModel::PerUnit {
+                    rate: Decimal::new(10, 2),
+                }))
+                .unwrap(),
+                tenant_id: ids::TENANT_ID,
+                created_by: ids::USER_ID,
+                catalog: true,
+            }
+            .insert(tx)
+            .await?;
+
+            PlanComponentPriceRowNew::insert_batch(
+                tx,
+                &[PlanComponentPriceRowNew {
+                    plan_component_id: ids::COMP_USAGE_BANDWIDTH_ID,
+                    price_id: ids::PRICE_USAGE_BANDWIDTH_ID,
+                }],
+            )
             .await?;
 
             Ok::<(), DatabaseErrorContainer>(())
