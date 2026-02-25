@@ -20,6 +20,13 @@ pub trait SubscriptionFeeInterface {
     fn fee_ref(&self) -> &SubscriptionFee;
     fn sub_component_id(&self) -> Option<SubscriptionPriceComponentId>;
     fn sub_add_on_id(&self) -> Option<SubscriptionAddOnId>;
+    /// Temporal bounds for usage-based billing split. Returns None for non-temporal types.
+    fn effective_from(&self) -> Option<chrono::NaiveDate> {
+        None
+    }
+    fn effective_to(&self) -> Option<chrono::NaiveDate> {
+        None
+    }
 }
 
 #[derive(Serialize, Deserialize, Clone, Debug)]
@@ -32,6 +39,8 @@ pub struct SubscriptionComponent {
     pub period: SubscriptionFeeBillingPeriod,
     pub fee: SubscriptionFee,
     pub price_id: Option<PriceId>,
+    pub effective_from: chrono::NaiveDate,
+    pub effective_to: Option<chrono::NaiveDate>,
 }
 
 impl SubscriptionFeeInterface for SubscriptionComponent {
@@ -74,6 +83,16 @@ impl SubscriptionFeeInterface for SubscriptionComponent {
     fn sub_add_on_id(&self) -> Option<SubscriptionAddOnId> {
         None
     }
+
+    #[inline]
+    fn effective_from(&self) -> Option<chrono::NaiveDate> {
+        Some(self.effective_from)
+    }
+
+    #[inline]
+    fn effective_to(&self) -> Option<chrono::NaiveDate> {
+        self.effective_to
+    }
 }
 
 impl TryInto<SubscriptionComponent> for SubscriptionComponentRow {
@@ -99,6 +118,8 @@ impl TryInto<SubscriptionComponent> for SubscriptionComponentRow {
             period: self.period.into(),
             fee: decoded_fee,
             price_id: self.price_id,
+            effective_from: self.effective_from,
+            effective_to: self.effective_to,
         })
     }
 }
@@ -134,6 +155,7 @@ impl TryInto<SubscriptionComponentRowNew> for SubscriptionComponentNew {
             period: self.internal.period.into(),
             legacy_fee: Some(legacy_fee),
             price_id: self.internal.price_id,
+            effective_from: self.internal.effective_from,
         })
     }
 }
@@ -179,10 +201,10 @@ pub struct SubscriptionComponentNewInternal {
     pub product_id: Option<ProductId>,
     pub name: String,
     pub period: SubscriptionFeeBillingPeriod,
-    // pub mrr_value: Option<rust_decimal::Decimal>, // TODO
     pub fee: SubscriptionFee,
     pub is_override: bool,
     pub price_id: Option<PriceId>,
+    pub effective_from: chrono::NaiveDate,
 }
 
 // TODO golden tests
@@ -253,6 +275,20 @@ impl SubscriptionFee {
             SubscriptionFee::OneTime { .. }
             | SubscriptionFee::Recurring { .. }
             | SubscriptionFee::Usage { .. } => false,
+        }
+    }
+
+    /// Returns true if this fee type produces ONLY arrears-billed line items.
+    /// Used to filter historical (closed) components for usage temporal split.
+    /// Excludes Capacity because it also produces an advance-billed base rate line.
+    pub fn is_pure_arrears(&self) -> bool {
+        match self {
+            SubscriptionFee::Usage { .. } => true,
+            SubscriptionFee::Recurring {
+                billing_type: BillingType::Arrears,
+                ..
+            } => true,
+            _ => false,
         }
     }
 }

@@ -232,6 +232,8 @@ impl SubscriptionInterface for Store {
                         period,
                         fee,
                         price_id: row.price_id,
+                        effective_from: row.effective_from,
+                        effective_to: row.effective_to,
                     }
                 } else {
                     row.try_into()?

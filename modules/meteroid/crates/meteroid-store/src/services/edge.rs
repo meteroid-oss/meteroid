@@ -745,13 +745,34 @@ impl ServicesEdge {
         tenant_id: TenantId,
         new_plan_version_id: PlanVersionId,
         component_params: Vec<crate::domain::subscription_components::ComponentParameterization>,
-    ) -> StoreResult<crate::domain::subscription_changes::PlanChangePreview> {
+        mode: Option<crate::domain::subscription_changes::PlanChangeMode>,
+    ) -> StoreResult<crate::domain::subscription_changes::PlanChangePreviewExtended> {
         self.services
             .preview_plan_change(
                 subscription_id,
                 tenant_id,
                 new_plan_version_id,
                 component_params,
+                mode,
+            )
+            .await
+    }
+
+    pub async fn apply_plan_change_immediate(
+        &self,
+        subscription_id: SubscriptionId,
+        tenant_id: TenantId,
+        new_plan_version_id: PlanVersionId,
+        component_params: Vec<crate::domain::subscription_components::ComponentParameterization>,
+        force_annual: bool,
+    ) -> StoreResult<crate::domain::subscription_changes::ImmediatePlanChangeResult> {
+        self.services
+            .apply_plan_change_immediate(
+                subscription_id,
+                tenant_id,
+                new_plan_version_id,
+                component_params,
+                force_annual,
             )
             .await
     }

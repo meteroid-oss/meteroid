@@ -168,6 +168,11 @@ message UpdateSubscriptionResponse {
   Subscription subscription = 1;
 }
 
+enum PlanChangeApplyMode {
+  PLAN_CHANGE_APPLY_MODE_END_OF_PERIOD = 0;
+  PLAN_CHANGE_APPLY_MODE_IMMEDIATE = 1;
+}
+
 message PlanChangeComponentParameterization {
   string component_id = 1;
   optional meteroid.api.shared.v1.BillingPeriod billing_period = 2;
@@ -179,17 +184,21 @@ message SchedulePlanChangeRequest {
   string subscription_id = 1;
   string new_plan_version_id = 2;
   repeated PlanChangeComponentParameterization parameterized_components = 3;
+  PlanChangeApplyMode apply_mode = 4;
+  bool force_annual = 5;
 }
 
 message SchedulePlanChangeResponse {
-  string event_id = 1;
+  optional string event_id = 1;
   string effective_date = 2;
+  optional string invoice_id = 3;
 }
 
 message PreviewPlanChangeRequest {
   string subscription_id = 1;
   string new_plan_version_id = 2;
   repeated PlanChangeComponentParameterization parameterized_components = 3;
+  PlanChangeApplyMode apply_mode = 4;
 }
 
 message PreviewPlanChangeResponse {
@@ -197,6 +206,17 @@ message PreviewPlanChangeResponse {
   repeated PlanChangeAddedComponent added = 2;
   repeated PlanChangeRemovedComponent removed = 3;
   string effective_date = 4;
+  optional ProrationSummary proration = 5;
+  string change_direction = 6;
+}
+
+message ProrationSummary {
+  int64 credits_total_cents = 1;
+  int64 charges_total_cents = 2;
+  int64 net_amount_cents = 3;
+  double proration_factor = 4;
+  uint32 days_remaining = 5;
+  uint32 days_in_period = 6;
 }
 
 message PlanChangeMatchedComponent {

@@ -42,6 +42,29 @@ const FeeLabel = ({
   </span>
 )
 
+const DirectionBadge = ({ direction }: { direction: string }) => {
+  switch (direction) {
+    case 'upgrade':
+      return (
+        <Badge variant="default" size="sm" className="bg-brand text-brand-foreground">
+          Upgrade
+        </Badge>
+      )
+    case 'downgrade':
+      return (
+        <Badge variant="secondary" size="sm">
+          Downgrade
+        </Badge>
+      )
+    default:
+      return (
+        <Badge variant="outline" size="sm">
+          Lateral
+        </Badge>
+      )
+  }
+}
+
 export const StepReviewMapping = () => {
   const { previousStep, nextStep } = useWizard()
   const [state, setState] = useAtom(changePlanAtom)
@@ -54,6 +77,7 @@ export const StepReviewMapping = () => {
         {
           subscriptionId: state.subscriptionId,
           newPlanVersionId: state.targetPlanVersionId,
+          applyMode: state.applyMode,
         },
         {
           onSuccess: data => {
@@ -65,7 +89,7 @@ export const StepReviewMapping = () => {
         }
       )
     }
-  }, [state.targetPlanVersionId, state.subscriptionId])
+  }, [state.targetPlanVersionId, state.subscriptionId, state.applyMode])
 
   const preview = previewMut.data
   const currency = state.currency || 'USD'
@@ -121,15 +145,21 @@ export const StepReviewMapping = () => {
           subtitle: `${state.currentPlanName} → ${state.targetPlanName}`,
         }}
       >
-        {preview?.effectiveDate && (
-          <div className="mb-6 rounded-lg border border-border bg-card p-4">
-            <div className="text-sm text-muted-foreground">Effective Date</div>
-            <div className="text-base font-medium text-foreground">
-              {parseAndFormatDate(preview.effectiveDate)}
-            </div>
-            <div className="text-xs text-muted-foreground mt-1">
-              The plan change will take effect at the end of the current billing period.
-            </div>
+        {preview && (
+          <div className="mb-6 flex items-center gap-4">
+            {preview.effectiveDate && (
+              <div className="flex-1 rounded-lg border border-border bg-card p-4">
+                <div className="text-sm text-muted-foreground">Effective Date</div>
+                <div className="text-base font-medium text-foreground">
+                  {parseAndFormatDate(preview.effectiveDate)}
+                </div>
+              </div>
+            )}
+            {preview.changeDirection && (
+              <div>
+                <DirectionBadge direction={preview.changeDirection} />
+              </div>
+            )}
           </div>
         )}
 

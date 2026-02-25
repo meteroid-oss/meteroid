@@ -4,13 +4,14 @@ use std::collections::HashMap;
 use crate::subscription_components::{SubscriptionComponentRow, SubscriptionComponentRowNew};
 use crate::{DbResult, PgConn};
 
+use chrono::NaiveDate;
 use diesel::debug_query;
 use error_stack::ResultExt;
 
 use common_domain::ids::{
     PriceComponentId, PriceId, SubscriptionId, SubscriptionPriceComponentId, TenantId,
 };
-use diesel::{ExpressionMethods, QueryDsl, SelectableHelper};
+use diesel::{BoolExpressionMethods, ExpressionMethods, QueryDsl, SelectableHelper};
 use itertools::Itertools;
 
 impl SubscriptionComponentRowNew {
@@ -61,6 +62,7 @@ impl SubscriptionComponentRow {
             .inner_join(crate::schema::subscription::table)
             .filter(subscription_component_dsl::subscription_id.eq(subscription_id))
             .filter(crate::schema::subscription::tenant_id.eq(tenant_id_params))
+            .filter(subscription_component_dsl::effective_to.is_null())
             .select(SubscriptionComponentRow::as_select());
 
         log::debug!("{}", debug_query::<diesel::pg::Pg, _>(&query));
@@ -84,6 +86,7 @@ impl SubscriptionComponentRow {
             .filter(subscription_component_dsl::subscription_id.eq_any(subscription_ids))
             .inner_join(crate::schema::subscription::table)
             .filter(crate::schema::subscription::tenant_id.eq(tenant_id_param))
+            .filter(subscription_component_dsl::effective_to.is_null())
             .select(SubscriptionComponentRow::as_select());
 
         log::debug!("{}", debug_query::<diesel::pg::Pg, _>(&query));
@@ -110,6 +113,7 @@ impl SubscriptionComponentRow {
             .inner_join(crate::schema::subscription::table)
             .filter(sc_dsl::product_id.eq(product_id))
             .filter(crate::schema::subscription::tenant_id.eq(tenant_id))
+            .filter(sc_dsl::effective_to.is_null())
             .select(SubscriptionComponentRow::as_select());
 
         log::debug!("{}", debug_query::<diesel::pg::Pg, _>(&query));
@@ -144,6 +148,7 @@ impl SubscriptionComponentRow {
             .filter(sc_dsl::product_id.eq(product_id))
             .filter(crate::schema::subscription::tenant_id.eq(tenant_id))
             .filter(crate::schema::subscription::status.eq_any(active_statuses))
+            .filter(sc_dsl::effective_to.is_null())
             .select(count(sc_dsl::subscription_id).aggregate_distinct());
 
         log::debug!("{}", debug_query::<diesel::pg::Pg, _>(&query));
@@ -207,6 +212,64 @@ impl SubscriptionComponentRow {
             .await
             .attach("Error while deleting subscription components")
             .map(|_| ())
+            .into_db_result()
+    }
+
+    /// Close active components by setting effective_to.
+    pub async fn close_components(
+        conn: &mut PgConn,
+        ids: &[SubscriptionPriceComponentId],
+        effective_to: NaiveDate,
+    ) -> DbResult<()> {
+        use crate::schema::subscription_component::dsl as sc_dsl;
+        use diesel_async::RunQueryDsl;
+
+        if ids.is_empty() {
+            return Ok(());
+        }
+
+        let query = diesel::update(sc_dsl::subscription_component)
+            .filter(sc_dsl::id.eq_any(ids))
+            .filter(sc_dsl::effective_to.is_null())
+            .set(sc_dsl::effective_to.eq(effective_to));
+
+        log::debug!("{}", debug_query::<diesel::pg::Pg, _>(&query));
+
+        query
+            .execute(conn)
+            .await
+            .attach("Error while closing subscription components")
+            .map(|_| ())
+            .into_db_result()
+    }
+
+    /// List all components (active and closed) overlapping with [period_start, period_end].
+    pub async fn list_component_history_for_period(
+        conn: &mut PgConn,
+        subscription_id: &SubscriptionId,
+        period_start: NaiveDate,
+        period_end: NaiveDate,
+    ) -> DbResult<Vec<SubscriptionComponentRow>> {
+        use crate::schema::subscription_component::dsl as sc_dsl;
+        use diesel_async::RunQueryDsl;
+
+        // A component overlaps if: effective_from < period_end AND (effective_to IS NULL OR effective_to > period_start)
+        let query = sc_dsl::subscription_component
+            .filter(sc_dsl::subscription_id.eq(subscription_id))
+            .filter(sc_dsl::effective_from.lt(period_end))
+            .filter(
+                sc_dsl::effective_to
+                    .is_null()
+                    .or(sc_dsl::effective_to.gt(period_start)),
+            )
+            .select(SubscriptionComponentRow::as_select());
+
+        log::debug!("{}", debug_query::<diesel::pg::Pg, _>(&query));
+
+        query
+            .get_results(conn)
+            .await
+            .attach("Error while listing component history for period")
             .into_db_result()
     }
 }

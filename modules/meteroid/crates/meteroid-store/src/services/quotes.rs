@@ -104,6 +104,7 @@ fn build_subscription_from_quote(
             fee: c.fee.clone(),
             is_override: c.is_override,
             price_id: c.price_id,
+            effective_from: start_date,
         })
         .collect();
 

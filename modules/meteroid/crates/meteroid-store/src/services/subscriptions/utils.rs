@@ -519,6 +519,7 @@ pub fn process_create_subscription_components(
     resolved: &ResolvedCustomComponents,
     product_family_id: ProductFamilyId,
     currency: &str,
+    effective_from: NaiveDate,
 ) -> Result<
     (
         Vec<SubscriptionComponentNewInternal>,
@@ -561,6 +562,7 @@ pub fn process_create_subscription_components(
                 fee,
                 is_override: true,
                 price_id: resolved_override.existing_price_id(),
+                effective_from,
             });
             if resolved_override.needs_materialization() {
                 pending_materializations.push(PendingMaterialization {
@@ -598,6 +600,7 @@ pub fn process_create_subscription_components(
                 fee: resolved.fee,
                 is_override: false,
                 price_id: resolved.price_id,
+                effective_from,
             });
             continue;
         }
@@ -618,6 +621,7 @@ pub fn process_create_subscription_components(
             fee: resolved.fee,
             is_override: false,
             price_id: resolved.price_id,
+            effective_from,
         });
     }
 
@@ -632,6 +636,7 @@ pub fn process_create_subscription_components(
             fee: extra.fee.clone(),
             is_override: false,
             price_id: extra.existing_price_id(),
+            effective_from,
         });
         if extra.needs_materialization() {
             pending_materializations.push(PendingMaterialization {

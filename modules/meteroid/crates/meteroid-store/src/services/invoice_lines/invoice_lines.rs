@@ -2,12 +2,15 @@ use crate::StoreResult;
 use crate::constants::{Currencies, Currency};
 use crate::domain::{
     ComponentPeriods, CouponLineItem, Customer, Invoice, InvoicingEntity, LineItem,
-    SubscriptionDetails, SubscriptionFeeInterface, TaxBreakdownItem, TaxResolverEnum,
+    SubscriptionComponent, SubscriptionDetails, SubscriptionFeeInterface, TaxBreakdownItem,
+    TaxResolverEnum,
 };
 use chrono::NaiveDate;
+use common_domain::ids::{PriceComponentId, SubscriptionPriceComponentId};
+use diesel_models::subscription_components::SubscriptionComponentRow;
 use itertools::Itertools;
 use std::cmp::min;
-use std::collections::HashMap;
+use std::collections::{HashMap, HashSet};
 
 use crate::errors::StoreError;
 use crate::repositories::accounting::AccountingInterface;
@@ -138,12 +141,60 @@ impl Services {
             )
             .await?;
 
+        // Load and process historical (closed) components for usage temporal split.
+        // When a mid-period plan change occurred, closed components with arrears billing
+        // need to be billed for their temporal segment [effective_from, effective_to].
+        let historical_lines = {
+            let active_ids: HashSet<SubscriptionPriceComponentId> = subscription_details
+                .price_components
+                .iter()
+                .map(|c| c.id)
+                .collect();
+
+            let historical_rows = SubscriptionComponentRow::list_component_history_for_period(
+                conn,
+                &subscription_details.subscription.id,
+                billing_start_date,
+                invoice_date,
+            )
+            .await
+            .map_err(Into::<Report<StoreError>>::into)?;
+
+            let historical_components: Vec<SubscriptionComponent> = historical_rows
+                .into_iter()
+                .filter(|row| row.effective_to.is_some())
+                .filter(|row| !active_ids.contains(&row.id))
+                .filter_map(|row| {
+                    let comp: Result<SubscriptionComponent, _> = row.try_into();
+                    comp.ok()
+                })
+                .filter(|comp| comp.fee.is_pure_arrears())
+                .collect();
+
+            if !historical_components.is_empty() {
+                self.process_fee_records(
+                    conn,
+                    subscription_details,
+                    &historical_components,
+                    invoice_date,
+                    billing_start_date,
+                    cycle_index,
+                    currency,
+                    &existing_lines,
+                )
+                .await?
+            } else {
+                Vec::new()
+            }
+        };
+
         // Merge non-usage-based lines from existing invoice (if refreshing)
-        let invoice_lines = if let Some(invoice) = invoice {
+        let mut invoice_lines = if let Some(invoice) = invoice {
             // TODO quick fix, do that part in process_component instead
             let computed_lines = price_components_lines
                 .into_iter()
                 .chain(add_ons_lines)
+                .chain(historical_lines)
                 .filter(&is_usage_based_line)
                 .collect_vec();
 
@@ -162,8 +213,13 @@ impl Services {
             price_components_lines
                 .into_iter()
                 .chain(add_ons_lines)
+                .chain(historical_lines)
                 .collect_vec()
         };
+
+        // Append date range to line item names when a temporal split occurred
+        // (multiple sub_component_ids for the same price_component_id)
+        apply_temporal_date_range_to_names(&mut invoice_lines);
 
         let subtotal = invoice_lines
             .iter()
@@ -560,12 +616,19 @@ impl Services {
         let mut invoice_lines = Vec::new();
         for (period, components) in component_period_components {
             for component in components {
+                // Apply temporal bounds to arrear period for usage-based billing split
+                let adjusted_period = restrict_arrear_period_by_temporal_bounds(
+                    period.clone(),
+                    component.effective_from(),
+                    component.effective_to(),
+                );
+
                 let lines = self
                     .compute_component(
                         conn,
                         subscription_details,
                         component,
-                        period.clone(),
+                        adjusted_period,
                         &invoice_date,
                         currency.precision,
                         existing_lines,
@@ -577,5 +640,71 @@ impl Services {
         }
 
         Ok(invoice_lines)
+    }
+}
+
+/// Restrict the arrear period of a ComponentPeriods based on a component's temporal bounds.
+/// - If effective_from > arrear.start: restrict arrear start to effective_from
+/// - If effective_to < arrear.end: restrict arrear end to effective_to
+/// Returns the period unchanged if there are no temporal bounds or no arrear period.
+fn restrict_arrear_period_by_temporal_bounds(
+    mut periods: ComponentPeriods,
+    effective_from: Option<NaiveDate>,
+    effective_to: Option<NaiveDate>,
+) -> ComponentPeriods {
+    if let Some(ref mut arrear) = periods.arrear {
+        if let Some(from) = effective_from {
+            if from > arrear.start {
+                arrear.start = from;
+            }
+        }
+        if let Some(to) = effective_to {
+            if to < arrear.end {
+                arrear.end = to;
+            }
+        }
+        // If the restriction made the period invalid, remove it
+        if arrear.start >= arrear.end {
+            periods.arrear = None;
+        }
+    }
+    periods
+}
+
+/// Detect temporal splits and append date range to disambiguate line item names.
+/// A temporal split occurs when multiple sub_component_ids exist for the same price_component_id,
+/// indicating a mid-period plan change with old and new component versions.
+fn apply_temporal_date_range_to_names(lines: &mut [LineItem]) {
+    let mut price_component_sub_ids: HashMap<PriceComponentId, HashSet<SubscriptionPriceComponentId>> =
+        HashMap::new();
+
+    for line in lines.iter() {
+        if let (Some(pc_id), Some(sc_id)) = (line.price_component_id, line.sub_component_id) {
+            price_component_sub_ids
+                .entry(pc_id)
+                .or_default()
+                .insert(sc_id);
+        }
+    }
+
+    let split_price_components: HashSet<PriceComponentId> = price_component_sub_ids
+        .into_iter()
+        .filter(|(_, sub_ids)| sub_ids.len() > 1)
+        .map(|(pc_id, _)| pc_id)
+        .collect();
+
+    if split_price_components.is_empty() {
+        return;
+    }
+
+    for line in lines.iter_mut() {
+        if let Some(pc_id) = line.price_component_id {
+            if split_price_components.contains(&pc_id) {
+                line.name = format!(
+                    "{} ({} - {})",
+                    line.name, line.start_date, line.end_date
+                );
+            }
+        }
     }
 }

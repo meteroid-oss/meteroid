@@ -790,6 +790,9 @@ pub mod plan_change {
     use common_domain::ids::PriceComponentId;
     use meteroid_grpc::meteroid::api::shared::v1 as api_shared;
     use meteroid_grpc::meteroid::api::subscriptions::v1 as api;
+    use meteroid_store::domain::subscription_changes::{
+        ChangeDirection, PlanChangeMode, ProrationSummary,
+    };
     use meteroid_store::domain::subscription_components::{
         ComponentParameterization, ComponentParameters,
     };
@@ -820,6 +823,32 @@ pub mod plan_change {
                 })
             })
             .collect()
+    }
+
+    pub fn map_apply_mode(mode: i32) -> PlanChangeMode {
+        match api::PlanChangeApplyMode::try_from(mode) {
+            Ok(api::PlanChangeApplyMode::Immediate) => PlanChangeMode::Immediate,
+            _ => PlanChangeMode::EndOfPeriod,
+        }
+    }
+
+    pub fn change_direction_to_string(dir: ChangeDirection) -> String {
+        match dir {
+            ChangeDirection::Upgrade => "upgrade".to_string(),
+            ChangeDirection::Downgrade => "downgrade".to_string(),
+            ChangeDirection::Lateral => "lateral".to_string(),
+        }
+    }
+
+    pub fn proration_summary_to_grpc(summary: &ProrationSummary) -> api::ProrationSummary {
+        api::ProrationSummary {
+            credits_total_cents: summary.credits_total_cents,
+            charges_total_cents: summary.charges_total_cents,
+            net_amount_cents: summary.net_amount_cents,
+            proration_factor: summary.proration_factor,
+            days_remaining: summary.days_remaining,
+            days_in_period: summary.days_in_period,
+        }
     }
 }
 

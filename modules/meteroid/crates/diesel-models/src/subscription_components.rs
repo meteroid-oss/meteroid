@@ -1,4 +1,5 @@
 use crate::enums::SubscriptionFeeBillingPeriod;
+use chrono::NaiveDate;
 use common_domain::ids::{
     PriceComponentId, PriceId, ProductId, SubscriptionId, SubscriptionPriceComponentId,
 };
@@ -16,6 +17,8 @@ pub struct SubscriptionComponentRow {
     pub period: SubscriptionFeeBillingPeriod,
     pub legacy_fee: Option<serde_json::Value>,
     pub price_id: Option<PriceId>,
+    pub effective_from: NaiveDate,
+    pub effective_to: Option<NaiveDate>,
 }
 
 #[derive(Insertable, Debug, Clone)]
@@ -29,4 +32,5 @@ pub struct SubscriptionComponentRowNew {
     pub period: SubscriptionFeeBillingPeriod,
     pub legacy_fee: Option<serde_json::Value>,
     pub price_id: Option<PriceId>,
+    pub effective_from: NaiveDate,
 }

@@ -482,22 +482,47 @@ impl SubscriptionsService for SubscriptionServiceComponents {
         let new_plan_version_id = PlanVersionId::from_proto(inner.new_plan_version_id)?;
         let component_params =
             mapping::plan_change::map_component_parameterizations(inner.parameterized_components)?;
+        let mode = mapping::plan_change::map_apply_mode(inner.apply_mode);
 
-        let event = self
-            .services
-            .schedule_plan_change(
-                subscription_id,
-                tenant_id,
-                new_plan_version_id,
-                component_params,
-            )
-            .await
-            .map_err(Into::<SubscriptionApiError>::into)?;
+        match mode {
+            meteroid_store::domain::subscription_changes::PlanChangeMode::Immediate => {
+                let result = self
+                    .services
+                    .apply_plan_change_immediate(
+                        subscription_id,
+                        tenant_id,
+                        new_plan_version_id,
+                        component_params,
+                        inner.force_annual,
+                    )
+                    .await
+                    .map_err(Into::<SubscriptionApiError>::into)?;
 
-        Ok(Response::new(SchedulePlanChangeResponse {
-            event_id: event.id.to_string(),
-            effective_date: event.scheduled_time.date().to_string(),
-        }))
+                Ok(Response::new(SchedulePlanChangeResponse {
+                    event_id: None,
+                    effective_date: result.effective_date.to_string(),
+                    invoice_id: result.adjustment_invoice_id.map(|id| id.to_string()),
+                }))
+            }
+            meteroid_store::domain::subscription_changes::PlanChangeMode::EndOfPeriod => {
+                let event = self
+                    .services
+                    .schedule_plan_change(
+                        subscription_id,
+                        tenant_id,
+                        new_plan_version_id,
+                        component_params,
+                    )
+                    .await
+                    .map_err(Into::<SubscriptionApiError>::into)?;
+
+                Ok(Response::new(SchedulePlanChangeResponse {
+                    event_id: Some(event.id.to_string()),
+                    effective_date: event.scheduled_time.date().to_string(),
+                    invoice_id: None,
+                }))
+            }
+        }
     }
 
     #[tracing::instrument(skip_all)]
@@ -512,17 +537,21 @@ impl SubscriptionsService for SubscriptionServiceComponents {
         let new_plan_version_id = PlanVersionId::from_proto(inner.new_plan_version_id)?;
         let component_params =
             mapping::plan_change::map_component_parameterizations(inner.parameterized_components)?;
+        let mode = mapping::plan_change::map_apply_mode(inner.apply_mode);
 
-        let preview = self
+        let result = self
             .services
             .preview_plan_change(
                 subscription_id,
                 tenant_id,
                 new_plan_version_id,
                 component_params,
+                Some(mode),
             )
             .await
             .map_err(Into::<SubscriptionApiError>::into)?;
+
+        let preview = result.preview;
 
         Ok(Response::new(PreviewPlanChangeResponse {
             matched: preview
@@ -590,6 +619,13 @@ impl SubscriptionsService for SubscriptionServiceComponents {
                 })
                 .collect(),
             effective_date: preview.effective_date.to_string(),
+            proration: result
+                .proration
+                .as_ref()
+                .map(mapping::plan_change::proration_summary_to_grpc),
+            change_direction: mapping::plan_change::change_direction_to_string(
+                result.change_direction,
+            ),
         }))
     }
 

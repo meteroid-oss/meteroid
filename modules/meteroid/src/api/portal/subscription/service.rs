@@ -396,14 +396,14 @@ impl PortalSubscriptionService for PortalSubscriptionServiceComponents {
             .await
             .map_err(Into::<PortalSubscriptionApiError>::into)?;
 
-        let preview = self
+        let result = self
             .services
-            .preview_plan_change(subscription_id, tenant_id, new_plan_version_id, vec![])
+            .preview_plan_change(subscription_id, tenant_id, new_plan_version_id, vec![], None)
             .await
             .map_err(Into::<PortalSubscriptionApiError>::into)?;
 
         let mut component_changes: Vec<ComponentChangePreview> = Vec::new();
-        for c in &preview.matched {
+        for c in &result.preview.matched {
             component_changes.push(ComponentChangePreview {
                 component_name: c.new_name.clone(),
                 is_new: false,
@@ -411,7 +411,7 @@ impl PortalSubscriptionService for PortalSubscriptionServiceComponents {
                 new_fee: Some(map_fee(&c.new_fee, &c.new_period)),
             });
         }
-        for c in &preview.added {
+        for c in &result.preview.added {
             component_changes.push(ComponentChangePreview {
                 component_name: c.name.clone(),
                 is_new: true,
@@ -422,7 +422,7 @@ impl PortalSubscriptionService for PortalSubscriptionServiceComponents {
 
         Ok(Response::new(PreviewPlanChangeResponse {
             preview: Some(PlanChangePreview {
-                effective_date: preview.effective_date.as_proto(),
+                effective_date: result.preview.effective_date.as_proto(),
                 component_changes,
             }),
             new_plan_name: target_plan.plan.name,

@@ -288,6 +288,8 @@ impl Services {
             fee: resolved.fee,
             period: resolved.period,
             price_id: resolved.price_id,
+            effective_from: chrono::Utc::now().naive_utc().date(),
+            effective_to: None,
         })
     }
 
@@ -360,6 +362,8 @@ impl Services {
                     fee: resolved.fee,
                     period: resolved.period,
                     price_id: resolved.price_id,
+                    effective_from: chrono::Utc::now().naive_utc().date(),
+                    effective_to: None,
                 });
                 continue;
             }
@@ -396,6 +400,8 @@ impl Services {
             fee: resolved.fee.clone(),
             period: resolved.period,
             price_id: resolved.existing_price_id(),
+            effective_from: chrono::Utc::now().naive_utc().date(),
+            effective_to: None,
         }
     }
 
