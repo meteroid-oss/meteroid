@@ -1,0 +1,239 @@
+name: Preview – Run
+
+# Starts or stops a long-lived preview environment on a Hetzner box.
+# Triggered manually (workflow_dispatch) or via preview-dispatch.yml.
+#
+# Required GitHub Secrets:
+#   PREVIEW_SSH_KEY          — SSH private key (PEM) for the Hetzner box
+#   PREVIEW_SSH_HOST         — Hetzner box hostname or IP
+#   PREVIEW_SSH_USER         — SSH username (e.g. ubuntu, root)
+#   PREVIEW_FRP_TOKEN        — frp auth token (leave empty if frps has no auth)
+#   PREVIEW_GH_TOKEN         — GitHub PAT with repo scope (long-lived, for git on Hetzner)
+#
+# Required GitHub Variables (Settings → Variables):
+#   PREVIEW_BASE_DOMAIN      — e.g. preview.meteroid.dev   (default: preview.meteroid.dev)
+#   PREVIEW_FRP_SERVER       — frp server addr              (default: preview.meteroid.dev)
+#   PREVIEW_FRP_PORT         — frp server port              (default: 7000)
+#
+# Port allocation per PR (all unique, based on PR number):
+#   Postgres local  : 54000 + PR_NUMBER   (max PR ~999 for no collision with other services)
+#   gRPC local/ext  : 60000 + PR_NUMBER
+#   REST local/ext  : 62000 + PR_NUMBER
+#   Frontend local  : 20000 + PR_NUMBER   → tunnelled as http://pr-N.BASE_DOMAIN
+
+on:
+  workflow_dispatch:
+    inputs:
+      pr_number:
+        description: 'PR number to preview'
+        required: true
+        type: string
+      action:
+        description: 'Action'
+        required: true
+        default: start
+        type: choice
+        options:
+          - start
+          - stop
+
+# Prevent two runs for the same PR stepping on each other
+concurrency:
+  group: preview-pr-${{ inputs.pr_number }}
+  cancel-in-progress: false
+
+permissions:
+  contents: read
+  pull-requests: write
+  issues: write
+
+jobs:
+  # ─────────────────────────────────────────────
+  # START
+  # ─────────────────────────────────────────────
+  start:
+    name: Start preview environment
+    runs-on: ubuntu-latest
+    if: inputs.action == 'start'
+    steps:
+      - name: Checkout (to get scripts)
+        uses: actions/checkout@v4
+
+      - name: Get PR info
+        id: pr
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          PR_INFO=$(gh api repos/${{ github.repository }}/pulls/${{ inputs.pr_number }})
+          echo "branch=$(echo "$PR_INFO" | jq -r '.head.ref')"  >> $GITHUB_OUTPUT
+          echo "sha=$(echo "$PR_INFO" | jq -r '.head.sha')"     >> $GITHUB_OUTPUT
+
+      - name: Post "starting" comment
+        id: comment
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          BODY="## 🔄 Preview Environment Starting…
+
+          > ⏳ Compiling Rust backend — first build may take **10–15 minutes**.
+
+          **Branch:** \`${{ steps.pr.outputs.branch }}\` @ \`$(echo '${{ steps.pr.outputs.sha }}' | head -c8)\`
+
+          ---
+          🛑 Comment \`/stop-preview\` to cancel."
+
+          ID=$(gh api repos/${{ github.repository }}/issues/${{ inputs.pr_number }}/comments \
+            --method POST \
+            -f body="$BODY" \
+            --jq '.id')
+          echo "comment_id=$ID" >> $GITHUB_OUTPUT
+
+      - name: Setup SSH
+        run: |
+          mkdir -p ~/.ssh
+          printf '%s\n' "${{ secrets.PREVIEW_SSH_KEY }}" > ~/.ssh/preview_key
+          chmod 600 ~/.ssh/preview_key
+          ssh-keyscan -H "${{ secrets.PREVIEW_SSH_HOST }}" >> ~/.ssh/known_hosts 2>/dev/null
+
+      - name: Copy scripts to Hetzner
+        run: |
+          ssh -i ~/.ssh/preview_key \
+              -o StrictHostKeyChecking=accept-new \
+              "${{ secrets.PREVIEW_SSH_USER }}@${{ secrets.PREVIEW_SSH_HOST }}" \
+              "mkdir -p /tmp/preview-scripts"
+          scp -i ~/.ssh/preview_key \
+              .github/scripts/preview-setup.sh \
+              .github/scripts/preview-watch.sh \
+              .github/scripts/preview-stop.sh \
+              "${{ secrets.PREVIEW_SSH_USER }}@${{ secrets.PREVIEW_SSH_HOST }}:/tmp/preview-scripts/"
+          ssh -i ~/.ssh/preview_key \
+              "${{ secrets.PREVIEW_SSH_USER }}@${{ secrets.PREVIEW_SSH_HOST }}" \
+              "chmod +x /tmp/preview-scripts/*.sh"
+
+      - name: Run setup on Hetzner
+        id: setup
+        env:
+          BASE_DOMAIN: ${{ vars.PREVIEW_BASE_DOMAIN || 'preview.meteroid.dev' }}
+          FRP_SERVER:  ${{ vars.PREVIEW_FRP_SERVER  || 'preview.meteroid.dev' }}
+          FRP_PORT:    ${{ vars.PREVIEW_FRP_PORT    || '7000' }}
+          FRP_TOKEN:   ${{ secrets.PREVIEW_FRP_TOKEN }}
+          GH_TOKEN:    ${{ secrets.PREVIEW_GH_TOKEN }}
+          GITHUB_REPO: ${{ github.repository }}
+          PR_NUMBER:   ${{ inputs.pr_number }}
+          PR_BRANCH:   ${{ steps.pr.outputs.branch }}
+          PR_SHA:      ${{ steps.pr.outputs.sha }}
+          COMMENT_ID:  ${{ steps.comment.outputs.comment_id }}
+          # Used by the setup script to post final comment with URLs
+          GH_COMMENT_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          ssh -i ~/.ssh/preview_key \
+              -o StrictHostKeyChecking=accept-new \
+              -o ServerAliveInterval=60 \
+              -o ServerAliveCountMax=10 \
+              "${{ secrets.PREVIEW_SSH_USER }}@${{ secrets.PREVIEW_SSH_HOST }}" \
+              "export BASE_DOMAIN='$BASE_DOMAIN' FRP_SERVER='$FRP_SERVER' FRP_PORT='$FRP_PORT' \
+                      FRP_TOKEN='$FRP_TOKEN' GH_TOKEN='$GH_TOKEN' GITHUB_REPO='$GITHUB_REPO' \
+                      PR_NUMBER='$PR_NUMBER' PR_BRANCH='$PR_BRANCH' PR_SHA='$PR_SHA' \
+                      COMMENT_ID='$COMMENT_ID' GH_COMMENT_TOKEN='$GH_COMMENT_TOKEN'; \
+               bash /tmp/preview-scripts/preview-setup.sh" \
+              2>&1 | tee /tmp/setup-output.txt
+
+          # Parse URLs printed by the setup script
+          FRONTEND_URL=$(grep '^PREVIEW_FRONTEND_URL=' /tmp/setup-output.txt | tail -1 | cut -d= -f2-)
+          GRPC_URL=$(    grep '^PREVIEW_GRPC_URL='     /tmp/setup-output.txt | tail -1 | cut -d= -f2-)
+          REST_URL=$(    grep '^PREVIEW_REST_URL='     /tmp/setup-output.txt | tail -1 | cut -d= -f2-)
+          echo "frontend_url=$FRONTEND_URL" >> $GITHUB_OUTPUT
+          echo "grpc_url=$GRPC_URL"         >> $GITHUB_OUTPUT
+          echo "rest_url=$REST_URL"         >> $GITHUB_OUTPUT
+
+      - name: Update comment with live URLs
+        if: always()
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          FRONTEND="${{ steps.setup.outputs.frontend_url }}"
+          GRPC="${{ steps.setup.outputs.grpc_url }}"
+          REST="${{ steps.setup.outputs.rest_url }}"
+          PR="${{ inputs.pr_number }}"
+          CID="${{ steps.comment.outputs.comment_id }}"
+          SHA_SHORT="$(echo '${{ steps.pr.outputs.sha }}' | head -c8)"
+
+          if [[ -z "$FRONTEND" ]]; then
+            BODY="## ❌ Preview Environment Failed
+
+            Setup encountered an error. Check the [workflow run](${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}) for details.
+
+            _Triggered by: @${{ github.actor }}_"
+          else
+            BODY="## ✅ Preview Environment Ready
+
+          | Service | URL |
+          |---------|-----|
+          | 🌐 Frontend | [$FRONTEND]($FRONTEND) |
+          | ⚡ gRPC API | \`$GRPC\` |
+          | 🔌 REST API | \`$REST\` |
+
+          **Branch:** \`${{ steps.pr.outputs.branch }}\` @ \`$SHA_SHORT\`
+
+          💡 Auto-updates when you push new commits to this PR.
+          🛑 Comment \`/stop-preview\` to stop it.
+
+          _Triggered by: @${{ github.actor }}_"
+          fi
+
+          gh api repos/${{ github.repository }}/issues/comments/$CID \
+            --method PATCH \
+            -f body="$BODY"
+
+  # ─────────────────────────────────────────────
+  # STOP
+  # ─────────────────────────────────────────────
+  stop:
+    name: Stop preview environment
+    runs-on: ubuntu-latest
+    if: inputs.action == 'stop'
+    steps:
+      - name: Checkout (to get scripts)
+        uses: actions/checkout@v4
+
+      - name: Setup SSH
+        run: |
+          mkdir -p ~/.ssh
+          printf '%s\n' "${{ secrets.PREVIEW_SSH_KEY }}" > ~/.ssh/preview_key
+          chmod 600 ~/.ssh/preview_key
+          ssh-keyscan -H "${{ secrets.PREVIEW_SSH_HOST }}" >> ~/.ssh/known_hosts 2>/dev/null
+
+      - name: Copy stop script to Hetzner
+        run: |
+          ssh -i ~/.ssh/preview_key \
+              -o StrictHostKeyChecking=accept-new \
+              "${{ secrets.PREVIEW_SSH_USER }}@${{ secrets.PREVIEW_SSH_HOST }}" \
+              "mkdir -p /tmp/preview-scripts"
+          scp -i ~/.ssh/preview_key \
+              .github/scripts/preview-stop.sh \
+              "${{ secrets.PREVIEW_SSH_USER }}@${{ secrets.PREVIEW_SSH_HOST }}:/tmp/preview-scripts/"
+          ssh -i ~/.ssh/preview_key \
+              "${{ secrets.PREVIEW_SSH_USER }}@${{ secrets.PREVIEW_SSH_HOST }}" \
+              "chmod +x /tmp/preview-scripts/preview-stop.sh"
+
+      - name: Stop preview on Hetzner
+        run: |
+          ssh -i ~/.ssh/preview_key \
+              -o StrictHostKeyChecking=accept-new \
+              "${{ secrets.PREVIEW_SSH_USER }}@${{ secrets.PREVIEW_SSH_HOST }}" \
+              "export PR_NUMBER='${{ inputs.pr_number }}'; \
+               bash /tmp/preview-scripts/preview-stop.sh"
+
+      - name: Post stopped comment
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          gh api repos/${{ github.repository }}/issues/${{ inputs.pr_number }}/comments \
+            --method POST \
+            -f body="## 🛑 Preview Environment Stopped
+
+          The preview environment for PR #${{ inputs.pr_number }} has been stopped and resources cleaned up.
+
+          Comment \`/preview\` to restart it.
+
+          _Stopped by: @${{ github.actor }}_"
