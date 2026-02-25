@@ -8,7 +8,7 @@ use crate::helpers;
 use crate::meteroid_it;
 use crate::meteroid_it::container::{MeteroidSetup, SeedLevel};
 use meteroid_mailer::service::MockMailerService;
-use meteroid_store::clients::usage::MockUsageClient;
+use meteroid_store::clients::usage::{MockUsageClient, UsageClient};
 use meteroid_store::store::PgConn;
 use meteroid_store::{Services, Store};
 
@@ -67,6 +67,17 @@ pub async fn test_env_minimal() -> TestEnv {
 /// Uses a shared Postgres container with database templating for fast test setup.
 /// Migrations run once on the template; each test gets a fresh database copy.
 pub async fn test_env_with_seed(seed_level: SeedLevel) -> TestEnv {
+    test_env_with_seed_and_usage(seed_level, Arc::new(MockUsageClient::noop())).await
+}
+
+/// Create a test environment with a specific seed level and custom usage client.
+///
+/// Use this when you need to inject pre-populated usage data (e.g. for testing
+/// arrear/usage-based billing during cancellation).
+pub async fn test_env_with_seed_and_usage(
+    seed_level: SeedLevel,
+    usage_client: Arc<dyn UsageClient>,
+) -> TestEnv {
     helpers::init::logging();
 
     // Create a new database from the shared template (migrations already applied)
@@ -77,7 +88,7 @@ pub async fn test_env_with_seed(seed_level: SeedLevel) -> TestEnv {
     let setup = meteroid_it::container::start_meteroid_with_clients(
         postgres_connection_string,
         seed_level,
-        Arc::new(MockUsageClient::noop()),
+        usage_client,
         mailer.clone(),
     )
     .await;

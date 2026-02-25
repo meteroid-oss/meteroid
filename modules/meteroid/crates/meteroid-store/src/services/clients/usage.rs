@@ -148,8 +148,8 @@ pub trait UsageClient: Send + Sync {
 
 #[derive(Eq, Hash, PartialEq)]
 pub struct MockUsageDataParams {
-    metric_id: BillableMetricId,
-    invoice_date: NaiveDate,
+    pub metric_id: BillableMetricId,
+    pub invoice_date: NaiveDate,
 }
 
 pub struct MockUsageClient {

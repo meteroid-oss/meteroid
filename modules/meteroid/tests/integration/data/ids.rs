@@ -186,6 +186,21 @@ pub const PRICE_PRO_PLATFORM_FEE_ID: PriceId =
 pub const PRICE_PRO_SEATS_ID: PriceId =
     PriceId::from_const(uuid!("019438e0-0066-7000-8000-000000000001"));
 
+// Usage plan (Rate + Usage component for arrear billing tests)
+pub const PLAN_USAGE_ID: PlanId = PlanId::from_const(uuid!("019438e0-00a0-7000-8000-000000000001"));
+pub const PLAN_VERSION_USAGE_ID: PlanVersionId =
+    PlanVersionId::from_const(uuid!("019438e0-00a1-7000-8000-000000000001"));
+pub const COMP_USAGE_RATE_ID: PriceComponentId =
+    PriceComponentId::from_const(uuid!("019438e0-00a2-7000-8000-000000000001"));
+pub const COMP_USAGE_BANDWIDTH_ID: PriceComponentId =
+    PriceComponentId::from_const(uuid!("019438e0-00a3-7000-8000-000000000001"));
+pub const PRODUCT_BANDWIDTH_ID: ProductId =
+    ProductId::from_const(uuid!("019438e0-00a5-7000-8000-000000000001"));
+pub const PRICE_USAGE_RATE_ID: PriceId =
+    PriceId::from_const(uuid!("019438e0-00a6-7000-8000-000000000001"));
+pub const PRICE_USAGE_BANDWIDTH_ID: PriceId =
+    PriceId::from_const(uuid!("019438e0-00a7-7000-8000-000000000001"));
+
 // USD plan (for currency mismatch test)
 pub const PLAN_USD_ID: PlanId = PlanId::from_const(uuid!("019438e0-0070-7000-8000-000000000001"));
 pub const PLAN_VERSION_USD_ID: PlanVersionId =

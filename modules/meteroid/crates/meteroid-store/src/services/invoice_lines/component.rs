@@ -72,33 +72,30 @@ impl Services {
         precision: u8,
         existing_lines: &HashMap<ExistingLineKey, &LineItem>,
     ) -> StoreResult<Vec<LineItem>> {
-        let fixed_period = match periods.advance {
-            Some(period) => period,
-            None => return Ok(Vec::new()),
-        };
-
         let is_first_period = periods.arrear.is_none();
 
         let mut lines: Vec<InvoiceLineInner> = vec![];
 
         match component.fee_ref() {
             SubscriptionFee::Rate { rate } => {
-                lines.push(InvoiceLineInner::simple_prorated(
-                    rate,
-                    &dec!(1),
-                    fixed_period,
-                    periods.proration_factor,
-                    precision,
-                    None,
-                )?);
+                if let Some(advance_period) = periods.advance {
+                    lines.push(InvoiceLineInner::simple_prorated(
+                        rate,
+                        &dec!(1),
+                        advance_period,
+                        periods.proration_factor,
+                        precision,
+                        None,
+                    )?);
+                }
             }
             SubscriptionFee::OneTime { rate, quantity } => {
                 // only for first period
-                if is_first_period {
+                if is_first_period && let Some(advance_period) = periods.advance {
                     lines.push(InvoiceLineInner::simple_prorated(
                         rate,
                         &Decimal::from(*quantity),
-                        fixed_period,
+                        advance_period,
                         periods.proration_factor,
                         precision,
                         None,
@@ -111,14 +108,16 @@ impl Services {
                 billing_type,
             } => match billing_type {
                 BillingType::Advance => {
-                    lines.push(InvoiceLineInner::simple_prorated(
-                        rate,
-                        &Decimal::from(*quantity),
-                        fixed_period,
-                        periods.proration_factor,
-                        precision,
-                        None,
-                    )?);
+                    if let Some(advance_period) = periods.advance {
+                        lines.push(InvoiceLineInner::simple_prorated(
+                            rate,
+                            &Decimal::from(*quantity),
+                            advance_period,
+                            periods.proration_factor,
+                            precision,
+                            None,
+                        )?);
+                    }
                 }
                 BillingType::Arrears => {
                     if let Some(arrears) = periods.arrear {
@@ -140,20 +139,22 @@ impl Services {
                 unit,
                 ..
             } => {
-                let slots = self
-                    .fetch_slots(conn, invoice_date, unit.clone(), subscription_details) // TODO we need unit instead. That would allow for subscription components not linked to a plan. It'd also match Sequence model
-                    .await?
-                    .max(u64::from(min_slots.unwrap_or(0)))
-                    .min(u64::from(max_slots.unwrap_or(u32::MAX)));
+                if let Some(advance_period) = periods.advance {
+                    let slots = self
+                        .fetch_slots(conn, invoice_date, unit.clone(), subscription_details)
+                        .await?
+                        .max(u64::from(min_slots.unwrap_or(0)))
+                        .min(u64::from(max_slots.unwrap_or(u32::MAX)));
 
-                lines.push(InvoiceLineInner::simple_prorated(
-                    unit_rate,
-                    &Decimal::from(slots),
-                    fixed_period,
-                    periods.proration_factor,
-                    precision,
-                    None,
-                )?);
+                    lines.push(InvoiceLineInner::simple_prorated(
+                        unit_rate,
+                        &Decimal::from(slots),
+                        advance_period,
+                        periods.proration_factor,
+                        precision,
+                        None,
+                    )?);
+                }
             }
             SubscriptionFee::Capacity {
                 rate,
@@ -161,14 +162,16 @@ impl Services {
                 overage_rate,
                 metric_id,
             } => {
-                lines.push(InvoiceLineInner::simple_prorated(
-                    rate,
-                    &dec!(1),
-                    fixed_period,
-                    None, // no proration on capacity, as it provides a fixed amount
-                    precision,
-                    None,
-                )?);
+                if let Some(advance_period) = periods.advance {
+                    lines.push(InvoiceLineInner::simple_prorated(
+                        rate,
+                        &dec!(1),
+                        advance_period,
+                        None, // no proration on capacity, as it provides a fixed amount
+                        precision,
+                        None,
+                    )?);
+                }
 
                 if let Some(arrear_period) = periods.arrear
                     && overage_rate > &Decimal::ZERO
