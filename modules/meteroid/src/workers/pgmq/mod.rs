@@ -1,5 +1,5 @@
 use error_stack::Report;
-use rand::Rng;
+use rand::RngExt;
 use std::time::Duration;
 
 mod bi_aggregation;

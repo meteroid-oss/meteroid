@@ -176,7 +176,7 @@ mod tests {
     use crate::ingest::sinks::Sink;
     use crate::ingest::sinks::kafka::KafkaSink;
     use kafka::config::KafkaConnectionConfig;
-    use rand::Rng;
+    use rand::RngExt;
     use rand::distr::Alphanumeric;
     use rdkafka::mocking::MockCluster;
     use rdkafka::producer::DefaultProducerContext;

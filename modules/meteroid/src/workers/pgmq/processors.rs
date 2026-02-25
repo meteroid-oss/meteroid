@@ -21,7 +21,7 @@ use meteroid_store::clients::usage::UsageClient;
 use meteroid_store::domain::pgmq::PgmqQueue;
 use meteroid_store::{Services, Store};
 use pennylane_client::client::PennylaneClient;
-use rand::Rng;
+use rand::RngExt;
 use std::sync::Arc;
 use svix::api::Svix;
 
