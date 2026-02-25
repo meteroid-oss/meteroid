@@ -79,17 +79,6 @@ jobs:
           echo "comment_id=$ID"      >> $GITHUB_OUTPUT
           echo "PREVIEW_COMMENT_ID=$ID" >> $GITHUB_ENV
 
-      - name: Free disk space
-        run: |
-          sudo apt-get remove -y '^llvm-.*' 'php.*' azure-cli google-cloud-sdk \
-            google-chrome-stable firefox powershell mono-devel 2>/dev/null || true
-          sudo apt-get autoremove -y && sudo apt-get clean
-          sudo rm -rf /usr/share/dotnet /usr/local/lib/android /opt/ghc \
-            /opt/hostedtoolcache /usr/lib/jvm /usr/local/julia* \
-            /usr/local/share/chromium /opt/microsoft /opt/google /opt/az \
-            /usr/local/.ghcup
-          sudo docker image prune -af
-
       - uses: ./.github/actions/rust-setup
 
       - uses: pnpm/action-setup@v4
@@ -280,7 +269,7 @@ jobs:
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
-          for f in /tmp/preview-pids/*.pid 2>/dev/null; do
+          for f in /tmp/preview-pids/*.pid; do
             [[ -f "$f" ]] && kill "$(cat "$f")" 2>/dev/null || true
           done
 
@@ -288,10 +277,15 @@ jobs:
             down -v 2>/dev/null || true
 
           if [[ -n "${PREVIEW_COMMENT_ID:-}" ]]; then
-            gh api "repos/${{ github.repository }}/issues/comments/${PREVIEW_COMMENT_ID}" \
-              --method PATCH \
-              -f body="## 🛑 Preview Environment Stopped
+            if [[ "${{ job.status }}" == "failure" ]]; then
+              BODY="## ❌ Preview Environment Failed
 
-          Preview for PR #${PR_NUMBER} stopped. Comment \`/preview\` to restart." \
-              2>/dev/null || true
+          Check the [workflow logs](${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}). Comment \`/preview\` to retry."
+            else
+              BODY="## 🛑 Preview Environment Stopped
+
+          Preview for PR #${PR_NUMBER} stopped. Comment \`/preview\` to restart."
+            fi
+            gh api "repos/${{ github.repository }}/issues/comments/${PREVIEW_COMMENT_ID}" \
+              --method PATCH -f body="$BODY" 2>/dev/null || true
           fi
