@@ -102,6 +102,7 @@ jobs:
           METEROID_PUBLIC_URL=${{ steps.pr.outputs.frontend_url }}
           VITE_METEROID_API_EXTERNAL_URL=${{ steps.pr.outputs.grpc_url }}
           VITE_METEROID_REST_API_EXTERNAL_URL=${{ steps.pr.outputs.rest_url }}
+          SVIX_JWT_TOKEN=preview-placeholder
           ENV
 
       - name: Start postgres
@@ -173,12 +174,16 @@ jobs:
           ./target/debug/standalone &
           echo $! > /tmp/preview-pids/backend.pid
 
-          pnpm --prefix modules/web/web-app run dev -- --host 0.0.0.0 &
+          pnpm --prefix modules/web --filter @md/web dev -- --host 0.0.0.0 &
           echo $! > /tmp/preview-pids/frontend.pid
+
+          BACKEND_PID=$(cat /tmp/preview-pids/backend.pid)
+          FRONTEND_PID=$(cat /tmp/preview-pids/frontend.pid)
 
           echo "Waiting for backend on :50061…"
           WAITED=0
           until nc -z localhost 50061 2>/dev/null; do
+            kill -0 "$BACKEND_PID" 2>/dev/null || { echo "Backend process died"; exit 1; }
             sleep 5; WAITED=$((WAITED+5))
             (( WAITED >= 900 )) && echo "Backend not ready after 15 min" && exit 1
           done
@@ -186,6 +191,7 @@ jobs:
           echo "Waiting for frontend on :5173…"
           WAITED=0
           until nc -z localhost 5173 2>/dev/null; do
+            kill -0 "$FRONTEND_PID" 2>/dev/null || { echo "Frontend process died"; exit 1; }
             sleep 2; WAITED=$((WAITED+2))
             (( WAITED >= 120 )) && echo "Frontend not ready after 2 min" && exit 1
           done
@@ -243,7 +249,7 @@ jobs:
               kill "$(cat /tmp/preview-pids/frontend.pid 2>/dev/null)" 2>/dev/null || true
               pnpm --prefix modules/web install
               set -a && source .env && set +a
-              pnpm --prefix modules/web/web-app run dev -- --host 0.0.0.0 &
+              pnpm --prefix modules/web --filter @md/web dev -- --host 0.0.0.0 &
               echo $! > /tmp/preview-pids/frontend.pid
             fi
 
