@@ -1,8 +1,8 @@
 name: Preview – Run
 
 # Runs the full stack on a GH runner and tunnels to Hetzner via frpc.
-#   Frontend  http://pr-N.BASE_DOMAIN         →  frp HTTP vhost (:8180)  →  runner:5173
-#   REST API  http://rest-pr-N.BASE_DOMAIN    →  frp HTTP vhost (:8180)  →  runner:8084
+#   Frontend  http://pr-N.BASE_DOMAIN:8443      →  frp HTTP vhost (:8443)  →  runner:5173
+#   REST API  http://rest-pr-N.BASE_DOMAIN:8443 → frp HTTP vhost (:8443)  →  runner:8084
 #   gRPC      BASE_DOMAIN:50000+(N%1000)      →  frp TCP                 →  runner:50061
 
 run-name: Preview PR #${{ inputs.pr_number }}
@@ -14,6 +14,10 @@ on:
         description: 'PR number'
         required: true
         type: string
+      stop:
+        description: 'Set to true to just cancel via concurrency group'
+        type: boolean
+        default: false
 
 concurrency:
   group: preview-pr-${{ inputs.pr_number }}
@@ -38,6 +42,8 @@ jobs:
       FRP_TOKEN:   ${{ secrets.PREVIEW_FRP_TOKEN }}
       FRPC_VER:    ${{ vars.PREVIEW_FRPC_VERSION || '0.67.0' }}
 
+    if: ${{ !inputs.stop }}
+
     steps:
       - name: Get PR info
         id: pr
@@ -50,9 +56,9 @@ jobs:
           echo "branch=$BRANCH" >> $GITHUB_OUTPUT
           echo "sha=$SHA"       >> $GITHUB_OUTPUT
           GRPC_PORT=$((50000 + (PR_NUMBER % 1000)))
-          echo "frontend_url=http://pr-${PR_NUMBER}.${BASE_DOMAIN}"    >> $GITHUB_OUTPUT
-          echo "grpc_url=http://${BASE_DOMAIN}:${GRPC_PORT}"           >> $GITHUB_OUTPUT
-          echo "rest_url=http://rest-pr-${PR_NUMBER}.${BASE_DOMAIN}"   >> $GITHUB_OUTPUT
+          echo "frontend_url=http://pr-${PR_NUMBER}.${BASE_DOMAIN}:8443"    >> $GITHUB_OUTPUT
+          echo "grpc_url=http://${BASE_DOMAIN}:${GRPC_PORT}"              >> $GITHUB_OUTPUT
+          echo "rest_url=http://rest-pr-${PR_NUMBER}.${BASE_DOMAIN}:8443" >> $GITHUB_OUTPUT
 
       - uses: actions/checkout@v4
         with:

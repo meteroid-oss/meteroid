@@ -82,89 +82,36 @@ jobs:
               inputs: { pr_number: String(context.issue.number) },
             });
 
-      # ── /stop-preview → cancel the running job ────────────────────────────
-      - name: Cancel running preview
+      # ── /stop-preview → dispatch with stop=true to cancel via concurrency group
+      - name: Stop preview
         if: |
           steps.perm.outputs.result == 'true' &&
           startsWith(github.event.comment.body, '/stop-preview')
         uses: actions/github-script@v7
-        env:
-          PR_NUMBER: ${{ github.event.issue.number }}
         with:
           github-token: ${{ secrets.GITHUB_TOKEN }}
           script: |
-            const prNumber = process.env.PR_NUMBER;
-            const targetName = `Preview PR #${prNumber}`;
-
-            // Find the in-progress run for this PR
-            const { data } = await github.rest.actions.listWorkflowRuns({
+            await github.rest.actions.createWorkflowDispatch({
               owner: context.repo.owner,
               repo: context.repo.repo,
               workflow_id: 'preview-run.yml',
-              status: 'in_progress',
-              per_page: 50,
+              ref: context.payload.repository.default_branch,
+              inputs: { pr_number: String(context.issue.number), stop: 'true' },
             });
-
-            const run = data.workflow_runs.find(r => r.name === targetName);
-            if (run) {
-              await github.rest.actions.cancelWorkflowRun({
-                owner: context.repo.owner,
-                repo: context.repo.repo,
-                run_id: run.id,
-              });
-              core.info(`Cancelled run ${run.id} (${targetName})`);
-            } else {
-              // Also check queued
-              const { data: queued } = await github.rest.actions.listWorkflowRuns({
-                owner: context.repo.owner,
-                repo: context.repo.repo,
-                workflow_id: 'preview-run.yml',
-                status: 'queued',
-                per_page: 50,
-              });
-              const queuedRun = queued.workflow_runs.find(r => r.name === targetName);
-              if (queuedRun) {
-                await github.rest.actions.cancelWorkflowRun({
-                  owner: context.repo.owner,
-                  repo: context.repo.repo,
-                  run_id: queuedRun.id,
-                });
-              } else {
-                await github.rest.issues.createComment({
-                  owner: context.repo.owner,
-                  repo: context.repo.repo,
-                  issue_number: parseInt(prNumber),
-                  body: `ℹ️ No active preview environment found for PR #${prNumber}.`,
-                });
-              }
-            }
 
   cancel-on-close:
     name: Cancel preview on PR close
     runs-on: ubuntu-latest
     if: github.event_name == 'pull_request' && github.event.action == 'closed'
     steps:
-      - name: Cancel running preview
+      - name: Stop preview
         uses: actions/github-script@v7
         with:
           script: |
-            const prNumber = context.payload.pull_request.number;
-            const targetName = `Preview PR #${prNumber}`;
-            for (const status of ['in_progress', 'queued']) {
-              const { data } = await github.rest.actions.listWorkflowRuns({
-                owner: context.repo.owner,
-                repo: context.repo.repo,
-                workflow_id: 'preview-run.yml',
-                status,
-                per_page: 50,
-              });
-              const run = data.workflow_runs.find(r => r.name === targetName);
-              if (run) {
-                await github.rest.actions.cancelWorkflowRun({
-                  owner: context.repo.owner,
-                  repo: context.repo.repo,
-                  run_id: run.id,
-                });
-                core.info(`Cancelled ${status} run ${run.id}`);
-              }
-            }
+            await github.rest.actions.createWorkflowDispatch({
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              workflow_id: 'preview-run.yml',
+              ref: 'main',
+              inputs: { pr_number: String(context.payload.pull_request.number), stop: 'true' },
+            });
