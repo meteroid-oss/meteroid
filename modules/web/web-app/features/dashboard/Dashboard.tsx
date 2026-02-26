@@ -33,7 +33,7 @@ export const Dashboard = () => {
     return today.toLocaleDateString('en-US', options)
   }, [])
 
-  // morning, afternoon or evening
+  // morning, afternoon or evening /
   const timeOfDay = useMemo(() => {
     const hour = new Date().getHours()
     if (hour > 18 || hour < 4) {
