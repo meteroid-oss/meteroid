@@ -30,1054 +30,184 @@ pub async fn run_plans_seed(pool: &PgPool) {
 
     conn.transaction(|tx| {
         async move {
-            // leetcode
+            // === Shared Product Catalog ===
+            seed_product_catalog(tx).await?;
 
-            PlanRowNew {
-                id: ids::PLAN_LEETCODE_ID,
-                name: "LeetCode".to_string(),
-                description: None,
-                created_by: ids::USER_ID,
-                tenant_id: ids::TENANT_ID,
-                product_family_id: ids::PRODUCT_FAMILY_ID,
-                plan_type: PlanTypeEnum::Standard,
-                status: PlanStatusEnum::Active,
-            }
-            .insert(tx)
-            .await?;
+            // === Plans ===
 
-            PlanVersionRowNew {
-                id: ids::PLAN_VERSION_1_LEETCODE_ID,
-                is_draft_version: false,
-                plan_id: ids::PLAN_LEETCODE_ID,
-                version: 1,
-                trial_duration_days: None,
-                tenant_id: ids::TENANT_ID,
-                period_start_day: None,
-                net_terms: 0,
-                currency: "EUR".to_string(),
-                billing_cycles: None,
-                created_by: ids::USER_ID,
-                trialing_plan_id: None,
-                trial_is_free: true,
-                uses_product_pricing: true,
-            }
-            .insert(tx)
-            .await?;
-
-            PlanVersionRowNew {
-                id: ids::PLAN_VERSION_2_LEETCODE_ID,
-                is_draft_version: true,
-                plan_id: ids::PLAN_LEETCODE_ID,
-                version: 2,
-                trial_duration_days: None,
-                tenant_id: ids::TENANT_ID,
-                period_start_day: None,
-                net_terms: 0,
-                currency: "EUR".to_string(),
-                billing_cycles: None,
-                created_by: ids::USER_ID,
-                trialing_plan_id: None,
-                trial_is_free: true,
-                uses_product_pricing: true,
-            }
-            .insert(tx)
-            .await?;
-
-            PlanRowPatch {
-                id: ids::PLAN_LEETCODE_ID,
-                tenant_id: ids::TENANT_ID,
-                name: None,
-                description: None,
-                active_version_id: Some(Some(ids::PLAN_VERSION_1_LEETCODE_ID)),
-                draft_version_id: Some(Some(ids::PLAN_VERSION_2_LEETCODE_ID)),
-                self_service_rank: None,
-            }
-            .update(tx)
-            .await?;
-
-            ProductRowNew {
-                id: ids::PRODUCT_LEETCODE_RATE_ID,
-                name: "Subscription Rate".to_string(),
-                description: None,
-                created_by: ids::USER_ID,
-                tenant_id: ids::TENANT_ID,
-                product_family_id: ids::PRODUCT_FAMILY_ID,
-                fee_type: DieselFeeTypeEnum::Rate,
-                fee_structure: serde_json::to_value(&FeeStructure::Rate {}).unwrap(),
-                catalog: true,
-            }
-            .insert(tx)
-            .await?;
-
-            PriceComponentRowNew {
-                id: ids::COMP_LEETCODE_RATE_ID,
-                name: "Subscription Rate".to_string(),
-                legacy_fee: Some(
-                    FeeType::Rate {
-                        rates: vec![TermRate {
-                            price: rust_decimal::Decimal::new(3500, 2),
-                            term: BillingPeriodEnum::Monthly,
-                        }],
-                    }
-                    .try_into()
-                    .unwrap(),
-                ),
-                plan_version_id: ids::PLAN_VERSION_1_LEETCODE_ID,
-                product_id: Some(ids::PRODUCT_LEETCODE_RATE_ID),
-                billable_metric_id: None,
-            }
-            .insert(tx)
-            .await?;
-
-            PriceRowNew {
-                id: ids::PRICE_LEETCODE_RATE_ID,
-                product_id: ids::PRODUCT_LEETCODE_RATE_ID,
-                cadence: DieselBillingPeriodEnum::Monthly,
-                currency: "EUR".to_string(),
-                pricing: serde_json::to_value(&Pricing::Rate {
-                    rate: Decimal::new(3500, 2),
-                })
-                .unwrap(),
-                tenant_id: ids::TENANT_ID,
-                created_by: ids::USER_ID,
-                catalog: true,
-            }
-            .insert(tx)
-            .await?;
-
-            PlanComponentPriceRowNew::insert_batch(
-                tx,
-                &[PlanComponentPriceRowNew {
-                    plan_component_id: ids::COMP_LEETCODE_RATE_ID,
-                    price_id: ids::PRICE_LEETCODE_RATE_ID,
-                }],
+            PlanSeed::new(
+                ids::PLAN_LEETCODE_ID,
+                "LeetCode",
+                ids::PLAN_VERSION_1_LEETCODE_ID,
             )
+            .draft(ids::PLAN_VERSION_2_LEETCODE_ID, 2)
+            .components(vec![SeedComp::rate(
+                ids::COMP_LEETCODE_RATE_ID,
+                "Subscription Rate",
+                ids::PRODUCT_PLATFORM_FEE_ID,
+                ids::PRICE_LEETCODE_RATE_ID,
+                DieselBillingPeriodEnum::Monthly,
+                Decimal::new(3500, 2),
+            )])
+            .seed(tx)
             .await?;
 
-            // notion
-
-            PlanRowNew {
-                id: ids::PLAN_NOTION_ID,
-                name: "Notion".to_string(),
-                description: None,
-                created_by: ids::USER_ID,
-                tenant_id: ids::TENANT_ID,
-                product_family_id: ids::PRODUCT_FAMILY_ID,
-                plan_type: PlanTypeEnum::Standard,
-                status: PlanStatusEnum::Active,
-            }
-            .insert(tx)
-            .await?;
-
-            PlanVersionRowNew {
-                id: ids::PLAN_VERSION_NOTION_ID,
-                is_draft_version: false,
-                plan_id: ids::PLAN_NOTION_ID,
-                version: 1,
-                trial_duration_days: None,
-                tenant_id: ids::TENANT_ID,
-                period_start_day: None,
-                net_terms: 0,
-                currency: "EUR".to_string(),
-                billing_cycles: None,
-                created_by: ids::USER_ID,
-                trialing_plan_id: None,
-                trial_is_free: true,
-                uses_product_pricing: true,
-            }
-            .insert(tx)
-            .await?;
-
-            PlanRowPatch {
-                id: ids::PLAN_NOTION_ID,
-                tenant_id: ids::TENANT_ID,
-                name: None,
-                description: None,
-                active_version_id: Some(Some(ids::PLAN_VERSION_NOTION_ID)),
-                draft_version_id: None,
-                self_service_rank: None,
-            }
-            .update(tx)
-            .await?;
-
-            ProductRowNew {
-                id: ids::PRODUCT_NOTION_SEATS_ID,
-                name: "Seats".to_string(),
-                description: None,
-                created_by: ids::USER_ID,
-                tenant_id: ids::TENANT_ID,
-                product_family_id: ids::PRODUCT_FAMILY_ID,
-                fee_type: DieselFeeTypeEnum::Slot,
-                fee_structure: serde_json::to_value(&FeeStructure::Slot {
-                    unit_name: "Seats".to_string(),
-                    upgrade_policy: UpgradePolicy::Prorated,
-                    downgrade_policy: DowngradePolicy::RemoveAtEndOfPeriod,
-                })
-                .unwrap(),
-                catalog: true,
-            }
-            .insert(tx)
-            .await?;
-
-            PriceComponentRowNew {
-                id: ids::COMP_NOTION_SEATS_ID,
-                name: "Seats".to_string(),
-                legacy_fee: Some(
-                    FeeType::Slot {
-                        quota: None,
-                        rates: vec![
-                            TermRate {
-                                price: rust_decimal::Decimal::new(1000, 2),
-                                term: BillingPeriodEnum::Monthly,
-                            },
-                            TermRate {
-                                price: rust_decimal::Decimal::new(9600, 2),
-                                term: BillingPeriodEnum::Annual,
-                            },
-                        ],
-                        slot_unit_name: "Seats".to_string(),
-                        minimum_count: Some(1),
-                        upgrade_policy: UpgradePolicy::Prorated,
-                        downgrade_policy: DowngradePolicy::RemoveAtEndOfPeriod,
-                    }
-                    .try_into()
-                    .unwrap(),
-                ),
-                plan_version_id: ids::PLAN_VERSION_NOTION_ID,
-                product_id: Some(ids::PRODUCT_NOTION_SEATS_ID),
-                billable_metric_id: None,
-            }
-            .insert(tx)
-            .await?;
-
-            PriceRowNew {
-                id: ids::PRICE_NOTION_SEATS_MONTHLY_ID,
-                product_id: ids::PRODUCT_NOTION_SEATS_ID,
-                cadence: DieselBillingPeriodEnum::Monthly,
-                currency: "EUR".to_string(),
-                pricing: serde_json::to_value(&Pricing::Slot {
-                    unit_rate: Decimal::new(1000, 2),
-                    min_slots: Some(1),
-                    max_slots: None,
-                })
-                .unwrap(),
-                tenant_id: ids::TENANT_ID,
-                created_by: ids::USER_ID,
-                catalog: true,
-            }
-            .insert(tx)
-            .await?;
-
-            PriceRowNew {
-                id: ids::PRICE_NOTION_SEATS_ANNUAL_ID,
-                product_id: ids::PRODUCT_NOTION_SEATS_ID,
-                cadence: DieselBillingPeriodEnum::Annual,
-                currency: "EUR".to_string(),
-                pricing: serde_json::to_value(&Pricing::Slot {
-                    unit_rate: Decimal::new(9600, 2),
-                    min_slots: Some(1),
-                    max_slots: None,
-                })
-                .unwrap(),
-                tenant_id: ids::TENANT_ID,
-                created_by: ids::USER_ID,
-                catalog: true,
-            }
-            .insert(tx)
-            .await?;
-
-            PlanComponentPriceRowNew::insert_batch(
-                tx,
-                &[
-                    PlanComponentPriceRowNew {
-                        plan_component_id: ids::COMP_NOTION_SEATS_ID,
-                        price_id: ids::PRICE_NOTION_SEATS_MONTHLY_ID,
-                    },
-                    PlanComponentPriceRowNew {
-                        plan_component_id: ids::COMP_NOTION_SEATS_ID,
-                        price_id: ids::PRICE_NOTION_SEATS_ANNUAL_ID,
-                    },
-                ],
-            )
-            .await?;
-
-            // supabase
-
-            PlanRowNew {
-                id: ids::PLAN_SUPABASE_ID,
-                name: "Supabase".to_string(),
-                description: None,
-                created_by: ids::USER_ID,
-                tenant_id: ids::TENANT_ID,
-                product_family_id: ids::PRODUCT_FAMILY_ID,
-                plan_type: PlanTypeEnum::Standard,
-                status: PlanStatusEnum::Active,
-            }
-            .insert(tx)
-            .await?;
-
-            PlanVersionRowNew {
-                id: ids::PLAN_VERSION_SUPABASE_ID,
-                is_draft_version: false,
-                plan_id: ids::PLAN_SUPABASE_ID,
-                version: 3,
-                trial_duration_days: None,
-                tenant_id: ids::TENANT_ID,
-                period_start_day: None,
-                net_terms: 0,
-                currency: "EUR".to_string(),
-                billing_cycles: None,
-                created_by: ids::USER_ID,
-                trialing_plan_id: None,
-                trial_is_free: true,
-                uses_product_pricing: true,
-            }
-            .insert(tx)
-            .await?;
-
-            PlanRowPatch {
-                id: ids::PLAN_SUPABASE_ID,
-                tenant_id: ids::TENANT_ID,
-                name: None,
-                description: None,
-                active_version_id: Some(Some(ids::PLAN_VERSION_SUPABASE_ID)),
-                draft_version_id: None,
-                self_service_rank: None,
-            }
-            .update(tx)
-            .await?;
-
-            ProductRowNew {
-                id: ids::PRODUCT_SUPABASE_ORG_SLOTS_ID,
-                name: "Organization Slots".to_string(),
-                description: None,
-                created_by: ids::USER_ID,
-                tenant_id: ids::TENANT_ID,
-                product_family_id: ids::PRODUCT_FAMILY_ID,
-                fee_type: DieselFeeTypeEnum::Slot,
-                fee_structure: serde_json::to_value(&FeeStructure::Slot {
-                    unit_name: "Organization".to_string(),
-                    upgrade_policy: UpgradePolicy::Prorated,
-                    downgrade_policy: DowngradePolicy::RemoveAtEndOfPeriod,
-                })
-                .unwrap(),
-                catalog: true,
-            }
-            .insert(tx)
-            .await?;
-
-            PriceComponentRowNew {
-                id: ids::COMP_SUPABASE_ORG_SLOTS_ID,
-                name: "Organization Slots".to_string(),
-                legacy_fee: Some(
-                    FeeType::Slot {
-                        quota: None,
-                        rates: vec![TermRate {
-                            price: rust_decimal::Decimal::new(2500, 2),
-                            term: BillingPeriodEnum::Monthly,
-                        }],
-                        slot_unit_name: "Organization".to_string(),
-                        minimum_count: Some(1),
-                        upgrade_policy: UpgradePolicy::Prorated,
-                        downgrade_policy: DowngradePolicy::RemoveAtEndOfPeriod,
-                    }
-                    .try_into()
-                    .unwrap(),
-                ),
-                plan_version_id: ids::PLAN_VERSION_SUPABASE_ID,
-                product_id: Some(ids::PRODUCT_SUPABASE_ORG_SLOTS_ID),
-                billable_metric_id: None,
-            }
-            .insert(tx)
-            .await?;
-
-            PriceRowNew {
-                id: ids::PRICE_SUPABASE_ORG_SLOTS_ID,
-                product_id: ids::PRODUCT_SUPABASE_ORG_SLOTS_ID,
-                cadence: DieselBillingPeriodEnum::Monthly,
-                currency: "EUR".to_string(),
-                pricing: serde_json::to_value(&Pricing::Slot {
-                    unit_rate: Decimal::new(2500, 2),
-                    min_slots: Some(1),
-                    max_slots: None,
-                })
-                .unwrap(),
-                tenant_id: ids::TENANT_ID,
-                created_by: ids::USER_ID,
-                catalog: true,
-            }
-            .insert(tx)
-            .await?;
-
-            PlanComponentPriceRowNew::insert_batch(
-                tx,
-                &[PlanComponentPriceRowNew {
-                    plan_component_id: ids::COMP_SUPABASE_ORG_SLOTS_ID,
-                    price_id: ids::PRICE_SUPABASE_ORG_SLOTS_ID,
-                }],
-            )
-            .await?;
-
-            // === Trial-related plans ===
-
-            // Free plan (for downgrade tests)
-            PlanRowNew {
-                id: ids::PLAN_FREE_ID,
-                name: "Free".to_string(),
-                description: Some("Free tier plan".to_string()),
-                created_by: ids::USER_ID,
-                tenant_id: ids::TENANT_ID,
-                product_family_id: ids::PRODUCT_FAMILY_ID,
-                plan_type: PlanTypeEnum::Free,
-                status: PlanStatusEnum::Active,
-            }
-            .insert(tx)
-            .await?;
-
-            PlanVersionRowNew {
-                id: ids::PLAN_VERSION_FREE_ID,
-                is_draft_version: false,
-                plan_id: ids::PLAN_FREE_ID,
-                version: 1,
-                trial_duration_days: None,
-                tenant_id: ids::TENANT_ID,
-                period_start_day: None,
-                net_terms: 0,
-                currency: "EUR".to_string(),
-                billing_cycles: None,
-                created_by: ids::USER_ID,
-                trialing_plan_id: None,
-                trial_is_free: true,
-                uses_product_pricing: true,
-            }
-            .insert(tx)
-            .await?;
-
-            PlanRowPatch {
-                id: ids::PLAN_FREE_ID,
-                tenant_id: ids::TENANT_ID,
-                name: None,
-                description: None,
-                active_version_id: Some(Some(ids::PLAN_VERSION_FREE_ID)),
-                draft_version_id: None,
-                self_service_rank: None,
-            }
-            .update(tx)
-            .await?;
-
-            // Enterprise plan (for trialing_plan tests)
-            PlanRowNew {
-                id: ids::PLAN_ENTERPRISE_ID,
-                name: "Enterprise".to_string(),
-                description: Some("Enterprise tier plan".to_string()),
-                created_by: ids::USER_ID,
-                tenant_id: ids::TENANT_ID,
-                product_family_id: ids::PRODUCT_FAMILY_ID,
-                plan_type: PlanTypeEnum::Standard,
-                status: PlanStatusEnum::Active,
-            }
-            .insert(tx)
-            .await?;
-
-            PlanVersionRowNew {
-                id: ids::PLAN_VERSION_ENTERPRISE_ID,
-                is_draft_version: false,
-                plan_id: ids::PLAN_ENTERPRISE_ID,
-                version: 1,
-                trial_duration_days: None,
-                tenant_id: ids::TENANT_ID,
-                period_start_day: None,
-                net_terms: 0,
-                currency: "EUR".to_string(),
-                billing_cycles: None,
-                created_by: ids::USER_ID,
-                trialing_plan_id: None,
-                trial_is_free: true,
-                uses_product_pricing: true,
-            }
-            .insert(tx)
-            .await?;
-
-            PlanRowPatch {
-                id: ids::PLAN_ENTERPRISE_ID,
-                tenant_id: ids::TENANT_ID,
-                name: None,
-                description: None,
-                active_version_id: Some(Some(ids::PLAN_VERSION_ENTERPRISE_ID)),
-                draft_version_id: None,
-                self_service_rank: None,
-            }
-            .update(tx)
-            .await?;
-
-            // Free plan with trial configuration
-            // This plan has:
-            // - 7 day trial
-            // - trialing_plan_id pointing to Enterprise (during trial, use Enterprise features)
-            // After trial ends, subscription continues on Free plan
-            PlanRowNew {
-                id: ids::PLAN_PRO_WITH_TRIAL_ID,
-                name: "Free with Trial".to_string(),
-                description: Some("Free plan with trial period".to_string()),
-                created_by: ids::USER_ID,
-                tenant_id: ids::TENANT_ID,
-                product_family_id: ids::PRODUCT_FAMILY_ID,
-                plan_type: PlanTypeEnum::Free,
-                status: PlanStatusEnum::Active,
-            }
-            .insert(tx)
-            .await?;
-
-            PlanVersionRowNew {
-                id: ids::PLAN_VERSION_PRO_WITH_TRIAL_ID,
-                is_draft_version: false,
-                plan_id: ids::PLAN_PRO_WITH_TRIAL_ID,
-                version: 1,
-                trial_duration_days: Some(7),
-                tenant_id: ids::TENANT_ID,
-                period_start_day: None,
-                net_terms: 0,
-                currency: "EUR".to_string(),
-                billing_cycles: None,
-                created_by: ids::USER_ID,
-                trialing_plan_id: Some(ids::PLAN_ENTERPRISE_ID),
-                trial_is_free: true,
-                uses_product_pricing: true,
-            }
-            .insert(tx)
-            .await?;
-
-            PlanRowPatch {
-                id: ids::PLAN_PRO_WITH_TRIAL_ID,
-                tenant_id: ids::TENANT_ID,
-                name: None,
-                description: None,
-                active_version_id: Some(Some(ids::PLAN_VERSION_PRO_WITH_TRIAL_ID)),
-                draft_version_id: None,
-                self_service_rank: None,
-            }
-            .update(tx)
-            .await?;
-
-            // === Paid plan with FREE trial ===
-            // Standard plan type with trial_is_free = true
-            // After trial ends without payment method: TrialExpired
-            // After trial ends with payment method: Active + invoice
-            PlanRowNew {
-                id: ids::PLAN_PAID_FREE_TRIAL_ID,
-                name: "Paid with Free Trial".to_string(),
-                description: Some("Paid plan with 14-day free trial".to_string()),
-                created_by: ids::USER_ID,
-                tenant_id: ids::TENANT_ID,
-                product_family_id: ids::PRODUCT_FAMILY_ID,
-                plan_type: PlanTypeEnum::Standard,
-                status: PlanStatusEnum::Active,
-            }
-            .insert(tx)
-            .await?;
-
-            PlanVersionRowNew {
-                id: ids::PLAN_VERSION_PAID_FREE_TRIAL_ID,
-                is_draft_version: false,
-                plan_id: ids::PLAN_PAID_FREE_TRIAL_ID,
-                version: 1,
-                trial_duration_days: Some(14),
-                tenant_id: ids::TENANT_ID,
-                period_start_day: None,
-                net_terms: 0,
-                currency: "EUR".to_string(),
-                billing_cycles: None,
-                created_by: ids::USER_ID,
-                trialing_plan_id: Some(ids::PLAN_ENTERPRISE_ID), // Enterprise features during trial
-                trial_is_free: true,                             // Free trial
-                uses_product_pricing: true,
-            }
-            .insert(tx)
-            .await?;
-
-            PlanRowPatch {
-                id: ids::PLAN_PAID_FREE_TRIAL_ID,
-                tenant_id: ids::TENANT_ID,
-                name: None,
-                description: None,
-                active_version_id: Some(Some(ids::PLAN_VERSION_PAID_FREE_TRIAL_ID)),
-                draft_version_id: None,
-                self_service_rank: None,
-            }
-            .update(tx)
-            .await?;
-
-            ProductRowNew {
-                id: ids::PRODUCT_PAID_FREE_TRIAL_RATE_ID,
-                name: "Monthly Rate".to_string(),
-                description: None,
-                created_by: ids::USER_ID,
-                tenant_id: ids::TENANT_ID,
-                product_family_id: ids::PRODUCT_FAMILY_ID,
-                fee_type: DieselFeeTypeEnum::Rate,
-                fee_structure: serde_json::to_value(&FeeStructure::Rate {}).unwrap(),
-                catalog: true,
-            }
-            .insert(tx)
-            .await?;
-
-            PriceComponentRowNew {
-                id: ids::COMP_PAID_FREE_TRIAL_RATE_ID,
-                name: "Monthly Rate".to_string(),
-                legacy_fee: Some(
-                    FeeType::Rate {
-                        rates: vec![TermRate {
-                            price: rust_decimal::Decimal::new(4900, 2), // $49/month
-                            term: BillingPeriodEnum::Monthly,
-                        }],
-                    }
-                    .try_into()
-                    .unwrap(),
-                ),
-                plan_version_id: ids::PLAN_VERSION_PAID_FREE_TRIAL_ID,
-                product_id: Some(ids::PRODUCT_PAID_FREE_TRIAL_RATE_ID),
-                billable_metric_id: None,
-            }
-            .insert(tx)
-            .await?;
-
-            PriceRowNew {
-                id: ids::PRICE_PAID_FREE_TRIAL_RATE_ID,
-                product_id: ids::PRODUCT_PAID_FREE_TRIAL_RATE_ID,
-                cadence: DieselBillingPeriodEnum::Monthly,
-                currency: "EUR".to_string(),
-                pricing: serde_json::to_value(&Pricing::Rate {
-                    rate: Decimal::new(4900, 2),
-                })
-                .unwrap(),
-                tenant_id: ids::TENANT_ID,
-                created_by: ids::USER_ID,
-                catalog: true,
-            }
-            .insert(tx)
-            .await?;
-
-            PlanComponentPriceRowNew::insert_batch(
-                tx,
-                &[PlanComponentPriceRowNew {
-                    plan_component_id: ids::COMP_PAID_FREE_TRIAL_RATE_ID,
-                    price_id: ids::PRICE_PAID_FREE_TRIAL_RATE_ID,
-                }],
-            )
-            .await?;
-
-            // === Paid plan with PAID trial ===
-            // Standard plan type with trial_is_free = false
-            // Bills immediately during trial but gives Enterprise features
-            PlanRowNew {
-                id: ids::PLAN_PAID_TRIAL_ID,
-                name: "Paid with Paid Trial".to_string(),
-                description: Some(
-                    "Paid plan with 7-day paid trial (Enterprise features)".to_string(),
-                ),
-                created_by: ids::USER_ID,
-                tenant_id: ids::TENANT_ID,
-                product_family_id: ids::PRODUCT_FAMILY_ID,
-                plan_type: PlanTypeEnum::Standard,
-                status: PlanStatusEnum::Active,
-            }
-            .insert(tx)
-            .await?;
-
-            PlanVersionRowNew {
-                id: ids::PLAN_VERSION_PAID_TRIAL_ID,
-                is_draft_version: false,
-                plan_id: ids::PLAN_PAID_TRIAL_ID,
-                version: 1,
-                trial_duration_days: Some(7),
-                tenant_id: ids::TENANT_ID,
-                period_start_day: None,
-                net_terms: 0,
-                currency: "EUR".to_string(),
-                billing_cycles: None,
-                created_by: ids::USER_ID,
-                trialing_plan_id: Some(ids::PLAN_ENTERPRISE_ID), // Enterprise features during trial
-                trial_is_free: false,                            // Paid trial - bill immediately
-                uses_product_pricing: true,
-            }
-            .insert(tx)
-            .await?;
-
-            PlanRowPatch {
-                id: ids::PLAN_PAID_TRIAL_ID,
-                tenant_id: ids::TENANT_ID,
-                name: None,
-                description: None,
-                active_version_id: Some(Some(ids::PLAN_VERSION_PAID_TRIAL_ID)),
-                draft_version_id: None,
-                self_service_rank: None,
-            }
-            .update(tx)
-            .await?;
-
-            ProductRowNew {
-                id: ids::PRODUCT_PAID_TRIAL_RATE_ID,
-                name: "Monthly Rate".to_string(),
-                description: None,
-                created_by: ids::USER_ID,
-                tenant_id: ids::TENANT_ID,
-                product_family_id: ids::PRODUCT_FAMILY_ID,
-                fee_type: DieselFeeTypeEnum::Rate,
-                fee_structure: serde_json::to_value(&FeeStructure::Rate {}).unwrap(),
-                catalog: true,
-            }
-            .insert(tx)
-            .await?;
-
-            PriceComponentRowNew {
-                id: ids::COMP_PAID_TRIAL_RATE_ID,
-                name: "Monthly Rate".to_string(),
-                legacy_fee: Some(
-                    FeeType::Rate {
-                        rates: vec![TermRate {
-                            price: rust_decimal::Decimal::new(9900, 2), // $99/month
-                            term: BillingPeriodEnum::Monthly,
-                        }],
-                    }
-                    .try_into()
-                    .unwrap(),
-                ),
-                plan_version_id: ids::PLAN_VERSION_PAID_TRIAL_ID,
-                product_id: Some(ids::PRODUCT_PAID_TRIAL_RATE_ID),
-                billable_metric_id: None,
-            }
-            .insert(tx)
-            .await?;
-
-            PriceRowNew {
-                id: ids::PRICE_PAID_TRIAL_RATE_ID,
-                product_id: ids::PRODUCT_PAID_TRIAL_RATE_ID,
-                cadence: DieselBillingPeriodEnum::Monthly,
-                currency: "EUR".to_string(),
-                pricing: serde_json::to_value(&Pricing::Rate {
-                    rate: Decimal::new(9900, 2),
-                })
-                .unwrap(),
-                tenant_id: ids::TENANT_ID,
-                created_by: ids::USER_ID,
-                catalog: true,
-            }
-            .insert(tx)
-            .await?;
-
-            PlanComponentPriceRowNew::insert_batch(
-                tx,
-                &[PlanComponentPriceRowNew {
-                    plan_component_id: ids::COMP_PAID_TRIAL_RATE_ID,
-                    price_id: ids::PRICE_PAID_TRIAL_RATE_ID,
-                }],
-            )
-            .await?;
-
-            // === Product-backed plans (Starter & Pro) ===
-            // These plans use products + prices (new model) instead of legacy FeeType-only.
-
-            // Shared products across Starter & Pro
-            ProductRowNew {
-                id: ids::PRODUCT_PLATFORM_FEE_ID,
-                name: "Platform Fee".to_string(),
-                description: None,
-                created_by: ids::USER_ID,
-                tenant_id: ids::TENANT_ID,
-                product_family_id: ids::PRODUCT_FAMILY_ID,
-                fee_type: DieselFeeTypeEnum::Rate,
-                fee_structure: serde_json::to_value(&FeeStructure::Rate {}).unwrap(),
-                catalog: true,
-            }
-            .insert(tx)
-            .await?;
-
-            ProductRowNew {
-                id: ids::PRODUCT_SEATS_ID,
-                name: "Seats".to_string(),
-                description: None,
-                created_by: ids::USER_ID,
-                tenant_id: ids::TENANT_ID,
-                product_family_id: ids::PRODUCT_FAMILY_ID,
-                fee_type: DieselFeeTypeEnum::Slot,
-                fee_structure: serde_json::to_value(&FeeStructure::Slot {
-                    unit_name: "seat".to_string(),
-                    upgrade_policy: UpgradePolicy::Prorated,
-                    downgrade_policy: DowngradePolicy::RemoveAtEndOfPeriod,
-                })
-                .unwrap(),
-                catalog: true,
-            }
-            .insert(tx)
-            .await?;
-
-            // --- Starter Plan ---
-            seed_product_backed_plan(
-                tx,
-                SeedPlan {
-                    plan_id: ids::PLAN_STARTER_ID,
-                    plan_name: "Starter",
-                    plan_version_id: ids::PLAN_VERSION_STARTER_ID,
-                    draft_version: None,
-                    currency: "EUR",
-                    components: vec![
-                        SeedComponent::rate(
-                            ids::COMP_STARTER_PLATFORM_FEE_ID,
-                            "Platform Fee",
-                            ids::PRODUCT_PLATFORM_FEE_ID,
-                            ids::PRICE_STARTER_PLATFORM_FEE_ID,
-                            DieselBillingPeriodEnum::Monthly,
-                            Decimal::new(2900, 2),
-                        ),
-                        SeedComponent::slot(
-                            ids::COMP_STARTER_SEATS_ID,
-                            "Seats",
-                            ids::PRODUCT_SEATS_ID,
-                            ids::PRICE_STARTER_SEATS_ID,
+            PlanSeed::new(ids::PLAN_NOTION_ID, "Notion", ids::PLAN_VERSION_NOTION_ID)
+                .components(vec![SeedComp::slot_multi(
+                    ids::COMP_NOTION_SEATS_ID,
+                    "Seats",
+                    ids::PRODUCT_SEATS_ID,
+                    vec![
+                        (
+                            ids::PRICE_NOTION_SEATS_MONTHLY_ID,
                             DieselBillingPeriodEnum::Monthly,
                             Decimal::new(1000, 2),
                         ),
-                    ],
-                },
-            )
-            .await?;
-
-            // --- Pro Plan ---
-            seed_product_backed_plan(
-                tx,
-                SeedPlan {
-                    plan_id: ids::PLAN_PRO_ID,
-                    plan_name: "Pro",
-                    plan_version_id: ids::PLAN_VERSION_PRO_ID,
-                    draft_version: Some(SeedDraftVersion {
-                        id: ids::PLAN_VERSION_PRO_DRAFT_ID,
-                        version: 2,
-                    }),
-                    currency: "EUR",
-                    components: vec![
-                        SeedComponent::rate(
-                            ids::COMP_PRO_PLATFORM_FEE_ID,
-                            "Platform Fee",
-                            ids::PRODUCT_PLATFORM_FEE_ID,
-                            ids::PRICE_PRO_PLATFORM_FEE_ID,
-                            DieselBillingPeriodEnum::Monthly,
-                            Decimal::new(9900, 2),
-                        ),
-                        SeedComponent::slot(
-                            ids::COMP_PRO_SEATS_ID,
-                            "Seats",
-                            ids::PRODUCT_SEATS_ID,
-                            ids::PRICE_PRO_SEATS_ID,
-                            DieselBillingPeriodEnum::Monthly,
-                            Decimal::new(2500, 2),
+                        (
+                            ids::PRICE_NOTION_SEATS_ANNUAL_ID,
+                            DieselBillingPeriodEnum::Annual,
+                            Decimal::new(9600, 2),
                         ),
                     ],
-                },
+                )])
+                .seed(tx)
+                .await?;
+
+            PlanSeed::new(ids::PLAN_FREE_ID, "Free", ids::PLAN_VERSION_FREE_ID)
+                .free()
+                .seed(tx)
+                .await?;
+
+            PlanSeed::new(
+                ids::PLAN_ENTERPRISE_ID,
+                "Enterprise",
+                ids::PLAN_VERSION_ENTERPRISE_ID,
             )
+            .seed(tx)
             .await?;
 
-            // --- USD Plan (for currency mismatch test) ---
-
-            PlanRowNew {
-                id: ids::PLAN_USD_ID,
-                name: "USD Plan".to_string(),
-                description: Some("Plan in USD for currency mismatch test".to_string()),
-                created_by: ids::USER_ID,
-                tenant_id: ids::TENANT_ID,
-                product_family_id: ids::PRODUCT_FAMILY_ID,
-                plan_type: PlanTypeEnum::Standard,
-                status: PlanStatusEnum::Active,
-            }
-            .insert(tx)
+            PlanSeed::new(
+                ids::PLAN_PRO_WITH_TRIAL_ID,
+                "Free with Trial",
+                ids::PLAN_VERSION_PRO_WITH_TRIAL_ID,
+            )
+            .free()
+            .trial(7, ids::PLAN_ENTERPRISE_ID, true)
+            .seed(tx)
             .await?;
 
-            PlanVersionRowNew {
-                id: ids::PLAN_VERSION_USD_ID,
-                is_draft_version: false,
-                plan_id: ids::PLAN_USD_ID,
-                version: 1,
-                trial_duration_days: None,
-                tenant_id: ids::TENANT_ID,
-                period_start_day: None,
-                net_terms: 0,
-                currency: "USD".to_string(),
-                billing_cycles: None,
-                created_by: ids::USER_ID,
-                trialing_plan_id: None,
-                trial_is_free: true,
-                uses_product_pricing: true,
-            }
-            .insert(tx)
+            PlanSeed::new(
+                ids::PLAN_PAID_FREE_TRIAL_ID,
+                "Paid with Free Trial",
+                ids::PLAN_VERSION_PAID_FREE_TRIAL_ID,
+            )
+            .trial(14, ids::PLAN_ENTERPRISE_ID, true)
+            .components(vec![SeedComp::rate(
+                ids::COMP_PAID_FREE_TRIAL_RATE_ID,
+                "Monthly Rate",
+                ids::PRODUCT_PLATFORM_FEE_ID,
+                ids::PRICE_PAID_FREE_TRIAL_RATE_ID,
+                DieselBillingPeriodEnum::Monthly,
+                Decimal::new(4900, 2),
+            )])
+            .seed(tx)
             .await?;
 
-            PlanRowPatch {
-                id: ids::PLAN_USD_ID,
-                tenant_id: ids::TENANT_ID,
-                name: None,
-                description: None,
-                active_version_id: Some(Some(ids::PLAN_VERSION_USD_ID)),
-                draft_version_id: None,
-                self_service_rank: None,
-            }
-            .update(tx)
+            PlanSeed::new(
+                ids::PLAN_PAID_TRIAL_ID,
+                "Paid with Paid Trial",
+                ids::PLAN_VERSION_PAID_TRIAL_ID,
+            )
+            .trial(7, ids::PLAN_ENTERPRISE_ID, false)
+            .components(vec![SeedComp::rate(
+                ids::COMP_PAID_TRIAL_RATE_ID,
+                "Monthly Rate",
+                ids::PRODUCT_PLATFORM_FEE_ID,
+                ids::PRICE_PAID_TRIAL_RATE_ID,
+                DieselBillingPeriodEnum::Monthly,
+                Decimal::new(9900, 2),
+            )])
+            .seed(tx)
             .await?;
 
-            // --- Usage Plan (Rate + Usage component for arrear billing tests) ---
-
-            PlanRowNew {
-                id: ids::PLAN_USAGE_ID,
-                name: "Usage Plan".to_string(),
-                description: Some("Plan with rate + usage-based component".to_string()),
-                created_by: ids::USER_ID,
-                tenant_id: ids::TENANT_ID,
-                product_family_id: ids::PRODUCT_FAMILY_ID,
-                plan_type: PlanTypeEnum::Standard,
-                status: PlanStatusEnum::Active,
-            }
-            .insert(tx)
-            .await?;
-
-            PlanVersionRowNew {
-                id: ids::PLAN_VERSION_USAGE_ID,
-                is_draft_version: false,
-                plan_id: ids::PLAN_USAGE_ID,
-                version: 1,
-                trial_duration_days: None,
-                tenant_id: ids::TENANT_ID,
-                period_start_day: None,
-                net_terms: 0,
-                currency: "EUR".to_string(),
-                billing_cycles: None,
-                created_by: ids::USER_ID,
-                trialing_plan_id: None,
-                trial_is_free: true,
-                uses_product_pricing: true,
-            }
-            .insert(tx)
-            .await?;
-
-            PlanRowPatch {
-                id: ids::PLAN_USAGE_ID,
-                tenant_id: ids::TENANT_ID,
-                name: None,
-                description: None,
-                active_version_id: Some(Some(ids::PLAN_VERSION_USAGE_ID)),
-                draft_version_id: None,
-                self_service_rank: None,
-            }
-            .update(tx)
-            .await?;
-
-            // Rate component (EUR 20/month advance) — reuses shared PRODUCT_PLATFORM_FEE_ID
-            PriceComponentRowNew {
-                id: ids::COMP_USAGE_RATE_ID,
-                name: "Platform Fee".to_string(),
-                legacy_fee: Some(
-                    FeeType::Rate {
-                        rates: vec![TermRate {
-                            price: Decimal::new(2000, 2), // EUR 20.00/month
-                            term: BillingPeriodEnum::Monthly,
-                        }],
-                    }
-                    .try_into()
-                    .unwrap(),
+            PlanSeed::new(
+                ids::PLAN_STARTER_ID,
+                "Starter",
+                ids::PLAN_VERSION_STARTER_ID,
+            )
+            .components(vec![
+                SeedComp::rate(
+                    ids::COMP_STARTER_PLATFORM_FEE_ID,
+                    "Platform Fee",
+                    ids::PRODUCT_PLATFORM_FEE_ID,
+                    ids::PRICE_STARTER_PLATFORM_FEE_ID,
+                    DieselBillingPeriodEnum::Monthly,
+                    Decimal::new(2900, 2),
                 ),
-                plan_version_id: ids::PLAN_VERSION_USAGE_ID,
-                product_id: Some(ids::PRODUCT_PLATFORM_FEE_ID),
-                billable_metric_id: None,
-            }
-            .insert(tx)
+                SeedComp::slot(
+                    ids::COMP_STARTER_SEATS_ID,
+                    "Seats",
+                    ids::PRODUCT_SEATS_ID,
+                    ids::PRICE_STARTER_SEATS_ID,
+                    DieselBillingPeriodEnum::Monthly,
+                    Decimal::new(1000, 2),
+                ),
+            ])
+            .seed(tx)
             .await?;
 
-            PriceRowNew {
-                id: ids::PRICE_USAGE_RATE_ID,
-                product_id: ids::PRODUCT_PLATFORM_FEE_ID,
-                cadence: DieselBillingPeriodEnum::Monthly,
-                currency: "EUR".to_string(),
-                pricing: serde_json::to_value(&Pricing::Rate {
-                    rate: Decimal::new(2000, 2),
-                })
-                .unwrap(),
-                tenant_id: ids::TENANT_ID,
-                created_by: ids::USER_ID,
-                catalog: true,
-            }
-            .insert(tx)
-            .await?;
+            PlanSeed::new(ids::PLAN_PRO_ID, "Pro", ids::PLAN_VERSION_PRO_ID)
+                .draft(ids::PLAN_VERSION_PRO_DRAFT_ID, 2)
+                .components(vec![
+                    SeedComp::rate(
+                        ids::COMP_PRO_PLATFORM_FEE_ID,
+                        "Platform Fee",
+                        ids::PRODUCT_PLATFORM_FEE_ID,
+                        ids::PRICE_PRO_PLATFORM_FEE_ID,
+                        DieselBillingPeriodEnum::Monthly,
+                        Decimal::new(9900, 2),
+                    ),
+                    SeedComp::slot(
+                        ids::COMP_PRO_SEATS_ID,
+                        "Seats",
+                        ids::PRODUCT_SEATS_ID,
+                        ids::PRICE_PRO_SEATS_ID,
+                        DieselBillingPeriodEnum::Monthly,
+                        Decimal::new(2500, 2),
+                    ),
+                ])
+                .seed(tx)
+                .await?;
 
-            PlanComponentPriceRowNew::insert_batch(
-                tx,
-                &[PlanComponentPriceRowNew {
-                    plan_component_id: ids::COMP_USAGE_RATE_ID,
-                    price_id: ids::PRICE_USAGE_RATE_ID,
-                }],
-            )
-            .await?;
+            PlanSeed::new(ids::PLAN_USD_ID, "USD Plan", ids::PLAN_VERSION_USD_ID)
+                .currency("USD")
+                .seed(tx)
+                .await?;
 
-            // Bandwidth usage product + component (per-unit EUR 0.10, arrear, linked to METRIC_BANDWIDTH)
-            ProductRowNew {
-                id: ids::PRODUCT_BANDWIDTH_ID,
-                name: "Bandwidth".to_string(),
-                description: None,
-                created_by: ids::USER_ID,
-                tenant_id: ids::TENANT_ID,
-                product_family_id: ids::PRODUCT_FAMILY_ID,
-                fee_type: DieselFeeTypeEnum::Usage,
-                fee_structure: serde_json::to_value(&FeeStructure::Usage {
-                    metric_id: ids::METRIC_BANDWIDTH,
-                    model: UsageModel::PerUnit,
-                })
-                .unwrap(),
-                catalog: true,
-            }
-            .insert(tx)
-            .await?;
-
-            PriceComponentRowNew {
-                id: ids::COMP_USAGE_BANDWIDTH_ID,
-                name: "Bandwidth".to_string(),
-                legacy_fee: Some(
-                    FeeType::Usage {
-                        metric_id: ids::METRIC_BANDWIDTH,
-                        pricing: UsagePricingModel::PerUnit {
-                            rate: Decimal::new(10, 2), // EUR 0.10/unit
+            PlanSeed::new(ids::PLAN_USAGE_ID, "Usage Plan", ids::PLAN_VERSION_USAGE_ID)
+                .components(vec![
+                    SeedComp::rate(
+                        ids::COMP_USAGE_RATE_ID,
+                        "Platform Fee",
+                        ids::PRODUCT_PLATFORM_FEE_ID,
+                        ids::PRICE_USAGE_RATE_ID,
+                        DieselBillingPeriodEnum::Monthly,
+                        Decimal::new(2000, 2),
+                    ),
+                    SeedComp::usage(
+                        ids::COMP_USAGE_BANDWIDTH_ID,
+                        "Bandwidth",
+                        ids::PRODUCT_BANDWIDTH_ID,
+                        ids::METRIC_BANDWIDTH,
+                        ids::PRICE_USAGE_BANDWIDTH_ID,
+                        DieselBillingPeriodEnum::Monthly,
+                        UsagePricingModel::PerUnit {
+                            rate: Decimal::new(10, 2),
                         },
-                        cadence: BillingPeriodEnum::Monthly,
-                    }
-                    .try_into()
-                    .unwrap(),
-                ),
-                plan_version_id: ids::PLAN_VERSION_USAGE_ID,
-                product_id: Some(ids::PRODUCT_BANDWIDTH_ID),
-                billable_metric_id: Some(ids::METRIC_BANDWIDTH),
-            }
-            .insert(tx)
-            .await?;
-
-            PriceRowNew {
-                id: ids::PRICE_USAGE_BANDWIDTH_ID,
-                product_id: ids::PRODUCT_BANDWIDTH_ID,
-                cadence: DieselBillingPeriodEnum::Monthly,
-                currency: "EUR".to_string(),
-                pricing: serde_json::to_value(&Pricing::Usage(UsagePricingModel::PerUnit {
-                    rate: Decimal::new(10, 2),
-                }))
-                .unwrap(),
-                tenant_id: ids::TENANT_ID,
-                created_by: ids::USER_ID,
-                catalog: true,
-            }
-            .insert(tx)
-            .await?;
-
-            PlanComponentPriceRowNew::insert_batch(
-                tx,
-                &[PlanComponentPriceRowNew {
-                    plan_component_id: ids::COMP_USAGE_BANDWIDTH_ID,
-                    price_id: ids::PRICE_USAGE_BANDWIDTH_ID,
-                }],
-            )
-            .await?;
+                    ),
+                ])
+                .seed(tx)
+                .await?;
 
             Ok::<(), DatabaseErrorContainer>(())
         }
@@ -1087,26 +217,254 @@ pub async fn run_plans_seed(pool: &PgPool) {
     .unwrap();
 }
 
-// --- Helpers for product-backed plan seeds ---
+// ---------------------------------------------------------------------------
+// Product catalog
+// ---------------------------------------------------------------------------
 
-struct SeedDraftVersion {
-    id: PlanVersionId,
-    version: i32,
+fn product(
+    id: ProductId,
+    name: &str,
+    fee_type: DieselFeeTypeEnum,
+    fee_structure: impl serde::Serialize,
+) -> ProductRowNew {
+    ProductRowNew {
+        id,
+        name: name.to_string(),
+        description: None,
+        created_by: ids::USER_ID,
+        tenant_id: ids::TENANT_ID,
+        product_family_id: ids::PRODUCT_FAMILY_ID,
+        fee_type,
+        fee_structure: serde_json::to_value(&fee_structure).unwrap(),
+        catalog: true,
+    }
 }
 
-struct SeedComponent {
-    component_id: PriceComponentId,
+async fn seed_product_catalog(tx: &mut PgConn) -> Result<(), DatabaseErrorContainer> {
+    for p in [
+        product(
+            ids::PRODUCT_PLATFORM_FEE_ID,
+            "Platform Fee",
+            DieselFeeTypeEnum::Rate,
+            FeeStructure::Rate {},
+        ),
+        product(
+            ids::PRODUCT_SEATS_ID,
+            "Seats",
+            DieselFeeTypeEnum::Slot,
+            FeeStructure::Slot {
+                unit_name: "Seats".to_string(),
+                upgrade_policy: UpgradePolicy::Prorated,
+                downgrade_policy: DowngradePolicy::RemoveAtEndOfPeriod,
+            },
+        ),
+        product(
+            ids::PRODUCT_BANDWIDTH_ID,
+            "Bandwidth",
+            DieselFeeTypeEnum::Usage,
+            FeeStructure::Usage {
+                metric_id: ids::METRIC_BANDWIDTH,
+                model: UsageModel::PerUnit,
+            },
+        ),
+    ] {
+        p.insert(tx).await?;
+    }
+    Ok(())
+}
+
+// ---------------------------------------------------------------------------
+// Plan seed builder
+// ---------------------------------------------------------------------------
+
+struct PlanSeed {
+    plan_id: PlanId,
     name: &'static str,
-    product_id: ProductId,
-    price_id: PriceId,
+    version_id: PlanVersionId,
+    ver: i32,
+    plan_type: PlanTypeEnum,
+    currency: &'static str,
+    draft: Option<(PlanVersionId, i32)>,
+    trial: Option<(i32, PlanId, bool)>, // (days, trialing_plan_id, is_free)
+    components: Vec<SeedComp>,
+}
+
+impl PlanSeed {
+    fn new(plan_id: PlanId, name: &'static str, version_id: PlanVersionId) -> Self {
+        Self {
+            plan_id,
+            name,
+            version_id,
+            ver: 1,
+            plan_type: PlanTypeEnum::Standard,
+            currency: "EUR",
+            draft: None,
+            trial: None,
+            components: vec![],
+        }
+    }
+
+    fn free(mut self) -> Self {
+        self.plan_type = PlanTypeEnum::Free;
+        self
+    }
+
+    fn currency(mut self, c: &'static str) -> Self {
+        self.currency = c;
+        self
+    }
+
+    fn draft(mut self, id: PlanVersionId, version: i32) -> Self {
+        self.draft = Some((id, version));
+        self
+    }
+
+    fn trial(mut self, days: i32, trialing_plan_id: PlanId, is_free: bool) -> Self {
+        self.trial = Some((days, trialing_plan_id, is_free));
+        self
+    }
+
+    fn components(mut self, c: Vec<SeedComp>) -> Self {
+        self.components = c;
+        self
+    }
+
+    async fn seed(self, tx: &mut PgConn) -> Result<(), DatabaseErrorContainer> {
+        PlanRowNew {
+            id: self.plan_id,
+            name: self.name.to_string(),
+            description: None,
+            created_by: ids::USER_ID,
+            tenant_id: ids::TENANT_ID,
+            product_family_id: ids::PRODUCT_FAMILY_ID,
+            plan_type: self.plan_type,
+            status: PlanStatusEnum::Active,
+        }
+        .insert(tx)
+        .await?;
+
+        let (trial_days, trialing_plan_id, trial_is_free) = match self.trial {
+            Some((d, p, f)) => (Some(d), Some(p), f),
+            None => (None, None, true),
+        };
+
+        PlanVersionRowNew {
+            id: self.version_id,
+            is_draft_version: false,
+            plan_id: self.plan_id,
+            version: self.ver,
+            trial_duration_days: trial_days,
+            tenant_id: ids::TENANT_ID,
+            period_start_day: None,
+            net_terms: 0,
+            currency: self.currency.to_string(),
+            billing_cycles: None,
+            created_by: ids::USER_ID,
+            trialing_plan_id,
+            trial_is_free,
+            uses_product_pricing: true,
+        }
+        .insert(tx)
+        .await?;
+
+        let mut draft_version_id = None;
+        if let Some((draft_id, draft_ver)) = self.draft {
+            draft_version_id = Some(Some(draft_id));
+            PlanVersionRowNew {
+                id: draft_id,
+                is_draft_version: true,
+                plan_id: self.plan_id,
+                version: draft_ver,
+                trial_duration_days: trial_days,
+                tenant_id: ids::TENANT_ID,
+                period_start_day: None,
+                net_terms: 0,
+                currency: self.currency.to_string(),
+                billing_cycles: None,
+                created_by: ids::USER_ID,
+                trialing_plan_id,
+                trial_is_free,
+                uses_product_pricing: true,
+            }
+            .insert(tx)
+            .await?;
+        }
+
+        PlanRowPatch {
+            id: self.plan_id,
+            tenant_id: ids::TENANT_ID,
+            name: None,
+            description: None,
+            active_version_id: Some(Some(self.version_id)),
+            draft_version_id,
+            self_service_rank: None,
+        }
+        .update(tx)
+        .await?;
+
+        let mut pcp_links = Vec::new();
+        for comp in &self.components {
+            PriceComponentRowNew {
+                id: comp.id,
+                name: comp.name.to_string(),
+                legacy_fee: Some(comp.legacy_fee.clone().try_into().unwrap()),
+                plan_version_id: self.version_id,
+                product_id: Some(comp.product_id),
+                billable_metric_id: comp.billable_metric_id,
+            }
+            .insert(tx)
+            .await?;
+
+            for price in &comp.prices {
+                PriceRowNew {
+                    id: price.id,
+                    product_id: comp.product_id,
+                    cadence: price.cadence.clone(),
+                    currency: self.currency.to_string(),
+                    pricing: serde_json::to_value(&price.pricing).unwrap(),
+                    tenant_id: ids::TENANT_ID,
+                    created_by: ids::USER_ID,
+                    catalog: true,
+                }
+                .insert(tx)
+                .await?;
+
+                pcp_links.push(PlanComponentPriceRowNew {
+                    plan_component_id: comp.id,
+                    price_id: price.id,
+                });
+            }
+        }
+        if !pcp_links.is_empty() {
+            PlanComponentPriceRowNew::insert_batch(tx, &pcp_links).await?;
+        }
+
+        Ok(())
+    }
+}
+
+// ---------------------------------------------------------------------------
+// Component helpers
+// ---------------------------------------------------------------------------
+
+struct SeedPrice {
+    id: PriceId,
     cadence: DieselBillingPeriodEnum,
-    legacy_fee: FeeType,
     pricing: Pricing,
 }
 
-impl SeedComponent {
+struct SeedComp {
+    id: PriceComponentId,
+    name: &'static str,
+    product_id: ProductId,
+    billable_metric_id: Option<BillableMetricId>,
+    legacy_fee: FeeType,
+    prices: Vec<SeedPrice>,
+}
+
+impl SeedComp {
     fn rate(
-        component_id: PriceComponentId,
+        id: PriceComponentId,
         name: &'static str,
         product_id: ProductId,
         price_id: PriceId,
@@ -1115,171 +473,104 @@ impl SeedComponent {
     ) -> Self {
         let term: BillingPeriodEnum = cadence.clone().into();
         Self {
-            component_id,
+            id,
             name,
             product_id,
-            price_id,
-            cadence,
+            billable_metric_id: None,
             legacy_fee: FeeType::Rate {
                 rates: vec![TermRate {
                     price: amount,
                     term,
                 }],
             },
-            pricing: Pricing::Rate { rate: amount },
+            prices: vec![SeedPrice {
+                id: price_id,
+                cadence,
+                pricing: Pricing::Rate { rate: amount },
+            }],
         }
     }
 
     fn slot(
-        component_id: PriceComponentId,
+        id: PriceComponentId,
         name: &'static str,
         product_id: ProductId,
         price_id: PriceId,
         cadence: DieselBillingPeriodEnum,
         unit_rate: Decimal,
     ) -> Self {
-        let term: BillingPeriodEnum = cadence.clone().into();
+        Self::slot_multi(id, name, product_id, vec![(price_id, cadence, unit_rate)])
+    }
+
+    fn slot_multi(
+        id: PriceComponentId,
+        name: &'static str,
+        product_id: ProductId,
+        cadences: Vec<(PriceId, DieselBillingPeriodEnum, Decimal)>,
+    ) -> Self {
+        let rates: Vec<TermRate> = cadences
+            .iter()
+            .map(|(_, c, r)| TermRate {
+                price: *r,
+                term: c.clone().into(),
+            })
+            .collect();
+
+        let prices: Vec<SeedPrice> = cadences
+            .into_iter()
+            .map(|(pid, c, r)| SeedPrice {
+                id: pid,
+                cadence: c,
+                pricing: Pricing::Slot {
+                    unit_rate: r,
+                    min_slots: Some(1),
+                    max_slots: None,
+                },
+            })
+            .collect();
+
         Self {
-            component_id,
+            id,
             name,
             product_id,
-            price_id,
-            cadence,
+            billable_metric_id: None,
             legacy_fee: FeeType::Slot {
                 quota: None,
-                rates: vec![TermRate {
-                    price: unit_rate,
-                    term,
-                }],
-                slot_unit_name: name.to_lowercase(),
+                rates,
+                slot_unit_name: name.to_string(),
                 minimum_count: Some(1),
                 upgrade_policy: UpgradePolicy::Prorated,
                 downgrade_policy: DowngradePolicy::RemoveAtEndOfPeriod,
             },
-            pricing: Pricing::Slot {
-                unit_rate,
-                min_slots: Some(1),
-                max_slots: None,
+            prices,
+        }
+    }
+
+    fn usage(
+        id: PriceComponentId,
+        name: &'static str,
+        product_id: ProductId,
+        metric_id: BillableMetricId,
+        price_id: PriceId,
+        cadence: DieselBillingPeriodEnum,
+        model: UsagePricingModel,
+    ) -> Self {
+        let billing_cadence: BillingPeriodEnum = cadence.clone().into();
+        Self {
+            id,
+            name,
+            product_id,
+            billable_metric_id: Some(metric_id),
+            legacy_fee: FeeType::Usage {
+                metric_id,
+                pricing: model.clone(),
+                cadence: billing_cadence,
             },
+            prices: vec![SeedPrice {
+                id: price_id,
+                cadence,
+                pricing: Pricing::Usage(model),
+            }],
         }
     }
-}
-
-struct SeedPlan {
-    plan_id: PlanId,
-    plan_name: &'static str,
-    plan_version_id: PlanVersionId,
-    draft_version: Option<SeedDraftVersion>,
-    currency: &'static str,
-    components: Vec<SeedComponent>,
-}
-
-async fn seed_product_backed_plan(
-    tx: &mut PgConn,
-    plan: SeedPlan,
-) -> Result<(), DatabaseErrorContainer> {
-    PlanRowNew {
-        id: plan.plan_id,
-        name: plan.plan_name.to_string(),
-        description: Some(format!(
-            "{} plan with product-backed pricing",
-            plan.plan_name
-        )),
-        created_by: ids::USER_ID,
-        tenant_id: ids::TENANT_ID,
-        product_family_id: ids::PRODUCT_FAMILY_ID,
-        plan_type: PlanTypeEnum::Standard,
-        status: PlanStatusEnum::Active,
-    }
-    .insert(tx)
-    .await?;
-
-    PlanVersionRowNew {
-        id: plan.plan_version_id,
-        is_draft_version: false,
-        plan_id: plan.plan_id,
-        version: 1,
-        trial_duration_days: None,
-        tenant_id: ids::TENANT_ID,
-        period_start_day: None,
-        net_terms: 0,
-        currency: plan.currency.to_string(),
-        billing_cycles: None,
-        created_by: ids::USER_ID,
-        trialing_plan_id: None,
-        trial_is_free: true,
-        uses_product_pricing: true,
-    }
-    .insert(tx)
-    .await?;
-
-    if let Some(draft) = &plan.draft_version {
-        PlanVersionRowNew {
-            id: draft.id,
-            is_draft_version: true,
-            plan_id: plan.plan_id,
-            version: draft.version,
-            trial_duration_days: None,
-            tenant_id: ids::TENANT_ID,
-            period_start_day: None,
-            net_terms: 0,
-            currency: plan.currency.to_string(),
-            billing_cycles: None,
-            created_by: ids::USER_ID,
-            trialing_plan_id: None,
-            trial_is_free: true,
-            uses_product_pricing: true,
-        }
-        .insert(tx)
-        .await?;
-    }
-
-    PlanRowPatch {
-        id: plan.plan_id,
-        tenant_id: ids::TENANT_ID,
-        name: None,
-        description: None,
-        active_version_id: Some(Some(plan.plan_version_id)),
-        draft_version_id: plan.draft_version.as_ref().map(|d| Some(d.id)),
-        self_service_rank: None,
-    }
-    .update(tx)
-    .await?;
-
-    let mut pcp_links = Vec::new();
-
-    for comp in &plan.components {
-        PriceComponentRowNew {
-            id: comp.component_id,
-            name: comp.name.to_string(),
-            legacy_fee: Some(comp.legacy_fee.clone().try_into().unwrap()),
-            plan_version_id: plan.plan_version_id,
-            product_id: Some(comp.product_id),
-            billable_metric_id: None,
-        }
-        .insert(tx)
-        .await?;
-
-        PriceRowNew {
-            id: comp.price_id,
-            product_id: comp.product_id,
-            cadence: comp.cadence.clone(),
-            currency: plan.currency.to_string(),
-            pricing: serde_json::to_value(&comp.pricing).unwrap(),
-            tenant_id: ids::TENANT_ID,
-            created_by: ids::USER_ID,
-            catalog: true,
-        }
-        .insert(tx)
-        .await?;
-
-        pcp_links.push(PlanComponentPriceRowNew {
-            plan_component_id: comp.component_id,
-            price_id: comp.price_id,
-        });
-    }
-
-    PlanComponentPriceRowNew::insert_batch(tx, &pcp_links).await?;
-
-    Ok(())
 }
