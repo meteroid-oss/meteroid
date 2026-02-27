@@ -1,6 +1,7 @@
 use crate::config::{ClickhouseConfig, KafkaConfig};
+use crate::migrate::{ClickhouseMigration, ClusterMigration, ClusterName};
+use clickhouse::Client;
 use error_stack::{Report, ResultExt};
-use klickhouse::{Client, ClientOptions, ClusterMigration, ClusterName};
 use thiserror::Error;
 
 static KAFKA_CONFIG: std::sync::OnceLock<KafkaConfig> = std::sync::OnceLock::new();
@@ -15,20 +16,17 @@ pub async fn run(
     set_kafka_config(kafka_config);
     set_clickhouse_config(clickhouse_config);
 
-    let mut client = Client::connect(
-        &clickhouse_config.tcp_address,
-        ClientOptions {
-            username: clickhouse_config.username.clone(),
-            password: clickhouse_config.password.clone(),
-            default_database: clickhouse_config.database.clone(),
-            tcp_nodelay: true,
-        },
-    )
-    .await
-    .change_context(MigrationsError::Execution)?;
+    // Create native ClickHouse HTTP client
+    let client = Client::default()
+        .with_url(&clickhouse_config.http_address)
+        .with_user(&clickhouse_config.username)
+        .with_password(&clickhouse_config.password)
+        .with_database(&clickhouse_config.database);
+
+    let mut runner = &mut migrations::runner();
+    runner = runner.set_migration_table_name("refinery_schema_history_v2");
 
     if clickhouse_config.cluster_name.is_some() {
-        // Create a cluster-aware migration client
         struct MeteroidCluster;
         impl ClusterName for MeteroidCluster {
             fn cluster_name() -> String {
@@ -38,15 +36,11 @@ pub async fn run(
                     .expect("cluster_name should be set for cluster migrations")
                     .clone()
             }
-
-            fn database() -> String {
-                get_clickhouse_config().database.clone()
-            }
         }
 
         let mut cluster_client = ClusterMigration::<MeteroidCluster>::new(client);
 
-        let report = migrations::runner()
+        let report = runner
             .run_async(&mut cluster_client)
             .await
             .change_context(MigrationsError::Execution)?;
@@ -58,8 +52,11 @@ pub async fn run(
         return Ok(());
     }
 
-    let report = migrations::runner()
-        .run_async(&mut client)
+    // Single-node mode using regular MergeTree
+    let mut single_client = ClickhouseMigration::new(client);
+
+    let report = runner
+        .run_async(&mut single_client)
         .await
         .change_context(MigrationsError::Execution)?;
 
