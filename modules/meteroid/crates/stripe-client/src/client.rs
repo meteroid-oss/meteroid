@@ -5,6 +5,7 @@ use reqwest::header::{HeaderMap, HeaderValue};
 use reqwest::{Client, Method, RequestBuilder, Url};
 use secrecy::{ExposeSecret, SecretString};
 use serde::{Serialize, de::DeserializeOwned};
+use serde_qs::Config;
 use std::future;
 use std::future::Future;
 use std::pin::Pin;
@@ -117,7 +118,10 @@ impl StripeClient {
         let url = self.url(path);
 
         let mut params_buffer = Vec::new();
-        let qs_ser = &mut serde_qs::Serializer::new(&mut params_buffer);
+        let qs_ser = &mut serde_qs::Serializer::new(
+            &mut params_buffer,
+            Config::new().use_form_encoding(true),
+        );
 
         if let Err(qs_ser_err) = serde_path_to_error::serialize(&form, qs_ser) {
             return self.err(StripeError::QueryStringSerialize(qs_ser_err));
