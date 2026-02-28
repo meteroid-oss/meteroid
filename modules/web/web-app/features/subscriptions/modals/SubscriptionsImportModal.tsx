@@ -20,7 +20,6 @@ export const SubscriptionsImportModal: FunctionComponent<SubscriptionsImportModa
   const [uploadFile, setUploadFile] = useState<File | null>(null)
   const [csvOptions, setCsvOptions] = useState({
     delimiter: ',',
-    failOnError: false,
   })
   const [importResult, setImportResult] = useState<CSVImportResult | null>(null)
 
@@ -64,7 +63,6 @@ export const SubscriptionsImportModal: FunctionComponent<SubscriptionsImportModa
     const request = new IngestCsvRequest({
       file: new FileData({ data: new Uint8Array(buffer) }),
       delimiter: csvOptions.delimiter,
-      failOnError: csvOptions.failOnError,
     })
 
     uploadMutation.mutate(request)
@@ -93,6 +91,7 @@ export const SubscriptionsImportModal: FunctionComponent<SubscriptionsImportModa
       dialogTitle="Import Subscriptions from CSV"
       dialogDescription="Import subscription data from a CSV file. All imports must include headers."
       dialogIcon={<FileSpreadsheetIcon className="h-5 w-5"/>}
+      showRejectOnError={false}
       requiredColumns={[
         { name: 'customer_id_or_alias', tooltipMessage: 'Customer ID or alias' },
         { name: 'plan_id', tooltipMessage: 'Plan Handle' },
