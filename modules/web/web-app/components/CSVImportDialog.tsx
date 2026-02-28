@@ -73,6 +73,7 @@ export interface CSVImportDialogProps<TConfig extends CSVImportConfig> {
   additionalInfo?: ReactNode
   additionalOptions?: ReactNode
   fileMaxSizeBytes?: number // Maximum file size in bytes (default: 10MB)
+  showRejectOnError?: boolean
 
   // Labels
   entityName: string // e.g., "customers", "events"
@@ -99,6 +100,7 @@ export function CSVImportDialog<TConfig extends CSVImportConfig = CSVImportConfi
   additionalInfo,
   additionalOptions,
   fileMaxSizeBytes = 10 * 1024 * 1024, // Default to 10MB
+  showRejectOnError = true,
   entityName,
   identifierLabel,
   dialogTitle,
@@ -110,7 +112,7 @@ export function CSVImportDialog<TConfig extends CSVImportConfig = CSVImportConfi
 
   return (
     <Dialog open={isOpen} onOpenChange={setIsOpen}>
-      <DialogContent className="sm:max-w-2xl max-h-[90vh]">
+      <DialogContent className="sm:max-w-2xl max-h-[90vh] flex flex-col">
         <DialogHeader>
           <DialogTitle className="flex items-center gap-2">
             {dialogIcon}
@@ -119,7 +121,7 @@ export function CSVImportDialog<TConfig extends CSVImportConfig = CSVImportConfi
           <DialogDescription>{dialogDescription}</DialogDescription>
         </DialogHeader>
 
-        <div className="space-y-6">
+        <div className="space-y-6 overflow-y-auto flex-1">
           {!importResult ? (
             <>
               {/* File Upload */}
@@ -233,26 +235,28 @@ export function CSVImportDialog<TConfig extends CSVImportConfig = CSVImportConfi
 
                 {additionalOptions}
 
-                <div className="flex items-start space-x-3">
-                  <div>
-                    <Checkbox
-                      id="failOnError"
-                      checked={csvOptions.failOnError}
-                      onCheckedChange={checked =>
-                        setCsvOptions(prev => ({ ...prev, failOnError: checked === true }))
-                      }
-                    />
+                {showRejectOnError && (
+                  <div className="flex items-start space-x-3">
+                    <div>
+                      <Checkbox
+                        id="failOnError"
+                        checked={csvOptions.failOnError}
+                        onCheckedChange={checked =>
+                          setCsvOptions(prev => ({ ...prev, failOnError: checked === true }))
+                        }
+                      />
+                    </div>
+                    <div className="space-y-1">
+                      <Label htmlFor="failOnError" className="text-sm font-medium">
+                        Reject on error
+                      </Label>
+                      <p className="text-xs text-muted-foreground">
+                        Reject the entire import if any row contains an error. Otherwise, import
+                        valid rows and report errors.
+                      </p>
+                    </div>
                   </div>
-                  <div className="space-y-1">
-                    <Label htmlFor="failOnError" className="text-sm font-medium">
-                      Reject on error
-                    </Label>
-                    <p className="text-xs text-muted-foreground">
-                      Reject the entire import if any row contains an error. Otherwise, import valid
-                      rows and report errors.
-                    </p>
-                  </div>
-                </div>
+                )}
               </div>
 
               {/* Upload Button */}
