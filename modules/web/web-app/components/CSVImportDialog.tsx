@@ -28,7 +28,7 @@ export interface ColumnDefinition {
 
 export interface CSVImportConfig {
   delimiter: string
-  failOnError: boolean
+  failOnError?: boolean
 
   [key: string]: unknown // Allow for additional options
 }
@@ -240,7 +240,7 @@ export function CSVImportDialog<TConfig extends CSVImportConfig = CSVImportConfi
                     <div>
                       <Checkbox
                         id="failOnError"
-                        checked={csvOptions.failOnError}
+                        checked={csvOptions.failOnError ?? false}
                         onCheckedChange={checked =>
                           setCsvOptions(prev => ({ ...prev, failOnError: checked === true }))
                         }
