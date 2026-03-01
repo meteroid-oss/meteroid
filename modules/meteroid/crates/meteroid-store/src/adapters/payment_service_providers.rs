@@ -88,6 +88,15 @@ pub fn initialize_payment_provider(
             };
             Ok(Box::new(MockPaymentProvider::new(mock_config)))
         }
+        ConnectorProviderEnum::PayTheFly => {
+            // PayTheFly crypto payment provider
+            // TODO: Implement full PaymentProvider trait for PayTheFly
+            // Currently returns configuration error as PayTheFly uses a different
+            // payment flow (redirect-based with EIP-712 signatures)
+            bail!(PaymentProviderError::Configuration(
+                "PayTheFly connector does not support direct payment intents. Use the redirect-based payment flow.".to_owned()
+            ))
+        }
         _ => bail!(PaymentProviderError::Configuration(
             "unknown payment provider".to_owned()
         )),

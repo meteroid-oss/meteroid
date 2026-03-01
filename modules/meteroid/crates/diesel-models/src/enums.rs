@@ -103,6 +103,7 @@ pub enum ConnectorProviderEnum {
     Hubspot,
     Pennylane,
     Mock,
+    PayTheFly,
 }
 
 impl ConnectorProviderEnum {
@@ -112,6 +113,7 @@ impl ConnectorProviderEnum {
             ConnectorProviderEnum::Hubspot => "hubspot",
             ConnectorProviderEnum::Pennylane => "pennylane",
             ConnectorProviderEnum::Mock => "mock",
+            ConnectorProviderEnum::PayTheFly => "paythefly",
         }
     }
 }
