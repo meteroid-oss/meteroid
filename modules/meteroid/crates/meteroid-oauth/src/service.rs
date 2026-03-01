@@ -14,6 +14,7 @@ use oauth2::{
     EndpointNotSet, EndpointSet, ErrorResponse, PkceCodeChallenge, PkceCodeVerifier, RefreshToken,
     Scope, StandardRevocableToken, TokenUrl,
 };
+use oauth2_reqwest::ReqwestClient;
 use secrecy::{ExposeSecret, SecretString};
 use serde::{Deserialize, Serialize};
 use std::sync::Arc;
@@ -261,7 +262,7 @@ impl<T: ErrorResponse + Send + Sync + 'static> OauthService for OauthServiceImpl
             .set_pkce_verifier(PkceCodeVerifier::new(
                 pkce_code_verifier.expose_secret().to_owned(),
             ))
-            .request_async(&self.http_client)
+            .request_async(&ReqwestClient::from(self.http_client.clone()))
             .await
             .change_context(OauthServiceError::ProviderApi(
                 "Failed to exchange code".into(),
@@ -277,7 +278,7 @@ impl<T: ErrorResponse + Send + Sync + 'static> OauthService for OauthServiceImpl
 
         client
             .exchange_refresh_token(&RefreshToken::new(refresh_token.expose_secret().to_owned()))
-            .request_async(&self.http_client)
+            .request_async(&ReqwestClient::from(self.http_client.clone()))
             .await
             .change_context(OauthServiceError::ProviderApi(
                 "Failed to exchange refresh_token".into(),
