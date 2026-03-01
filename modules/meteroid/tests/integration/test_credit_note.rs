@@ -40,8 +40,7 @@ use uuid::Uuid;
 #[tokio::test]
 async fn test_credit_note_partial_credits() {
     helpers::init::logging();
-    let (_postgres_container, postgres_connection_string) =
-        meteroid_it::container::start_postgres().await;
+    let postgres_connection_string = meteroid_it::container::create_test_database().await;
 
     let mock_mailer = Arc::new(MockMailerService::new());
     let setup = meteroid_it::container::start_meteroid_with_clients(
@@ -477,8 +476,7 @@ async fn test_credit_note_partial_credits() {
 #[tokio::test]
 async fn test_credit_note_race_condition() {
     helpers::init::logging();
-    let (_postgres_container, postgres_connection_string) =
-        meteroid_it::container::start_postgres().await;
+    let postgres_connection_string = meteroid_it::container::create_test_database().await;
 
     let mock_mailer = Arc::new(MockMailerService::new());
     let setup = meteroid_it::container::start_meteroid_with_clients(
@@ -637,8 +635,7 @@ async fn test_credit_note_race_condition() {
 #[tokio::test]
 async fn test_credit_note_refund_with_applied_credits() {
     helpers::init::logging();
-    let (_postgres_container, postgres_connection_string) =
-        meteroid_it::container::start_postgres().await;
+    let postgres_connection_string = meteroid_it::container::create_test_database().await;
 
     let mock_mailer = Arc::new(MockMailerService::new());
     let setup = meteroid_it::container::start_meteroid_with_clients(
@@ -891,8 +888,7 @@ async fn test_credit_note_refund_with_applied_credits() {
 #[tokio::test]
 async fn test_credit_note_partial_amounts() {
     helpers::init::logging();
-    let (_postgres_container, postgres_connection_string) =
-        meteroid_it::container::start_postgres().await;
+    let postgres_connection_string = meteroid_it::container::create_test_database().await;
 
     let mock_mailer = Arc::new(MockMailerService::new());
     let setup = meteroid_it::container::start_meteroid_with_clients(

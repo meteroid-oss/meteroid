@@ -24,8 +24,7 @@ use meteroid_store::{Services, Store};
 #[tokio::test]
 async fn test_lifecycle_billing() {
     helpers::init::logging();
-    let (_postgres_container, postgres_connection_string) =
-        meteroid_it::container::start_postgres().await;
+    let postgres_connection_string = meteroid_it::container::create_test_database().await;
 
     let mock_mailer = Arc::new(MockMailerService::new());
 

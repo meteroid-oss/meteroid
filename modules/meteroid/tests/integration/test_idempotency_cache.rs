@@ -16,8 +16,7 @@ use crate::meteroid_it::svc_auth::{SEED_PASSWORD, SEED_USERNAME};
 #[tokio::test]
 async fn test_idempotency_cache_err_response() {
     helpers::init::logging();
-    let (_postgres_container, postgres_connection_string) =
-        meteroid_it::container::start_postgres().await;
+    let postgres_connection_string = meteroid_it::container::create_test_database().await;
     let setup =
         meteroid_it::container::start_meteroid(postgres_connection_string, SeedLevel::MINIMAL)
             .await;
@@ -82,8 +81,7 @@ async fn test_idempotency_cache_err_response() {
 #[tokio::test]
 async fn test_idempotency_cache_ok_response() {
     helpers::init::logging();
-    let (_postgres_container, postgres_connection_string) =
-        meteroid_it::container::start_postgres().await;
+    let postgres_connection_string = meteroid_it::container::create_test_database().await;
     let setup =
         meteroid_it::container::start_meteroid(postgres_connection_string, SeedLevel::MINIMAL)
             .await;

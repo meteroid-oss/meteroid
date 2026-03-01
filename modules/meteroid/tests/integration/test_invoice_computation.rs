@@ -25,8 +25,7 @@ use std::sync::Arc;
 #[tokio::test]
 async fn test_compute_invoice_scenarios() {
     helpers::init::logging();
-    let (_postgres_container, postgres_connection_string) =
-        meteroid_it::container::start_postgres().await;
+    let postgres_connection_string = meteroid_it::container::create_test_database().await;
 
     let mock_mailer = Arc::new(MockMailerService::new());
     let setup = meteroid_it::container::start_meteroid_with_clients(

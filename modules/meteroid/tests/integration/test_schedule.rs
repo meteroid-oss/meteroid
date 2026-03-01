@@ -8,8 +8,7 @@ use meteroid_grpc::meteroid::api;
 async fn test_schedules_basic() {
     // Generic setup
     helpers::init::logging();
-    let (_postgres_container, postgres_connection_string) =
-        meteroid_it::container::start_postgres().await;
+    let postgres_connection_string = meteroid_it::container::create_test_database().await;
     let setup =
         meteroid_it::container::start_meteroid(postgres_connection_string, SeedLevel::PLANS).await;
 

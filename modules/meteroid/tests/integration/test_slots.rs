@@ -28,8 +28,7 @@ const SLOT_UNIT: &str = "Seats";
 #[tokio::test]
 async fn test_slot_transactions_comprehensive() {
     helpers::init::logging();
-    let (_postgres_container, postgres_connection_string) =
-        meteroid_it::container::start_postgres().await;
+    let postgres_connection_string = meteroid_it::container::create_test_database().await;
 
     let mock_mailer = Arc::new(MockMailerService::new());
 
@@ -66,8 +65,7 @@ async fn test_slot_transactions_comprehensive() {
 #[tokio::test]
 async fn test_slot_transactions_comprehensive_next() {
     helpers::init::logging();
-    let (_postgres_container, postgres_connection_string) =
-        meteroid_it::container::start_postgres().await;
+    let postgres_connection_string = meteroid_it::container::create_test_database().await;
 
     let mock_mailer = Arc::new(MockMailerService::new());
 

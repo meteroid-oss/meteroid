@@ -27,12 +27,11 @@ use meteroid_store::repositories::subscriptions::slots::SubscriptionSlotsInterfa
 struct TestContext {
     setup: MeteroidSetup,
     clients: AllClients,
-    _container: ContainerAsync<GenericImage>,
 }
 
 async fn setup_test(seed_level: SeedLevel) -> Result<TestContext, Box<dyn Error>> {
     helpers::init::logging();
-    let (_container, postgres_connection_string) = meteroid_it::container::start_postgres().await;
+    let postgres_connection_string = meteroid_it::container::create_test_database().await;
     let setup =
         meteroid_it::container::start_meteroid(postgres_connection_string, seed_level).await;
 
@@ -45,21 +44,13 @@ async fn setup_test(seed_level: SeedLevel) -> Result<TestContext, Box<dyn Error>
         "testslug",
     );
 
-    Ok(TestContext {
-        setup,
-        clients,
-        _container,
-    })
+    Ok(TestContext { setup, clients })
 }
 
 #[tokio::test]
 #[ignore] // subscription seed is broken
 async fn test_subscription_create() {
-    let TestContext {
-        setup,
-        clients,
-        _container,
-    } = setup_test(SeedLevel::PLANS).await.unwrap();
+    let TestContext { setup, clients } = setup_test(SeedLevel::PLANS).await.unwrap();
 
     let tenant_id = "018c2c82-3df1-7e84-9e05-6e141d0e751a".to_string();
     let customer_id = "018c345f-7324-7cd2-a692-78e5ab9158e0".to_string();
@@ -221,7 +212,6 @@ async fn test_subscription_cancel() {
     let TestContext {
         setup: _,
         clients,
-        _container,
     } = setup_test(SeedLevel::PLANS).await.unwrap();
     let customer_id = "018c345f-7324-7cd2-a692-78e5ab9158e0".to_string();
     let plan_version_id = "018c344b-da87-7392-bbae-c5c8780adb1b".to_string();
@@ -456,7 +446,6 @@ async fn test_subscription_create_invoice_seats() {
     let TestContext {
         setup,
         clients,
-        _container,
     } = setup_test(SeedLevel::PLANS).await.unwrap();
     let customer_id = "018c345f-7324-7cd2-a692-78e5ab9158e0".to_string();
     let plan_version_id = "018c344b-da87-7392-bbae-c5c8780adb1b".to_string();
@@ -567,7 +556,6 @@ async fn test_subscription_create_invoice_rate() {
     let TestContext {
         setup,
         clients,
-        _container,
     } = setup_test(SeedLevel::PLANS).await.unwrap();
 
     let customer_id = "018c345f-7324-7cd2-a692-78e5ab9158e0".to_string();
@@ -792,7 +780,6 @@ async fn test_subscription_create_invoice_usage() {
     let TestContext {
         setup,
         clients,
-        _container,
     } = setup_test(SeedLevel::PLANS).await.unwrap();
 
     let customer_id = "018c345f-7324-7cd2-a692-78e5ab9158e0".to_string();

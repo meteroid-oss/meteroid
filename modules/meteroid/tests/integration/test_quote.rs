@@ -16,12 +16,11 @@ use meteroid_grpc::meteroid::api::shared::v1::BillingPeriod;
 struct TestContext {
     setup: MeteroidSetup,
     clients: AllClients,
-    _container: ContainerAsync<GenericImage>,
 }
 
 async fn setup_test(seed_level: SeedLevel) -> Result<TestContext, Box<dyn Error>> {
     helpers::init::logging();
-    let (_container, postgres_connection_string) = meteroid_it::container::start_postgres().await;
+    let postgres_connection_string = meteroid_it::container::create_test_database().await;
     let setup =
         meteroid_it::container::start_meteroid(postgres_connection_string, seed_level).await;
 
@@ -34,11 +33,7 @@ async fn setup_test(seed_level: SeedLevel) -> Result<TestContext, Box<dyn Error>
         "testslug",
     );
 
-    Ok(TestContext {
-        setup,
-        clients,
-        _container,
-    })
+    Ok(TestContext { setup, clients })
 }
 
 /// Helper to create a quote for testing
@@ -109,11 +104,7 @@ async fn create_test_quote(clients: &AllClients) -> api::quotes::v1::DetailedQuo
 
 #[tokio::test]
 async fn test_quote_create() {
-    let TestContext {
-        setup: _,
-        clients,
-        _container,
-    } = setup_test(SeedLevel::PLANS).await.unwrap();
+    let TestContext { setup: _, clients } = setup_test(SeedLevel::PLANS).await.unwrap();
 
     let quote = create_test_quote(&clients).await;
 
@@ -130,11 +121,7 @@ async fn test_quote_create() {
 
 #[tokio::test]
 async fn test_quote_conversion_requires_accepted_status() {
-    let TestContext {
-        setup: _,
-        clients,
-        _container,
-    } = setup_test(SeedLevel::PLANS).await.unwrap();
+    let TestContext { setup: _, clients } = setup_test(SeedLevel::PLANS).await.unwrap();
 
     let quote = create_test_quote(&clients).await;
     let quote_id = quote.quote.as_ref().unwrap().id.clone();
@@ -158,11 +145,7 @@ async fn test_quote_conversion_requires_accepted_status() {
 
 #[tokio::test]
 async fn test_quote_conversion_happy_path() {
-    let TestContext {
-        setup,
-        clients,
-        _container,
-    } = setup_test(SeedLevel::PLANS).await.unwrap();
+    let TestContext { setup, clients } = setup_test(SeedLevel::PLANS).await.unwrap();
 
     // Create quote
     let quote = create_test_quote(&clients).await;
@@ -227,11 +210,7 @@ async fn test_quote_conversion_happy_path() {
 
 #[tokio::test]
 async fn test_quote_conversion_already_converted_fails() {
-    let TestContext {
-        setup,
-        clients,
-        _container,
-    } = setup_test(SeedLevel::PLANS).await.unwrap();
+    let TestContext { setup, clients } = setup_test(SeedLevel::PLANS).await.unwrap();
 
     // Create and accept quote
     let quote = create_test_quote(&clients).await;
@@ -296,11 +275,7 @@ async fn test_quote_conversion_already_converted_fails() {
 
 #[tokio::test]
 async fn test_quote_conversion_falls_back_charge_automatically_without_payment_provider() {
-    let TestContext {
-        setup,
-        clients,
-        _container,
-    } = setup_test(SeedLevel::PLANS).await.unwrap();
+    let TestContext { setup, clients } = setup_test(SeedLevel::PLANS).await.unwrap();
 
     // Create quote with charge_automatically=true (the default)
     let quote = create_test_quote(&clients).await;

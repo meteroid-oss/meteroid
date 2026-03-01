@@ -8,8 +8,7 @@ use meteroid_grpc::meteroid::api::stats::v1::general_stats_response;
 async fn test_stats_basic() {
     // Generic setup
     helpers::init::logging();
-    let (_postgres_container, postgres_connection_string) =
-        meteroid_it::container::start_postgres().await;
+    let postgres_connection_string = meteroid_it::container::create_test_database().await;
     let setup =
         meteroid_it::container::start_meteroid(postgres_connection_string, SeedLevel::MINIMAL)
             .await;

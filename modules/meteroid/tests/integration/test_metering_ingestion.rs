@@ -28,8 +28,7 @@ async fn test_metering_ingestion() {
 
     // we start pg, clickhouse, kafka
 
-    let (_pg_container, postgres_connection_string) =
-        meteroid_it::container::start_postgres().await;
+    let postgres_connection_string = meteroid_it::container::create_test_database().await;
 
     let (_kafka_container, kafka_port) = metering_it::container::start_kafka()
         .await
