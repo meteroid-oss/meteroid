@@ -36,6 +36,7 @@ impl Connector {
 
 #[derive(Clone, Debug, Serialize, Deserialize)]
 pub enum ProviderData {
+    PayTheFly(PayTheFlyPublicData),
     Stripe(StripePublicData),
     Hubspot(HubspotPublicData),
     Pennylane(PennylanePublicData),
@@ -67,6 +68,7 @@ json_value_ser!(PennylanePublicData);
 
 #[derive(Clone, Debug, Serialize, Deserialize)]
 pub enum ProviderSensitiveData {
+    PayTheFly(PayTheFlySensitiveData),
     Stripe(StripeSensitiveData),
     Hubspot(HubspotSensitiveData),
     Pennylane(PennylaneSensitiveData),
@@ -274,4 +276,71 @@ pub struct ConnectorAccessToken {
     pub external_company_id: String,
     pub access_token: SecretString,
     pub expires_at: Option<DateTime<Utc>>,
+}
+
+/// PayTheFly public configuration data.
+///
+/// Contains non-sensitive configuration for the PayTheFly crypto payment connector.
+/// Supports BSC (chainId=56, 18 decimals) and TRON (chainId=728126428, 6 decimals).
+#[derive(Clone, Debug, Serialize, Deserialize)]
+pub struct PayTheFlyPublicData {
+    /// PayTheFly project identifier
+    pub project_id: String,
+    /// Blockchain chain ID: 56 (BSC) or 728126428 (TRON)
+    pub chain_id: u64,
+}
+
+json_value_ser!(PayTheFlyPublicData);
+
+/// PayTheFly sensitive data (encrypted at rest).
+///
+/// Contains secrets for webhook verification and EIP-712 signing.
+/// IMPORTANT: project_key is used for HMAC-SHA256 webhook signature verification.
+/// The private_key is used for EIP-712 typed data signing (Keccak-256, NOT SHA3-256).
+#[derive(Clone, Debug, Serialize, Deserialize)]
+pub struct PayTheFlySensitiveData {
+    /// HMAC-SHA256 webhook verification key
+    /// Signature: HMAC-SHA256(data + "." + timestamp, project_key)
+    pub project_key: String,
+    /// EIP-712 signing private key
+    /// EIP-712 Domain: { name: 'PayTheFlyPro', version: '1' }
+    pub private_key: String,
+}
+
+/// PayTheFly webhook body format.
+///
+/// ```json
+/// {
+///   "data": "<json string>",
+///   "sign": "<hmac hex>",
+///   "timestamp": <unix>
+/// }
+/// ```
+#[derive(Clone, Debug, Serialize, Deserialize)]
+pub struct PayTheFlyWebhookBody {
+    pub data: String,
+    pub sign: String,
+    pub timestamp: u64,
+}
+
+/// PayTheFly webhook payload (decoded from the `data` field).
+///
+/// IMPORTANT field naming:
+/// - `value` (NOT "amount") — payment amount
+/// - `confirmed` (NOT "status") — confirmation status
+/// - `tx_type`: 1 = payment, 2 = withdrawal
+#[derive(Clone, Debug, Serialize, Deserialize)]
+pub struct PayTheFlyWebhookPayload {
+    /// Payment amount (human-readable, NOT "amount")
+    pub value: String,
+    /// Whether payment is confirmed (NOT "status")
+    pub confirmed: bool,
+    /// Order serial number
+    pub serial_no: String,
+    /// Blockchain transaction hash
+    pub tx_hash: String,
+    /// Payer's wallet address
+    pub wallet: String,
+    /// Transaction type: 1=payment, 2=withdrawal
+    pub tx_type: u8,
 }
