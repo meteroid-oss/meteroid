@@ -209,10 +209,7 @@ async fn test_subscription_create() {
 #[tokio::test]
 #[ignore] // subscription seed is broken
 async fn test_subscription_cancel() {
-    let TestContext {
-        setup: _,
-        clients,
-    } = setup_test(SeedLevel::PLANS).await.unwrap();
+    let TestContext { setup: _, clients } = setup_test(SeedLevel::PLANS).await.unwrap();
     let customer_id = "018c345f-7324-7cd2-a692-78e5ab9158e0".to_string();
     let plan_version_id = "018c344b-da87-7392-bbae-c5c8780adb1b".to_string();
     let component_id = "018c344c-9ec9-7608-b115-1537b6985e73".to_string();
@@ -443,10 +440,7 @@ async fn test_subscription_cancel() {
 #[tokio::test]
 #[ignore] // subscription seed is broken
 async fn test_subscription_create_invoice_seats() {
-    let TestContext {
-        setup,
-        clients,
-    } = setup_test(SeedLevel::PLANS).await.unwrap();
+    let TestContext { setup, clients } = setup_test(SeedLevel::PLANS).await.unwrap();
     let customer_id = "018c345f-7324-7cd2-a692-78e5ab9158e0".to_string();
     let plan_version_id = "018c344b-da87-7392-bbae-c5c8780adb1b".to_string();
     let component_id = "018c344c-9ec9-7608-b115-1537b6985e73".to_string();
@@ -553,10 +547,7 @@ async fn test_subscription_create_invoice_seats() {
 #[tokio::test]
 #[ignore] // subscription seed is broken
 async fn test_subscription_create_invoice_rate() {
-    let TestContext {
-        setup,
-        clients,
-    } = setup_test(SeedLevel::PLANS).await.unwrap();
+    let TestContext { setup, clients } = setup_test(SeedLevel::PLANS).await.unwrap();
 
     let customer_id = "018c345f-7324-7cd2-a692-78e5ab9158e0".to_string();
     let plan_version_id = "018c344a-78a9-7e2b-af90-5748672711f8".to_string();
@@ -777,10 +768,7 @@ async fn test_subscription_create_invoice_rate() {
 #[tokio::test]
 #[ignore] // subscription seed is broken
 async fn test_subscription_create_invoice_usage() {
-    let TestContext {
-        setup,
-        clients,
-    } = setup_test(SeedLevel::PLANS).await.unwrap();
+    let TestContext { setup, clients } = setup_test(SeedLevel::PLANS).await.unwrap();
 
     let customer_id = "018c345f-7324-7cd2-a692-78e5ab9158e0".to_string();
     let plan_version_id = "018c35cc-3f41-7551-b7b6-f8bbcd62b784".to_string();
