@@ -12,7 +12,7 @@ secrecy = { workspace = true }
 thiserror = { workspace = true }
 reqwest = { workspace = true, features = ["default", "multipart"] }
 reqwest-retry = { workspace = true, features = ["default"] }
-reqwest-middleware = { workspace = true, features = ["json", "multipart"] }
+reqwest-middleware = { workspace = true, features = ["json", "multipart", "query"] }
 async-trait = { workspace = true }
 nonzero_ext = { workspace = true }
 meteroid-middleware = { workspace = true, features = ["client"] }

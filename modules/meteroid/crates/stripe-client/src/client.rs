@@ -118,6 +118,9 @@ impl StripeClient {
         let url = self.url(path);
 
         let mut params_buffer = Vec::new();
+        // reqwest's .form() uses serde_urlencoded under the hood, which only handles flat
+        // key-value pairs. Stripe's API heavily uses nested structures that require
+        // bracket notation: line_items[0][price]=price_xxx
         let qs_ser = &mut serde_qs::Serializer::new(
             &mut params_buffer,
             Config::new().use_form_encoding(true),

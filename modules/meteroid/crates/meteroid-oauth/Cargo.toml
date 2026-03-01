@@ -13,6 +13,7 @@ secrecy = { workspace = true }
 thiserror = { workspace = true }
 tokio = { workspace = true, features = ["rt-multi-thread", "macros"] }
 oauth2 = { workspace = true }
+oauth2-reqwest = { workspace = true }
 reqwest = { workspace = true, features = ["json"] }
 serde = { workspace = true, features = ["derive"] }
 strum = { workspace = true }
