@@ -12,7 +12,7 @@ use rstest::rstest;
 
 use crate::data::ids::*;
 use crate::harness::{InvoicesAssertExt, SubscriptionAssertExt, TestEnv, subscription, test_env};
-use diesel_models::enums::CycleActionEnum;
+use diesel_models::enums::{CycleActionEnum, SubscriptionStatusEnum};
 
 // =============================================================================
 // BASIC RENEWAL TESTS
@@ -895,4 +895,100 @@ async fn test_oncheckout_no_trial_full_flow(#[future] test_env: TestEnv) {
         .is_finalized_paid()
         .has_total(3500)
         .check_prorated(false);
+}
+
+// =============================================================================
+// END DATE LIFECYCLE TESTS
+// =============================================================================
+
+/// Subscription with end_date in the past (skip_past_invoices=false):
+/// billing terminates at end_date via the cycle worker.
+///
+/// Timeline (monthly billing, billing_day=1):
+/// - Creation (2024-01-01): Active, cycle_index=0, period=[Jan1, Feb1], Invoice 1 ($35)
+/// - process_cycles #1: RenewSubscription fires; end_date(Feb15) truncates [Feb1, Mar1] → [Feb1, Feb15];
+///   EndSubscription scheduled; Invoice 2 created ($35, billed for advance period [Feb1, Mar1])
+/// - process_cycles #2: EndSubscription fires → Completed;
+///   No Invoice 3 (advance_period=None for completed subscriptions)
+///
+/// Key assertion: billing ends after end_date — no invoice is created beyond Invoice 2.
+#[rstest]
+#[tokio::test]
+async fn test_lifecycle_end_date_billing_terminates(#[future] test_env: TestEnv) {
+    let env = test_env.await;
+
+    let start_date = NaiveDate::from_ymd_opt(2024, 1, 1).unwrap();
+    // end_date falls within the second billing period [Feb1, Mar1]
+    let end_date = NaiveDate::from_ymd_opt(2024, 2, 15).unwrap();
+
+    let sub_id = subscription()
+        .plan_version(PLAN_VERSION_1_LEETCODE_ID) // $35/month
+        .start_date(start_date)
+        .end_date(end_date)
+        .on_start()
+        .no_trial()
+        .create(env.services())
+        .await;
+
+    // === Phase 1: Creation ===
+    let sub = env.get_subscription(sub_id).await;
+    sub.assert()
+        .with_context("Phase 1: After creation")
+        .is_active()
+        .has_cycle_index(0)
+        .has_period_start(start_date)
+        .has_period_end(NaiveDate::from_ymd_opt(2024, 2, 1).unwrap());
+
+    let invoices = env.get_invoices(sub_id).await;
+    invoices.assert().has_count(1);
+    invoices
+        .assert()
+        .invoice_at(0)
+        .with_context("Invoice 1: first full period")
+        .is_finalized_unpaid()
+        .has_invoice_date(start_date)
+        .has_total(3500)
+        .check_prorated(false);
+
+    // === Phase 2: First renewal — period is truncated at end_date ===
+    env.process_cycles().await;
+
+    let sub = env.get_subscription(sub_id).await;
+    sub.assert()
+        .with_context("Phase 2: After first process_cycles")
+        // Active + EndSubscription (not RenewSubscription) because end_date is within this period
+        .has_status(SubscriptionStatusEnum::Active)
+        .has_next_action(Some(CycleActionEnum::EndSubscription))
+        .has_cycle_index(1)
+        .has_period_start(NaiveDate::from_ymd_opt(2024, 2, 1).unwrap())
+        // Period is truncated to end_date in the DB (even though billing uses the full advance period)
+        .has_period_end(end_date);
+
+    // Invoice 2 created for the second billing cycle.
+    // Note: the billing advance period [Feb1, Mar1] is used even though the subscription
+    // ends Feb 15 — mid-period end_date truncation does not retroactively prorate
+    // non-zero-index billing cycles.
+    let invoices = env.get_invoices(sub_id).await;
+    invoices.assert().has_count(2);
+    invoices
+        .assert()
+        .invoice_at(1)
+        .with_context("Invoice 2: second billing cycle (billed at period start)")
+        .is_finalized_unpaid()
+        .has_invoice_date(NaiveDate::from_ymd_opt(2024, 2, 1).unwrap())
+        .has_total(3500);
+
+    // === Phase 3: EndSubscription fires — subscription completes with no new invoice ===
+    env.process_cycles().await;
+
+    let sub = env.get_subscription(sub_id).await;
+    sub.assert()
+        .with_context("Phase 3: After second process_cycles")
+        .has_status(SubscriptionStatusEnum::Completed)
+        .has_next_action(None);
+
+    // No Invoice 3: when EndSubscription fires, current_period_end=None in the DB,
+    // so the billing layer treats the subscription as completed and skips advance billing.
+    let invoices = env.get_invoices(sub_id).await;
+    invoices.assert().has_count(2);
 }
