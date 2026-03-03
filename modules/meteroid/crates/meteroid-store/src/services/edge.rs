@@ -777,6 +777,27 @@ impl ServicesEdge {
             .await
     }
 
+    pub async fn apply_plan_change_immediate_at(
+        &self,
+        subscription_id: SubscriptionId,
+        tenant_id: TenantId,
+        new_plan_version_id: PlanVersionId,
+        component_params: Vec<crate::domain::subscription_components::ComponentParameterization>,
+        force_annual: bool,
+        change_date: NaiveDate,
+    ) -> StoreResult<crate::domain::subscription_changes::ImmediatePlanChangeResult> {
+        self.services
+            .apply_plan_change_immediate_at(
+                subscription_id,
+                tenant_id,
+                new_plan_version_id,
+                component_params,
+                force_annual,
+                change_date,
+            )
+            .await
+    }
+
     pub async fn cancel_plan_change(
         &self,
         subscription_id: SubscriptionId,

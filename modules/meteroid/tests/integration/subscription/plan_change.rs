@@ -5,14 +5,23 @@
 
 use chrono::{NaiveDate, NaiveTime};
 use rstest::rstest;
+use std::collections::HashMap;
+use std::sync::Arc;
 
 use crate::data::ids::*;
-use crate::harness::{InvoicesAssertExt, SubscriptionAssertExt, TestEnv, subscription, test_env};
-use meteroid_store::domain::SlotUpgradeBillingMode;
+use crate::harness::{
+    InvoicesAssertExt, SubscriptionAssertExt, TestEnv, subscription, test_env, test_env_with_usage,
+};
+use meteroid_store::clients::usage::{
+    GroupedUsageData, MockUsageClient, MockUsageDataParams, UsageData,
+};
 use meteroid_store::domain::subscription_components::{
     ComponentParameterization, ComponentParameters,
 };
+use meteroid_store::domain::{Period, SlotUpgradeBillingMode};
+use meteroid_store::repositories::subscriptions::SubscriptionInterfaceAuto;
 use meteroid_store::repositories::subscriptions::slots::SubscriptionSlotsInterfaceAuto;
+use rust_decimal::Decimal;
 
 // =============================================================================
 // PREVIEW
@@ -490,6 +499,41 @@ async fn test_immediate_plan_change_upgrade(#[future] test_env: TestEnv) {
         "should have Pro Seats component"
     );
 
+    // Verify temporal bounds on all components (active + closed)
+    let all_components = env
+        .get_all_subscription_components(sub_id, start_date, today + chrono::Duration::days(1))
+        .await;
+    assert_eq!(
+        all_components.len(),
+        4,
+        "should have 4 total components (2 closed Starter + 2 active Pro)"
+    );
+
+    let closed: Vec<_> = all_components
+        .iter()
+        .filter(|c| c.effective_to.is_some())
+        .collect();
+    for c in &closed {
+        assert_eq!(
+            c.effective_to,
+            Some(today),
+            "closed component '{}' should have effective_to = today",
+            c.name
+        );
+    }
+
+    let active: Vec<_> = all_components
+        .iter()
+        .filter(|c| c.effective_to.is_none())
+        .collect();
+    for c in &active {
+        assert_eq!(
+            c.effective_from, today,
+            "new component '{}' should have effective_from = today",
+            c.name
+        );
+    }
+
     // Should have: initial Starter invoice + adjustment invoice
     let invoices = env.get_invoices(sub_id).await;
     invoices.assert().has_count(2);
@@ -511,7 +555,10 @@ async fn test_immediate_plan_change_upgrade(#[future] test_env: TestEnv) {
     let expected_net = credit_platform + credit_seats + charge_platform + charge_seats;
 
     let adj = &invoices[1];
-    assert!(adj.total > 0, "adjustment total should be positive for upgrade");
+    assert!(
+        adj.total > 0,
+        "adjustment total should be positive for upgrade"
+    );
     assert_eq!(
         adj.total, expected_net,
         "adjustment total should match prorated Starter→Pro (factor={factor:.4})"
@@ -704,6 +751,11 @@ async fn test_end_of_period_change_with_temporal_rotation(#[future] test_env: Te
         .collect();
     assert_eq!(closed.len(), 2, "should have 2 closed Starter components");
     for c in &closed {
+        assert_eq!(
+            c.effective_from, start_date,
+            "closed component '{}' should have effective_from = start_date",
+            c.name
+        );
         assert_eq!(
             c.effective_to,
             Some(apply_date),
@@ -1156,4 +1208,458 @@ async fn test_immediate_plan_change_rate_only_to_plan_with_slots(#[future] test_
     // 7. Verify subscription is now on Starter
     let sub = env.get_subscription(sub_id).await;
     assert_eq!(sub.plan_version_id, PLAN_VERSION_STARTER_ID);
+}
+
+// =============================================================================
+// USAGE TEMPORAL SPLIT
+// =============================================================================
+
+/// Helper to build a MockUsageClient with entries keyed on (metric_id, period_start, period_end).
+fn build_usage_mock(entries: Vec<(MockUsageDataParams, Decimal)>) -> Arc<MockUsageClient> {
+    let mut data = HashMap::new();
+    for (params, value) in entries {
+        let period = Period {
+            start: params.period_start,
+            end: params.period_end,
+        };
+        data.insert(
+            params,
+            UsageData {
+                data: vec![GroupedUsageData {
+                    value,
+                    dimensions: HashMap::new(),
+                }],
+                period,
+            },
+        );
+    }
+    Arc::new(MockUsageClient { data })
+}
+
+/// Mid-period plan change with Usage components verifies temporal split billing.
+///
+/// Timeline (all fixed past dates):
+/// Jan 1 2025:  Create sub on Usage Alpha. Period [Jan 1, Feb 1].
+///              Invoice 0: Rate €10 advance only (no usage on cycle 0).
+/// Feb 1:       process_cycles → Period [Feb 1, Mar 1].
+///              Invoice 1: Rate €10 advance + Usage arrear [Jan 1, Feb 1].
+/// Feb 15:      apply_plan_change_immediate_at(change_date = Feb 15)
+///              Adjustment invoice: prorated Rate only, NO usage.
+///              Old components closed at Feb 15, new from Feb 15.
+/// Mar 1:       process_cycles → Period [Mar 1, Apr 1].
+///              Invoice 2: Rate €20 advance + temporal split:
+///                - Old "API Calls": [Feb 1, Feb 15] at €0.10/unit
+///                - New "API Calls": [Feb 15, Mar 1] at €0.20/unit
+///                - New "DB Storage": [Feb 15, Mar 1] at €0.50/unit
+///
+/// Usage Alpha: Rate €10/mo + Usage "API Calls" on METRIC_BANDWIDTH at €0.10/unit
+/// Usage Beta:  Rate €20/mo + Usage "API Calls" on METRIC_BANDWIDTH at €0.20/unit
+///                          + Usage "DB Storage" on METRIC_DATABASE_SIZE at €0.50/unit
+#[tokio::test]
+async fn test_immediate_plan_change_usage_temporal_split() {
+    let jan1 = NaiveDate::from_ymd_opt(2025, 1, 1).unwrap();
+    let feb1 = NaiveDate::from_ymd_opt(2025, 2, 1).unwrap();
+    let feb15 = NaiveDate::from_ymd_opt(2025, 2, 15).unwrap();
+    let mar1 = NaiveDate::from_ymd_opt(2025, 3, 1).unwrap();
+
+    let usage_client = build_usage_mock(vec![
+        // Cycle 1 arrear: full period Jan 1 → Feb 1
+        (
+            MockUsageDataParams {
+                metric_id: METRIC_BANDWIDTH,
+                period_start: jan1,
+                period_end: feb1,
+            },
+            Decimal::new(1000, 0), // 1000 units
+        ),
+        // Old API Calls: temporal split Feb 1 → Feb 15
+        (
+            MockUsageDataParams {
+                metric_id: METRIC_BANDWIDTH,
+                period_start: feb1,
+                period_end: feb15,
+            },
+            Decimal::new(50, 0), // 50 units
+        ),
+        // New API Calls: temporal split Feb 15 → Mar 1
+        (
+            MockUsageDataParams {
+                metric_id: METRIC_BANDWIDTH,
+                period_start: feb15,
+                period_end: mar1,
+            },
+            Decimal::new(200, 0), // 200 units
+        ),
+        // New DB Storage: only active after change, Feb 15 → Mar 1
+        (
+            MockUsageDataParams {
+                metric_id: METRIC_DATABASE_SIZE,
+                period_start: feb15,
+                period_end: mar1,
+            },
+            Decimal::new(100, 0), // 100 units
+        ),
+    ]);
+
+    let env = test_env_with_usage(usage_client).await;
+
+    // --- Cycle 0: Subscribe on Usage Alpha at Jan 1 ---
+    let sub_id = subscription()
+        .plan_version(PLAN_VERSION_USAGE_ALPHA_ID)
+        .start_date(jan1)
+        .on_start()
+        .no_trial()
+        .create(env.services())
+        .await;
+
+    let sub = env.get_subscription(sub_id).await;
+    sub.assert()
+        .is_active()
+        .has_cycle_index(0)
+        .has_period_start(jan1)
+        .has_period_end(feb1);
+
+    // Invoice 0: Rate €10 advance only (no usage on cycle 0)
+    let invoices = env.get_invoices(sub_id).await;
+    invoices.assert().has_count(1);
+    invoices
+        .assert()
+        .invoice_at(0)
+        .with_context("cycle 0 - Alpha initial invoice")
+        .is_finalized_unpaid()
+        .has_total(1000); // €10 = 1000 cents
+
+    // --- Cycle 1: process_cycles → Period [Feb 1, Mar 1] ---
+    env.process_cycles().await;
+
+    let sub = env.get_subscription(sub_id).await;
+    sub.assert()
+        .is_active()
+        .has_cycle_index(1)
+        .has_period_start(feb1)
+        .has_period_end(mar1);
+
+    // Invoice 1: Rate €10 advance + Usage arrear 1000 × €0.10 = €100
+    let invoices = env.get_invoices(sub_id).await;
+    invoices.assert().has_count(2);
+    invoices
+        .assert()
+        .invoice_at(1)
+        .with_context("cycle 1 - Alpha invoice (rate + usage arrear)")
+        .is_finalized_unpaid()
+        .has_total(1000 + 10000); // €10 rate + €100 usage = €110 = 11000 cents
+
+    // --- Feb 15: Immediate plan change Usage Alpha → Usage Beta ---
+    let result = env
+        .services()
+        .apply_plan_change_immediate_at(
+            sub_id,
+            TENANT_ID,
+            PLAN_VERSION_USAGE_BETA_ID,
+            vec![],
+            false,
+            feb15,
+        )
+        .await
+        .expect("apply_plan_change_immediate_at failed");
+
+    assert!(
+        result.adjustment_invoice_id.is_some(),
+        "should create adjustment invoice for rate proration"
+    );
+
+    // Verify adjustment invoice has NO usage line items (usage excluded from proration)
+    let invoices = env.get_invoices(sub_id).await;
+    invoices.assert().has_count(3);
+    let adj = &invoices[2];
+    for line in &adj.line_items {
+        assert!(
+            line.metric_id.is_none(),
+            "adjustment invoice should not have usage lines, found: {}",
+            line.name
+        );
+    }
+
+    // Verify adjustment: prorated Rate only
+    // Old rate €10/mo credit for 14 days remaining out of 28 days (Feb 1→Mar 1)
+    // New rate €20/mo charge for 14 days remaining out of 28 days
+    let days_in_period = (mar1 - feb1).num_days() as f64; // 28
+    let days_remaining = (mar1 - feb15).num_days() as f64; // 14
+    let factor = days_remaining / days_in_period;
+    let credit_rate = -((1000_f64 * factor).round() as i64);
+    let charge_rate = (2000_f64 * factor).round() as i64;
+    let expected_adj = credit_rate + charge_rate;
+    assert_eq!(
+        adj.total, expected_adj,
+        "adjustment should be prorated Rate only (factor={factor:.4})"
+    );
+
+    // --- Verify component temporal bounds after Feb 15 change ---
+    let sub = env.get_subscription(sub_id).await;
+    assert_eq!(sub.plan_version_id, PLAN_VERSION_USAGE_BETA_ID);
+
+    let all_components = env
+        .get_all_subscription_components(sub_id, jan1, mar1)
+        .await;
+
+    // Old Alpha: Platform Fee + API Calls (closed)
+    // New Beta: Platform Fee + API Calls + DB Storage (active)
+    assert_eq!(
+        all_components.len(),
+        5,
+        "should have 5 total components (2 closed Alpha + 3 active Beta)"
+    );
+
+    let closed: Vec<_> = all_components
+        .iter()
+        .filter(|c| c.effective_to.is_some())
+        .collect();
+    assert_eq!(closed.len(), 2, "should have 2 closed Alpha components");
+    for c in &closed {
+        assert_eq!(
+            c.effective_from, jan1,
+            "closed component '{}' should have effective_from = Jan 1",
+            c.name
+        );
+        assert_eq!(
+            c.effective_to,
+            Some(feb15),
+            "closed component '{}' should have effective_to = Feb 15",
+            c.name
+        );
+    }
+
+    let active: Vec<_> = all_components
+        .iter()
+        .filter(|c| c.effective_to.is_none())
+        .collect();
+    assert_eq!(active.len(), 3, "should have 3 active Beta components");
+    for c in &active {
+        assert_eq!(
+            c.effective_from, feb15,
+            "active component '{}' should have effective_from = Feb 15",
+            c.name
+        );
+    }
+
+    // --- Cycle 2: process_cycles → Period [Mar 1, Apr 1] ---
+    env.process_cycles().await;
+
+    let sub = env.get_subscription(sub_id).await;
+    sub.assert()
+        .is_active()
+        .has_cycle_index(2)
+        .has_period_start(mar1);
+
+    // Invoice 3: Rate €20 advance + temporal split usage
+    let invoices = env.get_invoices(sub_id).await;
+    invoices.assert().has_count(4);
+
+    let inv = &invoices[3];
+
+    // Expected line items:
+    // 1. Rate €20/mo advance = 2000 cents
+    // 2. Old "API Calls" arrear [Feb 1, Feb 15]: 50 × €0.10 = 500 cents
+    // 3. New "API Calls" arrear [Feb 15, Mar 1]: 200 × €0.20 = 4000 cents
+    // 4. "DB Storage" arrear [Feb 15, Mar 1]: 100 × €0.50 = 5000 cents
+    // Total: 2000 + 500 + 4000 + 5000 = 11500 cents
+    assert_eq!(
+        inv.total, 11500,
+        "invoice 3 total should be 11500 (rate 2000 + old API 500 + new API 4000 + DB 5000)"
+    );
+
+    // Verify individual line items
+    let rate_lines: Vec<_> = inv
+        .line_items
+        .iter()
+        .filter(|l| l.metric_id.is_none())
+        .collect();
+    assert_eq!(rate_lines.len(), 1, "should have 1 rate line item");
+    assert_eq!(
+        rate_lines[0].amount_subtotal, 2000,
+        "rate advance should be €20"
+    );
+
+    let usage_lines: Vec<_> = inv
+        .line_items
+        .iter()
+        .filter(|l| l.metric_id.is_some())
+        .collect();
+    assert_eq!(
+        usage_lines.len(),
+        3,
+        "should have 3 usage line items (temporal split)"
+    );
+
+    // Check bandwidth (API Calls) lines have temporal split naming
+    let bandwidth_lines: Vec<_> = usage_lines
+        .iter()
+        .filter(|l| l.metric_id == Some(METRIC_BANDWIDTH))
+        .collect();
+    assert_eq!(
+        bandwidth_lines.len(),
+        2,
+        "should have 2 bandwidth lines (old + new API Calls)"
+    );
+
+    let db_lines: Vec<_> = usage_lines
+        .iter()
+        .filter(|l| l.metric_id == Some(METRIC_DATABASE_SIZE))
+        .collect();
+    assert_eq!(db_lines.len(), 1, "should have 1 DB Storage line");
+    assert_eq!(
+        db_lines[0].amount_subtotal, 5000,
+        "DB Storage: 100 × €0.50 = 5000"
+    );
+
+    // Check the two bandwidth usage amounts sum to expected
+    let bandwidth_total: i64 = bandwidth_lines.iter().map(|l| l.amount_subtotal).sum();
+    assert_eq!(
+        bandwidth_total, 4500,
+        "bandwidth total should be 500 + 4000 = 4500"
+    );
+}
+
+/// Complementary test: compute_upcoming_invoice after a mid-period usage plan change.
+///
+/// Same setup as the temporal split test but uses `compute_upcoming_invoice` to preview
+/// the Mar 1 invoice without going through the full cycle pipeline.
+#[tokio::test]
+async fn test_immediate_plan_change_usage_upcoming_invoice() {
+    let jan1 = NaiveDate::from_ymd_opt(2025, 1, 1).unwrap();
+    let feb1 = NaiveDate::from_ymd_opt(2025, 2, 1).unwrap();
+    let feb15 = NaiveDate::from_ymd_opt(2025, 2, 15).unwrap();
+    let mar1 = NaiveDate::from_ymd_opt(2025, 3, 1).unwrap();
+
+    let usage_client = build_usage_mock(vec![
+        // Cycle 1 arrear (not relevant for upcoming, but needed for cycle 1 invoice)
+        (
+            MockUsageDataParams {
+                metric_id: METRIC_BANDWIDTH,
+                period_start: jan1,
+                period_end: feb1,
+            },
+            Decimal::new(1000, 0),
+        ),
+        // Old API Calls: temporal split Feb 1 → Feb 15
+        (
+            MockUsageDataParams {
+                metric_id: METRIC_BANDWIDTH,
+                period_start: feb1,
+                period_end: feb15,
+            },
+            Decimal::new(50, 0),
+        ),
+        // New API Calls: temporal split Feb 15 → Mar 1
+        (
+            MockUsageDataParams {
+                metric_id: METRIC_BANDWIDTH,
+                period_start: feb15,
+                period_end: mar1,
+            },
+            Decimal::new(200, 0),
+        ),
+        // New DB Storage: Feb 15 → Mar 1
+        (
+            MockUsageDataParams {
+                metric_id: METRIC_DATABASE_SIZE,
+                period_start: feb15,
+                period_end: mar1,
+            },
+            Decimal::new(100, 0),
+        ),
+    ]);
+
+    let env = test_env_with_usage(usage_client).await;
+
+    // --- Cycle 0: Subscribe on Usage Alpha at Jan 1 ---
+    let sub_id = subscription()
+        .plan_version(PLAN_VERSION_USAGE_ALPHA_ID)
+        .start_date(jan1)
+        .on_start()
+        .no_trial()
+        .create(env.services())
+        .await;
+
+    // --- Cycle 1: process_cycles → Period [Feb 1, Mar 1] ---
+    env.process_cycles().await;
+
+    let sub = env.get_subscription(sub_id).await;
+    sub.assert()
+        .has_cycle_index(1)
+        .has_period_start(feb1)
+        .has_period_end(mar1);
+
+    // --- Feb 15: Immediate plan change Usage Alpha → Usage Beta ---
+    env.services()
+        .apply_plan_change_immediate_at(
+            sub_id,
+            TENANT_ID,
+            PLAN_VERSION_USAGE_BETA_ID,
+            vec![],
+            false,
+            feb15,
+        )
+        .await
+        .expect("apply_plan_change_immediate_at failed");
+
+    // --- Compute upcoming invoice (preview for Mar 1) ---
+    let sub_details = env
+        .store()
+        .get_subscription_details(TENANT_ID, sub_id)
+        .await
+        .expect("get_subscription_details failed");
+
+    let upcoming = env
+        .services()
+        .compute_upcoming_invoice(&sub_details)
+        .await
+        .expect("compute_upcoming_invoice failed");
+
+    // Expected: same totals as the pipeline test
+    // Rate €20/mo advance = 2000
+    // Old API Calls [Feb 1, Feb 15]: 50 × €0.10 = 500
+    // New API Calls [Feb 15, Mar 1]: 200 × €0.20 = 4000
+    // DB Storage [Feb 15, Mar 1]: 100 × €0.50 = 5000
+    // Total: 11500
+    let total: i64 = upcoming
+        .invoice_lines
+        .iter()
+        .map(|l| l.amount_subtotal)
+        .sum();
+    assert_eq!(
+        total, 11500,
+        "upcoming invoice total should be 11500 (rate 2000 + old API 500 + new API 4000 + DB 5000)"
+    );
+
+    // Verify line item count: 1 rate + 3 usage (temporal split)
+    let rate_lines: Vec<_> = upcoming
+        .invoice_lines
+        .iter()
+        .filter(|l| l.metric_id.is_none())
+        .collect();
+    assert_eq!(rate_lines.len(), 1, "should have 1 rate line item");
+
+    let usage_lines: Vec<_> = upcoming
+        .invoice_lines
+        .iter()
+        .filter(|l| l.metric_id.is_some())
+        .collect();
+    assert_eq!(
+        usage_lines.len(),
+        3,
+        "should have 3 usage line items (temporal split)"
+    );
+
+    let bandwidth_lines: Vec<_> = usage_lines
+        .iter()
+        .filter(|l| l.metric_id == Some(METRIC_BANDWIDTH))
+        .collect();
+    assert_eq!(bandwidth_lines.len(), 2, "should have 2 bandwidth lines");
+
+    let db_lines: Vec<_> = usage_lines
+        .iter()
+        .filter(|l| l.metric_id == Some(METRIC_DATABASE_SIZE))
+        .collect();
+    assert_eq!(db_lines.len(), 1, "should have 1 DB Storage line");
 }

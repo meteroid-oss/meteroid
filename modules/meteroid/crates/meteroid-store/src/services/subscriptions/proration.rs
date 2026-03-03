@@ -39,9 +39,7 @@ pub fn component_advance_amount_cents(
             initial_slots,
             unit_rate,
             ..
-        } => {
-            i64::from(*initial_slots) * unit_rate.to_subunit_opt(precision).unwrap_or(0)
-        }
+        } => i64::from(*initial_slots) * unit_rate.to_subunit_opt(precision).unwrap_or(0),
         SubscriptionFee::OneTime { .. } | SubscriptionFee::Usage { .. } => 0,
     }
 }
@@ -53,15 +51,14 @@ pub fn detect_change_direction(
     removed: &[RemovedComponent],
     precision: u8,
 ) -> ChangeDirection {
-    let old_total: i64 = matched
-        .iter()
-        .map(|m| component_advance_amount_cents(&m.current_fee, &m.current_period, precision))
-        .chain(
-            removed
-                .iter()
-                .map(|r| component_advance_amount_cents(&r.current_fee, &r.current_period, precision)),
-        )
-        .sum();
+    let old_total: i64 =
+        matched
+            .iter()
+            .map(|m| component_advance_amount_cents(&m.current_fee, &m.current_period, precision))
+            .chain(removed.iter().map(|r| {
+                component_advance_amount_cents(&r.current_fee, &r.current_period, precision)
+            }))
+            .sum();
 
     let new_total: i64 = matched
         .iter()
@@ -204,9 +201,7 @@ mod tests {
         use common_domain::ids::BaseId;
         SubscriptionFee::Usage {
             metric_id: common_domain::ids::BillableMetricId::new(),
-            model: crate::domain::UsagePricingModel::PerUnit {
-                rate: Decimal::ONE,
-            },
+            model: crate::domain::UsagePricingModel::PerUnit { rate: Decimal::ONE },
         }
     }
 

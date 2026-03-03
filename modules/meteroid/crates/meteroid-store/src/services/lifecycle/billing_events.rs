@@ -435,15 +435,14 @@ impl Services {
             )
             .unwrap_or(2);
 
-            let component_mrr: i64 =
-                calculate_components_mrr_with_slots(
-                    conn,
-                    event.tenant_id,
-                    event.subscription_id,
-                    &sub_details.price_components,
-                    precision,
-                )
-                .await?;
+            let component_mrr: i64 = calculate_components_mrr_with_slots(
+                conn,
+                event.tenant_id,
+                event.subscription_id,
+                &sub_details.price_components,
+                precision,
+            )
+            .await?;
 
             let add_on_mrr: i64 = sub_details
                 .add_ons

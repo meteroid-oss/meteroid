@@ -398,7 +398,13 @@ impl PortalSubscriptionService for PortalSubscriptionServiceComponents {
 
         let result = self
             .services
-            .preview_plan_change(subscription_id, tenant_id, new_plan_version_id, vec![], None)
+            .preview_plan_change(
+                subscription_id,
+                tenant_id,
+                new_plan_version_id,
+                vec![],
+                None,
+            )
             .await
             .map_err(Into::<PortalSubscriptionApiError>::into)?;
 

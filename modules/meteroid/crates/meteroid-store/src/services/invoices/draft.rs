@@ -260,11 +260,7 @@ impl Services {
 
         let invoicing_entity = self
             .store
-            .get_invoicing_entity_with_conn(
-                conn,
-                tenant_id,
-                Some(customer.invoicing_entity_id),
-            )
+            .get_invoicing_entity_with_conn(conn, tenant_id, Some(customer.invoicing_entity_id))
             .await?;
 
         // Compute taxes on line items (positive lines get taxed, negative credit lines are skipped)
@@ -284,18 +280,14 @@ impl Services {
         let total = subtotal + tax_amount;
 
         let applied_credits = if total > 0 {
-            std::cmp::min(
-                total as u64,
-                customer.balance_value_cents.max(0) as u64,
-            ) as i64
+            std::cmp::min(total as u64, customer.balance_value_cents.max(0) as u64) as i64
         } else {
             0
         };
         let amount_due = std::cmp::max(0, total - applied_credits);
 
-        let due_date =
-            (invoice_date + chrono::Duration::days(i64::from(subscription.net_terms)))
-                .and_time(NaiveTime::MIN);
+        let due_date = (invoice_date + chrono::Duration::days(i64::from(subscription.net_terms)))
+            .and_time(NaiveTime::MIN);
 
         let invoice_new = InvoiceNew {
             tenant_id: subscription.tenant_id,

@@ -98,3 +98,25 @@ pub async fn test_env_with_seed_and_usage(
         _mailer: mailer,
     }
 }
+
+/// Create a test environment with PLANS seed and a custom usage client.
+pub async fn test_env_with_usage(usage_client: Arc<dyn UsageClient>) -> TestEnv {
+    helpers::init::logging();
+
+    let postgres_connection_string = meteroid_it::container::create_test_database().await;
+
+    let mailer = Arc::new(MockMailerService::new());
+
+    let setup = meteroid_it::container::start_meteroid_with_clients(
+        postgres_connection_string,
+        SeedLevel::PLANS,
+        usage_client,
+        mailer.clone(),
+    )
+    .await;
+
+    TestEnv {
+        setup,
+        _mailer: mailer,
+    }
+}

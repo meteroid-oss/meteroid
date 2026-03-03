@@ -11,23 +11,22 @@ use crate::domain::scheduled_events::{
     ComponentMapping, ScheduledEvent, ScheduledEventData, ScheduledEventNew,
 };
 use crate::domain::subscription_changes::{
-    AddedComponent, ChangeDirection, ImmediatePlanChangeResult, MatchedComponent,
-    PlanChangePreview, PlanChangePreviewExtended, PlanChangeMode, ProrationSummary,
-    RemovedComponent,
+    AddedComponent, ChangeDirection, ImmediatePlanChangeResult, MatchedComponent, PlanChangeMode,
+    PlanChangePreview, PlanChangePreviewExtended, ProrationSummary, RemovedComponent,
 };
 use crate::domain::subscription_components::{
     ComponentParameterization, ComponentParameters, SubscriptionComponent,
     SubscriptionComponentNew, SubscriptionComponentNewInternal, SubscriptionFee,
 };
 use crate::errors::StoreError;
-use common_utils::decimals::ToSubunit;
 use crate::repositories::SubscriptionInterface;
 use crate::services::Services;
 use crate::services::subscriptions::proration::{calculate_proration, detect_change_direction};
 use crate::services::subscriptions::utils::calculate_mrr;
 use crate::store::PgConn;
-use chrono::NaiveTime;
+use chrono::{NaiveDate, NaiveTime};
 use common_domain::ids::{PlanVersionId, PriceComponentId, ProductId, SubscriptionId, TenantId};
+use common_utils::decimals::ToSubunit;
 use diesel_async::scoped_futures::ScopedFutureExt;
 use diesel_models::plan_component_prices::PlanComponentPriceRow;
 use diesel_models::plans::PlanRow;
@@ -175,7 +174,9 @@ impl Services {
                                 tenant_id,
                                 scheduled_time: effective_date.and_time(NaiveTime::MIN),
                                 event_data: ScheduledEventData::ApplyPlanChange {
-                                    source_plan_version_id: Some(subscription.subscription.plan_version_id),
+                                    source_plan_version_id: Some(
+                                        subscription.subscription.plan_version_id,
+                                    ),
                                     new_plan_version_id,
                                     component_mappings,
                                 },
@@ -278,13 +279,7 @@ impl Services {
             effective_date,
         )?;
 
-        resolve_preview_slot_counts(
-            &mut conn,
-            tenant_id,
-            subscription_id,
-            &mut preview,
-        )
-        .await?;
+        resolve_preview_slot_counts(&mut conn, tenant_id, subscription_id, &mut preview).await?;
 
         let precision = crate::constants::Currencies::resolve_currency_precision(
             &subscription.subscription.currency,
@@ -434,6 +429,27 @@ impl Services {
         component_params: Vec<ComponentParameterization>,
         force_annual: bool,
     ) -> StoreResult<ImmediatePlanChangeResult> {
+        let today = chrono::Utc::now().naive_utc().date();
+        self.apply_plan_change_immediate_at(
+            subscription_id,
+            tenant_id,
+            new_plan_version_id,
+            component_params,
+            force_annual,
+            today,
+        )
+        .await
+    }
+
+    pub(crate) async fn apply_plan_change_immediate_at(
+        &self,
+        subscription_id: SubscriptionId,
+        tenant_id: TenantId,
+        new_plan_version_id: PlanVersionId,
+        component_params: Vec<ComponentParameterization>,
+        force_annual: bool,
+        change_date: NaiveDate,
+    ) -> StoreResult<ImmediatePlanChangeResult> {
         self.store
             .transaction(|conn| {
                 async move {
@@ -502,15 +518,13 @@ impl Services {
                     )
                     .await?;
 
-                    let today = chrono::Utc::now().naive_utc().date();
-
                     // 6. Build preview for direction detection
                     let mut preview = build_plan_change_preview(
                         &subscription_details.price_components,
                         &target_components,
                         &products,
                         &component_params,
-                        today,
+                        change_date,
                     )?;
 
                     resolve_preview_slot_counts(
@@ -579,7 +593,7 @@ impl Services {
                         &preview.removed,
                         period_start,
                         period_end,
-                        today,
+                        change_date,
                         precision,
                     );
 
@@ -629,7 +643,7 @@ impl Services {
                                             fee: fee.clone(),
                                             is_override: false,
                                             price_id: Some(*price_id),
-                                            effective_from: today,
+                                            effective_from: change_date,
                                         },
                                     }
                                     .try_into()
@@ -661,7 +675,7 @@ impl Services {
                                             fee: fee.clone(),
                                             is_override: false,
                                             price_id: *price_id,
-                                            effective_from: today,
+                                            effective_from: change_date,
                                         },
                                     }
                                     .try_into()
@@ -685,7 +699,7 @@ impl Services {
                     SubscriptionComponentRow::close_components(
                         conn,
                         &components_to_close,
-                        today,
+                        change_date,
                     )
                     .await
                     .map_err(Into::<Report<StoreError>>::into)?;
@@ -705,7 +719,7 @@ impl Services {
                         use crate::domain::slot_transactions::SlotTransactionNewInternal;
                         if let ComponentMapping::Added { fee, .. } = mapping
                             && let Some(tx) =
-                                SlotTransactionNewInternal::from_fee(fee, today)
+                                SlotTransactionNewInternal::from_fee(fee, change_date)
                         {
                             tx.into_row(subscription_id)
                                 .insert(conn)
@@ -748,7 +762,7 @@ impl Services {
                             created_at: chrono::Utc::now().naive_utc(),
                             mrr_delta: None,
                             bi_mrr_movement_log_id: None,
-                            applies_to: today,
+                            applies_to: change_date,
                         };
                     sub_event
                         .insert(conn)
@@ -808,7 +822,7 @@ impl Services {
 
                     Ok(ImmediatePlanChangeResult {
                         adjustment_invoice_id,
-                        effective_date: today,
+                        effective_date: change_date,
                     })
                 }
                 .scope_boxed()

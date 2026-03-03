@@ -23,23 +23,21 @@ use meteroid_store::domain::Period;
 use meteroid_store::repositories::subscriptions::CancellationEffectiveAt;
 
 /// Build a MockUsageClient that returns usage data for METRIC_BANDWIDTH.
-fn build_usage_client(usage_units: Decimal, period_end_dates: &[NaiveDate]) -> MockUsageClient {
+fn build_usage_client(usage_units: Decimal, periods: &[(NaiveDate, NaiveDate)]) -> MockUsageClient {
     let mut data = HashMap::new();
-    for &end_date in period_end_dates {
+    for &(start, end) in periods {
         data.insert(
             MockUsageDataParams {
                 metric_id: METRIC_BANDWIDTH,
-                invoice_date: end_date,
+                period_start: start,
+                period_end: end,
             },
             UsageData {
                 data: vec![GroupedUsageData {
                     value: usage_units,
                     dimensions: HashMap::new(),
                 }],
-                period: Period {
-                    start: end_date,
-                    end: end_date,
-                },
+                period: Period { start, end },
             },
         );
     }
@@ -61,7 +59,10 @@ async fn test_usage_invoice_includes_arrear_charges() {
 
     let usage_units = Decimal::from(100); // 100 units × EUR 0.10 = EUR 10.00 = 1000 cents
 
-    let usage_client = build_usage_client(usage_units, &[period1_end, period2_end]);
+    let usage_client = build_usage_client(
+        usage_units,
+        &[(start_date, period1_end), (period1_end, period2_end)],
+    );
     let env = test_env_with_seed_and_usage(SeedLevel::PLANS, Arc::new(usage_client)).await;
 
     // Create subscription on the usage plan (Rate 20€/mo + Usage bandwidth)
@@ -124,7 +125,10 @@ async fn test_cancel_with_usage_produces_final_arrear_invoice() {
 
     let usage_units = Decimal::from(100); // 100 units × EUR 0.10 = EUR 10.00 = 1000 cents
 
-    let usage_client = build_usage_client(usage_units, &[period1_end, period2_end]);
+    let usage_client = build_usage_client(
+        usage_units,
+        &[(start_date, period1_end), (period1_end, period2_end)],
+    );
     let env = test_env_with_seed_and_usage(SeedLevel::PLANS, Arc::new(usage_client)).await;
 
     let sub_id = subscription()

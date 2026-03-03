@@ -14,10 +14,9 @@ use diesel_models::plans::{PlanRowNew, PlanRowPatch};
 use diesel_models::price_components::PriceComponentRowNew;
 use diesel_models::prices::PriceRowNew;
 use diesel_models::products::ProductRowNew;
-use meteroid_store::domain::price_components::UsagePricingModel;
 use meteroid_store::domain::prices::{FeeStructure, Pricing, UsageModel};
 use meteroid_store::domain::{
-    BillingPeriodEnum, DowngradePolicy, FeeType, TermRate, UpgradePolicy,
+    BillingPeriodEnum, DowngradePolicy, FeeType, TermRate, UpgradePolicy, UsagePricingModel,
 };
 use meteroid_store::store::PgPool;
 use rust_decimal::Decimal;
@@ -209,6 +208,77 @@ pub async fn run_plans_seed(pool: &PgPool) {
                 .seed(tx)
                 .await?;
 
+            // Usage Alpha: Rate €10/mo + API Calls at €0.10/unit
+            PlanSeed::new(
+                ids::PLAN_USAGE_ALPHA_ID,
+                "Usage Alpha",
+                ids::PLAN_VERSION_USAGE_ALPHA_ID,
+            )
+            .components(vec![
+                SeedComp::rate(
+                    ids::COMP_USAGE_ALPHA_RATE_ID,
+                    "Platform Fee",
+                    ids::PRODUCT_PLATFORM_FEE_ID,
+                    ids::PRICE_USAGE_ALPHA_RATE_ID,
+                    DieselBillingPeriodEnum::Monthly,
+                    Decimal::new(1000, 2),
+                ),
+                SeedComp::usage(
+                    ids::COMP_USAGE_ALPHA_API_CALLS_ID,
+                    "API Calls",
+                    ids::PRODUCT_API_CALLS_ID,
+                    ids::METRIC_BANDWIDTH,
+                    ids::PRICE_USAGE_ALPHA_API_CALLS_ID,
+                    DieselBillingPeriodEnum::Monthly,
+                    UsagePricingModel::PerUnit {
+                        rate: Decimal::new(10, 2),
+                    },
+                ),
+            ])
+            .seed(tx)
+            .await?;
+
+            // Usage Beta: Rate €20/mo + API Calls at €0.20/unit + DB Storage at €0.50/unit
+            PlanSeed::new(
+                ids::PLAN_USAGE_BETA_ID,
+                "Usage Beta",
+                ids::PLAN_VERSION_USAGE_BETA_ID,
+            )
+            .components(vec![
+                SeedComp::rate(
+                    ids::COMP_USAGE_BETA_RATE_ID,
+                    "Platform Fee",
+                    ids::PRODUCT_PLATFORM_FEE_ID,
+                    ids::PRICE_USAGE_BETA_RATE_ID,
+                    DieselBillingPeriodEnum::Monthly,
+                    Decimal::new(2000, 2),
+                ),
+                SeedComp::usage(
+                    ids::COMP_USAGE_BETA_API_CALLS_ID,
+                    "API Calls",
+                    ids::PRODUCT_API_CALLS_ID,
+                    ids::METRIC_BANDWIDTH,
+                    ids::PRICE_USAGE_BETA_API_CALLS_ID,
+                    DieselBillingPeriodEnum::Monthly,
+                    UsagePricingModel::PerUnit {
+                        rate: Decimal::new(20, 2),
+                    },
+                ),
+                SeedComp::usage(
+                    ids::COMP_USAGE_BETA_DB_STORAGE_ID,
+                    "DB Storage",
+                    ids::PRODUCT_DB_STORAGE_ID,
+                    ids::METRIC_DATABASE_SIZE,
+                    ids::PRICE_USAGE_BETA_DB_STORAGE_ID,
+                    DieselBillingPeriodEnum::Monthly,
+                    UsagePricingModel::PerUnit {
+                        rate: Decimal::new(50, 2),
+                    },
+                ),
+            ])
+            .seed(tx)
+            .await?;
+
             Ok::<(), DatabaseErrorContainer>(())
         }
         .scope_boxed()
@@ -264,6 +334,24 @@ async fn seed_product_catalog(tx: &mut PgConn) -> Result<(), DatabaseErrorContai
             DieselFeeTypeEnum::Usage,
             FeeStructure::Usage {
                 metric_id: ids::METRIC_BANDWIDTH,
+                model: UsageModel::PerUnit,
+            },
+        ),
+        product(
+            ids::PRODUCT_API_CALLS_ID,
+            "API Calls",
+            DieselFeeTypeEnum::Usage,
+            FeeStructure::Usage {
+                metric_id: ids::METRIC_BANDWIDTH,
+                model: UsageModel::PerUnit,
+            },
+        ),
+        product(
+            ids::PRODUCT_DB_STORAGE_ID,
+            "DB Storage",
+            DieselFeeTypeEnum::Usage,
+            FeeStructure::Usage {
+                metric_id: ids::METRIC_DATABASE_SIZE,
                 model: UsageModel::PerUnit,
             },
         ),

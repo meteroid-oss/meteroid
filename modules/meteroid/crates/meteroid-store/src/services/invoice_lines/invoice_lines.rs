@@ -675,8 +675,10 @@ fn restrict_arrear_period_by_temporal_bounds(
 /// A temporal split occurs when multiple sub_component_ids exist for the same price_component_id,
 /// indicating a mid-period plan change with old and new component versions.
 fn apply_temporal_date_range_to_names(lines: &mut [LineItem]) {
-    let mut price_component_sub_ids: HashMap<PriceComponentId, HashSet<SubscriptionPriceComponentId>> =
-        HashMap::new();
+    let mut price_component_sub_ids: HashMap<
+        PriceComponentId,
+        HashSet<SubscriptionPriceComponentId>,
+    > = HashMap::new();
 
     for line in lines.iter() {
         if let (Some(pc_id), Some(sc_id)) = (line.price_component_id, line.sub_component_id) {
@@ -700,10 +702,7 @@ fn apply_temporal_date_range_to_names(lines: &mut [LineItem]) {
     for line in lines.iter_mut() {
         if let Some(pc_id) = line.price_component_id {
             if split_price_components.contains(&pc_id) {
-                line.name = format!(
-                    "{} ({} - {})",
-                    line.name, line.start_date, line.end_date
-                );
+                line.name = format!("{} ({} - {})", line.name, line.start_date, line.end_date);
             }
         }
     }
