@@ -72,6 +72,18 @@ impl Services {
             .await?;
         }
 
+        // Credit customer balance for negative-total invoices (e.g. downgrade adjustments)
+        if row_patch.total < 0 {
+            CustomerBalance::update(
+                conn,
+                invoice.customer_id,
+                tenant_id,
+                -row_patch.total, // negative total → positive credit
+                Some(id),
+            )
+            .await?;
+        }
+
         // Fetch backdate flag from subscription if present
         let backdate_invoices = if let Some(subscription_id) = invoice.subscription_id {
             InvoiceRow::get_subscription_backdate_flag(conn, subscription_id)

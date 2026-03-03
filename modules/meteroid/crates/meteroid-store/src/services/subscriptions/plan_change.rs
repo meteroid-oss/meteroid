@@ -17,7 +17,7 @@ use crate::domain::subscription_changes::{
 };
 use crate::domain::subscription_components::{
     ComponentParameterization, ComponentParameters, SubscriptionComponent,
-    SubscriptionComponentNew, SubscriptionComponentNewInternal,
+    SubscriptionComponentNew, SubscriptionComponentNewInternal, SubscriptionFee,
 };
 use crate::errors::StoreError;
 use crate::repositories::SubscriptionInterface;
@@ -34,6 +34,7 @@ use diesel_models::price_components::PriceComponentRow;
 use diesel_models::prices::PriceRow;
 use diesel_models::products::ProductRow;
 use diesel_models::scheduled_events::ScheduledEventRow;
+use diesel_models::slot_transactions::SlotTransactionRow;
 use diesel_models::subscription_components::{
     SubscriptionComponentRow, SubscriptionComponentRowNew,
 };
@@ -167,6 +168,7 @@ impl Services {
                                 tenant_id,
                                 scheduled_time: effective_date.and_time(NaiveTime::MIN),
                                 event_data: ScheduledEventData::ApplyPlanChange {
+                                    source_plan_version_id: Some(subscription.subscription.plan_version_id),
                                     new_plan_version_id,
                                     component_mappings,
                                 },
@@ -255,13 +257,21 @@ impl Services {
                 .unwrap_or(subscription.subscription.current_period_start)
         };
 
-        let preview = build_plan_change_preview(
+        let mut preview = build_plan_change_preview(
             &subscription.price_components,
             &target_components,
             &products,
             &component_params,
             effective_date,
         )?;
+
+        resolve_preview_slot_counts(
+            &mut conn,
+            tenant_id,
+            subscription_id,
+            &mut preview,
+        )
+        .await?;
 
         let precision = crate::constants::Currencies::resolve_currency_precision(
             &subscription.subscription.currency,
@@ -476,13 +486,21 @@ impl Services {
                     let today = chrono::Utc::now().naive_utc().date();
 
                     // 6. Build preview for direction detection
-                    let preview = build_plan_change_preview(
+                    let mut preview = build_plan_change_preview(
                         &subscription_details.price_components,
                         &target_components,
                         &products,
                         &component_params,
                         today,
                     )?;
+
+                    resolve_preview_slot_counts(
+                        conn,
+                        tenant_id,
+                        subscription_id,
+                        &mut preview,
+                    )
+                    .await?;
 
                     // 7. Detect direction and reject downgrades
                     let precision =
@@ -677,7 +695,7 @@ impl Services {
                         }
                     }
 
-                    // 13. Create adjustment invoice
+                    // 13. Create adjustment invoice and finalize through pipeline
                     let adjustment_invoice_id = if proration.net_amount_cents != 0 {
                         let invoice = self
                             .create_adjustment_invoice(
@@ -688,6 +706,10 @@ impl Services {
                                 &proration,
                             )
                             .await?;
+                        if let Some(inv) = &invoice {
+                            self.finalize_invoice_tx(conn, inv.id, tenant_id, false, &None)
+                                .await?;
+                        }
                         invoice.map(|inv| inv.id)
                     } else {
                         None
@@ -1177,4 +1199,76 @@ fn build_plan_change_preview(
         removed,
         effective_date,
     })
+}
+
+/// Resolves actual slot counts from `slot_transaction` into the preview's fees.
+///
+/// `initial_slots` in a `SubscriptionFee::Slot` is only a seed value from subscription creation.
+/// The real slot count lives in the `slot_transaction` table. For proration and direction
+/// detection we need the actual count, so we patch it into the fee before those calculations.
+///
+/// For matched components, both `current_fee` and `new_fee` are patched — the customer
+/// keeps their seats across plan changes.
+async fn resolve_preview_slot_counts(
+    conn: &mut PgConn,
+    tenant_id: TenantId,
+    subscription_id: SubscriptionId,
+    preview: &mut PlanChangePreview,
+) -> StoreResult<()> {
+    // Collect unique slot unit names that need resolution
+    let mut units: Vec<String> = Vec::new();
+    for m in preview.matched.iter() {
+        if let SubscriptionFee::Slot { unit, .. } = &m.current_fee {
+            if !units.contains(unit) {
+                units.push(unit.clone());
+            }
+        }
+    }
+    for r in preview.removed.iter() {
+        if let SubscriptionFee::Slot { unit, .. } = &r.current_fee {
+            if !units.contains(unit) {
+                units.push(unit.clone());
+            }
+        }
+    }
+
+    // Query actual counts once per unit
+    let mut counts: HashMap<String, u32> = HashMap::new();
+    for unit in units {
+        let actual = SlotTransactionRow::fetch_by_subscription_id_and_unit_locked(
+            conn,
+            tenant_id,
+            subscription_id,
+            unit.clone(),
+            None,
+        )
+        .await
+        .map(|r| r.current_active_slots as u32)
+        .unwrap_or(0);
+        counts.insert(unit, actual);
+    }
+
+    // Patch fees
+    fn patch(fee: &mut SubscriptionFee, counts: &HashMap<String, u32>) {
+        if let SubscriptionFee::Slot {
+            unit,
+            initial_slots,
+            ..
+        } = fee
+        {
+            if let Some(&actual) = counts.get(unit.as_str()) {
+                *initial_slots = actual;
+            }
+        }
+    }
+
+    for m in &mut preview.matched {
+        patch(&mut m.current_fee, &counts);
+        patch(&mut m.new_fee, &counts);
+    }
+    for r in &mut preview.removed {
+        patch(&mut r.current_fee, &counts);
+    }
+
+    Ok(())
 }

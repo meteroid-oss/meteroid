@@ -204,6 +204,7 @@ impl Services {
 
     /// Creates an adjustment invoice for an immediate plan change based on proration results.
     /// Returns None if the net proration amount is zero (no adjustment needed).
+    /// The invoice is created as Draft so it can be finalized through the standard pipeline.
     pub(in crate::services) async fn create_adjustment_invoice(
         &self,
         conn: &mut PgConn,
@@ -224,13 +225,19 @@ impl Services {
             .iter()
             .map(|line| {
                 let amount_subtotal = line.amount_cents;
+                // Positive (charge) lines are taxable; negative (credit) lines are not
+                let taxable_amount = if amount_subtotal > 0 {
+                    amount_subtotal
+                } else {
+                    0
+                };
 
                 LineItem {
                     local_id: uuid::Uuid::now_v7().to_string(),
                     name: line.name.clone(),
                     amount_subtotal,
                     tax_rate: Decimal::zero(),
-                    taxable_amount: 0,
+                    taxable_amount,
                     tax_amount: 0,
                     amount_total: amount_subtotal,
                     tax_details: vec![],
@@ -251,14 +258,6 @@ impl Services {
             })
             .collect();
 
-        let subtotal = proration.net_amount_cents;
-        let total = subtotal;
-        let amount_due = if total < 0 { 0 } else { total };
-
-        let due_date =
-            (invoice_date + chrono::Duration::days(i64::from(subscription.net_terms)))
-                .and_time(NaiveTime::MIN);
-
         let invoicing_entity = self
             .store
             .get_invoicing_entity_with_conn(
@@ -268,7 +267,35 @@ impl Services {
             )
             .await?;
 
-        let now = chrono::Utc::now().naive_utc();
+        // Compute taxes on line items (positive lines get taxed, negative credit lines are skipped)
+        let (invoice_lines, tax_breakdown) = self
+            .process_invoice_lines_taxes(
+                conn,
+                invoice_lines,
+                &invoicing_entity,
+                customer,
+                subscription.currency.clone(),
+                &invoice_date,
+            )
+            .await?;
+
+        let subtotal: i64 = invoice_lines.iter().map(|l| l.amount_subtotal).sum();
+        let tax_amount: i64 = invoice_lines.iter().map(|l| l.tax_amount).sum();
+        let total = subtotal + tax_amount;
+
+        let applied_credits = if total > 0 {
+            std::cmp::min(
+                total as u64,
+                customer.balance_value_cents.max(0) as u64,
+            ) as i64
+        } else {
+            0
+        };
+        let amount_due = std::cmp::max(0, total - applied_credits);
+
+        let due_date =
+            (invoice_date + chrono::Duration::days(i64::from(subscription.net_terms)))
+                .and_time(NaiveTime::MIN);
 
         let invoice_new = InvoiceNew {
             tenant_id: subscription.tenant_id,
@@ -280,12 +307,12 @@ impl Services {
             line_items: invoice_lines,
             coupons: vec![],
             data_updated_at: None,
-            status: InvoiceStatusEnum::Finalized,
+            status: InvoiceStatusEnum::Draft,
             invoice_date,
-            finalized_at: Some(now),
+            finalized_at: None,
             total,
             amount_due,
-            applied_credits: 0,
+            applied_credits,
             net_terms: subscription.net_terms as i32,
             subtotal,
             subtotal_recurring: 0,
@@ -294,7 +321,7 @@ impl Services {
             memo: subscription.invoice_memo.clone(),
             due_at: Some(due_date),
             plan_name: Some(subscription.plan_name.clone()),
-            invoice_number: "adj-draft".to_string(),
+            invoice_number: "draft".to_string(),
             customer_details: customer.clone().into(),
             seller_details: invoicing_entity.into(),
             auto_advance: false,
@@ -304,8 +331,8 @@ impl Services {
                 InvoicePaymentStatus::Paid
             },
             discount: 0,
-            tax_breakdown: vec![],
-            tax_amount: 0,
+            tax_breakdown,
+            tax_amount,
             manual: false,
             invoicing_entity_id: subscription.invoicing_entity_id,
         };

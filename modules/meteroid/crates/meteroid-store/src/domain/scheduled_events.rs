@@ -68,6 +68,8 @@ pub enum ScheduledEventData {
         invoice_id: InvoiceId,
     },
     ApplyPlanChange {
+        #[serde(default)]
+        source_plan_version_id: Option<PlanVersionId>,
         new_plan_version_id: PlanVersionId,
         component_mappings: Vec<ComponentMapping>,
     },

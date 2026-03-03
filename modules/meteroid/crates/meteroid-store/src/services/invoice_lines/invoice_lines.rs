@@ -355,7 +355,7 @@ impl Services {
         })
     }
 
-    async fn process_invoice_lines_taxes(
+    pub(in crate::services) async fn process_invoice_lines_taxes(
         &self,
         conn: &mut PgConn,
         invoice_lines: Vec<LineItem>,

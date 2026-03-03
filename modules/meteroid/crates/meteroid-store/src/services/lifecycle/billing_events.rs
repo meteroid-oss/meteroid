@@ -241,11 +241,16 @@ impl Services {
         use diesel_models::subscriptions::SubscriptionRow;
 
         if let ScheduledEventData::ApplyPlanChange {
+            source_plan_version_id,
             new_plan_version_id,
             ref component_mappings,
         } = event.event_data
         {
-            // Guard: verify subscription is still in a valid state for plan change
+            // Lock subscription to serialize with immediate plan changes.
+            SubscriptionRow::lock_subscription_for_update(conn, event.subscription_id)
+                .await
+                .map_err(Into::<error_stack::Report<StoreError>>::into)?;
+
             let sub = SubscriptionRow::get_subscription_by_id(
                 conn,
                 &event.tenant_id,
@@ -253,6 +258,20 @@ impl Services {
             )
             .await
             .map_err(Into::<error_stack::Report<StoreError>>::into)?;
+
+            // Precondition: if another plan change already landed, this event is stale.
+            if let Some(expected) = source_plan_version_id {
+                if sub.subscription.plan_version_id != expected {
+                    log::info!(
+                        "Plan change event {} superseded for subscription {}: expected plan_version {:?}, found {:?}",
+                        event.id,
+                        event.subscription_id,
+                        expected,
+                        sub.subscription.plan_version_id,
+                    );
+                    return Ok(());
+                }
+            }
 
             match sub.subscription.status {
                 SubscriptionStatusEnum::Active | SubscriptionStatusEnum::TrialActive => {}

@@ -3,11 +3,13 @@
 //! Tests for scheduling, previewing, canceling, and executing plan changes.
 //! Uses product-backed plans (Starter & Pro) where components match by product_id.
 
-use chrono::NaiveDate;
+use chrono::{NaiveDate, NaiveTime};
 use rstest::rstest;
 
 use crate::data::ids::*;
 use crate::harness::{InvoicesAssertExt, SubscriptionAssertExt, TestEnv, subscription, test_env};
+use meteroid_store::domain::SlotUpgradeBillingMode;
+use meteroid_store::repositories::subscriptions::slots::SubscriptionSlotsInterfaceAuto;
 
 // =============================================================================
 // PREVIEW
@@ -616,4 +618,185 @@ async fn test_end_of_period_change_with_temporal_rotation(#[future] test_env: Te
         .with_context("Pro renewal after end-of-period change")
         .is_finalized_unpaid()
         .has_total(12400);
+}
+
+// =============================================================================
+// SLOT PRESERVATION
+// =============================================================================
+
+/// Slot count is preserved across end-of-period plan changes.
+///
+/// Slots are tracked in the `slot_transaction` table, not in the subscription component's
+/// `initial_slots` field. When a plan change matches components by product_id, the existing
+/// slot transactions carry forward — no new seed transaction is created for matched components.
+///
+/// Starter: Platform Fee €29 + Seats €10×10 = €129/mo (12900 cents)
+/// Pro:     Platform Fee €99 + Seats €25×10 = €349/mo (34900 cents)
+#[rstest]
+#[tokio::test]
+async fn test_plan_change_preserves_slot_count(#[future] test_env: TestEnv) {
+    let env = test_env.await;
+
+    let start_date = NaiveDate::from_ymd_opt(2024, 1, 1).unwrap();
+
+    // --- Create Starter subscription (default 1 seat) ---
+    let sub_id = subscription()
+        .plan_version(PLAN_VERSION_STARTER_ID)
+        .start_date(start_date)
+        .on_start()
+        .no_trial()
+        .create(env.services())
+        .await;
+
+    let sub = env.get_subscription(sub_id).await;
+    sub.assert().is_active().has_cycle_index(0);
+
+    // Verify initial slot count = 1 (min_slots default)
+    let slots = env
+        .store()
+        .get_active_slots_value(TENANT_ID, sub_id, "seat".to_string(), None)
+        .await
+        .expect("get initial slots");
+    assert_eq!(slots, 1, "should start with 1 seat (min_slots default)");
+
+    // --- Add 9 more seats (total 10) ---
+    env.services()
+        .update_subscription_slots_for_test(
+            TENANT_ID,
+            sub_id,
+            COMP_STARTER_SEATS_ID,
+            9,
+            SlotUpgradeBillingMode::Optimistic,
+            NaiveDate::from_ymd_opt(2024, 1, 2).map(|t| t.and_time(NaiveTime::MIN)),
+        )
+        .await
+        .expect("add 9 seats");
+
+    let slots = env
+        .store()
+        .get_active_slots_value(TENANT_ID, sub_id, "seat".to_string(), None)
+        .await
+        .expect("get slots after upgrade");
+    assert_eq!(slots, 10, "should have 10 seats after upgrade");
+
+    // --- Schedule plan change to Pro ---
+    env.services()
+        .schedule_plan_change(sub_id, TENANT_ID, PLAN_VERSION_PRO_ID, vec![])
+        .await
+        .expect("schedule_plan_change failed");
+
+    // --- Process cycles: applies plan change and renews at Pro pricing ---
+    env.process_cycles().await;
+
+    let sub = env.get_subscription(sub_id).await;
+    assert_eq!(
+        sub.plan_version_id, PLAN_VERSION_PRO_ID,
+        "should be on Pro plan"
+    );
+    sub.assert().is_active().has_cycle_index(1);
+
+    // --- Verify slot count is still 10 after plan change ---
+    let slots = env
+        .store()
+        .get_active_slots_value(
+            TENANT_ID,
+            sub_id,
+            "seat".to_string(),
+            NaiveDate::from_ymd_opt(2024, 2, 1).map(|t| t.and_time(NaiveTime::MIN)),
+        )
+        .await
+        .expect("get slots after plan change");
+    assert_eq!(
+        slots, 10,
+        "slot count should be preserved across plan change"
+    );
+
+    // --- Verify Pro invoice bills for 10 seats ---
+    // Pro: Platform Fee €99 (9900) + Seats €25×10 (25000) = €349 (34900)
+    let invoices = env.get_invoices(sub_id).await;
+    invoices
+        .assert()
+        .invoice_at(invoices.len() - 1)
+        .with_context("Pro invoice should bill for 10 seats")
+        .is_finalized_unpaid()
+        .has_total(34900);
+}
+
+/// Slot count is preserved across immediate plan changes,
+/// and the adjustment invoice prorates based on the actual slot count.
+///
+/// Starter: Platform Fee €29 + Seats €10×5 = €79/mo (7900 cents)
+/// Pro:     Platform Fee €99 + Seats €25×5 = €224/mo (22400 cents)
+///
+/// change_date = period_start = today → factor = 1.0
+/// Credits: -7900, Charges: +22400, Net: +14500
+#[rstest]
+#[tokio::test]
+async fn test_immediate_plan_change_preserves_slot_count(#[future] test_env: TestEnv) {
+    let env = test_env.await;
+
+    let today = chrono::Utc::now().naive_utc().date();
+
+    // --- Create Starter subscription and add seats ---
+    let sub_id = subscription()
+        .plan_version(PLAN_VERSION_STARTER_ID)
+        .start_date(today)
+        .on_start()
+        .no_trial()
+        .create(env.services())
+        .await;
+
+    // Add 4 more seats (1 default + 4 = 5 total)
+    env.services()
+        .update_subscription_slots_for_test(
+            TENANT_ID,
+            sub_id,
+            COMP_STARTER_SEATS_ID,
+            4,
+            SlotUpgradeBillingMode::Optimistic,
+            Some(today.and_time(NaiveTime::MIN)),
+        )
+        .await
+        .expect("add 4 seats");
+
+    let slots = env
+        .store()
+        .get_active_slots_value(TENANT_ID, sub_id, "seat".to_string(), None)
+        .await
+        .expect("get slots");
+    assert_eq!(slots, 5, "should have 5 seats");
+
+    // --- Immediate upgrade to Pro ---
+    let result = env
+        .services()
+        .apply_plan_change_immediate(sub_id, TENANT_ID, PLAN_VERSION_PRO_ID, vec![], false)
+        .await
+        .expect("immediate plan change failed");
+
+    assert!(
+        result.adjustment_invoice_id.is_some(),
+        "should create adjustment invoice"
+    );
+
+    // --- Verify slot count still 5 after plan change ---
+    let slots = env
+        .store()
+        .get_active_slots_value(TENANT_ID, sub_id, "seat".to_string(), None)
+        .await
+        .expect("get slots after immediate change");
+    assert_eq!(
+        slots, 5,
+        "slot count should be preserved across immediate plan change"
+    );
+
+    let sub = env.get_subscription(sub_id).await;
+    assert_eq!(sub.plan_version_id, PLAN_VERSION_PRO_ID);
+
+    // --- Verify adjustment invoice prorates based on 5 seats ---
+    let invoices = env.get_invoices(sub_id).await;
+    let adj = &invoices[invoices.len() - 1];
+    assert_eq!(
+        adj.total, 14500,
+        "adjustment should reflect 5-seat proration (Pro 22400 - Starter 7900)"
+    );
 }
