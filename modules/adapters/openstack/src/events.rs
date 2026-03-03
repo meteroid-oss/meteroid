@@ -43,8 +43,8 @@ impl EventHandler {
     ) -> Result<(), OpenstackAdapterError> {
         let consumer = channel
             .basic_consume(
-                queue,
-                "openstack_meteroid_consumer",
+                queue.into(),
+                "openstack_meteroid_consumer".into(),
                 BasicConsumeOptions::default(),
                 FieldTable::default(),
             )
