@@ -253,6 +253,15 @@ impl Services {
 
         let now = chrono::Utc::now().naive_utc();
 
+        // Validate: end_date must not be before start_date
+        if let Some(end_date) = sub.subscription.end_date
+            && end_date < sub.subscription.start_date
+        {
+            return Err(Report::new(StoreError::InvalidArgument(
+                "end_date must not be before start_date".to_string(),
+            )));
+        }
+
         // Validate: skip_past_invoices only makes sense with a past start_date
         if sub.subscription.skip_past_invoices && sub.subscription.start_date >= now.date() {
             return Err(Report::new(StoreError::InvalidArgument(
@@ -347,7 +356,32 @@ impl Services {
                     let trial_still_active =
                         trial_end_date.map(|d| d > now.date()).unwrap_or(false);
 
-                    if trial_still_active {
+                    if let Some(end_date) = sub.subscription.end_date
+                        && end_date < now.date()
+                    {
+                        // end_date is already in the past: complete the subscription immediately.
+                        // Checked before trial state — a subscription past its end_date is always
+                        // Completed, regardless of whether a trial would otherwise still be active.
+                        // No cycle worker involvement needed — billing was intentionally skipped
+                        // (skip_past_invoices = true), and there is no current period to charge.
+                        let last_period = find_period_containing_date(
+                            effective_billing_start,
+                            end_date,
+                            &period,
+                            billing_day_anchor as u32,
+                        );
+                        let elapsed = calculate_elapsed_cycles(
+                            effective_billing_start,
+                            end_date,
+                            &period,
+                            billing_day_anchor as u32,
+                        );
+                        status = SubscriptionStatusEnum::Completed;
+                        cycle_index = Some(elapsed);
+                        current_period_start = last_period.start;
+                        current_period_end = Some(end_date);
+                        next_cycle_action = None;
+                    } else if trial_still_active {
                         // Trial is still ongoing - set up as trial subscription
                         let trial_days = effective_trial_duration.unwrap();
                         status = SubscriptionStatusEnum::TrialActive;
