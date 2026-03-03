@@ -218,6 +218,11 @@ impl Services {
         }) {
             next_cycle.next_cycle_action = Some(CycleActionEnum::EndSubscription);
             next_cycle.new_period_end = Some(end_date);
+            // end_date is before the new period even starts: the subscription already ended,
+            // nothing to bill for this period.
+            if end_date <= next_cycle.new_period_start {
+                next_cycle.should_bill = false;
+            }
         }
 
         // if subscription ended, we don't consider the other terminal states
