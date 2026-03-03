@@ -234,6 +234,7 @@ impl Services {
         use crate::domain::subscription_components::{
             SubscriptionComponentNew, SubscriptionComponentNewInternal,
         };
+        use crate::services::subscriptions::plan_change::calculate_components_mrr_with_slots;
         use crate::services::subscriptions::utils::calculate_mrr;
         use diesel_models::subscription_components::{
             SubscriptionComponentRow, SubscriptionComponentRowNew,
@@ -434,11 +435,15 @@ impl Services {
             )
             .unwrap_or(2);
 
-            let component_mrr: i64 = sub_details
-                .price_components
-                .iter()
-                .map(|c| calculate_mrr(&c.fee, &c.period, precision))
-                .sum();
+            let component_mrr: i64 =
+                calculate_components_mrr_with_slots(
+                    conn,
+                    event.tenant_id,
+                    event.subscription_id,
+                    &sub_details.price_components,
+                    precision,
+                )
+                .await?;
 
             let add_on_mrr: i64 = sub_details
                 .add_ons

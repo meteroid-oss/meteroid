@@ -20,6 +20,7 @@ use crate::domain::subscription_components::{
     SubscriptionComponentNew, SubscriptionComponentNewInternal, SubscriptionFee,
 };
 use crate::errors::StoreError;
+use common_utils::decimals::ToSubunit;
 use crate::repositories::SubscriptionInterface;
 use crate::services::Services;
 use crate::services::subscriptions::proration::{calculate_proration, detect_change_direction};
@@ -86,6 +87,12 @@ impl Services {
                         .await?;
 
                     validate_subscription_for_plan_change(&subscription.subscription.status)?;
+
+                    if subscription.subscription.plan_version_id == new_plan_version_id {
+                        return Err(Report::new(StoreError::InvalidArgument(
+                            "Cannot schedule plan change to the current plan version".to_string(),
+                        )));
+                    }
 
                     // Cancel all pending lifecycle events (plan change, cancellation, pause, etc.)
                     ScheduledEventRow::cancel_pending_lifecycle_events(
@@ -203,6 +210,12 @@ impl Services {
             .await?;
 
         validate_subscription_for_plan_change(&subscription.subscription.status)?;
+
+        if subscription.subscription.plan_version_id == new_plan_version_id {
+            return Err(Report::new(StoreError::InvalidArgument(
+                "Cannot change to the current plan version".to_string(),
+            )));
+        }
 
         // Validate target plan version
         let target_plan = PlanRow::get_with_version(&mut conn, new_plan_version_id, tenant_id)
@@ -437,6 +450,12 @@ impl Services {
                     validate_subscription_for_plan_change(
                         &subscription_details.subscription.status,
                     )?;
+
+                    if subscription_details.subscription.plan_version_id == new_plan_version_id {
+                        return Err(Report::new(StoreError::InvalidArgument(
+                            "Cannot change to the current plan version".to_string(),
+                        )));
+                    }
 
                     // 4. Validate target plan version
                     let target_plan =
@@ -746,11 +765,15 @@ impl Services {
                         )
                         .await?;
 
-                    let component_mrr: i64 = sub_details
-                        .price_components
-                        .iter()
-                        .map(|c| calculate_mrr(&c.fee, &c.period, precision))
-                        .sum();
+                    let component_mrr: i64 =
+                        calculate_components_mrr_with_slots(
+                            conn,
+                            tenant_id,
+                            subscription_id,
+                            &sub_details.price_components,
+                            precision,
+                        )
+                        .await?;
 
                     let add_on_mrr: i64 = sub_details
                         .add_ons
@@ -1271,4 +1294,61 @@ async fn resolve_preview_slot_counts(
     }
 
     Ok(())
+}
+
+/// Calculates MRR for subscription components, using actual slot counts from `slot_transaction`
+/// instead of the fee's `initial_slots` (which is just the seed value at creation time).
+///
+/// `get_subscription_details_with_conn` resolves V2 fees from product/price definitions,
+/// which always returns `initial_slots = min_slots`. For correct MRR we need the current
+/// slot count from the `slot_transaction` ledger.
+pub(crate) async fn calculate_components_mrr_with_slots(
+    conn: &mut PgConn,
+    tenant_id: TenantId,
+    subscription_id: SubscriptionId,
+    components: &[crate::domain::subscription_components::SubscriptionComponent],
+    precision: u8,
+) -> StoreResult<i64> {
+    use crate::services::subscriptions::utils::calculate_mrr;
+
+    // Collect unique slot units and query actual counts
+    let mut slot_counts: HashMap<String, i64> = HashMap::new();
+    for c in components {
+        if let SubscriptionFee::Slot { unit, .. } = &c.fee {
+            if !slot_counts.contains_key(unit) {
+                let count = SlotTransactionRow::fetch_by_subscription_id_and_unit_locked(
+                    conn,
+                    tenant_id,
+                    subscription_id,
+                    unit.clone(),
+                    None,
+                )
+                .await
+                .map(|r| i64::from(r.current_active_slots))
+                .unwrap_or(0);
+                slot_counts.insert(unit.clone(), count);
+            }
+        }
+    }
+
+    let mut total_mrr: i64 = 0;
+    for c in components {
+        match &c.fee {
+            SubscriptionFee::Slot {
+                unit, unit_rate, ..
+            } => {
+                let count = slot_counts.get(unit).copied().unwrap_or(0);
+                let rate_cents = unit_rate.to_subunit_opt(precision).unwrap_or(0);
+                let period_months = i64::from(c.period.as_months());
+                if period_months > 0 {
+                    total_mrr += (count * rate_cents) / period_months;
+                }
+            }
+            _ => {
+                total_mrr += calculate_mrr(&c.fee, &c.period, precision);
+            }
+        }
+    }
+
+    Ok(total_mrr)
 }

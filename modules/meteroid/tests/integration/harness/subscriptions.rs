@@ -37,6 +37,24 @@ impl TestEnv {
         .expect("Failed to get subscription components")
     }
 
+    /// Get all subscription component rows (active and closed) overlapping with a period.
+    pub async fn get_all_subscription_components(
+        &self,
+        subscription_id: SubscriptionId,
+        period_start: chrono::NaiveDate,
+        period_end: chrono::NaiveDate,
+    ) -> Vec<SubscriptionComponentRow> {
+        let mut conn = self.conn().await;
+        SubscriptionComponentRow::list_component_history_for_period(
+            &mut conn,
+            &subscription_id,
+            period_start,
+            period_end,
+        )
+        .await
+        .expect("Failed to get all subscription components")
+    }
+
     /// Resolve payment methods for a subscription.
     /// This calls the actual payment resolution service to check what payment methods
     /// are available based on the subscription's config and customer's connections.

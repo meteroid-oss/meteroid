@@ -176,6 +176,20 @@ impl<'a> SubscriptionAssert<'a> {
         self
     }
 
+    /// Assert the subscription's MRR in cents.
+    pub fn has_mrr(self, expected: i64) -> Self {
+        assert_eq!(
+            self.sub.mrr_cents,
+            expected,
+            "{}",
+            self.format_msg(&format!(
+                "Expected mrr_cents={}, got {}",
+                expected, self.sub.mrr_cents
+            ))
+        );
+        self
+    }
+
     /// Shorthand: Assert subscription is Active with RenewSubscription action.
     #[allow(clippy::wrong_self_convention)]
     pub fn is_active(self) -> Self {
