@@ -60,7 +60,7 @@ jobs:
           echo "grpc_url=http://${BASE_DOMAIN}:${GRPC_PORT}"              >> $GITHUB_OUTPUT
           echo "rest_url=http://rest-pr-${PR_NUMBER}.${BASE_DOMAIN}:8443" >> $GITHUB_OUTPUT
 
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v6
         with:
           ref: ${{ steps.pr.outputs.sha }}
 
@@ -92,7 +92,7 @@ jobs:
           version: 10
           run_install: false
 
-      - uses: actions/setup-node@v4
+      - uses: actions/setup-node@v6
         with:
           node-version: 22
           cache: pnpm

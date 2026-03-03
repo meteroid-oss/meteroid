@@ -683,8 +683,9 @@ async fn test_migration_paid_trial_still_active(#[future] test_env: TestEnv) {
 // =============================================================================
 
 /// Migration with end_date before today.
-/// The subscription is created Active (migration doesn't handle end_date specially),
-/// then process_cycles should detect end_date and transition it through to Completed.
+/// At creation the subscription is positioned at the last period containing end_date
+/// with next_cycle_action = EndSubscription. A single process_cycles call completes it
+/// with no invoice ever created (end_date is before any new period would start).
 #[rstest]
 #[tokio::test]
 async fn test_migration_end_date_before_today(#[future] test_env: TestEnv) {
@@ -707,31 +708,30 @@ async fn test_migration_end_date_before_today(#[future] test_env: TestEnv) {
         .await;
 
     let sub = env.get_subscription(sub_id).await;
-    // Initially created as Active (migration path doesn't handle end_date directly).
-    sub.assert().is_active().is_imported();
-
-    // No invoices yet.
-    let invoices = env.get_invoices(sub_id).await;
-    invoices.assert().assert_empty();
-
-    // First process_cycles: renews and detects end_date <= new_period_end,
-    // sets next_cycle_action = EndSubscription with period truncated to end_date.
-    env.process_cycles().await;
-
-    let sub = env.get_subscription(sub_id).await;
+    // end_date is in the past: subscription is completed immediately at creation.
+    // current_period is the last period that contained end_date, truncated to end_date.
     sub.assert()
-        .has_next_action(Some(CycleActionEnum::EndSubscription));
+        .has_status(SubscriptionStatusEnum::Completed)
+        .is_imported()
+        .has_next_action(None);
     assert_eq!(
         sub.current_period_end,
         Some(end_date),
-        "Period should be truncated to end_date"
+        "Period should be truncated to end_date at creation"
     );
 
-    // Second process_cycles: executes EndSubscription → Completed.
+    // No invoices — skip_past_invoices=true skips all past billing.
+    let invoices = env.get_invoices(sub_id).await;
+    invoices.assert().assert_empty();
+
+    // process_cycles is a no-op: Completed subscriptions are not picked up by the worker.
     env.process_cycles().await;
 
     let sub = env.get_subscription(sub_id).await;
     sub.assert()
         .has_status(SubscriptionStatusEnum::Completed)
         .has_next_action(None);
+
+    let invoices = env.get_invoices(sub_id).await;
+    invoices.assert().assert_empty();
 }
