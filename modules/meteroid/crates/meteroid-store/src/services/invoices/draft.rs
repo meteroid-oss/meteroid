@@ -202,9 +202,8 @@ impl Services {
         Ok(Some(inserted_invoice))
     }
 
-    /// Creates an adjustment invoice for an immediate plan change based on proration results.
+    /// Creates a draft adjustment invoice for an immediate plan change based on proration results.
     /// Returns None if the net proration amount is zero (no adjustment needed).
-    /// The invoice is created as Draft so it can be finalized through the standard pipeline.
     pub(in crate::services) async fn create_adjustment_invoice(
         &self,
         conn: &mut PgConn,

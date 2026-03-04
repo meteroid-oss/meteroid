@@ -11,6 +11,21 @@ enum PendingEventType {
   CANCEL = 1;
 }
 
+enum ChangeDirection {
+  UPGRADE = 0;
+  DOWNGRADE = 1;
+  LATERAL = 2;
+}
+
+message ProrationSummary {
+  int64 credits_total_cents = 1;
+  int64 charges_total_cents = 2;
+  int64 net_amount_cents = 3;
+  double proration_factor = 4;
+  uint32 days_remaining = 5;
+  uint32 days_in_period = 6;
+}
+
 message PendingEvent {
   string id = 1;
   PendingEventType event_type = 2;
@@ -59,6 +74,8 @@ message ComponentChangePreview {
 message PlanChangePreview {
   string effective_date = 1;
   repeated ComponentChangePreview component_changes = 2;
+  ChangeDirection change_direction = 3;
+  optional ProrationSummary proration = 4;
 }
 
 message GetSubscriptionDetailsRequest {
@@ -93,7 +110,10 @@ message ConfirmPlanChangeRequest {
 }
 
 message ConfirmPlanChangeResponse {
-  string scheduled_for = 1;
+  string effective_date = 1;
+  ChangeDirection change_direction = 2;
+  optional string scheduled_event_id = 3;
+  optional string adjustment_invoice_id = 4;
 }
 
 message CancelScheduledEventRequest {

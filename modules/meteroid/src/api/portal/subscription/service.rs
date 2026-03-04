@@ -12,6 +12,9 @@ use meteroid_store::domain::enums::{
 };
 use meteroid_store::domain::plans::FullPlan;
 use meteroid_store::domain::prices::Pricing;
+use meteroid_store::domain::subscription_changes::{
+    ChangeDirection as DomainChangeDirection, PlanChangeMode,
+};
 use meteroid_store::domain::subscription_components::{SubscriptionComponent, SubscriptionFee};
 use meteroid_store::repositories::PlansInterface;
 use meteroid_store::repositories::subscriptions::SubscriptionInterfaceAuto;
@@ -79,6 +82,31 @@ fn map_fee(fee: &SubscriptionFee, period: &SubscriptionFeeBillingPeriod) -> Comp
         amount,
         cadence: map_sub_billing_period(period),
         unit,
+    }
+}
+
+// ---------------------------------------------------------------------------
+// Direction mapping
+// ---------------------------------------------------------------------------
+
+fn map_change_direction(dir: DomainChangeDirection) -> i32 {
+    match dir {
+        DomainChangeDirection::Upgrade => ChangeDirection::Upgrade.into(),
+        DomainChangeDirection::Downgrade => ChangeDirection::Downgrade.into(),
+        DomainChangeDirection::Lateral => ChangeDirection::Lateral.into(),
+    }
+}
+
+fn map_proration_summary(
+    summary: &meteroid_store::domain::subscription_changes::ProrationSummary,
+) -> ProrationSummary {
+    ProrationSummary {
+        credits_total_cents: summary.credits_total_cents,
+        charges_total_cents: summary.charges_total_cents,
+        net_amount_cents: summary.net_amount_cents,
+        proration_factor: summary.proration_factor,
+        days_remaining: summary.days_remaining,
+        days_in_period: summary.days_in_period,
     }
 }
 
@@ -396,7 +424,8 @@ impl PortalSubscriptionService for PortalSubscriptionServiceComponents {
             .await
             .map_err(Into::<PortalSubscriptionApiError>::into)?;
 
-        let result = self
+        // First preview without mode to detect direction cheaply
+        let initial_result = self
             .services
             .preview_plan_change(
                 subscription_id,
@@ -407,6 +436,23 @@ impl PortalSubscriptionService for PortalSubscriptionServiceComponents {
             )
             .await
             .map_err(Into::<PortalSubscriptionApiError>::into)?;
+
+        // For upgrades, re-preview with Immediate mode to get proration + correct effective_date
+        let result =
+            if initial_result.change_direction == DomainChangeDirection::Upgrade {
+                self.services
+                    .preview_plan_change(
+                        subscription_id,
+                        tenant_id,
+                        new_plan_version_id,
+                        vec![],
+                        Some(PlanChangeMode::Immediate),
+                    )
+                    .await
+                    .map_err(Into::<PortalSubscriptionApiError>::into)?
+            } else {
+                initial_result
+            };
 
         let mut component_changes: Vec<ComponentChangePreview> = Vec::new();
         for c in &result.preview.matched {
@@ -430,6 +476,8 @@ impl PortalSubscriptionService for PortalSubscriptionServiceComponents {
             preview: Some(PlanChangePreview {
                 effective_date: result.preview.effective_date.as_proto(),
                 component_changes,
+                change_direction: map_change_direction(result.change_direction),
+                proration: result.proration.as_ref().map(map_proration_summary),
             }),
             new_plan_name: target_plan.plan.name,
         }))
@@ -458,15 +506,64 @@ impl PortalSubscriptionService for PortalSubscriptionServiceComponents {
             return Err(PortalSubscriptionApiError::Unauthorized.into());
         }
 
-        let event = self
+        // Detect direction to determine mode
+        let preview_result = self
             .services
-            .schedule_plan_change(subscription_id, tenant_id, new_plan_version_id, vec![])
+            .preview_plan_change(
+                subscription_id,
+                tenant_id,
+                new_plan_version_id,
+                vec![],
+                None,
+            )
             .await
             .map_err(Into::<PortalSubscriptionApiError>::into)?;
 
-        Ok(Response::new(ConfirmPlanChangeResponse {
-            scheduled_for: event.scheduled_time.as_proto(),
-        }))
+        let direction = preview_result.change_direction;
+
+        match direction {
+            DomainChangeDirection::Upgrade => {
+                let result = self
+                    .services
+                    .apply_plan_change_immediate(
+                        subscription_id,
+                        tenant_id,
+                        new_plan_version_id,
+                        vec![],
+                        true, // force_annual: customer saw proration in preview
+                    )
+                    .await
+                    .map_err(Into::<PortalSubscriptionApiError>::into)?;
+
+                Ok(Response::new(ConfirmPlanChangeResponse {
+                    effective_date: result.effective_date.as_proto(),
+                    change_direction: map_change_direction(direction),
+                    scheduled_event_id: None,
+                    adjustment_invoice_id: result
+                        .adjustment_invoice_id
+                        .map(|id| id.to_string()),
+                }))
+            }
+            DomainChangeDirection::Downgrade | DomainChangeDirection::Lateral => {
+                let event = self
+                    .services
+                    .schedule_plan_change(
+                        subscription_id,
+                        tenant_id,
+                        new_plan_version_id,
+                        vec![],
+                    )
+                    .await
+                    .map_err(Into::<PortalSubscriptionApiError>::into)?;
+
+                Ok(Response::new(ConfirmPlanChangeResponse {
+                    effective_date: event.scheduled_time.date().as_proto(),
+                    change_direction: map_change_direction(direction),
+                    scheduled_event_id: Some(event.id.to_string()),
+                    adjustment_invoice_id: None,
+                }))
+            }
+        }
     }
 
     #[tracing::instrument(skip_all)]

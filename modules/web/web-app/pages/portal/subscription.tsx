@@ -1,6 +1,6 @@
 import { useMutation } from '@connectrpc/connect-query'
 import { Skeleton } from '@md/ui'
-import { AlertCircle, ArrowLeft, ArrowRight, Check, ChevronDown, ChevronRight, Clock } from 'lucide-react'
+import { AlertCircle, ArrowLeft, ArrowRight, Check, ChevronDown, ChevronRight, Clock, Zap } from 'lucide-react'
 import { useState } from 'react'
 import { useParams, useSearchParams } from 'react-router-dom'
 
@@ -17,7 +17,7 @@ import {
   listAvailablePlans,
   previewPlanChange,
 } from '@/rpc/portal/subscription/v1/subscription-PortalSubscriptionService_connectquery'
-import { PendingEventType } from '@/rpc/portal/subscription/v1/subscription_pb'
+import { ChangeDirection, PendingEventType } from '@/rpc/portal/subscription/v1/subscription_pb'
 import { parseAndFormatDate } from '@/utils/date'
 import { formatCurrency, formatCurrencyNoRounding } from '@/utils/numbers'
 import { useForceTheme } from 'providers/ThemeProvider'
@@ -85,7 +85,10 @@ export const PortalSubscription = () => {
 
   const [mode, setMode] = useState<Mode>('idle')
   const [selectedPlan, setSelectedPlan] = useState<AvailablePlan | null>(null)
-  const [confirmedDate, setConfirmedDate] = useState<string | null>(null)
+  const [confirmResult, setConfirmResult] = useState<{
+    effectiveDate: string
+    changeDirection: ChangeDirection
+  } | null>(null)
 
   const detailsQuery = useQuery(getSubscriptionDetails, { subscriptionId: subscriptionId! })
   const plansQuery = useQuery(
@@ -126,7 +129,10 @@ export const PortalSubscription = () => {
       subscriptionId,
       newPlanVersionId: selectedPlan.planVersionId,
     })
-    setConfirmedDate(res.scheduledFor)
+    setConfirmResult({
+      effectiveDate: res.effectiveDate,
+      changeDirection: res.changeDirection,
+    })
     setMode('confirmed')
   }
 
@@ -144,7 +150,7 @@ export const PortalSubscription = () => {
 
   const handleBack = () => {
     setSelectedPlan(null)
-    setConfirmedDate(null)
+    setConfirmResult(null)
     setMode('idle')
     detailsQuery.refetch()
   }
@@ -225,7 +231,11 @@ export const PortalSubscription = () => {
         />
       )}
       {mode === 'confirmed' && (
-        <ConfirmedView scheduledFor={confirmedDate} onDone={handleBackToPortal} />
+        <ConfirmedView
+          effectiveDate={confirmResult?.effectiveDate ?? null}
+          isImmediate={confirmResult?.changeDirection === ChangeDirection.UPGRADE}
+          onDone={handleBackToPortal}
+        />
       )}
     </div>
   )
@@ -624,6 +634,15 @@ function PlanChangeView({
     | {
         preview?: {
           effectiveDate: string
+          changeDirection: ChangeDirection
+          proration?: {
+            creditsTotalCents: bigint
+            chargesTotalCents: bigint
+            netAmountCents: bigint
+            prorationFactor: number
+            daysRemaining: number
+            daysInPeriod: number
+          }
           componentChanges: {
             componentName: string
             isNew: boolean
@@ -730,12 +749,38 @@ function PlanChangeView({
           {!isLoadingPreview && !previewError && preview?.preview && (
             <div className="bg-white rounded-xl border border-gray-200 p-4">
               <div className="flex gap-3">
-                <Clock size={16} className="text-gray-400 mt-0.5 flex-shrink-0" />
-                <p className="text-sm text-gray-700">
-                  Your plan will change to{' '}
-                  <span className="font-medium">{preview.newPlanName}</span> on your next billing
-                  cycle ({parseAndFormatDate(preview.preview.effectiveDate)}).
-                </p>
+                {preview.preview.changeDirection === ChangeDirection.UPGRADE ? (
+                  <>
+                    <Zap size={16} className="text-green-500 mt-0.5 flex-shrink-0" />
+                    <div className="text-sm text-gray-700">
+                      <p>
+                        Your plan will change to{' '}
+                        <span className="font-medium">{preview.newPlanName}</span> immediately.
+                      </p>
+                      {preview.preview.proration && (
+                        <p className="mt-1.5 text-xs text-gray-500">
+                          A prorated adjustment of{' '}
+                          <span className="font-medium tabular-nums">
+                            {formatCurrency(
+                              Number(preview.preview.proration.netAmountCents),
+                              currency
+                            )}
+                          </span>{' '}
+                          will be applied to your account.
+                        </p>
+                      )}
+                    </div>
+                  </>
+                ) : (
+                  <>
+                    <Clock size={16} className="text-gray-400 mt-0.5 flex-shrink-0" />
+                    <p className="text-sm text-gray-700">
+                      Your plan will change to{' '}
+                      <span className="font-medium">{preview.newPlanName}</span> on your next
+                      billing cycle ({parseAndFormatDate(preview.preview.effectiveDate)}).
+                    </p>
+                  </>
+                )}
               </div>
             </div>
           )}
@@ -748,12 +793,16 @@ function PlanChangeView({
           >
             {isConfirming
               ? 'Confirming...'
-              : `Confirm ${preview?.newPlanName ?? targetPlan.planName}`}
+              : preview?.preview?.changeDirection === ChangeDirection.UPGRADE
+                ? `Upgrade to ${preview?.newPlanName ?? targetPlan.planName}`
+                : `Switch to ${preview?.newPlanName ?? targetPlan.planName}`}
           </button>
 
-          <p className="text-[11px] text-gray-400 text-center leading-relaxed">
-            Your current features remain active until the transition date.
-          </p>
+          {preview?.preview?.changeDirection !== ChangeDirection.UPGRADE && (
+            <p className="text-[11px] text-gray-400 text-center leading-relaxed">
+              Your current features remain active until the transition date.
+            </p>
+          )}
         </div>
       )}
     </div>
@@ -825,10 +874,12 @@ function PlanCard({
 // ---------------------------------------------------------------------------
 
 function ConfirmedView({
-  scheduledFor,
+  effectiveDate,
+  isImmediate,
   onDone,
 }: {
-  scheduledFor: string | null
+  effectiveDate: string | null
+  isImmediate: boolean
   onDone: () => void
 }) {
   return (
@@ -836,12 +887,24 @@ function ConfirmedView({
       <div className="inline-flex items-center justify-center w-14 h-14 rounded-full bg-green-50 mb-5">
         <Check size={28} className="text-green-500" />
       </div>
-      <h2 className="text-xl font-semibold text-gray-900 mb-2">Plan change confirmed</h2>
-      {scheduledFor && (
+      <h2 className="text-xl font-semibold text-gray-900 mb-2">
+        {isImmediate ? 'Plan upgraded' : 'Plan change confirmed'}
+      </h2>
+      {effectiveDate && (
         <p className="text-sm text-gray-500 mb-8 leading-relaxed">
-          Your plan will switch on {parseAndFormatDate(scheduledFor)}.
-          <br />
-          Your current features remain active until then.
+          {isImmediate ? (
+            <>
+              Your plan has been upgraded effective today.
+              <br />
+              A prorated adjustment will appear on your next invoice.
+            </>
+          ) : (
+            <>
+              Your plan will switch on {parseAndFormatDate(effectiveDate)}.
+              <br />
+              Your current features remain active until then.
+            </>
+          )}
         </p>
       )}
       <button

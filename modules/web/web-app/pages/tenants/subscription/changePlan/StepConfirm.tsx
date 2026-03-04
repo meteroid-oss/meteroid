@@ -13,7 +13,7 @@ import {
 import { useQueryClient } from '@tanstack/react-query'
 import { useAtom } from 'jotai'
 import { AlertTriangle, ArrowRight, Calendar, Zap } from 'lucide-react'
-import { useMemo, useState } from 'react'
+import { useEffect, useMemo, useState } from 'react'
 import { useNavigate } from 'react-router-dom'
 import { useWizard } from 'react-use-wizard'
 import { toast } from 'sonner'
@@ -33,6 +33,7 @@ import {
 import { PlanChangeApplyMode } from '@/rpc/api/subscriptions/v1/subscriptions_pb'
 import {
   getSubscriptionDetails,
+  previewPlanChange,
   schedulePlanChange,
 } from '@/rpc/api/subscriptions/v1/subscriptions-SubscriptionsService_connectquery'
 import { parseAndFormatDate } from '@/utils/date'
@@ -60,6 +61,25 @@ export const StepConfirm = () => {
   const [forceAnnual, setForceAnnual] = useState(false)
 
   const scheduleMut = useMutation(schedulePlanChange)
+  const previewMut = useMutation(previewPlanChange)
+
+  // Re-fetch preview when apply mode changes to get correct effective_date and proration
+  useEffect(() => {
+    if (state.targetPlanVersionId && state.subscriptionId) {
+      previewMut.mutate(
+        {
+          subscriptionId: state.subscriptionId,
+          newPlanVersionId: state.targetPlanVersionId,
+          applyMode: state.applyMode,
+        },
+        {
+          onSuccess: data => {
+            setState(prev => ({ ...prev, preview: data }))
+          },
+        }
+      )
+    }
+  }, [state.applyMode])
 
   const subscriptionQuery = useQuery(
     getSubscriptionDetails,

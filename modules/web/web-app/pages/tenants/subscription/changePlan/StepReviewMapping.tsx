@@ -14,7 +14,6 @@ import {
   SubscriptionFeeBillingPeriod,
 } from '@/rpc/api/subscriptions/v1/models_pb'
 import { previewPlanChange } from '@/rpc/api/subscriptions/v1/subscriptions-SubscriptionsService_connectquery'
-import { parseAndFormatDate } from '@/utils/date'
 
 const formatPeriod = (period: SubscriptionFeeBillingPeriod): string => {
   const map: Record<number, string> = {
@@ -145,21 +144,9 @@ export const StepReviewMapping = () => {
           subtitle: `${state.currentPlanName} → ${state.targetPlanName}`,
         }}
       >
-        {preview && (
-          <div className="mb-6 flex items-center gap-4">
-            {preview.effectiveDate && (
-              <div className="flex-1 rounded-lg border border-border bg-card p-4">
-                <div className="text-sm text-muted-foreground">Effective Date</div>
-                <div className="text-base font-medium text-foreground">
-                  {parseAndFormatDate(preview.effectiveDate)}
-                </div>
-              </div>
-            )}
-            {preview.changeDirection && (
-              <div>
-                <DirectionBadge direction={preview.changeDirection} />
-              </div>
-            )}
+        {preview?.changeDirection && (
+          <div className="mb-6">
+            <DirectionBadge direction={preview.changeDirection} />
           </div>
         )}
 
