@@ -829,7 +829,7 @@ async fn test_plan_change_preserves_slot_count(#[future] test_env: TestEnv) {
     // Verify initial slot count = 1 (min_slots default)
     let slots = env
         .store()
-        .get_active_slots_value(TENANT_ID, sub_id, "seat".to_string(), None)
+        .get_active_slots_value(TENANT_ID, sub_id, "Seats".to_string(), None)
         .await
         .expect("get initial slots");
     assert_eq!(slots, 1, "should start with 1 seat (min_slots default)");
@@ -849,7 +849,7 @@ async fn test_plan_change_preserves_slot_count(#[future] test_env: TestEnv) {
 
     let slots = env
         .store()
-        .get_active_slots_value(TENANT_ID, sub_id, "seat".to_string(), None)
+        .get_active_slots_value(TENANT_ID, sub_id, "Seats".to_string(), None)
         .await
         .expect("get slots after upgrade");
     assert_eq!(slots, 10, "should have 10 seats after upgrade");
@@ -876,7 +876,7 @@ async fn test_plan_change_preserves_slot_count(#[future] test_env: TestEnv) {
         .get_active_slots_value(
             TENANT_ID,
             sub_id,
-            "seat".to_string(),
+            "Seats".to_string(),
             NaiveDate::from_ymd_opt(2024, 2, 1).map(|t| t.and_time(NaiveTime::MIN)),
         )
         .await
@@ -943,7 +943,7 @@ async fn test_immediate_plan_change_preserves_slot_count(#[future] test_env: Tes
 
     let slots = env
         .store()
-        .get_active_slots_value(TENANT_ID, sub_id, "seat".to_string(), None)
+        .get_active_slots_value(TENANT_ID, sub_id, "Seats".to_string(), None)
         .await
         .expect("get slots");
     assert_eq!(slots, 5, "should have 5 seats");
@@ -971,7 +971,7 @@ async fn test_immediate_plan_change_preserves_slot_count(#[future] test_env: Tes
     // --- Verify slot count still 5 after plan change ---
     let slots = env
         .store()
-        .get_active_slots_value(TENANT_ID, sub_id, "seat".to_string(), None)
+        .get_active_slots_value(TENANT_ID, sub_id, "Seats".to_string(), None)
         .await
         .expect("get slots after immediate change");
     assert_eq!(
@@ -1087,7 +1087,7 @@ async fn test_plan_change_rate_only_to_plan_with_slots(#[future] test_env: TestE
         .get_active_slots_value(
             TENANT_ID,
             sub_id,
-            "seat".to_string(),
+            "Seats".to_string(),
             NaiveDate::from_ymd_opt(2024, 2, 1).map(|d| d.and_time(NaiveTime::MIN)),
         )
         .await
@@ -1183,7 +1183,7 @@ async fn test_immediate_plan_change_rate_only_to_plan_with_slots(#[future] test_
     // 5. Verify slot count = 5
     let slots = env
         .store()
-        .get_active_slots_value(TENANT_ID, sub_id, "seat".to_string(), None)
+        .get_active_slots_value(TENANT_ID, sub_id, "Seats".to_string(), None)
         .await
         .expect("get slots after plan change");
     assert_eq!(slots, 5, "slot count should be 5 from initial_slot_count");
