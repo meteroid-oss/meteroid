@@ -653,16 +653,14 @@ fn restrict_arrear_period_by_temporal_bounds(
     effective_to: Option<NaiveDate>,
 ) -> ComponentPeriods {
     if let Some(ref mut arrear) = periods.arrear {
-        if let Some(from) = effective_from {
-            if from > arrear.start {
+        if let Some(from) = effective_from
+            && from > arrear.start {
                 arrear.start = from;
             }
-        }
-        if let Some(to) = effective_to {
-            if to < arrear.end {
+        if let Some(to) = effective_to
+            && to < arrear.end {
                 arrear.end = to;
             }
-        }
         // If the restriction made the period invalid, remove it
         if arrear.start >= arrear.end {
             periods.arrear = None;
@@ -700,10 +698,9 @@ fn apply_temporal_date_range_to_names(lines: &mut [LineItem]) {
     }
 
     for line in lines.iter_mut() {
-        if let Some(pc_id) = line.price_component_id {
-            if split_price_components.contains(&pc_id) {
+        if let Some(pc_id) = line.price_component_id
+            && split_price_components.contains(&pc_id) {
                 line.name = format!("{} ({} - {})", line.name, line.start_date, line.end_date);
             }
-        }
     }
 }

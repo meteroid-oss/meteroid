@@ -1255,18 +1255,16 @@ async fn resolve_preview_slot_counts(
     // Collect unique slot unit names that need resolution
     let mut units: Vec<String> = Vec::new();
     for m in preview.matched.iter() {
-        if let SubscriptionFee::Slot { unit, .. } = &m.current_fee {
-            if !units.contains(unit) {
+        if let SubscriptionFee::Slot { unit, .. } = &m.current_fee
+            && !units.contains(unit) {
                 units.push(unit.clone());
             }
-        }
     }
     for r in preview.removed.iter() {
-        if let SubscriptionFee::Slot { unit, .. } = &r.current_fee {
-            if !units.contains(unit) {
+        if let SubscriptionFee::Slot { unit, .. } = &r.current_fee
+            && !units.contains(unit) {
                 units.push(unit.clone());
             }
-        }
     }
 
     // Query actual counts once per unit
@@ -1292,11 +1290,9 @@ async fn resolve_preview_slot_counts(
             initial_slots,
             ..
         } = fee
-        {
-            if let Some(&actual) = counts.get(unit.as_str()) {
+            && let Some(&actual) = counts.get(unit.as_str()) {
                 *initial_slots = actual;
             }
-        }
     }
 
     for m in &mut preview.matched {
@@ -1328,8 +1324,8 @@ pub(crate) async fn calculate_components_mrr_with_slots(
     // Collect unique slot units and query actual counts
     let mut slot_counts: HashMap<String, i64> = HashMap::new();
     for c in components {
-        if let SubscriptionFee::Slot { unit, .. } = &c.fee {
-            if !slot_counts.contains_key(unit) {
+        if let SubscriptionFee::Slot { unit, .. } = &c.fee
+            && !slot_counts.contains_key(unit) {
                 let count = SlotTransactionRow::fetch_by_subscription_id_and_unit_locked(
                     conn,
                     tenant_id,
@@ -1342,7 +1338,6 @@ pub(crate) async fn calculate_components_mrr_with_slots(
                 .unwrap_or(0);
                 slot_counts.insert(unit.clone(), count);
             }
-        }
     }
 
     let mut total_mrr: i64 = 0;

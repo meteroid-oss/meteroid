@@ -261,8 +261,8 @@ impl Services {
             .map_err(Into::<error_stack::Report<StoreError>>::into)?;
 
             // Precondition: if another plan change already landed, this event is stale.
-            if let Some(expected) = source_plan_version_id {
-                if sub.subscription.plan_version_id != expected {
+            if let Some(expected) = source_plan_version_id
+                && sub.subscription.plan_version_id != expected {
                     log::info!(
                         "Plan change event {} superseded for subscription {}: expected plan_version {:?}, found {:?}",
                         event.id,
@@ -272,7 +272,6 @@ impl Services {
                     );
                     return Ok(());
                 }
-            }
 
             match sub.subscription.status {
                 SubscriptionStatusEnum::Active | SubscriptionStatusEnum::TrialActive => {}
