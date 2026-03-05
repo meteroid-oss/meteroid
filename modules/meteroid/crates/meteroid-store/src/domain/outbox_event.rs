@@ -425,6 +425,7 @@ pub struct PaymentTransactionEvent {
     pub payment_type: PaymentTypeEnum,
     pub error_type: Option<String>,
     pub receipt_pdf_id: Option<StoredDocumentId>,
+    pub pending_plan_version_id: Option<PlanVersionId>,
 }
 
 #[skip_serializing_none]

@@ -951,6 +951,7 @@ impl ServicesEdge {
             metadata: None,
             checkout_type: DomainCheckoutType::PlanChange,
             subscription_id: Some(subscription_id),
+            change_date: Some(chrono::Utc::now().date_naive()),
         };
 
         self.store.create_checkout_session(session).await
@@ -1493,12 +1494,6 @@ impl ServicesEdge {
             let payment_settled =
                 charge_result.payment_intent.status == crate::domain::PaymentStatusEnum::Settled;
 
-            let target_pvid = if payment_settled {
-                None
-            } else {
-                Some(new_plan_version_id)
-            };
-
             let invoice = self
                 .services
                 .create_adjustment_invoice(
@@ -1507,7 +1502,6 @@ impl ServicesEdge {
                     &prepared.subscription_details.subscription,
                     &prepared.subscription_details.customer,
                     &prepared.proration,
-                    target_pvid,
                 )
                 .await?
                 .ok_or_else(|| {
@@ -1520,9 +1514,21 @@ impl ServicesEdge {
                 .finalize_invoice_tx(conn, invoice.id, tenant_id, false, &None)
                 .await?;
 
+            let pending_pvid = if payment_settled {
+                None
+            } else {
+                Some(new_plan_version_id)
+            };
+
             let transaction = self
                 .services
-                .create_transaction_for_direct_charge(conn, tenant_id, invoice.id, &charge_result)
+                .create_transaction_for_direct_charge(
+                    conn,
+                    tenant_id,
+                    invoice.id,
+                    &charge_result,
+                    pending_pvid,
+                )
                 .await?;
 
             if payment_settled {
@@ -1591,7 +1597,6 @@ impl ServicesEdge {
                         &prepared.subscription_details.subscription,
                         &prepared.subscription_details.customer,
                         &prepared.proration,
-                        None,
                     )
                     .await?;
                 if let Some(inv) = &invoice {

@@ -106,6 +106,7 @@ impl Services {
             error_type: None,
             processed_at: None,
             checkout_session_id: None,
+            pending_plan_version_id: None,
         };
 
         let inserted_transaction = transaction

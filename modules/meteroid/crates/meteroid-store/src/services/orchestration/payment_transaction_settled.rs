@@ -103,50 +103,39 @@ impl Services {
                                 .await?;
                         }
 
-                        // Apply deferred plan change if this is an Adjustment invoice
-                        // with a plan_version_id that differs from the subscription's current version.
-                        if invoice.invoice_type == crate::domain::enums::InvoiceType::Adjustment
-                            && let (Some(sub_id), Some(target_pvid)) =
-                                (invoice.subscription_id, invoice.plan_version_id)
-                            {
-                                let sub = SubscriptionRow::get_subscription_by_id(
+                        // Apply deferred plan change if the transaction carries a pending plan version.
+                        if let (Some(sub_id), Some(target_pvid)) =
+                            (invoice.subscription_id, event.pending_plan_version_id)
+                        {
+                            log::info!(
+                                "Applying deferred plan change for subscription {} to plan_version {}",
+                                sub_id,
+                                target_pvid,
+                            );
+
+                            let change_date = invoice.invoice_date;
+                            let prepared = self
+                                .prepare_plan_change_tx(
                                     conn,
-                                    &event.tenant_id,
                                     sub_id,
+                                    event.tenant_id,
+                                    target_pvid,
+                                    &[],
+                                    change_date,
                                 )
                                 .await?;
 
-                                if sub.subscription.plan_version_id != target_pvid {
-                                    log::info!(
-                                        "Applying deferred plan change for subscription {} to plan_version {}",
-                                        sub_id,
-                                        target_pvid,
-                                    );
-
-                                    let change_date = invoice.invoice_date;
-                                    let prepared = self
-                                        .prepare_plan_change_tx(
-                                            conn,
-                                            sub_id,
-                                            event.tenant_id,
-                                            target_pvid,
-                                            &[],
-                                            change_date,
-                                        )
-                                        .await?;
-
-                                    self.execute_plan_change_tx(
-                                        conn,
-                                        &prepared,
-                                        sub_id,
-                                        event.tenant_id,
-                                        target_pvid,
-                                        &[],
-                                        change_date,
-                                    )
-                                    .await?;
-                                }
-                            }
+                            self.execute_plan_change_tx(
+                                conn,
+                                &prepared,
+                                sub_id,
+                                event.tenant_id,
+                                target_pvid,
+                                &[],
+                                change_date,
+                            )
+                            .await?;
+                        }
 
                         // Activate subscription if pending checkout (TrialExpired activation is handled by on_invoice_paid)
                         if let Some(subscription_id) = subscription_id.as_ref() {
@@ -506,7 +495,11 @@ impl Services {
                             })?;
 
                             let new_plan_version_id = session.plan_version_id;
-                            let today = Utc::now().date_naive();
+                            let today = session.change_date.ok_or_else(|| {
+                                Report::new(StoreError::InvalidArgument(
+                                    "PlanChange checkout missing change_date".to_string(),
+                                ))
+                            })?;
 
                             let prepared = self
                                 .prepare_plan_change_tx(
@@ -530,7 +523,6 @@ impl Services {
                                         &prepared.subscription_details.subscription,
                                         &prepared.subscription_details.customer,
                                         &prepared.proration,
-                                        None,
                                     )
                                     .await?;
 

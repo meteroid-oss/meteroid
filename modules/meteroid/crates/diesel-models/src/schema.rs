@@ -316,6 +316,7 @@ diesel::table! {
         metadata -> Nullable<Jsonb>,
         checkout_type -> CheckoutTypeEnum,
         payment_methods_config -> Nullable<Jsonb>,
+        change_date -> Nullable<Date>,
     }
 }
 
@@ -664,6 +665,7 @@ diesel::table! {
         error_type -> Nullable<Text>,
         receipt_pdf_id -> Nullable<Uuid>,
         checkout_session_id -> Nullable<Uuid>,
+        pending_plan_version_id -> Nullable<Uuid>,
     }
 }
 

@@ -104,6 +104,7 @@ impl Services {
         tenant_id: TenantId,
         invoice_id: InvoiceId,
         charge_result: &DirectChargeResult,
+        pending_plan_version_id: Option<common_domain::ids::PlanVersionId>,
     ) -> StoreResult<PaymentTransaction> {
         let status: PaymentStatusEnum = charge_result.payment_intent.status.clone().into();
 
@@ -120,6 +121,7 @@ impl Services {
             error_type: charge_result.payment_intent.last_payment_error.clone(),
             processed_at: charge_result.payment_intent.processed_at,
             checkout_session_id: None,
+            pending_plan_version_id,
         };
 
         let inserted = transaction
@@ -153,6 +155,7 @@ impl Services {
             error_type: charge_result.payment_intent.last_payment_error.clone(),
             processed_at: charge_result.payment_intent.processed_at,
             checkout_session_id: Some(checkout_session_id),
+            pending_plan_version_id: None,
         };
 
         let inserted = transaction

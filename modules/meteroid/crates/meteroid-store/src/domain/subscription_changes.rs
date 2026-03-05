@@ -51,6 +51,7 @@ pub struct ImmediatePlanChangeResult {
 
 /// Result of an immediate plan change that requires payment.
 #[derive(Debug, Clone)]
+#[allow(clippy::large_enum_variant)]
 pub enum PlanChangePaymentResult {
     /// Payment settled immediately — plan change applied.
     Completed(ImmediatePlanChangeResult),

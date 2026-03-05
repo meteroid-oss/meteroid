@@ -75,6 +75,7 @@ pub struct CheckoutSession {
     pub subscription_id: Option<SubscriptionId>,
     pub metadata: Option<serde_json::Value>,
     pub checkout_type: CheckoutType,
+    pub change_date: Option<NaiveDate>,
 }
 
 impl CheckoutSession {
@@ -210,6 +211,7 @@ impl From<CheckoutSessionRow> for CheckoutSession {
             subscription_id: row.subscription_id,
             metadata: row.metadata,
             checkout_type: row.checkout_type.into(),
+            change_date: row.change_date,
         }
     }
 }
@@ -251,6 +253,7 @@ pub struct CreateCheckoutSession {
     pub metadata: Option<serde_json::Value>,
     pub checkout_type: CheckoutType,
     pub subscription_id: Option<SubscriptionId>,
+    pub change_date: Option<NaiveDate>,
 }
 
 impl CreateCheckoutSession {
@@ -302,6 +305,7 @@ impl CreateCheckoutSession {
             metadata: self.metadata,
             checkout_type: self.checkout_type.into(),
             subscription_id: self.subscription_id,
+            change_date: self.change_date,
         })
     }
 }

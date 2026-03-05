@@ -49,6 +49,7 @@ pub struct CheckoutSessionRow {
     pub checkout_type: CheckoutTypeEnum,
     // Payment configuration
     pub payment_methods_config: Option<serde_json::Value>,
+    pub change_date: Option<NaiveDate>,
 }
 
 #[derive(Debug, Insertable)]
@@ -90,4 +91,5 @@ pub struct CheckoutSessionRowNew {
     pub metadata: Option<serde_json::Value>,
     pub checkout_type: CheckoutTypeEnum,
     pub subscription_id: Option<SubscriptionId>,
+    pub change_date: Option<NaiveDate>,
 }

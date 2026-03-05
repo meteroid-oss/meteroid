@@ -479,7 +479,6 @@ impl Services {
                                 &prepared.subscription_details.subscription,
                                 &prepared.subscription_details.customer,
                                 &prepared.proration,
-                                None,
                             )
                             .await?;
                         if let Some(inv) = &invoice {
@@ -552,7 +551,6 @@ impl Services {
                                     &prepared.subscription_details.subscription,
                                     &prepared.subscription_details.customer,
                                     &prepared.proration,
-                                    None,
                                 )
                                 .await?;
                             if let Some(inv) = &invoice {
@@ -603,15 +601,6 @@ impl Services {
                     let payment_settled = charge_result.payment_intent.status
                         == crate::domain::PaymentStatusEnum::Settled;
 
-                    // For pending payments, set plan_version_id on the invoice to the
-                    // TARGET version so the settlement handler can detect and apply
-                    // the deferred plan change.
-                    let target_pvid = if payment_settled {
-                        None
-                    } else {
-                        Some(new_plan_version_id)
-                    };
-
                     let invoice = self
                         .create_adjustment_invoice(
                             conn,
@@ -619,7 +608,6 @@ impl Services {
                             &prepared.subscription_details.subscription,
                             &prepared.subscription_details.customer,
                             &prepared.proration,
-                            target_pvid,
                         )
                         .await?
                         .ok_or_else(|| {
@@ -634,13 +622,22 @@ impl Services {
                     )
                     .await?;
 
-                    // Record transaction linked to the invoice
+                    // Record transaction linked to the invoice.
+                    // For pending payments, store the target plan version so the
+                    // settlement handler can apply the deferred plan change.
+                    let pending_pvid = if payment_settled {
+                        None
+                    } else {
+                        Some(new_plan_version_id)
+                    };
+
                     let transaction = self
                         .create_transaction_for_direct_charge(
                             conn,
                             tenant_id,
                             invoice.id,
                             &charge_result,
+                            pending_pvid,
                         )
                         .await?;
 
@@ -787,15 +784,6 @@ impl Services {
             precision,
         );
 
-        ScheduledEventRow::cancel_pending_lifecycle_events(
-            conn,
-            subscription_id,
-            &tenant_id,
-            "Replaced by immediate plan change",
-        )
-        .await
-        .map_err(Into::<Report<StoreError>>::into)?;
-
         let period_start = subscription_details.subscription.current_period_start;
         let period_end = subscription_details
             .subscription
@@ -845,6 +833,15 @@ impl Services {
         component_params: &[ComponentParameterization],
         change_date: NaiveDate,
     ) -> StoreResult<()> {
+        ScheduledEventRow::cancel_pending_lifecycle_events(
+            conn,
+            subscription_id,
+            &tenant_id,
+            "Replaced by immediate plan change",
+        )
+        .await
+        .map_err(Into::<Report<StoreError>>::into)?;
+
         SubscriptionRow::update_plan_version(
             conn,
             &subscription_id,

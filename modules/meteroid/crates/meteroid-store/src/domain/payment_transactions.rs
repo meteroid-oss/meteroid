@@ -3,8 +3,8 @@ use chrono::NaiveDateTime;
 
 use crate::domain::CustomerPaymentMethod;
 use common_domain::ids::{
-    CheckoutSessionId, CustomerPaymentMethodId, InvoiceId, PaymentTransactionId, StoredDocumentId,
-    TenantId,
+    CheckoutSessionId, CustomerPaymentMethodId, InvoiceId, PaymentTransactionId, PlanVersionId,
+    StoredDocumentId, TenantId,
 };
 use diesel_models::payments::{PaymentTransactionRow, PaymentTransactionWithMethodRow};
 use o2o::o2o;
@@ -32,6 +32,7 @@ pub struct PaymentTransaction {
     pub error_type: Option<String>,
     pub receipt_pdf_id: Option<StoredDocumentId>,
     pub checkout_session_id: Option<CheckoutSessionId>,
+    pub pending_plan_version_id: Option<PlanVersionId>,
 }
 
 #[derive(Clone, Debug, Deserialize)]

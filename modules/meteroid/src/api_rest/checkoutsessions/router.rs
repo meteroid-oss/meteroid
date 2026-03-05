@@ -102,6 +102,7 @@ pub async fn create_checkout_session(
         metadata: request.metadata,
         checkout_type: CheckoutType::SelfServe,
         subscription_id: None,
+        change_date: None,
     };
 
     let session = app_state

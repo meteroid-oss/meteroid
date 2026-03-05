@@ -996,6 +996,7 @@ impl Services {
                                 metadata: None,
                                 checkout_type: CheckoutType::SubscriptionActivation,
                                 subscription_id: Some(sub.id),
+                                change_date: None,
                             };
 
                             let session_row: CheckoutSessionRowNew =
