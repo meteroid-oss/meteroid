@@ -64,6 +64,7 @@ impl ProductRow {
         let mut query = p_dsl::product
             .inner_join(pf_dsl::product_family.on(p_dsl::product_family_id.eq(pf_dsl::id)))
             .filter(p_dsl::tenant_id.eq(tenant_id))
+            .filter(p_dsl::archived_at.is_null())
             .into_boxed();
 
         if catalog_only {
@@ -111,6 +112,7 @@ impl ProductRow {
         let mut query = p_dsl::product
             .inner_join(pf_dsl::product_family.on(p_dsl::product_family_id.eq(pf_dsl::id)))
             .filter(p_dsl::tenant_id.eq(tenant_id))
+            .filter(p_dsl::archived_at.is_null())
             .filter(p_dsl::name.ilike(format!("%{query}%")))
             .into_boxed();
 

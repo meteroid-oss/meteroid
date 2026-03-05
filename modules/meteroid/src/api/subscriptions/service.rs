@@ -493,7 +493,6 @@ impl SubscriptionsService for SubscriptionServiceComponents {
                         tenant_id,
                         new_plan_version_id,
                         component_params,
-                        inner.force_annual,
                     )
                     .await
                     .map_err(Into::<SubscriptionApiError>::into)?;

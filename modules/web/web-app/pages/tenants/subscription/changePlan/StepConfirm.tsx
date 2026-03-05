@@ -133,7 +133,6 @@ export const StepConfirm = () => {
         subscriptionId: state.subscriptionId,
         newPlanVersionId: state.targetPlanVersionId,
         applyMode: state.applyMode,
-        forceAnnual,
       })
 
       if (isImmediate) {

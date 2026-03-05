@@ -438,21 +438,20 @@ impl PortalSubscriptionService for PortalSubscriptionServiceComponents {
             .map_err(Into::<PortalSubscriptionApiError>::into)?;
 
         // For upgrades, re-preview with Immediate mode to get proration + correct effective_date
-        let result =
-            if initial_result.change_direction == DomainChangeDirection::Upgrade {
-                self.services
-                    .preview_plan_change(
-                        subscription_id,
-                        tenant_id,
-                        new_plan_version_id,
-                        vec![],
-                        Some(PlanChangeMode::Immediate),
-                    )
-                    .await
-                    .map_err(Into::<PortalSubscriptionApiError>::into)?
-            } else {
-                initial_result
-            };
+        let result = if initial_result.change_direction == DomainChangeDirection::Upgrade {
+            self.services
+                .preview_plan_change(
+                    subscription_id,
+                    tenant_id,
+                    new_plan_version_id,
+                    vec![],
+                    Some(PlanChangeMode::Immediate),
+                )
+                .await
+                .map_err(Into::<PortalSubscriptionApiError>::into)?
+        } else {
+            initial_result
+        };
 
         let mut component_changes: Vec<ComponentChangePreview> = Vec::new();
         for c in &result.preview.matched {
@@ -530,7 +529,6 @@ impl PortalSubscriptionService for PortalSubscriptionServiceComponents {
                         tenant_id,
                         new_plan_version_id,
                         vec![],
-                        true, // force_annual: customer saw proration in preview
                     )
                     .await
                     .map_err(Into::<PortalSubscriptionApiError>::into)?;
@@ -539,20 +537,13 @@ impl PortalSubscriptionService for PortalSubscriptionServiceComponents {
                     effective_date: result.effective_date.as_proto(),
                     change_direction: map_change_direction(direction),
                     scheduled_event_id: None,
-                    adjustment_invoice_id: result
-                        .adjustment_invoice_id
-                        .map(|id| id.to_string()),
+                    adjustment_invoice_id: result.adjustment_invoice_id.map(|id| id.to_string()),
                 }))
             }
             DomainChangeDirection::Downgrade | DomainChangeDirection::Lateral => {
                 let event = self
                     .services
-                    .schedule_plan_change(
-                        subscription_id,
-                        tenant_id,
-                        new_plan_version_id,
-                        vec![],
-                    )
+                    .schedule_plan_change(subscription_id, tenant_id, new_plan_version_id, vec![])
                     .await
                     .map_err(Into::<PortalSubscriptionApiError>::into)?;
 

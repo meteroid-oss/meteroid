@@ -4,11 +4,15 @@
 //! Uses product-backed plans (Starter & Pro) where components match by product_id.
 
 use chrono::{NaiveDate, NaiveTime};
+use common_domain::ids::*;
+use diesel_models::enums::BillingPeriodEnum as DieselBillingPeriodEnum;
 use rstest::rstest;
 use std::collections::HashMap;
 use std::sync::Arc;
+use uuid::uuid;
 
 use crate::data::ids::*;
+use crate::data::plans::{PlanSeed, SeedComp};
 use crate::harness::{
     InvoicesAssertExt, SubscriptionAssertExt, TestEnv, subscription, test_env, test_env_with_usage,
 };
@@ -18,7 +22,7 @@ use meteroid_store::clients::usage::{
 use meteroid_store::domain::subscription_components::{
     ComponentParameterization, ComponentParameters,
 };
-use meteroid_store::domain::{Period, SlotUpgradeBillingMode};
+use meteroid_store::domain::{BillingType, Period, SlotUpgradeBillingMode};
 use meteroid_store::repositories::subscriptions::SubscriptionInterfaceAuto;
 use meteroid_store::repositories::subscriptions::slots::SubscriptionSlotsInterfaceAuto;
 use rust_decimal::Decimal;
@@ -410,7 +414,7 @@ async fn test_plan_change_rejects_same_plan_version(#[future] test_env: TestEnv)
     // Also test immediate path
     let result = env
         .services()
-        .apply_plan_change_immediate(sub_id, TENANT_ID, PLAN_VERSION_STARTER_ID, vec![], false)
+        .apply_plan_change_immediate(sub_id, TENANT_ID, PLAN_VERSION_STARTER_ID, vec![])
         .await;
 
     assert!(
@@ -425,19 +429,25 @@ async fn test_plan_change_rejects_same_plan_version(#[future] test_env: TestEnv)
 
 /// Immediate mid-period upgrade: Starter→Pro with deterministic proration.
 ///
-/// Uses a fixed start date 15 days before a known period_end to test actual proration math,
-/// not just the trivial factor=1.0 case.
+/// Fixed dates: start Jan 1, period [Jan 1, Feb 1] = 31 days, change on Jan 16 → 16 days remaining.
+/// factor = 16/31
 ///
 /// Starter: Platform Fee €29 + Seats €10×1 = €39/mo (3900 cents)
 /// Pro:     Platform Fee €99 + Seats €25×1 = €124/mo (12400 cents)
+///
+/// Expected adjustment (per-component rounding):
+///   Credit Platform: -(2900 × 16/31).round() = -1497
+///   Credit Seats:    -(1000 × 16/31).round() = -516
+///   Charge Platform:  (9900 × 16/31).round() = 5110
+///   Charge Seats:     (2500 × 16/31).round() = 1290
+///   Net: -1497 + -516 + 5110 + 1290 = 4387
 #[rstest]
 #[tokio::test]
 async fn test_immediate_plan_change_upgrade(#[future] test_env: TestEnv) {
     let env = test_env.await;
 
-    // Use a fixed start date 15 days in the past to get a non-trivial proration factor
-    let today = chrono::Utc::now().naive_utc().date();
-    let start_date = today - chrono::Duration::days(15);
+    let start_date = NaiveDate::from_ymd_opt(2024, 1, 1).unwrap();
+    let change_date = NaiveDate::from_ymd_opt(2024, 1, 16).unwrap();
 
     let sub_id = subscription()
         .plan_version(PLAN_VERSION_STARTER_ID)
@@ -448,27 +458,18 @@ async fn test_immediate_plan_change_upgrade(#[future] test_env: TestEnv) {
         .await;
 
     let sub = env.get_subscription(sub_id).await;
-    sub.assert().is_active().has_cycle_index(0);
+    sub.assert()
+        .is_active()
+        .has_cycle_index(0)
+        .has_period_start(start_date)
+        .has_period_end(NaiveDate::from_ymd_opt(2024, 2, 1).unwrap());
 
-    // Read actual period to compute expected proration deterministically
-    let period_start = sub.current_period_start;
-    let period_end = sub.current_period_end.unwrap();
-    let days_in_period = (period_end - period_start).num_days() as f64;
-    let days_remaining = (period_end - today).num_days() as f64;
-    let factor = days_remaining / days_in_period;
-
-    // Verify we have a non-trivial factor (not 1.0 or 0.0)
-    assert!(
-        factor > 0.1 && factor < 0.99,
-        "factor should be mid-period (got {factor:.4})"
-    );
-
-    // Apply immediate upgrade
+    // Apply immediate upgrade at Jan 16
     let result = env
         .services()
-        .apply_plan_change_immediate(sub_id, TENANT_ID, PLAN_VERSION_PRO_ID, vec![], false)
+        .apply_plan_change_immediate_at(sub_id, TENANT_ID, PLAN_VERSION_PRO_ID, vec![], change_date)
         .await
-        .expect("apply_plan_change_immediate failed");
+        .expect("apply_plan_change_immediate_at failed");
 
     assert!(
         result.adjustment_invoice_id.is_some(),
@@ -501,7 +502,11 @@ async fn test_immediate_plan_change_upgrade(#[future] test_env: TestEnv) {
 
     // Verify temporal bounds on all components (active + closed)
     let all_components = env
-        .get_all_subscription_components(sub_id, start_date, today + chrono::Duration::days(1))
+        .get_all_subscription_components(
+            sub_id,
+            start_date,
+            change_date + chrono::Duration::days(1),
+        )
         .await;
     assert_eq!(
         all_components.len(),
@@ -516,8 +521,8 @@ async fn test_immediate_plan_change_upgrade(#[future] test_env: TestEnv) {
     for c in &closed {
         assert_eq!(
             c.effective_to,
-            Some(today),
-            "closed component '{}' should have effective_to = today",
+            Some(change_date),
+            "closed component '{}' should have effective_to = change_date",
             c.name
         );
     }
@@ -528,8 +533,8 @@ async fn test_immediate_plan_change_upgrade(#[future] test_env: TestEnv) {
         .collect();
     for c in &active {
         assert_eq!(
-            c.effective_from, today,
-            "new component '{}' should have effective_from = today",
+            c.effective_from, change_date,
+            "new component '{}' should have effective_from = change_date",
             c.name
         );
     }
@@ -546,32 +551,44 @@ async fn test_immediate_plan_change_upgrade(#[future] test_env: TestEnv) {
         .has_status(meteroid_store::domain::enums::InvoiceStatusEnum::Finalized)
         .check_prorated(true);
 
-    // Verify prorated amounts match expected calculation
-    // Credits: -(3900 * factor), Charges: +(12400 * factor), Net: +8500 * factor
-    let credit_platform = -((2900_f64 * factor).round() as i64);
-    let credit_seats = -((1000_f64 * factor).round() as i64);
-    let charge_platform = (9900_f64 * factor).round() as i64;
-    let charge_seats = (2500_f64 * factor).round() as i64;
-    let expected_net = credit_platform + credit_seats + charge_platform + charge_seats;
-
+    // Hardcoded expected proration: 16 days remaining out of 31-day period (Jan 1→Feb 1)
+    // Credit Platform: -(2900 × 16/31).round() = -1497
+    // Credit Seats:    -(1000 × 16/31).round() = -516
+    // Charge Platform:  (9900 × 16/31).round() = 5110
+    // Charge Seats:     (2500 × 16/31).round() = 1290
+    // Net: 4387
     let adj = &invoices[1];
     assert!(
         adj.total > 0,
         "adjustment total should be positive for upgrade"
     );
     assert_eq!(
-        adj.total, expected_net,
-        "adjustment total should match prorated Starter→Pro (factor={factor:.4})"
+        adj.total, 4387,
+        "adjustment total should be 4387 cents for Starter→Pro mid-period upgrade"
     );
 }
 
-/// Immediate downgrade should be rejected.
+/// Immediate downgrade: Pro→Starter produces a negative adjustment (credit).
+///
+/// Fixed dates: start Jan 1, period [Jan 1, Feb 1] = 31 days, change on Jan 16 → 16 days remaining.
+/// factor = 16/31
+///
+/// Pro:     Platform Fee €99 (9900) + Seats €25×1 (2500) = €124/mo (12400 cents)
+/// Starter: Platform Fee €29 (2900) + Seats €10×1 (1000) = €39/mo (3900 cents)
+///
+/// Expected adjustment:
+///   Credit Platform: -(9900 × 16/31).round() = -5110
+///   Credit Seats:    -(2500 × 16/31).round() = -1290
+///   Charge Platform:  (2900 × 16/31).round() = 1497
+///   Charge Seats:     (1000 × 16/31).round() = 516
+///   Net: -5110 + -1290 + 1497 + 516 = -4387
 #[rstest]
 #[tokio::test]
-async fn test_immediate_plan_change_rejects_downgrade(#[future] test_env: TestEnv) {
+async fn test_immediate_plan_change_downgrade(#[future] test_env: TestEnv) {
     let env = test_env.await;
 
-    let start_date = NaiveDate::from_ymd_opt(2024, 6, 1).unwrap();
+    let start_date = NaiveDate::from_ymd_opt(2024, 1, 1).unwrap();
+    let change_date = NaiveDate::from_ymd_opt(2024, 1, 16).unwrap();
 
     // Start on the more expensive Pro plan
     let sub_id = subscription()
@@ -585,17 +602,35 @@ async fn test_immediate_plan_change_rejects_downgrade(#[future] test_env: TestEn
     let sub = env.get_subscription(sub_id).await;
     sub.assert().is_active();
 
-    // Downgrading to Starter should fail
     let result = env
         .services()
-        .apply_plan_change_immediate(sub_id, TENANT_ID, PLAN_VERSION_STARTER_ID, vec![], false)
-        .await;
+        .apply_plan_change_immediate_at(
+            sub_id,
+            TENANT_ID,
+            PLAN_VERSION_STARTER_ID,
+            vec![],
+            change_date,
+        )
+        .await
+        .expect("immediate downgrade should succeed");
 
-    assert!(result.is_err(), "immediate downgrade should be rejected");
+    assert!(
+        result.adjustment_invoice_id.is_some(),
+        "should create adjustment invoice for downgrade"
+    );
 
-    // Subscription should remain on Pro
+    // Subscription should now be on Starter
     let sub = env.get_subscription(sub_id).await;
-    assert_eq!(sub.plan_version_id, PLAN_VERSION_PRO_ID);
+    assert_eq!(sub.plan_version_id, PLAN_VERSION_STARTER_ID);
+
+    // Adjustment should be negative (credit)
+    let invoices = env.get_invoices(sub_id).await;
+    invoices.assert().has_count(2);
+    let adj = &invoices[1];
+    assert_eq!(
+        adj.total, -4387,
+        "adjustment should be -4387 cents for Pro→Starter mid-period downgrade"
+    );
 }
 
 /// Immediate change cancels any pending scheduled plan change.
@@ -604,11 +639,12 @@ async fn test_immediate_plan_change_rejects_downgrade(#[future] test_env: TestEn
 async fn test_immediate_plan_change_cancels_pending_scheduled(#[future] test_env: TestEnv) {
     let env = test_env.await;
 
-    let today = chrono::Utc::now().naive_utc().date();
+    let start_date = NaiveDate::from_ymd_opt(2024, 1, 1).unwrap();
+    let change_date = NaiveDate::from_ymd_opt(2024, 1, 16).unwrap();
 
     let sub_id = subscription()
         .plan_version(PLAN_VERSION_STARTER_ID)
-        .start_date(today)
+        .start_date(start_date)
         .on_start()
         .no_trial()
         .create(env.services())
@@ -622,7 +658,7 @@ async fn test_immediate_plan_change_cancels_pending_scheduled(#[future] test_env
 
     // Now apply immediate change (same target)
     env.services()
-        .apply_plan_change_immediate(sub_id, TENANT_ID, PLAN_VERSION_PRO_ID, vec![], false)
+        .apply_plan_change_immediate_at(sub_id, TENANT_ID, PLAN_VERSION_PRO_ID, vec![], change_date)
         .await
         .expect("immediate should succeed even with pending scheduled");
 
@@ -647,6 +683,8 @@ async fn test_immediate_plan_change_cancels_pending_scheduled(#[future] test_env
 async fn test_preview_immediate_plan_change(#[future] test_env: TestEnv) {
     let env = test_env.await;
 
+    // preview_plan_change with Immediate mode uses Utc::now() as effective_date internally
+    // (no _at variant available), so start_date must be today to keep the period current.
     let today = chrono::Utc::now().naive_utc().date();
 
     let sub_id = subscription()
@@ -907,17 +945,25 @@ async fn test_plan_change_preserves_slot_count(#[future] test_env: TestEnv) {
 /// Slot count is preserved across immediate plan changes,
 /// and the adjustment invoice prorates based on the actual slot count.
 ///
-/// Starter: Platform Fee €29 + Seats €10×5 = €79/mo (7900 cents)
-/// Pro:     Platform Fee €99 + Seats €25×5 = €224/mo (22400 cents)
+/// Fixed dates: start Jan 1, period [Jan 1, Feb 1] = 31 days, change on Jan 16 → 16 days remaining.
+/// factor = 16/31
 ///
-/// Uses fixed start date 10 days in the past for deterministic proration.
+/// Starter with 5 seats: Platform Fee €29 (2900) + Seats €10×5 (5000) = €79/mo (7900 cents)
+/// Pro with 5 seats:     Platform Fee €99 (9900) + Seats €25×5 (12500) = €224/mo (22400 cents)
+///
+/// Expected adjustment (per-component rounding):
+///   Credit Platform: -(2900 × 16/31).round() = -1497
+///   Credit Seats:    -(5000 × 16/31).round() = -2581
+///   Charge Platform:  (9900 × 16/31).round() = 5110
+///   Charge Seats:    (12500 × 16/31).round() = 6452
+///   Net: -1497 + -2581 + 5110 + 6452 = 7484
 #[rstest]
 #[tokio::test]
 async fn test_immediate_plan_change_preserves_slot_count(#[future] test_env: TestEnv) {
     let env = test_env.await;
 
-    let today = chrono::Utc::now().naive_utc().date();
-    let start_date = today - chrono::Duration::days(10);
+    let start_date = NaiveDate::from_ymd_opt(2024, 1, 1).unwrap();
+    let change_date = NaiveDate::from_ymd_opt(2024, 1, 16).unwrap();
 
     // --- Create Starter subscription and add seats ---
     let sub_id = subscription()
@@ -948,18 +994,10 @@ async fn test_immediate_plan_change_preserves_slot_count(#[future] test_env: Tes
         .expect("get slots");
     assert_eq!(slots, 5, "should have 5 seats");
 
-    // Read actual period for deterministic proration
-    let sub = env.get_subscription(sub_id).await;
-    let period_start = sub.current_period_start;
-    let period_end = sub.current_period_end.unwrap();
-    let days_in_period = (period_end - period_start).num_days() as f64;
-    let days_remaining = (period_end - today).num_days() as f64;
-    let factor = days_remaining / days_in_period;
-
-    // --- Immediate upgrade to Pro ---
+    // --- Immediate upgrade to Pro at Jan 16 ---
     let result = env
         .services()
-        .apply_plan_change_immediate(sub_id, TENANT_ID, PLAN_VERSION_PRO_ID, vec![], false)
+        .apply_plan_change_immediate_at(sub_id, TENANT_ID, PLAN_VERSION_PRO_ID, vec![], change_date)
         .await
         .expect("immediate plan change failed");
 
@@ -989,19 +1027,17 @@ async fn test_immediate_plan_change_preserves_slot_count(#[future] test_env: Tes
         .has_mrr(22400);
 
     // --- Verify adjustment invoice prorates based on 5 seats ---
-    // Starter with 5 seats: 2900 + 5*1000 = 7900
-    // Pro with 5 seats: 9900 + 5*2500 = 22400
-    let credit_platform = -((2900_f64 * factor).round() as i64);
-    let credit_seats = -((5000_f64 * factor).round() as i64);
-    let charge_platform = (9900_f64 * factor).round() as i64;
-    let charge_seats = (12500_f64 * factor).round() as i64;
-    let expected_net = credit_platform + credit_seats + charge_platform + charge_seats;
-
+    // Hardcoded: 16 days remaining out of 31-day period (Jan 1→Feb 1), factor = 16/31
+    // Credit Platform: -(2900 × 16/31).round() = -1497
+    // Credit Seats:    -(5000 × 16/31).round() = -2581
+    // Charge Platform:  (9900 × 16/31).round() = 5110
+    // Charge Seats:    (12500 × 16/31).round() = 6452
+    // Net: 7484
     let invoices = env.get_invoices(sub_id).await;
     let adj = &invoices[invoices.len() - 1];
     assert_eq!(
-        adj.total, expected_net,
-        "adjustment should reflect 5-seat proration (factor={factor:.4})"
+        adj.total, 7484,
+        "adjustment should be 7484 cents for 5-seat Starter→Pro mid-period upgrade"
     );
 }
 
@@ -1113,20 +1149,22 @@ async fn test_plan_change_rate_only_to_plan_with_slots(#[future] test_env: TestE
 /// Immediate plan change from rate-only plan (LeetCode) to plan with slots (Starter),
 /// providing initial_slot_count = 5 via ComponentParameterization.
 ///
-/// Uses start_date = today - 14 days so the current period encompasses today.
-/// Reads the actual period from the subscription to compute expected proration deterministically.
+/// Fixed dates: start Jan 1, period [Jan 1, Feb 1] = 31 days, change on Jan 16 → 16 days remaining.
+/// factor = 16/31
 ///
 /// LeetCode: €35/mo (rate only) → Starter: €29/mo platform fee + €10/seat
 /// All components are added/removed (no product match), so:
-///   Credit: -(3500 × factor)
-///   Charge: +(2900 × factor) + (5000 × factor)
+///   Credit: -(3500 × 16/31).round() = -1806
+///   Charge Platform: +(2900 × 16/31).round() = 1497
+///   Charge Seats 5×€10: +(5000 × 16/31).round() = 2581
+///   Net: -1806 + 1497 + 2581 = 2272
 #[rstest]
 #[tokio::test]
 async fn test_immediate_plan_change_rate_only_to_plan_with_slots(#[future] test_env: TestEnv) {
     let env = test_env.await;
 
-    let today = chrono::Utc::now().naive_utc().date();
-    let start_date = today - chrono::Duration::days(14);
+    let start_date = NaiveDate::from_ymd_opt(2024, 1, 1).unwrap();
+    let change_date = NaiveDate::from_ymd_opt(2024, 1, 16).unwrap();
 
     // 1. Subscribe to LeetCode (rate-only plan, €35/mo)
     let sub_id = subscription()
@@ -1147,18 +1185,10 @@ async fn test_immediate_plan_change_rate_only_to_plan_with_slots(#[future] test_
         .is_finalized_unpaid()
         .has_total(3500);
 
-    // 3. Read actual period to compute expected proration deterministically
-    let sub = env.get_subscription(sub_id).await;
-    let period_start = sub.current_period_start;
-    let period_end = sub.current_period_end.unwrap();
-    let days_in_period = (period_end - period_start).num_days() as f64;
-    let days_remaining = (period_end - today).num_days() as f64;
-    let factor = days_remaining / days_in_period;
-
-    // 4. Immediate plan change to Starter with initial_slot_count = 5
+    // 3. Immediate plan change to Starter with initial_slot_count = 5 at Jan 16
     let result = env
         .services()
-        .apply_plan_change_immediate(
+        .apply_plan_change_immediate_at(
             sub_id,
             TENANT_ID,
             PLAN_VERSION_STARTER_ID,
@@ -1170,7 +1200,7 @@ async fn test_immediate_plan_change_rate_only_to_plan_with_slots(#[future] test_
                     committed_capacity: None,
                 },
             }],
-            false,
+            change_date,
         )
         .await
         .expect("immediate plan change failed");
@@ -1189,20 +1219,16 @@ async fn test_immediate_plan_change_rate_only_to_plan_with_slots(#[future] test_
     assert_eq!(slots, 5, "slot count should be 5 from initial_slot_count");
 
     // 6. Verify adjustment invoice proration
-    //    Credit: LeetCode Rate -(3500 × factor)
-    //    Charge: Starter Platform Fee +(2900 × factor)
-    //    Charge: Starter Seats 5×€10 +(5000 × factor)
-    let credit = -((3500_f64 * factor).round() as i64);
-    let charge_platform = (2900_f64 * factor).round() as i64;
-    let charge_seats = (5000_f64 * factor).round() as i64;
-    let expected_net = credit + charge_platform + charge_seats;
-
+    // Hardcoded: 16 days remaining out of 31-day period (Jan 1→Feb 1), factor = 16/31
+    //   Credit LeetCode Rate: -(3500 × 16/31).round() = -1806
+    //   Charge Starter Platform: (2900 × 16/31).round() = 1497
+    //   Charge Starter Seats 5×€10: (5000 × 16/31).round() = 2581
+    //   Net: 2272
     let invoices = env.get_invoices(sub_id).await;
     invoices.assert().has_count(2);
     assert_eq!(
-        invoices[1].total, expected_net,
-        "adjustment total should match prorated rate-only → 5-seat Starter (factor={factor:.4}, \
-         credit={credit}, platform={charge_platform}, seats={charge_seats})"
+        invoices[1].total, 2272,
+        "adjustment should be 2272 cents for LeetCode→5-seat Starter mid-period change"
     );
 
     // 7. Verify subscription is now on Starter
@@ -1357,7 +1383,6 @@ async fn test_immediate_plan_change_usage_temporal_split() {
             TENANT_ID,
             PLAN_VERSION_USAGE_BETA_ID,
             vec![],
-            false,
             feb15,
         )
         .await
@@ -1381,17 +1406,13 @@ async fn test_immediate_plan_change_usage_temporal_split() {
     }
 
     // Verify adjustment: prorated Rate only
-    // Old rate €10/mo credit for 14 days remaining out of 28 days (Feb 1→Mar 1)
-    // New rate €20/mo charge for 14 days remaining out of 28 days
-    let days_in_period = (mar1 - feb1).num_days() as f64; // 28
-    let days_remaining = (mar1 - feb15).num_days() as f64; // 14
-    let factor = days_remaining / days_in_period;
-    let credit_rate = -((1000_f64 * factor).round() as i64);
-    let charge_rate = (2000_f64 * factor).round() as i64;
-    let expected_adj = credit_rate + charge_rate;
+    // 14 days remaining out of 28 days (Feb 1→Mar 1), factor = 14/28 = 0.5
+    //   Credit old rate €10: -(1000 × 0.5) = -500
+    //   Charge new rate €20: +(2000 × 0.5) = 1000
+    //   Net: 500
     assert_eq!(
-        adj.total, expected_adj,
-        "adjustment should be prorated Rate only (factor={factor:.4})"
+        adj.total, 500,
+        "adjustment should be 500 cents for prorated Rate upgrade (€10→€20, half period)"
     );
 
     // --- Verify component temporal bounds after Feb 15 change ---
@@ -1597,7 +1618,6 @@ async fn test_immediate_plan_change_usage_upcoming_invoice() {
             TENANT_ID,
             PLAN_VERSION_USAGE_BETA_ID,
             vec![],
-            false,
             feb15,
         )
         .await
@@ -1662,4 +1682,838 @@ async fn test_immediate_plan_change_usage_upcoming_invoice() {
         .filter(|l| l.metric_id == Some(METRIC_DATABASE_SIZE))
         .collect();
     assert_eq!(db_lines.len(), 1, "should have 1 DB Storage line");
+}
+
+// =============================================================================
+// MIXED FEE TYPE PLAN CHANGE
+// =============================================================================
+//
+// Tests for plan changes involving Capacity, ExtraRecurring/Arrears, OneTime,
+// and ExtraRecurring/Advance fee types. These exercise `is_pure_arrears()` for
+// all non-Usage fee types.
+
+// ── Test-local plan IDs (not in ids.rs since plans are created inline) ───────
+
+// Mixed Alpha: Capacity + Rec/Arrears + OneTime + ExtraRec/Advance
+const PLAN_MIXED_ALPHA_ID: PlanId =
+    PlanId::from_const(uuid!("019438e0-0100-7000-8000-000000000001"));
+const PLAN_VERSION_MIXED_ALPHA_ID: PlanVersionId =
+    PlanVersionId::from_const(uuid!("019438e0-0101-7000-8000-000000000001"));
+const COMP_ALPHA_CAPACITY_ID: PriceComponentId =
+    PriceComponentId::from_const(uuid!("019438e0-0102-7000-8000-000000000001"));
+const COMP_ALPHA_REC_ARREARS_ID: PriceComponentId =
+    PriceComponentId::from_const(uuid!("019438e0-0103-7000-8000-000000000001"));
+const COMP_ALPHA_ONETIME_ID: PriceComponentId =
+    PriceComponentId::from_const(uuid!("019438e0-0104-7000-8000-000000000001"));
+const COMP_ALPHA_EXTRA_ADVANCE_ID: PriceComponentId =
+    PriceComponentId::from_const(uuid!("019438e0-0105-7000-8000-000000000001"));
+const PRICE_ALPHA_CAPACITY_ID: PriceId =
+    PriceId::from_const(uuid!("019438e0-0106-7000-8000-000000000001"));
+const PRICE_ALPHA_REC_ARREARS_ID: PriceId =
+    PriceId::from_const(uuid!("019438e0-0107-7000-8000-000000000001"));
+const PRICE_ALPHA_ONETIME_ID: PriceId =
+    PriceId::from_const(uuid!("019438e0-0108-7000-8000-000000000001"));
+const PRICE_ALPHA_EXTRA_ADVANCE_ID: PriceId =
+    PriceId::from_const(uuid!("019438e0-0109-7000-8000-000000000001"));
+
+// Mixed Beta: Capacity + Rec/Arrears + ExtraRec/Advance (no OneTime)
+const PLAN_MIXED_BETA_ID: PlanId =
+    PlanId::from_const(uuid!("019438e0-0110-7000-8000-000000000001"));
+const PLAN_VERSION_MIXED_BETA_ID: PlanVersionId =
+    PlanVersionId::from_const(uuid!("019438e0-0111-7000-8000-000000000001"));
+const COMP_BETA_CAPACITY_ID: PriceComponentId =
+    PriceComponentId::from_const(uuid!("019438e0-0112-7000-8000-000000000001"));
+const COMP_BETA_REC_ARREARS_ID: PriceComponentId =
+    PriceComponentId::from_const(uuid!("019438e0-0113-7000-8000-000000000001"));
+const COMP_BETA_EXTRA_ADVANCE_ID: PriceComponentId =
+    PriceComponentId::from_const(uuid!("019438e0-0114-7000-8000-000000000001"));
+const PRICE_BETA_CAPACITY_ID: PriceId =
+    PriceId::from_const(uuid!("019438e0-0115-7000-8000-000000000001"));
+const PRICE_BETA_REC_ARREARS_ID: PriceId =
+    PriceId::from_const(uuid!("019438e0-0116-7000-8000-000000000001"));
+const PRICE_BETA_EXTRA_ADVANCE_ID: PriceId =
+    PriceId::from_const(uuid!("019438e0-0117-7000-8000-000000000001"));
+
+// Mixed Capacity Upgraded: same structure as Alpha, different Capacity config
+const PLAN_MIXED_CAP_UPG_ID: PlanId =
+    PlanId::from_const(uuid!("019438e0-0120-7000-8000-000000000001"));
+const PLAN_VERSION_MIXED_CAP_UPG_ID: PlanVersionId =
+    PlanVersionId::from_const(uuid!("019438e0-0121-7000-8000-000000000001"));
+const COMP_CAP_UPG_CAPACITY_ID: PriceComponentId =
+    PriceComponentId::from_const(uuid!("019438e0-0122-7000-8000-000000000001"));
+const COMP_CAP_UPG_REC_ARREARS_ID: PriceComponentId =
+    PriceComponentId::from_const(uuid!("019438e0-0123-7000-8000-000000000001"));
+const COMP_CAP_UPG_ONETIME_ID: PriceComponentId =
+    PriceComponentId::from_const(uuid!("019438e0-0124-7000-8000-000000000001"));
+const COMP_CAP_UPG_EXTRA_ADVANCE_ID: PriceComponentId =
+    PriceComponentId::from_const(uuid!("019438e0-0125-7000-8000-000000000001"));
+const PRICE_CAP_UPG_CAPACITY_ID: PriceId =
+    PriceId::from_const(uuid!("019438e0-0126-7000-8000-000000000001"));
+const PRICE_CAP_UPG_REC_ARREARS_ID: PriceId =
+    PriceId::from_const(uuid!("019438e0-0127-7000-8000-000000000001"));
+const PRICE_CAP_UPG_ONETIME_ID: PriceId =
+    PriceId::from_const(uuid!("019438e0-0128-7000-8000-000000000001"));
+const PRICE_CAP_UPG_EXTRA_ADVANCE_ID: PriceId =
+    PriceId::from_const(uuid!("019438e0-0129-7000-8000-000000000001"));
+
+// ── Inline plan builders ─────────────────────────────────────────────────────
+
+fn mixed_alpha_plan() -> PlanSeed {
+    PlanSeed::new(
+        PLAN_MIXED_ALPHA_ID,
+        "Mixed Alpha",
+        PLAN_VERSION_MIXED_ALPHA_ID,
+    )
+    .components(vec![
+        SeedComp::capacity(
+            COMP_ALPHA_CAPACITY_ID,
+            "Capacity Bandwidth",
+            PRODUCT_CAPACITY_ID,
+            METRIC_BANDWIDTH,
+            PRICE_ALPHA_CAPACITY_ID,
+            DieselBillingPeriodEnum::Monthly,
+            Decimal::new(5000, 2), // €50 base
+            100,                   // 100 included
+            Decimal::new(5, 2),    // €0.05 overage
+        ),
+        SeedComp::extra_recurring(
+            COMP_ALPHA_REC_ARREARS_ID,
+            "Recurring Arrears",
+            PRODUCT_RECURRING_ARREARS_ID,
+            PRICE_ALPHA_REC_ARREARS_ID,
+            DieselBillingPeriodEnum::Monthly,
+            Decimal::new(1500, 2), // €15
+            2,
+            BillingType::Arrears,
+        ),
+        SeedComp::one_time(
+            COMP_ALPHA_ONETIME_ID,
+            "Setup Fee",
+            PRODUCT_ONETIME_SETUP_ID,
+            PRICE_ALPHA_ONETIME_ID,
+            Decimal::new(20000, 2), // €200
+            1,
+        ),
+        SeedComp::extra_recurring(
+            COMP_ALPHA_EXTRA_ADVANCE_ID,
+            "Extra Advance",
+            PRODUCT_EXTRA_ADVANCE_ID,
+            PRICE_ALPHA_EXTRA_ADVANCE_ID,
+            DieselBillingPeriodEnum::Monthly,
+            Decimal::new(3000, 2), // €30
+            1,
+            BillingType::Advance,
+        ),
+    ])
+}
+
+fn mixed_beta_plan() -> PlanSeed {
+    PlanSeed::new(PLAN_MIXED_BETA_ID, "Mixed Beta", PLAN_VERSION_MIXED_BETA_ID).components(vec![
+        SeedComp::capacity(
+            COMP_BETA_CAPACITY_ID,
+            "Capacity Bandwidth",
+            PRODUCT_CAPACITY_ID,
+            METRIC_BANDWIDTH,
+            PRICE_BETA_CAPACITY_ID,
+            DieselBillingPeriodEnum::Monthly,
+            Decimal::new(8000, 2), // €80 base
+            200,                   // 200 included
+            Decimal::new(10, 2),   // €0.10 overage
+        ),
+        SeedComp::extra_recurring(
+            COMP_BETA_REC_ARREARS_ID,
+            "Recurring Arrears",
+            PRODUCT_RECURRING_ARREARS_ID,
+            PRICE_BETA_REC_ARREARS_ID,
+            DieselBillingPeriodEnum::Monthly,
+            Decimal::new(2500, 2), // €25
+            2,
+            BillingType::Arrears,
+        ),
+        SeedComp::extra_recurring(
+            COMP_BETA_EXTRA_ADVANCE_ID,
+            "Extra Advance",
+            PRODUCT_EXTRA_ADVANCE_ID,
+            PRICE_BETA_EXTRA_ADVANCE_ID,
+            DieselBillingPeriodEnum::Monthly,
+            Decimal::new(5000, 2), // €50
+            1,
+            BillingType::Advance,
+        ),
+    ])
+}
+
+fn mixed_cap_upgraded_plan() -> PlanSeed {
+    PlanSeed::new(
+        PLAN_MIXED_CAP_UPG_ID,
+        "Mixed Cap Upgraded",
+        PLAN_VERSION_MIXED_CAP_UPG_ID,
+    )
+    .components(vec![
+        SeedComp::capacity(
+            COMP_CAP_UPG_CAPACITY_ID,
+            "Capacity Bandwidth",
+            PRODUCT_CAPACITY_ID,
+            METRIC_BANDWIDTH,
+            PRICE_CAP_UPG_CAPACITY_ID,
+            DieselBillingPeriodEnum::Monthly,
+            Decimal::new(12000, 2), // €120 base
+            500,                    // 500 included
+            Decimal::new(2, 2),     // €0.02 overage
+        ),
+        SeedComp::extra_recurring(
+            COMP_CAP_UPG_REC_ARREARS_ID,
+            "Recurring Arrears",
+            PRODUCT_RECURRING_ARREARS_ID,
+            PRICE_CAP_UPG_REC_ARREARS_ID,
+            DieselBillingPeriodEnum::Monthly,
+            Decimal::new(1500, 2), // €15 (same as Alpha)
+            2,
+            BillingType::Arrears,
+        ),
+        SeedComp::one_time(
+            COMP_CAP_UPG_ONETIME_ID,
+            "Setup Fee",
+            PRODUCT_ONETIME_SETUP_ID,
+            PRICE_CAP_UPG_ONETIME_ID,
+            Decimal::new(20000, 2), // €200 (same as Alpha)
+            1,
+        ),
+        SeedComp::extra_recurring(
+            COMP_CAP_UPG_EXTRA_ADVANCE_ID,
+            "Extra Advance",
+            PRODUCT_EXTRA_ADVANCE_ID,
+            PRICE_CAP_UPG_EXTRA_ADVANCE_ID,
+            DieselBillingPeriodEnum::Monthly,
+            Decimal::new(3000, 2), // €30 (same as Alpha)
+            1,
+            BillingType::Advance,
+        ),
+    ])
+}
+
+// ── Test 1: Alpha → Beta (upgrade, mixed fee types) ─────────────────────────
+
+/// Mid-period plan change from Mixed Alpha (4 components) to Mixed Beta (3 components).
+///
+/// Verifies:
+/// - Adjustment invoice prorates only advance-billed components (Capacity base, ExtraRec/Advance)
+/// - Rec/Arrears is excluded from adjustment (is_pure_arrears) and gets temporal split
+/// - OneTime is excluded from adjustment (advance_amount = 0) and not re-charged
+/// - Component temporal bounds are correct after plan change
+#[tokio::test]
+async fn test_immediate_plan_change_mixed_alpha_to_beta() {
+    let jan1 = NaiveDate::from_ymd_opt(2025, 1, 1).unwrap();
+    let feb1 = NaiveDate::from_ymd_opt(2025, 2, 1).unwrap();
+    let feb15 = NaiveDate::from_ymd_opt(2025, 2, 15).unwrap();
+    let mar1 = NaiveDate::from_ymd_opt(2025, 3, 1).unwrap();
+
+    let env = test_env_with_usage(build_usage_mock(vec![])).await;
+
+    // Seed inline plans
+    let mut conn = env.conn().await;
+    mixed_alpha_plan().seed(&mut conn).await.unwrap();
+    mixed_beta_plan().seed(&mut conn).await.unwrap();
+    drop(conn);
+
+    // --- Cycle 0: Subscribe on Mixed Alpha at Jan 1 ---
+    let sub_id = subscription()
+        .plan_version(PLAN_VERSION_MIXED_ALPHA_ID)
+        .start_date(jan1)
+        .on_start()
+        .no_trial()
+        .create(env.services())
+        .await;
+
+    let sub = env.get_subscription(sub_id).await;
+    sub.assert()
+        .is_active()
+        .has_cycle_index(0)
+        .has_period_start(jan1)
+        .has_period_end(feb1);
+
+    // Invoice 0: Capacity base €50 + ExtraRec/Advance €30 + OneTime €200 = €280
+    let invoices = env.get_invoices(sub_id).await;
+    invoices.assert().has_count(1);
+    invoices
+        .assert()
+        .invoice_at(0)
+        .with_context("cycle 0 - Alpha initial invoice")
+        .is_finalized_unpaid()
+        .has_total(5000 + 3000 + 20000);
+
+    // --- Cycle 1: process_cycles → Period [Feb 1, Mar 1] ---
+    env.process_cycles().await;
+
+    let sub = env.get_subscription(sub_id).await;
+    sub.assert()
+        .is_active()
+        .has_cycle_index(1)
+        .has_period_start(feb1)
+        .has_period_end(mar1);
+
+    // Invoice 1: Capacity base €50 + ExtraRec/Advance €30 + Rec/Arrears €30 = €110
+    let invoices = env.get_invoices(sub_id).await;
+    invoices.assert().has_count(2);
+    invoices
+        .assert()
+        .invoice_at(1)
+        .with_context("cycle 1 - Alpha (advance + arrears from cycle 0)")
+        .is_finalized_unpaid()
+        .has_total(5000 + 3000 + 3000);
+
+    // --- Feb 15: Immediate plan change Alpha → Beta ---
+    let result = env
+        .services()
+        .apply_plan_change_immediate_at(
+            sub_id,
+            TENANT_ID,
+            PLAN_VERSION_MIXED_BETA_ID,
+            vec![],
+            feb15,
+        )
+        .await
+        .expect("apply_plan_change_immediate_at failed");
+
+    assert!(
+        result.adjustment_invoice_id.is_some(),
+        "should create adjustment invoice"
+    );
+
+    // Adjustment invoice: prorate advance-only components
+    // Period [Feb 1, Mar 1] = 28 days, remaining after Feb 15 = 14 days, factor = 0.5
+    //   Credit Capacity:       -(5000 × 0.5) = -2500
+    //   Charge Capacity:        (8000 × 0.5) = 4000
+    //   Credit ExtraRec/Adv:   -(3000 × 0.5) = -1500
+    //   Charge ExtraRec/Adv:    (5000 × 0.5) = 2500
+    //   Rec/Arrears: excluded (is_pure_arrears)
+    //   OneTime: excluded (advance_amount = 0)
+    //   Net: -2500 + 4000 + -1500 + 2500 = 2500
+    let invoices = env.get_invoices(sub_id).await;
+    invoices.assert().has_count(3);
+    assert_eq!(
+        invoices[2].total, 2500,
+        "adjustment should be 2500 cents for prorated Capacity base + ExtraRec/Advance upgrade"
+    );
+
+    // Verify subscription switched to Beta
+    let sub = env.get_subscription(sub_id).await;
+    assert_eq!(sub.plan_version_id, PLAN_VERSION_MIXED_BETA_ID);
+
+    // Verify component temporal bounds
+    let all_components = env
+        .get_all_subscription_components(sub_id, jan1, mar1)
+        .await;
+
+    // Old Alpha: 4 closed, New Beta: 3 active = 7 total
+    assert_eq!(
+        all_components.len(),
+        7,
+        "should have 7 total components (4 closed Alpha + 3 active Beta)"
+    );
+
+    let closed: Vec<_> = all_components
+        .iter()
+        .filter(|c| c.effective_to.is_some())
+        .collect();
+    assert_eq!(closed.len(), 4, "should have 4 closed Alpha components");
+    for c in &closed {
+        assert_eq!(
+            c.effective_to,
+            Some(feb15),
+            "closed component '{}' effective_to",
+            c.name
+        );
+    }
+
+    let active: Vec<_> = all_components
+        .iter()
+        .filter(|c| c.effective_to.is_none())
+        .collect();
+    assert_eq!(active.len(), 3, "should have 3 active Beta components");
+    for c in &active {
+        assert_eq!(
+            c.effective_from, feb15,
+            "active component '{}' effective_from",
+            c.name
+        );
+    }
+
+    // --- Cycle 2: process_cycles → verify temporal split for Rec/Arrears ---
+    env.process_cycles().await;
+
+    let sub = env.get_subscription(sub_id).await;
+    sub.assert()
+        .is_active()
+        .has_cycle_index(2)
+        .has_period_start(mar1);
+
+    // Invoice 3: Beta advance + Rec/Arrears temporal split
+    // Capacity base €80 = 8000 + ExtraRec/Advance €50 = 5000
+    // + Old Rec/Arrears [Feb 1, Feb 15] = 3000 + New Rec/Arrears [Feb 15, Mar 1] = 5000
+    let invoices = env.get_invoices(sub_id).await;
+    invoices.assert().has_count(4);
+    assert_eq!(
+        invoices[3].total,
+        8000 + 5000 + 3000 + 5000,
+        "cycle 2 invoice: Beta advance + temporal split Rec/Arrears"
+    );
+}
+
+// ── Test 2: Beta → Alpha (end-of-period downgrade with OneTime) ──────────────
+
+/// End-of-period plan change from Mixed Beta (3 components) to Mixed Alpha (4 components).
+/// Immediate downgrades are rejected, so this uses `schedule_plan_change`.
+///
+/// Verifies:
+/// - Scheduled downgrade applies at period boundary (no mid-period proration)
+/// - OneTime NOT charged (subscription cycle_index > 0, so OneTime period is skipped)
+/// - Rec/Arrears from old plan is billed as arrear on the transition invoice
+/// - Component rotation: old components closed, new components start at boundary
+#[tokio::test]
+async fn test_scheduled_plan_change_mixed_beta_to_alpha() {
+    let jan1 = NaiveDate::from_ymd_opt(2025, 1, 1).unwrap();
+    let feb1 = NaiveDate::from_ymd_opt(2025, 2, 1).unwrap();
+    let mar1 = NaiveDate::from_ymd_opt(2025, 3, 1).unwrap();
+
+    let env = test_env_with_usage(build_usage_mock(vec![])).await;
+
+    // Seed inline plans
+    let mut conn = env.conn().await;
+    mixed_beta_plan().seed(&mut conn).await.unwrap();
+    mixed_alpha_plan().seed(&mut conn).await.unwrap();
+    drop(conn);
+
+    // --- Cycle 0: Subscribe on Mixed Beta at Jan 1 ---
+    let sub_id = subscription()
+        .plan_version(PLAN_VERSION_MIXED_BETA_ID)
+        .start_date(jan1)
+        .on_start()
+        .no_trial()
+        .create(env.services())
+        .await;
+
+    let sub = env.get_subscription(sub_id).await;
+    sub.assert()
+        .is_active()
+        .has_cycle_index(0)
+        .has_period_start(jan1)
+        .has_period_end(feb1);
+
+    // Invoice 0: Capacity base €80 + ExtraRec/Advance €50 = €130 (no OneTime on Beta)
+    let invoices = env.get_invoices(sub_id).await;
+    invoices.assert().has_count(1);
+    invoices
+        .assert()
+        .invoice_at(0)
+        .with_context("cycle 0 - Beta initial invoice")
+        .is_finalized_unpaid()
+        .has_total(8000 + 5000);
+
+    // --- Schedule downgrade to Alpha (end-of-period) ---
+    env.services()
+        .schedule_plan_change(sub_id, TENANT_ID, PLAN_VERSION_MIXED_ALPHA_ID, vec![])
+        .await
+        .expect("schedule_plan_change failed");
+
+    // --- Cycle 1: process_cycles applies scheduled change + renews ---
+    // Plan change applied at Feb 1 boundary, new period starts on Alpha
+    env.process_cycles().await;
+
+    let sub = env.get_subscription(sub_id).await;
+    sub.assert()
+        .is_active()
+        .has_cycle_index(1)
+        .has_period_start(feb1)
+        .has_period_end(mar1);
+    assert_eq!(
+        sub.plan_version_id, PLAN_VERSION_MIXED_ALPHA_ID,
+        "subscription should be on Alpha after scheduled change"
+    );
+
+    // Invoice 1 (transition): Beta arrears + Alpha advance, NO OneTime
+    // Beta Rec/Arrears €50 (arrear from cycle 0) = 5000
+    // Alpha Capacity base €50 (advance) = 5000
+    // Alpha ExtraRec/Advance €30 (advance) = 3000
+    // OneTime NOT charged (subscription cycle_index=1, OneTime billing period already past)
+    let invoices = env.get_invoices(sub_id).await;
+    invoices.assert().has_count(2);
+    invoices
+        .assert()
+        .invoice_at(1)
+        .with_context("cycle 1 - transition (Beta arrear + Alpha advance, no OneTime)")
+        .is_finalized_unpaid()
+        .has_total(5000 + 5000 + 3000);
+
+    // Verify OneTime is NOT charged (subscription is past cycle 0)
+    let onetime_lines: Vec<_> = invoices[1]
+        .line_items
+        .iter()
+        .filter(|l| l.name.contains("Setup Fee"))
+        .collect();
+    assert!(
+        onetime_lines.is_empty(),
+        "OneTime should NOT be charged (subscription cycle_index > 0)"
+    );
+
+    // Verify component rotation: Beta closed at Feb 1, Alpha active from Feb 1
+    let all_components = env
+        .get_all_subscription_components(sub_id, jan1, mar1)
+        .await;
+    assert_eq!(all_components.len(), 7, "3 closed Beta + 4 active Alpha");
+
+    let closed: Vec<_> = all_components
+        .iter()
+        .filter(|c| c.effective_to.is_some())
+        .collect();
+    assert_eq!(closed.len(), 3, "3 closed Beta components");
+    for c in &closed {
+        assert_eq!(
+            c.effective_to,
+            Some(feb1),
+            "closed component '{}' effective_to = Feb 1",
+            c.name
+        );
+    }
+
+    let active: Vec<_> = all_components
+        .iter()
+        .filter(|c| c.effective_to.is_none())
+        .collect();
+    assert_eq!(active.len(), 4, "4 active Alpha components");
+    for c in &active {
+        assert_eq!(
+            c.effective_from, feb1,
+            "active component '{}' effective_from = Feb 1",
+            c.name
+        );
+    }
+
+    // --- Cycle 2: verify no duplicate OneTime ---
+    env.process_cycles().await;
+
+    let sub = env.get_subscription(sub_id).await;
+    sub.assert()
+        .is_active()
+        .has_cycle_index(2)
+        .has_period_start(mar1);
+
+    // Invoice 2: Alpha advance + Rec/Arrears arrear, NO OneTime
+    // Capacity base €50 = 5000 + ExtraRec/Advance €30 = 3000 + Rec/Arrears €30 = 3000
+    let invoices = env.get_invoices(sub_id).await;
+    invoices.assert().has_count(3);
+    invoices
+        .assert()
+        .invoice_at(2)
+        .with_context("cycle 2 - Alpha steady state, no OneTime")
+        .is_finalized_unpaid()
+        .has_total(5000 + 3000 + 3000);
+
+    // Confirm no OneTime on cycle 2
+    let onetime_lines: Vec<_> = invoices[2]
+        .line_items
+        .iter()
+        .filter(|l| l.name.contains("Setup Fee"))
+        .collect();
+    assert!(
+        onetime_lines.is_empty(),
+        "OneTime should NOT appear on cycle 2 (not first period)"
+    );
+}
+
+// ── Test 2b: Beta → Alpha immediate downgrade (currently rejected) ────────────
+
+/// Immediate downgrade from Mixed Beta to Mixed Alpha.
+/// Lower total advance amount → negative adjustment invoice (credit > charge).
+///
+/// Verifies:
+/// - Negative adjustment invoice (credit > charge)
+/// - Rec/Arrears temporal split works in downgrade direction
+/// - OneTime added but NOT charged (is_first_period = false, since arrear period exists)
+#[tokio::test]
+async fn test_immediate_plan_change_mixed_beta_to_alpha_downgrade() {
+    let jan1 = NaiveDate::from_ymd_opt(2025, 1, 1).unwrap();
+    let feb1 = NaiveDate::from_ymd_opt(2025, 2, 1).unwrap();
+    let feb15 = NaiveDate::from_ymd_opt(2025, 2, 15).unwrap();
+    let mar1 = NaiveDate::from_ymd_opt(2025, 3, 1).unwrap();
+
+    let env = test_env_with_usage(build_usage_mock(vec![])).await;
+
+    // Seed inline plans
+    let mut conn = env.conn().await;
+    mixed_beta_plan().seed(&mut conn).await.unwrap();
+    mixed_alpha_plan().seed(&mut conn).await.unwrap();
+    drop(conn);
+
+    // --- Cycle 0: Subscribe on Mixed Beta at Jan 1 ---
+    let sub_id = subscription()
+        .plan_version(PLAN_VERSION_MIXED_BETA_ID)
+        .start_date(jan1)
+        .on_start()
+        .no_trial()
+        .create(env.services())
+        .await;
+
+    let sub = env.get_subscription(sub_id).await;
+    sub.assert()
+        .is_active()
+        .has_cycle_index(0)
+        .has_period_start(jan1)
+        .has_period_end(feb1);
+
+    // Invoice 0: Capacity base €80 + ExtraRec/Advance €50 = €130 (no OneTime on Beta)
+    let invoices = env.get_invoices(sub_id).await;
+    invoices.assert().has_count(1);
+    invoices
+        .assert()
+        .invoice_at(0)
+        .with_context("cycle 0 - Beta initial invoice")
+        .is_finalized_unpaid()
+        .has_total(8000 + 5000);
+
+    // --- Cycle 1: process_cycles → Period [Feb 1, Mar 1] ---
+    env.process_cycles().await;
+
+    let sub = env.get_subscription(sub_id).await;
+    sub.assert()
+        .is_active()
+        .has_cycle_index(1)
+        .has_period_start(feb1)
+        .has_period_end(mar1);
+
+    // Invoice 1: Capacity base €80 + ExtraRec/Advance €50 + Rec/Arrears €50 = €180
+    let invoices = env.get_invoices(sub_id).await;
+    invoices.assert().has_count(2);
+    invoices
+        .assert()
+        .invoice_at(1)
+        .with_context("cycle 1 - Beta (advance + arrears from cycle 0)")
+        .is_finalized_unpaid()
+        .has_total(8000 + 5000 + 5000);
+
+    // --- Feb 15: Immediate plan change Beta → Alpha (downgrade) ---
+    let result = env
+        .services()
+        .apply_plan_change_immediate_at(
+            sub_id,
+            TENANT_ID,
+            PLAN_VERSION_MIXED_ALPHA_ID,
+            vec![],
+            feb15,
+        )
+        .await
+        .expect("apply_plan_change_immediate_at failed");
+
+    assert!(
+        result.adjustment_invoice_id.is_some(),
+        "should create adjustment invoice for downgrade"
+    );
+
+    // Adjustment: negative (downgrade)
+    // Period [Feb 1, Mar 1] = 28 days, remaining after Feb 15 = 14 days, factor = 0.5
+    //   Credit Capacity:       -(8000 × 0.5) = -4000
+    //   Charge Capacity:        (5000 × 0.5) = 2500
+    //   Credit ExtraRec/Adv:   -(5000 × 0.5) = -2500
+    //   Charge ExtraRec/Adv:    (3000 × 0.5) = 1500
+    //   OneTime: added but advance_amount = 0 → no charge
+    //   Net: -4000 + 2500 + -2500 + 1500 = -2500
+    let invoices = env.get_invoices(sub_id).await;
+    invoices.assert().has_count(3);
+    assert_eq!(
+        invoices[2].total, -2500,
+        "adjustment should be -2500 cents for prorated downgrade"
+    );
+
+    // Verify subscription switched to Alpha
+    let sub = env.get_subscription(sub_id).await;
+    assert_eq!(sub.plan_version_id, PLAN_VERSION_MIXED_ALPHA_ID);
+
+    // Verify component counts: 3 closed Beta + 4 active Alpha = 7
+    let all_components = env
+        .get_all_subscription_components(sub_id, jan1, mar1)
+        .await;
+    assert_eq!(all_components.len(), 7, "3 closed Beta + 4 active Alpha");
+
+    let active: Vec<_> = all_components
+        .iter()
+        .filter(|c| c.effective_to.is_none())
+        .collect();
+    assert_eq!(
+        active.len(),
+        4,
+        "4 active Alpha components (including OneTime)"
+    );
+
+    // --- Cycle 2: process_cycles ---
+    env.process_cycles().await;
+
+    let sub = env.get_subscription(sub_id).await;
+    sub.assert()
+        .is_active()
+        .has_cycle_index(2)
+        .has_period_start(mar1);
+
+    // Invoice 3: Alpha advance + temporal split Rec/Arrears + NO OneTime
+    // Capacity base €50 = 5000 + ExtraRec/Advance €30 = 3000
+    // + Old Rec/Arrears [Feb 1, Feb 15] = 5000 + New Rec/Arrears [Feb 15, Mar 1] = 3000
+    // OneTime NOT charged (is_first_period = false)
+    let invoices = env.get_invoices(sub_id).await;
+    invoices.assert().has_count(4);
+    assert_eq!(
+        invoices[3].total,
+        5000 + 3000 + 5000 + 3000,
+        "cycle 2: Alpha advance + temporal Rec/Arrears, OneTime NOT charged"
+    );
+
+    // Verify no OneTime line item on cycle 2 invoice
+    let onetime_lines: Vec<_> = invoices[3]
+        .line_items
+        .iter()
+        .filter(|l| l.name.contains("Setup Fee"))
+        .collect();
+    assert!(
+        onetime_lines.is_empty(),
+        "OneTime should NOT appear on cycle 2 invoice (is_first_period=false)"
+    );
+}
+
+// ── Test 3: Alpha → Capacity Upgraded (same products, different config) ──────
+
+/// Mid-period plan change from Mixed Alpha to Mixed Capacity Upgraded.
+/// Same products in both plans, only Capacity config differs.
+///
+/// Verifies:
+/// - Capacity base rate is prorated (different rates)
+/// - Matched non-Capacity components with same prices produce zero net proration
+/// - New Capacity overage uses updated included/overage_rate
+#[tokio::test]
+async fn test_immediate_plan_change_capacity_tier_upgrade() {
+    let jan1 = NaiveDate::from_ymd_opt(2025, 1, 1).unwrap();
+    let feb1 = NaiveDate::from_ymd_opt(2025, 2, 1).unwrap();
+    let feb15 = NaiveDate::from_ymd_opt(2025, 2, 15).unwrap();
+    let mar1 = NaiveDate::from_ymd_opt(2025, 3, 1).unwrap();
+
+    // Mock usage: 600 bandwidth units in [Feb 15, Mar 1] for new Capacity overage
+    let usage_client = build_usage_mock(vec![(
+        MockUsageDataParams {
+            metric_id: METRIC_BANDWIDTH,
+            period_start: feb15,
+            period_end: mar1,
+        },
+        Decimal::new(600, 0),
+    )]);
+
+    let env = test_env_with_usage(usage_client).await;
+
+    // Seed inline plans
+    let mut conn = env.conn().await;
+    mixed_alpha_plan().seed(&mut conn).await.unwrap();
+    mixed_cap_upgraded_plan().seed(&mut conn).await.unwrap();
+    drop(conn);
+
+    // --- Cycle 0: Subscribe on Mixed Alpha at Jan 1 ---
+    let sub_id = subscription()
+        .plan_version(PLAN_VERSION_MIXED_ALPHA_ID)
+        .start_date(jan1)
+        .on_start()
+        .no_trial()
+        .create(env.services())
+        .await;
+
+    // Invoice 0: Capacity €50 + ExtraRec/Advance €30 + OneTime €200 = €280
+    let invoices = env.get_invoices(sub_id).await;
+    invoices.assert().has_count(1);
+    invoices
+        .assert()
+        .invoice_at(0)
+        .with_context("cycle 0 - Alpha initial")
+        .is_finalized_unpaid()
+        .has_total(5000 + 3000 + 20000);
+
+    // --- Cycle 1: process_cycles → Period [Feb 1, Mar 1] ---
+    env.process_cycles().await;
+
+    // --- Feb 15: Immediate plan change Alpha → Capacity Upgraded ---
+    let result = env
+        .services()
+        .apply_plan_change_immediate_at(
+            sub_id,
+            TENANT_ID,
+            PLAN_VERSION_MIXED_CAP_UPG_ID,
+            vec![],
+            feb15,
+        )
+        .await
+        .expect("apply_plan_change_immediate_at failed");
+
+    assert!(
+        result.adjustment_invoice_id.is_some(),
+        "should create adjustment invoice for capacity upgrade"
+    );
+
+    // Adjustment: only Capacity base rate differs
+    // Period [Feb 1, Mar 1] = 28 days, remaining after Feb 15 = 14 days, factor = 0.5
+    //   Credit Capacity:       -(5000 × 0.5) = -2500
+    //   Charge Capacity:       (12000 × 0.5) = 6000
+    //   Credit ExtraRec/Adv:   -(3000 × 0.5) = -1500
+    //   Charge ExtraRec/Adv:    (3000 × 0.5) = 1500
+    //   OneTime: 0 (both plans have it, advance_amount = 0)
+    //   Rec/Arrears: 0 (is_pure_arrears, excluded)
+    //   Net: -2500 + 6000 + -1500 + 1500 = 3500
+    let invoices = env.get_invoices(sub_id).await;
+    invoices.assert().has_count(3);
+    assert_eq!(
+        invoices[2].total, 3500,
+        "adjustment should be 3500 cents for Capacity base upgrade proration"
+    );
+
+    // Verify subscription switched
+    let sub = env.get_subscription(sub_id).await;
+    assert_eq!(sub.plan_version_id, PLAN_VERSION_MIXED_CAP_UPG_ID);
+
+    // Verify all 4 products matched: 4 closed + 4 active = 8 components
+    let all_components = env
+        .get_all_subscription_components(sub_id, jan1, mar1)
+        .await;
+    assert_eq!(
+        all_components.len(),
+        8,
+        "4 closed Alpha + 4 active Upgraded"
+    );
+
+    // --- Cycle 2: process_cycles → verify overage with new config ---
+    env.process_cycles().await;
+
+    let sub = env.get_subscription(sub_id).await;
+    sub.assert()
+        .is_active()
+        .has_cycle_index(2)
+        .has_period_start(mar1);
+
+    // Invoice 3:
+    // Capacity base €120 = 12000
+    // Capacity overage: 600 - 500 included = 100 units × €0.02 = 200
+    // ExtraRec/Advance €30 = 3000
+    // Old Rec/Arrears [Feb 1, Feb 15] = 3000
+    // New Rec/Arrears [Feb 15, Mar 1] = 3000
+    // OneTime NOT charged
+    // Total = 12000 + 200 + 3000 + 3000 + 3000 = 21200
+    let invoices = env.get_invoices(sub_id).await;
+    invoices.assert().has_count(4);
+    assert_eq!(
+        invoices[3].total, 21200,
+        "cycle 2: upgraded capacity (base + overage) + advance + temporal Rec/Arrears"
+    );
+
+    // Verify overage line uses new config (100 units × €0.02 = 200¢)
+    let overage_lines: Vec<_> = invoices[3]
+        .line_items
+        .iter()
+        .filter(|l| l.metric_id.is_some())
+        .collect();
+    assert_eq!(overage_lines.len(), 1, "should have 1 overage line item");
+    assert_eq!(
+        overage_lines[0].amount_subtotal, 200,
+        "overage: (600 - 500) × €0.02 = €2.00 = 200¢"
+    );
 }

@@ -14,9 +14,11 @@ use diesel_models::plans::{PlanRowNew, PlanRowPatch};
 use diesel_models::price_components::PriceComponentRowNew;
 use diesel_models::prices::PriceRowNew;
 use diesel_models::products::ProductRowNew;
+use meteroid_store::domain::price_components::CapacityThreshold;
 use meteroid_store::domain::prices::{FeeStructure, Pricing, UsageModel};
 use meteroid_store::domain::{
-    BillingPeriodEnum, DowngradePolicy, FeeType, TermRate, UpgradePolicy, UsagePricingModel,
+    BillingPeriodEnum, BillingType, DowngradePolicy, FeeType, TermRate, UpgradePolicy,
+    UsagePricingModel,
 };
 use meteroid_store::store::PgPool;
 use rust_decimal::Decimal;
@@ -355,6 +357,36 @@ async fn seed_product_catalog(tx: &mut PgConn) -> Result<(), DatabaseErrorContai
                 model: UsageModel::PerUnit,
             },
         ),
+        product(
+            ids::PRODUCT_CAPACITY_ID,
+            "Capacity Bandwidth",
+            DieselFeeTypeEnum::Capacity,
+            FeeStructure::Capacity {
+                metric_id: ids::METRIC_BANDWIDTH,
+            },
+        ),
+        product(
+            ids::PRODUCT_RECURRING_ARREARS_ID,
+            "Recurring Arrears",
+            DieselFeeTypeEnum::ExtraRecurring,
+            FeeStructure::ExtraRecurring {
+                billing_type: BillingType::Arrears,
+            },
+        ),
+        product(
+            ids::PRODUCT_ONETIME_SETUP_ID,
+            "Setup Fee",
+            DieselFeeTypeEnum::OneTime,
+            FeeStructure::OneTime {},
+        ),
+        product(
+            ids::PRODUCT_EXTRA_ADVANCE_ID,
+            "Extra Advance",
+            DieselFeeTypeEnum::ExtraRecurring,
+            FeeStructure::ExtraRecurring {
+                billing_type: BillingType::Advance,
+            },
+        ),
     ] {
         p.insert(tx).await?;
     }
@@ -365,7 +397,7 @@ async fn seed_product_catalog(tx: &mut PgConn) -> Result<(), DatabaseErrorContai
 // Plan seed builder
 // ---------------------------------------------------------------------------
 
-struct PlanSeed {
+pub(crate) struct PlanSeed {
     plan_id: PlanId,
     name: &'static str,
     version_id: PlanVersionId,
@@ -378,7 +410,7 @@ struct PlanSeed {
 }
 
 impl PlanSeed {
-    fn new(plan_id: PlanId, name: &'static str, version_id: PlanVersionId) -> Self {
+    pub(crate) fn new(plan_id: PlanId, name: &'static str, version_id: PlanVersionId) -> Self {
         Self {
             plan_id,
             name,
@@ -392,32 +424,32 @@ impl PlanSeed {
         }
     }
 
-    fn free(mut self) -> Self {
+    pub(crate) fn free(mut self) -> Self {
         self.plan_type = PlanTypeEnum::Free;
         self
     }
 
-    fn currency(mut self, c: &'static str) -> Self {
+    pub(crate) fn currency(mut self, c: &'static str) -> Self {
         self.currency = c;
         self
     }
 
-    fn draft(mut self, id: PlanVersionId, version: i32) -> Self {
+    pub(crate) fn draft(mut self, id: PlanVersionId, version: i32) -> Self {
         self.draft = Some((id, version));
         self
     }
 
-    fn trial(mut self, days: i32, trialing_plan_id: PlanId, is_free: bool) -> Self {
+    pub(crate) fn trial(mut self, days: i32, trialing_plan_id: PlanId, is_free: bool) -> Self {
         self.trial = Some((days, trialing_plan_id, is_free));
         self
     }
 
-    fn components(mut self, c: Vec<SeedComp>) -> Self {
+    pub(crate) fn components(mut self, c: Vec<SeedComp>) -> Self {
         self.components = c;
         self
     }
 
-    async fn seed(self, tx: &mut PgConn) -> Result<(), DatabaseErrorContainer> {
+    pub(crate) async fn seed(self, tx: &mut PgConn) -> Result<(), DatabaseErrorContainer> {
         PlanRowNew {
             id: self.plan_id,
             name: self.name.to_string(),
@@ -535,23 +567,23 @@ impl PlanSeed {
 // Component helpers
 // ---------------------------------------------------------------------------
 
-struct SeedPrice {
-    id: PriceId,
-    cadence: DieselBillingPeriodEnum,
-    pricing: Pricing,
+pub(crate) struct SeedPrice {
+    pub(crate) id: PriceId,
+    pub(crate) cadence: DieselBillingPeriodEnum,
+    pub(crate) pricing: Pricing,
 }
 
-struct SeedComp {
-    id: PriceComponentId,
-    name: &'static str,
-    product_id: ProductId,
-    billable_metric_id: Option<BillableMetricId>,
-    legacy_fee: FeeType,
-    prices: Vec<SeedPrice>,
+pub(crate) struct SeedComp {
+    pub(crate) id: PriceComponentId,
+    pub(crate) name: &'static str,
+    pub(crate) product_id: ProductId,
+    pub(crate) billable_metric_id: Option<BillableMetricId>,
+    pub(crate) legacy_fee: FeeType,
+    pub(crate) prices: Vec<SeedPrice>,
 }
 
 impl SeedComp {
-    fn rate(
+    pub(crate) fn rate(
         id: PriceComponentId,
         name: &'static str,
         product_id: ProductId,
@@ -579,7 +611,7 @@ impl SeedComp {
         }
     }
 
-    fn slot(
+    pub(crate) fn slot(
         id: PriceComponentId,
         name: &'static str,
         product_id: ProductId,
@@ -590,7 +622,7 @@ impl SeedComp {
         Self::slot_multi(id, name, product_id, vec![(price_id, cadence, unit_rate)])
     }
 
-    fn slot_multi(
+    pub(crate) fn slot_multi(
         id: PriceComponentId,
         name: &'static str,
         product_id: ProductId,
@@ -634,7 +666,7 @@ impl SeedComp {
         }
     }
 
-    fn usage(
+    pub(crate) fn usage(
         id: PriceComponentId,
         name: &'static str,
         product_id: ProductId,
@@ -658,6 +690,105 @@ impl SeedComp {
                 id: price_id,
                 cadence,
                 pricing: Pricing::Usage(model),
+            }],
+        }
+    }
+
+    pub(crate) fn capacity(
+        id: PriceComponentId,
+        name: &'static str,
+        product_id: ProductId,
+        metric_id: BillableMetricId,
+        price_id: PriceId,
+        cadence: DieselBillingPeriodEnum,
+        base_rate: Decimal,
+        included: u64,
+        overage_rate: Decimal,
+    ) -> Self {
+        let billing_cadence: BillingPeriodEnum = cadence.clone().into();
+        Self {
+            id,
+            name,
+            product_id,
+            billable_metric_id: Some(metric_id),
+            legacy_fee: FeeType::Capacity {
+                metric_id,
+                thresholds: vec![CapacityThreshold {
+                    included_amount: included,
+                    price: base_rate,
+                    per_unit_overage: overage_rate,
+                }],
+                cadence: billing_cadence,
+            },
+            prices: vec![SeedPrice {
+                id: price_id,
+                cadence,
+                pricing: Pricing::Capacity {
+                    rate: base_rate,
+                    included,
+                    overage_rate,
+                },
+            }],
+        }
+    }
+
+    pub(crate) fn extra_recurring(
+        id: PriceComponentId,
+        name: &'static str,
+        product_id: ProductId,
+        price_id: PriceId,
+        cadence: DieselBillingPeriodEnum,
+        unit_price: Decimal,
+        quantity: u32,
+        billing_type: BillingType,
+    ) -> Self {
+        let billing_cadence: BillingPeriodEnum = cadence.clone().into();
+        Self {
+            id,
+            name,
+            product_id,
+            billable_metric_id: None,
+            legacy_fee: FeeType::ExtraRecurring {
+                unit_price,
+                quantity,
+                billing_type: billing_type.clone(),
+                cadence: billing_cadence,
+            },
+            prices: vec![SeedPrice {
+                id: price_id,
+                cadence,
+                pricing: Pricing::ExtraRecurring {
+                    unit_price,
+                    quantity,
+                },
+            }],
+        }
+    }
+
+    pub(crate) fn one_time(
+        id: PriceComponentId,
+        name: &'static str,
+        product_id: ProductId,
+        price_id: PriceId,
+        unit_price: Decimal,
+        quantity: u32,
+    ) -> Self {
+        Self {
+            id,
+            name,
+            product_id,
+            billable_metric_id: None,
+            legacy_fee: FeeType::OneTime {
+                unit_price,
+                quantity,
+            },
+            prices: vec![SeedPrice {
+                id: price_id,
+                cadence: DieselBillingPeriodEnum::Monthly,
+                pricing: Pricing::OneTime {
+                    unit_price,
+                    quantity,
+                },
             }],
         }
     }

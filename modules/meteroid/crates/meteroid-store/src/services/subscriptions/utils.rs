@@ -511,6 +511,7 @@ pub fn extract_billing_period(
         .unwrap_or(BillingPeriodEnum::Monthly)
 }
 
+#[allow(clippy::too_many_arguments)]
 pub fn process_create_subscription_components(
     param: &Option<CreateSubscriptionComponents>,
     map: &HashMap<PlanVersionId, Vec<PriceComponent>>,

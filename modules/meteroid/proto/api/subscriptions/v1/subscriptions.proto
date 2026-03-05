@@ -185,7 +185,6 @@ message SchedulePlanChangeRequest {
   string new_plan_version_id = 2;
   repeated PlanChangeComponentParameterization parameterized_components = 3;
   PlanChangeApplyMode apply_mode = 4;
-  bool force_annual = 5;
 }
 
 message SchedulePlanChangeResponse {

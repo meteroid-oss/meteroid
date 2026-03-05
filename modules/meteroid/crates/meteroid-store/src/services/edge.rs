@@ -764,7 +764,6 @@ impl ServicesEdge {
         tenant_id: TenantId,
         new_plan_version_id: PlanVersionId,
         component_params: Vec<crate::domain::subscription_components::ComponentParameterization>,
-        force_annual: bool,
     ) -> StoreResult<crate::domain::subscription_changes::ImmediatePlanChangeResult> {
         self.services
             .apply_plan_change_immediate(
@@ -772,7 +771,6 @@ impl ServicesEdge {
                 tenant_id,
                 new_plan_version_id,
                 component_params,
-                force_annual,
             )
             .await
     }
@@ -783,7 +781,6 @@ impl ServicesEdge {
         tenant_id: TenantId,
         new_plan_version_id: PlanVersionId,
         component_params: Vec<crate::domain::subscription_components::ComponentParameterization>,
-        force_annual: bool,
         change_date: NaiveDate,
     ) -> StoreResult<crate::domain::subscription_changes::ImmediatePlanChangeResult> {
         self.services
@@ -792,7 +789,6 @@ impl ServicesEdge {
                 tenant_id,
                 new_plan_version_id,
                 component_params,
-                force_annual,
                 change_date,
             )
             .await

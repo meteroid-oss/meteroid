@@ -262,16 +262,17 @@ impl Services {
 
             // Precondition: if another plan change already landed, this event is stale.
             if let Some(expected) = source_plan_version_id
-                && sub.subscription.plan_version_id != expected {
-                    log::info!(
-                        "Plan change event {} superseded for subscription {}: expected plan_version {:?}, found {:?}",
-                        event.id,
-                        event.subscription_id,
-                        expected,
-                        sub.subscription.plan_version_id,
-                    );
-                    return Ok(());
-                }
+                && sub.subscription.plan_version_id != expected
+            {
+                log::info!(
+                    "Plan change event {} superseded for subscription {}: expected plan_version {:?}, found {:?}",
+                    event.id,
+                    event.subscription_id,
+                    expected,
+                    sub.subscription.plan_version_id,
+                );
+                return Ok(());
+            }
 
             match sub.subscription.status {
                 SubscriptionStatusEnum::Active | SubscriptionStatusEnum::TrialActive => {}

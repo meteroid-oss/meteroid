@@ -282,13 +282,13 @@ impl SubscriptionFee {
     /// Used to filter historical (closed) components for usage temporal split.
     /// Excludes Capacity because it also produces an advance-billed base rate line.
     pub fn is_pure_arrears(&self) -> bool {
-        match self {
-            SubscriptionFee::Usage { .. } => true,
-            SubscriptionFee::Recurring {
-                billing_type: BillingType::Arrears,
-                ..
-            } => true,
-            _ => false,
-        }
+        matches!(
+            self,
+            SubscriptionFee::Usage { .. }
+                | SubscriptionFee::Recurring {
+                    billing_type: BillingType::Arrears,
+                    ..
+                }
+        )
     }
 }

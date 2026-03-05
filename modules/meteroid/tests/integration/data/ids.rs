@@ -41,6 +41,16 @@ pub const PRODUCT_SEATS_ID: ProductId =
 pub const PRODUCT_BANDWIDTH_ID: ProductId =
     ProductId::from_const(uuid!("019438e0-00a5-7000-8000-000000000001"));
 
+// Mixed fee-type products (Capacity, Recurring/Arrears, OneTime, ExtraRecurring/Advance)
+pub const PRODUCT_CAPACITY_ID: ProductId =
+    ProductId::from_const(uuid!("019438e0-00d0-7000-8000-000000000001"));
+pub const PRODUCT_RECURRING_ARREARS_ID: ProductId =
+    ProductId::from_const(uuid!("019438e0-00d1-7000-8000-000000000001"));
+pub const PRODUCT_ONETIME_SETUP_ID: ProductId =
+    ProductId::from_const(uuid!("019438e0-00d2-7000-8000-000000000001"));
+pub const PRODUCT_EXTRA_ADVANCE_ID: ProductId =
+    ProductId::from_const(uuid!("019438e0-00d3-7000-8000-000000000001"));
+
 // ── Plans ────────────────────────────────────────────────────────────────────
 
 // LeetCode (Rate, with draft v2)

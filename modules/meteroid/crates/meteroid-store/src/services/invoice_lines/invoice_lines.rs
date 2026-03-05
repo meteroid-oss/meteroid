@@ -207,8 +207,9 @@ impl Services {
                     None
                 };
 
-                let effective_details =
-                    details_for_historical.as_ref().unwrap_or(subscription_details);
+                let effective_details = details_for_historical
+                    .as_ref()
+                    .unwrap_or(subscription_details);
 
                 self.process_fee_records(
                     conn,
@@ -684,7 +685,7 @@ impl Services {
 /// Restrict the arrear period of a ComponentPeriods based on a component's temporal bounds.
 /// - If effective_from > arrear.start: restrict arrear start to effective_from
 /// - If effective_to < arrear.end: restrict arrear end to effective_to
-/// Returns the period unchanged if there are no temporal bounds or no arrear period.
+/// - Returns the period unchanged if there are no temporal bounds or no arrear period.
 fn restrict_arrear_period_by_temporal_bounds(
     mut periods: ComponentPeriods,
     effective_from: Option<NaiveDate>,
@@ -692,13 +693,15 @@ fn restrict_arrear_period_by_temporal_bounds(
 ) -> ComponentPeriods {
     if let Some(ref mut arrear) = periods.arrear {
         if let Some(from) = effective_from
-            && from > arrear.start {
-                arrear.start = from;
-            }
+            && from > arrear.start
+        {
+            arrear.start = from;
+        }
         if let Some(to) = effective_to
-            && to < arrear.end {
-                arrear.end = to;
-            }
+            && to < arrear.end
+        {
+            arrear.end = to;
+        }
         // If the restriction made the period invalid, remove it
         if arrear.start >= arrear.end {
             periods.arrear = None;
@@ -737,8 +740,9 @@ fn apply_temporal_date_range_to_names(lines: &mut [LineItem]) {
 
     for line in lines.iter_mut() {
         if let Some(pc_id) = line.price_component_id
-            && split_price_components.contains(&pc_id) {
-                line.name = format!("{} ({} - {})", line.name, line.start_date, line.end_date);
-            }
+            && split_price_components.contains(&pc_id)
+        {
+            line.name = format!("{} ({} - {})", line.name, line.start_date, line.end_date);
+        }
     }
 }

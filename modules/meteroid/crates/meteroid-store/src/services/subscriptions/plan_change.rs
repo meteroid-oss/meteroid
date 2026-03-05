@@ -1,6 +1,6 @@
 use crate::StoreResult;
 use crate::domain::SubscriptionStatusEnum;
-use crate::domain::enums::{BillingPeriodEnum, SubscriptionFeeBillingPeriod};
+use crate::domain::enums::SubscriptionFeeBillingPeriod;
 use crate::domain::price_components::resolve_legacy_subscription_fee;
 use crate::domain::prices::{
     LegacyPricingData, Price, Pricing, extract_legacy_pricing, fee_type_billing_period,
@@ -11,8 +11,8 @@ use crate::domain::scheduled_events::{
     ComponentMapping, ScheduledEvent, ScheduledEventData, ScheduledEventNew,
 };
 use crate::domain::subscription_changes::{
-    AddedComponent, ChangeDirection, ImmediatePlanChangeResult, MatchedComponent, PlanChangeMode,
-    PlanChangePreview, PlanChangePreviewExtended, ProrationSummary, RemovedComponent,
+    AddedComponent, ImmediatePlanChangeResult, MatchedComponent, PlanChangeMode, PlanChangePreview,
+    PlanChangePreviewExtended, ProrationSummary, RemovedComponent,
 };
 use crate::domain::subscription_components::{
     ComponentParameterization, ComponentParameters, SubscriptionComponent,
@@ -300,6 +300,13 @@ impl Services {
                 .current_period_end
                 .unwrap_or(period_start);
 
+            if effective_date < period_start || effective_date > period_end {
+                return Err(Report::new(StoreError::InvalidArgument(format!(
+                    "Effective date {} is outside current period [{}, {}]",
+                    effective_date, period_start, period_end
+                ))));
+            }
+
             let result = calculate_proration(
                 &preview.matched,
                 &preview.added,
@@ -427,7 +434,6 @@ impl Services {
         tenant_id: TenantId,
         new_plan_version_id: PlanVersionId,
         component_params: Vec<ComponentParameterization>,
-        force_annual: bool,
     ) -> StoreResult<ImmediatePlanChangeResult> {
         let today = chrono::Utc::now().naive_utc().date();
         self.apply_plan_change_immediate_at(
@@ -435,7 +441,6 @@ impl Services {
             tenant_id,
             new_plan_version_id,
             component_params,
-            force_annual,
             today,
         )
         .await
@@ -447,7 +452,6 @@ impl Services {
         tenant_id: TenantId,
         new_plan_version_id: PlanVersionId,
         component_params: Vec<ComponentParameterization>,
-        force_annual: bool,
         change_date: NaiveDate,
     ) -> StoreResult<ImmediatePlanChangeResult> {
         self.store
@@ -535,7 +539,7 @@ impl Services {
                     )
                     .await?;
 
-                    // 7. Detect direction and reject downgrades
+                    // 7. Detect direction (used for logging)
                     let precision =
                         crate::constants::Currencies::resolve_currency_precision(
                             &subscription_details.subscription.currency,
@@ -549,22 +553,7 @@ impl Services {
                         precision,
                     );
 
-                    if direction == ChangeDirection::Downgrade {
-                        return Err(Report::new(StoreError::InvalidArgument(
-                            "Immediate plan changes are not allowed for downgrades. Use end-of-period instead.".to_string(),
-                        )));
-                    }
-
-                    // 8. Guard annual subscriptions
-                    if subscription_details.subscription.period == BillingPeriodEnum::Annual
-                        && !force_annual
-                    {
-                        return Err(Report::new(StoreError::InvalidArgument(
-                            "Immediate plan changes for annual subscriptions require force_annual flag".to_string(),
-                        )));
-                    }
-
-                    // 9. Cancel pending scheduled changes
+                    // 8. Cancel pending scheduled changes
                     ScheduledEventRow::cancel_pending_lifecycle_events(
                         conn,
                         subscription_id,
@@ -586,6 +575,13 @@ impl Services {
                                     "Subscription has no current_period_end".to_string(),
                                 ))
                             })?;
+
+                    if change_date < period_start || change_date > period_end {
+                        return Err(Report::new(StoreError::InvalidArgument(format!(
+                            "Change date {} is outside current period [{}, {}]",
+                            change_date, period_start, period_end
+                        ))));
+                    }
 
                     let proration = calculate_proration(
                         &preview.matched,
@@ -1256,15 +1252,17 @@ async fn resolve_preview_slot_counts(
     let mut units: Vec<String> = Vec::new();
     for m in preview.matched.iter() {
         if let SubscriptionFee::Slot { unit, .. } = &m.current_fee
-            && !units.contains(unit) {
-                units.push(unit.clone());
-            }
+            && !units.contains(unit)
+        {
+            units.push(unit.clone());
+        }
     }
     for r in preview.removed.iter() {
         if let SubscriptionFee::Slot { unit, .. } = &r.current_fee
-            && !units.contains(unit) {
-                units.push(unit.clone());
-            }
+            && !units.contains(unit)
+        {
+            units.push(unit.clone());
+        }
     }
 
     // Query actual counts once per unit
@@ -1290,9 +1288,10 @@ async fn resolve_preview_slot_counts(
             initial_slots,
             ..
         } = fee
-            && let Some(&actual) = counts.get(unit.as_str()) {
-                *initial_slots = actual;
-            }
+            && let Some(&actual) = counts.get(unit.as_str())
+        {
+            *initial_slots = actual;
+        }
     }
 
     for m in &mut preview.matched {
@@ -1325,19 +1324,20 @@ pub(crate) async fn calculate_components_mrr_with_slots(
     let mut slot_counts: HashMap<String, i64> = HashMap::new();
     for c in components {
         if let SubscriptionFee::Slot { unit, .. } = &c.fee
-            && !slot_counts.contains_key(unit) {
-                let count = SlotTransactionRow::fetch_by_subscription_id_and_unit_locked(
-                    conn,
-                    tenant_id,
-                    subscription_id,
-                    unit.clone(),
-                    None,
-                )
-                .await
-                .map(|r| i64::from(r.current_active_slots))
-                .unwrap_or(0);
-                slot_counts.insert(unit.clone(), count);
-            }
+            && !slot_counts.contains_key(unit)
+        {
+            let count = SlotTransactionRow::fetch_by_subscription_id_and_unit_locked(
+                conn,
+                tenant_id,
+                subscription_id,
+                unit.clone(),
+                None,
+            )
+            .await
+            .map(|r| i64::from(r.current_active_slots))
+            .unwrap_or(0);
+            slot_counts.insert(unit.clone(), count);
+        }
     }
 
     let mut total_mrr: i64 = 0;
