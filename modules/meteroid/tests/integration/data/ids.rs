@@ -41,6 +41,16 @@ pub const PRODUCT_SEATS_ID: ProductId =
 pub const PRODUCT_BANDWIDTH_ID: ProductId =
     ProductId::from_const(uuid!("019438e0-00a5-7000-8000-000000000001"));
 
+// Mixed fee-type products (Capacity, Recurring/Arrears, OneTime, ExtraRecurring/Advance)
+pub const PRODUCT_CAPACITY_ID: ProductId =
+    ProductId::from_const(uuid!("019438e0-00d0-7000-8000-000000000001"));
+pub const PRODUCT_RECURRING_ARREARS_ID: ProductId =
+    ProductId::from_const(uuid!("019438e0-00d1-7000-8000-000000000001"));
+pub const PRODUCT_ONETIME_SETUP_ID: ProductId =
+    ProductId::from_const(uuid!("019438e0-00d2-7000-8000-000000000001"));
+pub const PRODUCT_EXTRA_ADVANCE_ID: ProductId =
+    ProductId::from_const(uuid!("019438e0-00d3-7000-8000-000000000001"));
+
 // ── Plans ────────────────────────────────────────────────────────────────────
 
 // LeetCode (Rate, with draft v2)
@@ -138,7 +148,46 @@ pub const PLAN_USD_ID: PlanId = PlanId::from_const(uuid!("019438e0-0070-7000-800
 pub const PLAN_VERSION_USD_ID: PlanVersionId =
     PlanVersionId::from_const(uuid!("019438e0-0071-7000-8000-000000000001"));
 
-// Usage (Rate + Bandwidth usage component)
+// Usage products
+pub const PRODUCT_API_CALLS_ID: ProductId =
+    ProductId::from_const(uuid!("019438e0-00a0-7000-8000-000000000001"));
+pub const PRODUCT_DB_STORAGE_ID: ProductId =
+    ProductId::from_const(uuid!("019438e0-00a1-7000-8000-000000000001"));
+
+// Usage Alpha plan: Rate €10/mo + Usage "API Calls" on METRIC_BANDWIDTH at €0.10/unit
+pub const PLAN_USAGE_ALPHA_ID: PlanId =
+    PlanId::from_const(uuid!("019438e0-00b0-7000-8000-000000000001"));
+pub const PLAN_VERSION_USAGE_ALPHA_ID: PlanVersionId =
+    PlanVersionId::from_const(uuid!("019438e0-00b1-7000-8000-000000000001"));
+pub const COMP_USAGE_ALPHA_RATE_ID: PriceComponentId =
+    PriceComponentId::from_const(uuid!("019438e0-00b2-7000-8000-000000000001"));
+pub const COMP_USAGE_ALPHA_API_CALLS_ID: PriceComponentId =
+    PriceComponentId::from_const(uuid!("019438e0-00b3-7000-8000-000000000001"));
+pub const PRICE_USAGE_ALPHA_RATE_ID: PriceId =
+    PriceId::from_const(uuid!("019438e0-00b4-7000-8000-000000000001"));
+pub const PRICE_USAGE_ALPHA_API_CALLS_ID: PriceId =
+    PriceId::from_const(uuid!("019438e0-00b5-7000-8000-000000000001"));
+
+// Usage Beta plan: Rate €20/mo + Usage "API Calls" on METRIC_BANDWIDTH at €0.20/unit
+//                  + Usage "DB Storage" on METRIC_DATABASE_SIZE at €0.50/unit
+pub const PLAN_USAGE_BETA_ID: PlanId =
+    PlanId::from_const(uuid!("019438e0-00c0-7000-8000-000000000001"));
+pub const PLAN_VERSION_USAGE_BETA_ID: PlanVersionId =
+    PlanVersionId::from_const(uuid!("019438e0-00c1-7000-8000-000000000001"));
+pub const COMP_USAGE_BETA_RATE_ID: PriceComponentId =
+    PriceComponentId::from_const(uuid!("019438e0-00c2-7000-8000-000000000001"));
+pub const COMP_USAGE_BETA_API_CALLS_ID: PriceComponentId =
+    PriceComponentId::from_const(uuid!("019438e0-00c3-7000-8000-000000000001"));
+pub const COMP_USAGE_BETA_DB_STORAGE_ID: PriceComponentId =
+    PriceComponentId::from_const(uuid!("019438e0-00c4-7000-8000-000000000001"));
+pub const PRICE_USAGE_BETA_RATE_ID: PriceId =
+    PriceId::from_const(uuid!("019438e0-00c5-7000-8000-000000000001"));
+pub const PRICE_USAGE_BETA_API_CALLS_ID: PriceId =
+    PriceId::from_const(uuid!("019438e0-00c6-7000-8000-000000000001"));
+pub const PRICE_USAGE_BETA_DB_STORAGE_ID: PriceId =
+    PriceId::from_const(uuid!("019438e0-00c7-7000-8000-000000000001"));
+
+// Legacy usage (Rate + Bandwidth usage component)
 pub const PLAN_USAGE_ID: PlanId = PlanId::from_const(uuid!("019438e0-00a0-7000-8000-000000000001"));
 pub const PLAN_VERSION_USAGE_ID: PlanVersionId =
     PlanVersionId::from_const(uuid!("019438e0-00a1-7000-8000-000000000001"));
@@ -150,6 +199,20 @@ pub const PRICE_USAGE_RATE_ID: PriceId =
     PriceId::from_const(uuid!("019438e0-00a6-7000-8000-000000000001"));
 pub const PRICE_USAGE_BANDWIDTH_ID: PriceId =
     PriceId::from_const(uuid!("019438e0-00a7-7000-8000-000000000001"));
+
+// Subscriptions
+pub const SUB_SPOTIFY_NOTION_ID: SubscriptionId =
+    SubscriptionId::from_const(uuid!("018c3475-bdc5-77dd-9e26-e9a7fdd60426"));
+pub const SUB_SPOTIFY_SUPABASE_ID: SubscriptionId =
+    SubscriptionId::from_const(uuid!("018c3762-d554-7339-b13d-6fff8c9b76a0"));
+pub const SUB_UBER_NOTION_ID: SubscriptionId =
+    SubscriptionId::from_const(uuid!("018c3477-2274-7029-9743-b3a4eb779399"));
+pub const SUB_UBER_LEETCODE_ID: SubscriptionId =
+    SubscriptionId::from_const(uuid!("018c3479-fa9d-713f-b74f-6d9cc22cf110"));
+pub const SUB_COMODO_LEETCODE_ID: SubscriptionId =
+    SubscriptionId::from_const(uuid!("018c347a-b42b-709f-8e70-b0b63029aa35"));
+pub const SUB_COMODO_SUPABASE_ID: SubscriptionId =
+    SubscriptionId::from_const(uuid!("018c3763-070e-709d-8413-f42828e71943"));
 
 // ── Payment ──────────────────────────────────────────────────────────────────
 pub const MOCK_CONNECTOR_ID: ConnectorId =

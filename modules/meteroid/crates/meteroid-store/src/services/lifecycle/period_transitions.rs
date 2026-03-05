@@ -248,9 +248,11 @@ impl Services {
                     event
                 );
                 let is_plan_change = event.event_type == ScheduledEventTypeEnum::ApplyPlanChange;
+                let event_id = event.id;
 
-                ScheduledEventRow::mark_as_processing(conn, &[event.id]).await?;
+                ScheduledEventRow::mark_as_processing(conn, &[event_id]).await?;
                 self.process_event_batch(conn, vec![event]).await?;
+                ScheduledEventRow::mark_as_completed(conn, &[event_id]).await?;
 
                 if !is_plan_change {
                     // Terminal events (cancel, pause): clear processing claim and stop.

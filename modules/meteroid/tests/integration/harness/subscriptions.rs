@@ -1,6 +1,6 @@
 //! Subscription test helpers.
 
-use common_domain::ids::SubscriptionId;
+use common_domain::ids::{CustomerId, SubscriptionId};
 use diesel_models::customers::CustomerRow;
 use diesel_models::subscription_components::SubscriptionComponentRow;
 use diesel_models::subscriptions::SubscriptionRow;
@@ -13,6 +13,16 @@ use crate::data::ids::TENANT_ID;
 use super::TestEnv;
 
 impl TestEnv {
+    /// Get a customer by ID.
+    pub async fn get_customer(&self, id: CustomerId) -> Customer {
+        let mut conn = self.conn().await;
+        CustomerRow::find_by_id(&mut conn, &id, &TENANT_ID)
+            .await
+            .expect("Failed to get customer")
+            .try_into()
+            .expect("Failed to convert CustomerRow to Customer")
+    }
+
     /// Get a subscription row by ID.
     pub async fn get_subscription(&self, id: SubscriptionId) -> SubscriptionRow {
         let mut conn = self.conn().await;
@@ -35,6 +45,24 @@ impl TestEnv {
         )
         .await
         .expect("Failed to get subscription components")
+    }
+
+    /// Get all subscription component rows (active and closed) overlapping with a period.
+    pub async fn get_all_subscription_components(
+        &self,
+        subscription_id: SubscriptionId,
+        period_start: chrono::NaiveDate,
+        period_end: chrono::NaiveDate,
+    ) -> Vec<SubscriptionComponentRow> {
+        let mut conn = self.conn().await;
+        SubscriptionComponentRow::list_component_history_for_period(
+            &mut conn,
+            &subscription_id,
+            period_start,
+            period_end,
+        )
+        .await
+        .expect("Failed to get all subscription components")
     }
 
     /// Resolve payment methods for a subscription.

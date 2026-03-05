@@ -631,6 +631,10 @@ impl Services {
         ),
         StoreErrorReport,
     > {
+        let effective_from = subscription
+            .billing_start_date
+            .unwrap_or(subscription.start_date);
+
         process_create_subscription_components(
             components,
             &context.price_components_by_plan_version,
@@ -639,6 +643,7 @@ impl Services {
             resolved,
             plan.product_family_id,
             &plan.currency,
+            effective_from,
         )
     }
 

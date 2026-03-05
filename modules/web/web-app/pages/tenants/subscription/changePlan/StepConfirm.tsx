@@ -1,9 +1,19 @@
 import { createConnectQueryKey, useMutation } from '@connectrpc/connect-query'
-import { Alert, Button, Card, CardContent, CardHeader, CardTitle } from '@md/ui'
+import {
+  Alert,
+  Button,
+  Card,
+  CardContent,
+  CardHeader,
+  CardTitle,
+  Label,
+  RadioGroup,
+  RadioGroupItem,
+} from '@md/ui'
 import { useQueryClient } from '@tanstack/react-query'
 import { useAtom } from 'jotai'
-import { AlertTriangle, ArrowRight, Calendar } from 'lucide-react'
-import { useMemo } from 'react'
+import { AlertTriangle, ArrowRight, Calendar, Zap } from 'lucide-react'
+import { useEffect, useMemo, useState } from 'react'
 import { useNavigate } from 'react-router-dom'
 import { useWizard } from 'react-use-wizard'
 import { toast } from 'sonner'
@@ -14,12 +24,18 @@ import {
   SubscriptionPricingTable,
 } from '@/features/subscriptions/pricecomponents/SubscriptionPricingTable'
 import { useQuery } from '@/lib/connectrpc'
+import { formatCurrency } from '@/lib/utils/numbers'
 import { changePlanAtom } from '@/pages/tenants/subscription/changePlan/state'
-import { ScheduledEventType } from '@/rpc/api/subscriptions/v1/models_pb'
+import {
+  ScheduledEventType,
+  SubscriptionFeeBillingPeriod,
+} from '@/rpc/api/subscriptions/v1/models_pb'
 import {
   getSubscriptionDetails,
+  previewPlanChange,
   schedulePlanChange,
 } from '@/rpc/api/subscriptions/v1/subscriptions-SubscriptionsService_connectquery'
+import { PlanChangeApplyMode } from '@/rpc/api/subscriptions/v1/subscriptions_pb'
 import { parseAndFormatDate } from '@/utils/date'
 
 const scheduledEventLabel = (eventType: ScheduledEventType): string => {
@@ -41,9 +57,29 @@ export const StepConfirm = () => {
   const navigate = useNavigate()
   const queryClient = useQueryClient()
   const { previousStep } = useWizard()
-  const [state] = useAtom(changePlanAtom)
+  const [state, setState] = useAtom(changePlanAtom)
+  const [forceAnnual, setForceAnnual] = useState(false)
 
   const scheduleMut = useMutation(schedulePlanChange)
+  const previewMut = useMutation(previewPlanChange)
+
+  // Re-fetch preview when apply mode changes to get correct effective_date and proration
+  useEffect(() => {
+    if (state.targetPlanVersionId && state.subscriptionId) {
+      previewMut.mutate(
+        {
+          subscriptionId: state.subscriptionId,
+          newPlanVersionId: state.targetPlanVersionId,
+          applyMode: state.applyMode,
+        },
+        {
+          onSuccess: data => {
+            setState(prev => ({ ...prev, preview: data }))
+          },
+        }
+      )
+    }
+  }, [state.applyMode])
 
   const subscriptionQuery = useQuery(
     getSubscriptionDetails,
@@ -56,6 +92,13 @@ export const StepConfirm = () => {
 
   const preview = state.preview
   const currency = state.currency || 'USD'
+  const isDowngrade = preview?.changeDirection === 'downgrade'
+  const isImmediate = state.applyMode === PlanChangeApplyMode.IMMEDIATE
+
+  // Detect if subscription has annual components
+  const isAnnual = (subscriptionQuery.data?.priceComponents ?? []).some(
+    c => c.period === SubscriptionFeeBillingPeriod.YEARLY
+  )
 
   const newComponents: PricingComponent[] = useMemo(() => {
     if (!preview) return []
@@ -74,6 +117,12 @@ export const StepConfirm = () => {
     return [...matched, ...added]
   }, [preview])
 
+  const handleModeChange = (value: string) => {
+    const mode =
+      value === 'immediate' ? PlanChangeApplyMode.IMMEDIATE : PlanChangeApplyMode.END_OF_PERIOD
+    setState(prev => ({ ...prev, applyMode: mode }))
+  }
+
   const handleSchedule = async () => {
     if (!state.targetPlanVersionId || !state.subscriptionId) return
 
@@ -81,10 +130,19 @@ export const StepConfirm = () => {
       const result = await scheduleMut.mutateAsync({
         subscriptionId: state.subscriptionId,
         newPlanVersionId: state.targetPlanVersionId,
+        applyMode: state.applyMode,
       })
-      toast.success(
-        `Plan change scheduled for ${result.effectiveDate ? parseAndFormatDate(result.effectiveDate) : 'end of current period'}`
-      )
+
+      if (isImmediate) {
+        toast.success(
+          `Plan change applied immediately${result.invoiceId ? ' — adjustment invoice created' : ''}`
+        )
+      } else {
+        toast.success(
+          `Plan change scheduled for ${result.effectiveDate ? parseAndFormatDate(result.effectiveDate) : 'end of current period'}`
+        )
+      }
+
       await queryClient.invalidateQueries({
         queryKey: createConnectQueryKey(getSubscriptionDetails, {
           subscriptionId: state.subscriptionId,
@@ -102,7 +160,7 @@ export const StepConfirm = () => {
       <PageSection
         header={{
           title: 'Confirm Plan Change',
-          subtitle: 'Review and schedule the plan change',
+          subtitle: 'Review and apply the plan change',
         }}
       >
         <div className="space-y-6">
@@ -120,13 +178,125 @@ export const StepConfirm = () => {
                 <ArrowRight className="h-5 w-5 text-muted-foreground flex-shrink-0" />
                 <div className="flex-1 rounded-lg border border-brand/30 bg-brand/5 p-3">
                   <div className="text-xs text-muted-foreground">New Plan</div>
-                  <div className="text-sm font-medium text-foreground">
-                    {state.targetPlanName}
-                  </div>
+                  <div className="text-sm font-medium text-foreground">{state.targetPlanName}</div>
                 </div>
               </div>
             </CardContent>
           </Card>
+
+          {/* Apply mode selector */}
+          <Card>
+            <CardHeader className="flex flex-row items-center gap-2">
+              <Zap className="h-5 w-5" />
+              <CardTitle className="text-base">When to apply</CardTitle>
+            </CardHeader>
+            <CardContent>
+              <RadioGroup
+                value={isImmediate ? 'immediate' : 'end_of_period'}
+                onValueChange={handleModeChange}
+                className="space-y-3"
+              >
+                <div className="flex items-start gap-3">
+                  <RadioGroupItem value="end_of_period" id="mode-eop" className="mt-0.5" />
+                  <Label htmlFor="mode-eop" className="cursor-pointer">
+                    <div className="text-sm font-medium">At end of billing period</div>
+                    <div className="text-xs text-muted-foreground">
+                      The change will take effect at the next renewal date.
+                    </div>
+                  </Label>
+                </div>
+                <div
+                  className="flex items-start gap-3"
+                  title={
+                    isDowngrade ? 'Downgrades can only be applied at end of period' : undefined
+                  }
+                >
+                  <RadioGroupItem
+                    value="immediate"
+                    id="mode-immediate"
+                    className="mt-0.5"
+                    disabled={isDowngrade}
+                  />
+                  <Label
+                    htmlFor="mode-immediate"
+                    className={`cursor-pointer ${isDowngrade ? 'opacity-50' : ''}`}
+                  >
+                    <div className="text-sm font-medium">Immediately</div>
+                    <div className="text-xs text-muted-foreground">
+                      Apply now with a prorated adjustment invoice.
+                      {isDowngrade && (
+                        <span className="block text-xs text-destructive mt-0.5">
+                          Downgrades can only be applied at end of period.
+                        </span>
+                      )}
+                    </div>
+                  </Label>
+                </div>
+              </RadioGroup>
+
+              {isImmediate && isAnnual && (
+                <div className="mt-4">
+                  <Alert variant="warning">
+                    <div className="flex items-start gap-2">
+                      <AlertTriangle className="h-4 w-4 shrink-0 mt-0.5" />
+                      <div>
+                        <span className="text-sm font-medium">This is an annual subscription.</span>
+                        <p className="text-xs mt-1">
+                          Immediate changes to annual plans result in a large prorated adjustment.
+                        </p>
+                        <label className="flex items-center gap-2 mt-2 cursor-pointer">
+                          <input
+                            type="checkbox"
+                            checked={forceAnnual}
+                            onChange={e => setForceAnnual(e.target.checked)}
+                            className="rounded border-border"
+                          />
+                          <span className="text-xs">I understand, proceed anyway</span>
+                        </label>
+                      </div>
+                    </div>
+                  </Alert>
+                </div>
+              )}
+            </CardContent>
+          </Card>
+
+          {/* Proration preview */}
+          {isImmediate && preview?.proration && (
+            <Card>
+              <CardHeader>
+                <CardTitle className="text-base">Proration Summary</CardTitle>
+              </CardHeader>
+              <CardContent>
+                <div className="space-y-2 text-sm">
+                  <div className="flex justify-between">
+                    <span className="text-muted-foreground">Credits (unused old plan)</span>
+                    <span className="text-foreground">
+                      {formatCurrency(preview.proration.creditsTotalCents, currency)}
+                    </span>
+                  </div>
+                  <div className="flex justify-between">
+                    <span className="text-muted-foreground">Charges (new plan remainder)</span>
+                    <span className="text-foreground">
+                      {formatCurrency(preview.proration.chargesTotalCents, currency)}
+                    </span>
+                  </div>
+                  <div className="border-t border-border my-2" />
+                  <div className="flex justify-between font-medium">
+                    <span className="text-foreground">Net adjustment</span>
+                    <span className="text-foreground">
+                      {formatCurrency(preview.proration.netAmountCents, currency)}
+                    </span>
+                  </div>
+                  <div className="text-xs text-muted-foreground mt-2">
+                    {preview.proration.daysRemaining} of {preview.proration.daysInPeriod} days
+                    remaining in current period (
+                    {Math.round(preview.proration.prorationFactor * 100)}% prorated)
+                  </div>
+                </div>
+              </CardContent>
+            </Card>
+          )}
 
           {preview?.effectiveDate && (
             <Card>
@@ -139,7 +309,9 @@ export const StepConfirm = () => {
                   {parseAndFormatDate(preview.effectiveDate)}
                 </div>
                 <div className="text-xs text-muted-foreground mt-1">
-                  The change will take effect at the end of the current billing period.
+                  {isImmediate
+                    ? 'The change will be applied immediately.'
+                    : 'The change will take effect at the end of the current billing period.'}
                 </div>
               </CardContent>
             </Card>
@@ -157,14 +329,18 @@ export const StepConfirm = () => {
                 <AlertTriangle className="h-4 w-4 shrink-0 mt-0.5" />
                 <div>
                   <span className="text-sm font-medium">
-                    Scheduling this plan change will cancel the following pending events:
+                    {isImmediate
+                      ? 'Applying this plan change will cancel the following pending events:'
+                      : 'Scheduling this plan change will cancel the following pending events:'}
                   </span>
                   <ul className="text-sm mt-1 list-disc list-inside">
                     {pendingEvents.map(event => (
                       <li key={event.id}>
                         {scheduledEventLabel(event.eventType)}
                         {event.newPlanName ? ` to "${event.newPlanName}"` : ''}
-                        {event.scheduledDate ? ` on ${parseAndFormatDate(event.scheduledDate)}` : ''}
+                        {event.scheduledDate
+                          ? ` on ${parseAndFormatDate(event.scheduledDate)}`
+                          : ''}
                       </li>
                     ))}
                   </ul>
@@ -182,10 +358,16 @@ export const StepConfirm = () => {
         <Button
           variant="brand"
           onClick={handleSchedule}
-          disabled={scheduleMut.isPending}
+          disabled={scheduleMut.isPending || (isImmediate && isAnnual && !forceAnnual)}
           className="min-w-[180px]"
         >
-          {scheduleMut.isPending ? 'Scheduling...' : 'Schedule Plan Change'}
+          {scheduleMut.isPending
+            ? isImmediate
+              ? 'Applying...'
+              : 'Scheduling...'
+            : isImmediate
+              ? 'Apply Plan Change Now'
+              : 'Schedule Plan Change'}
         </Button>
       </div>
     </div>

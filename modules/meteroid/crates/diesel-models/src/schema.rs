@@ -1061,6 +1061,8 @@ diesel::table! {
         period -> SubscriptionFeeBillingPeriod,
         legacy_fee -> Nullable<Jsonb>,
         price_id -> Nullable<Uuid>,
+        effective_from -> Date,
+        effective_to -> Nullable<Date>,
     }
 }
 

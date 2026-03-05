@@ -2,7 +2,7 @@ use crate::StoreResult;
 use crate::domain::outbox_event::OutboxEvent;
 use crate::domain::{CouponLineItem, DetailedInvoice, Invoice, SubscriptionDetails};
 use crate::errors::StoreError;
-use crate::repositories::customer_balance::CustomerBalance;
+use crate::repositories::customer_balance::{CustomerBalance, convert_to_customer_currency};
 use crate::services::Services;
 use crate::services::utils::format_invoice_number;
 use chrono::NaiveTime;
@@ -11,6 +11,7 @@ use common_eventbus::Event;
 use common_utils::decimals::ToUnit;
 use diesel_async::scoped_futures::ScopedFutureExt;
 use diesel_models::applied_coupons::{AppliedCouponDetailedRow, AppliedCouponRow};
+use diesel_models::customers::CustomerRow;
 use diesel_models::invoices::{InvoiceRow, InvoiceRowLinesPatch};
 use diesel_models::invoicing_entities::InvoicingEntityRow;
 use diesel_models::{DbResult, PgConn};
@@ -67,6 +68,31 @@ impl Services {
                 invoice.customer_id,
                 tenant_id,
                 -row_patch.applied_credits,
+                Some(id),
+            )
+            .await?;
+        }
+
+        // Credit customer balance for negative-total invoices (e.g. downgrade adjustments).
+        // Convert from invoice currency to customer's balance currency if they differ.
+        if row_patch.total < 0 {
+            let customer = CustomerRow::find_by_id(conn, &invoice.customer_id, &tenant_id)
+                .await
+                .map_err(Into::<Report<StoreError>>::into)?;
+
+            let credit_in_customer_currency = convert_to_customer_currency(
+                conn,
+                -row_patch.total, // negative total → positive credit
+                &invoice.currency,
+                &customer.currency,
+            )
+            .await?;
+
+            CustomerBalance::update(
+                conn,
+                invoice.customer_id,
+                tenant_id,
+                credit_in_customer_currency,
                 Some(id),
             )
             .await?;

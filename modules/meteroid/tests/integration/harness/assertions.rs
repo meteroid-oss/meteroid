@@ -176,6 +176,20 @@ impl<'a> SubscriptionAssert<'a> {
         self
     }
 
+    /// Assert the subscription's MRR in cents.
+    pub fn has_mrr(self, expected: i64) -> Self {
+        assert_eq!(
+            self.sub.mrr_cents,
+            expected,
+            "{}",
+            self.format_msg(&format!(
+                "Expected mrr_cents={}, got {}",
+                expected, self.sub.mrr_cents
+            ))
+        );
+        self
+    }
+
     /// Shorthand: Assert subscription is Active with RenewSubscription action.
     #[allow(clippy::wrong_self_convention)]
     pub fn is_active(self) -> Self {
@@ -387,6 +401,21 @@ impl<'a> InvoiceAssert<'a> {
             expected,
             "{}",
             self.format_msg(&format!("Expected {} coupons, got {}", expected, actual))
+        );
+        self
+    }
+
+    /// Assert the invoice amount_due.
+    #[allow(dead_code)]
+    pub fn has_amount_due(self, expected: i64) -> Self {
+        assert_eq!(
+            self.invoice.amount_due,
+            expected,
+            "{}",
+            self.format_msg(&format!(
+                "Expected amount_due={}, got {}",
+                expected, self.invoice.amount_due
+            ))
         );
         self
     }

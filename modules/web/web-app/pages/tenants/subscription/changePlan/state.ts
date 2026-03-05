@@ -1,6 +1,9 @@
 import { atomWithReset } from 'jotai/utils'
 
-import { PreviewPlanChangeResponse } from '@/rpc/api/subscriptions/v1/subscriptions_pb'
+import {
+  PlanChangeApplyMode,
+  PreviewPlanChangeResponse,
+} from '@/rpc/api/subscriptions/v1/subscriptions_pb'
 
 export interface ChangePlanState {
   subscriptionId: string
@@ -10,6 +13,7 @@ export interface ChangePlanState {
   targetPlanVersionId?: string
   targetPlanName?: string
   preview?: PreviewPlanChangeResponse
+  applyMode: PlanChangeApplyMode
 }
 
 export const changePlanAtom = atomWithReset<ChangePlanState>({
@@ -20,4 +24,5 @@ export const changePlanAtom = atomWithReset<ChangePlanState>({
   targetPlanVersionId: undefined,
   targetPlanName: undefined,
   preview: undefined,
+  applyMode: PlanChangeApplyMode.END_OF_PERIOD,
 })

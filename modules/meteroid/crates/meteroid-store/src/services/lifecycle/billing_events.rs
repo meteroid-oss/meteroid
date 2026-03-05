@@ -234,6 +234,7 @@ impl Services {
         use crate::domain::subscription_components::{
             SubscriptionComponentNew, SubscriptionComponentNewInternal,
         };
+        use crate::services::subscriptions::plan_change::calculate_components_mrr_with_slots;
         use crate::services::subscriptions::utils::calculate_mrr;
         use diesel_models::subscription_components::{
             SubscriptionComponentRow, SubscriptionComponentRowNew,
@@ -241,11 +242,16 @@ impl Services {
         use diesel_models::subscriptions::SubscriptionRow;
 
         if let ScheduledEventData::ApplyPlanChange {
+            source_plan_version_id,
             new_plan_version_id,
             ref component_mappings,
         } = event.event_data
         {
-            // Guard: verify subscription is still in a valid state for plan change
+            // Lock subscription to serialize with immediate plan changes.
+            SubscriptionRow::lock_subscription_for_update(conn, event.subscription_id)
+                .await
+                .map_err(Into::<error_stack::Report<StoreError>>::into)?;
+
             let sub = SubscriptionRow::get_subscription_by_id(
                 conn,
                 &event.tenant_id,
@@ -253,6 +259,20 @@ impl Services {
             )
             .await
             .map_err(Into::<error_stack::Report<StoreError>>::into)?;
+
+            // Precondition: if another plan change already landed, this event is stale.
+            if let Some(expected) = source_plan_version_id
+                && sub.subscription.plan_version_id != expected
+            {
+                log::info!(
+                    "Plan change event {} superseded for subscription {}: expected plan_version {:?}, found {:?}",
+                    event.id,
+                    event.subscription_id,
+                    expected,
+                    sub.subscription.plan_version_id,
+                );
+                return Ok(());
+            }
 
             match sub.subscription.status {
                 SubscriptionStatusEnum::Active | SubscriptionStatusEnum::TrialActive => {}
@@ -281,8 +301,8 @@ impl Services {
             .await
             .map_err(Into::<error_stack::Report<StoreError>>::into)?;
 
-            // 2. Process component mappings
-            let mut components_to_delete = Vec::new();
+            // 2. Process component mappings using temporal rotation
+            let mut components_to_close = Vec::new();
             let mut components_to_insert: Vec<SubscriptionComponentRowNew> = Vec::new();
             let apply_date = event.scheduled_time.date();
 
@@ -291,29 +311,37 @@ impl Services {
                     ComponentMapping::Matched {
                         current_component_id,
                         target_component_id,
+                        product_id,
                         price_id,
                         name,
                         fee,
                         period,
-                        ..
                     } => {
-                        let fee_json: serde_json::Value = fee.clone().try_into().map_err(|_| {
+                        // Close the old component
+                        components_to_close.push(*current_component_id);
+
+                        // Insert a new component with effective_from = apply_date
+                        let row_new: SubscriptionComponentRowNew = SubscriptionComponentNew {
+                            subscription_id: event.subscription_id,
+                            internal: SubscriptionComponentNewInternal {
+                                price_component_id: Some(*target_component_id),
+                                product_id: Some(*product_id),
+                                name: name.clone(),
+                                period: *period,
+                                fee: fee.clone(),
+                                is_override: false,
+                                price_id: Some(*price_id),
+                                effective_from: apply_date,
+                            },
+                        }
+                        .try_into()
+                        .map_err(|_| {
                             StoreError::InvalidArgument(
-                                "Failed to serialize fee for plan change".to_string(),
+                                "Failed to convert matched component for plan change".to_string(),
                             )
                         })?;
 
-                        SubscriptionComponentRow::update_for_plan_change(
-                            conn,
-                            *current_component_id,
-                            *target_component_id,
-                            Some(*price_id),
-                            name.clone(),
-                            fee_json,
-                            (*period).into(),
-                        )
-                        .await
-                        .map_err(Into::<error_stack::Report<StoreError>>::into)?;
+                        components_to_insert.push(row_new);
                     }
                     ComponentMapping::Added {
                         target_component_id,
@@ -333,6 +361,7 @@ impl Services {
                                 fee: fee.clone(),
                                 is_override: false,
                                 price_id: *price_id,
+                                effective_from: apply_date,
                             },
                         }
                         .try_into()
@@ -347,13 +376,13 @@ impl Services {
                     ComponentMapping::Removed {
                         current_component_id,
                     } => {
-                        components_to_delete.push(*current_component_id);
+                        components_to_close.push(*current_component_id);
                     }
                 }
             }
 
-            // Delete removed components
-            SubscriptionComponentRow::delete_by_ids(conn, &components_to_delete)
+            // Close old components (set effective_to)
+            SubscriptionComponentRow::close_components(conn, &components_to_close, apply_date)
                 .await
                 .map_err(Into::<error_stack::Report<StoreError>>::into)?;
 
@@ -406,11 +435,14 @@ impl Services {
             )
             .unwrap_or(2);
 
-            let component_mrr: i64 = sub_details
-                .price_components
-                .iter()
-                .map(|c| calculate_mrr(&c.fee, &c.period, precision))
-                .sum();
+            let component_mrr: i64 = calculate_components_mrr_with_slots(
+                conn,
+                event.tenant_id,
+                event.subscription_id,
+                &sub_details.price_components,
+                precision,
+            )
+            .await?;
 
             let add_on_mrr: i64 = sub_details
                 .add_ons
