@@ -204,6 +204,11 @@ impl Services {
 
     /// Creates a draft adjustment invoice for an immediate plan change based on proration results.
     /// Returns None if the net proration amount is zero (no adjustment needed).
+    /// Creates an adjustment invoice for a plan change proration.
+    /// If `plan_version_id_override` is Some, it's used instead of the subscription's
+    /// current plan_version_id. This is used for pending-payment plan changes where the
+    /// invoice references the TARGET plan version so the settlement handler can detect
+    /// and apply the deferred plan change.
     pub(in crate::services) async fn create_adjustment_invoice(
         &self,
         conn: &mut PgConn,
@@ -211,6 +216,7 @@ impl Services {
         subscription: &Subscription,
         customer: &Customer,
         proration: &ProrationResult,
+        plan_version_id_override: Option<common_domain::ids::PlanVersionId>,
     ) -> Result<Option<Invoice>, StoreErrorReport> {
         if proration.net_amount_cents == 0 {
             return Ok(None);
@@ -292,7 +298,7 @@ impl Services {
             tenant_id: subscription.tenant_id,
             customer_id: subscription.customer_id,
             subscription_id: Some(subscription.id),
-            plan_version_id: Some(subscription.plan_version_id),
+            plan_version_id: Some(plan_version_id_override.unwrap_or(subscription.plan_version_id)),
             invoice_type: InvoiceType::Adjustment,
             currency: subscription.currency.clone(),
             line_items: invoice_lines,

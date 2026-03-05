@@ -11,8 +11,9 @@ use crate::domain::scheduled_events::{
     ComponentMapping, ScheduledEvent, ScheduledEventData, ScheduledEventNew,
 };
 use crate::domain::subscription_changes::{
-    AddedComponent, ImmediatePlanChangeResult, MatchedComponent, PlanChangeMode, PlanChangePreview,
-    PlanChangePreviewExtended, ProrationSummary, RemovedComponent,
+    AddedComponent, ChangeDirection, ImmediatePlanChangeResult, MatchedComponent, PlanChangeMode,
+    PlanChangePaymentResult, PlanChangePreview, PlanChangePreviewExtended, ProrationSummary,
+    RemovedComponent,
 };
 use crate::domain::subscription_components::{
     ComponentParameterization, ComponentParameters, SubscriptionComponent,
@@ -25,7 +26,9 @@ use crate::services::subscriptions::proration::{calculate_proration, detect_chan
 use crate::services::subscriptions::utils::calculate_mrr;
 use crate::store::PgConn;
 use chrono::{NaiveDate, NaiveTime};
-use common_domain::ids::{PlanVersionId, PriceComponentId, ProductId, SubscriptionId, TenantId};
+use common_domain::ids::{
+    CustomerPaymentMethodId, PlanVersionId, PriceComponentId, ProductId, SubscriptionId, TenantId,
+};
 use common_utils::decimals::ToSubunit;
 use diesel_async::scoped_futures::ScopedFutureExt;
 use diesel_models::plan_component_prices::PlanComponentPriceRow;
@@ -457,282 +460,26 @@ impl Services {
         self.store
             .transaction(|conn| {
                 async move {
-                    // 1. Lock subscription
-                    SubscriptionRow::lock_subscription_for_update(conn, subscription_id).await?;
-
-                    // 2. Load subscription details
-                    let subscription_details = self
-                        .store
-                        .get_subscription_details_with_conn(conn, tenant_id, subscription_id)
+                    let prepared = self
+                        .prepare_plan_change_tx(
+                            conn,
+                            subscription_id,
+                            tenant_id,
+                            new_plan_version_id,
+                            &component_params,
+                            change_date,
+                        )
                         .await?;
 
-                    // 3. Validate status
-                    validate_subscription_for_plan_change(
-                        &subscription_details.subscription.status,
-                    )?;
-
-                    if subscription_details.subscription.plan_version_id == new_plan_version_id {
-                        return Err(Report::new(StoreError::InvalidArgument(
-                            "Cannot change to the current plan version".to_string(),
-                        )));
-                    }
-
-                    // 4. Validate target plan version
-                    let target_plan =
-                        PlanRow::get_with_version(conn, new_plan_version_id, tenant_id)
-                            .await
-                            .map_err(Into::<Report<StoreError>>::into)?;
-
-                    let target_version = target_plan.version.ok_or_else(|| {
-                        Report::new(StoreError::ValueNotFound(
-                            "Target plan version not found".to_string(),
-                        ))
-                    })?;
-
-                    if target_version.is_draft_version {
-                        return Err(Report::new(StoreError::InvalidArgument(
-                            "Cannot switch to a draft plan version".to_string(),
-                        )));
-                    }
-
-                    if target_version.currency
-                        != subscription_details.subscription.currency
-                    {
-                        return Err(Report::new(StoreError::InvalidArgument(format!(
-                            "Currency mismatch: subscription uses {} but target plan uses {}",
-                            subscription_details.subscription.currency,
-                            target_version.currency
-                        ))));
-                    }
-
-                    // 5. Load target components + products + build mappings
-                    let target_components = load_target_components_with_prices(
-                        conn,
-                        tenant_id,
-                        new_plan_version_id,
-                        target_version.currency.clone(),
-                    )
-                    .await?;
-
-                    let products = load_products_for_components(
-                        conn,
-                        tenant_id,
-                        &subscription_details.price_components,
-                        &target_components,
-                    )
-                    .await?;
-
-                    // 6. Build preview for direction detection
-                    let mut preview = build_plan_change_preview(
-                        &subscription_details.price_components,
-                        &target_components,
-                        &products,
-                        &component_params,
-                        change_date,
-                    )?;
-
-                    resolve_preview_slot_counts(
-                        conn,
-                        tenant_id,
-                        subscription_id,
-                        &mut preview,
-                    )
-                    .await?;
-
-                    // 7. Detect direction (used for logging)
-                    let precision =
-                        crate::constants::Currencies::resolve_currency_precision(
-                            &subscription_details.subscription.currency,
-                        )
-                        .unwrap_or(2);
-
-                    let direction = detect_change_direction(
-                        &preview.matched,
-                        &preview.added,
-                        &preview.removed,
-                        precision,
-                    );
-
-                    // 8. Cancel pending scheduled changes
-                    ScheduledEventRow::cancel_pending_lifecycle_events(
-                        conn,
-                        subscription_id,
-                        &tenant_id,
-                        "Replaced by immediate plan change",
-                    )
-                    .await
-                    .map_err(Into::<Report<StoreError>>::into)?;
-
-                    // 10. Calculate proration
-                    let period_start =
-                        subscription_details.subscription.current_period_start;
-                    let period_end =
-                        subscription_details
-                            .subscription
-                            .current_period_end
-                            .ok_or_else(|| {
-                                Report::new(StoreError::InvalidArgument(
-                                    "Subscription has no current_period_end".to_string(),
-                                ))
-                            })?;
-
-                    if change_date < period_start || change_date > period_end {
-                        return Err(Report::new(StoreError::InvalidArgument(format!(
-                            "Change date {} is outside current period [{}, {}]",
-                            change_date, period_start, period_end
-                        ))));
-                    }
-
-                    let proration = calculate_proration(
-                        &preview.matched,
-                        &preview.added,
-                        &preview.removed,
-                        period_start,
-                        period_end,
-                        change_date,
-                        precision,
-                    );
-
-                    // 11. Update plan_version_id
-                    SubscriptionRow::update_plan_version(
-                        conn,
-                        &subscription_id,
-                        &tenant_id,
-                        new_plan_version_id,
-                    )
-                    .await
-                    .map_err(Into::<Report<StoreError>>::into)?;
-
-                    // 12. Temporal component rotation
-                    let component_mappings = build_component_mappings(
-                        &subscription_details.price_components,
-                        &target_components,
-                        &products,
-                        &component_params,
-                    )?;
-
-                    let mut components_to_close = Vec::new();
-                    let mut components_to_insert: Vec<SubscriptionComponentRowNew> =
-                        Vec::new();
-
-                    for mapping in &component_mappings {
-                        match mapping {
-                            ComponentMapping::Matched {
-                                current_component_id,
-                                target_component_id,
-                                product_id,
-                                price_id,
-                                name,
-                                fee,
-                                period,
-                            } => {
-                                components_to_close.push(*current_component_id);
-
-                                let row_new: SubscriptionComponentRowNew =
-                                    SubscriptionComponentNew {
-                                        subscription_id,
-                                        internal: SubscriptionComponentNewInternal {
-                                            price_component_id: Some(*target_component_id),
-                                            product_id: Some(*product_id),
-                                            name: name.clone(),
-                                            period: *period,
-                                            fee: fee.clone(),
-                                            is_override: false,
-                                            price_id: Some(*price_id),
-                                            effective_from: change_date,
-                                        },
-                                    }
-                                    .try_into()
-                                    .map_err(|_| {
-                                        StoreError::InvalidArgument(
-                                            "Failed to convert matched component for plan change"
-                                                .to_string(),
-                                        )
-                                    })?;
-
-                                components_to_insert.push(row_new);
-                            }
-                            ComponentMapping::Added {
-                                target_component_id,
-                                product_id,
-                                price_id,
-                                name,
-                                fee,
-                                period,
-                            } => {
-                                let row_new: SubscriptionComponentRowNew =
-                                    SubscriptionComponentNew {
-                                        subscription_id,
-                                        internal: SubscriptionComponentNewInternal {
-                                            price_component_id: Some(*target_component_id),
-                                            product_id: *product_id,
-                                            name: name.clone(),
-                                            period: *period,
-                                            fee: fee.clone(),
-                                            is_override: false,
-                                            price_id: *price_id,
-                                            effective_from: change_date,
-                                        },
-                                    }
-                                    .try_into()
-                                    .map_err(|_| {
-                                        StoreError::InvalidArgument(
-                                            "Failed to convert new component for plan change"
-                                                .to_string(),
-                                        )
-                                    })?;
-
-                                components_to_insert.push(row_new);
-                            }
-                            ComponentMapping::Removed {
-                                current_component_id,
-                            } => {
-                                components_to_close.push(*current_component_id);
-                            }
-                        }
-                    }
-
-                    SubscriptionComponentRow::close_components(
-                        conn,
-                        &components_to_close,
-                        change_date,
-                    )
-                    .await
-                    .map_err(Into::<Report<StoreError>>::into)?;
-
-                    if !components_to_insert.is_empty() {
-                        let refs: Vec<&SubscriptionComponentRowNew> =
-                            components_to_insert.iter().collect();
-                        SubscriptionComponentRow::insert_subscription_component_batch(
-                            conn, refs,
-                        )
-                        .await
-                        .map_err(Into::<Report<StoreError>>::into)?;
-                    }
-
-                    // Seed slot transactions for newly added Slot components
-                    for mapping in &component_mappings {
-                        use crate::domain::slot_transactions::SlotTransactionNewInternal;
-                        if let ComponentMapping::Added { fee, .. } = mapping
-                            && let Some(tx) =
-                                SlotTransactionNewInternal::from_fee(fee, change_date)
-                        {
-                            tx.into_row(subscription_id)
-                                .insert(conn)
-                                .await
-                                .map_err(Into::<Report<StoreError>>::into)?;
-                        }
-                    }
-
-                    // 13. Create adjustment invoice and finalize through pipeline
-                    let adjustment_invoice_id = if proration.net_amount_cents != 0 {
+                    let adjustment_invoice_id = if prepared.proration.net_amount_cents != 0 {
                         let invoice = self
                             .create_adjustment_invoice(
                                 conn,
                                 tenant_id,
-                                &subscription_details.subscription,
-                                &subscription_details.customer,
-                                &proration,
+                                &prepared.subscription_details.subscription,
+                                &prepared.subscription_details.customer,
+                                &prepared.proration,
+                                None,
                             )
                             .await?;
                         if let Some(inv) = &invoice {
@@ -744,77 +491,16 @@ impl Services {
                         None
                     };
 
-                    // 14. Insert Switch subscription event
-                    let sub_event =
-                        diesel_models::subscription_events::SubscriptionEventRow {
-                            id: uuid::Uuid::now_v7(),
-                            subscription_id,
-                            event_type:
-                                diesel_models::enums::SubscriptionEventType::Switch,
-                            details: Some(serde_json::json!({
-                                "new_plan_version_id": new_plan_version_id.to_string(),
-                                "mode": "immediate",
-                            })),
-                            created_at: chrono::Utc::now().naive_utc(),
-                            mrr_delta: None,
-                            bi_mrr_movement_log_id: None,
-                            applies_to: change_date,
-                        };
-                    sub_event
-                        .insert(conn)
-                        .await
-                        .map_err(Into::<Report<StoreError>>::into)?;
-
-                    // 15. Recalculate MRR
-                    let sub_details = self
-                        .store
-                        .get_subscription_details_with_conn(
-                            conn,
-                            tenant_id,
-                            subscription_id,
-                        )
-                        .await?;
-
-                    let component_mrr: i64 =
-                        calculate_components_mrr_with_slots(
-                            conn,
-                            tenant_id,
-                            subscription_id,
-                            &sub_details.price_components,
-                            precision,
-                        )
-                        .await?;
-
-                    let add_on_mrr: i64 = sub_details
-                        .add_ons
-                        .iter()
-                        .map(|a| {
-                            calculate_mrr(&a.fee, &a.period, precision)
-                                * a.quantity as i64
-                        })
-                        .sum();
-
-                    let new_mrr = component_mrr + add_on_mrr;
-                    let old_mrr = subscription_details.subscription.mrr_cents as i64;
-                    let mrr_delta = new_mrr - old_mrr;
-
-                    if mrr_delta != 0 {
-                        SubscriptionRow::update_subscription_mrr_delta(
-                            conn,
-                            subscription_id,
-                            mrr_delta,
-                        )
-                        .await
-                        .map_err(Into::<Report<StoreError>>::into)?;
-                    }
-
-                    log::info!(
-                        "Applied immediate plan change for subscription {}: plan_version={}, direction={:?}, net_proration={}",
+                    self.execute_plan_change_tx(
+                        conn,
+                        &prepared,
                         subscription_id,
+                        tenant_id,
                         new_plan_version_id,
-                        direction,
-                        proration.net_amount_cents,
-                    );
+                        &component_params,
+                        change_date,
+                    )
+                    .await?;
 
                     Ok(ImmediatePlanChangeResult {
                         adjustment_invoice_id,
@@ -825,6 +511,520 @@ impl Services {
             })
             .await
     }
+
+    /// Immediate plan change with upfront payment for online payment methods.
+    /// Charges the customer's saved card first, and only applies the plan change
+    /// if payment settles. If payment is pending (processing, 3DS), the plan
+    /// change is deferred until webhook settlement.
+    pub(in crate::services) async fn apply_plan_change_with_payment(
+        &self,
+        subscription_id: SubscriptionId,
+        tenant_id: TenantId,
+        new_plan_version_id: PlanVersionId,
+        component_params: Vec<ComponentParameterization>,
+        payment_method_id: CustomerPaymentMethodId,
+    ) -> StoreResult<PlanChangePaymentResult> {
+        let today = chrono::Utc::now().naive_utc().date();
+
+        self.store
+            .transaction(|conn| {
+                async move {
+                    let prepared = self
+                        .prepare_plan_change_tx(
+                            conn,
+                            subscription_id,
+                            tenant_id,
+                            new_plan_version_id,
+                            &component_params,
+                            today,
+                        )
+                        .await?;
+
+                    let net_amount = prepared.proration.net_amount_cents;
+
+                    if net_amount <= 0 {
+                        // No charge needed (credit or zero) — apply immediately
+                        let adjustment_invoice_id = if net_amount != 0 {
+                            let invoice = self
+                                .create_adjustment_invoice(
+                                    conn,
+                                    tenant_id,
+                                    &prepared.subscription_details.subscription,
+                                    &prepared.subscription_details.customer,
+                                    &prepared.proration,
+                                    None,
+                                )
+                                .await?;
+                            if let Some(inv) = &invoice {
+                                self.finalize_invoice_tx(
+                                    conn, inv.id, tenant_id, false, &None,
+                                )
+                                .await?;
+                            }
+                            invoice.map(|inv| inv.id)
+                        } else {
+                            None
+                        };
+
+                        self.execute_plan_change_tx(
+                            conn,
+                            &prepared,
+                            subscription_id,
+                            tenant_id,
+                            new_plan_version_id,
+                            &component_params,
+                            today,
+                        )
+                        .await?;
+
+                        return Ok(PlanChangePaymentResult::Completed(
+                            ImmediatePlanChangeResult {
+                                adjustment_invoice_id,
+                                effective_date: today,
+                            },
+                        ));
+                    }
+
+                    // Positive amount: charge the customer first
+                    let charge_result = self
+                        .charge_payment_method_directly(
+                            conn,
+                            tenant_id,
+                            payment_method_id,
+                            net_amount,
+                            prepared
+                                .subscription_details
+                                .subscription
+                                .currency
+                                .clone(),
+                        )
+                        .await?;
+
+                    let payment_settled = charge_result.payment_intent.status
+                        == crate::domain::PaymentStatusEnum::Settled;
+
+                    // For pending payments, set plan_version_id on the invoice to the
+                    // TARGET version so the settlement handler can detect and apply
+                    // the deferred plan change.
+                    let target_pvid = if payment_settled {
+                        None
+                    } else {
+                        Some(new_plan_version_id)
+                    };
+
+                    let invoice = self
+                        .create_adjustment_invoice(
+                            conn,
+                            tenant_id,
+                            &prepared.subscription_details.subscription,
+                            &prepared.subscription_details.customer,
+                            &prepared.proration,
+                            target_pvid,
+                        )
+                        .await?
+                        .ok_or_else(|| {
+                            Report::new(StoreError::InvalidArgument(
+                                "Expected adjustment invoice for positive proration"
+                                    .to_string(),
+                            ))
+                        })?;
+
+                    self.finalize_invoice_tx(
+                        conn, invoice.id, tenant_id, false, &None,
+                    )
+                    .await?;
+
+                    // Record transaction linked to the invoice
+                    let transaction = self
+                        .create_transaction_for_direct_charge(
+                            conn,
+                            tenant_id,
+                            invoice.id,
+                            &charge_result,
+                        )
+                        .await?;
+
+                    if payment_settled {
+                        // Mark invoice as paid
+                        diesel_models::invoices::InvoiceRow::apply_transaction(
+                            conn,
+                            invoice.id,
+                            tenant_id,
+                            charge_result.amount,
+                        )
+                        .await?;
+                        diesel_models::invoices::InvoiceRow::apply_payment_status(
+                            conn,
+                            invoice.id,
+                            tenant_id,
+                            diesel_models::enums::InvoicePaymentStatus::Paid,
+                            charge_result.payment_intent.processed_at,
+                        )
+                        .await?;
+
+                        // Apply the plan change
+                        self.execute_plan_change_tx(
+                            conn,
+                            &prepared,
+                            subscription_id,
+                            tenant_id,
+                            new_plan_version_id,
+                            &component_params,
+                            today,
+                        )
+                        .await?;
+
+                        Ok(PlanChangePaymentResult::Completed(
+                            ImmediatePlanChangeResult {
+                                adjustment_invoice_id: Some(invoice.id),
+                                effective_date: today,
+                            },
+                        ))
+                    } else {
+                        log::info!(
+                            "Plan change payment pending for subscription {}: invoice={}, transaction={}",
+                            subscription_id,
+                            invoice.id,
+                            transaction.id,
+                        );
+
+                        Ok(PlanChangePaymentResult::AwaitingPayment {
+                            adjustment_invoice_id: invoice.id,
+                            transaction,
+                            effective_date: today,
+                        })
+                    }
+                }
+                .scope_boxed()
+            })
+            .await
+    }
+
+    /// Prepare phase: validates, loads data, calculates proration.
+    /// Must be called within a transaction.
+    pub(in crate::services) async fn prepare_plan_change_tx(
+        &self,
+        conn: &mut PgConn,
+        subscription_id: SubscriptionId,
+        tenant_id: TenantId,
+        new_plan_version_id: PlanVersionId,
+        component_params: &[ComponentParameterization],
+        change_date: NaiveDate,
+    ) -> StoreResult<PreparedPlanChange> {
+        SubscriptionRow::lock_subscription_for_update(conn, subscription_id).await?;
+
+        let subscription_details = self
+            .store
+            .get_subscription_details_with_conn(conn, tenant_id, subscription_id)
+            .await?;
+
+        validate_subscription_for_plan_change(&subscription_details.subscription.status)?;
+
+        if subscription_details.subscription.plan_version_id == new_plan_version_id {
+            return Err(Report::new(StoreError::InvalidArgument(
+                "Cannot change to the current plan version".to_string(),
+            )));
+        }
+
+        let target_plan = PlanRow::get_with_version(conn, new_plan_version_id, tenant_id)
+            .await
+            .map_err(Into::<Report<StoreError>>::into)?;
+
+        let target_version = target_plan.version.ok_or_else(|| {
+            Report::new(StoreError::ValueNotFound(
+                "Target plan version not found".to_string(),
+            ))
+        })?;
+
+        if target_version.is_draft_version {
+            return Err(Report::new(StoreError::InvalidArgument(
+                "Cannot switch to a draft plan version".to_string(),
+            )));
+        }
+
+        if target_version.currency != subscription_details.subscription.currency {
+            return Err(Report::new(StoreError::InvalidArgument(format!(
+                "Currency mismatch: subscription uses {} but target plan uses {}",
+                subscription_details.subscription.currency, target_version.currency
+            ))));
+        }
+
+        let target_components = load_target_components_with_prices(
+            conn,
+            tenant_id,
+            new_plan_version_id,
+            target_version.currency.clone(),
+        )
+        .await?;
+
+        let products = load_products_for_components(
+            conn,
+            tenant_id,
+            &subscription_details.price_components,
+            &target_components,
+        )
+        .await?;
+
+        let mut preview = build_plan_change_preview(
+            &subscription_details.price_components,
+            &target_components,
+            &products,
+            component_params,
+            change_date,
+        )?;
+
+        resolve_preview_slot_counts(conn, tenant_id, subscription_id, &mut preview).await?;
+
+        let precision = crate::constants::Currencies::resolve_currency_precision(
+            &subscription_details.subscription.currency,
+        )
+        .unwrap_or(2);
+
+        let direction = detect_change_direction(
+            &preview.matched,
+            &preview.added,
+            &preview.removed,
+            precision,
+        );
+
+        ScheduledEventRow::cancel_pending_lifecycle_events(
+            conn,
+            subscription_id,
+            &tenant_id,
+            "Replaced by immediate plan change",
+        )
+        .await
+        .map_err(Into::<Report<StoreError>>::into)?;
+
+        let period_start = subscription_details.subscription.current_period_start;
+        let period_end = subscription_details
+            .subscription
+            .current_period_end
+            .ok_or_else(|| {
+                Report::new(StoreError::InvalidArgument(
+                    "Subscription has no current_period_end".to_string(),
+                ))
+            })?;
+
+        if change_date < period_start || change_date > period_end {
+            return Err(Report::new(StoreError::InvalidArgument(format!(
+                "Change date {} is outside current period [{}, {}]",
+                change_date, period_start, period_end
+            ))));
+        }
+
+        let proration = calculate_proration(
+            &preview.matched,
+            &preview.added,
+            &preview.removed,
+            period_start,
+            period_end,
+            change_date,
+            precision,
+        );
+
+        Ok(PreparedPlanChange {
+            subscription_details,
+            target_components,
+            products,
+            proration,
+            direction,
+            precision,
+        })
+    }
+
+    /// Execute phase: applies the plan change (component rotation, MRR recalc, event).
+    #[allow(clippy::too_many_arguments)]
+    pub(crate) async fn execute_plan_change_tx(
+        &self,
+        conn: &mut PgConn,
+        prepared: &PreparedPlanChange,
+        subscription_id: SubscriptionId,
+        tenant_id: TenantId,
+        new_plan_version_id: PlanVersionId,
+        component_params: &[ComponentParameterization],
+        change_date: NaiveDate,
+    ) -> StoreResult<()> {
+        SubscriptionRow::update_plan_version(
+            conn,
+            &subscription_id,
+            &tenant_id,
+            new_plan_version_id,
+        )
+        .await
+        .map_err(Into::<Report<StoreError>>::into)?;
+
+        let component_mappings = build_component_mappings(
+            &prepared.subscription_details.price_components,
+            &prepared.target_components,
+            &prepared.products,
+            component_params,
+        )?;
+
+        let mut components_to_close = Vec::new();
+        let mut components_to_insert: Vec<SubscriptionComponentRowNew> = Vec::new();
+
+        for mapping in &component_mappings {
+            match mapping {
+                ComponentMapping::Matched {
+                    current_component_id,
+                    target_component_id,
+                    product_id,
+                    price_id,
+                    name,
+                    fee,
+                    period,
+                } => {
+                    components_to_close.push(*current_component_id);
+                    let row_new: SubscriptionComponentRowNew = SubscriptionComponentNew {
+                        subscription_id,
+                        internal: SubscriptionComponentNewInternal {
+                            price_component_id: Some(*target_component_id),
+                            product_id: Some(*product_id),
+                            name: name.clone(),
+                            period: *period,
+                            fee: fee.clone(),
+                            is_override: false,
+                            price_id: Some(*price_id),
+                            effective_from: change_date,
+                        },
+                    }
+                    .try_into()
+                    .map_err(|_| {
+                        StoreError::InvalidArgument(
+                            "Failed to convert matched component for plan change".to_string(),
+                        )
+                    })?;
+                    components_to_insert.push(row_new);
+                }
+                ComponentMapping::Added {
+                    target_component_id,
+                    product_id,
+                    price_id,
+                    name,
+                    fee,
+                    period,
+                } => {
+                    let row_new: SubscriptionComponentRowNew = SubscriptionComponentNew {
+                        subscription_id,
+                        internal: SubscriptionComponentNewInternal {
+                            price_component_id: Some(*target_component_id),
+                            product_id: *product_id,
+                            name: name.clone(),
+                            period: *period,
+                            fee: fee.clone(),
+                            is_override: false,
+                            price_id: *price_id,
+                            effective_from: change_date,
+                        },
+                    }
+                    .try_into()
+                    .map_err(|_| {
+                        StoreError::InvalidArgument(
+                            "Failed to convert new component for plan change".to_string(),
+                        )
+                    })?;
+                    components_to_insert.push(row_new);
+                }
+                ComponentMapping::Removed {
+                    current_component_id,
+                } => {
+                    components_to_close.push(*current_component_id);
+                }
+            }
+        }
+
+        SubscriptionComponentRow::close_components(conn, &components_to_close, change_date)
+            .await
+            .map_err(Into::<Report<StoreError>>::into)?;
+
+        if !components_to_insert.is_empty() {
+            let refs: Vec<&SubscriptionComponentRowNew> = components_to_insert.iter().collect();
+            SubscriptionComponentRow::insert_subscription_component_batch(conn, refs)
+                .await
+                .map_err(Into::<Report<StoreError>>::into)?;
+        }
+
+        for mapping in &component_mappings {
+            use crate::domain::slot_transactions::SlotTransactionNewInternal;
+            if let ComponentMapping::Added { fee, .. } = mapping
+                && let Some(tx) = SlotTransactionNewInternal::from_fee(fee, change_date)
+            {
+                tx.into_row(subscription_id)
+                    .insert(conn)
+                    .await
+                    .map_err(Into::<Report<StoreError>>::into)?;
+            }
+        }
+
+        let sub_event = diesel_models::subscription_events::SubscriptionEventRow {
+            id: uuid::Uuid::now_v7(),
+            subscription_id,
+            event_type: diesel_models::enums::SubscriptionEventType::Switch,
+            details: Some(serde_json::json!({
+                "new_plan_version_id": new_plan_version_id.to_string(),
+                "mode": "immediate",
+            })),
+            created_at: chrono::Utc::now().naive_utc(),
+            mrr_delta: None,
+            bi_mrr_movement_log_id: None,
+            applies_to: change_date,
+        };
+        sub_event
+            .insert(conn)
+            .await
+            .map_err(Into::<Report<StoreError>>::into)?;
+
+        let sub_details = self
+            .store
+            .get_subscription_details_with_conn(conn, tenant_id, subscription_id)
+            .await?;
+
+        let component_mrr: i64 = calculate_components_mrr_with_slots(
+            conn,
+            tenant_id,
+            subscription_id,
+            &sub_details.price_components,
+            prepared.precision,
+        )
+        .await?;
+
+        let add_on_mrr: i64 = sub_details
+            .add_ons
+            .iter()
+            .map(|a| calculate_mrr(&a.fee, &a.period, prepared.precision) * a.quantity as i64)
+            .sum();
+
+        let new_mrr = component_mrr + add_on_mrr;
+        let old_mrr = prepared.subscription_details.subscription.mrr_cents as i64;
+        let mrr_delta = new_mrr - old_mrr;
+
+        if mrr_delta != 0 {
+            SubscriptionRow::update_subscription_mrr_delta(conn, subscription_id, mrr_delta)
+                .await
+                .map_err(Into::<Report<StoreError>>::into)?;
+        }
+
+        log::info!(
+            "Applied immediate plan change for subscription {}: plan_version={}, direction={:?}, net_proration={}",
+            subscription_id,
+            new_plan_version_id,
+            prepared.direction,
+            prepared.proration.net_amount_cents,
+        );
+
+        Ok(())
+    }
+}
+
+/// Intermediate struct holding validated and computed data from the prepare phase.
+pub(crate) struct PreparedPlanChange {
+    pub subscription_details: crate::domain::SubscriptionDetails,
+    target_components: Vec<TargetComponent>,
+    products: HashMap<ProductId, Product>,
+    pub proration: crate::domain::subscription_changes::ProrationResult,
+    direction: ChangeDirection,
+    precision: u8,
 }
 
 fn validate_subscription_for_plan_change(status: &SubscriptionStatusEnum) -> StoreResult<()> {

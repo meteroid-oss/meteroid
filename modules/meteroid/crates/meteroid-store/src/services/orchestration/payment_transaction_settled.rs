@@ -103,6 +103,51 @@ impl Services {
                                 .await?;
                         }
 
+                        // Apply deferred plan change if this is an Adjustment invoice
+                        // with a plan_version_id that differs from the subscription's current version.
+                        if invoice.invoice_type == crate::domain::enums::InvoiceType::Adjustment
+                            && let (Some(sub_id), Some(target_pvid)) =
+                                (invoice.subscription_id, invoice.plan_version_id)
+                            {
+                                let sub = SubscriptionRow::get_subscription_by_id(
+                                    conn,
+                                    &event.tenant_id,
+                                    sub_id,
+                                )
+                                .await?;
+
+                                if sub.subscription.plan_version_id != target_pvid {
+                                    log::info!(
+                                        "Applying deferred plan change for subscription {} to plan_version {}",
+                                        sub_id,
+                                        target_pvid,
+                                    );
+
+                                    let change_date = invoice.invoice_date;
+                                    let prepared = self
+                                        .prepare_plan_change_tx(
+                                            conn,
+                                            sub_id,
+                                            event.tenant_id,
+                                            target_pvid,
+                                            &[],
+                                            change_date,
+                                        )
+                                        .await?;
+
+                                    self.execute_plan_change_tx(
+                                        conn,
+                                        &prepared,
+                                        sub_id,
+                                        event.tenant_id,
+                                        target_pvid,
+                                        &[],
+                                        change_date,
+                                    )
+                                    .await?;
+                                }
+                            }
+
                         // Activate subscription if pending checkout (TrialExpired activation is handled by on_invoice_paid)
                         if let Some(subscription_id) = subscription_id.as_ref() {
                             let subscription = SubscriptionRow::get_subscription_by_id(
@@ -450,6 +495,85 @@ impl Services {
                                 )
                                 .await?;
                             }
+
+                            subscription_id
+                        }
+                        CheckoutType::PlanChange => {
+                            let subscription_id = session.subscription_id.ok_or_else(|| {
+                                Report::new(StoreError::InvalidArgument(
+                                    "PlanChange checkout missing subscription_id".to_string(),
+                                ))
+                            })?;
+
+                            let new_plan_version_id = session.plan_version_id;
+                            let today = Utc::now().date_naive();
+
+                            let prepared = self
+                                .prepare_plan_change_tx(
+                                    conn,
+                                    subscription_id,
+                                    event.tenant_id,
+                                    new_plan_version_id,
+                                    &[],
+                                    today,
+                                )
+                                .await?;
+
+                            let net_amount = prepared.proration.net_amount_cents;
+
+                            // Create adjustment invoice
+                            if net_amount != 0 {
+                                let invoice = self
+                                    .create_adjustment_invoice(
+                                        conn,
+                                        event.tenant_id,
+                                        &prepared.subscription_details.subscription,
+                                        &prepared.subscription_details.customer,
+                                        &prepared.proration,
+                                        None,
+                                    )
+                                    .await?;
+
+                                if let Some(inv) = &invoice {
+                                    self.finalize_invoice_tx(
+                                        conn,
+                                        inv.id,
+                                        event.tenant_id,
+                                        false,
+                                        &None,
+                                    )
+                                    .await?;
+
+                                    // Mark as paid since payment already settled
+                                    diesel_models::invoices::InvoiceRow::apply_transaction(
+                                        conn,
+                                        inv.id,
+                                        event.tenant_id,
+                                        charge_result.amount,
+                                    )
+                                    .await?;
+                                    diesel_models::invoices::InvoiceRow::apply_payment_status(
+                                        conn,
+                                        inv.id,
+                                        event.tenant_id,
+                                        diesel_models::enums::InvoicePaymentStatus::Paid,
+                                        charge_result.payment_intent.processed_at,
+                                    )
+                                    .await?;
+                                }
+                            }
+
+                            // Apply the plan change
+                            self.execute_plan_change_tx(
+                                conn,
+                                &prepared,
+                                subscription_id,
+                                event.tenant_id,
+                                new_plan_version_id,
+                                &[],
+                                today,
+                            )
+                            .await?;
 
                             subscription_id
                         }

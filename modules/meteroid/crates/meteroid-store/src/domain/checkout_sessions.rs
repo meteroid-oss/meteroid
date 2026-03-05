@@ -31,6 +31,7 @@ pub enum CheckoutType {
     #[default]
     SelfServe,
     SubscriptionActivation,
+    PlanChange,
 }
 
 #[derive(Debug, Clone)]

@@ -17,7 +17,11 @@ import {
   listAvailablePlans,
   previewPlanChange,
 } from '@/rpc/portal/subscription/v1/subscription-PortalSubscriptionService_connectquery'
-import { ChangeDirection, PendingEventType } from '@/rpc/portal/subscription/v1/subscription_pb'
+import {
+  ChangeDirection,
+  PendingEventType,
+  PlanChangeStatus,
+} from '@/rpc/portal/subscription/v1/subscription_pb'
 import { parseAndFormatDate } from '@/utils/date'
 import { formatCurrency, formatCurrencyNoRounding } from '@/utils/numbers'
 import { useForceTheme } from 'providers/ThemeProvider'
@@ -129,6 +133,15 @@ export const PortalSubscription = () => {
       subscriptionId,
       newPlanVersionId: selectedPlan.planVersionId,
     })
+
+    if (
+      res.status === PlanChangeStatus.PLAN_CHANGE_CHECKOUT_REQUIRED &&
+      res.checkoutToken
+    ) {
+      window.location.href = `/portal/checkout?token=${res.checkoutToken}`
+      return
+    }
+
     setConfirmResult({
       effectiveDate: res.effectiveDate,
       changeDirection: res.changeDirection,

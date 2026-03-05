@@ -1,7 +1,8 @@
 use crate::domain::enums::SubscriptionFeeBillingPeriod;
+use crate::domain::payment_transactions::PaymentTransaction;
 use crate::domain::subscription_components::SubscriptionFee;
 use chrono::NaiveDate;
-use common_domain::ids::{InvoiceId, PriceComponentId, ProductId};
+use common_domain::ids::{CheckoutSessionId, InvoiceId, PriceComponentId, ProductId};
 use serde::{Deserialize, Serialize};
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
@@ -46,6 +47,24 @@ pub struct ProrationSummary {
 pub struct ImmediatePlanChangeResult {
     pub adjustment_invoice_id: Option<InvoiceId>,
     pub effective_date: NaiveDate,
+}
+
+/// Result of an immediate plan change that requires payment.
+#[derive(Debug, Clone)]
+pub enum PlanChangePaymentResult {
+    /// Payment settled immediately — plan change applied.
+    Completed(ImmediatePlanChangeResult),
+    /// Payment is pending (processing, 3DS, etc.) — plan change deferred until settlement.
+    AwaitingPayment {
+        adjustment_invoice_id: InvoiceId,
+        transaction: PaymentTransaction,
+        effective_date: NaiveDate,
+    },
+    /// Payment failed or no saved card — checkout session created for user to complete payment.
+    CheckoutRequired {
+        checkout_session_id: CheckoutSessionId,
+        checkout_token: String,
+    },
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]

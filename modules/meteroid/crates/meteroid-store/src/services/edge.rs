@@ -775,6 +775,25 @@ impl ServicesEdge {
             .await
     }
 
+    pub async fn apply_plan_change_with_payment(
+        &self,
+        subscription_id: SubscriptionId,
+        tenant_id: TenantId,
+        new_plan_version_id: PlanVersionId,
+        component_params: Vec<crate::domain::subscription_components::ComponentParameterization>,
+        payment_method_id: CustomerPaymentMethodId,
+    ) -> StoreResult<crate::domain::subscription_changes::PlanChangePaymentResult> {
+        self.services
+            .apply_plan_change_with_payment(
+                subscription_id,
+                tenant_id,
+                new_plan_version_id,
+                component_params,
+                payment_method_id,
+            )
+            .await
+    }
+
     pub async fn apply_plan_change_immediate_at(
         &self,
         subscription_id: SubscriptionId,
@@ -892,6 +911,51 @@ impl ServicesEdge {
             .await
     }
 
+    /// Creates a checkout session for a plan change.
+    /// Used when off-session payment fails or no saved payment method is available.
+    pub async fn create_plan_change_checkout_session(
+        &self,
+        tenant_id: TenantId,
+        subscription_id: SubscriptionId,
+        new_plan_version_id: PlanVersionId,
+        customer_id: common_domain::ids::CustomerId,
+        created_by: uuid::Uuid,
+        payment_methods_config: Option<PaymentMethodsConfig>,
+    ) -> StoreResult<CheckoutSession> {
+        use crate::domain::checkout_sessions::{
+            CheckoutType as DomainCheckoutType, CreateCheckoutSession,
+        };
+        use crate::repositories::checkout_sessions::CheckoutSessionsInterface;
+
+        let session = CreateCheckoutSession {
+            tenant_id,
+            customer_id,
+            plan_version_id: new_plan_version_id,
+            created_by,
+            billing_start_date: None,
+            billing_day_anchor: None,
+            net_terms: None,
+            trial_duration_days: None,
+            end_date: None,
+            auto_advance_invoices: true,
+            charge_automatically: true,
+            invoice_memo: None,
+            invoice_threshold: None,
+            purchase_order: None,
+            payment_methods_config,
+            components: None,
+            add_ons: None,
+            coupon_code: None,
+            coupon_ids: vec![],
+            expires_in_hours: Some(24),
+            metadata: None,
+            checkout_type: DomainCheckoutType::PlanChange,
+            subscription_id: Some(subscription_id),
+        };
+
+        self.store.create_checkout_session(session).await
+    }
+
     /// For SelfServe checkout type :
     /// - Validates payment / charges customer FIRST
     /// - Only creates subscription if payment succeeds
@@ -964,6 +1028,18 @@ impl ServicesEdge {
                                 total_amount_confirmation,
                                 currency_confirmation,
                                 coupon_code,
+                            )
+                            .await
+                        }
+                        CheckoutType::PlanChange => {
+                            self.complete_checkout_plan_change_tx(
+                                conn,
+                                tenant_id,
+                                checkout_session_id,
+                                session,
+                                payment_method_id,
+                                total_amount_confirmation,
+                                currency_confirmation,
                             )
                             .await
                         }
@@ -1348,5 +1424,209 @@ impl ServicesEdge {
             subscription_id: created_subscription.id,
             transaction: payment_transaction,
         })
+    }
+
+    /// Completes checkout for PlanChange type.
+    /// The subscription already exists; we recompute proration, charge, and apply the plan change.
+    #[allow(clippy::too_many_arguments)]
+    async fn complete_checkout_plan_change_tx(
+        &self,
+        conn: &mut PgConn,
+        tenant_id: TenantId,
+        checkout_session_id: CheckoutSessionId,
+        session: CheckoutSession,
+        payment_method_id: CustomerPaymentMethodId,
+        total_amount_confirmation: u64,
+        currency_confirmation: String,
+    ) -> Result<CheckoutCompletionResult, StoreErrorReport> {
+        let subscription_id = session.subscription_id.ok_or_else(|| {
+            Report::new(StoreError::InvalidArgument(
+                "Session has no linked subscription for plan change flow".to_string(),
+            ))
+        })?;
+
+        let new_plan_version_id = session.plan_version_id;
+        let today = Utc::now().date_naive();
+
+        let prepared = self
+            .services
+            .prepare_plan_change_tx(
+                conn,
+                subscription_id,
+                tenant_id,
+                new_plan_version_id,
+                &[],
+                today,
+            )
+            .await?;
+
+        let net_amount = prepared.proration.net_amount_cents;
+        let currency = prepared.subscription_details.subscription.currency.clone();
+
+        if currency != currency_confirmation {
+            return Err(Report::new(StoreError::CheckoutError).attach(format!(
+                "Currency mismatch: expected {}, got {}",
+                currency, currency_confirmation
+            )));
+        }
+
+        if net_amount > 0 {
+            let amount_diff = (net_amount - total_amount_confirmation as i64).abs();
+            if amount_diff > 1 {
+                return Err(Report::new(StoreError::CheckoutError).attach(format!(
+                    "Amount mismatch: expected {}, got {}",
+                    net_amount, total_amount_confirmation
+                )));
+            }
+
+            let charge_result = self
+                .services
+                .charge_payment_method_directly(
+                    conn,
+                    tenant_id,
+                    payment_method_id,
+                    net_amount,
+                    currency,
+                )
+                .await?;
+
+            let payment_settled =
+                charge_result.payment_intent.status == crate::domain::PaymentStatusEnum::Settled;
+
+            let target_pvid = if payment_settled {
+                None
+            } else {
+                Some(new_plan_version_id)
+            };
+
+            let invoice = self
+                .services
+                .create_adjustment_invoice(
+                    conn,
+                    tenant_id,
+                    &prepared.subscription_details.subscription,
+                    &prepared.subscription_details.customer,
+                    &prepared.proration,
+                    target_pvid,
+                )
+                .await?
+                .ok_or_else(|| {
+                    Report::new(StoreError::InvalidArgument(
+                        "Expected adjustment invoice for positive proration".to_string(),
+                    ))
+                })?;
+
+            self.services
+                .finalize_invoice_tx(conn, invoice.id, tenant_id, false, &None)
+                .await?;
+
+            let transaction = self
+                .services
+                .create_transaction_for_direct_charge(conn, tenant_id, invoice.id, &charge_result)
+                .await?;
+
+            if payment_settled {
+                diesel_models::invoices::InvoiceRow::apply_transaction(
+                    conn,
+                    invoice.id,
+                    tenant_id,
+                    charge_result.amount,
+                )
+                .await?;
+                diesel_models::invoices::InvoiceRow::apply_payment_status(
+                    conn,
+                    invoice.id,
+                    tenant_id,
+                    diesel_models::enums::InvoicePaymentStatus::Paid,
+                    charge_result.payment_intent.processed_at,
+                )
+                .await?;
+
+                self.services
+                    .execute_plan_change_tx(
+                        conn,
+                        &prepared,
+                        subscription_id,
+                        tenant_id,
+                        new_plan_version_id,
+                        &[],
+                        today,
+                    )
+                    .await?;
+
+                CheckoutSessionRow::mark_completed(
+                    conn,
+                    tenant_id,
+                    checkout_session_id,
+                    subscription_id,
+                    Utc::now(),
+                )
+                .await
+                .map_err(Into::<Report<StoreError>>::into)?;
+
+                Ok(CheckoutCompletionResult::Completed {
+                    subscription_id,
+                    transaction: Some(transaction),
+                })
+            } else {
+                CheckoutSessionRow::mark_awaiting_payment(
+                    conn,
+                    tenant_id,
+                    checkout_session_id,
+                    Some(subscription_id),
+                )
+                .await
+                .map_err(Into::<Report<StoreError>>::into)?;
+
+                Ok(CheckoutCompletionResult::AwaitingPayment { transaction })
+            }
+        } else {
+            // No charge needed (credit or zero) — apply plan change immediately
+            if net_amount != 0 {
+                let invoice = self
+                    .services
+                    .create_adjustment_invoice(
+                        conn,
+                        tenant_id,
+                        &prepared.subscription_details.subscription,
+                        &prepared.subscription_details.customer,
+                        &prepared.proration,
+                        None,
+                    )
+                    .await?;
+                if let Some(inv) = &invoice {
+                    self.services
+                        .finalize_invoice_tx(conn, inv.id, tenant_id, false, &None)
+                        .await?;
+                }
+            }
+
+            self.services
+                .execute_plan_change_tx(
+                    conn,
+                    &prepared,
+                    subscription_id,
+                    tenant_id,
+                    new_plan_version_id,
+                    &[],
+                    today,
+                )
+                .await?;
+
+            CheckoutSessionRow::mark_completed(
+                conn,
+                tenant_id,
+                checkout_session_id,
+                subscription_id,
+                Utc::now(),
+            )
+            .await
+            .map_err(Into::<Report<StoreError>>::into)?;
+
+            Ok(CheckoutCompletionResult::Completed {
+                subscription_id,
+                transaction: None,
+            })
+        }
     }
 }

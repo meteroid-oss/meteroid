@@ -13,7 +13,7 @@ use meteroid_store::domain::enums::{
 use meteroid_store::domain::plans::FullPlan;
 use meteroid_store::domain::prices::Pricing;
 use meteroid_store::domain::subscription_changes::{
-    ChangeDirection as DomainChangeDirection, PlanChangeMode,
+    ChangeDirection as DomainChangeDirection, PlanChangeMode, PlanChangePaymentResult,
 };
 use meteroid_store::domain::subscription_components::{SubscriptionComponent, SubscriptionFee};
 use meteroid_store::repositories::PlansInterface;
@@ -522,23 +522,113 @@ impl PortalSubscriptionService for PortalSubscriptionServiceComponents {
 
         match direction {
             DomainChangeDirection::Upgrade => {
-                let result = self
-                    .services
-                    .apply_plan_change_immediate(
-                        subscription_id,
+                // Resolve payment method for online payment subscriptions
+                let payment_method_id = self
+                    .resolve_upgrade_payment_method(
                         tenant_id,
+                        &details,
+                        inner.payment_method_id.as_deref(),
+                    )
+                    .await?;
+
+                if let Some(pm_id) = payment_method_id {
+                    // Online payment: try off-session charge first
+                    let result = self
+                        .services
+                        .apply_plan_change_with_payment(
+                            subscription_id,
+                            tenant_id,
+                            new_plan_version_id,
+                            vec![],
+                            pm_id,
+                        )
+                        .await;
+
+                    match result {
+                        Ok(PlanChangePaymentResult::Completed(r)) => {
+                            Ok(Response::new(ConfirmPlanChangeResponse {
+                                effective_date: r.effective_date.as_proto(),
+                                change_direction: map_change_direction(direction),
+                                scheduled_event_id: None,
+                                adjustment_invoice_id: r
+                                    .adjustment_invoice_id
+                                    .map(|id| id.to_string()),
+                                status: PlanChangeStatus::PlanChangeCompleted.into(),
+                                checkout_token: None,
+                            }))
+                        }
+                        Ok(PlanChangePaymentResult::AwaitingPayment {
+                            adjustment_invoice_id,
+                            effective_date,
+                            ..
+                        }) => Ok(Response::new(ConfirmPlanChangeResponse {
+                            effective_date: effective_date.as_proto(),
+                            change_direction: map_change_direction(direction),
+                            scheduled_event_id: None,
+                            adjustment_invoice_id: Some(adjustment_invoice_id.to_string()),
+                            status: PlanChangeStatus::PlanChangeAwaitingPayment.into(),
+                            checkout_token: None,
+                        })),
+                        Ok(PlanChangePaymentResult::CheckoutRequired { .. }) => {
+                            // Shouldn't happen from apply_plan_change_with_payment, but handle gracefully
+                            unreachable!(
+                                "apply_plan_change_with_payment should not return CheckoutRequired"
+                            )
+                        }
+                        Err(err) => {
+                            // Check if this is a payment error — create checkout session as fallback
+                            if err.current_context().is_payment_error() {
+                                log::info!(
+                                    "Off-session payment failed for plan change on subscription {}, creating checkout session",
+                                    subscription_id
+                                );
+                                self.create_plan_change_checkout_response(
+                                    tenant_id,
+                                    subscription_id,
+                                    new_plan_version_id,
+                                    &details,
+                                    direction,
+                                )
+                                .await
+                            } else {
+                                Err(Into::<PortalSubscriptionApiError>::into(err).into())
+                            }
+                        }
+                    }
+                } else if self.has_online_payment_config(&details) {
+                    // Online payment configured but no saved payment methods — go straight to checkout
+                    self.create_plan_change_checkout_response(
+                        tenant_id,
+                        subscription_id,
                         new_plan_version_id,
-                        vec![],
+                        &details,
+                        direction,
                     )
                     .await
-                    .map_err(Into::<PortalSubscriptionApiError>::into)?;
+                } else {
+                    // BankTransfer/External: apply immediately (no upfront charge)
+                    let result = self
+                        .services
+                        .apply_plan_change_immediate(
+                            subscription_id,
+                            tenant_id,
+                            new_plan_version_id,
+                            vec![],
+                        )
+                        .await
+                        .map_err(Into::<PortalSubscriptionApiError>::into)?;
 
-                Ok(Response::new(ConfirmPlanChangeResponse {
-                    effective_date: result.effective_date.as_proto(),
-                    change_direction: map_change_direction(direction),
-                    scheduled_event_id: None,
-                    adjustment_invoice_id: result.adjustment_invoice_id.map(|id| id.to_string()),
-                }))
+                    Ok(Response::new(ConfirmPlanChangeResponse {
+                        effective_date: result.effective_date.as_proto(),
+                        change_direction: map_change_direction(direction),
+                        scheduled_event_id: None,
+                        adjustment_invoice_id: result
+                            .adjustment_invoice_id
+                            .map(|id| id.to_string()),
+                        status: PlanChangeStatus::PlanChangeCompleted.into(),
+                        checkout_token: None,
+                    }))
+                }
             }
             DomainChangeDirection::Downgrade | DomainChangeDirection::Lateral => {
                 let event = self
@@ -552,6 +642,8 @@ impl PortalSubscriptionService for PortalSubscriptionServiceComponents {
                     change_direction: map_change_direction(direction),
                     scheduled_event_id: Some(event.id.to_string()),
                     adjustment_invoice_id: None,
+                    status: PlanChangeStatus::PlanChangeScheduled.into(),
+                    checkout_token: None,
                 }))
             }
         }
@@ -691,5 +783,137 @@ impl PortalSubscriptionService for PortalSubscriptionServiceComponents {
             period_start: usage.period.start.to_string(),
             period_end: usage.period.end.to_string(),
         }))
+    }
+}
+
+impl PortalSubscriptionServiceComponents {
+    /// Whether the subscription has online payment configured.
+    fn has_online_payment_config(
+        &self,
+        details: &meteroid_store::domain::SubscriptionDetails,
+    ) -> bool {
+        use meteroid_store::domain::subscriptions::PaymentMethodsConfig;
+
+        let config = details
+            .subscription
+            .payment_methods_config
+            .as_ref()
+            .cloned()
+            .unwrap_or_else(PaymentMethodsConfig::online);
+
+        config.has_online_payment()
+    }
+
+    /// Creates a checkout session for plan change and returns the appropriate response.
+    async fn create_plan_change_checkout_response(
+        &self,
+        tenant_id: common_domain::ids::TenantId,
+        subscription_id: SubscriptionId,
+        new_plan_version_id: PlanVersionId,
+        details: &meteroid_store::domain::SubscriptionDetails,
+        direction: DomainChangeDirection,
+    ) -> Result<Response<ConfirmPlanChangeResponse>, tonic::Status> {
+        let session = self
+            .services
+            .create_plan_change_checkout_session(
+                tenant_id,
+                subscription_id,
+                new_plan_version_id,
+                details.subscription.customer_id,
+                details.subscription.created_by,
+                details.subscription.payment_methods_config.clone(),
+            )
+            .await
+            .map_err(Into::<PortalSubscriptionApiError>::into)?;
+
+        let token = meteroid_store::jwt_claims::generate_portal_token(
+            &self.jwt_secret,
+            tenant_id,
+            meteroid_store::jwt_claims::ResourceAccess::CheckoutSession(session.id),
+        )
+        .map_err(Into::<PortalSubscriptionApiError>::into)?;
+
+        let today = chrono::Utc::now().date_naive();
+
+        Ok(Response::new(ConfirmPlanChangeResponse {
+            effective_date: today.as_proto(),
+            change_direction: map_change_direction(direction),
+            scheduled_event_id: None,
+            adjustment_invoice_id: None,
+            status: PlanChangeStatus::PlanChangeCheckoutRequired.into(),
+            checkout_token: Some(token),
+        }))
+    }
+
+    /// Resolves the payment method to use for an upgrade.
+    /// Returns Some(payment_method_id) for online payment subscriptions,
+    /// None for bank transfer or external payment.
+    async fn resolve_upgrade_payment_method(
+        &self,
+        tenant_id: common_domain::ids::TenantId,
+        details: &meteroid_store::domain::SubscriptionDetails,
+        explicit_payment_method_id: Option<&str>,
+    ) -> Result<Option<common_domain::ids::CustomerPaymentMethodId>, tonic::Status> {
+        use common_domain::ids::CustomerPaymentMethodId;
+        use meteroid_store::domain::subscriptions::PaymentMethodsConfig;
+
+        // If explicitly provided, use it
+        if let Some(pm_str) = explicit_payment_method_id {
+            let pm_id = CustomerPaymentMethodId::from_proto(pm_str)?;
+            return Ok(Some(pm_id));
+        }
+
+        // Check subscription payment method config
+        let config = details
+            .subscription
+            .payment_methods_config
+            .as_ref()
+            .cloned()
+            .unwrap_or_else(PaymentMethodsConfig::online);
+
+        if !config.has_online_payment() {
+            return Ok(None);
+        }
+
+        // Resolve payment methods and pick the first available card
+        let customer = &details.customer;
+        let resolved = self
+            .services
+            .resolve_subscription_payment_methods(
+                tenant_id,
+                details.subscription.payment_methods_config.as_ref(),
+                customer,
+            )
+            .await
+            .map_err(Into::<PortalSubscriptionApiError>::into)?;
+
+        if !resolved.has_online_payment() {
+            // Online configured but no provider available — fall back to no-payment flow
+            return Ok(None);
+        }
+
+        // Get the customer's saved payment methods and pick the first usable one
+        use meteroid_store::repositories::customer_payment_methods::CustomerPaymentMethodsInterface;
+        let payment_methods = self
+            .store
+            .list_payment_methods_by_customer(&tenant_id, &customer.id)
+            .await
+            .map_err(Into::<PortalSubscriptionApiError>::into)?;
+
+        let usable = resolved.filter_payment_methods(payment_methods);
+
+        match usable.first() {
+            Some(pm) => Ok(Some(pm.id)),
+            None => {
+                // Customer has online payment config but no saved payment methods.
+                // This shouldn't normally happen (they needed one to subscribe),
+                // but fall back to the no-payment flow rather than erroring.
+                log::warn!(
+                    "No usable payment methods for subscription {} upgrade, falling back to no-payment flow",
+                    details.subscription.id
+                );
+                Ok(None)
+            }
+        }
     }
 }

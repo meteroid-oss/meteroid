@@ -1,0 +1,1 @@
+ALTER TYPE "CheckoutTypeEnum" ADD VALUE 'PLAN_CHANGE';

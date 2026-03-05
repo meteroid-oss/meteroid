@@ -22,7 +22,7 @@ use meteroid_store::clients::usage::{
 use meteroid_store::domain::subscription_components::{
     ComponentParameterization, ComponentParameters,
 };
-use meteroid_store::domain::{BillingType, Period, SlotUpgradeBillingMode};
+use meteroid_store::domain::{BillingType, Period, SlotUpgradeBillingMode, UsagePricingModel};
 use meteroid_store::repositories::subscriptions::SubscriptionInterfaceAuto;
 use meteroid_store::repositories::subscriptions::slots::SubscriptionSlotsInterfaceAuto;
 use rust_decimal::Decimal;
@@ -2533,5 +2533,254 @@ async fn test_immediate_plan_change_capacity_tier_upgrade() {
     assert_eq!(
         overage_lines[0].amount_subtotal, 200,
         "overage: (600 - 500) × €0.02 = €2.00 = 200¢"
+    );
+}
+
+// =============================================================================
+// SAME PLAN VERSION UPGRADE (usage price change only)
+// =============================================================================
+
+// Usage Alpha v2: same plan, same components, only usage price changes (€0.10 → €0.11/unit)
+const PLAN_VERSION_USAGE_ALPHA_V2_ID: PlanVersionId =
+    PlanVersionId::from_const(uuid!("019438e0-0200-7000-8000-000000000001"));
+const COMP_USAGE_ALPHA_V2_RATE_ID: PriceComponentId =
+    PriceComponentId::from_const(uuid!("019438e0-0201-7000-8000-000000000001"));
+const COMP_USAGE_ALPHA_V2_API_CALLS_ID: PriceComponentId =
+    PriceComponentId::from_const(uuid!("019438e0-0202-7000-8000-000000000001"));
+const PRICE_USAGE_ALPHA_V2_RATE_ID: PriceId =
+    PriceId::from_const(uuid!("019438e0-0203-7000-8000-000000000001"));
+const PRICE_USAGE_ALPHA_V2_API_CALLS_ID: PriceId =
+    PriceId::from_const(uuid!("019438e0-0204-7000-8000-000000000001"));
+
+/// Immediate plan change within the same plan: Usage Alpha v1 → v2.
+/// Only the usage unit price changes (€0.10 → €0.11/unit). Rate stays €10/mo.
+///
+/// Timeline:
+/// Jan 1 2025:  Subscribe on Usage Alpha v1. Period [Jan 1, Feb 1].
+///              Invoice 0: Rate €10 advance (no usage on cycle 0).
+/// Feb 1:       process_cycles → Period [Feb 1, Mar 1].
+///              Invoice 1: Rate €10 advance + Usage arrear [Jan 1, Feb 1].
+/// Feb 15:      apply_plan_change_immediate_at(change_date = Feb 15)
+///              No adjustment invoice (rate unchanged, usage is arrears-only).
+/// Mar 1:       process_cycles → Period [Mar 1, Apr 1].
+///              Invoice 2: Rate €10 advance + temporal split usage:
+///                - Old API Calls [Feb 1, Feb 15]: 500 × €0.10 = €50
+///                - New API Calls [Feb 15, Mar 1]: 800 × €0.11 = €88
+///              Total: 1000 + 5000 + 8800 = 14800 cents
+#[tokio::test]
+async fn test_immediate_plan_change_usage_price_only() {
+    let jan1 = NaiveDate::from_ymd_opt(2025, 1, 1).unwrap();
+    let feb1 = NaiveDate::from_ymd_opt(2025, 2, 1).unwrap();
+    let feb15 = NaiveDate::from_ymd_opt(2025, 2, 15).unwrap();
+    let mar1 = NaiveDate::from_ymd_opt(2025, 3, 1).unwrap();
+
+    let usage_client = build_usage_mock(vec![
+        // Cycle 1 arrear: full period Jan 1 → Feb 1
+        (
+            MockUsageDataParams {
+                metric_id: METRIC_BANDWIDTH,
+                period_start: jan1,
+                period_end: feb1,
+            },
+            Decimal::new(1000, 0), // 1000 units
+        ),
+        // Old API Calls: temporal split Feb 1 → Feb 15
+        (
+            MockUsageDataParams {
+                metric_id: METRIC_BANDWIDTH,
+                period_start: feb1,
+                period_end: feb15,
+            },
+            Decimal::new(500, 0), // 500 units
+        ),
+        // New API Calls: temporal split Feb 15 → Mar 1
+        (
+            MockUsageDataParams {
+                metric_id: METRIC_BANDWIDTH,
+                period_start: feb15,
+                period_end: mar1,
+            },
+            Decimal::new(800, 0), // 800 units
+        ),
+    ]);
+
+    let env = test_env_with_usage(usage_client).await;
+
+    // Seed Usage Alpha v2 inline: same Rate €10/mo, but API Calls at €0.11/unit
+    let mut conn = env.conn().await;
+    PlanSeed::seed_version(
+        &mut conn,
+        PLAN_USAGE_ALPHA_ID,
+        PLAN_VERSION_USAGE_ALPHA_V2_ID,
+        2,
+        "EUR",
+        &[
+            SeedComp::rate(
+                COMP_USAGE_ALPHA_V2_RATE_ID,
+                "Platform Fee",
+                PRODUCT_PLATFORM_FEE_ID,
+                PRICE_USAGE_ALPHA_V2_RATE_ID,
+                DieselBillingPeriodEnum::Monthly,
+                Decimal::new(1000, 2), // €10 (unchanged)
+            ),
+            SeedComp::usage(
+                COMP_USAGE_ALPHA_V2_API_CALLS_ID,
+                "API Calls",
+                PRODUCT_API_CALLS_ID,
+                METRIC_BANDWIDTH,
+                PRICE_USAGE_ALPHA_V2_API_CALLS_ID,
+                DieselBillingPeriodEnum::Monthly,
+                UsagePricingModel::PerUnit {
+                    rate: Decimal::new(11, 2), // €0.11 (was €0.10)
+                },
+            ),
+        ],
+    )
+    .await
+    .unwrap();
+    drop(conn);
+
+    // --- Cycle 0: Subscribe on Usage Alpha v1 at Jan 1 ---
+    let sub_id = subscription()
+        .plan_version(PLAN_VERSION_USAGE_ALPHA_ID)
+        .start_date(jan1)
+        .on_start()
+        .no_trial()
+        .create(env.services())
+        .await;
+
+    let sub = env.get_subscription(sub_id).await;
+    sub.assert()
+        .is_active()
+        .has_cycle_index(0)
+        .has_period_start(jan1)
+        .has_period_end(feb1);
+
+    // Invoice 0: Rate €10 advance only
+    let invoices = env.get_invoices(sub_id).await;
+    invoices.assert().has_count(1);
+    invoices
+        .assert()
+        .invoice_at(0)
+        .with_context("cycle 0 - v1 initial invoice")
+        .is_finalized_unpaid()
+        .has_total(1000);
+
+    // --- Cycle 1: process_cycles → Period [Feb 1, Mar 1] ---
+    env.process_cycles().await;
+
+    let sub = env.get_subscription(sub_id).await;
+    sub.assert()
+        .is_active()
+        .has_cycle_index(1)
+        .has_period_start(feb1)
+        .has_period_end(mar1);
+
+    // Invoice 1: Rate €10 advance + Usage arrear 1000 × €0.10 = €100
+    let invoices = env.get_invoices(sub_id).await;
+    invoices.assert().has_count(2);
+    invoices
+        .assert()
+        .invoice_at(1)
+        .with_context("cycle 1 - v1 rate + usage arrear")
+        .is_finalized_unpaid()
+        .has_total(1000 + 10000); // €10 rate + €100 usage = 11000 cents
+
+    // --- Feb 15: Immediate plan change v1 → v2 (usage price only) ---
+    let result = env
+        .services()
+        .apply_plan_change_immediate_at(
+            sub_id,
+            TENANT_ID,
+            PLAN_VERSION_USAGE_ALPHA_V2_ID,
+            vec![],
+            feb15,
+        )
+        .await
+        .expect("apply_plan_change_immediate_at failed");
+
+    // No adjustment invoice: rate is identical (€10 both versions), usage is arrears-only
+    assert!(
+        result.adjustment_invoice_id.is_none(),
+        "should NOT create adjustment invoice when only usage pricing changes"
+    );
+
+    // Invoice count unchanged (no adjustment created)
+    let invoices = env.get_invoices(sub_id).await;
+    invoices.assert().has_count(2);
+
+    // Verify subscription switched to v2
+    let sub = env.get_subscription(sub_id).await;
+    assert_eq!(sub.plan_version_id, PLAN_VERSION_USAGE_ALPHA_V2_ID);
+
+    // --- Cycle 2: process_cycles → Period [Mar 1, Apr 1] ---
+    env.process_cycles().await;
+
+    let sub = env.get_subscription(sub_id).await;
+    sub.assert()
+        .is_active()
+        .has_cycle_index(2)
+        .has_period_start(mar1);
+
+    // Invoice 2: Rate €10 advance + temporal split usage
+    //   Old API Calls [Feb 1, Feb 15]: 500 × €0.10 = 5000 cents
+    //   New API Calls [Feb 15, Mar 1]: 800 × €0.11 = 8800 cents
+    //   Total: 1000 + 5000 + 8800 = 14800 cents
+    let invoices = env.get_invoices(sub_id).await;
+    invoices.assert().has_count(3);
+
+    let inv = &invoices[2];
+    assert_eq!(
+        inv.total, 14800,
+        "invoice 2 total should be 14800 (rate 1000 + old usage 5000 + new usage 8800)"
+    );
+
+    // Verify rate line
+    let rate_lines: Vec<_> = inv
+        .line_items
+        .iter()
+        .filter(|l| l.metric_id.is_none())
+        .collect();
+    assert_eq!(rate_lines.len(), 1, "should have 1 rate line item");
+    assert_eq!(
+        rate_lines[0].amount_subtotal, 1000,
+        "rate advance should be €10"
+    );
+
+    // Verify usage temporal split: 2 lines for the same metric (old price + new price)
+    let usage_lines: Vec<_> = inv
+        .line_items
+        .iter()
+        .filter(|l| l.metric_id.is_some())
+        .collect();
+    assert_eq!(
+        usage_lines.len(),
+        2,
+        "should have 2 usage line items (temporal split: old + new price)"
+    );
+
+    // Both lines are for METRIC_BANDWIDTH
+    for line in &usage_lines {
+        assert_eq!(
+            line.metric_id,
+            Some(METRIC_BANDWIDTH),
+            "both usage lines should be for METRIC_BANDWIDTH"
+        );
+    }
+
+    // Verify the two usage amounts: 5000 + 8800
+    let usage_total: i64 = usage_lines.iter().map(|l| l.amount_subtotal).sum();
+    assert_eq!(
+        usage_total, 13800,
+        "usage total should be 5000 (old) + 8800 (new) = 13800"
+    );
+
+    // Verify individual amounts exist (order may vary)
+    let mut usage_amounts: Vec<i64> = usage_lines.iter().map(|l| l.amount_subtotal).collect();
+    usage_amounts.sort();
+    assert_eq!(
+        usage_amounts,
+        vec![5000, 8800],
+        "usage line amounts should be 5000 (500 × €0.10) and 8800 (800 × €0.11)"
     );
 }

@@ -9,6 +9,7 @@ import "api/invoices/v1/models.proto";
 enum CheckoutType {
   CHECKOUT_TYPE_SELF_SERVE = 0;
   CHECKOUT_TYPE_SUBSCRIPTION_ACTIVATION = 1;
+  CHECKOUT_TYPE_PLAN_CHANGE = 2;
 }
 
 // GetCheckout - works with CheckoutSession token
@@ -16,9 +17,19 @@ message GetCheckoutRequest {
   optional string coupon_code = 1;
 }
 
+message PlanChangeCheckoutContext {
+  string current_plan_name = 1;
+  string new_plan_name = 2;
+  string effective_date = 3;
+  optional int64 net_amount_cents = 4;
+  optional int64 credits_total_cents = 5;
+  optional int64 charges_total_cents = 6;
+}
+
 message GetCheckoutResponse {
   Checkout checkout = 1;
   CheckoutType checkout_type = 2;
+  optional PlanChangeCheckoutContext plan_change_context = 3;
 }
 
 // ConfirmCheckout - works with CheckoutSession token
