@@ -1,6 +1,7 @@
 use crate::domain::enums::{
     ScheduledEventStatus, ScheduledEventTypeEnum, SubscriptionFeeBillingPeriod,
 };
+use crate::domain::BillingPeriodEnum;
 use crate::domain::subscription_components::SubscriptionFee;
 use crate::errors::StoreErrorReport;
 use crate::json_value_serde;
@@ -118,6 +119,21 @@ pub enum ComponentMapping {
     Removed {
         current_component_id: SubscriptionPriceComponentId,
     },
+}
+
+impl ComponentMapping {
+    /// Derive the minimum billing period from a set of component mappings.
+    /// Returns `None` if there are no recurring components (all OneTime or all Removed).
+    pub fn derive_billing_period(mappings: &[ComponentMapping]) -> Option<BillingPeriodEnum> {
+        mappings
+            .iter()
+            .filter_map(|m| match m {
+                ComponentMapping::Matched { period, .. }
+                | ComponentMapping::Added { period, .. } => period.as_billing_period_opt(),
+                ComponentMapping::Removed { .. } => None,
+            })
+            .min()
+    }
 }
 
 impl ScheduledEventNew {

@@ -241,21 +241,40 @@ impl SubscriptionRow {
         subscription_id: &SubscriptionId,
         tenant_id: &TenantId,
         new_plan_version_id: PlanVersionId,
+        new_period: Option<crate::enums::BillingPeriodEnum>,
     ) -> DbResult<()> {
         use crate::schema::subscription::dsl as s_dsl;
 
-        let query = diesel::update(s_dsl::subscription)
-            .filter(s_dsl::id.eq(subscription_id))
-            .filter(s_dsl::tenant_id.eq(tenant_id))
-            .set(s_dsl::plan_version_id.eq(new_plan_version_id));
+        if let Some(period) = new_period {
+            let query = diesel::update(s_dsl::subscription)
+                .filter(s_dsl::id.eq(subscription_id))
+                .filter(s_dsl::tenant_id.eq(tenant_id))
+                .set((
+                    s_dsl::plan_version_id.eq(new_plan_version_id),
+                    s_dsl::period.eq(period),
+                ));
 
-        log::debug!("{}", debug_query::<diesel::pg::Pg, _>(&query));
+            log::debug!("{}", debug_query::<diesel::pg::Pg, _>(&query));
 
-        query
-            .execute(conn)
-            .await
-            .attach("Error while updating subscription plan version")
-            .into_db_result()?;
+            query
+                .execute(conn)
+                .await
+                .attach("Error while updating subscription plan version")
+                .into_db_result()?;
+        } else {
+            let query = diesel::update(s_dsl::subscription)
+                .filter(s_dsl::id.eq(subscription_id))
+                .filter(s_dsl::tenant_id.eq(tenant_id))
+                .set(s_dsl::plan_version_id.eq(new_plan_version_id));
+
+            log::debug!("{}", debug_query::<diesel::pg::Pg, _>(&query));
+
+            query
+                .execute(conn)
+                .await
+                .attach("Error while updating subscription plan version")
+                .into_db_result()?;
+        }
 
         Ok(())
     }

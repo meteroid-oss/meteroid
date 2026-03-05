@@ -2,8 +2,9 @@ import { Button, Input } from '@md/ui'
 import { useState } from 'react'
 
 import { formatCurrency, rateToPercent } from '@/lib/utils/numbers'
-import type { PlanChangeCheckoutContext } from '@/rpc/portal/checkout/v1/checkout_pb'
 import { Checkout } from '@/rpc/portal/checkout/v1/models_pb'
+
+import type { PlanChangeCheckoutContext } from '@/rpc/portal/checkout/v1/checkout_pb'
 
 // Helper to format dates
 const formatDate = (dateString: string): string => {

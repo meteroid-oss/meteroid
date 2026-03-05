@@ -560,7 +560,7 @@ impl PlanSeed {
         Ok(())
     }
 
-    async fn seed_components(
+    pub(crate) async fn seed_components(
         tx: &mut PgConn,
         version_id: PlanVersionId,
         components: &[SeedComp],

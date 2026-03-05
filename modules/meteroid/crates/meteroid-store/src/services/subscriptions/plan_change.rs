@@ -471,7 +471,22 @@ impl Services {
                         )
                         .await?;
 
-                    let adjustment_invoice_id = if prepared.proration.net_amount_cents != 0 {
+                    // Skip proration during free trials — nothing has been charged yet
+                    let is_free_trial = prepared
+                        .subscription_details
+                        .subscription
+                        .status
+                        == SubscriptionStatusEnum::TrialActive
+                        && prepared
+                            .subscription_details
+                            .trial_config
+                            .as_ref()
+                            .is_some_and(|t| t.is_free);
+
+                    let should_prorate =
+                        !is_free_trial && prepared.proration.net_amount_cents != 0;
+
+                    let adjustment_invoice_id = if should_prorate {
                         let invoice = self
                             .create_adjustment_invoice(
                                 conn,
@@ -539,10 +554,26 @@ impl Services {
                         )
                         .await?;
 
-                    let net_amount = prepared.proration.net_amount_cents;
+                    // Skip proration during free trials — nothing has been charged yet
+                    let is_free_trial = prepared
+                        .subscription_details
+                        .subscription
+                        .status
+                        == SubscriptionStatusEnum::TrialActive
+                        && prepared
+                            .subscription_details
+                            .trial_config
+                            .as_ref()
+                            .is_some_and(|t| t.is_free);
+
+                    let net_amount = if is_free_trial {
+                        0
+                    } else {
+                        prepared.proration.net_amount_cents
+                    };
 
                     if net_amount <= 0 {
-                        // No charge needed (credit or zero) — apply immediately
+                        // No charge needed (credit, zero, or free trial) — apply immediately
                         let adjustment_invoice_id = if net_amount != 0 {
                             let invoice = self
                                 .create_adjustment_invoice(
@@ -842,21 +873,25 @@ impl Services {
         .await
         .map_err(Into::<Report<StoreError>>::into)?;
 
-        SubscriptionRow::update_plan_version(
-            conn,
-            &subscription_id,
-            &tenant_id,
-            new_plan_version_id,
-        )
-        .await
-        .map_err(Into::<Report<StoreError>>::into)?;
-
         let component_mappings = build_component_mappings(
             &prepared.subscription_details.price_components,
             &prepared.target_components,
             &prepared.products,
             component_params,
         )?;
+
+        let new_period = ComponentMapping::derive_billing_period(&component_mappings)
+            .map(|p| p.into());
+
+        SubscriptionRow::update_plan_version(
+            conn,
+            &subscription_id,
+            &tenant_id,
+            new_plan_version_id,
+            new_period,
+        )
+        .await
+        .map_err(Into::<Report<StoreError>>::into)?;
 
         let mut components_to_close = Vec::new();
         let mut components_to_insert: Vec<SubscriptionComponentRowNew> = Vec::new();

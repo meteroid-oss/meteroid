@@ -291,12 +291,16 @@ impl Services {
                 }
             }
 
-            // 1. Update subscription's plan_version_id
+            // 1. Update subscription's plan_version_id (and billing period if changed)
+            let new_period = ComponentMapping::derive_billing_period(component_mappings)
+                .map(|p| p.into());
+
             SubscriptionRow::update_plan_version(
                 conn,
                 &event.subscription_id,
                 &event.tenant_id,
                 new_plan_version_id,
+                new_period,
             )
             .await
             .map_err(Into::<error_stack::Report<StoreError>>::into)?;
