@@ -30,12 +30,12 @@ import {
   ScheduledEventType,
   SubscriptionFeeBillingPeriod,
 } from '@/rpc/api/subscriptions/v1/models_pb'
-import { PlanChangeApplyMode } from '@/rpc/api/subscriptions/v1/subscriptions_pb'
 import {
   getSubscriptionDetails,
   previewPlanChange,
   schedulePlanChange,
 } from '@/rpc/api/subscriptions/v1/subscriptions-SubscriptionsService_connectquery'
+import { PlanChangeApplyMode } from '@/rpc/api/subscriptions/v1/subscriptions_pb'
 import { parseAndFormatDate } from '@/utils/date'
 
 const scheduledEventLabel = (eventType: ScheduledEventType): string => {
@@ -119,9 +119,7 @@ export const StepConfirm = () => {
 
   const handleModeChange = (value: string) => {
     const mode =
-      value === 'immediate'
-        ? PlanChangeApplyMode.IMMEDIATE
-        : PlanChangeApplyMode.END_OF_PERIOD
+      value === 'immediate' ? PlanChangeApplyMode.IMMEDIATE : PlanChangeApplyMode.END_OF_PERIOD
     setState(prev => ({ ...prev, applyMode: mode }))
   }
 
@@ -152,8 +150,7 @@ export const StepConfirm = () => {
       })
       navigate('..')
     } catch (error) {
-      const message =
-        error instanceof Error ? error.message : 'Failed to schedule plan change'
+      const message = error instanceof Error ? error.message : 'Failed to schedule plan change'
       toast.error(message)
     }
   }
@@ -181,9 +178,7 @@ export const StepConfirm = () => {
                 <ArrowRight className="h-5 w-5 text-muted-foreground flex-shrink-0" />
                 <div className="flex-1 rounded-lg border border-brand/30 bg-brand/5 p-3">
                   <div className="text-xs text-muted-foreground">New Plan</div>
-                  <div className="text-sm font-medium text-foreground">
-                    {state.targetPlanName}
-                  </div>
+                  <div className="text-sm font-medium text-foreground">{state.targetPlanName}</div>
                 </div>
               </div>
             </CardContent>
@@ -212,7 +207,9 @@ export const StepConfirm = () => {
                 </div>
                 <div
                   className="flex items-start gap-3"
-                  title={isDowngrade ? 'Downgrades can only be applied at end of period' : undefined}
+                  title={
+                    isDowngrade ? 'Downgrades can only be applied at end of period' : undefined
+                  }
                 >
                   <RadioGroupItem
                     value="immediate"
@@ -243,9 +240,7 @@ export const StepConfirm = () => {
                     <div className="flex items-start gap-2">
                       <AlertTriangle className="h-4 w-4 shrink-0 mt-0.5" />
                       <div>
-                        <span className="text-sm font-medium">
-                          This is an annual subscription.
-                        </span>
+                        <span className="text-sm font-medium">This is an annual subscription.</span>
                         <p className="text-xs mt-1">
                           Immediate changes to annual plans result in a large prorated adjustment.
                         </p>
