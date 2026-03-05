@@ -6,8 +6,7 @@ use crate::domain::{
     outbox_event::OutboxEvent,
 };
 use crate::errors::StoreError;
-use crate::repositories::customer_balance::CustomerBalance;
-use crate::repositories::historical_rates::latest_rate_tx;
+use crate::repositories::customer_balance::{CustomerBalance, convert_to_customer_currency};
 use crate::store::Store;
 use chrono::NaiveDateTime;
 use common_domain::ids::{CreditNoteId, CustomerId, InvoiceId, StoredDocumentId, TenantId};
@@ -21,39 +20,6 @@ use error_stack::{Report, bail};
 use rust_decimal::Decimal;
 use rust_decimal::prelude::ToPrimitive;
 use std::collections::HashMap;
-
-/// Converts an amount from one currency to another using the latest exchange rate.
-/// If the currencies are the same, returns the original amount unchanged.
-/// Returns an error if currencies differ but no exchange rate is available.
-async fn convert_to_customer_currency(
-    conn: &mut PgConn,
-    amount_cents: i64,
-    from_currency: &str,
-    to_currency: &str,
-) -> StoreResult<i64> {
-    if from_currency == to_currency {
-        return Ok(amount_cents);
-    }
-
-    let rate = latest_rate_tx(conn, from_currency, to_currency)
-        .await?
-        .ok_or_else(|| {
-            Report::new(StoreError::InvalidArgument(format!(
-                "No exchange rate available from {} to {}",
-                from_currency, to_currency
-            )))
-        })?;
-
-    let rate_decimal = Decimal::try_from(rate.rate).map_err(|_| {
-        Report::new(StoreError::InvalidArgument(format!(
-            "Invalid exchange rate value: {}",
-            rate.rate
-        )))
-    })?;
-
-    let converted = Decimal::from(amount_cents) * rate_decimal;
-    Ok(converted.round().to_i64().unwrap_or(0))
-}
 
 /// How the credit note amount should be applied
 #[derive(Debug, Clone)]

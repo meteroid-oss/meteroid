@@ -87,6 +87,14 @@ impl Services {
                 .get_subscription(tenant_id, subscription_id)
                 .await?;
 
+            // For $0 or negative invoices (e.g., 100% coupon, downgrade credit),
+            // mark as paid directly without payment regardless of payment method config
+            if invoice.amount_due <= 0 {
+                self.mark_zero_amount_invoice_as_paid(tenant_id, &invoice)
+                    .await?;
+                return Ok(());
+            }
+
             // TODO should we save that in the invoice ? after it's paid only ?
             let subscription_payment_method = self
                 .store
@@ -98,13 +106,6 @@ impl Services {
                 subscription.charge_automatically,
             ) {
                 (ResolvedPaymentMethod::CustomerPaymentMethod(payment_method_id), true) => {
-                    // For $0 invoices (e.g., 100% coupon), mark as paid directly without payment
-                    if invoice.amount_due <= 0 {
-                        self.mark_zero_amount_invoice_as_paid(tenant_id, &invoice)
-                            .await?;
-                        return Ok(());
-                    }
-
                     // we trigger auto payment
                     let evt: StoreResult<PgmqMessageNew> =
                         PaymentRequestEvent::new(tenant_id, event.invoice_id, payment_method_id)

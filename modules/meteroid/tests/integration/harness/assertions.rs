@@ -405,6 +405,21 @@ impl<'a> InvoiceAssert<'a> {
         self
     }
 
+    /// Assert the invoice amount_due.
+    #[allow(dead_code)]
+    pub fn has_amount_due(self, expected: i64) -> Self {
+        assert_eq!(
+            self.invoice.amount_due,
+            expected,
+            "{}",
+            self.format_msg(&format!(
+                "Expected amount_due={}, got {}",
+                expected, self.invoice.amount_due
+            ))
+        );
+        self
+    }
+
     /// Assert the invoice discount total.
     #[allow(dead_code)]
     pub fn has_discount(self, expected: i64) -> Self {

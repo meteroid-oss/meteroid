@@ -557,14 +557,20 @@ async fn test_immediate_plan_change_upgrade(#[future] test_env: TestEnv) {
     // Charge Platform:  (9900 × 16/31).round() = 5110
     // Charge Seats:     (2500 × 16/31).round() = 1290
     // Net: 4387
-    let adj = &invoices[1];
-    assert!(
-        adj.total > 0,
-        "adjustment total should be positive for upgrade"
-    );
+    invoices
+        .assert()
+        .invoice_at(1)
+        .with_context("upgrade adjustment")
+        .has_total(4387)
+        .has_amount_due(4387)
+        .has_payment_status(meteroid_store::domain::InvoicePaymentStatus::Unpaid);
+
+    // Customer balance should be unchanged (no credit for upgrades)
+    let sub = env.get_subscription(sub_id).await;
+    let customer = env.get_customer(sub.customer_id).await;
     assert_eq!(
-        adj.total, 4387,
-        "adjustment total should be 4387 cents for Starter→Pro mid-period upgrade"
+        customer.balance_value_cents, 0,
+        "customer balance should remain 0 after upgrade"
     );
 }
 
@@ -626,10 +632,22 @@ async fn test_immediate_plan_change_downgrade(#[future] test_env: TestEnv) {
     // Adjustment should be negative (credit)
     let invoices = env.get_invoices(sub_id).await;
     invoices.assert().has_count(2);
-    let adj = &invoices[1];
+
+    // Negative total, zero amount_due, marked as Paid
+    invoices
+        .assert()
+        .invoice_at(1)
+        .with_context("downgrade adjustment")
+        .has_total(-4387)
+        .has_amount_due(0)
+        .has_payment_status(meteroid_store::domain::InvoicePaymentStatus::Paid);
+
+    // Customer balance should be credited with the absolute value of the negative total
+    let sub = env.get_subscription(sub_id).await;
+    let customer = env.get_customer(sub.customer_id).await;
     assert_eq!(
-        adj.total, -4387,
-        "adjustment should be -4387 cents for Pro→Starter mid-period downgrade"
+        customer.balance_value_cents, 4387,
+        "customer balance should be credited 4387 cents from downgrade"
     );
 }
 
