@@ -2,7 +2,7 @@ use crate::StoreResult;
 use crate::domain::outbox_event::OutboxEvent;
 use crate::domain::{CouponLineItem, DetailedInvoice, Invoice, SubscriptionDetails};
 use crate::errors::StoreError;
-use crate::repositories::customer_balance::{CustomerBalance, convert_to_customer_currency};
+use crate::repositories::customer_balance::{CustomerBalance, convert_currency};
 use crate::services::Services;
 use crate::services::utils::format_invoice_number;
 use chrono::NaiveTime;
@@ -63,11 +63,23 @@ impl Services {
             .map_err(Into::<Report<StoreError>>::into)?;
 
         if row_patch.applied_credits > 0 {
+            let customer = CustomerRow::find_by_id(conn, &invoice.customer_id, &tenant_id)
+                .await
+                .map_err(Into::<Report<StoreError>>::into)?;
+
+            let deduction_in_customer_currency = convert_currency(
+                conn,
+                row_patch.applied_credits,
+                &invoice.currency,
+                &customer.currency,
+            )
+            .await?;
+
             CustomerBalance::update(
                 conn,
                 invoice.customer_id,
                 tenant_id,
-                -row_patch.applied_credits,
+                -deduction_in_customer_currency,
                 Some(id),
             )
             .await?;
@@ -80,7 +92,7 @@ impl Services {
                 .await
                 .map_err(Into::<Report<StoreError>>::into)?;
 
-            let credit_in_customer_currency = convert_to_customer_currency(
+            let credit_in_customer_currency = convert_currency(
                 conn,
                 -row_patch.total, // negative total → positive credit
                 &invoice.currency,

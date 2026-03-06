@@ -1688,36 +1688,36 @@ impl ServicesEdge {
             let net_amount = prepared.proration.net_amount_cents;
 
             if net_amount > 0 {
-                let amount_diff = (net_amount - total_amount_confirmation as i64).abs();
-                if amount_diff > 1 {
-                    return Err(Report::new(StoreError::CheckoutError).attach(format!(
-                        "Amount mismatch: expected {}, got {}",
-                        net_amount, total_amount_confirmation
-                    )));
-                }
-
-                let charge_result = self
+                // Compute invoice content to determine amount_due after credits
+                let content = self
                     .services
-                    .charge_payment_method_directly(
-                        conn,
-                        tenant_id,
-                        payment_method_id,
-                        net_amount,
-                        currency,
-                    )
-                    .await?;
-
-                let payment_settled = charge_result.payment_intent.status
-                    == crate::domain::PaymentStatusEnum::Settled;
-
-                let invoice = self
-                    .services
-                    .create_adjustment_invoice(
+                    .compute_adjustment_invoice_content(
                         conn,
                         tenant_id,
                         &prepared.subscription_details.subscription,
                         &prepared.subscription_details.customer,
                         &prepared.proration,
+                    )
+                    .await?;
+
+                let amount_due = content.computed.amount_due;
+
+                let amount_diff = (amount_due - total_amount_confirmation as i64).abs();
+                if amount_diff > 1 {
+                    return Err(Report::new(StoreError::CheckoutError).attach(format!(
+                        "Amount mismatch: expected {}, got {}",
+                        amount_due, total_amount_confirmation
+                    )));
+                }
+
+                let invoice = self
+                    .services
+                    .create_adjustment_invoice_from_content(
+                        conn,
+                        &prepared.subscription_details.subscription,
+                        &prepared.subscription_details.customer,
+                        &prepared.proration,
+                        content,
                     )
                     .await?
                     .ok_or_else(|| {
@@ -1730,40 +1730,95 @@ impl ServicesEdge {
                     .finalize_invoice_tx(conn, invoice.id, tenant_id, false, &None)
                     .await?;
 
-                let pending_pvid = if payment_settled {
-                    None
+                if amount_due > 0 {
+                    // Charge only the amount after credits
+                    let charge_result = self
+                        .services
+                        .charge_payment_method_directly(
+                            conn,
+                            tenant_id,
+                            payment_method_id,
+                            amount_due,
+                            currency,
+                        )
+                        .await?;
+
+                    let payment_settled = charge_result.payment_intent.status
+                        == crate::domain::PaymentStatusEnum::Settled;
+
+                    let pending_pvid = if payment_settled {
+                        None
+                    } else {
+                        Some(new_plan_version_id)
+                    };
+
+                    let transaction = self
+                        .services
+                        .create_transaction_for_direct_charge(
+                            conn,
+                            tenant_id,
+                            invoice.id,
+                            &charge_result,
+                            pending_pvid,
+                        )
+                        .await?;
+
+                    if payment_settled {
+                        diesel_models::invoices::InvoiceRow::apply_transaction(
+                            conn,
+                            invoice.id,
+                            tenant_id,
+                            charge_result.amount,
+                        )
+                        .await?;
+                        diesel_models::invoices::InvoiceRow::apply_payment_status(
+                            conn,
+                            invoice.id,
+                            tenant_id,
+                            diesel_models::enums::InvoicePaymentStatus::Paid,
+                            charge_result.payment_intent.processed_at,
+                        )
+                        .await?;
+
+                        self.services
+                            .execute_plan_change_tx(
+                                conn,
+                                &prepared,
+                                subscription_id,
+                                tenant_id,
+                                new_plan_version_id,
+                                change_date,
+                            )
+                            .await?;
+
+                        CheckoutSessionRow::mark_completed(
+                            conn,
+                            tenant_id,
+                            checkout_session_id,
+                            subscription_id,
+                            Utc::now(),
+                        )
+                        .await
+                        .map_err(Into::<Report<StoreError>>::into)?;
+
+                        Ok(CheckoutCompletionResult::Completed {
+                            subscription_id,
+                            transaction: Some(transaction),
+                        })
+                    } else {
+                        CheckoutSessionRow::mark_awaiting_payment(
+                            conn,
+                            tenant_id,
+                            checkout_session_id,
+                            Some(subscription_id),
+                        )
+                        .await
+                        .map_err(Into::<Report<StoreError>>::into)?;
+
+                        Ok(CheckoutCompletionResult::AwaitingPayment { transaction })
+                    }
                 } else {
-                    Some(new_plan_version_id)
-                };
-
-                let transaction = self
-                    .services
-                    .create_transaction_for_direct_charge(
-                        conn,
-                        tenant_id,
-                        invoice.id,
-                        &charge_result,
-                        pending_pvid,
-                    )
-                    .await?;
-
-                if payment_settled {
-                    diesel_models::invoices::InvoiceRow::apply_transaction(
-                        conn,
-                        invoice.id,
-                        tenant_id,
-                        charge_result.amount,
-                    )
-                    .await?;
-                    diesel_models::invoices::InvoiceRow::apply_payment_status(
-                        conn,
-                        invoice.id,
-                        tenant_id,
-                        diesel_models::enums::InvoicePaymentStatus::Paid,
-                        charge_result.payment_intent.processed_at,
-                    )
-                    .await?;
-
+                    // Credits cover the full upgrade cost — no payment needed
                     self.services
                         .execute_plan_change_tx(
                             conn,
@@ -1787,19 +1842,8 @@ impl ServicesEdge {
 
                     Ok(CheckoutCompletionResult::Completed {
                         subscription_id,
-                        transaction: Some(transaction),
+                        transaction: None,
                     })
-                } else {
-                    CheckoutSessionRow::mark_awaiting_payment(
-                        conn,
-                        tenant_id,
-                        checkout_session_id,
-                        Some(subscription_id),
-                    )
-                    .await
-                    .map_err(Into::<Report<StoreError>>::into)?;
-
-                    Ok(CheckoutCompletionResult::AwaitingPayment { transaction })
                 }
             } else {
                 // No charge needed (credit or zero) — apply immediately

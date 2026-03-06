@@ -101,4 +101,12 @@ impl TestEnv {
             .await
             .expect("Failed to process due events");
     }
+
+    /// Process only due scheduled events (e.g. grace-period invoice finalization).
+    pub async fn process_due_events(&self) {
+        self.services()
+            .get_and_process_due_events()
+            .await
+            .expect("Failed to process due events");
+    }
 }

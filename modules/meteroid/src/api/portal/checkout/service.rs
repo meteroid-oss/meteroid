@@ -656,6 +656,8 @@ impl PortalCheckoutServiceComponents {
             subtotal_amount: invoice_content.subtotal.to_non_negative_u64(),
             tax_amount: invoice_content.tax_amount.to_non_negative_u64(),
             discount_amount: invoice_content.discount.to_non_negative_u64(),
+            applied_credits: invoice_content.applied_credits.to_non_negative_u64(),
+            amount_due: invoice_content.amount_due.to_non_negative_u64(),
             coupon_amount: coupon_amount.to_non_negative_u64(),
             tax_breakdown,
             applied_coupons,

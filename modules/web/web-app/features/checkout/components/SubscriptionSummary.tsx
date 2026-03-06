@@ -45,6 +45,8 @@ const SubscriptionSummary: React.FC<SubscriptionSummaryProps> = ({
     taxAmount,
     discountAmount,
     totalAmount,
+    appliedCredits,
+    amountDue,
     taxBreakdown,
     appliedCoupons,
   } = checkoutData
@@ -83,7 +85,7 @@ const SubscriptionSummary: React.FC<SubscriptionSummaryProps> = ({
         </h1>
 
         <div className="flex items-baseline">
-          <span className="text-2xl font-bold">{formatCurrency(totalAmount, currency)}</span>
+          <span className="text-2xl font-bold">{formatCurrency(amountDue, currency)}</span>
         </div>
 
         {isPlanChange ? (
@@ -254,11 +256,23 @@ const SubscriptionSummary: React.FC<SubscriptionSummaryProps> = ({
         )}
       </div>
 
-      {/* Total */}
+      {/* Total & Credits */}
       <div className="border-t border-gray-200 py-4">
+        {appliedCredits > BigInt(0) && (
+          <>
+            <div className="flex justify-between mb-2">
+              <div>Total</div>
+              <div>{formatCurrency(totalAmount, currency)}</div>
+            </div>
+            <div className="flex justify-between text-green-600 mb-2">
+              <div>Credits applied</div>
+              <div>-{formatCurrency(appliedCredits, currency)}</div>
+            </div>
+          </>
+        )}
         <div className="flex justify-between font-medium text-lg">
-          <div>{isPlanChange ? 'Prorated amount due' : 'Total due today'}</div>
-          <div>{formatCurrency(totalAmount, currency)}</div>
+          <div>{isPlanChange ? 'Amount due' : 'Total due today'}</div>
+          <div>{formatCurrency(amountDue, currency)}</div>
         </div>
         {hasTaxes && (
           <div className="text-xs text-muted-foreground mt-1">

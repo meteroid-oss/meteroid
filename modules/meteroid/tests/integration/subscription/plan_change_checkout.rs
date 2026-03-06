@@ -1017,3 +1017,477 @@ async fn test_plan_change_checkout_roundtrip_downgrade(#[future] test_env: TestE
         _ => panic!("Expected Completed"),
     };
 }
+
+// =============================================================================
+// DOWNGRADE → UPGRADE ROUNDTRIP (CREDITS APPLIED CORRECTLY)
+// =============================================================================
+
+/// Downgrade then upgrade back: credits from downgrade should be applied to upgrade charge.
+///
+/// Start on Pro ($124/mo), period [Jan 1, Feb 1] = 31 days.
+/// Step 1: Downgrade to Starter ($39/mo) via checkout on Jan 16.
+///   factor = 16/31
+///   Credit Platform: -(9900 × 16/31).round() = -5110
+///   Credit Seats:    -(2500 × 16/31).round() = -1290
+///   Charge Platform:  (2900 × 16/31).round() = 1497
+///   Charge Seats:     (1000 × 16/31).round() = 516
+///   Net: -4387 (customer gets credit)
+///
+/// Step 2: Upgrade back to Pro ($124/mo) via checkout on Jan 16.
+///   Credit Platform: -(2900 × 16/31).round() = -1497
+///   Credit Seats:    -(1000 × 16/31).round() = -516
+///   Charge Platform:  (9900 × 16/31).round() = 5110
+///   Charge Seats:     (2500 × 16/31).round() = 1290
+///   Net: +4387 (upgrade charge)
+///   But customer has 4387 balance → applied_credits = 4387, amount_due = 0
+///   No payment transaction needed.
+#[rstest]
+#[tokio::test]
+async fn test_plan_change_checkout_downgrade_then_upgrade_credits_applied(
+    #[future] test_env: TestEnv,
+) {
+    let env = test_env.await;
+    env.seed_payments().await;
+
+    let start_date = NaiveDate::from_ymd_opt(2024, 1, 1).unwrap();
+    let change_date = NaiveDate::from_ymd_opt(2024, 1, 16).unwrap();
+
+    // Start on Pro plan ($124/mo) via checkout
+    let sub_id = subscription()
+        .plan_version(PLAN_VERSION_PRO_ID)
+        .start_date(start_date)
+        .on_checkout()
+        .no_trial()
+        .auto_charge()
+        .create(env.services())
+        .await;
+
+    let mut conn = env.conn().await;
+    env.services()
+        .complete_subscription_checkout_tx(
+            &mut conn,
+            TENANT_ID,
+            sub_id,
+            CUST_UBER_PAYMENT_METHOD_ID,
+            12400,
+            "EUR".to_string(),
+            None,
+        )
+        .await
+        .expect("Initial checkout should succeed");
+    drop(conn);
+
+    let sub = env.get_subscription(sub_id).await;
+    sub.assert()
+        .is_active()
+        .has_period_start(start_date)
+        .has_period_end(NaiveDate::from_ymd_opt(2024, 2, 1).unwrap());
+
+    let invoices = env.get_invoices(sub_id).await;
+    invoices.assert().has_count(1);
+    invoices.assert().invoice_at(0).has_total(12400);
+
+    // Step 1: Downgrade to Starter ($39/mo) on Jan 16
+    let session_down = env
+        .services()
+        .create_plan_change_checkout_session(
+            TENANT_ID,
+            sub_id,
+            PLAN_VERSION_STARTER_ID,
+            sub.customer_id,
+            USER_ID,
+            None,
+            change_date,
+        )
+        .await
+        .expect("create downgrade session failed");
+
+    // Net = -4387 (downgrade), no charge
+    let result = env
+        .services()
+        .complete_checkout(
+            TENANT_ID,
+            session_down.id,
+            CUST_UBER_PAYMENT_METHOD_ID,
+            0,
+            "EUR".to_string(),
+            None,
+        )
+        .await
+        .expect("Downgrade checkout should succeed");
+
+    match result {
+        CheckoutCompletionResult::Completed {
+            subscription_id,
+            transaction,
+        } => {
+            assert_eq!(subscription_id, sub_id);
+            assert!(transaction.is_none(), "No payment for downgrade");
+        }
+        CheckoutCompletionResult::AwaitingPayment { .. } => {
+            panic!("Downgrade should not require payment")
+        }
+    };
+
+    // Verify: now on Starter, customer has credit
+    let sub = env.get_subscription(sub_id).await;
+    assert_eq!(sub.plan_version_id, PLAN_VERSION_STARTER_ID);
+    sub.assert().is_active();
+
+    let invoices = env.get_invoices(sub_id).await;
+    invoices.assert().has_count(2);
+    invoices
+        .assert()
+        .invoice_at(1)
+        .with_context("downgrade adjustment")
+        .has_total(-4387)
+        .has_amount_due(0)
+        .has_applied_credits(0)
+        .is_finalized_paid();
+
+    let customer = env.get_customer(sub.customer_id).await;
+    assert_eq!(
+        customer.balance_value_cents, 4387,
+        "customer should have 4387 cents credit from downgrade"
+    );
+
+    // Step 2: Upgrade back to Pro ($124/mo) on Jan 16
+    // Preview first to verify credits are reflected
+    let preview = env
+        .services()
+        .compute_plan_change_checkout_invoice(sub_id, TENANT_ID, PLAN_VERSION_PRO_ID, change_date)
+        .await
+        .expect("preview should succeed");
+
+    assert_eq!(preview.total, 4387, "Preview total should be net proration");
+    assert_eq!(
+        preview.applied_credits, 4387,
+        "Preview should show full credits applied"
+    );
+    assert_eq!(
+        preview.amount_due, 0,
+        "Preview amount_due should be 0 (credits cover upgrade)"
+    );
+
+    let session_up = env
+        .services()
+        .create_plan_change_checkout_session(
+            TENANT_ID,
+            sub_id,
+            PLAN_VERSION_PRO_ID,
+            sub.customer_id,
+            USER_ID,
+            None,
+            change_date,
+        )
+        .await
+        .expect("create upgrade session failed");
+
+    // amount_due = 0 (credits cover the full upgrade)
+    let result = env
+        .services()
+        .complete_checkout(
+            TENANT_ID,
+            session_up.id,
+            CUST_UBER_PAYMENT_METHOD_ID,
+            0,
+            "EUR".to_string(),
+            None,
+        )
+        .await
+        .expect("Upgrade checkout should succeed (credits cover charge)");
+
+    match result {
+        CheckoutCompletionResult::Completed {
+            subscription_id,
+            transaction,
+        } => {
+            assert_eq!(subscription_id, sub_id);
+            assert!(
+                transaction.is_none(),
+                "No payment transaction when credits cover full amount"
+            );
+        }
+        CheckoutCompletionResult::AwaitingPayment { .. } => {
+            panic!("Should not require payment when credits cover charge")
+        }
+    };
+
+    // Verify: back on Pro, credits consumed
+    let sub = env.get_subscription(sub_id).await;
+    assert_eq!(sub.plan_version_id, PLAN_VERSION_PRO_ID);
+    sub.assert().is_active().has_pending_checkout(false);
+
+    // 3 invoices: initial Pro + downgrade adjustment + upgrade adjustment
+    let invoices = env.get_invoices(sub_id).await;
+    invoices.assert().has_count(3);
+    invoices
+        .assert()
+        .invoice_at(2)
+        .with_context("upgrade adjustment with credits")
+        .has_total(4387)
+        .has_applied_credits(4387)
+        .has_amount_due(0)
+        .is_finalized_paid();
+
+    // Customer balance should be 0 (credits fully consumed)
+    let customer = env.get_customer(sub.customer_id).await;
+    assert_eq!(
+        customer.balance_value_cents, 0,
+        "customer balance should be 0 after credits consumed by upgrade"
+    );
+
+    // Verify renewal works at Pro rate with no credits
+    env.process_cycles().await;
+    // Run full billing pipeline: finalize grace-period invoices, generate PDFs, process payments
+    env.run_outbox_and_orchestration().await;
+
+    let sub = env.get_subscription(sub_id).await;
+    sub.assert().is_active().has_cycle_index(1);
+
+    let invoices = env.get_invoices(sub_id).await;
+    invoices.assert().has_count(4);
+    invoices
+        .assert()
+        .invoice_at(3)
+        .with_context("renewal at Pro rate, no credits")
+        .has_total(12400)
+        .has_applied_credits(0);
+
+    // Verify: payment transaction is for full amount (no credits)
+    let renewal_invoice = &invoices[3];
+    let detailed = env.get_detailed_invoice(renewal_invoice.id).await;
+    assert_eq!(
+        detailed.transactions.len(),
+        1,
+        "renewal should have exactly 1 payment transaction"
+    );
+    assert_eq!(
+        detailed.transactions[0].amount, 12400,
+        "payment should be for full amount (no credits to deduct)"
+    );
+
+    // Customer balance still 0
+    let customer = env.get_customer(sub.customer_id).await;
+    assert_eq!(customer.balance_value_cents, 0);
+}
+
+/// Upgrade with partial credits: downgrade to cheaper plan, then upgrade to a middle plan.
+/// Credits partially cover the upgrade, requiring a smaller payment.
+///
+/// Start on Pro ($124/mo), period [Jan 1, Feb 1] = 31 days.
+/// Step 1: Downgrade to Starter ($39/mo) via checkout on Jan 21.
+///   factor = 11/31
+///   Credit Platform: -(9900 × 11/31).round() = -3513
+///   Credit Seats:    -(2500 × 11/31).round() = -887
+///   Charge Platform:  (2900 × 11/31).round() = 1029
+///   Charge Seats:     (1000 × 11/31).round() = 355
+///   Net: -3016 (customer gets 3016 credit)
+///
+/// Step 2: Upgrade to PaidFreeTrial ($49/mo) via checkout on Jan 21.
+///   Credit Platform: -(2900 × 11/31).round() = -1029
+///   Credit Seats:    -(1000 × 11/31).round() = -355
+///   Charge Rate:      (4900 × 11/31).round() = 1739
+///   Net: 355 (small upgrade charge)
+///   Customer has 3016 balance → applied_credits = 355, amount_due = 0
+#[rstest]
+#[tokio::test]
+async fn test_plan_change_checkout_partial_credits_on_upgrade(#[future] test_env: TestEnv) {
+    let env = test_env.await;
+    env.seed_payments().await;
+
+    let start_date = NaiveDate::from_ymd_opt(2024, 1, 1).unwrap();
+    let change_date = NaiveDate::from_ymd_opt(2024, 1, 21).unwrap();
+
+    // Start on Pro ($124/mo) via checkout
+    let sub_id = subscription()
+        .plan_version(PLAN_VERSION_PRO_ID)
+        .start_date(start_date)
+        .on_checkout()
+        .no_trial()
+        .auto_charge()
+        .create(env.services())
+        .await;
+
+    let mut conn = env.conn().await;
+    env.services()
+        .complete_subscription_checkout_tx(
+            &mut conn,
+            TENANT_ID,
+            sub_id,
+            CUST_UBER_PAYMENT_METHOD_ID,
+            12400,
+            "EUR".to_string(),
+            None,
+        )
+        .await
+        .expect("Initial checkout should succeed");
+    drop(conn);
+
+    let sub = env.get_subscription(sub_id).await;
+    sub.assert().is_active();
+
+    // Step 1: Downgrade to Starter ($39/mo) on Jan 21
+    let session_down = env
+        .services()
+        .create_plan_change_checkout_session(
+            TENANT_ID,
+            sub_id,
+            PLAN_VERSION_STARTER_ID,
+            sub.customer_id,
+            USER_ID,
+            None,
+            change_date,
+        )
+        .await
+        .expect("create downgrade session failed");
+
+    let result = env
+        .services()
+        .complete_checkout(
+            TENANT_ID,
+            session_down.id,
+            CUST_UBER_PAYMENT_METHOD_ID,
+            0,
+            "EUR".to_string(),
+            None,
+        )
+        .await
+        .expect("Downgrade checkout should succeed");
+
+    match &result {
+        CheckoutCompletionResult::Completed { transaction, .. } => {
+            assert!(transaction.is_none(), "No payment for downgrade");
+        }
+        _ => panic!("Expected Completed"),
+    };
+
+    let sub = env.get_subscription(sub_id).await;
+    assert_eq!(sub.plan_version_id, PLAN_VERSION_STARTER_ID);
+
+    let customer = env.get_customer(sub.customer_id).await;
+    assert_eq!(
+        customer.balance_value_cents, 3016,
+        "customer should have 3016 cents credit from downgrade (Pro→Starter, 11/31 factor)"
+    );
+
+    // Step 2: Upgrade to PaidFreeTrial ($49/mo) on Jan 21
+    // Net = 355, but customer has 3016 balance → credits cover it fully
+    let preview = env
+        .services()
+        .compute_plan_change_checkout_invoice(
+            sub_id,
+            TENANT_ID,
+            PLAN_VERSION_PAID_FREE_TRIAL_ID,
+            change_date,
+        )
+        .await
+        .expect("preview should succeed");
+
+    assert_eq!(preview.total, 355, "Preview total = net proration");
+    assert_eq!(
+        preview.applied_credits, 355,
+        "Credits applied = min(total, balance)"
+    );
+    assert_eq!(preview.amount_due, 0, "Credits cover the full charge");
+
+    let session_up = env
+        .services()
+        .create_plan_change_checkout_session(
+            TENANT_ID,
+            sub_id,
+            PLAN_VERSION_PAID_FREE_TRIAL_ID,
+            sub.customer_id,
+            USER_ID,
+            None,
+            change_date,
+        )
+        .await
+        .expect("create upgrade session failed");
+
+    let result = env
+        .services()
+        .complete_checkout(
+            TENANT_ID,
+            session_up.id,
+            CUST_UBER_PAYMENT_METHOD_ID,
+            0,
+            "EUR".to_string(),
+            None,
+        )
+        .await
+        .expect("Upgrade checkout should succeed");
+
+    match &result {
+        CheckoutCompletionResult::Completed { transaction, .. } => {
+            assert!(
+                transaction.is_none(),
+                "No payment when credits cover full amount"
+            );
+        }
+        _ => panic!("Expected Completed"),
+    };
+
+    let sub = env.get_subscription(sub_id).await;
+    assert_eq!(sub.plan_version_id, PLAN_VERSION_PAID_FREE_TRIAL_ID);
+    sub.assert().is_active();
+
+    // Customer balance: 3016 - 355 = 2661
+    let customer = env.get_customer(sub.customer_id).await;
+    assert_eq!(
+        customer.balance_value_cents, 2661,
+        "customer balance should be 3016 - 355 = 2661 after partial credit use"
+    );
+
+    // 3 invoices: initial + downgrade adj + upgrade adj
+    let invoices = env.get_invoices(sub_id).await;
+    invoices.assert().has_count(3);
+    invoices
+        .assert()
+        .invoice_at(2)
+        .with_context("upgrade adj with partial credits")
+        .has_total(355)
+        .has_applied_credits(355)
+        .has_amount_due(0)
+        .is_finalized_paid();
+
+    // Step 3: Renewal — verify credits are applied to the renewal invoice
+    // PaidFreeTrial = €49/mo = 4900 cents
+    // Customer has 2661 balance → applied_credits = 2661, amount_due = 4900 - 2661 = 2239
+    env.process_cycles().await;
+    // Run full billing pipeline: finalize grace-period invoices, generate PDFs, process payments
+    env.run_outbox_and_orchestration().await;
+
+    let sub = env.get_subscription(sub_id).await;
+    sub.assert().is_active().has_cycle_index(1);
+
+    // 4 invoices: initial + downgrade adj + upgrade adj + renewal
+    let invoices = env.get_invoices(sub_id).await;
+    invoices.assert().has_count(4);
+    invoices
+        .assert()
+        .invoice_at(3)
+        .with_context("renewal with remaining credits")
+        .has_total(4900)
+        .has_applied_credits(2661);
+
+    // Customer balance fully consumed by renewal
+    let customer = env.get_customer(sub.customer_id).await;
+    assert_eq!(
+        customer.balance_value_cents, 0,
+        "customer balance should be 0 after renewal consumed remaining credits"
+    );
+
+    // Verify the renewal invoice has a payment transaction for the reduced amount (not full total)
+    let renewal_invoice = &invoices[3];
+    let detailed = env.get_detailed_invoice(renewal_invoice.id).await;
+    assert_eq!(
+        detailed.transactions.len(),
+        1,
+        "renewal should have exactly 1 payment transaction"
+    );
+    assert_eq!(
+        detailed.transactions[0].amount, 2239,
+        "payment transaction should be for amount_due (2239), not total (4900)"
+    );
+}

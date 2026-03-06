@@ -11,7 +11,7 @@ import {
   Zap,
 } from 'lucide-react'
 import { useState } from 'react'
-import { useParams, useSearchParams } from 'react-router-dom'
+import { useNavigate, useParams, useSearchParams } from 'react-router-dom'
 
 import { UsageBarChartDisplay } from '@/features/subscriptions/UsageBarChart'
 import { useQuery } from '@/lib/connectrpc'
@@ -95,6 +95,7 @@ export const PortalSubscription = () => {
   const { subscriptionId } = useParams<{ subscriptionId: string }>()
   const [searchParams] = useSearchParams()
   const token = searchParams.get('token')
+  const navigate = useNavigate()
 
   const [mode, setMode] = useState<Mode>('idle')
   const [selectedPlan, setSelectedPlan] = useState<AvailablePlan | null>(null)
@@ -144,7 +145,7 @@ export const PortalSubscription = () => {
     })
 
     if (res.status === PlanChangeStatus.PLAN_CHANGE_CHECKOUT_REQUIRED && res.checkoutToken) {
-      console.log(`/portal/checkout?token=${res.checkoutToken}`)
+      navigate(`/portal/checkout?token=${res.checkoutToken}`)
       return
     }
 

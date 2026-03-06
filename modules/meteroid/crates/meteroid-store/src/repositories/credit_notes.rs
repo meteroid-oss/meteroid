@@ -6,7 +6,7 @@ use crate::domain::{
     outbox_event::OutboxEvent,
 };
 use crate::errors::StoreError;
-use crate::repositories::customer_balance::{CustomerBalance, convert_to_customer_currency};
+use crate::repositories::customer_balance::{CustomerBalance, convert_currency};
 use crate::store::Store;
 use chrono::NaiveDateTime;
 use common_domain::ids::{CreditNoteId, CustomerId, InvoiceId, StoredDocumentId, TenantId};
@@ -586,7 +586,7 @@ pub(crate) async fn create_credit_note_tx(
             .map_err(Into::<Report<StoreError>>::into)?;
 
         // Convert credited amount from credit note currency to customer's balance currency
-        let converted_amount = convert_to_customer_currency(
+        let converted_amount = convert_currency(
             conn,
             credit_note.credited_amount_cents,
             &credit_note.currency,
@@ -844,7 +844,7 @@ impl CreditNoteInterface for Store {
                             .map_err(Into::<Report<StoreError>>::into)?;
 
                     // Convert credited amount from credit note currency to customer's balance currency
-                    let converted_amount = convert_to_customer_currency(
+                    let converted_amount = convert_currency(
                         conn,
                         credit_note_row.credited_amount_cents,
                         &credit_note_row.currency,
@@ -916,7 +916,7 @@ impl CreditNoteInterface for Store {
                             .map_err(Into::<Report<StoreError>>::into)?;
 
                     // Convert credited amount from credit note currency to customer's balance currency
-                    let converted_amount = convert_to_customer_currency(
+                    let converted_amount = convert_currency(
                         conn,
                         credit_note_row.credited_amount_cents,
                         &credit_note_row.currency,
