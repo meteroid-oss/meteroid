@@ -17,6 +17,12 @@ enum ChangeDirection {
   LATERAL = 2;
 }
 
+enum PlanChangeStatus {
+  PLAN_CHANGE_COMPLETED = 0;
+  PLAN_CHANGE_SCHEDULED = 1;
+  PLAN_CHANGE_CHECKOUT_REQUIRED = 2;
+}
+
 message ProrationSummary {
   int64 credits_total_cents = 1;
   int64 charges_total_cents = 2;
@@ -114,6 +120,8 @@ message ConfirmPlanChangeResponse {
   ChangeDirection change_direction = 2;
   optional string scheduled_event_id = 3;
   optional string adjustment_invoice_id = 4;
+  PlanChangeStatus status = 5;
+  optional string checkout_token = 6;
 }
 
 message CancelScheduledEventRequest {

@@ -22,6 +22,11 @@ impl TestEnv {
             .await;
     }
 
+    /// Update the mock payment provider's fail_payment_intent flag.
+    pub async fn set_mock_payment_failure(&self, fail: bool) {
+        crate::data::payment::update_mock_payment_provider_fail(self.pool(), fail).await;
+    }
+
     /// Seed the second mock payment provider.
     pub async fn seed_mock_payment_provider_2(&self) {
         crate::data::payment::run_mock_payment_provider_2_seed(self.pool()).await;

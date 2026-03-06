@@ -25,6 +25,7 @@ pub enum CheckoutSessionStatus {
 pub enum CheckoutType {
     SelfServe,
     SubscriptionActivation,
+    PlanChange,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, ToSchema)]

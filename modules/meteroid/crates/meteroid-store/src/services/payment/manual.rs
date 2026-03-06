@@ -84,6 +84,7 @@ impl Services {
                         error_type: None,
                         processed_at: Some(payment_date),
                         checkout_session_id: None,
+                        pending_plan_version_id: None,
                     };
 
                     let inserted_transaction = transaction_new
@@ -167,6 +168,7 @@ impl Services {
                         error_type: None,
                         processed_at: Some(payment_date),
                         checkout_session_id: None,
+                        pending_plan_version_id: None,
                     };
 
                     let inserted_transaction = transaction_new

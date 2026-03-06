@@ -146,6 +146,8 @@ pub struct SubscriptionCycleRowPatch {
     pub current_period_end: Option<Option<NaiveDate>>,
     pub pending_checkout: Option<bool>,
     pub processing_started_at: Option<Option<NaiveDateTime>>,
+    pub billing_start_date: Option<NaiveDate>,
+    pub billing_day_anchor: Option<i16>,
 }
 
 #[derive(AsChangeset)]

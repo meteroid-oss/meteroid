@@ -168,6 +168,7 @@ pub async fn start_api_server(
         .add_service(api::portal::subscription::service(
             store.clone(),
             services.clone(),
+            config.jwt_secret.clone(),
         ))
         .serve(config.grpc_listen_addr)
         .await?;

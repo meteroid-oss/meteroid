@@ -44,6 +44,7 @@ fn checkout_type_domain_to_rest(checkout_type: CheckoutType) -> RestCheckoutType
     match checkout_type {
         CheckoutType::SelfServe => RestCheckoutType::SelfServe,
         CheckoutType::SubscriptionActivation => RestCheckoutType::SubscriptionActivation,
+        CheckoutType::PlanChange => RestCheckoutType::PlanChange,
     }
 }
 

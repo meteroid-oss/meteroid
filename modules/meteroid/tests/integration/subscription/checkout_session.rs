@@ -69,6 +69,7 @@ async fn test_checkout_session_paid_trial_invoice_dates(#[future] test_env: Test
             metadata: None,
             checkout_type: CheckoutType::SelfServe,
             subscription_id: None,
+            change_date: None,
         })
         .await
         .expect("Failed to create checkout session");
@@ -242,6 +243,7 @@ async fn test_checkout_session_free_trial_invoice_dates(#[future] test_env: Test
             metadata: None,
             checkout_type: CheckoutType::SelfServe,
             subscription_id: None,
+            change_date: None,
         })
         .await
         .expect("Failed to create checkout session");
@@ -421,6 +423,7 @@ async fn test_checkout_session_free_trial_no_anchor(#[future] test_env: TestEnv)
             metadata: None,
             checkout_type: CheckoutType::SelfServe,
             subscription_id: None,
+            change_date: None,
         })
         .await
         .expect("Failed to create checkout session");
@@ -585,6 +588,7 @@ async fn test_checkout_session_no_trial_invoice_dates(#[future] test_env: TestEn
             metadata: None,
             checkout_type: CheckoutType::SelfServe,
             subscription_id: None,
+            change_date: None,
         })
         .await
         .expect("Failed to create checkout session");
@@ -721,6 +725,7 @@ async fn test_checkout_session_100_percent_coupon(#[future] test_env: TestEnv) {
             metadata: None,
             checkout_type: CheckoutType::SelfServe,
             subscription_id: None,
+            change_date: None,
         })
         .await
         .expect("Failed to create checkout session");

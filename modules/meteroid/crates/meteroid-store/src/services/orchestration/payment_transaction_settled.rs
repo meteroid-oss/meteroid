@@ -103,6 +103,41 @@ impl Services {
                                 .await?;
                         }
 
+                        // Apply deferred plan change if the transaction carries a pending plan version.
+                        if let (Some(sub_id), Some(target_pvid)) =
+                            (invoice.subscription_id, event.pending_plan_version_id)
+                        {
+                            log::info!(
+                                "Applying deferred plan change for subscription {} to plan_version {}",
+                                sub_id,
+                                target_pvid,
+                            );
+
+                            // Use current date instead of invoice_date: async payments
+                            // (SEPA) can settle days later, after the billing period rolls over.
+                            let change_date = Utc::now().date_naive();
+                            let prepared = self
+                                .prepare_plan_change_tx(
+                                    conn,
+                                    sub_id,
+                                    event.tenant_id,
+                                    target_pvid,
+                                    &[],
+                                    change_date,
+                                )
+                                .await?;
+
+                            self.execute_plan_change_tx(
+                                conn,
+                                &prepared,
+                                sub_id,
+                                event.tenant_id,
+                                target_pvid,
+                                change_date,
+                            )
+                            .await?;
+                        }
+
                         // Activate subscription if pending checkout (TrialExpired activation is handled by on_invoice_paid)
                         if let Some(subscription_id) = subscription_id.as_ref() {
                             let subscription = SubscriptionRow::get_subscription_by_id(
@@ -449,6 +484,94 @@ impl Services {
                                     },
                                 )
                                 .await?;
+                            }
+
+                            subscription_id
+                        }
+                        CheckoutType::PlanChange => {
+                            let subscription_id = session.subscription_id.ok_or_else(|| {
+                                Report::new(StoreError::InvalidArgument(
+                                    "PlanChange checkout missing subscription_id".to_string(),
+                                ))
+                            })?;
+
+                            let new_plan_version_id = session.plan_version_id;
+                            // Use current date, not the stored change_date from session creation.
+                            // Async payments (SEPA) can take days; the billing period may have
+                            // rolled over, making the original date invalid.
+                            let today = Utc::now().date_naive();
+
+                            let prepared = self
+                                .prepare_plan_change_tx(
+                                    conn,
+                                    subscription_id,
+                                    event.tenant_id,
+                                    new_plan_version_id,
+                                    &[],
+                                    today,
+                                )
+                                .await?;
+
+                            let is_free_trial = prepared.is_free_trial();
+
+                            // Apply the plan change (handles trial→Active transition)
+                            self.execute_plan_change_tx(
+                                conn,
+                                &prepared,
+                                subscription_id,
+                                event.tenant_id,
+                                new_plan_version_id,
+                                today,
+                            )
+                            .await?;
+
+                            if is_free_trial {
+                                // Create first invoice linked to settled payment
+                                use crate::services::InvoiceBillingMode;
+
+                                self.bill_subscription_tx(
+                                    conn,
+                                    event.tenant_id,
+                                    subscription_id,
+                                    InvoiceBillingMode::AlreadyPaid {
+                                        charge_result,
+                                        existing_transaction_id: Some(event.payment_transaction_id),
+                                    },
+                                )
+                                .await?;
+                            } else {
+                                // Normal plan change: create adjustment invoice
+                                let net_amount = prepared.proration.net_amount_cents;
+                                if net_amount != 0 {
+                                    let invoice = self
+                                        .create_adjustment_invoice(
+                                            conn,
+                                            event.tenant_id,
+                                            &prepared.subscription_details.subscription,
+                                            &prepared.subscription_details.customer,
+                                            &prepared.proration,
+                                        )
+                                        .await?;
+
+                                    if let Some(inv) = &invoice {
+                                        self.finalize_invoice_tx(
+                                            conn, inv.id, event.tenant_id, false, &None,
+                                        )
+                                        .await?;
+
+                                        diesel_models::invoices::InvoiceRow::apply_transaction(
+                                            conn, inv.id, event.tenant_id,
+                                            charge_result.amount,
+                                        )
+                                        .await?;
+                                        diesel_models::invoices::InvoiceRow::apply_payment_status(
+                                            conn, inv.id, event.tenant_id,
+                                            diesel_models::enums::InvoicePaymentStatus::Paid,
+                                            charge_result.payment_intent.processed_at,
+                                        )
+                                        .await?;
+                                    }
+                                }
                             }
 
                             subscription_id

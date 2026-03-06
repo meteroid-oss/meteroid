@@ -1,8 +1,10 @@
 import { Button, Input } from '@md/ui'
 import { useState } from 'react'
 
-import { formatCurrency, rateToPercent } from '@/lib/utils/numbers'
+import { formatCurrency, formatCurrencyNoRounding, rateToPercent } from '@/lib/utils/numbers'
 import { Checkout } from '@/rpc/portal/checkout/v1/models_pb'
+
+import type { PlanChangeCheckoutContext } from '@/rpc/portal/checkout/v1/checkout_pb'
 
 // Helper to format dates
 const formatDate = (dateString: string): string => {
@@ -18,6 +20,8 @@ interface SubscriptionSummaryProps {
   onClearCoupon: () => void
   couponError?: string
   isApplyingCoupon?: boolean
+  isPlanChange?: boolean
+  planChangeContext?: PlanChangeCheckoutContext
 }
 
 const SubscriptionSummary: React.FC<SubscriptionSummaryProps> = ({
@@ -28,6 +32,8 @@ const SubscriptionSummary: React.FC<SubscriptionSummaryProps> = ({
   onClearCoupon,
   couponError,
   isApplyingCoupon,
+  isPlanChange,
+  planChangeContext,
 }) => {
   const [showCouponInput, setShowCouponInput] = useState(false)
   const {
@@ -39,6 +45,8 @@ const SubscriptionSummary: React.FC<SubscriptionSummaryProps> = ({
     taxAmount,
     discountAmount,
     totalAmount,
+    appliedCredits,
+    amountDue,
     taxBreakdown,
     appliedCoupons,
   } = checkoutData
@@ -71,27 +79,40 @@ const SubscriptionSummary: React.FC<SubscriptionSummaryProps> = ({
       {/* Subscription Title */}
       <div className="mb-6">
         <h1 className="text-base font-normal mb-1 text-muted-foreground">
-          Subscribe to {subscription?.subscription?.planName || 'Plan'}
+          {isPlanChange
+            ? `Upgrade to ${planChangeContext?.newPlanName ?? subscription?.subscription?.planName ?? 'Plan'}`
+            : `Subscribe to ${subscription?.subscription?.planName || 'Plan'}`}
         </h1>
 
         <div className="flex items-baseline">
-          <span className="text-2xl font-bold">{formatCurrency(totalAmount, currency)}</span>
+          <span className="text-2xl font-bold">{formatCurrency(amountDue, currency)}</span>
         </div>
 
-        {/* Show billing frequency TODO */}
-        <div className="text-sm text-gray-600 mt-1">
-          Billed monthly
-          {/* {subscription?.subscription?.billingDayAnchor &&
-            `, on the ${subscription.subscription.billingDayAnchor}${getOrdinalSuffix(subscription.subscription.billingDayAnchor)} of each month`}
+        {isPlanChange ? (
+          <>
+            <div className="text-sm text-gray-600 mt-1">Prorated amount due</div>
+            {planChangeContext && (
+              <div className="mt-3 text-xs text-muted-foreground space-y-0.5">
+                <div>
+                  {planChangeContext.currentPlanName} → {planChangeContext.newPlanName}
+                </div>
+                {planChangeContext.effectiveDate && (
+                  <div>Effective {formatDate(planChangeContext.effectiveDate)}</div>
+                )}
+              </div>
+            )}
+          </>
+        ) : (
+          <>
+            {/* Show billing frequency TODO */}
+            <div className="text-sm text-gray-600 mt-1">Billed monthly</div>
 
-         + TODO renews at X/month
-         */}
-        </div>
-
-        {isInTrial && (
-          <div className="mt-2 inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium bg-blue-100 text-blue-800">
-            {subscription?.subscription?.trialDuration} day trial
-          </div>
+            {isInTrial && (
+              <div className="mt-2 inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium bg-blue-100 text-blue-800">
+                {subscription?.subscription?.trialDuration} day trial
+              </div>
+            )}
+          </>
         )}
       </div>
 
@@ -107,7 +128,7 @@ const SubscriptionSummary: React.FC<SubscriptionSummaryProps> = ({
               {line.quantity && line.unitPrice && Number(line.quantity) > 1 && (
                 <div className="text-xs text-muted-foreground">
                   {/* TODO */}
-                  {line.quantity} × {formatCurrency(Number(line.unitPrice) * 100, currency)}
+                  {line.quantity} × {formatCurrencyNoRounding(Number(line.unitPrice), currency)}
                 </div>
               )}
               {line.isProrated && line.startDate && line.endDate && (
@@ -167,8 +188,8 @@ const SubscriptionSummary: React.FC<SubscriptionSummaryProps> = ({
           </>
         )}
 
-        {/* Promotion code input */}
-        {!hasCoupons && (
+        {/* Promotion code input — hidden for plan change */}
+        {!hasCoupons && !isPlanChange && (
           <div className="mt-2">
             {!showCouponInput ? (
               <Button
@@ -235,11 +256,23 @@ const SubscriptionSummary: React.FC<SubscriptionSummaryProps> = ({
         )}
       </div>
 
-      {/* Total */}
+      {/* Total & Credits */}
       <div className="border-t border-gray-200 py-4">
+        {appliedCredits > BigInt(0) && (
+          <>
+            <div className="flex justify-between mb-2">
+              <div>Total</div>
+              <div>{formatCurrency(totalAmount, currency)}</div>
+            </div>
+            <div className="flex justify-between text-green-600 mb-2">
+              <div>Credits applied</div>
+              <div>-{formatCurrency(appliedCredits, currency)}</div>
+            </div>
+          </>
+        )}
         <div className="flex justify-between font-medium text-lg">
-          <div>Total due today</div>
-          <div>{formatCurrency(totalAmount, currency)}</div>
+          <div>{isPlanChange ? 'Amount due' : 'Total due today'}</div>
+          <div>{formatCurrency(amountDue, currency)}</div>
         </div>
         {hasTaxes && (
           <div className="text-xs text-muted-foreground mt-1">

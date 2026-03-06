@@ -241,9 +241,11 @@ const scheduledEventLabel = (event: PendingScheduledEvent): { message: string; v
 
 const ScheduledEventBanner = ({
   event,
+  subscriptionId,
   onCancelled,
 }: {
   event: PendingScheduledEvent
+  subscriptionId: string
   onCancelled: () => void
 }) => {
   const cancelMutation = useMutation(cancelScheduledEvent, {
@@ -269,7 +271,7 @@ const ScheduledEventBanner = ({
           variant="ghost"
           size="sm"
           className="h-7 w-7 p-0 shrink-0"
-          onClick={() => cancelMutation.mutate({ eventId: event.id })}
+          onClick={() => cancelMutation.mutate({ eventId: event.id, subscriptionId })}
           disabled={cancelMutation.isPending}
           title="Cancel scheduled event"
         >
@@ -557,6 +559,7 @@ export const Subscription = () => {
               <ScheduledEventBanner
                 key={event.id}
                 event={event}
+                subscriptionId={data.id}
                 onCancelled={() => subscriptionQuery.refetch()}
               />
             ))}

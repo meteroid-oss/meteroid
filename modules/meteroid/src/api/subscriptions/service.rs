@@ -655,9 +655,11 @@ impl SubscriptionsService for SubscriptionServiceComponents {
         let inner = request.into_inner();
 
         let event_id = common_domain::ids::ScheduledEventId::from_proto(inner.event_id)?;
+        let subscription_id =
+            common_domain::ids::SubscriptionId::from_proto(inner.subscription_id)?;
 
         self.services
-            .cancel_scheduled_event(event_id, tenant_id)
+            .cancel_scheduled_event(event_id, subscription_id, tenant_id)
             .await
             .map_err(Into::<SubscriptionApiError>::into)?;
 

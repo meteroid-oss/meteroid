@@ -248,6 +248,7 @@ message CancelPlanChangeResponse {}
 
 message CancelScheduledEventRequest {
   string event_id = 1;
+  string subscription_id = 2;
 }
 
 message CancelScheduledEventResponse {}

@@ -306,11 +306,27 @@ export const InvoiceSummary = ({ invoicePaymentData }: InvoicePaymentData) => {
               <Separator className="my-2" />
 
               <div className="flex justify-between text-base">
-                <span className="text-gray-900">Total due</span>
+                <span className="text-gray-900">Total</span>
                 <span className="text-gray-900">
                   {formatCurrency(invoice.total, invoice.currency)}
                 </span>
               </div>
+
+              {Number(invoice.appliedCredits) > 0 && (
+                <div className="flex justify-between text-sm text-success">
+                  <span>Credits applied</span>
+                  <span>-{formatCurrency(invoice.appliedCredits, invoice.currency)}</span>
+                </div>
+              )}
+
+              {Number(invoice.appliedCredits) > 0 && (
+                <div className="flex justify-between text-base font-medium">
+                  <span className="text-gray-900">Amount due</span>
+                  <span className="text-gray-900">
+                    {formatCurrency(invoice.amountDue, invoice.currency)}
+                  </span>
+                </div>
+              )}
             </>
           </div>
         </div>

@@ -65,6 +65,15 @@ pub enum StoreError {
     TaxError,
 }
 
+impl StoreError {
+    pub fn is_payment_error(&self) -> bool {
+        matches!(
+            self,
+            StoreError::PaymentError(_) | StoreError::PaymentProviderError
+        )
+    }
+}
+
 // used in some o2o macros failing to compile, https://github.com/meteroid-oss/meteroid/actions/runs/10921372280/job/30313299862
 pub(crate) type StoreErrorReport = error_stack::Report<StoreError>;
 

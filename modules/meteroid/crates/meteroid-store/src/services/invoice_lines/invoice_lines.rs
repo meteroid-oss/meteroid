@@ -15,6 +15,7 @@ use std::collections::{HashMap, HashSet};
 use crate::domain::BillableMetric;
 use crate::errors::StoreError;
 use crate::repositories::accounting::AccountingInterface;
+use crate::repositories::customer_balance::convert_currency;
 use crate::services::Services;
 use crate::services::invoice_lines::component::ExistingLineKey;
 use crate::services::invoice_lines::discount::calculate_coupons_discount;
@@ -63,13 +64,14 @@ impl Services {
         {
             // recalculate applied_credits based on current customer balance
             let total = invoice.total as u64;
-            let applied_credits = min(
-                total,
-                subscription_details
-                    .customer
-                    .balance_value_cents
-                    .to_non_negative_u64(),
-            );
+            let balance_in_invoice_currency = convert_currency(
+                conn,
+                subscription_details.customer.balance_value_cents.max(0),
+                &subscription_details.customer.currency,
+                &subscription_details.subscription.currency,
+            )
+            .await?;
+            let applied_credits = min(total, balance_in_invoice_currency.to_non_negative_u64());
             let already_paid = prepaid_amount.unwrap_or(0);
             let applied = (already_paid + applied_credits) as i64;
             let amount_due = ((total as i64) - applied).to_non_negative_u64();
@@ -297,13 +299,14 @@ impl Services {
             .to_non_negative_u64();
 
         let total = subtotal_with_discounts + tax_amount;
-        let applied_credits = min(
-            total,
-            subscription_details
-                .customer
-                .balance_value_cents
-                .to_non_negative_u64(),
-        );
+        let balance_in_invoice_currency = convert_currency(
+            conn,
+            subscription_details.customer.balance_value_cents.max(0),
+            &subscription_details.customer.currency,
+            &subscription_details.subscription.currency,
+        )
+        .await?;
+        let applied_credits = min(total, balance_in_invoice_currency.to_non_negative_u64());
         let already_paid = prepaid_amount.unwrap_or(0);
         let amount_due = total
             .checked_sub(already_paid)
@@ -344,6 +347,8 @@ impl Services {
         let discount_total = discount.unwrap_or(0);
         let invoice_lines = super::discount::distribute_discount(invoice_lines, discount_total);
 
+        let invoice_currency = currency.clone();
+
         // we add taxes
         let (line_items, breakdown) = self
             .process_invoice_lines_taxes(
@@ -368,7 +373,14 @@ impl Services {
             .to_non_negative_u64();
 
         let total = subtotal_with_discounts + tax_amount;
-        let applied_credits = min(total, customer.balance_value_cents.to_non_negative_u64());
+        let balance_in_invoice_currency = convert_currency(
+            conn,
+            customer.balance_value_cents.max(0),
+            &customer.currency,
+            &invoice_currency,
+        )
+        .await?;
+        let applied_credits = min(total, balance_in_invoice_currency.to_non_negative_u64());
         let already_paid = prepaid_amount.unwrap_or(0);
         let amount_due = total
             .checked_sub(already_paid)

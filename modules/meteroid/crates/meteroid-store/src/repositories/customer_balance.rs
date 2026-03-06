@@ -14,7 +14,7 @@ use uuid::Uuid;
 
 /// Converts an amount from one currency to another using the latest exchange rate.
 /// If the currencies are the same, returns the original amount unchanged.
-pub async fn convert_to_customer_currency(
+pub async fn convert_currency(
     conn: &mut PgConn,
     amount_cents: i64,
     from_currency: &str,

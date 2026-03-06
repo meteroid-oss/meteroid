@@ -36,6 +36,8 @@ impl Services {
             cycle_index: None, // we don't increase the cycle index on termination
             pending_checkout: None,
             processing_started_at: None, // no need to clear on termination
+            billing_start_date: None,
+            billing_day_anchor: None,
         };
 
         patch.patch(conn).await?;

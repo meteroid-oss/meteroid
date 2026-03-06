@@ -10,9 +10,10 @@ import { getCheckoutPaymentAvailability } from '@/features/checkout/utils/paymen
 import { BillingInfo } from '@/features/customers/components/BillingInfo'
 import { BankTransferInfo } from '@/features/invoice-payment/components/BankTransferInfo'
 import {
-  getCheckout,
   confirmCheckout,
+  getCheckout,
 } from '@/rpc/portal/checkout/v1/checkout-PortalCheckoutService_connectquery'
+import { CheckoutType } from '@/rpc/portal/checkout/v1/checkout_pb'
 import { Checkout } from '@/rpc/portal/checkout/v1/models_pb'
 import { formatCurrency } from '@/utils/numbers'
 
@@ -21,7 +22,11 @@ import { CheckoutFlowProps } from './types'
 /**
  * Main checkout flow component
  */
-const CheckoutFlow: React.FC<CheckoutFlowProps> = ({ checkoutData: initialCheckoutData }) => {
+const CheckoutFlow: React.FC<CheckoutFlowProps> = ({
+  checkoutData: initialCheckoutData,
+  checkoutType,
+  planChangeContext,
+}) => {
   const [isAddressEditing, setIsAddressEditing] = useState(false)
   const [couponCode, setCouponCode] = useState('')
   const [couponError, setCouponError] = useState<string | undefined>(undefined)
@@ -32,7 +37,7 @@ const CheckoutFlow: React.FC<CheckoutFlowProps> = ({ checkoutData: initialChecko
     subscription,
     customer,
     paymentMethods,
-    totalAmount,
+    amountDue,
     cardConnectionId,
     directDebitConnectionId,
     bankAccount,
@@ -107,7 +112,7 @@ const CheckoutFlow: React.FC<CheckoutFlowProps> = ({ checkoutData: initialChecko
       }
 
       await confirmCheckoutMutation.mutateAsync({
-        displayedAmount: totalAmount,
+        displayedAmount: amountDue,
         displayedCurrency: subscription.subscription.currency,
         paymentMethodId,
         couponCode: couponCode.trim() || undefined,
@@ -143,6 +148,7 @@ const CheckoutFlow: React.FC<CheckoutFlowProps> = ({ checkoutData: initialChecko
   // Determine what payment UI to show
   const paymentAvailability = getCheckoutPaymentAvailability({
     subscriptionStatus: subscription.subscription.status,
+    checkoutType,
     cardConnectionId,
     directDebitConnectionId,
     bankAccount,
@@ -160,7 +166,9 @@ const CheckoutFlow: React.FC<CheckoutFlowProps> = ({ checkoutData: initialChecko
           )}
         </button>
         <div className="text-sm font-medium mx-auto">
-          Subscribe to {subscription.subscription.planName}
+          {checkoutType === CheckoutType.PLAN_CHANGE
+            ? `Upgrade to ${planChangeContext?.newPlanName ?? subscription.subscription.planName}`
+            : `Subscribe to ${subscription.subscription.planName}`}
         </div>
       </div>
 
@@ -177,6 +185,8 @@ const CheckoutFlow: React.FC<CheckoutFlowProps> = ({ checkoutData: initialChecko
               onClearCoupon={handleClearCoupon}
               couponError={couponError}
               isApplyingCoupon={isApplyingCoupon}
+              isPlanChange={checkoutType === CheckoutType.PLAN_CHANGE}
+              planChangeContext={planChangeContext}
             />
           </div>
         </div>
@@ -212,7 +222,7 @@ const CheckoutFlow: React.FC<CheckoutFlowProps> = ({ checkoutData: initialChecko
                     customer={customer}
                     paymentMethods={paymentMethods || []}
                     currency={subscription.subscription.currency}
-                    totalAmount={formatCurrency(totalAmount, subscription.subscription.currency)}
+                    totalAmount={formatCurrency(amountDue, subscription.subscription.currency)}
                     onPaymentSubmit={handlePaymentSubmit}
                     cardConnectionId={paymentAvailability.cardConnectionId}
                     directDebitConnectionId={paymentAvailability.directDebitConnectionId}

@@ -22,9 +22,11 @@ use meteroid_store::clients::usage::{
 use meteroid_store::domain::subscription_components::{
     ComponentParameterization, ComponentParameters,
 };
-use meteroid_store::domain::{BillingType, Period, SlotUpgradeBillingMode};
-use meteroid_store::repositories::subscriptions::SubscriptionInterfaceAuto;
+use meteroid_store::domain::{BillingType, Period, SlotUpgradeBillingMode, UsagePricingModel};
 use meteroid_store::repositories::subscriptions::slots::SubscriptionSlotsInterfaceAuto;
+use meteroid_store::repositories::subscriptions::{
+    CancellationEffectiveAt, SubscriptionInterfaceAuto,
+};
 use rust_decimal::Decimal;
 
 // =============================================================================
@@ -313,15 +315,19 @@ async fn test_plan_change_rejects_currency_mismatch(#[future] test_env: TestEnv)
     assert!(result.is_err(), "should reject currency mismatch");
 }
 
-/// Scheduling a second plan change replaces (cancels) the first one.
+/// Scheduling a second plan change replaces (cancels) the first one,
+/// and the replacement target is what actually executes at period end.
 #[rstest]
 #[tokio::test]
 async fn test_plan_change_replaces_existing(#[future] test_env: TestEnv) {
     let env = test_env.await;
 
+    let start_date = NaiveDate::from_ymd_opt(2024, 1, 1).unwrap();
+
     // Start on LeetCode so we can schedule to both Starter and Pro
     let sub_id = subscription()
         .plan_version(PLAN_VERSION_1_LEETCODE_ID)
+        .start_date(start_date)
         .on_start()
         .no_trial()
         .create(env.services())
@@ -356,6 +362,52 @@ async fn test_plan_change_replaces_existing(#[future] test_env: TestEnv) {
     assert_eq!(
         pending[0].id, second_event.id,
         "pending event should be the second one"
+    );
+
+    // Execute: process_cycles should apply Pro (the replacement), not Starter
+    env.process_cycles().await;
+
+    let sub = env.get_subscription(sub_id).await;
+    assert_eq!(
+        sub.plan_version_id, PLAN_VERSION_PRO_ID,
+        "subscription should be on Pro (the replacement), not Starter"
+    );
+    sub.assert()
+        .is_active()
+        .has_cycle_index(1)
+        .has_period_start(NaiveDate::from_ymd_opt(2024, 2, 1).unwrap())
+        .has_period_end(NaiveDate::from_ymd_opt(2024, 3, 1).unwrap());
+
+    // Should have: initial LeetCode invoice + Pro renewal invoice
+    let invoices = env.get_invoices(sub_id).await;
+    invoices.assert().has_count(2);
+    invoices
+        .assert()
+        .invoice_at(1)
+        .with_context("cycle 1 - Pro invoice after replacement")
+        .is_finalized_unpaid()
+        .has_total(12400)
+        .has_period(
+            NaiveDate::from_ymd_opt(2024, 2, 1).unwrap(),
+            NaiveDate::from_ymd_opt(2024, 3, 1).unwrap(),
+        );
+
+    // Components should reference Pro price_component_ids
+    let components = env.get_subscription_components(sub_id).await;
+    assert_eq!(components.len(), 2, "should have 2 Pro components");
+    let comp_ids: Vec<_> = components
+        .iter()
+        .filter_map(|c| c.price_component_id)
+        .collect();
+    assert!(
+        comp_ids.contains(&COMP_PRO_PLATFORM_FEE_ID),
+        "should have Pro Platform Fee component (got {:?})",
+        comp_ids
+    );
+    assert!(
+        comp_ids.contains(&COMP_PRO_SEATS_ID),
+        "should have Pro Seats component (got {:?})",
+        comp_ids
     );
 }
 
@@ -2534,4 +2586,1034 @@ async fn test_immediate_plan_change_capacity_tier_upgrade() {
         overage_lines[0].amount_subtotal, 200,
         "overage: (600 - 500) × €0.02 = €2.00 = 200¢"
     );
+}
+
+// =============================================================================
+// SAME PLAN VERSION UPGRADE (usage price change only)
+// =============================================================================
+
+// Usage Alpha v2: same plan, same components, only usage price changes (€0.10 → €0.11/unit)
+const PLAN_VERSION_USAGE_ALPHA_V2_ID: PlanVersionId =
+    PlanVersionId::from_const(uuid!("019438e0-0200-7000-8000-000000000001"));
+const COMP_USAGE_ALPHA_V2_RATE_ID: PriceComponentId =
+    PriceComponentId::from_const(uuid!("019438e0-0201-7000-8000-000000000001"));
+const COMP_USAGE_ALPHA_V2_API_CALLS_ID: PriceComponentId =
+    PriceComponentId::from_const(uuid!("019438e0-0202-7000-8000-000000000001"));
+const PRICE_USAGE_ALPHA_V2_RATE_ID: PriceId =
+    PriceId::from_const(uuid!("019438e0-0203-7000-8000-000000000001"));
+const PRICE_USAGE_ALPHA_V2_API_CALLS_ID: PriceId =
+    PriceId::from_const(uuid!("019438e0-0204-7000-8000-000000000001"));
+
+/// Immediate plan change within the same plan: Usage Alpha v1 → v2.
+/// Only the usage unit price changes (€0.10 → €0.11/unit). Rate stays €10/mo.
+///
+/// Timeline:
+/// Jan 1 2025:  Subscribe on Usage Alpha v1. Period [Jan 1, Feb 1].
+///              Invoice 0: Rate €10 advance (no usage on cycle 0).
+/// Feb 1:       process_cycles → Period [Feb 1, Mar 1].
+///              Invoice 1: Rate €10 advance + Usage arrear [Jan 1, Feb 1].
+/// Feb 15:      apply_plan_change_immediate_at(change_date = Feb 15)
+///              No adjustment invoice (rate unchanged, usage is arrears-only).
+/// Mar 1:       process_cycles → Period [Mar 1, Apr 1].
+///              Invoice 2: Rate €10 advance + temporal split usage:
+///                - Old API Calls [Feb 1, Feb 15]: 500 × €0.10 = €50
+///                - New API Calls [Feb 15, Mar 1]: 800 × €0.11 = €88
+///              Total: 1000 + 5000 + 8800 = 14800 cents
+#[tokio::test]
+async fn test_immediate_plan_change_usage_price_only() {
+    let jan1 = NaiveDate::from_ymd_opt(2025, 1, 1).unwrap();
+    let feb1 = NaiveDate::from_ymd_opt(2025, 2, 1).unwrap();
+    let feb15 = NaiveDate::from_ymd_opt(2025, 2, 15).unwrap();
+    let mar1 = NaiveDate::from_ymd_opt(2025, 3, 1).unwrap();
+
+    let usage_client = build_usage_mock(vec![
+        // Cycle 1 arrear: full period Jan 1 → Feb 1
+        (
+            MockUsageDataParams {
+                metric_id: METRIC_BANDWIDTH,
+                period_start: jan1,
+                period_end: feb1,
+            },
+            Decimal::new(1000, 0), // 1000 units
+        ),
+        // Old API Calls: temporal split Feb 1 → Feb 15
+        (
+            MockUsageDataParams {
+                metric_id: METRIC_BANDWIDTH,
+                period_start: feb1,
+                period_end: feb15,
+            },
+            Decimal::new(500, 0), // 500 units
+        ),
+        // New API Calls: temporal split Feb 15 → Mar 1
+        (
+            MockUsageDataParams {
+                metric_id: METRIC_BANDWIDTH,
+                period_start: feb15,
+                period_end: mar1,
+            },
+            Decimal::new(800, 0), // 800 units
+        ),
+    ]);
+
+    let env = test_env_with_usage(usage_client).await;
+
+    // Seed Usage Alpha v2 inline: same Rate €10/mo, but API Calls at €0.11/unit
+    let mut conn = env.conn().await;
+    PlanSeed::seed_version(
+        &mut conn,
+        PLAN_USAGE_ALPHA_ID,
+        PLAN_VERSION_USAGE_ALPHA_V2_ID,
+        2,
+        "EUR",
+        &[
+            SeedComp::rate(
+                COMP_USAGE_ALPHA_V2_RATE_ID,
+                "Platform Fee",
+                PRODUCT_PLATFORM_FEE_ID,
+                PRICE_USAGE_ALPHA_V2_RATE_ID,
+                DieselBillingPeriodEnum::Monthly,
+                Decimal::new(1000, 2), // €10 (unchanged)
+            ),
+            SeedComp::usage(
+                COMP_USAGE_ALPHA_V2_API_CALLS_ID,
+                "API Calls",
+                PRODUCT_API_CALLS_ID,
+                METRIC_BANDWIDTH,
+                PRICE_USAGE_ALPHA_V2_API_CALLS_ID,
+                DieselBillingPeriodEnum::Monthly,
+                UsagePricingModel::PerUnit {
+                    rate: Decimal::new(11, 2), // €0.11 (was €0.10)
+                },
+            ),
+        ],
+    )
+    .await
+    .unwrap();
+    drop(conn);
+
+    // --- Cycle 0: Subscribe on Usage Alpha v1 at Jan 1 ---
+    let sub_id = subscription()
+        .plan_version(PLAN_VERSION_USAGE_ALPHA_ID)
+        .start_date(jan1)
+        .on_start()
+        .no_trial()
+        .create(env.services())
+        .await;
+
+    let sub = env.get_subscription(sub_id).await;
+    sub.assert()
+        .is_active()
+        .has_cycle_index(0)
+        .has_period_start(jan1)
+        .has_period_end(feb1);
+
+    // Invoice 0: Rate €10 advance only
+    let invoices = env.get_invoices(sub_id).await;
+    invoices.assert().has_count(1);
+    invoices
+        .assert()
+        .invoice_at(0)
+        .with_context("cycle 0 - v1 initial invoice")
+        .is_finalized_unpaid()
+        .has_total(1000);
+
+    // --- Cycle 1: process_cycles → Period [Feb 1, Mar 1] ---
+    env.process_cycles().await;
+
+    let sub = env.get_subscription(sub_id).await;
+    sub.assert()
+        .is_active()
+        .has_cycle_index(1)
+        .has_period_start(feb1)
+        .has_period_end(mar1);
+
+    // Invoice 1: Rate €10 advance + Usage arrear 1000 × €0.10 = €100
+    let invoices = env.get_invoices(sub_id).await;
+    invoices.assert().has_count(2);
+    invoices
+        .assert()
+        .invoice_at(1)
+        .with_context("cycle 1 - v1 rate + usage arrear")
+        .is_finalized_unpaid()
+        .has_total(1000 + 10000); // €10 rate + €100 usage = 11000 cents
+
+    // --- Feb 15: Immediate plan change v1 → v2 (usage price only) ---
+    let result = env
+        .services()
+        .apply_plan_change_immediate_at(
+            sub_id,
+            TENANT_ID,
+            PLAN_VERSION_USAGE_ALPHA_V2_ID,
+            vec![],
+            feb15,
+        )
+        .await
+        .expect("apply_plan_change_immediate_at failed");
+
+    // No adjustment invoice: rate is identical (€10 both versions), usage is arrears-only
+    assert!(
+        result.adjustment_invoice_id.is_none(),
+        "should NOT create adjustment invoice when only usage pricing changes"
+    );
+
+    // Invoice count unchanged (no adjustment created)
+    let invoices = env.get_invoices(sub_id).await;
+    invoices.assert().has_count(2);
+
+    // Verify subscription switched to v2
+    let sub = env.get_subscription(sub_id).await;
+    assert_eq!(sub.plan_version_id, PLAN_VERSION_USAGE_ALPHA_V2_ID);
+
+    // --- Cycle 2: process_cycles → Period [Mar 1, Apr 1] ---
+    env.process_cycles().await;
+
+    let sub = env.get_subscription(sub_id).await;
+    sub.assert()
+        .is_active()
+        .has_cycle_index(2)
+        .has_period_start(mar1);
+
+    // Invoice 2: Rate €10 advance + temporal split usage
+    //   Old API Calls [Feb 1, Feb 15]: 500 × €0.10 = 5000 cents
+    //   New API Calls [Feb 15, Mar 1]: 800 × €0.11 = 8800 cents
+    //   Total: 1000 + 5000 + 8800 = 14800 cents
+    let invoices = env.get_invoices(sub_id).await;
+    invoices.assert().has_count(3);
+
+    let inv = &invoices[2];
+    assert_eq!(
+        inv.total, 14800,
+        "invoice 2 total should be 14800 (rate 1000 + old usage 5000 + new usage 8800)"
+    );
+
+    // Verify rate line
+    let rate_lines: Vec<_> = inv
+        .line_items
+        .iter()
+        .filter(|l| l.metric_id.is_none())
+        .collect();
+    assert_eq!(rate_lines.len(), 1, "should have 1 rate line item");
+    assert_eq!(
+        rate_lines[0].amount_subtotal, 1000,
+        "rate advance should be €10"
+    );
+
+    // Verify usage temporal split: 2 lines for the same metric (old price + new price)
+    let usage_lines: Vec<_> = inv
+        .line_items
+        .iter()
+        .filter(|l| l.metric_id.is_some())
+        .collect();
+    assert_eq!(
+        usage_lines.len(),
+        2,
+        "should have 2 usage line items (temporal split: old + new price)"
+    );
+
+    // Both lines are for METRIC_BANDWIDTH
+    for line in &usage_lines {
+        assert_eq!(
+            line.metric_id,
+            Some(METRIC_BANDWIDTH),
+            "both usage lines should be for METRIC_BANDWIDTH"
+        );
+    }
+
+    // Verify the two usage amounts: 5000 + 8800
+    let usage_total: i64 = usage_lines.iter().map(|l| l.amount_subtotal).sum();
+    assert_eq!(
+        usage_total, 13800,
+        "usage total should be 5000 (old) + 8800 (new) = 13800"
+    );
+
+    // Verify individual amounts exist (order may vary)
+    let mut usage_amounts: Vec<i64> = usage_lines.iter().map(|l| l.amount_subtotal).collect();
+    usage_amounts.sort();
+    assert_eq!(
+        usage_amounts,
+        vec![5000, 8800],
+        "usage line amounts should be 5000 (500 × €0.10) and 8800 (800 × €0.11)"
+    );
+}
+
+// =============================================================================
+// TRIAL PERIOD PLAN CHANGE
+// =============================================================================
+
+/// Plan change during free trial: TrialActive subscription changes plan immediately.
+/// Paid with Free Trial (€49/mo, 14d free trial) → Starter (€29 + €10 seats).
+/// Trial ends immediately, subscription becomes Active, first invoice created.
+#[rstest]
+#[tokio::test]
+async fn test_plan_change_during_free_trial(#[future] test_env: TestEnv) {
+    let env = test_env.await;
+
+    let start_date = NaiveDate::from_ymd_opt(2024, 1, 1).unwrap();
+    let mid_trial = NaiveDate::from_ymd_opt(2024, 1, 8).unwrap(); // day 7 of 14
+
+    let sub_id = subscription()
+        .plan_version(PLAN_VERSION_PAID_FREE_TRIAL_ID)
+        .start_date(start_date)
+        .on_start()
+        .trial_days(14)
+        .create(env.services())
+        .await;
+
+    let sub = env.get_subscription(sub_id).await;
+    sub.assert().is_trial_active();
+
+    // No invoice during free trial
+    let invoices = env.get_invoices(sub_id).await;
+    invoices.assert().assert_empty();
+
+    // Immediate plan change mid-trial: Paid Free Trial → Starter
+    let result = env
+        .services()
+        .apply_plan_change_immediate_at(
+            sub_id,
+            TENANT_ID,
+            PLAN_VERSION_STARTER_ID,
+            vec![],
+            mid_trial,
+        )
+        .await
+        .expect("plan change during trial should succeed");
+
+    // No adjustment invoice during free trial (no charges to prorate)
+    assert!(
+        result.adjustment_invoice_id.is_none(),
+        "should not create adjustment invoice during free trial"
+    );
+
+    // First invoice created at new plan rate
+    assert!(
+        result.first_invoice_id.is_some(),
+        "should create first invoice when ending free trial"
+    );
+
+    // Sub should now be on Starter and Active (trial ended)
+    let sub = env.get_subscription(sub_id).await;
+    assert_eq!(sub.plan_version_id, PLAN_VERSION_STARTER_ID);
+    sub.assert().is_active();
+
+    // Components should reference Starter plan
+    let components = env.get_subscription_components(sub_id).await;
+    assert_eq!(components.len(), 2, "Starter has 2 components");
+    let comp_ids: Vec<_> = components
+        .iter()
+        .filter_map(|c| c.price_component_id)
+        .collect();
+    assert!(comp_ids.contains(&COMP_STARTER_PLATFORM_FEE_ID));
+    assert!(comp_ids.contains(&COMP_STARTER_SEATS_ID));
+}
+
+/// Schedule plan change during trial: TrialActive subscription schedules for end-of-period.
+#[rstest]
+#[tokio::test]
+async fn test_schedule_plan_change_during_trial(#[future] test_env: TestEnv) {
+    let env = test_env.await;
+
+    let start_date = NaiveDate::from_ymd_opt(2024, 1, 1).unwrap();
+
+    let sub_id = subscription()
+        .plan_version(PLAN_VERSION_PAID_FREE_TRIAL_ID)
+        .start_date(start_date)
+        .on_start()
+        .trial_days(14)
+        .create(env.services())
+        .await;
+
+    let sub = env.get_subscription(sub_id).await;
+    sub.assert().is_trial_active();
+
+    // Schedule plan change to Starter at period end
+    let event = env
+        .services()
+        .schedule_plan_change(sub_id, TENANT_ID, PLAN_VERSION_STARTER_ID, vec![])
+        .await
+        .expect("schedule during trial should succeed");
+
+    assert_eq!(event.subscription_id, sub_id);
+}
+
+// =============================================================================
+// CANCELLING SUBSCRIPTION + PLAN CHANGE
+// =============================================================================
+
+/// Customer schedules cancellation, then changes mind and does a plan change instead.
+/// The plan change should replace the pending cancellation event.
+#[rstest]
+#[tokio::test]
+async fn test_plan_change_replaces_pending_cancellation(#[future] test_env: TestEnv) {
+    let env = test_env.await;
+
+    let start_date = NaiveDate::from_ymd_opt(2024, 1, 1).unwrap();
+
+    let sub_id = subscription()
+        .plan_version(PLAN_VERSION_STARTER_ID)
+        .start_date(start_date)
+        .on_start()
+        .no_trial()
+        .create(env.services())
+        .await;
+
+    let sub = env.get_subscription(sub_id).await;
+    sub.assert().is_active();
+
+    // Schedule cancellation at end of period
+    env.services()
+        .cancel_subscription(
+            sub_id,
+            TENANT_ID,
+            Some("want to cancel".to_string()),
+            CancellationEffectiveAt::EndOfBillingPeriod,
+            USER_ID,
+        )
+        .await
+        .expect("cancel_subscription failed");
+
+    // Sub is still Active (cancellation is scheduled, not immediate)
+    let sub = env.get_subscription(sub_id).await;
+    sub.assert().is_active();
+
+    // Now customer changes mind: schedule plan change to Pro (should replace cancellation)
+    env.services()
+        .schedule_plan_change(sub_id, TENANT_ID, PLAN_VERSION_PRO_ID, vec![])
+        .await
+        .expect("plan change should replace pending cancellation");
+
+    // Only the plan change event should be pending (cancellation replaced)
+    let mut conn = env.conn().await;
+    let pending =
+        diesel_models::scheduled_events::ScheduledEventRow::get_pending_events_for_subscription(
+            &mut conn, sub_id, &TENANT_ID,
+        )
+        .await
+        .expect("query pending events");
+
+    assert_eq!(
+        pending.len(),
+        1,
+        "should have exactly one pending event (plan change, not cancellation)"
+    );
+
+    // Execute: should apply plan change, not cancel
+    env.process_cycles().await;
+
+    let sub = env.get_subscription(sub_id).await;
+    assert_eq!(
+        sub.plan_version_id, PLAN_VERSION_PRO_ID,
+        "should be on Pro after plan change (cancellation was replaced)"
+    );
+    sub.assert()
+        .is_active()
+        .has_cycle_index(1)
+        .has_period_start(NaiveDate::from_ymd_opt(2024, 2, 1).unwrap());
+
+    // Pro invoice should exist
+    let invoices = env.get_invoices(sub_id).await;
+    invoices.assert().has_count(2);
+    invoices
+        .assert()
+        .invoice_at(1)
+        .with_context("Pro invoice after replacing cancellation")
+        .is_finalized_unpaid()
+        .has_total(12400); // Pro: €99 + €25 = €124
+}
+
+/// Immediate plan change on a subscription with pending cancellation.
+/// The cancellation event should be cancelled by the immediate plan change.
+#[rstest]
+#[tokio::test]
+async fn test_immediate_plan_change_cancels_pending_cancellation(#[future] test_env: TestEnv) {
+    let env = test_env.await;
+
+    let start_date = NaiveDate::from_ymd_opt(2024, 1, 1).unwrap();
+    let change_date = NaiveDate::from_ymd_opt(2024, 1, 15).unwrap();
+
+    let sub_id = subscription()
+        .plan_version(PLAN_VERSION_STARTER_ID)
+        .start_date(start_date)
+        .on_start()
+        .no_trial()
+        .create(env.services())
+        .await;
+
+    // Schedule cancellation
+    env.services()
+        .cancel_subscription(
+            sub_id,
+            TENANT_ID,
+            None,
+            CancellationEffectiveAt::EndOfBillingPeriod,
+            USER_ID,
+        )
+        .await
+        .expect("cancel_subscription failed");
+
+    // Immediate plan change should override cancellation
+    let result = env
+        .services()
+        .apply_plan_change_immediate_at(sub_id, TENANT_ID, PLAN_VERSION_PRO_ID, vec![], change_date)
+        .await
+        .expect("immediate plan change should succeed despite pending cancellation");
+
+    // Adjustment invoice should exist (upgrade proration)
+    assert!(result.adjustment_invoice_id.is_some());
+
+    let sub = env.get_subscription(sub_id).await;
+    assert_eq!(sub.plan_version_id, PLAN_VERSION_PRO_ID);
+    sub.assert().is_active();
+
+    // No pending events should remain (cancellation was cleared)
+    let mut conn = env.conn().await;
+    let pending =
+        diesel_models::scheduled_events::ScheduledEventRow::get_pending_events_for_subscription(
+            &mut conn, sub_id, &TENANT_ID,
+        )
+        .await
+        .expect("query pending events");
+
+    assert!(
+        pending.is_empty(),
+        "should have no pending events after immediate plan change"
+    );
+}
+
+// =============================================================================
+// MULTIPLE SEQUENTIAL PLAN CHANGES
+// =============================================================================
+
+/// Starter → Pro → Starter: Two immediate plan changes in the same billing period.
+/// Verifies component rotation doesn't stack or leave stale data.
+///
+/// Timeline: Jan 1 start, Jan 10 upgrade to Pro, Jan 20 downgrade back to Starter.
+/// Starter: €29 + €10 seats = €39/mo (3900c)
+/// Pro: €99 + €25 seats = €124/mo (12400c)
+#[rstest]
+#[tokio::test]
+async fn test_sequential_immediate_plan_changes(#[future] test_env: TestEnv) {
+    let env = test_env.await;
+
+    let jan1 = NaiveDate::from_ymd_opt(2024, 1, 1).unwrap();
+    let jan10 = NaiveDate::from_ymd_opt(2024, 1, 10).unwrap();
+    let jan20 = NaiveDate::from_ymd_opt(2024, 1, 20).unwrap();
+    let feb1 = NaiveDate::from_ymd_opt(2024, 2, 1).unwrap();
+
+    let sub_id = subscription()
+        .plan_version(PLAN_VERSION_STARTER_ID)
+        .start_date(jan1)
+        .on_start()
+        .no_trial()
+        .create(env.services())
+        .await;
+
+    let sub = env.get_subscription(sub_id).await;
+    sub.assert().is_active().has_cycle_index(0);
+
+    // Initial invoice: Starter €39
+    let invoices = env.get_invoices(sub_id).await;
+    invoices.assert().has_count(1);
+    invoices.assert().invoice_at(0).has_total(3900);
+
+    // --- Jan 10: Starter → Pro (upgrade) ---
+    let result1 = env
+        .services()
+        .apply_plan_change_immediate_at(sub_id, TENANT_ID, PLAN_VERSION_PRO_ID, vec![], jan10)
+        .await
+        .expect("first plan change (Starter→Pro) failed");
+
+    assert!(
+        result1.adjustment_invoice_id.is_some(),
+        "upgrade should produce adjustment invoice"
+    );
+
+    let sub = env.get_subscription(sub_id).await;
+    assert_eq!(sub.plan_version_id, PLAN_VERSION_PRO_ID);
+    sub.assert().is_active().has_cycle_index(0);
+
+    // Components should be Pro
+    let components = env.get_subscription_components(sub_id).await;
+    assert_eq!(components.len(), 2);
+    let comp_ids: Vec<_> = components
+        .iter()
+        .filter_map(|c| c.price_component_id)
+        .collect();
+    assert!(comp_ids.contains(&COMP_PRO_PLATFORM_FEE_ID));
+    assert!(comp_ids.contains(&COMP_PRO_SEATS_ID));
+
+    // --- Jan 20: Pro → Starter (downgrade) ---
+    let result2 = env
+        .services()
+        .apply_plan_change_immediate_at(sub_id, TENANT_ID, PLAN_VERSION_STARTER_ID, vec![], jan20)
+        .await
+        .expect("second plan change (Pro→Starter) failed");
+
+    let sub = env.get_subscription(sub_id).await;
+    assert_eq!(sub.plan_version_id, PLAN_VERSION_STARTER_ID);
+    sub.assert().is_active().has_cycle_index(0);
+
+    // Components should be back to Starter
+    let components = env.get_subscription_components(sub_id).await;
+    assert_eq!(components.len(), 2);
+    let comp_ids: Vec<_> = components
+        .iter()
+        .filter_map(|c| c.price_component_id)
+        .collect();
+    assert!(comp_ids.contains(&COMP_STARTER_PLATFORM_FEE_ID));
+    assert!(comp_ids.contains(&COMP_STARTER_SEATS_ID));
+
+    // --- Cycle 1: verify renewal at Starter prices ---
+    env.process_cycles().await;
+
+    let sub = env.get_subscription(sub_id).await;
+    sub.assert()
+        .is_active()
+        .has_cycle_index(1)
+        .has_period_start(feb1);
+
+    // Renewal invoice should be at Starter price (€39)
+    let invoices = env.get_invoices(sub_id).await;
+    let renewal = invoices.last().unwrap();
+    assert_eq!(
+        renewal.total, 3900,
+        "renewal after Starter→Pro→Starter should be at Starter price (3900c)"
+    );
+}
+
+/// Three sequential scheduled plan changes: each replaces the previous.
+/// LeetCode → Starter → Pro → back to Starter. Only the last should execute.
+#[rstest]
+#[tokio::test]
+async fn test_sequential_scheduled_plan_changes(#[future] test_env: TestEnv) {
+    let env = test_env.await;
+
+    let start_date = NaiveDate::from_ymd_opt(2024, 1, 1).unwrap();
+
+    let sub_id = subscription()
+        .plan_version(PLAN_VERSION_1_LEETCODE_ID)
+        .start_date(start_date)
+        .on_start()
+        .no_trial()
+        .create(env.services())
+        .await;
+
+    // Schedule 1: LeetCode → Starter
+    env.services()
+        .schedule_plan_change(sub_id, TENANT_ID, PLAN_VERSION_STARTER_ID, vec![])
+        .await
+        .expect("schedule 1 failed");
+
+    // Schedule 2: replaces with → Pro
+    env.services()
+        .schedule_plan_change(sub_id, TENANT_ID, PLAN_VERSION_PRO_ID, vec![])
+        .await
+        .expect("schedule 2 failed");
+
+    // Schedule 3: replaces with → Starter
+    env.services()
+        .schedule_plan_change(sub_id, TENANT_ID, PLAN_VERSION_STARTER_ID, vec![])
+        .await
+        .expect("schedule 3 failed");
+
+    // Only 1 pending event
+    let mut conn = env.conn().await;
+    let pending =
+        diesel_models::scheduled_events::ScheduledEventRow::get_pending_events_for_subscription(
+            &mut conn, sub_id, &TENANT_ID,
+        )
+        .await
+        .expect("query pending events");
+    assert_eq!(pending.len(), 1, "only the last schedule should be pending");
+
+    // Execute
+    env.process_cycles().await;
+
+    let sub = env.get_subscription(sub_id).await;
+    assert_eq!(
+        sub.plan_version_id, PLAN_VERSION_STARTER_ID,
+        "should be on Starter (the last scheduled change)"
+    );
+    sub.assert().is_active().has_cycle_index(1);
+
+    // Invoice should be at Starter price
+    let invoices = env.get_invoices(sub_id).await;
+    invoices
+        .assert()
+        .invoice_at(1)
+        .with_context("Starter invoice after 3 sequential schedules")
+        .is_finalized_unpaid()
+        .has_total(3900);
+}
+
+// =============================================================================
+// CADENCE CHANGE (MONTHLY → ANNUAL)
+// =============================================================================
+
+/// Monthly → Annual plan change. Uses inline-seeded annual rate plan.
+/// Starter Monthly (€29/mo Platform Fee + €10/mo Seats) →
+/// "Annual Rate" plan (€290/yr Platform Fee, same product).
+///
+/// Since the products match, this tests that the component matching resolves
+/// the annual price for the target plan and creates the correct invoice.
+#[rstest]
+#[tokio::test]
+async fn test_plan_change_monthly_to_annual(#[future] test_env: TestEnv) {
+    let env = test_env.await;
+
+    // Inline-seed an annual plan with a single Rate component on PRODUCT_PLATFORM_FEE_ID
+    let annual_plan_id = PlanId::from(uuid!("019500a0-0001-7000-8000-000000000001"));
+    let annual_plan_version_id = PlanVersionId::from(uuid!("019500a0-0002-7000-8000-000000000001"));
+    let annual_comp_rate_id = PriceComponentId::from(uuid!("019500a0-0003-7000-8000-000000000001"));
+    let annual_price_rate_id = PriceId::from(uuid!("019500a0-0004-7000-8000-000000000001"));
+
+    {
+        let mut conn = env.conn().await;
+        use diesel_async::AsyncConnection;
+        use diesel_async::scoped_futures::ScopedFutureExt;
+        conn.transaction(|tx| {
+            async move {
+                use diesel_models::errors::DatabaseErrorContainer;
+                use diesel_models::plan_versions::PlanVersionRowNew;
+                use diesel_models::plans::{PlanRowNew, PlanRowPatch};
+
+                PlanRowNew {
+                    id: annual_plan_id,
+                    name: "Annual Rate".to_string(),
+                    description: None,
+                    created_by: USER_ID,
+                    tenant_id: TENANT_ID,
+                    product_family_id: PRODUCT_FAMILY_ID,
+                    plan_type: diesel_models::enums::PlanTypeEnum::Standard,
+                    status: diesel_models::enums::PlanStatusEnum::Active,
+                }
+                .insert(tx)
+                .await?;
+
+                PlanVersionRowNew {
+                    id: annual_plan_version_id,
+                    is_draft_version: false,
+                    plan_id: annual_plan_id,
+                    version: 1,
+                    trial_duration_days: None,
+                    tenant_id: TENANT_ID,
+                    period_start_day: None,
+                    net_terms: 0,
+                    currency: "EUR".to_string(),
+                    billing_cycles: None,
+                    created_by: USER_ID,
+                    trialing_plan_id: None,
+                    trial_is_free: true,
+                    uses_product_pricing: true,
+                }
+                .insert(tx)
+                .await?;
+
+                PlanRowPatch {
+                    id: annual_plan_id,
+                    tenant_id: TENANT_ID,
+                    name: None,
+                    description: None,
+                    active_version_id: Some(Some(annual_plan_version_id)),
+                    draft_version_id: None,
+                    self_service_rank: None,
+                }
+                .update(tx)
+                .await?;
+
+                PlanSeed::seed_components(
+                    tx,
+                    annual_plan_version_id,
+                    &[SeedComp::rate(
+                        annual_comp_rate_id,
+                        "Platform Fee",
+                        PRODUCT_PLATFORM_FEE_ID,
+                        annual_price_rate_id,
+                        DieselBillingPeriodEnum::Annual,
+                        Decimal::new(29000, 2), // €290/year
+                    )],
+                    "EUR",
+                )
+                .await?;
+
+                Ok::<(), DatabaseErrorContainer>(())
+            }
+            .scope_boxed()
+        })
+        .await
+        .expect("seed annual plan");
+    }
+
+    let start_date = NaiveDate::from_ymd_opt(2024, 1, 1).unwrap();
+    let change_date = NaiveDate::from_ymd_opt(2024, 1, 15).unwrap();
+
+    // Start on Starter (monthly, €29 Platform Fee + €10 Seats)
+    let sub_id = subscription()
+        .plan_version(PLAN_VERSION_STARTER_ID)
+        .start_date(start_date)
+        .on_start()
+        .no_trial()
+        .create(env.services())
+        .await;
+
+    let sub = env.get_subscription(sub_id).await;
+    sub.assert().is_active();
+
+    // Immediate plan change: Monthly Starter → Annual Rate
+    let result = env
+        .services()
+        .apply_plan_change_immediate_at(
+            sub_id,
+            TENANT_ID,
+            annual_plan_version_id,
+            vec![],
+            change_date,
+        )
+        .await
+        .expect("monthly→annual plan change failed");
+
+    let sub = env.get_subscription(sub_id).await;
+    assert_eq!(sub.plan_version_id, annual_plan_version_id);
+    sub.assert().is_active();
+
+    // Components should reference the annual plan
+    let components = env.get_subscription_components(sub_id).await;
+    // Only 1 matched component (Platform Fee); Seats was removed (no matching product in target)
+    let active_comp_ids: Vec<_> = components
+        .iter()
+        .filter_map(|c| c.price_component_id)
+        .collect();
+    assert!(
+        active_comp_ids.contains(&annual_comp_rate_id),
+        "should have annual rate component"
+    );
+
+    // Process cycles to get to next period and verify annual billing
+    env.process_cycles().await;
+
+    let sub = env.get_subscription(sub_id).await;
+    sub.assert().is_active().has_cycle_index(1);
+
+    // The renewal period should be annual (1 year from the billing anchor)
+    let period_start = sub.current_period_start;
+    let period_end = sub.current_period_end.unwrap();
+    let period_days = (period_end - period_start).num_days();
+    assert!(
+        period_days > 300,
+        "annual period should be > 300 days, got {} ({}→{})",
+        period_days,
+        period_start,
+        period_end
+    );
+}
+
+// =============================================================================
+// PLAN CHANGE DURING TRIAL
+// =============================================================================
+
+/// Case 1: Immediate plan change during free trial (admin path).
+///
+/// Start on "Paid with Free Trial" (14-day free trial, Rate €49/mo).
+/// Immediate plan change to Starter (Platform Fee €29 + Seats €10 = €39/mo).
+///
+/// Expected:
+///   - Trial ends immediately, subscription becomes Active
+///   - next_cycle_action changes from EndTrial to RenewSubscription
+///   - Billing period resets to start from change_date
+///   - No adjustment invoice (nothing was charged during free trial)
+///   - First invoice created at Starter prices (€39 = 3900 cents)
+#[rstest]
+#[tokio::test]
+async fn test_plan_change_during_free_trial_immediate(#[future] test_env: TestEnv) {
+    let env = test_env.await;
+
+    let start_date = NaiveDate::from_ymd_opt(2024, 1, 1).unwrap();
+    let change_date = NaiveDate::from_ymd_opt(2024, 1, 8).unwrap(); // Day 7 of 14-day trial
+
+    // Create subscription with free trial
+    let sub_id = subscription()
+        .plan_version(PLAN_VERSION_PAID_FREE_TRIAL_ID)
+        .start_date(start_date)
+        .on_start()
+        .trial_days(14)
+        .create(env.services())
+        .await;
+
+    let sub = env.get_subscription(sub_id).await;
+    sub.assert()
+        .is_trial_active()
+        .has_next_action(Some(diesel_models::enums::CycleActionEnum::EndTrial))
+        .has_period_start(start_date)
+        .has_period_end(NaiveDate::from_ymd_opt(2024, 1, 15).unwrap()); // 14 days from start
+
+    // No invoices during free trial
+    let invoices = env.get_invoices(sub_id).await;
+    invoices.assert().has_count(0);
+
+    // Apply immediate plan change to Starter
+    let result = env
+        .services()
+        .apply_plan_change_immediate_at(
+            sub_id,
+            TENANT_ID,
+            PLAN_VERSION_STARTER_ID,
+            vec![],
+            change_date,
+        )
+        .await
+        .expect("plan change during free trial should succeed");
+
+    // No adjustment invoice (free trial = nothing to prorate)
+    assert!(
+        result.adjustment_invoice_id.is_none(),
+        "should not create adjustment invoice during free trial"
+    );
+
+    // First invoice should be created
+    assert!(
+        result.first_invoice_id.is_some(),
+        "should create first invoice at new plan rate"
+    );
+
+    // Subscription should now be Active on Starter plan
+    let sub = env.get_subscription(sub_id).await;
+    assert_eq!(sub.plan_version_id, PLAN_VERSION_STARTER_ID);
+    sub.assert()
+        .is_active() // Active + RenewSubscription
+        .has_cycle_index(0)
+        .has_period_start(change_date);
+
+    // Billing restarts from change_date with new anchor = change_date day (8th).
+    // First full period: [Jan 8, Feb 8].
+    let period_end = sub.current_period_end.unwrap();
+    assert_eq!(
+        period_end,
+        NaiveDate::from_ymd_opt(2024, 2, 8).unwrap(),
+        "period should be monthly from change_date"
+    );
+
+    // First invoice at Starter prices
+    let invoices = env.get_invoices(sub_id).await;
+    invoices.assert().has_count(1);
+    invoices
+        .assert()
+        .invoice_at(0)
+        .with_context("first invoice after trial plan change")
+        .has_total(3900) // Platform Fee €29 + Seats €10
+        .has_period(change_date, period_end);
+
+    // Components should be Starter components
+    let components = env.get_subscription_components(sub_id).await;
+    assert_eq!(components.len(), 2, "should have 2 Starter components");
+    let comp_ids: Vec<_> = components
+        .iter()
+        .filter_map(|c| c.price_component_id)
+        .collect();
+    assert!(comp_ids.contains(&COMP_STARTER_PLATFORM_FEE_ID));
+    assert!(comp_ids.contains(&COMP_STARTER_SEATS_ID));
+
+    // Verify subscription continues to renew normally
+    env.process_cycles().await;
+
+    let sub = env.get_subscription(sub_id).await;
+    sub.assert()
+        .is_active()
+        .has_cycle_index(1)
+        .has_period_start(NaiveDate::from_ymd_opt(2024, 2, 8).unwrap())
+        .has_period_end(NaiveDate::from_ymd_opt(2024, 3, 8).unwrap());
+
+    let invoices = env.get_invoices(sub_id).await;
+    invoices.assert().has_count(2);
+    invoices
+        .assert()
+        .invoice_at(1)
+        .with_context("second invoice - continued Starter pricing")
+        .has_total(3900);
+}
+
+/// Case 2: Plan change TO a plan that has trial config — no trial applied.
+///
+/// Start on Starter (no trial, Platform Fee €29 + Seats €10 = €39/mo).
+/// Immediate plan change to "Paid with Free Trial" (which has 14-day trial config, Rate €49/mo).
+///
+/// Expected:
+///   - Subscription stays Active (no trial started)
+///   - Components change to the new plan's Rate
+///   - Normal proration applies
+///   - Trials only apply at initial subscription creation
+#[rstest]
+#[tokio::test]
+async fn test_plan_change_to_trial_plan_no_trial_applied(#[future] test_env: TestEnv) {
+    let env = test_env.await;
+
+    let start_date = NaiveDate::from_ymd_opt(2024, 1, 1).unwrap();
+    let change_date = NaiveDate::from_ymd_opt(2024, 1, 16).unwrap();
+
+    let sub_id = subscription()
+        .plan_version(PLAN_VERSION_STARTER_ID)
+        .start_date(start_date)
+        .on_start()
+        .no_trial()
+        .create(env.services())
+        .await;
+
+    let sub = env.get_subscription(sub_id).await;
+    sub.assert().is_active();
+
+    // Apply immediate plan change to "Paid with Free Trial" plan
+    let result = env
+        .services()
+        .apply_plan_change_immediate_at(
+            sub_id,
+            TENANT_ID,
+            PLAN_VERSION_PAID_FREE_TRIAL_ID,
+            vec![],
+            change_date,
+        )
+        .await
+        .expect("plan change to trial plan should succeed");
+
+    // Subscription should remain Active (no trial started)
+    let sub = env.get_subscription(sub_id).await;
+    assert_eq!(sub.plan_version_id, PLAN_VERSION_PAID_FREE_TRIAL_ID);
+    sub.assert()
+        .is_active() // NOT TrialActive
+        .has_cycle_index(0);
+
+    // No first invoice (not a trial transition)
+    assert!(
+        result.first_invoice_id.is_none(),
+        "should not create first_invoice (not a trial)"
+    );
+
+    // Should have adjustment invoice (proration from Starter→PaidFreeTrial)
+    // Starter: 3900/mo, PaidFreeTrial: 4900/mo → upgrade proration
+    assert!(
+        result.adjustment_invoice_id.is_some(),
+        "should create adjustment invoice for proration"
+    );
+
+    // Components should be the new plan's Rate component
+    let components = env.get_subscription_components(sub_id).await;
+    assert_eq!(components.len(), 1, "PaidFreeTrial has 1 Rate component");
+    assert_eq!(
+        components[0].price_component_id,
+        Some(COMP_PAID_FREE_TRIAL_RATE_ID)
+    );
+
+    // Verify subscription continues to renew normally at new price
+    env.process_cycles().await;
+
+    let sub = env.get_subscription(sub_id).await;
+    sub.assert().is_active().has_cycle_index(1);
+
+    let invoices = env.get_invoices(sub_id).await;
+    // Initial Starter + adjustment + renewal at new rate = 3 invoices
+    invoices.assert().has_count(3);
+    invoices
+        .assert()
+        .invoice_at(2)
+        .with_context("renewal at PaidFreeTrial rate")
+        .has_total(4900);
 }

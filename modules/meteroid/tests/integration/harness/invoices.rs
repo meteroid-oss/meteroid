@@ -3,6 +3,7 @@
 use common_domain::ids::{InvoiceId, SubscriptionId};
 use meteroid_store::domain::{DetailedInvoice, Invoice, OrderByRequest, PaginationRequest};
 use meteroid_store::repositories::InvoiceInterface;
+use meteroid_store::repositories::payment_transactions::PaymentTransactionInterface;
 
 use crate::data::ids::TENANT_ID;
 
@@ -34,9 +35,20 @@ impl TestEnv {
 
     /// Get detailed invoice including transactions.
     pub async fn get_detailed_invoice(&self, invoice_id: InvoiceId) -> DetailedInvoice {
-        self.store()
+        let detailed = self
+            .store()
             .get_detailed_invoice_by_id(TENANT_ID, invoice_id)
             .await
-            .expect("Failed to get detailed invoice")
+            .expect("Failed to get detailed invoice");
+
+        let transactions = self
+            .store()
+            .list_payment_tx_by_invoice_id(TENANT_ID, invoice_id)
+            .await
+            .expect("Failed to list payment transactions");
+
+        let domain_transactions = transactions.into_iter().map(|t| t.transaction).collect();
+
+        detailed.with_transactions(domain_transactions)
     }
 }

@@ -351,4 +351,5 @@ pub enum CheckoutTypeEnum {
     #[default]
     SelfServe,
     SubscriptionActivation,
+    PlanChange,
 }

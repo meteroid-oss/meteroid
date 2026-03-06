@@ -64,10 +64,23 @@ ALTER TABLE quote_component ADD COLUMN price_id UUID REFERENCES price(id);
 ALTER TABLE quote_add_on ADD COLUMN product_id UUID REFERENCES product(id);
 ALTER TABLE quote_add_on ADD COLUMN price_id UUID REFERENCES price(id);
 
+-- Nullify product references before deleting products, to avoid CASCADE deleting subscription/quote data
+UPDATE subscription_component SET product_id = NULL WHERE product_id IN (SELECT id FROM product WHERE fee_type IS NULL OR fee_structure IS NULL);
+UPDATE quote_component SET product_id = NULL WHERE product_id IN (SELECT id FROM product WHERE fee_type IS NULL OR fee_structure IS NULL);
+
 -- Delete products without pricing (no valid use without fee_type/fee_structure)
 DELETE FROM product WHERE fee_type IS NULL OR fee_structure IS NULL;
 ALTER TABLE product ALTER COLUMN fee_type SET NOT NULL;
 ALTER TABLE product ALTER COLUMN fee_structure SET NOT NULL;
+
+-- Fix CASCADE on subscription_component and quote_component to SET NULL (product_id is optional)
+ALTER TABLE subscription_component DROP CONSTRAINT subscription_component_product_item_id_fkey;
+ALTER TABLE subscription_component ADD CONSTRAINT subscription_component_product_item_id_fkey
+    FOREIGN KEY (product_id) REFERENCES product(id) ON DELETE SET NULL;
+
+ALTER TABLE quote_component DROP CONSTRAINT quote_component_product_id_fkey;
+ALTER TABLE quote_component ADD CONSTRAINT quote_component_product_id_fkey
+    FOREIGN KEY (product_id) REFERENCES product(id) ON DELETE SET NULL;
 
 -- FK indexes for new columns
 CREATE INDEX idx_add_on_plan_version ON add_on(plan_version_id);

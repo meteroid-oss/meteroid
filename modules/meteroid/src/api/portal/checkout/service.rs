@@ -1,6 +1,7 @@
 use crate::api::customers::mapping::customer::ServerCustomerWrapper;
 use crate::api::portal::checkout::PortalCheckoutServiceComponents;
 use crate::api::portal::checkout::error::PortalCheckoutApiError;
+use crate::api::shared::conversions::ProtoConv;
 use crate::services::storage::Prefix;
 use common_domain::ids::{AppliedCouponId, BaseId, CustomerPaymentMethodId, TenantId};
 use common_grpc::middleware::server::auth::{RequestExt, ResourceAccess};
@@ -12,7 +13,8 @@ use meteroid_grpc::meteroid::portal::checkout::v1::{
     AppliedCoupon, Checkout, CheckoutType, ConfirmCheckoutRequest, ConfirmCheckoutResponse,
     ConfirmCheckoutStatus, ConfirmSlotUpgradeCheckoutRequest, ConfirmSlotUpgradeCheckoutResponse,
     GetCheckoutRequest, GetCheckoutResponse, GetSlotUpgradeCheckoutRequest,
-    GetSlotUpgradeCheckoutResponse, SlotUpgradeCheckout, TaxBreakdownItem,
+    GetSlotUpgradeCheckoutResponse, PlanChangeCheckoutContext, SlotUpgradeCheckout,
+    TaxBreakdownItem,
 };
 use meteroid_store::constants::Currencies;
 use meteroid_store::domain::SubscriptionFeeInterface;
@@ -25,6 +27,7 @@ use meteroid_store::domain::subscription_coupons::{
 use meteroid_store::domain::{Period, SubscriptionDetails};
 use meteroid_store::errors::StoreError;
 use meteroid_store::repositories::OrganizationsInterface;
+use meteroid_store::repositories::PlansInterface;
 use meteroid_store::repositories::bank_accounts::BankAccountsInterface;
 use meteroid_store::repositories::checkout_sessions::CheckoutSessionsInterface;
 use meteroid_store::repositories::coupons::CouponInterface;
@@ -76,7 +79,9 @@ impl PortalCheckoutService for PortalCheckoutServiceComponents {
             ));
         }
 
-        let (subscription_details, proto_checkout_type) = match session.checkout_type {
+        let (subscription_details, proto_checkout_type, plan_change_context) = match session
+            .checkout_type
+        {
             DomainCheckoutType::SubscriptionActivation => {
                 let subscription_id = session.subscription_id.ok_or_else(|| {
                     Status::internal("Session has no linked subscription for activation flow")
@@ -95,7 +100,7 @@ impl PortalCheckoutService for PortalCheckoutServiceComponents {
                     sub_details.applied_coupons.push(preview_coupon);
                 }
 
-                (sub_details, CheckoutType::SubscriptionActivation)
+                (sub_details, CheckoutType::SubscriptionActivation, None)
             }
             DomainCheckoutType::SelfServe => {
                 let sub_details = self
@@ -104,7 +109,74 @@ impl PortalCheckoutService for PortalCheckoutServiceComponents {
                     .await
                     .map_err(Into::<PortalCheckoutApiError>::into)?;
 
-                (sub_details, CheckoutType::SelfServe)
+                (sub_details, CheckoutType::SelfServe, None)
+            }
+            DomainCheckoutType::PlanChange => {
+                let subscription_id = session.subscription_id.ok_or_else(|| {
+                    Status::internal("Session has no linked subscription for plan change flow")
+                })?;
+
+                let sub_details = self
+                    .store
+                    .get_subscription_details(tenant, subscription_id)
+                    .await
+                    .map_err(Into::<PortalCheckoutApiError>::into)?;
+
+                let new_plan_version_id = session.plan_version_id;
+
+                let target_plan = self
+                    .store
+                    .get_plan_by_version_id(new_plan_version_id, tenant)
+                    .await
+                    .map_err(Into::<PortalCheckoutApiError>::into)?;
+
+                let change_date = session.change_date.ok_or_else(|| {
+                    Status::internal("PlanChange checkout session missing change_date")
+                })?;
+
+                let preview = self
+                    .services
+                    .preview_plan_change(
+                        subscription_id,
+                        tenant,
+                        new_plan_version_id,
+                        vec![],
+                        Some(
+                            meteroid_store::domain::subscription_changes::PlanChangeMode::Immediate,
+                        ),
+                    )
+                    .await
+                    .map_err(Into::<PortalCheckoutApiError>::into)?;
+
+                let ctx = PlanChangeCheckoutContext {
+                    current_plan_name: sub_details.subscription.plan_name.clone(),
+                    new_plan_name: target_plan.plan.name.clone(),
+                    effective_date: preview.preview.effective_date.as_proto(),
+                    net_amount_cents: preview.proration.as_ref().map(|p| p.net_amount_cents),
+                    credits_total_cents: preview.proration.as_ref().map(|p| p.credits_total_cents),
+                    charges_total_cents: preview.proration.as_ref().map(|p| p.charges_total_cents),
+                };
+
+                let invoice_content = self
+                    .services
+                    .compute_plan_change_checkout_invoice(
+                        subscription_id,
+                        tenant,
+                        new_plan_version_id,
+                        change_date,
+                    )
+                    .await
+                    .map_err(Into::<PortalCheckoutApiError>::into)?;
+
+                let checkout = self
+                    .build_checkout_response(tenant, sub_details.clone(), invoice_content)
+                    .await?;
+
+                return Ok(Response::new(GetCheckoutResponse {
+                    checkout: Some(checkout),
+                    checkout_type: CheckoutType::PlanChange as i32,
+                    plan_change_context: Some(ctx),
+                }));
             }
         };
 
@@ -126,6 +198,7 @@ impl PortalCheckoutService for PortalCheckoutServiceComponents {
         Ok(Response::new(GetCheckoutResponse {
             checkout: Some(checkout),
             checkout_type: proto_checkout_type as i32,
+            plan_change_context,
         }))
     }
 
@@ -410,9 +483,16 @@ impl PortalCheckoutService for PortalCheckoutServiceComponents {
         } else {
             base_amount
         };
+        let currency = Currencies::resolve_currency(&subscription_details.subscription.currency)
+            .ok_or_else(|| {
+                tonic::Status::internal(format!(
+                    "Currency {} not found",
+                    subscription_details.subscription.currency
+                ))
+            })?;
         let expected_amount_subunits = prorated
             .max(rust_decimal::Decimal::ZERO)
-            .to_subunit_opt(2)
+            .to_subunit_opt(currency.precision)
             .unwrap_or(0);
 
         // Validate with tolerance
@@ -576,6 +656,8 @@ impl PortalCheckoutServiceComponents {
             subtotal_amount: invoice_content.subtotal.to_non_negative_u64(),
             tax_amount: invoice_content.tax_amount.to_non_negative_u64(),
             discount_amount: invoice_content.discount.to_non_negative_u64(),
+            applied_credits: invoice_content.applied_credits.to_non_negative_u64(),
+            amount_due: invoice_content.amount_due.to_non_negative_u64(),
             coupon_amount: coupon_amount.to_non_negative_u64(),
             tax_breakdown,
             applied_coupons,

@@ -45,6 +45,8 @@ pub struct ProrationSummary {
 #[derive(Debug, Clone)]
 pub struct ImmediatePlanChangeResult {
     pub adjustment_invoice_id: Option<InvoiceId>,
+    /// First invoice created when plan change ends a free trial.
+    pub first_invoice_id: Option<InvoiceId>,
     pub effective_date: NaiveDate,
 }
 

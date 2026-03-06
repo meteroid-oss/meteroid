@@ -274,6 +274,7 @@ impl Services {
                         tenant_id,
                         draft_invoice.id,
                         &charge_result,
+                        None,
                     )
                     .await?
                 };

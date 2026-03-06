@@ -20,6 +20,8 @@ message Checkout {
   uint64 discount_amount = 13;
   uint64 coupon_amount = 16;     // Total from applied coupons
   uint64 total_amount = 8;
+  uint64 applied_credits = 20;   // Credits from customer balance applied to this invoice
+  uint64 amount_due = 21;        // Actual amount to charge (total - applied_credits)
   repeated TaxBreakdownItem tax_breakdown = 14;
   repeated AppliedCoupon applied_coupons = 15;
   optional string logo_url = 10;

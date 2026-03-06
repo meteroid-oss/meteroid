@@ -1,4 +1,5 @@
 import { Customer, CustomerPaymentMethod } from '@/rpc/api/customers/v1/models_pb'
+import { CheckoutType, PlanChangeCheckoutContext } from '@/rpc/portal/checkout/v1/checkout_pb'
 import { Checkout } from '@/rpc/portal/checkout/v1/models_pb'
 
 /**
@@ -44,4 +45,6 @@ export interface PaymentPanelProps {
  */
 export interface CheckoutFlowProps {
   checkoutData: Checkout
+  checkoutType?: CheckoutType
+  planChangeContext?: PlanChangeCheckoutContext
 }

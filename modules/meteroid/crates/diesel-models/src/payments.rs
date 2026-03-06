@@ -2,8 +2,8 @@ use crate::customer_payment_methods::CustomerPaymentMethodRow;
 use crate::enums::{PaymentStatusEnum, PaymentTypeEnum};
 use chrono::NaiveDateTime;
 use common_domain::ids::{
-    CheckoutSessionId, CustomerPaymentMethodId, InvoiceId, PaymentTransactionId, StoredDocumentId,
-    TenantId,
+    CheckoutSessionId, CustomerPaymentMethodId, InvoiceId, PaymentTransactionId, PlanVersionId,
+    StoredDocumentId, TenantId,
 };
 use diesel::{AsChangeset, Associations, Identifiable, Insertable, Queryable, Selectable};
 
@@ -28,6 +28,7 @@ pub struct PaymentTransactionRow {
     pub error_type: Option<String>,
     pub receipt_pdf_id: Option<StoredDocumentId>,
     pub checkout_session_id: Option<CheckoutSessionId>,
+    pub pending_plan_version_id: Option<PlanVersionId>,
 }
 
 #[derive(Debug, Insertable)]
@@ -46,6 +47,7 @@ pub struct PaymentTransactionRowNew {
     pub error_type: Option<String>,
     pub processed_at: Option<NaiveDateTime>,
     pub checkout_session_id: Option<CheckoutSessionId>,
+    pub pending_plan_version_id: Option<PlanVersionId>,
 }
 
 #[derive(AsChangeset, Default)]
