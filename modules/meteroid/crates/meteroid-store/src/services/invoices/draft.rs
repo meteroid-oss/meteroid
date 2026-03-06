@@ -4,6 +4,7 @@ use crate::domain::{
     InvoiceStatusEnum, InvoiceType, LineItem, Subscription, SubscriptionDetails,
 };
 use crate::errors::{StoreError, StoreErrorReport};
+use crate::repositories::customer_balance::convert_currency;
 use crate::repositories::invoices::insert_invoice_tx;
 use crate::repositories::invoicing_entities::{
     InvoicingEntityInterface, InvoicingEntityInterfaceAuto,
@@ -299,7 +300,14 @@ impl Services {
         let total = subtotal + tax_amount;
 
         let applied_credits = if total > 0 {
-            std::cmp::min(total as u64, customer.balance_value_cents.max(0) as u64) as i64
+            let balance_in_invoice_currency = convert_currency(
+                conn,
+                customer.balance_value_cents.max(0),
+                &customer.currency,
+                &subscription.currency,
+            )
+            .await?;
+            std::cmp::min(total as u64, balance_in_invoice_currency.max(0) as u64) as i64
         } else {
             0
         };
@@ -334,6 +342,24 @@ impl Services {
             .compute_adjustment_invoice_content(conn, tenant_id, subscription, customer, proration)
             .await?;
 
+        self.create_adjustment_invoice_from_content(
+            conn,
+            subscription,
+            customer,
+            proration,
+            content,
+        )
+        .await
+    }
+
+    pub(in crate::services) async fn create_adjustment_invoice_from_content(
+        &self,
+        conn: &mut PgConn,
+        subscription: &Subscription,
+        customer: &Customer,
+        proration: &ProrationResult,
+        content: AdjustmentInvoiceContent,
+    ) -> Result<Option<Invoice>, StoreErrorReport> {
         if content.computed.total == 0 && content.computed.invoice_lines.is_empty() {
             return Ok(None);
         }
@@ -344,7 +370,7 @@ impl Services {
                 self.store
                     .get_invoicing_entity_with_conn(
                         conn,
-                        tenant_id,
+                        subscription.tenant_id,
                         Some(customer.invoicing_entity_id),
                     )
                     .await?

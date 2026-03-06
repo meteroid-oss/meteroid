@@ -147,7 +147,7 @@ export const StepConfirm = () => {
           subscriptionId: state.subscriptionId,
         }),
       })
-      navigate('..')
+      navigate(`../${state.subscriptionId}`, { replace: true })
     } catch (error) {
       const message = error instanceof Error ? error.message : 'Failed to schedule plan change'
       toast.error(message)

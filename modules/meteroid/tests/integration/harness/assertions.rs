@@ -405,6 +405,21 @@ impl<'a> InvoiceAssert<'a> {
         self
     }
 
+    /// Assert the invoice applied_credits.
+    #[allow(dead_code)]
+    pub fn has_applied_credits(self, expected: i64) -> Self {
+        assert_eq!(
+            self.invoice.applied_credits,
+            expected,
+            "{}",
+            self.format_msg(&format!(
+                "Expected applied_credits={}, got {}",
+                expected, self.invoice.applied_credits
+            ))
+        );
+        self
+    }
+
     /// Assert the invoice amount_due.
     #[allow(dead_code)]
     pub fn has_amount_due(self, expected: i64) -> Self {

@@ -793,6 +793,7 @@ export const InvoiceSummaryLines: React.FC<{ invoice: DetailedInvoice }> = ({ in
   const subtotal = Number(invoice.subtotal) || 0
   const taxAmount = Number(invoice.taxAmount) || 0
   const total = Number(invoice.total) || 0
+  const appliedCredits = Number(invoice.appliedCredits) || 0
 
   return (
     <div className="space-y-1">
@@ -839,6 +840,17 @@ export const InvoiceSummaryLines: React.FC<{ invoice: DetailedInvoice }> = ({ in
           }
         />
       </div>
+
+      {appliedCredits > 0 && (
+        <FlexDetails
+          title="Credits applied"
+          value={
+            <span className="text-success">
+              -{formatCurrency(appliedCredits, invoice.currency)}
+            </span>
+          }
+        />
+      )}
     </div>
   )
 }

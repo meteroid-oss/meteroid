@@ -103,7 +103,8 @@ impl Services {
                 },
             };
 
-            let already_paid_amount = invoice.total - invoice.amount_due;
+            // Actual payments already applied (excludes credits, which compute_invoice recalculates)
+            let already_paid_amount = invoice.total - invoice.amount_due - invoice.applied_credits;
 
             self.compute_invoice(
                 conn,

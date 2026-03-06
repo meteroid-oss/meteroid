@@ -10,8 +10,8 @@ import { getCheckoutPaymentAvailability } from '@/features/checkout/utils/paymen
 import { BillingInfo } from '@/features/customers/components/BillingInfo'
 import { BankTransferInfo } from '@/features/invoice-payment/components/BankTransferInfo'
 import {
-  getCheckout,
   confirmCheckout,
+  getCheckout,
 } from '@/rpc/portal/checkout/v1/checkout-PortalCheckoutService_connectquery'
 import { CheckoutType } from '@/rpc/portal/checkout/v1/checkout_pb'
 import { Checkout } from '@/rpc/portal/checkout/v1/models_pb'
@@ -37,7 +37,7 @@ const CheckoutFlow: React.FC<CheckoutFlowProps> = ({
     subscription,
     customer,
     paymentMethods,
-    totalAmount,
+    amountDue,
     cardConnectionId,
     directDebitConnectionId,
     bankAccount,
@@ -112,7 +112,7 @@ const CheckoutFlow: React.FC<CheckoutFlowProps> = ({
       }
 
       await confirmCheckoutMutation.mutateAsync({
-        displayedAmount: totalAmount,
+        displayedAmount: amountDue,
         displayedCurrency: subscription.subscription.currency,
         paymentMethodId,
         couponCode: couponCode.trim() || undefined,
@@ -222,7 +222,7 @@ const CheckoutFlow: React.FC<CheckoutFlowProps> = ({
                     customer={customer}
                     paymentMethods={paymentMethods || []}
                     currency={subscription.subscription.currency}
-                    totalAmount={formatCurrency(totalAmount, subscription.subscription.currency)}
+                    totalAmount={formatCurrency(amountDue, subscription.subscription.currency)}
                     onPaymentSubmit={handlePaymentSubmit}
                     cardConnectionId={paymentAvailability.cardConnectionId}
                     directDebitConnectionId={paymentAvailability.directDebitConnectionId}
