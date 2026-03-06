@@ -25,6 +25,33 @@ pub(super) async fn wait_for_ok(port: HttpPort) -> anyhow::Result<()> {
         })
         .await?;
 
+    // Wait for embedded Keeper to be ready (needed for ReplicatedMergeTree ON CLUSTER).
+    // ClickHouse HTTP may respond before Keeper has elected a leader.
+    (|| async { test_keeper_endpoint(port).await })
+        .retry(
+            backon::ConstantBuilder::default()
+                .with_delay(Duration::from_secs(1))
+                .with_max_times(30),
+        )
+        .notify(|err: &anyhow::Error, dur: Duration| {
+            log::info!(
+                "Retrying ClickHouse Keeper readiness after {:?}, error: {}",
+                dur,
+                err
+            );
+        })
+        .await?;
+
+    Ok(())
+}
+
+async fn test_keeper_endpoint(port: HttpPort) -> anyhow::Result<()> {
+    let client = get_client(port);
+    // Fails until Keeper has elected a leader and ZooKeeper path access works.
+    client
+        .query("SELECT name FROM system.zookeeper WHERE path = '/'")
+        .fetch_all::<String>()
+        .await?;
     Ok(())
 }
 

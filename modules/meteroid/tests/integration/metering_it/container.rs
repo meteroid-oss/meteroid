@@ -1,3 +1,4 @@
+use backon::Retryable;
 use std::time::Duration;
 use testcontainers::core::{IntoContainerPort, WaitFor};
 use testcontainers::runners::AsyncRunner;
@@ -36,7 +37,25 @@ pub async fn start_metering(config: Config) -> MeteringSetup {
         }
     });
 
-    tokio::time::sleep(Duration::from_secs(1)).await;
+    // Wait until the server is actually accepting TCP connections rather than sleeping a
+    // fixed duration. Migrations (including ON CLUSTER ReplicatedMergeTree) can take several
+    // seconds, and the gRPC port is only bound after they complete.
+    let addr = config.listen_addr;
+    (|| async {
+        tokio::net::TcpStream::connect(addr)
+            .await
+            .map_err(anyhow::Error::from)
+    })
+    .retry(
+        backon::ConstantBuilder::default()
+            .with_delay(Duration::from_millis(500))
+            .with_max_times(120),
+    )
+    .notify(|_err: &anyhow::Error, _dur: Duration| {
+        log::info!("Waiting for metering server to start on {addr}...");
+    })
+    .await
+    .unwrap_or_else(|_| panic!("Metering server did not start within 60 seconds on {addr}"));
 
     let metering_endpoint = format!("http://{}", config.listen_addr);
 
