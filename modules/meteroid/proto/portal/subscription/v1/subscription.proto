@@ -19,9 +19,8 @@ enum ChangeDirection {
 
 enum PlanChangeStatus {
   PLAN_CHANGE_COMPLETED = 0;
-  PLAN_CHANGE_AWAITING_PAYMENT = 1;
-  PLAN_CHANGE_SCHEDULED = 2;
-  PLAN_CHANGE_CHECKOUT_REQUIRED = 3;
+  PLAN_CHANGE_SCHEDULED = 1;
+  PLAN_CHANGE_CHECKOUT_REQUIRED = 2;
 }
 
 message ProrationSummary {
@@ -114,7 +113,6 @@ message PreviewPlanChangeResponse {
 message ConfirmPlanChangeRequest {
   string subscription_id = 1;
   string new_plan_version_id = 2;
-  optional string payment_method_id = 3;
 }
 
 message ConfirmPlanChangeResponse {

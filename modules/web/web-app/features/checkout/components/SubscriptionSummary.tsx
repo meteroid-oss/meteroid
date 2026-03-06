@@ -1,7 +1,7 @@
 import { Button, Input } from '@md/ui'
 import { useState } from 'react'
 
-import { formatCurrency, rateToPercent } from '@/lib/utils/numbers'
+import { formatCurrency, formatCurrencyNoRounding, rateToPercent } from '@/lib/utils/numbers'
 import { Checkout } from '@/rpc/portal/checkout/v1/models_pb'
 
 import type { PlanChangeCheckoutContext } from '@/rpc/portal/checkout/v1/checkout_pb'
@@ -103,9 +103,7 @@ const SubscriptionSummary: React.FC<SubscriptionSummaryProps> = ({
         ) : (
           <>
             {/* Show billing frequency TODO */}
-            <div className="text-sm text-gray-600 mt-1">
-              Billed monthly
-            </div>
+            <div className="text-sm text-gray-600 mt-1">Billed monthly</div>
 
             {isInTrial && (
               <div className="mt-2 inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium bg-blue-100 text-blue-800">
@@ -128,7 +126,7 @@ const SubscriptionSummary: React.FC<SubscriptionSummaryProps> = ({
               {line.quantity && line.unitPrice && Number(line.quantity) > 1 && (
                 <div className="text-xs text-muted-foreground">
                   {/* TODO */}
-                  {line.quantity} × {formatCurrency(Number(line.unitPrice) * 100, currency)}
+                  {line.quantity} × {formatCurrencyNoRounding(Number(line.unitPrice), currency)}
                 </div>
               )}
               {line.isProrated && line.startDate && line.endDate && (

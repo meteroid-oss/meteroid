@@ -130,6 +130,10 @@ impl PortalCheckoutService for PortalCheckoutServiceComponents {
                     .await
                     .map_err(Into::<PortalCheckoutApiError>::into)?;
 
+                let change_date = session.change_date.ok_or_else(|| {
+                    Status::internal("PlanChange checkout session missing change_date")
+                })?;
+
                 let preview = self
                     .services
                     .preview_plan_change(
@@ -153,7 +157,26 @@ impl PortalCheckoutService for PortalCheckoutServiceComponents {
                     charges_total_cents: preview.proration.as_ref().map(|p| p.charges_total_cents),
                 };
 
-                (sub_details, CheckoutType::PlanChange, Some(ctx))
+                let invoice_content = self
+                    .services
+                    .compute_plan_change_checkout_invoice(
+                        subscription_id,
+                        tenant,
+                        new_plan_version_id,
+                        change_date,
+                    )
+                    .await
+                    .map_err(Into::<PortalCheckoutApiError>::into)?;
+
+                let checkout = self
+                    .build_checkout_response(tenant, sub_details.clone(), invoice_content)
+                    .await?;
+
+                return Ok(Response::new(GetCheckoutResponse {
+                    checkout: Some(checkout),
+                    checkout_type: CheckoutType::PlanChange as i32,
+                    plan_change_context: Some(ctx),
+                }));
             }
         };
 
@@ -460,9 +483,16 @@ impl PortalCheckoutService for PortalCheckoutServiceComponents {
         } else {
             base_amount
         };
+        let currency = Currencies::resolve_currency(&subscription_details.subscription.currency)
+            .ok_or_else(|| {
+                tonic::Status::internal(format!(
+                    "Currency {} not found",
+                    subscription_details.subscription.currency
+                ))
+            })?;
         let expected_amount_subunits = prorated
             .max(rust_decimal::Decimal::ZERO)
-            .to_subunit_opt(2)
+            .to_subunit_opt(currency.precision)
             .unwrap_or(0);
 
         // Validate with tolerance

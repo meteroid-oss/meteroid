@@ -23,10 +23,10 @@ use meteroid_store::domain::subscription_components::{
     ComponentParameterization, ComponentParameters,
 };
 use meteroid_store::domain::{BillingType, Period, SlotUpgradeBillingMode, UsagePricingModel};
+use meteroid_store::repositories::subscriptions::slots::SubscriptionSlotsInterfaceAuto;
 use meteroid_store::repositories::subscriptions::{
     CancellationEffectiveAt, SubscriptionInterfaceAuto,
 };
-use meteroid_store::repositories::subscriptions::slots::SubscriptionSlotsInterfaceAuto;
 use rust_decimal::Decimal;
 
 // =============================================================================
@@ -2843,7 +2843,7 @@ async fn test_immediate_plan_change_usage_price_only() {
 
 /// Plan change during free trial: TrialActive subscription changes plan immediately.
 /// Paid with Free Trial (€49/mo, 14d free trial) → Starter (€29 + €10 seats).
-/// During trial, the subscription should switch plan but remain in trial.
+/// Trial ends immediately, subscription becomes Active, first invoice created.
 #[rstest]
 #[tokio::test]
 async fn test_plan_change_during_free_trial(#[future] test_env: TestEnv) {
@@ -2886,10 +2886,16 @@ async fn test_plan_change_during_free_trial(#[future] test_env: TestEnv) {
         "should not create adjustment invoice during free trial"
     );
 
-    // Sub should now be on Starter but still in trial
+    // First invoice created at new plan rate
+    assert!(
+        result.first_invoice_id.is_some(),
+        "should create first invoice when ending free trial"
+    );
+
+    // Sub should now be on Starter and Active (trial ended)
     let sub = env.get_subscription(sub_id).await;
     assert_eq!(sub.plan_version_id, PLAN_VERSION_STARTER_ID);
-    sub.assert().is_trial_active();
+    sub.assert().is_active();
 
     // Components should reference Starter plan
     let components = env.get_subscription_components(sub_id).await;
@@ -3049,13 +3055,7 @@ async fn test_immediate_plan_change_cancels_pending_cancellation(#[future] test_
     // Immediate plan change should override cancellation
     let result = env
         .services()
-        .apply_plan_change_immediate_at(
-            sub_id,
-            TENANT_ID,
-            PLAN_VERSION_PRO_ID,
-            vec![],
-            change_date,
-        )
+        .apply_plan_change_immediate_at(sub_id, TENANT_ID, PLAN_VERSION_PRO_ID, vec![], change_date)
         .await
         .expect("immediate plan change should succeed despite pending cancellation");
 
@@ -3120,13 +3120,7 @@ async fn test_sequential_immediate_plan_changes(#[future] test_env: TestEnv) {
     // --- Jan 10: Starter → Pro (upgrade) ---
     let result1 = env
         .services()
-        .apply_plan_change_immediate_at(
-            sub_id,
-            TENANT_ID,
-            PLAN_VERSION_PRO_ID,
-            vec![],
-            jan10,
-        )
+        .apply_plan_change_immediate_at(sub_id, TENANT_ID, PLAN_VERSION_PRO_ID, vec![], jan10)
         .await
         .expect("first plan change (Starter→Pro) failed");
 
@@ -3152,13 +3146,7 @@ async fn test_sequential_immediate_plan_changes(#[future] test_env: TestEnv) {
     // --- Jan 20: Pro → Starter (downgrade) ---
     let result2 = env
         .services()
-        .apply_plan_change_immediate_at(
-            sub_id,
-            TENANT_ID,
-            PLAN_VERSION_STARTER_ID,
-            vec![],
-            jan20,
-        )
+        .apply_plan_change_immediate_at(sub_id, TENANT_ID, PLAN_VERSION_STARTER_ID, vec![], jan20)
         .await
         .expect("second plan change (Pro→Starter) failed");
 
@@ -3276,10 +3264,8 @@ async fn test_plan_change_monthly_to_annual(#[future] test_env: TestEnv) {
 
     // Inline-seed an annual plan with a single Rate component on PRODUCT_PLATFORM_FEE_ID
     let annual_plan_id = PlanId::from(uuid!("019500a0-0001-7000-8000-000000000001"));
-    let annual_plan_version_id =
-        PlanVersionId::from(uuid!("019500a0-0002-7000-8000-000000000001"));
-    let annual_comp_rate_id =
-        PriceComponentId::from(uuid!("019500a0-0003-7000-8000-000000000001"));
+    let annual_plan_version_id = PlanVersionId::from(uuid!("019500a0-0002-7000-8000-000000000001"));
+    let annual_comp_rate_id = PriceComponentId::from(uuid!("019500a0-0003-7000-8000-000000000001"));
     let annual_price_rate_id = PriceId::from(uuid!("019500a0-0004-7000-8000-000000000001"));
 
     {
@@ -3420,4 +3406,214 @@ async fn test_plan_change_monthly_to_annual(#[future] test_env: TestEnv) {
         period_start,
         period_end
     );
+}
+
+// =============================================================================
+// PLAN CHANGE DURING TRIAL
+// =============================================================================
+
+/// Case 1: Immediate plan change during free trial (admin path).
+///
+/// Start on "Paid with Free Trial" (14-day free trial, Rate €49/mo).
+/// Immediate plan change to Starter (Platform Fee €29 + Seats €10 = €39/mo).
+///
+/// Expected:
+///   - Trial ends immediately, subscription becomes Active
+///   - next_cycle_action changes from EndTrial to RenewSubscription
+///   - Billing period resets to start from change_date
+///   - No adjustment invoice (nothing was charged during free trial)
+///   - First invoice created at Starter prices (€39 = 3900 cents)
+#[rstest]
+#[tokio::test]
+async fn test_plan_change_during_free_trial_immediate(#[future] test_env: TestEnv) {
+    let env = test_env.await;
+
+    let start_date = NaiveDate::from_ymd_opt(2024, 1, 1).unwrap();
+    let change_date = NaiveDate::from_ymd_opt(2024, 1, 8).unwrap(); // Day 7 of 14-day trial
+
+    // Create subscription with free trial
+    let sub_id = subscription()
+        .plan_version(PLAN_VERSION_PAID_FREE_TRIAL_ID)
+        .start_date(start_date)
+        .on_start()
+        .trial_days(14)
+        .create(env.services())
+        .await;
+
+    let sub = env.get_subscription(sub_id).await;
+    sub.assert()
+        .is_trial_active()
+        .has_next_action(Some(diesel_models::enums::CycleActionEnum::EndTrial))
+        .has_period_start(start_date)
+        .has_period_end(NaiveDate::from_ymd_opt(2024, 1, 15).unwrap()); // 14 days from start
+
+    // No invoices during free trial
+    let invoices = env.get_invoices(sub_id).await;
+    invoices.assert().has_count(0);
+
+    // Apply immediate plan change to Starter
+    let result = env
+        .services()
+        .apply_plan_change_immediate_at(
+            sub_id,
+            TENANT_ID,
+            PLAN_VERSION_STARTER_ID,
+            vec![],
+            change_date,
+        )
+        .await
+        .expect("plan change during free trial should succeed");
+
+    // No adjustment invoice (free trial = nothing to prorate)
+    assert!(
+        result.adjustment_invoice_id.is_none(),
+        "should not create adjustment invoice during free trial"
+    );
+
+    // First invoice should be created
+    assert!(
+        result.first_invoice_id.is_some(),
+        "should create first invoice at new plan rate"
+    );
+
+    // Subscription should now be Active on Starter plan
+    let sub = env.get_subscription(sub_id).await;
+    assert_eq!(sub.plan_version_id, PLAN_VERSION_STARTER_ID);
+    sub.assert()
+        .is_active() // Active + RenewSubscription
+        .has_cycle_index(0)
+        .has_period_start(change_date);
+
+    // Billing restarts from change_date with new anchor = change_date day (8th).
+    // First full period: [Jan 8, Feb 8].
+    let period_end = sub.current_period_end.unwrap();
+    assert_eq!(
+        period_end,
+        NaiveDate::from_ymd_opt(2024, 2, 8).unwrap(),
+        "period should be monthly from change_date"
+    );
+
+    // First invoice at Starter prices
+    let invoices = env.get_invoices(sub_id).await;
+    invoices.assert().has_count(1);
+    invoices
+        .assert()
+        .invoice_at(0)
+        .with_context("first invoice after trial plan change")
+        .has_total(3900) // Platform Fee €29 + Seats €10
+        .has_period(change_date, period_end);
+
+    // Components should be Starter components
+    let components = env.get_subscription_components(sub_id).await;
+    assert_eq!(components.len(), 2, "should have 2 Starter components");
+    let comp_ids: Vec<_> = components
+        .iter()
+        .filter_map(|c| c.price_component_id)
+        .collect();
+    assert!(comp_ids.contains(&COMP_STARTER_PLATFORM_FEE_ID));
+    assert!(comp_ids.contains(&COMP_STARTER_SEATS_ID));
+
+    // Verify subscription continues to renew normally
+    env.process_cycles().await;
+
+    let sub = env.get_subscription(sub_id).await;
+    sub.assert()
+        .is_active()
+        .has_cycle_index(1)
+        .has_period_start(NaiveDate::from_ymd_opt(2024, 2, 8).unwrap())
+        .has_period_end(NaiveDate::from_ymd_opt(2024, 3, 8).unwrap());
+
+    let invoices = env.get_invoices(sub_id).await;
+    invoices.assert().has_count(2);
+    invoices
+        .assert()
+        .invoice_at(1)
+        .with_context("second invoice - continued Starter pricing")
+        .has_total(3900);
+}
+
+/// Case 2: Plan change TO a plan that has trial config — no trial applied.
+///
+/// Start on Starter (no trial, Platform Fee €29 + Seats €10 = €39/mo).
+/// Immediate plan change to "Paid with Free Trial" (which has 14-day trial config, Rate €49/mo).
+///
+/// Expected:
+///   - Subscription stays Active (no trial started)
+///   - Components change to the new plan's Rate
+///   - Normal proration applies
+///   - Trials only apply at initial subscription creation
+#[rstest]
+#[tokio::test]
+async fn test_plan_change_to_trial_plan_no_trial_applied(#[future] test_env: TestEnv) {
+    let env = test_env.await;
+
+    let start_date = NaiveDate::from_ymd_opt(2024, 1, 1).unwrap();
+    let change_date = NaiveDate::from_ymd_opt(2024, 1, 16).unwrap();
+
+    let sub_id = subscription()
+        .plan_version(PLAN_VERSION_STARTER_ID)
+        .start_date(start_date)
+        .on_start()
+        .no_trial()
+        .create(env.services())
+        .await;
+
+    let sub = env.get_subscription(sub_id).await;
+    sub.assert().is_active();
+
+    // Apply immediate plan change to "Paid with Free Trial" plan
+    let result = env
+        .services()
+        .apply_plan_change_immediate_at(
+            sub_id,
+            TENANT_ID,
+            PLAN_VERSION_PAID_FREE_TRIAL_ID,
+            vec![],
+            change_date,
+        )
+        .await
+        .expect("plan change to trial plan should succeed");
+
+    // Subscription should remain Active (no trial started)
+    let sub = env.get_subscription(sub_id).await;
+    assert_eq!(sub.plan_version_id, PLAN_VERSION_PAID_FREE_TRIAL_ID);
+    sub.assert()
+        .is_active() // NOT TrialActive
+        .has_cycle_index(0);
+
+    // No first invoice (not a trial transition)
+    assert!(
+        result.first_invoice_id.is_none(),
+        "should not create first_invoice (not a trial)"
+    );
+
+    // Should have adjustment invoice (proration from Starter→PaidFreeTrial)
+    // Starter: 3900/mo, PaidFreeTrial: 4900/mo → upgrade proration
+    assert!(
+        result.adjustment_invoice_id.is_some(),
+        "should create adjustment invoice for proration"
+    );
+
+    // Components should be the new plan's Rate component
+    let components = env.get_subscription_components(sub_id).await;
+    assert_eq!(components.len(), 1, "PaidFreeTrial has 1 Rate component");
+    assert_eq!(
+        components[0].price_component_id,
+        Some(COMP_PAID_FREE_TRIAL_RATE_ID)
+    );
+
+    // Verify subscription continues to renew normally at new price
+    env.process_cycles().await;
+
+    let sub = env.get_subscription(sub_id).await;
+    sub.assert().is_active().has_cycle_index(1);
+
+    let invoices = env.get_invoices(sub_id).await;
+    // Initial Starter + adjustment + renewal at new rate = 3 invoices
+    invoices.assert().has_count(3);
+    invoices
+        .assert()
+        .invoice_at(2)
+        .with_context("renewal at PaidFreeTrial rate")
+        .has_total(4900);
 }

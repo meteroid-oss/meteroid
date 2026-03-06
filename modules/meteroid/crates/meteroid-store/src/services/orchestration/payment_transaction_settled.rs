@@ -113,7 +113,9 @@ impl Services {
                                 target_pvid,
                             );
 
-                            let change_date = invoice.invoice_date;
+                            // Use current date instead of invoice_date: async payments
+                            // (SEPA) can settle days later, after the billing period rolls over.
+                            let change_date = Utc::now().date_naive();
                             let prepared = self
                                 .prepare_plan_change_tx(
                                     conn,
@@ -131,7 +133,6 @@ impl Services {
                                 sub_id,
                                 event.tenant_id,
                                 target_pvid,
-                                &[],
                                 change_date,
                             )
                             .await?;
@@ -495,11 +496,10 @@ impl Services {
                             })?;
 
                             let new_plan_version_id = session.plan_version_id;
-                            let today = session.change_date.ok_or_else(|| {
-                                Report::new(StoreError::InvalidArgument(
-                                    "PlanChange checkout missing change_date".to_string(),
-                                ))
-                            })?;
+                            // Use current date, not the stored change_date from session creation.
+                            // Async payments (SEPA) can take days; the billing period may have
+                            // rolled over, making the original date invalid.
+                            let today = Utc::now().date_naive();
 
                             let prepared = self
                                 .prepare_plan_change_tx(
@@ -512,60 +512,67 @@ impl Services {
                                 )
                                 .await?;
 
-                            let net_amount = prepared.proration.net_amount_cents;
+                            let is_free_trial = prepared.is_free_trial();
 
-                            // Create adjustment invoice
-                            if net_amount != 0 {
-                                let invoice = self
-                                    .create_adjustment_invoice(
-                                        conn,
-                                        event.tenant_id,
-                                        &prepared.subscription_details.subscription,
-                                        &prepared.subscription_details.customer,
-                                        &prepared.proration,
-                                    )
-                                    .await?;
-
-                                if let Some(inv) = &invoice {
-                                    self.finalize_invoice_tx(
-                                        conn,
-                                        inv.id,
-                                        event.tenant_id,
-                                        false,
-                                        &None,
-                                    )
-                                    .await?;
-
-                                    // Mark as paid since payment already settled
-                                    diesel_models::invoices::InvoiceRow::apply_transaction(
-                                        conn,
-                                        inv.id,
-                                        event.tenant_id,
-                                        charge_result.amount,
-                                    )
-                                    .await?;
-                                    diesel_models::invoices::InvoiceRow::apply_payment_status(
-                                        conn,
-                                        inv.id,
-                                        event.tenant_id,
-                                        diesel_models::enums::InvoicePaymentStatus::Paid,
-                                        charge_result.payment_intent.processed_at,
-                                    )
-                                    .await?;
-                                }
-                            }
-
-                            // Apply the plan change
+                            // Apply the plan change (handles trial→Active transition)
                             self.execute_plan_change_tx(
                                 conn,
                                 &prepared,
                                 subscription_id,
                                 event.tenant_id,
                                 new_plan_version_id,
-                                &[],
                                 today,
                             )
                             .await?;
+
+                            if is_free_trial {
+                                // Create first invoice linked to settled payment
+                                use crate::services::InvoiceBillingMode;
+
+                                self.bill_subscription_tx(
+                                    conn,
+                                    event.tenant_id,
+                                    subscription_id,
+                                    InvoiceBillingMode::AlreadyPaid {
+                                        charge_result,
+                                        existing_transaction_id: Some(event.payment_transaction_id),
+                                    },
+                                )
+                                .await?;
+                            } else {
+                                // Normal plan change: create adjustment invoice
+                                let net_amount = prepared.proration.net_amount_cents;
+                                if net_amount != 0 {
+                                    let invoice = self
+                                        .create_adjustment_invoice(
+                                            conn,
+                                            event.tenant_id,
+                                            &prepared.subscription_details.subscription,
+                                            &prepared.subscription_details.customer,
+                                            &prepared.proration,
+                                        )
+                                        .await?;
+
+                                    if let Some(inv) = &invoice {
+                                        self.finalize_invoice_tx(
+                                            conn, inv.id, event.tenant_id, false, &None,
+                                        )
+                                        .await?;
+
+                                        diesel_models::invoices::InvoiceRow::apply_transaction(
+                                            conn, inv.id, event.tenant_id,
+                                            charge_result.amount,
+                                        )
+                                        .await?;
+                                        diesel_models::invoices::InvoiceRow::apply_payment_status(
+                                            conn, inv.id, event.tenant_id,
+                                            diesel_models::enums::InvoicePaymentStatus::Paid,
+                                            charge_result.payment_intent.processed_at,
+                                        )
+                                        .await?;
+                                    }
+                                }
+                            }
 
                             subscription_id
                         }

@@ -209,16 +209,33 @@ impl Services {
     /// current plan_version_id. This is used for pending-payment plan changes where the
     /// invoice references the TARGET plan version so the settlement handler can detect
     /// and apply the deferred plan change.
-    pub(in crate::services) async fn create_adjustment_invoice(
+    /// Compute adjustment invoice content from proration without inserting.
+    pub(in crate::services) async fn compute_adjustment_invoice_content(
         &self,
         conn: &mut PgConn,
         tenant_id: TenantId,
         subscription: &Subscription,
         customer: &Customer,
         proration: &ProrationResult,
-    ) -> Result<Option<Invoice>, StoreErrorReport> {
+    ) -> crate::StoreResult<AdjustmentInvoiceContent> {
+        use crate::services::invoice_lines::invoice_lines::ComputedInvoiceContent;
+
         if proration.net_amount_cents == 0 {
-            return Ok(None);
+            return Ok(AdjustmentInvoiceContent {
+                computed: ComputedInvoiceContent {
+                    invoice_lines: vec![],
+                    subtotal: 0,
+                    applied_coupons: vec![],
+                    discount: 0,
+                    tax_breakdown: vec![],
+                    applied_credits: 0,
+                    total: 0,
+                    tax_amount: 0,
+                    amount_due: 0,
+                    subtotal_recurring: 0,
+                },
+                invoicing_entity: None,
+            });
         }
 
         let invoice_date = proration.change_date;
@@ -229,7 +246,6 @@ impl Services {
             .iter()
             .map(|line| {
                 let amount_subtotal = line.amount_cents;
-                // Positive (charge) lines are taxable; negative (credit) lines are not
                 let taxable_amount = if amount_subtotal > 0 {
                     amount_subtotal
                 } else {
@@ -267,7 +283,6 @@ impl Services {
             .get_invoicing_entity_with_conn(conn, tenant_id, Some(customer.invoicing_entity_id))
             .await?;
 
-        // Compute taxes on line items (positive lines get taxed, negative credit lines are skipped)
         let (invoice_lines, tax_breakdown) = self
             .process_invoice_lines_taxes(
                 conn,
@@ -290,6 +305,53 @@ impl Services {
         };
         let amount_due = std::cmp::max(0, total - applied_credits);
 
+        Ok(AdjustmentInvoiceContent {
+            computed: ComputedInvoiceContent {
+                invoice_lines,
+                subtotal,
+                applied_coupons: vec![],
+                discount: 0,
+                tax_breakdown,
+                applied_credits,
+                total,
+                tax_amount,
+                amount_due,
+                subtotal_recurring: 0,
+            },
+            invoicing_entity: Some(invoicing_entity),
+        })
+    }
+
+    pub(in crate::services) async fn create_adjustment_invoice(
+        &self,
+        conn: &mut PgConn,
+        tenant_id: TenantId,
+        subscription: &Subscription,
+        customer: &Customer,
+        proration: &ProrationResult,
+    ) -> Result<Option<Invoice>, StoreErrorReport> {
+        let content = self
+            .compute_adjustment_invoice_content(conn, tenant_id, subscription, customer, proration)
+            .await?;
+
+        if content.computed.total == 0 && content.computed.invoice_lines.is_empty() {
+            return Ok(None);
+        }
+
+        let invoicing_entity = match content.invoicing_entity {
+            Some(ie) => ie,
+            None => {
+                self.store
+                    .get_invoicing_entity_with_conn(
+                        conn,
+                        tenant_id,
+                        Some(customer.invoicing_entity_id),
+                    )
+                    .await?
+            }
+        };
+
+        let invoice_date = proration.change_date;
         let due_date = (invoice_date + chrono::Duration::days(i64::from(subscription.net_terms)))
             .and_time(NaiveTime::MIN);
 
@@ -300,17 +362,17 @@ impl Services {
             plan_version_id: Some(subscription.plan_version_id),
             invoice_type: InvoiceType::Adjustment,
             currency: subscription.currency.clone(),
-            line_items: invoice_lines,
+            line_items: content.computed.invoice_lines,
             coupons: vec![],
             data_updated_at: None,
             status: InvoiceStatusEnum::Draft,
             invoice_date,
             finalized_at: None,
-            total,
-            amount_due,
-            applied_credits,
+            total: content.computed.total,
+            amount_due: content.computed.amount_due,
+            applied_credits: content.computed.applied_credits,
             net_terms: subscription.net_terms as i32,
-            subtotal,
+            subtotal: content.computed.subtotal,
             subtotal_recurring: 0,
             reference: None,
             purchase_order: subscription.purchase_order.clone(),
@@ -321,14 +383,14 @@ impl Services {
             customer_details: customer.clone().into(),
             seller_details: invoicing_entity.into(),
             auto_advance: false,
-            payment_status: if amount_due > 0 {
+            payment_status: if content.computed.amount_due > 0 {
                 InvoicePaymentStatus::Unpaid
             } else {
                 InvoicePaymentStatus::Paid
             },
             discount: 0,
-            tax_breakdown,
-            tax_amount,
+            tax_breakdown: content.computed.tax_breakdown,
+            tax_amount: content.computed.tax_amount,
             manual: false,
             invoicing_entity_id: subscription.invoicing_entity_id,
         };
@@ -337,4 +399,9 @@ impl Services {
 
         Ok(Some(inserted_invoice))
     }
+}
+
+pub(in crate::services) struct AdjustmentInvoiceContent {
+    pub computed: crate::services::invoice_lines::invoice_lines::ComputedInvoiceContent,
+    pub invoicing_entity: Option<crate::domain::InvoicingEntity>,
 }
