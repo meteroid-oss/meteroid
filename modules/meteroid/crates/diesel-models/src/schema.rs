@@ -1187,6 +1187,7 @@ diesel::joinable!(organization_member -> user (user_id));
 diesel::joinable!(payment_transaction -> checkout_session (checkout_session_id));
 diesel::joinable!(payment_transaction -> customer_payment_method (payment_method_id));
 diesel::joinable!(payment_transaction -> invoice (invoice_id));
+diesel::joinable!(payment_transaction -> plan_version (pending_plan_version_id));
 diesel::joinable!(payment_transaction -> tenant (tenant_id));
 diesel::joinable!(plan -> product_family (product_family_id));
 diesel::joinable!(plan -> tenant (tenant_id));

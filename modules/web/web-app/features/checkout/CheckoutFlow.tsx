@@ -148,6 +148,7 @@ const CheckoutFlow: React.FC<CheckoutFlowProps> = ({
   // Determine what payment UI to show
   const paymentAvailability = getCheckoutPaymentAvailability({
     subscriptionStatus: subscription.subscription.status,
+    checkoutType,
     cardConnectionId,
     directDebitConnectionId,
     bankAccount,

@@ -1,6 +1,15 @@
 import { useMutation } from '@connectrpc/connect-query'
 import { Skeleton } from '@md/ui'
-import { AlertCircle, ArrowLeft, ArrowRight, Check, ChevronDown, ChevronRight, Clock, Zap } from 'lucide-react'
+import {
+  AlertCircle,
+  ArrowLeft,
+  ArrowRight,
+  Check,
+  ChevronDown,
+  ChevronRight,
+  Clock,
+  Zap,
+} from 'lucide-react'
 import { useState } from 'react'
 import { useParams, useSearchParams } from 'react-router-dom'
 
@@ -134,11 +143,8 @@ export const PortalSubscription = () => {
       newPlanVersionId: selectedPlan.planVersionId,
     })
 
-    if (
-      res.status === PlanChangeStatus.PLAN_CHANGE_CHECKOUT_REQUIRED &&
-      res.checkoutToken
-    ) {
-      window.location.href = `/portal/checkout?token=${res.checkoutToken}`
+    if (res.status === PlanChangeStatus.PLAN_CHANGE_CHECKOUT_REQUIRED && res.checkoutToken) {
+      console.log(`/portal/checkout?token=${res.checkoutToken}`)
       return
     }
 
@@ -274,7 +280,12 @@ function IdleView({
     currentPeriodEnd?: string
     status: string
     canChangePlan: boolean
-    pendingEvent?: { eventType: PendingEventType; scheduledDate: string; newPlanName?: string; cancelReason?: string }
+    pendingEvent?: {
+      eventType: PendingEventType
+      scheduledDate: string
+      newPlanName?: string
+      cancelReason?: string
+    }
   }
   subscriptionId: string
   onChangePlan: () => void
@@ -391,9 +402,7 @@ function IdleView({
       {!isLoadingInvoice && upcomingInvoice && subscriptionId && (
         <PortalUpcomingInvoiceCard invoice={upcomingInvoice} subscriptionId={subscriptionId} />
       )}
-      {isLoadingInvoice && (
-        <Skeleton height={80} className="rounded-xl mt-6" />
-      )}
+      {isLoadingInvoice && <Skeleton height={80} className="rounded-xl mt-6" />}
     </div>
   )
 }
@@ -402,7 +411,13 @@ function IdleView({
 // Portal Upcoming Invoice Card
 // ---------------------------------------------------------------------------
 
-function PortalUpcomingInvoiceCard({ invoice, subscriptionId }: { invoice: PortalUpcomingInvoice; subscriptionId: string }) {
+function PortalUpcomingInvoiceCard({
+  invoice,
+  subscriptionId,
+}: {
+  invoice: PortalUpcomingInvoice
+  subscriptionId: string
+}) {
   const [expanded, setExpanded] = useState(false)
   const currency = invoice.currency
 
@@ -421,7 +436,8 @@ function PortalUpcomingInvoiceCard({ invoice, subscriptionId }: { invoice: Porta
           <div className="text-left">
             <p className="text-sm font-semibold text-gray-900">Upcoming Invoice</p>
             <p className="text-xs text-gray-500 mt-0.5">
-              {parseAndFormatDate(invoice.periodStart)} &mdash; {parseAndFormatDate(invoice.periodEnd)}
+              {parseAndFormatDate(invoice.periodStart)} &mdash;{' '}
+              {parseAndFormatDate(invoice.periodEnd)}
               {invoice.lineItems.length > 0 && (
                 <span className="ml-1.5">
                   &middot; {invoice.lineItems.length} item
@@ -554,9 +570,7 @@ function PortalLineItemRow({
             <ChevronDown
               className={`h-3 w-3 transition-transform ${showSubLines ? '' : '-rotate-90'}`}
             />
-            {showSubLines
-              ? 'Hide breakdown'
-              : `${line.subLineItems.length} line items`}
+            {showSubLines ? 'Hide breakdown' : `${line.subLineItems.length} line items`}
           </button>
           {showSubLines &&
             line.subLineItems.map((sub, idx) => {
@@ -610,7 +624,9 @@ function PortalLineItemRow({
   )
 }
 
-function formatPortalSubLineName(sub: PortalUpcomingInvoice['lineItems'][number]['subLineItems'][number]): string {
+function formatPortalSubLineName(
+  sub: PortalUpcomingInvoice['lineItems'][number]['subLineItems'][number]
+): string {
   if (sub.sublineAttributes.case === 'matrix') {
     const m = sub.sublineAttributes.value
     return m.dimension2Value ? `${m.dimension1Value} / ${m.dimension2Value}` : m.dimension1Value
@@ -677,9 +693,7 @@ function PlanChangeView({
   return (
     <div className="max-w-xl mx-auto px-6 py-10">
       <h1 className="text-2xl font-semibold text-gray-900">Change your plan</h1>
-      <p className="text-sm text-gray-500 mt-1.5">
-        Select the plan that best fits your needs.
-      </p>
+      <p className="text-sm text-gray-500 mt-1.5">Select the plan that best fits your needs.</p>
 
       {/* Plan cards */}
       {isLoadingPlans ? (
@@ -748,9 +762,7 @@ function PlanChangeView({
           </div>
 
           {/* Effective date */}
-          {isLoadingPreview && (
-            <Skeleton height={56} className="rounded-xl" />
-          )}
+          {isLoadingPreview && <Skeleton height={56} className="rounded-xl" />}
 
           {!isLoadingPreview && !!previewError && (
             <div className="bg-white rounded-xl border border-gray-200 p-4 flex items-center gap-3">
@@ -779,7 +791,7 @@ function PlanChangeView({
                               currency
                             )}
                           </span>{' '}
-                          will be applied to your account.
+                          will be billed.
                         </p>
                       )}
                     </div>
@@ -908,8 +920,7 @@ function ConfirmedView({
           {isImmediate ? (
             <>
               Your plan has been upgraded effective today.
-              <br />
-              A prorated adjustment will appear on your next invoice.
+              <br />A prorated adjustment will appear on your next invoice.
             </>
           ) : (
             <>
@@ -929,4 +940,3 @@ function ConfirmedView({
     </div>
   )
 }
-
