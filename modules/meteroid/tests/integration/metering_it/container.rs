@@ -62,6 +62,50 @@ impl Drop for MeteringSetup {
     }
 }
 
+/// Minimal ClickHouse cluster config for integration tests.
+/// Enables embedded Keeper, a single-node `meteroid` cluster
+const CLICKHOUSE_CLUSTER_CONFIG: &str = r#"<clickhouse>
+  <keeper_server>
+    <tcp_port>9181</tcp_port>
+    <server_id>1</server_id>
+    <log_storage_path>/var/lib/clickhouse/coordination/log</log_storage_path>
+    <snapshot_storage_path>/var/lib/clickhouse/coordination/snapshots</snapshot_storage_path>
+    <coordination_settings>
+      <operation_timeout_ms>10000</operation_timeout_ms>
+      <session_timeout_ms>30000</session_timeout_ms>
+      <raft_logs_level>warning</raft_logs_level>
+    </coordination_settings>
+    <raft_configuration>
+      <server>
+        <id>1</id>
+        <hostname>localhost</hostname>
+        <port>9234</port>
+      </server>
+    </raft_configuration>
+  </keeper_server>
+  <zookeeper>
+    <node>
+      <host>localhost</host>
+      <port>9181</port>
+    </node>
+  </zookeeper>
+  <remote_servers>
+    <meteroid>
+      <shard>
+        <replica>
+          <host>localhost</host>
+          <port>9000</port>
+        </replica>
+      </shard>
+    </meteroid>
+  </remote_servers>
+  <macros>
+    <cluster>meteroid</cluster>
+    <shard>1</shard>
+    <replica>replica-1</replica>
+  </macros>
+</clickhouse>"#;
+
 pub async fn start_clickhouse() -> (ContainerAsync<GenericImage>, HttpPort, TcpPort) {
     let local_http = free_local_port().expect("Could not get free http port");
     let internal_http_port = 8123;
@@ -77,6 +121,10 @@ pub async fn start_clickhouse() -> (ContainerAsync<GenericImage>, HttpPort, TcpP
         .with_env_var("CLICKHOUSE_DB", "meteroid")
         .with_env_var("CLICKHOUSE_USER", "default")
         .with_env_var("CLICKHOUSE_PASSWORD", "default")
+        .with_copy_to(
+            "/etc/clickhouse-server/config.d/cluster.xml",
+            CLICKHOUSE_CLUSTER_CONFIG.as_bytes().to_vec(),
+        )
         .with_container_name("it_clickhouse")
         .with_network("meteroid_net")
         .start()

@@ -1,46 +1,4 @@
-use crate::migrations::{get_kafka_config, get_clickhouse_config};
-use kafka::config::KafkaConnectionConfig;
-
-fn build_kafka_settings(
-    broker_list: &str,
-    topic: &str,
-    group_name: &str,
-    kafka_connection: &KafkaConnectionConfig,
-) -> String {
-    let mut settings = vec![
-        format!("kafka_broker_list = '{}'", broker_list),
-        format!("kafka_topic_list = '{}'", topic),
-        format!("kafka_group_name = '{}'", group_name),
-        "kafka_format = 'JSONEachRow'".to_string(),
-    ];
-
-    // Add SASL authentication settings if configured
-    if let Some(ref sasl_username) = kafka_connection.sasl_username {
-        if !sasl_username.is_empty() {
-            settings.push(format!("kafka_sasl_username = '{}'", sasl_username));
-        }
-    }
-
-    if let Some(ref sasl_password) = kafka_connection.sasl_password {
-        if !sasl_password.is_empty() {
-            settings.push(format!("kafka_sasl_password = '{}'", sasl_password));
-        }
-    }
-
-    if let Some(ref sasl_mechanism) = kafka_connection.sasl_mechanism {
-        if !sasl_mechanism.is_empty() {
-            settings.push(format!("kafka_sasl_mechanism = '{}'", sasl_mechanism));
-        }
-    }
-
-    if let Some(ref security_protocol) = kafka_connection.security_protocol {
-        if !security_protocol.is_empty() {
-            settings.push(format!("kafka_security_protocol = '{}'", security_protocol));
-        }
-    }
-
-    settings.join(",\n              ")
-}
+use crate::migrations::{get_clickhouse_config, get_kafka_config, build_kafka_settings};
 
 pub fn migration() -> String {
     let kafka_cfg = get_kafka_config();
@@ -60,25 +18,10 @@ pub fn migration() -> String {
         &kafka_cfg.kafka_connection,
     );
 
-    // Conditionally use ON CLUSTER based on configuration
-    let cluster_clause = if let Some(ref cluster_name) = clickhouse_cfg.cluster_name {
-        format!(" ON CLUSTER '{}'", cluster_name)
-    } else {
-        String::new()
-    };
-
-    // Use replicated engines only if we have a cluster
-    let (raw_events_engine, preprocessed_events_engine) = if clickhouse_cfg.cluster_name.is_some() {
-        (
-            "ReplicatedMergeTree('/clickhouse/tables/{cluster}/{database}/raw_events', '{replica}')".to_string(),
-            "ReplicatedReplacingMergeTree('/clickhouse/tables/{cluster}/{database}/preprocessed_events', '{replica}', timestamp)".to_string(),
-        )
-    } else {
-        (
-            "MergeTree()".to_string(),
-            "ReplacingMergeTree(timestamp)".to_string(),
-        )
-    };
+    let cluster_name = &clickhouse_cfg.cluster_name;
+    let cluster_clause = format!(" ON CLUSTER '{cluster_name}'");
+    let raw_events_engine = "ReplicatedMergeTree('/clickhouse/tables/{cluster}/{database}/raw_events', '{replica}')";
+    let preprocessed_events_engine = "ReplicatedReplacingMergeTree('/clickhouse/tables/{cluster}/{database}/preprocessed_events', '{replica}', timestamp)";
 
     format!(
         r#"
