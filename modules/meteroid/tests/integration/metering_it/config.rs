@@ -13,6 +13,7 @@ pub fn mocked_config(
     clickhouse_http_port: HttpPort,
     clickhouse_tcp_port: TcpPort,
     kafka_port: u16,
+    kafka_internal_addr: String,
     kafka_raw_topic: String,
     kafka_preprocessed_topic: String,
 ) -> Config {
@@ -41,7 +42,7 @@ pub fn mocked_config(
                 sasl_username: None,
                 sasl_password: None,
             },
-            kafka_internal_addr: format!("it_redpanda:{}", 29092),
+            kafka_internal_addr,
             kafka_raw_topic,
             kafka_preprocessed_topic,
             kafka_producer_linger_ms: 5,
