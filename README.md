@@ -60,7 +60,7 @@ It eliminates the gap between customer usage and billing, ensuring accuracy and 
 
 
 <p align="center">
-  <img src="assets/meteroid-banner.png" alt="Meteroid Billing Infrastructure Banner" width="640" >
+  <img src="assets/meteroid-banner.png" alt="Meteroid Billing Infrastructure Banner" width="1012" >
 </p>
 
 <a href="https://meteroid.com/talk-to-us">
@@ -81,14 +81,66 @@ and provides *clear, actionable insights* for achieving your KPIs.
 <img
 src="assets/meteroid-schema-4.webp"
 alt="Meteroid Schema"
-width="640"
+width="1012"
 />
 </p>
 
+## Features
+
+Meteroid is the complete monetization platform for modern SaaS. Key capabilities include:
+
+- [**Usage Metering:**](https://docs.meteroid.com/metering/billable-metrics)
+  Transform raw usage events (API requests, tokens, transactions, storage, and more)
+  into accurate billable metrics in real time, without pre-aggregation. Powered by Rust
+  for high-throughput ingestion at scale.
+
+- [**Pricing & Billing:**](https://docs.meteroid.com/billing/managing-plans)
+  Model any pricing structure: flat rate, usage-based, tiered, or hybrid, without
+  engineering effort. Plans are versioned, so pricing changes never affect existing
+  customers unless you want them to.
+
+- [**Subscription Management:**](https://docs.meteroid.com/subscriptions/what-is-a-subscription)
+  Create, manage, and update subscriptions with full lifecycle control: upgrades,
+  downgrades, mid-cycle changes, and cancellations.
+
+- [**Quotes (CPQ):**](https://docs.meteroid.com/quotes/introduction)
+  Generate and send quotes to close custom deals faster. Once a quote is signed,
+  a subscription is created and billing starts automatically, with no manual handovers.
+
+- [**Invoicing & Credit Notes:**](https://docs.meteroid.com/invoices/managing-invoices)
+  Automatically generate accurate, detailed invoices, from simple charges to complex
+  usage-based and hybrid billing. Issue credit notes when corrections are needed.
+
+- [**Trials, Coupons & Add-Ons:**](https://docs.meteroid.com/billing/managing-trials-and-coupons)
+  Drive conversions with trial periods and promotional coupons. Attach add-ons to
+  subscriptions to let customers unlock additional capabilities without switching plans.
+
+- [**Customer Management & Self-serve Portal:**](https://docs.meteroid.com/customer/managing-customers)
+  Full visibility into your customer base: subscriptions, payment methods, and usage
+  history. Give customers a self-serve portal so they can manage their own account
+  without contacting support.
+
+- [**Integrations:**](https://docs.meteroid.com/integrations/general-information)
+  Connect Meteroid with your existing tools: CRM, accounting, payments, and more.
+
+- [**Insights & Reporting:**](https://meteroid.com/product/insights-and-reporting)
+  Monitor your revenue in real time and identify what's driving growth with actionable insights, without waiting
+  for month-end exports. *(Coming soon)*
+
+
 ## For whom ?
 
-Meteroid is designed for startups, SMEs, and enterprises looking to embrace some form of usage-based billing,
-product-led growth or re-invoicing.
+Whether you're product-led or sales-led, or running both motions at once,
+Meteroid is your single source of truth for monetization.
+
+- **Product-led teams** that want to ship usage-based or complex or hybrid pricing from day one,
+  without building custom billing infrastructure.
+  
+- **Sales-led teams** that need to close custom deals fast, automate quote-to-cash,
+  and keep finance in sync with no manual handovers between sales and billing.
+  
+- **Engineering teams** that have been through the pain of building and maintaining a
+  billing system from scratch.
 
 ## Build for Sustainable Growth
 
