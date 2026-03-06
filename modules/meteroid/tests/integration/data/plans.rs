@@ -522,13 +522,57 @@ impl PlanSeed {
         .update(tx)
         .await?;
 
+        Self::seed_components(tx, self.version_id, &self.components, &self.currency).await?;
+
+        Ok(())
+    }
+
+    /// Seed only a new version (+ components) for an already-existing plan.
+    pub(crate) async fn seed_version(
+        tx: &mut PgConn,
+        plan_id: PlanId,
+        version_id: PlanVersionId,
+        version: i32,
+        currency: &str,
+        components: &[SeedComp],
+    ) -> Result<(), DatabaseErrorContainer> {
+        PlanVersionRowNew {
+            id: version_id,
+            is_draft_version: false,
+            plan_id,
+            version,
+            trial_duration_days: None,
+            tenant_id: ids::TENANT_ID,
+            period_start_day: None,
+            net_terms: 0,
+            currency: currency.to_string(),
+            billing_cycles: None,
+            created_by: ids::USER_ID,
+            trialing_plan_id: None,
+            trial_is_free: true,
+            uses_product_pricing: true,
+        }
+        .insert(tx)
+        .await?;
+
+        Self::seed_components(tx, version_id, components, currency).await?;
+
+        Ok(())
+    }
+
+    pub(crate) async fn seed_components(
+        tx: &mut PgConn,
+        version_id: PlanVersionId,
+        components: &[SeedComp],
+        currency: &str,
+    ) -> Result<(), DatabaseErrorContainer> {
         let mut pcp_links = Vec::new();
-        for comp in &self.components {
+        for comp in components {
             PriceComponentRowNew {
                 id: comp.id,
                 name: comp.name.to_string(),
                 legacy_fee: Some(comp.legacy_fee.clone().try_into().unwrap()),
-                plan_version_id: self.version_id,
+                plan_version_id: version_id,
                 product_id: Some(comp.product_id),
                 billable_metric_id: comp.billable_metric_id,
             }
@@ -540,7 +584,7 @@ impl PlanSeed {
                     id: price.id,
                     product_id: comp.product_id,
                     cadence: price.cadence.clone(),
-                    currency: self.currency.to_string(),
+                    currency: currency.to_string(),
                     pricing: serde_json::to_value(&price.pricing).unwrap(),
                     tenant_id: ids::TENANT_ID,
                     created_by: ids::USER_ID,

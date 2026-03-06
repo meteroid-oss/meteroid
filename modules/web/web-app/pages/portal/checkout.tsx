@@ -13,6 +13,8 @@ export const PortalCheckout = () => {
   const checkoutQuery = useQuery(getCheckout, {})
 
   const data = checkoutQuery.data?.checkout
+  const checkoutType = checkoutQuery.data?.checkoutType
+  const planChangeContext = checkoutQuery.data?.planChangeContext
   const error = checkoutQuery.error
   const isLoading = checkoutQuery.isLoading
 
@@ -40,7 +42,11 @@ export const PortalCheckout = () => {
             <Skeleton height={44} />
           </>
         ) : (
-          <CheckoutFlow checkoutData={data} />
+          <CheckoutFlow
+            checkoutData={data}
+            checkoutType={checkoutType}
+            planChangeContext={planChangeContext}
+          />
         )}
       </div>
     </div>

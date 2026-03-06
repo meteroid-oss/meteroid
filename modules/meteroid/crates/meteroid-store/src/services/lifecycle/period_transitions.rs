@@ -266,6 +266,8 @@ impl Services {
                         cycle_index: None,
                         pending_checkout: None,
                         processing_started_at: Some(None),
+                        billing_start_date: None,
+                        billing_day_anchor: None,
                     }
                     .patch(conn)
                     .await?;
@@ -307,6 +309,8 @@ impl Services {
             pending_checkout: Some(next_cycle.pending_checkout),
             // Clear claim so subscription can be picked up again if still due
             processing_started_at: Some(None),
+            billing_start_date: None,
+            billing_day_anchor: None,
         };
 
         patch.patch(conn).await?;

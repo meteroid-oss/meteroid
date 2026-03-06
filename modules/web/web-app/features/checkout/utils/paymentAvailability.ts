@@ -6,6 +6,7 @@ import {
   Transaction_PaymentStatusEnum,
 } from '@/rpc/api/invoices/v1/models_pb'
 import { SubscriptionStatus } from '@/rpc/api/subscriptions/v1/models_pb'
+import { CheckoutType } from '@/rpc/portal/checkout/v1/checkout_pb'
 
 /**
  * Determines what payment UI should be displayed based on configuration and state
@@ -42,14 +43,15 @@ export type PaymentAvailability =
  */
 export function getCheckoutPaymentAvailability(config: {
   subscriptionStatus?: SubscriptionStatus
+  checkoutType?: CheckoutType
   cardConnectionId?: string
   directDebitConnectionId?: string
   bankAccount?: BankAccount
 }): PaymentAvailability {
-  const { subscriptionStatus, cardConnectionId, directDebitConnectionId, bankAccount } = config
+  const { subscriptionStatus, checkoutType, cardConnectionId, directDebitConnectionId, bankAccount } = config
 
-  // Check if subscription is already active or in a terminal state
-  if (subscriptionStatus === SubscriptionStatus.ACTIVE) {
+  // For plan changes, the subscription is expected to be active — skip the active check
+  if (subscriptionStatus === SubscriptionStatus.ACTIVE && checkoutType !== CheckoutType.PLAN_CHANGE) {
     return {
       type: 'readonly',
       reason: 'already_active',

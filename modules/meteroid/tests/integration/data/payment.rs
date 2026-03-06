@@ -65,6 +65,32 @@ pub async fn run_mock_payment_provider_seed(pool: &PgPool, fail_payment_intent: 
     .unwrap();
 }
 
+/// Updates the mock payment provider's fail_payment_intent flag.
+pub async fn update_mock_payment_provider_fail(pool: &PgPool, fail_payment_intent: bool) {
+    use diesel_models::connectors::ConnectorRowPatch;
+
+    let mut conn = pool
+        .get()
+        .await
+        .expect("couldn't get db connection from pool");
+
+    let mock_data = serde_json::json!({
+        "Mock": {
+            "fail_payment_intent": fail_payment_intent,
+            "fail_setup_intent": false
+        }
+    });
+
+    ConnectorRowPatch {
+        id: ids::MOCK_CONNECTOR_ID,
+        data: Some(Some(mock_data)),
+        sensitive: None,
+    }
+    .patch(&mut conn, ids::TENANT_ID)
+    .await
+    .expect("Failed to update mock payment provider");
+}
+
 /// Seeds a second mock payment provider connector for testing provider switching.
 pub async fn run_mock_payment_provider_2_seed(pool: &PgPool) {
     let mut conn = pool

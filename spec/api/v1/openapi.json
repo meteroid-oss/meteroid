@@ -2612,7 +2612,8 @@
         "type": "string",
         "enum": [
           "SELF_SERVE",
-          "SUBSCRIPTION_ACTIVATION"
+          "SUBSCRIPTION_ACTIVATION",
+          "PLAN_CHANGE"
         ]
       },
       "ComponentOverride": {

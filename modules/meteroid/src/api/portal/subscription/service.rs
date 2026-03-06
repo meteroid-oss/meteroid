@@ -522,23 +522,40 @@ impl PortalSubscriptionService for PortalSubscriptionServiceComponents {
 
         match direction {
             DomainChangeDirection::Upgrade => {
-                let result = self
-                    .services
-                    .apply_plan_change_immediate(
-                        subscription_id,
+                if self.has_online_payment_config(&details) {
+                    // Online payment: always go through checkout
+                    self.create_plan_change_checkout_response(
                         tenant_id,
+                        subscription_id,
                         new_plan_version_id,
-                        vec![],
+                        &details,
+                        direction,
                     )
                     .await
-                    .map_err(Into::<PortalSubscriptionApiError>::into)?;
+                } else {
+                    // BankTransfer/External: apply immediately (no upfront charge)
+                    let result = self
+                        .services
+                        .apply_plan_change_immediate(
+                            subscription_id,
+                            tenant_id,
+                            new_plan_version_id,
+                            vec![],
+                        )
+                        .await
+                        .map_err(Into::<PortalSubscriptionApiError>::into)?;
 
-                Ok(Response::new(ConfirmPlanChangeResponse {
-                    effective_date: result.effective_date.as_proto(),
-                    change_direction: map_change_direction(direction),
-                    scheduled_event_id: None,
-                    adjustment_invoice_id: result.adjustment_invoice_id.map(|id| id.to_string()),
-                }))
+                    Ok(Response::new(ConfirmPlanChangeResponse {
+                        effective_date: result.effective_date.as_proto(),
+                        change_direction: map_change_direction(direction),
+                        scheduled_event_id: None,
+                        adjustment_invoice_id: result
+                            .adjustment_invoice_id
+                            .map(|id| id.to_string()),
+                        status: PlanChangeStatus::PlanChangeCompleted.into(),
+                        checkout_token: None,
+                    }))
+                }
             }
             DomainChangeDirection::Downgrade | DomainChangeDirection::Lateral => {
                 let event = self
@@ -552,6 +569,8 @@ impl PortalSubscriptionService for PortalSubscriptionServiceComponents {
                     change_direction: map_change_direction(direction),
                     scheduled_event_id: Some(event.id.to_string()),
                     adjustment_invoice_id: None,
+                    status: PlanChangeStatus::PlanChangeScheduled.into(),
+                    checkout_token: None,
                 }))
             }
         }
@@ -581,7 +600,7 @@ impl PortalSubscriptionService for PortalSubscriptionServiceComponents {
         }
 
         self.services
-            .cancel_scheduled_event(event_id, tenant_id)
+            .cancel_scheduled_event(event_id, subscription_id, tenant_id)
             .await
             .map_err(Into::<PortalSubscriptionApiError>::into)?;
 
@@ -690,6 +709,67 @@ impl PortalSubscriptionService for PortalSubscriptionServiceComponents {
                 .collect(),
             period_start: usage.period.start.to_string(),
             period_end: usage.period.end.to_string(),
+        }))
+    }
+}
+
+impl PortalSubscriptionServiceComponents {
+    /// Whether the subscription has online payment configured.
+    fn has_online_payment_config(
+        &self,
+        details: &meteroid_store::domain::SubscriptionDetails,
+    ) -> bool {
+        use meteroid_store::domain::subscriptions::PaymentMethodsConfig;
+
+        let config = details
+            .subscription
+            .payment_methods_config
+            .as_ref()
+            .cloned()
+            .unwrap_or_else(PaymentMethodsConfig::online);
+
+        config.has_online_payment()
+    }
+
+    /// Creates a checkout session for plan change and returns the appropriate response.
+    async fn create_plan_change_checkout_response(
+        &self,
+        tenant_id: common_domain::ids::TenantId,
+        subscription_id: SubscriptionId,
+        new_plan_version_id: PlanVersionId,
+        details: &meteroid_store::domain::SubscriptionDetails,
+        direction: DomainChangeDirection,
+    ) -> Result<Response<ConfirmPlanChangeResponse>, tonic::Status> {
+        let session = self
+            .services
+            .create_plan_change_checkout_session(
+                tenant_id,
+                subscription_id,
+                new_plan_version_id,
+                details.subscription.customer_id,
+                details.subscription.created_by,
+                details.subscription.payment_methods_config.clone(),
+                chrono::Utc::now().date_naive(),
+            )
+            .await
+            .map_err(Into::<PortalSubscriptionApiError>::into)?;
+
+        let token = meteroid_store::jwt_claims::generate_portal_token(
+            &self.jwt_secret,
+            tenant_id,
+            meteroid_store::jwt_claims::ResourceAccess::CheckoutSession(session.id),
+        )
+        .map_err(Into::<PortalSubscriptionApiError>::into)?;
+
+        let today = chrono::Utc::now().date_naive();
+
+        Ok(Response::new(ConfirmPlanChangeResponse {
+            effective_date: today.as_proto(),
+            change_direction: map_change_direction(direction),
+            scheduled_event_id: None,
+            adjustment_invoice_id: None,
+            status: PlanChangeStatus::PlanChangeCheckoutRequired.into(),
+            checkout_token: Some(token),
         }))
     }
 }

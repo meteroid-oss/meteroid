@@ -6,5 +6,6 @@ mod lifecycle;
 mod migration;
 mod payment_methods_config;
 mod plan_change;
+mod plan_change_checkout;
 mod trials;
 mod usage;

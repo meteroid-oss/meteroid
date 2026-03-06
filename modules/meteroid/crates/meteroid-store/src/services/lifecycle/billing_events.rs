@@ -291,12 +291,16 @@ impl Services {
                 }
             }
 
-            // 1. Update subscription's plan_version_id
+            // 1. Update subscription's plan_version_id (and billing period if changed)
+            let new_period =
+                ComponentMapping::derive_billing_period(component_mappings).map(|p| p.into());
+
             SubscriptionRow::update_plan_version(
                 conn,
                 &event.subscription_id,
                 &event.tenant_id,
                 new_plan_version_id,
+                new_period,
             )
             .await
             .map_err(Into::<error_stack::Report<StoreError>>::into)?;
@@ -464,6 +468,41 @@ impl Services {
                 .map_err(Into::<error_stack::Report<StoreError>>::into)?;
             }
 
+            // Trial → Active transition (paid trial with scheduled plan change)
+            if sub.subscription.status == SubscriptionStatusEnum::TrialActive {
+                use diesel_models::subscriptions::SubscriptionCycleRowPatch;
+
+                // Cancel the EndTrial scheduled event
+                ScheduledEventRow::cancel_pending_subscription_events(
+                    conn,
+                    event.subscription_id,
+                    &event.tenant_id,
+                    "Plan change during paid trial (scheduled)",
+                )
+                .await
+                .map_err(Into::<error_stack::Report<StoreError>>::into)?;
+
+                let patch = SubscriptionCycleRowPatch {
+                    id: event.subscription_id,
+                    tenant_id: event.tenant_id,
+                    status: Some(SubscriptionStatusEnum::Active),
+                    cycle_index: None,
+                    next_cycle_action: None,
+                    current_period_start: None,
+                    current_period_end: None,
+                    pending_checkout: None,
+                    processing_started_at: None,
+                    billing_start_date: None,
+                    billing_day_anchor: None,
+                };
+                patch.patch(conn).await?;
+
+                log::info!(
+                    "Paid trial ended via scheduled plan change for subscription {}",
+                    event.subscription_id,
+                );
+            }
+
             log::info!(
                 "Applied plan change for subscription {}: plan_version={}, matched={}, added={}, removed={}, mrr_delta={}",
                 event.subscription_id,
@@ -550,6 +589,8 @@ impl Services {
                     current_period_end: None,
                     pending_checkout: None,
                     processing_started_at: None,
+                    billing_start_date: None,
+                    billing_day_anchor: None,
                 };
                 patch.patch(conn).await?;
 

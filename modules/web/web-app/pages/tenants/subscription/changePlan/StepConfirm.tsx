@@ -92,7 +92,6 @@ export const StepConfirm = () => {
 
   const preview = state.preview
   const currency = state.currency || 'USD'
-  const isDowngrade = preview?.changeDirection === 'downgrade'
   const isImmediate = state.applyMode === PlanChangeApplyMode.IMMEDIATE
 
   // Detect if subscription has annual components
@@ -205,30 +204,12 @@ export const StepConfirm = () => {
                     </div>
                   </Label>
                 </div>
-                <div
-                  className="flex items-start gap-3"
-                  title={
-                    isDowngrade ? 'Downgrades can only be applied at end of period' : undefined
-                  }
-                >
-                  <RadioGroupItem
-                    value="immediate"
-                    id="mode-immediate"
-                    className="mt-0.5"
-                    disabled={isDowngrade}
-                  />
-                  <Label
-                    htmlFor="mode-immediate"
-                    className={`cursor-pointer ${isDowngrade ? 'opacity-50' : ''}`}
-                  >
+                <div className="flex items-start gap-3">
+                  <RadioGroupItem value="immediate" id="mode-immediate" className="mt-0.5" />
+                  <Label htmlFor="mode-immediate" className={`cursor-pointer `}>
                     <div className="text-sm font-medium">Immediately</div>
                     <div className="text-xs text-muted-foreground">
                       Apply now with a prorated adjustment invoice.
-                      {isDowngrade && (
-                        <span className="block text-xs text-destructive mt-0.5">
-                          Downgrades can only be applied at end of period.
-                        </span>
-                      )}
                     </div>
                   </Label>
                 </div>
@@ -242,7 +223,8 @@ export const StepConfirm = () => {
                       <div>
                         <span className="text-sm font-medium">This is an annual subscription.</span>
                         <p className="text-xs mt-1">
-                          Immediate changes to annual plans result in a large prorated adjustment.
+                          Immediate changes to annual plans can result in a large prorated
+                          adjustment.
                         </p>
                         <label className="flex items-center gap-2 mt-2 cursor-pointer">
                           <input
