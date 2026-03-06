@@ -1,7 +1,8 @@
+use backon::{ConstantBuilder, Retryable};
 use std::time::Duration;
 use testcontainers::core::{IntoContainerPort, WaitFor};
 use testcontainers::runners::AsyncRunner;
-use testcontainers::{ContainerAsync, GenericImage, ImageExt};
+use testcontainers::{ContainerAsync, GenericImage, ImageExt, TestcontainersError};
 use tokio::task::JoinHandle;
 use tokio_util::sync::CancellationToken;
 use tonic::transport::Channel;
@@ -63,25 +64,41 @@ impl Drop for MeteringSetup {
 }
 
 pub async fn start_clickhouse() -> (ContainerAsync<GenericImage>, HttpPort, TcpPort) {
-    let local_http = free_local_port().expect("Could not get free http port");
     let internal_http_port = 8123;
-
-    let local_tcp = free_local_port().expect("Could not get free tcp port");
     let internal_tcp_port = 9000;
+    let suffix = uuid::Uuid::now_v7();
 
-    let container = GenericImage::new(clickhouse::CONTAINER_NAME, clickhouse::CONTAINER_VERSION)
-        .with_exposed_port(local_http.tcp())
-        .with_exposed_port(local_tcp.tcp())
-        .with_mapped_port(local_http, internal_http_port.tcp())
-        .with_mapped_port(local_tcp, internal_tcp_port.tcp())
-        .with_env_var("CLICKHOUSE_DB", "meteroid")
-        .with_env_var("CLICKHOUSE_USER", "default")
-        .with_env_var("CLICKHOUSE_PASSWORD", "default")
-        .with_container_name("it_clickhouse")
-        .with_network("meteroid_net")
-        .start()
-        .await
-        .unwrap();
+    let container = (|| async {
+        let local_http = free_local_port().expect("Could not get free http port");
+        let local_tcp = free_local_port().expect("Could not get free tcp port");
+
+        GenericImage::new(clickhouse::CONTAINER_NAME, clickhouse::CONTAINER_VERSION)
+            .with_exposed_port(local_http.tcp())
+            .with_exposed_port(local_tcp.tcp())
+            .with_mapped_port(local_http, internal_http_port.tcp())
+            .with_mapped_port(local_tcp, internal_tcp_port.tcp())
+            .with_env_var("CLICKHOUSE_DB", "meteroid")
+            .with_env_var("CLICKHOUSE_USER", "default")
+            .with_env_var("CLICKHOUSE_PASSWORD", "default")
+            .with_container_name(format!("it_clickhouse_{suffix}"))
+            .with_network(format!("meteroid_net_{suffix}"))
+            .start()
+            .await
+    })
+    .retry(
+        ConstantBuilder::default()
+            .with_delay(Duration::from_secs(1))
+            .with_max_times(3),
+    )
+    .notify(|err: &TestcontainersError, dur: Duration| {
+        log::warn!(
+            "Retrying clickhouse container start after {:?}: {:?}",
+            dur,
+            err
+        );
+    })
+    .await
+    .unwrap();
 
     let http_port = HttpPort(
         container
@@ -106,43 +123,66 @@ pub async fn start_clickhouse() -> (ContainerAsync<GenericImage>, HttpPort, TcpP
     (container, http_port, tcp_port)
 }
 
-pub async fn start_kafka() -> anyhow::Result<(ContainerAsync<GenericImage>, u16)> {
-    let kafka_port = free_local_port().expect("Could not get free port");
-    let args = [
-        "redpanda",
-        "start",
-        "--overprovisioned",
-        "--smp",
-        "1",
-        "--memory",
-        "512M",
-        "--reserve-memory=0M",
-        "--node-id=1",
-        "--check=false",
-        "--kafka-addr=INTERNAL://0.0.0.0:29092,EXTERNAL://0.0.0.0:9092",
-        format!(
-            "--advertise-kafka-addr=INTERNAL://it_redpanda:29092,EXTERNAL://localhost:{kafka_port}"
-        )
-        .as_str(),
-        "--set",
-        "redpanda.disable_metrics=true",
-        "--set",
-        "redpanda.enable_admin_api=false",
-        "--set",
-        "redpanda.developer_mode=true",
-    ]
-    .map(String::from);
+pub struct KafkaSetup {
+    pub container: ContainerAsync<GenericImage>,
+    pub port: u16,
+    pub internal_addr: String,
+}
 
-    let container = GenericImage::new(CONTAINER_NAME, CONTAINER_VERSION)
-        .with_wait_for(WaitFor::message_on_stderr("Successfully started Redpanda!"))
-        .with_mapped_port(kafka_port, 9092_u16.tcp())
-        .with_container_name("it_redpanda")
-        .with_network("meteroid_net")
-        .with_cmd(args)
-        .start()
-        .await?;
+pub async fn start_kafka() -> anyhow::Result<KafkaSetup> {
+    let suffix = uuid::Uuid::now_v7();
+    let container_name = format!("it_redpanda_{suffix}");
+    let network_name = format!("meteroid_net_{suffix}");
+    let internal_addr = format!("{container_name}:29092");
+
+    let container = (|| async {
+        let kafka_port = free_local_port().expect("Could not get free port");
+
+        let args = [
+            "redpanda",
+            "start",
+            "--overprovisioned",
+            "--smp",
+            "1",
+            "--memory",
+            "512M",
+            "--reserve-memory=0M",
+            "--node-id=1",
+            "--check=false",
+            "--kafka-addr=INTERNAL://0.0.0.0:29092,EXTERNAL://0.0.0.0:9092",
+            format!(
+                "--advertise-kafka-addr=INTERNAL://{container_name}:29092,EXTERNAL://localhost:{kafka_port}"
+            )
+            .as_str(),
+            "--set",
+            "redpanda.disable_metrics=true",
+            "--set",
+            "redpanda.enable_admin_api=false",
+            "--set",
+            "redpanda.developer_mode=true",
+        ]
+        .map(String::from);
+
+        GenericImage::new(CONTAINER_NAME, CONTAINER_VERSION)
+            .with_wait_for(WaitFor::message_on_stderr("Successfully started Redpanda!"))
+            .with_mapped_port(kafka_port, 9092_u16.tcp())
+            .with_container_name(container_name.clone())
+            .with_network(network_name.clone())
+            .with_cmd(args)
+            .start()
+            .await
+    })
+    .retry(ConstantBuilder::default().with_delay(Duration::from_secs(1)).with_max_times(3))
+    .notify(|err: &TestcontainersError, dur: Duration| {
+        log::warn!("Retrying redpanda container start after {:?}: {:?}", dur, err);
+    })
+    .await?;
 
     let port = container.get_host_port_ipv4(9092).await?;
 
-    Ok((container, port))
+    Ok(KafkaSetup {
+        container,
+        port,
+        internal_addr,
+    })
 }

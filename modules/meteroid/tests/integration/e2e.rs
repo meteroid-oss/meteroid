@@ -58,14 +58,14 @@ async fn test_metering_e2e() {
 
     let postgres_connection_string = meteroid_it::container::create_test_database().await;
 
-    let (_kafka_container, kafka_port) = metering_it::container::start_kafka()
+    let kafka_setup = metering_it::container::start_kafka()
         .await
         .expect("Could not start kafka");
 
     let (_clickhouse_container, clickhouse_http_port, clickhouse_tcp_port) =
         metering_it::container::start_clickhouse().await;
 
-    metering_it::kafka::create_topic(kafka_port, "meteroid-events-raw")
+    metering_it::kafka::create_topic(kafka_setup.port, "meteroid-events-raw")
         .await
         .expect("Could not create topic");
 
@@ -79,7 +79,8 @@ async fn test_metering_e2e() {
         metering_port,
         clickhouse_http_port,
         clickhouse_tcp_port,
-        kafka_port,
+        kafka_setup.port,
+        kafka_setup.internal_addr,
         "meteroid-events-raw".to_string(),
         "meteroid-events-preprocessed".to_string(),
     );
