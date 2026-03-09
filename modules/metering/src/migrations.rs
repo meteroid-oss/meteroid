@@ -1,5 +1,5 @@
 use crate::config::{ClickhouseConfig, KafkaConfig};
-use crate::migrate::{ClusterMigration, ClusterName, sync_checksums};
+use crate::migrate::{ClusterMigration, ClusterName};
 use clickhouse::Client;
 use error_stack::{Report, ResultExt};
 use kafka::config::KafkaConnectionConfig;
@@ -63,12 +63,6 @@ pub async fn run(
 
     let mut runner = &mut migrations::runner();
     runner = runner.set_migration_table_name("refinery_schema_history");
-
-    // temporary: syncs checksums that drifted due to dynamic SQL in V1-V5.
-    // becomes a no-op once V6 has run in all environments.
-    sync_checksums(&client, "refinery_schema_history", runner.get_migrations())
-        .await
-        .change_context(MigrationsError::Execution)?;
 
     struct MeteroidCluster;
     impl ClusterName for MeteroidCluster {

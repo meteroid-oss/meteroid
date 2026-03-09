@@ -97,84 +97,6 @@ impl AppliedMigration {
     }
 }
 
-#[derive(Debug, Deserialize, clickhouse::Row)]
-struct AppliedChecksum {
-    version: i32,
-    checksum: String,
-}
-
-/// Syncs stored migration checksums with current filesystem checksums.
-/// Required when dynamic migrations (SQL generated from runtime config) produce
-/// different SQL across environments, causing refinery checksum mismatches.
-/// No-op on fresh clusters where the tracking table does not yet exist.
-pub async fn sync_checksums(
-    client: &Client,
-    migration_table: &str,
-    current_migrations: &[Migration],
-) -> Result<(), MigrationError> {
-    let exists: bool = client
-        .query(&format!(
-            "SELECT count() FROM system.tables \
-             WHERE database = currentDatabase() AND name = '{migration_table}'"
-        ))
-        .fetch_one::<u64>()
-        .await
-        .map(|n| n > 0)
-        .map_err(|e| {
-            MigrationError::Execution(format!("Failed to check {migration_table} existence: {e}"))
-        })?;
-
-    if !exists {
-        return Ok(());
-    }
-
-    let applied: Vec<AppliedChecksum> = client
-        .query(&format!(
-            "SELECT version, checksum FROM {migration_table} ORDER BY version"
-        ))
-        .fetch_all()
-        .await
-        .map_err(|e| MigrationError::Execution(format!("Failed to fetch checksums: {e}")))?;
-
-    for row in &applied {
-        let Some(current) = current_migrations
-            .iter()
-            .find(|m| m.version() as i32 == row.version)
-        else {
-            continue;
-        };
-
-        let current_checksum = current.checksum().to_string();
-        if row.checksum == current_checksum {
-            continue;
-        }
-
-        log::info!(
-            "Syncing checksum for V{}: {} → {}",
-            row.version,
-            row.checksum,
-            current_checksum
-        );
-
-        client
-            .query(&format!(
-                "ALTER TABLE {migration_table} UPDATE checksum = '{current_checksum}' \
-                 WHERE version = {} SETTINGS mutations_sync = 2",
-                row.version
-            ))
-            .execute()
-            .await
-            .map_err(|e| {
-                MigrationError::Execution(format!(
-                    "Failed to sync checksum for V{}: {e}",
-                    row.version
-                ))
-            })?;
-    }
-
-    Ok(())
-}
-
 pub trait ClusterName: Send + Sync {
     fn cluster_name() -> String;
 }
@@ -195,13 +117,16 @@ impl<T: ClusterName> ClusterMigration<T> {
 }
 
 #[async_trait::async_trait]
-impl<T: ClusterName> AsyncTransaction for ClusterMigration<T> {
+impl<TR: ClusterName> AsyncTransaction for ClusterMigration<TR> {
     type Error = MigrationError;
 
-    async fn execute(&mut self, queries: &[&str]) -> Result<usize, Self::Error> {
+    async fn execute<'a, T: Iterator<Item = &'a str> + Send>(
+        &mut self,
+        queries: T,
+    ) -> Result<usize, Self::Error> {
         // Acquire lock for cluster migrations
         let lock = ClickhouseLock::new(self.client.clone(), "refinery_exec")
-            .with_cluster(T::cluster_name());
+            .with_cluster(TR::cluster_name());
         let start = Instant::now();
         let handle = loop {
             if let Some(handle) = lock.try_lock().await? {
@@ -215,10 +140,12 @@ impl<T: ClusterName> AsyncTransaction for ClusterMigration<T> {
         };
 
         // Execute queries - split by semicolon for multi-statement support
+        let mut count = 0;
         for query in queries {
             if query.is_empty() {
                 continue;
             }
+            count += 1;
             // Split by semicolon and execute each statement individually
             for statement in query.split(';') {
                 let statement = statement.trim();
@@ -233,7 +160,7 @@ impl<T: ClusterName> AsyncTransaction for ClusterMigration<T> {
 
         // Unlock
         handle.unlock().await?;
-        Ok(queries.len())
+        Ok(count)
     }
 }
 
@@ -255,16 +182,25 @@ impl<T: ClusterName> AsyncQuery<Vec<Migration>> for ClusterMigration<T> {
 
 impl<T: ClusterName> AsyncMigrate for ClusterMigration<T> {
     fn assert_migrations_table_query(migration_table_name: &str) -> String {
-        // Use ReplicatedMergeTree for proper replication in cluster mode
+        let local_table = format!("{migration_table_name}_local");
+        let cluster = T::cluster_name();
+        // Create the local ReplicatedMergeTree table, then a Distributed table on top
         format!(
-            r"CREATE TABLE IF NOT EXISTS {migration_table_name} ON CLUSTER '{cluster}'(
+            r"CREATE TABLE IF NOT EXISTS {local_table} ON CLUSTER '{cluster}'(
                 version INT,
                 name String,
                 applied_on String,
                 checksum String
-            ) Engine=ReplicatedMergeTree('/clickhouse/tables/{{cluster}}/{{database}}/{migration_table_name}', '{{replica}}')
-            ORDER BY version;",
-            cluster = T::cluster_name(),
+            ) Engine=ReplicatedMergeTree('/clickhouse/tables/{{cluster}}/{{database}}/{local_table}', '{{replica}}')
+            ORDER BY version;
+            CREATE TABLE IF NOT EXISTS {migration_table_name} ON CLUSTER '{cluster}'(
+                version INT,
+                name String,
+                applied_on String,
+                checksum String
+            ) ENGINE = Distributed('{cluster}', currentDatabase(), '{local_table}', rand());",
+            cluster = cluster,
+            local_table = local_table,
             migration_table_name = migration_table_name
         )
     }
