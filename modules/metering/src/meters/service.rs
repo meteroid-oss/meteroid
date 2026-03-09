@@ -1,15 +1,12 @@
 use metering_grpc::meteroid::metering::v1::meters_service_server::MetersService as MetersServiceGrpc;
 use std::sync::Arc;
 
-use metering_grpc::meteroid::metering::v1::meter::AggregationType;
 use metering_grpc::meteroid::metering::v1::{
     RegisterMeterRequest, RegisterMeterResponse, UnregisterMeterRequest, UnregisterMeterResponse,
 };
 use tonic::{Request, Response, Status};
 
 use crate::connectors::Connector;
-use crate::domain::Meter;
-use crate::error::MeteringApiError;
 
 #[derive(Clone)]
 pub struct MetersService {
@@ -27,33 +24,9 @@ impl MetersServiceGrpc for MetersService {
     #[tracing::instrument(skip_all)]
     async fn register_meter(
         &self,
-        request: Request<RegisterMeterRequest>,
+        _request: Request<RegisterMeterRequest>,
     ) -> Result<Response<RegisterMeterResponse>, Status> {
-        let req = request.into_inner();
-
-        let meter = req
-            .meter
-            .ok_or_else(|| Status::invalid_argument("No meter provided"))?;
-
-        let aggregation_type: AggregationType = meter.aggregation();
-
-        let meter_aggregation = aggregation_type.into();
-
-        let meter = Meter {
-            aggregation: meter_aggregation,
-            namespace: req.tenant_id,
-            id: meter.id,
-            code: meter.code,
-            value_property: meter.aggregation_key,
-            group_by: meter.dimensions,
-        };
-
-        self.connector
-            .register_meter(meter)
-            .await
-            .map_err(Into::<MeteringApiError>::into)?;
-
-        Ok(Response::new(RegisterMeterResponse { metadata: vec![] }))
+        unimplemented!()
     }
 
     #[tracing::instrument(skip_all)]

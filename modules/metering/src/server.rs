@@ -40,6 +40,16 @@ fn reject_all(_path: &str) -> bool {
 
 pub async fn start_server(config: Config) {
     let internal_client = create_meteroid_internal_client(&config).await;
+
+    #[cfg(all(feature = "kafka", feature = "clickhouse"))]
+    {
+        let kafka_cfg = config.kafka.clone();
+        let ch_cfg = config.clickhouse.clone();
+        tokio::spawn(async move {
+            ingest::consumer::run(&kafka_cfg, &ch_cfg).await;
+        });
+    }
+
     let api_server = start_api_server(config.clone(), internal_client);
 
     if let Err(e) = api_server.await {

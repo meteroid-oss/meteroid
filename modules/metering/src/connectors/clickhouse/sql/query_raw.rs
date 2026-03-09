@@ -4,41 +4,7 @@ use crate::domain::{
     EventSortOrder, MeterAggregation, QueryMeterParams, QueryRawEventsParams, SegmentationFilter,
     WindowSize,
 };
-use chrono::{DateTime, Utc};
-
-// TODO improve
-pub fn query_raw_event_table_sql(
-    tenant_id: String,
-    from: Option<DateTime<Utc>>,
-    to: Option<DateTime<Utc>>,
-    limit: i32,
-) -> String {
-    let table_name = get_events_table_name();
-    let mut where_clauses = Vec::new();
-
-    let mut query = format!(
-        "SELECT id, code, customer_id, timestamp, ingested_at, properties FROM {table_name}"
-    );
-
-    where_clauses.push(format!("tenant_id = '{tenant_id}'"));
-
-    if let Some(from_time) = from {
-        where_clauses.push(format!("timestamp >= {}", from_time.timestamp()));
-    }
-
-    if let Some(to_time) = to {
-        where_clauses.push(format!("timestamp <= {}", to_time.timestamp()));
-    }
-
-    if !where_clauses.is_empty() {
-        query.push_str(" WHERE ");
-        query.push_str(&where_clauses.join(" AND "));
-    }
-
-    query.push_str(&format!(" ORDER BY time DESC LIMIT {limit}"));
-
-    query
-}
+use chrono::Utc;
 
 pub fn query_raw_events_sql(params: QueryRawEventsParams) -> Result<String, String> {
     let table_name = get_events_table_name();
@@ -118,7 +84,7 @@ pub fn query_raw_events_sql(params: QueryRawEventsParams) -> Result<String, Stri
     Ok(query)
 }
 
-pub fn query_meter_view_sql(params: QueryMeterParams) -> Result<String, String> {
+pub fn query_meter_sql(params: QueryMeterParams) -> Result<String, String> {
     let table_name = get_events_table_name();
     let escaped_namespace = escape_sql_identifier(&params.namespace);
     let escaped_code = escape_sql_identifier(&params.code);
@@ -380,7 +346,7 @@ mod tests {
             to: Some(Utc.with_ymd_and_hms(2024, 1, 2, 0, 0, 0).unwrap()),
         };
 
-        let result = query_meter_view_sql(params).unwrap();
+        let result = query_meter_sql(params).unwrap();
         let expected = r#"
             SELECT
                 tumbleStart(toDateTime(timestamp), toIntervalMinute(1), 'UTC') AS window_start,
@@ -428,7 +394,7 @@ mod tests {
             to: Some(Utc.with_ymd_and_hms(2024, 1, 2, 0, 0, 0).unwrap()),
         };
 
-        let result = query_meter_view_sql(params).unwrap();
+        let result = query_meter_sql(params).unwrap();
         let expected = r#"
             SELECT
                 min(toDateTime(timestamp)) AS window_start,
@@ -470,7 +436,7 @@ mod tests {
             to: None,
         };
 
-        let result = query_meter_view_sql(params).unwrap();
+        let result = query_meter_sql(params).unwrap();
         let expected = r#"
             SELECT
                 tumbleStart(toDateTime(timestamp), toIntervalHour(1), 'UTC') AS window_start,
@@ -520,7 +486,7 @@ mod tests {
             to: None,
         };
 
-        let result = query_meter_view_sql(params).unwrap();
+        let result = query_meter_sql(params).unwrap();
         let expected = r#"
             SELECT
                 tumbleStart(toDateTime(timestamp), toIntervalDay(1), 'UTC') AS window_start,
@@ -577,7 +543,7 @@ mod tests {
             to: None,
         };
 
-        let result = query_meter_view_sql(params).unwrap();
+        let result = query_meter_sql(params).unwrap();
         let expected = r#"
             SELECT
                 min(toDateTime(timestamp)) AS window_start,
@@ -636,7 +602,7 @@ mod tests {
             to: None,
         };
 
-        let result = query_meter_view_sql(params).unwrap();
+        let result = query_meter_sql(params).unwrap();
 
         // HashMap iteration order is not guaranteed, so check both possible orders
         let expected1 = r#"
@@ -721,7 +687,7 @@ mod tests {
             to: None,
         };
 
-        let result = query_meter_view_sql(params).unwrap();
+        let result = query_meter_sql(params).unwrap();
         let expected = r#"
             SELECT
                 tumbleStart(toDateTime(timestamp), toIntervalDay(1), 'UTC') AS window_start,
@@ -768,7 +734,7 @@ mod tests {
             to: None,
         };
 
-        let result = query_meter_view_sql(params).unwrap();
+        let result = query_meter_sql(params).unwrap();
         let expected = r#"
             SELECT
                 min(toDateTime(timestamp)) AS window_start,
@@ -814,7 +780,7 @@ mod tests {
             to: None,
         };
 
-        let result = query_meter_view_sql(params);
+        let result = query_meter_sql(params);
         assert!(result.is_err());
         assert_eq!(result.unwrap_err(), "Empty filter for dimension: region");
     }
@@ -836,7 +802,7 @@ mod tests {
             to: None,
         };
 
-        let result = query_meter_view_sql(params);
+        let result = query_meter_sql(params);
         assert!(result.is_err());
         assert_eq!(
             result.unwrap_err(),
@@ -861,7 +827,7 @@ mod tests {
             to: None,
         };
 
-        let result = query_meter_view_sql(params).unwrap();
+        let result = query_meter_sql(params).unwrap();
         let expected = r#"
             SELECT
                 min(toDateTime(timestamp)) AS window_start,
@@ -904,7 +870,7 @@ mod tests {
             to: Some(Utc.with_ymd_and_hms(2024, 1, 2, 0, 0, 0).unwrap()),
         };
 
-        let result = query_meter_view_sql(params).unwrap();
+        let result = query_meter_sql(params).unwrap();
         let expected = r#"
             SELECT
                 min(toDateTime(timestamp)) AS window_start,
@@ -948,7 +914,7 @@ mod tests {
             to: None,
         };
 
-        let result = query_meter_view_sql(params).unwrap();
+        let result = query_meter_sql(params).unwrap();
         let expected = r#"
             SELECT
                 min(toDateTime(timestamp)) AS window_start,
@@ -998,7 +964,7 @@ mod tests {
             to: None,
         };
 
-        let result = query_meter_view_sql(params).unwrap();
+        let result = query_meter_sql(params).unwrap();
         let expected = r#"
             SELECT
                 min(toDateTime(timestamp)) AS window_start,
@@ -1050,7 +1016,7 @@ mod tests {
             to: None,
         };
 
-        let result = query_meter_view_sql(params).unwrap();
+        let result = query_meter_sql(params).unwrap();
         let expected = r#"
             SELECT
                 min(toDateTime(timestamp)) AS window_start,

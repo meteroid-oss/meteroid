@@ -45,6 +45,6 @@ pub fn migration() -> String {
          CREATE MATERIALIZED VIEW IF NOT EXISTS meteroid.preprocessed_kafka_events_mv TO meteroid.preprocessed_events AS
                 SELECT * FROM meteroid.preprocessed_kafka_events;
     "#,
-        &cfg.kafka_internal_addr, &cfg.kafka_preprocessed_topic
+        &cfg.kafka_internal_addr, "meteroid-events-preprocessed"
     )
 }

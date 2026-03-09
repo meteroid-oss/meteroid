@@ -81,7 +81,6 @@ async fn test_metering_e2e() {
         clickhouse_tcp_port,
         kafka_port,
         "meteroid-events-raw".to_string(),
-        "meteroid-events-preprocessed".to_string(),
     );
 
     let metering_setup = metering_it::container::start_metering(metering_config.clone()).await;
@@ -347,29 +346,7 @@ async fn test_metering_e2e() {
 
     let _metric_id = created_metric.billable_metric.as_ref().unwrap().id.clone();
 
-    // we validate that it was created in clickhouse
-
     let clickhouse_client = metering_it::clickhouse::get_client(clickhouse_http_port);
-
-    // list all tables in db meteroid
-    let tables = clickhouse_client
-        .query("SHOW TABLES")
-        .fetch_all::<String>()
-        .await
-        .unwrap();
-
-    let expected_table_name = metering::connectors::clickhouse::sql::get_meter_view_name(
-        &tenant_id.to_string(),
-        &created_metric.billable_metric.unwrap().id,
-    )
-    .split(".")
-    .collect::<Vec<&str>>()[1]
-        .to_string();
-
-    tables
-        .into_iter()
-        .find(|x| x == &expected_table_name)
-        .expect("Could not find meter table");
 
     // check that events were ingested
     let _events = clickhouse_client

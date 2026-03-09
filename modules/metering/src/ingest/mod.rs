@@ -1,4 +1,6 @@
 pub mod common;
+#[cfg(all(feature = "kafka", feature = "clickhouse"))]
+pub mod consumer;
 pub mod domain;
 mod errors;
 pub mod internal_service;

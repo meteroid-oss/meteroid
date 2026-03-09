@@ -50,7 +50,7 @@ kafka = { workspace = true, optional = true }
 rdkafka = { workspace = true, features = ["ssl", "sasl"], optional = true }
 
 # clickhosue connector deps
-clickhouse = { workspace = true, features = ["chrono"], optional = true }
+clickhouse = { workspace = true, features = ["chrono", "inserter"], optional = true }
 refinery = { workspace = true, features = ["default"], optional = true }
 refinery-core = { workspace = true, optional = true }
 time = { workspace = true, features = ["formatting", "parsing"], optional = true }

@@ -5,7 +5,6 @@ use backon::Retryable;
 use chrono::Days;
 use common_domain::ids::BillableMetricId;
 use itertools::Itertools;
-use metering::connectors::clickhouse::sql::get_meter_view_name;
 use metering::ingest::domain::RawEventRow;
 use metering_grpc::meteroid::metering::v1::{Event, IngestRequest, event};
 use meteroid::clients::usage::MeteringUsageClient;
@@ -53,7 +52,6 @@ async fn test_metering_ingestion() {
         ch_tcp_port,
         kafka_port,
         "meteroid-events-raw".to_string(),
-        "meteroid-events-preprocessed".to_string(),
     );
 
     let metering_setup = metering_it::container::start_metering(metering_config.clone()).await;
@@ -151,9 +149,6 @@ async fn test_metering_ingestion() {
         .unwrap();
 
     let clickhouse_client = metering_it::clickhouse::get_client(ch_http_port);
-
-    // todo remove me after the raw aggregation is tested enough
-    wait_for_clichouse_meter(&created_metric.id, &clickhouse_client).await;
 
     let customer_1 = ids::CUST_SPOTIFY_ID;
     let customer_2 = ids::CUST_UBER_ID;
@@ -415,45 +410,6 @@ fn assert_raw_event_eq(left: &Event, right: &RawEventRow) {
             .map(|(k, v)| (k.as_str(), v.as_str()))
             .collect_vec(),
     );
-}
-
-async fn wait_for_clichouse_meter(bm_id: &str, ch_client: &clickhouse::Client) {
-    let view_name = get_meter_view_name(ids::TENANT_ID.to_string().as_str(), bm_id);
-    let view_name = view_name.strip_prefix("meteroid.").unwrap();
-
-    log::info!("Waiting for meter {} to be created...", view_name);
-    (|| async {
-        match ch_client
-            .query(
-                format!("SELECT count(*) FROM system.tables WHERE name = '{view_name}'").as_str(),
-            )
-            .fetch_one::<u64>()
-            .await
-        {
-            Ok(cnt) => {
-                if cnt != 1 {
-                    Err(anyhow::anyhow!(
-                        "Expected 1 but got {cnt} views for {view_name}"
-                    ))
-                } else {
-                    Ok(())
-                }
-            }
-            Err(e) => Err(anyhow::anyhow!(e)),
-        }
-    })
-    .retry(
-        backon::ConstantBuilder::default()
-            .with_delay(Duration::from_millis(100))
-            .with_max_times(50),
-    )
-    .await
-    .expect("Timeout waiting for view in ClickHouse");
-
-    // TODO for some reason the MVw is not immediately ready so give it some time before publishing events
-    tokio::time::sleep(Duration::from_millis(1500)).await;
-
-    log::info!("Meter {view_name} is ready in ClickHouse");
 }
 
 async fn get_eventually_raw_events(
