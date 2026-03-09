@@ -1,4 +1,4 @@
-use chrono::{DateTime, NaiveDateTime, Utc};
+use chrono::{DateTime, NaiveDateTime, TimeZone, Utc};
 use clickhouse::Row;
 use metering_grpc::meteroid::metering::v1::Event;
 use serde::{Deserialize, Serialize};
@@ -18,6 +18,20 @@ pub struct RawEvent {
 impl RawEvent {
     pub fn key(&self) -> String {
         format!("{}:{}", self.tenant_id, self.id)
+    }
+}
+
+impl From<RawEvent> for RawEventRow {
+    fn from(event: RawEvent) -> Self {
+        RawEventRow {
+            id: event.id,
+            code: event.code,
+            customer_id: event.customer_id,
+            tenant_id: event.tenant_id,
+            timestamp: Utc.from_utc_datetime(&event.timestamp),
+            ingested_at: Utc.from_utc_datetime(&event.ingested_at),
+            properties: event.properties.into_iter().collect(),
+        }
     }
 }
 

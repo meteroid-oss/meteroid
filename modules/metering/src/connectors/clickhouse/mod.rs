@@ -1,7 +1,7 @@
 use crate::config::{ClickhouseConfig, KafkaConfig};
 use crate::connectors::Connector;
 use crate::connectors::errors::ConnectorError;
-use crate::domain::{Meter, QueryMeterParams, QueryRawEventsParams, QueryRawEventsResult, Usage};
+use crate::domain::{QueryMeterParams, QueryRawEventsParams, QueryRawEventsResult, Usage};
 use async_trait::async_trait;
 use std::collections::HashMap;
 
@@ -66,20 +66,6 @@ impl ClickhouseConnector {
 #[async_trait]
 impl Connector for ClickhouseConnector {
     #[tracing::instrument(skip_all)]
-    async fn register_meter(&self, meter: Meter) -> Result<(), Report<ConnectorError>> {
-        let ddl = sql::create_meter::create_meter_view(
-            meter, true, // TODO consider making this configurable
-        );
-        self.client
-            .query(ddl.as_str())
-            .execute()
-            .await
-            .change_context(ConnectorError::RegisterError)?;
-
-        Ok(())
-    }
-
-    #[tracing::instrument(skip_all)]
     async fn query_meter(
         &self,
         params: QueryMeterParams,
@@ -89,7 +75,7 @@ impl Connector for ClickhouseConnector {
             .and_then(|ext| ext.build_query(&params))
         {
             Some(ext) => ext,
-            None => sql::query_raw::query_meter_view_sql(params.clone())
+            None => sql::query_raw::query_meter_sql(params.clone())
                 .map_err(ConnectorError::InvalidQuery)?,
         };
 

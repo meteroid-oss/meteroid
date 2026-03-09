@@ -13,7 +13,7 @@ pub fn migration() -> String {
 
     let preprocessed_kafka_settings = build_kafka_settings(
         &kafka_cfg.kafka_internal_addr,
-        &kafka_cfg.kafka_preprocessed_topic,
+        "meteroid-events-preprocessed",
         "clickhouse-events-preprocessed",
         &kafka_cfg.kafka_connection,
     );

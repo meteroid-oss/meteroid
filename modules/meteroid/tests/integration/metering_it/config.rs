@@ -14,7 +14,6 @@ pub fn mocked_config(
     clickhouse_tcp_port: TcpPort,
     kafka_port: u16,
     kafka_raw_topic: String,
-    kafka_preprocessed_topic: String,
 ) -> Config {
     Config {
         clickhouse: ClickhouseConfig {
@@ -43,7 +42,6 @@ pub fn mocked_config(
             },
             kafka_internal_addr: format!("it_redpanda:{}", 29092),
             kafka_raw_topic,
-            kafka_preprocessed_topic,
             kafka_producer_linger_ms: 5,
             kafka_producer_queue_mib: 400,
             kafka_message_timeout_ms: 20000,
