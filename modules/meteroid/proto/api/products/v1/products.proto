@@ -72,6 +72,7 @@ message ListProductsWithPricesRequest {
   optional string query = 3;
   meteroid.common.v1.Pagination pagination = 4;
   optional bool catalog_only = 5;
+  repeated meteroid.api.prices.v1.FeeType fee_types = 6;
 }
 
 message ListProductsWithPricesResponse {

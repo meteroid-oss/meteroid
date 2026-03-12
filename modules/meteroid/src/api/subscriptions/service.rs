@@ -8,18 +8,17 @@ use tonic::{Request, Response, Status};
 use meteroid_grpc::meteroid::api::subscriptions::v1::subscriptions_service_server::SubscriptionsService;
 
 use meteroid_grpc::meteroid::api::subscriptions::v1::{
-    ActivateSubscriptionRequest, ActivateSubscriptionResponse,
-      CancelPlanChangeRequest, CancelPlanChangeResponse,
-    CancelScheduledEventRequest, CancelScheduledEventResponse, CancelSlotTransactionRequest,
-    CancelSlotTransactionResponse, CancelSubscriptionRequest, CancelSubscriptionResponse,
-    CreateSubscriptionRequest, CreateSubscriptionResponse, CreateSubscriptionsRequest,
-    CreateSubscriptionsResponse, GenerateCheckoutTokenRequest, GenerateCheckoutTokenResponse,
-    GetSlotsValueRequest, GetSlotsValueResponse, GetSubscriptionComponentUsageRequest,
-    GetSubscriptionComponentUsageResponse, GetUpcomingInvoiceRequest, GetUpcomingInvoiceResponse,
-    ListSlotTransactionsRequest, ListSlotTransactionsResponse, ListSubscriptionsRequest,
-    ListSubscriptionsResponse, PreviewPlanChangeRequest, PreviewPlanChangeResponse,
-    PreviewSlotUpdateRequest, PreviewSlotUpdateResponse,
-      SchedulePlanChangeRequest, SchedulePlanChangeResponse,
+    ActivateSubscriptionRequest, ActivateSubscriptionResponse, CancelPlanChangeRequest,
+    CancelPlanChangeResponse, CancelScheduledEventRequest, CancelScheduledEventResponse,
+    CancelSlotTransactionRequest, CancelSlotTransactionResponse, CancelSubscriptionRequest,
+    CancelSubscriptionResponse, CreateSubscriptionRequest, CreateSubscriptionResponse,
+    CreateSubscriptionsRequest, CreateSubscriptionsResponse, GenerateCheckoutTokenRequest,
+    GenerateCheckoutTokenResponse, GetSlotsValueRequest, GetSlotsValueResponse,
+    GetSubscriptionComponentUsageRequest, GetSubscriptionComponentUsageResponse,
+    GetUpcomingInvoiceRequest, GetUpcomingInvoiceResponse, ListSlotTransactionsRequest,
+    ListSlotTransactionsResponse, ListSubscriptionsRequest, ListSubscriptionsResponse,
+    PreviewPlanChangeRequest, PreviewPlanChangeResponse, PreviewSlotUpdateRequest,
+    PreviewSlotUpdateResponse, SchedulePlanChangeRequest, SchedulePlanChangeResponse,
     SubscriptionDetails, SyncToHubspotRequest, SyncToHubspotResponse, UpdateSlotsRequest,
     UpdateSlotsResponse, UpdateSubscriptionRequest, UpdateSubscriptionResponse,
 };
@@ -723,5 +722,4 @@ impl SubscriptionsService for SubscriptionServiceComponents {
             usage,
         )))
     }
-
 }

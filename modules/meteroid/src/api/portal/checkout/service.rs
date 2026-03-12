@@ -18,7 +18,6 @@ use meteroid_grpc::meteroid::portal::checkout::v1::{
 };
 use meteroid_store::constants::Currencies;
 use meteroid_store::domain::SubscriptionFeeInterface;
-use meteroid_store::repositories::add_ons::AddOnInterface;
 use meteroid_store::domain::checkout_sessions::{
     CheckoutCompletionResult, CheckoutType as DomainCheckoutType,
 };
@@ -29,13 +28,14 @@ use meteroid_store::domain::{Period, SubscriptionDetails};
 use meteroid_store::errors::StoreError;
 use meteroid_store::repositories::OrganizationsInterface;
 use meteroid_store::repositories::PlansInterface;
+use meteroid_store::repositories::add_ons::AddOnInterface;
 use meteroid_store::repositories::bank_accounts::BankAccountsInterface;
 use meteroid_store::repositories::checkout_sessions::CheckoutSessionsInterface;
 use meteroid_store::repositories::coupons::CouponInterface;
 use meteroid_store::repositories::customer_payment_methods::CustomerPaymentMethodsInterface;
 use meteroid_store::repositories::customers::CustomersInterfaceAuto;
 use meteroid_store::repositories::invoicing_entities::InvoicingEntityInterfaceAuto;
-use meteroid_store::repositories::subscriptions::{SubscriptionInterface, SubscriptionInterfaceAuto};
+use meteroid_store::repositories::subscriptions::SubscriptionInterfaceAuto;
 use meteroid_store::utils::periods::calculate_proration_factor;
 use rust_decimal::prelude::FromPrimitive;
 use std::time::Duration;
@@ -182,9 +182,7 @@ impl PortalCheckoutService for PortalCheckoutServiceComponents {
             }
             DomainCheckoutType::AddonPurchase => {
                 let subscription_id = session.subscription_id.ok_or_else(|| {
-                    Status::internal(
-                        "Session has no linked subscription for addon purchase flow",
-                    )
+                    Status::internal("Session has no linked subscription for addon purchase flow")
                 })?;
 
                 let sub_details = self
@@ -206,14 +204,7 @@ impl PortalCheckoutService for PortalCheckoutServiceComponents {
                     .await
                     .map_err(Into::<PortalCheckoutApiError>::into)?;
 
-                let addon_name = addons
-                    .first()
-                    .map(|a| a.name.clone())
-                    .unwrap_or_default();
-
-                let currency_code = &sub_details.subscription.currency;
-                let precision = Currencies::resolve_currency_precision(currency_code)
-                    .unwrap_or(2);
+                let addon_name = addons.first().map(|a| a.name.clone()).unwrap_or_default();
 
                 // Build shared products/prices maps for resolution
                 let mut products_map = std::collections::HashMap::new();
@@ -239,7 +230,6 @@ impl PortalCheckoutService for PortalCheckoutServiceComponents {
                                 ),
                                 fee_type: addon
                                     .fee_type
-                                    .clone()
                                     .unwrap_or(meteroid_store::domain::enums::FeeTypeEnum::Rate),
                                 fee_structure: fee_structure.clone(),
                                 catalog: false,
@@ -248,39 +238,19 @@ impl PortalCheckoutService for PortalCheckoutServiceComponents {
                     }
                 }
 
-                // Compute prorated amount using component_advance_amount_cents
-                // (same logic as complete_checkout_addon_purchase_tx)
                 let now = chrono::Utc::now().date_naive();
-                let period_end = sub_details.subscription.current_period_end.ok_or_else(|| {
-                    Status::internal("Subscription has no current_period_end")
-                })?;
 
-                let period = meteroid_store::domain::Period {
-                    start: now,
-                    end: period_end,
-                };
-                let proration_factor =
-                    calculate_proration_factor(&period).unwrap_or(1.0);
-
-                let mut total_prorated_cents: i64 = 0;
                 let mut sub_details = sub_details;
 
                 for (cs_ao, addon) in create_add_ons.add_ons.iter().zip(addons.iter()) {
                     let resolved = addon
                         .resolve_customized(&products_map, &prices_map, &cs_ao.customization)
-                        .map_err(|e| Status::internal(format!("Failed to resolve add-on: {}", e)))?;
+                        .map_err(|e| {
+                            Status::internal(format!("Failed to resolve add-on: {}", e))
+                        })?;
 
-                    let full_amount = meteroid_store::services::proration::component_advance_amount_cents(
-                        &resolved.fee,
-                        &resolved.period,
-                        precision,
-                    );
-                    let prorated = (full_amount as f64 * proration_factor).round() as i64;
-                    total_prorated_cents += prorated;
-
-                    sub_details
-                        .add_ons
-                        .push(meteroid_store::domain::subscription_add_ons::SubscriptionAddOn {
+                    sub_details.add_ons.push(
+                        meteroid_store::domain::subscription_add_ons::SubscriptionAddOn {
                             id: common_domain::ids::SubscriptionAddOnId::new(),
                             subscription_id,
                             add_on_id: addon.id,
@@ -291,24 +261,27 @@ impl PortalCheckoutService for PortalCheckoutServiceComponents {
                             product_id: resolved.product_id,
                             price_id: resolved.price_id,
                             quantity: cs_ao.quantity,
-                        });
+                        },
+                    );
                 }
 
-                let ctx = AddOnPurchaseCheckoutContext {
-                    add_on_name: addon_name,
-                    prorated_amount_cents: total_prorated_cents,
-                };
+                // Override billing_start_date and cycle_index so that compute_invoice
+                // treats the addon as a first-period item starting now, producing a
+                // prorated advance line (from now to period_end).
+                sub_details.subscription.billing_start_date = Some(now);
+                sub_details.subscription.cycle_index = Some(0);
 
                 let invoice_content = self
                     .services
-                    .compute_invoice(
-                        &sub_details.subscription.current_period_start,
-                        &sub_details,
-                        None,
-                    )
+                    .compute_invoice(&now, &sub_details, None)
                     .await
                     .change_context(StoreError::InvoiceComputationError)
                     .map_err(Into::<PortalCheckoutApiError>::into)?;
+
+                let ctx = AddOnPurchaseCheckoutContext {
+                    add_on_name: addon_name,
+                    prorated_amount_cents: invoice_content.total,
+                };
 
                 let checkout = self
                     .build_checkout_response(tenant, sub_details, invoice_content)

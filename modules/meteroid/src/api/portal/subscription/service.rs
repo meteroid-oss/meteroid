@@ -16,9 +16,9 @@ use meteroid_store::domain::subscription_changes::{
     ChangeDirection as DomainChangeDirection, PlanChangeMode,
 };
 use meteroid_store::domain::subscription_components::{SubscriptionComponent, SubscriptionFee};
+use meteroid_store::repositories::PlansInterface;
 use meteroid_store::repositories::add_ons::AddOnInterface;
 use meteroid_store::repositories::plan_version_add_ons::PlanVersionAddOnInterface;
-use meteroid_store::repositories::PlansInterface;
 use meteroid_store::repositories::subscriptions::SubscriptionInterfaceAuto;
 use std::collections::HashMap;
 use tonic::{Request, Response, Status};
@@ -59,12 +59,14 @@ fn map_sub_billing_period(period: &SubscriptionFeeBillingPeriod) -> i32 {
 fn map_fee(fee: &SubscriptionFee, period: &SubscriptionFeeBillingPeriod) -> ComponentFee {
     let (fee_type, amount, unit) = match fee {
         SubscriptionFee::Rate { rate } => (prices_proto::FeeType::Rate, rate.to_string(), None),
-        SubscriptionFee::OneTime { rate, .. } => {
-            (prices_proto::FeeType::OneTime, rate.to_string(), None)
-        }
-        SubscriptionFee::Recurring { rate, .. } => (
+        SubscriptionFee::OneTime { rate, quantity, .. } => (
+            prices_proto::FeeType::OneTime,
+            (rate * rust_decimal::Decimal::from(*quantity)).to_string(),
+            None,
+        ),
+        SubscriptionFee::Recurring { rate, quantity, .. } => (
             prices_proto::FeeType::ExtraRecurring,
-            rate.to_string(),
+            (rate * rust_decimal::Decimal::from(*quantity)).to_string(),
             None,
         ),
         SubscriptionFee::Capacity { rate, .. } => {
@@ -741,7 +743,6 @@ impl PortalSubscriptionService for PortalSubscriptionServiceComponents {
                         ),
                         fee_type: addon
                             .fee_type
-                            .clone()
                             .unwrap_or(meteroid_store::domain::enums::FeeTypeEnum::Rate),
                         fee_structure: fee_structure.clone(),
                         catalog: false,
@@ -776,10 +777,10 @@ impl PortalSubscriptionService for PortalSubscriptionServiceComponents {
                 .or(addon.max_instances_per_subscription);
             let current_qty = current_quantities.get(&addon.id).copied().unwrap_or(0);
 
-            if let Some(max) = max_instances {
-                if current_qty >= max {
-                    continue;
-                }
+            if let Some(max) = max_instances
+                && current_qty >= max
+            {
+                continue;
             }
 
             let resolved = match addon.resolve_subscription_fee(&products_map, &prices_map, None) {
@@ -874,14 +875,14 @@ impl PortalSubscriptionService for PortalSubscriptionServiceComponents {
             .map(|sa| sa.quantity)
             .sum();
 
-        if let Some(max) = max_instances {
-            if current_qty >= max {
-                return Err(PortalSubscriptionApiError::InvalidArgument(format!(
-                    "Add-on {} has reached maximum instances ({})",
-                    addon.name, max
-                ))
-                .into());
-            }
+        if let Some(max) = max_instances
+            && current_qty >= max
+        {
+            return Err(PortalSubscriptionApiError::InvalidArgument(format!(
+                "Add-on {} has reached maximum instances ({})",
+                addon.name, max
+            ))
+            .into());
         }
 
         if self.has_online_payment_config(&details) {
@@ -1061,12 +1062,9 @@ impl PortalSubscriptionServiceComponents {
                     updated_at: None,
                     archived_at: None,
                     tenant_id: addon.tenant_id,
-                    product_family_id: common_domain::ids::ProductFamilyId::from(
-                        uuid::Uuid::nil(),
-                    ),
+                    product_family_id: common_domain::ids::ProductFamilyId::from(uuid::Uuid::nil()),
                     fee_type: addon
                         .fee_type
-                        .clone()
                         .unwrap_or(meteroid_store::domain::enums::FeeTypeEnum::Rate),
                     fee_structure: fee_structure.clone(),
                     catalog: false,

@@ -8,6 +8,32 @@ use diesel_async::RunQueryDsl;
 use error_stack::ResultExt;
 
 impl SubscriptionAddOnRow {
+    /// Delete subscription add-ons whose add_on_id is NOT in the allowed set.
+    pub async fn delete_incompatible(
+        conn: &mut PgConn,
+        subscription_id: &SubscriptionId,
+        compatible_add_on_ids: &[common_domain::ids::AddOnId],
+    ) -> DbResult<Vec<SubscriptionAddOnRow>> {
+        use crate::schema::subscription_add_on::dsl as sao_dsl;
+
+        let query = diesel::delete(
+            sao_dsl::subscription_add_on
+                .filter(sao_dsl::subscription_id.eq(subscription_id))
+                .filter(diesel::dsl::not(
+                    sao_dsl::add_on_id.eq_any(compatible_add_on_ids),
+                )),
+        )
+        .returning(SubscriptionAddOnRow::as_select());
+
+        log::debug!("{}", debug_query::<diesel::pg::Pg, _>(&query));
+
+        query
+            .get_results(conn)
+            .await
+            .attach("Error while deleting incompatible subscription add-ons")
+            .into_db_result()
+    }
+
     pub async fn insert_batch(
         conn: &mut PgConn,
         batch: Vec<&SubscriptionAddOnRowNew>,

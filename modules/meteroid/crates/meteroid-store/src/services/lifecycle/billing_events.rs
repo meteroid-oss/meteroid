@@ -236,6 +236,8 @@ impl Services {
         };
         use crate::services::subscriptions::plan_change::calculate_components_mrr_with_slots;
         use crate::services::subscriptions::utils::calculate_mrr;
+        use diesel_models::plan_version_add_ons::PlanVersionAddOnRow;
+        use diesel_models::subscription_add_ons::SubscriptionAddOnRow;
         use diesel_models::subscription_components::{
             SubscriptionComponentRow, SubscriptionComponentRowNew,
         };
@@ -408,6 +410,39 @@ impl Services {
                         .await
                         .map_err(Into::<error_stack::Report<StoreError>>::into)?;
                 }
+            }
+
+            // Remove subscription add-ons incompatible with the new plan version
+            let compatible_addon_ids: Vec<common_domain::ids::AddOnId> =
+                PlanVersionAddOnRow::list_by_plan_version_id(
+                    conn,
+                    new_plan_version_id,
+                    event.tenant_id,
+                )
+                .await
+                .map_err(Into::<error_stack::Report<StoreError>>::into)?
+                .into_iter()
+                .map(|pva| pva.add_on_id)
+                .collect();
+
+            let removed_addons = SubscriptionAddOnRow::delete_incompatible(
+                conn,
+                &event.subscription_id,
+                &compatible_addon_ids,
+            )
+            .await
+            .map_err(Into::<error_stack::Report<StoreError>>::into)?;
+
+            if !removed_addons.is_empty() {
+                log::info!(
+                    "Removed {} incompatible add-on(s) during scheduled plan change for subscription {}: {:?}",
+                    removed_addons.len(),
+                    event.subscription_id,
+                    removed_addons
+                        .iter()
+                        .map(|a| a.add_on_id)
+                        .collect::<Vec<_>>(),
+                );
             }
 
             // 3. Insert Switch subscription event

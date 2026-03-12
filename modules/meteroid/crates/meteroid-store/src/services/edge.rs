@@ -1,3 +1,4 @@
+#![allow(clippy::too_many_arguments)]
 use crate::StoreResult;
 use crate::domain::checkout_sessions::{CheckoutCompletionResult, CheckoutType};
 use crate::domain::enums::{BillingPeriodEnum, PaymentStatusEnum};
@@ -168,7 +169,6 @@ impl ServicesEdge {
     ///
     /// The `is_pending` flag indicates if the payment is still pending (async payment method).
     /// Caller should handle this by marking the checkout session as AwaitingPayment.
-    #[allow(clippy::too_many_arguments)]
     pub async fn complete_subscription_checkout_tx(
         &self,
         conn: &mut PgConn,
@@ -946,7 +946,6 @@ impl ServicesEdge {
 
     /// Creates a checkout session for a plan change.
     /// Used when off-session payment fails or no saved payment method is available.
-    #[allow(clippy::too_many_arguments)]
     pub async fn create_plan_change_checkout_session(
         &self,
         tenant_id: TenantId,
@@ -1102,7 +1101,6 @@ impl ServicesEdge {
 
     /// Completes checkout for SubscriptionActivation type.
     /// The subscription already exists; we just need to activate it via payment.
-    #[allow(clippy::too_many_arguments)]
     async fn complete_checkout_activation_tx(
         &self,
         conn: &mut PgConn,
@@ -1175,7 +1173,6 @@ impl ServicesEdge {
     /// 3. Only create subscription if payment succeeds (or is pending for async)
     /// 4. For pending payments: create transaction only, defer subscription/invoice
     /// 5. Mark session completed (sync) or awaiting payment (async)
-    #[allow(clippy::too_many_arguments)]
     async fn complete_checkout_self_serve_tx(
         &self,
         conn: &mut PgConn,
@@ -1692,7 +1689,6 @@ impl ServicesEdge {
 
     /// Completes checkout for AddonPurchase type.
     /// Inserts addon rows, charges the customer, and creates an invoice.
-    #[allow(clippy::too_many_arguments)]
     async fn complete_checkout_addon_purchase_tx(
         &self,
         conn: &mut PgConn,
@@ -1718,29 +1714,11 @@ impl ServicesEdge {
             ))
         })?;
 
-        let details = self
-            .services
-            .store
-            .get_subscription_details_with_conn(conn, tenant_id, subscription_id)
-            .await?;
-
-        let currency = details.subscription.currency.clone();
-        if currency != currency_confirmation {
-            return Err(Report::new(StoreError::CheckoutError).attach(format!(
-                "Currency mismatch: expected {}, got {}",
-                currency, currency_confirmation
-            )));
-        }
-
         let addon_ids: Vec<_> = create_add_ons.add_ons.iter().map(|a| a.add_on_id).collect();
         let addons = {
-            let rows = diesel_models::add_ons::AddOnRow::list_by_ids(
-                conn,
-                &addon_ids,
-                &tenant_id,
-            )
-            .await
-            .map_err(Into::<Report<StoreError>>::into)?;
+            let rows = diesel_models::add_ons::AddOnRow::list_by_ids(conn, &addon_ids, &tenant_id)
+                .await
+                .map_err(Into::<Report<StoreError>>::into)?;
             crate::repositories::add_ons::enrich_add_ons(conn, rows, tenant_id).await?
         };
 
@@ -1764,41 +1742,28 @@ impl ServicesEdge {
         )
         .await?;
 
-        // Server-side proration recomputation and amount validation
-        let expected_amount = {
-            use crate::constants::Currencies;
-            use crate::services::subscriptions::proration::component_advance_amount_cents;
-            use crate::utils::periods::calculate_proration_factor;
+        let result = self
+            .services
+            .compute_addon_purchase_invoice(
+                conn,
+                tenant_id,
+                subscription_id,
+                &create_add_ons.add_ons,
+                &addons,
+                &products_by_id,
+                &prices_by_id,
+            )
+            .await?;
 
-            let precision = Currencies::resolve_currency_precision(&currency).unwrap_or(2);
+        let currency = result.subscription.currency.clone();
+        if currency != currency_confirmation {
+            return Err(Report::new(StoreError::CheckoutError).attach(format!(
+                "Currency mismatch: expected {}, got {}",
+                currency, currency_confirmation
+            )));
+        }
 
-            let now = Utc::now().date_naive();
-            let period_end = details.subscription.current_period_end.ok_or_else(|| {
-                Report::new(StoreError::InvalidArgument(
-                    "Subscription has no current_period_end".to_string(),
-                ))
-            })?;
-
-            let period = crate::domain::Period {
-                start: now,
-                end: period_end,
-            };
-            let proration_factor = calculate_proration_factor(&period).unwrap_or(1.0);
-
-            let mut total: i64 = 0;
-            for cs_ao in &create_add_ons.add_ons {
-                let addon = addons.iter().find(|a| a.id == cs_ao.add_on_id).unwrap();
-                let resolved = addon
-                    .resolve_customized(&products_by_id, &prices_by_id, &cs_ao.customization)
-                    .map_err(Report::new)?;
-
-                let full_amount =
-                    component_advance_amount_cents(&resolved.fee, &resolved.period, precision);
-                let prorated = (full_amount as f64 * proration_factor).round() as i64;
-                total += prorated;
-            }
-            total
-        };
+        let expected_amount = result.invoice_content.amount_due;
 
         let amount_diff = (expected_amount - total_amount_confirmation as i64).abs();
         if amount_diff > 1 {
@@ -1834,7 +1799,7 @@ impl ServicesEdge {
                 tenant_id,
                 payment_method_id,
                 charge_amount,
-                currency,
+                currency.clone(),
             )
             .await?;
 
@@ -1842,28 +1807,21 @@ impl ServicesEdge {
             charge_result.payment_intent.status == crate::domain::PaymentStatusEnum::Settled;
 
         if payment_settled {
-            let customer = diesel_models::customers::CustomerRow::find_by_id(
-                conn,
-                &details.subscription.customer_id,
-                &tenant_id,
-            )
-            .await
-            .map_err(Into::<Report<StoreError>>::into)?;
-            let customer: crate::domain::Customer = customer.try_into()?;
+            use crate::services::invoices::AdjustmentInvoiceContent;
 
-            let refreshed_details = self
-                .services
-                .store
-                .get_subscription_details_with_conn(conn, tenant_id, subscription_id)
-                .await?;
+            let content = AdjustmentInvoiceContent {
+                computed: result.invoice_content,
+                invoicing_entity: None,
+            };
 
             let draft = self
                 .services
-                .create_subscription_draft_invoice(
+                .create_adjustment_invoice_from_content(
                     conn,
-                    tenant_id,
-                    &refreshed_details,
-                    customer,
+                    &result.subscription,
+                    &result.customer,
+                    &result.proration,
+                    content,
                 )
                 .await?;
 
@@ -1940,7 +1898,6 @@ impl ServicesEdge {
 
     /// Completes checkout for PlanChange type.
     /// The subscription already exists; we recompute proration, charge, and apply the plan change.
-    #[allow(clippy::too_many_arguments)]
     async fn complete_checkout_plan_change_tx(
         &self,
         conn: &mut PgConn,

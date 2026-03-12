@@ -1,9 +1,9 @@
+use crate::domain::Product;
 use crate::domain::add_ons::AddOn;
 use crate::domain::prices::Price;
 use crate::domain::subscription_add_ons::{
     CreateSubscriptionAddOn, SubscriptionAddOnNew, SubscriptionAddOnNewInternal,
 };
-use crate::domain::Product;
 use crate::errors::StoreError;
 use crate::store::PgConn;
 use crate::{Store, StoreResult};
@@ -46,8 +46,7 @@ impl SubscriptionAddOnInterface for Store {
         .await
         .map_err(Into::<Report<StoreError>>::into)?;
 
-        let row_new: SubscriptionAddOnRowNew =
-            new.try_into().map_err(|e: Report<StoreError>| e)?;
+        let row_new: SubscriptionAddOnRowNew = new.try_into().map_err(|e: Report<StoreError>| e)?;
 
         SubscriptionAddOnRow::insert_batch(&mut conn, vec![&row_new])
             .await

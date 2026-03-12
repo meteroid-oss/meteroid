@@ -1,22 +1,29 @@
-use crate::domain::subscription_changes::ProrationResult;
+use crate::domain::add_ons::AddOn;
+use crate::domain::subscription_add_ons::CreateSubscriptionAddOn;
+use crate::domain::subscription_changes::{ProrationLineItem, ProrationResult};
 use crate::domain::{
     Customer, InlineCustomer, InlineInvoicingEntity, Invoice, InvoiceNew, InvoicePaymentStatus,
-    InvoiceStatusEnum, InvoiceType, LineItem, Subscription, SubscriptionDetails,
+    InvoiceStatusEnum, InvoiceType, LineItem, Price, Product, Subscription, SubscriptionDetails,
 };
 use crate::errors::{StoreError, StoreErrorReport};
+use crate::repositories::SubscriptionInterface;
 use crate::repositories::customer_balance::convert_currency;
 use crate::repositories::invoices::insert_invoice_tx;
 use crate::repositories::invoicing_entities::{
     InvoicingEntityInterface, InvoicingEntityInterfaceAuto,
 };
 use crate::services::Services;
+use crate::services::invoice_lines::invoice_lines::ComputedInvoiceContent;
 use crate::store::PgConn;
-use chrono::{NaiveDate, NaiveTime};
-use common_domain::ids::TenantId;
+use chrono::{NaiveDate, NaiveTime, Utc};
+use common_domain::ids::{
+    BaseId, PriceId, ProductId, SubscriptionAddOnId, SubscriptionId, TenantId,
+};
 use diesel_models::invoices::InvoiceRow;
-use error_stack::ResultExt;
+use error_stack::{Report, ResultExt};
 use rust_decimal::Decimal;
 use rust_decimal::prelude::Zero;
+use std::collections::HashMap;
 
 impl Services {
     pub(in crate::services) async fn create_subscription_draft_invoice(
@@ -427,7 +434,121 @@ impl Services {
     }
 }
 
-pub(in crate::services) struct AdjustmentInvoiceContent {
-    pub computed: crate::services::invoice_lines::invoice_lines::ComputedInvoiceContent,
+pub(crate) struct AddonPurchaseInvoiceResult {
+    pub invoice_content: ComputedInvoiceContent,
+    pub proration: ProrationResult,
+    pub customer: Customer,
+    /// The original (unmodified) subscription details.
+    pub subscription: Subscription,
+}
+
+impl Services {
+    /// Computes prorated invoice content for an addon purchase.
+    /// Sets billing_start_date=now and cycle_index=0 on a minimal subscription snapshot
+    /// so that compute_invoice produces line items for the new addons only.
+    #[allow(clippy::too_many_arguments)]
+    pub(crate) async fn compute_addon_purchase_invoice(
+        &self,
+        conn: &mut PgConn,
+        tenant_id: TenantId,
+        subscription_id: SubscriptionId,
+        add_ons_request: &[CreateSubscriptionAddOn],
+        addons: &[AddOn],
+        products_by_id: &HashMap<ProductId, Product>,
+        prices_by_id: &HashMap<PriceId, Price>,
+    ) -> Result<AddonPurchaseInvoiceResult, StoreErrorReport> {
+        let now = Utc::now().date_naive();
+
+        let mut addon_details = self
+            .store
+            .get_subscription_details_minimal_with_conn(conn, tenant_id, subscription_id)
+            .await?;
+        let original_subscription = addon_details.subscription.clone();
+
+        let customer: Customer = diesel_models::customers::CustomerRow::find_by_id(
+            conn,
+            &original_subscription.customer_id,
+            &tenant_id,
+        )
+        .await
+        .map_err(Into::<Report<StoreError>>::into)?
+        .try_into()?;
+
+        addon_details.subscription.billing_start_date = Some(now);
+        addon_details.subscription.cycle_index = Some(0);
+
+        for cs_ao in add_ons_request {
+            let addon = addons
+                .iter()
+                .find(|a| a.id == cs_ao.add_on_id)
+                .ok_or_else(|| {
+                    Report::new(StoreError::InvalidArgument(format!(
+                        "Add-on {} not found",
+                        cs_ao.add_on_id
+                    )))
+                })?;
+            let resolved = addon
+                .resolve_customized(products_by_id, prices_by_id, &cs_ao.customization)
+                .map_err(Report::new)?;
+            addon_details
+                .add_ons
+                .push(crate::domain::subscription_add_ons::SubscriptionAddOn {
+                    id: SubscriptionAddOnId::new(),
+                    subscription_id,
+                    add_on_id: addon.id,
+                    name: resolved.name,
+                    period: resolved.period,
+                    fee: resolved.fee,
+                    created_at: Utc::now().naive_utc(),
+                    product_id: resolved.product_id,
+                    price_id: resolved.price_id,
+                    quantity: cs_ao.quantity,
+                });
+        }
+
+        let invoice_content = self
+            .compute_invoice(conn, &now, &addon_details, None, None)
+            .await
+            .change_context(StoreError::InvoiceComputationError)?;
+
+        let period_end = original_subscription.current_period_end.unwrap_or(now);
+        let proration_factor =
+            crate::utils::periods::calculate_proration_factor(&crate::domain::Period {
+                start: now,
+                end: period_end,
+            })
+            .unwrap_or(1.0);
+
+        let proration = ProrationResult {
+            lines: invoice_content
+                .invoice_lines
+                .iter()
+                .map(|l| ProrationLineItem {
+                    name: l.name.clone(),
+                    amount_cents: l.amount_subtotal,
+                    full_period_amount_cents: l.amount_subtotal,
+                    is_credit: false,
+                    product_id: l.product_id,
+                    price_component_id: l.price_component_id,
+                })
+                .collect(),
+            net_amount_cents: invoice_content.subtotal,
+            change_date: now,
+            period_start: original_subscription.current_period_start,
+            period_end,
+            proration_factor,
+        };
+
+        Ok(AddonPurchaseInvoiceResult {
+            invoice_content,
+            proration,
+            customer,
+            subscription: original_subscription,
+        })
+    }
+}
+
+pub(crate) struct AdjustmentInvoiceContent {
+    pub computed: ComputedInvoiceContent,
     pub invoicing_entity: Option<crate::domain::InvoicingEntity>,
 }

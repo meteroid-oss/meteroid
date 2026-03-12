@@ -55,6 +55,7 @@ impl ProductRow {
         tenant_id: TenantId,
         family_id: Option<ProductFamilyId>,
         catalog_only: bool,
+        fee_types: &[crate::enums::FeeTypeEnum],
         pagination: PaginationRequest,
         order_by: OrderByRequest,
     ) -> DbResult<PaginatedVec<ProductRow>> {
@@ -73,6 +74,10 @@ impl ProductRow {
 
         if let Some(family_id) = family_id {
             query = query.filter(pf_dsl::id.eq(family_id));
+        }
+
+        if !fee_types.is_empty() {
+            query = query.filter(p_dsl::fee_type.eq_any(fee_types));
         }
 
         let mut query = query.select(ProductRow::as_select());
@@ -97,12 +102,14 @@ impl ProductRow {
             .into_db_result()
     }
 
+    #[allow(clippy::too_many_arguments)]
     pub async fn search(
         conn: &mut PgConn,
         tenant_id: TenantId,
         family_id: Option<ProductFamilyId>,
         query: &str,
         catalog_only: bool,
+        fee_types: &[crate::enums::FeeTypeEnum],
         pagination: PaginationRequest,
         order_by: OrderByRequest,
     ) -> DbResult<PaginatedVec<ProductRow>> {
@@ -122,6 +129,10 @@ impl ProductRow {
 
         if let Some(family_id) = family_id {
             query = query.filter(pf_dsl::id.eq(family_id));
+        }
+
+        if !fee_types.is_empty() {
+            query = query.filter(p_dsl::fee_type.eq_any(fee_types));
         }
 
         let mut query = query.select(ProductRow::as_select());

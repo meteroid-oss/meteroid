@@ -629,32 +629,32 @@ impl Services {
                             )
                             .await?;
 
-                            // Create invoice for the addon purchase (mirrors synchronous path)
-                            let customer: crate::domain::Customer =
-                                CustomerRow::find_by_id(
-                                    conn,
-                                    &session.customer_id,
-                                    &event.tenant_id,
-                                )
-                                .await
-                                .map_err(Into::into)
-                                .and_then(TryInto::try_into)?;
-
-                            let refreshed_details = self
-                                .store
-                                .get_subscription_details_with_conn(
+                            // Create prorated one-off invoice for the addon purchase
+                            let result = self
+                                .compute_addon_purchase_invoice(
                                     conn,
                                     event.tenant_id,
                                     subscription_id,
+                                    &create_add_ons.add_ons,
+                                    &addons,
+                                    &products_by_id,
+                                    &prices_by_id,
                                 )
                                 .await?;
 
+                            let content =
+                                crate::services::invoices::AdjustmentInvoiceContent {
+                                    computed: result.invoice_content,
+                                    invoicing_entity: None,
+                                };
+
                             let draft = self
-                                .create_subscription_draft_invoice(
+                                .create_adjustment_invoice_from_content(
                                     conn,
-                                    event.tenant_id,
-                                    &refreshed_details,
-                                    customer,
+                                    &result.subscription,
+                                    &result.customer,
+                                    &result.proration,
+                                    content,
                                 )
                                 .await?;
 

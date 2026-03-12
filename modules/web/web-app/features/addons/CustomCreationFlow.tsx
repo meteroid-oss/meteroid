@@ -7,6 +7,7 @@ import { FeeTypePicker } from '@/features/plans/pricecomponents/FeeTypePicker'
 import { ProductPricingForm } from '@/features/plans/pricecomponents/ProductPricingForm'
 import { feeTypeIcon, feeTypeToHuman } from '@/features/plans/pricecomponents/utils'
 
+import type { FeeTypeOption } from '@/features/plans/pricecomponents/FeeTypePicker'
 import type { ComponentFeeType } from '@/features/pricing/conversions'
 
 export const IdentitySchema = z.object({
@@ -26,6 +27,7 @@ interface CustomCreationFlowProps {
   onFeeTypeSelect: (feeType: ComponentFeeType) => void
   onBack: (step: 'identity' | 'feeType') => void
   onSubmit: (formData: Record<string, unknown>) => void
+  feeTypeOptions?: FeeTypeOption[]
   submitLabel?: string
 }
 
@@ -40,6 +42,7 @@ export const CustomCreationFlow = ({
   onFeeTypeSelect,
   onBack,
   onSubmit,
+  feeTypeOptions,
   submitLabel = 'Create Add-on',
 }: CustomCreationFlowProps) => {
   switch (step) {
@@ -76,7 +79,7 @@ export const CustomCreationFlow = ({
             <ArrowLeftIcon size={14} />
             Back
           </button>
-          <FeeTypePicker onSelect={onFeeTypeSelect} />
+          <FeeTypePicker onSelect={onFeeTypeSelect} options={feeTypeOptions} />
         </div>
       )
     case 'form':
