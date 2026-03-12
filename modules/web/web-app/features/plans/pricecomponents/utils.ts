@@ -1,3 +1,4 @@
+import Decimal from 'decimal.js'
 import { atom, useAtomValue } from 'jotai'
 import {
   ActivityIcon,
@@ -128,10 +129,16 @@ export function priceSummaryBadges(
       }
       return ['Usage']
     }
-    case 'extraRecurringPricing':
-      return [`${fmt(latestPrice.pricing.value.unitPrice)} / ${cadence}`]
-    case 'oneTimePricing':
-      return [`${fmt(latestPrice.pricing.value.unitPrice)}`]
+    case 'extraRecurringPricing': {
+      const { unitPrice, quantity } = latestPrice.pricing.value
+      const total = quantity > 1 ? new Decimal(unitPrice).mul(quantity).toString() : unitPrice
+      return [`${fmt(total)} / ${cadence}`]
+    }
+    case 'oneTimePricing': {
+      const { unitPrice, quantity } = latestPrice.pricing.value
+      const total = quantity > 1 ? new Decimal(unitPrice).mul(quantity).toString() : unitPrice
+      return [`${fmt(total)}`]
+    }
     default:
       return [feeTypeToHuman(feeType)]
   }

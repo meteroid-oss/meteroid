@@ -4,7 +4,10 @@ import { useState } from 'react'
 import { formatCurrency, formatCurrencyNoRounding, rateToPercent } from '@/lib/utils/numbers'
 import { Checkout } from '@/rpc/portal/checkout/v1/models_pb'
 
-import type { PlanChangeCheckoutContext } from '@/rpc/portal/checkout/v1/checkout_pb'
+import type {
+  AddOnPurchaseCheckoutContext,
+  PlanChangeCheckoutContext,
+} from '@/rpc/portal/checkout/v1/checkout_pb'
 
 // Helper to format dates
 const formatDate = (dateString: string): string => {
@@ -21,7 +24,9 @@ interface SubscriptionSummaryProps {
   couponError?: string
   isApplyingCoupon?: boolean
   isPlanChange?: boolean
+  isAddonPurchase?: boolean
   planChangeContext?: PlanChangeCheckoutContext
+  addonPurchaseContext?: AddOnPurchaseCheckoutContext
 }
 
 const SubscriptionSummary: React.FC<SubscriptionSummaryProps> = ({
@@ -33,7 +38,9 @@ const SubscriptionSummary: React.FC<SubscriptionSummaryProps> = ({
   couponError,
   isApplyingCoupon,
   isPlanChange,
+  isAddonPurchase,
   planChangeContext,
+  addonPurchaseContext,
 }) => {
   const [showCouponInput, setShowCouponInput] = useState(false)
   const {
@@ -81,7 +88,9 @@ const SubscriptionSummary: React.FC<SubscriptionSummaryProps> = ({
         <h1 className="text-base font-normal mb-1 text-muted-foreground">
           {isPlanChange
             ? `Upgrade to ${planChangeContext?.newPlanName ?? subscription?.subscription?.planName ?? 'Plan'}`
-            : `Subscribe to ${subscription?.subscription?.planName || 'Plan'}`}
+            : isAddonPurchase
+              ? `Add ${addonPurchaseContext?.addOnName ?? 'add-on'}`
+              : `Subscribe to ${subscription?.subscription?.planName || 'Plan'}`}
         </h1>
 
         <div className="flex items-baseline">
@@ -99,6 +108,15 @@ const SubscriptionSummary: React.FC<SubscriptionSummaryProps> = ({
                 {planChangeContext.effectiveDate && (
                   <div>Effective {formatDate(planChangeContext.effectiveDate)}</div>
                 )}
+              </div>
+            )}
+          </>
+        ) : isAddonPurchase ? (
+          <>
+            <div className="text-sm text-gray-600 mt-1">Prorated amount due</div>
+            {addonPurchaseContext && (
+              <div className="mt-3 text-xs text-muted-foreground space-y-0.5">
+                <div>{addonPurchaseContext.addOnName}</div>
               </div>
             )}
           </>
@@ -188,8 +206,8 @@ const SubscriptionSummary: React.FC<SubscriptionSummaryProps> = ({
           </>
         )}
 
-        {/* Promotion code input — hidden for plan change */}
-        {!hasCoupons && !isPlanChange && (
+        {/* Promotion code input — hidden for plan change and addon purchase */}
+        {!hasCoupons && !isPlanChange && !isAddonPurchase && (
           <div className="mt-2">
             {!showCouponInput ? (
               <Button
@@ -271,7 +289,7 @@ const SubscriptionSummary: React.FC<SubscriptionSummaryProps> = ({
           </>
         )}
         <div className="flex justify-between font-medium text-lg">
-          <div>{isPlanChange ? 'Amount due' : 'Total due today'}</div>
+          <div>{isPlanChange || isAddonPurchase ? 'Amount due' : 'Total due today'}</div>
           <div>{formatCurrency(amountDue, currency)}</div>
         </div>
         {hasTaxes && (

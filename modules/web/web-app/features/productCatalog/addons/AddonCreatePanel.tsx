@@ -33,6 +33,10 @@ import { useEffect, useId, useState } from 'react'
 import { useNavigate } from 'react-router-dom'
 
 import { CustomCreationFlow, IdentitySchema } from '@/features/addons/CustomCreationFlow'
+import {
+  ADDON_FEE_TYPE_OPTIONS,
+  ADDON_PROTO_FEE_TYPES,
+} from '@/features/plans/pricecomponents/FeeTypePicker'
 import { ProductBrowser } from '@/features/plans/pricecomponents/ProductBrowser'
 import {
   buildExistingProductRef,
@@ -267,6 +271,7 @@ export const AddonCreatePanel = () => {
                   currency={currency}
                   onAdd={handleAddExistingProduct}
                   submitLabel="Create Add-on"
+                  feeTypes={ADDON_PROTO_FEE_TYPES}
                 />
               </ScrollArea>
             </TabsContent>
@@ -290,6 +295,7 @@ export const AddonCreatePanel = () => {
                   }}
                   onBack={step => setCustomStep(step)}
                   onSubmit={handleCreateNewProduct}
+                  feeTypeOptions={ADDON_FEE_TYPE_OPTIONS}
                 />
               </ScrollArea>
             </TabsContent>

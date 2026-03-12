@@ -57,11 +57,12 @@ interface ProductBrowserProps {
     feeType: ComponentFeeType
   }) => void
   submitLabel?: string
+  feeTypes?: FeeType[]
 }
 
 const PAGE_SIZE = 10
 
-export const ProductBrowser = ({ currency, onAdd, submitLabel }: ProductBrowserProps) => {
+export const ProductBrowser = ({ currency, onAdd, submitLabel, feeTypes }: ProductBrowserProps) => {
   const [search, setSearch] = useState('')
   const [expandedId, setExpandedId] = useState<string | null>(null)
   const [page, setPage] = useState(0)
@@ -73,6 +74,7 @@ export const ProductBrowser = ({ currency, onAdd, submitLabel }: ProductBrowserP
     currency,
     query: debouncedSearch || undefined,
     pagination: { perPage: PAGE_SIZE, page },
+    feeTypes: feeTypes ?? [],
   })
 
   const paginationMeta = productsQuery.data?.paginationMeta

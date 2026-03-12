@@ -50,8 +50,12 @@ export function getCheckoutPaymentAvailability(config: {
 }): PaymentAvailability {
   const { subscriptionStatus, checkoutType, cardConnectionId, directDebitConnectionId, bankAccount } = config
 
-  // For plan changes, the subscription is expected to be active — skip the active check
-  if (subscriptionStatus === SubscriptionStatus.ACTIVE && checkoutType !== CheckoutType.PLAN_CHANGE) {
+  // For plan changes and addon purchases, the subscription is expected to be active — skip the active check
+  if (
+    subscriptionStatus === SubscriptionStatus.ACTIVE &&
+    checkoutType !== CheckoutType.PLAN_CHANGE &&
+    checkoutType !== CheckoutType.ADDON_PURCHASE
+  ) {
     return {
       type: 'readonly',
       reason: 'already_active',

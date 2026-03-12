@@ -56,6 +56,8 @@ pub trait ProductInterface {
         pagination: PaginationRequest,
         order_by: OrderByRequest,
     ) -> StoreResult<PaginatedVec<Product>>;
+
+    #[allow(clippy::too_many_arguments)]
     async fn list_products_with_latest_price(
         &self,
         auth_tenant_id: TenantId,
@@ -63,6 +65,7 @@ pub trait ProductInterface {
         currency: &str,
         query: Option<&str>,
         catalog_only: bool,
+        fee_types: Vec<FeeTypeEnum>,
         pagination: PaginationRequest,
     ) -> StoreResult<PaginatedVec<ProductWithLatestPrice>>;
 }
@@ -184,6 +187,7 @@ impl ProductInterface for Store {
             auth_tenant_id,
             family_id,
             catalog_only,
+            &[],
             pagination.into(),
             order_by.into(),
         )
@@ -217,6 +221,7 @@ impl ProductInterface for Store {
             family_id,
             query,
             catalog_only,
+            &[],
             pagination.into(),
             order_by.into(),
         )
@@ -233,6 +238,7 @@ impl ProductInterface for Store {
         })
     }
 
+    #[allow(clippy::too_many_arguments)]
     async fn list_products_with_latest_price(
         &self,
         auth_tenant_id: TenantId,
@@ -240,9 +246,13 @@ impl ProductInterface for Store {
         currency: &str,
         query: Option<&str>,
         catalog_only: bool,
+        fee_types: Vec<FeeTypeEnum>,
         pagination: PaginationRequest,
     ) -> StoreResult<PaginatedVec<ProductWithLatestPrice>> {
         let mut conn = self.get_conn().await?;
+
+        let db_fee_types: Vec<diesel_models::enums::FeeTypeEnum> =
+            fee_types.into_iter().map(Into::into).collect();
 
         // Step 1: Fetch products (search or list)
         let rows = match query {
@@ -253,6 +263,7 @@ impl ProductInterface for Store {
                     family_id,
                     q,
                     catalog_only,
+                    &db_fee_types,
                     pagination.into(),
                     OrderByRequest::NameAsc.into(),
                 )
@@ -264,6 +275,7 @@ impl ProductInterface for Store {
                     auth_tenant_id,
                     family_id,
                     catalog_only,
+                    &db_fee_types,
                     pagination.into(),
                     OrderByRequest::NameAsc.into(),
                 )

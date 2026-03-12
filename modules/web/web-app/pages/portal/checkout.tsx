@@ -15,6 +15,7 @@ export const PortalCheckout = () => {
   const data = checkoutQuery.data?.checkout
   const checkoutType = checkoutQuery.data?.checkoutType
   const planChangeContext = checkoutQuery.data?.planChangeContext
+  const addonPurchaseContext = checkoutQuery.data?.addonPurchaseContext
   const error = checkoutQuery.error
   const isLoading = checkoutQuery.isLoading
 
@@ -46,6 +47,7 @@ export const PortalCheckout = () => {
             checkoutData={data}
             checkoutType={checkoutType}
             planChangeContext={planChangeContext}
+            addonPurchaseContext={addonPurchaseContext}
           />
         )}
       </div>

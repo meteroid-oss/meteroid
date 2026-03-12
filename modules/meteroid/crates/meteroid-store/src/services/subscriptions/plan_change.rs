@@ -30,12 +30,14 @@ use common_domain::ids::{PlanVersionId, PriceComponentId, ProductId, Subscriptio
 use common_utils::decimals::ToSubunit;
 use diesel_async::scoped_futures::ScopedFutureExt;
 use diesel_models::plan_component_prices::PlanComponentPriceRow;
+use diesel_models::plan_version_add_ons::PlanVersionAddOnRow;
 use diesel_models::plans::PlanRow;
 use diesel_models::price_components::PriceComponentRow;
 use diesel_models::prices::PriceRow;
 use diesel_models::products::ProductRow;
 use diesel_models::scheduled_events::ScheduledEventRow;
 use diesel_models::slot_transactions::SlotTransactionRow;
+use diesel_models::subscription_add_ons::SubscriptionAddOnRow;
 use diesel_models::subscription_components::{
     SubscriptionComponentRow, SubscriptionComponentRowNew,
 };
@@ -772,6 +774,35 @@ impl Services {
                     .await
                     .map_err(Into::<Report<StoreError>>::into)?;
             }
+        }
+
+        // Remove subscription add-ons incompatible with the new plan version
+        let compatible_addon_ids: Vec<common_domain::ids::AddOnId> =
+            PlanVersionAddOnRow::list_by_plan_version_id(conn, new_plan_version_id, tenant_id)
+                .await
+                .map_err(Into::<Report<StoreError>>::into)?
+                .into_iter()
+                .map(|pva| pva.add_on_id)
+                .collect();
+
+        let removed_addons = SubscriptionAddOnRow::delete_incompatible(
+            conn,
+            &subscription_id,
+            &compatible_addon_ids,
+        )
+        .await
+        .map_err(Into::<Report<StoreError>>::into)?;
+
+        if !removed_addons.is_empty() {
+            log::info!(
+                "Removed {} incompatible add-on(s) during plan change for subscription {}: {:?}",
+                removed_addons.len(),
+                subscription_id,
+                removed_addons
+                    .iter()
+                    .map(|a| a.add_on_id)
+                    .collect::<Vec<_>>(),
+            );
         }
 
         let sub_event = diesel_models::subscription_events::SubscriptionEventRow {

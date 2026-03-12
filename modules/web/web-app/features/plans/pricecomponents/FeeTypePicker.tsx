@@ -2,6 +2,7 @@ import { Badge } from '@md/ui'
 import { createElement } from 'react'
 
 import { feeTypeIcon } from '@/features/plans/pricecomponents/utils'
+import { FeeType } from '@/rpc/api/prices/v1/models_pb'
 
 import type { ComponentFeeType } from '@/features/pricing/conversions'
 
@@ -12,7 +13,9 @@ interface FeeTypeOption {
   disabled?: boolean
 }
 
-const feeTypeOptions: FeeTypeOption[] = [
+export type { FeeTypeOption }
+
+const defaultOptions: FeeTypeOption[] = [
   { type: 'rate', label: 'Subscription Rate', description: 'Fixed rate per billing period' },
   { type: 'slot', label: 'Slot-based', description: 'Seats, licenses or purchasable units' },
   { type: 'capacity', label: 'Capacity', description: 'Committed capacity with overage' },
@@ -21,11 +24,28 @@ const feeTypeOptions: FeeTypeOption[] = [
   { type: 'extraRecurring', label: 'Recurring charge', description: 'Additional recurring fee' },
 ]
 
+export const ADDON_PROTO_FEE_TYPES: FeeType[] = [
+  FeeType.EXTRA_RECURRING,
+  FeeType.SLOT,
+  FeeType.USAGE,
+  FeeType.ONE_TIME,
+]
+
+export const ADDON_FEE_TYPE_OPTIONS: FeeTypeOption[] = [
+  { type: 'extraRecurring', label: 'Recurring charge', description: 'Recurring fee added each billing period' },
+  { type: 'slot', label: 'Slot-based', description: 'Seats, licenses or purchasable units' },
+  { type: 'usage', label: 'Usage-based', description: 'Charge based on metered usage' },
+  { type: 'oneTime', label: 'One-time', description: 'Single charge when the add-on is attached' },
+]
+
 interface FeeTypePickerProps {
   onSelect: (feeType: ComponentFeeType) => void
+  options?: FeeTypeOption[]
 }
 
-export const FeeTypePicker = ({ onSelect }: FeeTypePickerProps) => {
+export const FeeTypePicker = ({ onSelect, options }: FeeTypePickerProps) => {
+  const feeTypeOptions = options ?? defaultOptions
+
   return (
     <div className="grid grid-cols-2 gap-3">
       {feeTypeOptions.map(option => (

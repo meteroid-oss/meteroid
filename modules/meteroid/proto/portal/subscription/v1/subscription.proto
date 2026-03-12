@@ -11,6 +11,11 @@ enum PendingEventType {
   CANCEL = 1;
 }
 
+enum AddOnPurchaseStatus {
+  ADDON_PURCHASE_COMPLETED = 0;
+  ADDON_PURCHASE_CHECKOUT_REQUIRED = 1;
+}
+
 enum ChangeDirection {
   UPGRADE = 0;
   DOWNGRADE = 1;
@@ -154,6 +159,34 @@ message PortalUpcomingInvoice {
   optional string plan_name = 12;
 }
 
+message AvailableAddOn {
+  string add_on_id = 1;
+  string name = 2;
+  optional string description = 3;
+  ComponentFee fee = 4;
+  int32 current_quantity = 5;
+  optional int32 max_instances = 6;
+}
+
+message ListAvailableAddOnsRequest {
+  string subscription_id = 1;
+}
+
+message ListAvailableAddOnsResponse {
+  repeated AvailableAddOn add_ons = 1;
+}
+
+message PurchaseAddOnRequest {
+  string subscription_id = 1;
+  string add_on_id = 2;
+}
+
+message PurchaseAddOnResponse {
+  AddOnPurchaseStatus status = 1;
+  optional string checkout_token = 2;
+  optional string add_on_name = 3;
+}
+
 message GetSubscriptionComponentUsageRequest {
   string subscription_id = 1;
   string metric_id = 2;
@@ -180,4 +213,6 @@ service PortalSubscriptionService {
   rpc CancelScheduledEvent(CancelScheduledEventRequest) returns (CancelScheduledEventResponse);
   rpc GetUpcomingInvoice(GetUpcomingInvoiceRequest) returns (GetUpcomingInvoiceResponse);
   rpc GetSubscriptionComponentUsage(GetSubscriptionComponentUsageRequest) returns (GetSubscriptionComponentUsageResponse);
+  rpc ListAvailableAddOns(ListAvailableAddOnsRequest) returns (ListAvailableAddOnsResponse);
+  rpc PurchaseAddOn(PurchaseAddOnRequest) returns (PurchaseAddOnResponse);
 }

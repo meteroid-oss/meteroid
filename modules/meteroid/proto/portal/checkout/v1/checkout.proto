@@ -10,6 +10,7 @@ enum CheckoutType {
   CHECKOUT_TYPE_SELF_SERVE = 0;
   CHECKOUT_TYPE_SUBSCRIPTION_ACTIVATION = 1;
   CHECKOUT_TYPE_PLAN_CHANGE = 2;
+  CHECKOUT_TYPE_ADDON_PURCHASE = 3;
 }
 
 // GetCheckout - works with CheckoutSession token
@@ -26,10 +27,16 @@ message PlanChangeCheckoutContext {
   optional int64 charges_total_cents = 6;
 }
 
+message AddOnPurchaseCheckoutContext {
+  string add_on_name = 1;
+  int64 prorated_amount_cents = 2;
+}
+
 message GetCheckoutResponse {
   Checkout checkout = 1;
   CheckoutType checkout_type = 2;
   optional PlanChangeCheckoutContext plan_change_context = 3;
+  optional AddOnPurchaseCheckoutContext addon_purchase_context = 4;
 }
 
 // ConfirmCheckout - works with CheckoutSession token

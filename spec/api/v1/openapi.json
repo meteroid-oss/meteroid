@@ -2613,7 +2613,8 @@
         "enum": [
           "SELF_SERVE",
           "SUBSCRIPTION_ACTIVATION",
-          "PLAN_CHANGE"
+          "PLAN_CHANGE",
+          "ADDON_PURCHASE"
         ]
       },
       "ComponentOverride": {
