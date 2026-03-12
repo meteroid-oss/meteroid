@@ -32,6 +32,7 @@ pub enum CheckoutType {
     SelfServe,
     SubscriptionActivation,
     PlanChange,
+    AddonPurchase,
 }
 
 #[derive(Debug, Clone)]

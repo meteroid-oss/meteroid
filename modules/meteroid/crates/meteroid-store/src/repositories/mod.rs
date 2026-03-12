@@ -41,6 +41,7 @@ pub mod products;
 pub mod quotes;
 pub mod schedules;
 pub mod stats;
+pub mod subscription_add_ons;
 pub mod subscriptions;
 
 pub mod customer_payment_methods;

@@ -62,6 +62,12 @@ pub trait SubscriptionInterface {
         subscription_id: SubscriptionId,
     ) -> StoreResult<SubscriptionDetails>;
 
+    async fn get_subscription_details_minimal(
+        &self,
+        tenant_id: TenantId,
+        subscription_id: SubscriptionId,
+    ) -> StoreResult<SubscriptionDetails>;
+
     async fn get_subscription(
         &self,
         tenant_id: TenantId,
@@ -137,6 +143,52 @@ impl SubscriptionInterface for Store {
                 .map_err(Into::<Report<StoreError>>::into)?;
 
         db_subscription.try_into()
+    }
+
+    /// Lightweight subscription details: subscription + customer + invoicing entity only.
+    /// No components, add-ons, schedules, metrics, or trial config.
+    async fn get_subscription_details_minimal(
+        &self,
+        tenant_id: TenantId,
+        subscription_id: SubscriptionId,
+    ) -> StoreResult<SubscriptionDetails> {
+        let mut conn = self.get_conn().await?;
+
+        let subscription: Subscription =
+            SubscriptionRow::get_subscription_by_id(&mut conn, &tenant_id, subscription_id)
+                .await
+                .map_err(Into::<Report<StoreError>>::into)?
+                .try_into()?;
+
+        let customer: Customer =
+            CustomerRow::find_by_id(&mut conn, &subscription.customer_id, &tenant_id)
+                .await
+                .map_err(Into::<Report<StoreError>>::into)?
+                .try_into()?;
+
+        let invoicing_entity: InvoicingEntity =
+            InvoicingEntityRow::get_invoicing_entity_by_id_and_tenant(
+                &mut conn,
+                customer.invoicing_entity_id,
+                tenant_id,
+            )
+            .await
+            .map_err(Into::<Report<StoreError>>::into)?
+            .into();
+
+        Ok(SubscriptionDetails {
+            subscription,
+            customer,
+            invoicing_entity,
+            schedules: vec![],
+            price_components: vec![],
+            add_ons: vec![],
+            applied_coupons: vec![],
+            metrics: vec![],
+            checkout_url: None,
+            trial_config: None,
+            pending_events: vec![],
+        })
     }
 
     /// todo optimize db calls

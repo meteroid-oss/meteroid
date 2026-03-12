@@ -1,7 +1,7 @@
 use crate::api::portal::subscription::PortalSubscriptionServiceComponents;
 use crate::api::portal::subscription::error::PortalSubscriptionApiError;
 use crate::api::shared::conversions::ProtoConv;
-use common_domain::ids::{BillableMetricId, PlanVersionId, SubscriptionId};
+use common_domain::ids::{AddOnId, BillableMetricId, PlanVersionId, SubscriptionId};
 use common_grpc::middleware::server::auth::RequestExt;
 use meteroid_grpc::meteroid::api::prices::v1 as prices_proto;
 use meteroid_grpc::meteroid::api::subscriptions::v1 as sub_proto;
@@ -16,8 +16,11 @@ use meteroid_store::domain::subscription_changes::{
     ChangeDirection as DomainChangeDirection, PlanChangeMode,
 };
 use meteroid_store::domain::subscription_components::{SubscriptionComponent, SubscriptionFee};
+use meteroid_store::repositories::add_ons::AddOnInterface;
+use meteroid_store::repositories::plan_version_add_ons::PlanVersionAddOnInterface;
 use meteroid_store::repositories::PlansInterface;
 use meteroid_store::repositories::subscriptions::SubscriptionInterfaceAuto;
+use std::collections::HashMap;
 use tonic::{Request, Response, Status};
 
 // ---------------------------------------------------------------------------
@@ -669,6 +672,233 @@ impl PortalSubscriptionService for PortalSubscriptionServiceComponents {
     }
 
     #[tracing::instrument(skip_all)]
+    async fn list_available_add_ons(
+        &self,
+        request: Request<ListAvailableAddOnsRequest>,
+    ) -> Result<Response<ListAvailableAddOnsResponse>, Status> {
+        let tenant_id = request.tenant()?;
+        let customer_id = request.portal_resource()?.customer()?;
+        let inner = request.into_inner();
+
+        let subscription_id = SubscriptionId::from_proto(&inner.subscription_id)?;
+
+        let details = self
+            .store
+            .get_subscription_details(tenant_id, subscription_id)
+            .await
+            .map_err(Into::<PortalSubscriptionApiError>::into)?;
+
+        if details.subscription.customer_id != customer_id {
+            return Err(PortalSubscriptionApiError::Unauthorized.into());
+        }
+
+        let plan_version_add_ons = self
+            .store
+            .list_plan_version_add_ons(details.subscription.plan_version_id, tenant_id)
+            .await
+            .map_err(Into::<PortalSubscriptionApiError>::into)?;
+
+        if plan_version_add_ons.is_empty() {
+            return Ok(Response::new(ListAvailableAddOnsResponse {
+                add_ons: vec![],
+            }));
+        }
+
+        let addon_ids: Vec<AddOnId> = plan_version_add_ons
+            .iter()
+            .map(|pva| pva.add_on_id)
+            .collect();
+
+        let add_ons = self
+            .store
+            .list_add_ons_by_ids(tenant_id, addon_ids)
+            .await
+            .map_err(Into::<PortalSubscriptionApiError>::into)?;
+
+        let addon_map: HashMap<AddOnId, _> = add_ons.iter().map(|a| (a.id, a)).collect();
+
+        // Build products/prices maps from enriched add-on data
+        let mut products_map = HashMap::new();
+        let mut prices_map = HashMap::new();
+        for addon in &add_ons {
+            if let Some(price) = &addon.price {
+                prices_map.insert(addon.price_id, price.clone());
+            }
+            if let Some(fee_structure) = &addon.fee_structure {
+                products_map.insert(
+                    addon.product_id,
+                    meteroid_store::domain::Product {
+                        id: addon.product_id,
+                        name: addon.name.clone(),
+                        description: None,
+                        created_at: addon.created_at,
+                        created_by: uuid::Uuid::nil(),
+                        updated_at: None,
+                        archived_at: None,
+                        tenant_id: addon.tenant_id,
+                        product_family_id: common_domain::ids::ProductFamilyId::from(
+                            uuid::Uuid::nil(),
+                        ),
+                        fee_type: addon
+                            .fee_type
+                            .clone()
+                            .unwrap_or(meteroid_store::domain::enums::FeeTypeEnum::Rate),
+                        fee_structure: fee_structure.clone(),
+                        catalog: false,
+                    },
+                );
+            }
+        }
+
+        // Count existing subscription add-ons per add_on_id
+        let mut current_quantities: HashMap<AddOnId, i32> = HashMap::new();
+        for sa in &details.add_ons {
+            *current_quantities.entry(sa.add_on_id).or_insert(0) += sa.quantity;
+        }
+
+        let mut result_add_ons = Vec::new();
+        for pva in &plan_version_add_ons {
+            let Some(addon) = addon_map.get(&pva.add_on_id) else {
+                continue;
+            };
+
+            if addon.archived_at.is_some() {
+                continue;
+            }
+
+            let self_serviceable = pva.self_serviceable.unwrap_or(addon.self_serviceable);
+            if !self_serviceable {
+                continue;
+            }
+
+            let max_instances = pva
+                .max_instances_per_subscription
+                .or(addon.max_instances_per_subscription);
+            let current_qty = current_quantities.get(&addon.id).copied().unwrap_or(0);
+
+            if let Some(max) = max_instances {
+                if current_qty >= max {
+                    continue;
+                }
+            }
+
+            let resolved = match addon.resolve_subscription_fee(&products_map, &prices_map, None) {
+                Ok(r) => r,
+                Err(_) => continue,
+            };
+
+            let fee = map_fee(&resolved.fee, &resolved.period);
+
+            result_add_ons.push(AvailableAddOn {
+                add_on_id: addon.id.as_proto(),
+                name: addon.name.clone(),
+                description: addon.description.clone(),
+                fee: Some(fee),
+                current_quantity: current_qty,
+                max_instances,
+            });
+        }
+
+        Ok(Response::new(ListAvailableAddOnsResponse {
+            add_ons: result_add_ons,
+        }))
+    }
+
+    #[tracing::instrument(skip_all)]
+    async fn purchase_add_on(
+        &self,
+        request: Request<PurchaseAddOnRequest>,
+    ) -> Result<Response<PurchaseAddOnResponse>, Status> {
+        let tenant_id = request.tenant()?;
+        let customer_id = request.portal_resource()?.customer()?;
+        let inner = request.into_inner();
+
+        let subscription_id = SubscriptionId::from_proto(&inner.subscription_id)?;
+        let add_on_id = AddOnId::from_proto(&inner.add_on_id)?;
+
+        let details = self
+            .store
+            .get_subscription_details(tenant_id, subscription_id)
+            .await
+            .map_err(Into::<PortalSubscriptionApiError>::into)?;
+
+        if details.subscription.customer_id != customer_id {
+            return Err(PortalSubscriptionApiError::Unauthorized.into());
+        }
+
+        // Validate: plan_version_add_on exists
+        let plan_version_add_ons = self
+            .store
+            .list_plan_version_add_ons(details.subscription.plan_version_id, tenant_id)
+            .await
+            .map_err(Into::<PortalSubscriptionApiError>::into)?;
+
+        let pva = plan_version_add_ons
+            .iter()
+            .find(|p| p.add_on_id == add_on_id)
+            .ok_or_else(|| {
+                PortalSubscriptionApiError::NotFound(format!(
+                    "Add-on {} not available for this plan",
+                    add_on_id
+                ))
+            })?;
+
+        let addon = self
+            .store
+            .get_add_on_by_id(tenant_id, add_on_id)
+            .await
+            .map_err(Into::<PortalSubscriptionApiError>::into)?;
+
+        if addon.archived_at.is_some() {
+            return Err(PortalSubscriptionApiError::InvalidArgument(
+                "Add-on is archived".to_string(),
+            )
+            .into());
+        }
+
+        let self_serviceable = pva.self_serviceable.unwrap_or(addon.self_serviceable);
+        if !self_serviceable {
+            return Err(PortalSubscriptionApiError::InvalidArgument(
+                "Add-on is not self-serviceable".to_string(),
+            )
+            .into());
+        }
+
+        let max_instances = pva
+            .max_instances_per_subscription
+            .or(addon.max_instances_per_subscription);
+        let current_qty: i32 = details
+            .add_ons
+            .iter()
+            .filter(|sa| sa.add_on_id == add_on_id)
+            .map(|sa| sa.quantity)
+            .sum();
+
+        if let Some(max) = max_instances {
+            if current_qty >= max {
+                return Err(PortalSubscriptionApiError::InvalidArgument(format!(
+                    "Add-on {} has reached maximum instances ({})",
+                    addon.name, max
+                ))
+                .into());
+            }
+        }
+
+        if self.has_online_payment_config(&details) {
+            self.create_addon_purchase_checkout_response(
+                tenant_id,
+                subscription_id,
+                &details,
+                &addon,
+            )
+            .await
+        } else {
+            self.add_addon_directly(tenant_id, subscription_id, &addon)
+                .await
+        }
+    }
+
+    #[tracing::instrument(skip_all)]
     async fn get_subscription_component_usage(
         &self,
         request: Request<GetSubscriptionComponentUsageRequest>,
@@ -729,6 +959,148 @@ impl PortalSubscriptionServiceComponents {
             .unwrap_or_else(PaymentMethodsConfig::online);
 
         config.has_online_payment()
+    }
+
+    /// Creates a checkout session for add-on purchase and returns the appropriate response.
+    async fn create_addon_purchase_checkout_response(
+        &self,
+        tenant_id: common_domain::ids::TenantId,
+        subscription_id: SubscriptionId,
+        details: &meteroid_store::domain::SubscriptionDetails,
+        addon: &meteroid_store::domain::add_ons::AddOn,
+    ) -> Result<Response<PurchaseAddOnResponse>, tonic::Status> {
+        use meteroid_store::domain::checkout_sessions::{
+            CheckoutType as DomainCheckoutType, CreateCheckoutSession,
+        };
+        use meteroid_store::domain::subscription_add_ons::{
+            CreateSubscriptionAddOn, CreateSubscriptionAddOns, SubscriptionAddOnCustomization,
+        };
+        use meteroid_store::repositories::checkout_sessions::CheckoutSessionsInterface;
+
+        let session_input = CreateCheckoutSession {
+            tenant_id,
+            customer_id: details.subscription.customer_id,
+            plan_version_id: details.subscription.plan_version_id,
+            created_by: details.subscription.created_by,
+            billing_start_date: None,
+            billing_day_anchor: None,
+            net_terms: None,
+            trial_duration_days: None,
+            end_date: None,
+            auto_advance_invoices: true,
+            charge_automatically: true,
+            invoice_memo: None,
+            invoice_threshold: None,
+            purchase_order: None,
+            payment_methods_config: details.subscription.payment_methods_config.clone(),
+            components: None,
+            add_ons: Some(CreateSubscriptionAddOns {
+                add_ons: vec![CreateSubscriptionAddOn {
+                    add_on_id: addon.id,
+                    customization: SubscriptionAddOnCustomization::None,
+                    quantity: 1,
+                }],
+            }),
+            coupon_code: None,
+            coupon_ids: vec![],
+            expires_in_hours: Some(24),
+            metadata: None,
+            checkout_type: DomainCheckoutType::AddonPurchase,
+            subscription_id: Some(subscription_id),
+            change_date: Some(chrono::Utc::now().date_naive()),
+        };
+
+        let session = self
+            .store
+            .create_checkout_session(session_input)
+            .await
+            .map_err(Into::<PortalSubscriptionApiError>::into)?;
+
+        let token = meteroid_store::jwt_claims::generate_portal_token(
+            &self.jwt_secret,
+            tenant_id,
+            meteroid_store::jwt_claims::ResourceAccess::CheckoutSession(session.id),
+        )
+        .map_err(Into::<PortalSubscriptionApiError>::into)?;
+
+        Ok(Response::new(PurchaseAddOnResponse {
+            status: AddOnPurchaseStatus::AddonPurchaseCheckoutRequired.into(),
+            checkout_token: Some(token),
+            add_on_name: Some(addon.name.clone()),
+        }))
+    }
+
+    /// Directly adds an add-on to a subscription (no payment required).
+    async fn add_addon_directly(
+        &self,
+        tenant_id: common_domain::ids::TenantId,
+        subscription_id: SubscriptionId,
+        addon: &meteroid_store::domain::add_ons::AddOn,
+    ) -> Result<Response<PurchaseAddOnResponse>, tonic::Status> {
+        use meteroid_store::domain::subscription_add_ons::{
+            SubscriptionAddOnNew, SubscriptionAddOnNewInternal,
+        };
+        use meteroid_store::repositories::subscription_add_ons::SubscriptionAddOnInterface;
+
+        // Build products/prices maps from the enriched addon
+        let mut products_map = HashMap::new();
+        let mut prices_map = HashMap::new();
+
+        if let Some(price) = &addon.price {
+            prices_map.insert(addon.price_id, price.clone());
+        }
+        if let Some(fee_structure) = &addon.fee_structure {
+            products_map.insert(
+                addon.product_id,
+                meteroid_store::domain::Product {
+                    id: addon.product_id,
+                    name: addon.name.clone(),
+                    description: None,
+                    created_at: addon.created_at,
+                    created_by: uuid::Uuid::nil(),
+                    updated_at: None,
+                    archived_at: None,
+                    tenant_id: addon.tenant_id,
+                    product_family_id: common_domain::ids::ProductFamilyId::from(
+                        uuid::Uuid::nil(),
+                    ),
+                    fee_type: addon
+                        .fee_type
+                        .clone()
+                        .unwrap_or(meteroid_store::domain::enums::FeeTypeEnum::Rate),
+                    fee_structure: fee_structure.clone(),
+                    catalog: false,
+                },
+            );
+        }
+
+        let resolved = addon
+            .resolve_subscription_fee(&products_map, &prices_map, None)
+            .map_err(|e| PortalSubscriptionApiError::InvalidArgument(e.to_string()))?;
+
+        let new_addon = SubscriptionAddOnNew {
+            subscription_id,
+            internal: SubscriptionAddOnNewInternal {
+                add_on_id: addon.id,
+                name: addon.name.clone(),
+                period: resolved.period,
+                fee: resolved.fee,
+                product_id: Some(addon.product_id),
+                price_id: resolved.price_id,
+                quantity: 1,
+            },
+        };
+
+        self.store
+            .insert_subscription_add_on(tenant_id, new_addon)
+            .await
+            .map_err(Into::<PortalSubscriptionApiError>::into)?;
+
+        Ok(Response::new(PurchaseAddOnResponse {
+            status: AddOnPurchaseStatus::AddonPurchaseCompleted.into(),
+            checkout_token: None,
+            add_on_name: Some(addon.name.clone()),
+        }))
     }
 
     /// Creates a checkout session for plan change and returns the appropriate response.

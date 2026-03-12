@@ -1079,6 +1079,18 @@ impl ServicesEdge {
                             )
                             .await
                         }
+                        CheckoutType::AddonPurchase => {
+                            self.complete_checkout_addon_purchase_tx(
+                                conn,
+                                tenant_id,
+                                checkout_session_id,
+                                session,
+                                payment_method_id,
+                                total_amount_confirmation,
+                                currency_confirmation,
+                            )
+                            .await
+                        }
                     }
                 }
                 .scope_boxed()
@@ -1460,6 +1472,470 @@ impl ServicesEdge {
             subscription_id: created_subscription.id,
             transaction: payment_transaction,
         })
+    }
+    //
+    // pub async fn add_subscription_addon(
+    //     &self,
+    //     subscription_id: SubscriptionId,
+    //     tenant_id: TenantId,
+    //     add_on_id: common_domain::ids::AddOnId,
+    //     require_self_serviceable: bool,
+    // ) -> StoreResult<crate::domain::subscription_add_ons::SubscriptionAddOn> {
+    //     use crate::domain::subscription_add_ons::{
+    //         SubscriptionAddOnCustomization, SubscriptionAddOnNew, SubscriptionAddOnNewInternal,
+    //     };
+    //     use diesel_models::subscription_add_ons::{SubscriptionAddOnRow, SubscriptionAddOnRowNew};
+    //
+    //     let inserted = self
+    //         .store
+    //         .transaction(|conn| {
+    //             async move {
+    //                 // Lock subscription row to serialize concurrent addon additions
+    //                 SubscriptionRow::lock_subscription_for_update(conn, subscription_id)
+    //                     .await
+    //                     .map_err(Into::<Report<StoreError>>::into)?;
+    //
+    //                 let details = self
+    //                     .store
+    //                     .get_subscription_details_with_conn(conn, tenant_id, subscription_id)
+    //                     .await?;
+    //
+    //                 let addon_row =
+    //                     diesel_models::add_ons::AddOnRow::get_by_id(conn, tenant_id, add_on_id)
+    //                         .await
+    //                         .map_err(Into::<Report<StoreError>>::into)?;
+    //                 let addon = {
+    //                     let rows = vec![addon_row];
+    //                     crate::repositories::add_ons::enrich_add_ons(conn, rows, tenant_id)
+    //                         .await?
+    //                         .into_iter()
+    //                         .next()
+    //                         .ok_or_else(|| {
+    //                             Report::new(StoreError::InvalidArgument(format!(
+    //                                 "Add-on {} not found after enrichment",
+    //                                 add_on_id
+    //                             )))
+    //                         })?
+    //                 };
+    //
+    //                 let pv_addon_rows =
+    //                     diesel_models::plan_version_add_ons::PlanVersionAddOnRow::list_by_plan_version_id(
+    //                         conn,
+    //                         details.subscription.plan_version_id,
+    //                         tenant_id,
+    //                     )
+    //                     .await
+    //                     .map_err(Into::<Report<StoreError>>::into)?;
+    //
+    //                 let plan_version_add_ons: Vec<crate::domain::PlanVersionAddOn> =
+    //                     pv_addon_rows.into_iter().map(Into::into).collect();
+    //
+    //                 let pv_addon = plan_version_add_ons
+    //                     .iter()
+    //                     .find(|pva| pva.add_on_id == add_on_id)
+    //                     .ok_or_else(|| {
+    //                         Report::new(StoreError::InvalidArgument(format!(
+    //                             "Add-on {} is not attached to plan version {}",
+    //                             add_on_id, details.subscription.plan_version_id
+    //                         )))
+    //                     })?;
+    //
+    //                 let is_self_serviceable = pv_addon
+    //                     .self_serviceable
+    //                     .unwrap_or(addon.self_serviceable);
+    //                 if require_self_serviceable && !is_self_serviceable {
+    //                     return Err(Report::new(StoreError::InvalidArgument(
+    //                         "Add-on is not self-serviceable".to_string(),
+    //                     )));
+    //                 }
+    //
+    //                 let max_instances = pv_addon
+    //                     .max_instances_per_subscription
+    //                     .or(addon.max_instances_per_subscription);
+    //                 let existing_count = details
+    //                     .add_ons
+    //                     .iter()
+    //                     .filter(|a| a.add_on_id == add_on_id)
+    //                     .map(|a| a.quantity as i64)
+    //                     .sum::<i64>();
+    //                 if let Some(max) = max_instances {
+    //                     if existing_count + 1 > max as i64 {
+    //                         return Err(Report::new(StoreError::InvalidArgument(format!(
+    //                             "Add-on {} would exceed max instances ({}/{})",
+    //                             add_on_id,
+    //                             existing_count + 1,
+    //                             max
+    //                         ))));
+    //                     }
+    //                 }
+    //
+    //                 let mut products = std::collections::HashMap::new();
+    //                 let mut prices = std::collections::HashMap::new();
+    //
+    //                 let product_rows = diesel_models::products::ProductRow::list_by_ids(
+    //                     conn,
+    //                     &[addon.product_id],
+    //                     tenant_id,
+    //                 )
+    //                 .await
+    //                 .map_err(Into::<Report<StoreError>>::into)?;
+    //                 for row in product_rows {
+    //                     let id = row.id;
+    //                     products.insert(id, crate::domain::Product::try_from(row)?);
+    //                 }
+    //
+    //                 let price_rows = diesel_models::prices::PriceRow::list_by_ids(
+    //                     conn,
+    //                     &[addon.price_id],
+    //                     tenant_id,
+    //                 )
+    //                 .await
+    //                 .map_err(Into::<Report<StoreError>>::into)?;
+    //                 for row in price_rows {
+    //                     let id = row.id;
+    //                     prices.insert(id, crate::domain::Price::try_from(row)?);
+    //                 }
+    //
+    //                 let resolved = addon
+    //                     .resolve_customized(
+    //                         &products,
+    //                         &prices,
+    //                         &SubscriptionAddOnCustomization::None,
+    //                     )
+    //                     .map_err(Report::new)?;
+    //
+    //                 let new_internal = SubscriptionAddOnNewInternal {
+    //                     add_on_id: addon.id,
+    //                     name: resolved.name,
+    //                     period: resolved.period,
+    //                     fee: resolved.fee,
+    //                     product_id: resolved.product_id,
+    //                     price_id: resolved.price_id,
+    //                     quantity: 1,
+    //                 };
+    //
+    //                 let new = SubscriptionAddOnNew {
+    //                     subscription_id,
+    //                     internal: new_internal,
+    //                 };
+    //
+    //                 let row_new: SubscriptionAddOnRowNew = new.try_into()?;
+    //                 let rows = SubscriptionAddOnRow::insert_batch(conn, vec![&row_new])
+    //                     .await
+    //                     .map_err(Into::<Report<StoreError>>::into)?;
+    //                 rows.into_iter()
+    //                     .next()
+    //                     .ok_or_else(|| Report::new(StoreError::InsertError))
+    //             }
+    //             .scope_boxed()
+    //         })
+    //         .await?;
+    //
+    //     inserted.try_into().map_err(Into::into)
+    // }
+
+    pub async fn create_addon_purchase_checkout_session(
+        &self,
+        tenant_id: TenantId,
+        subscription_id: SubscriptionId,
+        add_on_id: common_domain::ids::AddOnId,
+        plan_version_id: PlanVersionId,
+        customer_id: common_domain::ids::CustomerId,
+        created_by: uuid::Uuid,
+        payment_methods_config: Option<PaymentMethodsConfig>,
+    ) -> StoreResult<CheckoutSession> {
+        use crate::domain::checkout_sessions::{
+            CheckoutType as DomainCheckoutType, CreateCheckoutSession,
+        };
+        use crate::domain::subscription_add_ons::{
+            CreateSubscriptionAddOn, CreateSubscriptionAddOns, SubscriptionAddOnCustomization,
+        };
+        use crate::repositories::checkout_sessions::CheckoutSessionsInterface;
+
+        let today = Utc::now().date_naive();
+
+        let session = CreateCheckoutSession {
+            tenant_id,
+            customer_id,
+            plan_version_id,
+            created_by,
+            billing_start_date: None,
+            billing_day_anchor: None,
+            net_terms: None,
+            trial_duration_days: None,
+            end_date: None,
+            auto_advance_invoices: true,
+            charge_automatically: true,
+            invoice_memo: None,
+            invoice_threshold: None,
+            purchase_order: None,
+            payment_methods_config,
+            components: None,
+            add_ons: Some(CreateSubscriptionAddOns {
+                add_ons: vec![CreateSubscriptionAddOn {
+                    add_on_id,
+                    customization: SubscriptionAddOnCustomization::None,
+                    quantity: 1,
+                }],
+            }),
+            coupon_code: None,
+            coupon_ids: vec![],
+            expires_in_hours: Some(24),
+            metadata: None,
+            checkout_type: DomainCheckoutType::AddonPurchase,
+            subscription_id: Some(subscription_id),
+            change_date: Some(today),
+        };
+
+        self.store.create_checkout_session(session).await
+    }
+
+    /// Completes checkout for AddonPurchase type.
+    /// Inserts addon rows, charges the customer, and creates an invoice.
+    #[allow(clippy::too_many_arguments)]
+    async fn complete_checkout_addon_purchase_tx(
+        &self,
+        conn: &mut PgConn,
+        tenant_id: TenantId,
+        checkout_session_id: CheckoutSessionId,
+        session: CheckoutSession,
+        payment_method_id: CustomerPaymentMethodId,
+        total_amount_confirmation: u64,
+        currency_confirmation: String,
+    ) -> Result<CheckoutCompletionResult, StoreErrorReport> {
+        use crate::repositories::subscription_add_ons::resolve_and_insert_checkout_addons;
+        use crate::repositories::subscriptions::fetch_prices_and_products;
+
+        let subscription_id = session.subscription_id.ok_or_else(|| {
+            Report::new(StoreError::InvalidArgument(
+                "Session has no linked subscription for addon purchase flow".to_string(),
+            ))
+        })?;
+
+        let create_add_ons = session.add_ons.as_ref().ok_or_else(|| {
+            Report::new(StoreError::InvalidArgument(
+                "AddonPurchase checkout session has no add_ons".to_string(),
+            ))
+        })?;
+
+        let details = self
+            .services
+            .store
+            .get_subscription_details_with_conn(conn, tenant_id, subscription_id)
+            .await?;
+
+        let currency = details.subscription.currency.clone();
+        if currency != currency_confirmation {
+            return Err(Report::new(StoreError::CheckoutError).attach(format!(
+                "Currency mismatch: expected {}, got {}",
+                currency, currency_confirmation
+            )));
+        }
+
+        let addon_ids: Vec<_> = create_add_ons.add_ons.iter().map(|a| a.add_on_id).collect();
+        let addons = {
+            let rows = diesel_models::add_ons::AddOnRow::list_by_ids(
+                conn,
+                &addon_ids,
+                &tenant_id,
+            )
+            .await
+            .map_err(Into::<Report<StoreError>>::into)?;
+            crate::repositories::add_ons::enrich_add_ons(conn, rows, tenant_id).await?
+        };
+
+        let product_ids: Vec<_> = addons.iter().map(|a| a.product_id).collect();
+        let price_ids: Vec<_> = addons.iter().map(|a| a.price_id).collect();
+        let (prices_by_id, products_by_id) = fetch_prices_and_products(
+            conn,
+            tenant_id,
+            price_ids.into_iter(),
+            product_ids.into_iter(),
+        )
+        .await?;
+
+        resolve_and_insert_checkout_addons(
+            conn,
+            subscription_id,
+            &addons,
+            &create_add_ons.add_ons,
+            &products_by_id,
+            &prices_by_id,
+        )
+        .await?;
+
+        // Server-side proration recomputation and amount validation
+        let expected_amount = {
+            use crate::constants::Currencies;
+            use crate::services::subscriptions::proration::component_advance_amount_cents;
+            use crate::utils::periods::calculate_proration_factor;
+
+            let precision = Currencies::resolve_currency_precision(&currency).unwrap_or(2);
+
+            let now = Utc::now().date_naive();
+            let period_end = details.subscription.current_period_end.ok_or_else(|| {
+                Report::new(StoreError::InvalidArgument(
+                    "Subscription has no current_period_end".to_string(),
+                ))
+            })?;
+
+            let period = crate::domain::Period {
+                start: now,
+                end: period_end,
+            };
+            let proration_factor = calculate_proration_factor(&period).unwrap_or(1.0);
+
+            let mut total: i64 = 0;
+            for cs_ao in &create_add_ons.add_ons {
+                let addon = addons.iter().find(|a| a.id == cs_ao.add_on_id).unwrap();
+                let resolved = addon
+                    .resolve_customized(&products_by_id, &prices_by_id, &cs_ao.customization)
+                    .map_err(Report::new)?;
+
+                let full_amount =
+                    component_advance_amount_cents(&resolved.fee, &resolved.period, precision);
+                let prorated = (full_amount as f64 * proration_factor).round() as i64;
+                total += prorated;
+            }
+            total
+        };
+
+        let amount_diff = (expected_amount - total_amount_confirmation as i64).abs();
+        if amount_diff > 1 {
+            return Err(Report::new(StoreError::CheckoutError).attach(format!(
+                "Amount mismatch: server computed {}, client sent {}",
+                expected_amount, total_amount_confirmation
+            )));
+        }
+
+        let charge_amount = expected_amount;
+
+        if charge_amount <= 0 {
+            CheckoutSessionRow::mark_completed(
+                conn,
+                tenant_id,
+                checkout_session_id,
+                subscription_id,
+                Utc::now(),
+            )
+            .await
+            .map_err(Into::<Report<StoreError>>::into)?;
+
+            return Ok(CheckoutCompletionResult::Completed {
+                subscription_id,
+                transaction: None,
+            });
+        }
+
+        let charge_result = self
+            .services
+            .charge_payment_method_directly(
+                conn,
+                tenant_id,
+                payment_method_id,
+                charge_amount,
+                currency,
+            )
+            .await?;
+
+        let payment_settled =
+            charge_result.payment_intent.status == crate::domain::PaymentStatusEnum::Settled;
+
+        if payment_settled {
+            let customer = diesel_models::customers::CustomerRow::find_by_id(
+                conn,
+                &details.subscription.customer_id,
+                &tenant_id,
+            )
+            .await
+            .map_err(Into::<Report<StoreError>>::into)?;
+            let customer: crate::domain::Customer = customer.try_into()?;
+
+            let refreshed_details = self
+                .services
+                .store
+                .get_subscription_details_with_conn(conn, tenant_id, subscription_id)
+                .await?;
+
+            let draft = self
+                .services
+                .create_subscription_draft_invoice(
+                    conn,
+                    tenant_id,
+                    &refreshed_details,
+                    customer,
+                )
+                .await?;
+
+            if let Some(invoice) = draft {
+                self.services
+                    .finalize_invoice_tx(conn, invoice.id, tenant_id, false, &None)
+                    .await?;
+
+                let _transaction = self
+                    .services
+                    .create_transaction_for_direct_charge(
+                        conn,
+                        tenant_id,
+                        invoice.id,
+                        &charge_result,
+                        None,
+                    )
+                    .await?;
+
+                diesel_models::invoices::InvoiceRow::apply_transaction(
+                    conn,
+                    invoice.id,
+                    tenant_id,
+                    charge_result.amount,
+                )
+                .await?;
+                diesel_models::invoices::InvoiceRow::apply_payment_status(
+                    conn,
+                    invoice.id,
+                    tenant_id,
+                    diesel_models::enums::InvoicePaymentStatus::Paid,
+                    charge_result.payment_intent.processed_at,
+                )
+                .await?;
+            }
+
+            CheckoutSessionRow::mark_completed(
+                conn,
+                tenant_id,
+                checkout_session_id,
+                subscription_id,
+                Utc::now(),
+            )
+            .await
+            .map_err(Into::<Report<StoreError>>::into)?;
+
+            Ok(CheckoutCompletionResult::Completed {
+                subscription_id,
+                transaction: None,
+            })
+        } else {
+            let transaction = self
+                .services
+                .create_transaction_for_checkout(
+                    conn,
+                    tenant_id,
+                    checkout_session_id,
+                    &charge_result,
+                )
+                .await?;
+
+            CheckoutSessionRow::mark_awaiting_payment(
+                conn,
+                tenant_id,
+                checkout_session_id,
+                Some(subscription_id),
+            )
+            .await
+            .map_err(Into::<Report<StoreError>>::into)?;
+
+            Ok(CheckoutCompletionResult::AwaitingPayment { transaction })
+        }
     }
 
     /// Completes checkout for PlanChange type.
