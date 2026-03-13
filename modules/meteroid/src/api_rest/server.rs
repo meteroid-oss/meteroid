@@ -34,6 +34,30 @@ pub async fn start_rest_server(
     services: Services,
     ready: std::sync::Arc<std::sync::atomic::AtomicBool>,
 ) -> Result<(), Box<dyn std::error::Error>> {
+    let listener = TcpListener::bind(&config.rest_api_addr)
+        .await
+        .expect("Could not bind listener");
+    start_rest_server_with_listener(
+        config,
+        object_store,
+        stripe_adapter,
+        store,
+        services,
+        ready,
+        listener,
+    )
+    .await
+}
+
+pub async fn start_rest_server_with_listener(
+    config: Config,
+    object_store: Arc<dyn ObjectStoreService>,
+    stripe_adapter: Arc<Stripe>,
+    store: Store,
+    services: Services,
+    ready: std::sync::Arc<std::sync::atomic::AtomicBool>,
+    listener: TcpListener,
+) -> Result<(), Box<dyn std::error::Error>> {
     let app_state = AppState {
         object_store,
         store: store.clone(),
@@ -100,10 +124,6 @@ pub async fn start_rest_server(
         );
 
     tracing::info!("Starting REST API on {}", config.rest_api_addr);
-
-    let listener = TcpListener::bind(&config.rest_api_addr)
-        .await
-        .expect("Could not bind listener");
 
     axum::serve(listener, app.into_make_service()).await?;
 
