@@ -26,14 +26,18 @@ const defaultOptions: FeeTypeOption[] = [
 
 export const ADDON_PROTO_FEE_TYPES: FeeType[] = [
   FeeType.EXTRA_RECURRING,
-  FeeType.SLOT,
+  // FeeType.SLOT,
   FeeType.USAGE,
   FeeType.ONE_TIME,
 ]
 
 export const ADDON_FEE_TYPE_OPTIONS: FeeTypeOption[] = [
-  { type: 'extraRecurring', label: 'Recurring charge', description: 'Recurring fee added each billing period' },
-  { type: 'slot', label: 'Slot-based', description: 'Seats, licenses or purchasable units' },
+  {
+    type: 'extraRecurring',
+    label: 'Recurring charge',
+    description: 'Recurring fee added each billing period',
+  },
+  // { type: 'slot', label: 'Slot-based', description: 'Seats, licenses or purchasable units' },
   { type: 'usage', label: 'Usage-based', description: 'Charge based on metered usage' },
   { type: 'oneTime', label: 'One-time', description: 'Single charge when the add-on is attached' },
 ]
@@ -58,7 +62,9 @@ export const FeeTypePicker = ({ onSelect, options }: FeeTypePickerProps) => {
         >
           <div className="flex w-full items-center justify-between">
             <div className="flex items-center gap-2">
-              <span className="text-muted-foreground">{createElement(feeTypeIcon(option.type), { size: 20 })}</span>
+              <span className="text-muted-foreground">
+                {createElement(feeTypeIcon(option.type), { size: 20 })}
+              </span>
               <span className="text-sm font-medium">{option.label}</span>
             </div>
             {option.disabled && (
