@@ -6,11 +6,11 @@ use chrono::NaiveDate;
 use common_domain::ids::{AliasOr, CustomerId, PlanId, PlanVersionId, TenantId};
 use csv::ReaderBuilder;
 use error_stack::bail;
-use futures::StreamExt;
+use meteroid_store::Services;
+use meteroid_store::StoreResult;
 use meteroid_store::domain::enums::SubscriptionActivationCondition;
 use meteroid_store::errors::StoreError;
 use meteroid_store::repositories::{CustomersInterface, PlansInterface};
-use meteroid_store::{Services, StoreResult};
 use serde::Deserialize;
 use uuid::Uuid;
 
@@ -22,8 +22,9 @@ use super::csv_ingest::{
     CsvString, optional_csv_string, optional_naive_date, optional_u16, optional_u32,
 };
 
-const MAX_CSV_SIZE: usize = 10 * 1024 * 1024; // 10MB limit
-const CONCURRENCY: usize = 10;
+const MAX_CSV_SIZE: usize = 10 * 1024 * 1024; // 10MB
+const MAX_ROW_COUNT: usize = 5_000;
+const BATCH_SIZE: usize = 50;
 
 pub struct SubscriptionIngestionOptions {
     pub delimiter: char,
@@ -84,6 +85,12 @@ impl SubscriptionIngestService {
 
         let total_rows = (raw_rows.len() + failures.len()) as i32;
 
+        if total_rows as usize > MAX_ROW_COUNT {
+            bail!(StoreError::InvalidArgument(format!(
+                "Row count ({total_rows}) exceeds maximum allowed ({MAX_ROW_COUNT})"
+            )));
+        }
+
         let proceed_on_failures =
             |f: &[SubscriptionIngestionFailure]| !options.fail_on_error || f.is_empty();
 
@@ -103,71 +110,116 @@ impl SubscriptionIngestService {
             validated_rows = rows;
         }
 
-        let parsed: Vec<(i32, Option<String>, CreateSubscription)> =
-            if proceed_on_failures(&failures) {
-                validated_rows
-                    .into_iter()
-                    .map(|row| {
-                        let idempotency_key = row
-                            .csv
-                            .idempotency_key
-                            .as_ref()
-                            .map(|k| format!("{}:{}", tenant_id, k));
-                        (
-                            row.row_number,
-                            idempotency_key,
-                            Self::map_to_domain(
-                                actor,
-                                row.csv,
-                                row.customer_id,
-                                row.plan_version_id,
-                            ),
-                        )
-                    })
-                    .collect()
-            } else {
-                vec![]
-            };
+        // Map to domain and filter idempotent duplicates before DB work
+        #[allow(clippy::type_complexity)]
+        let mut to_insert: Vec<(Vec<i32>, Vec<Option<String>>, Vec<CreateSubscription>)> =
+            Vec::new();
+        let mut skipped_rows = 0i32;
 
-        tracing::info!("Processing {} subscription records", parsed.len());
+        if proceed_on_failures(&failures) {
+            let mut current_batch_rows: Vec<i32> = Vec::new();
+            let mut current_batch_keys: Vec<Option<String>> = Vec::new();
+            let mut current_batch_subs: Vec<CreateSubscription> = Vec::new();
 
-        let mut successful_rows = 0;
+            for row in validated_rows {
+                let idempotency_key = row
+                    .csv
+                    .idempotency_key
+                    .as_ref()
+                    .map(|k| format!("{}:{}", tenant_id, k));
 
-        let mut stream = futures::stream::iter(parsed)
-            .map(|(row_number, idempotency_key, sub)| {
-                let services = self.services.clone();
-                let idempotency = self.idempotency.clone();
-                async move {
-                    if let Some(key) = &idempotency_key
-                        && idempotency
-                            .check_and_set(key.clone(), Duration::from_secs(24 * 3600))
-                            .await
-                    {
-                        return (row_number, idempotency_key, Ok(()));
-                    }
-                    let result = services
-                        .insert_subscription(sub, tenant_id)
+                // Check idempotency before adding to batch
+                if let Some(ref key) = idempotency_key
+                    && self
+                        .idempotency
+                        .check_and_set(key.clone(), Duration::from_secs(24 * 3600))
                         .await
-                        .map(|_| ());
-                    (row_number, idempotency_key, result)
+                {
+                    skipped_rows += 1;
+                    continue;
                 }
-            })
-            .buffer_unordered(CONCURRENCY);
 
-        while let Some((row_number, idempotency_key, result)) = stream.next().await {
-            match result {
-                Ok(()) => successful_rows += 1,
-                Err(e) => {
-                    if let Some(key) = idempotency_key {
+                current_batch_rows.push(row.row_number);
+                current_batch_keys.push(idempotency_key);
+                current_batch_subs.push(Self::map_to_domain(
+                    actor,
+                    row.csv,
+                    row.customer_id,
+                    row.plan_version_id,
+                ));
+
+                if current_batch_subs.len() >= BATCH_SIZE {
+                    to_insert.push((
+                        std::mem::take(&mut current_batch_rows),
+                        std::mem::take(&mut current_batch_keys),
+                        std::mem::take(&mut current_batch_subs),
+                    ));
+                }
+            }
+
+            if !current_batch_subs.is_empty() {
+                to_insert.push((current_batch_rows, current_batch_keys, current_batch_subs));
+            }
+        }
+
+        let insert_count: usize = to_insert.iter().map(|(_, _, s)| s.len()).sum();
+        tracing::info!(
+            "Processing {} subscription records in {} batches ({} skipped as idempotent)",
+            insert_count,
+            to_insert.len(),
+            skipped_rows,
+        );
+
+        // Includes idempotent-skipped rows (already processed in a prior import)
+        let mut successful_rows = skipped_rows;
+
+        for (batch_rows, batch_keys, batch_subs) in to_insert {
+            let mut conn = self.services.store().get_conn().await?;
+
+            match self
+                .services
+                .insert_subscription_batch_tx(&mut conn, batch_subs.clone(), tenant_id)
+                .await
+            {
+                Ok(results) => {
+                    successful_rows += results.len() as i32;
+                }
+                Err(e) if options.fail_on_error => {
+                    for key in batch_keys.into_iter().flatten() {
                         self.idempotency.invalidate(key).await;
                     }
-                    failures.push(SubscriptionIngestionFailure {
-                        row_number,
-                        reason: e.to_string(),
-                    });
-
-                    if options.fail_on_error {
-                        break;
+                    let reason = e.to_string();
+                    for row_number in batch_rows {
+                        failures.push(SubscriptionIngestionFailure {
+                            row_number,
+                            reason: reason.clone(),
+                        });
+                    }
+                    break;
+                }
+                Err(_) => {
+                    // Batch failed in continue mode: retry individually for per-row errors
+                    drop(conn);
+                    let mut retry_conn = self.services.store().get_conn().await?;
+                    for (i, sub) in batch_subs.into_iter().enumerate() {
+                        match self
+                            .services
+                            .insert_subscription_batch_tx(&mut retry_conn, vec![sub], tenant_id)
+                            .await
+                        {
+                            Ok(_) => {
+                                successful_rows += 1;
+                            }
+                            Err(e) => {
+                                if let Some(key) = batch_keys[i].as_ref() {
+                                    self.idempotency.invalidate(key.clone()).await;
+                                }
+                                failures.push(SubscriptionIngestionFailure {
+                                    row_number: batch_rows[i],
+                                    reason: e.to_string(),
+                                });
+                            }
+                        }
                     }
                 }
             }
