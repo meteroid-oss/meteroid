@@ -163,13 +163,13 @@ impl Services {
                                 let mut cycle_index = None;
                                 let status;
 
-                                if subscription.subscription.trial_duration.is_some() {
+                                if let Some(trial_duration) = subscription.subscription.trial_duration {
                                     status = SubscriptionStatusEnum::TrialActive;
                                     current_period_start = billing_start_date;
                                     current_period_end = Some(
                                         current_period_start
                                             + chrono::Duration::days(i64::from(
-                                                subscription.subscription.trial_duration.unwrap(),
+                                                trial_duration,
                                             )),
                                     );
                                     next_cycle_action = Some(CycleActionEnum::EndTrial);
