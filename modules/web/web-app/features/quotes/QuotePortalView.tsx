@@ -3,7 +3,6 @@ import { zodResolver } from '@hookform/resolvers/zod'
 import {
   Alert,
   AlertDescription,
-  Badge,
   Button,
   Card,
   CardContent,
@@ -31,6 +30,7 @@ import { useForm } from 'react-hook-form'
 import SignatureCanvas from 'react-signature-canvas'
 import { z } from 'zod'
 
+import { QuoteStatusBadge } from '@/features/quotes/QuoteStatusBadge'
 import { QuoteStatus } from '@/rpc/api/quotes/v1/models_pb'
 import { QuotePortalDetails } from '@/rpc/portal/quotes/v1/models_pb'
 import {
@@ -121,26 +121,6 @@ const QuotePortalView: FC<QuotePortalViewProps> = ({ quoteData }) => {
     }
   }
 
-  const getStatusBadge = () => {
-    if (quote?.status === undefined) return null
-
-    switch (quote.status) {
-      case QuoteStatus.DRAFT:
-        return <Badge variant="secondary">Draft</Badge>
-      case QuoteStatus.PENDING:
-        return <Badge variant="warning">Pending Signature</Badge>
-      case QuoteStatus.ACCEPTED:
-        return <Badge variant="success">Accepted</Badge>
-      case QuoteStatus.DECLINED:
-        return <Badge variant="destructive">Declined</Badge>
-      case QuoteStatus.EXPIRED:
-        return <Badge variant="outline">Expired</Badge>
-      case QuoteStatus.CANCELLED:
-        return <Badge variant="outline">Cancelled</Badge>
-      default:
-        return <Badge variant="outline">{quote.status}</Badge>
-    }
-  }
 
   return (
     <div className="min-h-screen  ">
@@ -161,7 +141,7 @@ const QuotePortalView: FC<QuotePortalViewProps> = ({ quoteData }) => {
               )}
             </div>
             <div className="text-right">
-              {getStatusBadge()}
+              {quote && <QuoteStatusBadge status={quote.status} />}
               {isExpired && quote?.expiresAt && (
                 <p className="text-sm text-red-600 mt-1">
                   Expired on {new Date(quote.expiresAt).toLocaleDateString()}

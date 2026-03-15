@@ -5,7 +5,7 @@ import { useMemo } from 'react'
 import { Link } from 'react-router-dom'
 
 import { StandardTable } from '@/components/table/StandardTable'
-import { CreditNoteStatusPill } from '@/features/creditNotes/CreditNoteStatusPill'
+import { CreditNoteStatusBadge } from '@/features/creditNotes/CreditNoteStatusBadge'
 import { useBasePath } from '@/hooks/useBasePath'
 import { formatCurrency } from '@/lib/utils/numbers'
 import { CreditNote } from '@/rpc/api/creditnotes/v1/models_pb'
@@ -52,7 +52,7 @@ export const CreditNotesTable = ({
       },
       {
         header: 'Status',
-        cell: ({ row }) => <CreditNoteStatusPill status={row.original.status} />,
+        cell: ({ row }) => <CreditNoteStatusBadge status={row.original.status} />,
       },
       {
         accessorKey: 'id',

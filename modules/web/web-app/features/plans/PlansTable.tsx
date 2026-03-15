@@ -1,6 +1,5 @@
 import { useMutation } from '@connectrpc/connect-query'
 import {
-  Badge,
   Button,
   DropdownMenu,
   DropdownMenuContent,
@@ -16,7 +15,8 @@ import { toast } from 'sonner'
 
 import { LocalId } from '@/components/LocalId'
 import { StandardTable } from '@/components/table/StandardTable'
-import { displayPlanStatus, displayPlanType, printPlanStatus } from '@/features/plans/utils'
+import { PlanStatusBadge } from '@/features/plans/PlanStatusBadge'
+import { displayPlanType } from '@/features/plans/utils'
 import { PlanOverview, PlanStatus } from '@/rpc/api/plans/v1/models_pb'
 import {
   archivePlan,
@@ -86,14 +86,7 @@ export const PlansTable: FunctionComponent<PlansTableProps> = ({
 
       {
         header: 'Status',
-        cell: ({ row }) => {
-          const isArchived = row.original.planStatus === PlanStatus.ARCHIVED
-          return (
-            <Badge variant={isArchived ? 'secondary' : 'success'} title={printPlanStatus(row.original.planStatus)}>
-              {displayPlanStatus(row.original.planStatus)}
-            </Badge>
-          )
-        },
+        cell: ({ row }) => <PlanStatusBadge status={row.original.planStatus} />,
       },
       {
         header: 'Type',

@@ -38,7 +38,7 @@ const ItemLink = ({
       <span>{children}</span>
 
       {soon && (
-        <Badge variant="brand" className="text-xs ">
+        <Badge variant="default" className="text-xs ">
           Soon
         </Badge>
       )}

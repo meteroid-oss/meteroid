@@ -1,6 +1,5 @@
 import { useMutation } from '@connectrpc/connect-query'
 import {
-  Badge,
   Button,
   DropdownMenu,
   DropdownMenuContent,
@@ -27,6 +26,7 @@ import { useNavigate } from 'react-router-dom'
 import { toast } from 'sonner'
 
 import { StandardTable } from '@/components/table/StandardTable'
+import { BillableMetricStatusBadge } from '@/features/productCatalog/metrics/BillableMetricStatusBadge'
 import {
   archiveBillableMetric,
   listBillableMetrics,
@@ -128,9 +128,7 @@ export const BillableMetricTable: FC<BillableMetricableProps> = ({
           const hasSyncError = !!row.original.syncError
           return (
             <div className="flex items-center gap-2">
-              <Badge variant={isArchived ? 'secondary' : hasSyncError ? 'destructive' : 'success'}>
-                {isArchived ? 'Archived' : hasSyncError ? 'Error' : 'Active'}
-              </Badge>
+              <BillableMetricStatusBadge isArchived={isArchived} hasSyncError={hasSyncError} />
               {hasSyncError && (
                 <TooltipProvider>
                   <Tooltip>
