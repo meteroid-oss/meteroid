@@ -3,7 +3,17 @@ import { useNavigate } from 'react-router-dom'
 
 import { EntityFilters, EntityHeader } from '@/features/TablePage'
 
-export const PlansHeader = ({ children, count }: { children?: ReactNode; count?: number }) => {
+export const PlansHeader = ({
+  children,
+  count,
+  isLoading,
+  refetch,
+}: {
+  children?: ReactNode
+  count?: number
+  isLoading?: boolean
+  refetch?: () => void
+}) => {
   const navigate = useNavigate()
 
   return (
@@ -12,9 +22,10 @@ export const PlansHeader = ({ children, count }: { children?: ReactNode; count?:
         title="Plans"
         count={count}
         primaryAction={{ label: 'New plan', onClick: () => navigate('add-plan') }}
-        secondaryActions={[{ label: 'Placeholder', onClick: () => 1 }]}
       />
-      <EntityFilters>{children}</EntityFilters>
+      <EntityFilters isLoading={isLoading} refetch={refetch}>
+        {children}
+      </EntityFilters>
     </div>
   )
 }

@@ -166,7 +166,7 @@ export const CustomersCreatePanel = ({ visible, closePanel }: CustomersCreatePan
                                         <div>{entity.legalName}</div>
                                         <div className="flex-grow" />
                                         {entity.isDefault && (
-                                          <Badge variant="primary" size="sm">
+                                          <Badge variant="default" size="sm">
                                             Default
                                           </Badge>
                                         )}

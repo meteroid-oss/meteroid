@@ -1,6 +1,6 @@
 import { PaginationState } from '@tanstack/react-table'
 import { Tabs, TabsList, TabsTrigger } from '@ui/components'
-import { FunctionComponent, useEffect, useState } from 'react'
+import { FunctionComponent, useState } from 'react'
 import { Outlet } from 'react-router-dom'
 
 import { CouponsHeader } from '@/features/productCatalog/coupons/CouponsHeader'
@@ -20,24 +20,16 @@ export const CouponsPage: FunctionComponent = () => {
   })
 
   const debouncedSearch = useDebounceValue(search, 200)
-  const [tabQ, setTabQ] = useQueryState<string>('filter', '')
-  const [selectedTab, setSelectedTab] = useState<string>(!tabQ ? 'active' : tabQ)
-
-  useEffect(() => {
-    if (tabQ !== undefined && tabQ !== '') {
-      console.log('tabQ', tabQ)
-      setSelectedTab(tabQ)
-    }
-  }, [tabQ, setSelectedTab])
+  const [statusFilter, setStatusFilter] = useQueryState<string>('filter', 'active')
 
   const filter =
-    selectedTab === 'all'
+    statusFilter === 'all'
       ? ListCouponRequest_CouponFilter.ALL
-      : selectedTab === 'active'
-        ? ListCouponRequest_CouponFilter.ACTIVE
-        : selectedTab === 'inactive'
-          ? ListCouponRequest_CouponFilter.INACTIVE
-          : ListCouponRequest_CouponFilter.ARCHIVED
+      : statusFilter === 'inactive'
+        ? ListCouponRequest_CouponFilter.INACTIVE
+        : statusFilter === 'archived'
+          ? ListCouponRequest_CouponFilter.ARCHIVED
+          : ListCouponRequest_CouponFilter.ACTIVE
 
   const couponsQuery = useQuery(listCoupons, {
     pagination: {
@@ -51,15 +43,12 @@ export const CouponsPage: FunctionComponent = () => {
   return (
     <div className="h-full w-full flex flex-row gap-16">
       <div className="flex flex-col gap-5 h-full w-full">
-        <CouponsHeader>
-          <Tabs
-            value={selectedTab}
-            className="w-[400px]"
-            onValueChange={v => {
-              setTabQ(v)
-              setSelectedTab(v)
-            }}
-          >
+        <CouponsHeader
+          count={couponsQuery.data?.paginationMeta?.totalItems}
+          isLoading={couponsQuery.isLoading}
+          refetch={() => couponsQuery.refetch()}
+        >
+          <Tabs value={statusFilter} onValueChange={setStatusFilter}>
             <TabsList>
               <TabsTrigger value="all">All</TabsTrigger>
               <TabsTrigger value="active">Active</TabsTrigger>

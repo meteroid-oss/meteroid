@@ -16,6 +16,7 @@ import { toast } from 'sonner'
 
 import {
   getInvoice,
+  listInvoices,
   markInvoiceAsPaid,
 } from '@/rpc/api/invoices/v1/invoices-InvoicesService_connectquery'
 
@@ -43,9 +44,14 @@ export const MarkAsPaidDialog: React.FC<MarkAsPaidDialogProps> = ({
 
   const markAsPaidMutation = useMutation(markInvoiceAsPaid, {
     onSuccess: async () => {
-      await queryClient.invalidateQueries({
-        queryKey: createConnectQueryKey(getInvoice, { id: invoiceId }),
-      })
+      await Promise.all([
+        queryClient.invalidateQueries({
+          queryKey: createConnectQueryKey(getInvoice, { id: invoiceId }),
+        }),
+        queryClient.invalidateQueries({
+          queryKey: [listInvoices.service.typeName],
+        }),
+      ])
     },
   })
 
@@ -58,11 +64,11 @@ export const MarkAsPaidDialog: React.FC<MarkAsPaidDialogProps> = ({
       await markAsPaidMutation.mutateAsync({
         invoiceId,
         totalAmount,
-        paymentDate: paymentDate || undefined,
+        paymentDate: paymentDate ? new Date(paymentDate).toISOString() : undefined,
         reference: reference || undefined,
       })
 
-      toast.success(`Invoice ${invoiceNumber} marked as paid`)
+      toast.success(`Invoice ${invoiceNumber} scheduled to be marked as paid`)
 
       // Reset form and close dialog
       setPaymentDate('')
@@ -90,8 +96,9 @@ export const MarkAsPaidDialog: React.FC<MarkAsPaidDialogProps> = ({
         <DialogHeader>
           <DialogTitle>Mark Invoice as Paid</DialogTitle>
           <DialogDescription>
-            This will mark invoice {invoiceNumber} as fully paid by recording a manual payment
-            transaction for the entire amount due.
+            Invoice {invoiceNumber} will be scheduled to be marked as paid. A manual payment
+            transaction will be recorded for the entire amount due. The payment status will update
+            shortly after confirmation.
           </DialogDescription>
         </DialogHeader>
 

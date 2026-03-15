@@ -33,27 +33,29 @@ export const InvoicesHeader: FunctionComponent<InvoicesProps> = ({
             Import / Export
           </Button>
           <Link to="create">
-            <Button variant="primary" size="sm">
-              <PlusIcon size={10} fill="white"/> New invoice
+            <Button variant="primary" size="sm" hasIcon>
+              <PlusIcon size={10} fill="white" /> New invoice
             </Button>
           </Link>
         </div>
       </div>
-      <div className="flex flex-row items-center gap-2">
-        <InputWithIcon
-          placeholder="Search by customer"
-          icon={<SearchIcon size={16}/>}
-          width="fit-content"
-          value={search.text}
-          onChange={e => setSearch({ ...search, text: e.target.value })}
-        />
-        <Button variant="secondary" disabled={isLoading} onClick={refetch}>
-          <RefreshCwIcon size={14} className={isLoading ? 'animate-spin' : ''}/>
+      <div className="flex flex-row items-center justify-between">
+        <div className="flex flex-row items-center gap-2">
+          <InputWithIcon
+            placeholder="Search by customer"
+            icon={<SearchIcon size={16}/>}
+            width="fit-content"
+            value={search.text}
+            onChange={e => setSearch({ ...search, text: e.target.value })}
+          />
+          <FilterDropdown
+            status={search.status}
+            setStatus={value => setSearch({ ...search, status: value })}
+          />
+        </div>
+        <Button variant="outline" size="sm" disabled={isLoading} onClick={refetch}>
+          <RefreshCwIcon size={14} className={isLoading ? 'animate-spin' : ''} />
         </Button>
-        <FilterDropdown
-          status={search.status}
-          setStatus={value => setSearch({ ...search, status: value })}
-        />
       </div>
     </div>
   )

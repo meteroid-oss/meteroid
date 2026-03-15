@@ -7,9 +7,10 @@ interface Props {
   status: CreditNoteStatus
 }
 
-export const CreditNoteStatusPill = ({ status }: Props) =>
+export const CreditNoteStatusBadge = ({ status }: Props) =>
   match(status)
     .with(CreditNoteStatus.VOIDED, () => <Badge variant="secondary">Voided</Badge>)
     .with(CreditNoteStatus.FINALIZED, () => <Badge variant="success">Finalized</Badge>)
-    .with(CreditNoteStatus.DRAFT, () => <Badge variant="primary">Draft</Badge>)
+    .with(CreditNoteStatus.DRAFT, () => <Badge variant="ghost">Draft</Badge>)
     .otherwise(() => <Badge variant="destructive">Unknown</Badge>)
+

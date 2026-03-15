@@ -1,17 +1,10 @@
 import { PlusIcon, SearchIcon } from '@md/icons'
-import {
-  Button,
-  InputWithIcon,
-  Select,
-  SelectContent,
-  SelectItem,
-  SelectTrigger,
-  SelectValue,
-} from '@md/ui'
+import { Button, InputWithIcon } from '@md/ui'
 import { RefreshCwIcon } from 'lucide-react'
 import { FunctionComponent } from 'react'
 
 import PageHeading from '@/components/PageHeading/PageHeading'
+import { BaseFilter } from '@/features/TablePage'
 
 interface MetricsHeaderProps {
   isLoading: boolean
@@ -40,22 +33,26 @@ export const ProductMetricsPageHeader: FunctionComponent<MetricsHeaderProps> = (
           </Button>
         </div>
       </div>
-      <div className="flex flex-row items-center gap-2">
-        <InputWithIcon
-          placeholder="Search metrics"
-          icon={<SearchIcon size={16} />}
-          width="fit-content"
-        />
-        <Select value={statusFilter} onValueChange={onStatusFilterChange}>
-          <SelectTrigger className="w-[140px]">
-            <SelectValue />
-          </SelectTrigger>
-          <SelectContent>
-            <SelectItem value="active">Active</SelectItem>
-            <SelectItem value="archived">Archived</SelectItem>
-          </SelectContent>
-        </Select>
-        <Button variant="secondary" disabled={isLoading} onClick={refetch}>
+      <div className="flex flex-row items-center justify-between">
+        <div className="flex flex-row items-center gap-2">
+          <InputWithIcon
+            placeholder="Search metrics"
+            icon={<SearchIcon size={16} />}
+            width="fit-content"
+          />
+          <BaseFilter
+            entries={[
+              { label: 'Active', value: 'active' },
+              { label: 'Archived', value: 'archived' },
+            ]}
+            emptyLabel="All"
+            selected={statusFilter !== 'all' ? [statusFilter] : []}
+            onSelectionChange={(value, checked) =>
+              onStatusFilterChange(checked ? (value as 'active' | 'archived') : 'all')
+            }
+          />
+        </div>
+        <Button variant="outline" size="sm" disabled={isLoading} onClick={refetch}>
           <RefreshCwIcon size={14} className={isLoading ? 'animate-spin' : ''} />
         </Button>
       </div>
