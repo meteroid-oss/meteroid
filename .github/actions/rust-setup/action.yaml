@@ -4,7 +4,7 @@ description: 'Setup Rust toolchain with dependencies, caching, and mold linker'
 inputs:
   toolchain:
     description: 'Rust toolchain version'
-    default: '1.90.0'
+    default: '1.94.0'
   components:
     description: 'Rust components to install (comma-separated)'
     default: ''

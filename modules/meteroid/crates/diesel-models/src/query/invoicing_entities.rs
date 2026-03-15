@@ -11,7 +11,7 @@ use crate::connectors::ConnectorRow;
 use common_domain::ids::{InvoiceId, InvoicingEntityId, TenantId};
 use diesel::{
     ExpressionMethods, JoinOnDsl, NullableExpressionMethods, QueryDsl, Selectable,
-    SelectableHelper, alias, debug_query,
+    SelectableHelper, debug_query,
 };
 use error_stack::ResultExt;
 
