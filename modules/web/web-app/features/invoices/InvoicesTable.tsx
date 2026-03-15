@@ -1,15 +1,34 @@
-import { Popover, PopoverContent, PopoverTrigger } from '@md/ui'
+import { createConnectQueryKey, disableQuery, useMutation } from '@connectrpc/connect-query'
+import {
+  DropdownMenu,
+  DropdownMenuContent,
+  DropdownMenuItem,
+  DropdownMenuTrigger,
+  Tooltip,
+  TooltipContent,
+  TooltipTrigger,
+} from '@md/ui'
+import { useQueryClient } from '@tanstack/react-query'
 import { ColumnDef, OnChangeFn, PaginationState } from '@tanstack/react-table'
-import { MoreVerticalIcon } from 'lucide-react'
-import { useMemo } from 'react'
-import { Link } from 'react-router-dom'
+import { CheckCircleIcon, Eye, MoreVerticalIcon } from 'lucide-react'
+import { useMemo, useState } from 'react'
+import { useNavigate } from 'react-router-dom'
+import { toast } from 'sonner'
 
 import { StandardTable } from '@/components/table/StandardTable'
+import { InvoiceStatusBadge } from '@/features/invoices/InvoiceStatusBadge'
+import { MarkAsPaidDialog } from '@/features/invoices/MarkAsPaidDialog'
 import { PaymentStatusBadge } from '@/features/invoices/PaymentStatusBadge'
-import { StatusPill } from '@/features/invoices/StatusPill'
 import { amountFormat } from '@/features/invoices/amountFormat'
 import { useBasePath } from '@/hooks/useBasePath'
-import { Invoice } from '@/rpc/api/invoices/v1/models_pb'
+import { useQuery } from '@/lib/connectrpc'
+import { InvoiceConfirmationDialog } from '@/pages/tenants/invoice/InvoiceConfirmationDialog'
+import {
+  finalizeInvoice,
+  getInvoice,
+  listInvoices,
+} from '@/rpc/api/invoices/v1/invoices-InvoicesService_connectquery'
+import { InvoicePaymentStatus, InvoiceStatus, Invoice } from '@/rpc/api/invoices/v1/models_pb'
 
 interface CustomersTableProps {
   data: Invoice[]
@@ -20,13 +39,135 @@ interface CustomersTableProps {
   linkPrefix?: string
 }
 
+const InvoiceRowActions = ({ invoiceId }: { invoiceId: string }) => {
+  const basePath = useBasePath()
+  const navigate = useNavigate()
+  const queryClient = useQueryClient()
+
+  const [shouldFetch, setShouldFetch] = useState(false)
+  const [showFinalizeConfirmation, setShowFinalizeConfirmation] = useState(false)
+  const [showMarkAsPaidDialog, setShowMarkAsPaidDialog] = useState(false)
+
+  const invoiceQuery = useQuery(getInvoice, shouldFetch ? { id: invoiceId } : disableQuery)
+  const invoice = invoiceQuery.data?.invoice
+
+  const invalidateList = () =>
+    queryClient.invalidateQueries({ queryKey: [listInvoices.service.typeName] })
+
+  const invalidateDetail = () =>
+    queryClient.invalidateQueries({
+      queryKey: createConnectQueryKey(getInvoice, { id: invoiceId }),
+    })
+
+  const finalizeMutation = useMutation(finalizeInvoice, {
+    onSuccess: async () => {
+      toast.success('Invoice finalized')
+      await Promise.all([invalidateDetail(), invalidateList()])
+    },
+    onError: error => toast.error(`Failed to finalize invoice: ${error.message}`),
+  })
+
+  const canFinalize = invoice?.status === InvoiceStatus.DRAFT
+  const canMarkAsPaid =
+    invoice?.status === InvoiceStatus.FINALIZED &&
+    invoice?.paymentStatus !== InvoicePaymentStatus.PAID &&
+    Number(invoice?.amountDue) > 0
+
+  const markAsPaidDisabledReason = !invoice
+    ? undefined
+    : invoice.status !== InvoiceStatus.FINALIZED
+      ? 'Invoice must be finalized first'
+      : invoice.paymentStatus === InvoicePaymentStatus.PAID
+        ? 'Invoice is already paid'
+        : Number(invoice.amountDue) <= 0
+          ? 'No amount due'
+          : undefined
+
+  const finalizeDisabledReason = !invoice
+    ? undefined
+    : invoice.status !== InvoiceStatus.DRAFT
+      ? 'Only draft invoices can be finalized'
+      : undefined
+
+  return (
+    <div onClick={e => e.stopPropagation()}>
+      {invoice && (
+        <>
+          <InvoiceConfirmationDialog
+            open={showFinalizeConfirmation}
+            onOpenChange={setShowFinalizeConfirmation}
+            onConfirm={() => {
+              setShowFinalizeConfirmation(false)
+              finalizeMutation.mutateAsync({ id: invoiceId })
+            }}
+            icon={CheckCircleIcon}
+            title="Finalize & Send invoice"
+            description="Finalize this invoice and send it to the customer. Once finalized, the invoice cannot be edited."
+            invoiceNumber={invoice.invoiceNumber}
+          />
+          <MarkAsPaidDialog
+            open={showMarkAsPaidDialog}
+            onOpenChange={setShowMarkAsPaidDialog}
+            invoiceId={invoiceId}
+            invoiceNumber={invoice.invoiceNumber}
+            currency={invoice.currency}
+            totalAmount={(Number(invoice.amountDue) / 100).toFixed(2)}
+          />
+        </>
+      )}
+      <DropdownMenu onOpenChange={open => { if (open) setShouldFetch(true) }}>
+        <DropdownMenuTrigger asChild>
+          <MoreVerticalIcon size={16} className="cursor-pointer" />
+        </DropdownMenuTrigger>
+        <DropdownMenuContent align="end">
+          <DropdownMenuItem onClick={() => navigate(`${basePath}/invoices/${invoiceId}`)}>
+            <Eye size={16} className="mr-2" />
+            View
+          </DropdownMenuItem>
+          <Tooltip>
+            <TooltipTrigger asChild>
+              <span>
+                <DropdownMenuItem
+                  disabled={!invoice || !canMarkAsPaid}
+                  onClick={() => setShowMarkAsPaidDialog(true)}
+                >
+                  <CheckCircleIcon size={16} className="mr-2" />
+                  Mark as Paid
+                </DropdownMenuItem>
+              </span>
+            </TooltipTrigger>
+            {markAsPaidDisabledReason && (
+              <TooltipContent>{markAsPaidDisabledReason}</TooltipContent>
+            )}
+          </Tooltip>
+          <Tooltip>
+            <TooltipTrigger asChild>
+              <span>
+                <DropdownMenuItem
+                  disabled={!invoice || !canFinalize}
+                  onClick={() => setShowFinalizeConfirmation(true)}
+                >
+                  <CheckCircleIcon size={16} className="mr-2" />
+                  Finalize & Send
+                </DropdownMenuItem>
+              </span>
+            </TooltipTrigger>
+            {finalizeDisabledReason && (
+              <TooltipContent>{finalizeDisabledReason}</TooltipContent>
+            )}
+          </Tooltip>
+        </DropdownMenuContent>
+      </DropdownMenu>
+    </div>
+  )
+}
+
 export const InvoicesTable = ({
   data,
   pagination,
   setPagination,
   totalCount,
   isLoading,
-  linkPrefix = '',
 }: CustomersTableProps) => {
   const basePath = useBasePath()
 
@@ -54,7 +195,7 @@ export const InvoicesTable = ({
       },
       {
         header: 'Status',
-        cell: ({ row }) => <StatusPill status={row.original.status} />,
+        cell: ({ row }) => <InvoiceStatusBadge status={row.original.status} />,
       },
       {
         header: 'Payment Status',
@@ -64,24 +205,10 @@ export const InvoicesTable = ({
         accessorKey: 'id',
         header: '',
         className: 'w-2',
-        cell: ({ row }) => (
-          <Popover>
-            <PopoverTrigger>
-              <MoreVerticalIcon size={16} className="cursor-pointer" />
-            </PopoverTrigger>
-            <PopoverContent className="p-0 pl-4 text-sm w-36 " side="bottom" align="end">
-              <Link
-                className="flex items-center h-10 w-full "
-                to={`${linkPrefix}${row.original.id}`}
-              >
-                View invoice
-              </Link>
-            </PopoverContent>
-          </Popover>
-        ),
+        cell: ({ row }) => <InvoiceRowActions invoiceId={row.original.id} />,
       },
     ],
-    []
+    [basePath]
   )
 
   return (

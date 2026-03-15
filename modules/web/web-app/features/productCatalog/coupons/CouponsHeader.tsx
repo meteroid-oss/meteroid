@@ -3,7 +3,17 @@ import { useNavigate } from 'react-router-dom'
 
 import { EntityFilters, EntityHeader } from '@/features/TablePage'
 
-export const CouponsHeader = ({ children, count }: { children?: ReactNode; count?: number }) => {
+export const CouponsHeader = ({
+  children,
+  count,
+  isLoading,
+  refetch,
+}: {
+  children?: ReactNode
+  count?: number
+  isLoading?: boolean
+  refetch?: () => void
+}) => {
   const navigate = useNavigate()
 
   return (
@@ -13,7 +23,9 @@ export const CouponsHeader = ({ children, count }: { children?: ReactNode; count
         count={count}
         primaryAction={{ label: 'New coupon', onClick: () => navigate('add-coupon') }}
       />
-      <EntityFilters>{children}</EntityFilters>
+      <EntityFilters isLoading={isLoading} refetch={refetch}>
+        {children}
+      </EntityFilters>
     </div>
   )
 }

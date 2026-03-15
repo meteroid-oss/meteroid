@@ -53,7 +53,11 @@ export const Plans: FunctionComponent = () => {
 
   return (
     <>
-      <PlansHeader count={plansQuery.data?.paginationMeta?.totalItems}>
+      <PlansHeader
+        count={plansQuery.data?.paginationMeta?.totalItems}
+        isLoading={plansQuery.isLoading}
+        refetch={() => plansQuery.refetch()}
+      >
         <MultiFilter
           emptyLabel="All statuses"
           entries={['active', 'draft', 'inactive', 'archived']}

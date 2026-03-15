@@ -1,6 +1,5 @@
 import { createConnectQueryKey, useMutation } from '@connectrpc/connect-query'
 import {
-  Badge,
   Button,
   DropdownMenu,
   DropdownMenuContent,
@@ -16,6 +15,7 @@ import { Fragment, useState } from 'react'
 import { Link, useNavigate } from 'react-router-dom'
 import { toast } from 'sonner'
 
+import { CreditNoteStatusBadge } from '@/features/creditNotes/CreditNoteStatusBadge'
 import { AddressLinesCompact } from '@/features/customers/cards/address/AddressCard'
 import { getCountryName } from '@/features/settings/utils'
 import { useBasePath } from '@/hooks/useBasePath'
@@ -415,18 +415,6 @@ const CreditNoteView = ({ creditNote, creditNoteId }: Props) => {
   )
 }
 
-const CreditNoteStatusBadge = ({ status }: { status: CreditNoteStatus }) => {
-  switch (status) {
-    case CreditNoteStatus.DRAFT:
-      return <Badge variant="primary">Draft</Badge>
-    case CreditNoteStatus.FINALIZED:
-      return <Badge variant="success">Finalized</Badge>
-    case CreditNoteStatus.VOIDED:
-      return <Badge variant="secondary">Voided</Badge>
-    default:
-      return null
-  }
-}
 
 const CreditNoteSummaryLines: React.FC<{ creditNote: DetailedCreditNote }> = ({ creditNote }) => {
   const subtotal = Math.abs(Number(creditNote.subtotal)) || 0

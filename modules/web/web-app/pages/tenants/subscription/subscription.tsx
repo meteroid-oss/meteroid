@@ -10,6 +10,9 @@ import {
   TableHead,
   TableHeader,
   TableRow,
+  Tooltip,
+  TooltipContent,
+  TooltipTrigger,
 } from '@md/ui'
 import {
   ArrowLeftRight,
@@ -477,12 +480,21 @@ export const Subscription = () => {
                   </DropdownMenuItem>
                 )}
 
-                <DropdownMenuItem
-                  disabled={!isHubspotConnected}
-                  onClick={() => setShowSyncHubspotModal(true)}
-                >
-                  Sync To Hubspot
-                </DropdownMenuItem>
+                <Tooltip>
+                  <TooltipTrigger asChild>
+                    <span>
+                      <DropdownMenuItem
+                        disabled={!isHubspotConnected}
+                        onClick={() => setShowSyncHubspotModal(true)}
+                      >
+                        Sync To Hubspot
+                      </DropdownMenuItem>
+                    </span>
+                  </TooltipTrigger>
+                  {!isHubspotConnected && (
+                    <TooltipContent>Hubspot integration not connected</TooltipContent>
+                  )}
+                </Tooltip>
                 <DropdownMenuItem onClick={() => setShowEditModal(true)}>
                   <Pencil size="16" className="mr-2" />
                   Edit Billing Settings
@@ -494,13 +506,22 @@ export const Subscription = () => {
                     Change Plan
                   </DropdownMenuItem>
                 )}
-                <DropdownMenuItem
-                  disabled={!canCancelSubscription}
-                  onClick={() => setShowCancelModal(true)}
-                  className="text-destructive focus:text-destructive"
-                >
-                  Cancel Subscription
-                </DropdownMenuItem>
+                <Tooltip>
+                  <TooltipTrigger asChild>
+                    <span>
+                      <DropdownMenuItem
+                        disabled={!canCancelSubscription}
+                        onClick={() => setShowCancelModal(true)}
+                        className="text-destructive focus:text-destructive"
+                      >
+                        Cancel Subscription
+                      </DropdownMenuItem>
+                    </span>
+                  </TooltipTrigger>
+                  {!canCancelSubscription && (
+                    <TooltipContent>Subscription is already cancelled or ended</TooltipContent>
+                  )}
+                </Tooltip>
               </DropdownMenuContent>
             </DropdownMenu>
           </div>

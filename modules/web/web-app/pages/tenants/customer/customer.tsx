@@ -77,9 +77,6 @@ export const Customer = () => {
             id={data?.id}
             name={data?.name || data?.alias}
             archivedAt={data?.archivedAt?.toDate()}
-            // setShowIncoice={() => setCreateInvoiceVisible(true)}
-            setShowIncoice={() => false}
-            setShowEditCustomer={() => setEditCustomerVisible(true)}
           />
           {isLoading || !data ? (
             <>
