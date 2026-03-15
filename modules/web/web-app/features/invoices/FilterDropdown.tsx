@@ -9,11 +9,24 @@ import {
   PopoverTrigger,
   cn,
 } from '@md/ui'
-import { D, G } from '@mobily/ts-belt'
-import { CheckIcon, XIcon, PlusIcon } from 'lucide-react'
+import { CheckIcon, ChevronDownIcon, XIcon } from 'lucide-react'
 import { useState } from 'react'
 
 import { InvoiceStatus } from '@/rpc/api/invoices/v1/models_pb'
+
+const STATUS_LABELS: Record<InvoiceStatus, string> = {
+  [InvoiceStatus.DRAFT]: 'Draft',
+  [InvoiceStatus.FINALIZED]: 'Finalized',
+  [InvoiceStatus.UNCOLLECTIBLE]: 'Uncollectible',
+  [InvoiceStatus.VOID]: 'Void',
+}
+
+const STATUSES: { label: string; value: InvoiceStatus }[] = [
+  { label: 'Draft', value: InvoiceStatus.DRAFT },
+  { label: 'Finalized', value: InvoiceStatus.FINALIZED },
+  { label: 'Uncollectible', value: InvoiceStatus.UNCOLLECTIBLE },
+  { label: 'Void', value: InvoiceStatus.VOID },
+]
 
 interface Props {
   setStatus: (search: InvoiceStatus | undefined) => void
@@ -23,29 +36,22 @@ interface Props {
 export const FilterDropdown = ({ status, setStatus }: Props) => {
   const [open, setOpen] = useState(false)
 
-  const statuses = D.toPairs(InvoiceStatus).filter(([_, status]) => G.isNumber(status))
-
   return (
     <Popover open={open} onOpenChange={setOpen}>
       <PopoverTrigger asChild>
-        <Button variant="ghost" hasIcon className="w-[150px] justify-start">
+        <Button variant="outline" hasIcon className="text-xs font-medium">
+          <span>{status !== undefined ? STATUS_LABELS[status] : 'All statuses'}</span>
           {status !== undefined ? (
-            <>
-              {InvoiceStatus[status].toString()}
-
-              <XIcon
-                className="ml-auto h-4 w-4"
-                onClick={e => {
-                  e.stopPropagation()
-                  setStatus(undefined)
-                  setOpen(false)
-                }}
-              />
-            </>
+            <XIcon
+              className="h-3 w-3"
+              onClick={e => {
+                e.stopPropagation()
+                setStatus(undefined)
+                setOpen(false)
+              }}
+            />
           ) : (
-            <>
-              <PlusIcon size={12} /> Filter
-            </>
+            <ChevronDownIcon size={14} />
           )}
         </Button>
       </PopoverTrigger>
@@ -53,20 +59,20 @@ export const FilterDropdown = ({ status, setStatus }: Props) => {
         <Command>
           <CommandList>
             <CommandGroup>
-              {statuses.map(([key, statusOption]) => (
+              {STATUSES.map(({ label, value }) => (
                 <CommandItem
-                  key={key}
-                  value={key}
+                  key={value}
+                  value={label}
                   onSelect={() => {
-                    setOpen(!open)
-                    setStatus(statusOption)
+                    setOpen(false)
+                    setStatus(value)
                   }}
                 >
-                  {key}
+                  {label}
                   <CheckIcon
                     className={cn(
                       'ml-auto h-4 w-4',
-                      status === statusOption ? 'opacity-100' : 'opacity-0'
+                      status === value ? 'opacity-100' : 'opacity-0'
                     )}
                   />
                 </CommandItem>

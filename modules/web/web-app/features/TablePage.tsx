@@ -9,7 +9,7 @@ import {
   InputWithIcon,
 } from '@ui/components'
 import { cn } from '@ui/lib'
-import { ChevronDown, PlusIcon } from 'lucide-react'
+import { ChevronDown, PlusIcon, RefreshCwIcon } from 'lucide-react'
 import { FunctionComponent } from 'react'
 
 import { SetQueryStateAction, useQueryState } from '@/hooks/useQueryState'
@@ -81,26 +81,31 @@ export const EntityHeader = ({
 interface EntityFiltersProps {
   className?: string
   children?: React.ReactNode
+  isLoading?: boolean
+  refetch?: () => void
 }
 
-export const EntityFilters = ({ children, className }: EntityFiltersProps) => {
+export const EntityFilters = ({ children, className, isLoading, refetch }: EntityFiltersProps) => {
   const [search, setSearch] = useQueryState<string>('q', '') // Changed from undefined to empty string
 
   return (
-    <div className={cn('flex flex-col lg:flex-row gap-2', className)}>
-      <InputWithIcon
-        placeholder="Search..."
-        icon={<SearchIcon size={16} />}
-        width="fit-content"
-        className="max-w-48"
-        onChange={e => setSearch(e.target.value)}
-        value={search ?? ''} // Ensure value is never undefined
-      />
-      {children && (
-        <div className={cn('flex gap-2 items-center', className)}>
-          <div className="text-xs ml-4 font-medium">Filters:</div>
-          {children}
-        </div>
+    <div className={cn('flex flex-row items-center justify-between gap-2', className)}>
+      <div className="flex flex-row items-center gap-2">
+        <InputWithIcon
+          placeholder="Search..."
+          icon={<SearchIcon size={16} />}
+          width="fit-content"
+          onChange={e => setSearch(e.target.value)}
+          value={search ?? ''}
+        />
+        {children && (
+          <div className={cn('flex gap-2 items-center')}>{children}</div>
+        )}
+      </div>
+      {refetch && (
+        <Button variant="outline" size="sm" disabled={isLoading} onClick={refetch}>
+          <RefreshCwIcon size={14} className={isLoading ? 'animate-spin' : ''} />
+        </Button>
       )}
     </div>
   )
@@ -166,19 +171,25 @@ interface BaseFilterProps {
   onSelectionChange: (value: string, checked: boolean) => void
 }
 
-const BaseFilter: FunctionComponent<BaseFilterProps> = ({
+export const BaseFilter: FunctionComponent<BaseFilterProps> = ({
   entries,
   emptyLabel,
   selected,
   onSelectionChange,
 }) => {
+  const getLabel = (value: string) => {
+    const entry = entries.find(e => (typeof e === 'string' ? e : e.value) === value)
+    return entry ? (typeof entry === 'string' ? entry : entry.label) : value
+  }
+
+  const triggerLabel =
+    selected.length > 0 ? selected.map(getLabel).join(', ') : emptyLabel
+
   return (
     <DropdownMenu>
       <DropdownMenuTrigger asChild>
         <Button variant="outline" className="text-xs font-medium" hasIcon>
-          <span className="capitalize">
-            {selected.length > 0 ? selected.join(', ') : emptyLabel}
-          </span>
+          <span className="capitalize">{triggerLabel}</span>
           <ChevronDown size="14" />
         </Button>
       </DropdownMenuTrigger>

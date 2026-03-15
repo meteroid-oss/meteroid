@@ -1,4 +1,5 @@
 import { Timestamp } from '@bufbuild/protobuf'
+import { SearchIcon } from '@md/icons'
 import {
   Badge,
   Button,
@@ -9,21 +10,17 @@ import {
   DialogDescription,
   DialogHeader,
   DialogTitle,
-  Input,
+  InputWithIcon,
   Label,
-  Select,
-  SelectContent,
-  SelectItem,
-  SelectTrigger,
-  SelectValue,
 } from '@md/ui'
 import { ColumnDef, PaginationState } from '@tanstack/react-table'
-import { EyeIcon, FileUpIcon, PauseIcon, PlayIcon, RefreshCcwIcon, SearchIcon } from 'lucide-react'
+import { EyeIcon, FileUpIcon, PauseIcon, PlayIcon, RefreshCcwIcon } from 'lucide-react'
 import { useEffect, useMemo, useRef, useState } from 'react'
 import { DateRange } from 'react-day-picker'
 
 import PageHeading from '@/components/PageHeading/PageHeading'
 import { StandardTable } from '@/components/table/StandardTable'
+import { BaseFilter } from '@/features/TablePage'
 import { CustomerSelect } from '@/features/customers/CustomerSelect'
 import { DatePickerWithRange } from '@/features/dashboard/DateRangePicker'
 import { EventsImportModal } from '@/features/events/EventsImportModal'
@@ -170,90 +167,72 @@ export const EventsPage: FunctionComponent = () => {
   )
 
   return (
-    <div className="space-y-6">
-      <PageHeading>Events</PageHeading>
+    <div className="flex flex-col gap-8">
+      <div className="flex flex-col gap-8">
+        <div className="flex items-center justify-between">
+          <PageHeading>Events</PageHeading>
+          <div className="flex gap-2">
+            <Button variant="secondary" size="sm" onClick={() => setIsUploadOpen(true)}>
+              <FileUpIcon className="h-4 w-4 mr-2"/>
+              Import CSV
+            </Button>
+          </div>
+        </div>
+        <EventsImportModal
+          openState={[isUploadOpen, setIsUploadOpen]}
+          onSuccess={() => eventsQuery.refetch()}
+        />
 
-      {/* Controls */}
-      <div className="flex items-center justify-between">
-        <div className="flex items-center space-x-4">
-          {/* Search */}
-          <div className="relative">
-            <SearchIcon className="absolute left-3 top-1/2 transform -translate-y-1/2 h-4 w-4 text-muted-foreground"/>
-            <Input
+        {/* Controls */}
+        <div className="flex items-center justify-between">
+          <div className="flex items-center gap-2">
+            <InputWithIcon
               placeholder="Search events..."
+              icon={<SearchIcon size={16} />}
+              width="fit-content"
               value={search}
               onChange={e => setSearch(e.target.value)}
-              className="pl-10 w-64"
             />
-          </div>
-
-          {/* Date Range */}
-          <DatePickerWithRange range={dateRange} setRange={setDateRange}/>
-
-          {/* Filters */}
-          <div className="flex items-center space-x-2">
+            <DatePickerWithRange range={dateRange} setRange={setDateRange}/>
             <CustomerSelect
               value={customerId}
               onChange={e => setCustomerId(e)}
               placeholder="Select a customer"
             />
-            <Select
-              value={sortOrder.toString()}
-              onValueChange={value => setSortOrder(parseInt(value))}
-            >
-              <SelectTrigger className="w-40">
-                <SelectValue/>
-              </SelectTrigger>
-              <SelectContent>
-                {SORT_ORDER_OPTIONS.map(option => (
-                  <SelectItem key={option.value} value={option.value.toString()}>
-                    {option.label}
-                  </SelectItem>
-                ))}
-              </SelectContent>
-            </Select>
+            <BaseFilter
+              entries={SORT_ORDER_OPTIONS.map(o => ({ label: o.label, value: o.value.toString() }))}
+              emptyLabel="Newest first"
+              selected={[sortOrder.toString()]}
+              onSelectionChange={(value, checked) =>
+                setSortOrder(checked ? parseInt(value) : SearchEventsRequest_SortOrder.TIMESTAMP_DESC)
+              }
+            />
           </div>
-        </div>
-
-        <div className="flex items-center space-x-2">
-          {/* Live/Pause toggle */}
-          <Button
-            variant={isLive ? 'default' : 'outline'}
-            size="sm"
-            onClick={() => setIsLive(!isLive)}
-          >
-            {isLive ? (
-              <>
-                <PauseIcon className="h-4 w-4 mr-2"/>
-                Pause
-              </>
-            ) : (
-              <>
-                <PlayIcon className="h-4 w-4 mr-2"/>
-                Live
-              </>
-            )}
-          </Button>
-
-          {/* Manual refresh */}
-          <Button
-            variant="outline"
-            size="sm"
-            onClick={() => eventsQuery.refetch()}
-            disabled={eventsQuery.isFetching}
-          >
-            <RefreshCcwIcon className={`h-4 w-4 ${eventsQuery.isFetching ? 'animate-spin' : ''}`}/>
-          </Button>
-
-          {/* CSV Import */}
-          <Button variant="outline" size="sm" onClick={() => setIsUploadOpen(true)}>
-            <FileUpIcon className="h-4 w-4 mr-2"/>
-            Import CSV
-          </Button>
-          <EventsImportModal
-            openState={[isUploadOpen, setIsUploadOpen]}
-            onSuccess={() => eventsQuery.refetch()}
-          />
+          <div className="flex items-center gap-2">
+            <Button
+              variant={isLive ? 'default' : 'outline'}
+              onClick={() => setIsLive(!isLive)}
+            >
+              {isLive ? (
+                <>
+                  <PauseIcon className="h-4 w-4 mr-2"/>
+                  Pause
+                </>
+              ) : (
+                <>
+                  <PlayIcon className="h-4 w-4 mr-2"/>
+                  Live
+                </>
+              )}
+            </Button>
+            <Button
+              variant="outline"
+              onClick={() => eventsQuery.refetch()}
+              disabled={eventsQuery.isFetching}
+            >
+              <RefreshCcwIcon className={`h-4 w-4 ${eventsQuery.isFetching ? 'animate-spin' : ''}`}/>
+            </Button>
+          </div>
         </div>
       </div>
 

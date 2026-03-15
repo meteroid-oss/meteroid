@@ -1,15 +1,15 @@
 import { ColumnDef, OnChangeFn, PaginationState, Row } from '@tanstack/react-table'
-import { Badge } from '@ui/components'
 import { format } from 'date-fns'
 import { useMemo } from 'react'
 
 import { StandardTable } from '@/components/table/StandardTable'
+import { SubscriptionStatusBadge } from '@/features/subscriptions/SubscriptionStatusBadge'
 import { useBasePath } from '@/hooks/useBasePath'
 import { useCurrency } from '@/hooks/useCurrency'
 import { mapDateFromGrpcv2 } from '@/lib/mapping'
-import { Subscription, SubscriptionStatus } from '@/rpc/api/subscriptions/v1/models_pb'
+import { Subscription } from '@/rpc/api/subscriptions/v1/models_pb'
 
-import type { FunctionComponent, ReactNode } from 'react'
+import type { FunctionComponent } from 'react'
 
 interface SubscriptionsTableProps {
   data: Subscription[]
@@ -75,7 +75,7 @@ export const SubscriptionsTable: FunctionComponent<SubscriptionsTableProps> = ({
 
         {
           header: 'Status',
-          cell: ({ row }: { row: Row<Subscription> }) => formatStatus(row.original.status),
+          cell: ({ row }: { row: Row<Subscription> }) => <SubscriptionStatusBadge status={row.original.status} />,
         },
         {
           header: 'Currency',
@@ -103,23 +103,3 @@ export const SubscriptionsTable: FunctionComponent<SubscriptionsTableProps> = ({
   )
 }
 
-function formatStatus(status: SubscriptionStatus): ReactNode {
-  switch (status) {
-    case SubscriptionStatus.ACTIVE:
-      return <Badge variant="success">Active</Badge>
-    case SubscriptionStatus.CANCELED:
-      return <Badge variant="secondary">Canceled</Badge>
-    case SubscriptionStatus.ENDED:
-      return <Badge variant="secondary">Ended</Badge>
-    case SubscriptionStatus.PENDING:
-      return <Badge variant="warning">Pending</Badge>
-    case SubscriptionStatus.TRIALING:
-      return <Badge variant="outline">Trial</Badge>
-    case SubscriptionStatus.TRIAL_EXPIRED:
-      return <Badge variant="warning">Trial Expired</Badge>
-    case SubscriptionStatus.ERRORED:
-      return <Badge variant="destructive">Errored</Badge>
-    default:
-      return 'Unknown'
-  }
-}

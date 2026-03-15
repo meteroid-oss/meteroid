@@ -1,25 +1,12 @@
-import { Badge } from '@md/ui'
 import { LinkIcon, PencilIcon } from 'lucide-react'
 import { ComponentProps } from 'react'
 import { Link, useNavigate } from 'react-router-dom'
 
 import { LocalId } from '@/components/LocalId'
 import { Property } from '@/components/Property'
+import { PlanStatusBadge } from '@/features/plans/PlanStatusBadge'
 import { useIsDraftVersion, usePlanOverview } from '@/features/plans/hooks/usePlan'
 import { Plan, PlanStatus, PlanType, PlanVersion } from '@/rpc/api/plans/v1/models_pb'
-
-const getStatusBadge = (status: PlanStatus): JSX.Element | null => {
-  switch (status) {
-    case PlanStatus.ACTIVE:
-      return <Badge variant="success">Active</Badge>
-    case PlanStatus.DRAFT:
-      return <Badge variant="primary">Draft</Badge>
-    case PlanStatus.ARCHIVED:
-      return <Badge variant="secondary">Archived</Badge>
-    default:
-      return null
-  }
-}
 
 export const PlanOverview: React.FC<{ plan: Plan; version: PlanVersion }> = ({ plan, version }) => {
   const overview = usePlanOverview()
@@ -28,8 +15,8 @@ export const PlanOverview: React.FC<{ plan: Plan; version: PlanVersion }> = ({ p
 
   const leftProperties: ComponentProps<typeof Property>[] = [
     version.isDraft
-      ? { label: 'Status', value: getStatusBadge(PlanStatus.DRAFT) || 'N/A' }
-      : { label: 'Status', value: getStatusBadge(plan.planStatus) || 'N/A' },
+      ? { label: 'Status', value: <PlanStatusBadge status={PlanStatus.DRAFT} /> }
+      : { label: 'Status', value: <PlanStatusBadge status={plan.planStatus} /> },
     {
       label: 'Plan handle',
       value: <LocalId localId={plan.localId} className="max-w-28" />,

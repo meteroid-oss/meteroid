@@ -1,17 +1,12 @@
-import { useMutation } from '@connectrpc/connect-query'
+import { disableQuery, useMutation } from '@connectrpc/connect-query'
+import { SearchIcon } from '@md/icons'
 import {
-  Badge,
   Button,
   DropdownMenu,
   DropdownMenuContent,
   DropdownMenuItem,
   DropdownMenuTrigger,
-  Input,
-  Select,
-  SelectContent,
-  SelectItem,
-  SelectTrigger,
-  SelectValue,
+  InputWithIcon,
   Table,
   TableBody,
   TableCell,
@@ -20,16 +15,20 @@ import {
   TableRow,
 } from '@md/ui'
 import { useQueryClient } from '@tanstack/react-query'
-import { ChevronDown, Eye, FileText, Plus, Send } from 'lucide-react'
+import { Eye, FileText, MoreVerticalIcon, Plus, RefreshCw, Send } from 'lucide-react'
 import { FC, useState } from 'react'
 import { Link } from 'react-router-dom'
 import { toast } from 'sonner'
 
+import { BaseFilter } from '@/features/TablePage'
+import { QuoteStatusBadge } from '@/features/quotes/QuoteStatusBadge'
+import { SendQuoteDialog } from '@/features/quotes/SendQuoteDialog'
 import { useBasePath } from '@/hooks/useBasePath'
 import { useQuery } from '@/lib/connectrpc'
 import { Quote, QuoteStatus } from '@/rpc/api/quotes/v1/models_pb'
 import {
   cancelQuote,
+  getQuote,
   listQuotes,
   sendQuote,
 } from '@/rpc/api/quotes/v1/quotes-QuotesService_connectquery'
@@ -79,59 +78,70 @@ export const Quotes = () => {
   })
 
   const quotes = quotesQuery.data?.quotes || []
+  const totalCount = quotesQuery.data?.paginationMeta?.totalItems
 
   return (
-    <div className="space-y-6">
-      {/* Header */}
-      <div className="flex justify-between items-center">
-        <div>
-          <h1 className="text-2xl font-semibold">Quotes</h1>
-          <p className="text-muted-foreground">Manage and track your sales quotes</p>
-        </div>
-        <Button asChild>
+    <div className="flex flex-col gap-8">
+      <div className="flex flex-row items-center justify-between">
+        <h1 className="text-2xl font-bold">
+          Quotes{' '}
+          {totalCount !== undefined && (
+            <span className="text-xs font-medium text-muted-foreground">({totalCount})</span>
+          )}
+        </h1>
+        <Button asChild variant="primary" size="sm" hasIcon>
           <Link to={`${basePath}/quotes/create`}>
-            <Plus className="w-4 h-4 mr-2" />
-            Create Quote
+            <Plus className="w-4 h-4" />
+            New Quote
           </Link>
         </Button>
       </div>
 
       {/* Filters */}
-      <div className="flex gap-4 items-center">
-        <div className="flex-1 max-w-sm">
-          <Input
+      <div className="flex items-center justify-between">
+        <div className="flex gap-2 items-center">
+          <InputWithIcon
             placeholder="Search quotes..."
+            icon={<SearchIcon size={16} />}
+            width="fit-content"
             value={search}
             onChange={e => setSearch(e.target.value)}
           />
+          <BaseFilter
+            entries={[
+              { label: 'Draft', value: 'DRAFT' },
+              { label: 'Pending', value: 'PENDING' },
+              { label: 'Accepted', value: 'ACCEPTED' },
+              { label: 'Declined', value: 'DECLINED' },
+              { label: 'Expired', value: 'EXPIRED' },
+              { label: 'Cancelled', value: 'CANCELLED' },
+            ]}
+            emptyLabel="All Statuses"
+            selected={statusFilter !== 'all' ? [statusFilter] : []}
+            onSelectionChange={(value, checked) => setStatusFilter(checked ? value : 'all')}
+          />
+          <BaseFilter
+            entries={[
+              { label: 'Newest First', value: 'created_at_desc' },
+              { label: 'Oldest First', value: 'created_at_asc' },
+              { label: 'Quote # (Z-A)', value: 'quote_number_desc' },
+              { label: 'Quote # (A-Z)', value: 'quote_number_asc' },
+              { label: 'Expires (Soonest)', value: 'expires_at_desc' },
+              { label: 'Expires (Latest)', value: 'expires_at_asc' },
+            ]}
+            emptyLabel="Newest First"
+            selected={[sortBy]}
+            onSelectionChange={(value, checked) => setSortBy(checked ? value : 'created_at_desc')}
+          />
         </div>
-        <Select value={statusFilter} onValueChange={setStatusFilter}>
-          <SelectTrigger className="w-[180px]">
-            <SelectValue placeholder="Filter by status" />
-          </SelectTrigger>
-          <SelectContent>
-            <SelectItem value="all">All Statuses</SelectItem>
-            <SelectItem value="DRAFT">Draft</SelectItem>
-            <SelectItem value="PENDING">Pending</SelectItem>
-            <SelectItem value="ACCEPTED">Accepted</SelectItem>
-            <SelectItem value="DECLINED">Declined</SelectItem>
-            <SelectItem value="EXPIRED">Expired</SelectItem>
-            <SelectItem value="CANCELLED">Cancelled</SelectItem>
-          </SelectContent>
-        </Select>
-        <Select value={sortBy} onValueChange={setSortBy}>
-          <SelectTrigger className="w-[180px]">
-            <SelectValue placeholder="Sort by" />
-          </SelectTrigger>
-          <SelectContent>
-            <SelectItem value="created_at_desc">Newest First</SelectItem>
-            <SelectItem value="created_at_asc">Oldest First</SelectItem>
-            <SelectItem value="quote_number_desc">Quote # (Z-A)</SelectItem>
-            <SelectItem value="quote_number_asc">Quote # (A-Z)</SelectItem>
-            <SelectItem value="expires_at_desc">Expires (Soonest First)</SelectItem>
-            <SelectItem value="expires_at_asc">Expires (Latest First)</SelectItem>
-          </SelectContent>
-        </Select>
+        <Button
+          variant="outline"
+          size="sm"
+          disabled={quotesQuery.isLoading}
+          onClick={() => quotesQuery.refetch()}
+        >
+          <RefreshCw size={14} className={quotesQuery.isLoading ? 'animate-spin' : ''} />
+        </Button>
       </div>
 
       {/* Quotes Table */}
@@ -178,6 +188,12 @@ interface QuoteRowProps {
 const QuoteRow: FC<QuoteRowProps> = ({ quote, basePath }) => {
   const queryClient = useQueryClient()
 
+  const [showSendDialog, setShowSendDialog] = useState(false)
+  const [customMessage, setCustomMessage] = useState('')
+
+  const quoteDetailQuery = useQuery(getQuote, showSendDialog ? { id: quote.id } : disableQuery)
+  const recipients = quoteDetailQuery.data?.quote?.quote?.recipients
+
   const sendQuoteMutation = useMutation(sendQuote, {
     onSuccess: async () => {
       await queryClient.invalidateQueries({ queryKey: [listQuotes.service.typeName] })
@@ -190,10 +206,12 @@ const QuoteRow: FC<QuoteRowProps> = ({ quote, basePath }) => {
     },
   })
 
-  const handleSendQuote = async (quoteId: string) => {
+  const handleSendQuote = async () => {
     try {
-      await sendQuoteMutation.mutateAsync({ id: quoteId })
+      await sendQuoteMutation.mutateAsync({ id: quote.id, message: customMessage || undefined })
       toast.success('Quote sent successfully')
+      setShowSendDialog(false)
+      setCustomMessage('')
     } catch (error) {
       toast.error('Failed to send quote')
     }
@@ -209,93 +227,86 @@ const QuoteRow: FC<QuoteRowProps> = ({ quote, basePath }) => {
   }
 
   return (
-    <TableRow>
-      <TableCell>
-        <div className="font-medium">
-          <Link to={`${basePath}/quotes/${quote.id}`} className="text-brand hover:underline">
-            {quote.quoteNumber}
-          </Link>
-        </div>
-      </TableCell>
-      <TableCell>
-        <div className="font-medium">{quote.customerName || 'Customer'}</div>
-        <div className="text-sm text-muted-foreground">{quote.customerId}</div>
-      </TableCell>
-      <TableCell>
-        <QuoteStatusBadge status={quote.status} />
-      </TableCell>
-      <TableCell>
-        <div className="font-medium">Subscription Quote</div>
-        <div className="text-sm text-muted-foreground">{quote.currency}</div>
-      </TableCell>
-      <TableCell className="text-muted-foreground">
-        {quote.createdAt ? parseAndFormatDate(quote.createdAt) : '—'}
-      </TableCell>
-      <TableCell className="text-muted-foreground">
-        {quote.expiresAt ? parseAndFormatDate(quote.expiresAt) : '—'}
-      </TableCell>
-      <TableCell>
-        <DropdownMenu>
-          <DropdownMenuTrigger asChild>
-            <Button variant="ghost" size="sm" className="h-8 w-8 p-0">
-              <ChevronDown className="h-4 w-4" />
-            </Button>
-          </DropdownMenuTrigger>
-          <DropdownMenuContent align="end">
-            <DropdownMenuItem asChild>
-              <Link to={`${basePath}/quotes/${quote.id}`}>
-                <Eye className="w-4 h-4 mr-2" />
-                View
-              </Link>
-            </DropdownMenuItem>
-            {(quote.status === QuoteStatus.DRAFT || quote.status === QuoteStatus.PENDING) && (
-              <DropdownMenuItem onClick={() => handleSendQuote(quote.id)}>
-                <Send className="w-4 h-4 mr-2" />
-                Send to Customer
-              </DropdownMenuItem>
-            )}
-            {quote.status === QuoteStatus.ACCEPTED && (
+    <>
+      <SendQuoteDialog
+        open={showSendDialog}
+        onOpenChange={open => {
+          setShowSendDialog(open)
+          if (!open) setCustomMessage('')
+        }}
+        quoteNumber={quote.quoteNumber}
+        recipients={recipients}
+        customMessage={customMessage}
+        onCustomMessageChange={setCustomMessage}
+        onConfirm={handleSendQuote}
+        isPending={sendQuoteMutation.isPending}
+      />
+
+      <TableRow>
+        <TableCell>
+          <div className="font-medium">
+            <Link to={`${basePath}/quotes/${quote.id}`} className="text-brand hover:underline">
+              {quote.quoteNumber}
+            </Link>
+          </div>
+        </TableCell>
+        <TableCell>
+          <div className="font-medium">{quote.customerName || 'Customer'}</div>
+          <div className="text-sm text-muted-foreground">{quote.customerId}</div>
+        </TableCell>
+        <TableCell>
+          <QuoteStatusBadge status={quote.status} />
+        </TableCell>
+
+        <TableCell>
+          <div className="font-medium">Subscription Quote</div>
+          <div className="text-sm text-muted-foreground">{quote.currency}</div>
+        </TableCell>
+        <TableCell className="text-muted-foreground">
+          {quote.createdAt ? parseAndFormatDate(quote.createdAt) : '—'}
+        </TableCell>
+        <TableCell className="text-muted-foreground">
+          {quote.expiresAt ? parseAndFormatDate(quote.expiresAt) : '—'}
+        </TableCell>
+        <TableCell>
+          <DropdownMenu>
+            <DropdownMenuTrigger asChild>
+              <MoreVerticalIcon size={16} className="cursor-pointer" />
+            </DropdownMenuTrigger>
+            <DropdownMenuContent align="end">
               <DropdownMenuItem asChild>
-                <Link to={`${basePath}/quotes/${quote.id}/convert`}>
-                  <FileText className="w-4 h-4 mr-2" />
-                  Convert to Subscription
+                <Link to={`${basePath}/quotes/${quote.id}`}>
+                  <Eye className="w-4 h-4 mr-2" />
+                  View
                 </Link>
               </DropdownMenuItem>
-            )}
-            {(quote.status === QuoteStatus.DRAFT || quote.status === QuoteStatus.PENDING) && (
-              <DropdownMenuItem
-                onClick={() => handleCancelQuote(quote.id)}
-                className="text-destructive"
-              >
-                Cancel Quote
-              </DropdownMenuItem>
-            )}
-          </DropdownMenuContent>
-        </DropdownMenu>
-      </TableCell>
-    </TableRow>
+              {(quote.status === QuoteStatus.DRAFT || quote.status === QuoteStatus.PENDING) && (
+                <DropdownMenuItem onClick={() => setShowSendDialog(true)}>
+                  <Send className="w-4 h-4 mr-2" />
+                  Send to Customer
+                </DropdownMenuItem>
+              )}
+              {quote.status === QuoteStatus.ACCEPTED && (
+                <DropdownMenuItem asChild>
+                  <Link to={`${basePath}/quotes/${quote.id}/convert`}>
+                    <FileText className="w-4 h-4 mr-2" />
+                    Convert to Subscription
+                  </Link>
+                </DropdownMenuItem>
+              )}
+              {(quote.status === QuoteStatus.DRAFT || quote.status === QuoteStatus.PENDING) && (
+                <DropdownMenuItem
+                  onClick={() => handleCancelQuote(quote.id)}
+                  className="text-destructive"
+                >
+                  Cancel Quote
+                </DropdownMenuItem>
+              )}
+            </DropdownMenuContent>
+          </DropdownMenu>
+        </TableCell>
+      </TableRow>
+    </>
   )
 }
 
-const QuoteStatusBadge: FC<{ status: QuoteStatus }> = ({ status }) => {
-  const getBadgeProps = () => {
-    switch (status) {
-      case QuoteStatus.DRAFT:
-        return { variant: 'secondary' as const, children: 'Draft' }
-      case QuoteStatus.PENDING:
-        return { variant: 'warning' as const, children: 'Pending' }
-      case QuoteStatus.ACCEPTED:
-        return { variant: 'success' as const, children: 'Accepted' }
-      case QuoteStatus.DECLINED:
-        return { variant: 'destructive' as const, children: 'Declined' }
-      case QuoteStatus.EXPIRED:
-        return { variant: 'outline' as const, children: 'Expired' }
-      case QuoteStatus.CANCELLED:
-        return { variant: 'outline' as const, children: 'Cancelled' }
-      default:
-        return { variant: 'outline' as const, children: 'Unknown' }
-    }
-  }
-
-  return <Badge {...getBadgeProps()} />
-}

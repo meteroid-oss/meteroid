@@ -3,7 +3,6 @@ import {
   Alert,
   AlertDescription,
   AlertTitle,
-  Badge,
   Button,
   Card,
   CardContent,
@@ -33,6 +32,7 @@ import { ReactNode, useState } from 'react'
 import { Link, useNavigate } from 'react-router-dom'
 import { toast } from 'sonner'
 
+import { BillableMetricStatusBadge } from '@/features/productCatalog/metrics/BillableMetricStatusBadge'
 import { useBasePath } from '@/hooks/useBasePath'
 import { useQuery } from '@/lib/connectrpc'
 import { copyToClipboard } from '@/lib/helpers'
@@ -66,15 +66,6 @@ const unitConversionRoundingMapper: Record<
   [Aggregation_UnitConversion_UnitConversionRounding.UP]: 'up',
   [Aggregation_UnitConversion_UnitConversionRounding.DOWN]: 'down',
   [Aggregation_UnitConversion_UnitConversionRounding.NEAREST]: 'nearest',
-}
-
-// Status Badge Component
-const StatusBadge = ({ isArchived }: { isArchived: boolean }) => {
-  return (
-    <Badge variant={isArchived ? 'secondary' : 'success'}>
-      {isArchived ? 'Archived' : 'Active'}
-    </Badge>
-  )
 }
 
 // Section Title Component
@@ -190,7 +181,7 @@ export const ProductMetricDetail = () => {
             />
             <h2 className="text-xl font-semibold text-foreground">{data.name}</h2>
             <div className="ml-2">
-              <StatusBadge isArchived={isArchived} />
+              <BillableMetricStatusBadge isArchived={isArchived} />
             </div>
           </div>
           <div>
@@ -259,7 +250,7 @@ export const ProductMetricDetail = () => {
               <div>
                 <div className="text-sm text-muted-foreground">Status</div>
                 <div className="text-md font-medium mt-1">
-                  <StatusBadge isArchived={isArchived} />
+                  <BillableMetricStatusBadge isArchived={isArchived} />
                 </div>
               </div>
             </div>
@@ -309,7 +300,7 @@ export const ProductMetricDetail = () => {
           <DetailRow label="ID" value={data.id} />
           <DetailRow label="Name" value={data.name} />
           <DetailRow label="Event Name" value={data.code} />
-          <DetailRow label="Status" value={<StatusBadge isArchived={isArchived} />} />
+          <DetailRow label="Status" value={<BillableMetricStatusBadge isArchived={isArchived} />} />
         </DetailSection>
 
         <DetailSection title="Aggregation">

@@ -37,6 +37,7 @@ export const Products: FunctionComponent = () => {
     <Fragment>
       <ProductsHeader
         heading="Product Items"
+        count={totalCount}
         setEditPanelVisible={() => false}
         isLoading={isLoading}
         refetch={refetch}
