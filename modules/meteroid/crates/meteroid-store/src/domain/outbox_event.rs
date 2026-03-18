@@ -42,6 +42,9 @@ pub enum OutboxEvent {
     PaymentTransactionSaved(Box<PaymentTransactionEvent>),
     QuoteAccepted(Box<QuoteAcceptedEvent>),
     QuoteConverted(Box<QuoteConvertedEvent>),
+    PlanCreated(Box<PlanEvent>),
+    PlanPublished(Box<PlanEvent>),
+    PlanArchived(Box<PlanEvent>),
 }
 
 #[derive(Display, Debug, Serialize, Deserialize, PartialEq)]
@@ -61,6 +64,9 @@ pub enum EventType {
     PaymentTransactionReceived,
     QuoteAccepted,
     QuoteConverted,
+    PlanCreated,
+    PlanPublished,
+    PlanArchived,
 }
 
 json_value_serde!(OutboxEvent);
@@ -83,6 +89,9 @@ impl OutboxEvent {
             OutboxEvent::PaymentTransactionSaved(event) => event.id,
             OutboxEvent::QuoteAccepted(event) => event.id,
             OutboxEvent::QuoteConverted(event) => event.id,
+            OutboxEvent::PlanCreated(event) => event.id,
+            OutboxEvent::PlanPublished(event) => event.id,
+            OutboxEvent::PlanArchived(event) => event.id,
         }
     }
 
@@ -103,6 +112,9 @@ impl OutboxEvent {
             OutboxEvent::PaymentTransactionSaved(event) => event.tenant_id,
             OutboxEvent::QuoteAccepted(event) => event.tenant_id,
             OutboxEvent::QuoteConverted(event) => event.tenant_id,
+            OutboxEvent::PlanCreated(event) => event.tenant_id,
+            OutboxEvent::PlanPublished(event) => event.tenant_id,
+            OutboxEvent::PlanArchived(event) => event.tenant_id,
         }
     }
 
@@ -123,6 +135,9 @@ impl OutboxEvent {
             OutboxEvent::PaymentTransactionSaved(event) => event.payment_transaction_id.as_uuid(),
             OutboxEvent::QuoteAccepted(event) => event.quote_id.as_uuid(),
             OutboxEvent::QuoteConverted(event) => event.quote_id.as_uuid(),
+            OutboxEvent::PlanCreated(event) => event.plan_id.as_uuid(),
+            OutboxEvent::PlanPublished(event) => event.plan_id.as_uuid(),
+            OutboxEvent::PlanArchived(event) => event.plan_id.as_uuid(),
         }
     }
 
@@ -143,6 +158,9 @@ impl OutboxEvent {
             OutboxEvent::PaymentTransactionSaved(_) => "PaymentTransaction".to_string(),
             OutboxEvent::QuoteAccepted(_) => "Quote".to_string(),
             OutboxEvent::QuoteConverted(_) => "Quote".to_string(),
+            OutboxEvent::PlanCreated(_) => "Plan".to_string(),
+            OutboxEvent::PlanPublished(_) => "Plan".to_string(),
+            OutboxEvent::PlanArchived(_) => "Plan".to_string(),
         }
     }
 
@@ -165,6 +183,9 @@ impl OutboxEvent {
             OutboxEvent::PaymentTransactionSaved(_) => EventType::PaymentTransactionReceived,
             OutboxEvent::QuoteAccepted(_) => EventType::QuoteAccepted,
             OutboxEvent::QuoteConverted(_) => EventType::QuoteConverted,
+            OutboxEvent::PlanCreated(_) => EventType::PlanCreated,
+            OutboxEvent::PlanPublished(_) => EventType::PlanPublished,
+            OutboxEvent::PlanArchived(_) => EventType::PlanArchived,
         }
     }
 
@@ -226,6 +247,18 @@ impl OutboxEvent {
 
     pub fn quote_converted(event: QuoteConvertedEvent) -> OutboxEvent {
         OutboxEvent::QuoteConverted(Box::new(event))
+    }
+
+    pub fn plan_created(event: PlanEvent) -> OutboxEvent {
+        OutboxEvent::PlanCreated(Box::new(event))
+    }
+
+    pub fn plan_published(event: PlanEvent) -> OutboxEvent {
+        OutboxEvent::PlanPublished(Box::new(event))
+    }
+
+    pub fn plan_archived(event: PlanEvent) -> OutboxEvent {
+        OutboxEvent::PlanArchived(Box::new(event))
     }
 
     fn payload_json(&self) -> StoreResult<serde_json::Value> {
@@ -464,6 +497,51 @@ impl QuoteConvertedEvent {
             tenant_id,
             customer_id,
             subscription_id,
+        }
+    }
+}
+
+#[skip_serializing_none]
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct PlanEvent {
+    pub id: EventId,
+    pub plan_id: PlanId,
+    pub plan_version_id: PlanVersionId,
+    pub tenant_id: TenantId,
+    pub name: String,
+    pub description: Option<String>,
+    pub plan_type: String,
+    pub status: String,
+    pub currency: String,
+    pub version: i32,
+    pub created_at: NaiveDateTime,
+}
+
+impl PlanEvent {
+    pub fn new(
+        plan_id: PlanId,
+        plan_version_id: PlanVersionId,
+        tenant_id: TenantId,
+        name: String,
+        description: Option<String>,
+        plan_type: String,
+        status: String,
+        currency: String,
+        version: i32,
+        created_at: NaiveDateTime,
+    ) -> Self {
+        Self {
+            id: EventId::new(),
+            plan_id,
+            plan_version_id,
+            tenant_id,
+            name,
+            description,
+            plan_type,
+            status,
+            currency,
+            version,
+            created_at,
         }
     }
 }

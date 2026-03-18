@@ -8,10 +8,12 @@ use crate::domain::prices::{
 use crate::domain::{
     FullPlan, FullPlanNew, OrderByRequest, PaginatedVec, PaginationRequest, Plan,
     PlanAndVersionPatch, PlanFilters, PlanOverview, PlanPatch, PlanStatusEnum, PlanTypeEnum,
-    PlanVersion, PlanVersionFilter, PlanVersionNew, PlanWithVersion, Price, PriceComponent,
-    PriceComponentNew, Product, ProductFamilyOverview, SelfServicePlan, TrialPatch,
+    PlanVersion, PlanVersionFilter, PlanVersionNew, PlanVersionNewInternal, PlanWithVersion,
+    Price, PriceComponent, PriceComponentNew, Product, ProductFamilyOverview, SelfServicePlan,
+    TrialPatch,
 };
 use crate::errors::StoreError;
+use crate::repositories::outbox::OutboxInterface;
 use crate::repositories::price_components::resolve_component_internal;
 use common_domain::ids::PriceId;
 use common_domain::ids::{
@@ -146,6 +148,19 @@ pub trait PlansInterface {
         plan_ids: Vec<PlanId>,
         auth_tenant_id: TenantId,
     ) -> StoreResult<Vec<PlanVersion>>;
+
+    async fn replace_plan_version(
+        &self,
+        plan_id: PlanId,
+        tenant_id: TenantId,
+        actor: Uuid,
+        name: String,
+        description: Option<String>,
+        version: PlanVersionNewInternal,
+        price_components: Vec<crate::domain::price_components::PriceComponentNewInternal>,
+        add_on_attachments: Vec<crate::domain::plan_version_add_ons::PlanVersionAddOnNew>,
+        publish: bool,
+    ) -> StoreResult<FullPlan>;
 }
 
 /// Convert a FullPlanRow into a FullPlan with prices and products loaded.
@@ -382,6 +397,28 @@ impl PlansInterface for Store {
                     }
 
                     let inserted_price_components = all_inserted_components;
+
+                    // Emit outbox event for webhooks
+                    let plan_event = crate::domain::outbox_event::PlanEvent::new(
+                        updated.id,
+                        inserted_plan_version_new.id,
+                        updated.tenant_id,
+                        updated.name.clone(),
+                        updated.description.clone(),
+                        updated.plan_type.to_string(),
+                        updated.status.to_string(),
+                        inserted_plan_version_new.currency.clone(),
+                        inserted_plan_version_new.version,
+                        updated.created_at,
+                    );
+                    self.internal
+                        .insert_outbox_events_tx(
+                            conn,
+                            vec![crate::domain::outbox_event::OutboxEvent::plan_created(
+                                plan_event,
+                            )],
+                        )
+                        .await?;
 
                     Ok(FullPlan {
                         price_components: inserted_price_components,
@@ -838,7 +875,7 @@ impl PlansInterface for Store {
         auth_tenant_id: TenantId,
         auth_actor: Uuid,
     ) -> StoreResult<PlanVersion> {
-        let res = self
+        let res: PlanVersion = self
             .transaction(|conn| {
                 async move {
                     // TODO validations
@@ -876,6 +913,25 @@ impl PlansInterface for Store {
                 auth_actor,
                 plan_version_id.as_uuid(),
                 auth_tenant_id.as_uuid(),
+            ))
+            .await;
+
+        // Emit plan.published webhook
+        let plan_event = crate::domain::outbox_event::PlanEvent::new(
+            res.plan_id,
+            res.id,
+            auth_tenant_id,
+            String::new(), // name not available from PlanVersion
+            None,
+            String::new(),
+            "Active".to_string(),
+            res.currency.clone(),
+            res.version,
+            res.created_at,
+        );
+        let _ = self
+            .insert_outbox_event(crate::domain::outbox_event::OutboxEvent::plan_published(
+                plan_event,
             ))
             .await;
 
@@ -1040,7 +1096,37 @@ impl PlansInterface for Store {
 
         PlanRow::archive(&mut conn, id, auth_tenant_id)
             .await
-            .map_err(Into::into)
+            .map_err(Into::<Report<StoreError>>::into)?;
+
+        // Emit plan.archived webhook
+        let plan_overview: PlanOverview =
+            PlanRow::get_overview_by_id(&mut conn, id, auth_tenant_id)
+                .await
+                .map(Into::into)
+                .map_err(Into::<Report<StoreError>>::into)?;
+
+        let plan_event = crate::domain::outbox_event::PlanEvent::new(
+            id,
+            plan_overview
+                .active_version
+                .map(|v| v.id)
+                .unwrap_or_default(),
+            auth_tenant_id,
+            plan_overview.name,
+            plan_overview.description,
+            plan_overview.plan_type.to_string(),
+            "Archived".to_string(),
+            String::new(),
+            0,
+            plan_overview.created_at,
+        );
+        let _ = self
+            .insert_outbox_event(crate::domain::outbox_event::OutboxEvent::plan_archived(
+                plan_event,
+            ))
+            .await;
+
+        Ok(())
     }
 
     async fn unarchive_plan(&self, id: PlanId, auth_tenant_id: TenantId) -> StoreResult<()> {
@@ -1092,5 +1178,254 @@ impl PlansInterface for Store {
             .await
             .map(|rows| rows.into_iter().map(Into::into).collect())
             .map_err(Into::into)
+    }
+
+    async fn replace_plan_version(
+        &self,
+        plan_id: PlanId,
+        tenant_id: TenantId,
+        actor: Uuid,
+        name: String,
+        description: Option<String>,
+        version: crate::domain::PlanVersionNewInternal,
+        price_components: Vec<crate::domain::price_components::PriceComponentNewInternal>,
+        add_on_attachments: Vec<crate::domain::plan_version_add_ons::PlanVersionAddOnNew>,
+        publish: bool,
+    ) -> StoreResult<FullPlan> {
+        let mut conn = self.get_conn().await?;
+
+        // Load plan metadata (version-agnostic) to get draft_version_id and product_family_id
+        let plan_overview: PlanOverview =
+            PlanRow::get_overview_by_id(&mut conn, plan_id, tenant_id)
+                .await
+                .map(Into::into)
+                .map_err(Into::<Report<StoreError>>::into)?;
+
+        let existing_draft_version_id = if plan_overview.has_draft_version {
+            // We need the actual draft version ID. The overview doesn't expose it directly,
+            // so fetch the plan with draft filter to get it.
+            let draft_plan = PlanRow::get_with_version_by_id(
+                &mut conn,
+                plan_id,
+                tenant_id,
+                diesel_models::plan_versions::PlanVersionFilter::Draft,
+            )
+            .await
+            .ok()
+            .and_then(|pw| {
+                let pwv: PlanWithVersion = pw.into();
+                pwv.version.map(|v| v.id)
+            });
+            draft_plan
+        } else {
+            None
+        };
+
+        let product_family_id = plan_overview.product_family_id;
+
+        let product_family: ProductFamilyOverview =
+            ProductFamilyRow::find_by_id(&mut conn, product_family_id, tenant_id)
+                .await
+                .map_err(|err| StoreError::DatabaseError(err.error))?
+                .into();
+
+        let tenant = TenantRow::find_by_id(&mut conn, tenant_id)
+            .await
+            .map_err(|err| StoreError::DatabaseError(err.error))?;
+
+        let res = self
+            .transaction_with(&mut conn, |conn| {
+                async move {
+                    // Update plan name/description
+                    PlanRowPatch {
+                        id: plan_id,
+                        tenant_id,
+                        name: Some(name),
+                        description: Some(description),
+                        active_version_id: None,
+                        draft_version_id: None,
+                        self_service_rank: None,
+                    }
+                    .update(conn)
+                    .await
+                    .map_err(Into::<Report<StoreError>>::into)?;
+
+                    // Discard existing draft if any
+                    if let Some(draft_id) = existing_draft_version_id {
+                        PlanRowPatch {
+                            id: plan_id,
+                            tenant_id,
+                            name: None,
+                            description: None,
+                            active_version_id: None,
+                            draft_version_id: Some(None),
+                            self_service_rank: None,
+                        }
+                        .update(conn)
+                        .await
+                        .map_err(Into::<Report<StoreError>>::into)?;
+
+                        PlanVersionRow::delete_draft(conn, draft_id, tenant_id)
+                            .await
+                            .map_err(Into::<Report<StoreError>>::into)?;
+                    }
+
+                    // Determine next version number
+                    let next_version =
+                        PlanVersionRow::next_version_number(conn, plan_id, tenant_id)
+                            .await
+                            .map_err(Into::<Report<StoreError>>::into)?;
+
+                    let new_version = PlanVersionNew {
+                        plan_id,
+                        created_by: actor,
+                        version: next_version,
+                        tenant_id,
+                        internal: version,
+                    }
+                    .into_raw(tenant.reporting_currency);
+
+                    let inserted_version: PlanVersion = new_version
+                        .insert(conn)
+                        .await
+                        .map(Into::into)
+                        .map_err(Into::<Report<StoreError>>::into)?;
+
+                    // Insert price components
+                    for p in &price_components {
+                        let (product_id, price_ids) = resolve_component_internal(
+                            conn,
+                            p,
+                            tenant_id,
+                            actor,
+                            product_family.id,
+                            &inserted_version.currency,
+                            true,
+                        )
+                        .await?;
+
+                        let row_new: diesel_models::price_components::PriceComponentRowNew =
+                            PriceComponentNew {
+                                plan_version_id: inserted_version.id,
+                                name: p.name.clone(),
+                                product_id: Some(product_id),
+                            }
+                            .try_into()?;
+
+                        let inserted_row = PriceComponentRow::insert(conn, row_new)
+                            .await
+                            .map_err(Into::<Report<StoreError>>::into)?;
+
+                        if !price_ids.is_empty() {
+                            let pcp_rows: Vec<PlanComponentPriceRowNew> = price_ids
+                                .iter()
+                                .map(|pid| PlanComponentPriceRowNew {
+                                    plan_component_id: inserted_row.id,
+                                    price_id: *pid,
+                                })
+                                .collect();
+                            PlanComponentPriceRowNew::insert_batch(conn, &pcp_rows)
+                                .await
+                                .map_err(Into::<Report<StoreError>>::into)?;
+                        }
+                    }
+
+                    // Attach add-ons
+                    for add_on in &add_on_attachments {
+                        let row_new: diesel_models::plan_version_add_ons::PlanVersionAddOnRowNew =
+                            crate::domain::plan_version_add_ons::PlanVersionAddOnNew {
+                                plan_version_id: inserted_version.id,
+                                add_on_id: add_on.add_on_id,
+                                price_id: add_on.price_id,
+                                self_serviceable: add_on.self_serviceable,
+                                max_instances_per_subscription: add_on
+                                    .max_instances_per_subscription,
+                                tenant_id,
+                            }
+                            .into();
+
+                        row_new
+                            .insert(conn)
+                            .await
+                            .map_err(Into::<Report<StoreError>>::into)?;
+                    }
+
+                    // Publish or set as draft
+                    if publish {
+                        PlanVersionRow::publish(conn, inserted_version.id, tenant_id)
+                            .await
+                            .map_err(Into::<Report<StoreError>>::into)?;
+
+                        PlanRow::activate(conn, plan_id, tenant_id)
+                            .await
+                            .map_err(Into::<Report<StoreError>>::into)?;
+
+                        PlanRowPatch {
+                            id: plan_id,
+                            tenant_id,
+                            name: None,
+                            description: None,
+                            active_version_id: Some(Some(inserted_version.id)),
+                            draft_version_id: Some(None),
+                            self_service_rank: None,
+                        }
+                        .update(conn)
+                        .await
+                        .map_err(Into::<Report<StoreError>>::into)?;
+                    } else {
+                        PlanRowPatch {
+                            id: plan_id,
+                            tenant_id,
+                            name: None,
+                            description: None,
+                            active_version_id: None,
+                            draft_version_id: Some(Some(inserted_version.id)),
+                            self_service_rank: None,
+                        }
+                        .update(conn)
+                        .await
+                        .map_err(Into::<Report<StoreError>>::into)?;
+                    }
+
+                    Ok(inserted_version)
+                }
+                .scope_boxed()
+            })
+            .await?;
+
+        if publish {
+            let _ = self
+                .eventbus
+                .publish(Event::plan_published_version(
+                    actor,
+                    res.id.as_uuid(),
+                    tenant_id.as_uuid(),
+                ))
+                .await;
+        } else {
+            let _ = self
+                .eventbus
+                .publish(Event::plan_created_draft(
+                    actor,
+                    res.id.as_uuid(),
+                    tenant_id.as_uuid(),
+                ))
+                .await;
+        }
+
+        // Re-fetch full plan to get all resolved data
+        let full = self
+            .get_full_plan(
+                plan_id,
+                tenant_id,
+                if publish {
+                    PlanVersionFilter::Active
+                } else {
+                    PlanVersionFilter::Draft
+                },
+            )
+            .await?;
+
+        Ok(full)
     }
 }

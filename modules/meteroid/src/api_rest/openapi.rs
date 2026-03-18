@@ -6,12 +6,14 @@ use crate::api_rest::webhooks::out_model::{
     CreditNoteStatus, WebhookOutCreditNoteEvent, WebhookOutCreditNoteEventData,
     WebhookOutCustomerEvent, WebhookOutCustomerEventData, WebhookOutEventGroupEnum,
     WebhookOutEventTypeEnum, WebhookOutInvoiceEvent, WebhookOutInvoiceEventData,
-    WebhookOutMetricEvent, WebhookOutMetricEventData, WebhookOutQuoteEvent,
-    WebhookOutQuoteEventData, WebhookOutSubscriptionEvent, WebhookOutSubscriptionEventData,
+    WebhookOutMetricEvent, WebhookOutMetricEventData, WebhookOutPlanEvent,
+    WebhookOutPlanEventData, WebhookOutQuoteEvent, WebhookOutQuoteEventData,
+    WebhookOutSubscriptionEvent, WebhookOutSubscriptionEventData,
 };
 use crate::api_rest::{AppState, api_routes};
 use common_domain::ids::{
-    BillableMetricId, CreditNoteId, CustomerId, EventId, InvoiceId, QuoteId, SubscriptionId,
+    BillableMetricId, CreditNoteId, CustomerId, EventId, InvoiceId, PlanId, QuoteId,
+    SubscriptionId,
 };
 use strum::IntoEnumIterator;
 use utoipa::openapi::security::{HttpAuthScheme, HttpBuilder, SecurityScheme};
@@ -226,6 +228,24 @@ impl Modify for WebhooksAddon {
                             tax_amount: 1000,
                             refunded_amount_cents: 0,
                             credited_amount_cents: 5000,
+                            created_at: Default::default(),
+                        },
+                        timestamp: Default::default(),
+                    };
+                    serde_json::to_value(&event).expect("Failed to serialize webhook example")
+                }
+                WebhookOutEventGroupEnum::Plan => {
+                    let event = WebhookOutPlanEvent {
+                        id: EventId::default(),
+                        event_type: event,
+                        data: WebhookOutPlanEventData {
+                            plan_id: PlanId::default(),
+                            name: "Enterprise Plan".to_string(),
+                            description: Some("Our enterprise tier".to_string()),
+                            plan_type: "Standard".to_string(),
+                            status: "Active".to_string(),
+                            currency: "USD".to_string(),
+                            version: 1,
                             created_at: Default::default(),
                         },
                         timestamp: Default::default(),

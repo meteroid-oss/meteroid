@@ -1,14 +1,22 @@
 use crate::api_rest::plans::model::{
     AvailableParameters, BillingPeriodEnum, CapacityPlanFee, CapacityThreshold,
     ExtraRecurringPlanFee, Fee, MatrixDimension, MatrixPlanPricing, MatrixRow, OneTimePlanFee,
-    PackagePlanPricing, PerUnitPlanPricing, Plan, PriceComponent, ProductFamily, RatePlanFee,
-    SlotPlanFee, TermRate, TierRow, TieredPlanPricing, TrialConfig, UsagePlanFee,
-    UsagePricingModel, VolumePlanPricing,
+    PackagePlanPricing, PerUnitPlanPricing, Plan, PlanVersionSummary, PriceComponent,
+    PriceComponentInput, ProductFamily, RatePlanFee, SlotPlanFee, TermRate, TierRow,
+    TieredPlanPricing, TrialConfig, UsagePlanFee, UsagePricingModel, VolumePlanPricing,
 };
+use crate::errors::RestApiError;
 use common_domain::ids::ProductId;
 use meteroid_store::domain;
+use meteroid_store::domain::price_components::{
+    PriceComponentNewInternal, PriceEntry, PriceInput, ProductRef,
+};
+use meteroid_store::domain::prices::{FeeStructure, Pricing, UsageModel};
 use meteroid_store::domain::products::Product;
+use meteroid_store::domain::Price;
 use std::collections::HashMap;
+
+// ── Domain → REST (response mapping) ──────────────────────────
 
 pub fn plan_to_rest(
     plan: domain::Plan,
@@ -24,15 +32,11 @@ pub fn plan_to_rest(
 
     let available_parameters = extract_available_parameters(&price_components, products);
 
-    let trial = if let Some(trial_duration) = version.trial_duration_days {
-        Some(TrialConfig {
-            duration_days: trial_duration as u32,
-            is_free: version.trial_is_free,
-            trialing_plan_id: version.trialing_plan_id,
-        })
-    } else {
-        None
-    };
+    let trial = version.trial_duration_days.map(|d| TrialConfig {
+        duration_days: d as u32,
+        is_free: version.trial_is_free,
+        trialing_plan_id: version.trialing_plan_id,
+    });
 
     Plan {
         id: plan.id,
@@ -41,6 +45,7 @@ pub fn plan_to_rest(
         created_at: plan.created_at,
         plan_type: plan.plan_type.into(),
         status: plan.status.into(),
+        self_service_rank: plan.self_service_rank,
         product_family: ProductFamily {
             id: plan.product_family_id,
             name: product_family_name,
@@ -49,6 +54,8 @@ pub fn plan_to_rest(
         version: version.version,
         currency: version.currency,
         net_terms: version.net_terms,
+        billing_cycles: version.billing_cycles,
+        period_start_day: version.period_start_day,
         trial,
         price_components: rest_components,
         available_parameters,
@@ -57,19 +64,152 @@ pub fn plan_to_rest(
 
 fn price_component_to_rest(
     component: &domain::price_components::PriceComponent,
-    _products: &HashMap<ProductId, Product>,
+    products: &HashMap<ProductId, Product>,
 ) -> PriceComponent {
-    // For v1 components, populate fee from legacy_pricing for REST backward compat
-    let fee = component
-        .legacy_pricing
-        .as_ref()
-        .map(|legacy| fee_type_to_rest(&legacy.fee_type));
+    let fee = if let Some(legacy) = &component.legacy_pricing {
+        Some(fee_type_to_rest(&legacy.fee_type))
+    } else if let Some(product_id) = component.product_id {
+        products
+            .get(&product_id)
+            .and_then(|product| v2_component_to_fee(product, &component.prices))
+    } else {
+        None
+    };
 
     PriceComponent {
         id: component.id,
         name: component.name.clone(),
         fee,
         product_id: component.product_id,
+    }
+}
+
+/// Reconstruct a Fee from a v2 Product (FeeStructure) + Prices (Pricing values).
+fn v2_component_to_fee(product: &Product, prices: &[Price]) -> Option<Fee> {
+    if prices.is_empty() {
+        return None;
+    }
+
+    match &product.fee_structure {
+        FeeStructure::Rate {} => {
+            let rates = prices
+                .iter()
+                .filter_map(|p| match &p.pricing {
+                    Pricing::Rate { rate } => Some(TermRate {
+                        term: p.cadence.into(),
+                        price: *rate,
+                    }),
+                    _ => None,
+                })
+                .collect();
+            Some(Fee::Rate(RatePlanFee { rates }))
+        }
+        FeeStructure::Slot {
+            unit_name,
+            ..
+        } => {
+            let first_pricing = prices.first().and_then(|p| match &p.pricing {
+                Pricing::Slot {
+                    min_slots,
+                    max_slots,
+                    ..
+                } => Some((*min_slots, *max_slots)),
+                _ => None,
+            });
+            let (minimum_count, quota) =
+                first_pricing.unwrap_or((None, None));
+
+            let rates = prices
+                .iter()
+                .filter_map(|p| match &p.pricing {
+                    Pricing::Slot { unit_rate, .. } => Some(TermRate {
+                        term: p.cadence.into(),
+                        price: *unit_rate,
+                    }),
+                    _ => None,
+                })
+                .collect();
+
+            Some(Fee::Slot(SlotPlanFee {
+                rates,
+                slot_unit_name: unit_name.clone(),
+                minimum_count,
+                quota,
+            }))
+        }
+        FeeStructure::Capacity { metric_id } => {
+            let cadence = prices
+                .first()
+                .map(|p| p.cadence.into())
+                .unwrap_or(BillingPeriodEnum::Monthly);
+
+            let thresholds = prices
+                .iter()
+                .filter_map(|p| match &p.pricing {
+                    Pricing::Capacity {
+                        rate,
+                        included,
+                        overage_rate,
+                    } => Some(CapacityThreshold {
+                        included_amount: *included,
+                        price: *rate,
+                        per_unit_overage: *overage_rate,
+                    }),
+                    _ => None,
+                })
+                .collect();
+
+            Some(Fee::Capacity(CapacityPlanFee {
+                metric_id: *metric_id,
+                thresholds,
+                cadence,
+            }))
+        }
+        FeeStructure::Usage { metric_id, .. } => {
+            let first = prices.first()?;
+            let cadence: BillingPeriodEnum = first.cadence.into();
+
+            let pricing = match &first.pricing {
+                Pricing::Usage(model) => Some(usage_pricing_to_rest(model)),
+                _ => None,
+            }?;
+
+            Some(Fee::Usage(UsagePlanFee {
+                metric_id: *metric_id,
+                pricing,
+                cadence,
+            }))
+        }
+        FeeStructure::ExtraRecurring { billing_type } => {
+            let first = prices.first()?;
+            let cadence: BillingPeriodEnum = first.cadence.into();
+
+            match &first.pricing {
+                Pricing::ExtraRecurring {
+                    unit_price,
+                    quantity,
+                } => Some(Fee::ExtraRecurring(ExtraRecurringPlanFee {
+                    unit_price: *unit_price,
+                    quantity: *quantity,
+                    billing_type: billing_type.clone().into(),
+                    cadence,
+                })),
+                _ => None,
+            }
+        }
+        FeeStructure::OneTime {} => {
+            let first = prices.first()?;
+            match &first.pricing {
+                Pricing::OneTime {
+                    unit_price,
+                    quantity,
+                } => Some(Fee::OneTime(OneTimePlanFee {
+                    unit_price: *unit_price,
+                    quantity: *quantity,
+                })),
+                _ => None,
+            }
+        }
     }
 }
 
@@ -202,6 +342,234 @@ fn matrix_row_to_rest(row: &domain::price_components::MatrixRow) -> MatrixRow {
     }
 }
 
+pub fn plan_version_to_rest(v: &domain::PlanVersion) -> PlanVersionSummary {
+    PlanVersionSummary {
+        id: v.id,
+        version: v.version,
+        is_draft: v.is_draft_version,
+        currency: v.currency.clone(),
+        created_at: v.created_at,
+    }
+}
+
+// ── REST → Domain (input mapping) ──────────────────────────────
+
+pub fn rest_to_domain_component(
+    input: &PriceComponentInput,
+    currency: &str,
+) -> Result<PriceComponentNewInternal, RestApiError> {
+    let (fee_type_enum, fee_structure, prices) = fee_to_domain(&input.fee, currency)?;
+
+    let product_ref = match input.product_id {
+        Some(pid) => ProductRef::Existing(pid),
+        None => ProductRef::New {
+            name: input.name.clone(),
+            fee_type: fee_type_enum,
+            fee_structure,
+        },
+    };
+
+    Ok(PriceComponentNewInternal {
+        name: input.name.clone(),
+        product_ref,
+        prices,
+    })
+}
+
+fn fee_to_domain(
+    fee: &Fee,
+    currency: &str,
+) -> Result<
+    (
+        domain::enums::FeeTypeEnum,
+        FeeStructure,
+        Vec<PriceEntry>,
+    ),
+    RestApiError,
+> {
+    use domain::enums::FeeTypeEnum;
+    use domain::price_components::{DowngradePolicy, UpgradePolicy};
+
+    match fee {
+        Fee::Rate(f) => {
+            if f.rates.is_empty() {
+                return Err(RestApiError::InvalidInput(
+                    "Rate fee must have at least one rate".into(),
+                ));
+            }
+            let prices = f
+                .rates
+                .iter()
+                .map(|r| {
+                    PriceEntry::New(PriceInput {
+                        cadence: r.term.into(),
+                        currency: currency.to_string(),
+                        pricing: Pricing::Rate { rate: r.price },
+                    })
+                })
+                .collect();
+            Ok((FeeTypeEnum::Rate, FeeStructure::Rate {}, prices))
+        }
+        Fee::Slot(f) => {
+            if f.rates.is_empty() {
+                return Err(RestApiError::InvalidInput(
+                    "Slot fee must have at least one rate".into(),
+                ));
+            }
+            let prices = f
+                .rates
+                .iter()
+                .map(|r| {
+                    PriceEntry::New(PriceInput {
+                        cadence: r.term.into(),
+                        currency: currency.to_string(),
+                        pricing: Pricing::Slot {
+                            unit_rate: r.price,
+                            min_slots: f.minimum_count,
+                            max_slots: f.quota,
+                        },
+                    })
+                })
+                .collect();
+            Ok((
+                FeeTypeEnum::Slot,
+                FeeStructure::Slot {
+                    unit_name: f.slot_unit_name.clone(),
+                    upgrade_policy: UpgradePolicy::Prorated,
+                    downgrade_policy: DowngradePolicy::RemoveAtEndOfPeriod,
+                },
+                prices,
+            ))
+        }
+        Fee::Capacity(f) => {
+            if f.thresholds.is_empty() {
+                return Err(RestApiError::InvalidInput(
+                    "Capacity fee must have at least one threshold".into(),
+                ));
+            }
+            let prices = f
+                .thresholds
+                .iter()
+                .map(|t| {
+                    PriceEntry::New(PriceInput {
+                        cadence: f.cadence.into(),
+                        currency: currency.to_string(),
+                        pricing: Pricing::Capacity {
+                            rate: t.price,
+                            included: t.included_amount,
+                            overage_rate: t.per_unit_overage,
+                        },
+                    })
+                })
+                .collect();
+            Ok((
+                FeeTypeEnum::Capacity,
+                FeeStructure::Capacity {
+                    metric_id: f.metric_id,
+                },
+                prices,
+            ))
+        }
+        Fee::Usage(f) => {
+            let domain_model = rest_usage_pricing_to_domain(&f.pricing);
+            let usage_model = UsageModel::from(&domain_model);
+            let prices = vec![PriceEntry::New(PriceInput {
+                cadence: f.cadence.into(),
+                currency: currency.to_string(),
+                pricing: Pricing::Usage(domain_model),
+            })];
+            Ok((
+                FeeTypeEnum::Usage,
+                FeeStructure::Usage {
+                    metric_id: f.metric_id,
+                    model: usage_model,
+                },
+                prices,
+            ))
+        }
+        Fee::ExtraRecurring(f) => {
+            let prices = vec![PriceEntry::New(PriceInput {
+                cadence: f.cadence.into(),
+                currency: currency.to_string(),
+                pricing: Pricing::ExtraRecurring {
+                    unit_price: f.unit_price,
+                    quantity: f.quantity,
+                },
+            })];
+            Ok((
+                FeeTypeEnum::ExtraRecurring,
+                FeeStructure::ExtraRecurring {
+                    billing_type: f.billing_type.clone().into(),
+                },
+                prices,
+            ))
+        }
+        Fee::OneTime(f) => {
+            let prices = vec![PriceEntry::New(PriceInput {
+                cadence: domain::enums::BillingPeriodEnum::Monthly, // placeholder
+                currency: currency.to_string(),
+                pricing: Pricing::OneTime {
+                    unit_price: f.unit_price,
+                    quantity: f.quantity,
+                },
+            })];
+            Ok((FeeTypeEnum::OneTime, FeeStructure::OneTime {}, prices))
+        }
+    }
+}
+
+fn rest_usage_pricing_to_domain(
+    model: &UsagePricingModel,
+) -> domain::price_components::UsagePricingModel {
+    use domain::price_components::UsagePricingModel as D;
+
+    match model {
+        UsagePricingModel::PerUnit(p) => D::PerUnit { rate: p.rate },
+        UsagePricingModel::Tiered(p) => D::Tiered {
+            tiers: p.tiers.iter().map(tier_row_to_domain).collect(),
+            block_size: p.block_size,
+        },
+        UsagePricingModel::Volume(p) => D::Volume {
+            tiers: p.tiers.iter().map(tier_row_to_domain).collect(),
+            block_size: p.block_size,
+        },
+        UsagePricingModel::Package(p) => D::Package {
+            block_size: p.block_size,
+            rate: p.rate,
+        },
+        UsagePricingModel::Matrix(p) => D::Matrix {
+            rates: p.rates.iter().map(matrix_row_to_domain).collect(),
+        },
+    }
+}
+
+fn tier_row_to_domain(t: &TierRow) -> domain::price_components::TierRow {
+    domain::price_components::TierRow {
+        first_unit: t.first_unit,
+        rate: t.rate,
+        flat_fee: t.flat_fee,
+        flat_cap: t.flat_cap,
+    }
+}
+
+fn matrix_row_to_domain(r: &MatrixRow) -> domain::price_components::MatrixRow {
+    domain::price_components::MatrixRow {
+        dimension1: domain::price_components::MatrixDimension {
+            key: r.dimension1.key.clone(),
+            value: r.dimension1.value.clone(),
+        },
+        dimension2: r.dimension2.as_ref().map(|d| {
+            domain::price_components::MatrixDimension {
+                key: d.key.clone(),
+                value: d.value.clone(),
+            }
+        }),
+        per_unit_price: r.per_unit_price,
+    }
+}
+
+// ── Available parameters extraction ────────────────────────────
+
 fn extract_available_parameters(
     price_components: &[domain::price_components::PriceComponent],
     products: &HashMap<ProductId, Product>,
@@ -216,7 +584,6 @@ fn extract_available_parameters(
     for component in price_components {
         let component_id = component.id.to_string();
 
-        // For v2 components, use prices. For v1, use legacy_pricing entries.
         if !component.prices.is_empty() {
             let fee_type = component
                 .product_id
@@ -256,7 +623,6 @@ fn extract_available_parameters(
                 }
             }
         } else if let Some(legacy) = &component.legacy_pricing {
-            // V1 legacy path: derive parameters from legacy pricing entries
             let is_slot = matches!(
                 legacy.fee_type,
                 domain::price_components::FeeType::Slot { .. }

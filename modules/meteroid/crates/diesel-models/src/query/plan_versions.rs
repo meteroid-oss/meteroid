@@ -30,6 +30,27 @@ impl PlanVersionRowNew {
 }
 
 impl PlanVersionRow {
+    pub async fn next_version_number(
+        conn: &mut PgConn,
+        param_plan_id: PlanId,
+        param_tenant_id: TenantId,
+    ) -> DbResult<i32> {
+        use crate::schema::plan_version::dsl as pv_dsl;
+        use diesel::dsl::max;
+        use diesel_async::RunQueryDsl;
+
+        let current_max: Option<i32> = pv_dsl::plan_version
+            .filter(pv_dsl::plan_id.eq(param_plan_id))
+            .filter(pv_dsl::tenant_id.eq(param_tenant_id))
+            .select(max(pv_dsl::version))
+            .first(conn)
+            .await
+            .attach("Error while getting max version number")
+            .into_db_result()?;
+
+        Ok(current_max.unwrap_or(0) + 1)
+    }
+
     pub async fn find_by_id_and_tenant_id(
         conn: &mut PgConn,
         id: PlanVersionId,

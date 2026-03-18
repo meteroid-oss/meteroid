@@ -2,8 +2,8 @@ use crate::api_rest::webhooks::out_model::{
     WebhookOutCreditNoteEvent, WebhookOutCreditNoteEventData, WebhookOutCustomerEvent,
     WebhookOutCustomerEventData, WebhookOutEventTypeEnum, WebhookOutInvoiceEvent,
     WebhookOutInvoiceEventData, WebhookOutMetricEvent, WebhookOutMetricEventData,
-    WebhookOutQuoteEvent, WebhookOutQuoteEventData, WebhookOutSubscriptionEvent,
-    WebhookOutSubscriptionEventData,
+    WebhookOutPlanEvent, WebhookOutPlanEventData, WebhookOutQuoteEvent, WebhookOutQuoteEventData,
+    WebhookOutSubscriptionEvent, WebhookOutSubscriptionEventData,
 };
 use crate::svix::SvixOps;
 use crate::workers::pgmq::PgmqResult;
@@ -181,6 +181,36 @@ impl WebhookOut {
                 let event = WebhookOutCreditNoteEvent {
                     id: event_id,
                     event_type: WebhookOutEventTypeEnum::CreditNoteVoided,
+                    data,
+                    timestamp,
+                };
+                Some(event.try_into())
+            }
+            OutboxEvent::PlanCreated(event) => {
+                let data = WebhookOutPlanEventData::from(*event);
+                let event = WebhookOutPlanEvent {
+                    id: event_id,
+                    event_type: WebhookOutEventTypeEnum::PlanCreated,
+                    data,
+                    timestamp,
+                };
+                Some(event.try_into())
+            }
+            OutboxEvent::PlanPublished(event) => {
+                let data = WebhookOutPlanEventData::from(*event);
+                let event = WebhookOutPlanEvent {
+                    id: event_id,
+                    event_type: WebhookOutEventTypeEnum::PlanPublished,
+                    data,
+                    timestamp,
+                };
+                Some(event.try_into())
+            }
+            OutboxEvent::PlanArchived(event) => {
+                let data = WebhookOutPlanEventData::from(*event);
+                let event = WebhookOutPlanEvent {
+                    id: event_id,
+                    event_type: WebhookOutEventTypeEnum::PlanArchived,
                     data,
                     timestamp,
                 };

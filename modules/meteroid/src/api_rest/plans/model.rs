@@ -2,8 +2,8 @@ use crate::api_rest::model::PaginatedRequest;
 use crate::api_rest::model::PaginationResponse;
 use chrono::NaiveDateTime;
 use common_domain::ids::{
-    BillableMetricId, PlanId, PlanVersionId, PriceComponentId, ProductFamilyId, ProductId,
-    string_serde, string_serde_opt,
+    AddOnId, BillableMetricId, PlanId, PlanVersionId, PriceComponentId, PriceId,
+    ProductFamilyId, ProductId, string_serde, string_serde_opt,
 };
 use o2o::o2o;
 use rust_decimal::Decimal;
@@ -57,6 +57,7 @@ pub struct Plan {
     pub created_at: NaiveDateTime,
     pub plan_type: PlanTypeEnum,
     pub status: PlanStatusEnum,
+    pub self_service_rank: Option<i32>,
     pub product_family: ProductFamily,
 
     #[serde(with = "string_serde")]
@@ -65,6 +66,8 @@ pub struct Plan {
     pub currency: String,
 
     pub net_terms: i32,
+    pub billing_cycles: Option<i32>,
+    pub period_start_day: Option<i16>,
 
     pub trial: Option<TrialConfig>,
 
@@ -251,7 +254,8 @@ pub struct MatrixDimension {
 }
 
 #[derive(
-    o2o, Clone, ToSchema, Deserialize_enum_str, Serialize_enum_str, Debug, PartialEq, Eq, Hash,
+    o2o, Copy, Clone, ToSchema, Deserialize_enum_str, Serialize_enum_str, Debug, PartialEq, Eq,
+    Hash,
 )]
 #[serde(rename_all = "SCREAMING_SNAKE_CASE")]
 #[map_owned(meteroid_store::domain::enums::BillingPeriodEnum)]
@@ -262,7 +266,9 @@ pub enum BillingPeriodEnum {
     Annual,
 }
 
-#[derive(o2o, Clone, ToSchema, Deserialize_enum_str, Serialize_enum_str, Debug, PartialEq, Eq)]
+#[derive(
+    o2o, Copy, Clone, ToSchema, Deserialize_enum_str, Serialize_enum_str, Debug, PartialEq, Eq,
+)]
 #[serde(rename_all = "SCREAMING_SNAKE_CASE")]
 #[map_owned(meteroid_store::domain::enums::BillingType)]
 pub enum BillingType {
@@ -273,5 +279,106 @@ pub enum BillingType {
 #[derive(ToSchema, serde::Serialize, serde::Deserialize)]
 pub struct PlanListResponse {
     pub data: Vec<Plan>,
+    pub pagination_meta: PaginationResponse,
+}
+
+// ── Input types ────────────────────────────────────────────────
+
+#[derive(Clone, ToSchema, serde::Serialize, serde::Deserialize, Debug)]
+pub struct BillingConfig {
+    #[serde(default)]
+    pub net_terms: i32,
+    pub billing_cycles: Option<i32>,
+    pub period_start_day: Option<i16>,
+}
+
+#[derive(ToSchema, serde::Serialize, serde::Deserialize, Validate)]
+pub struct CreatePlanRequest {
+    #[validate(length(min = 1, max = 255))]
+    pub name: String,
+    pub description: Option<String>,
+    #[serde(with = "string_serde")]
+    pub product_family_id: ProductFamilyId,
+    pub plan_type: PlanTypeEnum,
+    pub status: PlanStatusEnum,
+    pub currency: String,
+    pub self_service_rank: Option<i32>,
+    pub billing: Option<BillingConfig>,
+    pub trial: Option<TrialConfig>,
+    pub components: Vec<PriceComponentInput>,
+    #[serde(default)]
+    pub add_ons: Vec<PlanAddOnInput>,
+}
+
+#[derive(ToSchema, serde::Serialize, serde::Deserialize, Validate)]
+pub struct ReplacePlanRequest {
+    #[validate(length(min = 1, max = 255))]
+    pub name: String,
+    pub description: Option<String>,
+    pub status: Option<PlanStatusEnum>,
+    pub currency: String,
+    pub billing: Option<BillingConfig>,
+    pub trial: Option<TrialConfig>,
+    pub components: Vec<PriceComponentInput>,
+    #[serde(default)]
+    pub add_ons: Vec<PlanAddOnInput>,
+}
+
+#[derive(ToSchema, serde::Serialize, serde::Deserialize, Validate)]
+pub struct PatchPlanRequest {
+    #[validate(length(min = 1, max = 255))]
+    pub name: Option<String>,
+    pub description: Option<Option<String>>,
+    pub self_service_rank: Option<Option<i32>>,
+}
+
+#[derive(Clone, ToSchema, serde::Serialize, serde::Deserialize, Debug)]
+pub struct PriceComponentInput {
+    pub name: String,
+    #[serde(default, with = "string_serde_opt")]
+    pub product_id: Option<ProductId>,
+    pub fee: Fee,
+}
+
+#[derive(Clone, ToSchema, serde::Serialize, serde::Deserialize, Debug)]
+pub struct PlanAddOnInput {
+    #[serde(with = "string_serde")]
+    pub add_on_id: AddOnId,
+    #[serde(default, with = "string_serde_opt")]
+    pub price_id: Option<PriceId>,
+    pub self_serviceable: Option<bool>,
+    pub max_instances: Option<i32>,
+}
+
+// ── Version and query types ────────────────────────────────────
+
+#[derive(ToSchema, IntoParams, serde::Serialize, serde::Deserialize, Default)]
+#[into_params(parameter_in = Query)]
+pub struct PlanGetQuery {
+    /// Filter by version: "draft", a version number, or omitted for active
+    pub version: Option<String>,
+}
+
+#[derive(ToSchema, IntoParams, serde::Serialize, serde::Deserialize, Validate)]
+#[into_params(parameter_in = Query)]
+pub struct PlanVersionListRequest {
+    #[serde(flatten)]
+    #[validate(nested)]
+    pub pagination: PaginatedRequest,
+}
+
+#[derive(Clone, ToSchema, serde::Serialize, serde::Deserialize)]
+pub struct PlanVersionSummary {
+    #[serde(with = "string_serde")]
+    pub id: PlanVersionId,
+    pub version: i32,
+    pub is_draft: bool,
+    pub currency: String,
+    pub created_at: NaiveDateTime,
+}
+
+#[derive(ToSchema, serde::Serialize, serde::Deserialize)]
+pub struct PlanVersionListResponse {
+    pub data: Vec<PlanVersionSummary>,
     pub pagination_meta: PaginationResponse,
 }
