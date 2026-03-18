@@ -2,17 +2,19 @@ use crate::api_rest::invoices::model::InvoiceStatus;
 use crate::api_rest::metrics::model::BillingMetricAggregateEnum;
 use crate::api_rest::model::BillingPeriodEnum;
 use crate::api_rest::subscriptions::model::SubscriptionStatusEnum;
+use crate::api_rest::products::model::ProductFeeTypeEnum;
 use crate::api_rest::webhooks::out_model::{
     CreditNoteStatus, WebhookOutCreditNoteEvent, WebhookOutCreditNoteEventData,
     WebhookOutCustomerEvent, WebhookOutCustomerEventData, WebhookOutEventGroupEnum,
     WebhookOutEventTypeEnum, WebhookOutInvoiceEvent, WebhookOutInvoiceEventData,
     WebhookOutMetricEvent, WebhookOutMetricEventData, WebhookOutPlanEvent,
-    WebhookOutPlanEventData, WebhookOutQuoteEvent, WebhookOutQuoteEventData,
-    WebhookOutSubscriptionEvent, WebhookOutSubscriptionEventData,
+    WebhookOutPlanEventData, WebhookOutProductEvent, WebhookOutProductEventData,
+    WebhookOutQuoteEvent, WebhookOutQuoteEventData, WebhookOutSubscriptionEvent,
+    WebhookOutSubscriptionEventData,
 };
 use crate::api_rest::{AppState, api_routes};
 use common_domain::ids::{
-    BillableMetricId, CreditNoteId, CustomerId, EventId, InvoiceId, PlanId, QuoteId,
+    BillableMetricId, CreditNoteId, CustomerId, EventId, InvoiceId, PlanId, ProductId, QuoteId,
     SubscriptionId,
 };
 use strum::IntoEnumIterator;
@@ -79,6 +81,7 @@ pub fn generate_spec() {
         WebhookOutMetricEvent,
         WebhookOutQuoteEvent,
         WebhookOutCreditNoteEvent,
+        WebhookOutProductEvent,
       )
     ),
     tags((name = "Meteroid", description = "Meteroid API"))
@@ -246,6 +249,21 @@ impl Modify for WebhooksAddon {
                             status: "Active".to_string(),
                             currency: "USD".to_string(),
                             version: 1,
+                            created_at: Default::default(),
+                        },
+                        timestamp: Default::default(),
+                    };
+                    serde_json::to_value(&event).expect("Failed to serialize webhook example")
+                }
+                WebhookOutEventGroupEnum::Product => {
+                    let event = WebhookOutProductEvent {
+                        id: EventId::default(),
+                        event_type: event,
+                        data: WebhookOutProductEventData {
+                            product_id: ProductId::default(),
+                            name: "API Calls Product".to_string(),
+                            description: Some("Usage-based API calls product".to_string()),
+                            fee_type: ProductFeeTypeEnum::Usage,
                             created_at: Default::default(),
                         },
                         timestamp: Default::default(),

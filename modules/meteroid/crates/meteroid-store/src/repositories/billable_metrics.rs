@@ -231,9 +231,30 @@ impl BillableMetricInterface for Store {
     ) -> StoreResult<()> {
         let mut conn = self.get_conn().await?;
 
-        BillableMetricRow::archive(&mut conn, id, tenant_id)
-            .await
-            .map_err(Into::into)
+        self.transaction_with(&mut conn, |conn| {
+            async move {
+                BillableMetricRow::archive(conn, id, tenant_id)
+                    .await
+                    .map_err(Into::<Report<StoreError>>::into)?;
+
+                let metric: BillableMetric =
+                    BillableMetricRow::find_by_id(conn, id, tenant_id)
+                        .await
+                        .map_err(Into::<Report<StoreError>>::into)
+                        .and_then(TryInto::try_into)?;
+
+                self.internal
+                    .insert_outbox_events_tx(
+                        conn,
+                        vec![OutboxEvent::billable_metric_archived(metric.into())],
+                    )
+                    .await?;
+
+                Ok(())
+            }
+            .scope_boxed()
+        })
+        .await
     }
 
     async fn unarchive_billable_metric(
@@ -281,10 +302,26 @@ impl BillableMetricInterface for Store {
             sync_error: None,
         };
 
-        BillableMetricRow::update(&mut conn, id, tenant_id, patch)
-            .await
-            .map_err(Into::into)
-            .and_then(TryInto::try_into)
+        self.transaction_with(&mut conn, |conn| {
+            async move {
+                let metric: BillableMetric =
+                    BillableMetricRow::update(conn, id, tenant_id, patch)
+                        .await
+                        .map_err(Into::<Report<StoreError>>::into)
+                        .and_then(TryInto::try_into)?;
+
+                self.internal
+                    .insert_outbox_events_tx(
+                        conn,
+                        vec![OutboxEvent::billable_metric_updated(metric.clone().into())],
+                    )
+                    .await?;
+
+                Ok(metric)
+            }
+            .scope_boxed()
+        })
+        .await
     }
 
     async fn mark_billable_metric_synced(

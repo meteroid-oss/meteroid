@@ -9,8 +9,9 @@ use common_domain::ids::{
     BillableMetricId, CreditNoteId, CustomerId, EventId, InvoiceId, PlanId, ProductFamilyId,
     ProductId, QuoteId, SubscriptionId, string_serde, string_serde_opt,
 };
+use crate::api_rest::products::model::ProductFeeTypeEnum;
 use meteroid_store::domain::outbox_event::{
-    BillableMetricEvent, CreditNoteEvent, CustomerEvent, InvoiceEvent, PlanEvent,
+    BillableMetricEvent, CreditNoteEvent, CustomerEvent, InvoiceEvent, PlanEvent, ProductEvent,
     QuoteAcceptedEvent, QuoteConvertedEvent, SubscriptionEvent,
 };
 use o2o::o2o;
@@ -202,6 +203,21 @@ pub struct WebhookOutPlanEventData {
     pub created_at: NaiveDateTime,
 }
 
+#[skip_serializing_none]
+#[derive(Clone, Debug, Serialize, o2o, utoipa::ToSchema)]
+#[schema(as = ProductEventData)]
+#[from_owned(ProductEvent)]
+pub struct WebhookOutProductEventData {
+    #[serde(serialize_with = "string_serde::serialize")]
+    pub product_id: ProductId,
+    pub name: String,
+    pub description: Option<String>,
+    #[from(~.into())]
+    pub fee_type: ProductFeeTypeEnum,
+    #[serde(serialize_with = "ser_naive_dt")]
+    pub created_at: NaiveDateTime,
+}
+
 /// Event-specific webhook schemas for type-safe webhook payloads
 
 #[skip_serializing_none]
@@ -347,6 +363,29 @@ pub struct WebhookOutPlanEvent {
     pub timestamp: NaiveDateTime,
 }
 
+#[skip_serializing_none]
+#[derive(Clone, Debug, Serialize, utoipa::ToSchema)]
+#[schema(as = ProductEvent)]
+pub struct WebhookOutProductEvent {
+    #[serde(serialize_with = "string_serde::serialize")]
+    pub id: EventId,
+    #[serde(rename = "type")]
+    pub event_type: WebhookOutEventTypeEnum,
+    #[serde(flatten)]
+    pub data: WebhookOutProductEventData,
+    #[serde(serialize_with = "ser_naive_dt")]
+    pub timestamp: NaiveDateTime,
+}
+
+impl TryInto<MessageIn> for WebhookOutProductEvent {
+    type Error = serde_json::Error;
+
+    fn try_into(self) -> Result<MessageIn, Self::Error> {
+        let result = serde_json::to_value(&self)?;
+        Ok(MessageIn::new(self.event_type.to_string(), result))
+    }
+}
+
 impl TryInto<MessageIn> for WebhookOutCreditNoteEvent {
     type Error = serde_json::Error;
 
@@ -425,6 +464,21 @@ pub enum WebhookOutEventTypeEnum {
     #[strum(serialize = "plan.archived")]
     #[serde(rename = "plan.archived")]
     PlanArchived,
+    #[strum(serialize = "product.created")]
+    #[serde(rename = "product.created")]
+    ProductCreated,
+    #[strum(serialize = "product.updated")]
+    #[serde(rename = "product.updated")]
+    ProductUpdated,
+    #[strum(serialize = "product.archived")]
+    #[serde(rename = "product.archived")]
+    ProductArchived,
+    #[strum(serialize = "metric.updated")]
+    #[serde(rename = "metric.updated")]
+    BillableMetricUpdated,
+    #[strum(serialize = "metric.archived")]
+    #[serde(rename = "metric.archived")]
+    BillableMetricArchived,
 }
 
 #[derive(Debug, Display, EnumIter, EnumString, Copy, Clone)]
@@ -443,6 +497,8 @@ pub enum WebhookOutEventGroupEnum {
     CreditNote,
     #[strum(serialize = "plan")]
     Plan,
+    #[strum(serialize = "product")]
+    Product,
 }
 
 impl WebhookOutEventGroupEnum {
@@ -455,6 +511,7 @@ impl WebhookOutEventGroupEnum {
             WebhookOutEventGroupEnum::Quote => "QuoteEvent",
             WebhookOutEventGroupEnum::CreditNote => "CreditNoteEvent",
             WebhookOutEventGroupEnum::Plan => "PlanEvent",
+            WebhookOutEventGroupEnum::Product => "ProductEvent",
         }
     }
 }
@@ -479,6 +536,15 @@ impl WebhookOutEventTypeEnum {
             WebhookOutEventTypeEnum::PlanCreated => WebhookOutEventGroupEnum::Plan,
             WebhookOutEventTypeEnum::PlanPublished => WebhookOutEventGroupEnum::Plan,
             WebhookOutEventTypeEnum::PlanArchived => WebhookOutEventGroupEnum::Plan,
+            WebhookOutEventTypeEnum::ProductCreated => WebhookOutEventGroupEnum::Product,
+            WebhookOutEventTypeEnum::ProductUpdated => WebhookOutEventGroupEnum::Product,
+            WebhookOutEventTypeEnum::ProductArchived => WebhookOutEventGroupEnum::Product,
+            WebhookOutEventTypeEnum::BillableMetricUpdated => {
+                WebhookOutEventGroupEnum::BillableMetric
+            }
+            WebhookOutEventTypeEnum::BillableMetricArchived => {
+                WebhookOutEventGroupEnum::BillableMetric
+            }
         }
     }
 
@@ -509,6 +575,15 @@ impl WebhookOutEventTypeEnum {
             WebhookOutEventTypeEnum::PlanCreated => "A new plan was created".to_string(),
             WebhookOutEventTypeEnum::PlanPublished => "A plan version was published".to_string(),
             WebhookOutEventTypeEnum::PlanArchived => "A plan was archived".to_string(),
+            WebhookOutEventTypeEnum::ProductCreated => "A new product was created".to_string(),
+            WebhookOutEventTypeEnum::ProductUpdated => "A product was updated".to_string(),
+            WebhookOutEventTypeEnum::ProductArchived => "A product was archived".to_string(),
+            WebhookOutEventTypeEnum::BillableMetricUpdated => {
+                "A billable metric was updated".to_string()
+            }
+            WebhookOutEventTypeEnum::BillableMetricArchived => {
+                "A billable metric was archived".to_string()
+            }
         }
     }
 }

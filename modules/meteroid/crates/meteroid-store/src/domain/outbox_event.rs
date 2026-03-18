@@ -10,6 +10,7 @@ use crate::domain::{
 use crate::errors::{StoreError, StoreErrorReport};
 use crate::{StoreResult, json_value_serde};
 use chrono::{NaiveDate, NaiveDateTime};
+use crate::domain::enums::FeeTypeEnum;
 use common_domain::ids::{
     BaseId, BillableMetricId, CheckoutSessionId, ConnectorId, CreditNoteId, CustomerId,
     CustomerPaymentMethodId, EventId, InvoiceId, PaymentTransactionId, PlanId, PlanVersionId,
@@ -45,6 +46,11 @@ pub enum OutboxEvent {
     PlanCreated(Box<PlanEvent>),
     PlanPublished(Box<PlanEvent>),
     PlanArchived(Box<PlanEvent>),
+    ProductCreated(Box<ProductEvent>),
+    ProductUpdated(Box<ProductEvent>),
+    ProductArchived(Box<ProductEvent>),
+    BillableMetricUpdated(Box<BillableMetricEvent>),
+    BillableMetricArchived(Box<BillableMetricEvent>),
 }
 
 #[derive(Display, Debug, Serialize, Deserialize, PartialEq)]
@@ -67,6 +73,11 @@ pub enum EventType {
     PlanCreated,
     PlanPublished,
     PlanArchived,
+    ProductCreated,
+    ProductUpdated,
+    ProductArchived,
+    BillableMetricUpdated,
+    BillableMetricArchived,
 }
 
 json_value_serde!(OutboxEvent);
@@ -92,6 +103,11 @@ impl OutboxEvent {
             OutboxEvent::PlanCreated(event) => event.id,
             OutboxEvent::PlanPublished(event) => event.id,
             OutboxEvent::PlanArchived(event) => event.id,
+            OutboxEvent::ProductCreated(event) => event.id,
+            OutboxEvent::ProductUpdated(event) => event.id,
+            OutboxEvent::ProductArchived(event) => event.id,
+            OutboxEvent::BillableMetricUpdated(event) => event.id,
+            OutboxEvent::BillableMetricArchived(event) => event.id,
         }
     }
 
@@ -115,6 +131,11 @@ impl OutboxEvent {
             OutboxEvent::PlanCreated(event) => event.tenant_id,
             OutboxEvent::PlanPublished(event) => event.tenant_id,
             OutboxEvent::PlanArchived(event) => event.tenant_id,
+            OutboxEvent::ProductCreated(event) => event.tenant_id,
+            OutboxEvent::ProductUpdated(event) => event.tenant_id,
+            OutboxEvent::ProductArchived(event) => event.tenant_id,
+            OutboxEvent::BillableMetricUpdated(event) => event.tenant_id,
+            OutboxEvent::BillableMetricArchived(event) => event.tenant_id,
         }
     }
 
@@ -138,6 +159,11 @@ impl OutboxEvent {
             OutboxEvent::PlanCreated(event) => event.plan_id.as_uuid(),
             OutboxEvent::PlanPublished(event) => event.plan_id.as_uuid(),
             OutboxEvent::PlanArchived(event) => event.plan_id.as_uuid(),
+            OutboxEvent::ProductCreated(event) => event.product_id.as_uuid(),
+            OutboxEvent::ProductUpdated(event) => event.product_id.as_uuid(),
+            OutboxEvent::ProductArchived(event) => event.product_id.as_uuid(),
+            OutboxEvent::BillableMetricUpdated(event) => event.metric_id.as_uuid(),
+            OutboxEvent::BillableMetricArchived(event) => event.metric_id.as_uuid(),
         }
     }
 
@@ -161,6 +187,11 @@ impl OutboxEvent {
             OutboxEvent::PlanCreated(_) => "Plan".to_string(),
             OutboxEvent::PlanPublished(_) => "Plan".to_string(),
             OutboxEvent::PlanArchived(_) => "Plan".to_string(),
+            OutboxEvent::ProductCreated(_) => "Product".to_string(),
+            OutboxEvent::ProductUpdated(_) => "Product".to_string(),
+            OutboxEvent::ProductArchived(_) => "Product".to_string(),
+            OutboxEvent::BillableMetricUpdated(_) => "BillableMetric".to_string(),
+            OutboxEvent::BillableMetricArchived(_) => "BillableMetric".to_string(),
         }
     }
 
@@ -186,6 +217,11 @@ impl OutboxEvent {
             OutboxEvent::PlanCreated(_) => EventType::PlanCreated,
             OutboxEvent::PlanPublished(_) => EventType::PlanPublished,
             OutboxEvent::PlanArchived(_) => EventType::PlanArchived,
+            OutboxEvent::ProductCreated(_) => EventType::ProductCreated,
+            OutboxEvent::ProductUpdated(_) => EventType::ProductUpdated,
+            OutboxEvent::ProductArchived(_) => EventType::ProductArchived,
+            OutboxEvent::BillableMetricUpdated(_) => EventType::BillableMetricUpdated,
+            OutboxEvent::BillableMetricArchived(_) => EventType::BillableMetricArchived,
         }
     }
 
@@ -259,6 +295,26 @@ impl OutboxEvent {
 
     pub fn plan_archived(event: PlanEvent) -> OutboxEvent {
         OutboxEvent::PlanArchived(Box::new(event))
+    }
+
+    pub fn product_created(event: ProductEvent) -> OutboxEvent {
+        OutboxEvent::ProductCreated(Box::new(event))
+    }
+
+    pub fn product_updated(event: ProductEvent) -> OutboxEvent {
+        OutboxEvent::ProductUpdated(Box::new(event))
+    }
+
+    pub fn product_archived(event: ProductEvent) -> OutboxEvent {
+        OutboxEvent::ProductArchived(Box::new(event))
+    }
+
+    pub fn billable_metric_updated(event: BillableMetricEvent) -> OutboxEvent {
+        OutboxEvent::BillableMetricUpdated(Box::new(event))
+    }
+
+    pub fn billable_metric_archived(event: BillableMetricEvent) -> OutboxEvent {
+        OutboxEvent::BillableMetricArchived(Box::new(event))
     }
 
     fn payload_json(&self) -> StoreResult<serde_json::Value> {
@@ -515,6 +571,39 @@ pub struct PlanEvent {
     pub currency: String,
     pub version: i32,
     pub created_at: NaiveDateTime,
+}
+
+#[skip_serializing_none]
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct ProductEvent {
+    pub id: EventId,
+    pub product_id: ProductId,
+    pub tenant_id: TenantId,
+    pub name: String,
+    pub description: Option<String>,
+    pub fee_type: FeeTypeEnum,
+    pub created_at: NaiveDateTime,
+}
+
+impl ProductEvent {
+    pub fn new(
+        product_id: ProductId,
+        tenant_id: TenantId,
+        name: String,
+        description: Option<String>,
+        fee_type: FeeTypeEnum,
+        created_at: NaiveDateTime,
+    ) -> Self {
+        Self {
+            id: EventId::new(),
+            product_id,
+            tenant_id,
+            name,
+            description,
+            fee_type,
+            created_at,
+        }
+    }
 }
 
 impl PlanEvent {

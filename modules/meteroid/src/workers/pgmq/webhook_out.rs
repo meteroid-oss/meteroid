@@ -2,7 +2,8 @@ use crate::api_rest::webhooks::out_model::{
     WebhookOutCreditNoteEvent, WebhookOutCreditNoteEventData, WebhookOutCustomerEvent,
     WebhookOutCustomerEventData, WebhookOutEventTypeEnum, WebhookOutInvoiceEvent,
     WebhookOutInvoiceEventData, WebhookOutMetricEvent, WebhookOutMetricEventData,
-    WebhookOutPlanEvent, WebhookOutPlanEventData, WebhookOutQuoteEvent, WebhookOutQuoteEventData,
+    WebhookOutPlanEvent, WebhookOutPlanEventData, WebhookOutProductEvent,
+    WebhookOutProductEventData, WebhookOutQuoteEvent, WebhookOutQuoteEventData,
     WebhookOutSubscriptionEvent, WebhookOutSubscriptionEventData,
 };
 use crate::svix::SvixOps;
@@ -216,7 +217,57 @@ impl WebhookOut {
                 };
                 Some(event.try_into())
             }
-            // TODO add webhooks
+            OutboxEvent::ProductCreated(event) => {
+                let data = WebhookOutProductEventData::from(*event);
+                let event = WebhookOutProductEvent {
+                    id: event_id,
+                    event_type: WebhookOutEventTypeEnum::ProductCreated,
+                    data,
+                    timestamp,
+                };
+                Some(event.try_into())
+            }
+            OutboxEvent::ProductUpdated(event) => {
+                let data = WebhookOutProductEventData::from(*event);
+                let event = WebhookOutProductEvent {
+                    id: event_id,
+                    event_type: WebhookOutEventTypeEnum::ProductUpdated,
+                    data,
+                    timestamp,
+                };
+                Some(event.try_into())
+            }
+            OutboxEvent::ProductArchived(event) => {
+                let data = WebhookOutProductEventData::from(*event);
+                let event = WebhookOutProductEvent {
+                    id: event_id,
+                    event_type: WebhookOutEventTypeEnum::ProductArchived,
+                    data,
+                    timestamp,
+                };
+                Some(event.try_into())
+            }
+            OutboxEvent::BillableMetricUpdated(event) => {
+                let data = WebhookOutMetricEventData::from(*event);
+                let event = WebhookOutMetricEvent {
+                    id: event_id,
+                    event_type: WebhookOutEventTypeEnum::BillableMetricUpdated,
+                    data,
+                    timestamp,
+                };
+                Some(event.try_into())
+            }
+            OutboxEvent::BillableMetricArchived(event) => {
+                let data = WebhookOutMetricEventData::from(*event);
+                let event = WebhookOutMetricEvent {
+                    id: event_id,
+                    event_type: WebhookOutEventTypeEnum::BillableMetricArchived,
+                    data,
+                    timestamp,
+                };
+                Some(event.try_into())
+            }
+            // Not yet webhook-enabled
             OutboxEvent::CustomerUpdated(_) => None,
             OutboxEvent::InvoiceAccountingPdfGenerated(_) => None,
             OutboxEvent::PaymentTransactionSaved(_) => None,

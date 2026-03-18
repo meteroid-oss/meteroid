@@ -5,7 +5,7 @@ use utoipa::{IntoParams, ToSchema};
 use validator::Validate;
 
 #[serde_as]
-#[derive(ToSchema, serde::Serialize, serde::Deserialize, Validate, Copy, Clone, IntoParams)]
+#[derive(ToSchema, serde::Serialize, serde::Deserialize, Validate, Copy, Clone, Debug, IntoParams)]
 #[into_params(parameter_in = Query)]
 pub struct PaginatedRequest {
     /// Page number (0-indexed)
@@ -29,7 +29,7 @@ impl From<PaginatedRequest> for domain::PaginationRequest {
     }
 }
 
-#[derive(ToSchema, serde::Serialize, serde::Deserialize, Debug)]
+#[derive(ToSchema, serde::Serialize, serde::Deserialize, Debug, Clone)]
 pub struct PaginationResponse {
     pub page: u32,
     pub per_page: u32,

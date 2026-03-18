@@ -4,8 +4,10 @@ use crate::api_rest::creditnotes::credit_note_routes;
 use crate::api_rest::customers::customer_routes;
 use crate::api_rest::events::event_routes;
 use crate::api_rest::invoices::invoice_routes;
+use crate::api_rest::metrics::metric_routes;
 use crate::api_rest::plans::plan_routes;
 use crate::api_rest::productfamilies::product_family_routes;
+use crate::api_rest::products::product_routes;
 use crate::api_rest::subscriptions::subscription_routes;
 use crate::api_rest::usage::usage_routes;
 use crate::services::storage::ObjectStoreService;
@@ -33,12 +35,13 @@ pub mod error;
 mod events;
 mod files;
 mod invoices;
-mod metrics;
+pub(crate) mod metrics;
 mod model;
 mod oauth;
 pub mod openapi;
 mod plans;
 mod productfamilies;
+pub(crate) mod products;
 pub mod server;
 mod subscriptions;
 mod usage;
@@ -55,6 +58,8 @@ pub fn api_routes() -> OpenApiRouter<AppState> {
         .merge(checkout_session_routes())
         .merge(event_routes())
         .merge(usage_routes())
+        .merge(product_routes())
+        .merge(metric_routes())
 }
 
 #[derive(Clone)]
