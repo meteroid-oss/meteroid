@@ -329,12 +329,12 @@ impl Services {
     }
 
     fn activate_subscription(&self, subscription: &SubscriptionRow) -> StoreResult<NextCycle> {
-        if subscription.trial_duration.is_some() {
+        if let Some(trial_duration) = subscription.trial_duration {
             let new_period_start = subscription
                 .current_period_end
                 .unwrap_or_else(|| Utc::now().naive_utc().date());
             let new_period_end = new_period_start
-                .checked_add_days(Days::new(subscription.trial_duration.unwrap() as u64))
+                .checked_add_days(Days::new(trial_duration as u64))
                 .unwrap_or_else(|| new_period_start + Duration::days(7));
             Ok(NextCycle {
                 status: SubscriptionStatusEnum::TrialActive,
