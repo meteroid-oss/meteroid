@@ -76,7 +76,7 @@ env_logger = "0.11.5"
 envconfig = "0.11.0"
 error-stack = "0.6.0"
 educe = { version = "0.6.0", default-features = false, features = ["Default"] }
-fake = "4.0.0"
+fake = "5.1.0"
 fastrand = "2.0.1"
 fixnum = { version = "0.9.3", default-features = false }
 fluent = "0.17"
