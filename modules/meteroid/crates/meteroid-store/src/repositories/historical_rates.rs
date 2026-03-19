@@ -10,7 +10,6 @@ use chrono::NaiveDate;
 use diesel_models::historical_rates_from_usd::{
     HistoricalRatesFromUsdRow, HistoricalRatesFromUsdRowNew,
 };
-use std::time::Duration;
 
 #[async_trait::async_trait]
 pub trait HistoricalRatesInterface {

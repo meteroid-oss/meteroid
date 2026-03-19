@@ -16,7 +16,6 @@ use common_grpc::middleware::server::auth::{AuthenticatedState, AuthorizedAsTena
 use meteroid_store::Store;
 use meteroid_store::errors::StoreError;
 use meteroid_store::repositories::api_tokens::ApiTokensInterface;
-use std::time::Duration;
 use uuid::Uuid;
 
 pub async fn auth_middleware(

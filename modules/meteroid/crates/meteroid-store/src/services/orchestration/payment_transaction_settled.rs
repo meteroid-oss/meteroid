@@ -168,9 +168,7 @@ impl Services {
                                     current_period_start = billing_start_date;
                                     current_period_end = Some(
                                         current_period_start
-                                            + chrono::Duration::days(i64::from(
-                                                trial_duration,
-                                            )),
+                                            + chrono::Duration::days(i64::from(trial_duration)),
                                     );
                                     next_cycle_action = Some(CycleActionEnum::EndTrial);
                                 } else {
