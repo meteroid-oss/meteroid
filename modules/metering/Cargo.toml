@@ -50,7 +50,7 @@ kafka = { workspace = true, optional = true }
 rdkafka = { workspace = true, features = ["ssl", "sasl"], optional = true }
 
 # clickhosue connector deps
-clickhouse = { workspace = true, features = ["chrono", "inserter"], optional = true }
+clickhouse = { workspace = true, features = ["chrono", "inserter", "uuid"], optional = true }
 refinery = { workspace = true, features = ["default"], optional = true }
 refinery-core = { workspace = true, optional = true }
 time = { workspace = true, features = ["formatting", "parsing"], optional = true }
@@ -58,6 +58,11 @@ time = { workspace = true, features = ["formatting", "parsing"], optional = true
 [[bin]]
 name = "metering-api"
 path = "src/bin/server.rs"
+
+[[bin]]
+name = "migrate-ids"
+path = "src/bin/migrate_ids.rs"
+required-features = ["clickhouse"]
 
 [features]
 default = ["clickhouse", "kafka"]

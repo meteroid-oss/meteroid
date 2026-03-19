@@ -7,6 +7,7 @@ use tonic::{Request, Response, Status};
 
 use crate::ingest::common::EventProcessor;
 use crate::ingest::sinks::Sink;
+use common_domain::ids::TenantId;
 use meteroid_grpc::meteroid::internal::v1::internal_service_client::InternalServiceClient;
 
 #[derive(Clone)]
@@ -42,7 +43,7 @@ impl InternalEventsServiceGrpc for InternalEventsService {
             .processor
             .process_events(
                 req.events,
-                req.tenant_id,
+                TenantId::from_proto(req.tenant_id)?,
                 req.allow_backfilling,
                 req.fail_on_error,
             )

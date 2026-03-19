@@ -175,6 +175,7 @@ mod tests {
     use crate::ingest::errors::IngestError;
     use crate::ingest::sinks::Sink;
     use crate::ingest::sinks::kafka::KafkaSink;
+    use common_domain::ids::{BaseId, CustomerId, TenantId};
     use kafka::config::KafkaConnectionConfig;
     use rand::RngExt;
     use rand::distr::Alphanumeric;
@@ -213,8 +214,8 @@ mod tests {
         let event: RawEvent = RawEvent {
             id: "eventid".to_string(),
             code: "eventname".to_string(),
-            customer_id: "customerid".to_string(),
-            tenant_id: "tenantid".to_string(),
+            customer_id: CustomerId::parse_uuid("00000000-0000-0000-0000-000000000001").unwrap(),
+            tenant_id: TenantId::parse_uuid("00000000-0000-0000-0000-000000000001").unwrap(),
             timestamp: chrono::Utc::now().naive_utc(),
             ingested_at: chrono::Utc::now().naive_utc(),
             properties: HashMap::from([("key".to_string(), "value".to_string())]),
@@ -248,8 +249,8 @@ mod tests {
         let big_event: RawEvent = RawEvent {
             id: "eventid".to_string(),
             code: "eventname".to_string(),
-            customer_id: "customerid".to_string(),
-            tenant_id: "tenantid".to_string(),
+            customer_id: CustomerId::parse_uuid("00000000-0000-0000-0000-000000000001").unwrap(),
+            tenant_id: TenantId::parse_uuid("00000000-0000-0000-0000-000000000001").unwrap(),
             timestamp: chrono::Utc::now().naive_utc(),
             ingested_at: chrono::Utc::now().naive_utc(),
             properties: HashMap::from([("key".to_string(), big_data.to_string())]),

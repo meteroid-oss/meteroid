@@ -3,7 +3,9 @@ use crate::connectors::Connector;
 use crate::connectors::errors::ConnectorError;
 use crate::domain::{QueryMeterParams, QueryRawEventsParams, QueryRawEventsResult, Usage};
 use async_trait::async_trait;
+use common_domain::ids::{CustomerId, TenantId};
 use std::collections::HashMap;
+use std::str::FromStr;
 
 use error_stack::{Report, ResultExt};
 
@@ -14,6 +16,7 @@ pub mod sql;
 
 use crate::connectors::clickhouse::extensions::ConnectorClickhouseExtension;
 use crate::connectors::clickhouse::sql::PropertyColumn;
+
 use crate::connectors::json::JsonFieldExtractor;
 use crate::migrations;
 use clickhouse::Client;
@@ -23,6 +26,7 @@ use tokio::io::AsyncBufReadExt;
 pub struct ClickhouseConnector {
     client: Arc<Client>,
     extensions: Vec<Arc<dyn ConnectorClickhouseExtension + Send + Sync>>,
+    events_table: String,
 }
 
 impl ClickhouseConnector {
@@ -49,7 +53,11 @@ impl ClickhouseConnector {
             ext.init(client.clone()).await?;
         }
 
-        Ok(ClickhouseConnector { client, extensions })
+        Ok(ClickhouseConnector {
+            client,
+            extensions,
+            events_table: clickhouse_config.raw_events_table.clone(),
+        })
     }
 
     fn match_extension(
@@ -75,7 +83,7 @@ impl Connector for ClickhouseConnector {
             .and_then(|ext| ext.build_query(&params))
         {
             Some(ext) => ext,
-            None => sql::query_raw::query_meter_sql(params.clone())
+            None => sql::query_raw::query_meter_sql(params.clone(), &self.events_table)
                 .map_err(ConnectorError::InvalidQuery)?,
         };
 
@@ -173,7 +181,7 @@ impl Connector for ClickhouseConnector {
         &self,
         params: QueryRawEventsParams,
     ) -> Result<QueryRawEventsResult, Report<ConnectorError>> {
-        let query = sql::query_raw::query_raw_events_sql(params.clone())
+        let query = sql::query_raw::query_raw_events_sql(params.clone(), &self.events_table)
             .map_err(ConnectorError::InvalidQuery)?;
 
         let mut lines = self
@@ -197,10 +205,12 @@ impl Connector for ClickhouseConnector {
             let code = row.get_string("code").ok_or(ConnectorError::QueryError)?;
             let customer_id = row
                 .get_string("customer_id")
-                .ok_or(ConnectorError::QueryError)?;
+                .ok_or(ConnectorError::QueryError)
+                .and_then(|s| CustomerId::from_str(&s).map_err(|_| ConnectorError::QueryError))?;
             let tenant_id = row
                 .get_string("tenant_id")
-                .ok_or(ConnectorError::QueryError)?;
+                .ok_or(ConnectorError::QueryError)
+                .and_then(|s| TenantId::from_str(&s).map_err(|_| ConnectorError::QueryError))?;
             let timestamp = row
                 .get_timestamp_utc("timestamp")
                 .ok_or(ConnectorError::QueryError)?;

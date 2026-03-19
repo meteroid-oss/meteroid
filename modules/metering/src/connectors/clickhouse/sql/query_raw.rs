@@ -1,4 +1,3 @@
-use crate::connectors::clickhouse::sql::init::get_events_table_name;
 use crate::connectors::clickhouse::sql::{PropertyColumn, escape_sql_identifier};
 use crate::domain::{
     EventSortOrder, MeterAggregation, QueryMeterParams, QueryRawEventsParams, SegmentationFilter,
@@ -6,20 +5,23 @@ use crate::domain::{
 };
 use chrono::Utc;
 
-pub fn query_raw_events_sql(params: QueryRawEventsParams) -> Result<String, String> {
-    let table_name = get_events_table_name();
+pub fn query_raw_events_sql(
+    params: QueryRawEventsParams,
+    events_table: &str,
+) -> Result<String, String> {
+    let table_name = events_table;
     let mut conditions = vec![
-        format!("tenant_id = '{}'", params.tenant_id),
-        format!("timestamp >= '{}'", params.from.format("%Y-%m-%d %H:%M:%S")),
+        format!("tenant_id = '{}'", *params.tenant_id),
+        format!("timestamp >= toDateTime({})", params.from.timestamp()),
     ];
 
     // Add time range filter
     if let Some(to) = params.to {
-        conditions.push(format!("timestamp < '{}'", to.format("%Y-%m-%d %H:%M:%S")));
+        conditions.push(format!("timestamp < toDateTime({})", to.timestamp()));
     } else {
         conditions.push(format!(
-            "timestamp < '{}'",
-            Utc::now().format("%Y-%m-%d %H:%M:%S")
+            "timestamp < toDateTime({})",
+            Utc::now().timestamp()
         ));
     }
 
@@ -27,7 +29,7 @@ pub fn query_raw_events_sql(params: QueryRawEventsParams) -> Result<String, Stri
         let customer_ids_str = params
             .customer_ids
             .iter()
-            .map(|id| format!("'{}'", id.replace('\'', "''")))
+            .map(|id| format!("'{}'", **id))
             .collect::<Vec<_>>()
             .join(", ");
         conditions.push(format!("customer_id IN ({customer_ids_str})"));
@@ -84,14 +86,14 @@ pub fn query_raw_events_sql(params: QueryRawEventsParams) -> Result<String, Stri
     Ok(query)
 }
 
-pub fn query_meter_sql(params: QueryMeterParams) -> Result<String, String> {
-    let table_name = get_events_table_name();
-    let escaped_namespace = escape_sql_identifier(&params.namespace);
+pub fn query_meter_sql(params: QueryMeterParams, events_table: &str) -> Result<String, String> {
+    let table_name = events_table;
+    let tenant_uuid = (*params.tenant_id).to_string();
     let escaped_code = escape_sql_identifier(&params.code);
 
     // Step 1: Build WHERE conditions for subquery
     let mut subquery_conditions = vec![
-        format!("tenant_id = '{}'", escaped_namespace),
+        format!("tenant_id = '{}'", tenant_uuid),
         format!("code = '{}'", escaped_code),
         format!("timestamp >= toDateTime({})", params.from.timestamp()),
     ];
@@ -104,7 +106,7 @@ pub fn query_meter_sql(params: QueryMeterParams) -> Result<String, String> {
         let customer_ids_condition = params
             .customer_ids
             .iter()
-            .map(|id| format!("customer_id = '{}'", escape_sql_identifier(id)))
+            .map(|id| format!("customer_id = '{}'", **id))
             .collect::<Vec<_>>()
             .join(" OR ");
         subquery_conditions.push(format!("({})", customer_ids_condition));
@@ -323,7 +325,9 @@ mod tests {
     use super::*;
     use crate::domain::{MeterAggregation, QueryMeterParams, SegmentationFilter, WindowSize};
     use chrono::{TimeZone, Utc};
+    use common_domain::ids::{CustomerId, TenantId};
     use std::collections::HashMap;
+    use uuid::Uuid; // needed for CustomerId::from(Uuid::from_u128(...))
 
     fn normalize_sql(sql: &str) -> String {
         sql.split_whitespace().collect::<Vec<_>>().join(" ")
@@ -333,8 +337,7 @@ mod tests {
     fn test_query_meter_dedup_with_minute_window() {
         let params = QueryMeterParams {
             aggregation: MeterAggregation::Sum,
-            namespace: "test_ns".to_string(),
-            meter_slug: "test_meter".to_string(),
+            tenant_id: TenantId::default(),
             code: "test_event".to_string(),
             value_property: Some("amount".to_string()),
             customer_ids: vec![],
@@ -346,7 +349,7 @@ mod tests {
             to: Some(Utc.with_ymd_and_hms(2024, 1, 2, 0, 0, 0).unwrap()),
         };
 
-        let result = query_meter_sql(params).unwrap();
+        let result = query_meter_sql(params, "raw_events_v2").unwrap();
         let expected = r#"
             SELECT
                 tumbleStart(toDateTime(timestamp), toIntervalMinute(1), 'UTC') AS window_start,
@@ -358,8 +361,8 @@ mod tests {
                     customer_id,
                     timestamp,
                     properties
-                FROM meteroid.raw_events
-                WHERE tenant_id = 'test_ns'
+                FROM raw_events_v2
+                WHERE tenant_id = 'ffffffff-ffff-ffff-ffff-ffffffffffff'
                     AND code = 'test_event'
                     AND timestamp >= toDateTime(1704067200)
                     AND timestamp <= toDateTime(1704153600)
@@ -381,8 +384,7 @@ mod tests {
     fn test_query_meter_dedup_with_count() {
         let params = QueryMeterParams {
             aggregation: MeterAggregation::Count,
-            namespace: "test_ns".to_string(),
-            meter_slug: "test_meter".to_string(),
+            tenant_id: TenantId::default(),
             code: "api_call".to_string(),
             value_property: None,
             customer_ids: vec![],
@@ -394,7 +396,7 @@ mod tests {
             to: Some(Utc.with_ymd_and_hms(2024, 1, 2, 0, 0, 0).unwrap()),
         };
 
-        let result = query_meter_sql(params).unwrap();
+        let result = query_meter_sql(params, "raw_events_v2").unwrap();
         let expected = r#"
             SELECT
                 min(toDateTime(timestamp)) AS window_start,
@@ -406,8 +408,8 @@ mod tests {
                     customer_id,
                     timestamp,
                     properties
-                FROM meteroid.raw_events
-                WHERE tenant_id = 'test_ns'
+                FROM raw_events_v2
+                WHERE tenant_id = 'ffffffff-ffff-ffff-ffff-ffffffffffff'
                     AND code = 'api_call'
                     AND timestamp >= toDateTime(1704067200)
                     AND timestamp <= toDateTime(1704153600)
@@ -423,11 +425,13 @@ mod tests {
     fn test_query_meter_dedup_with_customer_filter() {
         let params = QueryMeterParams {
             aggregation: MeterAggregation::Sum,
-            namespace: "test_ns".to_string(),
-            meter_slug: "test_meter".to_string(),
+            tenant_id: TenantId::default(),
             code: "usage".to_string(),
             value_property: Some("bytes".to_string()),
-            customer_ids: vec!["cust1".to_string(), "cust2".to_string()],
+            customer_ids: vec![
+                CustomerId::from(Uuid::from_u128(1)),
+                CustomerId::from(Uuid::from_u128(2)),
+            ],
             segmentation_filter: None,
             group_by: vec![],
             window_size: Some(WindowSize::Hour),
@@ -436,7 +440,7 @@ mod tests {
             to: None,
         };
 
-        let result = query_meter_sql(params).unwrap();
+        let result = query_meter_sql(params, "raw_events_v2").unwrap();
         let expected = r#"
             SELECT
                 tumbleStart(toDateTime(timestamp), toIntervalHour(1), 'UTC') AS window_start,
@@ -449,11 +453,11 @@ mod tests {
                     customer_id,
                     timestamp,
                     properties
-                FROM meteroid.raw_events
-                WHERE tenant_id = 'test_ns'
+                FROM raw_events_v2
+                WHERE tenant_id = 'ffffffff-ffff-ffff-ffff-ffffffffffff'
                     AND code = 'usage'
                     AND timestamp >= toDateTime(1704067200)
-                    AND (customer_id = 'cust1' OR customer_id = 'cust2')
+                    AND (customer_id = '00000000-0000-0000-0000-000000000001' OR customer_id = '00000000-0000-0000-0000-000000000002')
                     AND properties['bytes'] != ''
                     AND isNotNull(toFloat64OrNull(properties['bytes']))
                 ORDER BY timestamp DESC
@@ -473,8 +477,7 @@ mod tests {
     fn test_query_meter_dedup_with_group_by() {
         let params = QueryMeterParams {
             aggregation: MeterAggregation::Avg,
-            namespace: "test_ns".to_string(),
-            meter_slug: "test_meter".to_string(),
+            tenant_id: TenantId::default(),
             code: "transaction".to_string(),
             value_property: Some("duration".to_string()),
             customer_ids: vec![],
@@ -486,7 +489,7 @@ mod tests {
             to: None,
         };
 
-        let result = query_meter_sql(params).unwrap();
+        let result = query_meter_sql(params, "raw_events_v2").unwrap();
         let expected = r#"
             SELECT
                 tumbleStart(toDateTime(timestamp), toIntervalDay(1), 'UTC') AS window_start,
@@ -500,8 +503,8 @@ mod tests {
                     customer_id,
                     timestamp,
                     properties
-                FROM meteroid.raw_events
-                WHERE tenant_id = 'test_ns'
+                FROM raw_events_v2
+                WHERE tenant_id = 'ffffffff-ffff-ffff-ffff-ffffffffffff'
                     AND code = 'transaction'
                     AND timestamp >= toDateTime(1704067200)
                     AND properties['duration'] != ''
@@ -524,8 +527,7 @@ mod tests {
     fn test_query_meter_dedup_with_independent_segmentation() {
         let params = QueryMeterParams {
             aggregation: MeterAggregation::Sum,
-            namespace: "test_ns".to_string(),
-            meter_slug: "test_meter".to_string(),
+            tenant_id: TenantId::default(),
             code: "sale".to_string(),
             value_property: Some("amount".to_string()),
             customer_ids: vec![],
@@ -543,7 +545,7 @@ mod tests {
             to: None,
         };
 
-        let result = query_meter_sql(params).unwrap();
+        let result = query_meter_sql(params, "raw_events_v2").unwrap();
         let expected = r#"
             SELECT
                 min(toDateTime(timestamp)) AS window_start,
@@ -557,8 +559,8 @@ mod tests {
                     customer_id,
                     timestamp,
                     properties
-                FROM meteroid.raw_events
-                WHERE tenant_id = 'test_ns'
+                FROM raw_events_v2
+                WHERE tenant_id = 'ffffffff-ffff-ffff-ffff-ffffffffffff'
                     AND code = 'sale'
                     AND timestamp >= toDateTime(1704067200)
                     AND (properties['region'] = 'us-east' OR properties['region'] = 'us-west')
@@ -585,8 +587,7 @@ mod tests {
 
         let params = QueryMeterParams {
             aggregation: MeterAggregation::Sum,
-            namespace: "test_ns".to_string(),
-            meter_slug: "test_meter".to_string(),
+            tenant_id: TenantId::default(),
             code: "usage".to_string(),
             value_property: Some("count".to_string()),
             customer_ids: vec![],
@@ -602,7 +603,7 @@ mod tests {
             to: None,
         };
 
-        let result = query_meter_sql(params).unwrap();
+        let result = query_meter_sql(params, "raw_events_v2").unwrap();
 
         // HashMap iteration order is not guaranteed, so check both possible orders
         let expected1 = r#"
@@ -618,8 +619,8 @@ mod tests {
                     customer_id,
                     timestamp,
                     properties
-                FROM meteroid.raw_events
-                WHERE tenant_id = 'test_ns'
+                FROM raw_events_v2
+                WHERE tenant_id = 'ffffffff-ffff-ffff-ffff-ffffffffffff'
                     AND code = 'usage'
                     AND timestamp >= toDateTime(1704067200)
                     AND ((properties['product'] = 'prod1' AND properties['version'] IN ('v1', 'v2'))
@@ -645,8 +646,8 @@ mod tests {
                     customer_id,
                     timestamp,
                     properties
-                FROM meteroid.raw_events
-                WHERE tenant_id = 'test_ns'
+                FROM raw_events_v2
+                WHERE tenant_id = 'ffffffff-ffff-ffff-ffff-ffffffffffff'
                     AND code = 'usage'
                     AND timestamp >= toDateTime(1704067200)
                     AND ((properties['product'] = 'prod2' AND properties['version'] IN ('v3'))
@@ -674,8 +675,7 @@ mod tests {
     fn test_query_meter_dedup_with_count_distinct() {
         let params = QueryMeterParams {
             aggregation: MeterAggregation::CountDistinct,
-            namespace: "test_ns".to_string(),
-            meter_slug: "test_meter".to_string(),
+            tenant_id: TenantId::default(),
             code: "login".to_string(),
             value_property: Some("user_id".to_string()),
             customer_ids: vec![],
@@ -687,7 +687,7 @@ mod tests {
             to: None,
         };
 
-        let result = query_meter_sql(params).unwrap();
+        let result = query_meter_sql(params, "raw_events_v2").unwrap();
         let expected = r#"
             SELECT
                 tumbleStart(toDateTime(timestamp), toIntervalDay(1), 'UTC') AS window_start,
@@ -699,8 +699,8 @@ mod tests {
                     customer_id,
                     timestamp,
                     properties
-                FROM meteroid.raw_events
-                WHERE tenant_id = 'test_ns'
+                FROM raw_events_v2
+                WHERE tenant_id = 'ffffffff-ffff-ffff-ffff-ffffffffffff'
                     AND code = 'login'
                     AND timestamp >= toDateTime(1704067200)
                     AND properties['user_id'] != ''
@@ -721,8 +721,7 @@ mod tests {
     fn test_query_meter_dedup_with_latest_aggregation() {
         let params = QueryMeterParams {
             aggregation: MeterAggregation::Latest,
-            namespace: "test_ns".to_string(),
-            meter_slug: "test_meter".to_string(),
+            tenant_id: TenantId::default(),
             code: "status".to_string(),
             value_property: Some("value".to_string()),
             customer_ids: vec![],
@@ -734,7 +733,7 @@ mod tests {
             to: None,
         };
 
-        let result = query_meter_sql(params).unwrap();
+        let result = query_meter_sql(params, "raw_events_v2").unwrap();
         let expected = r#"
             SELECT
                 min(toDateTime(timestamp)) AS window_start,
@@ -746,8 +745,8 @@ mod tests {
                     customer_id,
                     timestamp,
                     properties
-                FROM meteroid.raw_events
-                WHERE tenant_id = 'test_ns'
+                FROM raw_events_v2
+                WHERE tenant_id = 'ffffffff-ffff-ffff-ffff-ffffffffffff'
                     AND code = 'status'
                     AND timestamp >= toDateTime(1704067200)
                     AND properties['value'] != ''
@@ -764,8 +763,7 @@ mod tests {
     fn test_query_meter_dedup_validates_empty_segmentation() {
         let params = QueryMeterParams {
             aggregation: MeterAggregation::Sum,
-            namespace: "test_ns".to_string(),
-            meter_slug: "test_meter".to_string(),
+            tenant_id: TenantId::default(),
             code: "test".to_string(),
             value_property: Some("amount".to_string()),
             customer_ids: vec![],
@@ -780,7 +778,7 @@ mod tests {
             to: None,
         };
 
-        let result = query_meter_sql(params);
+        let result = query_meter_sql(params, "raw_events_v2");
         assert!(result.is_err());
         assert_eq!(result.unwrap_err(), "Empty filter for dimension: region");
     }
@@ -789,8 +787,7 @@ mod tests {
     fn test_query_meter_dedup_validates_value_property_required() {
         let params = QueryMeterParams {
             aggregation: MeterAggregation::Sum,
-            namespace: "test_ns".to_string(),
-            meter_slug: "test_meter".to_string(),
+            tenant_id: TenantId::default(),
             code: "test".to_string(),
             value_property: None,
             customer_ids: vec![],
@@ -802,7 +799,7 @@ mod tests {
             to: None,
         };
 
-        let result = query_meter_sql(params);
+        let result = query_meter_sql(params, "raw_events_v2");
         assert!(result.is_err());
         assert_eq!(
             result.unwrap_err(),
@@ -814,8 +811,7 @@ mod tests {
     fn test_query_meter_dedup_includes_value_property_filter() {
         let params = QueryMeterParams {
             aggregation: MeterAggregation::Sum,
-            namespace: "test_ns".to_string(),
-            meter_slug: "test_meter".to_string(),
+            tenant_id: TenantId::default(),
             code: "purchase".to_string(),
             value_property: Some("price".to_string()),
             customer_ids: vec![],
@@ -827,7 +823,7 @@ mod tests {
             to: None,
         };
 
-        let result = query_meter_sql(params).unwrap();
+        let result = query_meter_sql(params, "raw_events_v2").unwrap();
         let expected = r#"
             SELECT
                 min(toDateTime(timestamp)) AS window_start,
@@ -839,8 +835,8 @@ mod tests {
                     customer_id,
                     timestamp,
                     properties
-                FROM meteroid.raw_events
-                WHERE tenant_id = 'test_ns'
+                FROM raw_events_v2
+                WHERE tenant_id = 'ffffffff-ffff-ffff-ffff-ffffffffffff'
                     AND code = 'purchase'
                     AND timestamp >= toDateTime(1704067200)
                     AND properties['price'] != ''
@@ -857,8 +853,7 @@ mod tests {
     fn test_query_meter_dedup_time_filters_in_cte() {
         let params = QueryMeterParams {
             aggregation: MeterAggregation::Count,
-            namespace: "test_ns".to_string(),
-            meter_slug: "test_meter".to_string(),
+            tenant_id: TenantId::default(),
             code: "event".to_string(),
             value_property: None,
             customer_ids: vec![],
@@ -870,7 +865,7 @@ mod tests {
             to: Some(Utc.with_ymd_and_hms(2024, 1, 2, 0, 0, 0).unwrap()),
         };
 
-        let result = query_meter_sql(params).unwrap();
+        let result = query_meter_sql(params, "raw_events_v2").unwrap();
         let expected = r#"
             SELECT
                 min(toDateTime(timestamp)) AS window_start,
@@ -882,8 +877,8 @@ mod tests {
                     customer_id,
                     timestamp,
                     properties
-                FROM meteroid.raw_events
-                WHERE tenant_id = 'test_ns'
+                FROM raw_events_v2
+                WHERE tenant_id = 'ffffffff-ffff-ffff-ffff-ffffffffffff'
                     AND code = 'event'
                     AND timestamp >= toDateTime(1704067200)
                     AND timestamp <= toDateTime(1704153600)
@@ -901,8 +896,7 @@ mod tests {
         // it uses properties map and aliases as "prop_code" to avoid collision
         let params = QueryMeterParams {
             aggregation: MeterAggregation::Sum,
-            namespace: "test_ns".to_string(),
-            meter_slug: "test_meter".to_string(),
+            tenant_id: TenantId::default(),
             code: "purchase".to_string(),
             value_property: Some("amount".to_string()),
             customer_ids: vec![],
@@ -914,7 +908,7 @@ mod tests {
             to: None,
         };
 
-        let result = query_meter_sql(params).unwrap();
+        let result = query_meter_sql(params, "raw_events_v2").unwrap();
         let expected = r#"
             SELECT
                 min(toDateTime(timestamp)) AS window_start,
@@ -927,8 +921,8 @@ mod tests {
                     customer_id,
                     timestamp,
                     properties
-                FROM meteroid.raw_events
-                WHERE tenant_id = 'test_ns'
+                FROM raw_events_v2
+                WHERE tenant_id = 'ffffffff-ffff-ffff-ffff-ffffffffffff'
                     AND code = 'purchase'
                     AND timestamp >= toDateTime(1704067200)
                     AND properties['amount'] != ''
@@ -948,8 +942,7 @@ mod tests {
         // it uses properties map and aliases as "prop_customer_id" to avoid collision
         let params = QueryMeterParams {
             aggregation: MeterAggregation::Sum,
-            namespace: "test_ns".to_string(),
-            meter_slug: "test_meter".to_string(),
+            tenant_id: TenantId::default(),
             code: "usage".to_string(),
             value_property: Some("bytes".to_string()),
             customer_ids: vec![],
@@ -964,7 +957,7 @@ mod tests {
             to: None,
         };
 
-        let result = query_meter_sql(params).unwrap();
+        let result = query_meter_sql(params, "raw_events_v2").unwrap();
         let expected = r#"
             SELECT
                 min(toDateTime(timestamp)) AS window_start,
@@ -977,8 +970,8 @@ mod tests {
                     customer_id,
                     timestamp,
                     properties
-                FROM meteroid.raw_events
-                WHERE tenant_id = 'test_ns'
+                FROM raw_events_v2
+                WHERE tenant_id = 'ffffffff-ffff-ffff-ffff-ffffffffffff'
                     AND code = 'usage'
                     AND timestamp >= toDateTime(1704067200)
                     AND (properties['customer_id'] = 'cust1' OR properties['customer_id'] = 'cust2')
@@ -999,8 +992,7 @@ mod tests {
         // Reserved names get prop_ prefix, custom properties use their normal name
         let params = QueryMeterParams {
             aggregation: MeterAggregation::Count,
-            namespace: "test_ns".to_string(),
-            meter_slug: "test_meter".to_string(),
+            tenant_id: TenantId::default(),
             code: "event".to_string(),
             value_property: None,
             customer_ids: vec![],
@@ -1016,7 +1008,7 @@ mod tests {
             to: None,
         };
 
-        let result = query_meter_sql(params).unwrap();
+        let result = query_meter_sql(params, "raw_events_v2").unwrap();
         let expected = r#"
             SELECT
                 min(toDateTime(timestamp)) AS window_start,
@@ -1031,8 +1023,8 @@ mod tests {
                     customer_id,
                     timestamp,
                     properties
-                FROM meteroid.raw_events
-                WHERE tenant_id = 'test_ns'
+                FROM raw_events_v2
+                WHERE tenant_id = 'ffffffff-ffff-ffff-ffff-ffffffffffff'
                     AND code = 'event'
                     AND timestamp >= toDateTime(1704067200)
                 ORDER BY timestamp DESC

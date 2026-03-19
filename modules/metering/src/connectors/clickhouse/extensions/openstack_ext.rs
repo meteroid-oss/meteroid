@@ -2,8 +2,6 @@
 
 use crate::connectors::clickhouse::ClickhouseConnector;
 use crate::connectors::clickhouse::extensions::ConnectorClickhouseExtension;
-use crate::connectors::clickhouse::sql::DATABASE;
-use crate::connectors::clickhouse::sql::init::get_events_table_name;
 use crate::connectors::errors::ConnectorError;
 use crate::domain::WindowSize;
 use crate::domain::{QueryMeterParams, Usage};
@@ -15,7 +13,9 @@ use clickhouse::Client;
  * custom queries for some Openstack-related events with custom aggregation/query requirements.
  * Currently, it only supports the "openstack.instance.uptime" event. Other events are supported via standard queries (ex: bandwidth)
  */
-pub(crate) struct OpenstackClickhouseExtension {}
+pub(crate) struct OpenstackClickhouseExtension {
+    pub events_table: String,
+}
 
 #[async_trait::async_trait]
 impl ConnectorClickhouseExtension for OpenstackClickhouseExtension {
@@ -42,6 +42,7 @@ impl ConnectorClickhouseExtension for OpenstackClickhouseExtension {
                 to: params.to,
                 window_size: params.window_size,
                 group_by_flavor: params.group_by.iter().find(|&x| x == "flavor").is_some(),
+                events_table: self.events_table.clone(),
             });
 
             Some(query)
@@ -60,6 +61,7 @@ pub struct QueryOpenStackInstanceParams {
     pub to: Option<DateTime<Utc>>,
     pub window_size: Option<WindowSize>,
     pub group_by_flavor: bool,
+    pub events_table: String,
 }
 
 pub fn build_openstack_instance_query(params: &QueryOpenStackInstanceParams) -> String {
@@ -118,8 +120,8 @@ WITH
                 ROWS BETWEEN CURRENT ROW AND UNBOUNDED FOLLOWING
             ) AS end_time,
             code
-        FROM meteroid.raw_events
-        WHERE raw_events.code IN ('compute.instance.create.end', 'compute.instance.delete.end', 'compute.instance.resize.confirm.end')
+        FROM {events_table}
+        WHERE {events_table}.code IN ('compute.instance.create.end', 'compute.instance.delete.end', 'compute.instance.resize.confirm.end')
     ),
     instance_periods AS (
         SELECT
@@ -174,6 +176,7 @@ ORDER BY ts.windowstart{flavor_order_by}
         flavor_select = flavor_select,
         flavor_group_by = flavor_group_by,
         flavor_order_by = flavor_order_by,
+        events_table = params.events_table,
     )
 }
 
@@ -191,6 +194,7 @@ mod tests {
             to: Some(Utc.with_ymd_and_hms(2023, 6, 2, 0, 0, 0).unwrap()),
             window_size: Some(WindowSize::Hour),
             group_by_flavor: true,
+            events_table: "raw_events_v2".to_string(),
         };
 
         let query = build_openstack_instance_query(&params);
@@ -215,6 +219,7 @@ mod tests {
             to: None,
             window_size: Some(WindowSize::Day),
             group_by_flavor: false,
+            events_table: "raw_events_v2".to_string(),
         };
 
         let query = build_openstack_instance_query(&params);
@@ -235,6 +240,7 @@ mod tests {
             to: Some(Utc.with_ymd_and_hms(2023, 8, 1, 13, 0, 0).unwrap()),
             window_size: Some(WindowSize::Minute),
             group_by_flavor: true,
+            events_table: "raw_events_v2".to_string(),
         };
 
         let query = build_openstack_instance_query(&params);

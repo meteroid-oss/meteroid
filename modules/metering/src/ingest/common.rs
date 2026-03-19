@@ -1,5 +1,6 @@
 use chrono::{DateTime, Utc};
-use metering_grpc::meteroid::metering::v1::event::CustomerId;
+use common_domain::ids::{CustomerId, TenantId};
+use metering_grpc::meteroid::metering::v1::event::CustomerId as ProtoCustomerId;
 use metering_grpc::meteroid::metering::v1::{Event, IngestFailure};
 use opentelemetry::KeyValue;
 use std::collections::HashMap;
@@ -37,7 +38,7 @@ impl EventProcessor {
     pub async fn process_events(
         &self,
         events: Vec<Event>,
-        tenant_id: String,
+        tenant_id: TenantId,
         allow_backfilling: bool,
         fail_on_error: bool,
     ) -> Result<IngestResult, Status> {
@@ -70,16 +71,22 @@ impl EventProcessor {
         for event in events {
             match validate_event(&event, &now, allow_backfilling) {
                 Ok((id, ts)) => match id {
-                    CustomerId::MeteroidCustomerId(id) => {
-                        resolved.push(to_domain_event(event, id, tenant_id.clone(), ts, now));
-                    }
-                    CustomerId::ExternalCustomerAlias(alias) => {
-                        let from_cache = CUSTOMER_ID_CACHE.get(&(tenant_id.clone(), alias.clone()));
+                    ProtoCustomerId::MeteroidCustomerId(id) => match CustomerId::from_proto(id) {
+                        Ok(customer_id) => {
+                            resolved.push(to_domain_event(event, customer_id, tenant_id, ts, now))
+                        }
+                        Err(e) => failed_events.push(FailedEvent {
+                            event,
+                            reason: e.to_string(),
+                        }),
+                    },
+                    ProtoCustomerId::ExternalCustomerAlias(alias) => {
+                        let from_cache = CUSTOMER_ID_CACHE.get(&(tenant_id, alias.clone()));
                         match from_cache {
                             Some(meteroid_id) => resolved.push(to_domain_event(
                                 event,
-                                meteroid_id.clone(),
-                                tenant_id.clone(),
+                                meteroid_id,
+                                tenant_id,
                                 ts,
                                 now,
                             )),
@@ -119,17 +126,14 @@ impl EventProcessor {
             tracing::info!(
                 "Resolving {} customer aliases for {} unresolved events",
                 unresolved_aliases.len(),
-                unresolved_by_alias
-                    .values()
-                    .map(std::vec::Vec::len)
-                    .sum::<usize>()
+                unresolved_by_alias.values().map(Vec::len).sum::<usize>()
             );
 
             let res = self
                 .internal_client
                 .clone()
                 .resolve_customer_aliases(ResolveCustomerAliasesRequest {
-                    tenant_id: tenant_id.clone(),
+                    tenant_id: tenant_id.as_proto(),
                     aliases: unresolved_aliases,
                 })
                 .await
@@ -153,27 +157,20 @@ impl EventProcessor {
             }
 
             for customer in res.customers {
-                CUSTOMER_ID_CACHE.insert(
-                    (tenant_id.clone(), customer.alias.clone()),
-                    customer.local_id.clone(),
-                );
+                let customer_id = CustomerId::from_proto(customer.local_id.clone())?;
+
+                CUSTOMER_ID_CACHE.insert((tenant_id, customer.alias.clone()), customer_id);
 
                 if let Some(events_for_alias) = unresolved_by_alias.remove(&customer.alias) {
                     tracing::debug!(
                         "Resolved alias {} to customer {}, processing {} events",
                         customer.alias,
-                        customer.local_id,
+                        customer_id,
                         events_for_alias.len()
                     );
 
                     for (event, ts) in events_for_alias {
-                        resolved.push(to_domain_event(
-                            event,
-                            customer.local_id.clone(),
-                            tenant_id.clone(),
-                            ts,
-                            now,
-                        ));
+                        resolved.push(to_domain_event(event, customer_id, tenant_id, ts, now));
                     }
                 }
             }
@@ -207,7 +204,7 @@ impl EventProcessor {
             }
         }
 
-        let default_attributes = &[KeyValue::new("tenant_id", tenant_id)];
+        let default_attributes = &[KeyValue::new("tenant_id", tenant_id.as_proto())];
 
         tracing::info!(
             "Sending {} resolved events to sink (originally {} events, {} failed validation)",
@@ -250,8 +247,8 @@ impl EventProcessor {
 
 fn to_domain_event(
     event: Event,
-    customer_id: String,
-    tenant_id: String,
+    customer_id: CustomerId,
+    tenant_id: TenantId,
     ts: DateTime<Utc>,
     now: DateTime<Utc>,
 ) -> RawEvent {
@@ -270,13 +267,13 @@ pub fn validate_event(
     event: &Event,
     now: &DateTime<Utc>,
     allow_backfill: bool,
-) -> Result<(CustomerId, DateTime<Utc>), String> {
+) -> Result<(ProtoCustomerId, DateTime<Utc>), String> {
     let customer = event.customer_id.as_ref().ok_or("No customer provided")?;
 
     let ts = if event.timestamp.is_empty() {
         *now
     } else {
-        match chrono::DateTime::parse_from_rfc3339(&event.timestamp) {
+        match DateTime::parse_from_rfc3339(&event.timestamp) {
             Ok(parsed_ts) => {
                 let ts = parsed_ts.to_utc();
                 let diff = ts - *now;

@@ -74,7 +74,9 @@ pub async fn start_api_server(
             &config.kafka,
             vec![
                 #[cfg(feature = "openstack")]
-                Arc::new(OpenstackClickhouseExtension {}),
+                Arc::new(OpenstackClickhouseExtension {
+                    events_table: config.clickhouse.raw_events_table.clone(),
+                }),
             ],
         )
         .await?;

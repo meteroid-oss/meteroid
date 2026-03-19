@@ -97,5 +97,8 @@ pub struct ClickhouseConfig {
 
     #[envconfig(from = "CLICKHOUSE_CLUSTER_NAME", default = "meteroid")]
     pub cluster_name: String,
+
+    #[envconfig(from = "CLICKHOUSE_RAW_EVENTS_TABLE", default = "raw_events_v2")]
+    pub raw_events_table: String,
     // TODO TLS
 }

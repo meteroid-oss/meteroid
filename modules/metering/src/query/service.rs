@@ -18,6 +18,7 @@ use crate::domain::{
 };
 use crate::error::MeteringApiError;
 use crate::utils::{datetime_to_timestamp, timestamp_to_datetime};
+use common_domain::ids::{CustomerId, TenantId};
 use metering_grpc::meteroid::metering::v1::Event;
 
 #[derive(Clone)]
@@ -92,11 +93,14 @@ impl UsageQueryServiceGrpc for UsageQueryService {
 
         let meter = QueryMeterParams {
             aggregation: meter_aggregation,
-            namespace: req.tenant_id,
-            meter_slug: req.meter_slug,
+            tenant_id: TenantId::from_proto(req.tenant_id)?,
             code: req.code,
             value_property: req.value_property,
-            customer_ids: req.customer_ids,
+            customer_ids: req
+                .customer_ids
+                .into_iter()
+                .map(CustomerId::from_proto)
+                .collect::<Result<Vec<_>, _>>()?,
             group_by: req.group_by_properties,
             window_size,
             window_time_zone: req.timezone,
@@ -149,7 +153,7 @@ impl UsageQueryServiceGrpc for UsageQueryService {
         };
 
         let params = QueryRawEventsParams {
-            tenant_id: req.tenant_id,
+            tenant_id: TenantId::from_proto(req.tenant_id)?,
             from: req
                 .from
                 .map(timestamp_to_datetime)
@@ -159,7 +163,11 @@ impl UsageQueryServiceGrpc for UsageQueryService {
             offset: req.offset,
             search: req.search,
             event_codes: req.event_codes,
-            customer_ids: req.customer_ids,
+            customer_ids: req
+                .customer_ids
+                .into_iter()
+                .map(CustomerId::from_proto)
+                .collect::<Result<Vec<_>, _>>()?,
             sort_order,
         };
 
@@ -177,7 +185,7 @@ impl UsageQueryServiceGrpc for UsageQueryService {
                 code: raw_event.code,
                 customer_id: Some(
                     metering_grpc::meteroid::metering::v1::event::CustomerId::MeteroidCustomerId(
-                        raw_event.customer_id,
+                        raw_event.customer_id.as_proto(),
                     ),
                 ),
                 timestamp: raw_event.timestamp.and_utc().to_rfc3339(),

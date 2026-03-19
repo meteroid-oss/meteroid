@@ -33,7 +33,7 @@ impl EventsServiceGrpc for EventsService {
         &self,
         request: Request<IngestRequest>,
     ) -> Result<Response<IngestResponse>, Status> {
-        let tenant_id = request.tenant()?.to_string();
+        let tenant_id = request.tenant()?;
         let req = request.into_inner();
 
         let result = self
