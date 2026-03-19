@@ -1,6 +1,5 @@
 import { createConnectQueryKey, disableQuery, useMutation } from '@connectrpc/connect-query'
 import {
-  Badge,
   Button,
   Checkbox,
   Input,
@@ -17,6 +16,7 @@ import { ChevronDown, ChevronRight } from 'lucide-react'
 import { useCallback, useMemo, useState } from 'react'
 import { toast } from 'sonner'
 
+import { MatrixRowStatusBadge } from '@/features/productCatalog/items/MatrixRowStatusBadge'
 import { useMatrixDimensions } from '@/hooks/useMatrixDimensions'
 import { useQuery } from '@/lib/connectrpc'
 import { getBillableMetric } from '@/rpc/api/billablemetrics/v1/billablemetrics-BillableMetricsService_connectquery'
@@ -551,7 +551,7 @@ export const MatrixRowsSection = ({ productId, metricId, currencies }: MatrixRow
                   <TableCell className="font-mono text-xs">{combo.d2Value}</TableCell>
                 )}
                 <TableCell>
-                  <StatusBadge status={status} />
+                  <MatrixRowStatusBadge status={status} />
                 </TableCell>
               </TableRow>
             ))}
@@ -635,13 +635,3 @@ function VersionList({ versions }: { versions: number[] }) {
   )
 }
 
-function StatusBadge({ status }: { status: RowStatus }) {
-  switch (status) {
-    case 'active':
-      return <Badge variant="default">Active</Badge>
-    case 'missing':
-      return <Badge variant="outline">Missing</Badge>
-    case 'orphaned':
-      return <Badge variant="destructive">Orphaned</Badge>
-  }
-}

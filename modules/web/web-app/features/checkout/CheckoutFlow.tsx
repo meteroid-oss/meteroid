@@ -26,6 +26,7 @@ const CheckoutFlow: React.FC<CheckoutFlowProps> = ({
   checkoutData: initialCheckoutData,
   checkoutType,
   planChangeContext,
+  addonPurchaseContext,
 }) => {
   const [isAddressEditing, setIsAddressEditing] = useState(false)
   const [couponCode, setCouponCode] = useState('')
@@ -168,7 +169,9 @@ const CheckoutFlow: React.FC<CheckoutFlowProps> = ({
         <div className="text-sm font-medium mx-auto">
           {checkoutType === CheckoutType.PLAN_CHANGE
             ? `Upgrade to ${planChangeContext?.newPlanName ?? subscription.subscription.planName}`
-            : `Subscribe to ${subscription.subscription.planName}`}
+            : checkoutType === CheckoutType.ADDON_PURCHASE
+              ? `Add ${addonPurchaseContext?.addOnName ?? 'add-on'}`
+              : `Subscribe to ${subscription.subscription.planName}`}
         </div>
       </div>
 
@@ -186,7 +189,9 @@ const CheckoutFlow: React.FC<CheckoutFlowProps> = ({
               couponError={couponError}
               isApplyingCoupon={isApplyingCoupon}
               isPlanChange={checkoutType === CheckoutType.PLAN_CHANGE}
+              isAddonPurchase={checkoutType === CheckoutType.ADDON_PURCHASE}
               planChangeContext={planChangeContext}
+              addonPurchaseContext={addonPurchaseContext}
             />
           </div>
         </div>

@@ -574,6 +574,125 @@ impl Services {
 
                             subscription_id
                         }
+                        CheckoutType::AddonPurchase => {
+                            let subscription_id = session.subscription_id.ok_or_else(|| {
+                                Report::new(StoreError::InvalidArgument(
+                                    "AddonPurchase checkout missing subscription_id".to_string(),
+                                ))
+                            })?;
+
+                            let create_add_ons = session.add_ons.as_ref().ok_or_else(|| {
+                                Report::new(StoreError::InvalidArgument(
+                                    "AddonPurchase checkout session has no add_ons".to_string(),
+                                ))
+                            })?;
+
+                            let addon_ids: Vec<_> =
+                                create_add_ons.add_ons.iter().map(|a| a.add_on_id).collect();
+                            let addons = {
+                                let rows = diesel_models::add_ons::AddOnRow::list_by_ids(
+                                    conn,
+                                    &addon_ids,
+                                    &event.tenant_id,
+                                )
+                                .await
+                                .map_err(Into::<Report<StoreError>>::into)?;
+                                crate::repositories::add_ons::enrich_add_ons(
+                                    conn,
+                                    rows,
+                                    event.tenant_id,
+                                )
+                                .await?
+                            };
+
+                            let product_ids: Vec<_> =
+                                addons.iter().map(|a| a.product_id).collect();
+                            let price_ids: Vec<_> = addons.iter().map(|a| a.price_id).collect();
+                            let (prices_by_id, products_by_id) =
+                                crate::repositories::subscriptions::fetch_prices_and_products(
+                                    conn,
+                                    event.tenant_id,
+                                    price_ids.into_iter(),
+                                    product_ids.into_iter(),
+                                )
+                                .await?;
+
+                            crate::repositories::subscription_add_ons::resolve_and_insert_checkout_addons(
+                                conn,
+                                subscription_id,
+                                &addons,
+                                &create_add_ons.add_ons,
+                                &products_by_id,
+                                &prices_by_id,
+                            )
+                            .await?;
+
+                            // Create prorated one-off invoice for the addon purchase
+                            let result = self
+                                .compute_addon_purchase_invoice(
+                                    conn,
+                                    event.tenant_id,
+                                    subscription_id,
+                                    &create_add_ons.add_ons,
+                                    &addons,
+                                    &products_by_id,
+                                    &prices_by_id,
+                                )
+                                .await?;
+
+                            let content =
+                                crate::services::invoices::AdjustmentInvoiceContent {
+                                    computed: result.invoice_content,
+                                    invoicing_entity: None,
+                                };
+
+                            let draft = self
+                                .create_adjustment_invoice_from_content(
+                                    conn,
+                                    &result.subscription,
+                                    &result.customer,
+                                    &result.proration,
+                                    content,
+                                )
+                                .await?;
+
+                            if let Some(invoice) = draft {
+                                self.finalize_invoice_tx(
+                                    conn,
+                                    invoice.id,
+                                    event.tenant_id,
+                                    false,
+                                    &None,
+                                )
+                                .await?;
+
+                                self.link_transaction_to_invoice(
+                                    conn,
+                                    event.tenant_id,
+                                    event.payment_transaction_id,
+                                    invoice.id,
+                                )
+                                .await?;
+
+                                diesel_models::invoices::InvoiceRow::apply_transaction(
+                                    conn,
+                                    invoice.id,
+                                    event.tenant_id,
+                                    charge_result.amount,
+                                )
+                                .await?;
+                                diesel_models::invoices::InvoiceRow::apply_payment_status(
+                                    conn,
+                                    invoice.id,
+                                    event.tenant_id,
+                                    diesel_models::enums::InvoicePaymentStatus::Paid,
+                                    charge_result.payment_intent.processed_at,
+                                )
+                                .await?;
+                            }
+
+                            subscription_id
+                        }
                     };
 
                     CheckoutSessionRow::mark_completed(

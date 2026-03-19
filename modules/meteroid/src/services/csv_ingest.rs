@@ -391,10 +391,10 @@ pub mod optional_decimal {
             if v.trim().is_empty() {
                 Ok(None)
             } else {
-                v.parse::<f64>()
-                    .map_err(de::Error::custom)
-                    .and_then(|f| Decimal::try_from(f).map_err(de::Error::custom))
+                v.trim()
+                    .parse::<Decimal>()
                     .map(Some)
+                    .map_err(de::Error::custom)
             }
         }
 

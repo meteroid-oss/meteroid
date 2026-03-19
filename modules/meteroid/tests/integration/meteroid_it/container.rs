@@ -94,7 +94,10 @@ pub async fn start_meteroid_with_port(
     usage_client: Arc<dyn UsageClient>,
     mailer: Arc<dyn MailerService>,
 ) -> MeteroidSetup {
-    let rest_api_addr = helpers::network::free_local_socket().expect("Could not get webhook addr");
+    let rest_listener = tokio::net::TcpListener::bind("127.0.0.1:0")
+        .await
+        .expect("Could not bind REST listener");
+    let rest_api_addr = rest_listener.local_addr().expect("Could not get REST addr");
 
     let config = super::config::mocked_config(
         postgres_connection_string,
@@ -140,13 +143,14 @@ pub async fn start_meteroid_with_port(
     let stripe_adapter = Arc::new(Stripe { client: stripe });
 
     let ready = std::sync::Arc::new(std::sync::atomic::AtomicBool::new(true));
-    let rest_server = meteroid::api_rest::server::start_rest_server(
+    let rest_server = meteroid::api_rest::server::start_rest_server_with_listener(
         config.clone(),
         in_memory_object_store(),
         stripe_adapter,
         store.clone(),
         services.clone(),
         ready,
+        rest_listener,
     );
 
     let join_handle_meteroid = tokio::spawn(async move {

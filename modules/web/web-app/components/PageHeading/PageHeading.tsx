@@ -7,12 +7,10 @@ interface PageHeadingProps {
 
 const PageHeading: FunctionComponent<PageHeadingProps> = ({ children, count }) => {
   return (
-    <h1 className="text-xl font-bold leading-none">
+    <h1 className="text-2xl font-bold">
       {children}
       {count !== undefined && count >= 0 && (
-        <span className="inline-block text-lg font-medium leading-none text-muted-foreground ml-1.5">
-          ({count})
-        </span>
+        <span className="text-xs font-medium text-muted-foreground ml-1.5">({count})</span>
       )}
     </h1>
   )

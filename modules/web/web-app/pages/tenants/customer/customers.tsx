@@ -53,8 +53,11 @@ export const Customers: FunctionComponent = () => {
   return (
     <Fragment>
       <TenantPageLayout>
-        <Flex direction="column" className="gap-2 h-full">
+        <Flex direction="column" className="gap-8 h-full">
           <CustomersHeader
+            count={count}
+            isLoading={isLoading}
+            refetch={() => customersQuery.refetch()}
             setEditPanelVisible={setCreatePanelVisible}
             setSearch={setSearch}
             search={search}

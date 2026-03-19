@@ -42,10 +42,13 @@ import {
   X,
   Zap,
 } from 'lucide-react'
-import { useMemo, useEffect, useRef, useState } from 'react'
+import { useEffect, useMemo, useRef, useState } from 'react'
 
 import { FeeTypePicker } from '@/features/plans/pricecomponents/FeeTypePicker'
-import { ProductBrowser, extractStructuralInfo } from '@/features/plans/pricecomponents/ProductBrowser'
+import {
+  ProductBrowser,
+  extractStructuralInfo,
+} from '@/features/plans/pricecomponents/ProductBrowser'
 import { ProductPricingForm } from '@/features/plans/pricecomponents/ProductPricingForm'
 import { type ComponentFeeType, feeTypeFromPrice, formDataToPrice } from '@/features/pricing'
 import { useQuery } from '@/lib/connectrpc'
@@ -514,7 +517,12 @@ const CompactPriceComponentCard = ({
           <div className="flex items-center justify-end gap-1">
             {usage ? (
               <span>
-                {usage.model && <><span className="text-muted-foreground">{usage.model}</span>{' '}</>}{usage.amount}
+                {usage.model && (
+                  <>
+                    <span className="text-muted-foreground">{usage.model}</span>{' '}
+                  </>
+                )}
+                {usage.amount}
               </span>
             ) : (
               <span className="text-muted-foreground">Metered</span>
@@ -753,7 +761,12 @@ const ExtraComponentCard = ({
                     const usage = formatUsagePriceSummary(displayPrice, currency)
                     return (
                       <span>
-                        {usage.model && <><span className="text-muted-foreground">{usage.model}</span>{' '}</>}{usage.amount}
+                        {usage.model && (
+                          <>
+                            <span className="text-muted-foreground">{usage.model}</span>{' '}
+                          </>
+                        )}
+                        {usage.amount}
                       </span>
                     )
                   })()
@@ -803,9 +816,7 @@ const AddFeeModal = ({
   )
   const [name, setName] = useState(initialValues?.name || '')
   const [description, setDescription] = useState(initialValues?.description || '')
-  const [feeType, setFeeType] = useState<ComponentFeeType | null>(
-    initialValues?.feeType ?? null
-  )
+  const [feeType, setFeeType] = useState<ComponentFeeType | null>(initialValues?.feeType ?? null)
 
   const handleFeeTypeSelect = (ft: ComponentFeeType) => {
     setFeeType(ft)
@@ -1015,4 +1026,3 @@ const OverrideFeeModal = ({
     </Dialog>
   )
 }
-

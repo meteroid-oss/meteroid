@@ -241,6 +241,12 @@ impl ProductsService for ProductServiceComponents {
 
         let catalog_only = req.catalog_only.unwrap_or(true);
 
+        let fee_types: Vec<_> = req
+            .fee_types
+            .iter()
+            .map(|&ft| fee_type_from_proto(ft))
+            .collect::<Result<_, _>>()?;
+
         let res = self
             .store
             .list_products_with_latest_price(
@@ -249,6 +255,7 @@ impl ProductsService for ProductServiceComponents {
                 &req.currency,
                 req.query.as_deref(),
                 catalog_only,
+                fee_types,
                 pagination_req,
             )
             .await

@@ -7,6 +7,7 @@ import PageHeading from '@/components/PageHeading/PageHeading'
 
 interface CatalogHeaderProps {
   heading: string
+  count?: number
   newButtonText?: string
   isLoading: boolean
   refetch: () => void
@@ -16,6 +17,7 @@ interface CatalogHeaderProps {
 
 export const CatalogHeader: FunctionComponent<CatalogHeaderProps> = ({
   heading,
+  count,
   newButtonText,
   isLoading,
   refetch,
@@ -25,7 +27,7 @@ export const CatalogHeader: FunctionComponent<CatalogHeaderProps> = ({
   return (
     <div className="flex flex-col gap-8">
       <div className="flex flex-row items-center justify-between">
-        <PageHeading>{heading}</PageHeading>
+        <PageHeading count={count}>{heading}</PageHeading>
         <div className="flex flex-row gap-2">
           {newButtonText && (
             <Button hasIcon variant="primary" onClick={() => setEditPanelVisible(true)} size="sm">
@@ -34,14 +36,14 @@ export const CatalogHeader: FunctionComponent<CatalogHeaderProps> = ({
           )}
         </div>
       </div>
-      <div className="flex flex-row items-center gap-2">
+      <div className="flex flex-row items-center justify-between">
         <InputWithIcon
           placeholder={`Search ${heading.toLocaleLowerCase()}`}
           icon={<SearchIcon size={16} />}
           width="fit-content"
           onChange={e => setSearch(e.target.value)}
         />
-        <Button variant="secondary" disabled={isLoading} onClick={refetch}>
+        <Button variant="outline" size="sm" disabled={isLoading} onClick={refetch}>
           <RefreshCwIcon size={14} className={isLoading ? 'animate-spin' : ''} />
         </Button>
       </div>

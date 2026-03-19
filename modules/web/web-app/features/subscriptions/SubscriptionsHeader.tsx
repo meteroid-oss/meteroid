@@ -1,5 +1,5 @@
 import { PlusIcon, SearchIcon } from '@md/icons'
-import { Button, InputWithIcon } from '@ui/components'
+import { Button, InputWithIcon } from '@md/ui'
 import { FileUpIcon, RefreshCwIcon } from 'lucide-react'
 import { FunctionComponent, useState } from 'react'
 import { Link } from 'react-router-dom'
@@ -39,33 +39,35 @@ export const SubscriptionsHeader: FunctionComponent<SubscriptionsProps> = ({
               Import CSV
             </Button>
             <Link to="create">
-              <Button variant="primary" hasIcon>
+              <Button variant="primary" size="sm" hasIcon>
                 <PlusIcon size={10} fill="white" /> New subscription
               </Button>
             </Link>
           </div>
         </div>
-        <div className="flex flex-row items-center gap-2">
-          <InputWithIcon
-            placeholder="Search subscriptions"
-            icon={<SearchIcon size={16} />}
-            width="fit-content"
-            disabled
-          />
-          <MultiFilter
-            emptyLabel="All statuses"
-            entries={[
-              { label: 'Pending', value: 'pending' },
-              { label: 'Trialing', value: 'trialing' },
-              { label: 'Active', value: 'active' },
-              { label: 'Canceled', value: 'canceled' },
-              { label: 'Ended', value: 'ended' },
-              { label: 'Trial Expired', value: 'trial_expired' },
-              { label: 'Errored', value: 'errored' },
-            ]}
-            hook={[statusFilter, setStatusFilter]}
-          />
-          <Button variant="secondary" disabled={isLoading} onClick={refetch}>
+        <div className="flex flex-row items-center justify-between">
+          <div className="flex flex-row items-center gap-2">
+            <InputWithIcon
+              placeholder="Search subscriptions"
+              icon={<SearchIcon size={16} />}
+              width="fit-content"
+              disabled
+            />
+            <MultiFilter
+              emptyLabel="All statuses"
+              entries={[
+                { label: 'Pending', value: 'pending' },
+                { label: 'Trialing', value: 'trialing' },
+                { label: 'Active', value: 'active' },
+                { label: 'Canceled', value: 'canceled' },
+                { label: 'Ended', value: 'ended' },
+                { label: 'Trial Expired', value: 'trial_expired' },
+                { label: 'Errored', value: 'errored' },
+              ]}
+              hook={[statusFilter, setStatusFilter]}
+            />
+          </div>
+          <Button variant="outline" size="sm" disabled={isLoading} onClick={refetch}>
             <RefreshCwIcon size={14} className={isLoading ? 'animate-spin' : ''} />
           </Button>
         </div>

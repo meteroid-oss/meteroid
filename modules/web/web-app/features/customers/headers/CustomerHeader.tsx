@@ -16,6 +16,9 @@ import {
   Input,
   Flex as NewFlex,
   Separator,
+  Tooltip,
+  TooltipContent,
+  TooltipTrigger,
 } from '@md/ui'
 import { useQueryClient } from '@tanstack/react-query'
 import { Check, ChevronDown, ChevronRight } from 'lucide-react'
@@ -47,7 +50,6 @@ interface CustomerHeaderProps {
   name?: string
   archivedAt?: Date
   setEditPanelVisible: (visible: boolean) => void
-  setShowIncoice: () => void
   setShowEditCustomer?: () => void
 }
 
@@ -273,20 +275,38 @@ export const CustomerHeader: FunctionComponent<CustomerHeaderProps> = ({
                 {/*<DropdownMenuItem onClick={() => setEditPanelVisible(true)}>*/}
                 {/*  Edit customer details*/}
                 {/*</DropdownMenuItem>*/}
-                <DropdownMenuItem
-                  id="sync_to_hubspot"
-                  disabled={!isHubspotConnected}
-                  onClick={() => setShowSyncHubspotModal(true)}
-                >
-                  Sync to Hubspot
-                </DropdownMenuItem>
-                <DropdownMenuItem
-                  id="sync_to_pennylane"
-                  disabled={!isPennylaneConnected}
-                  onClick={() => setShowSyncPennylaneModal(true)}
-                >
-                  Sync to Pennylane
-                </DropdownMenuItem>
+                <Tooltip>
+                  <TooltipTrigger asChild>
+                    <span>
+                      <DropdownMenuItem
+                        id="sync_to_hubspot"
+                        disabled={!isHubspotConnected}
+                        onClick={() => setShowSyncHubspotModal(true)}
+                      >
+                        Sync to Hubspot
+                      </DropdownMenuItem>
+                    </span>
+                  </TooltipTrigger>
+                  {!isHubspotConnected && (
+                    <TooltipContent>Hubspot integration not connected</TooltipContent>
+                  )}
+                </Tooltip>
+                <Tooltip>
+                  <TooltipTrigger asChild>
+                    <span>
+                      <DropdownMenuItem
+                        id="sync_to_pennylane"
+                        disabled={!isPennylaneConnected}
+                        onClick={() => setShowSyncPennylaneModal(true)}
+                      >
+                        Sync to Pennylane
+                      </DropdownMenuItem>
+                    </span>
+                  </TooltipTrigger>
+                  {!isPennylaneConnected && (
+                    <TooltipContent>Pennylane integration not connected</TooltipContent>
+                  )}
+                </Tooltip>
                 <DropdownMenuSeparator />
                 {isArchived ? (
                   <DropdownMenuItem
@@ -297,14 +317,23 @@ export const CustomerHeader: FunctionComponent<CustomerHeaderProps> = ({
                     {unarchiveCustomerMut.isPending ? 'Unarchiving...' : 'Unarchive customer'}
                   </DropdownMenuItem>
                 ) : (
-                  <DropdownMenuItem
-                    id="archive_customer"
-                    disabled={hasActiveSubscriptions}
-                    onClick={() => setShowArchiveDialog(true)}
-                    className="text-destructive focus:text-destructive"
-                  >
-                    Archive customer
-                  </DropdownMenuItem>
+                  <Tooltip>
+                    <TooltipTrigger asChild>
+                      <span>
+                        <DropdownMenuItem
+                          id="archive_customer"
+                          disabled={hasActiveSubscriptions}
+                          onClick={() => setShowArchiveDialog(true)}
+                          className="text-destructive focus:text-destructive"
+                        >
+                          Archive customer
+                        </DropdownMenuItem>
+                      </span>
+                    </TooltipTrigger>
+                    {hasActiveSubscriptions && (
+                      <TooltipContent>Customer has active subscriptions</TooltipContent>
+                    )}
+                  </Tooltip>
                 )}
               </DropdownMenuContent>
             </DropdownMenu>

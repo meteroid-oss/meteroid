@@ -242,7 +242,7 @@ impl Services {
             .await?;
 
             if let Some(event) = next_event {
-                log::info!(
+                log::trace!(
                     "Found next event for subscription {}: {:?}",
                     subscription.id,
                     event

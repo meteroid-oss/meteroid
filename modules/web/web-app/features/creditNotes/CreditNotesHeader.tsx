@@ -27,21 +27,23 @@ export const CreditNotesHeader: FunctionComponent<CreditNotesHeaderProps> = ({
       <div className="flex flex-row items-center justify-between">
         <PageHeading count={count}>Credit Notes</PageHeading>
       </div>
-      <div className="flex flex-row items-center gap-2">
-        <InputWithIcon
-          placeholder="Search by customer"
-          icon={<SearchIcon size={16} />}
-          width="fit-content"
-          value={search.text}
-          onChange={e => setSearch({ ...search, text: e.target.value })}
-        />
-        <Button variant="secondary" disabled={isLoading} onClick={refetch}>
+      <div className="flex flex-row items-center justify-between">
+        <div className="flex flex-row items-center gap-2">
+          <InputWithIcon
+            placeholder="Search by customer"
+            icon={<SearchIcon size={16} />}
+            width="fit-content"
+            value={search.text}
+            onChange={e => setSearch({ ...search, text: e.target.value })}
+          />
+          <FilterDropdown
+            status={search.status}
+            setStatus={value => setSearch({ ...search, status: value })}
+          />
+        </div>
+        <Button variant="outline" size="sm" disabled={isLoading} onClick={refetch}>
           <RefreshCwIcon size={14} className={isLoading ? 'animate-spin' : ''} />
         </Button>
-        <FilterDropdown
-          status={search.status}
-          setStatus={value => setSearch({ ...search, status: value })}
-        />
       </div>
     </div>
   )

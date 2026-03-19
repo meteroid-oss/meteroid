@@ -10,11 +10,11 @@ use common_utils::integers::ToNonNegativeU64;
 use error_stack::ResultExt;
 use meteroid_grpc::meteroid::portal::checkout::v1::portal_checkout_service_server::PortalCheckoutService;
 use meteroid_grpc::meteroid::portal::checkout::v1::{
-    AppliedCoupon, Checkout, CheckoutType, ConfirmCheckoutRequest, ConfirmCheckoutResponse,
-    ConfirmCheckoutStatus, ConfirmSlotUpgradeCheckoutRequest, ConfirmSlotUpgradeCheckoutResponse,
-    GetCheckoutRequest, GetCheckoutResponse, GetSlotUpgradeCheckoutRequest,
-    GetSlotUpgradeCheckoutResponse, PlanChangeCheckoutContext, SlotUpgradeCheckout,
-    TaxBreakdownItem,
+    AddOnPurchaseCheckoutContext, AppliedCoupon, Checkout, CheckoutType, ConfirmCheckoutRequest,
+    ConfirmCheckoutResponse, ConfirmCheckoutStatus, ConfirmSlotUpgradeCheckoutRequest,
+    ConfirmSlotUpgradeCheckoutResponse, GetCheckoutRequest, GetCheckoutResponse,
+    GetSlotUpgradeCheckoutRequest, GetSlotUpgradeCheckoutResponse, PlanChangeCheckoutContext,
+    SlotUpgradeCheckout, TaxBreakdownItem,
 };
 use meteroid_store::constants::Currencies;
 use meteroid_store::domain::SubscriptionFeeInterface;
@@ -28,6 +28,7 @@ use meteroid_store::domain::{Period, SubscriptionDetails};
 use meteroid_store::errors::StoreError;
 use meteroid_store::repositories::OrganizationsInterface;
 use meteroid_store::repositories::PlansInterface;
+use meteroid_store::repositories::add_ons::AddOnInterface;
 use meteroid_store::repositories::bank_accounts::BankAccountsInterface;
 use meteroid_store::repositories::checkout_sessions::CheckoutSessionsInterface;
 use meteroid_store::repositories::coupons::CouponInterface;
@@ -176,6 +177,121 @@ impl PortalCheckoutService for PortalCheckoutServiceComponents {
                     checkout: Some(checkout),
                     checkout_type: CheckoutType::PlanChange as i32,
                     plan_change_context: Some(ctx),
+                    addon_purchase_context: None,
+                }));
+            }
+            DomainCheckoutType::AddonPurchase => {
+                let subscription_id = session.subscription_id.ok_or_else(|| {
+                    Status::internal("Session has no linked subscription for addon purchase flow")
+                })?;
+
+                let sub_details = self
+                    .store
+                    .get_subscription_details_minimal(tenant, subscription_id)
+                    .await
+                    .map_err(Into::<PortalCheckoutApiError>::into)?;
+
+                let create_add_ons = session.add_ons.as_ref().ok_or_else(|| {
+                    Status::internal("AddonPurchase checkout session has no add_ons")
+                })?;
+
+                // Resolve addon fees and compute prorated charge
+                let addon_ids: Vec<_> =
+                    create_add_ons.add_ons.iter().map(|a| a.add_on_id).collect();
+                let addons = self
+                    .store
+                    .list_add_ons_by_ids(tenant, addon_ids)
+                    .await
+                    .map_err(Into::<PortalCheckoutApiError>::into)?;
+
+                let addon_name = addons.first().map(|a| a.name.clone()).unwrap_or_default();
+
+                // Build shared products/prices maps for resolution
+                let mut products_map = std::collections::HashMap::new();
+                let mut prices_map = std::collections::HashMap::new();
+                for addon in &addons {
+                    if let Some(price) = &addon.price {
+                        prices_map.insert(addon.price_id, price.clone());
+                    }
+                    if let Some(fee_structure) = &addon.fee_structure {
+                        products_map.insert(
+                            addon.product_id,
+                            meteroid_store::domain::Product {
+                                id: addon.product_id,
+                                name: addon.name.clone(),
+                                description: None,
+                                created_at: addon.created_at,
+                                created_by: uuid::Uuid::nil(),
+                                updated_at: None,
+                                archived_at: None,
+                                tenant_id: addon.tenant_id,
+                                product_family_id: common_domain::ids::ProductFamilyId::from(
+                                    uuid::Uuid::nil(),
+                                ),
+                                fee_type: addon
+                                    .fee_type
+                                    .unwrap_or(meteroid_store::domain::enums::FeeTypeEnum::Rate),
+                                fee_structure: fee_structure.clone(),
+                                catalog: false,
+                            },
+                        );
+                    }
+                }
+
+                let now = chrono::Utc::now().date_naive();
+
+                let mut sub_details = sub_details;
+
+                for (cs_ao, addon) in create_add_ons.add_ons.iter().zip(addons.iter()) {
+                    let resolved = addon
+                        .resolve_customized(&products_map, &prices_map, &cs_ao.customization)
+                        .map_err(|e| {
+                            Status::internal(format!("Failed to resolve add-on: {}", e))
+                        })?;
+
+                    sub_details.add_ons.push(
+                        meteroid_store::domain::subscription_add_ons::SubscriptionAddOn {
+                            id: common_domain::ids::SubscriptionAddOnId::new(),
+                            subscription_id,
+                            add_on_id: addon.id,
+                            name: resolved.name,
+                            period: resolved.period,
+                            fee: resolved.fee,
+                            created_at: chrono::Utc::now().naive_utc(),
+                            product_id: resolved.product_id,
+                            price_id: resolved.price_id,
+                            quantity: cs_ao.quantity,
+                        },
+                    );
+                }
+
+                // Override billing_start_date and cycle_index so that compute_invoice
+                // treats the addon as a first-period item starting now, producing a
+                // prorated advance line (from now to period_end).
+                sub_details.subscription.billing_start_date = Some(now);
+                sub_details.subscription.cycle_index = Some(0);
+
+                let invoice_content = self
+                    .services
+                    .compute_invoice(&now, &sub_details, None)
+                    .await
+                    .change_context(StoreError::InvoiceComputationError)
+                    .map_err(Into::<PortalCheckoutApiError>::into)?;
+
+                let ctx = AddOnPurchaseCheckoutContext {
+                    add_on_name: addon_name,
+                    prorated_amount_cents: invoice_content.total,
+                };
+
+                let checkout = self
+                    .build_checkout_response(tenant, sub_details, invoice_content)
+                    .await?;
+
+                return Ok(Response::new(GetCheckoutResponse {
+                    checkout: Some(checkout),
+                    checkout_type: CheckoutType::AddonPurchase as i32,
+                    plan_change_context: None,
+                    addon_purchase_context: Some(ctx),
                 }));
             }
         };
@@ -199,6 +315,7 @@ impl PortalCheckoutService for PortalCheckoutServiceComponents {
             checkout: Some(checkout),
             checkout_type: proto_checkout_type as i32,
             plan_change_context,
+            addon_purchase_context: None,
         }))
     }
 

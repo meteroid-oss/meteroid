@@ -1,6 +1,7 @@
 import { Ban, CheckCircle, Clock, XCircle } from 'lucide-react'
 
 import { CardBrandLogo } from '@/features/checkout/components/CardBrandLogo'
+import { TransactionStatusBadge } from '@/features/invoices/TransactionStatusBadge'
 import { Transaction, Transaction_PaymentStatusEnum } from '@/rpc/api/invoices/v1/models_pb'
 import { formatCurrency } from '@/utils/numbers'
 
@@ -44,11 +45,7 @@ const TransactionItem: React.FC<TransactionItemProps> = ({ transaction, currency
             <span className="text-sm font-medium text-gray-900">
               {isRefund ? 'Refund' : 'Payment'}
             </span>
-            <span
-              className={`inline-flex items-center px-2 py-0.5 rounded text-xs font-medium ${statusConfig.badge}`}
-            >
-              {statusConfig.label}
-            </span>
+            <TransactionStatusBadge status={transaction.status} />
           </div>
           <div className="mt-1 flex items-center gap-3 text-xs text-gray-600">
             {transaction.processedAt && (
@@ -98,46 +95,29 @@ export const PaymentMethodBadge: React.FC<{
 }
 
 function getStatusConfig(status: Transaction_PaymentStatusEnum) {
-  const configs: Record<
-    Transaction_PaymentStatusEnum,
+  const configs: Record<Transaction_PaymentStatusEnum, { icon: React.ReactNode; color: string }> =
     {
-      icon: React.ReactNode
-      color: string
-      label: string
-      badge: string
+      [Transaction_PaymentStatusEnum.READY]: {
+        icon: <Clock className="h-5 w-5" />,
+        color: 'text-blue-600',
+      },
+      [Transaction_PaymentStatusEnum.PENDING]: {
+        icon: <Clock className="h-5 w-5" />,
+        color: 'text-yellow-600',
+      },
+      [Transaction_PaymentStatusEnum.SETTLED]: {
+        icon: <CheckCircle className="h-5 w-5" />,
+        color: 'text-green-600',
+      },
+      [Transaction_PaymentStatusEnum.CANCELLED]: {
+        icon: <Ban className="h-5 w-5" />,
+        color: 'text-gray-500',
+      },
+      [Transaction_PaymentStatusEnum.FAILED]: {
+        icon: <XCircle className="h-5 w-5" />,
+        color: 'text-red-600',
+      },
     }
-  > = {
-    [Transaction_PaymentStatusEnum.READY]: {
-      icon: <Clock className="h-5 w-5" />,
-      color: 'text-blue-600',
-      label: 'Ready',
-      badge: 'bg-blue-100 text-blue-800',
-    },
-    [Transaction_PaymentStatusEnum.PENDING]: {
-      icon: <Clock className="h-5 w-5" />,
-      color: 'text-yellow-600',
-      label: 'Pending',
-      badge: 'bg-yellow-100 text-yellow-800',
-    },
-    [Transaction_PaymentStatusEnum.SETTLED]: {
-      icon: <CheckCircle className="h-5 w-5" />,
-      color: 'text-green-600',
-      label: 'Settled',
-      badge: 'bg-green-100 text-green-800',
-    },
-    [Transaction_PaymentStatusEnum.CANCELLED]: {
-      icon: <Ban className="h-5 w-5" />,
-      color: 'text-gray-500',
-      label: 'Cancelled',
-      badge: 'bg-gray-100 text-gray-800',
-    },
-    [Transaction_PaymentStatusEnum.FAILED]: {
-      icon: <XCircle className="h-5 w-5" />,
-      color: 'text-red-600',
-      label: 'Failed',
-      badge: 'bg-red-100 text-red-800',
-    },
-  }
 
   return configs[status] || configs[Transaction_PaymentStatusEnum.PENDING]
 }

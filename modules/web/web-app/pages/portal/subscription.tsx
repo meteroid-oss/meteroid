@@ -23,10 +23,13 @@ import {
   getSubscriptionComponentUsage,
   getSubscriptionDetails,
   getUpcomingInvoice,
+  listAvailableAddOns,
   listAvailablePlans,
   previewPlanChange,
+  purchaseAddOn,
 } from '@/rpc/portal/subscription/v1/subscription-PortalSubscriptionService_connectquery'
 import {
+  AddOnPurchaseStatus,
   ChangeDirection,
   PendingEventType,
   PlanChangeStatus,
@@ -36,6 +39,7 @@ import { formatCurrency, formatCurrencyNoRounding } from '@/utils/numbers'
 import { useForceTheme } from 'providers/ThemeProvider'
 
 import type {
+  AvailableAddOn,
   AvailablePlan,
   ComponentFee,
   PortalUpcomingInvoice,
@@ -232,6 +236,7 @@ export const PortalSubscription = () => {
           isCancelling={cancelMutation.isPending}
           upcomingInvoice={upcomingInvoiceQuery.data?.invoice}
           isLoadingInvoice={upcomingInvoiceQuery.isLoading}
+          onRefetchDetails={() => detailsQuery.refetch()}
         />
       )}
       {mode === 'changing' && (
@@ -273,6 +278,7 @@ function IdleView({
   isCancelling,
   upcomingInvoice,
   isLoadingInvoice,
+  onRefetchDetails,
 }: {
   sub: {
     planName: string
@@ -294,9 +300,37 @@ function IdleView({
   isCancelling: boolean
   upcomingInvoice?: PortalUpcomingInvoice
   isLoadingInvoice: boolean
+  onRefetchDetails: () => void
 }) {
   const statusLower = sub.status.toLowerCase().replace('_', ' ')
   const isActive = statusLower === 'active'
+
+  const addonsQuery = useQuery(
+    listAvailableAddOns,
+    { subscriptionId },
+    { enabled: !!subscriptionId }
+  )
+  const purchaseMutation = useMutation(purchaseAddOn)
+  const [purchasedAddonName, setPurchasedAddonName] = useState<string | null>(null)
+
+  const handlePurchaseAddOn = async (addon: AvailableAddOn) => {
+    const res = await purchaseMutation.mutateAsync({
+      subscriptionId,
+      addOnId: addon.addOnId,
+    })
+
+    if (res.status === AddOnPurchaseStatus.ADDON_PURCHASE_CHECKOUT_REQUIRED && res.checkoutToken) {
+      window.location.href = '/portal/checkout?token=' + res.checkoutToken
+      return
+    }
+
+    setPurchasedAddonName(res.addOnName ?? addon.name)
+    addonsQuery.refetch()
+    onRefetchDetails()
+    setTimeout(() => setPurchasedAddonName(null), 3000)
+  }
+
+  const addons = addonsQuery.data?.addOns ?? []
 
   return (
     <div className="max-w-2xl mx-auto px-6 lg:px-8 py-12">
@@ -398,6 +432,66 @@ function IdleView({
           </div>
         )}
       </div>
+
+      {/* Available add-ons */}
+      {addons.length > 0 && (
+        <div className="bg-white rounded-xl border border-gray-200 shadow-sm overflow-hidden mt-6">
+          <div className="p-6 sm:p-8">
+            <p className="text-[11px] font-semibold text-gray-400 uppercase tracking-wider mb-4">
+              Available add-ons
+            </p>
+
+            {purchasedAddonName && (
+              <div className="flex items-center gap-2 mb-4 px-3 py-2 bg-green-50 rounded-lg">
+                <Check size={14} className="text-green-600" />
+                <p className="text-sm text-green-700 font-medium">
+                  {purchasedAddonName} added successfully
+                </p>
+              </div>
+            )}
+
+            <div className="space-y-3">
+              {addons.map(addon => (
+                <div
+                  key={addon.addOnId}
+                  className="flex items-center justify-between gap-4 p-4 border border-gray-100 rounded-lg"
+                >
+                  <div className="min-w-0 flex-1">
+                    <p className="text-sm font-medium text-gray-900">{addon.name}</p>
+                    {addon.description && (
+                      <p className="text-xs text-gray-500 mt-0.5 line-clamp-2">
+                        {addon.description}
+                      </p>
+                    )}
+                    <div className="flex items-center gap-2 mt-1">
+                      {addon.fee && (
+                        <span className="text-xs text-gray-500 tabular-nums">
+                          {formatComponentFee(addon.fee, sub.currency)}
+                        </span>
+                      )}
+                      {addon.maxInstances != null && (
+                        <span className="text-xs text-gray-400">
+                          {addon.currentQuantity}/{addon.maxInstances} purchased
+                        </span>
+                      )}
+                    </div>
+                  </div>
+                  <button
+                    onClick={() => handlePurchaseAddOn(addon)}
+                    disabled={
+                      purchaseMutation.isPending ||
+                      (addon.maxInstances != null && addon.currentQuantity >= addon.maxInstances)
+                    }
+                    className="text-sm font-semibold text-gray-900 bg-gray-50 hover:bg-gray-100 border border-gray-200 rounded-lg px-4 py-2 transition-colors disabled:opacity-50 flex-shrink-0"
+                  >
+                    {purchaseMutation.isPending ? 'Processing...' : 'Buy'}
+                  </button>
+                </div>
+              ))}
+            </div>
+          </div>
+        </div>
+      )}
 
       {/* Upcoming invoice */}
       {!isLoadingInvoice && upcomingInvoice && subscriptionId && (

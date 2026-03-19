@@ -352,4 +352,5 @@ pub enum CheckoutTypeEnum {
     SelfServe,
     SubscriptionActivation,
     PlanChange,
+    AddonPurchase,
 }

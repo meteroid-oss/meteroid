@@ -1,7 +1,4 @@
-import {
-  disableQuery,
-  useMutation,
-} from '@connectrpc/connect-query'
+import { disableQuery, useMutation } from '@connectrpc/connect-query'
 import {
   Badge,
   Button,
@@ -30,6 +27,10 @@ import { toast } from 'sonner'
 import { CustomCreationFlow, IdentitySchema } from '@/features/addons/CustomCreationFlow'
 import { feeTypeEnumToComponentFeeType } from '@/features/plans/addons/AddOnCard'
 import { usePlanWithVersion } from '@/features/plans/hooks/usePlan'
+import {
+  ADDON_FEE_TYPE_OPTIONS,
+  ADDON_PROTO_FEE_TYPES,
+} from '@/features/plans/pricecomponents/FeeTypePicker'
 import { ProductBrowser } from '@/features/plans/pricecomponents/ProductBrowser'
 import { PricingDetailsView } from '@/features/plans/pricecomponents/components/PricingDetailsView'
 import {
@@ -97,9 +98,11 @@ export const AddAddOnPanel = () => {
   })
 
   // Query add-ons already attached to this plan version
-  const planAddOns = useQuery(listAddOns, version?.id
-    ? { planVersionId: version.id, pagination: { perPage: 100, page: 0 } }
-    : disableQuery
+  const planAddOns = useQuery(
+    listAddOns,
+    version?.id
+      ? { planVersionId: version.id, pagination: { perPage: 100, page: 0 } }
+      : disableQuery
   )
 
   const attachedIds = new Set(planAddOns.data?.addOns?.map(a => a.id) ?? [])
@@ -125,9 +128,7 @@ export const AddAddOnPanel = () => {
           addOnId: data.addOn.id,
         })
       } catch (error) {
-        toast.error(
-          error instanceof Error ? error.message : 'Failed to attach add-on to plan'
-        )
+        toast.error(error instanceof Error ? error.message : 'Failed to attach add-on to plan')
       }
     },
     onError: error => {
@@ -251,6 +252,7 @@ export const AddAddOnPanel = () => {
                 currency={currency}
                 onAdd={handleAddExistingProduct}
                 submitLabel="Create & Attach"
+                feeTypes={ADDON_PROTO_FEE_TYPES}
               />
             </ScrollArea>
           </TabsContent>
@@ -275,6 +277,7 @@ export const AddAddOnPanel = () => {
                 onBack={step => setCustomStep(step)}
                 onSubmit={handleCreateNewProduct}
                 submitLabel="Create & Attach"
+                feeTypeOptions={ADDON_FEE_TYPE_OPTIONS}
               />
             </ScrollArea>
           </TabsContent>
@@ -335,10 +338,7 @@ const CatalogBrowser = ({
             const cadence = addOn.price ? formatCadence(addOn.price.cadence) : '-'
 
             return (
-              <div
-                key={addOn.id}
-                className="border border-border rounded-lg bg-card"
-              >
+              <div key={addOn.id} className="border border-border rounded-lg bg-card">
                 <div className="flex items-center gap-3 p-3">
                   <button
                     type="button"
@@ -397,4 +397,3 @@ const CatalogBrowser = ({
     </div>
   )
 }
-

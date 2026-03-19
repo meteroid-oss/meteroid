@@ -7,4 +7,5 @@ mod upcoming;
 mod update;
 
 pub use bill::InvoiceBillingMode;
+pub(crate) use draft::AdjustmentInvoiceContent;
 pub use update::CustomerDetailsUpdate;

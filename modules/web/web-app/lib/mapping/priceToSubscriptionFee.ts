@@ -1,3 +1,5 @@
+import Decimal from 'decimal.js'
+
 import { formatCadence } from '@/lib/mapping/prices'
 import { formatCurrencyNoRounding } from '@/lib/utils/numbers'
 import { UsageFee , PriceComponent } from '@/rpc/api/pricecomponents/v1/models_pb'
@@ -135,7 +137,7 @@ export function priceToSubscriptionFee(
 
     case 'oneTimePricing': {
       const ot = price.pricing.value
-      const total = (parseFloat(ot.unitPrice || '0') * (ot.quantity || 1)).toString()
+      const total = new Decimal(ot.unitPrice || '0').mul(ot.quantity || 1).toString()
       fee.fee = {
         case: 'oneTime',
         value: new SubscriptionFee_OneTimeSubscriptionFee({
@@ -149,7 +151,7 @@ export function priceToSubscriptionFee(
 
     case 'extraRecurringPricing': {
       const er = price.pricing.value
-      const total = (parseFloat(er.unitPrice || '0') * (er.quantity || 1)).toString()
+      const total = new Decimal(er.unitPrice || '0').mul(er.quantity || 1).toString()
       fee.fee = {
         case: 'recurring',
         value: new SubscriptionFee_ExtraRecurringSubscriptionFee({
