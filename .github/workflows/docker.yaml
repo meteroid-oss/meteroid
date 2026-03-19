@@ -131,7 +131,7 @@ jobs:
 
       - name: Docker meta
         id: meteroid-docker # you'll use this in the next step
-        uses: docker/metadata-action@v5
+        uses: docker/metadata-action@v6
         with:
           images: |
             ghcr.io/meteroid-oss/${{ matrix.image_type }}
