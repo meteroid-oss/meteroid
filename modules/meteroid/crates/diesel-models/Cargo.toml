@@ -24,3 +24,7 @@ rust_decimal = { workspace = true, features = ["db-diesel2-postgres", "serde_jso
 tap.workspace = true
 itertools.workspace = true
 common-domain = { workspace = true, features = ["diesel"] }
+
+[package.metadata.cargo-machete]
+# used via #[derive(DieselNewType)] and #[derive(Serialize, Deserialize)] — machete misses derive macro usage
+ignored = ["diesel-derive-newtype", "serde"]

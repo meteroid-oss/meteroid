@@ -53,3 +53,7 @@ client = [
   "dep:governor",
 ]
 default = []
+
+[package.metadata.cargo-machete]
+# futures is gated behind the `server` feature via dep: syntax — machete doesn't evaluate feature flags
+ignored = ["futures"]

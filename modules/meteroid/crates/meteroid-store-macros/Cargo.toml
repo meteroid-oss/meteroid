@@ -14,3 +14,7 @@ syn = { workspace = true, features = ["full"] }
 
 [lib]
 proc-macro = true
+
+[package.metadata.cargo-machete]
+# proc-macro2 is required in proc macro crates even without explicit use statements
+ignored = ["proc-macro2"]

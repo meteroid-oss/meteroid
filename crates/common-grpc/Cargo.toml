@@ -25,7 +25,6 @@ tower = { workspace = true }
 hyper = { workspace = true }
 tracing = { workspace = true }
 opentelemetry = { workspace = true }
-once_cell = { workspace = true }
 http-body = { workspace = true }
 futures = { workspace = true }
 futures-util = { workspace = true }
@@ -46,3 +45,7 @@ prost-build.workspace = true
 server = []
 client = []
 default = ["client"]
+
+[package.metadata.cargo-machete]
+# serde used in middleware source files; machete misses it due to re-exports
+ignored = ["serde"]

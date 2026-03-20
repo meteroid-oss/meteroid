@@ -53,7 +53,6 @@ tracing = { workspace = true }
 uuid = { workspace = true, features = ["v7"] }
 base64.workspace = true
 http = { workspace = true }
-hmac-sha256 = { workspace = true }
 parquet = { workspace = true, features = ["snap", "arrow"] }
 governor = { workspace = true }
 
@@ -71,17 +70,13 @@ meteroid-tax = { workspace = true }
 common-domain = { workspace = true, features = ["utoipa", "tonic"] }
 common-eventbus = { workspace = true }
 common-utils = { workspace = true, features = ["error-stack-conv"] }
-distributed-lock = { workspace = true, features = ["postgres-support"] }
 stripe-client = { path = "crates/stripe-client" }
 object_store = { workspace = true, features = ["aws", "azure", "gcp", "http", "fs"] }
 bytes.workspace = true
 async-trait.workspace = true
 url.workspace = true
 csv = "1.3"
-typetag = { workspace = true }
 jsonwebtoken = { workspace = true, features = ["aws_lc_rs"] }
-once_cell.workspace = true
-tower-layer.workspace = true
 image = { workspace = true }
 meteroid-store.workspace = true
 meteroid-invoicing.workspace = true
@@ -101,7 +96,6 @@ svix = { workspace = true, features = ["http2", "rustls-tls"] }
 strum = { workspace = true, features = ["derive"] }
 
 
-env_logger = { workspace = true }
 o2o.workspace = true
 itertools = { workspace = true }
 validator = { workspace = true, features = ["derive"] }
@@ -124,6 +118,10 @@ meteroid-mailer = { workspace = true, features = ["test-utils"] }
 meteroid-store = { workspace = true, features = ["test-utils"] }
 insta = { workspace = true, features = ["json"] }
 
+
+[package.metadata.cargo-machete]
+# companion crate for ErrorAsTonic — its functions are called by generated code, not direct imports
+ignored = ["common-grpc-error-as-tonic-macros"]
 
 [features]
 metering-server = ["metering"]

@@ -23,3 +23,7 @@ tonic-prost-build.workspace = true
 default = ["client"]
 server = ["dep:chrono"]
 client = []
+
+[package.metadata.cargo-machete]
+# all used in protobuf generated code which machete cannot analyze
+ignored = ["chrono", "common-grpc", "prost", "prost-types", "tonic-prost"]

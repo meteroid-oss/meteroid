@@ -18,7 +18,6 @@ chrono = { workspace = true }
 sailfish = { workspace = true }
 log = { workspace = true }
 rusty-money = { workspace = true }
-common-utils = { workspace = true }
 
 mockall = { workspace = true, optional = true }
 

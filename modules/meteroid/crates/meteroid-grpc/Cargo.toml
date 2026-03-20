@@ -30,3 +30,7 @@ client = []
 
 [lints.clippy]
 needless_lifetimes = "allow"
+
+[package.metadata.cargo-machete]
+# all used in protobuf generated code which machete cannot analyze
+ignored = ["common-grpc", "error-stack", "pbjson", "prost", "prost-types", "serde", "thiserror", "tonic-prost"]
