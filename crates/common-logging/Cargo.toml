@@ -17,5 +17,4 @@ opentelemetry_sdk = { workspace = true, features = ["logs", "metrics"] }
 init-tracing-opentelemetry = { workspace = true }
 opentelemetry-appender-tracing = { workspace = true }
 opentelemetry-resource-detectors = { workspace = true }
-once_cell = { workspace = true }
 log = { workspace = true }

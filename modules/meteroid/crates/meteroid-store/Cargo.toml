@@ -13,7 +13,6 @@ common-eventbus.workspace = true
 
 argon2 = { workspace = true, features = ["rand"] }
 base62.workspace = true
-backon = { workspace = true }
 cached = { workspace = true, features = ["async", "tokio"] }
 chrono = { workspace = true, features = ["clock", "serde"] }
 diesel.workspace = true
@@ -37,17 +36,12 @@ rusty-money = { workspace = true }
 common-utils = { workspace = true }
 itertools.workspace = true
 secrecy = { workspace = true, features = ["serde"] }
-svix = { workspace = true, features = ["http2", "rustls-tls"] }
-governor = { workspace = true }
-nonzero_ext = { workspace = true }
 chacha20poly1305 = { workspace = true }
 hex = { workspace = true }
-url = { workspace = true }
 jsonwebtoken = { workspace = true, features = ["aws_lc_rs"] }
 futures = { workspace = true }
-once_cell = { workspace = true }
 rustls = { workspace = true, features = ["ring"] }
-rust_iso3166 =  { workspace = true }
+rust_iso3166 = { workspace = true }
 tokio-postgres-rustls = { workspace = true }
 tokio = { workspace = true, default-features = false, features = ["macros", "rt-multi-thread"] }
 tokio-postgres = { workspace = true }
@@ -70,3 +64,7 @@ rstest = { workspace = true }
 
 [features]
 test-utils = []
+
+[package.metadata.cargo-machete]
+# paste used via paste::paste! macro which machete cannot detect
+ignored = ["paste"]

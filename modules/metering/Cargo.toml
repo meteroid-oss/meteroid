@@ -10,7 +10,6 @@ rand.workspace = true
 async-trait.workspace = true
 cached = { workspace = true, features = ["async", "tokio", "redis_store", "redis_tokio"] }
 chrono = { workspace = true, features = ["clock", "serde"] }
-chrono-tz.workspace = true
 common-build-info.workspace = true
 common-config.workspace = true
 common-logging.workspace = true
@@ -38,13 +37,10 @@ tower-layer = { workspace = true }
 hyper = { workspace = true }
 tracing = { workspace = true }
 tonic-tracing-opentelemetry.workspace = true
-once_cell = { workspace = true }
 opentelemetry = { workspace = true }
 uuid = { workspace = true, features = ["v4"] }
 prost-types.workspace = true
 quick_cache.workspace = true
-fixnum = { workspace = true, features = ["serde", "i128"] }
-
 # kafka ingest deps
 kafka = { workspace = true, optional = true }
 rdkafka = { workspace = true, features = ["ssl", "sasl"], optional = true }
@@ -69,3 +65,7 @@ default = ["clickhouse", "kafka"]
 kafka = ["dep:kafka", "dep:rdkafka"]
 clickhouse = ["dep:clickhouse", "dep:refinery-core", "dep:refinery", "dep:time"]
 openstack = []
+
+[package.metadata.cargo-machete]
+# companion crate for ErrorAsTonic — its functions are called by generated code, not direct imports
+ignored = ["common-grpc-error-as-tonic-macros"]
