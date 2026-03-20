@@ -8,7 +8,6 @@ use std::time::Duration;
 use tokio::time;
 
 const CONSUMER_GROUP_ID: &str = "clickhouse-events-raw";
-const RAW_EVENTS_TABLE: &str = "raw_events";
 const BATCH_MAX_ROWS: u64 = 2000;
 const BATCH_PERIOD: Duration = Duration::from_millis(500);
 const RESTART_DELAY: Duration = Duration::from_secs(5);
@@ -50,7 +49,7 @@ async fn run_inner(
         .with_database(&clickhouse_config.database);
 
     let mut inserter = client
-        .inserter::<RawEventRow>(RAW_EVENTS_TABLE)
+        .inserter::<RawEventRow>(&clickhouse_config.raw_events_table)
         .with_max_rows(BATCH_MAX_ROWS)
         .with_period(Some(BATCH_PERIOD));
 

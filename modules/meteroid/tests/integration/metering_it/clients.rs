@@ -16,7 +16,7 @@ pub type TestLayeredClientService = AdminAuthService<ApiAuthService<Channel>>;
 pub struct AllClients {
     pub _meters: MetersServiceClient<TestLayeredClientService>,
     pub events: EventsServiceClient<TestLayeredClientService>,
-    pub _usage: UsageQueryServiceClient<TestLayeredClientService>,
+    pub usage: UsageQueryServiceClient<TestLayeredClientService>,
 }
 
 impl AllClients {
@@ -30,7 +30,7 @@ impl AllClients {
         Self {
             _meters: MetersServiceClient::new(service.clone()),
             events: EventsServiceClient::new(service.clone()),
-            _usage: UsageQueryServiceClient::new(service.clone()),
+            usage: UsageQueryServiceClient::new(service.clone()),
         }
     }
 

@@ -23,6 +23,7 @@ pub fn mocked_config(
             username: "default".to_string(),
             password: "default".to_string(),
             cluster_name: "meteroid".to_string(),
+            raw_events_table: "raw_events_v2".to_string(),
         },
         listen_addr: format!("127.0.0.1:{}", metering_port).parse().unwrap(),
         meteroid_endpoint: format!("http://127.0.0.1:{}", meteroid_port),

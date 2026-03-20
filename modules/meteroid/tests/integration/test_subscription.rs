@@ -6,7 +6,6 @@ use rust_decimal::prelude::FromPrimitive;
 use rust_decimal_macros::dec;
 use std::error::Error;
 use std::str::FromStr;
-use testcontainers::{ContainerAsync, GenericImage};
 use tonic::Code;
 
 use meteroid_grpc::meteroid::api;

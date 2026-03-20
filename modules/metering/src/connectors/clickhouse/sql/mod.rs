@@ -1,7 +1,4 @@
-pub mod init;
 pub mod query_raw;
-
-pub const DATABASE: &str = "meteroid"; // TODO config
 
 fn escape_sql_identifier(identifier: &str) -> String {
     identifier.replace('\'', "''")

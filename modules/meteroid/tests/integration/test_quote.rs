@@ -4,7 +4,6 @@ use common_domain::ids::QuoteId;
 use meteroid_grpc::meteroid::api;
 use meteroid_store::repositories::QuotesInterface;
 use std::error::Error;
-use testcontainers::{ContainerAsync, GenericImage};
 use tonic::Code;
 
 use crate::meteroid_it;

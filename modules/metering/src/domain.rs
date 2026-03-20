@@ -1,4 +1,5 @@
 use chrono::{DateTime, Utc};
+use common_domain::ids::{CustomerId, TenantId};
 use metering_grpc::meteroid::metering::v1::meter::AggregationType;
 use std::collections::HashMap;
 
@@ -57,11 +58,10 @@ pub enum SegmentationFilter {
 #[derive(Debug, Clone)]
 pub struct QueryMeterParams {
     pub aggregation: MeterAggregation,
-    pub namespace: String,
-    pub meter_slug: String,
+    pub tenant_id: TenantId,
     pub code: String,
     pub value_property: Option<String>,
-    pub customer_ids: Vec<String>,
+    pub customer_ids: Vec<CustomerId>,
     pub segmentation_filter: Option<SegmentationFilter>,
     pub group_by: Vec<String>,
     pub window_size: Option<WindowSize>,
@@ -89,14 +89,14 @@ pub enum EventSortOrder {
 
 #[derive(Debug, Clone)]
 pub struct QueryRawEventsParams {
-    pub tenant_id: String,
+    pub tenant_id: TenantId,
     pub from: DateTime<Utc>,
     pub to: Option<DateTime<Utc>>,
     pub limit: u32,
     pub offset: u32,
     pub search: Option<String>,
     pub event_codes: Vec<String>,
-    pub customer_ids: Vec<String>,
+    pub customer_ids: Vec<CustomerId>,
     pub sort_order: EventSortOrder,
 }
 

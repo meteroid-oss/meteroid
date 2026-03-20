@@ -1,12 +1,13 @@
 use crate::data::ids;
 use crate::metering_it;
+use crate::metering_it::clients::TestLayeredClientService;
 use crate::{helpers, meteroid_it};
 use backon::Retryable;
 use chrono::Days;
-use common_domain::ids::BillableMetricId;
+use common_domain::ids::{BillableMetricId, TenantId};
 use itertools::Itertools;
-use metering::ingest::domain::RawEventRow;
-use metering_grpc::meteroid::metering::v1::{Event, IngestRequest, event};
+use metering_grpc::meteroid::metering::v1::usage_query_service_client::UsageQueryServiceClient;
+use metering_grpc::meteroid::metering::v1::{Event, IngestRequest, QueryRawEventsRequest, event};
 use meteroid::clients::usage::MeteringUsageClient;
 use meteroid::workers::pgmq::processors::{run_metric_sync, run_outbox_dispatch};
 use meteroid_grpc::meteroid::api;
@@ -147,8 +148,6 @@ async fn test_metering_ingestion() {
         .into_inner()
         .billable_metric
         .unwrap();
-
-    let clickhouse_client = metering_it::clickhouse::get_client(ch_http_port);
 
     let customer_1 = ids::CUST_SPOTIFY_ID;
     let customer_2 = ids::CUST_UBER_ID;
@@ -336,13 +335,19 @@ async fn test_metering_ingestion() {
 
     assert_eq!(ingested.failures.len(), 0);
 
-    log::info!("Validating raw clickhouse events...");
-    let raw_events = get_eventually_raw_events(&clickhouse_client, to_ingest_len)
-        .await
-        .expect("Failed to validate raw events in ClickHouse");
+    log::info!("Validating raw events via gRPC...");
+    let grpc_events = get_eventually_grpc_raw_events(
+        metering_clients.usage.clone(),
+        ids::TENANT_ID,
+        period_1_start - chrono::Duration::days(1),
+        now + chrono::Duration::days(1),
+        to_ingest_len,
+    )
+    .await
+    .expect("Failed to validate raw events via gRPC");
 
-    assert_raw_events_eq(&to_ingest, &raw_events);
-    log::info!("Raw clickhouse events validated!");
+    assert_raw_events_eq(&to_ingest, &grpc_events);
+    log::info!("Raw events via gRPC validated!");
 
     log::info!("Validating clickhouse usage data...");
 
@@ -365,74 +370,70 @@ async fn test_metering_ingestion() {
     pgmq_handle.abort()
 }
 
-fn assert_raw_events_eq(left: &[Event], right: &[RawEventRow]) {
-    fn sort_by<T, F>(items: &[T], sort_fn: F) -> Vec<T>
-    where
-        T: Clone,
-        F: Fn(&T) -> &str,
-    {
-        let mut vec: Vec<T> = items.to_vec();
-        vec.sort_by(|a, b| sort_fn(a).cmp(sort_fn(b)));
-        vec
-    }
+fn assert_raw_events_eq(ingested: &[Event], returned: &[Event]) {
+    let mut sorted_ingested = ingested.to_vec();
+    sorted_ingested.sort_by(|a, b| a.id.cmp(&b.id));
+    let mut sorted_returned = returned.to_vec();
+    sorted_returned.sort_by(|a, b| a.id.cmp(&b.id));
 
-    let sorted_left = sort_by(left, |a| &a.id);
-    let sorted_right = sort_by(right, |a| &a.id);
+    assert_eq!(sorted_ingested.len(), sorted_returned.len());
 
-    assert_eq!(sorted_left.len(), sorted_right.len());
-
-    for (event, right_event) in sorted_left.iter().zip(sorted_right.iter()) {
-        assert_raw_event_eq(event, right_event);
+    for (left, right) in sorted_ingested.iter().zip(sorted_returned.iter()) {
+        assert_eq!(left.id, right.id);
+        assert_eq!(left.code, right.code);
+        assert_eq!(left.customer_id, right.customer_id);
+        assert_eq!(
+            left.properties
+                .iter()
+                .sorted_by_key(|(k, _)| k.as_str())
+                .collect_vec(),
+            right
+                .properties
+                .iter()
+                .sorted_by_key(|(k, _)| k.as_str())
+                .collect_vec(),
+        );
     }
 }
 
-fn assert_raw_event_eq(left: &Event, right: &RawEventRow) {
-    assert_eq!(left.id, right.id);
-    assert_eq!(left.code, right.code);
-
-    let left_customer_id = match left.customer_id.as_ref().unwrap() {
-        event::CustomerId::MeteroidCustomerId(id) => id,
-        _ => panic!("Unexpected customer_id type"),
-    };
-
-    assert_eq!(left_customer_id, &right.customer_id);
-    assert_eq!(left.timestamp, right.timestamp.to_rfc3339());
-    assert_eq!(
-        left.properties
-            .iter()
-            .sorted_by(|a, b| a.0.cmp(b.0))
-            .map(|(k, v)| (k.as_str(), v.as_str()))
-            .collect_vec(),
-        right
-            .properties
-            .iter()
-            .sorted_by(|a, b| a.0.cmp(&b.0))
-            .map(|(k, v)| (k.as_str(), v.as_str()))
-            .collect_vec(),
-    );
-}
-
-async fn get_eventually_raw_events(
-    ch_client: &clickhouse::Client,
+async fn get_eventually_grpc_raw_events(
+    client: UsageQueryServiceClient<TestLayeredClientService>,
+    tenant_id: TenantId,
+    from: chrono::DateTime<chrono::Utc>,
+    to: chrono::DateTime<chrono::Utc>,
     expected_count: usize,
-) -> anyhow::Result<Vec<RawEventRow>> {
+) -> anyhow::Result<Vec<Event>> {
     (|| async {
-        match ch_client
-            .query("SELECT * FROM raw_events")
-            .fetch_all::<RawEventRow>()
+        let response = client
+            .clone()
+            .query_raw_events(Request::new(QueryRawEventsRequest {
+                tenant_id: tenant_id.as_proto(),
+                from: Some(prost_types::Timestamp {
+                    seconds: from.timestamp(),
+                    nanos: 0,
+                }),
+                to: Some(prost_types::Timestamp {
+                    seconds: to.timestamp(),
+                    nanos: 0,
+                }),
+                limit: 1000,
+                offset: 0,
+                search: None,
+                event_codes: vec![],
+                customer_ids: vec![],
+                sort_order: 0,
+            }))
             .await
-        {
-            Ok(vec) => {
-                if vec.len() != expected_count {
-                    Err(anyhow::anyhow!(
-                        "Expected {expected_count} but got {} raw events",
-                        vec.len()
-                    ))
-                } else {
-                    Ok(vec)
-                }
-            }
-            Err(e) => Err(anyhow::anyhow!(e)),
+            .map_err(|e| anyhow::anyhow!(e))?
+            .into_inner();
+
+        if response.events.len() != expected_count {
+            Err(anyhow::anyhow!(
+                "Expected {expected_count} but got {} raw events",
+                response.events.len()
+            ))
+        } else {
+            Ok(response.events)
         }
     })
     .retry(
