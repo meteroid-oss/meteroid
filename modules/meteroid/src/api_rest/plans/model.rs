@@ -2,8 +2,8 @@ use crate::api_rest::model::PaginatedRequest;
 use crate::api_rest::model::PaginationResponse;
 use chrono::NaiveDateTime;
 use common_domain::ids::{
-    AddOnId, BillableMetricId, PlanId, PlanVersionId, PriceComponentId, PriceId,
-    ProductFamilyId, ProductId, string_serde, string_serde_opt,
+    AddOnId, BillableMetricId, PlanId, PlanVersionId, PriceComponentId, PriceId, ProductFamilyId,
+    ProductId, string_serde, string_serde_opt,
 };
 use o2o::o2o;
 use rust_decimal::Decimal;
@@ -20,6 +20,14 @@ pub struct PlanListRequest {
     pub pagination: PaginatedRequest,
     #[serde(default, with = "string_serde_opt")]
     pub product_family_id: Option<ProductFamilyId>,
+    /// Search by plan name
+    pub search: Option<String>,
+    /// Filter by plan status (can be repeated)
+    #[serde(default)]
+    pub status: Vec<PlanStatusEnum>,
+    /// Filter by plan type (can be repeated)
+    #[serde(default)]
+    pub r#type: Vec<PlanTypeEnum>,
 }
 
 #[derive(Clone, ToSchema, serde::Serialize, serde::Deserialize)]
@@ -54,6 +62,7 @@ pub struct Plan {
     pub id: PlanId,
     pub name: String,
     pub description: Option<String>,
+    #[serde(serialize_with = "crate::api_rest::model::serialize_datetime")]
     pub created_at: NaiveDateTime,
     pub plan_type: PlanTypeEnum,
     pub status: PlanStatusEnum,
@@ -164,19 +173,13 @@ pub struct OneTimePlanFee {
 }
 
 #[derive(Clone, ToSchema, serde::Serialize, serde::Deserialize, Debug)]
-#[serde(tag = "fee_type", rename_all = "snake_case")]
+#[serde(tag = "fee_type", rename_all = "SCREAMING_SNAKE_CASE")]
 pub enum Fee {
-    #[serde(rename = "rate")]
     Rate(RatePlanFee),
-    #[serde(rename = "slot")]
     Slot(SlotPlanFee),
-    #[serde(rename = "capacity")]
     Capacity(CapacityPlanFee),
-    #[serde(rename = "usage")]
     Usage(UsagePlanFee),
-    #[serde(rename = "extra_recurring")]
     ExtraRecurring(ExtraRecurringPlanFee),
-    #[serde(rename = "one_time")]
     OneTime(OneTimePlanFee),
 }
 
@@ -254,8 +257,7 @@ pub struct MatrixDimension {
 }
 
 #[derive(
-    o2o, Copy, Clone, ToSchema, Deserialize_enum_str, Serialize_enum_str, Debug, PartialEq, Eq,
-    Hash,
+    o2o, Copy, Clone, ToSchema, Deserialize_enum_str, Serialize_enum_str, Debug, PartialEq, Eq, Hash,
 )]
 #[serde(rename_all = "SCREAMING_SNAKE_CASE")]
 #[map_owned(meteroid_store::domain::enums::BillingPeriodEnum)]
@@ -293,6 +295,7 @@ pub struct BillingConfig {
 }
 
 #[derive(ToSchema, serde::Serialize, serde::Deserialize, Validate)]
+#[validate(schema(function = "validate_create_plan"))]
 pub struct CreatePlanRequest {
     #[validate(length(min = 1, max = 255))]
     pub name: String,
@@ -308,6 +311,14 @@ pub struct CreatePlanRequest {
     pub components: Vec<PriceComponentInput>,
     #[serde(default)]
     pub add_ons: Vec<PlanAddOnInput>,
+}
+
+fn validate_create_plan(req: &CreatePlanRequest) -> Result<(), validator::ValidationError> {
+    if req.plan_type != PlanTypeEnum::Free && req.components.is_empty() {
+        return Err(validator::ValidationError::new("components_required")
+            .with_message("Non-free plans must have at least one price component".into()));
+    }
+    Ok(())
 }
 
 #[derive(ToSchema, serde::Serialize, serde::Deserialize, Validate)]
@@ -374,6 +385,7 @@ pub struct PlanVersionSummary {
     pub version: i32,
     pub is_draft: bool,
     pub currency: String,
+    #[serde(serialize_with = "crate::api_rest::model::serialize_datetime")]
     pub created_at: NaiveDateTime,
 }
 

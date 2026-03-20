@@ -1,10 +1,11 @@
 use crate::api_rest::webhooks::out_model::{
-    WebhookOutCreditNoteEvent, WebhookOutCreditNoteEventData, WebhookOutCustomerEvent,
-    WebhookOutCustomerEventData, WebhookOutEventTypeEnum, WebhookOutInvoiceEvent,
-    WebhookOutInvoiceEventData, WebhookOutMetricEvent, WebhookOutMetricEventData,
-    WebhookOutPlanEvent, WebhookOutPlanEventData, WebhookOutProductEvent,
-    WebhookOutProductEventData, WebhookOutQuoteEvent, WebhookOutQuoteEventData,
-    WebhookOutSubscriptionEvent, WebhookOutSubscriptionEventData,
+    WebhookOutAddOnEvent, WebhookOutAddOnEventData, WebhookOutCouponEvent,
+    WebhookOutCouponEventData, WebhookOutCreditNoteEvent, WebhookOutCreditNoteEventData,
+    WebhookOutCustomerEvent, WebhookOutCustomerEventData, WebhookOutEventTypeEnum,
+    WebhookOutInvoiceEvent, WebhookOutInvoiceEventData, WebhookOutMetricEvent,
+    WebhookOutMetricEventData, WebhookOutPlanEvent, WebhookOutPlanEventData,
+    WebhookOutProductEvent, WebhookOutProductEventData, WebhookOutQuoteEvent,
+    WebhookOutQuoteEventData, WebhookOutSubscriptionEvent, WebhookOutSubscriptionEventData,
 };
 use crate::svix::SvixOps;
 use crate::workers::pgmq::PgmqResult;
@@ -262,6 +263,66 @@ impl WebhookOut {
                 let event = WebhookOutMetricEvent {
                     id: event_id,
                     event_type: WebhookOutEventTypeEnum::BillableMetricArchived,
+                    data,
+                    timestamp,
+                };
+                Some(event.try_into())
+            }
+            OutboxEvent::CouponCreated(event) => {
+                let data = WebhookOutCouponEventData::from(*event);
+                let event = WebhookOutCouponEvent {
+                    id: event_id,
+                    event_type: WebhookOutEventTypeEnum::CouponCreated,
+                    data,
+                    timestamp,
+                };
+                Some(event.try_into())
+            }
+            OutboxEvent::CouponUpdated(event) => {
+                let data = WebhookOutCouponEventData::from(*event);
+                let event = WebhookOutCouponEvent {
+                    id: event_id,
+                    event_type: WebhookOutEventTypeEnum::CouponUpdated,
+                    data,
+                    timestamp,
+                };
+                Some(event.try_into())
+            }
+            OutboxEvent::CouponArchived(event) => {
+                let data = WebhookOutCouponEventData::from(*event);
+                let event = WebhookOutCouponEvent {
+                    id: event_id,
+                    event_type: WebhookOutEventTypeEnum::CouponArchived,
+                    data,
+                    timestamp,
+                };
+                Some(event.try_into())
+            }
+            OutboxEvent::AddOnCreated(event) => {
+                let data = WebhookOutAddOnEventData::from(*event);
+                let event = WebhookOutAddOnEvent {
+                    id: event_id,
+                    event_type: WebhookOutEventTypeEnum::AddOnCreated,
+                    data,
+                    timestamp,
+                };
+                Some(event.try_into())
+            }
+            OutboxEvent::AddOnUpdated(event) => {
+                let data = WebhookOutAddOnEventData::from(*event);
+                let event = WebhookOutAddOnEvent {
+                    id: event_id,
+                    event_type: WebhookOutEventTypeEnum::AddOnUpdated,
+                    data,
+                    timestamp,
+                };
+                Some(event.try_into())
+            }
+            OutboxEvent::AddOnArchived(event) => {
+                let data = WebhookOutAddOnEventData::from(*event);
+                let event = WebhookOutAddOnEvent {
+                    id: event_id,
+                    event_type: WebhookOutEventTypeEnum::AddOnArchived,
                     data,
                     timestamp,
                 };

@@ -21,8 +21,8 @@ use error_stack::Report;
 pub struct ProductUpdate {
     pub id: ProductId,
     pub tenant_id: TenantId,
-    pub name: String,
-    pub description: Option<String>,
+    pub name: Option<String>,
+    pub description: Option<Option<String>>,
     pub fee_type: Option<FeeTypeEnum>,
     pub fee_structure: Option<FeeStructure>,
 }
@@ -59,17 +59,9 @@ pub trait ProductInterface {
         order_by: OrderByRequest,
     ) -> StoreResult<PaginatedVec<Product>>;
 
-    async fn archive_product(
-        &self,
-        id: ProductId,
-        tenant_id: TenantId,
-    ) -> StoreResult<Product>;
+    async fn archive_product(&self, id: ProductId, tenant_id: TenantId) -> StoreResult<Product>;
 
-    async fn unarchive_product(
-        &self,
-        id: ProductId,
-        tenant_id: TenantId,
-    ) -> StoreResult<Product>;
+    async fn unarchive_product(&self, id: ProductId, tenant_id: TenantId) -> StoreResult<Product>;
 
     #[allow(clippy::too_many_arguments)]
     async fn list_products_with_latest_price(
@@ -123,7 +115,8 @@ impl ProductInterface for Store {
                     product.tenant_id,
                     product.name.clone(),
                     product.description.clone(),
-                    product.fee_type.clone(),
+                    product.fee_type,
+                    product.product_family_id,
                     product.created_at,
                 );
                 self.internal
@@ -140,38 +133,45 @@ impl ProductInterface for Store {
     async fn update_product(&self, update: ProductUpdate) -> StoreResult<Product> {
         let mut conn = self.get_conn().await?;
 
-        let existing = ProductRow::find_by_id_and_tenant_id(&mut conn, update.id, update.tenant_id)
-            .await
-            .map_err(Into::<Report<StoreError>>::into)?;
-
-        // fee_type is immutable: if caller tries to change it, reject
-        if let Some(new_fee_type) = &update.fee_type {
-            let new_db: diesel_models::enums::FeeTypeEnum = new_fee_type.clone().into();
-            if existing.fee_type != new_db {
-                return Err(Report::new(StoreError::InvalidArgument(
-                    "fee_type is immutable once set".to_string(),
-                )));
-            }
-        }
-
-        let fee_structure_json = match update.fee_structure {
-            Some(fs) => serde_json::to_value(&fs).map_err(|e| {
-                Report::new(StoreError::SerdeError(
-                    "Failed to serialize fee_structure".to_string(),
-                    e,
-                ))
-            })?,
-            None => existing.fee_structure.clone(),
-        };
-
         self.transaction_with(&mut conn, |conn| {
             async move {
+                let existing =
+                    ProductRow::find_by_id_and_tenant_id(conn, update.id, update.tenant_id)
+                        .await
+                        .map_err(Into::<Report<StoreError>>::into)?;
+
+                // fee_type is immutable: if caller tries to change it, reject
+                if let Some(new_fee_type) = &update.fee_type {
+                    let new_db: diesel_models::enums::FeeTypeEnum = (*new_fee_type).into();
+                    if existing.fee_type != new_db {
+                        return Err(Report::new(StoreError::InvalidArgument(
+                            "fee_type is immutable once set".to_string(),
+                        )));
+                    }
+                }
+
+                let name = update.name.unwrap_or(existing.name.clone());
+                let description = match update.description {
+                    Some(d) => d,
+                    None => existing.description.clone(),
+                };
+
+                let fee_structure_json = match update.fee_structure {
+                    Some(fs) => serde_json::to_value(&fs).map_err(|e| {
+                        Report::new(StoreError::SerdeError(
+                            "Failed to serialize fee_structure".to_string(),
+                            e,
+                        ))
+                    })?,
+                    None => existing.fee_structure.clone(),
+                };
+
                 let product: Product = ProductRow::update_fee_structure(
                     conn,
                     update.id,
                     update.tenant_id,
-                    update.name,
-                    update.description,
+                    name,
+                    description,
                     existing.fee_type,
                     fee_structure_json,
                 )
@@ -184,7 +184,8 @@ impl ProductInterface for Store {
                     product.tenant_id,
                     product.name.clone(),
                     product.description.clone(),
-                    product.fee_type.clone(),
+                    product.fee_type,
+                    product.product_family_id,
                     product.created_at,
                 );
                 self.internal
@@ -257,11 +258,7 @@ impl ProductInterface for Store {
         })
     }
 
-    async fn archive_product(
-        &self,
-        id: ProductId,
-        tenant_id: TenantId,
-    ) -> StoreResult<Product> {
+    async fn archive_product(&self, id: ProductId, tenant_id: TenantId) -> StoreResult<Product> {
         let mut conn = self.get_conn().await?;
 
         self.transaction_with(&mut conn, |conn| {
@@ -276,7 +273,8 @@ impl ProductInterface for Store {
                     product.tenant_id,
                     product.name.clone(),
                     product.description.clone(),
-                    product.fee_type.clone(),
+                    product.fee_type,
+                    product.product_family_id,
                     product.created_at,
                 );
                 self.internal
@@ -290,11 +288,7 @@ impl ProductInterface for Store {
         .await
     }
 
-    async fn unarchive_product(
-        &self,
-        id: ProductId,
-        tenant_id: TenantId,
-    ) -> StoreResult<Product> {
+    async fn unarchive_product(&self, id: ProductId, tenant_id: TenantId) -> StoreResult<Product> {
         let mut conn = self.get_conn().await?;
 
         ProductRow::unarchive(&mut conn, id, tenant_id)

@@ -1,5 +1,6 @@
 use crate::domain::add_ons::{AddOn, AddOnNew, AddOnPatch};
 use crate::domain::enums::FeeTypeEnum;
+use crate::domain::outbox_event::OutboxEvent;
 use crate::domain::price_components::{PriceComponentNewInternal, PriceEntry, ProductRef};
 use crate::domain::{PaginatedVec, PaginationRequest, Price};
 use crate::errors::StoreError;
@@ -15,6 +16,7 @@ use uuid::Uuid;
 
 #[async_trait::async_trait]
 pub trait AddOnInterface {
+    #[allow(clippy::too_many_arguments)]
     async fn list_add_ons(
         &self,
         tenant_id: TenantId,
@@ -22,6 +24,7 @@ pub trait AddOnInterface {
         pagination: PaginationRequest,
         search: Option<String>,
         currency: Option<String>,
+        include_archived: bool,
     ) -> StoreResult<PaginatedVec<AddOn>>;
 
     async fn list_add_ons_by_ids(
@@ -56,6 +59,7 @@ pub trait AddOnInterface {
     ) -> StoreResult<AddOn>;
 
     async fn archive_add_on(&self, id: AddOnId, tenant_id: TenantId) -> StoreResult<()>;
+    async fn unarchive_add_on(&self, id: AddOnId, tenant_id: TenantId) -> StoreResult<()>;
 }
 
 /// Eagerly load fee_type and price for a list of add-on rows
@@ -117,6 +121,7 @@ impl AddOnInterface for Store {
         pagination: PaginationRequest,
         search: Option<String>,
         currency: Option<String>,
+        include_archived: bool,
     ) -> StoreResult<PaginatedVec<AddOn>> {
         let mut conn = self.get_conn().await?;
 
@@ -127,6 +132,7 @@ impl AddOnInterface for Store {
             pagination.into(),
             search,
             currency,
+            include_archived,
         )
         .await
         .map_err(Into::<Report<StoreError>>::into)?;
@@ -184,15 +190,30 @@ impl AddOnInterface for Store {
         let tenant_id = add_on.tenant_id;
         let row_new: AddOnRowNew = add_on.into();
 
-        let row = row_new
-            .insert(&mut conn)
-            .await
-            .map_err(Into::<Report<StoreError>>::into)?;
+        self.transaction_with(&mut conn, |conn| {
+            async move {
+                let row = row_new
+                    .insert(conn)
+                    .await
+                    .map_err(Into::<Report<StoreError>>::into)?;
 
-        let mut enriched = enrich_add_ons(&mut conn, vec![row], tenant_id).await?;
-        enriched
-            .pop()
-            .ok_or_else(|| Report::new(StoreError::InvalidArgument("Add-on not found".into())))
+                let mut enriched = enrich_add_ons(conn, vec![row], tenant_id).await?;
+                let addon = enriched.pop().ok_or_else(|| {
+                    Report::new(StoreError::InvalidArgument("Add-on not found".into()))
+                })?;
+
+                self.internal
+                    .insert_outbox_events_tx(
+                        conn,
+                        vec![OutboxEvent::add_on_created(addon.clone().into())],
+                    )
+                    .await?;
+
+                Ok(addon)
+            }
+            .scope_boxed()
+        })
+        .await
     }
 
     #[allow(clippy::too_many_arguments)]
@@ -360,9 +381,18 @@ impl AddOnInterface for Store {
                     .map_err(Into::<Report<StoreError>>::into)?;
 
                 let mut enriched = enrich_add_ons(conn, vec![row], tenant_id).await?;
-                enriched.pop().ok_or_else(|| {
+                let addon = enriched.pop().ok_or_else(|| {
                     Report::new(StoreError::InvalidArgument("Add-on not found".into()))
-                })
+                })?;
+
+                self.internal
+                    .insert_outbox_events_tx(
+                        conn,
+                        vec![OutboxEvent::add_on_updated(addon.clone().into())],
+                    )
+                    .await?;
+
+                Ok(addon)
             }
             .scope_boxed()
         })
@@ -372,7 +402,32 @@ impl AddOnInterface for Store {
     async fn archive_add_on(&self, id: AddOnId, tenant_id: TenantId) -> StoreResult<()> {
         let mut conn = self.get_conn().await?;
 
-        AddOnRow::archive(&mut conn, id, tenant_id)
+        self.transaction_with(&mut conn, |conn| {
+            async move {
+                AddOnRow::archive(conn, id, tenant_id)
+                    .await
+                    .map_err(Into::<Report<StoreError>>::into)?;
+
+                let row = AddOnRow::get_by_id(conn, tenant_id, id)
+                    .await
+                    .map_err(Into::<Report<StoreError>>::into)?;
+
+                let addon: AddOn = row.into();
+                self.internal
+                    .insert_outbox_events_tx(conn, vec![OutboxEvent::add_on_archived(addon.into())])
+                    .await?;
+
+                Ok(())
+            }
+            .scope_boxed()
+        })
+        .await
+    }
+
+    async fn unarchive_add_on(&self, id: AddOnId, tenant_id: TenantId) -> StoreResult<()> {
+        let mut conn = self.get_conn().await?;
+
+        AddOnRow::unarchive(&mut conn, id, tenant_id)
             .await
             .map_err(Into::<Report<StoreError>>::into)
     }

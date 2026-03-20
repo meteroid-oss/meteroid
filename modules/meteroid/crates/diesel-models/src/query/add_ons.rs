@@ -47,6 +47,7 @@ impl AddOnRow {
 
     /// List add-ons for a tenant. If `plan_version_id` is provided, filters through the junction table.
     /// If `currency` is provided, filters add-ons whose price matches that currency.
+    #[allow(clippy::too_many_arguments)]
     pub async fn list_by_tenant_id(
         conn: &mut PgConn,
         tenant_id: TenantId,
@@ -54,13 +55,17 @@ impl AddOnRow {
         pagination: PaginationRequest,
         search: Option<String>,
         currency: Option<String>,
+        include_archived: bool,
     ) -> DbResult<PaginatedVec<AddOnRow>> {
         use crate::schema::add_on::dsl as ao_dsl;
 
         let mut query = ao_dsl::add_on
             .filter(ao_dsl::tenant_id.eq(tenant_id))
-            .filter(ao_dsl::archived_at.is_null())
             .into_boxed();
+
+        if !include_archived {
+            query = query.filter(ao_dsl::archived_at.is_null());
+        }
 
         if let Some(pv_id) = plan_version_id {
             use crate::schema::plan_version_add_on::dsl as pva_dsl;
@@ -116,6 +121,26 @@ impl AddOnRow {
             .await
             .tap_err(|e| log::error!("Error while archiving add-on: {e:?}"))
             .attach("Error while archiving add-on")
+            .into_db_result()?;
+
+        Ok(())
+    }
+
+    pub async fn unarchive(conn: &mut PgConn, id: AddOnId, tenant_id: TenantId) -> DbResult<()> {
+        use crate::schema::add_on::dsl as ao_dsl;
+
+        let query = diesel::update(ao_dsl::add_on)
+            .filter(ao_dsl::id.eq(id))
+            .filter(ao_dsl::tenant_id.eq(tenant_id))
+            .set(ao_dsl::archived_at.eq::<Option<chrono::NaiveDateTime>>(None));
+
+        log::debug!("{}", debug_query::<diesel::pg::Pg, _>(&query));
+
+        query
+            .execute(conn)
+            .await
+            .tap_err(|e| log::error!("Error while unarchiving add-on: {e:?}"))
+            .attach("Error while unarchiving add-on")
             .into_db_result()?;
 
         Ok(())

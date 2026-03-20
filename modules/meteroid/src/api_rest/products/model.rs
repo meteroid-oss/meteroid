@@ -119,8 +119,12 @@ pub struct Product {
     #[serde(serialize_with = "common_domain::ids::string_serde::serialize")]
     pub product_family_id: ProductFamilyId,
     pub catalog: bool,
+    #[serde(serialize_with = "crate::api_rest::model::serialize_datetime")]
     pub created_at: NaiveDateTime,
-    #[serde(skip_serializing_if = "Option::is_none")]
+    #[serde(
+        skip_serializing_if = "Option::is_none",
+        serialize_with = "crate::api_rest::model::serialize_datetime_opt"
+    )]
     pub archived_at: Option<NaiveDateTime>,
 }
 

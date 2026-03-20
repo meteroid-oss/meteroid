@@ -64,10 +64,9 @@ pub fn rest_fee_structure_to_domain(
     fs: &ProductFeeStructure,
 ) -> Result<(domain::enums::FeeTypeEnum, FeeStructure), RestApiError> {
     match fs {
-        ProductFeeStructure::Rate {} => Ok((
-            domain::enums::FeeTypeEnum::Rate,
-            FeeStructure::Rate {},
-        )),
+        ProductFeeStructure::Rate {} => {
+            Ok((domain::enums::FeeTypeEnum::Rate, FeeStructure::Rate {}))
+        }
         ProductFeeStructure::Slot {
             slot_unit_name,
             upgrade_policy,

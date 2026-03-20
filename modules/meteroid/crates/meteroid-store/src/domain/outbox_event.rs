@@ -1,6 +1,8 @@
 use crate::domain::connectors::ConnectionMeta;
+use crate::domain::coupons::CouponDiscount;
 use crate::domain::enums::CreditNoteStatus;
-use crate::domain::enums::{BillingPeriodEnum, InvoiceStatusEnum};
+use crate::domain::enums::FeeTypeEnum;
+use crate::domain::enums::{BillingPeriodEnum, InvoiceStatusEnum, PlanStatusEnum, PlanTypeEnum};
 use crate::domain::pgmq::{PgmqMessage, PgmqMessageNew};
 use crate::domain::{
     Address, BillableMetric, BillingMetricAggregateEnum, CreditNote, Customer, Invoice,
@@ -10,11 +12,11 @@ use crate::domain::{
 use crate::errors::{StoreError, StoreErrorReport};
 use crate::{StoreResult, json_value_serde};
 use chrono::{NaiveDate, NaiveDateTime};
-use crate::domain::enums::FeeTypeEnum;
 use common_domain::ids::{
-    BaseId, BillableMetricId, CheckoutSessionId, ConnectorId, CreditNoteId, CustomerId,
-    CustomerPaymentMethodId, EventId, InvoiceId, PaymentTransactionId, PlanId, PlanVersionId,
-    ProductFamilyId, ProductId, QuoteId, StoredDocumentId, SubscriptionId, TenantId,
+    AddOnId, BaseId, BillableMetricId, CheckoutSessionId, ConnectorId, CouponId, CreditNoteId,
+    CustomerId, CustomerPaymentMethodId, EventId, InvoiceId, PaymentTransactionId, PlanId,
+    PlanVersionId, PriceId, ProductFamilyId, ProductId, QuoteId, StoredDocumentId, SubscriptionId,
+    TenantId,
 };
 use diesel_models::outbox_event::OutboxEventRowNew;
 use diesel_models::pgmq::PgmqMessageRowNew;
@@ -51,6 +53,12 @@ pub enum OutboxEvent {
     ProductArchived(Box<ProductEvent>),
     BillableMetricUpdated(Box<BillableMetricEvent>),
     BillableMetricArchived(Box<BillableMetricEvent>),
+    CouponCreated(Box<CouponEvent>),
+    CouponUpdated(Box<CouponEvent>),
+    CouponArchived(Box<CouponEvent>),
+    AddOnCreated(Box<AddOnEvent>),
+    AddOnUpdated(Box<AddOnEvent>),
+    AddOnArchived(Box<AddOnEvent>),
 }
 
 #[derive(Display, Debug, Serialize, Deserialize, PartialEq)]
@@ -78,6 +86,12 @@ pub enum EventType {
     ProductArchived,
     BillableMetricUpdated,
     BillableMetricArchived,
+    CouponCreated,
+    CouponUpdated,
+    CouponArchived,
+    AddOnCreated,
+    AddOnUpdated,
+    AddOnArchived,
 }
 
 json_value_serde!(OutboxEvent);
@@ -108,6 +122,12 @@ impl OutboxEvent {
             OutboxEvent::ProductArchived(event) => event.id,
             OutboxEvent::BillableMetricUpdated(event) => event.id,
             OutboxEvent::BillableMetricArchived(event) => event.id,
+            OutboxEvent::CouponCreated(event) => event.id,
+            OutboxEvent::CouponUpdated(event) => event.id,
+            OutboxEvent::CouponArchived(event) => event.id,
+            OutboxEvent::AddOnCreated(event) => event.id,
+            OutboxEvent::AddOnUpdated(event) => event.id,
+            OutboxEvent::AddOnArchived(event) => event.id,
         }
     }
 
@@ -136,6 +156,12 @@ impl OutboxEvent {
             OutboxEvent::ProductArchived(event) => event.tenant_id,
             OutboxEvent::BillableMetricUpdated(event) => event.tenant_id,
             OutboxEvent::BillableMetricArchived(event) => event.tenant_id,
+            OutboxEvent::CouponCreated(event) => event.tenant_id,
+            OutboxEvent::CouponUpdated(event) => event.tenant_id,
+            OutboxEvent::CouponArchived(event) => event.tenant_id,
+            OutboxEvent::AddOnCreated(event) => event.tenant_id,
+            OutboxEvent::AddOnUpdated(event) => event.tenant_id,
+            OutboxEvent::AddOnArchived(event) => event.tenant_id,
         }
     }
 
@@ -164,6 +190,12 @@ impl OutboxEvent {
             OutboxEvent::ProductArchived(event) => event.product_id.as_uuid(),
             OutboxEvent::BillableMetricUpdated(event) => event.metric_id.as_uuid(),
             OutboxEvent::BillableMetricArchived(event) => event.metric_id.as_uuid(),
+            OutboxEvent::CouponCreated(event) => event.coupon_id.as_uuid(),
+            OutboxEvent::CouponUpdated(event) => event.coupon_id.as_uuid(),
+            OutboxEvent::CouponArchived(event) => event.coupon_id.as_uuid(),
+            OutboxEvent::AddOnCreated(event) => event.add_on_id.as_uuid(),
+            OutboxEvent::AddOnUpdated(event) => event.add_on_id.as_uuid(),
+            OutboxEvent::AddOnArchived(event) => event.add_on_id.as_uuid(),
         }
     }
 
@@ -192,6 +224,12 @@ impl OutboxEvent {
             OutboxEvent::ProductArchived(_) => "Product".to_string(),
             OutboxEvent::BillableMetricUpdated(_) => "BillableMetric".to_string(),
             OutboxEvent::BillableMetricArchived(_) => "BillableMetric".to_string(),
+            OutboxEvent::CouponCreated(_) => "Coupon".to_string(),
+            OutboxEvent::CouponUpdated(_) => "Coupon".to_string(),
+            OutboxEvent::CouponArchived(_) => "Coupon".to_string(),
+            OutboxEvent::AddOnCreated(_) => "AddOn".to_string(),
+            OutboxEvent::AddOnUpdated(_) => "AddOn".to_string(),
+            OutboxEvent::AddOnArchived(_) => "AddOn".to_string(),
         }
     }
 
@@ -222,6 +260,12 @@ impl OutboxEvent {
             OutboxEvent::ProductArchived(_) => EventType::ProductArchived,
             OutboxEvent::BillableMetricUpdated(_) => EventType::BillableMetricUpdated,
             OutboxEvent::BillableMetricArchived(_) => EventType::BillableMetricArchived,
+            OutboxEvent::CouponCreated(_) => EventType::CouponCreated,
+            OutboxEvent::CouponUpdated(_) => EventType::CouponUpdated,
+            OutboxEvent::CouponArchived(_) => EventType::CouponArchived,
+            OutboxEvent::AddOnCreated(_) => EventType::AddOnCreated,
+            OutboxEvent::AddOnUpdated(_) => EventType::AddOnUpdated,
+            OutboxEvent::AddOnArchived(_) => EventType::AddOnArchived,
         }
     }
 
@@ -315,6 +359,30 @@ impl OutboxEvent {
 
     pub fn billable_metric_archived(event: BillableMetricEvent) -> OutboxEvent {
         OutboxEvent::BillableMetricArchived(Box::new(event))
+    }
+
+    pub fn coupon_created(event: CouponEvent) -> OutboxEvent {
+        OutboxEvent::CouponCreated(Box::new(event))
+    }
+
+    pub fn coupon_updated(event: CouponEvent) -> OutboxEvent {
+        OutboxEvent::CouponUpdated(Box::new(event))
+    }
+
+    pub fn coupon_archived(event: CouponEvent) -> OutboxEvent {
+        OutboxEvent::CouponArchived(Box::new(event))
+    }
+
+    pub fn add_on_created(event: AddOnEvent) -> OutboxEvent {
+        OutboxEvent::AddOnCreated(Box::new(event))
+    }
+
+    pub fn add_on_updated(event: AddOnEvent) -> OutboxEvent {
+        OutboxEvent::AddOnUpdated(Box::new(event))
+    }
+
+    pub fn add_on_archived(event: AddOnEvent) -> OutboxEvent {
+        OutboxEvent::AddOnArchived(Box::new(event))
     }
 
     fn payload_json(&self) -> StoreResult<serde_json::Value> {
@@ -566,8 +634,8 @@ pub struct PlanEvent {
     pub tenant_id: TenantId,
     pub name: String,
     pub description: Option<String>,
-    pub plan_type: String,
-    pub status: String,
+    pub plan_type: PlanTypeEnum,
+    pub status: PlanStatusEnum,
     pub currency: String,
     pub version: i32,
     pub created_at: NaiveDateTime,
@@ -582,6 +650,7 @@ pub struct ProductEvent {
     pub name: String,
     pub description: Option<String>,
     pub fee_type: FeeTypeEnum,
+    pub product_family_id: ProductFamilyId,
     pub created_at: NaiveDateTime,
 }
 
@@ -592,6 +661,7 @@ impl ProductEvent {
         name: String,
         description: Option<String>,
         fee_type: FeeTypeEnum,
+        product_family_id: ProductFamilyId,
         created_at: NaiveDateTime,
     ) -> Self {
         Self {
@@ -601,20 +671,92 @@ impl ProductEvent {
             name,
             description,
             fee_type,
+            product_family_id,
             created_at,
         }
     }
 }
 
+#[skip_serializing_none]
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct CouponEvent {
+    pub id: EventId,
+    pub coupon_id: CouponId,
+    pub tenant_id: TenantId,
+    pub code: String,
+    pub description: String,
+    pub discount: CouponDiscount,
+    pub expires_at: Option<NaiveDateTime>,
+    pub redemption_limit: Option<i32>,
+    pub recurring_value: Option<i32>,
+    pub reusable: bool,
+    pub disabled: bool,
+    pub created_at: NaiveDateTime,
+}
+
+impl From<crate::domain::coupons::Coupon> for CouponEvent {
+    fn from(c: crate::domain::coupons::Coupon) -> Self {
+        Self {
+            id: EventId::new(),
+            coupon_id: c.id,
+            tenant_id: c.tenant_id,
+            code: c.code,
+            description: c.description,
+            discount: c.discount,
+            expires_at: c.expires_at,
+            redemption_limit: c.redemption_limit,
+            recurring_value: c.recurring_value,
+            reusable: c.reusable,
+            disabled: c.disabled,
+            created_at: c.created_at,
+        }
+    }
+}
+
+#[skip_serializing_none]
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct AddOnEvent {
+    pub id: EventId,
+    pub add_on_id: AddOnId,
+    pub tenant_id: TenantId,
+    pub name: String,
+    pub description: Option<String>,
+    pub product_id: ProductId,
+    pub price_id: PriceId,
+    pub fee_type: Option<FeeTypeEnum>,
+    pub self_serviceable: bool,
+    pub max_instances_per_subscription: Option<i32>,
+    pub created_at: NaiveDateTime,
+}
+
+impl From<crate::domain::add_ons::AddOn> for AddOnEvent {
+    fn from(a: crate::domain::add_ons::AddOn) -> Self {
+        Self {
+            id: EventId::new(),
+            add_on_id: a.id,
+            tenant_id: a.tenant_id,
+            name: a.name,
+            description: a.description,
+            product_id: a.product_id,
+            price_id: a.price_id,
+            fee_type: a.fee_type,
+            self_serviceable: a.self_serviceable,
+            max_instances_per_subscription: a.max_instances_per_subscription,
+            created_at: a.created_at,
+        }
+    }
+}
+
 impl PlanEvent {
+    #[allow(clippy::too_many_arguments)]
     pub fn new(
         plan_id: PlanId,
         plan_version_id: PlanVersionId,
         tenant_id: TenantId,
         name: String,
         description: Option<String>,
-        plan_type: String,
-        status: String,
+        plan_type: PlanTypeEnum,
+        status: PlanStatusEnum,
         currency: String,
         version: i32,
         created_at: NaiveDateTime,

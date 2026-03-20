@@ -237,11 +237,10 @@ impl BillableMetricInterface for Store {
                     .await
                     .map_err(Into::<Report<StoreError>>::into)?;
 
-                let metric: BillableMetric =
-                    BillableMetricRow::find_by_id(conn, id, tenant_id)
-                        .await
-                        .map_err(Into::<Report<StoreError>>::into)
-                        .and_then(TryInto::try_into)?;
+                let metric: BillableMetric = BillableMetricRow::find_by_id(conn, id, tenant_id)
+                    .await
+                    .map_err(Into::<Report<StoreError>>::into)
+                    .and_then(TryInto::try_into)?;
 
                 self.internal
                     .insert_outbox_events_tx(
@@ -304,11 +303,10 @@ impl BillableMetricInterface for Store {
 
         self.transaction_with(&mut conn, |conn| {
             async move {
-                let metric: BillableMetric =
-                    BillableMetricRow::update(conn, id, tenant_id, patch)
-                        .await
-                        .map_err(Into::<Report<StoreError>>::into)
-                        .and_then(TryInto::try_into)?;
+                let metric: BillableMetric = BillableMetricRow::update(conn, id, tenant_id, patch)
+                    .await
+                    .map_err(Into::<Report<StoreError>>::into)
+                    .and_then(TryInto::try_into)?;
 
                 self.internal
                     .insert_outbox_events_tx(

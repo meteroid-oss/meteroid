@@ -4,8 +4,36 @@ use serde_with::{DisplayFromStr, serde_as};
 use utoipa::{IntoParams, ToSchema};
 use validator::Validate;
 
+/// Serde serializer for NaiveDateTime → RFC 3339 with UTC "Z" suffix.
+/// Use via `#[serde(serialize_with = "super::model::serialize_datetime")]`
+pub fn serialize_datetime<S>(dt: &chrono::NaiveDateTime, serializer: S) -> Result<S::Ok, S::Error>
+where
+    S: serde::Serializer,
+{
+    use chrono::SecondsFormat;
+    serializer.serialize_str(&dt.and_utc().to_rfc3339_opts(SecondsFormat::Millis, true))
+}
+
+pub fn serialize_datetime_opt<S>(
+    dt: &Option<chrono::NaiveDateTime>,
+    serializer: S,
+) -> Result<S::Ok, S::Error>
+where
+    S: serde::Serializer,
+{
+    use chrono::SecondsFormat;
+    match dt {
+        Some(dt) => {
+            serializer.serialize_str(&dt.and_utc().to_rfc3339_opts(SecondsFormat::Millis, true))
+        }
+        None => serializer.serialize_none(),
+    }
+}
+
 #[serde_as]
-#[derive(ToSchema, serde::Serialize, serde::Deserialize, Validate, Copy, Clone, Debug, IntoParams)]
+#[derive(
+    ToSchema, serde::Serialize, serde::Deserialize, Validate, Copy, Clone, Debug, IntoParams,
+)]
 #[into_params(parameter_in = Query)]
 pub struct PaginatedRequest {
     /// Page number (0-indexed)

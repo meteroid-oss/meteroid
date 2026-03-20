@@ -1,5 +1,6 @@
 use super::AppState;
 
+use crate::api_rest::QueryParams;
 use axum::extract::{Path, Query, State};
 use axum::response::IntoResponse;
 use axum::{Extension, Json};
@@ -8,7 +9,7 @@ use common_domain::ids::{PlanId, PlanVersionId, TenantId};
 use common_grpc::middleware::server::auth::AuthorizedAsTenant;
 use http::StatusCode;
 use meteroid_store::domain::{
-    FullPlanNew, OrderByRequest, PlanNew, PlanPatch, PlanTrial, PlanVersionFilter,
+    FullPlanNew, OrderByRequest, PlanFilters, PlanNew, PlanPatch, PlanTrial, PlanVersionFilter,
     PlanVersionNewInternal,
 };
 use meteroid_store::repositories::PlansInterface;
@@ -36,14 +37,22 @@ use crate::errors::RestApiError;
 #[axum::debug_handler]
 pub(crate) async fn list_plans(
     Extension(authorized_state): Extension<AuthorizedAsTenant>,
-    Valid(Query(request)): Valid<Query<PlanListRequest>>,
+    Valid(QueryParams(request)): Valid<QueryParams<PlanListRequest>>,
     State(app_state): State<AppState>,
 ) -> Result<impl IntoResponse, RestApiError> {
+    let filters = PlanFilters {
+        search: request.search,
+        filter_status: request.status.into_iter().map(Into::into).collect(),
+        filter_type: request.r#type.into_iter().map(Into::into).collect(),
+        filter_currency: None,
+    };
+
     let res = app_state
         .store
         .list_full_plans(
             authorized_state.tenant_id,
             request.product_family_id,
+            filters,
             request.pagination.into(),
             OrderByRequest::IdAsc,
         )
@@ -291,10 +300,7 @@ pub(crate) async fn replace_plan(
     Path(plan_id): Path<PlanId>,
     Valid(Json(payload)): Valid<Json<ReplacePlanRequest>>,
 ) -> Result<impl IntoResponse, RestApiError> {
-    let publish = matches!(
-        payload.status.as_ref(),
-        Some(PlanStatusEnum::Active)
-    );
+    let publish = matches!(payload.status.as_ref(), Some(PlanStatusEnum::Active));
 
     let components = payload
         .components
@@ -317,14 +323,16 @@ pub(crate) async fn replace_plan(
     let add_ons = payload
         .add_ons
         .iter()
-        .map(|a| meteroid_store::domain::plan_version_add_ons::PlanVersionAddOnNew {
-            plan_version_id: Default::default(), // will be set by store
-            add_on_id: a.add_on_id,
-            price_id: a.price_id,
-            self_serviceable: a.self_serviceable,
-            max_instances_per_subscription: a.max_instances,
-            tenant_id: authorized_state.tenant_id,
-        })
+        .map(
+            |a| meteroid_store::domain::plan_version_add_ons::PlanVersionAddOnNew {
+                plan_version_id: Default::default(), // will be set by store
+                add_on_id: a.add_on_id,
+                price_id: a.price_id,
+                self_serviceable: a.self_serviceable,
+                max_instances_per_subscription: a.max_instances,
+                tenant_id: authorized_state.tenant_id,
+            },
+        )
         .collect();
 
     let fp = app_state
@@ -408,13 +416,21 @@ pub(crate) async fn patch_plan(
     // Re-fetch full plan for consistent response (try active, fall back to draft)
     let fp = match app_state
         .store
-        .get_full_plan(plan_id, authorized_state.tenant_id, PlanVersionFilter::Active)
+        .get_full_plan(
+            plan_id,
+            authorized_state.tenant_id,
+            PlanVersionFilter::Active,
+        )
         .await
     {
         Ok(fp) => fp,
         Err(_) => app_state
             .store
-            .get_full_plan(plan_id, authorized_state.tenant_id, PlanVersionFilter::Draft)
+            .get_full_plan(
+                plan_id,
+                authorized_state.tenant_id,
+                PlanVersionFilter::Draft,
+            )
             .await
             .map_err(|e| {
                 log::error!("Error re-fetching plan: {e}");
@@ -468,9 +484,7 @@ pub(crate) async fn publish_plan(
             RestApiError::from(e)
         })?;
 
-    let draft_version = plan_with_version
-        .version
-        .ok_or(RestApiError::Conflict)?;
+    let draft_version = plan_with_version.version.ok_or(RestApiError::Conflict)?;
 
     app_state
         .store
@@ -487,7 +501,11 @@ pub(crate) async fn publish_plan(
 
     let fp = app_state
         .store
-        .get_full_plan(plan_id, authorized_state.tenant_id, PlanVersionFilter::Active)
+        .get_full_plan(
+            plan_id,
+            authorized_state.tenant_id,
+            PlanVersionFilter::Active,
+        )
         .await
         .map_err(|e| {
             log::error!("Error re-fetching plan: {e}");

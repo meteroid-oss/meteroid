@@ -194,9 +194,7 @@ pub(crate) async fn update_metric(
                 description: payload.description,
                 unit_conversion_factor,
                 unit_conversion_rounding,
-                segmentation_matrix: payload
-                    .segmentation_matrix
-                    .map(|opt| opt.map(Into::into)),
+                segmentation_matrix: payload.segmentation_matrix.map(|opt| opt.map(Into::into)),
             },
         )
         .await

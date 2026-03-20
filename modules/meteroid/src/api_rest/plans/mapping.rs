@@ -8,12 +8,12 @@ use crate::api_rest::plans::model::{
 use crate::errors::RestApiError;
 use common_domain::ids::ProductId;
 use meteroid_store::domain;
+use meteroid_store::domain::Price;
 use meteroid_store::domain::price_components::{
     PriceComponentNewInternal, PriceEntry, PriceInput, ProductRef,
 };
 use meteroid_store::domain::prices::{FeeStructure, Pricing, UsageModel};
 use meteroid_store::domain::products::Product;
-use meteroid_store::domain::Price;
 use std::collections::HashMap;
 
 // ── Domain → REST (response mapping) ──────────────────────────
@@ -104,10 +104,7 @@ fn v2_component_to_fee(product: &Product, prices: &[Price]) -> Option<Fee> {
                 .collect();
             Some(Fee::Rate(RatePlanFee { rates }))
         }
-        FeeStructure::Slot {
-            unit_name,
-            ..
-        } => {
+        FeeStructure::Slot { unit_name, .. } => {
             let first_pricing = prices.first().and_then(|p| match &p.pricing {
                 Pricing::Slot {
                     min_slots,
@@ -116,8 +113,7 @@ fn v2_component_to_fee(product: &Product, prices: &[Price]) -> Option<Fee> {
                 } => Some((*min_slots, *max_slots)),
                 _ => None,
             });
-            let (minimum_count, quota) =
-                first_pricing.unwrap_or((None, None));
+            let (minimum_count, quota) = first_pricing.unwrap_or((None, None));
 
             let rates = prices
                 .iter()
@@ -379,14 +375,7 @@ pub fn rest_to_domain_component(
 fn fee_to_domain(
     fee: &Fee,
     currency: &str,
-) -> Result<
-    (
-        domain::enums::FeeTypeEnum,
-        FeeStructure,
-        Vec<PriceEntry>,
-    ),
-    RestApiError,
-> {
+) -> Result<(domain::enums::FeeTypeEnum, FeeStructure, Vec<PriceEntry>), RestApiError> {
     use domain::enums::FeeTypeEnum;
     use domain::price_components::{DowngradePolicy, UpgradePolicy};
 
@@ -499,14 +488,17 @@ fn fee_to_domain(
             Ok((
                 FeeTypeEnum::ExtraRecurring,
                 FeeStructure::ExtraRecurring {
-                    billing_type: f.billing_type.clone().into(),
+                    billing_type: f.billing_type.into(),
                 },
                 prices,
             ))
         }
         Fee::OneTime(f) => {
+            // OneTime fees have no meaningful cadence, but the price table requires one.
+            // Monthly is used as a storage placeholder; billing logic uses
+            // SubscriptionFeeBillingPeriod::OneTime for actual scheduling.
             let prices = vec![PriceEntry::New(PriceInput {
-                cadence: domain::enums::BillingPeriodEnum::Monthly, // placeholder
+                cadence: domain::enums::BillingPeriodEnum::Monthly,
                 currency: currency.to_string(),
                 pricing: Pricing::OneTime {
                     unit_price: f.unit_price,
@@ -558,12 +550,13 @@ fn matrix_row_to_domain(r: &MatrixRow) -> domain::price_components::MatrixRow {
             key: r.dimension1.key.clone(),
             value: r.dimension1.value.clone(),
         },
-        dimension2: r.dimension2.as_ref().map(|d| {
-            domain::price_components::MatrixDimension {
+        dimension2: r
+            .dimension2
+            .as_ref()
+            .map(|d| domain::price_components::MatrixDimension {
                 key: d.key.clone(),
                 value: d.value.clone(),
-            }
-        }),
+            }),
         per_unit_price: r.per_unit_price,
     }
 }

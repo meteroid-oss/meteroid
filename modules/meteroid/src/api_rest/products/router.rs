@@ -69,7 +69,11 @@ pub(crate) async fn list_products(
         RestApiError::StoreError
     })?;
 
-    let data: Vec<Product> = res.items.into_iter().map(mapping::product_to_rest).collect();
+    let data: Vec<Product> = res
+        .items
+        .into_iter()
+        .map(mapping::product_to_rest)
+        .collect();
 
     Ok(Json(ProductListResponse {
         data,
@@ -182,15 +186,6 @@ pub(crate) async fn update_product(
     Path(product_id): Path<ProductId>,
     Valid(Json(payload)): Valid<Json<UpdateProductRequest>>,
 ) -> Result<impl IntoResponse, RestApiError> {
-    let existing = app_state
-        .store
-        .find_product_by_id(product_id, authorized_state.tenant_id)
-        .await
-        .map_err(|e| {
-            log::error!("Error fetching product for update: {e}");
-            RestApiError::from(e)
-        })?;
-
     let (fee_type, fee_structure) = match &payload.fee_structure {
         Some(fs) => {
             let (ft, fst) = mapping::rest_fee_structure_to_domain(fs)?;
@@ -204,11 +199,8 @@ pub(crate) async fn update_product(
         .update_product(ProductUpdate {
             id: product_id,
             tenant_id: authorized_state.tenant_id,
-            name: payload.name.unwrap_or(existing.name),
-            description: match payload.description {
-                Some(d) => d,
-                None => existing.description,
-            },
+            name: payload.name,
+            description: payload.description,
             fee_type,
             fee_structure,
         })

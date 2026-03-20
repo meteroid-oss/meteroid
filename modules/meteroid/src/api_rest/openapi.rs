@@ -1,21 +1,21 @@
 use crate::api_rest::invoices::model::InvoiceStatus;
 use crate::api_rest::metrics::model::BillingMetricAggregateEnum;
 use crate::api_rest::model::BillingPeriodEnum;
-use crate::api_rest::subscriptions::model::SubscriptionStatusEnum;
 use crate::api_rest::products::model::ProductFeeTypeEnum;
+use crate::api_rest::subscriptions::model::SubscriptionStatusEnum;
 use crate::api_rest::webhooks::out_model::{
-    CreditNoteStatus, WebhookOutCreditNoteEvent, WebhookOutCreditNoteEventData,
+    CreditNoteStatus, WebhookOutAddOnEvent, WebhookOutAddOnEventData, WebhookOutCouponEvent,
+    WebhookOutCouponEventData, WebhookOutCreditNoteEvent, WebhookOutCreditNoteEventData,
     WebhookOutCustomerEvent, WebhookOutCustomerEventData, WebhookOutEventGroupEnum,
     WebhookOutEventTypeEnum, WebhookOutInvoiceEvent, WebhookOutInvoiceEventData,
-    WebhookOutMetricEvent, WebhookOutMetricEventData, WebhookOutPlanEvent,
-    WebhookOutPlanEventData, WebhookOutProductEvent, WebhookOutProductEventData,
-    WebhookOutQuoteEvent, WebhookOutQuoteEventData, WebhookOutSubscriptionEvent,
-    WebhookOutSubscriptionEventData,
+    WebhookOutMetricEvent, WebhookOutMetricEventData, WebhookOutPlanEvent, WebhookOutPlanEventData,
+    WebhookOutProductEvent, WebhookOutProductEventData, WebhookOutQuoteEvent,
+    WebhookOutQuoteEventData, WebhookOutSubscriptionEvent, WebhookOutSubscriptionEventData,
 };
 use crate::api_rest::{AppState, api_routes};
 use common_domain::ids::{
-    BillableMetricId, CreditNoteId, CustomerId, EventId, InvoiceId, PlanId, ProductId, QuoteId,
-    SubscriptionId,
+    AddOnId, BillableMetricId, CouponId, CreditNoteId, CustomerId, EventId, InvoiceId, PlanId,
+    ProductFamilyId, ProductId, QuoteId, SubscriptionId,
 };
 use strum::IntoEnumIterator;
 use utoipa::openapi::security::{HttpAuthScheme, HttpBuilder, SecurityScheme};
@@ -81,7 +81,10 @@ pub fn generate_spec() {
         WebhookOutMetricEvent,
         WebhookOutQuoteEvent,
         WebhookOutCreditNoteEvent,
+        WebhookOutPlanEvent,
         WebhookOutProductEvent,
+        WebhookOutCouponEvent,
+        WebhookOutAddOnEvent,
       )
     ),
     tags((name = "Meteroid", description = "Meteroid API"))
@@ -245,8 +248,8 @@ impl Modify for WebhooksAddon {
                             plan_id: PlanId::default(),
                             name: "Enterprise Plan".to_string(),
                             description: Some("Our enterprise tier".to_string()),
-                            plan_type: "Standard".to_string(),
-                            status: "Active".to_string(),
+                            plan_type: crate::api_rest::plans::model::PlanTypeEnum::Standard,
+                            status: crate::api_rest::plans::model::PlanStatusEnum::Active,
                             currency: "USD".to_string(),
                             version: 1,
                             created_at: Default::default(),
@@ -264,6 +267,49 @@ impl Modify for WebhooksAddon {
                             name: "API Calls Product".to_string(),
                             description: Some("Usage-based API calls product".to_string()),
                             fee_type: ProductFeeTypeEnum::Usage,
+                            product_family_id: ProductFamilyId::default(),
+                            created_at: Default::default(),
+                        },
+                        timestamp: Default::default(),
+                    };
+                    serde_json::to_value(&event).expect("Failed to serialize webhook example")
+                }
+                WebhookOutEventGroupEnum::Coupon => {
+                    let event = WebhookOutCouponEvent {
+                        id: EventId::default(),
+                        event_type: event,
+                        data: WebhookOutCouponEventData {
+                            coupon_id: CouponId::default(),
+                            code: "WELCOME20".to_string(),
+                            description: "20% off for new customers".to_string(),
+                            discount:
+                                crate::api_rest::coupons::model::CouponDiscountRest::Percentage {
+                                    percentage: "20".to_string(),
+                                },
+                            expires_at: None,
+                            redemption_limit: Some(100),
+                            recurring_value: Some(3),
+                            reusable: false,
+                            disabled: false,
+                            created_at: Default::default(),
+                        },
+                        timestamp: Default::default(),
+                    };
+                    serde_json::to_value(&event).expect("Failed to serialize webhook example")
+                }
+                WebhookOutEventGroupEnum::AddOn => {
+                    let event = WebhookOutAddOnEvent {
+                        id: EventId::default(),
+                        event_type: event,
+                        data: WebhookOutAddOnEventData {
+                            add_on_id: AddOnId::default(),
+                            name: "Extra Storage".to_string(),
+                            description: Some("Additional storage capacity".to_string()),
+                            product_id: ProductId::default(),
+                            price_id: common_domain::ids::PriceId::default(),
+                            fee_type: Some(ProductFeeTypeEnum::Usage),
+                            self_serviceable: true,
+                            max_instances_per_subscription: Some(5),
                             created_at: Default::default(),
                         },
                         timestamp: Default::default(),

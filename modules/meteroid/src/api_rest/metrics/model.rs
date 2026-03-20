@@ -83,8 +83,12 @@ pub struct Metric {
         serialize_with = "common_domain::ids::string_serde_opt::serialize"
     )]
     pub product_id: Option<ProductId>,
+    #[serde(serialize_with = "crate::api_rest::model::serialize_datetime")]
     pub created_at: NaiveDateTime,
-    #[serde(skip_serializing_if = "Option::is_none")]
+    #[serde(
+        skip_serializing_if = "Option::is_none",
+        serialize_with = "crate::api_rest::model::serialize_datetime_opt"
+    )]
     pub archived_at: Option<NaiveDateTime>,
 }
 
@@ -105,8 +109,12 @@ pub struct MetricSummary {
     pub aggregation_type: BillingMetricAggregateEnum,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub aggregation_key: Option<String>,
+    #[serde(serialize_with = "crate::api_rest::model::serialize_datetime")]
     pub created_at: NaiveDateTime,
-    #[serde(skip_serializing_if = "Option::is_none")]
+    #[serde(
+        skip_serializing_if = "Option::is_none",
+        serialize_with = "crate::api_rest::model::serialize_datetime_opt"
+    )]
     pub archived_at: Option<NaiveDateTime>,
 }
 

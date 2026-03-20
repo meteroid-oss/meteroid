@@ -1,8 +1,10 @@
 use crate::domain::coupons::{Coupon, CouponFilter, CouponNew, CouponPatch, CouponStatusPatch};
+use crate::domain::outbox_event::OutboxEvent;
 use crate::domain::{AppliedCouponForDisplay, PaginatedVec, PaginationRequest};
 use crate::errors::StoreError;
 use crate::{Store, StoreResult};
 use common_domain::ids::{CouponId, TenantId};
+use diesel_async::scoped_futures::ScopedFutureExt;
 use diesel_models::applied_coupons::AppliedCouponForDisplayRow;
 use diesel_models::coupon_plans::{CouponPlanRow, CouponPlanRowNew};
 use diesel_models::coupons::{CouponRow, CouponRowNew, CouponRowPatch, CouponStatusRowPatch};
@@ -113,27 +115,43 @@ impl CouponInterface for Store {
         let coupon_row: CouponRowNew = coupon.try_into()?;
         let coupon_id = coupon_row.id;
 
-        let row = coupon_row
-            .insert(&mut conn)
-            .await
-            .map_err(Into::<Report<StoreError>>::into)?;
+        let coupon = self
+            .transaction_with(&mut conn, |conn| {
+                async move {
+                    let row = coupon_row
+                        .insert(conn)
+                        .await
+                        .map_err(Into::<Report<StoreError>>::into)?;
 
-        // Insert plan restrictions if any
-        if !plan_ids.is_empty() {
-            let plan_rows: Vec<CouponPlanRowNew> = plan_ids
-                .iter()
-                .map(|plan_id| CouponPlanRowNew {
-                    coupon_id,
-                    plan_id: *plan_id,
-                })
-                .collect();
-            CouponPlanRowNew::insert_batch(&plan_rows, &mut conn)
-                .await
-                .map_err(Into::<Report<StoreError>>::into)?;
-        }
+                    if !plan_ids.is_empty() {
+                        let plan_rows: Vec<CouponPlanRowNew> = plan_ids
+                            .iter()
+                            .map(|plan_id| CouponPlanRowNew {
+                                coupon_id,
+                                plan_id: *plan_id,
+                            })
+                            .collect();
+                        CouponPlanRowNew::insert_batch(&plan_rows, conn)
+                            .await
+                            .map_err(Into::<Report<StoreError>>::into)?;
+                    }
 
-        let mut coupon: Coupon = row.try_into()?;
-        coupon.plan_ids = plan_ids;
+                    let mut coupon: Coupon = row.try_into()?;
+                    coupon.plan_ids = plan_ids;
+
+                    self.internal
+                        .insert_outbox_events_tx(
+                            conn,
+                            vec![OutboxEvent::coupon_created(coupon.clone().into())],
+                        )
+                        .await?;
+
+                    Ok(coupon)
+                }
+                .scope_boxed()
+            })
+            .await?;
+
         Ok(coupon)
     }
 
@@ -153,61 +171,89 @@ impl CouponInterface for Store {
         let plan_ids = coupon.plan_ids.clone();
         let coupon_row: CouponRowPatch = coupon.try_into()?;
 
-        let row = coupon_row
-            .patch(&mut conn)
-            .await
-            .map_err(Into::<Report<StoreError>>::into)?;
-
-        // Update plan restrictions if provided
-        let final_plan_ids = if let Some(new_plan_ids) = plan_ids {
-            // Delete existing and insert new
-            CouponPlanRow::delete_by_coupon_id(&mut conn, coupon_id)
-                .await
-                .map_err(Into::<Report<StoreError>>::into)?;
-
-            if !new_plan_ids.is_empty() {
-                let plan_rows: Vec<CouponPlanRowNew> = new_plan_ids
-                    .iter()
-                    .map(|plan_id| CouponPlanRowNew {
-                        coupon_id,
-                        plan_id: *plan_id,
-                    })
-                    .collect();
-                CouponPlanRowNew::insert_batch(&plan_rows, &mut conn)
+        self.transaction_with(&mut conn, |conn| {
+            async move {
+                let row = coupon_row
+                    .patch(conn)
                     .await
                     .map_err(Into::<Report<StoreError>>::into)?;
-            }
-            new_plan_ids
-        } else {
-            // Fetch current plan_ids
-            CouponPlanRow::list_by_coupon_id(&mut conn, coupon_id)
-                .await
-                .map_err(Into::<Report<StoreError>>::into)?
-        };
 
-        let mut coupon: Coupon = row.try_into()?;
-        coupon.plan_ids = final_plan_ids;
-        Ok(coupon)
+                let final_plan_ids = if let Some(new_plan_ids) = plan_ids {
+                    CouponPlanRow::delete_by_coupon_id(conn, coupon_id)
+                        .await
+                        .map_err(Into::<Report<StoreError>>::into)?;
+
+                    if !new_plan_ids.is_empty() {
+                        let plan_rows: Vec<CouponPlanRowNew> = new_plan_ids
+                            .iter()
+                            .map(|plan_id| CouponPlanRowNew {
+                                coupon_id,
+                                plan_id: *plan_id,
+                            })
+                            .collect();
+                        CouponPlanRowNew::insert_batch(&plan_rows, conn)
+                            .await
+                            .map_err(Into::<Report<StoreError>>::into)?;
+                    }
+                    new_plan_ids
+                } else {
+                    CouponPlanRow::list_by_coupon_id(conn, coupon_id)
+                        .await
+                        .map_err(Into::<Report<StoreError>>::into)?
+                };
+
+                let mut coupon: Coupon = row.try_into()?;
+                coupon.plan_ids = final_plan_ids;
+
+                self.internal
+                    .insert_outbox_events_tx(
+                        conn,
+                        vec![OutboxEvent::coupon_updated(coupon.clone().into())],
+                    )
+                    .await?;
+
+                Ok(coupon)
+            }
+            .scope_boxed()
+        })
+        .await
     }
 
     async fn update_coupon_status(&self, coupon: CouponStatusPatch) -> StoreResult<Coupon> {
         let mut conn = self.get_conn().await?;
 
         let coupon_id = coupon.id;
+        let is_archiving = coupon.archived_at.as_ref().is_some_and(|v| v.is_some());
         let coupon_row: CouponStatusRowPatch = coupon.into();
 
-        let row = coupon_row
-            .patch(&mut conn)
-            .await
-            .map_err(Into::<Report<StoreError>>::into)?;
+        self.transaction_with(&mut conn, |conn| {
+            async move {
+                let row = coupon_row
+                    .patch(conn)
+                    .await
+                    .map_err(Into::<Report<StoreError>>::into)?;
 
-        let plan_ids = CouponPlanRow::list_by_coupon_id(&mut conn, coupon_id)
-            .await
-            .map_err(Into::<Report<StoreError>>::into)?;
+                let plan_ids = CouponPlanRow::list_by_coupon_id(conn, coupon_id)
+                    .await
+                    .map_err(Into::<Report<StoreError>>::into)?;
 
-        let mut coupon: Coupon = row.try_into()?;
-        coupon.plan_ids = plan_ids;
-        Ok(coupon)
+                let mut coupon: Coupon = row.try_into()?;
+                coupon.plan_ids = plan_ids;
+
+                if is_archiving {
+                    self.internal
+                        .insert_outbox_events_tx(
+                            conn,
+                            vec![OutboxEvent::coupon_archived(coupon.clone().into())],
+                        )
+                        .await?;
+                }
+
+                Ok(coupon)
+            }
+            .scope_boxed()
+        })
+        .await
     }
 
     async fn list_applied_coupons_by_coupon_id(

@@ -7,13 +7,11 @@ use crate::domain::prices::{
 };
 use crate::domain::{
     FullPlan, FullPlanNew, OrderByRequest, PaginatedVec, PaginationRequest, Plan,
-    PlanAndVersionPatch, PlanFilters, PlanOverview, PlanPatch, PlanStatusEnum, PlanTypeEnum,
-    PlanVersion, PlanVersionFilter, PlanVersionNew, PlanVersionNewInternal, PlanWithVersion,
-    Price, PriceComponent, PriceComponentNew, Product, ProductFamilyOverview, SelfServicePlan,
-    TrialPatch,
+    PlanAndVersionPatch, PlanFilters, PlanOverview, PlanPatch, PlanStatusEnum, PlanVersion,
+    PlanVersionFilter, PlanVersionNew, PlanVersionNewInternal, PlanWithVersion, Price,
+    PriceComponent, PriceComponentNew, Product, ProductFamilyOverview, SelfServicePlan, TrialPatch,
 };
 use crate::errors::StoreError;
-use crate::repositories::outbox::OutboxInterface;
 use crate::repositories::price_components::resolve_component_internal;
 use common_domain::ids::PriceId;
 use common_domain::ids::{
@@ -82,6 +80,7 @@ pub trait PlansInterface {
         &self,
         auth_tenant_id: TenantId,
         product_family_id: Option<ProductFamilyId>,
+        filters: PlanFilters,
         pagination: PaginationRequest,
         order_by: OrderByRequest,
     ) -> StoreResult<PaginatedVec<FullPlan>>;
@@ -149,6 +148,7 @@ pub trait PlansInterface {
         auth_tenant_id: TenantId,
     ) -> StoreResult<Vec<PlanVersion>>;
 
+    #[allow(clippy::too_many_arguments)]
     async fn replace_plan_version(
         &self,
         plan_id: PlanId,
@@ -405,8 +405,8 @@ impl PlansInterface for Store {
                         updated.tenant_id,
                         updated.name.clone(),
                         updated.description.clone(),
-                        updated.plan_type.to_string(),
-                        updated.status.to_string(),
+                        updated.plan_type.clone(),
+                        updated.status.clone(),
                         inserted_plan_version_new.currency.clone(),
                         inserted_plan_version_new.version,
                         updated.created_at,
@@ -533,6 +533,7 @@ impl PlansInterface for Store {
         &self,
         auth_tenant_id: TenantId,
         product_family_id: Option<ProductFamilyId>,
+        filters: PlanFilters,
         pagination: PaginationRequest,
         order_by: OrderByRequest,
     ) -> StoreResult<PaginatedVec<FullPlan>> {
@@ -542,13 +543,7 @@ impl PlansInterface for Store {
             &mut conn,
             auth_tenant_id,
             product_family_id,
-            PlanFilters {
-                filter_status: vec![PlanStatusEnum::Active],
-                filter_type: vec![PlanTypeEnum::Free, PlanTypeEnum::Standard],
-                search: None,
-                filter_currency: None,
-            }
-            .into(),
+            filters.into(),
             pagination.into(),
             order_by.into(),
         )
@@ -888,7 +883,7 @@ impl PlansInterface for Store {
                         .await
                         .map_err(Into::<Report<StoreError>>::into)?;
 
-                    PlanRowPatch {
+                    let plan: Plan = PlanRowPatch {
                         id: published.plan_id,
                         tenant_id: published.tenant_id,
                         name: None,
@@ -899,9 +894,34 @@ impl PlansInterface for Store {
                     }
                     .update(conn)
                     .await
+                    .map(Into::into)
                     .map_err(Into::<Report<StoreError>>::into)?;
 
-                    Ok(published.into())
+                    let version: PlanVersion = published.into();
+
+                    // Emit plan.published webhook inside transaction
+                    let plan_event = crate::domain::outbox_event::PlanEvent::new(
+                        plan.id,
+                        version.id,
+                        auth_tenant_id,
+                        plan.name.clone(),
+                        plan.description.clone(),
+                        plan.plan_type.clone(),
+                        PlanStatusEnum::Active,
+                        version.currency.clone(),
+                        version.version,
+                        plan.created_at,
+                    );
+                    self.internal
+                        .insert_outbox_events_tx(
+                            conn,
+                            vec![crate::domain::outbox_event::OutboxEvent::plan_published(
+                                plan_event,
+                            )],
+                        )
+                        .await?;
+
+                    Ok(version)
                 }
                 .scope_boxed()
             })
@@ -913,25 +933,6 @@ impl PlansInterface for Store {
                 auth_actor,
                 plan_version_id.as_uuid(),
                 auth_tenant_id.as_uuid(),
-            ))
-            .await;
-
-        // Emit plan.published webhook
-        let plan_event = crate::domain::outbox_event::PlanEvent::new(
-            res.plan_id,
-            res.id,
-            auth_tenant_id,
-            String::new(), // name not available from PlanVersion
-            None,
-            String::new(),
-            "Active".to_string(),
-            res.currency.clone(),
-            res.version,
-            res.created_at,
-        );
-        let _ = self
-            .insert_outbox_event(crate::domain::outbox_event::OutboxEvent::plan_published(
-                plan_event,
             ))
             .await;
 
@@ -1094,39 +1095,76 @@ impl PlansInterface for Store {
     async fn archive_plan(&self, id: PlanId, auth_tenant_id: TenantId) -> StoreResult<()> {
         let mut conn = self.get_conn().await?;
 
-        PlanRow::archive(&mut conn, id, auth_tenant_id)
-            .await
-            .map_err(Into::<Report<StoreError>>::into)?;
-
-        // Emit plan.archived webhook
+        // Fetch plan overview BEFORE archiving to get full data
         let plan_overview: PlanOverview =
             PlanRow::get_overview_by_id(&mut conn, id, auth_tenant_id)
                 .await
                 .map(Into::into)
                 .map_err(Into::<Report<StoreError>>::into)?;
 
-        let plan_event = crate::domain::outbox_event::PlanEvent::new(
-            id,
-            plan_overview
-                .active_version
-                .map(|v| v.id)
-                .unwrap_or_default(),
-            auth_tenant_id,
-            plan_overview.name,
-            plan_overview.description,
-            plan_overview.plan_type.to_string(),
-            "Archived".to_string(),
-            String::new(),
-            0,
-            plan_overview.created_at,
-        );
-        let _ = self
-            .insert_outbox_event(crate::domain::outbox_event::OutboxEvent::plan_archived(
-                plan_event,
-            ))
-            .await;
+        // Resolve the best available version (active preferred, then draft)
+        let version_info: Option<PlanVersion> = if let Some(ref v) = plan_overview.active_version {
+            let pv = PlanVersionRow::find_by_id_and_tenant_id(&mut conn, v.id, auth_tenant_id)
+                .await
+                .map_err(Into::<Report<StoreError>>::into)?;
+            Some(pv.into())
+        } else if plan_overview.has_draft_version {
+            PlanRow::get_with_version_by_id(
+                &mut conn,
+                id,
+                auth_tenant_id,
+                diesel_models::plan_versions::PlanVersionFilter::Draft,
+            )
+            .await
+            .ok()
+            .and_then(|pw| {
+                let pwv: PlanWithVersion = pw.into();
+                pwv.version
+            })
+        } else {
+            None
+        };
 
-        Ok(())
+        self.transaction_with(&mut conn, |conn| {
+            async move {
+                PlanRow::archive(conn, id, auth_tenant_id)
+                    .await
+                    .map_err(Into::<Report<StoreError>>::into)?;
+
+                // Only emit webhook if we have complete version data
+                if let Some(version) = version_info {
+                    let plan_event = crate::domain::outbox_event::PlanEvent::new(
+                        id,
+                        version.id,
+                        auth_tenant_id,
+                        plan_overview.name.clone(),
+                        plan_overview.description.clone(),
+                        plan_overview.plan_type.clone(),
+                        PlanStatusEnum::Archived,
+                        version.currency,
+                        version.version,
+                        plan_overview.created_at,
+                    );
+                    self.internal
+                        .insert_outbox_events_tx(
+                            conn,
+                            vec![crate::domain::outbox_event::OutboxEvent::plan_archived(
+                                plan_event,
+                            )],
+                        )
+                        .await?;
+                } else {
+                    log::warn!(
+                        "Plan {} archived without webhook: no version data available",
+                        id
+                    );
+                }
+
+                Ok(())
+            }
+            .scope_boxed()
+        })
+        .await
     }
 
     async fn unarchive_plan(&self, id: PlanId, auth_tenant_id: TenantId) -> StoreResult<()> {
@@ -1180,6 +1218,7 @@ impl PlansInterface for Store {
             .map_err(Into::into)
     }
 
+    #[allow(clippy::too_many_arguments)]
     async fn replace_plan_version(
         &self,
         plan_id: PlanId,
@@ -1204,7 +1243,8 @@ impl PlansInterface for Store {
         let existing_draft_version_id = if plan_overview.has_draft_version {
             // We need the actual draft version ID. The overview doesn't expose it directly,
             // so fetch the plan with draft filter to get it.
-            let draft_plan = PlanRow::get_with_version_by_id(
+
+            PlanRow::get_with_version_by_id(
                 &mut conn,
                 plan_id,
                 tenant_id,
@@ -1215,8 +1255,7 @@ impl PlansInterface for Store {
             .and_then(|pw| {
                 let pwv: PlanWithVersion = pw.into();
                 pwv.version.map(|v| v.id)
-            });
-            draft_plan
+            })
         } else {
             None
         };
@@ -1360,7 +1399,7 @@ impl PlansInterface for Store {
                             .await
                             .map_err(Into::<Report<StoreError>>::into)?;
 
-                        PlanRowPatch {
+                        let updated_plan: Plan = PlanRowPatch {
                             id: plan_id,
                             tenant_id,
                             name: None,
@@ -1371,7 +1410,30 @@ impl PlansInterface for Store {
                         }
                         .update(conn)
                         .await
+                        .map(Into::into)
                         .map_err(Into::<Report<StoreError>>::into)?;
+
+                        // Emit plan.published webhook inside transaction
+                        let plan_event = crate::domain::outbox_event::PlanEvent::new(
+                            plan_id,
+                            inserted_version.id,
+                            tenant_id,
+                            updated_plan.name,
+                            updated_plan.description,
+                            updated_plan.plan_type,
+                            PlanStatusEnum::Active,
+                            inserted_version.currency.clone(),
+                            inserted_version.version,
+                            updated_plan.created_at,
+                        );
+                        self.internal
+                            .insert_outbox_events_tx(
+                                conn,
+                                vec![crate::domain::outbox_event::OutboxEvent::plan_published(
+                                    plan_event,
+                                )],
+                            )
+                            .await?;
                     } else {
                         PlanRowPatch {
                             id: plan_id,

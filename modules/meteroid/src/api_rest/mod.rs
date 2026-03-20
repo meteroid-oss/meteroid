@@ -1,5 +1,7 @@
 use crate::adapters::stripe::Stripe;
+use crate::api_rest::addons::addon_routes;
 use crate::api_rest::checkoutsessions::checkout_session_routes;
+use crate::api_rest::coupons::coupon_routes;
 use crate::api_rest::creditnotes::credit_note_routes;
 use crate::api_rest::customers::customer_routes;
 use crate::api_rest::events::event_routes;
@@ -25,9 +27,11 @@ use std::sync::Arc;
 use std::sync::atomic::AtomicBool;
 use utoipa_axum::router::OpenApiRouter;
 
+mod addons;
 mod addresses;
 mod auth;
 mod checkoutsessions;
+pub(crate) mod coupons;
 mod creditnotes;
 mod currencies;
 mod customers;
@@ -49,6 +53,7 @@ pub mod webhooks;
 
 pub fn api_routes() -> OpenApiRouter<AppState> {
     OpenApiRouter::new()
+        .merge(addon_routes())
         .merge(subscription_routes())
         .merge(product_family_routes())
         .merge(plan_routes())
@@ -59,6 +64,7 @@ pub fn api_routes() -> OpenApiRouter<AppState> {
         .merge(event_routes())
         .merge(usage_routes())
         .merge(product_routes())
+        .merge(coupon_routes())
         .merge(metric_routes())
 }
 
