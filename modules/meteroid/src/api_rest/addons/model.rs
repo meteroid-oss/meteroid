@@ -1,7 +1,7 @@
 use crate::api_rest::model::{PaginatedRequest, PaginationResponse};
 use crate::api_rest::products::model::ProductFeeTypeEnum;
 use chrono::NaiveDateTime;
-use common_domain::ids::{AddOnId, PriceId, ProductId};
+use common_domain::ids::{AddOnId, PriceId, ProductId, string_serde, string_serde_opt};
 use serde::{Deserialize, Serialize};
 use utoipa::{IntoParams, ToSchema};
 use validator::Validate;
@@ -39,7 +39,9 @@ pub struct AddOn {
 pub struct CreateAddOnRequest {
     #[validate(length(min = 1))]
     pub name: String,
+    #[serde(with = "string_serde")]
     pub product_id: ProductId,
+    #[serde(with = "string_serde")]
     pub price_id: PriceId,
     pub description: Option<String>,
     #[serde(default)]
@@ -52,6 +54,7 @@ pub struct UpdateAddOnRequest {
     #[validate(length(min = 1))]
     pub name: Option<String>,
     pub description: Option<Option<String>>,
+    #[serde(default, with = "string_serde_opt")]
     pub price_id: Option<PriceId>,
     pub self_serviceable: Option<bool>,
     pub max_instances_per_subscription: Option<Option<i32>>,

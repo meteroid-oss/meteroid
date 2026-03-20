@@ -1,6 +1,6 @@
 use crate::api_rest::model::PaginatedRequest;
 use chrono::NaiveDateTime;
-use common_domain::ids::{ProductFamilyId, ProductId};
+use common_domain::ids::{ProductFamilyId, ProductId, string_serde, string_serde_opt};
 use serde::{Deserialize, Serialize};
 use utoipa::{IntoParams, ToSchema};
 use validator::Validate;
@@ -135,6 +135,7 @@ pub struct CreateProductRequest {
     #[validate(length(min = 1))]
     pub name: String,
     pub description: Option<String>,
+    #[serde(with = "string_serde")]
     pub product_family_id: ProductFamilyId,
     pub fee_structure: ProductFeeStructure,
     #[serde(default = "default_true")]
@@ -161,6 +162,7 @@ pub struct ProductListRequest {
     #[serde(flatten)]
     #[validate(nested)]
     pub pagination: PaginatedRequest,
+    #[serde(default, with = "string_serde_opt")]
     pub product_family_id: Option<ProductFamilyId>,
     pub search: Option<String>,
 }

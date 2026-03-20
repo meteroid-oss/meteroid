@@ -1,6 +1,6 @@
 use crate::api_rest::model::{PaginatedRequest, PaginationResponse};
 use chrono::NaiveDateTime;
-use common_domain::ids::{CouponId, PlanId};
+use common_domain::ids::{CouponId, PlanId, string_serde_vec, string_serde_vec_opt};
 use serde::{Deserialize, Serialize};
 use utoipa::{IntoParams, ToSchema};
 use validator::Validate;
@@ -79,7 +79,7 @@ pub struct CreateCouponRequest {
     pub recurring_value: Option<i32>,
     #[serde(default)]
     pub reusable: bool,
-    #[serde(default)]
+    #[serde(default, with = "string_serde_vec")]
     pub plan_ids: Vec<PlanId>,
 }
 
@@ -87,6 +87,7 @@ pub struct CreateCouponRequest {
 pub struct UpdateCouponRequest {
     pub description: Option<String>,
     pub discount: Option<CouponDiscountRest>,
+    #[serde(default, with = "string_serde_vec_opt")]
     pub plan_ids: Option<Vec<PlanId>>,
 }
 

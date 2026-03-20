@@ -1,6 +1,8 @@
 use crate::api_rest::model::{PaginatedRequest, PaginationResponse};
 use chrono::NaiveDateTime;
-use common_domain::ids::{BillableMetricId, ProductFamilyId, ProductId};
+use common_domain::ids::{
+    BillableMetricId, ProductFamilyId, ProductId, string_serde, string_serde_opt,
+};
 use o2o::o2o;
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
@@ -132,7 +134,9 @@ pub struct CreateMetricRequest {
     pub unit_conversion: Option<UnitConversion>,
     pub segmentation_matrix: Option<MetricSegmentationMatrix>,
     pub usage_group_key: Option<String>,
+    #[serde(with = "string_serde")]
     pub product_family_id: ProductFamilyId,
+    #[serde(default, with = "string_serde_opt")]
     pub product_id: Option<ProductId>,
 }
 
@@ -151,6 +155,7 @@ pub struct MetricListRequest {
     #[serde(flatten)]
     #[validate(nested)]
     pub pagination: PaginatedRequest,
+    #[serde(default, with = "string_serde_opt")]
     pub product_family_id: Option<ProductFamilyId>,
 }
 
