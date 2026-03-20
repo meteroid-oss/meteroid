@@ -10,6 +10,378 @@
     "version": "0.1.0"
   },
   "paths": {
+    "/api/v1/addons": {
+      "get": {
+        "tags": [
+          "Add-ons"
+        ],
+        "summary": "List add-ons",
+        "operationId": "list_addons",
+        "parameters": [
+          {
+            "name": "search",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "currency",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "include_archived",
+            "in": "query",
+            "description": "Include archived add-ons in the results (default: false)",
+            "required": false,
+            "schema": {
+              "type": "boolean"
+            }
+          },
+          {
+            "name": "page",
+            "in": "query",
+            "description": "Page number (0-indexed)",
+            "required": false,
+            "schema": {
+              "type": "integer",
+              "format": "int32",
+              "minimum": 0
+            }
+          },
+          {
+            "name": "per_page",
+            "in": "query",
+            "description": "Number of items per page",
+            "required": false,
+            "schema": {
+              "type": "integer",
+              "format": "int32",
+              "maximum": 100,
+              "minimum": 1
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "List of add-ons",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/AddOnListResponse"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Unauthorized",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/RestErrorResponse"
+                }
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "bearer_auth": []
+          }
+        ]
+      },
+      "post": {
+        "tags": [
+          "Add-ons"
+        ],
+        "summary": "Create an add-on",
+        "operationId": "create_addon",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/CreateAddOnRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "201": {
+            "description": "Add-on created",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/AddOn"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Bad request",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/RestErrorResponse"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Unauthorized",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/RestErrorResponse"
+                }
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "bearer_auth": []
+          }
+        ]
+      }
+    },
+    "/api/v1/addons/{addon_id}": {
+      "get": {
+        "tags": [
+          "Add-ons"
+        ],
+        "summary": "Get add-on details",
+        "operationId": "get_addon",
+        "parameters": [
+          {
+            "name": "addon_id",
+            "in": "path",
+            "description": "Add-on ID",
+            "required": true,
+            "schema": {
+              "$ref": "#/components/schemas/AddOnId"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Add-on details",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/AddOn"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Unauthorized",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/RestErrorResponse"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "Add-on not found",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/RestErrorResponse"
+                }
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "bearer_auth": []
+          }
+        ]
+      },
+      "patch": {
+        "tags": [
+          "Add-ons"
+        ],
+        "summary": "Update an add-on",
+        "operationId": "update_addon",
+        "parameters": [
+          {
+            "name": "addon_id",
+            "in": "path",
+            "description": "Add-on ID",
+            "required": true,
+            "schema": {
+              "$ref": "#/components/schemas/AddOnId"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/UpdateAddOnRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "description": "Add-on updated",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/AddOn"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Bad request",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/RestErrorResponse"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Unauthorized",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/RestErrorResponse"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "Add-on not found",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/RestErrorResponse"
+                }
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "bearer_auth": []
+          }
+        ]
+      }
+    },
+    "/api/v1/addons/{addon_id}/archive": {
+      "post": {
+        "tags": [
+          "Add-ons"
+        ],
+        "summary": "Archive an add-on",
+        "operationId": "archive_addon",
+        "parameters": [
+          {
+            "name": "addon_id",
+            "in": "path",
+            "description": "Add-on ID",
+            "required": true,
+            "schema": {
+              "$ref": "#/components/schemas/AddOnId"
+            }
+          }
+        ],
+        "responses": {
+          "204": {
+            "description": "Add-on archived"
+          },
+          "401": {
+            "description": "Unauthorized",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/RestErrorResponse"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "Add-on not found",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/RestErrorResponse"
+                }
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "bearer_auth": []
+          }
+        ]
+      }
+    },
+    "/api/v1/addons/{addon_id}/unarchive": {
+      "post": {
+        "tags": [
+          "Add-ons"
+        ],
+        "summary": "Unarchive an add-on",
+        "operationId": "unarchive_addon",
+        "parameters": [
+          {
+            "name": "addon_id",
+            "in": "path",
+            "description": "Add-on ID",
+            "required": true,
+            "schema": {
+              "$ref": "#/components/schemas/AddOnId"
+            }
+          }
+        ],
+        "responses": {
+          "204": {
+            "description": "Add-on unarchived"
+          },
+          "401": {
+            "description": "Unauthorized",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/RestErrorResponse"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "Add-on not found",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/RestErrorResponse"
+                }
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "bearer_auth": []
+          }
+        ]
+      }
+    },
     "/api/v1/checkout-sessions": {
       "get": {
         "tags": [
@@ -266,6 +638,475 @@
           },
           "500": {
             "description": "Internal server error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/RestErrorResponse"
+                }
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "bearer_auth": []
+          }
+        ]
+      }
+    },
+    "/api/v1/coupons": {
+      "get": {
+        "tags": [
+          "Coupons"
+        ],
+        "summary": "List coupons",
+        "operationId": "list_coupons",
+        "parameters": [
+          {
+            "name": "search",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "filter",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "string",
+              "enum": [
+                "ALL",
+                "ACTIVE",
+                "INACTIVE",
+                "ARCHIVED"
+              ]
+            }
+          },
+          {
+            "name": "page",
+            "in": "query",
+            "description": "Page number (0-indexed)",
+            "required": false,
+            "schema": {
+              "type": "integer",
+              "format": "int32",
+              "minimum": 0
+            }
+          },
+          {
+            "name": "per_page",
+            "in": "query",
+            "description": "Number of items per page",
+            "required": false,
+            "schema": {
+              "type": "integer",
+              "format": "int32",
+              "maximum": 100,
+              "minimum": 1
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "List of coupons",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/CouponListResponse"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Unauthorized",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/RestErrorResponse"
+                }
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "bearer_auth": []
+          }
+        ]
+      },
+      "post": {
+        "tags": [
+          "Coupons"
+        ],
+        "summary": "Create a coupon",
+        "operationId": "create_coupon",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/CreateCouponRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "201": {
+            "description": "Coupon created",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Coupon"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Bad request",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/RestErrorResponse"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Unauthorized",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/RestErrorResponse"
+                }
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "bearer_auth": []
+          }
+        ]
+      }
+    },
+    "/api/v1/coupons/{coupon_id}": {
+      "get": {
+        "tags": [
+          "Coupons"
+        ],
+        "summary": "Get coupon details",
+        "operationId": "get_coupon",
+        "parameters": [
+          {
+            "name": "coupon_id",
+            "in": "path",
+            "description": "Coupon ID",
+            "required": true,
+            "schema": {
+              "$ref": "#/components/schemas/CouponId"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Coupon details",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Coupon"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Unauthorized",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/RestErrorResponse"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "Coupon not found",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/RestErrorResponse"
+                }
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "bearer_auth": []
+          }
+        ]
+      },
+      "patch": {
+        "tags": [
+          "Coupons"
+        ],
+        "summary": "Update a coupon",
+        "operationId": "update_coupon",
+        "parameters": [
+          {
+            "name": "coupon_id",
+            "in": "path",
+            "description": "Coupon ID",
+            "required": true,
+            "schema": {
+              "$ref": "#/components/schemas/CouponId"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/UpdateCouponRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "description": "Coupon updated",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Coupon"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Bad request",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/RestErrorResponse"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Unauthorized",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/RestErrorResponse"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "Coupon not found",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/RestErrorResponse"
+                }
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "bearer_auth": []
+          }
+        ]
+      }
+    },
+    "/api/v1/coupons/{coupon_id}/archive": {
+      "post": {
+        "tags": [
+          "Coupons"
+        ],
+        "summary": "Archive a coupon",
+        "operationId": "archive_coupon",
+        "parameters": [
+          {
+            "name": "coupon_id",
+            "in": "path",
+            "description": "Coupon ID",
+            "required": true,
+            "schema": {
+              "$ref": "#/components/schemas/CouponId"
+            }
+          }
+        ],
+        "responses": {
+          "204": {
+            "description": "Coupon archived"
+          },
+          "401": {
+            "description": "Unauthorized",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/RestErrorResponse"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "Coupon not found",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/RestErrorResponse"
+                }
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "bearer_auth": []
+          }
+        ]
+      }
+    },
+    "/api/v1/coupons/{coupon_id}/disable": {
+      "post": {
+        "tags": [
+          "Coupons"
+        ],
+        "summary": "Disable a coupon",
+        "operationId": "disable_coupon",
+        "parameters": [
+          {
+            "name": "coupon_id",
+            "in": "path",
+            "description": "Coupon ID",
+            "required": true,
+            "schema": {
+              "$ref": "#/components/schemas/CouponId"
+            }
+          }
+        ],
+        "responses": {
+          "204": {
+            "description": "Coupon disabled"
+          },
+          "401": {
+            "description": "Unauthorized",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/RestErrorResponse"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "Coupon not found",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/RestErrorResponse"
+                }
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "bearer_auth": []
+          }
+        ]
+      }
+    },
+    "/api/v1/coupons/{coupon_id}/enable": {
+      "post": {
+        "tags": [
+          "Coupons"
+        ],
+        "summary": "Enable a coupon",
+        "operationId": "enable_coupon",
+        "parameters": [
+          {
+            "name": "coupon_id",
+            "in": "path",
+            "description": "Coupon ID",
+            "required": true,
+            "schema": {
+              "$ref": "#/components/schemas/CouponId"
+            }
+          }
+        ],
+        "responses": {
+          "204": {
+            "description": "Coupon enabled"
+          },
+          "401": {
+            "description": "Unauthorized",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/RestErrorResponse"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "Coupon not found",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/RestErrorResponse"
+                }
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "bearer_auth": []
+          }
+        ]
+      }
+    },
+    "/api/v1/coupons/{coupon_id}/unarchive": {
+      "post": {
+        "tags": [
+          "Coupons"
+        ],
+        "summary": "Unarchive a coupon",
+        "operationId": "unarchive_coupon",
+        "parameters": [
+          {
+            "name": "coupon_id",
+            "in": "path",
+            "description": "Coupon ID",
+            "required": true,
+            "schema": {
+              "$ref": "#/components/schemas/CouponId"
+            }
+          }
+        ],
+        "responses": {
+          "204": {
+            "description": "Coupon unarchived"
+          },
+          "401": {
+            "description": "Unauthorized",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/RestErrorResponse"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "Coupon not found",
             "content": {
               "application/json": {
                 "schema": {
@@ -1236,13 +2077,368 @@
         ]
       }
     },
+    "/api/v1/metrics": {
+      "get": {
+        "tags": [
+          "Metrics"
+        ],
+        "summary": "List billable metrics",
+        "operationId": "list_metrics",
+        "parameters": [
+          {
+            "name": "product_family_id",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "$ref": "#/components/schemas/ProductFamilyId"
+            }
+          },
+          {
+            "name": "page",
+            "in": "query",
+            "description": "Page number (0-indexed)",
+            "required": false,
+            "schema": {
+              "type": "integer",
+              "format": "int32",
+              "minimum": 0
+            }
+          },
+          {
+            "name": "per_page",
+            "in": "query",
+            "description": "Number of items per page",
+            "required": false,
+            "schema": {
+              "type": "integer",
+              "format": "int32",
+              "maximum": 100,
+              "minimum": 1
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "List of metrics",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/MetricListResponse"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Unauthorized",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/RestErrorResponse"
+                }
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "bearer_auth": []
+          }
+        ]
+      },
+      "post": {
+        "tags": [
+          "Metrics"
+        ],
+        "summary": "Create a billable metric",
+        "operationId": "create_metric",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/CreateMetricRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "201": {
+            "description": "Metric created",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Metric"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Bad request",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/RestErrorResponse"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Unauthorized",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/RestErrorResponse"
+                }
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "bearer_auth": []
+          }
+        ]
+      }
+    },
+    "/api/v1/metrics/{metric_id}": {
+      "get": {
+        "tags": [
+          "Metrics"
+        ],
+        "summary": "Get metric details",
+        "operationId": "get_metric",
+        "parameters": [
+          {
+            "name": "metric_id",
+            "in": "path",
+            "description": "Metric ID",
+            "required": true,
+            "schema": {
+              "$ref": "#/components/schemas/BillableMetricId"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Metric details",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Metric"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Unauthorized",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/RestErrorResponse"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "Metric not found",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/RestErrorResponse"
+                }
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "bearer_auth": []
+          }
+        ]
+      },
+      "patch": {
+        "tags": [
+          "Metrics"
+        ],
+        "summary": "Update a billable metric",
+        "description": "Partially update metric fields. Code and aggregation_type are immutable.",
+        "operationId": "update_metric",
+        "parameters": [
+          {
+            "name": "metric_id",
+            "in": "path",
+            "description": "Metric ID",
+            "required": true,
+            "schema": {
+              "$ref": "#/components/schemas/BillableMetricId"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/UpdateMetricRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "description": "Metric updated",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Metric"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Bad request",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/RestErrorResponse"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Unauthorized",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/RestErrorResponse"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "Metric not found",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/RestErrorResponse"
+                }
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "bearer_auth": []
+          }
+        ]
+      }
+    },
+    "/api/v1/metrics/{metric_id}/archive": {
+      "post": {
+        "tags": [
+          "Metrics"
+        ],
+        "summary": "Archive a billable metric",
+        "operationId": "archive_metric",
+        "parameters": [
+          {
+            "name": "metric_id",
+            "in": "path",
+            "description": "Metric ID",
+            "required": true,
+            "schema": {
+              "$ref": "#/components/schemas/BillableMetricId"
+            }
+          }
+        ],
+        "responses": {
+          "204": {
+            "description": "Metric archived"
+          },
+          "401": {
+            "description": "Unauthorized",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/RestErrorResponse"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "Metric not found",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/RestErrorResponse"
+                }
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "bearer_auth": []
+          }
+        ]
+      }
+    },
+    "/api/v1/metrics/{metric_id}/unarchive": {
+      "post": {
+        "tags": [
+          "Metrics"
+        ],
+        "summary": "Unarchive a billable metric",
+        "operationId": "unarchive_metric",
+        "parameters": [
+          {
+            "name": "metric_id",
+            "in": "path",
+            "description": "Metric ID",
+            "required": true,
+            "schema": {
+              "$ref": "#/components/schemas/BillableMetricId"
+            }
+          }
+        ],
+        "responses": {
+          "204": {
+            "description": "Metric unarchived"
+          },
+          "401": {
+            "description": "Unauthorized",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/RestErrorResponse"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "Metric not found",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/RestErrorResponse"
+                }
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "bearer_auth": []
+          }
+        ]
+      }
+    },
     "/api/v1/plans": {
       "get": {
         "tags": [
           "Plans"
         ],
         "summary": "List plans",
-        "description": "List plans with optional filtering by product family.",
         "operationId": "list_plans",
         "parameters": [
           {
@@ -1251,6 +2447,39 @@
             "required": false,
             "schema": {
               "$ref": "#/components/schemas/ProductFamilyId"
+            }
+          },
+          {
+            "name": "search",
+            "in": "query",
+            "description": "Search by plan name",
+            "required": false,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "status",
+            "in": "query",
+            "description": "Filter by plan status (can be repeated)",
+            "required": false,
+            "schema": {
+              "type": "array",
+              "items": {
+                "$ref": "#/components/schemas/PlanStatusEnum"
+              }
+            }
+          },
+          {
+            "name": "type",
+            "in": "query",
+            "description": "Filter by plan type (can be repeated)",
+            "required": false,
+            "schema": {
+              "type": "array",
+              "items": {
+                "$ref": "#/components/schemas/PlanTypeEnum"
+              }
             }
           },
           {
@@ -1289,10 +2518,79 @@
             }
           },
           "401": {
-            "description": "Unauthorized"
+            "description": "Unauthorized",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/RestErrorResponse"
+                }
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "bearer_auth": []
+          }
+        ]
+      },
+      "post": {
+        "tags": [
+          "Plans"
+        ],
+        "summary": "Create a plan",
+        "description": "Create a new plan with components and pricing. Set `status` to `ACTIVE` to\npublish immediately, or `DRAFT` to stage for review.",
+        "operationId": "create_plan",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/CreatePlanRequest"
+              }
+            }
           },
-          "500": {
-            "description": "Internal error"
+          "required": true
+        },
+        "responses": {
+          "201": {
+            "description": "Plan created",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Plan"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Bad request",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/RestErrorResponse"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Unauthorized",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/RestErrorResponse"
+                }
+              }
+            }
+          },
+          "409": {
+            "description": "Conflict",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/RestErrorResponse"
+                }
+              }
+            }
           }
         },
         "security": [
@@ -1307,8 +2605,8 @@
         "tags": [
           "Plans"
         ],
-        "summary": "Get plan",
-        "description": "Retrieve the details of a specific plan",
+        "summary": "Get plan details",
+        "description": "Retrieve a specific plan. Use `?version=draft` for the draft version,\n`?version=2` for a specific version number, or omit for the active version.",
         "operationId": "get_plan_details",
         "parameters": [
           {
@@ -1318,6 +2616,15 @@
             "required": true,
             "schema": {
               "$ref": "#/components/schemas/PlanId"
+            }
+          },
+          {
+            "name": "version",
+            "in": "query",
+            "description": "Filter by version: \"draft\", a version number, or omitted for active",
+            "required": false,
+            "schema": {
+              "type": "string"
             }
           }
         ],
@@ -1333,13 +2640,424 @@
             }
           },
           "401": {
-            "description": "Unauthorized"
+            "description": "Unauthorized",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/RestErrorResponse"
+                }
+              }
+            }
           },
           "404": {
-            "description": "Plan not found"
+            "description": "Plan not found",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/RestErrorResponse"
+                }
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "bearer_auth": []
+          }
+        ]
+      },
+      "put": {
+        "tags": [
+          "Plans"
+        ],
+        "summary": "Replace a plan",
+        "description": "Full replacement of a plan's version. On a draft plan, updates in-place.\nOn a published plan, creates a new version. Set `status` to `DRAFT` to\nstage as a new draft without publishing.",
+        "operationId": "replace_plan",
+        "parameters": [
+          {
+            "name": "plan_id",
+            "in": "path",
+            "description": "Plan ID",
+            "required": true,
+            "schema": {
+              "$ref": "#/components/schemas/PlanId"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/ReplacePlanRequest"
+              }
+            }
           },
-          "500": {
-            "description": "Internal error"
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "description": "Plan updated",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Plan"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Bad request",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/RestErrorResponse"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Unauthorized",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/RestErrorResponse"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "Plan not found",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/RestErrorResponse"
+                }
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "bearer_auth": []
+          }
+        ]
+      },
+      "patch": {
+        "tags": [
+          "Plans"
+        ],
+        "summary": "Update plan metadata",
+        "description": "Partially update plan-level fields (name, description, self_service_rank).\nDoes not modify version-level configuration or components.",
+        "operationId": "patch_plan",
+        "parameters": [
+          {
+            "name": "plan_id",
+            "in": "path",
+            "description": "Plan ID",
+            "required": true,
+            "schema": {
+              "$ref": "#/components/schemas/PlanId"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/PatchPlanRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "description": "Plan updated",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Plan"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Bad request",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/RestErrorResponse"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Unauthorized",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/RestErrorResponse"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "Plan not found",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/RestErrorResponse"
+                }
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "bearer_auth": []
+          }
+        ]
+      }
+    },
+    "/api/v1/plans/{plan_id}/archive": {
+      "post": {
+        "tags": [
+          "Plans"
+        ],
+        "summary": "Archive a plan",
+        "operationId": "archive_plan",
+        "parameters": [
+          {
+            "name": "plan_id",
+            "in": "path",
+            "description": "Plan ID",
+            "required": true,
+            "schema": {
+              "$ref": "#/components/schemas/PlanId"
+            }
+          }
+        ],
+        "responses": {
+          "204": {
+            "description": "Plan archived"
+          },
+          "401": {
+            "description": "Unauthorized",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/RestErrorResponse"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "Plan not found",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/RestErrorResponse"
+                }
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "bearer_auth": []
+          }
+        ]
+      }
+    },
+    "/api/v1/plans/{plan_id}/publish": {
+      "post": {
+        "tags": [
+          "Plans"
+        ],
+        "summary": "Publish a draft plan version",
+        "description": "Publishes the current draft version, making it the active version.",
+        "operationId": "publish_plan",
+        "parameters": [
+          {
+            "name": "plan_id",
+            "in": "path",
+            "description": "Plan ID",
+            "required": true,
+            "schema": {
+              "$ref": "#/components/schemas/PlanId"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Plan published",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Plan"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Unauthorized",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/RestErrorResponse"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "Plan not found",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/RestErrorResponse"
+                }
+              }
+            }
+          },
+          "409": {
+            "description": "No draft version to publish",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/RestErrorResponse"
+                }
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "bearer_auth": []
+          }
+        ]
+      }
+    },
+    "/api/v1/plans/{plan_id}/unarchive": {
+      "post": {
+        "tags": [
+          "Plans"
+        ],
+        "summary": "Unarchive a plan",
+        "operationId": "unarchive_plan",
+        "parameters": [
+          {
+            "name": "plan_id",
+            "in": "path",
+            "description": "Plan ID",
+            "required": true,
+            "schema": {
+              "$ref": "#/components/schemas/PlanId"
+            }
+          }
+        ],
+        "responses": {
+          "204": {
+            "description": "Plan unarchived"
+          },
+          "401": {
+            "description": "Unauthorized",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/RestErrorResponse"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "Plan not found",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/RestErrorResponse"
+                }
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "bearer_auth": []
+          }
+        ]
+      }
+    },
+    "/api/v1/plans/{plan_id}/versions": {
+      "get": {
+        "tags": [
+          "Plans"
+        ],
+        "summary": "List plan versions",
+        "operationId": "list_plan_versions",
+        "parameters": [
+          {
+            "name": "plan_id",
+            "in": "path",
+            "description": "Plan ID",
+            "required": true,
+            "schema": {
+              "$ref": "#/components/schemas/PlanId"
+            }
+          },
+          {
+            "name": "page",
+            "in": "query",
+            "description": "Page number (0-indexed)",
+            "required": false,
+            "schema": {
+              "type": "integer",
+              "format": "int32",
+              "minimum": 0
+            }
+          },
+          {
+            "name": "per_page",
+            "in": "query",
+            "description": "Number of items per page",
+            "required": false,
+            "schema": {
+              "type": "integer",
+              "format": "int32",
+              "maximum": 100,
+              "minimum": 1
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Plan versions",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/PlanVersionListResponse"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Unauthorized",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/RestErrorResponse"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "Plan not found",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/RestErrorResponse"
+                }
+              }
+            }
           }
         },
         "security": [
@@ -1498,6 +3216,370 @@
           },
           "500": {
             "description": "Internal error"
+          }
+        },
+        "security": [
+          {
+            "bearer_auth": []
+          }
+        ]
+      }
+    },
+    "/api/v1/products": {
+      "get": {
+        "tags": [
+          "Products"
+        ],
+        "summary": "List products",
+        "operationId": "list_products",
+        "parameters": [
+          {
+            "name": "product_family_id",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "$ref": "#/components/schemas/ProductFamilyId"
+            }
+          },
+          {
+            "name": "search",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "page",
+            "in": "query",
+            "description": "Page number (0-indexed)",
+            "required": false,
+            "schema": {
+              "type": "integer",
+              "format": "int32",
+              "minimum": 0
+            }
+          },
+          {
+            "name": "per_page",
+            "in": "query",
+            "description": "Number of items per page",
+            "required": false,
+            "schema": {
+              "type": "integer",
+              "format": "int32",
+              "maximum": 100,
+              "minimum": 1
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "List of products",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProductListResponse"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Unauthorized",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/RestErrorResponse"
+                }
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "bearer_auth": []
+          }
+        ]
+      },
+      "post": {
+        "tags": [
+          "Products"
+        ],
+        "summary": "Create a product",
+        "operationId": "create_product",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/CreateProductRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "201": {
+            "description": "Product created",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Product"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Bad request",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/RestErrorResponse"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Unauthorized",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/RestErrorResponse"
+                }
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "bearer_auth": []
+          }
+        ]
+      }
+    },
+    "/api/v1/products/{product_id}": {
+      "get": {
+        "tags": [
+          "Products"
+        ],
+        "summary": "Get product details",
+        "operationId": "get_product",
+        "parameters": [
+          {
+            "name": "product_id",
+            "in": "path",
+            "description": "Product ID",
+            "required": true,
+            "schema": {
+              "$ref": "#/components/schemas/ProductId"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Product details",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Product"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Unauthorized",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/RestErrorResponse"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "Product not found",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/RestErrorResponse"
+                }
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "bearer_auth": []
+          }
+        ]
+      },
+      "patch": {
+        "tags": [
+          "Products"
+        ],
+        "summary": "Update a product",
+        "description": "Partially update product fields. The fee_type is immutable and cannot be changed.",
+        "operationId": "update_product",
+        "parameters": [
+          {
+            "name": "product_id",
+            "in": "path",
+            "description": "Product ID",
+            "required": true,
+            "schema": {
+              "$ref": "#/components/schemas/ProductId"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/UpdateProductRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "description": "Product updated",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Product"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Bad request",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/RestErrorResponse"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Unauthorized",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/RestErrorResponse"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "Product not found",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/RestErrorResponse"
+                }
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "bearer_auth": []
+          }
+        ]
+      }
+    },
+    "/api/v1/products/{product_id}/archive": {
+      "post": {
+        "tags": [
+          "Products"
+        ],
+        "summary": "Archive a product",
+        "operationId": "archive_product",
+        "parameters": [
+          {
+            "name": "product_id",
+            "in": "path",
+            "description": "Product ID",
+            "required": true,
+            "schema": {
+              "$ref": "#/components/schemas/ProductId"
+            }
+          }
+        ],
+        "responses": {
+          "204": {
+            "description": "Product archived"
+          },
+          "401": {
+            "description": "Unauthorized",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/RestErrorResponse"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "Product not found",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/RestErrorResponse"
+                }
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "bearer_auth": []
+          }
+        ]
+      }
+    },
+    "/api/v1/products/{product_id}/unarchive": {
+      "post": {
+        "tags": [
+          "Products"
+        ],
+        "summary": "Unarchive a product",
+        "operationId": "unarchive_product",
+        "parameters": [
+          {
+            "name": "product_id",
+            "in": "path",
+            "description": "Product ID",
+            "required": true,
+            "schema": {
+              "$ref": "#/components/schemas/ProductId"
+            }
+          }
+        ],
+        "responses": {
+          "204": {
+            "description": "Product unarchived"
+          },
+          "401": {
+            "description": "Unauthorized",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/RestErrorResponse"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "Product not found",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/RestErrorResponse"
+                }
+              }
+            }
           }
         },
         "security": [
@@ -2171,12 +4253,174 @@
   },
   "components": {
     "schemas": {
+      "AddOn": {
+        "type": "object",
+        "required": [
+          "id",
+          "name",
+          "product_id",
+          "price_id",
+          "self_serviceable",
+          "created_at"
+        ],
+        "properties": {
+          "archived_at": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "format": "date-time"
+          },
+          "created_at": {
+            "type": "string",
+            "format": "date-time"
+          },
+          "description": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "fee_type": {
+            "oneOf": [
+              {
+                "type": "null"
+              },
+              {
+                "$ref": "#/components/schemas/ProductFeeTypeEnum"
+              }
+            ]
+          },
+          "id": {
+            "$ref": "#/components/schemas/AddOnId"
+          },
+          "max_instances_per_subscription": {
+            "type": [
+              "integer",
+              "null"
+            ],
+            "format": "int32"
+          },
+          "name": {
+            "type": "string"
+          },
+          "price_id": {
+            "$ref": "#/components/schemas/PriceId"
+          },
+          "product_id": {
+            "$ref": "#/components/schemas/ProductId"
+          },
+          "self_serviceable": {
+            "type": "boolean"
+          }
+        }
+      },
+      "AddOnEvent": {
+        "allOf": [
+          {
+            "$ref": "#/components/schemas/AddOnEventData"
+          },
+          {
+            "type": "object",
+            "required": [
+              "id",
+              "type",
+              "timestamp"
+            ],
+            "properties": {
+              "id": {
+                "$ref": "#/components/schemas/EventId"
+              },
+              "timestamp": {
+                "type": "string",
+                "format": "date-time"
+              },
+              "type": {
+                "$ref": "#/components/schemas/EventType"
+              }
+            }
+          }
+        ]
+      },
+      "AddOnEventData": {
+        "type": "object",
+        "required": [
+          "add_on_id",
+          "name",
+          "product_id",
+          "price_id",
+          "self_serviceable",
+          "created_at"
+        ],
+        "properties": {
+          "add_on_id": {
+            "$ref": "#/components/schemas/AddOnId"
+          },
+          "created_at": {
+            "type": "string",
+            "format": "date-time"
+          },
+          "description": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "fee_type": {
+            "oneOf": [
+              {
+                "type": "null"
+              },
+              {
+                "$ref": "#/components/schemas/ProductFeeTypeEnum"
+              }
+            ]
+          },
+          "max_instances_per_subscription": {
+            "type": [
+              "integer",
+              "null"
+            ],
+            "format": "int32"
+          },
+          "name": {
+            "type": "string"
+          },
+          "price_id": {
+            "$ref": "#/components/schemas/PriceId"
+          },
+          "product_id": {
+            "$ref": "#/components/schemas/ProductId"
+          },
+          "self_serviceable": {
+            "type": "boolean"
+          }
+        }
+      },
       "AddOnId": {
         "type": "string",
         "format": "MeteroidId",
         "examples": [
           "add_7n42DGM5Tflk9n8mt7Fhc7"
         ]
+      },
+      "AddOnListResponse": {
+        "type": "object",
+        "required": [
+          "data",
+          "pagination_meta"
+        ],
+        "properties": {
+          "data": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/AddOn"
+            }
+          },
+          "pagination_meta": {
+            "$ref": "#/components/schemas/PaginationResponse"
+          }
+        }
       },
       "Address": {
         "type": "object",
@@ -2336,6 +4580,29 @@
         "examples": [
           "bm_7n42DGM5Tflk9n8mt7Fhc7"
         ]
+      },
+      "BillingConfig": {
+        "type": "object",
+        "properties": {
+          "billing_cycles": {
+            "type": [
+              "integer",
+              "null"
+            ],
+            "format": "int32"
+          },
+          "net_terms": {
+            "type": "integer",
+            "format": "int32"
+          },
+          "period_start_day": {
+            "type": [
+              "integer",
+              "null"
+            ],
+            "format": "int32"
+          }
+        }
       },
       "BillingMetricAggregateEnum": {
         "type": "string",
@@ -2760,6 +5027,134 @@
           }
         }
       },
+      "CouponDiscountRest": {
+        "oneOf": [
+          {
+            "type": "object",
+            "required": [
+              "percentage",
+              "discount_type"
+            ],
+            "properties": {
+              "discount_type": {
+                "type": "string",
+                "enum": [
+                  "PERCENTAGE"
+                ]
+              },
+              "percentage": {
+                "type": "string"
+              }
+            }
+          },
+          {
+            "type": "object",
+            "required": [
+              "currency",
+              "amount",
+              "discount_type"
+            ],
+            "properties": {
+              "amount": {
+                "type": "string"
+              },
+              "currency": {
+                "type": "string"
+              },
+              "discount_type": {
+                "type": "string",
+                "enum": [
+                  "FIXED"
+                ]
+              }
+            }
+          }
+        ]
+      },
+      "CouponEvent": {
+        "allOf": [
+          {
+            "$ref": "#/components/schemas/CouponEventData"
+          },
+          {
+            "type": "object",
+            "required": [
+              "id",
+              "type",
+              "timestamp"
+            ],
+            "properties": {
+              "id": {
+                "$ref": "#/components/schemas/EventId"
+              },
+              "timestamp": {
+                "type": "string",
+                "format": "date-time"
+              },
+              "type": {
+                "$ref": "#/components/schemas/EventType"
+              }
+            }
+          }
+        ]
+      },
+      "CouponEventData": {
+        "type": "object",
+        "required": [
+          "coupon_id",
+          "code",
+          "description",
+          "discount",
+          "reusable",
+          "disabled",
+          "created_at"
+        ],
+        "properties": {
+          "code": {
+            "type": "string"
+          },
+          "coupon_id": {
+            "$ref": "#/components/schemas/CouponId"
+          },
+          "created_at": {
+            "type": "string",
+            "format": "date-time"
+          },
+          "description": {
+            "type": "string"
+          },
+          "disabled": {
+            "type": "boolean"
+          },
+          "discount": {
+            "$ref": "#/components/schemas/CouponDiscountRest"
+          },
+          "expires_at": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "format": "date-time"
+          },
+          "recurring_value": {
+            "type": [
+              "integer",
+              "null"
+            ],
+            "format": "int32"
+          },
+          "redemption_limit": {
+            "type": [
+              "integer",
+              "null"
+            ],
+            "format": "int32"
+          },
+          "reusable": {
+            "type": "boolean"
+          }
+        }
+      },
       "CouponId": {
         "type": "string",
         "format": "MeteroidId",
@@ -2784,6 +5179,59 @@
           "total": {
             "type": "integer",
             "format": "int64"
+          }
+        }
+      },
+      "CouponListResponse": {
+        "type": "object",
+        "required": [
+          "data",
+          "pagination_meta"
+        ],
+        "properties": {
+          "data": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/Coupon"
+            }
+          },
+          "pagination_meta": {
+            "$ref": "#/components/schemas/PaginationResponse"
+          }
+        }
+      },
+      "CreateAddOnRequest": {
+        "type": "object",
+        "required": [
+          "name",
+          "product_id",
+          "price_id"
+        ],
+        "properties": {
+          "description": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "max_instances_per_subscription": {
+            "type": [
+              "integer",
+              "null"
+            ],
+            "format": "int32"
+          },
+          "name": {
+            "type": "string"
+          },
+          "price_id": {
+            "$ref": "#/components/schemas/PriceId"
+          },
+          "product_id": {
+            "$ref": "#/components/schemas/ProductId"
+          },
+          "self_serviceable": {
+            "type": "boolean"
           }
         }
       },
@@ -2932,6 +5380,229 @@
         "properties": {
           "session": {
             "$ref": "#/components/schemas/CheckoutSession"
+          }
+        }
+      },
+      "CreateCouponRequest": {
+        "type": "object",
+        "required": [
+          "code",
+          "discount"
+        ],
+        "properties": {
+          "code": {
+            "type": "string"
+          },
+          "description": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "discount": {
+            "$ref": "#/components/schemas/CouponDiscountRest"
+          },
+          "expires_at": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "format": "date-time"
+          },
+          "plan_ids": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/PlanId"
+            }
+          },
+          "recurring_value": {
+            "type": [
+              "integer",
+              "null"
+            ],
+            "format": "int32"
+          },
+          "redemption_limit": {
+            "type": [
+              "integer",
+              "null"
+            ],
+            "format": "int32"
+          },
+          "reusable": {
+            "type": "boolean"
+          }
+        }
+      },
+      "CreateMetricRequest": {
+        "type": "object",
+        "required": [
+          "name",
+          "code",
+          "aggregation_type",
+          "product_family_id"
+        ],
+        "properties": {
+          "aggregation_key": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "aggregation_type": {
+            "$ref": "#/components/schemas/BillingMetricAggregateEnum"
+          },
+          "code": {
+            "type": "string"
+          },
+          "description": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "name": {
+            "type": "string"
+          },
+          "product_family_id": {
+            "$ref": "#/components/schemas/ProductFamilyId"
+          },
+          "product_id": {
+            "oneOf": [
+              {
+                "type": "null"
+              },
+              {
+                "$ref": "#/components/schemas/ProductId"
+              }
+            ]
+          },
+          "segmentation_matrix": {
+            "oneOf": [
+              {
+                "type": "null"
+              },
+              {
+                "$ref": "#/components/schemas/MetricSegmentationMatrix"
+              }
+            ]
+          },
+          "unit_conversion": {
+            "oneOf": [
+              {
+                "type": "null"
+              },
+              {
+                "$ref": "#/components/schemas/UnitConversion"
+              }
+            ]
+          },
+          "usage_group_key": {
+            "type": [
+              "string",
+              "null"
+            ]
+          }
+        }
+      },
+      "CreatePlanRequest": {
+        "type": "object",
+        "required": [
+          "name",
+          "product_family_id",
+          "plan_type",
+          "status",
+          "currency",
+          "components"
+        ],
+        "properties": {
+          "add_ons": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/PlanAddOnInput"
+            }
+          },
+          "billing": {
+            "oneOf": [
+              {
+                "type": "null"
+              },
+              {
+                "$ref": "#/components/schemas/BillingConfig"
+              }
+            ]
+          },
+          "components": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/PriceComponentInput"
+            }
+          },
+          "currency": {
+            "type": "string"
+          },
+          "description": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "name": {
+            "type": "string"
+          },
+          "plan_type": {
+            "$ref": "#/components/schemas/PlanTypeEnum"
+          },
+          "product_family_id": {
+            "$ref": "#/components/schemas/ProductFamilyId"
+          },
+          "self_service_rank": {
+            "type": [
+              "integer",
+              "null"
+            ],
+            "format": "int32"
+          },
+          "status": {
+            "$ref": "#/components/schemas/PlanStatusEnum"
+          },
+          "trial": {
+            "oneOf": [
+              {
+                "type": "null"
+              },
+              {
+                "$ref": "#/components/schemas/TrialConfig"
+              }
+            ]
+          }
+        }
+      },
+      "CreateProductRequest": {
+        "type": "object",
+        "required": [
+          "name",
+          "product_family_id",
+          "fee_structure"
+        ],
+        "properties": {
+          "catalog": {
+            "type": "boolean"
+          },
+          "description": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "fee_structure": {
+            "$ref": "#/components/schemas/ProductFeeStructure"
+          },
+          "name": {
+            "type": "string"
+          },
+          "product_family_id": {
+            "$ref": "#/components/schemas/ProductFamilyId"
           }
         }
       },
@@ -3868,7 +6539,21 @@
           "quote.converted",
           "credit_note.created",
           "credit_note.finalized",
-          "credit_note.voided"
+          "credit_note.voided",
+          "plan.created",
+          "plan.published",
+          "plan.archived",
+          "product.created",
+          "product.updated",
+          "product.archived",
+          "metric.updated",
+          "metric.archived",
+          "coupon.created",
+          "coupon.updated",
+          "coupon.archived",
+          "addon.created",
+          "addon.updated",
+          "addon.archived"
         ]
       },
       "ExtraComponent": {
@@ -3889,6 +6574,13 @@
             "type": "object"
           }
         }
+      },
+      "ExtraRecurringBillingTypeEnum": {
+        "type": "string",
+        "enum": [
+          "ADVANCE",
+          "ARREARS"
+        ]
       },
       "ExtraRecurringPlanFee": {
         "type": "object",
@@ -3940,12 +6632,12 @@
         "discriminator": {
           "propertyName": "fee_type",
           "mapping": {
-            "capacity": "#/components/schemas/CapacityPlanFee",
-            "extra_recurring": "#/components/schemas/ExtraRecurringPlanFee",
-            "one_time": "#/components/schemas/OneTimePlanFee",
-            "rate": "#/components/schemas/RatePlanFee",
-            "slot": "#/components/schemas/SlotPlanFee",
-            "usage": "#/components/schemas/UsagePlanFee"
+            "CAPACITY": "#/components/schemas/CapacityPlanFee",
+            "EXTRA_RECURRING": "#/components/schemas/ExtraRecurringPlanFee",
+            "ONE_TIME": "#/components/schemas/OneTimePlanFee",
+            "RATE": "#/components/schemas/RatePlanFee",
+            "SLOT": "#/components/schemas/SlotPlanFee",
+            "USAGE": "#/components/schemas/UsagePlanFee"
           }
         }
       },
@@ -4486,6 +7178,93 @@
           }
         }
       },
+      "Metric": {
+        "type": "object",
+        "required": [
+          "id",
+          "name",
+          "code",
+          "aggregation_type",
+          "product_family_id",
+          "created_at"
+        ],
+        "properties": {
+          "aggregation_key": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "aggregation_type": {
+            "$ref": "#/components/schemas/BillingMetricAggregateEnum"
+          },
+          "archived_at": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "format": "date-time"
+          },
+          "code": {
+            "type": "string"
+          },
+          "created_at": {
+            "type": "string",
+            "format": "date-time"
+          },
+          "description": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "id": {
+            "$ref": "#/components/schemas/BillableMetricId"
+          },
+          "name": {
+            "type": "string"
+          },
+          "product_family_id": {
+            "$ref": "#/components/schemas/ProductFamilyId"
+          },
+          "product_id": {
+            "oneOf": [
+              {
+                "type": "null"
+              },
+              {
+                "$ref": "#/components/schemas/ProductId"
+              }
+            ]
+          },
+          "segmentation_matrix": {
+            "oneOf": [
+              {
+                "type": "null"
+              },
+              {
+                "$ref": "#/components/schemas/MetricSegmentationMatrix"
+              }
+            ]
+          },
+          "unit_conversion": {
+            "oneOf": [
+              {
+                "type": "null"
+              },
+              {
+                "$ref": "#/components/schemas/UnitConversion"
+              }
+            ]
+          },
+          "usage_group_key": {
+            "type": [
+              "string",
+              "null"
+            ]
+          }
+        }
+      },
       "MetricDimension": {
         "type": "object",
         "required": [
@@ -4618,6 +7397,24 @@
           }
         }
       },
+      "MetricListResponse": {
+        "type": "object",
+        "required": [
+          "data",
+          "pagination_meta"
+        ],
+        "properties": {
+          "data": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/MetricSummary"
+            }
+          },
+          "pagination_meta": {
+            "$ref": "#/components/schemas/PaginationResponse"
+          }
+        }
+      },
       "MetricSegmentationMatrix": {
         "oneOf": [
           {
@@ -4685,6 +7482,53 @@
           "propertyName": "discriminator",
           "mapping": {
             "SINGLE": "#/components/schemas/MetricDimension"
+          }
+        }
+      },
+      "MetricSummary": {
+        "type": "object",
+        "required": [
+          "id",
+          "name",
+          "code",
+          "aggregation_type",
+          "created_at"
+        ],
+        "properties": {
+          "aggregation_key": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "aggregation_type": {
+            "$ref": "#/components/schemas/BillingMetricAggregateEnum"
+          },
+          "archived_at": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "format": "date-time"
+          },
+          "code": {
+            "type": "string"
+          },
+          "created_at": {
+            "type": "string",
+            "format": "date-time"
+          },
+          "description": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "id": {
+            "$ref": "#/components/schemas/BillableMetricId"
+          },
+          "name": {
+            "type": "string"
           }
         }
       },
@@ -4854,6 +7698,30 @@
             "type": "integer",
             "format": "int32",
             "minimum": 0
+          }
+        }
+      },
+      "PatchPlanRequest": {
+        "type": "object",
+        "properties": {
+          "description": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "name": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "self_service_rank": {
+            "type": [
+              "integer",
+              "null"
+            ],
+            "format": "int32"
           }
         }
       },
@@ -5038,6 +7906,13 @@
           "available_parameters": {
             "$ref": "#/components/schemas/AvailableParameters"
           },
+          "billing_cycles": {
+            "type": [
+              "integer",
+              "null"
+            ],
+            "format": "int32"
+          },
           "created_at": {
             "type": "string",
             "format": "date-time"
@@ -5061,6 +7936,13 @@
             "type": "integer",
             "format": "int32"
           },
+          "period_start_day": {
+            "type": [
+              "integer",
+              "null"
+            ],
+            "format": "int32"
+          },
           "plan_type": {
             "$ref": "#/components/schemas/PlanTypeEnum"
           },
@@ -5072,6 +7954,13 @@
           },
           "product_family": {
             "$ref": "#/components/schemas/ProductFamily"
+          },
+          "self_service_rank": {
+            "type": [
+              "integer",
+              "null"
+            ],
+            "format": "int32"
           },
           "status": {
             "$ref": "#/components/schemas/PlanStatusEnum"
@@ -5092,6 +7981,110 @@
           },
           "version_id": {
             "$ref": "#/components/schemas/PlanVersionId"
+          }
+        }
+      },
+      "PlanAddOnInput": {
+        "type": "object",
+        "required": [
+          "add_on_id"
+        ],
+        "properties": {
+          "add_on_id": {
+            "$ref": "#/components/schemas/AddOnId"
+          },
+          "max_instances": {
+            "type": [
+              "integer",
+              "null"
+            ],
+            "format": "int32"
+          },
+          "price_id": {
+            "oneOf": [
+              {
+                "type": "null"
+              },
+              {
+                "$ref": "#/components/schemas/PriceId"
+              }
+            ]
+          },
+          "self_serviceable": {
+            "type": [
+              "boolean",
+              "null"
+            ]
+          }
+        }
+      },
+      "PlanEvent": {
+        "allOf": [
+          {
+            "$ref": "#/components/schemas/PlanEventData"
+          },
+          {
+            "type": "object",
+            "required": [
+              "id",
+              "type",
+              "timestamp"
+            ],
+            "properties": {
+              "id": {
+                "$ref": "#/components/schemas/EventId"
+              },
+              "timestamp": {
+                "type": "string",
+                "format": "date-time"
+              },
+              "type": {
+                "$ref": "#/components/schemas/EventType"
+              }
+            }
+          }
+        ]
+      },
+      "PlanEventData": {
+        "type": "object",
+        "required": [
+          "plan_id",
+          "name",
+          "plan_type",
+          "status",
+          "currency",
+          "version",
+          "created_at"
+        ],
+        "properties": {
+          "created_at": {
+            "type": "string",
+            "format": "date-time"
+          },
+          "currency": {
+            "type": "string"
+          },
+          "description": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "name": {
+            "type": "string"
+          },
+          "plan_id": {
+            "$ref": "#/components/schemas/PlanId"
+          },
+          "plan_type": {
+            "$ref": "#/components/schemas/PlanTypeEnum"
+          },
+          "status": {
+            "$ref": "#/components/schemas/PlanStatusEnum"
+          },
+          "version": {
+            "type": "integer",
+            "format": "int32"
           }
         }
       },
@@ -5173,6 +8166,53 @@
           "plv_7n42DGM5Tflk9n8mt7Fhc7"
         ]
       },
+      "PlanVersionListResponse": {
+        "type": "object",
+        "required": [
+          "data",
+          "pagination_meta"
+        ],
+        "properties": {
+          "data": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/PlanVersionSummary"
+            }
+          },
+          "pagination_meta": {
+            "$ref": "#/components/schemas/PaginationResponse"
+          }
+        }
+      },
+      "PlanVersionSummary": {
+        "type": "object",
+        "required": [
+          "id",
+          "version",
+          "is_draft",
+          "currency",
+          "created_at"
+        ],
+        "properties": {
+          "created_at": {
+            "type": "string",
+            "format": "date-time"
+          },
+          "currency": {
+            "type": "string"
+          },
+          "id": {
+            "$ref": "#/components/schemas/PlanVersionId"
+          },
+          "is_draft": {
+            "type": "boolean"
+          },
+          "version": {
+            "type": "integer",
+            "format": "int32"
+          }
+        }
+      },
       "PriceComponent": {
         "type": "object",
         "required": [
@@ -5214,6 +8254,148 @@
         "examples": [
           "price_7n42DGM5Tflk9n8mt7Fhc7"
         ]
+      },
+      "PriceComponentInput": {
+        "type": "object",
+        "required": [
+          "name",
+          "fee"
+        ],
+        "properties": {
+          "fee": {
+            "$ref": "#/components/schemas/Fee"
+          },
+          "name": {
+            "type": "string"
+          },
+          "product_id": {
+            "oneOf": [
+              {
+                "type": "null"
+              },
+              {
+                "$ref": "#/components/schemas/ProductId"
+              }
+            ]
+          }
+        }
+      },
+      "PriceId": {
+        "type": "string",
+        "format": "MeteroidId",
+        "examples": [
+          "pri_7n42DGM5Tflk9n8mt7Fhc7"
+        ]
+      },
+      "Product": {
+        "type": "object",
+        "required": [
+          "id",
+          "name",
+          "fee_type",
+          "fee_structure",
+          "product_family_id",
+          "catalog",
+          "created_at"
+        ],
+        "properties": {
+          "archived_at": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "format": "date-time"
+          },
+          "catalog": {
+            "type": "boolean"
+          },
+          "created_at": {
+            "type": "string",
+            "format": "date-time"
+          },
+          "description": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "fee_structure": {
+            "$ref": "#/components/schemas/ProductFeeStructure"
+          },
+          "fee_type": {
+            "$ref": "#/components/schemas/ProductFeeTypeEnum"
+          },
+          "id": {
+            "$ref": "#/components/schemas/ProductId"
+          },
+          "name": {
+            "type": "string"
+          },
+          "product_family_id": {
+            "$ref": "#/components/schemas/ProductFamilyId"
+          }
+        }
+      },
+      "ProductEvent": {
+        "allOf": [
+          {
+            "$ref": "#/components/schemas/ProductEventData"
+          },
+          {
+            "type": "object",
+            "required": [
+              "id",
+              "type",
+              "timestamp"
+            ],
+            "properties": {
+              "id": {
+                "$ref": "#/components/schemas/EventId"
+              },
+              "timestamp": {
+                "type": "string",
+                "format": "date-time"
+              },
+              "type": {
+                "$ref": "#/components/schemas/EventType"
+              }
+            }
+          }
+        ]
+      },
+      "ProductEventData": {
+        "type": "object",
+        "required": [
+          "product_id",
+          "name",
+          "fee_type",
+          "product_family_id",
+          "created_at"
+        ],
+        "properties": {
+          "created_at": {
+            "type": "string",
+            "format": "date-time"
+          },
+          "description": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "fee_type": {
+            "$ref": "#/components/schemas/ProductFeeTypeEnum"
+          },
+          "name": {
+            "type": "string"
+          },
+          "product_family_id": {
+            "$ref": "#/components/schemas/ProductFamilyId"
+          },
+          "product_id": {
+            "$ref": "#/components/schemas/ProductId"
+          }
+        }
       },
       "ProductFamily": {
         "type": "object",
@@ -5266,12 +8448,157 @@
           }
         }
       },
+      "ProductFeeStructure": {
+        "oneOf": [
+          {
+            "type": "object",
+            "required": [
+              "fee_type"
+            ],
+            "properties": {
+              "fee_type": {
+                "type": "string",
+                "enum": [
+                  "RATE"
+                ]
+              }
+            }
+          },
+          {
+            "type": "object",
+            "required": [
+              "slot_unit_name",
+              "upgrade_policy",
+              "downgrade_policy",
+              "fee_type"
+            ],
+            "properties": {
+              "downgrade_policy": {
+                "$ref": "#/components/schemas/SlotDowngradePolicyEnum"
+              },
+              "fee_type": {
+                "type": "string",
+                "enum": [
+                  "SLOT"
+                ]
+              },
+              "slot_unit_name": {
+                "type": "string"
+              },
+              "upgrade_policy": {
+                "$ref": "#/components/schemas/SlotUpgradePolicyEnum"
+              }
+            }
+          },
+          {
+            "type": "object",
+            "required": [
+              "metric_id",
+              "fee_type"
+            ],
+            "properties": {
+              "fee_type": {
+                "type": "string",
+                "enum": [
+                  "CAPACITY"
+                ]
+              },
+              "metric_id": {
+                "$ref": "#/components/schemas/BillableMetricId"
+              }
+            }
+          },
+          {
+            "type": "object",
+            "required": [
+              "metric_id",
+              "model",
+              "fee_type"
+            ],
+            "properties": {
+              "fee_type": {
+                "type": "string",
+                "enum": [
+                  "USAGE"
+                ]
+              },
+              "metric_id": {
+                "$ref": "#/components/schemas/BillableMetricId"
+              },
+              "model": {
+                "$ref": "#/components/schemas/UsageModelEnum"
+              }
+            }
+          },
+          {
+            "type": "object",
+            "required": [
+              "billing_type",
+              "fee_type"
+            ],
+            "properties": {
+              "billing_type": {
+                "$ref": "#/components/schemas/ExtraRecurringBillingTypeEnum"
+              },
+              "fee_type": {
+                "type": "string",
+                "enum": [
+                  "EXTRA_RECURRING"
+                ]
+              }
+            }
+          },
+          {
+            "type": "object",
+            "required": [
+              "fee_type"
+            ],
+            "properties": {
+              "fee_type": {
+                "type": "string",
+                "enum": [
+                  "ONE_TIME"
+                ]
+              }
+            }
+          }
+        ]
+      },
+      "ProductFeeTypeEnum": {
+        "type": "string",
+        "enum": [
+          "RATE",
+          "SLOT",
+          "CAPACITY",
+          "USAGE",
+          "EXTRA_RECURRING",
+          "ONE_TIME"
+        ]
+      },
       "ProductId": {
         "type": "string",
         "format": "MeteroidId",
         "examples": [
           "prd_7n42DGM5Tflk9n8mt7Fhc7"
         ]
+      },
+      "ProductListResponse": {
+        "type": "object",
+        "required": [
+          "data",
+          "pagination_meta"
+        ],
+        "properties": {
+          "data": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/Product"
+            }
+          },
+          "pagination_meta": {
+            "$ref": "#/components/schemas/PaginationResponse"
+          }
+        }
       },
       "QuoteEvent": {
         "allOf": [
@@ -5381,6 +8708,70 @@
           }
         }
       },
+      "ReplacePlanRequest": {
+        "type": "object",
+        "required": [
+          "name",
+          "currency",
+          "components"
+        ],
+        "properties": {
+          "add_ons": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/PlanAddOnInput"
+            }
+          },
+          "billing": {
+            "oneOf": [
+              {
+                "type": "null"
+              },
+              {
+                "$ref": "#/components/schemas/BillingConfig"
+              }
+            ]
+          },
+          "components": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/PriceComponentInput"
+            }
+          },
+          "currency": {
+            "type": "string"
+          },
+          "description": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "name": {
+            "type": "string"
+          },
+          "status": {
+            "oneOf": [
+              {
+                "type": "null"
+              },
+              {
+                "$ref": "#/components/schemas/PlanStatusEnum"
+              }
+            ]
+          },
+          "trial": {
+            "oneOf": [
+              {
+                "type": "null"
+              },
+              {
+                "$ref": "#/components/schemas/TrialConfig"
+              }
+            ]
+          }
+        }
+      },
       "RestErrorResponse": {
         "type": "object",
         "required": [
@@ -5416,6 +8807,12 @@
             "type": "boolean"
           }
         }
+      },
+      "SlotDowngradePolicyEnum": {
+        "type": "string",
+        "enum": [
+          "REMOVE_AT_END_OF_PERIOD"
+        ]
       },
       "SlotFee": {
         "type": "object",
@@ -5489,6 +8886,12 @@
             "type": "string"
           }
         }
+      },
+      "SlotUpgradePolicyEnum": {
+        "type": "string",
+        "enum": [
+          "PRORATED"
+        ]
       },
       "SubLineItem": {
         "type": "object",
@@ -6651,6 +10054,22 @@
           }
         }
       },
+      "UnitConversion": {
+        "type": "object",
+        "required": [
+          "factor",
+          "rounding"
+        ],
+        "properties": {
+          "factor": {
+            "type": "integer",
+            "format": "int32"
+          },
+          "rounding": {
+            "$ref": "#/components/schemas/UnitConversionRoundingEnum"
+          }
+        }
+      },
       "UnitConversionRoundingEnum": {
         "type": "string",
         "enum": [
@@ -6661,6 +10080,140 @@
           "NEAREST_DECILE",
           "NONE"
         ]
+      },
+      "UpdateAddOnRequest": {
+        "type": "object",
+        "properties": {
+          "description": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "max_instances_per_subscription": {
+            "type": [
+              "integer",
+              "null"
+            ],
+            "format": "int32"
+          },
+          "name": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "price_id": {
+            "oneOf": [
+              {
+                "type": "null"
+              },
+              {
+                "$ref": "#/components/schemas/PriceId"
+              }
+            ]
+          },
+          "self_serviceable": {
+            "type": [
+              "boolean",
+              "null"
+            ]
+          }
+        }
+      },
+      "UpdateCouponRequest": {
+        "type": "object",
+        "properties": {
+          "description": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "discount": {
+            "oneOf": [
+              {
+                "type": "null"
+              },
+              {
+                "$ref": "#/components/schemas/CouponDiscountRest"
+              }
+            ]
+          },
+          "plan_ids": {
+            "type": [
+              "array",
+              "null"
+            ],
+            "items": {
+              "$ref": "#/components/schemas/PlanId"
+            }
+          }
+        }
+      },
+      "UpdateMetricRequest": {
+        "type": "object",
+        "properties": {
+          "description": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "name": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "segmentation_matrix": {
+            "oneOf": [
+              {
+                "type": "null"
+              },
+              {
+                "$ref": "#/components/schemas/MetricSegmentationMatrix"
+              }
+            ]
+          },
+          "unit_conversion": {
+            "oneOf": [
+              {
+                "type": "null"
+              },
+              {
+                "$ref": "#/components/schemas/UnitConversion"
+              }
+            ]
+          }
+        }
+      },
+      "UpdateProductRequest": {
+        "type": "object",
+        "properties": {
+          "description": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "fee_structure": {
+            "oneOf": [
+              {
+                "type": "null"
+              },
+              {
+                "$ref": "#/components/schemas/ProductFeeStructure"
+              }
+            ]
+          },
+          "name": {
+            "type": [
+              "string",
+              "null"
+            ]
+          }
+        }
       },
       "UsageFee": {
         "type": "object",
@@ -6676,6 +10229,16 @@
             "$ref": "#/components/schemas/UsagePricingModel"
           }
         }
+      },
+      "UsageModelEnum": {
+        "type": "string",
+        "enum": [
+          "PER_UNIT",
+          "TIERED",
+          "VOLUME",
+          "PACKAGE",
+          "MATRIX"
+        ]
       },
       "UsagePlanFee": {
         "type": "object",
@@ -6809,6 +10372,249 @@
     }
   ],
   "webhooks": {
+    "addon.archived": {
+      "post": {
+        "summary": "addon.archived webhook",
+        "description": "An add-on was archived",
+        "operationId": "webhook_addon_archived",
+        "tags": [
+          "webhooks"
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/AddOnEvent"
+              },
+              "example": {
+                "id": "evt_7n42DGM5Tflk9n8mt7Fhc7",
+                "type": "addon.archived",
+                "add_on_id": "add_7n42DGM5Tflk9n8mt7Fhc7",
+                "name": "Extra Storage",
+                "description": "Additional storage capacity",
+                "product_id": "prd_7n42DGM5Tflk9n8mt7Fhc7",
+                "price_id": "pri_7n42DGM5Tflk9n8mt7Fhc7",
+                "fee_type": "USAGE",
+                "self_serviceable": true,
+                "max_instances_per_subscription": 5,
+                "created_at": "1970-01-01T00:00:00.000Z",
+                "timestamp": "1970-01-01T00:00:00.000Z"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Webhook received successfully"
+          }
+        }
+      }
+    },
+    "addon.created": {
+      "post": {
+        "summary": "addon.created webhook",
+        "description": "A new add-on was created",
+        "operationId": "webhook_addon_created",
+        "tags": [
+          "webhooks"
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/AddOnEvent"
+              },
+              "example": {
+                "id": "evt_7n42DGM5Tflk9n8mt7Fhc7",
+                "type": "addon.created",
+                "add_on_id": "add_7n42DGM5Tflk9n8mt7Fhc7",
+                "name": "Extra Storage",
+                "description": "Additional storage capacity",
+                "product_id": "prd_7n42DGM5Tflk9n8mt7Fhc7",
+                "price_id": "pri_7n42DGM5Tflk9n8mt7Fhc7",
+                "fee_type": "USAGE",
+                "self_serviceable": true,
+                "max_instances_per_subscription": 5,
+                "created_at": "1970-01-01T00:00:00.000Z",
+                "timestamp": "1970-01-01T00:00:00.000Z"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Webhook received successfully"
+          }
+        }
+      }
+    },
+    "addon.updated": {
+      "post": {
+        "summary": "addon.updated webhook",
+        "description": "An add-on was updated",
+        "operationId": "webhook_addon_updated",
+        "tags": [
+          "webhooks"
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/AddOnEvent"
+              },
+              "example": {
+                "id": "evt_7n42DGM5Tflk9n8mt7Fhc7",
+                "type": "addon.updated",
+                "add_on_id": "add_7n42DGM5Tflk9n8mt7Fhc7",
+                "name": "Extra Storage",
+                "description": "Additional storage capacity",
+                "product_id": "prd_7n42DGM5Tflk9n8mt7Fhc7",
+                "price_id": "pri_7n42DGM5Tflk9n8mt7Fhc7",
+                "fee_type": "USAGE",
+                "self_serviceable": true,
+                "max_instances_per_subscription": 5,
+                "created_at": "1970-01-01T00:00:00.000Z",
+                "timestamp": "1970-01-01T00:00:00.000Z"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Webhook received successfully"
+          }
+        }
+      }
+    },
+    "coupon.archived": {
+      "post": {
+        "summary": "coupon.archived webhook",
+        "description": "A coupon was archived",
+        "operationId": "webhook_coupon_archived",
+        "tags": [
+          "webhooks"
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/CouponEvent"
+              },
+              "example": {
+                "id": "evt_7n42DGM5Tflk9n8mt7Fhc7",
+                "type": "coupon.archived",
+                "coupon_id": "cou_7n42DGM5Tflk9n8mt7Fhc7",
+                "code": "WELCOME20",
+                "description": "20% off for new customers",
+                "discount": {
+                  "discount_type": "PERCENTAGE",
+                  "percentage": "20"
+                },
+                "redemption_limit": 100,
+                "recurring_value": 3,
+                "reusable": false,
+                "disabled": false,
+                "created_at": "1970-01-01T00:00:00.000Z",
+                "timestamp": "1970-01-01T00:00:00.000Z"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Webhook received successfully"
+          }
+        }
+      }
+    },
+    "coupon.created": {
+      "post": {
+        "summary": "coupon.created webhook",
+        "description": "A new coupon was created",
+        "operationId": "webhook_coupon_created",
+        "tags": [
+          "webhooks"
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/CouponEvent"
+              },
+              "example": {
+                "id": "evt_7n42DGM5Tflk9n8mt7Fhc7",
+                "type": "coupon.created",
+                "coupon_id": "cou_7n42DGM5Tflk9n8mt7Fhc7",
+                "code": "WELCOME20",
+                "description": "20% off for new customers",
+                "discount": {
+                  "discount_type": "PERCENTAGE",
+                  "percentage": "20"
+                },
+                "redemption_limit": 100,
+                "recurring_value": 3,
+                "reusable": false,
+                "disabled": false,
+                "created_at": "1970-01-01T00:00:00.000Z",
+                "timestamp": "1970-01-01T00:00:00.000Z"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Webhook received successfully"
+          }
+        }
+      }
+    },
+    "coupon.updated": {
+      "post": {
+        "summary": "coupon.updated webhook",
+        "description": "A coupon was updated",
+        "operationId": "webhook_coupon_updated",
+        "tags": [
+          "webhooks"
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/CouponEvent"
+              },
+              "example": {
+                "id": "evt_7n42DGM5Tflk9n8mt7Fhc7",
+                "type": "coupon.updated",
+                "coupon_id": "cou_7n42DGM5Tflk9n8mt7Fhc7",
+                "code": "WELCOME20",
+                "description": "20% off for new customers",
+                "discount": {
+                  "discount_type": "PERCENTAGE",
+                  "percentage": "20"
+                },
+                "redemption_limit": 100,
+                "recurring_value": 3,
+                "reusable": false,
+                "disabled": false,
+                "created_at": "1970-01-01T00:00:00.000Z",
+                "timestamp": "1970-01-01T00:00:00.000Z"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Webhook received successfully"
+          }
+        }
+      }
+    },
     "credit_note.created": {
       "post": {
         "summary": "credit_note.created webhook",
@@ -7116,6 +10922,42 @@
         }
       }
     },
+    "metric.archived": {
+      "post": {
+        "summary": "metric.archived webhook",
+        "description": "A billable metric was archived",
+        "operationId": "webhook_metric_archived",
+        "tags": [
+          "webhooks"
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/MetricEvent"
+              },
+              "example": {
+                "id": "evt_7n42DGM5Tflk9n8mt7Fhc7",
+                "type": "metric.archived",
+                "metric_id": "bm_7n42DGM5Tflk9n8mt7Fhc7",
+                "name": "Api Calls",
+                "code": "api_calls",
+                "aggregation_type": "COUNT",
+                "created_at": "1970-01-01T00:00:00",
+                "product_family_id": "pf_7n42DGM5Tflk9n8mt7Fhc7",
+                "timestamp": "1970-01-01T00:00:00.000Z"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Webhook received successfully"
+          }
+        }
+      }
+    },
     "metric.created": {
       "post": {
         "summary": "metric.created webhook",
@@ -7140,6 +10982,264 @@
                 "aggregation_type": "COUNT",
                 "created_at": "1970-01-01T00:00:00",
                 "product_family_id": "pf_7n42DGM5Tflk9n8mt7Fhc7",
+                "timestamp": "1970-01-01T00:00:00.000Z"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Webhook received successfully"
+          }
+        }
+      }
+    },
+    "metric.updated": {
+      "post": {
+        "summary": "metric.updated webhook",
+        "description": "A billable metric was updated",
+        "operationId": "webhook_metric_updated",
+        "tags": [
+          "webhooks"
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/MetricEvent"
+              },
+              "example": {
+                "id": "evt_7n42DGM5Tflk9n8mt7Fhc7",
+                "type": "metric.updated",
+                "metric_id": "bm_7n42DGM5Tflk9n8mt7Fhc7",
+                "name": "Api Calls",
+                "code": "api_calls",
+                "aggregation_type": "COUNT",
+                "created_at": "1970-01-01T00:00:00",
+                "product_family_id": "pf_7n42DGM5Tflk9n8mt7Fhc7",
+                "timestamp": "1970-01-01T00:00:00.000Z"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Webhook received successfully"
+          }
+        }
+      }
+    },
+    "plan.archived": {
+      "post": {
+        "summary": "plan.archived webhook",
+        "description": "A plan was archived",
+        "operationId": "webhook_plan_archived",
+        "tags": [
+          "webhooks"
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/PlanEvent"
+              },
+              "example": {
+                "id": "evt_7n42DGM5Tflk9n8mt7Fhc7",
+                "type": "plan.archived",
+                "plan_id": "plan_7n42DGM5Tflk9n8mt7Fhc7",
+                "name": "Enterprise Plan",
+                "description": "Our enterprise tier",
+                "plan_type": "STANDARD",
+                "status": "ACTIVE",
+                "currency": "USD",
+                "version": 1,
+                "created_at": "1970-01-01T00:00:00.000Z",
+                "timestamp": "1970-01-01T00:00:00.000Z"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Webhook received successfully"
+          }
+        }
+      }
+    },
+    "plan.created": {
+      "post": {
+        "summary": "plan.created webhook",
+        "description": "A new plan was created",
+        "operationId": "webhook_plan_created",
+        "tags": [
+          "webhooks"
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/PlanEvent"
+              },
+              "example": {
+                "id": "evt_7n42DGM5Tflk9n8mt7Fhc7",
+                "type": "plan.created",
+                "plan_id": "plan_7n42DGM5Tflk9n8mt7Fhc7",
+                "name": "Enterprise Plan",
+                "description": "Our enterprise tier",
+                "plan_type": "STANDARD",
+                "status": "ACTIVE",
+                "currency": "USD",
+                "version": 1,
+                "created_at": "1970-01-01T00:00:00.000Z",
+                "timestamp": "1970-01-01T00:00:00.000Z"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Webhook received successfully"
+          }
+        }
+      }
+    },
+    "plan.published": {
+      "post": {
+        "summary": "plan.published webhook",
+        "description": "A plan version was published",
+        "operationId": "webhook_plan_published",
+        "tags": [
+          "webhooks"
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/PlanEvent"
+              },
+              "example": {
+                "id": "evt_7n42DGM5Tflk9n8mt7Fhc7",
+                "type": "plan.published",
+                "plan_id": "plan_7n42DGM5Tflk9n8mt7Fhc7",
+                "name": "Enterprise Plan",
+                "description": "Our enterprise tier",
+                "plan_type": "STANDARD",
+                "status": "ACTIVE",
+                "currency": "USD",
+                "version": 1,
+                "created_at": "1970-01-01T00:00:00.000Z",
+                "timestamp": "1970-01-01T00:00:00.000Z"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Webhook received successfully"
+          }
+        }
+      }
+    },
+    "product.archived": {
+      "post": {
+        "summary": "product.archived webhook",
+        "description": "A product was archived",
+        "operationId": "webhook_product_archived",
+        "tags": [
+          "webhooks"
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/ProductEvent"
+              },
+              "example": {
+                "id": "evt_7n42DGM5Tflk9n8mt7Fhc7",
+                "type": "product.archived",
+                "product_id": "prd_7n42DGM5Tflk9n8mt7Fhc7",
+                "name": "API Calls Product",
+                "description": "Usage-based API calls product",
+                "fee_type": "USAGE",
+                "product_family_id": "pf_7n42DGM5Tflk9n8mt7Fhc7",
+                "created_at": "1970-01-01T00:00:00.000Z",
+                "timestamp": "1970-01-01T00:00:00.000Z"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Webhook received successfully"
+          }
+        }
+      }
+    },
+    "product.created": {
+      "post": {
+        "summary": "product.created webhook",
+        "description": "A new product was created",
+        "operationId": "webhook_product_created",
+        "tags": [
+          "webhooks"
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/ProductEvent"
+              },
+              "example": {
+                "id": "evt_7n42DGM5Tflk9n8mt7Fhc7",
+                "type": "product.created",
+                "product_id": "prd_7n42DGM5Tflk9n8mt7Fhc7",
+                "name": "API Calls Product",
+                "description": "Usage-based API calls product",
+                "fee_type": "USAGE",
+                "product_family_id": "pf_7n42DGM5Tflk9n8mt7Fhc7",
+                "created_at": "1970-01-01T00:00:00.000Z",
+                "timestamp": "1970-01-01T00:00:00.000Z"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Webhook received successfully"
+          }
+        }
+      }
+    },
+    "product.updated": {
+      "post": {
+        "summary": "product.updated webhook",
+        "description": "A product was updated",
+        "operationId": "webhook_product_updated",
+        "tags": [
+          "webhooks"
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/ProductEvent"
+              },
+              "example": {
+                "id": "evt_7n42DGM5Tflk9n8mt7Fhc7",
+                "type": "product.updated",
+                "product_id": "prd_7n42DGM5Tflk9n8mt7Fhc7",
+                "name": "API Calls Product",
+                "description": "Usage-based API calls product",
+                "fee_type": "USAGE",
+                "product_family_id": "pf_7n42DGM5Tflk9n8mt7Fhc7",
+                "created_at": "1970-01-01T00:00:00.000Z",
                 "timestamp": "1970-01-01T00:00:00.000Z"
               }
             }

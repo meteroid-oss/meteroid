@@ -2,6 +2,7 @@ use std::collections::HashMap;
 
 use crate::StoreResult;
 use crate::domain::enums::FeeTypeEnum;
+use crate::domain::outbox_event::{OutboxEvent, ProductEvent};
 use crate::domain::prices::FeeStructure;
 use crate::domain::{
     OrderByRequest, PaginatedVec, PaginationRequest, Price, Product, ProductNew,
@@ -10,6 +11,7 @@ use crate::domain::{
 use crate::errors::StoreError;
 use crate::store::Store;
 use common_domain::ids::{BaseId, ProductFamilyId, ProductId, TenantId};
+use diesel_async::scoped_futures::ScopedFutureExt;
 use diesel_models::prices::PriceRow;
 use diesel_models::product_families::ProductFamilyRow;
 use diesel_models::products::{ProductRow, ProductRowNew};
@@ -19,8 +21,8 @@ use error_stack::Report;
 pub struct ProductUpdate {
     pub id: ProductId,
     pub tenant_id: TenantId,
-    pub name: String,
-    pub description: Option<String>,
+    pub name: Option<String>,
+    pub description: Option<Option<String>>,
     pub fee_type: Option<FeeTypeEnum>,
     pub fee_structure: Option<FeeStructure>,
 }
@@ -56,6 +58,10 @@ pub trait ProductInterface {
         pagination: PaginationRequest,
         order_by: OrderByRequest,
     ) -> StoreResult<PaginatedVec<Product>>;
+
+    async fn archive_product(&self, id: ProductId, tenant_id: TenantId) -> StoreResult<Product>;
+
+    async fn unarchive_product(&self, id: ProductId, tenant_id: TenantId) -> StoreResult<Product>;
 
     #[allow(clippy::too_many_arguments)]
     async fn list_products_with_latest_price(
@@ -96,53 +102,101 @@ impl ProductInterface for Store {
             catalog: product.catalog,
         };
 
-        insertable
-            .insert(&mut conn)
-            .await
-            .map_err(Into::into)
-            .and_then(|row| row.try_into())
+        self.transaction_with(&mut conn, |conn| {
+            async move {
+                let product: Product = insertable
+                    .insert(conn)
+                    .await
+                    .map_err(Into::<Report<StoreError>>::into)
+                    .and_then(|row| row.try_into())?;
+
+                let event = ProductEvent::new(
+                    product.id,
+                    product.tenant_id,
+                    product.name.clone(),
+                    product.description.clone(),
+                    product.fee_type,
+                    product.product_family_id,
+                    product.created_at,
+                );
+                self.internal
+                    .insert_outbox_events_tx(conn, vec![OutboxEvent::product_created(event)])
+                    .await?;
+
+                Ok(product)
+            }
+            .scope_boxed()
+        })
+        .await
     }
 
     async fn update_product(&self, update: ProductUpdate) -> StoreResult<Product> {
         let mut conn = self.get_conn().await?;
 
-        let existing = ProductRow::find_by_id_and_tenant_id(&mut conn, update.id, update.tenant_id)
-            .await
-            .map_err(Into::<Report<StoreError>>::into)?;
+        self.transaction_with(&mut conn, |conn| {
+            async move {
+                let existing =
+                    ProductRow::find_by_id_and_tenant_id(conn, update.id, update.tenant_id)
+                        .await
+                        .map_err(Into::<Report<StoreError>>::into)?;
 
-        // fee_type is immutable: if caller tries to change it, reject
-        if let Some(new_fee_type) = update.fee_type {
-            let new_db: diesel_models::enums::FeeTypeEnum = new_fee_type.into();
-            if existing.fee_type != new_db {
-                return Err(Report::new(StoreError::InvalidArgument(
-                    "fee_type is immutable once set".to_string(),
-                )));
+                // fee_type is immutable: if caller tries to change it, reject
+                if let Some(new_fee_type) = &update.fee_type {
+                    let new_db: diesel_models::enums::FeeTypeEnum = (*new_fee_type).into();
+                    if existing.fee_type != new_db {
+                        return Err(Report::new(StoreError::InvalidArgument(
+                            "fee_type is immutable once set".to_string(),
+                        )));
+                    }
+                }
+
+                let name = update.name.unwrap_or(existing.name.clone());
+                let description = match update.description {
+                    Some(d) => d,
+                    None => existing.description.clone(),
+                };
+
+                let fee_structure_json = match update.fee_structure {
+                    Some(fs) => serde_json::to_value(&fs).map_err(|e| {
+                        Report::new(StoreError::SerdeError(
+                            "Failed to serialize fee_structure".to_string(),
+                            e,
+                        ))
+                    })?,
+                    None => existing.fee_structure.clone(),
+                };
+
+                let product: Product = ProductRow::update_fee_structure(
+                    conn,
+                    update.id,
+                    update.tenant_id,
+                    name,
+                    description,
+                    existing.fee_type,
+                    fee_structure_json,
+                )
+                .await
+                .map_err(Into::<Report<StoreError>>::into)
+                .and_then(|row| row.try_into())?;
+
+                let event = ProductEvent::new(
+                    product.id,
+                    product.tenant_id,
+                    product.name.clone(),
+                    product.description.clone(),
+                    product.fee_type,
+                    product.product_family_id,
+                    product.created_at,
+                );
+                self.internal
+                    .insert_outbox_events_tx(conn, vec![OutboxEvent::product_updated(event)])
+                    .await?;
+
+                Ok(product)
             }
-        }
-
-        let fee_structure_json = match update.fee_structure {
-            Some(fs) => serde_json::to_value(&fs).map_err(|e| {
-                Report::new(StoreError::SerdeError(
-                    "Failed to serialize fee_structure".to_string(),
-                    e,
-                ))
-            })?,
-            None => existing.fee_structure.clone(),
-        };
-
-        // Always pass the existing fee_type (it's NOT NULL and immutable)
-        ProductRow::update_fee_structure(
-            &mut conn,
-            update.id,
-            update.tenant_id,
-            update.name,
-            update.description,
-            existing.fee_type,
-            fee_structure_json,
-        )
+            .scope_boxed()
+        })
         .await
-        .map_err(Into::into)
-        .and_then(|row| row.try_into())
     }
 
     async fn find_product_by_id(
@@ -202,6 +256,45 @@ impl ProductInterface for Store {
             total_pages: rows.total_pages,
             total_results: rows.total_results,
         })
+    }
+
+    async fn archive_product(&self, id: ProductId, tenant_id: TenantId) -> StoreResult<Product> {
+        let mut conn = self.get_conn().await?;
+
+        self.transaction_with(&mut conn, |conn| {
+            async move {
+                let product: Product = ProductRow::archive(conn, id, tenant_id)
+                    .await
+                    .map_err(Into::<Report<StoreError>>::into)
+                    .and_then(|row| row.try_into())?;
+
+                let event = ProductEvent::new(
+                    product.id,
+                    product.tenant_id,
+                    product.name.clone(),
+                    product.description.clone(),
+                    product.fee_type,
+                    product.product_family_id,
+                    product.created_at,
+                );
+                self.internal
+                    .insert_outbox_events_tx(conn, vec![OutboxEvent::product_archived(event)])
+                    .await?;
+
+                Ok(product)
+            }
+            .scope_boxed()
+        })
+        .await
+    }
+
+    async fn unarchive_product(&self, id: ProductId, tenant_id: TenantId) -> StoreResult<Product> {
+        let mut conn = self.get_conn().await?;
+
+        ProductRow::unarchive(&mut conn, id, tenant_id)
+            .await
+            .map_err(Into::<Report<StoreError>>::into)
+            .and_then(|row| row.try_into())
     }
 
     async fn search_products(

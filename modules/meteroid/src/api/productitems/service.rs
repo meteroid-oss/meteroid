@@ -81,8 +81,8 @@ impl ProductsService for ProductServiceComponents {
             .update_product(ProductUpdate {
                 id: product_id,
                 tenant_id,
-                name: req.name,
-                description: req.description,
+                name: Some(req.name),
+                description: req.description.map(Some),
                 fee_type,
                 fee_structure,
             })

@@ -215,6 +215,57 @@ impl ProductRow {
             .into_db_result()
     }
 
+    pub async fn archive(
+        conn: &mut PgConn,
+        product_id: ProductId,
+        param_tenant_id: TenantId,
+    ) -> DbResult<ProductRow> {
+        use crate::schema::product::dsl as p_dsl;
+        use chrono::Utc;
+        use diesel_async::RunQueryDsl;
+
+        let query = diesel::update(p_dsl::product)
+            .filter(p_dsl::id.eq(product_id))
+            .filter(p_dsl::tenant_id.eq(param_tenant_id))
+            .set((
+                p_dsl::archived_at.eq(Some(Utc::now().naive_utc())),
+                p_dsl::updated_at.eq(diesel::dsl::now),
+            ));
+
+        log::debug!("{}", debug_query::<diesel::pg::Pg, _>(&query));
+
+        query
+            .get_result(conn)
+            .await
+            .attach("Error while archiving product")
+            .into_db_result()
+    }
+
+    pub async fn unarchive(
+        conn: &mut PgConn,
+        product_id: ProductId,
+        param_tenant_id: TenantId,
+    ) -> DbResult<ProductRow> {
+        use crate::schema::product::dsl as p_dsl;
+        use diesel_async::RunQueryDsl;
+
+        let query = diesel::update(p_dsl::product)
+            .filter(p_dsl::id.eq(product_id))
+            .filter(p_dsl::tenant_id.eq(param_tenant_id))
+            .set((
+                p_dsl::archived_at.eq::<Option<chrono::NaiveDateTime>>(None),
+                p_dsl::updated_at.eq(diesel::dsl::now),
+            ));
+
+        log::debug!("{}", debug_query::<diesel::pg::Pg, _>(&query));
+
+        query
+            .get_result(conn)
+            .await
+            .attach("Error while unarchiving product")
+            .into_db_result()
+    }
+
     pub async fn list_all_by_tenant(
         conn: &mut PgConn,
         tenant_id: TenantId,

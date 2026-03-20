@@ -1,17 +1,23 @@
+use crate::api_rest::coupons::model::CouponDiscountRest;
 use crate::api_rest::invoices::model::InvoiceStatus;
 use crate::api_rest::metrics::model::{
     BillingMetricAggregateEnum, MetricSegmentationMatrix, UnitConversionRoundingEnum,
 };
 use crate::api_rest::model::BillingPeriodEnum;
+use crate::api_rest::plans::model::{
+    PlanStatusEnum as RestPlanStatusEnum, PlanTypeEnum as RestPlanTypeEnum,
+};
+use crate::api_rest::products::model::ProductFeeTypeEnum;
 use crate::api_rest::subscriptions::model::SubscriptionStatusEnum;
 use chrono::{DateTime, NaiveDate, NaiveDateTime, SecondsFormat, Utc};
+use common_domain::ids::{AddOnId, CouponId, PriceId};
 use common_domain::ids::{
-    BillableMetricId, CreditNoteId, CustomerId, EventId, InvoiceId, ProductFamilyId, ProductId,
-    QuoteId, SubscriptionId, string_serde, string_serde_opt,
+    BillableMetricId, CreditNoteId, CustomerId, EventId, InvoiceId, PlanId, ProductFamilyId,
+    ProductId, QuoteId, SubscriptionId, string_serde, string_serde_opt,
 };
 use meteroid_store::domain::outbox_event::{
-    BillableMetricEvent, CreditNoteEvent, CustomerEvent, InvoiceEvent, QuoteAcceptedEvent,
-    QuoteConvertedEvent, SubscriptionEvent,
+    AddOnEvent, BillableMetricEvent, CouponEvent, CreditNoteEvent, CustomerEvent, InvoiceEvent,
+    PlanEvent, ProductEvent, QuoteAcceptedEvent, QuoteConvertedEvent, SubscriptionEvent,
 };
 use o2o::o2o;
 use serde::{Serialize, Serializer};
@@ -185,6 +191,141 @@ pub struct WebhookOutCreditNoteEventData {
     pub created_at: NaiveDateTime,
 }
 
+pub type PlanTypeEnum = RestPlanTypeEnum;
+pub type PlanStatusEnum = RestPlanStatusEnum;
+
+#[skip_serializing_none]
+#[derive(Clone, Debug, Serialize, utoipa::ToSchema)]
+#[schema(as = PlanEventData)]
+pub struct WebhookOutPlanEventData {
+    #[serde(serialize_with = "string_serde::serialize")]
+    pub plan_id: PlanId,
+    pub name: String,
+    pub description: Option<String>,
+    pub plan_type: PlanTypeEnum,
+    pub status: PlanStatusEnum,
+    pub currency: String,
+    pub version: i32,
+    #[serde(serialize_with = "ser_naive_dt")]
+    pub created_at: NaiveDateTime,
+}
+
+impl From<PlanEvent> for WebhookOutPlanEventData {
+    fn from(e: PlanEvent) -> Self {
+        Self {
+            plan_id: e.plan_id,
+            name: e.name,
+            description: e.description,
+            plan_type: e.plan_type.into(),
+            status: e.status.into(),
+            currency: e.currency,
+            version: e.version,
+            created_at: e.created_at,
+        }
+    }
+}
+
+#[skip_serializing_none]
+#[derive(Clone, Debug, Serialize, o2o, utoipa::ToSchema)]
+#[schema(as = ProductEventData)]
+#[from_owned(ProductEvent)]
+pub struct WebhookOutProductEventData {
+    #[serde(serialize_with = "string_serde::serialize")]
+    pub product_id: ProductId,
+    pub name: String,
+    pub description: Option<String>,
+    #[from(~.into())]
+    pub fee_type: ProductFeeTypeEnum,
+    #[serde(serialize_with = "string_serde::serialize")]
+    pub product_family_id: ProductFamilyId,
+    #[serde(serialize_with = "ser_naive_dt")]
+    pub created_at: NaiveDateTime,
+}
+
+#[skip_serializing_none]
+#[derive(Clone, Debug, Serialize, utoipa::ToSchema)]
+#[schema(as = CouponEventData)]
+pub struct WebhookOutCouponEventData {
+    #[serde(serialize_with = "string_serde::serialize")]
+    pub coupon_id: CouponId,
+    pub code: String,
+    pub description: String,
+    pub discount: CouponDiscountRest,
+    #[serde(serialize_with = "ser_naive_dt_opt")]
+    pub expires_at: Option<NaiveDateTime>,
+    pub redemption_limit: Option<i32>,
+    pub recurring_value: Option<i32>,
+    pub reusable: bool,
+    pub disabled: bool,
+    #[serde(serialize_with = "ser_naive_dt")]
+    pub created_at: NaiveDateTime,
+}
+
+impl From<CouponEvent> for WebhookOutCouponEventData {
+    fn from(e: CouponEvent) -> Self {
+        let discount = match &e.discount {
+            meteroid_store::domain::coupons::CouponDiscount::Percentage(pct) => {
+                CouponDiscountRest::Percentage {
+                    percentage: pct.to_string(),
+                }
+            }
+            meteroid_store::domain::coupons::CouponDiscount::Fixed { currency, amount } => {
+                CouponDiscountRest::Fixed {
+                    currency: currency.clone(),
+                    amount: amount.to_string(),
+                }
+            }
+        };
+        Self {
+            coupon_id: e.coupon_id,
+            code: e.code,
+            description: e.description,
+            discount,
+            expires_at: e.expires_at,
+            redemption_limit: e.redemption_limit,
+            recurring_value: e.recurring_value,
+            reusable: e.reusable,
+            disabled: e.disabled,
+            created_at: e.created_at,
+        }
+    }
+}
+
+#[skip_serializing_none]
+#[derive(Clone, Debug, Serialize, utoipa::ToSchema)]
+#[schema(as = AddOnEventData)]
+pub struct WebhookOutAddOnEventData {
+    #[serde(serialize_with = "string_serde::serialize")]
+    pub add_on_id: AddOnId,
+    pub name: String,
+    pub description: Option<String>,
+    #[serde(serialize_with = "string_serde::serialize")]
+    pub product_id: ProductId,
+    #[serde(serialize_with = "string_serde::serialize")]
+    pub price_id: PriceId,
+    pub fee_type: Option<ProductFeeTypeEnum>,
+    pub self_serviceable: bool,
+    pub max_instances_per_subscription: Option<i32>,
+    #[serde(serialize_with = "ser_naive_dt")]
+    pub created_at: NaiveDateTime,
+}
+
+impl From<AddOnEvent> for WebhookOutAddOnEventData {
+    fn from(e: AddOnEvent) -> Self {
+        Self {
+            add_on_id: e.add_on_id,
+            name: e.name,
+            description: e.description,
+            product_id: e.product_id,
+            price_id: e.price_id,
+            fee_type: e.fee_type.map(Into::into),
+            self_serviceable: e.self_serviceable,
+            max_instances_per_subscription: e.max_instances_per_subscription,
+            created_at: e.created_at,
+        }
+    }
+}
+
 /// Event-specific webhook schemas for type-safe webhook payloads
 
 #[skip_serializing_none]
@@ -316,7 +457,99 @@ impl TryInto<MessageIn> for WebhookOutQuoteEvent {
     }
 }
 
+#[skip_serializing_none]
+#[derive(Clone, Debug, Serialize, utoipa::ToSchema)]
+#[schema(as = PlanEvent)]
+pub struct WebhookOutPlanEvent {
+    #[serde(serialize_with = "string_serde::serialize")]
+    pub id: EventId,
+    #[serde(rename = "type")]
+    pub event_type: WebhookOutEventTypeEnum,
+    #[serde(flatten)]
+    pub data: WebhookOutPlanEventData,
+    #[serde(serialize_with = "ser_naive_dt")]
+    pub timestamp: NaiveDateTime,
+}
+
+#[skip_serializing_none]
+#[derive(Clone, Debug, Serialize, utoipa::ToSchema)]
+#[schema(as = ProductEvent)]
+pub struct WebhookOutProductEvent {
+    #[serde(serialize_with = "string_serde::serialize")]
+    pub id: EventId,
+    #[serde(rename = "type")]
+    pub event_type: WebhookOutEventTypeEnum,
+    #[serde(flatten)]
+    pub data: WebhookOutProductEventData,
+    #[serde(serialize_with = "ser_naive_dt")]
+    pub timestamp: NaiveDateTime,
+}
+
+impl TryInto<MessageIn> for WebhookOutProductEvent {
+    type Error = serde_json::Error;
+
+    fn try_into(self) -> Result<MessageIn, Self::Error> {
+        let result = serde_json::to_value(&self)?;
+        Ok(MessageIn::new(self.event_type.to_string(), result))
+    }
+}
+
+#[skip_serializing_none]
+#[derive(Clone, Debug, Serialize, utoipa::ToSchema)]
+#[schema(as = CouponEvent)]
+pub struct WebhookOutCouponEvent {
+    #[serde(serialize_with = "string_serde::serialize")]
+    pub id: EventId,
+    #[serde(rename = "type")]
+    pub event_type: WebhookOutEventTypeEnum,
+    #[serde(flatten)]
+    pub data: WebhookOutCouponEventData,
+    #[serde(serialize_with = "ser_naive_dt")]
+    pub timestamp: NaiveDateTime,
+}
+
+impl TryInto<MessageIn> for WebhookOutCouponEvent {
+    type Error = serde_json::Error;
+
+    fn try_into(self) -> Result<MessageIn, Self::Error> {
+        let result = serde_json::to_value(&self)?;
+        Ok(MessageIn::new(self.event_type.to_string(), result))
+    }
+}
+
+#[skip_serializing_none]
+#[derive(Clone, Debug, Serialize, utoipa::ToSchema)]
+#[schema(as = AddOnEvent)]
+pub struct WebhookOutAddOnEvent {
+    #[serde(serialize_with = "string_serde::serialize")]
+    pub id: EventId,
+    #[serde(rename = "type")]
+    pub event_type: WebhookOutEventTypeEnum,
+    #[serde(flatten)]
+    pub data: WebhookOutAddOnEventData,
+    #[serde(serialize_with = "ser_naive_dt")]
+    pub timestamp: NaiveDateTime,
+}
+
+impl TryInto<MessageIn> for WebhookOutAddOnEvent {
+    type Error = serde_json::Error;
+
+    fn try_into(self) -> Result<MessageIn, Self::Error> {
+        let result = serde_json::to_value(&self)?;
+        Ok(MessageIn::new(self.event_type.to_string(), result))
+    }
+}
+
 impl TryInto<MessageIn> for WebhookOutCreditNoteEvent {
+    type Error = serde_json::Error;
+
+    fn try_into(self) -> Result<MessageIn, Self::Error> {
+        let result = serde_json::to_value(&self)?;
+        Ok(MessageIn::new(self.event_type.to_string(), result))
+    }
+}
+
+impl TryInto<MessageIn> for WebhookOutPlanEvent {
     type Error = serde_json::Error;
 
     fn try_into(self) -> Result<MessageIn, Self::Error> {
@@ -376,6 +609,48 @@ pub enum WebhookOutEventTypeEnum {
     #[strum(serialize = "credit_note.voided")]
     #[serde(rename = "credit_note.voided")]
     CreditNoteVoided,
+    #[strum(serialize = "plan.created")]
+    #[serde(rename = "plan.created")]
+    PlanCreated,
+    #[strum(serialize = "plan.published")]
+    #[serde(rename = "plan.published")]
+    PlanPublished,
+    #[strum(serialize = "plan.archived")]
+    #[serde(rename = "plan.archived")]
+    PlanArchived,
+    #[strum(serialize = "product.created")]
+    #[serde(rename = "product.created")]
+    ProductCreated,
+    #[strum(serialize = "product.updated")]
+    #[serde(rename = "product.updated")]
+    ProductUpdated,
+    #[strum(serialize = "product.archived")]
+    #[serde(rename = "product.archived")]
+    ProductArchived,
+    #[strum(serialize = "metric.updated")]
+    #[serde(rename = "metric.updated")]
+    BillableMetricUpdated,
+    #[strum(serialize = "metric.archived")]
+    #[serde(rename = "metric.archived")]
+    BillableMetricArchived,
+    #[strum(serialize = "coupon.created")]
+    #[serde(rename = "coupon.created")]
+    CouponCreated,
+    #[strum(serialize = "coupon.updated")]
+    #[serde(rename = "coupon.updated")]
+    CouponUpdated,
+    #[strum(serialize = "coupon.archived")]
+    #[serde(rename = "coupon.archived")]
+    CouponArchived,
+    #[strum(serialize = "addon.created")]
+    #[serde(rename = "addon.created")]
+    AddOnCreated,
+    #[strum(serialize = "addon.updated")]
+    #[serde(rename = "addon.updated")]
+    AddOnUpdated,
+    #[strum(serialize = "addon.archived")]
+    #[serde(rename = "addon.archived")]
+    AddOnArchived,
 }
 
 #[derive(Debug, Display, EnumIter, EnumString, Copy, Clone)]
@@ -392,6 +667,14 @@ pub enum WebhookOutEventGroupEnum {
     Quote,
     #[strum(serialize = "credit_note")]
     CreditNote,
+    #[strum(serialize = "plan")]
+    Plan,
+    #[strum(serialize = "product")]
+    Product,
+    #[strum(serialize = "coupon")]
+    Coupon,
+    #[strum(serialize = "addon")]
+    AddOn,
 }
 
 impl WebhookOutEventGroupEnum {
@@ -403,6 +686,10 @@ impl WebhookOutEventGroupEnum {
             WebhookOutEventGroupEnum::BillableMetric => "MetricEvent",
             WebhookOutEventGroupEnum::Quote => "QuoteEvent",
             WebhookOutEventGroupEnum::CreditNote => "CreditNoteEvent",
+            WebhookOutEventGroupEnum::Plan => "PlanEvent",
+            WebhookOutEventGroupEnum::Product => "ProductEvent",
+            WebhookOutEventGroupEnum::Coupon => "CouponEvent",
+            WebhookOutEventGroupEnum::AddOn => "AddOnEvent",
         }
     }
 }
@@ -424,6 +711,24 @@ impl WebhookOutEventTypeEnum {
             WebhookOutEventTypeEnum::CreditNoteCreated => WebhookOutEventGroupEnum::CreditNote,
             WebhookOutEventTypeEnum::CreditNoteFinalized => WebhookOutEventGroupEnum::CreditNote,
             WebhookOutEventTypeEnum::CreditNoteVoided => WebhookOutEventGroupEnum::CreditNote,
+            WebhookOutEventTypeEnum::PlanCreated => WebhookOutEventGroupEnum::Plan,
+            WebhookOutEventTypeEnum::PlanPublished => WebhookOutEventGroupEnum::Plan,
+            WebhookOutEventTypeEnum::PlanArchived => WebhookOutEventGroupEnum::Plan,
+            WebhookOutEventTypeEnum::ProductCreated => WebhookOutEventGroupEnum::Product,
+            WebhookOutEventTypeEnum::ProductUpdated => WebhookOutEventGroupEnum::Product,
+            WebhookOutEventTypeEnum::ProductArchived => WebhookOutEventGroupEnum::Product,
+            WebhookOutEventTypeEnum::BillableMetricUpdated => {
+                WebhookOutEventGroupEnum::BillableMetric
+            }
+            WebhookOutEventTypeEnum::BillableMetricArchived => {
+                WebhookOutEventGroupEnum::BillableMetric
+            }
+            WebhookOutEventTypeEnum::CouponCreated => WebhookOutEventGroupEnum::Coupon,
+            WebhookOutEventTypeEnum::CouponUpdated => WebhookOutEventGroupEnum::Coupon,
+            WebhookOutEventTypeEnum::CouponArchived => WebhookOutEventGroupEnum::Coupon,
+            WebhookOutEventTypeEnum::AddOnCreated => WebhookOutEventGroupEnum::AddOn,
+            WebhookOutEventTypeEnum::AddOnUpdated => WebhookOutEventGroupEnum::AddOn,
+            WebhookOutEventTypeEnum::AddOnArchived => WebhookOutEventGroupEnum::AddOn,
         }
     }
 
@@ -451,6 +756,24 @@ impl WebhookOutEventTypeEnum {
                 "A credit note was finalized".to_string()
             }
             WebhookOutEventTypeEnum::CreditNoteVoided => "A credit note was voided".to_string(),
+            WebhookOutEventTypeEnum::PlanCreated => "A new plan was created".to_string(),
+            WebhookOutEventTypeEnum::PlanPublished => "A plan version was published".to_string(),
+            WebhookOutEventTypeEnum::PlanArchived => "A plan was archived".to_string(),
+            WebhookOutEventTypeEnum::ProductCreated => "A new product was created".to_string(),
+            WebhookOutEventTypeEnum::ProductUpdated => "A product was updated".to_string(),
+            WebhookOutEventTypeEnum::ProductArchived => "A product was archived".to_string(),
+            WebhookOutEventTypeEnum::BillableMetricUpdated => {
+                "A billable metric was updated".to_string()
+            }
+            WebhookOutEventTypeEnum::BillableMetricArchived => {
+                "A billable metric was archived".to_string()
+            }
+            WebhookOutEventTypeEnum::CouponCreated => "A new coupon was created".to_string(),
+            WebhookOutEventTypeEnum::CouponUpdated => "A coupon was updated".to_string(),
+            WebhookOutEventTypeEnum::CouponArchived => "A coupon was archived".to_string(),
+            WebhookOutEventTypeEnum::AddOnCreated => "A new add-on was created".to_string(),
+            WebhookOutEventTypeEnum::AddOnUpdated => "An add-on was updated".to_string(),
+            WebhookOutEventTypeEnum::AddOnArchived => "An add-on was archived".to_string(),
         }
     }
 }

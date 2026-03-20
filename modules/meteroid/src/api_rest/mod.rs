@@ -1,11 +1,15 @@
 use crate::adapters::stripe::Stripe;
+use crate::api_rest::addons::addon_routes;
 use crate::api_rest::checkoutsessions::checkout_session_routes;
+use crate::api_rest::coupons::coupon_routes;
 use crate::api_rest::creditnotes::credit_note_routes;
 use crate::api_rest::customers::customer_routes;
 use crate::api_rest::events::event_routes;
 use crate::api_rest::invoices::invoice_routes;
+use crate::api_rest::metrics::metric_routes;
 use crate::api_rest::plans::plan_routes;
 use crate::api_rest::productfamilies::product_family_routes;
+use crate::api_rest::products::product_routes;
 use crate::api_rest::subscriptions::subscription_routes;
 use crate::api_rest::usage::usage_routes;
 use crate::services::storage::ObjectStoreService;
@@ -23,9 +27,11 @@ use std::sync::Arc;
 use std::sync::atomic::AtomicBool;
 use utoipa_axum::router::OpenApiRouter;
 
+mod addons;
 mod addresses;
 mod auth;
 mod checkoutsessions;
+pub(crate) mod coupons;
 mod creditnotes;
 mod currencies;
 mod customers;
@@ -33,12 +39,13 @@ pub mod error;
 mod events;
 mod files;
 mod invoices;
-mod metrics;
+pub(crate) mod metrics;
 mod model;
 mod oauth;
 pub mod openapi;
 mod plans;
 mod productfamilies;
+pub(crate) mod products;
 pub mod server;
 mod subscriptions;
 mod usage;
@@ -46,6 +53,7 @@ pub mod webhooks;
 
 pub fn api_routes() -> OpenApiRouter<AppState> {
     OpenApiRouter::new()
+        .merge(addon_routes())
         .merge(subscription_routes())
         .merge(product_family_routes())
         .merge(plan_routes())
@@ -55,6 +63,9 @@ pub fn api_routes() -> OpenApiRouter<AppState> {
         .merge(checkout_session_routes())
         .merge(event_routes())
         .merge(usage_routes())
+        .merge(product_routes())
+        .merge(coupon_routes())
+        .merge(metric_routes())
 }
 
 #[derive(Clone)]

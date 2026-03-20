@@ -189,7 +189,6 @@ impl CouponsService for CouponsServiceComponents {
             tenant_id,
             description: Some(req.description),
             discount: Some(discount),
-            updated_at: chrono::Utc::now().naive_utc(),
             plan_ids: Some(plan_ids),
         };
 

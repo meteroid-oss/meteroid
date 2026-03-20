@@ -226,7 +226,6 @@ pub struct CouponPatch {
     pub tenant_id: TenantId,
     pub description: Option<String>,
     pub discount: Option<CouponDiscount>,
-    pub updated_at: NaiveDateTime,
     pub plan_ids: Option<Vec<PlanId>>,
 }
 
@@ -253,7 +252,7 @@ impl TryInto<CouponRowPatch> for CouponPatch {
             tenant_id: self.tenant_id,
             description: self.description,
             discount: json_discount,
-            updated_at: self.updated_at,
+            updated_at: chrono::Utc::now().naive_utc(),
         })
     }
 }

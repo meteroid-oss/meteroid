@@ -50,6 +50,7 @@ impl AddOnsService for AddOnsServiceComponents {
                 pagination_req,
                 req.search,
                 currency,
+                false,
             )
             .await
             .map_err(Into::<AddOnApiError>::into)?;
