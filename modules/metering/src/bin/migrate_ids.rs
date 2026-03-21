@@ -46,7 +46,7 @@ impl TryFrom<OldRawEventRow> for RawEventRow {
             tenant_id: *tenant_id,
             timestamp: old.timestamp,
             ingested_at: old.ingested_at,
-            properties: old.properties,
+            properties: old.properties.into_iter().collect(),
         })
     }
 }

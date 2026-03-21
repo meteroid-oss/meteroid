@@ -126,7 +126,7 @@ impl UsageQueryServiceGrpc for UsageQueryService {
                 value: rust_decimal::Decimal::from_f64(r.value).map(|v| Decimal {
                     value: v.to_string(),
                 }),
-                customer_id: r.customer_id,
+                customer_id: r.customer_id.map(|id| id.as_proto()),
                 dimensions: r
                     .group_by
                     .into_iter()
