@@ -5,7 +5,6 @@ use crate::domain::{QueryMeterParams, QueryRawEventsParams, QueryRawEventsResult
 use async_trait::async_trait;
 use common_domain::ids::{CustomerId, TenantId};
 use std::collections::HashMap;
-use std::str::FromStr;
 
 use error_stack::{Report, ResultExt};
 
@@ -126,7 +125,7 @@ impl Connector for ClickhouseConnector {
                 None
             } else {
                 Some(
-                    row.get_string("customer_id")
+                    row.get_id("customer_id")
                         .ok_or(ConnectorError::QueryError)
                         .attach("Missing customer_id field")?,
                 )
@@ -184,58 +183,25 @@ impl Connector for ClickhouseConnector {
         let query = sql::query_raw::query_raw_events_sql(params.clone(), &self.events_table)
             .map_err(ConnectorError::InvalidQuery)?;
 
-        let mut lines = self
+        let rows = self
             .client
             .query(query.as_str())
-            .fetch_bytes("JSONEachRow")
-            .change_context(ConnectorError::QueryError)?
-            .lines();
-
-        let mut events = Vec::new();
-
-        while let Some(line) = lines
-            .next_line()
+            .fetch_all::<crate::ingest::domain::RawEventRow>()
             .await
-            .change_context(ConnectorError::QueryError)?
-        {
-            let row: serde_json::Value =
-                serde_json::from_str(&line).change_context(ConnectorError::QueryError)?;
+            .change_context(ConnectorError::QueryError)?;
 
-            let id = row.get_string("id").ok_or(ConnectorError::QueryError)?;
-            let code = row.get_string("code").ok_or(ConnectorError::QueryError)?;
-            let customer_id = row
-                .get_string("customer_id")
-                .ok_or(ConnectorError::QueryError)
-                .and_then(|s| CustomerId::from_str(&s).map_err(|_| ConnectorError::QueryError))?;
-            let tenant_id = row
-                .get_string("tenant_id")
-                .ok_or(ConnectorError::QueryError)
-                .and_then(|s| TenantId::from_str(&s).map_err(|_| ConnectorError::QueryError))?;
-            let timestamp = row
-                .get_timestamp_utc("timestamp")
-                .ok_or(ConnectorError::QueryError)?;
-            let ingested_at = row
-                .get_timestamp_utc("ingested_at")
-                .ok_or(ConnectorError::QueryError)?;
-
-            let properties: HashMap<String, String> = row
-                .get("properties")
-                .and_then(|v| v.as_object())
-                .unwrap_or(&serde_json::Map::new())
-                .iter()
-                .filter_map(|(key, value)| Some((key.clone(), value.as_str()?.to_string())))
-                .collect();
-
-            events.push(crate::ingest::domain::RawEvent {
-                id,
-                code,
-                customer_id,
-                tenant_id,
-                timestamp: timestamp.naive_utc(),
-                ingested_at: ingested_at.naive_utc(),
-                properties,
-            });
-        }
+        let events = rows
+            .into_iter()
+            .map(|row| crate::ingest::domain::RawEvent {
+                id: row.id,
+                code: row.code,
+                customer_id: CustomerId::from(row.customer_id),
+                tenant_id: TenantId::from(row.tenant_id),
+                timestamp: row.timestamp.naive_utc(),
+                ingested_at: row.ingested_at.naive_utc(),
+                properties: row.properties,
+            })
+            .collect();
 
         Ok(QueryRawEventsResult { events })
     }

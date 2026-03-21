@@ -36,13 +36,12 @@ impl PlanVersionRow {
         param_tenant_id: TenantId,
     ) -> DbResult<i32> {
         use crate::schema::plan_version::dsl as pv_dsl;
-        use diesel::dsl::max;
         use diesel_async::RunQueryDsl;
 
         let current_max: Option<i32> = pv_dsl::plan_version
             .filter(pv_dsl::plan_id.eq(param_plan_id))
             .filter(pv_dsl::tenant_id.eq(param_tenant_id))
-            .select(max(pv_dsl::version))
+            .select(diesel::dsl::max(pv_dsl::version))
             .first(conn)
             .await
             .attach("Error while getting max version number")

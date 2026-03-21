@@ -32,7 +32,7 @@ impl From<RawEvent> for RawEventRow {
             tenant_id: *event.tenant_id,
             timestamp: Utc.from_utc_datetime(&event.timestamp),
             ingested_at: Utc.from_utc_datetime(&event.ingested_at),
-            properties: event.properties.into_iter().collect(),
+            properties: event.properties,
         }
     }
 }
@@ -55,6 +55,5 @@ pub struct RawEventRow {
     pub timestamp: DateTime<Utc>,
     #[serde(with = "clickhouse::serde::chrono::datetime64::nanos")]
     pub ingested_at: DateTime<Utc>,
-    // clickhouse crate doesn't support Map in decoder/encoder
-    pub properties: Vec<(String, String)>,
+    pub properties: HashMap<String, String>,
 }
