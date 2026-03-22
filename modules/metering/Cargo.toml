@@ -55,11 +55,6 @@ time = { workspace = true, features = ["formatting", "parsing"], optional = true
 name = "metering-api"
 path = "src/bin/server.rs"
 
-[[bin]]
-name = "migrate-ids"
-path = "src/bin/migrate_ids.rs"
-required-features = ["clickhouse"]
-
 [features]
 default = ["clickhouse", "kafka"]
 kafka = ["dep:kafka", "dep:rdkafka"]
