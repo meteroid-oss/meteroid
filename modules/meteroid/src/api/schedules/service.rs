@@ -12,7 +12,8 @@ use tonic::{Request, Response, Status};
 use crate::api::domain_mapping::billing_period;
 use crate::api::schedules::error::ScheduleApiError;
 use crate::api::schedules::mapping::schedules::{PlanRampsWrapper, ScheduleWrapper};
-use crate::{api::utils::parse_uuid, parse_uuid};
+use crate::api::utils::parse_uuid;
+use crate::parse_uuid;
 
 use super::ScheduleServiceComponents;
 

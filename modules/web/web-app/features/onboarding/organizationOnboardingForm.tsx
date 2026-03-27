@@ -1,8 +1,4 @@
-import {
-  createConnectQueryKey,
-  createProtobufSafeUpdater,
-  useMutation,
-} from '@connectrpc/connect-query'
+import { useMutation } from '@connectrpc/connect-query'
 import { Button, Flex, Form, InputFormField, Label } from '@md/ui'
 import { ArrowLeft } from 'lucide-react'
 import { useNavigate } from 'react-router-dom'
@@ -12,14 +8,8 @@ import { CountrySelect } from '@/components/CountrySelect'
 import { AccountingCurrencySelect } from '@/features/onboarding/accountingCurrencySelect'
 import { buildSyncParam } from '@/hooks/useSyncQueries'
 import { useZodForm } from '@/hooks/useZodForm'
-import { queryClient } from '@/lib/react-query'
 import { schemas } from '@/lib/schemas'
-import { getInstance } from '@/rpc/api/instance/v1/instance-InstanceService_connectquery'
-import {
-  createOrganization,
-  getCurrentOrganizations,
-} from '@/rpc/api/organizations/v1/organizations-OrganizationsService_connectquery'
-import { me } from '@/rpc/api/users/v1/users-UsersService_connectquery'
+import { createOrganization } from '@/rpc/api/organizations/v1/organizations-OrganizationsService_connectquery'
 
 const getBrowserCountryCode = (): string | undefined => {
   const locale = navigator.language || navigator.languages?.[0]
@@ -43,22 +33,10 @@ export const OrganizationOnboardingForm = () => {
   const createOrganizationMut = useMutation(createOrganization, {
     onSuccess: async res => {
       if (res.organization) {
-        queryClient.setQueryData(
-          createConnectQueryKey(me),
-          createProtobufSafeUpdater(me, prev => {
-            return {
-              ...prev,
-              organizations: [...(prev?.organizations ?? []), res.organization!],
-            }
-          })
-        )
-
-        await queryClient.invalidateQueries({ queryKey: createConnectQueryKey(getInstance) })
-        await queryClient.invalidateQueries({
-          queryKey: createConnectQueryKey(getCurrentOrganizations),
-        })
-
-        navigate(`/${res.organization.slug}?${buildSyncParam('stats')}`)
+        // Full page navigation to clear React Query cache — org-scoped queries
+        // (like listTenants) use the x-md-context header for context, not request params,
+        // so their cache keys are identical across orgs.
+        window.location.href = `/${res.organization.slug}?${buildSyncParam('stats')}`
       }
     },
   })
@@ -69,13 +47,6 @@ export const OrganizationOnboardingForm = () => {
     await createOrganizationMut.mutateAsync({
       country: data.country,
       tradeName: data.tradeName,
-      legalName: data.legalName,
-      addressLine1: data.addressLine1,
-      addressLine2: data.addressLine2,
-      city: data.city,
-      state: data.state,
-      zipCode: data.zipCode,
-      vatNumber: data.vatNumber,
     })
   }
 
@@ -122,79 +93,6 @@ export const OrganizationOnboardingForm = () => {
               <AccountingCurrencySelect methods={methods} />
             </div>
           </div>
-
-          {/* Company details section commented out - data is not saved by backend yet
-          <div>
-            <Collapsible>
-              <CollapsibleTrigger className="text-sm font-medium pt-2 flex w-full">
-                <Flex direction="column" className="w-full">
-                  <Separator className="mt-7 mb-6 h-[0.5px]" />
-                  <Flex justify="between" align="center">
-                    <div className="text-sm ">Company details</div>
-                    <ChevronDown className="h-4 w-4 shrink-0 text-muted-foreground transition-transform duration-200" />
-                  </Flex>
-                  <Separator className="mt-6 mb-3.5 h-[0.5px]" />
-                </Flex>
-              </CollapsibleTrigger>
-              <CollapsibleContent>
-                <span className="text-sm text-muted-foreground">
-                  You will need to configure this before emitting invoices
-                </span>
-
-                <div className="grid grid-cols-6 gap-2 pt-1 ">
-                  <InputFormField
-                    name="legalName"
-                    label="Legal name"
-                    control={methods.control}
-                    placeholder="ACME Inc."
-                    containerClassName="col-span-3"
-                  />
-                  <InputFormField
-                    name="vatNumber"
-                    label="VAT number / Tax ID"
-                    control={methods.control}
-                    placeholder="FRXXXXXXXXXXXXX"
-                    containerClassName="col-span-3"
-                  />
-
-                  <div className="col-span-6">
-                    <Label className="text-muted-foreground">Company address</Label>
-                  </div>
-                  <InputFormField
-                    name="addressLine1"
-                    control={methods.control}
-                    placeholder="Line 1"
-                    containerClassName="col-span-3"
-                  />
-                  <InputFormField
-                    name="addressLine2"
-                    control={methods.control}
-                    placeholder="Line 2"
-                    containerClassName="col-span-3"
-                  />
-                  <InputFormField
-                    name="zipCode"
-                    control={methods.control}
-                    placeholder="ZIP"
-                    containerClassName="col-span-1"
-                  />
-                  <InputFormField
-                    name="state"
-                    control={methods.control}
-                    placeholder="State"
-                    containerClassName="col-span-2"
-                  />
-                  <InputFormField
-                    name="city"
-                    control={methods.control}
-                    placeholder="City"
-                    containerClassName="col-span-3"
-                  />
-                </div>
-              </CollapsibleContent>
-            </Collapsible>
-          </div>
-          */}
 
           <Button
             variant="primary"

@@ -1,6 +1,6 @@
 use crate::domain::{
-    InvoicingEntityNew, OrganizationWithTenants, Tenant, TenantNew, TenantUpdate,
-    TenantWithOrganization,
+    InvoicingEntityNew, OrganizationWithTenants, Tenant, TenantEnvironmentEnum, TenantNew,
+    TenantUpdate, TenantWithOrganization,
 };
 use cached::Cached;
 use cached::proc_macro::cached;
@@ -80,6 +80,16 @@ impl TenantInterface for Store {
             .get_organizations_with_tenants_by_id(organization_id)
             .await?;
 
+        // Check subscription requirement for Production tenants when billing is configured
+        if tenant.environment == TenantEnvironmentEnum::Production
+            && self.settings.admin_organization != Some(organization_id)
+            && let Some(_billing) = &self.billing
+        {
+            // enterprise placeholder
+        }
+
+        let invoicing_entity = tenant.invoicing_entity.clone().unwrap_or_default();
+
         self.transaction(|conn| {
             async move {
                 self.internal
@@ -90,7 +100,7 @@ impl TenantInterface for Store {
                         organization.trade_name.clone(),
                         organization.default_country.clone(),
                         tenants.iter().map(|x| x.slug.clone()).collect(),
-                        InvoicingEntityNew::default(),
+                        invoicing_entity,
                     )
                     .await
             }
@@ -219,8 +229,7 @@ impl TenantInterface for Store {
     }
 
     async fn find_tenant_by_id(&self, tenant_id: TenantId) -> StoreResult<TenantWithOrganization> {
-        let mut conn = self.get_conn().await?;
-        find_tenant_by_id_cached(&mut conn, tenant_id).await
+        find_tenant_by_id_cached(self, tenant_id).await
     }
 }
 
@@ -335,10 +344,11 @@ pub async fn invalidate_reporting_currency_cache(tenant_id: &TenantId) {
     convert = r#"{ tenant_id }"#
 )]
 async fn find_tenant_by_id_cached(
-    conn: &mut PgConn,
+    store: &Store,
     tenant_id: TenantId,
 ) -> StoreResult<TenantWithOrganization> {
-    TenantRow::find_by_id_with_org(conn, tenant_id)
+    let mut conn = store.get_conn().await?;
+    TenantRow::find_by_id_with_org(&mut conn, tenant_id)
         .await
         .map_err(Into::into)
         .map(Into::into)

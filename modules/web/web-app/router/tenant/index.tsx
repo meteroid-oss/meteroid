@@ -1,6 +1,7 @@
 import { SidebarProvider } from '@ui/components'
 import { RouteObject } from 'react-router-dom'
 
+import { StandardOnly } from '@/components/StandardOnly'
 import { TenantLayoutOutlet } from '@/components/layouts'
 import { NotImplemented } from '@/features/NotImplemented'
 import { MrrReport } from '@/features/reports/charts/MrrReport'
@@ -9,6 +10,7 @@ import { EditHubspotIntegrationModal } from '@/features/settings/integrations/Ed
 import { HubspotIntegrationModal } from '@/features/settings/integrations/HubspotIntegration'
 import { PennylaneIntegrationModal } from '@/features/settings/integrations/PennylaneIntegration'
 import { StripeIntegrationModal } from '@/features/settings/integrations/StripeIntegration'
+import { BatchJobPage } from '@/pages/tenants/batchjob'
 import { DashboardPage as Dashboard } from '@/pages/tenants/dashboard'
 import { DeveloperSettings } from '@/pages/tenants/developers'
 import { EventsPage } from '@/pages/tenants/events'
@@ -56,37 +58,45 @@ export const tenantRoutes: RouteObject = {
       ],
     },
     {
-      path: 'developers',
-      element: <DeveloperSettings />,
-    },
-    {
       path: 'help',
       element: <HelpPage />,
     },
-    {
-      path: 'events',
-      element: <EventsPage />,
-    },
-    {
-      path: 'plan-version/:planVersionId',
-      element: <PlanVersionRedirect />,
-    },
-    productCatalogRoutes,
     customersRoutes,
     billingRoutes,
-    growthRoutes,
+    productCatalogRoutes,
     {
-      path: 'reports',
-      element: <ReportsPage />,
+      element: <StandardOnly />,
       children: [
         {
-          index: true,
-          element: <MrrReport />,
+          path: 'reports',
+          element: <ReportsPage />,
+          children: [
+            {
+              index: true,
+              element: <MrrReport />,
+            },
+            {
+              path: 'revenue',
+              element: <RevenueReport />,
+            },
+          ],
         },
         {
-          path: 'revenue',
-          element: <RevenueReport />,
+          path: 'developers',
+          children: [
+            { index: true, element: <DeveloperSettings /> },
+            { path: 'batch-jobs/:batchJobId', element: <BatchJobPage /> },
+          ],
         },
+        {
+          path: 'events',
+          element: <EventsPage />,
+        },
+        {
+          path: 'plan-version/:planVersionId',
+          element: <PlanVersionRedirect />,
+        },
+        growthRoutes,
       ],
     },
     {

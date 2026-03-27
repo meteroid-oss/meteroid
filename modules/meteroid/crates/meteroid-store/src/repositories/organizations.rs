@@ -47,6 +47,18 @@ pub trait OrganizationsInterface {
         id: OrganizationId,
     ) -> StoreResult<OrganizationWithTenants>;
     async fn get_organizations_by_slug(&self, slug: String) -> StoreResult<Organization>;
+
+    async fn get_organizations_by_ids(
+        &self,
+        ids: &[OrganizationId],
+    ) -> StoreResult<Vec<Organization>>;
+
+    async fn insert_express_organization(
+        &self,
+        organization: OrganizationNew,
+        actor: Uuid,
+        tenant_environment: TenantEnvironmentEnum,
+    ) -> StoreResult<OrganizationWithTenants>;
 }
 
 #[async_trait::async_trait]
@@ -76,6 +88,7 @@ impl OrganizationsInterface for Store {
             slug: Organization::new_slug(),
             trade_name: organization.trade_name.clone(),
             default_country: organization.country.clone(),
+            is_express: false,
         };
 
         // TODO trigger sandbox init ?
@@ -90,7 +103,10 @@ impl OrganizationsInterface for Store {
             name: "Development".to_string(),
             environment: TenantEnvironmentEnum::Development,
             disable_emails: None,
+            invoicing_entity: None,
         };
+
+        let _country = &org.default_country.clone();
 
         let (org_created, tenant_created) = self
             .transaction_with(&mut conn, |conn| {
@@ -121,6 +137,10 @@ impl OrganizationsInterface for Store {
                 .scope_boxed()
             })
             .await?;
+
+        if let Some(_billing) = &self.billing {
+            // enterprise placeholder
+        }
 
         let _ = self
             .eventbus
@@ -293,5 +313,101 @@ impl OrganizationsInterface for Store {
             .map_err(Into::<Report<StoreError>>::into)?;
 
         Ok(org.into())
+    }
+
+    async fn get_organizations_by_ids(
+        &self,
+        ids: &[OrganizationId],
+    ) -> StoreResult<Vec<Organization>> {
+        let mut conn = self.get_conn().await?;
+
+        let orgs = OrganizationRow::list_by_ids(&mut conn, ids)
+            .await
+            .map_err(Into::<Report<StoreError>>::into)?;
+
+        Ok(orgs.into_iter().map(Into::into).collect())
+    }
+
+    async fn insert_express_organization(
+        &self,
+        organization: OrganizationNew,
+        user_id: Uuid,
+        tenant_environment: TenantEnvironmentEnum,
+    ) -> StoreResult<OrganizationWithTenants> {
+        let mut conn = self.get_conn().await?;
+
+        let tenant_name = match tenant_environment {
+            TenantEnvironmentEnum::Production => "Production",
+            TenantEnvironmentEnum::Staging => "Staging",
+            TenantEnvironmentEnum::Qa => "QA",
+            TenantEnvironmentEnum::Development => "Development",
+            TenantEnvironmentEnum::Sandbox => "Sandbox",
+            TenantEnvironmentEnum::Demo => "Demo",
+        }
+        .to_string();
+
+        let org = OrganizationRowNew {
+            id: OrganizationId::new(),
+            slug: Organization::new_slug(),
+            trade_name: organization.trade_name.clone(),
+            default_country: organization.country.clone(),
+            is_express: true,
+        };
+
+        let org_member = OrganizationMemberRow {
+            user_id,
+            organization_id: org.id,
+            role: OrganizationUserRole::Admin,
+        };
+
+        let tenant_new = TenantNew {
+            name: tenant_name,
+            environment: tenant_environment,
+            disable_emails: None,
+            invoicing_entity: None,
+        };
+
+        let (org_created, tenant_created) = self
+            .transaction_with(&mut conn, |conn| {
+                async move {
+                    let org_created = OrganizationRowNew::insert(&org, conn)
+                        .await
+                        .map_err(Into::<Report<StoreError>>::into)?;
+
+                    OrganizationMemberRow::insert(&org_member, conn)
+                        .await
+                        .map_err(Into::<Report<StoreError>>::into)?;
+
+                    let tenant_created = self
+                        .internal
+                        .insert_tenant_with_default_entities(
+                            conn,
+                            tenant_new,
+                            org.id,
+                            org.trade_name.clone(),
+                            org.default_country.clone(),
+                            vec![],
+                            organization.invoicing_entity.unwrap_or_default(),
+                        )
+                        .await?;
+
+                    Ok((org_created, tenant_created))
+                }
+                .scope_boxed()
+            })
+            .await?;
+
+        let _ = self
+            .eventbus
+            .publish(Event::organization_created(
+                user_id,
+                org_created.id.as_uuid(),
+            ))
+            .await;
+
+        Ok(OrganizationWithTenants {
+            organization: org_created.into(),
+            tenants: vec![tenant_created],
+        })
     }
 }

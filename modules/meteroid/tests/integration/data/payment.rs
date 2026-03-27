@@ -328,6 +328,7 @@ pub async fn set_customer_default_payment_method(
         is_tax_exempt: None,
         custom_taxes: None,
         vat_number_format_valid: None,
+        connected_account_id: None,
     }
     .update(&mut conn, ids::TENANT_ID)
     .await

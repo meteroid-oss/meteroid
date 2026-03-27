@@ -79,6 +79,82 @@ pub enum ExtraRecurringBillingTypeEnum {
     Arrears,
 }
 
+impl From<UsageModelEnum> for meteroid_store::domain::prices::UsageModel {
+    fn from(val: UsageModelEnum) -> Self {
+        match val {
+            UsageModelEnum::PerUnit => Self::PerUnit,
+            UsageModelEnum::Tiered => Self::Tiered,
+            UsageModelEnum::Volume => Self::Volume,
+            UsageModelEnum::Package => Self::Package,
+            UsageModelEnum::Matrix => Self::Matrix,
+        }
+    }
+}
+
+impl From<meteroid_store::domain::prices::UsageModel> for UsageModelEnum {
+    fn from(val: meteroid_store::domain::prices::UsageModel) -> Self {
+        match val {
+            meteroid_store::domain::prices::UsageModel::PerUnit => Self::PerUnit,
+            meteroid_store::domain::prices::UsageModel::Tiered => Self::Tiered,
+            meteroid_store::domain::prices::UsageModel::Volume => Self::Volume,
+            meteroid_store::domain::prices::UsageModel::Package => Self::Package,
+            meteroid_store::domain::prices::UsageModel::Matrix => Self::Matrix,
+        }
+    }
+}
+
+impl From<SlotUpgradePolicyEnum> for meteroid_store::domain::price_components::UpgradePolicy {
+    fn from(val: SlotUpgradePolicyEnum) -> Self {
+        match val {
+            SlotUpgradePolicyEnum::Prorated => Self::Prorated,
+        }
+    }
+}
+
+impl From<meteroid_store::domain::price_components::UpgradePolicy> for SlotUpgradePolicyEnum {
+    fn from(val: meteroid_store::domain::price_components::UpgradePolicy) -> Self {
+        match val {
+            meteroid_store::domain::price_components::UpgradePolicy::Prorated => Self::Prorated,
+        }
+    }
+}
+
+impl From<SlotDowngradePolicyEnum> for meteroid_store::domain::price_components::DowngradePolicy {
+    fn from(val: SlotDowngradePolicyEnum) -> Self {
+        match val {
+            SlotDowngradePolicyEnum::RemoveAtEndOfPeriod => Self::RemoveAtEndOfPeriod,
+        }
+    }
+}
+
+impl From<meteroid_store::domain::price_components::DowngradePolicy> for SlotDowngradePolicyEnum {
+    fn from(val: meteroid_store::domain::price_components::DowngradePolicy) -> Self {
+        match val {
+            meteroid_store::domain::price_components::DowngradePolicy::RemoveAtEndOfPeriod => {
+                Self::RemoveAtEndOfPeriod
+            }
+        }
+    }
+}
+
+impl From<ExtraRecurringBillingTypeEnum> for meteroid_store::domain::enums::BillingType {
+    fn from(val: ExtraRecurringBillingTypeEnum) -> Self {
+        match val {
+            ExtraRecurringBillingTypeEnum::Advance => Self::Advance,
+            ExtraRecurringBillingTypeEnum::Arrears => Self::Arrears,
+        }
+    }
+}
+
+impl From<meteroid_store::domain::enums::BillingType> for ExtraRecurringBillingTypeEnum {
+    fn from(val: meteroid_store::domain::enums::BillingType) -> Self {
+        match val {
+            meteroid_store::domain::enums::BillingType::Advance => Self::Advance,
+            meteroid_store::domain::enums::BillingType::Arrears => Self::Arrears,
+        }
+    }
+}
+
 // ── FeeStructure (tagged union) ────────────────────────────────
 
 #[derive(Clone, Debug, Serialize, Deserialize, ToSchema)]
@@ -103,6 +179,79 @@ pub enum ProductFeeStructure {
         billing_type: ExtraRecurringBillingTypeEnum,
     },
     OneTime {},
+}
+
+impl ProductFeeStructure {
+    pub fn fee_type_enum(&self) -> meteroid_store::domain::enums::FeeTypeEnum {
+        match self {
+            Self::Rate { .. } => meteroid_store::domain::enums::FeeTypeEnum::Rate,
+            Self::Slot { .. } => meteroid_store::domain::enums::FeeTypeEnum::Slot,
+            Self::Capacity { .. } => meteroid_store::domain::enums::FeeTypeEnum::Capacity,
+            Self::Usage { .. } => meteroid_store::domain::enums::FeeTypeEnum::Usage,
+            Self::ExtraRecurring { .. } => {
+                meteroid_store::domain::enums::FeeTypeEnum::ExtraRecurring
+            }
+            Self::OneTime { .. } => meteroid_store::domain::enums::FeeTypeEnum::OneTime,
+        }
+    }
+}
+
+impl From<ProductFeeStructure> for meteroid_store::domain::prices::FeeStructure {
+    fn from(val: ProductFeeStructure) -> Self {
+        match val {
+            ProductFeeStructure::Rate {} => Self::Rate {},
+            ProductFeeStructure::Slot {
+                slot_unit_name,
+                upgrade_policy,
+                downgrade_policy,
+            } => Self::Slot {
+                unit_name: slot_unit_name,
+                upgrade_policy: upgrade_policy.into(),
+                downgrade_policy: downgrade_policy.into(),
+            },
+            ProductFeeStructure::Capacity { metric_id } => Self::Capacity { metric_id },
+            ProductFeeStructure::Usage { metric_id, model } => Self::Usage {
+                metric_id,
+                model: model.into(),
+            },
+            ProductFeeStructure::ExtraRecurring { billing_type } => Self::ExtraRecurring {
+                billing_type: billing_type.into(),
+            },
+            ProductFeeStructure::OneTime {} => Self::OneTime {},
+        }
+    }
+}
+
+impl From<meteroid_store::domain::prices::FeeStructure> for ProductFeeStructure {
+    fn from(val: meteroid_store::domain::prices::FeeStructure) -> Self {
+        match val {
+            meteroid_store::domain::prices::FeeStructure::Rate {} => Self::Rate {},
+            meteroid_store::domain::prices::FeeStructure::Slot {
+                unit_name,
+                upgrade_policy,
+                downgrade_policy,
+            } => Self::Slot {
+                slot_unit_name: unit_name,
+                upgrade_policy: upgrade_policy.into(),
+                downgrade_policy: downgrade_policy.into(),
+            },
+            meteroid_store::domain::prices::FeeStructure::Capacity { metric_id } => {
+                Self::Capacity { metric_id }
+            }
+            meteroid_store::domain::prices::FeeStructure::Usage { metric_id, model } => {
+                Self::Usage {
+                    metric_id,
+                    model: model.into(),
+                }
+            }
+            meteroid_store::domain::prices::FeeStructure::ExtraRecurring { billing_type } => {
+                Self::ExtraRecurring {
+                    billing_type: billing_type.into(),
+                }
+            }
+            meteroid_store::domain::prices::FeeStructure::OneTime {} => Self::OneTime {},
+        }
+    }
 }
 
 // ── Response ───────────────────────────────────────────────────

@@ -1,42 +1,30 @@
-use crate::api::billablemetrics::mapping;
-use bytes::Buf;
 use chrono::{NaiveDate, Timelike};
-use common_domain::ids::{AliasOr, CustomerId, TenantId};
+use common_domain::ids::{CustomerId, TenantId};
 use common_grpc::middleware::client::LayeredClientService;
-use csv::ReaderBuilder;
+
 use error_stack::{ResultExt, bail};
-use metering_grpc::meteroid::metering::v1::event::CustomerId as EventCustomerId;
 use metering_grpc::meteroid::metering::v1::internal_events_service_client::InternalEventsServiceClient;
 use metering_grpc::meteroid::metering::v1::meter::AggregationType;
-use metering_grpc::meteroid::metering::v1::meters_service_client::MetersServiceClient;
 use metering_grpc::meteroid::metering::v1::query_meter_request::QueryWindowSize;
 use metering_grpc::meteroid::metering::v1::usage_query_service_client::UsageQueryServiceClient;
 use metering_grpc::meteroid::metering::v1::{
-    Event, Filter, InternalIngestRequest, QueryMeterRequest, QueryMeterResponse,
-    QueryRawEventsRequest, RegisterMeterRequest, SegmentationFilter, segmentation_filter,
+    Filter, InternalIngestRequest, QueryMeterRequest, QueryMeterResponse, QueryRawEventsRequest,
+    SegmentationFilter, segmentation_filter,
     segmentation_filter::{
         IndependentFilters, LinkedFilters, linked_filters::LinkedDimensionValues,
     },
 };
 use meteroid_store::clients::usage::{
-    CsvIngestionFailure, CsvIngestionOptions, CsvIngestionResult, EventSearchOptions,
-    EventSearchResult, GroupedUsageData, Metadata, UsageClient, UsageData, WindowedUsageData,
-    WindowedUsagePoint,
+    EventSearchOptions, EventSearchResult, GroupedUsageData, UsageClient, UsageData,
+    WindowedUsageData, WindowedUsagePoint,
 };
 use meteroid_store::domain::{BillableMetric, Period};
 use meteroid_store::errors::StoreError;
 use meteroid_store::{StoreResult, domain};
 use rust_decimal::Decimal;
-use std::collections::HashMap;
-use std::str::FromStr;
-use tonic::Request;
+use std::time::Duration;
 
-const MAX_CSV_SIZE: usize = 10 * 1024 * 1024; // 10MB limit
-const MAX_BATCH_SIZE: usize = 500; // Max events per batch
-
-fn extract_error_message(status: &tonic::Status) -> String {
-    status.message().to_string()
-}
+const GRPC_TIMEOUT: Duration = Duration::from_secs(10);
 
 fn map_aggregation_type(agg: &domain::enums::BillingMetricAggregateEnum) -> i32 {
     (match agg {
@@ -110,19 +98,16 @@ fn build_segmentation_filter(
 #[derive(Clone, Debug)]
 pub struct MeteringUsageClient {
     usage_grpc_client: UsageQueryServiceClient<LayeredClientService>,
-    meters_grpc_client: MetersServiceClient<LayeredClientService>,
     ingest_grpc_service: InternalEventsServiceClient<LayeredClientService>,
 }
 
 impl MeteringUsageClient {
     pub fn new(
         usage_grpc_client: UsageQueryServiceClient<LayeredClientService>,
-        meters_grpc_client: MetersServiceClient<LayeredClientService>,
         ingest_grpc_service: InternalEventsServiceClient<LayeredClientService>,
     ) -> Self {
         Self {
             usage_grpc_client,
-            meters_grpc_client,
             ingest_grpc_service,
         }
     }
@@ -130,38 +115,6 @@ impl MeteringUsageClient {
 
 #[async_trait::async_trait]
 impl UsageClient for MeteringUsageClient {
-    async fn register_meter(
-        &self,
-        tenant_id: TenantId,
-        metric: &BillableMetric,
-    ) -> StoreResult<Vec<Metadata>> {
-        let metering_meter = mapping::metric::domain_to_metering(metric.clone());
-
-        let response = self
-            .meters_grpc_client
-            .clone()
-            .register_meter(Request::new(RegisterMeterRequest {
-                meter: Some(metering_meter),
-                tenant_id: tenant_id.to_string(),
-            }))
-            // TODO add in db/response the register , error and allow retrying
-            .await
-            .map(tonic::Response::into_inner)
-            .change_context(StoreError::MeteringServiceError)
-            .attach("Failed to register meter")?;
-
-        let metadata = response
-            .metadata
-            .into_iter()
-            .map(|m| Metadata {
-                key: m.key,
-                value: m.value,
-            })
-            .collect::<Vec<Metadata>>();
-
-        Ok(metadata)
-    }
-
     async fn fetch_usage(
         &self,
         tenant_id: &TenantId,
@@ -193,12 +146,25 @@ impl UsageClient for MeteringUsageClient {
         };
 
         let mut metering_client_mut = self.usage_grpc_client.clone();
-        let response: QueryMeterResponse = metering_client_mut
-            .query_meter(request)
-            .await
-            .change_context(StoreError::MeteringServiceError)
-            .attach("Failed to query meter")?
-            .into_inner();
+        let response: QueryMeterResponse = match tokio::time::timeout(
+            GRPC_TIMEOUT,
+            metering_client_mut.query_meter(request),
+        )
+        .await
+        {
+            Ok(result) => result
+                .change_context(StoreError::MeteringServiceError)
+                .attach("Failed to query meter")?
+                .into_inner(),
+            Err(_) => {
+                log::error!(
+                    "query_meter timed out after {} seconds",
+                    GRPC_TIMEOUT.as_secs()
+                );
+                return Err(error_stack::Report::new(StoreError::MeteringServiceError)
+                    .attach("query_meter timed out"));
+            }
+        };
 
         let data: Vec<GroupedUsageData> = response
             .usage
@@ -350,260 +316,6 @@ impl UsageClient for MeteringUsageClient {
         Ok(UsageData { data, period })
     }
 
-    async fn ingest_events_from_csv(
-        &self,
-        tenant_id: &TenantId,
-        file_data: &[u8],
-        options: CsvIngestionOptions,
-    ) -> StoreResult<CsvIngestionResult> {
-        if file_data.is_empty() {
-            bail!(StoreError::InvalidArgument("File is empty".to_string()));
-        }
-
-        if file_data.len() > MAX_CSV_SIZE {
-            bail!(StoreError::InvalidArgument(format!(
-                "File size exceeds maximum allowed ({MAX_CSV_SIZE} bytes)"
-            )));
-        }
-
-        let delimiter = options.delimiter as u8;
-        let allow_backfilling = options.allow_backfilling;
-        let fail_on_error = options.fail_on_error;
-
-        // Parse CSV (headers are required)
-        let mut reader = ReaderBuilder::new()
-            .has_headers(true)
-            .delimiter(delimiter)
-            .from_reader(file_data.reader());
-
-        let headers = reader
-            .headers()
-            .change_context(StoreError::InvalidArgument(
-                "Failed to read CSV headers".to_string(),
-            ))?
-            .clone();
-
-        // Find required column indices
-        let event_id_idx = headers.iter().position(|h| h == "event_id");
-        let event_code_idx = headers.iter().position(|h| h == "event_code");
-        let customer_id_idx = headers
-            .iter()
-            .position(|h| h == "customer_id" || h == "customer_alias");
-        let timestamp_idx = headers.iter().position(|h| h == "timestamp");
-
-        if event_code_idx.is_none() || customer_id_idx.is_none() {
-            bail!(StoreError::InvalidArgument(
-                "CSV must contain 'event_code' and 'customer_id' (or 'customer_alias') columns"
-                    .to_string()
-            ));
-        }
-
-        let mut events = Vec::new();
-        let mut failures = Vec::new();
-        let mut row_number = 2; // Account for header row (always present)
-
-        for result in reader.records() {
-            let record = match result {
-                Ok(r) => r,
-                Err(e) => {
-                    failures.push(CsvIngestionFailure {
-                        row_number,
-                        event_id: String::new(),
-                        reason: format!("Failed to parse row: {e}"),
-                    });
-                    row_number += 1;
-                    continue;
-                }
-            };
-
-            // Extract fields
-            let event_id = event_id_idx.and_then(|idx| record.get(idx)).map_or_else(
-                || uuid::Uuid::new_v4().to_string(),
-                std::string::ToString::to_string,
-            );
-
-            let event_code = match event_code_idx.and_then(|idx| record.get(idx)) {
-                Some(code) if !code.is_empty() => code.to_string(),
-                _ => {
-                    failures.push(CsvIngestionFailure {
-                        row_number,
-                        event_id: event_id.clone(),
-                        reason: "Event code is required and cannot be empty".to_string(),
-                    });
-                    row_number += 1;
-                    continue;
-                }
-            };
-
-            let customer_id_str = match customer_id_idx.and_then(|idx| record.get(idx)) {
-                Some(id) if !id.is_empty() => id.to_string(),
-                _ => {
-                    failures.push(CsvIngestionFailure {
-                        row_number,
-                        event_id: event_id.clone(),
-                        reason: "Customer ID is required and cannot be empty".to_string(),
-                    });
-                    row_number += 1;
-                    continue;
-                }
-            };
-
-            let customer_id: Option<EventCustomerId> =
-                match AliasOr::<CustomerId>::from_str(&customer_id_str) {
-                    Ok(AliasOr::Id(id)) => Some(EventCustomerId::MeteroidCustomerId(id.as_proto())),
-                    Ok(AliasOr::Alias(alias)) => {
-                        Some(EventCustomerId::ExternalCustomerAlias(alias))
-                    }
-                    Err(_) => {
-                        failures.push(CsvIngestionFailure {
-                            row_number,
-                            event_id: event_id.clone(),
-                            reason: "Customer ID must be a valid UUID or alias".to_string(),
-                        });
-                        row_number += 1;
-                        continue;
-                    }
-                };
-
-            let timestamp = timestamp_idx.and_then(|idx| record.get(idx)).map_or_else(
-                || chrono::Utc::now().to_rfc3339(),
-                std::string::ToString::to_string,
-            );
-
-            // Collect additional fields as properties
-            let mut properties = HashMap::new();
-            for (idx, value) in record.iter().enumerate() {
-                let header_name = headers
-                    .get(idx)
-                    .map_or_else(|| format!("column_{idx}"), std::string::ToString::to_string);
-
-                // Skip the main fields we already extracted
-                if Some(idx) == event_id_idx
-                    || Some(idx) == event_code_idx
-                    || Some(idx) == customer_id_idx
-                    || Some(idx) == timestamp_idx
-                {
-                    continue;
-                }
-
-                if !value.is_empty() {
-                    properties.insert(header_name, value.to_string());
-                }
-            }
-
-            events.push(Event {
-                id: event_id,
-                code: event_code,
-                customer_id,
-                timestamp,
-                properties,
-            });
-
-            row_number += 1;
-        }
-
-        let total_rows = row_number - 2; // Subtract header and 1-based index
-
-        // If fail_on_error is true and we have parsing failures, return error immediately
-        if fail_on_error && !failures.is_empty() {
-            return Ok(CsvIngestionResult {
-                total_rows,
-                successful_events: 0,
-                failures,
-            });
-        }
-
-        // Send events to metering service in batches
-        let mut total_successful = 0;
-
-        tracing::info!(
-            "Processing {} events in {} batches",
-            events.len(),
-            events.len().div_ceil(MAX_BATCH_SIZE)
-        );
-
-        for (batch_idx, chunk) in events.chunks(MAX_BATCH_SIZE).enumerate() {
-            tracing::info!(
-                "Processing batch {} with {} events",
-                batch_idx + 1,
-                chunk.len()
-            );
-            let request = InternalIngestRequest {
-                tenant_id: tenant_id.to_string(),
-                events: chunk.to_vec(),
-                allow_backfilling,
-                fail_on_error,
-            };
-
-            let result = self
-                .ingest_grpc_service
-                .clone()
-                .ingest_internal(request)
-                .await;
-
-            match result {
-                Ok(response) => {
-                    let ingestion_failures = response.into_inner().failures;
-                    total_successful += chunk.len() - ingestion_failures.len();
-
-                    tracing::info!(
-                        "Batch {} succeeded with {} failures out of {} events",
-                        batch_idx + 1,
-                        ingestion_failures.len(),
-                        chunk.len()
-                    );
-
-                    // Map the metering failures back to CSV row numbers
-                    for failure in ingestion_failures {
-                        // Find the original row number for this event
-                        let original_row = events
-                            .iter()
-                            .position(|e| e.id == failure.event_id)
-                            .map(|idx| idx + 2); // Account for header row
-
-                        failures.push(CsvIngestionFailure {
-                            row_number: original_row.unwrap_or(0) as i32,
-                            event_id: failure.event_id,
-                            reason: failure.reason,
-                        });
-                    }
-                }
-                Err(e) => {
-                    tracing::error!("Batch {} failed entirely: {}", batch_idx + 1, e);
-                    let clean_error = extract_error_message(&e);
-                    // All events in this batch failed
-                    for event in chunk {
-                        let original_row = events
-                            .iter()
-                            .position(|e| e.id == event.id)
-                            .map(|idx| idx + 2); // Account for header row
-
-                        failures.push(CsvIngestionFailure {
-                            row_number: original_row.unwrap_or(0) as i32,
-                            event_id: event.id.clone(),
-                            reason: clean_error.clone(),
-                        });
-                    }
-                }
-            }
-        }
-
-        // If fail_on_error is true and we have any failures (parsing or ingestion), return with 0 successful
-        if fail_on_error && !failures.is_empty() {
-            return Ok(CsvIngestionResult {
-                total_rows,
-                successful_events: 0,
-                failures,
-            });
-        }
-
-        Ok(CsvIngestionResult {
-            total_rows,
-            successful_events: total_successful as i32,
-            failures,
-        })
-    }
-
     async fn search_events(
         &self,
         tenant_id: &TenantId,
@@ -621,13 +333,26 @@ impl UsageClient for MeteringUsageClient {
             sort_order: options.sort_order,
         };
 
-        let response = self
-            .usage_grpc_client
-            .clone()
-            .query_raw_events(metering_request)
-            .await
-            .change_context(StoreError::MeteringServiceError)
-            .attach("Failed to search events")?;
+        let response = match tokio::time::timeout(
+            GRPC_TIMEOUT,
+            self.usage_grpc_client
+                .clone()
+                .query_raw_events(metering_request),
+        )
+        .await
+        {
+            Ok(result) => result
+                .change_context(StoreError::MeteringServiceError)
+                .attach("Failed to search events")?,
+            Err(_) => {
+                log::error!(
+                    "query_raw_events timed out after {} seconds",
+                    GRPC_TIMEOUT.as_secs()
+                );
+                return Err(error_stack::Report::new(StoreError::MeteringServiceError)
+                    .attach("query_raw_events timed out"));
+            }
+        };
 
         let metering_response = response.into_inner();
 
@@ -645,16 +370,29 @@ impl UsageClient for MeteringUsageClient {
             tenant_id: tenant_id.to_string(),
             events: request.events,
             allow_backfilling: request.allow_backfilling,
-            fail_on_error: true,
+            fail_on_error: request.fail_on_error,
         };
 
-        let response = self
-            .ingest_grpc_service
-            .clone()
-            .ingest_internal(grpc_request)
-            .await
-            .change_context(StoreError::MeteringServiceError)
-            .attach("Failed to ingest events")?;
+        let response = match tokio::time::timeout(
+            GRPC_TIMEOUT,
+            self.ingest_grpc_service
+                .clone()
+                .ingest_internal(grpc_request),
+        )
+        .await
+        {
+            Ok(result) => result
+                .change_context(StoreError::MeteringServiceError)
+                .attach("Failed to ingest events")?,
+            Err(_) => {
+                log::error!(
+                    "ingest_events timed out after {} seconds",
+                    GRPC_TIMEOUT.as_secs()
+                );
+                return Err(error_stack::Report::new(StoreError::MeteringServiceError)
+                    .attach("ingest_events timed out"));
+            }
+        };
 
         let metering_response = response.into_inner();
 

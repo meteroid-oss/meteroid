@@ -173,4 +173,24 @@ impl OrganizationRow {
             .attach("Error while listing organizations by user id")
             .into_db_result()
     }
+
+    pub async fn list_by_ids(
+        conn: &mut PgConn,
+        ids: &[OrganizationId],
+    ) -> DbResult<Vec<OrganizationRow>> {
+        use crate::schema::organization::dsl as o_dsl;
+        use diesel_async::RunQueryDsl;
+
+        let query = o_dsl::organization
+            .filter(o_dsl::id.eq_any(ids))
+            .select(OrganizationRow::as_select());
+
+        log::debug!("{}", debug_query::<diesel::pg::Pg, _>(&query));
+
+        query
+            .get_results(conn)
+            .await
+            .attach("Error while listing organizations by ids")
+            .into_db_result()
+    }
 }

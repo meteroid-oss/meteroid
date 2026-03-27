@@ -37,11 +37,11 @@ pub async fn read(
 
     diesel::sql_query(raw_query)
         .bind::<sql_types::Text, _>(queue)
-        .bind::<sql_types::Int2, _>(limit)
         .bind::<sql_types::Int2, _>(vt)
+        .bind::<sql_types::Int2, _>(limit)
         .get_results::<PgmqMessageRow>(conn)
         .await
-        .attach("Error while reading messages from pgmq")
+        .attach(format!("Error while reading messages from pgmq {queue}"))
         .into_db_result()
 }
 

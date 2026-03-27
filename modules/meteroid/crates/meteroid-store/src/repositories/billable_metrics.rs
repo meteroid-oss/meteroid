@@ -62,13 +62,6 @@ pub trait BillableMetricInterface {
         tenant_id: TenantId,
         update: domain::BillableMetricUpdate,
     ) -> StoreResult<domain::BillableMetric>;
-
-    async fn mark_billable_metric_synced(
-        &self,
-        id: BillableMetricId,
-        tenant_id: TenantId,
-        error: Option<String>,
-    ) -> StoreResult<()>;
 }
 
 #[async_trait::async_trait]
@@ -297,8 +290,6 @@ impl BillableMetricInterface for Store {
                 })
                 .transpose()?,
             updated_at: Some(chrono::Utc::now().naive_utc()),
-            synced_at: None,
-            sync_error: None,
         };
 
         self.transaction_with(&mut conn, |conn| {
@@ -320,18 +311,5 @@ impl BillableMetricInterface for Store {
             .scope_boxed()
         })
         .await
-    }
-
-    async fn mark_billable_metric_synced(
-        &self,
-        id: BillableMetricId,
-        tenant_id: TenantId,
-        error: Option<String>,
-    ) -> StoreResult<()> {
-        let mut conn = self.get_conn().await?;
-
-        BillableMetricRow::mark_synced(&mut conn, id, tenant_id, error)
-            .await
-            .map_err(Into::into)
     }
 }

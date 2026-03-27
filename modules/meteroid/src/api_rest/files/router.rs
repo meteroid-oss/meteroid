@@ -14,11 +14,12 @@ use crate::errors;
 use crate::api::sharable::ShareableEntityClaims;
 use crate::api_rest::error::{ErrorCode, RestErrorResponse};
 use crate::services::storage::Prefix;
-use common_domain::ids::{InvoiceId, StoredDocumentId};
+use common_domain::ids::{BatchJobId, InvoiceId, StoredDocumentId};
 use error_stack::{Report, ResultExt};
 use image::ImageFormat::Png;
 use jsonwebtoken::{DecodingKey, Validation, decode};
 use meteroid_store::repositories::InvoiceInterface;
+use meteroid_store::repositories::batch_jobs::BatchJobsInterface;
 use secrecy::ExposeSecret;
 use serde::Deserialize;
 
@@ -128,4 +129,155 @@ async fn get_invoice_pdf_handler(
         )
             .into_response()),
     }
+}
+
+#[axum::debug_handler]
+pub async fn get_batch_job_error_csv(
+    Path(batch_job_id): Path<BatchJobId>,
+    Query(params): Query<TokenParams>,
+    State(app_state): State<AppState>,
+) -> impl IntoResponse {
+    match get_batch_job_error_csv_handler(batch_job_id, params, app_state).await {
+        Ok(r) => r.into_response(),
+        Err(e) => {
+            log::error!("Error handling batch job error CSV: {e:?}");
+            e.current_context().clone().into_response()
+        }
+    }
+}
+
+#[axum::debug_handler]
+pub async fn get_batch_job_input_file(
+    Path(batch_job_id): Path<BatchJobId>,
+    Query(params): Query<TokenParams>,
+    State(app_state): State<AppState>,
+) -> impl IntoResponse {
+    match get_batch_job_input_file_handler(batch_job_id, params, app_state).await {
+        Ok(r) => r.into_response(),
+        Err(e) => {
+            log::error!("Error handling batch job input file: {e:?}");
+            e.current_context().clone().into_response()
+        }
+    }
+}
+
+async fn get_batch_job_input_file_handler(
+    batch_job_id: BatchJobId,
+    token: TokenParams,
+    app_state: AppState,
+) -> Result<Response, Report<errors::RestApiError>> {
+    let claims = decode::<ShareableEntityClaims>(
+        &token.token,
+        &DecodingKey::from_secret(app_state.jwt_secret.expose_secret().as_bytes()),
+        &Validation::default(),
+    )
+    .map_err(|_| Report::new(errors::RestApiError::Unauthorized))?
+    .claims;
+
+    let detail = app_state
+        .store
+        .get_batch_job(claims.entity_id.into(), claims.tenant_id)
+        .await
+        .change_context(errors::RestApiError::StoreError)?;
+
+    if detail.job.id != batch_job_id {
+        return Err(Report::new(errors::RestApiError::Forbidden));
+    }
+
+    let input_key = detail
+        .job
+        .input_source_key
+        .ok_or(Report::new(errors::RestApiError::NotFound))?;
+
+    let doc_id: StoredDocumentId = input_key
+        .parse()
+        .map_err(|_| Report::new(errors::RestApiError::StoreError))?;
+
+    let data = app_state
+        .object_store
+        .retrieve(
+            doc_id,
+            Prefix::BatchJobInput {
+                tenant_id: claims.tenant_id,
+            },
+        )
+        .await
+        .change_context(errors::RestApiError::ObjectStoreError)?;
+
+    let filename = detail
+        .job
+        .input_file_name
+        .unwrap_or_else(|| format!("import-{}.csv", batch_job_id));
+
+    Ok((
+        StatusCode::OK,
+        [
+            ("Content-Type", "text/csv; charset=utf-8"),
+            (
+                "Content-Disposition",
+                &format!("attachment; filename=\"{}\"", filename),
+            ),
+        ],
+        data,
+    )
+        .into_response())
+}
+
+async fn get_batch_job_error_csv_handler(
+    batch_job_id: BatchJobId,
+    token: TokenParams,
+    app_state: AppState,
+) -> Result<Response, Report<errors::RestApiError>> {
+    let claims = decode::<ShareableEntityClaims>(
+        &token.token,
+        &DecodingKey::from_secret(app_state.jwt_secret.expose_secret().as_bytes()),
+        &Validation::default(),
+    )
+    .map_err(|_| Report::new(errors::RestApiError::Unauthorized))?
+    .claims;
+
+    let detail = app_state
+        .store
+        .get_batch_job(claims.entity_id.into(), claims.tenant_id)
+        .await
+        .change_context(errors::RestApiError::StoreError)?;
+
+    if detail.job.id != batch_job_id {
+        return Err(Report::new(errors::RestApiError::Forbidden));
+    }
+
+    let error_key = detail
+        .job
+        .error_output_key
+        .ok_or(Report::new(errors::RestApiError::NotFound))?;
+
+    let doc_id: StoredDocumentId = error_key
+        .parse()
+        .map_err(|_| Report::new(errors::RestApiError::StoreError))?;
+
+    let data = app_state
+        .object_store
+        .retrieve(
+            doc_id,
+            Prefix::BatchJobErrorOutput {
+                tenant_id: claims.tenant_id,
+            },
+        )
+        .await
+        .change_context(errors::RestApiError::ObjectStoreError)?;
+
+    let filename = format!("errors-{}.csv", batch_job_id);
+
+    Ok((
+        StatusCode::OK,
+        [
+            ("Content-Type", "text/csv; charset=utf-8"),
+            (
+                "Content-Disposition",
+                &format!("attachment; filename=\"{}\"", filename),
+            ),
+        ],
+        data,
+    )
+        .into_response())
 }

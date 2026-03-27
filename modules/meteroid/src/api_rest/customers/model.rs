@@ -47,6 +47,7 @@ pub struct Customer {
     pub invoicing_entity_id: InvoicingEntityId,
     pub vat_number: Option<String>,
     pub custom_taxes: Vec<CustomTaxRate>,
+    pub connected_account_id: Option<String>,
 }
 
 #[derive(ToSchema, serde::Serialize, serde::Deserialize, Validate, Debug)]
@@ -64,6 +65,7 @@ pub struct CustomerCreateRequest {
     pub vat_number: Option<String>,
     pub custom_taxes: Vec<CustomTaxRate>,
     pub is_tax_exempt: Option<bool>,
+    pub connected_account_id: Option<String>,
 }
 
 #[derive(ToSchema, serde::Serialize, serde::Deserialize, Validate)]

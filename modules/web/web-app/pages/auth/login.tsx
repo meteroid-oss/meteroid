@@ -1,7 +1,7 @@
 import { Alert, cn } from '@md/ui'
-import { useEffect } from "react";
-import { useSearchParams , useLocation } from 'react-router-dom'
-import { toast } from "sonner";
+import { useEffect } from 'react'
+import { useLocation, useSearchParams } from 'react-router-dom'
+import { toast } from 'sonner'
 
 import { LoginForm } from '@/features/auth/components/LoginForm'
 
@@ -20,9 +20,9 @@ export const Login = (): JSX.Element => {
   return location.state === 'accountCreated' ? (
     <div className={cn('flex flex-col space-y-4')}>
       <Alert>Your account has been created, you can now login!</Alert>
-      <LoginForm/>
+      <LoginForm />
     </div>
   ) : (
-    <LoginForm/>
+    <LoginForm />
   )
 }

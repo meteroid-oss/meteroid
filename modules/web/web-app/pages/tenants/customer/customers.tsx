@@ -6,6 +6,7 @@ import { EmptyState } from '@/components/empty-state/EmptyState'
 import { TenantPageLayout } from '@/components/layouts'
 import { CustomersCreatePanel, CustomersHeader, CustomersTable } from '@/features/customers'
 import { useDebounceValue } from '@/hooks/useDebounce'
+import { useIsExpressOrganization } from '@/hooks/useIsExpressOrganization'
 import { useQuery } from '@/lib/connectrpc'
 import { listCustomers } from '@/rpc/api/customers/v1/customers-CustomersService_connectquery'
 import { ListCustomerRequest_SortBy } from '@/rpc/api/customers/v1/customers_pb'
@@ -13,6 +14,7 @@ import { ListCustomerRequest_SortBy } from '@/rpc/api/customers/v1/customers_pb'
 import type { PaginationState } from '@tanstack/react-table'
 
 export const Customers: FunctionComponent = () => {
+  const isExpress = useIsExpressOrganization()
   const [createPanelVisible, setCreatePanelVisible] = useState(false)
   const [search, setSearch] = useState('')
   const [searchParams] = useSearchParams()
@@ -69,9 +71,11 @@ export const Customers: FunctionComponent = () => {
               description="Create your first customers and assign a subscription"
               imageName="customers"
               actions={
-                <Button size="sm" variant="default" onClick={() => setCreatePanelVisible(true)}>
-                  New customer
-                </Button>
+                !isExpress ? (
+                  <Button size="sm" variant="default" onClick={() => setCreatePanelVisible(true)}>
+                    New customer
+                  </Button>
+                ) : undefined
               }
             />
           ) : (
@@ -85,10 +89,12 @@ export const Customers: FunctionComponent = () => {
           )}
         </Flex>
       </TenantPageLayout>
-      <CustomersCreatePanel
-        visible={createPanelVisible}
-        closePanel={() => setCreatePanelVisible(false)}
-      />
+      {!isExpress && (
+        <CustomersCreatePanel
+          visible={createPanelVisible}
+          closePanel={() => setCreatePanelVisible(false)}
+        />
+      )}
     </Fragment>
   )
 }

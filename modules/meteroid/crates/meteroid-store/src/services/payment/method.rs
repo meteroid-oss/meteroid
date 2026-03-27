@@ -11,7 +11,11 @@ use common_domain::country::CountryCode;
 use common_domain::ids::{BaseId, CustomerConnectionId, TenantId};
 use diesel_models::customer_connection::CustomerConnectionDetailsRow;
 use diesel_models::invoicing_entities::{InvoicingEntityProvidersRow, InvoicingEntityRow};
-use error_stack::ResultExt;
+use error_stack::{Report, ResultExt};
+use std::time::Duration;
+
+/// Maximum time to wait for payment provider API calls.
+const PAYMENT_PROVIDER_TIMEOUT: Duration = Duration::from_secs(45);
 
 /// Helper function to determine which direct debit payment methods are supported
 /// based on the invoicing entity's country
@@ -110,10 +114,16 @@ impl Services {
                 let payment_provider = initialize_payment_provider(provider)
                     .change_context(StoreError::PaymentProviderError)?;
 
-                let external_id = payment_provider
-                    .create_customer_in_provider(&customer, provider)
-                    .await
-                    .change_context(StoreError::PaymentProviderError)?;
+                let external_id = tokio::time::timeout(
+                    PAYMENT_PROVIDER_TIMEOUT,
+                    payment_provider.create_customer_in_provider(&customer, provider),
+                )
+                .await
+                .map_err(|_| {
+                    Report::new(StoreError::PaymentProviderError)
+                        .attach("Payment provider request timed out")
+                })?
+                .change_context(StoreError::PaymentProviderError)?;
 
                 // Combine payment types: Card + appropriate direct debit types based on country
                 let mut payment_types =
@@ -154,10 +164,16 @@ impl Services {
                     let provider = initialize_payment_provider(card_provider)
                         .change_context(StoreError::PaymentProviderError)?;
 
-                    let external_id = provider
-                        .create_customer_in_provider(&customer, card_provider)
-                        .await
-                        .change_context(StoreError::PaymentProviderError)?;
+                    let external_id = tokio::time::timeout(
+                        PAYMENT_PROVIDER_TIMEOUT,
+                        provider.create_customer_in_provider(&customer, card_provider),
+                    )
+                    .await
+                    .map_err(|_| {
+                        Report::new(StoreError::PaymentProviderError)
+                            .attach("Payment provider request timed out")
+                    })?
+                    .change_context(StoreError::PaymentProviderError)?;
 
                     // Create connection in our database with Card payment type
                     let new_connection = CustomerConnectionRow {
@@ -191,10 +207,16 @@ impl Services {
                     let provider = initialize_payment_provider(direct_debit_provider)
                         .change_context(StoreError::PaymentProviderError)?;
 
-                    let external_id = provider
-                        .create_customer_in_provider(&customer, direct_debit_provider)
-                        .await
-                        .change_context(StoreError::PaymentProviderError)?;
+                    let external_id = tokio::time::timeout(
+                        PAYMENT_PROVIDER_TIMEOUT,
+                        provider.create_customer_in_provider(&customer, direct_debit_provider),
+                    )
+                    .await
+                    .map_err(|_| {
+                        Report::new(StoreError::PaymentProviderError)
+                            .attach("Payment provider request timed out")
+                    })?
+                    .change_context(StoreError::PaymentProviderError)?;
 
                     let new_connection = CustomerConnectionRow {
                         id: CustomerConnectionId::new(),
@@ -337,10 +359,20 @@ impl Services {
             });
         }
 
-        let setup_intent = provider
-            .create_setup_intent_in_provider(&customer_connection, &connector, payment_methods)
-            .await
-            .change_context_lazy(|| StoreError::PaymentProviderError)?;
+        let setup_intent = tokio::time::timeout(
+            PAYMENT_PROVIDER_TIMEOUT,
+            provider.create_setup_intent_in_provider(
+                &customer_connection,
+                &connector,
+                payment_methods,
+            ),
+        )
+        .await
+        .map_err(|_| {
+            Report::new(StoreError::PaymentProviderError)
+                .attach("Payment provider request timed out")
+        })?
+        .change_context_lazy(|| StoreError::PaymentProviderError)?;
 
         Ok(setup_intent)
     }

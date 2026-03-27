@@ -125,6 +125,7 @@ pub mod customer {
                 is_vat_number_valid: value.vat_number_format_valid,
                 customer_connections: Vec::new(), // Will be populated in the service layer
                 payment_methods: Vec::new(),      // Will be populated in the service layer
+                connected_account_id: value.connected_account_id.map(|id| id.to_string()),
             }))
         }
     }

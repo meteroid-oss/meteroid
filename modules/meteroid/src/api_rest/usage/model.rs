@@ -13,7 +13,6 @@ pub struct CustomerUsageQuery {
     pub start_date: NaiveDate,
     pub end_date: NaiveDate,
     #[serde(default, deserialize_with = "empty_string_as_none")]
-    #[param(value_type = Option<String>)]
     pub metric_id: Option<BillableMetricId>,
 }
 
@@ -25,7 +24,6 @@ pub struct SubscriptionUsageQuery {
     #[serde(default)]
     pub end_date: Option<NaiveDate>,
     #[serde(default, deserialize_with = "empty_string_as_none")]
-    #[param(value_type = Option<String>)]
     pub metric_id: Option<BillableMetricId>,
 }
 
@@ -35,7 +33,6 @@ pub struct UsageSummaryQuery {
     pub start_date: NaiveDate,
     pub end_date: NaiveDate,
     #[serde(default, deserialize_with = "empty_string_as_none")]
-    #[param(value_type = Option<String>)]
     pub metric_id: Option<BillableMetricId>,
 }
 
@@ -48,7 +45,6 @@ pub struct UsageResponse {
 
 #[derive(ToSchema, Serialize, Deserialize)]
 pub struct MetricUsage {
-    #[schema(value_type = String)]
     #[serde(with = "string_serde")]
     pub metric_id: BillableMetricId,
     pub metric_name: String,

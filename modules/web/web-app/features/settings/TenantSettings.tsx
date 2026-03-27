@@ -8,27 +8,31 @@ import { InvoiceTab } from '@/features/settings/tabs/InvoiceTab'
 import { PaymentMethodsTab } from '@/features/settings/tabs/PaymentsTab'
 import { TaxesTab } from '@/features/settings/tabs/TaxesTab'
 import { UsersTab } from '@/features/settings/tabs/UsersTab'
+import { useIsExpressOrganization } from '@/hooks/useIsExpressOrganization'
 import { useQueryState } from '@/hooks/useQueryState'
 
 export const TenantSettings: FunctionComponent = () => {
-  const [tab, setTab] = useQueryState('tab', 'general')
+  const isExpress = useIsExpressOrganization()
+  const [tab, setTab] = useQueryState('tab', isExpress ? 'merchant' : 'general')
 
   return (
     <>
-      <div className="  space-y-6 w-full h-full overflow-x-hidden">
+      <div className="mt-5  space-y-6 w-full h-full overflow-x-hidden">
         <Tabs defaultValue={tab} onValueChange={setTab} className="w-full ">
           <TabsList className="w-full justify-start">
-            <TabsTrigger value="general">General</TabsTrigger>
+            {!isExpress && <TabsTrigger value="general">General</TabsTrigger>}
             <TabsTrigger value="merchant">Merchant</TabsTrigger>
             <TabsTrigger value="invoices">Invoices</TabsTrigger>
             <TabsTrigger value="integrations">Integrations</TabsTrigger>
             <TabsTrigger value="payments">Payment methods</TabsTrigger>
             <TabsTrigger value="taxes">Taxes</TabsTrigger>
-            <TabsTrigger value="users">Users</TabsTrigger>
+            {!isExpress && <TabsTrigger value="users">Members</TabsTrigger>}
           </TabsList>
-          <TabsContent value="general">
-            <GeneralTab />
-          </TabsContent>
+          {!isExpress && (
+            <TabsContent value="general">
+              <GeneralTab />
+            </TabsContent>
+          )}
           <TabsContent value="merchant">
             <CompanyTab />
           </TabsContent>
@@ -44,9 +48,11 @@ export const TenantSettings: FunctionComponent = () => {
           <TabsContent value="taxes">
             <TaxesTab />
           </TabsContent>
-          <TabsContent value="users">
-            <UsersTab />
-          </TabsContent>
+          {!isExpress && (
+            <TabsContent value="users">
+              <UsersTab />
+            </TabsContent>
+          )}
         </Tabs>
       </div>
     </>

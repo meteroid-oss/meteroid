@@ -1,13 +1,25 @@
-import { useMutation } from '@connectrpc/connect-query'
 import { FileSpreadsheetIcon } from 'lucide-react'
 import { useState } from 'react'
-import { toast } from 'sonner'
+import { z } from 'zod'
 
-import { CSVImportDialog, CSVImportResult } from '@/components/CSVImportDialog'
-import { ingestCsv } from '@/rpc/api/customers/v1/customers-CustomersIngestService_connectquery'
-import { FileData, IngestCsvRequest } from '@/rpc/api/customers/v1/customers_pb'
+import { CSVImportDialog } from '@/components/CSVImportDialog'
+import { useBatchJobCreate, CreateBatchJobRequest } from '@/features/batch-jobs/useBatchJobCreate'
+import { BatchJobType } from '@/rpc/api/batchjobs/v1/models_pb'
 
 import type { FunctionComponent } from 'react'
+
+const optionalValid = (re: RegExp, msg: string) =>
+  z.string().refine(v => !v || re.test(v), msg).optional()
+
+const customerRowSchema = z.object({
+  name: z.string().min(1, 'Name is required'),
+  currency: z.string().regex(/^[A-Z]{3}$/, '3-letter ISO code (e.g., USD, EUR)'),
+  'billing_address.country': optionalValid(/^[A-Z]{2}$/, '2-letter country code (e.g., US, FR)'),
+  'shipping_address.country': optionalValid(/^[A-Z]{2}$/, '2-letter country code (e.g., US, FR)'),
+  is_tax_exempt: optionalValid(/^(true|false)$/, 'Must be true or false'),
+  'tax_rate1.rate': optionalValid(/^\d+(\.\d+)?$/, 'Must be a number'),
+  'tax_rate2.rate': optionalValid(/^\d+(\.\d+)?$/, 'Must be a number'),
+})
 
 interface CustomersImportModalProps {
   openState: [boolean, (open: boolean) => void]
@@ -16,74 +28,51 @@ interface CustomersImportModalProps {
 
 export const CustomersImportModal: FunctionComponent<CustomersImportModalProps> = ({
   openState,
-  onSuccess,
 }) => {
   const [isOpen, setIsOpen] = openState
   const [uploadFile, setUploadFile] = useState<File | null>(null)
   const [csvOptions, setCsvOptions] = useState({
     delimiter: ',',
-    failOnError: false,
   })
-  const [importResult, setImportResult] = useState<CSVImportResult<string> | null>(null)
+  const [batchJobId, setBatchJobId] = useState<string | null>(null)
+  const [duplicateDetected, setDuplicateDetected] = useState(false)
 
-  // CSV upload mutation
-  const uploadMutation = useMutation(ingestCsv, {
-    onSuccess: async response => {
-      const { totalRows, successfulRows, failures } = response
+  const createMutation = useBatchJobCreate({
+    onSuccess: (jobId) => setBatchJobId(jobId),
+    onDuplicate: () => setDuplicateDetected(true),
+  })
 
-      setImportResult({
-        totalRows,
-        successful: successfulRows,
-        failures:
-          failures?.map(f => ({
-            rowNumber: f.rowNumber,
-            identifier: f.customerAlias,
-            reason: f.reason,
-          })) || [],
-      })
-
-      // Only close modal and refetch if completely successful
-      if (!failures || failures.length === 0) {
-        setIsOpen(false)
-        setUploadFile(null)
-        setImportResult(null)
-        onSuccess?.()
-        toast.success(`Successfully imported ${successfulRows} customers`)
-      }
-    },
-    onError: error => {
-      setImportResult({
-        totalRows: 0,
-        successful: 0,
-        failures: [
-          {
-            rowNumber: 0,
-            identifier: '',
-            reason: error.message,
+  const buildRequest = (forceDuplicate = false) => {
+    if (!uploadFile) return null
+    return uploadFile.arrayBuffer().then(
+      buffer =>
+        new CreateBatchJobRequest({
+          fileData: new Uint8Array(buffer),
+          jobType: BatchJobType.CUSTOMER_CSV_IMPORT,
+          fileName: uploadFile.name,
+          forceDuplicate,
+          params: {
+            delimiter: csvOptions.delimiter,
           },
-        ],
-      })
-    },
-  })
+        })
+    )
+  }
 
   const handleFileUpload = async () => {
-    if (!uploadFile) return
+    const request = await buildRequest()
+    if (request) createMutation.mutate(request)
+  }
 
-    setImportResult(null) // Clear previous results
-    const buffer = await uploadFile.arrayBuffer()
-    const request = new IngestCsvRequest({
-      file: new FileData({ data: new Uint8Array(buffer) }),
-      delimiter: csvOptions.delimiter,
-      failOnError: csvOptions.failOnError,
-    })
-
-    uploadMutation.mutate(request)
+  const handleForceUpload = async () => {
+    const request = await buildRequest(true)
+    if (request) createMutation.mutate(request)
   }
 
   const handleCloseModal = () => {
     setIsOpen(false)
     setUploadFile(null)
-    setImportResult(null)
+    setBatchJobId(null)
+    setDuplicateDetected(false)
   }
 
   return (
@@ -94,16 +83,17 @@ export const CustomersImportModal: FunctionComponent<CustomersImportModalProps> 
       setUploadFile={setUploadFile}
       csvOptions={csvOptions}
       setCsvOptions={setCsvOptions}
-      importResult={importResult}
-      setImportResult={setImportResult}
-      isUploading={uploadMutation.isPending}
+      isUploading={createMutation.isPending}
+      batchJobId={batchJobId}
       onUpload={handleFileUpload}
+      onForceUpload={handleForceUpload}
       onClose={handleCloseModal}
+      duplicateDetected={duplicateDetected}
       entityName="customers"
-      identifierLabel="Customer Alias"
       dialogTitle="Import Customers from CSV"
       dialogDescription="Import customer data from a CSV file. All imports must include headers."
-      dialogIcon={<FileSpreadsheetIcon className="h-5 w-5"/>}
+      dialogIcon={<FileSpreadsheetIcon className="h-5 w-5" />}
+      rowSchema={customerRowSchema}
       requiredColumns={[
         { name: 'name' },
         { name: 'currency', tooltipMessage: '3-letter ISO code (e.g., USD, EUR)' },
@@ -177,15 +167,14 @@ export const CustomersImportModal: FunctionComponent<CustomersImportModalProps> 
         },
       ]}
       additionalInfo={
-        <>
-          <ul>
-            <li>• Headers are required in the first row</li>
-            <li>• If customer with the same alias exists, it will be updated</li>
-            <li>• Group fields (e.g. <i>billing_address.*</i>): hover on info icon to see available fields within the
-              group
-            </li>
-          </ul>
-        </>
+        <ul>
+          <li>• Headers are required in the first row</li>
+          <li>• If customer with the same alias exists, it will be updated</li>
+          <li>
+            • Group fields (e.g. <i>billing_address.*</i>): hover on info icon to see available
+            fields within the group
+          </li>
+        </ul>
       }
     />
   )

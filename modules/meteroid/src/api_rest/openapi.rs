@@ -27,9 +27,11 @@ pub fn generate_spec() {
 
     println!("Generating OpenAPI spec {path:?}");
 
-    let (_router, open_api) = OpenApiRouter::<AppState>::with_openapi(ApiDoc::openapi())
+    let (_router, mut open_api) = OpenApiRouter::<AppState>::with_openapi(ApiDoc::openapi())
         .merge(api_routes())
         .split_for_parts();
+
+    add_rate_limit_responses(&mut open_api);
 
     // Convert to JSON and move webhooks from extensions to top-level
     let mut json_value: serde_json::Value =
@@ -74,8 +76,8 @@ pub fn generate_spec() {
 #[openapi(
     modifiers(&SecurityAddon, &WebhooksAddon),
     components(
-      schemas(
-        WebhookOutCustomerEvent,
+        schemas(
+            WebhookOutCustomerEvent,
         WebhookOutInvoiceEvent,
         WebhookOutSubscriptionEvent,
         WebhookOutMetricEvent,
@@ -102,6 +104,54 @@ impl Modify for SecurityAddon {
                 "bearer_auth",
                 SecurityScheme::Http(HttpBuilder::new().scheme(HttpAuthScheme::Bearer).build()),
             );
+        }
+    }
+}
+
+/// Adds a `429 Too Many Requests` response to every operation whose path starts
+/// with `/api/`. Call this **after** routes have been merged into the `OpenApi`
+/// object (i.e. after `split_for_parts()`), because utoipa modifiers run before
+/// routes are incorporated and would see an empty path list.
+pub fn add_rate_limit_responses(openapi: &mut utoipa::openapi::OpenApi) {
+    use utoipa::openapi::content::ContentBuilder;
+    use utoipa::openapi::response::ResponseBuilder;
+    use utoipa::openapi::{Ref, RefOr};
+
+    let rate_limited_response = RefOr::T(
+        ResponseBuilder::new()
+            .description("Too many requests")
+            .content(
+                "application/json",
+                ContentBuilder::new()
+                    .schema(Some(RefOr::Ref(Ref::from_schema_name("RestErrorResponse"))))
+                    .build(),
+            )
+            .build(),
+    );
+
+    for (path, path_item) in openapi.paths.paths.iter_mut() {
+        if !path.starts_with("/api/") {
+            continue;
+        }
+
+        for operation in [
+            path_item.get.as_mut(),
+            path_item.put.as_mut(),
+            path_item.post.as_mut(),
+            path_item.delete.as_mut(),
+            path_item.options.as_mut(),
+            path_item.head.as_mut(),
+            path_item.patch.as_mut(),
+            path_item.trace.as_mut(),
+        ]
+        .into_iter()
+        .flatten()
+        {
+            operation
+                .responses
+                .responses
+                .entry("429".to_string())
+                .or_insert_with(|| rate_limited_response.clone());
         }
     }
 }

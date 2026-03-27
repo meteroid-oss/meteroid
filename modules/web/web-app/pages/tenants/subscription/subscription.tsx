@@ -43,6 +43,7 @@ import { UpcomingInvoiceCard } from '@/features/subscriptions/UpcomingInvoiceCar
 import { UpdateSlotModal } from '@/features/subscriptions/UpdateSlotModal'
 import { formatSubscriptionFee } from '@/features/subscriptions/utils/fees'
 import { useBasePath } from '@/hooks/useBasePath'
+import { useIsExpressOrganization } from '@/hooks/useIsExpressOrganization'
 import { useQuery } from '@/lib/connectrpc'
 import { getLatestConnMeta } from '@/pages/tenants/utils'
 import { listConnectors } from '@/rpc/api/connectors/v1/connectors-ConnectorsService_connectquery'
@@ -297,6 +298,7 @@ interface SlotUpdateData {
 export const Subscription = () => {
   const navigate = useNavigate()
   const basePath = useBasePath()
+  const isExpress = useIsExpressOrganization()
 
   const [showSyncHubspotModal, setShowSyncHubspotModal] = useState(false)
   const [showCancelModal, setShowCancelModal] = useState(false)
@@ -450,81 +452,83 @@ export const Subscription = () => {
               <StatusBadge status={data.status} />
             </div>
           </div>
-          <div>
-            <DropdownMenu>
-              <DropdownMenuTrigger asChild>
-                <Button variant="primary" className="gap-2  " size="sm" hasIcon>
-                  Actions <ChevronDown className="w-4 h-4" />
-                </Button>
-              </DropdownMenuTrigger>
-              <DropdownMenuContent align="end">
-                {!data.activatedAt && (
-                  <DropdownMenuItem
-                    onClick={handleActivateSubscription}
-                    disabled={activateSubscriptionMutation.isPending}
-                  >
-                    <Clock size="16" className="mr-2" />
-                    {activateSubscriptionMutation.isPending
-                      ? 'Activating...'
-                      : 'Activate Subscription'}
-                  </DropdownMenuItem>
-                )}
-
-                {data.pendingCheckout && (
-                  <DropdownMenuItem
-                    onClick={handleOpenCheckout}
-                    disabled={checkoutTokenMutation.isPending}
-                  >
-                    <ExternalLink size="16" className="mr-2" />
-                    Open Checkout
-                  </DropdownMenuItem>
-                )}
-
-                <Tooltip>
-                  <TooltipTrigger asChild>
-                    <span>
-                      <DropdownMenuItem
-                        disabled={!isHubspotConnected}
-                        onClick={() => setShowSyncHubspotModal(true)}
-                      >
-                        Sync To Hubspot
-                      </DropdownMenuItem>
-                    </span>
-                  </TooltipTrigger>
-                  {!isHubspotConnected && (
-                    <TooltipContent>Hubspot integration not connected</TooltipContent>
+          {!isExpress && (
+            <div>
+              <DropdownMenu>
+                <DropdownMenuTrigger asChild>
+                  <Button variant="primary" className="gap-2  " size="sm" hasIcon>
+                    Actions <ChevronDown className="w-4 h-4" />
+                  </Button>
+                </DropdownMenuTrigger>
+                <DropdownMenuContent align="end">
+                  {!data.activatedAt && (
+                    <DropdownMenuItem
+                      onClick={handleActivateSubscription}
+                      disabled={activateSubscriptionMutation.isPending}
+                    >
+                      <Clock size="16" className="mr-2" />
+                      {activateSubscriptionMutation.isPending
+                        ? 'Activating...'
+                        : 'Activate Subscription'}
+                    </DropdownMenuItem>
                   )}
-                </Tooltip>
-                <DropdownMenuItem onClick={() => setShowEditModal(true)}>
-                  <Pencil size="16" className="mr-2" />
-                  Edit Billing Settings
-                </DropdownMenuItem>
-                {(data.status === SubscriptionStatus.ACTIVE ||
-                  data.status === SubscriptionStatus.TRIALING) && (
-                  <DropdownMenuItem onClick={() => navigate('change-plan')}>
-                    <ArrowLeftRight size="16" className="mr-2" />
-                    Change Plan
-                  </DropdownMenuItem>
-                )}
-                <Tooltip>
-                  <TooltipTrigger asChild>
-                    <span>
-                      <DropdownMenuItem
-                        disabled={!canCancelSubscription}
-                        onClick={() => setShowCancelModal(true)}
-                        className="text-destructive focus:text-destructive"
-                      >
-                        Cancel Subscription
-                      </DropdownMenuItem>
-                    </span>
-                  </TooltipTrigger>
-                  {!canCancelSubscription && (
-                    <TooltipContent>Subscription is already cancelled or ended</TooltipContent>
+
+                  {data.pendingCheckout && (
+                    <DropdownMenuItem
+                      onClick={handleOpenCheckout}
+                      disabled={checkoutTokenMutation.isPending}
+                    >
+                      <ExternalLink size="16" className="mr-2" />
+                      Open Checkout
+                    </DropdownMenuItem>
                   )}
-                </Tooltip>
-              </DropdownMenuContent>
-            </DropdownMenu>
-          </div>
+
+                  <Tooltip>
+                    <TooltipTrigger asChild>
+                      <span>
+                        <DropdownMenuItem
+                          disabled={!isHubspotConnected}
+                          onClick={() => setShowSyncHubspotModal(true)}
+                        >
+                          Sync To Hubspot
+                        </DropdownMenuItem>
+                      </span>
+                    </TooltipTrigger>
+                    {!isHubspotConnected && (
+                      <TooltipContent>Hubspot integration not connected</TooltipContent>
+                    )}
+                  </Tooltip>
+                  <DropdownMenuItem onClick={() => setShowEditModal(true)}>
+                    <Pencil size="16" className="mr-2" />
+                    Edit Billing Settings
+                  </DropdownMenuItem>
+                  {(data.status === SubscriptionStatus.ACTIVE ||
+                    data.status === SubscriptionStatus.TRIALING) && (
+                    <DropdownMenuItem onClick={() => navigate('change-plan')}>
+                      <ArrowLeftRight size="16" className="mr-2" />
+                      Change Plan
+                    </DropdownMenuItem>
+                  )}
+                  <Tooltip>
+                    <TooltipTrigger asChild>
+                      <span>
+                        <DropdownMenuItem
+                          disabled={!canCancelSubscription}
+                          onClick={() => setShowCancelModal(true)}
+                          className="text-destructive focus:text-destructive"
+                        >
+                          Cancel Subscription
+                        </DropdownMenuItem>
+                      </span>
+                    </TooltipTrigger>
+                    {!canCancelSubscription && (
+                      <TooltipContent>Subscription is already cancelled or ended</TooltipContent>
+                    )}
+                  </Tooltip>
+                </DropdownMenuContent>
+              </DropdownMenu>
+            </div>
+          )}
         </div>
 
         {data.checkoutUrl && data.status === SubscriptionStatus.PENDING && (

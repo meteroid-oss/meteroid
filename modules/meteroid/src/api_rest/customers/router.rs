@@ -135,12 +135,10 @@ pub(crate) async fn create_customer(
     State(app_state): State<AppState>,
     Valid(Json(payload)): Valid<Json<CustomerCreateRequest>>,
 ) -> Result<impl IntoResponse, RestApiError> {
-    log::info!("Creating customer with payload: {:?}", payload);
-
     let created = app_state
         .store
         .insert_customer(
-            create_req_to_domain(authorized_state.actor_id, payload),
+            create_req_to_domain(authorized_state.actor_id, payload)?,
             authorized_state.tenant_id,
         )
         .await

@@ -7,6 +7,7 @@ import { Link } from 'react-router-dom'
 import PageHeading from '@/components/PageHeading/PageHeading'
 import { FilterDropdown } from '@/features/invoices/FilterDropdown'
 import { InvoicesSearch } from '@/features/invoices/types'
+import { useIsExpressOrganization } from '@/hooks/useIsExpressOrganization'
 
 type InvoicesProps = {
   count: number
@@ -24,20 +25,24 @@ export const InvoicesHeader: FunctionComponent<InvoicesProps> = ({
   setSearch,
   search,
 }) => {
+  const isExpress = useIsExpressOrganization()
+
   return (
     <div className="flex flex-col gap-8">
       <div className="flex flex-row items-center justify-between">
         <PageHeading count={count}>Invoices</PageHeading>
-        <div className="flex flex-row gap-2">
-          <Button variant="secondary" disabled size="sm">
-            Import / Export
-          </Button>
-          <Link to="create">
-            <Button variant="primary" size="sm" hasIcon>
-              <PlusIcon size={10} fill="white" /> New invoice
+        {!isExpress && (
+          <div className="flex flex-row gap-2">
+            <Button variant="secondary" disabled size="sm">
+              Import / Export
             </Button>
-          </Link>
-        </div>
+            <Link to="create">
+              <Button variant="primary" size="sm" hasIcon>
+                <PlusIcon size={10} fill="white" /> New invoice
+              </Button>
+            </Link>
+          </div>
+        )}
       </div>
       <div className="flex flex-row items-center justify-between">
         <div className="flex flex-row items-center gap-2">

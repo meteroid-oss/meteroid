@@ -6,8 +6,8 @@ use crate::json_value_serde;
 use chrono::NaiveDateTime;
 use common_domain::country::CountryCode;
 use common_domain::ids::{
-    AliasOr, BaseId, ConnectorId, CustomerConnectionId, CustomerId, CustomerPaymentMethodId,
-    InvoicingEntityId, TenantId,
+    AliasOr, BaseId, ConnectedAccountId, ConnectorId, CustomerConnectionId, CustomerId,
+    CustomerPaymentMethodId, InvoicingEntityId, TenantId,
 };
 use diesel_models::customer_connection::CustomerConnectionRow;
 use diesel_models::customers::CustomerRow;
@@ -59,6 +59,7 @@ pub struct Customer {
     #[from(serde_json::from_value(~).unwrap_or_default())]
     pub custom_taxes: Vec<CustomerCustomTax>,
     pub vat_number_format_valid: bool,
+    pub connected_account_id: Option<ConnectedAccountId>,
 }
 
 #[derive(Clone, Debug, o2o)]
@@ -88,6 +89,7 @@ pub struct CustomerNew {
     pub vat_number: Option<String>,
     pub custom_taxes: Vec<CustomerCustomTax>,
     pub is_tax_exempt: bool,
+    pub connected_account_id: Option<ConnectedAccountId>,
 }
 
 impl CustomerNew {
@@ -99,6 +101,14 @@ impl CustomerNew {
             None => false,
         }
     }
+}
+
+/// Result of a lenient batch upsert — valid rows are upserted, invalid rows returned as failures.
+#[derive(Debug)]
+pub struct CustomerBatchResult {
+    pub created: Vec<Customer>,
+    /// (index in the original input batch, error message)
+    pub failures: Vec<(usize, String)>,
 }
 
 #[derive(Clone, Debug)]
@@ -143,6 +153,7 @@ impl TryInto<CustomerRowNew> for CustomerNewWrapper {
             })?,
             is_tax_exempt: self.inner.is_tax_exempt,
             vat_number_format_valid: self.vat_number_format_valid,
+            connected_account_id: self.inner.connected_account_id,
         })
     }
 }
@@ -172,6 +183,7 @@ pub struct CustomerPatch {
     pub custom_taxes: Option<Vec<CustomerCustomTax>>,
     pub current_payment_method_id: Option<Option<CustomerPaymentMethodId>>,
     pub is_tax_exempt: Option<bool>,
+    pub connected_account_id: Option<Option<ConnectedAccountId>>,
 }
 
 impl CustomerPatch {

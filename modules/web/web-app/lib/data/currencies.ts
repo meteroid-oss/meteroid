@@ -933,7 +933,13 @@ export const CURRENCIES: Record<string, Currency> = {
   ZMK: {
     ref: 'ZMK',
     symbol: 'ZK',
-    full: 'Zambian kwacha (ZMK)',
+    full: 'Zambian kwacha (old) (ZMK)',
+    precision: 2,
+  },
+  ZMW: {
+    ref: 'ZMW',
+    symbol: 'K',
+    full: 'Zambian kwacha (ZMW)',
     precision: 2,
   },
   ZWR: {

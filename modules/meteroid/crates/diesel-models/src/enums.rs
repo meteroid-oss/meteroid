@@ -354,3 +354,37 @@ pub enum CheckoutTypeEnum {
     PlanChange,
     AddonPurchase,
 }
+
+#[derive(diesel_derive_enum::DbEnum, Debug, Clone, PartialEq, Eq)]
+#[ExistingTypePath = "crate::schema::sql_types::BatchJobTypeEnum"]
+#[DbValueStyle = "SCREAMING_SNAKE_CASE"]
+pub enum BatchJobTypeEnum {
+    EventCsvImport,
+    CustomerCsvImport,
+    SubscriptionCsvImport,
+    SubscriptionPlanMigration,
+}
+
+#[derive(diesel_derive_enum::DbEnum, Debug, Clone, PartialEq, Eq)]
+#[ExistingTypePath = "crate::schema::sql_types::BatchJobStatusEnum"]
+#[DbValueStyle = "SCREAMING_SNAKE_CASE"]
+pub enum BatchJobStatusEnum {
+    Pending,
+    Chunking,
+    Processing,
+    Completed,
+    CompletedWithErrors,
+    Failed,
+    Cancelled,
+}
+
+#[derive(diesel_derive_enum::DbEnum, Debug, Clone, PartialEq, Eq)]
+#[ExistingTypePath = "crate::schema::sql_types::BatchJobChunkStatusEnum"]
+#[DbValueStyle = "SCREAMING_SNAKE_CASE"]
+pub enum BatchJobChunkStatusEnum {
+    Pending,
+    Processing,
+    Completed,
+    Failed,
+    Skipped,
+}

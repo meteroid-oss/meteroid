@@ -908,7 +908,7 @@ async fn test_mixed_pending_and_active(services: &Services, store: &Store) {
 async fn get_invoices_for_subscription(
     store: &Store,
     subscription_id: SubscriptionId,
-    unit: &str,
+    _unit: &str,
 ) -> Vec<meteroid_store::domain::Invoice> {
     use meteroid_store::domain::{OrderByRequest, PaginationRequest};
 

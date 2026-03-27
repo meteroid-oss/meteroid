@@ -8,16 +8,15 @@ import {
   SelectFormField,
   SelectItem,
 } from '@md/ui'
-import { ChevronLeft, DicesIcon } from 'lucide-react'
-import { nanoid } from 'nanoid'
-import { FunctionComponent } from 'react'
+import { ChevronLeft } from 'lucide-react'
+import { FunctionComponent, useState } from 'react'
 import { useWatch } from 'react-hook-form'
 import { useNavigate, useParams } from 'react-router-dom'
+import { toast } from 'sonner'
 import { z } from 'zod'
 
 import { buildSyncParam } from '@/hooks/useSyncQueries'
 import { useZodForm } from '@/hooks/useZodForm'
-import { env } from '@/lib/env'
 import { TenantEnvironmentEnum } from '@/rpc/api/tenants/v1/models_pb'
 import { createTenant } from '@/rpc/api/tenants/v1/tenants-TenantsService_connectquery'
 
@@ -52,14 +51,25 @@ export const TenantNew: FunctionComponent = () => {
     schema: tenantSchema,
     defaultValues: {
       name: '',
-      environment: `${TenantEnvironmentEnum.SANDBOX}` as unknown as TenantEnvironmentEnum,
+      environment: `${TenantEnvironmentEnum.DEVELOPMENT}` as unknown as TenantEnvironmentEnum,
       disableEmails: true,
     },
   })
 
+  const [error, setError] = useState<string | null>(null)
+
   const navigate = useNavigate()
 
-  const mut = useMutation(createTenant)
+  const mut = useMutation(createTenant, {
+    onSuccess: ({ tenant }) => {
+      navigate(`../${tenant?.slug}`)
+    },
+    onError: error => {
+      console.error('Error creating tenant:', { error })
+      toast.error('Failed to create tenant: ' + error.rawMessage)
+      setError(error.rawMessage)
+    },
+  })
 
   const environment = useWatch({
     control: methods.control,
@@ -109,24 +119,6 @@ export const TenantNew: FunctionComponent = () => {
                       }
                       control={methods.control}
                     />
-                    {env.dx && environment == TenantEnvironmentEnum.SANDBOX ? (
-                      <Button
-                        size="icon"
-                        variant="ghost"
-                        type="button"
-                        className=""
-                        onClick={() => {
-                          const d = new Date()
-                          methods.setValue(
-                            'name',
-                            `sbx-${(((+d - +new Date(d.getFullYear(), 0, 1)) / 1e3) | 0).toString(36).padStart(5, '0')}-${nanoid(2)}`,
-                            { shouldValidate: true }
-                          )
-                        }}
-                      >
-                        <DicesIcon size={14} />
-                      </Button>
-                    ) : null}
                   </div>
 
                   <SelectFormField
@@ -136,15 +128,14 @@ export const TenantNew: FunctionComponent = () => {
                     placeholder="Select an environment"
                     className="max-w-xs"
                   >
-                    <SelectItem value={`${TenantEnvironmentEnum.PRODUCTION}`}>
-                      Production
-                    </SelectItem>
                     <SelectItem value={`${TenantEnvironmentEnum.DEVELOPMENT}`}>
                       Development
                     </SelectItem>
                     <SelectItem value={`${TenantEnvironmentEnum.SANDBOX}`}>
                       Sandbox (with data)
                     </SelectItem>
+                    <SelectItem value={`${TenantEnvironmentEnum.STAGING}`}>Staging</SelectItem>
+                    <SelectItem value={`${TenantEnvironmentEnum.QA}`}>QA</SelectItem>
                   </SelectFormField>
 
                   <div className="pt-4 text-sm">Advanced</div>
@@ -156,6 +147,7 @@ export const TenantNew: FunctionComponent = () => {
                     description="Invoices, receipts, payment reminders etc will not be sent to your customers."
                   />
                 </div>
+                {error && <div className="text-destructive text-xs pt-2">{error}</div>}
 
                 <div className="w-full flex justify-end items-center pt-6">
                   <Button

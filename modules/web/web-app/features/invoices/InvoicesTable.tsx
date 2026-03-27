@@ -21,6 +21,7 @@ import { MarkAsPaidDialog } from '@/features/invoices/MarkAsPaidDialog'
 import { PaymentStatusBadge } from '@/features/invoices/PaymentStatusBadge'
 import { amountFormat } from '@/features/invoices/amountFormat'
 import { useBasePath } from '@/hooks/useBasePath'
+import { useIsExpressOrganization } from '@/hooks/useIsExpressOrganization'
 import { useQuery } from '@/lib/connectrpc'
 import { InvoiceConfirmationDialog } from '@/pages/tenants/invoice/InvoiceConfirmationDialog'
 import {
@@ -170,6 +171,7 @@ export const InvoicesTable = ({
   isLoading,
 }: CustomersTableProps) => {
   const basePath = useBasePath()
+  const isExpress = useIsExpressOrganization()
 
   const columns = useMemo<ColumnDef<Invoice>[]>(
     () => [
@@ -201,14 +203,20 @@ export const InvoicesTable = ({
         header: 'Payment Status',
         cell: ({ row }) => <PaymentStatusBadge status={row.original.paymentStatus} />,
       },
-      {
-        accessorKey: 'id',
-        header: '',
-        className: 'w-2',
-        cell: ({ row }) => <InvoiceRowActions invoiceId={row.original.id} />,
-      },
+      ...(!isExpress
+        ? [
+            {
+              accessorKey: 'id' as const,
+              header: '',
+              className: 'w-2',
+              cell: ({ row }: { row: { original: Invoice } }) => (
+                <InvoiceRowActions invoiceId={row.original.id} />
+              ),
+            },
+          ]
+        : []),
     ],
-    [basePath]
+    [basePath, isExpress]
   )
 
   return (

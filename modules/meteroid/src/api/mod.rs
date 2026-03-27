@@ -1,4 +1,4 @@
-mod cors;
+pub mod cors;
 pub mod server;
 
 pub mod shared;
@@ -7,6 +7,7 @@ pub mod utils;
 pub mod addons;
 pub mod apitokens;
 pub mod bankaccounts;
+pub mod batchjobs;
 pub mod billablemetrics;
 pub mod connectors;
 pub mod coupons;

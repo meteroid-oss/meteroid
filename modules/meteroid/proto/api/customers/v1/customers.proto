@@ -98,28 +98,6 @@ message SyncToPennylaneRequest {
 message SyncToPennylaneResponse {
 }
 
-message IngestCsvRequest {
-  FileData file = 1;
-  string delimiter = 2;
-  bool fail_on_error = 3;
-}
-
-message IngestCsvResponse {
-  int32 total_rows = 1;
-  int32 successful_rows = 2;
-  repeated IngestionFailure failures = 3;
-}
-
-message IngestionFailure {
-  int32 row_number = 1;
-  string customer_alias = 2;
-  string reason = 3;
-}
-
-message FileData {
-  bytes data = 1;
-}
-
 message GenerateCustomerPortalTokenRequest {
   string customer_id = 1;
 }
@@ -162,7 +140,3 @@ service CustomersService {
   rpc DeleteCustomerConnection(DeleteCustomerConnectionRequest) returns (DeleteCustomerConnectionResponse) {}
 }
 
-service CustomersIngestService {
-  rpc IngestCsv(IngestCsvRequest) returns (IngestCsvResponse) {}
-
-}

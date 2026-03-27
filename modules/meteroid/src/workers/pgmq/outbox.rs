@@ -8,8 +8,8 @@ use futures::FutureExt;
 use meteroid_store::domain::outbox_event::{EventType, OutboxEvent, OutboxPgmqHeaders};
 use meteroid_store::domain::pgmq::{
     BiAggregationEvent, BiCreditNoteFinalizedEvent, BiInvoiceFinalizedEvent,
-    BillableMetricSyncRequestEvent, HubspotSyncRequestEvent, PennylaneSyncInvoice,
-    PennylaneSyncRequestEvent, PgmqMessage, PgmqMessageNew, PgmqQueue, QuoteConversionRequestEvent,
+    HubspotSyncRequestEvent, PennylaneSyncInvoice, PennylaneSyncRequestEvent, PgmqMessage,
+    PgmqMessageNew, PgmqQueue, QuoteConversionRequestEvent,
 };
 use meteroid_store::repositories::pgmq::PgmqInterface;
 use meteroid_store::{Store, StoreResult};
@@ -142,32 +142,6 @@ impl PgmqOutboxDispatch {
         if !new_messages.is_empty() {
             self.store
                 .pgmq_send_batch(PgmqQueue::PennylaneSync, new_messages)
-                .await
-                .change_context(PgmqError::HandleMessages)?;
-        }
-
-        Ok(())
-    }
-
-    pub(crate) async fn handle_billable_metric_sync(&self, msgs: &[PgmqMessage]) -> PgmqResult<()> {
-        let mut events = vec![];
-
-        for msg in msgs {
-            let out_headers: StoreResult<Option<OutboxPgmqHeaders>> =
-                msg.headers.as_ref().map(TryInto::try_into).transpose();
-            if let Ok(Some(out_headers)) = out_headers
-                && let EventType::BillableMetricCreated = &out_headers.event_type
-                && let Ok(OutboxEvent::BillableMetricCreated(evt)) = msg.try_into()
-                && let Ok(msg_new) =
-                    BillableMetricSyncRequestEvent::BillableMetricCreated(evt).try_into()
-            {
-                events.push(msg_new);
-            }
-        }
-
-        if !events.is_empty() {
-            self.store
-                .pgmq_send_batch(PgmqQueue::BillableMetricSync, events)
                 .await
                 .change_context(PgmqError::HandleMessages)?;
         }
@@ -314,11 +288,11 @@ impl PgmqHandler for PgmqOutboxDispatch {
     async fn handle(&self, msgs: &[PgmqMessage]) -> PgmqResult<Vec<MessageId>> {
         let ids = msgs.iter().map(|x| x.msg_id).collect::<Vec<_>>();
 
+        // todo handle errors, some handlers might fail, we don't want to reprocess again everything
         let handlers = vec![
             self.handle_webhook_out(msgs).boxed(),
             self.handle_hubspot_out(msgs).boxed(),
             self.handle_pennylane_out(msgs).boxed(),
-            self.handle_billable_metric_sync(msgs).boxed(),
             self.handle_invoice_orchestration(msgs).boxed(),
             self.handle_quote_conversion(msgs).boxed(),
             self.handle_bi_aggregation(msgs).boxed(),

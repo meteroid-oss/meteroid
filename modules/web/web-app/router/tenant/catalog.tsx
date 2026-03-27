@@ -1,5 +1,6 @@
 import { Navigate, RouteObject } from 'react-router-dom'
 
+import { StandardOnly } from '@/components/StandardOnly'
 import { NotImplemented } from '@/features/NotImplemented'
 import { PlanCreateInitModal } from '@/features/plans/PlanCreateInitModal'
 import { DetailsFormModal } from '@/features/plans/create/details/DetailsFormModal'
@@ -32,20 +33,21 @@ export const productCatalogRoutes: RouteObject = {
           element: <Navigate to="plans" />,
         },
         {
-          path: 'items',
-          element: <Products />,
-        },
-        {
           path: 'metrics',
           element: <ProductMetrics />,
           children: [
             {
-              path: 'add-metric',
-              element: <CreateBillableMetric />,
-            },
-            {
-              path: 'edit/:metricId',
-              element: <EditBillableMetric />,
+              element: <StandardOnly />,
+              children: [
+                {
+                  path: 'add-metric',
+                  element: <CreateBillableMetric />,
+                },
+                {
+                  path: 'edit/:metricId',
+                  element: <EditBillableMetric />,
+                },
+              ],
             },
           ],
         },
@@ -61,28 +63,30 @@ export const productCatalogRoutes: RouteObject = {
               element: <PlanEdit />,
               children: [
                 {
-                  path: 'add-component',
-                  element: <CreatePriceComponent />,
+                  element: <StandardOnly />,
+                  children: [
+                    {
+                      path: 'add-component',
+                      element: <CreatePriceComponent />,
+                    },
+                    {
+                      path: 'onboarding',
+                      element: <PlanOnboardingComponent />,
+                    },
+                    {
+                      path: 'add-metric',
+                      element: <CreateBillableMetric />,
+                    },
+                    {
+                      path: 'edit-overview',
+                      element: <DetailsFormModal />,
+                    },
+                    {
+                      path: 'add-addon',
+                      element: <CreateAddOn />,
+                    },
+                  ],
                 },
-
-                {
-                  path: 'onboarding',
-                  element: <PlanOnboardingComponent />,
-                },
-                {
-                  path: 'add-metric',
-                  element: <CreateBillableMetric />,
-                },
-                {
-                  path: 'edit-overview',
-                  element: <DetailsFormModal />,
-                },
-                {
-                  path: 'add-addon',
-                  element: <CreateAddOn />,
-                },
-
-                // TODO component/:priceComponentId
               ],
             },
           ],
@@ -95,48 +99,62 @@ export const productCatalogRoutes: RouteObject = {
               index: true,
             },
             {
-              path: 'add-plan',
-              element: <PlanCreateInitModal />,
+              element: <StandardOnly />,
+              children: [
+                {
+                  path: 'add-plan',
+                  element: <PlanCreateInitModal />,
+                },
+              ],
             },
           ],
         },
         {
-          path: 'addons',
-          element: <Addons />,
+          element: <StandardOnly />,
           children: [
             {
-              index: true,
-              element: null,
+              path: 'items',
+              element: <Products />,
             },
             {
-              path: 'add-addon',
-              element: <CreateAddon />,
+              path: 'addons',
+              element: <Addons />,
+              children: [
+                {
+                  index: true,
+                  element: null,
+                },
+                {
+                  path: 'add-addon',
+                  element: <CreateAddon />,
+                },
+                {
+                  path: ':addonId',
+                  element: <AddonDetails />,
+                },
+                {
+                  path: 'edit/:addonId',
+                  element: <EditAddon />,
+                },
+              ],
             },
             {
-              path: ':addonId',
-              element: <AddonDetails />,
-            },
-            {
-              path: 'edit/:addonId',
-              element: <EditAddon />,
-            },
-          ],
-        },
-        {
-          path: 'coupons',
-          element: <Coupons />,
-          children: [
-            {
-              index: true,
-              element: null,
-            },
-            {
-              path: 'add-coupon',
-              element: <CreateCoupon />,
-            },
-            {
-              path: ':couponLocalId',
-              element: <CouponDetails />,
+              path: 'coupons',
+              element: <Coupons />,
+              children: [
+                {
+                  index: true,
+                  element: null,
+                },
+                {
+                  path: 'add-coupon',
+                  element: <CreateCoupon />,
+                },
+                {
+                  path: ':couponLocalId',
+                  element: <CouponDetails />,
+                },
+              ],
             },
           ],
         },

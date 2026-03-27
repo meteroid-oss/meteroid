@@ -9,6 +9,7 @@ message Organization {
   string slug = 2;
   string trade_name = 3;
   string created_at = 4;
+  bool is_express = 5;
 }
 
 message OrganizationWithTenant {
@@ -17,4 +18,5 @@ message OrganizationWithTenant {
   string trade_name = 3;
   string created_at = 4;
   repeated meteroid.api.tenants.v1.Tenant tenants = 5;
+  bool is_express = 6;
 }

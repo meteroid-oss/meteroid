@@ -40,6 +40,9 @@ import { toast } from 'sonner'
 import { AppPortal } from 'svix-react'
 import 'svix-react/style.css'
 
+import { BatchJobsTab } from '@/features/batch-jobs/BatchJobsTab'
+import { PlatformSettingsTab } from '@/features/connect/tabs/PlatformSettingsTab'
+import { useQueryState } from '@/hooks/useQueryState'
 import { useQuery } from '@/lib/connectrpc'
 import { env } from '@/lib/env'
 import { copyToClipboard } from '@/lib/helpers'
@@ -60,6 +63,7 @@ interface ApiToken {
 
 export const DeveloperSettings: FunctionComponent = () => {
   const queryClient = useQueryClient()
+  const [tab, setTab] = useQueryState('tab', 'api-keys')
 
   const [displayed, setDisplayed] = useState<ApiToken>()
   const [loading, setLoading] = useState(false)
@@ -133,12 +137,14 @@ export const DeveloperSettings: FunctionComponent = () => {
 
   return (
     <>
-      <div className="space-y-6 w-full border-t ">
-        <Tabs defaultValue="api-keys" className="w-full">
+      <div className="mt-5  space-y-6 w-full border-t ">
+        <Tabs value={tab} onValueChange={setTab} className="w-full">
           <TabsList className="w-full justify-start">
             <TabsTrigger value="api-keys">Api keys</TabsTrigger>
             <TabsTrigger value="api-docs">API Documentation</TabsTrigger>
             <TabsTrigger value="webhooks">Webhooks</TabsTrigger>
+            <TabsTrigger value="batch-jobs">Batch Jobs</TabsTrigger>
+            <TabsTrigger value="platform-settings">Connect Platform</TabsTrigger>
           </TabsList>
           <TabsContent value="api-keys">
             <div className="flex justify-between py-4">
@@ -258,11 +264,7 @@ export const DeveloperSettings: FunctionComponent = () => {
                     <Skeleton height={40} width={200} />
                   </div>
                 ) : webhookPortalAccessQuery.data?.access?.url ? (
-                  <AppPortal
-                    url={webhookPortalAccessQuery.data.access?.url}
-                    fullSize
-                    darkMode
-                  />
+                  <AppPortal url={webhookPortalAccessQuery.data.access?.url} fullSize darkMode />
                 ) : (
                   <div className="flex items-center justify-center h-full">
                     <p className="text-sm text-muted-foreground">Unable to load webhook portal</p>
@@ -270,6 +272,12 @@ export const DeveloperSettings: FunctionComponent = () => {
                 )}
               </div>
             </div>
+          </TabsContent>
+          <TabsContent value="batch-jobs">
+            <BatchJobsTab />
+          </TabsContent>
+          <TabsContent value="platform-settings">
+            <PlatformSettingsTab />
           </TabsContent>
         </Tabs>
       </div>

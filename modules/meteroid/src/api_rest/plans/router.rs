@@ -43,7 +43,7 @@ pub(crate) async fn list_plans(
     let filters = PlanFilters {
         search: request.search,
         filter_status: request.status.into_iter().map(Into::into).collect(),
-        filter_type: request.r#type.into_iter().map(Into::into).collect(),
+        filter_type: request.plan_type.into_iter().map(Into::into).collect(),
         filter_currency: None,
     };
 
@@ -424,18 +424,28 @@ pub(crate) async fn patch_plan(
         .await
     {
         Ok(fp) => fp,
-        Err(_) => app_state
-            .store
-            .get_full_plan(
-                plan_id,
-                authorized_state.tenant_id,
-                PlanVersionFilter::Draft,
-            )
-            .await
-            .map_err(|e| {
-                log::error!("Error re-fetching plan: {e}");
-                RestApiError::from(e)
-            })?,
+        Err(err) => {
+            if matches!(
+                err.current_context(),
+                meteroid_store::errors::StoreError::ValueNotFound(_)
+            ) {
+                app_state
+                    .store
+                    .get_full_plan(
+                        plan_id,
+                        authorized_state.tenant_id,
+                        PlanVersionFilter::Draft,
+                    )
+                    .await
+                    .map_err(|e| {
+                        log::error!("Error re-fetching plan: {e}");
+                        RestApiError::from(e)
+                    })?
+            } else {
+                log::error!("Error fetching active plan version: {err}");
+                return Err(RestApiError::from(err));
+            }
+        }
     };
 
     Ok(Json(mapping::plan_to_rest(

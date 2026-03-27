@@ -26,6 +26,7 @@ import { CreditType } from '@/rpc/api/creditnotes/v1/models_pb'
 import { getInvoice } from '@/rpc/api/invoices/v1/invoices-InvoicesService_connectquery'
 import { DetailedInvoice, LineItem } from '@/rpc/api/invoices/v1/models_pb'
 
+
 interface CreateCreditNoteDialogProps {
   open: boolean
   onOpenChange: (open: boolean) => void

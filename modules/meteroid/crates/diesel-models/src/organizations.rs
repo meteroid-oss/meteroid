@@ -15,6 +15,7 @@ pub struct OrganizationRow {
     pub archived_at: Option<NaiveDateTime>,
     pub invite_link_hash: Option<String>,
     pub default_country: CountryCode,
+    pub is_express: bool,
 }
 
 #[derive(Debug, Insertable)]
@@ -25,4 +26,5 @@ pub struct OrganizationRowNew {
     pub slug: String,
     pub trade_name: String,
     pub default_country: CountryCode,
+    pub is_express: bool,
 }

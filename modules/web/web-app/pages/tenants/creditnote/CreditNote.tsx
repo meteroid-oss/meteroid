@@ -37,6 +37,7 @@ import { useTypedParams } from '@/utils/params'
 
 import { resizeSvgContent } from '../invoice/utils'
 
+
 export const CreditNote = () => {
   const { creditNoteId } = useTypedParams<{ creditNoteId: string }>()
   const creditNoteQuery = useQuery(

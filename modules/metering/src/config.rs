@@ -73,6 +73,7 @@ impl KafkaConfig {
             "queue.buffering.max.kbytes",
             (self.kafka_producer_queue_mib * 1024).to_string(),
         );
+        client_config.set("enable.idempotence", "true");
 
         client_config
     }

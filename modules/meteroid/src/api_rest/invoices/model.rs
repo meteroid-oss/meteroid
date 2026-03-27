@@ -70,6 +70,7 @@ pub struct InvoiceLineItem {
 
 #[derive(o2o, Debug, Clone, Serialize, Deserialize, ToSchema)]
 #[map_owned(meteroid_store::domain::enums::InvoiceStatusEnum)]
+#[serde(rename_all = "SCREAMING_SNAKE_CASE")]
 pub enum InvoiceStatus {
     Draft,
     Finalized,
@@ -109,6 +110,7 @@ pub struct TaxBreakdownItem {
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, ToSchema)]
+#[serde(rename_all = "SCREAMING_SNAKE_CASE")]
 pub enum TaxExemptionType {
     ReverseCharge,
     TaxExempt,
@@ -132,6 +134,7 @@ pub struct Transaction {
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, ToSchema)]
+#[serde(rename_all = "SCREAMING_SNAKE_CASE")]
 pub enum PaymentStatusEnum {
     Ready,
     Pending,
@@ -141,6 +144,7 @@ pub enum PaymentStatusEnum {
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, ToSchema)]
+#[serde(rename_all = "SCREAMING_SNAKE_CASE")]
 pub enum PaymentTypeEnum {
     Payment,
     Refund,
@@ -155,6 +159,7 @@ pub struct PaymentMethodInfo {
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, ToSchema)]
+#[serde(rename_all = "SCREAMING_SNAKE_CASE")]
 pub enum PaymentMethodTypeEnum {
     Card,
     BankTransfer,
@@ -163,6 +168,7 @@ pub enum PaymentMethodTypeEnum {
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, ToSchema)]
+#[serde(rename_all = "SCREAMING_SNAKE_CASE")]
 pub enum InvoicePaymentStatus {
     Unpaid,
     PartiallyPaid,
@@ -200,6 +206,7 @@ pub struct CouponLineItem {
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, ToSchema)]
+#[serde(rename_all = "SCREAMING_SNAKE_CASE")]
 pub enum InvoiceType {
     Recurring,
     OneOff,

@@ -293,7 +293,6 @@ impl Services {
 
         let (invoice_lines, tax_breakdown) = self
             .process_invoice_lines_taxes(
-                conn,
                 invoice_lines,
                 &invoicing_entity,
                 customer,

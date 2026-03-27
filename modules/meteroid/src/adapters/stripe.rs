@@ -201,6 +201,7 @@ impl Stripe {
             invoicing_emails: None,
             is_tax_exempt: None,
             custom_taxes: None,
+            connected_account_id: None,
         };
 
         store
@@ -222,8 +223,8 @@ impl Stripe {
 
         // TODO the partially funded case
         if event_type_clone != event_type::PAYMENT_INTENT_SUCCEEDED
-            || event_type_clone != event_type::PAYMENT_INTENT_FAILED
-            || event_type_clone != event_type::PAYMENT_INTENT_PARTIALLY_FUNDED
+            && event_type_clone != event_type::PAYMENT_INTENT_FAILED
+            && event_type_clone != event_type::PAYMENT_INTENT_PARTIALLY_FUNDED
         {
             log::info!("Ignoring webhook event type: {event_type_clone}");
             return Ok(false);

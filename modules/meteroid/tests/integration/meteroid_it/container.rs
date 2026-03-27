@@ -10,7 +10,7 @@ use meteroid_mailer::service::MailerService;
 use meteroid_oauth::config::OauthConfig;
 use meteroid_store::Services;
 use meteroid_store::clients::usage::{MockUsageClient, UsageClient};
-use meteroid_store::store::{PgPool, StoreConfig};
+use meteroid_store::store::{PgConfig, PgPool, StoreConfig};
 use std::sync::Arc;
 use std::sync::atomic::{AtomicU32, Ordering};
 use std::time::Duration;
@@ -47,8 +47,10 @@ async fn get_shared_postgres() -> &'static SharedPostgres {
             let base_connection_string =
                 format!("postgres://postgres:postgres@127.0.0.1:{}/postgres", port);
 
+            let pg_config = PgConfig::new(base_connection_string.clone());
+
             // Create template database and run migrations once
-            let pool = meteroid_store::store::diesel_make_pg_pool(base_connection_string.clone())
+            let pool = meteroid_store::store::diesel_make_pg_pool(pg_config)
                 .expect("Failed to create pool");
 
             // Create the template database
@@ -63,7 +65,8 @@ async fn get_shared_postgres() -> &'static SharedPostgres {
                 "postgres://postgres:postgres@127.0.0.1:{}/meteroid_template",
                 port
             );
-            let template_pool = meteroid_store::store::diesel_make_pg_pool(template_url)
+            let template_pg_config = PgConfig::new(template_url.clone());
+            let template_pool = meteroid_store::store::diesel_make_pg_pool(template_pg_config)
                 .expect("Failed to create template pool");
             migrations::run(&template_pool).await.unwrap();
 
@@ -106,12 +109,22 @@ pub async fn start_meteroid_with_port(
         metering_port,
     );
 
+    start_meteroid_from_config(config, seed_level, usage_client, mailer, rest_listener).await
+}
+
+async fn start_meteroid_from_config(
+    config: Config,
+    seed_level: SeedLevel,
+    usage_client: Arc<dyn UsageClient>,
+    mailer: Arc<dyn MailerService>,
+    rest_listener: tokio::net::TcpListener,
+) -> MeteroidSetup {
     let token = CancellationToken::new();
     let cloned_token = token.clone();
     let stripe = Arc::new(StripeClient::new());
 
     let store = meteroid_store::Store::new(StoreConfig {
-        database_url: config.database_url.clone(),
+        pg: config.pg.clone(),
         crypt_key: config.secrets_crypt_key.0.clone(),
         jwt_secret: config.jwt_secret.clone(),
         multi_organization_enabled: config.multi_organization_enabled,
@@ -121,6 +134,9 @@ pub async fn start_meteroid_with_port(
         mailer: mailer.clone(),
         oauth: meteroid_oauth::service::OauthServices::new(OauthConfig::dummy()),
         domains_whitelist: config.domains_whitelist(),
+        billing: None,
+        billing_default_plan_id: None,
+        admin_organization_id: None,
     })
     .expect("Could not create store");
 
@@ -267,9 +283,10 @@ pub async fn create_test_database() -> String {
     let test_id = TEST_DB_COUNTER.fetch_add(1, Ordering::SeqCst);
     let db_name = format!("test_db_{}", test_id);
 
+    let pg_config = PgConfig::new(shared.base_connection_string.clone());
     // Create new database from template
-    let pool = meteroid_store::store::diesel_make_pg_pool(shared.base_connection_string.clone())
-        .expect("Failed to create pool");
+    let pool =
+        meteroid_store::store::diesel_make_pg_pool(pg_config).expect("Failed to create pool");
     let mut conn = pool.get().await.unwrap();
     sql_query(format!(
         "CREATE DATABASE {} TEMPLATE meteroid_template",
@@ -293,6 +310,16 @@ pub async fn create_test_database() -> String {
         "postgres://postgres:postgres@127.0.0.1:{}/{}",
         port, db_name
     )
+}
+
+pub async fn start_redis_container() -> ContainerAsync<GenericImage> {
+    GenericImage::new("redis", "8-alpine")
+        .with_wait_for(WaitFor::log(LogWaitStrategy::stdout(
+            "Ready to accept connections",
+        )))
+        .start()
+        .await
+        .expect("Failed to start Redis container")
 }
 
 /// Legacy function for backwards compatibility.

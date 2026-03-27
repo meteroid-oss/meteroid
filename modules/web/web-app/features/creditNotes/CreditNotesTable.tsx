@@ -11,6 +11,7 @@ import { formatCurrency } from '@/lib/utils/numbers'
 import { CreditNote } from '@/rpc/api/creditnotes/v1/models_pb'
 import { parseAndFormatDate } from '@/utils/date'
 
+
 interface CreditNotesTableProps {
   data: CreditNote[]
   pagination: PaginationState

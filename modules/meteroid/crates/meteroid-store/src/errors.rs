@@ -63,6 +63,8 @@ pub enum StoreError {
     InvalidDate,
     #[error("Failed to compute taxes")]
     TaxError,
+    #[error("Precondition failed")]
+    FailedPrecondition,
 }
 
 impl StoreError {

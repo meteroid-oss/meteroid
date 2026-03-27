@@ -59,6 +59,7 @@ message Customer {
   bool is_vat_number_valid = 22;
   repeated CustomerConnection customer_connections = 23;
   repeated CustomerPaymentMethod payment_methods = 24;
+  optional string connected_account_id = 25;
 
 }
 
@@ -75,6 +76,7 @@ message CustomerNew {
   optional string vat_number = 16;
   repeated CustomTaxRate custom_taxes = 17;
   optional bool is_tax_exempt = 18;
+  optional string connected_account_id = 19;
 }
 
 
@@ -123,8 +125,6 @@ message CustomerPaymentMethod {
     DIRECT_DEBIT_BACS = 4;
     OTHER = 5;
   }
-
-
 }
 
 message CustomerConnection {

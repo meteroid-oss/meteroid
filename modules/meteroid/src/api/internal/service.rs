@@ -1,7 +1,7 @@
 use crate::api::billablemetrics::mapping::metric::ServerBillableMetricWrapper;
 use crate::api::internal::InternalServiceComponents;
 use crate::api::internal::error::InternalApiError;
-use crate::{api::utils::parse_uuid, parse_uuid};
+use crate::parse_uuid;
 use common_domain::ids::TenantId;
 use error_stack::Report;
 use meteroid_grpc::meteroid::api::billablemetrics::v1::BillableMetric;

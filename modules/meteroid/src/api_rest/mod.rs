@@ -1,5 +1,6 @@
 use crate::adapters::stripe::Stripe;
 use crate::api_rest::addons::addon_routes;
+use crate::api_rest::batch_jobs::batch_job_routes;
 use crate::api_rest::checkoutsessions::checkout_session_routes;
 use crate::api_rest::coupons::coupon_routes;
 use crate::api_rest::creditnotes::credit_note_routes;
@@ -30,6 +31,7 @@ use utoipa_axum::router::OpenApiRouter;
 mod addons;
 mod addresses;
 mod auth;
+mod batch_jobs;
 mod checkoutsessions;
 pub(crate) mod coupons;
 mod creditnotes;
@@ -54,6 +56,7 @@ pub mod webhooks;
 pub fn api_routes() -> OpenApiRouter<AppState> {
     OpenApiRouter::new()
         .merge(addon_routes())
+        .merge(batch_job_routes())
         .merge(subscription_routes())
         .merge(product_family_routes())
         .merge(plan_routes())

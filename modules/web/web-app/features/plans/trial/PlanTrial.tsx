@@ -251,9 +251,7 @@ export function PlanTrialForm({
             {methods.formState.errors && (
               <div className="text-[0.8rem] font-medium text-destructive">
                 {methods.formState.errors.durationDays && (
-                  <p>
-                    Invalid duration : {String(methods.formState.errors.durationDays?.message)}
-                  </p>
+                  <p>Invalid duration : {String(methods.formState.errors.durationDays?.message)}</p>
                 )}
                 {methods.formState.errors.trialingPlanId && (
                   <p>

@@ -1,5 +1,6 @@
 use crate::domain::Organization;
 use crate::domain::enums::TenantEnvironmentEnum;
+use crate::domain::invoicing_entities::InvoicingEntityNew;
 use chrono::NaiveDateTime;
 use common_domain::ids::{OrganizationId, TenantId};
 use diesel_models::tenants::{TenantRow, TenantRowPatch, TenantWithOrganizationRow};
@@ -28,6 +29,7 @@ pub struct TenantNew {
     pub name: String,
     pub environment: TenantEnvironmentEnum,
     pub disable_emails: Option<bool>,
+    pub invoicing_entity: Option<InvoicingEntityNew>,
 }
 
 #[derive(Clone, Debug, o2o)]

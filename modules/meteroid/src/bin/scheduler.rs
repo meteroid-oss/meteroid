@@ -12,9 +12,13 @@ use meteroid::clients::usage::MeteringUsageClient;
 use meteroid::config::Config;
 use meteroid::services::credit_note_rendering::CreditNotePdfRenderingService;
 use meteroid::services::currency_rates::OpenexchangeRatesService;
+use meteroid::services::idempotency::{
+    IdempotencyService, InMemoryIdempotencyService, RedisIdempotencyService,
+};
 use meteroid::services::invoice_rendering::PdfRenderingService;
 use meteroid::services::storage::S3Storage;
 use meteroid::singletons;
+use meteroid::singletons::connect_redis;
 use meteroid::svix::new_svix;
 use meteroid::workers;
 use meteroid_mailer::service::mailer_service;
@@ -33,6 +37,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     telemetry::init(&config.common.telemetry);
 
     let store = Arc::new(singletons::get_store().await.clone());
+
     let svix = new_svix(&config.svix);
     let stripe = Arc::new(StripeClient::new());
 
@@ -64,16 +69,22 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
 
     let mailer_service = mailer_service(config.mailer.clone());
 
+    let fred_client = connect_redis(&config.redis);
+    let idempotency: Arc<dyn IdempotencyService> = match fred_client {
+        Some(client) => Arc::new(RedisIdempotencyService::new(client)),
+        None => Arc::new(InMemoryIdempotencyService::new()),
+    };
+
     workers::spawn_workers(
         store.clone(),
         services.clone(),
         svix,
         object_store_service.clone(),
-        usage_clients.clone(),
         Arc::new(currency_rate_service),
         pdf_service.clone(),
         credit_note_pdf_service,
         mailer_service,
+        idempotency,
         config,
     )
     .await;

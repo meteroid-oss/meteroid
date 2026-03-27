@@ -5,8 +5,9 @@ use crate::domain::pgmq::{
     PennylaneSyncRequestEvent, PgmqQueue,
 };
 use crate::domain::{
-    ConnectorProviderEnum, Customer, CustomerBrief, CustomerNew, CustomerNewWrapper, CustomerPatch,
-    CustomerTopUpBalance, CustomerUpdate, OrderByRequest, PaginatedVec, PaginationRequest,
+    ConnectorProviderEnum, Customer, CustomerBatchResult, CustomerBrief, CustomerNew,
+    CustomerNewWrapper, CustomerPatch, CustomerTopUpBalance, CustomerUpdate, OrderByRequest,
+    PaginatedVec, PaginationRequest,
 };
 use crate::errors::StoreError;
 use crate::repositories::connectors::ConnectorsInterface;
@@ -108,6 +109,15 @@ pub trait CustomersInterface {
         batch: Vec<CustomerNew>,
         tenant_id: TenantId,
     ) -> StoreResult<Vec<Customer>>;
+
+    /// Like `upsert_customer_batch` but does not fail the entire batch on per-row
+    /// validation errors. Instead, invalid rows are collected as failures and valid
+    /// rows are upserted. Used by CSV import where partial success is expected.
+    async fn upsert_customer_batch_lenient(
+        &self,
+        batch: Vec<CustomerNew>,
+        tenant_id: TenantId,
+    ) -> StoreResult<CustomerBatchResult>;
 
     async fn patch_customer(
         &self,
@@ -304,6 +314,10 @@ impl CustomersInterface for Store {
             .map_err(Into::<Report<StoreError>>::into)?;
         validate_customer_currency(&customer.currency, &tenant.available_currencies)?;
 
+        if let Some(_ca_id) = customer.connected_account_id {
+            // enterprise placeholder
+        }
+
         let invoicing_entity = self
             .get_invoicing_entity(tenant_id, customer.invoicing_entity_id)
             .await?;
@@ -414,6 +428,52 @@ impl CustomersInterface for Store {
 
         self.publish_customer_created_events(&res).await;
         Ok(res)
+    }
+
+    async fn upsert_customer_batch_lenient(
+        &self,
+        batch: Vec<CustomerNew>,
+        tenant_id: TenantId,
+    ) -> StoreResult<CustomerBatchResult> {
+        let (prepared, failures) = self
+            .prepare_customer_batch_lenient(batch, tenant_id)
+            .await?;
+
+        if prepared.is_empty() {
+            return Ok(CustomerBatchResult {
+                created: vec![],
+                failures,
+            });
+        }
+
+        let res: Vec<Customer> = self
+            .transaction(|conn| {
+                async move {
+                    let res: Vec<Customer> = CustomerRow::upsert_customer_batch(conn, prepared)
+                        .await
+                        .map_err(Into::into)
+                        .and_then(|v| v.into_iter().map(TryInto::try_into).collect())?;
+
+                    let outbox_events: Vec<OutboxEvent> = res
+                        .iter()
+                        .map(|x| OutboxEvent::customer_created(x.clone().into()))
+                        .collect();
+
+                    self.internal
+                        .insert_outbox_events_tx(conn, outbox_events)
+                        .await?;
+
+                    Ok(res)
+                }
+                .scope_boxed()
+            })
+            .await?;
+
+        self.publish_customer_created_events(&res).await;
+        Ok(CustomerBatchResult {
+            created: res,
+            failures,
+        })
     }
 
     async fn patch_customer(
@@ -821,6 +881,64 @@ impl Store {
             .collect::<Vec<Result<CustomerRowNew, Report<StoreError>>>>()
             .into_iter()
             .collect()
+    }
+
+    /// Like `prepare_customer_batch` but collects per-row validation errors instead
+    /// of failing the entire batch. Returns (valid_rows, failures) where failures
+    /// are (original_index, error_message).
+    async fn prepare_customer_batch_lenient(
+        &self,
+        batch: Vec<CustomerNew>,
+        tenant_id: TenantId,
+    ) -> StoreResult<(Vec<CustomerRowNew>, Vec<(usize, String)>)> {
+        let mut conn = self.get_conn().await?;
+        let tenant = TenantRow::find_by_id(&mut conn, tenant_id)
+            .await
+            .map_err(Into::<Report<StoreError>>::into)?;
+
+        let invoicing_entities = self.list_invoicing_entities(tenant_id).await?;
+        let default_invoicing_entity =
+            invoicing_entities
+                .iter()
+                .find(|ie| ie.is_default)
+                .ok_or(StoreError::ValueNotFound(
+                    "Default invoicing entity not found".to_string(),
+                ))?;
+
+        let mut valid = Vec::with_capacity(batch.len());
+        let mut failures = Vec::new();
+
+        for (idx, c) in batch.into_iter().enumerate() {
+            if let Err(e) = validate_customer_currency(&c.currency, &tenant.available_currencies) {
+                failures.push((idx, e.current_context().to_string()));
+                continue;
+            }
+
+            let invoicing_entity = c
+                .invoicing_entity_id
+                .as_ref()
+                .and_then(|id| invoicing_entities.iter().find(|ie| ie.id == *id))
+                .unwrap_or(default_invoicing_entity);
+
+            let vat_number_format_valid = c.is_valid_vat_number_format();
+
+            match (CustomerNewWrapper {
+                inner: c,
+                invoicing_entity_id: invoicing_entity.id,
+                tenant_id,
+                vat_number_format_valid,
+            })
+            .try_into()
+            {
+                Ok(row) => valid.push(row),
+                Err(e) => {
+                    let report: Report<StoreError> = e;
+                    failures.push((idx, report.current_context().to_string()));
+                }
+            }
+        }
+
+        Ok((valid, failures))
     }
 
     async fn publish_customer_created_events(&self, customers: &[Customer]) {

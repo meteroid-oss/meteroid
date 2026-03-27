@@ -23,7 +23,7 @@ interface Action {
 type EntityHeaderProps = {
   title: string
   count?: number
-  primaryAction: Action
+  primaryAction?: Action
   secondaryActions?: Action[]
 }
 
@@ -42,38 +42,40 @@ export const EntityHeader = ({
           <span className="text-xs font-medium text-muted-foreground">({count})</span>
         )}
       </h1>
-      <div className="flex gap-0.5">
-        <Button
-          variant="primary"
-          size="sm"
-          onClick={primaryAction.onClick}
-          hasIcon
-          className={cn(hasSecondaryActions && 'border-r-0 rounded-r-none')}
-        >
-          {primaryAction.icon ?? <PlusIcon className="w-4 h-4" />} {primaryAction.label}
-        </Button>
-        {hasSecondaryActions && (
-          <DropdownMenu>
-            <DropdownMenuTrigger asChild>
-              <Button
-                variant="primary"
-                className="gap-2 border-l-0  rounded-l-none"
-                size="sm"
-                hasIcon
-              >
-                <ChevronDown className="w-4 h-4" />
-              </Button>
-            </DropdownMenuTrigger>
-            <DropdownMenuContent align="end">
-              {secondaryActions.map((option, optionIndex) => (
-                <DropdownMenuItem key={optionIndex} onClick={option.onClick}>
-                  {option.label}
-                </DropdownMenuItem>
-              ))}
-            </DropdownMenuContent>
-          </DropdownMenu>
-        )}
-      </div>
+      {primaryAction && (
+        <div className="flex gap-0.5">
+          <Button
+            variant="primary"
+            size="sm"
+            onClick={primaryAction.onClick}
+            hasIcon
+            className={cn(hasSecondaryActions && 'border-r-0 rounded-r-none')}
+          >
+            {primaryAction.icon ?? <PlusIcon className="w-4 h-4" />} {primaryAction.label}
+          </Button>
+          {hasSecondaryActions && (
+            <DropdownMenu>
+              <DropdownMenuTrigger asChild>
+                <Button
+                  variant="primary"
+                  className="gap-2 border-l-0  rounded-l-none"
+                  size="sm"
+                  hasIcon
+                >
+                  <ChevronDown className="w-4 h-4" />
+                </Button>
+              </DropdownMenuTrigger>
+              <DropdownMenuContent align="end">
+                {secondaryActions.map((option, optionIndex) => (
+                  <DropdownMenuItem key={optionIndex} onClick={option.onClick}>
+                    {option.label}
+                  </DropdownMenuItem>
+                ))}
+              </DropdownMenuContent>
+            </DropdownMenu>
+          )}
+        </div>
+      )}
     </div>
   )
 }

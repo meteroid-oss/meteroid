@@ -118,6 +118,7 @@ export const CustomersCreatePanel = ({ visible, closePanel }: CustomersCreatePan
         isTaxExempt: values.isTaxExempt,
         billingAddress: values.billingAddress,
         shippingAddress: values.shippingAddress,
+        connectedAccountId: values.connectedAccountId || undefined,
       },
     })
     if (res.customer?.id) {

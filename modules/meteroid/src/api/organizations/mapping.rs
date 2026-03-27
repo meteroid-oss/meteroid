@@ -12,6 +12,7 @@ pub mod organization {
             slug: domain.slug,
             created_at: domain.created_at.as_proto(),
             trade_name: domain.trade_name,
+            is_express: domain.is_express,
         }
     }
 
@@ -34,6 +35,7 @@ pub mod organization {
             slug: domain.organization.slug,
             created_at: domain.organization.created_at.as_proto(),
             trade_name: domain.organization.trade_name,
+            is_express: domain.organization.is_express,
             tenants,
         }
     }

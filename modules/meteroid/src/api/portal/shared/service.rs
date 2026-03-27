@@ -108,6 +108,7 @@ impl PortalSharedService for PortalSharedServiceComponents {
                     custom_taxes: None,
                     current_payment_method_id: None,
                     is_tax_exempt: None,
+                    connected_account_id: None,
                 },
             )
             .await
@@ -261,6 +262,7 @@ impl PortalSharedService for PortalSharedServiceComponents {
             invoicing_emails: None,
             is_tax_exempt: None,
             custom_taxes: None,
+            connected_account_id: None,
         };
 
         self.store

@@ -122,11 +122,13 @@ pub mod conversions {
 
     impl ProtoConv<String> for chrono::NaiveDateTime {
         fn as_proto(&self) -> String {
-            self.format("%Y-%m-%dT%H:%M:%S").to_string()
+            self.and_utc().to_rfc3339()
         }
 
         fn from_proto_ref(proto: &String) -> Result<Self, tonic::Status> {
-            chrono::NaiveDateTime::parse_from_str(proto, "%Y-%m-%dT%H:%M:%S")
+            chrono::DateTime::parse_from_rfc3339(proto)
+                .map(|dt| dt.naive_utc())
+                .or_else(|_| chrono::NaiveDateTime::parse_from_str(proto, "%Y-%m-%dT%H:%M:%S"))
                 .map_err(|e| tonic::Status::invalid_argument(format!("Invalid datetime: {e}")))
         }
     }

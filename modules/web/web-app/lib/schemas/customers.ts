@@ -40,6 +40,7 @@ export type CustomerFormSchema = z.infer<typeof customerFormSchema>
 export const createCustomerSchema = customerFormSchema.extend({
   invoicingEntity: z.string().min(1, 'Invoicing entity is required'),
   currency: z.string().min(1, 'Currency is required'),
+  connectedAccountId: z.string().optional(),
 })
 
 export type CreateCustomerSchema = z.infer<typeof createCustomerSchema>

@@ -3,7 +3,7 @@ use crate::api_rest::model::{BillingPeriodEnum, PaginatedRequest, PaginationResp
 use chrono::NaiveDate;
 use common_domain::ids::{
     AddOnId, AliasOr, AppliedCouponId, BankAccountId, BillableMetricId, CouponId, CustomerId,
-    PlanVersionId, PriceComponentId, ProductId, SubscriptionAddOnId,
+    PlanVersionId, PriceComponentId, PriceId, ProductId, SubscriptionAddOnId,
 };
 use common_domain::ids::{PlanId, string_serde_opt, string_serde_vec_opt};
 use common_domain::ids::{SubscriptionId, string_serde};
@@ -23,7 +23,6 @@ pub enum PaymentMethodsConfig {
     },
     BankTransfer {
         #[serde(default, skip_serializing_if = "Option::is_none")]
-        #[schema(value_type = Option<String>)]
         account_id: Option<BankAccountId>,
     },
     External,
@@ -695,13 +694,186 @@ pub struct ComponentParameters {
     pub committed_capacity: Option<u64>,
 }
 
+// ── PriceEntry / ProductRef types ───────────────────────────────
+
+#[derive(ToSchema, Serialize, Deserialize, Clone, Debug)]
+#[serde(tag = "discriminator", rename_all = "SCREAMING_SNAKE_CASE")]
+pub enum PriceEntry {
+    #[serde(rename = "EXISTING")]
+    Existing(ExistingPriceRef),
+    #[serde(rename = "NEW")]
+    New(PriceInput),
+}
+
+#[derive(ToSchema, Serialize, Deserialize, Clone, Debug)]
+pub struct ExistingPriceRef {
+    #[serde(with = "string_serde")]
+    pub id: PriceId,
+}
+
+#[derive(ToSchema, Serialize, Deserialize, Clone, Debug)]
+pub struct PriceInput {
+    pub cadence: BillingPeriodEnum,
+    pub currency: String,
+    pub pricing: Pricing,
+}
+
+#[derive(ToSchema, Serialize, Deserialize, Clone, Debug)]
+#[serde(tag = "discriminator", rename_all = "SCREAMING_SNAKE_CASE")]
+pub enum Pricing {
+    #[serde(rename = "RATE")]
+    Rate(RatePricing),
+    #[serde(rename = "SLOT")]
+    Slot(SlotPricing),
+    #[serde(rename = "CAPACITY")]
+    Capacity(CapacityPricing),
+    #[serde(rename = "USAGE")]
+    Usage(UsagePricing),
+    #[serde(rename = "EXTRA_RECURRING")]
+    ExtraRecurring(ExtraRecurringPricing),
+    #[serde(rename = "ONE_TIME")]
+    OneTime(OneTimePricing),
+}
+
+#[derive(ToSchema, Serialize, Deserialize, Clone, Debug)]
+pub struct RatePricing {
+    #[schema(value_type = String, format = "decimal")]
+    pub rate: rust_decimal::Decimal,
+}
+
+#[derive(ToSchema, Serialize, Deserialize, Clone, Debug)]
+pub struct SlotPricing {
+    #[schema(value_type = String, format = "decimal")]
+    pub unit_rate: rust_decimal::Decimal,
+    pub min_slots: Option<u32>,
+    pub max_slots: Option<u32>,
+}
+
+#[derive(ToSchema, Serialize, Deserialize, Clone, Debug)]
+pub struct CapacityPricing {
+    #[schema(value_type = String, format = "decimal")]
+    pub rate: rust_decimal::Decimal,
+    pub included: u64,
+    #[schema(value_type = String, format = "decimal")]
+    pub overage_rate: rust_decimal::Decimal,
+}
+
+#[derive(ToSchema, Serialize, Deserialize, Clone, Debug)]
+pub struct UsagePricing {
+    pub model: UsagePricingModel,
+}
+
+#[derive(ToSchema, Serialize, Deserialize, Clone, Debug)]
+pub struct ExtraRecurringPricing {
+    #[schema(value_type = String, format = "decimal")]
+    pub unit_price: rust_decimal::Decimal,
+    pub quantity: u32,
+}
+
+#[derive(ToSchema, Serialize, Deserialize, Clone, Debug)]
+pub struct OneTimePricing {
+    #[schema(value_type = String, format = "decimal")]
+    pub unit_price: rust_decimal::Decimal,
+    pub quantity: u32,
+}
+
+#[derive(ToSchema, Serialize, Deserialize, Clone, Debug)]
+#[serde(tag = "discriminator", rename_all = "SCREAMING_SNAKE_CASE")]
+pub enum ProductRef {
+    #[serde(rename = "EXISTING")]
+    Existing(ExistingProductRef),
+    #[serde(rename = "NEW")]
+    New(NewProductRef),
+}
+
+#[derive(ToSchema, Serialize, Deserialize, Clone, Debug)]
+pub struct ExistingProductRef {
+    #[serde(with = "string_serde")]
+    pub id: ProductId,
+}
+
+#[derive(ToSchema, Serialize, Deserialize, Clone, Debug)]
+pub struct NewProductRef {
+    pub name: String,
+    pub fee_type: crate::api_rest::products::model::ProductFeeTypeEnum,
+    pub fee_structure: crate::api_rest::products::model::ProductFeeStructure,
+}
+
+// ── PriceEntry / ProductRef From conversions ───────────────────
+
+impl From<PriceEntry> for meteroid_store::domain::price_components::PriceEntry {
+    fn from(val: PriceEntry) -> Self {
+        match val {
+            PriceEntry::Existing(e) => {
+                meteroid_store::domain::price_components::PriceEntry::Existing(e.id)
+            }
+            PriceEntry::New(input) => {
+                meteroid_store::domain::price_components::PriceEntry::New(input.into())
+            }
+        }
+    }
+}
+
+impl From<PriceInput> for meteroid_store::domain::price_components::PriceInput {
+    fn from(val: PriceInput) -> Self {
+        Self {
+            cadence: val.cadence.into(),
+            currency: val.currency,
+            pricing: val.pricing.into(),
+        }
+    }
+}
+
+impl From<Pricing> for meteroid_store::domain::prices::Pricing {
+    fn from(val: Pricing) -> Self {
+        match val {
+            Pricing::Rate(r) => meteroid_store::domain::prices::Pricing::Rate { rate: r.rate },
+            Pricing::Slot(s) => meteroid_store::domain::prices::Pricing::Slot {
+                unit_rate: s.unit_rate,
+                min_slots: s.min_slots,
+                max_slots: s.max_slots,
+            },
+            Pricing::Capacity(c) => meteroid_store::domain::prices::Pricing::Capacity {
+                rate: c.rate,
+                included: c.included,
+                overage_rate: c.overage_rate,
+            },
+            Pricing::Usage(u) => meteroid_store::domain::prices::Pricing::Usage(u.model.into()),
+            Pricing::ExtraRecurring(e) => meteroid_store::domain::prices::Pricing::ExtraRecurring {
+                unit_price: e.unit_price,
+                quantity: e.quantity,
+            },
+            Pricing::OneTime(o) => meteroid_store::domain::prices::Pricing::OneTime {
+                unit_price: o.unit_price,
+                quantity: o.quantity,
+            },
+        }
+    }
+}
+
+impl From<ProductRef> for meteroid_store::domain::price_components::ProductRef {
+    fn from(val: ProductRef) -> Self {
+        match val {
+            ProductRef::Existing(e) => {
+                meteroid_store::domain::price_components::ProductRef::Existing(e.id)
+            }
+            ProductRef::New(n) => meteroid_store::domain::price_components::ProductRef::New {
+                name: n.name,
+                fee_type: n.fee_type.into(),
+                fee_structure: n.fee_structure.into(),
+            },
+        }
+    }
+}
+
+// ── End PriceEntry / ProductRef ────────────────────────────────
+
 #[derive(ToSchema, Serialize, Deserialize, Clone, Debug)]
 pub struct ComponentOverride {
     #[serde(with = "string_serde")]
     pub component_id: PriceComponentId,
     pub name: String,
-    #[schema(value_type = Object)]
-    pub price_entry: meteroid_store::domain::price_components::PriceEntry,
+    pub price_entry: PriceEntry,
 }
 
 impl From<ComponentOverride>
@@ -711,7 +883,7 @@ impl From<ComponentOverride>
         Self {
             component_id: val.component_id,
             name: val.name,
-            price_entry: val.price_entry,
+            price_entry: val.price_entry.into(),
         }
     }
 }
@@ -719,18 +891,16 @@ impl From<ComponentOverride>
 #[derive(ToSchema, Serialize, Deserialize, Clone, Debug)]
 pub struct ExtraComponent {
     pub name: String,
-    #[schema(value_type = Object)]
-    pub product_ref: meteroid_store::domain::price_components::ProductRef,
-    #[schema(value_type = Object)]
-    pub price_entry: meteroid_store::domain::price_components::PriceEntry,
+    pub product_ref: ProductRef,
+    pub price_entry: PriceEntry,
 }
 
 impl From<ExtraComponent> for meteroid_store::domain::subscription_components::ExtraComponent {
     fn from(val: ExtraComponent) -> Self {
         Self {
             name: val.name,
-            product_ref: val.product_ref,
-            price_entry: val.price_entry,
+            product_ref: val.product_ref.into(),
+            price_entry: val.price_entry.into(),
         }
     }
 }
@@ -738,8 +908,7 @@ impl From<ExtraComponent> for meteroid_store::domain::subscription_components::E
 #[derive(ToSchema, Serialize, Deserialize, Clone, Debug)]
 pub struct SubscriptionAddOnPriceOverride {
     pub name: Option<String>,
-    #[schema(value_type = Object)]
-    pub price_entry: meteroid_store::domain::price_components::PriceEntry,
+    pub price_entry: PriceEntry,
 }
 
 #[derive(ToSchema, Serialize, Deserialize, Clone, Debug)]

@@ -1,6 +1,7 @@
 use chrono::NaiveDateTime;
 use uuid::Uuid;
 
+use crate::enums::TenantEnvironmentEnum;
 use common_domain::ids::{OrganizationId, TenantId};
 use diesel::{Identifiable, Insertable, Queryable, Selectable};
 
@@ -41,4 +42,7 @@ pub struct ApiTokenValidationRow {
     #[diesel(select_expression = crate::schema::tenant::organization_id)]
     #[diesel(select_expression_type = crate::schema::tenant::organization_id)]
     pub organization_id: OrganizationId,
+    #[diesel(select_expression = crate::schema::tenant::environment)]
+    #[diesel(select_expression_type = crate::schema::tenant::environment)]
+    pub environment: TenantEnvironmentEnum,
 }

@@ -39,7 +39,11 @@ export const formatUsage = (quantity: number) => {
 export const formatCurrency = (amount: bigint | number, currencyCode: string) => {
   const currency = CURRENCIES[currencyCode]
 
-  const precision = currency.precision
+  if (!currency) {
+    console.warn(`Currency ${currencyCode} not found in CURRENCIES list, using default precision 2`)
+  }
+
+  const precision = currency?.precision ?? 2
 
   const parsedAmount = Number(amount) / Math.pow(10, precision)
 
@@ -55,14 +59,14 @@ export const formatCurrency = (amount: bigint | number, currencyCode: string) =>
 
 export const minorToMajorUnit = (amount: bigint | number, currencyCode: string): number => {
   const currency = CURRENCIES[currencyCode]
-  const precision = currency.precision
+  const precision = currency?.precision ?? 2
   
   return Number(amount) / Math.pow(10, precision)
 }
 
 export const majorToMinorUnit = (amount: number, currencyCode: string): bigint => {
   const currency = CURRENCIES[currencyCode]
-  const precision = currency.precision
+  const precision = currency?.precision ?? 2
   
   return BigInt(Math.round(amount * Math.pow(10, precision)))
 }
@@ -70,7 +74,7 @@ export const majorToMinorUnit = (amount: number, currencyCode: string): bigint =
 export const formatCurrencyNoRounding = (amount: string | number, currencyCode: string) => {
   const currency = CURRENCIES[currencyCode]
 
-  const precision = currency.precision
+  const precision = currency?.precision ?? 2
 
   const parsedAmount = typeof amount === 'string' ? parseFloat(amount) : amount
 

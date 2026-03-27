@@ -278,7 +278,6 @@ impl Services {
         // we add taxes
         let (invoice_lines, breakdown) = self
             .process_invoice_lines_taxes(
-                conn,
                 invoice_lines,
                 &subscription_details.invoicing_entity,
                 &subscription_details.customer,
@@ -352,7 +351,6 @@ impl Services {
         // we add taxes
         let (line_items, breakdown) = self
             .process_invoice_lines_taxes(
-                conn,
                 invoice_lines,
                 invoicing_entity,
                 customer,
@@ -408,13 +406,19 @@ impl Services {
 
     pub(in crate::services) async fn process_invoice_lines_taxes(
         &self,
-        conn: &mut PgConn,
         invoice_lines: Vec<LineItem>,
         invoicing_entity: &InvoicingEntity,
         customer: &Customer,
         currency: String,
         invoice_date: &NaiveDate,
     ) -> StoreResult<(Vec<LineItem>, Vec<TaxBreakdownItem>)> {
+        if invoicing_entity.tenant_id != customer.tenant_id {
+            return Err(Report::new(StoreError::InvalidArgument(
+                "Tenant mismatch: invoicing_entity and customer must belong to the same tenant"
+                    .to_string(),
+            )));
+        }
+
         let customer_address = match &customer.billing_address {
             Some(address) => address.clone(),
             None => return Ok((invoice_lines.clone(), Vec::new())),
@@ -445,20 +449,24 @@ impl Services {
         };
 
         // we retrieve the custom tax rates for each line item
+        // Note: we use a separate connection here to avoid holding transaction locks
+        // while fetching read-only tax configuration data
         let product_ids = invoice_lines
             .iter()
             .filter_map(|line| line.product_id)
             .collect::<Vec<_>>();
 
-        let product_taxes = self
-            .store
-            .list_product_tax_configuration_by_product_ids_and_invoicing_entity_id_grouped(
-                conn,
-                invoicing_entity.tenant_id,
-                product_ids,
-                invoicing_entity.id,
-            )
-            .await?;
+        let product_taxes = {
+            let mut fresh_conn = self.store.get_conn().await?;
+            self.store
+                .list_product_tax_configuration_by_product_ids_and_invoicing_entity_id_grouped(
+                    &mut fresh_conn,
+                    invoicing_entity.tenant_id,
+                    product_ids,
+                    invoicing_entity.id,
+                )
+                .await?
+        };
 
         let invoice_lines_for_tax: Vec<meteroid_tax::LineItemForTax> = invoice_lines
             .iter()

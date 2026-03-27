@@ -33,11 +33,13 @@ import {
 } from '@/features/settings/integrations/SyncCustomerModal'
 import { useBasePath } from '@/hooks/useBasePath'
 import { useDebounceValue } from '@/hooks/useDebounce'
+import { useIsExpressOrganization } from '@/hooks/useIsExpressOrganization'
 import { useQuery } from '@/lib/connectrpc'
 import { listConnectors } from '@/rpc/api/connectors/v1/connectors-ConnectorsService_connectquery'
 import { ConnectorProviderEnum } from '@/rpc/api/connectors/v1/models_pb'
 import {
   archiveCustomer,
+  getCustomerById,
   listCustomers,
   unarchiveCustomer,
 } from '@/rpc/api/customers/v1/customers-CustomersService_connectquery'
@@ -62,6 +64,7 @@ export const CustomerHeader: FunctionComponent<CustomerHeaderProps> = ({
   const basePath = useBasePath()
   const navigate = useNavigate()
   const queryClient = useQueryClient()
+  const isExpress = useIsExpressOrganization()
 
   const [search, setSearch] = useState('')
   const [showSyncHubspotModal, setShowSyncHubspotModal] = useState(false)
@@ -131,12 +134,14 @@ export const CustomerHeader: FunctionComponent<CustomerHeaderProps> = ({
   const unarchiveCustomerMut = useMutation(unarchiveCustomer, {
     onSuccess: async () => {
       toast.success('Customer unarchived successfully')
-      // Invalidate customer list cache and refetch current customer
-      await queryClient.invalidateQueries({
-        queryKey: createConnectQueryKey(listCustomers),
-      })
-      // Refresh the page to show updated status
-      window.location.reload()
+      await Promise.all([
+        queryClient.invalidateQueries({
+          queryKey: createConnectQueryKey(listCustomers),
+        }),
+        queryClient.invalidateQueries({
+          queryKey: createConnectQueryKey(getCustomerById, { id }),
+        }),
+      ])
     },
     onError: error => {
       toast.error(`Failed to unarchive customer: ${error.message}`)
@@ -250,94 +255,88 @@ export const CustomerHeader: FunctionComponent<CustomerHeaderProps> = ({
               </DropdownMenuContent>
             </DropdownMenu>
           </NewFlex>
-          <div className="flex flex-row gap-2">
-            <DropdownMenu>
-              <DropdownMenuTrigger asChild>
-                <Button hasIcon size="sm" variant="secondary">
-                  Actions <ChevronDown size={14} className="text-muted-foreground" />
-                </Button>
-              </DropdownMenuTrigger>
-              <DropdownMenuContent align="end" className="w-[241px]">
-                {/*<DropdownMenuItem>Assign subscription</DropdownMenuItem>*/}
-                {/*<DropdownMenuItem>Charge one time payment</DropdownMenuItem>*/}
-                <DropdownMenuItem id="edit_customer" onClick={setShowEditCustomer}>
-                  Edit Customer
-                </DropdownMenuItem>
-                <DropdownMenuItem
-                  id="create_invoice"
-                  onClick={() => navigate(`${basePath}/invoices/create?customerId=${id}`)}
-                >
-                  Create Invoice
-                </DropdownMenuItem>
-                {/*<DropdownMenuItem>Create quote</DropdownMenuItem>*/}
-                {/*<DropdownMenuSeparator/>*/}
-                {/*<DropdownMenuItem>Add balance</DropdownMenuItem>*/}
-                {/*<DropdownMenuItem onClick={() => setEditPanelVisible(true)}>*/}
-                {/*  Edit customer details*/}
-                {/*</DropdownMenuItem>*/}
-                <Tooltip>
-                  <TooltipTrigger asChild>
-                    <span>
-                      <DropdownMenuItem
-                        id="sync_to_hubspot"
-                        disabled={!isHubspotConnected}
-                        onClick={() => setShowSyncHubspotModal(true)}
-                      >
-                        Sync to Hubspot
-                      </DropdownMenuItem>
-                    </span>
-                  </TooltipTrigger>
-                  {!isHubspotConnected && (
-                    <TooltipContent>Hubspot integration not connected</TooltipContent>
-                  )}
-                </Tooltip>
-                <Tooltip>
-                  <TooltipTrigger asChild>
-                    <span>
-                      <DropdownMenuItem
-                        id="sync_to_pennylane"
-                        disabled={!isPennylaneConnected}
-                        onClick={() => setShowSyncPennylaneModal(true)}
-                      >
-                        Sync to Pennylane
-                      </DropdownMenuItem>
-                    </span>
-                  </TooltipTrigger>
-                  {!isPennylaneConnected && (
-                    <TooltipContent>Pennylane integration not connected</TooltipContent>
-                  )}
-                </Tooltip>
-                <DropdownMenuSeparator />
-                {isArchived ? (
-                  <DropdownMenuItem
-                    id="unarchive_customer"
-                    onClick={handleUnarchiveCustomer}
-                    disabled={unarchiveCustomerMut.isPending}
-                  >
-                    {unarchiveCustomerMut.isPending ? 'Unarchiving...' : 'Unarchive customer'}
+          {!isExpress && (
+            <div className="flex flex-row gap-2">
+              <DropdownMenu>
+                <DropdownMenuTrigger asChild>
+                  <Button hasIcon size="sm" variant="secondary">
+                    Actions <ChevronDown size={14} className="text-muted-foreground" />
+                  </Button>
+                </DropdownMenuTrigger>
+                <DropdownMenuContent align="end" className="w-[241px]">
+                  <DropdownMenuItem id="edit_customer" onClick={setShowEditCustomer}>
+                    Edit Customer
                   </DropdownMenuItem>
-                ) : (
+                  <DropdownMenuItem
+                    id="create_invoice"
+                    onClick={() => navigate(`${basePath}/invoices/create?customerId=${id}`)}
+                  >
+                    Create Invoice
+                  </DropdownMenuItem>
                   <Tooltip>
                     <TooltipTrigger asChild>
                       <span>
                         <DropdownMenuItem
-                          id="archive_customer"
-                          disabled={hasActiveSubscriptions}
-                          onClick={() => setShowArchiveDialog(true)}
-                          className="text-destructive focus:text-destructive"
+                          id="sync_to_hubspot"
+                          disabled={!isHubspotConnected}
+                          onClick={() => setShowSyncHubspotModal(true)}
                         >
-                          Archive customer
+                          Sync to Hubspot
                         </DropdownMenuItem>
                       </span>
                     </TooltipTrigger>
-                    {hasActiveSubscriptions && (
-                      <TooltipContent>Customer has active subscriptions</TooltipContent>
+                    {!isHubspotConnected && (
+                      <TooltipContent>Hubspot integration not connected</TooltipContent>
                     )}
                   </Tooltip>
-                )}
-              </DropdownMenuContent>
-            </DropdownMenu>
-          </div>
+                  <Tooltip>
+                    <TooltipTrigger asChild>
+                      <span>
+                        <DropdownMenuItem
+                          id="sync_to_pennylane"
+                          disabled={!isPennylaneConnected}
+                          onClick={() => setShowSyncPennylaneModal(true)}
+                        >
+                          Sync to Pennylane
+                        </DropdownMenuItem>
+                      </span>
+                    </TooltipTrigger>
+                    {!isPennylaneConnected && (
+                      <TooltipContent>Pennylane integration not connected</TooltipContent>
+                    )}
+                  </Tooltip>
+                  <DropdownMenuSeparator />
+                  {isArchived ? (
+                    <DropdownMenuItem
+                      id="unarchive_customer"
+                      onClick={handleUnarchiveCustomer}
+                      disabled={unarchiveCustomerMut.isPending}
+                    >
+                      {unarchiveCustomerMut.isPending ? 'Unarchiving...' : 'Unarchive customer'}
+                    </DropdownMenuItem>
+                  ) : (
+                    <Tooltip>
+                      <TooltipTrigger asChild>
+                        <span>
+                          <DropdownMenuItem
+                            id="archive_customer"
+                            disabled={hasActiveSubscriptions}
+                            onClick={() => setShowArchiveDialog(true)}
+                            className="text-destructive focus:text-destructive"
+                          >
+                            Archive customer
+                          </DropdownMenuItem>
+                        </span>
+                      </TooltipTrigger>
+                      {hasActiveSubscriptions && (
+                        <TooltipContent>Customer has active subscriptions</TooltipContent>
+                      )}
+                    </Tooltip>
+                  )}
+                </DropdownMenuContent>
+              </DropdownMenu>
+            </div>
+          )}
         </div>
         <div className="mx-[-16px]">
           <Separator />

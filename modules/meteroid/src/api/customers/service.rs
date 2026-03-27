@@ -6,7 +6,8 @@ use crate::api::customers::mapping::customer::{
 };
 use crate::api::utils::PaginationExt;
 use common_domain::ids::{
-    AliasOr, BaseId, ConnectorId, CustomerConnectionId, CustomerId, InvoicingEntityId,
+    AliasOr, BaseId, ConnectedAccountId, ConnectorId, CustomerConnectionId, CustomerId,
+    InvoicingEntityId,
 };
 use common_grpc::middleware::server::auth::RequestExt;
 use error_stack::Report;
@@ -88,6 +89,7 @@ impl CustomersService for CustomerServiceComponents {
                 )
                 .collect::<Result<Vec<_>, _>>()?,
             is_tax_exempt: inner.is_tax_exempt.unwrap_or(false),
+            connected_account_id: ConnectedAccountId::from_proto_opt(inner.connected_account_id)?,
         };
 
         let customer = self
@@ -155,6 +157,7 @@ impl CustomersService for CustomerServiceComponents {
                     .map_err(Into::<Status>::into)?,
                     current_payment_method_id: None,
                     is_tax_exempt: customer.is_tax_exempt,
+                    connected_account_id: None,
                 },
             )
             .await

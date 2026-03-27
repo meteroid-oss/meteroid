@@ -8,6 +8,7 @@ import { DetailsSection } from '@/features/dashboard/sections/DetailsSection'
 import { MrrSection } from '@/features/dashboard/sections/MrrSection'
 import { TopSection } from '@/features/dashboard/sections/TopSection'
 import { useInvoicingEntity } from '@/features/settings/hooks/useInvoicingEntity'
+import { useIsExpressOrganization } from '@/hooks/useIsExpressOrganization'
 import { useSyncQueries } from '@/hooks/useSyncQueries'
 import { useTenant } from '@/hooks/useTenant'
 import { useQuery } from '@/lib/connectrpc'
@@ -16,6 +17,7 @@ import { me } from '@/rpc/api/users/v1/users-UsersService_connectquery'
 export const Dashboard = () => {
   // Auto-refresh queries based on URL params (e.g., ?_sync=stats after onboarding)
   useSyncQueries()
+  const isExpress = useIsExpressOrganization()
   const { isRefetching } = useTenant()
   const { defaultEntity, isLoading: isLoadingEntity } = useInvoicingEntity()
 
@@ -60,7 +62,7 @@ export const Dashboard = () => {
           <span className="text-md font-medium text-muted-foreground">{date}</span>
         </div>
         <Separator />
-        {showAddressSetup && (
+        {showAddressSetup && !isExpress && (
           <Card variant="accent2">
             <div className="px-6 py-4">
               <div className="flex items-center justify-between">
@@ -101,12 +103,12 @@ export const Dashboard = () => {
           </div>
         </Card>
         <TopSection />
-        <MrrSection />
+        {!isExpress && <MrrSection />}
         <Separator />
         <DetailsSection />
         <Separator />
         <div className="h-10 text-center justify-center text-xs text-muted-foreground flex gap-1 ">
-          <span>2025 © Meteroid /</span>
+          <span>2026 © Meteroid /</span>
           <span className="flex items-baseline gap-1">
             Built with <Heart size="10" fill="red" strokeWidth={0} className="" /> in Europe /
           </span>

@@ -4,9 +4,10 @@ use crate::api_rest::customers::model::{
     CustomTaxRate, Customer, CustomerCreateRequest, CustomerPatchRequest, CustomerUpdateRequest,
 };
 use crate::errors::RestApiError;
-use common_domain::ids::{AliasOr, CustomerId};
+use common_domain::ids::{AliasOr, ConnectedAccountId, CustomerId};
 use meteroid_store::domain;
 use meteroid_store::domain::CustomerNew;
+use std::str::FromStr;
 use uuid::Uuid;
 
 pub fn domain_to_rest(d: domain::Customer) -> Result<Customer, RestApiError> {
@@ -35,11 +36,15 @@ pub fn domain_to_rest(d: domain::Customer) -> Result<Customer, RestApiError> {
                 rate: t.rate,
             })
             .collect(),
+        connected_account_id: d.connected_account_id.map(|id| id.to_string()),
     })
 }
 
-pub fn create_req_to_domain(created_by: Uuid, req: CustomerCreateRequest) -> CustomerNew {
-    CustomerNew {
+pub fn create_req_to_domain(
+    created_by: Uuid,
+    req: CustomerCreateRequest,
+) -> Result<CustomerNew, RestApiError> {
+    Ok(CustomerNew {
         name: req.name,
         created_by,
         invoicing_entity_id: req.invoicing_entity_id,
@@ -67,7 +72,12 @@ pub fn create_req_to_domain(created_by: Uuid, req: CustomerCreateRequest) -> Cus
             })
             .collect(),
         is_tax_exempt: req.is_tax_exempt.unwrap_or(false),
-    }
+        connected_account_id: req
+            .connected_account_id
+            .map(|id| ConnectedAccountId::from_str(&id))
+            .transpose()
+            .map_err(|_| RestApiError::InvalidInput("Invalid connected_account_id".to_string()))?,
+    })
 }
 
 pub fn update_req_to_domain(
@@ -133,5 +143,6 @@ pub fn patch_req_to_domain(id: CustomerId, req: CustomerPatchRequest) -> domain:
         }),
         current_payment_method_id: None,
         is_tax_exempt: req.is_tax_exempt,
+        connected_account_id: None,
     }
 }

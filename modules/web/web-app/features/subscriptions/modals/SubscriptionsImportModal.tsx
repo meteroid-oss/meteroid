@@ -1,11 +1,36 @@
-import { useMutation } from '@connectrpc/connect-query'
 import { FileSpreadsheetIcon } from 'lucide-react'
 import { FunctionComponent, useState } from 'react'
-import { toast } from 'sonner'
+import { z } from 'zod'
 
-import { CSVImportDialog, CSVImportResult } from '@/components/CSVImportDialog'
-import { ingestCsv } from '@/rpc/api/subscriptions/v1/subscriptions-SubscriptionsIngestService_connectquery'
-import { FileData, IngestCsvRequest } from '@/rpc/api/subscriptions/v1/subscriptions_pb'
+import { CSVImportDialog } from '@/components/CSVImportDialog'
+import { useBatchJobCreate, CreateBatchJobRequest } from '@/features/batch-jobs/useBatchJobCreate'
+import { BatchJobType } from '@/rpc/api/batchjobs/v1/models_pb'
+
+const DATE_RE = /^\d{4}-\d{2}-\d{2}$/
+const BOOL_RE = /^(true|false)$/
+
+const optionalValid = (re: RegExp, msg: string) =>
+  z.string().refine(v => !v || re.test(v), msg).optional()
+
+const subscriptionRowSchema = z.object({
+  customer_id_or_alias: z.string().min(1, 'Required'),
+  plan_id: z.string().min(1, 'Required'),
+  start_date: z.string().regex(DATE_RE, 'Must be YYYY-MM-DD'),
+  activation_condition: z.enum(['ON_START_DATE', 'ON_CHECKOUT', 'MANUAL'], {
+    message: 'Must be ON_START_DATE, ON_CHECKOUT, or MANUAL',
+  }),
+  auto_advance_invoices: z.string().regex(BOOL_RE, 'Must be true or false'),
+  charge_automatically: z.string().regex(BOOL_RE, 'Must be true or false'),
+  skip_past_invoices: z.string().regex(BOOL_RE, 'Must be true or false'),
+  end_date: optionalValid(DATE_RE, 'Must be YYYY-MM-DD'),
+  billing_day_anchor: z.string().refine(v => {
+    if (!v) return true
+    const n = Number(v)
+    return Number.isInteger(n) && n >= 1 && n <= 31
+  }, 'Must be 1–31').optional(),
+  net_terms: optionalValid(/^\d+$/, 'Must be a non-negative integer'),
+  payment_method: optionalValid(/^(ONLINE|BANK_TRANSFER|EXTERNAL)$/, 'Must be ONLINE, BANK_TRANSFER, or EXTERNAL'),
+})
 
 interface SubscriptionsImportModalProps {
   openState: [boolean, (open: boolean) => void]
@@ -14,64 +39,51 @@ interface SubscriptionsImportModalProps {
 
 export const SubscriptionsImportModal: FunctionComponent<SubscriptionsImportModalProps> = ({
   openState,
-  onSuccess,
 }) => {
   const [isOpen, setIsOpen] = openState
   const [uploadFile, setUploadFile] = useState<File | null>(null)
   const [csvOptions, setCsvOptions] = useState({
     delimiter: ',',
   })
-  const [importResult, setImportResult] = useState<CSVImportResult | null>(null)
+  const [batchJobId, setBatchJobId] = useState<string | null>(null)
+  const [duplicateDetected, setDuplicateDetected] = useState(false)
 
-  const uploadMutation = useMutation(ingestCsv, {
-    onSuccess: async response => {
-      const { totalRows, successfulRows, failures } = response
-
-      setImportResult({
-        totalRows,
-        successful: successfulRows,
-        failures:
-          failures?.map(f => ({
-            rowNumber: f.rowNumber,
-            identifier: '',
-            reason: f.reason,
-          })) || [],
-      })
-
-      if (!failures || failures.length === 0) {
-        setIsOpen(false)
-        setUploadFile(null)
-        setImportResult(null)
-        onSuccess?.()
-        toast.success(`Successfully imported ${successfulRows} subscriptions`)
-      }
-    },
-    onError: error => {
-      setImportResult({
-        totalRows: 0,
-        successful: 0,
-        failures: [{ rowNumber: 0, identifier: '', reason: error.message }],
-      })
-    },
+  const createMutation = useBatchJobCreate({
+    onSuccess: (jobId) => setBatchJobId(jobId),
+    onDuplicate: () => setDuplicateDetected(true),
   })
 
+  const buildRequest = (forceDuplicate = false) => {
+    if (!uploadFile) return null
+    return uploadFile.arrayBuffer().then(
+      buffer =>
+        new CreateBatchJobRequest({
+          fileData: new Uint8Array(buffer),
+          jobType: BatchJobType.SUBSCRIPTION_CSV_IMPORT,
+          fileName: uploadFile.name,
+          forceDuplicate,
+          params: {
+            delimiter: csvOptions.delimiter,
+          },
+        })
+    )
+  }
+
   const handleFileUpload = async () => {
-    if (!uploadFile) return
+    const request = await buildRequest()
+    if (request) createMutation.mutate(request)
+  }
 
-    setImportResult(null)
-    const buffer = await uploadFile.arrayBuffer()
-    const request = new IngestCsvRequest({
-      file: new FileData({ data: new Uint8Array(buffer) }),
-      delimiter: csvOptions.delimiter,
-    })
-
-    uploadMutation.mutate(request)
+  const handleForceUpload = async () => {
+    const request = await buildRequest(true)
+    if (request) createMutation.mutate(request)
   }
 
   const handleCloseModal = () => {
     setIsOpen(false)
     setUploadFile(null)
-    setImportResult(null)
+    setBatchJobId(null)
+    setDuplicateDetected(false)
   }
 
   return (
@@ -82,15 +94,17 @@ export const SubscriptionsImportModal: FunctionComponent<SubscriptionsImportModa
       setUploadFile={setUploadFile}
       csvOptions={csvOptions}
       setCsvOptions={setCsvOptions}
-      importResult={importResult}
-      setImportResult={setImportResult}
-      isUploading={uploadMutation.isPending}
+      isUploading={createMutation.isPending}
+      batchJobId={batchJobId}
       onUpload={handleFileUpload}
+      onForceUpload={handleForceUpload}
       onClose={handleCloseModal}
+      duplicateDetected={duplicateDetected}
       entityName="subscriptions"
       dialogTitle="Import Subscriptions from CSV"
       dialogDescription="Import subscription data from a CSV file. All imports must include headers."
-      dialogIcon={<FileSpreadsheetIcon className="h-5 w-5"/>}
+      dialogIcon={<FileSpreadsheetIcon className="h-5 w-5" />}
+      rowSchema={subscriptionRowSchema}
       showRejectOnError={false}
       requiredColumns={[
         { name: 'customer_id_or_alias', tooltipMessage: 'Customer ID or alias' },

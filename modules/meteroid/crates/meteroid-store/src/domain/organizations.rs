@@ -18,7 +18,7 @@ pub struct Organization {
     pub default_country: CountryCode,
     pub created_at: NaiveDateTime,
     pub archived_at: Option<NaiveDateTime>,
-    // pub invite_link_hash: Option<String>,
+    pub is_express: bool,
 }
 
 pub struct OrganizationWithTenants {

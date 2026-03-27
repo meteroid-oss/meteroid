@@ -6,6 +6,7 @@ import { Combobox } from '@/components/Combobox'
 import { CreateInvoicingEntityDialog } from '@/features/settings/CreateInvoiceEntityDialog'
 import { useInvoicingEntity } from '@/features/settings/hooks/useInvoicingEntity'
 import { getCountryFlagEmoji } from '@/features/settings/utils'
+import { useIsExpressOrganization } from '@/hooks/useIsExpressOrganization'
 
 interface InvoicingEntitySelectProps {
   className?: string
@@ -18,8 +19,11 @@ export const InvoicingEntitySelect = ({
   placeholder = 'Select',
   showCreateAction = true,
 }: InvoicingEntitySelectProps) => {
+  const isExpress = useIsExpressOrganization()
   const { selectedEntityId, setSelectedEntityId, entities, isLoading } = useInvoicingEntity()
   const [createDialogOpen, setCreateDialogOpen] = useState(false)
+
+  if (isExpress) return null
 
   if (isLoading) {
     return <div className={`${className} h-10 bg-muted animate-pulse rounded-md`} />

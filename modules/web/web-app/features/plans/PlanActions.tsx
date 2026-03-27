@@ -22,6 +22,7 @@ import {
 } from '@/features/plans/hooks/usePlan'
 import { editedComponentsAtom } from '@/features/plans/pricecomponents/utils'
 import { useBasePath } from '@/hooks/useBasePath'
+import { useIsExpressOrganization } from '@/hooks/useIsExpressOrganization'
 import { listAddOns } from '@/rpc/api/addons/v1/addons-AddOnsService_connectquery'
 import { PlanStatus } from '@/rpc/api/plans/v1/models_pb'
 import {
@@ -36,6 +37,7 @@ import {
 } from '@/rpc/api/plans/v1/plans-PlansService_connectquery'
 
 export const PlanActions = () => {
+  const isExpress = useIsExpressOrganization()
   const [editedComponents] = useAtom(editedComponentsAtom)
   const [isBusy, setIsBusy] = useState(false)
   const [isConfirmOpen, setConfirmOpen] = useState(false)
@@ -168,6 +170,8 @@ export const PlanActions = () => {
   }
 
   const isOutdatedDraft = isDraft && planWithVersion.version?.usesProductPricing === false
+
+  if (isExpress) return null
 
   return isDraft ? (
     <>

@@ -14,8 +14,12 @@ use meteroid::eventbus::setup_eventbus_handlers;
 use meteroid::migrations;
 use meteroid::services::credit_note_rendering::CreditNotePdfRenderingService;
 use meteroid::services::currency_rates::OpenexchangeRatesService;
+use meteroid::services::idempotency::{
+    IdempotencyService, InMemoryIdempotencyService, RedisIdempotencyService,
+};
 use meteroid::services::invoice_rendering::PdfRenderingService;
 use meteroid::services::storage::S3Storage;
+use meteroid::singletons::connect_redis;
 use meteroid::svix::new_svix;
 use meteroid::workers;
 use meteroid::{bootstrap, singletons};
@@ -39,6 +43,7 @@ async fn main() -> Result<(), Box<dyn Error>> {
     telemetry::init(&config.common.telemetry);
 
     let store = singletons::get_store().await;
+
     let store_arc = Arc::new(store.clone()); // TODO harmonize, arc everywhere or nowhere
     let svix = new_svix(&config.svix);
     let stripe = Arc::new(StripeClient::new());
@@ -59,6 +64,14 @@ async fn main() -> Result<(), Box<dyn Error>> {
         &config.object_store_uri,
         &config.object_store_prefix,
     )?);
+
+    // Create a single shared fred::Client (connection pool) for all Redis-backed services.
+    let fred_client = connect_redis(&config.redis);
+
+    let idempotency: Arc<dyn IdempotencyService> = match fred_client {
+        Some(client) => Arc::new(RedisIdempotencyService::new(client)),
+        None => Arc::new(InMemoryIdempotencyService::new()),
+    };
 
     let grpc_server = meteroid::api::server::start_api_server(
         config.clone(),
@@ -124,11 +137,11 @@ async fn main() -> Result<(), Box<dyn Error>> {
             services_arc.clone(),
             svix.clone(),
             object_store_service.clone(),
-            usage_clients.clone(),
             Arc::new(currency_rate_service),
             pdf_service,
             credit_note_pdf_service,
             mailer_service,
+            idempotency,
             config,
         )
         .await;

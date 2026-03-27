@@ -210,6 +210,10 @@ export const ManageConnectionsModal = ({
               </div>
             )
           })}
+
+          {connectorsQuery.data?.connectors.length === 0 && (
+            <div className="text-sm text-muted-foreground">No connectors configured.</div>
+          )}
         </div>
 
         <DialogFooter>

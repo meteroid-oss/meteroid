@@ -16,7 +16,7 @@ use tonic::{Request, Response, Status};
 use validator::{ValidateEmail, ValidateLength};
 
 use crate::api::users::error::UserApiError;
-use crate::{api::utils::parse_uuid, parse_uuid};
+use crate::parse_uuid;
 
 use super::{UsersServiceComponents, mapping};
 
@@ -186,7 +186,11 @@ impl UsersService for UsersServiceComponents {
 
             let resp = self
                 .store
-                .init_registration(req.email, req.invite_key.map(SecretString::from))
+                .init_registration(
+                    req.email,
+                    req.invite_key.map(SecretString::from),
+                    req.return_path,
+                )
                 .await
                 .map_err(Into::<UserApiError>::into)?;
 

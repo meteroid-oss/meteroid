@@ -375,3 +375,34 @@ pub enum QuoteStatusEnum {
     Expired,
     Cancelled,
 }
+
+#[derive(o2o, Serialize, Deserialize, Debug, Clone, PartialEq, Eq, Hash)]
+#[map_owned(diesel_enums::BatchJobTypeEnum)]
+pub enum BatchJobTypeEnum {
+    EventCsvImport,
+    CustomerCsvImport,
+    SubscriptionCsvImport,
+    SubscriptionPlanMigration,
+}
+
+#[derive(o2o, Serialize, Deserialize, Debug, Clone, PartialEq, Eq)]
+#[map_owned(diesel_enums::BatchJobStatusEnum)]
+pub enum BatchJobStatusEnum {
+    Pending,
+    Chunking,
+    Processing,
+    Completed,
+    CompletedWithErrors,
+    Failed,
+    Cancelled,
+}
+
+#[derive(o2o, Serialize, Deserialize, Debug, Clone, PartialEq, Eq)]
+#[map_owned(diesel_enums::BatchJobChunkStatusEnum)]
+pub enum BatchJobChunkStatusEnum {
+    Pending,
+    Processing,
+    Completed,
+    Failed,
+    Skipped,
+}

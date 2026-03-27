@@ -17,7 +17,7 @@ pub fn parse_uuid(uuid: &str, resource_name: &str) -> Result<uuid::Uuid, Status>
 #[macro_export]
 macro_rules! parse_uuid {
     ($uuid:expr) => {
-        parse_uuid(&$uuid, stringify!($uuid))
+        $crate::api::utils::parse_uuid(&$uuid, stringify!($uuid))
     };
 }
 

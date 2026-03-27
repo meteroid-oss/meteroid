@@ -15,6 +15,7 @@ argon2 = { workspace = true, features = ["rand"] }
 base62.workspace = true
 cached = { workspace = true, features = ["async", "tokio"] }
 chrono = { workspace = true, features = ["clock", "serde"] }
+deadpool-postgres = { workspace = true, features = ["rt_tokio_1"] }
 diesel.workspace = true
 diesel-async.workspace = true
 uuid = { workspace = true, features = ["serde"] }
@@ -23,6 +24,7 @@ tracing.workspace = true
 tracing-log = { workspace = true }
 serde = { workspace = true, features = ["derive"] }
 serde_json.workspace = true
+serde_plain.workspace = true
 serde_with = { workspace = true }
 o2o.workspace = true
 error-stack.workspace = true
@@ -36,6 +38,7 @@ rusty-money = { workspace = true }
 common-utils = { workspace = true }
 itertools.workspace = true
 secrecy = { workspace = true, features = ["serde"] }
+nonzero_ext = { workspace = true }
 chacha20poly1305 = { workspace = true }
 hex = { workspace = true }
 jsonwebtoken = { workspace = true, features = ["aws_lc_rs"] }
@@ -58,6 +61,8 @@ paste.workspace = true
 meteroid-store-macros = { workspace = true }
 meteroid-tax = { workspace = true }
 ctor = { workspace = true }
+envconfig = { workspace = true }
+urlencoding = { workspace = true }
 
 [dev-dependencies]
 rstest = { workspace = true }

@@ -216,7 +216,7 @@ impl From<CreateSubscriptionAddOn> for domain::CreateSubscriptionAddOn {
                 Some(SubscriptionAddOnCustomization::PriceOverride(o)) => {
                     domain::SubscriptionAddOnCustomization::PriceOverride {
                         name: o.name,
-                        price_entry: o.price_entry,
+                        price_entry: o.price_entry.into(),
                     }
                 }
             },

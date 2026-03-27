@@ -11,10 +11,6 @@ pub enum EventsApiError {
     #[code(InvalidArgument)]
     InvalidArgument(String),
 
-    #[error("CSV parsing error: {0}")]
-    #[code(InvalidArgument)]
-    CsvParsingError(String),
-
     #[error("Store error: {0}")]
     #[code(Internal)]
     StoreError(String, #[source] Box<dyn Error>),

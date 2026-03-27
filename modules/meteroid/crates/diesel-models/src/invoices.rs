@@ -142,17 +142,14 @@ pub struct InvoiceWithCustomerRow {
     pub customer: CustomerRow,
 }
 
-#[derive(Debug, Queryable, Selectable)]
-#[diesel(check_for_backend(diesel::pg::Pg))]
+/// Result of locking an invoice and its customer for update.
+/// Locks are acquired in consistent order (customer first, then invoice)
+/// to prevent deadlocks when multiple transactions process invoices
+/// for the same customer concurrently.
+#[derive(Debug)]
 pub struct InvoiceLockRow {
-    #[diesel(embed)]
     pub invoice: InvoiceRow,
-    #[diesel(select_expression = crate::schema::customer::balance_value_cents)]
-    #[diesel(select_expression_type = crate::schema::customer::balance_value_cents)]
     pub customer_balance: i64,
-    #[diesel(select_expression = crate::schema::customer::invoicing_entity_id)]
-    #[diesel(select_expression_type = crate::schema::customer::invoicing_entity_id)]
-    pub customer_invoicing_entity_id: InvoicingEntityId,
 }
 
 #[derive(Debug, Queryable, Selectable)]
