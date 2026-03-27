@@ -5,6 +5,7 @@ import { FunctionComponent } from 'react'
 
 import PageHeading from '@/components/PageHeading/PageHeading'
 import { BaseFilter } from '@/features/TablePage'
+import { useIsExpressOrganization } from '@/hooks/useIsExpressOrganization'
 
 interface MetricsHeaderProps {
   isLoading: boolean
@@ -23,15 +24,19 @@ export const ProductMetricsPageHeader: FunctionComponent<MetricsHeaderProps> = (
   onStatusFilterChange,
   totalCount,
 }) => {
+  const isExpress = useIsExpressOrganization()
+
   return (
     <div className="flex flex-col gap-8">
       <div className="flex flex-row items-center justify-between">
         <PageHeading count={totalCount}>Metrics</PageHeading>
-        <div className="flex flex-row gap-2">
-          <Button variant="primary" hasIcon onClick={() => setEditPanelVisible(true)} size="sm">
-            <PlusIcon size={10} /> New metric
-          </Button>
-        </div>
+        {!isExpress && (
+          <div className="flex flex-row gap-2">
+            <Button variant="primary" hasIcon onClick={() => setEditPanelVisible(true)} size="sm">
+              <PlusIcon size={10} /> New metric
+            </Button>
+          </div>
+        )}
       </div>
       <div className="flex flex-row items-center justify-between">
         <div className="flex flex-row items-center gap-2">

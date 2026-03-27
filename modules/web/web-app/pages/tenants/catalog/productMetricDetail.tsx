@@ -1,8 +1,5 @@
 import { useMutation } from '@connectrpc/connect-query'
 import {
-  Alert,
-  AlertDescription,
-  AlertTitle,
   Button,
   Card,
   CardContent,
@@ -19,7 +16,6 @@ import {
 } from '@md/ui'
 import { useQueryClient } from '@tanstack/react-query'
 import {
-  AlertCircleIcon,
   ArchiveIcon,
   ArchiveRestoreIcon,
   ChevronDown,
@@ -213,17 +209,6 @@ export const ProductMetricDetail = () => {
             </DropdownMenu>
           </div>
         </div>
-
-        {/* Sync Error Alert */}
-        {data.syncError && (
-          <Alert variant="destructive" className="mb-6">
-            <AlertCircleIcon className="h-4 w-4" />
-            <AlertTitle>Metric Error</AlertTitle>
-            <AlertDescription className="mt-2">
-              <p className="text-sm">Aggregation failed. Please contact support.</p>
-            </AlertDescription>
-          </Alert>
-        )}
 
         {/* Overview card */}
         <div className="bg-card rounded-lg shadow-sm p-6 mb-6">

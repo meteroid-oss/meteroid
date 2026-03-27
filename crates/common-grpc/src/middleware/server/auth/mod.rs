@@ -149,6 +149,7 @@ pub enum AuthenticatedState {
         id: Uuid,
         tenant_id: TenantId,
         organization_id: OrganizationId,
+        tenant_env: TenantEnv,
     },
     User {
         id: Uuid,
@@ -164,6 +165,7 @@ pub struct AuthorizedAsTenant {
     pub actor_id: Uuid,
     pub tenant_id: TenantId,
     pub organization_id: OrganizationId,
+    pub tenant_env: TenantEnv,
 }
 
 #[derive(Clone)]
@@ -228,4 +230,16 @@ pub enum AuthorizedState {
         user_id: Uuid,
     },
     Shared(AuthorizedAsPortalUser),
+}
+
+#[derive(Clone)]
+pub enum TenantEnv {
+    Production,
+    NonProduction,
+}
+
+impl TenantEnv {
+    pub fn is_production(&self) -> bool {
+        matches!(self, TenantEnv::Production)
+    }
 }

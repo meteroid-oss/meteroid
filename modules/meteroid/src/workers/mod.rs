@@ -1,16 +1,19 @@
 use crate::config::Config;
 use crate::services::credit_note_rendering::CreditNotePdfRenderingService;
 use crate::services::currency_rates::CurrencyRatesService;
+use crate::services::idempotency::IdempotencyService;
 use crate::services::invoice_rendering::PdfRenderingService;
 use crate::services::storage::S3Storage;
 use crate::workers::pgmq::processors;
 use hubspot_client::client::HubspotClient;
 use meteroid_mailer::service::MailerService;
 use meteroid_store::Services;
-use meteroid_store::clients::usage::UsageClient;
+use meteroid_store::domain::enums::BatchJobTypeEnum;
+use meteroid_store::domain::pgmq::PgmqQueue;
 use pennylane_client::client::PennylaneClient;
 use std::sync::Arc;
 
+pub mod batch_jobs;
 pub mod billing;
 pub mod clients;
 pub mod misc;
@@ -44,11 +47,11 @@ pub async fn spawn_workers(
     services: Arc<Services>,
     svix: Option<Arc<svix::api::Svix>>,
     object_store_service: Arc<S3Storage>,
-    _usage_clients: Arc<dyn UsageClient>,
     currency_rates_service: Arc<dyn CurrencyRatesService>,
     pdf_rendering_service: Arc<PdfRenderingService>,
     credit_note_pdf_rendering_service: Arc<CreditNotePdfRenderingService>,
     mailer_service: Arc<dyn MailerService>,
+    idempotency: Arc<dyn IdempotencyService>,
     config: &Config,
 ) {
     let hubspot_client = Arc::new(HubspotClient::default());
@@ -87,19 +90,17 @@ pub async fn spawn_workers(
         });
     }
     {
-        let store = store.clone();
-        join_set.spawn(async move {
-            processors::run_noop_metric_sync(store).await;
-        });
-    }
-    {
         if config.oauth.hubspot.is_enabled() {
             let store = store.clone();
             join_set.spawn(async move {
                 processors::run_hubspot_sync(store, hubspot_client).await;
             });
         } else {
-            log::warn!("Hubspot OAuth is not configured, skipping Hubspot sync worker.");
+            log::warn!("Hubspot OAuth is not configured, running a noop Hubspot sync worker.");
+            let store = store.clone();
+            join_set.spawn(async move {
+                processors::run_noop(store, PgmqQueue::HubspotSync, false).await;
+            });
         }
     }
     {
@@ -110,7 +111,11 @@ pub async fn spawn_workers(
                 processors::run_pennylane_sync(store, pennylane_client, object_store_service).await;
             });
         } else {
-            log::warn!("Pennylane OAuth is not configured, skipping Pennylane sync worker.");
+            log::warn!("Pennylane OAuth is not configured, running a noop Pennylane sync worker.");
+            let store = store.clone();
+            join_set.spawn(async move {
+                processors::run_noop(store, PgmqQueue::PennylaneSync, false).await;
+            });
         }
     }
     {
@@ -163,6 +168,38 @@ pub async fn spawn_workers(
         });
     }
 
+    // Batch job worker
+    {
+        let store = store.clone();
+        let object_store_service = object_store_service.clone();
+        let services = services.clone();
+        let usage_client = services.usage_clients();
+        let idempotency = idempotency.clone();
+        join_set.spawn(async move {
+            let mut worker =
+                batch_jobs::worker::BatchJobWorker::new(store.clone(), object_store_service);
+
+            worker.register_processor(
+                BatchJobTypeEnum::EventCsvImport,
+                Arc::new(batch_jobs::processors::EventCsvProcessor::new(usage_client)),
+            );
+            worker.register_processor(
+                BatchJobTypeEnum::CustomerCsvImport,
+                Arc::new(batch_jobs::processors::CustomerCsvProcessor::new(store)),
+            );
+            worker.register_processor(
+                BatchJobTypeEnum::SubscriptionCsvImport,
+                Arc::new(batch_jobs::processors::SubscriptionCsvProcessor::new(
+                    (*services).clone(),
+                    idempotency,
+                )),
+            );
+
+            let worker = Arc::new(worker);
+            worker.run().await;
+        });
+    }
+
     join_set.spawn(async move {
         misc::currency_rates_worker::run_currency_rates_worker(&store, &currency_rates_service)
             .await;
@@ -180,5 +217,12 @@ pub async fn spawn_workers(
         });
     }
 
-    join_set.join_all().await;
+    while let Some(res) = join_set.join_next().await {
+        match res {
+            Ok(_) => log::info!("Worker completed successfully"),
+            Err(e) if e.is_panic() => log::error!("Worker panicked: {:?}", e),
+            Err(e) if e.is_cancelled() => log::warn!("Worker was cancelled: {:?}", e),
+            Err(e) => log::error!("Worker failed: {:?}", e),
+        }
+    }
 }

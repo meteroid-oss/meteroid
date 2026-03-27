@@ -6,6 +6,7 @@ import { useSearchParams } from 'react-router-dom'
 
 import { CustomersExportModal } from '@/features/customers/modals/CustomersExportModal'
 import { CustomersImportModal } from '@/features/customers/modals/CustomersImportModal'
+import { useIsExpressOrganization } from '@/hooks/useIsExpressOrganization'
 
 interface CustomersHeaderProps {
   count?: number
@@ -31,6 +32,7 @@ export const CustomersHeader: FunctionComponent<CustomersHeaderProps> = ({
 
   const [visible, setVisible] = useState(false)
   const [importVisible, setImportVisible] = useState(false)
+  const isExpress = useIsExpressOrganization()
 
   const updateTab = (tab: string) => {
     const newSearchParams = new URLSearchParams(searchParams)
@@ -49,25 +51,27 @@ export const CustomersHeader: FunctionComponent<CustomersHeaderProps> = ({
               <span className="text-xs font-medium text-muted-foreground">({count})</span>
             )}
           </h1>
-          <div className="flex flex-row gap-2">
-            <Tooltip>
-              <TooltipTrigger asChild>
-                <span>
-                  <Button size="sm" variant="secondary" disabled>
-                    Export
-                  </Button>
-                </span>
-              </TooltipTrigger>
-              <TooltipContent>Coming soon</TooltipContent>
-            </Tooltip>
-            <Button variant="secondary" size="sm" onClick={() => setImportVisible(true)}>
-              <FileUpIcon className="h-4 w-4 mr-2" />
-              Import CSV
-            </Button>
-            <Button size="sm" variant="default" hasIcon onClick={() => setEditPanelVisible(true)}>
-              <PlusIcon className="w-4 h-4" /> New customer
-            </Button>
-          </div>
+          {!isExpress && (
+            <div className="flex flex-row gap-2">
+              <Tooltip>
+                <TooltipTrigger asChild>
+                  <span>
+                    <Button size="sm" variant="secondary" disabled>
+                      Export
+                    </Button>
+                  </span>
+                </TooltipTrigger>
+                <TooltipContent>Coming soon</TooltipContent>
+              </Tooltip>
+              <Button variant="secondary" size="sm" onClick={() => setImportVisible(true)}>
+                <FileUpIcon className="h-4 w-4 mr-2" />
+                Import CSV
+              </Button>
+              <Button size="sm" variant="default" hasIcon onClick={() => setEditPanelVisible(true)}>
+                <PlusIcon className="w-4 h-4" /> New customer
+              </Button>
+            </div>
+          )}
         </div>
         <div className="flex flex-row items-center justify-between">
           <div className="flex flex-row items-center gap-2">

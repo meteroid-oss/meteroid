@@ -1,7 +1,8 @@
-import { RouteObject } from 'react-router-dom'
+import { Navigate, RouteObject } from 'react-router-dom'
 
+import { StandardOnly } from '@/components/StandardOnly'
 import { NotImplemented } from '@/features/NotImplemented'
-import { Billing, BillingOutlet } from '@/pages/tenants/billing'
+import { BillingOutlet } from '@/pages/tenants/billing'
 import { CreditNote, CreditNotes } from '@/pages/tenants/creditnote'
 import { Invoice, Invoices } from '@/pages/tenants/invoice'
 import { InvoiceCreate } from '@/pages/tenants/invoice/invoiceCreate'
@@ -16,79 +17,53 @@ export const billingRoutes: RouteObject = {
   children: [
     {
       index: true,
-      element: <Billing />,
-    },
-    {
-      path: 'subscriptions',
-      children: [
-        {
-          index: true,
-          element: <Subscriptions />,
-        },
-        {
-          path: ':subscriptionId',
-          element: <Subscription />,
-        },
-        {
-          path: ':subscriptionId/change-plan',
-          element: <ChangePlanWizard />,
-        },
-        {
-          path: 'create',
-          element: <SubscriptionCreate />,
-        },
-      ],
+      element: <Navigate to="subscriptions" replace />,
     },
     {
       path: 'invoices',
       children: [
+        { index: true, element: <Invoices /> },
+        { path: ':invoiceId', element: <Invoice /> },
         {
-          index: true,
-          element: <Invoices />,
-        },
-        {
-          path: ':invoiceId',
-          element: <Invoice />,
-        },
-        {
-          path: 'create',
-          element: <InvoiceCreate />,
+          element: <StandardOnly />,
+          children: [{ path: 'create', element: <InvoiceCreate /> }],
         },
       ],
     },
     {
-      path: 'quotes',
+      path: 'subscriptions',
+      children: [
+        { index: true, element: <Subscriptions /> },
+        { path: ':subscriptionId', element: <Subscription /> },
+        {
+          element: <StandardOnly />,
+          children: [
+            { path: 'create', element: <SubscriptionCreate /> },
+            { path: ':subscriptionId/change-plan', element: <ChangePlanWizard /> },
+          ],
+        },
+      ],
+    },
+    {
+      element: <StandardOnly />,
       children: [
         {
-          index: true,
-          element: <Quotes />,
+          path: 'quotes',
+          children: [
+            { index: true, element: <Quotes /> },
+            { path: 'create', element: <CreateQuote /> },
+            { path: ':quoteId', element: <Quote /> },
+          ],
         },
         {
-          path: 'create',
-          element: <CreateQuote />,
-        },
-        {
-          path: ':quoteId',
-          element: <Quote />,
+          path: 'credit-notes',
+          children: [
+            { index: true, element: <CreditNotes /> },
+            { path: ':creditNoteId', element: <CreditNote /> },
+          ],
         },
       ],
     },
-    {
-      path: 'credit-notes',
-      children: [
-        {
-          index: true,
-          element: <CreditNotes />,
-        },
-        {
-          path: ':creditNoteId',
-          element: <CreditNote />,
-        },
-      ],
-    },
-    {
-      path: '*',
-      element: <NotImplemented />,
-    },
+    { path: '*', element: <NotImplemented /> },
   ],
 }

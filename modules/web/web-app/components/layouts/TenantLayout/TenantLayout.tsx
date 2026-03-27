@@ -7,6 +7,7 @@ import {
   Separator,
   Sidebar,
   SidebarContent,
+  SidebarFooter,
   SidebarGroup,
   SidebarGroupContent,
   SidebarHeader,
@@ -22,14 +23,17 @@ import { PropsWithChildren } from 'react'
 import { NavLink, Outlet, useLocation, useNavigate } from 'react-router-dom'
 
 import { NavMain } from '@/components/layouts/TenantLayout/components/NavMain'
-import { sidebarItems } from '@/components/layouts/TenantLayout/utils'
+import { getFilteredSidebarItems } from '@/components/layouts/TenantLayout/utils'
 import { TenantDropdown } from '@/components/layouts/shared/LayoutHeader/TenantDropdown'
 import { useLogout } from '@/hooks/useLogout'
+import { useTenant } from '@/hooks/useTenant'
 import { useQuery } from '@/lib/connectrpc'
 import { getInstance } from '@/rpc/api/instance/v1/instance-InstanceService_connectquery'
 import { getCurrentOrganizations } from '@/rpc/api/organizations/v1/organizations-OrganizationsService_connectquery'
 import { OrganizationUserRole } from '@/rpc/api/users/v1/models_pb'
 import { me } from '@/rpc/api/users/v1/users-UsersService_connectquery'
+
+import { TestModeBanner } from '@/components/layouts/shared/TestModeBanner'
 
 export const TenantPageLayout = ({ children }: PropsWithChildren) => {
   return (
@@ -51,8 +55,12 @@ export const TenantLayoutOutlet = () => {
   const meData = useQuery(me)?.data
   const organizationData = useQuery(getCurrentOrganizations)?.data?.organization
   const getInstanceQuery = useQuery(getInstance)
+  const { tenant } = useTenant()
 
   const { toggleSidebar, state } = useSidebar()
+
+  const isExpress = organizationData?.isExpress ?? false
+  const filteredSidebarItems = getFilteredSidebarItems(isExpress)
 
   const isCollapsed = state === 'collapsed'
 
@@ -82,7 +90,7 @@ export const TenantLayoutOutlet = () => {
                 <div
                   className="flex aspect-square h-5 w-5 rounded-md ml-1.5"
                   style={{
-                    background: `linear-gradient(0deg, #C7B3FE, #C7B3FE), 
+                    background: `linear-gradient(0deg, #C7B3FE, #C7B3FE),
                 linear-gradient(0deg, #B69EF0, #B69EF0)`,
                   }}
                 />
@@ -94,7 +102,7 @@ export const TenantLayoutOutlet = () => {
                         <div
                           className="flex aspect-square h-5 w-5 rounded-md"
                           style={{
-                            background: `linear-gradient(0deg, #C7B3FE, #C7B3FE), 
+                            background: `linear-gradient(0deg, #C7B3FE, #C7B3FE),
                       linear-gradient(0deg, #B69EF0, #B69EF0)`,
                           }}
                         />
@@ -147,7 +155,7 @@ export const TenantLayoutOutlet = () => {
                         <Separator />
                       </>
                     )}
-                    {getInstanceQuery?.data?.multiOrganizationEnabled && (
+                    {!isExpress && getInstanceQuery?.data?.multiOrganizationEnabled && (
                       <>
                         <DropdownMenuItem
                           className="cursor-pointer"
@@ -177,16 +185,18 @@ export const TenantLayoutOutlet = () => {
           </SidebarMenu>
         </SidebarHeader>
         <SidebarContent>
-          <Flex justify="center" align="center" className="px-3 w-full mt-2">
-            <TenantDropdown />
-          </Flex>
-          <NavMain items={sidebarItems.mainNav} />
+          {!isExpress && (
+            <Flex justify="center" align="center" className="px-3 w-full mt-2">
+              <TenantDropdown />
+            </Flex>
+          )}
+          <NavMain items={filteredSidebarItems.mainNav} />
         </SidebarContent>
-        <div>
+        <SidebarFooter>
           <SidebarGroup>
             <SidebarGroupContent>
               <SidebarMenu>
-                {sidebarItems.navSecondary.map(item => (
+                {filteredSidebarItems.navSecondary.map(item => (
                   <SidebarMenuItem key={item.title}>
                     <NavLink to={item.url}>
                       <SidebarMenuButton isActive={pathname.includes(item.url)} asChild size="sm">
@@ -201,7 +211,7 @@ export const TenantLayoutOutlet = () => {
               </SidebarMenu>
             </SidebarGroupContent>
           </SidebarGroup>
-        </div>
+        </SidebarFooter>
         <button
           onClick={toggleSidebar}
           className={cn(
@@ -213,7 +223,8 @@ export const TenantLayoutOutlet = () => {
           <div className="h-16 w-1 rounded-full bg-sidebar-border/80 hover:bg-sidebar-border transition-colors" />
         </button>
       </Sidebar>
-      <SidebarInset>
+      <SidebarInset className="relative">
+        <TestModeBanner environment={tenant?.environment} />
         <Outlet />
       </SidebarInset>
     </>

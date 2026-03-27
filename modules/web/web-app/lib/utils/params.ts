@@ -14,7 +14,8 @@ export const ParamsSlugs = {
   subscriptionId: ':subscriptionId',
   quoteId: ':quoteId',
   metricId: ':metricId',
-  creditNoteId: ':creditNoteId'
+  creditNoteId: ':creditNoteId',
+  batchJobId: ':batchJobId'
 }
 type AvailableParams = Record<keyof typeof ParamsSlugs, string>
 

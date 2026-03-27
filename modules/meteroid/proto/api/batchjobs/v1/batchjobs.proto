@@ -1,0 +1,74 @@
+syntax = "proto3";
+
+package meteroid.api.batchjobs.v1;
+
+import "api/batchjobs/v1/models.proto";
+
+message CreateBatchJobRequest {
+  optional bytes file_data = 1;
+  BatchJobType job_type = 2;
+  map<string, string> params = 3;
+  optional string file_name = 4;
+  bool force_duplicate = 5;
+}
+
+message CreateBatchJobResponse {
+  BatchJob job = 1;
+}
+
+message GetBatchJobRequest {
+  string job_id = 1;
+}
+
+message GetBatchJobResponse {
+  BatchJob job = 1;
+  repeated BatchJobChunk chunks = 2;
+  int64 failure_count = 3;
+}
+
+message ListBatchJobsRequest {
+  optional BatchJobType job_type = 1;
+  repeated BatchJobStatus statuses = 2;
+  int32 limit = 3;
+  int32 offset = 4;
+}
+
+message ListBatchJobsResponse {
+  repeated BatchJob jobs = 1;
+  int64 total_count = 2;
+}
+
+message RetryBatchJobRequest {
+  string job_id = 1;
+}
+
+message RetryBatchJobResponse {
+  uint32 retried_chunks = 1;
+}
+
+message CancelBatchJobRequest {
+  string job_id = 1;
+}
+
+message CancelBatchJobResponse {}
+
+message ListBatchJobFailuresRequest {
+  string job_id = 1;
+  int32 limit = 2;
+  int32 offset = 3;
+  optional string chunk_id = 4;
+}
+
+message ListBatchJobFailuresResponse {
+  repeated BatchJobItemFailure failures = 1;
+  int64 total_count = 2;
+}
+
+service BatchJobsService {
+  rpc CreateBatchJob(CreateBatchJobRequest) returns (CreateBatchJobResponse) {}
+  rpc GetBatchJob(GetBatchJobRequest) returns (GetBatchJobResponse) {}
+  rpc ListBatchJobs(ListBatchJobsRequest) returns (ListBatchJobsResponse) {}
+  rpc RetryBatchJob(RetryBatchJobRequest) returns (RetryBatchJobResponse) {}
+  rpc CancelBatchJob(CancelBatchJobRequest) returns (CancelBatchJobResponse) {}
+  rpc ListBatchJobFailures(ListBatchJobFailuresRequest) returns (ListBatchJobFailuresResponse) {}
+}

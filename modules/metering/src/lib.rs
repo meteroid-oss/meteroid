@@ -5,7 +5,6 @@ pub mod connectors;
 pub mod domain;
 mod error;
 pub mod ingest;
-pub mod meters;
 mod migrate;
 pub mod migrations;
 pub mod query;

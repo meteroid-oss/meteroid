@@ -7,9 +7,10 @@ use common_config::auth::InternalAuthConfig;
 use common_config::common::CommonConfig;
 use common_config::idempotency::IdempotencyConfig;
 use common_config::telemetry::TelemetryConfig;
-use meteroid::config::{Config, CryptKey, SvixConfig};
+use meteroid::config::{Config, CryptKey, DogfoodingConfig, LoopsConfig, SvixConfig};
 use meteroid_mailer::config::MailerConfig;
 use meteroid_oauth::config::OauthConfig;
+use meteroid_store::store::PgConfig;
 
 pub fn mocked_config(
     postgres_connection_string: String,
@@ -18,7 +19,7 @@ pub fn mocked_config(
     metering_port: u16,
 ) -> Config {
     Config {
-        database_url: postgres_connection_string.to_owned(),
+        pg: PgConfig::new(postgres_connection_string.to_owned()),
         grpc_listen_addr: format!("127.0.0.1:{}", meteroid_port).parse().unwrap(),
         metering_endpoint: format!("http://127.0.0.1:{}", metering_port)
             .parse()
@@ -51,10 +52,20 @@ pub fn mocked_config(
         svix: SvixConfig {
             server_url: Some("http://localhost:8071".to_owned()),
             token: "fake".to_owned().into(),
+            rps_quota: 25,
         },
         mailer: MailerConfig::dummy(),
         public_url: "http://localhost:8080".to_owned(),
         oauth: OauthConfig::dummy(),
         domains_whitelist: None,
+        dogfooding: DogfoodingConfig {
+            default_plan_id: None,
+            api_key: None,
+            billing_url: None,
+        },
+        admin_organization_id: None,
+        loops: LoopsConfig { api_key: None },
+        redis: Default::default(),
+        rate_limit: Default::default(),
     }
 }

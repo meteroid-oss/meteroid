@@ -10,7 +10,7 @@ use meteroid_store::domain;
 use meteroid_store::repositories::api_tokens::ApiTokensInterface;
 
 use crate::api::apitokens::error::ApiTokenApiError;
-use crate::{api::utils::parse_uuid, parse_uuid};
+use crate::parse_uuid;
 
 use super::{ApiTokensServiceComponents, mapping};
 

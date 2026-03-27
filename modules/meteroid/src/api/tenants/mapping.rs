@@ -40,6 +40,7 @@ pub mod tenants {
             name: req.name,
             environment,
             disable_emails: req.disable_emails,
+            invoicing_entity: None,
         }
     }
 

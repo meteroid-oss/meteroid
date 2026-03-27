@@ -138,7 +138,7 @@ pub async fn create_checkout_session(
     path = "/api/v1/checkout-sessions/{id}",
     tag = "Checkout Sessions",
     params(
-        ("id" = String, Path, description = "Checkout session ID")
+        ("id" = CheckoutSessionId, Path, description = "Checkout session ID")
     ),
     responses(
         (status = 200, description = "Checkout session details", body = GetCheckoutSessionResponse),
@@ -238,7 +238,7 @@ pub async fn list_checkout_sessions(
     path = "/api/v1/checkout-sessions/{id}/cancel",
     tag = "Checkout Sessions",
     params(
-        ("id" = String, Path, description = "Checkout session ID")
+        ("id" = CheckoutSessionId, Path, description = "Checkout session ID")
     ),
     responses(
         (status = 200, description = "Checkout session cancelled", body = CancelCheckoutSessionResponse),

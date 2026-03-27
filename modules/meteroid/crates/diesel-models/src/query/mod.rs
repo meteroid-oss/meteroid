@@ -3,6 +3,7 @@ pub mod add_ons;
 pub mod api_tokens;
 pub mod applied_coupons;
 pub mod bank_accounts;
+pub mod batch_jobs;
 pub mod bi;
 pub mod billable_metrics;
 pub mod checkout_sessions;

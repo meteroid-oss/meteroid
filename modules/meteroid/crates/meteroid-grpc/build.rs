@@ -15,6 +15,7 @@ fn generate_grpc_types(root: &Path) -> Result<(), Report<BuildError>> {
         "addons",
         "apitokens",
         "bankaccounts",
+        "batchjobs",
         "billablemetrics",
         "connectors",
         "customers",

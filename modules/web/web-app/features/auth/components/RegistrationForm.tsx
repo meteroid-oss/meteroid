@@ -1,7 +1,7 @@
 import { createConnectQueryKey, useMutation } from '@connectrpc/connect-query'
 import { Button, Form, InputFormField } from '@md/ui'
 import { useQueryClient } from '@tanstack/react-query'
-import { useNavigate } from 'react-router-dom'
+import { useNavigate, useSearchParams } from 'react-router-dom'
 import { z } from 'zod'
 
 import { useZodForm } from '@/hooks/useZodForm'
@@ -10,9 +10,13 @@ import { INVITE_TOKEN_KEY } from '@/pages/invite/acceptInvite'
 import { getInstance } from '@/rpc/api/instance/v1/instance-InstanceService_connectquery'
 import { initRegistration } from '@/rpc/api/users/v1/users-UsersService_connectquery'
 
+export const RETURN_URL_KEY = 'pending_return_url'
+
 export const RegistrationForm = ({ invite }: { invite?: string }) => {
   const navigate = useNavigate()
+  const [searchParams] = useSearchParams()
   const queryClient = useQueryClient()
+  const returnUrl = searchParams.get('returnUrl')
 
   const methods = useZodForm({
     schema: schemas.me.emailSchema,
@@ -43,6 +47,11 @@ export const RegistrationForm = ({ invite }: { invite?: string }) => {
     // The invite will be handled during completeRegistration
     if (invite) {
       sessionStorage.removeItem(INVITE_TOKEN_KEY)
+    }
+
+    // Store returnUrl for after registration completes
+    if (returnUrl && returnUrl.startsWith('/')) {
+      sessionStorage.setItem(RETURN_URL_KEY, returnUrl)
     }
 
     res.validationRequired

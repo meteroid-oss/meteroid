@@ -690,7 +690,7 @@ async fn test_paid_trial_90_days_generates_all_invoices(#[future] test_env: Test
     // Invoice 4: 2024-05-01 (4th renewal)
     //
     // BUG: One invoice is missing - check the dates to see the gap
-    let expected_dates = vec![
+    let expected_dates = [
         NaiveDate::from_ymd_opt(2024, 1, 1).unwrap(),
         NaiveDate::from_ymd_opt(2024, 2, 1).unwrap(),
         NaiveDate::from_ymd_opt(2024, 3, 1).unwrap(),

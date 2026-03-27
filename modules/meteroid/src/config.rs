@@ -9,13 +9,14 @@ use common_config::common::CommonConfig;
 use common_config::idempotency::IdempotencyConfig;
 use meteroid_mailer::config::MailerConfig;
 use meteroid_oauth::config::OauthConfig;
+use meteroid_store::store::PgConfig;
 
 static CONFIG: std::sync::OnceLock<Config> = std::sync::OnceLock::new();
 
 #[derive(Envconfig, Debug, Clone)]
 pub struct Config {
-    #[envconfig(from = "DATABASE_URL")]
-    pub database_url: String,
+    #[envconfig(nested)]
+    pub pg: PgConfig,
 
     #[envconfig(from = "METEROID_PUBLIC_URL", default = "https://app.meteroid.com")]
     pub public_url: String,
@@ -79,6 +80,9 @@ pub struct Config {
 
     #[envconfig(from = "DOMAINS_WHITELIST")]
     pub domains_whitelist: Option<DomainWhitelist>,
+
+    #[envconfig(nested)]
+    pub redis: RedisConfig,
 }
 
 impl Config {
@@ -150,4 +154,16 @@ pub struct SvixConfig {
 
     #[envconfig(from = "SVIX_JWT_TOKEN")]
     pub token: SecretString,
+
+    #[envconfig(from = "SVIX_RPS_QUOTA", default = "25")]
+    pub rps_quota: u32,
+}
+
+#[derive(Envconfig, Debug, Clone, Default)]
+pub struct RedisConfig {
+    #[envconfig(from = "REDIS_URL")]
+    pub url: Option<String>,
+
+    #[envconfig(from = "REDIS_PASSWORD")]
+    pub password: Option<SecretString>,
 }

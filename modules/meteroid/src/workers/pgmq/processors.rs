@@ -2,7 +2,6 @@ use crate::services::credit_note_rendering::CreditNotePdfRenderingService;
 use crate::services::invoice_rendering::PdfRenderingService;
 use crate::services::storage::ObjectStoreService;
 use crate::workers::pgmq::bi_aggregation::BiAggregation;
-use crate::workers::pgmq::billable_metric_sync::BillableMetricSync;
 use crate::workers::pgmq::credit_note_pdf_render::CreditNotePdfRender;
 use crate::workers::pgmq::hubspot_sync::HubspotSync;
 use crate::workers::pgmq::invoice_orchestration::InvoiceOrchestration;
@@ -17,7 +16,6 @@ use crate::workers::pgmq::webhook_out::WebhookOut;
 use common_domain::pgmq::{MessageReadQty, MessageReadVtSec, ReadCt};
 use hubspot_client::client::HubspotClient;
 use meteroid_mailer::service::MailerService;
-use meteroid_store::clients::usage::UsageClient;
 use meteroid_store::domain::pgmq::PgmqQueue;
 use meteroid_store::{Services, Store};
 use pennylane_client::client::PennylaneClient;
@@ -37,7 +35,7 @@ pub async fn run_outbox_dispatch(store: Arc<Store>) {
         qty: MessageReadQty(100),
         vt: MessageReadVtSec(10),
         delete_succeeded: false,
-        sleep_duration: std::time::Duration::from_millis(100),
+        sleep_duration: std::time::Duration::from_millis(250),
         max_read_count: ReadCt(10),
     })
     .await;
@@ -72,7 +70,7 @@ pub async fn run_pdf_render(store: Arc<Store>, pdf_service: Arc<PdfRenderingServ
         qty: MessageReadQty(10),
         vt: MessageReadVtSec(20),
         delete_succeeded: true,
-        sleep_duration: std::time::Duration::from_millis(100),
+        sleep_duration: std::time::Duration::from_millis(250),
         max_read_count: ReadCt(10),
     })
     .await;
@@ -124,7 +122,7 @@ pub async fn run_webhook_out(store: Arc<Store>, svix: Option<Arc<Svix>>) {
         qty: MessageReadQty(10),
         vt: MessageReadVtSec(20),
         delete_succeeded: true,
-        sleep_duration: std::time::Duration::from_millis(1000),
+        sleep_duration: std::time::Duration::from_millis(3000),
         max_read_count: ReadCt(10),
     })
     .await;
@@ -170,46 +168,6 @@ pub async fn run_pennylane_sync(
     .await;
 }
 
-/// @deprecated use run_noop_metric_sync
-pub async fn run_metric_sync(store: Arc<Store>, usage_client: Arc<dyn UsageClient>) {
-    let queue = PgmqQueue::BillableMetricSync;
-    let processor = Arc::new(BillableMetricSync::new(
-        usage_client.clone(),
-        (*store).clone(),
-    ));
-
-    run(ProcessorConfig {
-        name: processor_name("BillableMetricSync"),
-        queue,
-        handler: processor,
-        store,
-        qty: MessageReadQty(10),
-        vt: MessageReadVtSec(20),
-        delete_succeeded: true,
-        sleep_duration: std::time::Duration::from_millis(1500),
-        max_read_count: ReadCt(10),
-    })
-    .await;
-}
-
-pub async fn run_noop_metric_sync(store: Arc<Store>) {
-    let queue = PgmqQueue::BillableMetricSync;
-    let processor = Arc::new(Noop);
-
-    run(ProcessorConfig {
-        name: processor_name("NoopBillableMetricSync"),
-        queue,
-        handler: processor,
-        store,
-        qty: MessageReadQty(10),
-        vt: MessageReadVtSec(20),
-        delete_succeeded: true,
-        sleep_duration: std::time::Duration::from_millis(5000),
-        max_read_count: ReadCt(10),
-    })
-    .await;
-}
-
 pub async fn run_invoice_orchestration(store: Arc<Store>, services: Arc<Services>) {
     let queue = PgmqQueue::InvoiceOrchestration;
     let processor = Arc::new(PgmqOutboxProxy::new(
@@ -224,7 +182,7 @@ pub async fn run_invoice_orchestration(store: Arc<Store>, services: Arc<Services
         qty: MessageReadQty(10),
         vt: MessageReadVtSec(20),
         delete_succeeded: true,
-        sleep_duration: std::time::Duration::from_millis(100),
+        sleep_duration: std::time::Duration::from_millis(250),
         max_read_count: ReadCt(10),
     })
     .await;
@@ -309,7 +267,7 @@ pub async fn run_payment_request(store: Arc<Store>, services: Arc<Services>) {
         qty: MessageReadQty(10),
         vt: MessageReadVtSec(180),
         delete_succeeded: true,
-        sleep_duration: std::time::Duration::from_millis(100),
+        sleep_duration: std::time::Duration::from_millis(250),
         max_read_count: ReadCt(3), // 3 retries. TODO applicative payment retry with mails
     })
     .await;
@@ -353,4 +311,21 @@ pub async fn run_bi_aggregation(store: Arc<Store>) {
 
 fn processor_name(prefix: &str) -> String {
     format!("{}-{}", prefix, rand::rng().random::<u16>())
+}
+
+pub async fn run_noop(store: Arc<Store>, queue: PgmqQueue, delete_succeeded: bool) {
+    let processor = Arc::new(Noop);
+
+    run(ProcessorConfig {
+        name: processor_name(&format!("Noop{}", queue)),
+        queue,
+        handler: processor,
+        store,
+        qty: MessageReadQty(100),
+        vt: MessageReadVtSec(20),
+        delete_succeeded,
+        sleep_duration: std::time::Duration::from_secs(10),
+        max_read_count: ReadCt(10),
+    })
+    .await;
 }

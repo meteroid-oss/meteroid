@@ -4,14 +4,13 @@ types:
     - meteroid.api.addons.v1.AddOnsService
     - meteroid.api.apitokens.v1.ApiTokensService
     - meteroid.api.bankaccounts.v1.BankAccountsService
+    - meteroid.api.batchjobs.v1.BatchJobsService
     - meteroid.api.billablemetrics.v1.BillableMetricsService
     - meteroid.api.connectors.v1.ConnectorsService
     - meteroid.api.customers.v1.CustomersService
-    - meteroid.api.customers.v1.CustomersIngestService
     - meteroid.api.coupons.v1.CouponsService
     - meteroid.api.creditnotes.v1.CreditNotesService
     - meteroid.api.events.v1.EventsService
-    - meteroid.api.events.v1.EventsIngestService
     - meteroid.api.instance.v1.InstanceService
     - meteroid.api.invoices.v1.InvoicesService
     - meteroid.api.plans.v1.PlansService
@@ -23,7 +22,6 @@ types:
     - meteroid.api.schedules.v1.SchedulesService
     - meteroid.api.stats.v1.StatsService
     - meteroid.api.subscriptions.v1.SubscriptionsService
-    - meteroid.api.subscriptions.v1.SubscriptionsIngestService
     - meteroid.api.tenants.v1.TenantsService
     - meteroid.api.users.v1.UsersService
     - meteroid.api.organizations.v1.OrganizationsService

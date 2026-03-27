@@ -2,7 +2,7 @@ import { Code, ConnectError } from '@connectrpc/connect'
 import { useMutation } from '@connectrpc/connect-query'
 import { ArrowLeft } from 'lucide-react'
 import { useState } from 'react'
-import { useNavigate } from 'react-router-dom'
+import { useNavigate, useSearchParams } from 'react-router-dom'
 
 import { PaymentPanel } from '@/features/checkout/PaymentPanel'
 import { ReadonlyPaymentView } from '@/features/checkout/components/ReadonlyPaymentView'
@@ -34,6 +34,8 @@ const CheckoutFlow: React.FC<CheckoutFlowProps> = ({
   const [isApplyingCoupon, setIsApplyingCoupon] = useState(false)
   const [checkoutData, setCheckoutData] = useState<Checkout>(initialCheckoutData)
   const navigate = useNavigate()
+  const [searchParams] = useSearchParams()
+  const returnUrl = searchParams.get('return_url')
   const {
     subscription,
     customer,
@@ -124,6 +126,9 @@ const CheckoutFlow: React.FC<CheckoutFlowProps> = ({
         plan: subscription.subscription.planName || '',
         customer: customer?.name || '',
       })
+      if (returnUrl) {
+        params.set('return_url', returnUrl)
+      }
       navigate(`success?${params.toString()}`)
     } catch (error) {
       console.error('Payment submission error:', error)

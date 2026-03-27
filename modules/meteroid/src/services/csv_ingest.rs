@@ -1,7 +1,49 @@
-use serde::Deserialize;
-use serde::de::{Deserializer, Visitor};
+use std::borrow::Cow;
 use std::fmt;
 use std::ops::Deref;
+
+use serde::Deserialize;
+use serde::de::{Deserializer, Visitor};
+
+/// Normalizes CSV bytes to UTF-8.
+///
+/// CSV files from Excel are typically UTF-8 (with/without BOM), UTF-16 LE/BE,
+/// or Windows-1252. We check for these in order and default to Windows-1252
+/// for any non-UTF-8 input, which is the standard legacy encoding for
+/// Western European Excel exports.
+///
+/// Returns `Cow::Borrowed` if the input is already valid UTF-8 (zero-copy fast path).
+pub fn normalize_csv_encoding(data: &[u8]) -> Cow<'_, [u8]> {
+    // 1. UTF-8 without BOM — zero-copy fast path
+    if !data.starts_with(&[0xEF, 0xBB, 0xBF]) && std::str::from_utf8(data).is_ok() {
+        return Cow::Borrowed(data);
+    }
+
+    // 2. Pick encoding based on BOM, default to Windows-1252
+    let encoding = if data.starts_with(&[0xEF, 0xBB, 0xBF]) {
+        encoding_rs::UTF_8 // strips the BOM
+    } else if data.starts_with(&[0xFF, 0xFE]) {
+        encoding_rs::UTF_16LE
+    } else if data.starts_with(&[0xFE, 0xFF]) {
+        encoding_rs::UTF_16BE
+    } else {
+        encoding_rs::WINDOWS_1252
+    };
+
+    let (cow, actual_encoding, had_errors) = encoding.decode(data);
+    if had_errors {
+        tracing::warn!("Encoding conversion had replacement characters");
+    }
+
+    if actual_encoding != encoding_rs::UTF_8 {
+        tracing::info!(
+            encoding = %actual_encoding.name(),
+            "CSV encoding detected, converted to UTF-8"
+        );
+    }
+
+    Cow::Owned(cow.as_bytes().to_vec())
+}
 
 /// A string-like type that accepts numbers or strings during deserialization.
 #[derive(Debug, Clone, PartialEq, Eq, Default)]
@@ -432,5 +474,109 @@ pub mod optional_decimal {
         D: Deserializer<'de>,
     {
         deserializer.deserialize_option(OptionalDecimalVisitor)
+    }
+}
+
+pub mod optional_country_code {
+    use common_domain::country::CountryCode;
+    use serde::Deserializer;
+    use serde::de::{self, Visitor};
+    use std::fmt;
+
+    struct OptionalCountryCodeVisitor;
+
+    impl<'de> Visitor<'de> for OptionalCountryCodeVisitor {
+        type Value = Option<CountryCode>;
+
+        fn expecting(&self, formatter: &mut fmt::Formatter) -> fmt::Result {
+            formatter.write_str("an ISO 3166-1 alpha-2 country code (e.g., 'US', 'FR', 'DE')")
+        }
+
+        fn visit_none<E>(self) -> Result<Self::Value, E>
+        where
+            E: de::Error,
+        {
+            Ok(None)
+        }
+
+        fn visit_some<D>(self, deserializer: D) -> Result<Self::Value, D::Error>
+        where
+            D: Deserializer<'de>,
+        {
+            deserializer.deserialize_any(self)
+        }
+
+        fn visit_str<E>(self, v: &str) -> Result<Self::Value, E>
+        where
+            E: de::Error,
+        {
+            let trimmed = v.trim();
+            if trimmed.is_empty() {
+                Ok(None)
+            } else {
+                CountryCode::parse_as_opt(trimmed).map(Some).ok_or_else(|| {
+                    de::Error::custom(format!(
+                        "invalid country '{}' — expected ISO 3166-1 alpha-2 code (e.g., 'US', 'FR', 'DE')",
+                        trimmed
+                    ))
+                })
+            }
+        }
+
+        fn visit_string<E>(self, v: String) -> Result<Self::Value, E>
+        where
+            E: de::Error,
+        {
+            self.visit_str(&v)
+        }
+    }
+
+    pub fn deserialize<'de, D>(deserializer: D) -> Result<Option<CountryCode>, D::Error>
+    where
+        D: Deserializer<'de>,
+    {
+        deserializer.deserialize_option(OptionalCountryCodeVisitor)
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn test_normalize_utf8_passthrough() {
+        let data = b"name,currency\nCaf\xc3\xa9,EUR\n"; // "Café" in UTF-8
+        let result = normalize_csv_encoding(data);
+        // Should be borrowed (zero-copy) since it's already valid UTF-8
+        assert!(matches!(result, Cow::Borrowed(_)));
+        assert_eq!(result.as_ref(), data.as_slice());
+    }
+
+    #[test]
+    fn test_normalize_utf8_bom() {
+        let mut data = vec![0xEF, 0xBB, 0xBF]; // UTF-8 BOM
+        data.extend_from_slice(b"name,currency\n");
+        let result = normalize_csv_encoding(&data);
+        assert_eq!(result.as_ref(), b"name,currency\n");
+    }
+
+    #[test]
+    fn test_normalize_utf16le_bom() {
+        // "name\n" encoded as UTF-16 LE with BOM
+        let data: Vec<u8> = vec![
+            0xFF, 0xFE, // UTF-16 LE BOM
+            b'n', 0x00, b'a', 0x00, b'm', 0x00, b'e', 0x00, b'\n', 0x00,
+        ];
+        let result = normalize_csv_encoding(&data);
+        assert_eq!(result.as_ref(), b"name\n");
+    }
+
+    #[test]
+    fn test_normalize_windows1252() {
+        // "Café" in Windows-1252: 0xE9 is é
+        let data = b"name,currency\nCaf\xe9,EUR\n";
+        let result = normalize_csv_encoding(data);
+        let result_str = std::str::from_utf8(result.as_ref()).unwrap();
+        assert!(result_str.contains("Café"));
     }
 }

@@ -33,6 +33,8 @@ pub(crate) async fn ingest_events(
     State(app_state): State<AppState>,
     Valid(Json(request)): Valid<Json<IngestEventsRequest>>,
 ) -> Result<impl IntoResponse, RestApiError> {
+    // enterprise placeholder : ratelimit eps
+
     let usage_request = mapping::rest_request_to_usage_client(request);
 
     let response = app_state

@@ -1,7 +1,9 @@
 use chrono::NaiveDateTime;
 use uuid::Uuid;
 
-use common_domain::ids::{CustomerId, CustomerPaymentMethodId, InvoicingEntityId, TenantId};
+use common_domain::ids::{
+    ConnectedAccountId, CustomerId, CustomerPaymentMethodId, InvoicingEntityId, TenantId,
+};
 use diesel::{AsChangeset, Identifiable, Insertable, Queryable, Selectable};
 
 #[derive(Clone, Debug, Identifiable, Queryable, Selectable)]
@@ -34,6 +36,7 @@ pub struct CustomerRow {
     pub is_tax_exempt: bool,
     pub vat_number_format_valid: bool,
     pub custom_taxes: serde_json::Value,
+    pub connected_account_id: Option<ConnectedAccountId>,
 }
 
 #[derive(Clone, Debug, Queryable, Selectable)]
@@ -69,6 +72,7 @@ pub struct CustomerRowNew {
     pub is_tax_exempt: bool,
     pub custom_taxes: serde_json::Value,
     pub vat_number_format_valid: bool,
+    pub connected_account_id: Option<ConnectedAccountId>,
 }
 
 #[derive(Debug, AsChangeset)]
@@ -91,6 +95,7 @@ pub struct CustomerRowPatch {
     pub is_tax_exempt: Option<bool>,
     pub custom_taxes: Option<serde_json::Value>,
     pub vat_number_format_valid: Option<bool>,
+    pub connected_account_id: Option<Option<ConnectedAccountId>>,
 }
 
 #[derive(Debug, AsChangeset)]

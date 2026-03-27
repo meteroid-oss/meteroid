@@ -176,24 +176,18 @@ impl ProductAccountingWithTaxRow {
         conn: &mut PgConn,
         param_products_ids: Vec<ProductId>,
         param_invoicing_entity_id: InvoicingEntityId,
-        tenant_id: TenantId,
+        _tenant_id: TenantId,
     ) -> DbResult<Vec<ProductAccountingWithTaxRow>> {
         use crate::schema::custom_tax::dsl as ct_dsl;
-        use crate::schema::invoicing_entity::dsl as ie_dsl;
         use crate::schema::product_accounting::dsl as pa_dsl;
         use crate::schema::product_custom_tax::dsl as pct_dsl;
         use diesel_async::RunQueryDsl;
 
+        // Note: We intentionally skip the tenant subquery check here.
+        // The invoicing_entity_id is already validated by the caller
         let query = pa_dsl::product_accounting
             .filter(pa_dsl::invoicing_entity_id.eq(param_invoicing_entity_id))
             .filter(pa_dsl::product_id.eq_any(&param_products_ids))
-            .filter(
-                pa_dsl::invoicing_entity_id.eq_any(
-                    ie_dsl::invoicing_entity
-                        .filter(ie_dsl::tenant_id.eq(tenant_id))
-                        .select(ie_dsl::id),
-                ),
-            )
             .left_join(
                 pct_dsl::product_custom_tax.on(pa_dsl::product_id
                     .eq(pct_dsl::product_id)

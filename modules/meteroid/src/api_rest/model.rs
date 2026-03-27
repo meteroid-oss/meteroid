@@ -81,7 +81,9 @@ impl PaginationExt for PaginatedRequest {
     }
 }
 
-#[derive(o2o, ToSchema, serde::Serialize, serde::Deserialize, Clone, Debug)]
+#[derive(
+    o2o, Copy, Clone, ToSchema, serde::Serialize, serde::Deserialize, Debug, PartialEq, Eq, Hash,
+)]
 #[map_owned(meteroid_store::domain::enums::BillingPeriodEnum)]
 #[serde(rename_all = "SCREAMING_SNAKE_CASE")]
 pub enum BillingPeriodEnum {

@@ -2,7 +2,8 @@ import {
   DisableQuery,
   MethodUnaryDescriptor,
   disableQuery,
-  useQuery as useQueryUnsafe,
+  useMutation,
+  useQuery as useQueryUnsafe
 } from '@connectrpc/connect-query'
 import { CreateQueryOptions } from '@connectrpc/connect-query/dist/cjs/create-use-query-options'
 
@@ -36,3 +37,5 @@ export function useQuery<I extends Message<I>, O extends Message<O>, SelectOutDa
     queryOptions
   )
 }
+
+export { useMutation }

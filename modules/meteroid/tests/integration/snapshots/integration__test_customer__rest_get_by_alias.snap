@@ -29,5 +29,6 @@ expression: "&get_by_alias"
       "name": "Standard Tax",
       "rate": 20.0
     }
-  ]
+  ],
+  "connected_account_id": null
 }

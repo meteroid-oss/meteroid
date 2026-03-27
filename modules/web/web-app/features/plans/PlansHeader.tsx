@@ -2,6 +2,7 @@ import { ReactNode } from 'react'
 import { useNavigate } from 'react-router-dom'
 
 import { EntityFilters, EntityHeader } from '@/features/TablePage'
+import { useIsExpressOrganization } from '@/hooks/useIsExpressOrganization'
 
 export const PlansHeader = ({
   children,
@@ -15,13 +16,14 @@ export const PlansHeader = ({
   refetch?: () => void
 }) => {
   const navigate = useNavigate()
+  const isExpress = useIsExpressOrganization()
 
   return (
     <div className="flex flex-col gap-6">
       <EntityHeader
         title="Plans"
         count={count}
-        primaryAction={{ label: 'New plan', onClick: () => navigate('add-plan') }}
+        primaryAction={isExpress ? undefined : { label: 'New plan', onClick: () => navigate('add-plan') }}
       />
       <EntityFilters isLoading={isLoading} refetch={refetch}>
         {children}

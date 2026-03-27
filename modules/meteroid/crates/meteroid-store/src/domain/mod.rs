@@ -1,5 +1,6 @@
 pub use api_tokens::*;
 pub use bank_accounts::*;
+pub use batch_jobs::*;
 pub use billable_metrics::*;
 pub use checkout_sessions::*;
 pub use coupons::*;
@@ -41,6 +42,7 @@ pub mod add_ons;
 pub mod adjustments;
 pub mod api_tokens;
 pub mod bank_accounts;
+pub mod batch_jobs;
 pub mod billable_metrics;
 pub mod checkout_sessions;
 pub mod connectors;

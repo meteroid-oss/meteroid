@@ -34,6 +34,7 @@ pub trait UserInterface {
         &self,
         email: String,
         invite_key: Option<SecretString>,
+        return_path: Option<String>,
     ) -> StoreResult<InitRegistrationResponse>;
     async fn complete_registration(
         &self,
@@ -47,6 +48,7 @@ pub trait UserInterface {
         organization_id: Option<OrganizationId>,
     ) -> StoreResult<Me>;
     async fn update_user_details(&self, auth_user_id: Uuid, data: UpdateUser) -> StoreResult<User>;
+    async fn mark_user_onboarded(&self, user_id: Uuid) -> StoreResult<()>;
     // async fn update_user_role(&self, auth_user_id: Uuid, organization_id: Uuid, data: UpdateUserRole) -> StoreResult<User>;
 
     async fn find_user_by_id_and_organization(
@@ -247,6 +249,25 @@ impl UserInterface for Store {
         Ok(res)
     }
 
+    async fn mark_user_onboarded(&self, user_id: Uuid) -> StoreResult<()> {
+        let mut conn = self.get_conn().await?;
+
+        let patch = UserRowPatch {
+            id: user_id,
+            first_name: None,
+            last_name: None,
+            department: None,
+            onboarded: Some(true),
+        };
+
+        patch
+            .update_user(&mut conn)
+            .await
+            .map_err(Into::<Report<StoreError>>::into)?;
+
+        Ok(())
+    }
+
     async fn find_user_by_id_and_organization(
         &self,
         id: Uuid,
@@ -359,6 +380,7 @@ impl UserInterface for Store {
         &self,
         email: String,
         invite_key: Option<SecretString>,
+        return_path: Option<String>,
     ) -> StoreResult<InitRegistrationResponse> {
         let mut conn = self.get_conn().await?;
 
@@ -392,11 +414,20 @@ impl UserInterface for Store {
             }),
         )?;
 
-        let url = SecretString::from(format!(
-            "{}/validate-email?token={}",
-            self.settings.public_url.as_str(),
-            token.expose_secret()
-        ));
+        let url = if let Some(ref path) = return_path {
+            SecretString::from(format!(
+                "{}/validate-email?token={}&return_path={}",
+                self.settings.public_url.as_str(),
+                token.expose_secret(),
+                urlencoding::encode(path)
+            ))
+        } else {
+            SecretString::from(format!(
+                "{}/validate-email?token={}",
+                self.settings.public_url.as_str(),
+                token.expose_secret()
+            ))
+        };
 
         let recipient = EmailRecipient {
             email,

@@ -26,7 +26,6 @@ use crate::connectors::PrintConnector;
 
 fn only_internal(path: &str) -> bool {
     path.starts_with("/meteroid.metering.v1.UsageQueryService")
-        || path.starts_with("/meteroid.metering.v1.MetersService")
         || path.starts_with("/meteroid.metering.v1.InternalEventsService")
 }
 
@@ -109,7 +108,6 @@ pub async fn start_api_server(
 
     // Meters & queries & ingest => Admin
     let internal_event_service = ingest::internal_service(internal_client.clone(), sink.clone());
-    let meter_service = crate::meters::service(connector.clone());
     let query_service = crate::query::service(connector.clone());
 
     Server::builder()
@@ -126,7 +124,6 @@ pub async fn start_api_server(
         ))
         .add_service(health_service)
         .add_service(reflection_service)
-        .add_service(meter_service)
         .add_service(query_service)
         .add_service(event_service)
         .add_service(internal_event_service)

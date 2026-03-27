@@ -4,29 +4,6 @@ package meteroid.api.events.v1;
 
 import "google/protobuf/timestamp.proto";
 
-message IngestCsvRequest {
-  FileData file = 1;
-  string delimiter = 2;
-  bool allow_backfilling = 3;
-  bool fail_on_error = 4;
-}
-
-message IngestCsvResponse {
-  int32 total_rows = 1;
-  int32 successful_events = 2;
-  repeated IngestionFailure failures = 3;
-}
-
-message IngestionFailure {
-  int32 row_number = 1;
-  string event_id = 2;
-  string reason = 3;
-}
-
-message FileData {
-  bytes data = 1;
-}
-
 message SearchEventsRequest {
   google.protobuf.Timestamp from = 1;
   google.protobuf.Timestamp to = 2;
@@ -64,8 +41,4 @@ message EventSummary {
 
 service EventsService {
   rpc SearchEvents(SearchEventsRequest) returns (SearchEventsResponse) {}
-}
-
-service EventsIngestService {
-  rpc IngestCsv(IngestCsvRequest) returns (IngestCsvResponse) {}
 }

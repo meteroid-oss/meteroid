@@ -110,6 +110,27 @@ impl PortalCheckoutService for PortalCheckoutServiceComponents {
                     .await
                     .map_err(Into::<PortalCheckoutApiError>::into)?;
 
+                tracing::info!(
+                    "SelfServe preview subscription: period={:?}, billing_start={:?}, current_period_start={}, current_period_end={:?}, pending_checkout={}, cycle_index={:?}, components_count={}",
+                    sub_details.subscription.period,
+                    sub_details.subscription.billing_start_date,
+                    sub_details.subscription.current_period_start,
+                    sub_details.subscription.current_period_end,
+                    sub_details.subscription.pending_checkout,
+                    sub_details.subscription.cycle_index,
+                    sub_details.price_components.len()
+                );
+
+                for (i, comp) in sub_details.price_components.iter().enumerate() {
+                    tracing::info!(
+                        "  Component[{}]: name={}, period={:?}, fee={:?}",
+                        i,
+                        comp.name,
+                        comp.period,
+                        comp.fee
+                    );
+                }
+
                 (sub_details, CheckoutType::SelfServe, None)
             }
             DomainCheckoutType::PlanChange => {
@@ -307,9 +328,24 @@ impl PortalCheckoutService for PortalCheckoutServiceComponents {
             .change_context(StoreError::InvoiceComputationError)
             .map_err(Into::<PortalCheckoutApiError>::into)?;
 
+        tracing::info!(
+            "Invoice content: invoice_lines_count={}, subtotal={}, total={}",
+            invoice_content.invoice_lines.len(),
+            invoice_content.subtotal,
+            invoice_content.total
+        );
+
         let checkout = self
             .build_checkout_response(tenant, subscription_details.clone(), invoice_content)
             .await?;
+
+        tracing::info!(
+            "Checkout response: payment_methods_count={}, card_connection_id={:?}, direct_debit_connection_id={:?}, bank_account={:?}",
+            checkout.payment_methods.len(),
+            checkout.card_connection_id,
+            checkout.direct_debit_connection_id,
+            checkout.bank_account.is_some()
+        );
 
         Ok(Response::new(GetCheckoutResponse {
             checkout: Some(checkout),

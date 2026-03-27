@@ -1,0 +1,75 @@
+syntax = "proto3";
+
+package meteroid.api.batchjobs.v1;
+
+enum BatchJobType {
+  EVENT_CSV_IMPORT = 0;
+  CUSTOMER_CSV_IMPORT = 1;
+  SUBSCRIPTION_CSV_IMPORT = 2;
+  SUBSCRIPTION_PLAN_MIGRATION = 3;
+}
+
+enum BatchJobStatus {
+  PENDING = 0;
+  CHUNKING = 1;
+  PROCESSING = 2;
+  COMPLETED = 3;
+  COMPLETED_WITH_ERRORS = 4;
+  FAILED = 5;
+  CANCELLED = 6;
+}
+
+enum BatchJobChunkStatus {
+  CHUNK_PENDING = 0;
+  CHUNK_PROCESSING = 1;
+  CHUNK_COMPLETED = 2;
+  CHUNK_FAILED = 3;
+  CHUNK_SKIPPED = 4;
+  reserved 5;
+}
+
+message BatchJob {
+  string id = 1;
+  string tenant_id = 2;
+  BatchJobType job_type = 3;
+  BatchJobStatus status = 4;
+  optional int32 total_items = 5;
+  int32 processed_items = 6;
+  int32 failed_items = 7;
+  string created_by = 8;
+  string created_at = 9;
+  optional string completed_at = 10;
+  optional string error_message = 11;
+  optional string error_csv_token = 12;
+  optional string input_file_name = 13;
+  optional string created_by_display_name = 14;
+  optional string input_file_token = 15;
+}
+
+message BatchJobChunkEvent {
+  string event = 1;
+  int32 attempt = 2;
+  optional string message = 3;
+  string timestamp = 4;
+}
+
+message BatchJobChunk {
+  string id = 1;
+  int32 chunk_index = 2;
+  BatchJobChunkStatus status = 3;
+  int32 item_offset = 4;
+  int32 item_count = 5;
+  int32 processed_count = 6;
+  int32 failed_count = 7;
+  int32 retry_count = 8;
+  repeated BatchJobChunkEvent events = 9;
+  optional string retry_after = 10;
+}
+
+message BatchJobItemFailure {
+  string id = 1;
+  string chunk_id = 2;
+  int32 item_index = 3;
+  optional string item_identifier = 4;
+  string reason = 5;
+}

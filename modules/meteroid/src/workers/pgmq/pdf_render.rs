@@ -49,7 +49,10 @@ impl PgmqHandler for PdfRender {
             .iter()
             .filter_map(|x| match x {
                 GenerateResult::Success { invoice_id, .. } => Some(*invoice_id),
-                _ => None,
+                GenerateResult::Failure { invoice_id, error } => {
+                    log::warn!("Failed to generate pdf for invoice {invoice_id}: {error}");
+                    None
+                }
             })
             .collect();
 

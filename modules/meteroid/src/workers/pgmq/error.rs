@@ -5,6 +5,8 @@ pub enum PgmqError {
     HandleMessages,
     #[error("ReadMessagesError")]
     ReadMessages,
+    #[error("ReadMessagesTimeout")]
+    ReadMessagesTimeout,
     #[error("DeleteMessagesError")]
     DeleteMessages,
     #[error("ArchiveMessagesError")]

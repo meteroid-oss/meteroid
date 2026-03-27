@@ -6,12 +6,14 @@ import { LocalId } from '@/components/LocalId'
 import { Property } from '@/components/Property'
 import { PlanStatusBadge } from '@/features/plans/PlanStatusBadge'
 import { useIsDraftVersion, usePlanOverview } from '@/features/plans/hooks/usePlan'
+import { useIsExpressOrganization } from '@/hooks/useIsExpressOrganization'
 import { Plan, PlanStatus, PlanType, PlanVersion } from '@/rpc/api/plans/v1/models_pb'
 
 export const PlanOverview: React.FC<{ plan: Plan; version: PlanVersion }> = ({ plan, version }) => {
   const overview = usePlanOverview()
   const isDraft = useIsDraftVersion()
   const navigate = useNavigate()
+  const isExpress = useIsExpressOrganization()
 
   const leftProperties: ComponentProps<typeof Property>[] = [
     version.isDraft
@@ -74,9 +76,11 @@ export const PlanOverview: React.FC<{ plan: Plan; version: PlanVersion }> = ({ p
           </div>
         </div>
       </div>
-      <div className="absolute top-0 right-3 text-muted-foreground hover:text-foreground hover:cursor-pointer">
-        <PencilIcon size={14} strokeWidth={2} onClick={() => navigate('edit-overview')} />
-      </div>
+      {!isExpress && (
+        <div className="absolute top-0 right-3 text-muted-foreground hover:text-foreground hover:cursor-pointer">
+          <PencilIcon size={14} strokeWidth={2} onClick={() => navigate('edit-overview')} />
+        </div>
+      )}
     </div>
   )
 }

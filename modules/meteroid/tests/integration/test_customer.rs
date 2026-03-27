@@ -54,6 +54,7 @@ async fn test_customers_basic() {
                 vat_number: None,
                 custom_taxes: vec![],
                 is_tax_exempt: Some(false),
+                connected_account_id: None,
             }),
         })
         .await
@@ -79,6 +80,7 @@ async fn test_customers_basic() {
                 vat_number: None,
                 custom_taxes: vec![],
                 is_tax_exempt: Some(false),
+                connected_account_id: None,
             }),
         })
         .await

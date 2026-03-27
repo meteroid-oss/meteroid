@@ -44,6 +44,7 @@ pub async fn run_preset(
                 name: tenant_name.unwrap_or(scenario.name),
                 environment: TenantEnvironmentEnum::Sandbox,
                 disable_emails,
+                invoicing_entity: None,
             },
             organization_id,
         )
@@ -209,6 +210,7 @@ pub async fn run_preset(
             shipping_address: customer.shipping_address.clone(),
             custom_taxes: vec![],
             is_tax_exempt: false,
+            connected_account_id: None,
         });
     }
 

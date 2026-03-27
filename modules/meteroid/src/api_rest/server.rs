@@ -12,6 +12,8 @@ use axum::{
     response::IntoResponse,
 };
 use axum_tracing_opentelemetry::middleware::{OtelAxumLayer, OtelInResponseLayer};
+use common_grpc::middleware::server::auth::AuthorizedAsTenant;
+
 use meteroid_store::{Services, Store};
 use std::any::Any;
 use std::sync::Arc;
@@ -32,7 +34,7 @@ pub async fn start_rest_server(
     stripe_adapter: Arc<Stripe>,
     store: Store,
     services: Services,
-    ready: std::sync::Arc<std::sync::atomic::AtomicBool>,
+    ready: Arc<std::sync::atomic::AtomicBool>,
 ) -> Result<(), Box<dyn std::error::Error>> {
     let listener = TcpListener::bind(&config.rest_api_addr)
         .await
@@ -49,6 +51,7 @@ pub async fn start_rest_server(
     .await
 }
 
+#[allow(clippy::too_many_arguments)]
 pub async fn start_rest_server_with_listener(
     config: Config,
     object_store: Arc<dyn ObjectStoreService>,
@@ -64,16 +67,19 @@ pub async fn start_rest_server_with_listener(
         services,
         stripe_adapter,
         jwt_secret: config.jwt_secret,
-        portal_url: config.public_url, // self-hosted - same url
+        portal_url: config.public_url, // TODO separate portal URL from public URL
         ready,
     };
 
     let auth_layer =
         axum::middleware::from_fn_with_state(store.clone(), crate::api_rest::auth::auth_middleware);
 
-    let (api_router, open_api) = OpenApiRouter::<AppState>::with_openapi(ApiDoc::openapi())
+    let (api_router, mut open_api) = OpenApiRouter::<AppState>::with_openapi(ApiDoc::openapi())
         .merge(api_routes())
         .split_for_parts();
+
+    // enterprise placeholder: ratelimit
+    crate::api_rest::openapi::add_rate_limit_responses(&mut open_api);
 
     let openapi_json: bytes::Bytes = open_api
         .to_json()

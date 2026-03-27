@@ -96,7 +96,6 @@ pub mod metric {
     use std::collections::HashMap;
 
     use crate::api::shared::mapping::datetime::chrono_to_timestamp;
-    use metering_grpc::meteroid::metering::v1 as metering;
     use meteroid_grpc::meteroid::api::billablemetrics::v1::segmentation_matrix::Matrix;
     use meteroid_store::domain;
     use meteroid_store::domain::billable_metrics::{Dimension, SegmentationMatrix};
@@ -134,8 +133,6 @@ pub mod metric {
                 created_at: Some(chrono_to_timestamp(value.created_at)),
                 usage_group_key: value.usage_group_key,
                 product_id: value.product_id.map(|x| x.as_proto()),
-                synced_at: value.synced_at.map(chrono_to_timestamp),
-                sync_error: value.sync_error,
             }))
         }
     }
@@ -159,8 +156,6 @@ pub mod metric {
                     aggregation_key: value.aggregation_key,
                     created_at: Some(chrono_to_timestamp(value.created_at)),
                     archived_at: value.archived_at.map(chrono_to_timestamp),
-                    synced_at: value.synced_at.map(chrono_to_timestamp),
-                    sync_error: value.sync_error,
                 },
             ))
         }
@@ -243,58 +238,6 @@ pub mod metric {
             })
     }
 
-    pub fn domain_to_metering(metric: domain::BillableMetric) -> metering::Meter {
-        let segmentation: Option<server::SegmentationMatrix> =
-            map_segmentation_matrix(metric.segmentation_matrix);
-
-        let mut group_by = segmentation
-            .and_then(|s| s.matrix)
-            .map(|matrix| match matrix {
-                // TODO improve the asref & cloning
-                Matrix::Single(s) => s
-                    .dimension
-                    .as_ref()
-                    .iter()
-                    .map(|d| d.key.clone())
-                    .collect::<Vec<String>>(),
-                Matrix::Double(d) => {
-                    let mut vec = d
-                        .dimension1
-                        .as_ref()
-                        .iter()
-                        .map(|d| d.key.clone())
-                        .collect::<Vec<String>>();
-                    vec.extend(
-                        d.dimension2
-                            .as_ref()
-                            .iter()
-                            .map(|d| d.key.clone())
-                            .collect::<Vec<String>>(),
-                    );
-                    vec
-                }
-                Matrix::Linked(l) => {
-                    vec![l.dimension_key, l.linked_dimension_key]
-                }
-            })
-            .unwrap_or_default();
-
-        if let Some(usage_key) = metric.usage_group_key
-            && !usage_key.is_empty()
-        {
-            group_by.push(usage_key);
-        }
-
-        metering::Meter {
-            id: metric.id.as_proto(), // we could allow optional external_id if the metric is defined externally
-            code: metric.code.to_string(),
-            aggregation_key: metric.aggregation_key,
-            aggregation: super::aggregation_type::domain_to_metering(metric.aggregation_type)
-                .into(),
-            dimensions: group_by,
-        }
-    }
-
     pub fn list_db_to_server(
         metric: domain::billable_metrics::BillableMetricMeta,
     ) -> server::BillableMetricMeta {
@@ -308,8 +251,6 @@ pub mod metric {
             archived_at: metric.archived_at.map(chrono_to_timestamp),
             created_at: Some(chrono_to_timestamp(metric.created_at)),
             description: metric.description,
-            synced_at: metric.synced_at.map(chrono_to_timestamp),
-            sync_error: metric.sync_error,
         }
     }
 

@@ -1,4 +1,5 @@
 pub mod api_tokens;
+pub mod batch_jobs;
 pub mod bi;
 pub mod billable_metrics;
 pub mod connectors;

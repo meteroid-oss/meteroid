@@ -6,27 +6,17 @@ import {
   DropdownMenuItem,
   DropdownMenuSeparator,
   DropdownMenuTrigger,
-  Tooltip,
-  TooltipContent,
-  TooltipProvider,
-  TooltipTrigger,
 } from '@md/ui'
 import { useQueryClient } from '@tanstack/react-query'
 import { ColumnDef, OnChangeFn, PaginationState } from '@tanstack/react-table'
-import {
-  AlertCircleIcon,
-  ArchiveIcon,
-  ArchiveRestoreIcon,
-  CopyIcon,
-  EditIcon,
-  MoreVerticalIcon,
-} from 'lucide-react'
+import { ArchiveIcon, ArchiveRestoreIcon, CopyIcon, EditIcon, MoreVerticalIcon } from 'lucide-react'
 import { FC, useMemo } from 'react'
 import { useNavigate } from 'react-router-dom'
 import { toast } from 'sonner'
 
 import { StandardTable } from '@/components/table/StandardTable'
 import { BillableMetricStatusBadge } from '@/features/productCatalog/metrics/BillableMetricStatusBadge'
+import { useIsExpressOrganization } from '@/hooks/useIsExpressOrganization'
 import {
   archiveBillableMetric,
   listBillableMetrics,
@@ -60,6 +50,7 @@ export const BillableMetricTable: FC<BillableMetricableProps> = ({
 }) => {
   const navigate = useNavigate()
   const queryClient = useQueryClient()
+  const isExpress = useIsExpressOrganization()
 
   const archiveMutation = useMutation(archiveBillableMetric, {
     onSuccess: async () => {
@@ -125,76 +116,69 @@ export const BillableMetricTable: FC<BillableMetricableProps> = ({
         header: 'Status',
         cell: ({ row }) => {
           const isArchived = !!row.original.archivedAt
-          const hasSyncError = !!row.original.syncError
           return (
             <div className="flex items-center gap-2">
-              <BillableMetricStatusBadge isArchived={isArchived} hasSyncError={hasSyncError} />
-              {hasSyncError && (
-                <TooltipProvider>
-                  <Tooltip>
-                    <TooltipTrigger asChild>
-                      <AlertCircleIcon className="h-4 w-4 text-destructive" />
-                    </TooltipTrigger>
-                    <TooltipContent className="max-w-xs">
-                      <p className="text-xs">Aggregation failed</p>
-                    </TooltipContent>
-                  </Tooltip>
-                </TooltipProvider>
-              )}
+              <BillableMetricStatusBadge isArchived={isArchived} hasSyncError={false} />
             </div>
           )
         },
       },
 
-      {
-        accessorKey: 'id',
-        header: '',
-        maxSize: 0.1,
-        cell: ({ row }) => {
-          const isArchived = !!row.original.archivedAt
-          return (
-            <DropdownMenu>
-              <DropdownMenuTrigger asChild>
-                <Button variant="ghost" size="sm">
-                  <MoreVerticalIcon size={16} />
-                </Button>
-              </DropdownMenuTrigger>
-              <DropdownMenuContent align="end">
-                {!isArchived && (
-                  <>
-                    <DropdownMenuItem onClick={() => navigate(`edit/${row.original.id}`)}>
-                      <EditIcon size={16} className="mr-2" />
-                      Edit
-                    </DropdownMenuItem>
-                    <DropdownMenuItem
-                      onClick={() =>
-                        navigate('add-metric', { state: { sourceMetricId: row.original.id } })
-                      }
-                    >
-                      <CopyIcon size={16} className="mr-2" />
-                      Duplicate
-                    </DropdownMenuItem>
-                    <DropdownMenuSeparator />
-                  </>
-                )}
-                {isArchived ? (
-                  <DropdownMenuItem onClick={() => handleUnarchive(row.original.id)}>
-                    <ArchiveRestoreIcon size={16} className="mr-2" />
-                    Unarchive
-                  </DropdownMenuItem>
-                ) : (
-                  <DropdownMenuItem onClick={() => handleArchive(row.original.id)}>
-                    <ArchiveIcon size={16} className="mr-2" />
-                    Archive
-                  </DropdownMenuItem>
-                )}
-              </DropdownMenuContent>
-            </DropdownMenu>
-          )
-        },
-      },
+      ...(!isExpress
+        ? [
+            {
+              accessorKey: 'id' as const,
+              header: '',
+              maxSize: 0.1,
+              cell: ({ row }: { row: { original: BillableMetricMeta } }) => {
+                const isArchived = !!row.original.archivedAt
+                return (
+                  <DropdownMenu>
+                    <DropdownMenuTrigger asChild>
+                      <Button variant="ghost" size="sm">
+                        <MoreVerticalIcon size={16} />
+                      </Button>
+                    </DropdownMenuTrigger>
+                    <DropdownMenuContent align="end">
+                      {!isArchived && (
+                        <>
+                          <DropdownMenuItem onClick={() => navigate(`edit/${row.original.id}`)}>
+                            <EditIcon size={16} className="mr-2" />
+                            Edit
+                          </DropdownMenuItem>
+                          <DropdownMenuItem
+                            onClick={() =>
+                              navigate('add-metric', {
+                                state: { sourceMetricId: row.original.id },
+                              })
+                            }
+                          >
+                            <CopyIcon size={16} className="mr-2" />
+                            Duplicate
+                          </DropdownMenuItem>
+                          <DropdownMenuSeparator />
+                        </>
+                      )}
+                      {isArchived ? (
+                        <DropdownMenuItem onClick={() => handleUnarchive(row.original.id)}>
+                          <ArchiveRestoreIcon size={16} className="mr-2" />
+                          Unarchive
+                        </DropdownMenuItem>
+                      ) : (
+                        <DropdownMenuItem onClick={() => handleArchive(row.original.id)}>
+                          <ArchiveIcon size={16} className="mr-2" />
+                          Archive
+                        </DropdownMenuItem>
+                      )}
+                    </DropdownMenuContent>
+                  </DropdownMenu>
+                )
+              },
+            },
+          ]
+        : []),
     ],
-    []
+    [isExpress]
   )
 
   return (

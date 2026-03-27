@@ -11,7 +11,10 @@ use crate::services::Services;
 use crate::store::PgConn;
 use common_domain::ids::{BankAccountId, BaseId, CustomerConnectionId, TenantId};
 use diesel_models::customer_connection::CustomerConnectionRow;
-use error_stack::ResultExt;
+use error_stack::{Report, ResultExt};
+
+use std::time::Duration;
+const PAYMENT_PROVIDER_TIMEOUT: Duration = Duration::from_secs(45);
 
 #[derive(Debug, Clone, Default)]
 pub struct ResolvedPaymentMethods {
@@ -214,10 +217,16 @@ impl Services {
         let payment_provider = initialize_payment_provider(provider)
             .change_context(StoreError::PaymentProviderError)?;
 
-        let external_id = payment_provider
-            .create_customer_in_provider(customer, provider)
-            .await
-            .change_context(StoreError::PaymentProviderError)?;
+        let external_id = tokio::time::timeout(
+            PAYMENT_PROVIDER_TIMEOUT,
+            payment_provider.create_customer_in_provider(customer, provider),
+        )
+        .await
+        .map_err(|_| {
+            Report::new(StoreError::PaymentProviderError)
+                .attach("Payment provider request timed out")
+        })?
+        .change_context(StoreError::PaymentProviderError)?;
 
         let new_connection = CustomerConnectionRow {
             id: CustomerConnectionId::new(),

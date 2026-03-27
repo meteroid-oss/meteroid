@@ -6,7 +6,7 @@ use crate::repositories::customer_balance::{CustomerBalance, convert_currency};
 use crate::services::Services;
 use crate::services::utils::format_invoice_number;
 use chrono::NaiveTime;
-use common_domain::ids::{AppliedCouponId, BaseId, InvoiceId, InvoicingEntityId, TenantId};
+use common_domain::ids::{AppliedCouponId, BaseId, InvoiceId, TenantId};
 use common_eventbus::Event;
 use common_utils::decimals::ToUnit;
 use diesel_async::scoped_futures::ScopedFutureExt;
@@ -120,13 +120,7 @@ impl Services {
         };
 
         let invoice_details = self
-            .increment_and_finalize(
-                conn,
-                invoice,
-                invoice_lock.customer_invoicing_entity_id,
-                applied_coupons_amounts,
-                backdate_invoices,
-            )
+            .increment_and_finalize(conn, invoice, applied_coupons_amounts, backdate_invoices)
             .await?;
 
         Ok(invoice_details)
@@ -136,13 +130,12 @@ impl Services {
         &self,
         tx: &mut PgConn,
         invoice: Invoice,
-        invoicing_entity_id: InvoicingEntityId,
         applied_coupons_amounts: Vec<CouponLineItem>,
         backdate_invoices: bool,
     ) -> StoreResult<DetailedInvoice> {
         let invoicing_entity = InvoicingEntityRow::select_for_update_by_id_and_tenant(
             tx,
-            invoicing_entity_id,
+            invoice.invoicing_entity_id,
             invoice.tenant_id,
         )
         .await
@@ -188,7 +181,7 @@ impl Services {
 
         InvoicingEntityRow::update_invoicing_entity_number(
             tx,
-            invoicing_entity_id,
+            invoice.invoicing_entity_id,
             invoice.tenant_id,
             invoicing_entity.next_invoice_number,
         )

@@ -23,7 +23,7 @@ pub(crate) struct ProcessorConfig {
     pub vt: MessageReadVtSec,
     pub delete_succeeded: bool,
     pub sleep_duration: Duration,
-    pub max_read_count: ReadCt,
+    pub max_read_count: ReadCt, // nr of retries before archiving the message
 }
 
 const BACKOFF_DURATION: Duration = Duration::from_secs(1);
@@ -44,7 +44,7 @@ pub(crate) async fn run(cfg: ProcessorConfig) {
         .await
         {
             Err(e) => {
-                log::warn!(
+                log::error!(
                     "[{}] Failed to process pgmq {}: {:?}",
                     cfg.name,
                     cfg.queue,
@@ -84,10 +84,18 @@ pub(crate) async fn run_once(
     delete_processed: bool,
     max_read_count: ReadCt,
 ) -> PgmqResult<MessageReadQty> {
-    let messages = store
-        .pgmq_read(queue, qty, vt)
-        .await
-        .change_context(PgmqError::ReadMessages)?;
+    let messages = match tokio::time::timeout(
+        Duration::from_secs(10),
+        store.pgmq_read(queue, qty, vt),
+    )
+    .await
+    {
+        Ok(result) => result.change_context(PgmqError::ReadMessages)?,
+        Err(_) => {
+            log::error!("[{queue}] pgmq_read timed out after 10 seconds");
+            return Err(error_stack::Report::new(PgmqError::ReadMessagesTimeout));
+        }
+    };
 
     if messages.is_empty() {
         return Ok(MessageReadQty(0));

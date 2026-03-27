@@ -6,6 +6,18 @@ pub mod sql_types {
     pub struct BankAccountFormat;
 
     #[derive(diesel::query_builder::QueryId, diesel::sql_types::SqlType)]
+    #[diesel(postgres_type(name = "BatchJobChunkStatusEnum"))]
+    pub struct BatchJobChunkStatusEnum;
+
+    #[derive(diesel::query_builder::QueryId, diesel::sql_types::SqlType)]
+    #[diesel(postgres_type(name = "BatchJobStatusEnum"))]
+    pub struct BatchJobStatusEnum;
+
+    #[derive(diesel::query_builder::QueryId, diesel::sql_types::SqlType)]
+    #[diesel(postgres_type(name = "BatchJobTypeEnum"))]
+    pub struct BatchJobTypeEnum;
+
+    #[derive(diesel::query_builder::QueryId, diesel::sql_types::SqlType)]
     #[diesel(postgres_type(name = "BillingMetricAggregateEnum"))]
     pub struct BillingMetricAggregateEnum;
 
@@ -20,6 +32,18 @@ pub mod sql_types {
     #[derive(diesel::query_builder::QueryId, diesel::sql_types::SqlType)]
     #[diesel(postgres_type(name = "CheckoutTypeEnum"))]
     pub struct CheckoutTypeEnum;
+
+    #[derive(diesel::query_builder::QueryId, diesel::sql_types::SqlType)]
+    #[diesel(postgres_type(name = "ConnectConnectionStatusEnum"))]
+    pub struct ConnectConnectionStatusEnum;
+
+    #[derive(diesel::query_builder::QueryId, diesel::sql_types::SqlType)]
+    #[diesel(postgres_type(name = "ConnectConnectionTypeEnum"))]
+    pub struct ConnectConnectionTypeEnum;
+
+    #[derive(diesel::query_builder::QueryId, diesel::sql_types::SqlType)]
+    #[diesel(postgres_type(name = "ConnectOnboardingModeEnum"))]
+    pub struct ConnectOnboardingModeEnum;
 
     #[derive(diesel::query_builder::QueryId, diesel::sql_types::SqlType)]
     #[diesel(postgres_type(name = "ConnectorProviderEnum"))]
@@ -186,6 +210,81 @@ diesel::table! {
 }
 
 diesel::table! {
+    use diesel::sql_types::*;
+    use super::sql_types::BatchJobTypeEnum;
+    use super::sql_types::BatchJobStatusEnum;
+
+    batch_job (id) {
+        id -> Uuid,
+        tenant_id -> Uuid,
+        job_type -> BatchJobTypeEnum,
+        status -> BatchJobStatusEnum,
+        input_source_key -> Nullable<Text>,
+        input_params -> Nullable<Jsonb>,
+        total_items -> Nullable<Int4>,
+        processed_items -> Int4,
+        failed_items -> Int4,
+        file_hash -> Nullable<Text>,
+        locked_at -> Nullable<Timestamp>,
+        created_by -> Uuid,
+        created_at -> Timestamp,
+        updated_at -> Timestamp,
+        completed_at -> Nullable<Timestamp>,
+        error_message -> Nullable<Text>,
+        error_output_key -> Nullable<Text>,
+        input_file_name -> Nullable<Text>,
+    }
+}
+
+diesel::table! {
+    use diesel::sql_types::*;
+    use super::sql_types::BatchJobChunkStatusEnum;
+
+    batch_job_chunk (id) {
+        id -> Uuid,
+        job_id -> Uuid,
+        tenant_id -> Uuid,
+        chunk_index -> Int4,
+        status -> BatchJobChunkStatusEnum,
+        item_offset -> Int4,
+        item_count -> Int4,
+        processed_count -> Int4,
+        failed_count -> Int4,
+        retry_count -> Int4,
+        max_retries -> Int4,
+        locked_at -> Nullable<Timestamp>,
+        retry_after -> Nullable<Timestamp>,
+        events -> Jsonb,
+        created_at -> Timestamp,
+        updated_at -> Timestamp,
+    }
+}
+
+diesel::table! {
+    batch_job_entity (id) {
+        id -> Uuid,
+        batch_job_id -> Uuid,
+        tenant_id -> Uuid,
+        entity_type -> Text,
+        entity_id -> Uuid,
+        created_at -> Timestamp,
+    }
+}
+
+diesel::table! {
+    batch_job_item_failure (id) {
+        id -> Uuid,
+        chunk_id -> Uuid,
+        job_id -> Uuid,
+        tenant_id -> Uuid,
+        item_index -> Int4,
+        item_identifier -> Nullable<Text>,
+        reason -> Text,
+        created_at -> Timestamp,
+    }
+}
+
+diesel::table! {
     bi_customer_ytd_summary (tenant_id, customer_id, currency, revenue_year) {
         tenant_id -> Uuid,
         customer_id -> Uuid,
@@ -278,8 +377,6 @@ diesel::table! {
         tenant_id -> Uuid,
         product_family_id -> Uuid,
         product_id -> Nullable<Uuid>,
-        synced_at -> Nullable<Timestamp>,
-        sync_error -> Nullable<Text>,
     }
 }
 
@@ -317,6 +414,110 @@ diesel::table! {
         checkout_type -> CheckoutTypeEnum,
         payment_methods_config -> Nullable<Jsonb>,
         change_date -> Nullable<Date>,
+    }
+}
+
+diesel::table! {
+    connect_access_token (id) {
+        id -> Uuid,
+        token_hash -> Text,
+        oauth_app_id -> Uuid,
+        connected_organization_id -> Uuid,
+        scopes -> Array<Nullable<Text>>,
+        expires_at -> Timestamptz,
+        created_at -> Timestamptz,
+        revoked_at -> Nullable<Timestamptz>,
+    }
+}
+
+diesel::table! {
+    connect_authorization_code (id) {
+        id -> Uuid,
+        code_hash -> Text,
+        oauth_app_id -> Uuid,
+        connected_organization_id -> Uuid,
+        redirect_uri -> Text,
+        scopes -> Array<Nullable<Text>>,
+        code_challenge -> Nullable<Text>,
+        code_challenge_method -> Nullable<Text>,
+        expires_at -> Timestamptz,
+        created_at -> Timestamptz,
+        used_at -> Nullable<Timestamptz>,
+    }
+}
+
+diesel::table! {
+    use diesel::sql_types::*;
+    use super::sql_types::ConnectConnectionTypeEnum;
+    use super::sql_types::ConnectConnectionStatusEnum;
+    use super::sql_types::ConnectOnboardingModeEnum;
+
+    connect_connected_account (id) {
+        id -> Uuid,
+        platform_organization_id -> Uuid,
+        connected_organization_id -> Nullable<Uuid>,
+        connection_type -> ConnectConnectionTypeEnum,
+        status -> ConnectConnectionStatusEnum,
+        onboarding_mode -> ConnectOnboardingModeEnum,
+        onboarding_completed_at -> Nullable<Timestamptz>,
+        metadata -> Nullable<Jsonb>,
+        created_at -> Timestamptz,
+        revoked_at -> Nullable<Timestamptz>,
+        pending_email -> Nullable<Text>,
+        pending_organization_name -> Nullable<Text>,
+        pending_country -> Nullable<Text>,
+        platform_customer_id -> Nullable<Uuid>,
+        connected_tenant_id -> Nullable<Uuid>,
+    }
+}
+
+diesel::table! {
+    connect_oauth_app (id) {
+        id -> Uuid,
+        organization_id -> Uuid,
+        name -> Text,
+        client_id -> Text,
+        client_secret_hash -> Text,
+        client_secret_hint -> Text,
+        redirect_uris -> Array<Nullable<Text>>,
+        scopes -> Array<Nullable<Text>>,
+        is_active -> Bool,
+        created_at -> Timestamptz,
+        updated_at -> Nullable<Timestamptz>,
+    }
+}
+
+diesel::table! {
+    connect_onboarding_link (id) {
+        id -> Uuid,
+        connected_account_id -> Uuid,
+        token_hash -> Text,
+        redirect_url -> Text,
+        expires_at -> Timestamptz,
+        used_at -> Nullable<Timestamptz>,
+        created_at -> Timestamptz,
+    }
+}
+
+diesel::table! {
+    connect_platform_settings (organization_id) {
+        organization_id -> Uuid,
+        is_platform_enabled -> Bool,
+        default_scopes -> Array<Nullable<Text>>,
+        branding_invoicing_entity_id -> Nullable<Uuid>,
+        created_at -> Timestamptz,
+    }
+}
+
+diesel::table! {
+    connect_refresh_token (id) {
+        id -> Uuid,
+        token_hash -> Text,
+        access_token_id -> Uuid,
+        expires_at -> Nullable<Timestamptz>,
+        created_at -> Timestamptz,
+        revoked_at -> Nullable<Timestamptz>,
+        rotated_to_id -> Nullable<Uuid>,
     }
 }
 
@@ -436,6 +637,7 @@ diesel::table! {
         is_tax_exempt -> Bool,
         vat_number_format_valid -> Bool,
         custom_taxes -> Jsonb,
+        connected_account_id -> Nullable<Uuid>,
     }
 }
 
@@ -500,6 +702,18 @@ diesel::table! {
         card_last4 -> Nullable<Text>,
         card_exp_month -> Nullable<Int4>,
         card_exp_year -> Nullable<Int4>,
+    }
+}
+
+diesel::table! {
+    express_onboarding_link (id) {
+        id -> Uuid,
+        connected_account_id -> Uuid,
+        token_hash -> Text,
+        redirect_url -> Text,
+        expires_at -> Timestamp,
+        used_at -> Nullable<Timestamp>,
+        created_at -> Timestamp,
     }
 }
 
@@ -619,6 +833,7 @@ diesel::table! {
         archived_at -> Nullable<Timestamp>,
         invite_link_hash -> Nullable<Text>,
         default_country -> Text,
+        is_express -> Bool,
     }
 }
 
@@ -1138,6 +1353,14 @@ diesel::joinable!(applied_coupon -> coupon (coupon_id));
 diesel::joinable!(applied_coupon -> customer (customer_id));
 diesel::joinable!(applied_coupon -> subscription (subscription_id));
 diesel::joinable!(bank_account -> tenant (tenant_id));
+diesel::joinable!(batch_job -> tenant (tenant_id));
+diesel::joinable!(batch_job_chunk -> batch_job (job_id));
+diesel::joinable!(batch_job_chunk -> tenant (tenant_id));
+diesel::joinable!(batch_job_entity -> batch_job (batch_job_id));
+diesel::joinable!(batch_job_entity -> tenant (tenant_id));
+diesel::joinable!(batch_job_item_failure -> batch_job (job_id));
+diesel::joinable!(batch_job_item_failure -> batch_job_chunk (chunk_id));
+diesel::joinable!(batch_job_item_failure -> tenant (tenant_id));
 diesel::joinable!(bi_delta_mrr_daily -> historical_rates_from_usd (historical_rate_id));
 diesel::joinable!(bi_mrr_movement_log -> credit_note (credit_note_id));
 diesel::joinable!(bi_mrr_movement_log -> invoice (invoice_id));
@@ -1151,6 +1374,16 @@ diesel::joinable!(checkout_session -> customer (customer_id));
 diesel::joinable!(checkout_session -> plan_version (plan_version_id));
 diesel::joinable!(checkout_session -> subscription (subscription_id));
 diesel::joinable!(checkout_session -> tenant (tenant_id));
+diesel::joinable!(connect_access_token -> connect_oauth_app (oauth_app_id));
+diesel::joinable!(connect_access_token -> organization (connected_organization_id));
+diesel::joinable!(connect_authorization_code -> connect_oauth_app (oauth_app_id));
+diesel::joinable!(connect_authorization_code -> organization (connected_organization_id));
+diesel::joinable!(connect_connected_account -> tenant (connected_tenant_id));
+diesel::joinable!(connect_oauth_app -> organization (organization_id));
+diesel::joinable!(connect_onboarding_link -> connect_connected_account (connected_account_id));
+diesel::joinable!(connect_platform_settings -> invoicing_entity (branding_invoicing_entity_id));
+diesel::joinable!(connect_platform_settings -> organization (organization_id));
+diesel::joinable!(connect_refresh_token -> connect_access_token (access_token_id));
 diesel::joinable!(coupon -> tenant (tenant_id));
 diesel::joinable!(coupon_plan -> coupon (coupon_id));
 diesel::joinable!(coupon_plan -> plan (plan_id));
@@ -1251,12 +1484,23 @@ diesel::allow_tables_to_appear_in_same_query!(
     api_token,
     applied_coupon,
     bank_account,
+    batch_job,
+    batch_job_chunk,
+    batch_job_entity,
+    batch_job_item_failure,
     bi_customer_ytd_summary,
     bi_delta_mrr_daily,
     bi_mrr_movement_log,
     bi_revenue_daily,
     billable_metric,
     checkout_session,
+    connect_access_token,
+    connect_authorization_code,
+    connect_connected_account,
+    connect_oauth_app,
+    connect_onboarding_link,
+    connect_platform_settings,
+    connect_refresh_token,
     connector,
     coupon,
     coupon_plan,
@@ -1267,6 +1511,7 @@ diesel::allow_tables_to_appear_in_same_query!(
     customer_balance_tx,
     customer_connection,
     customer_payment_method,
+    express_onboarding_link,
     historical_rates_from_usd,
     invoice,
     invoicing_entity,

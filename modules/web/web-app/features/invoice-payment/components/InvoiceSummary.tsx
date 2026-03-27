@@ -3,7 +3,7 @@ import { Separator } from '@md/ui'
 import { PaymentMethodBadge } from '@/features/invoice-payment/components/TransactionList'
 import { InvoicePaymentStatus } from '@/rpc/api/invoices/v1/models_pb'
 import { parseAndFormatDate } from '@/utils/date'
-import { formatCurrency, formatCurrencyNoRounding } from '@/utils/numbers'
+import { formatCurrency, formatCurrencyNoRounding, rateToPercent } from '@/utils/numbers'
 
 import { InvoicePaymentData } from '../types'
 
@@ -186,7 +186,7 @@ export const InvoiceSummary = ({ invoicePaymentData }: InvoicePaymentData) => {
                   {item.unitPrice ? formatCurrencyNoRounding(item.unitPrice, invoice.currency) : ''}
                 </div>
                 <div className="col-span-1 text-right text-gray-900">
-                  {item.taxRate ? `${item.taxRate}%` : ''}
+                  {item.taxRate ? `${rateToPercent(item.taxRate)}%` : ''}
                 </div>
                 <div className="col-span-2 text-right text-gray-900">
                   {formatCurrency(item.subtotal, invoice.currency)}
@@ -296,7 +296,7 @@ export const InvoiceSummary = ({ invoicePaymentData }: InvoicePaymentData) => {
                 ? invoice.taxBreakdown.map((taxItem, index) => (
                     <div key={index} className="flex justify-between">
                       <span className="text-gray-600">
-                        {taxItem.name} {taxItem.taxRate}%
+                        {taxItem.name} {rateToPercent(taxItem.taxRate)}%
                       </span>
                       <span>{formatCurrency(taxItem.amount, invoice.currency)}</span>
                     </div>

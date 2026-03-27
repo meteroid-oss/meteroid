@@ -1,7 +1,7 @@
 import { useMutation } from '@connectrpc/connect-query'
 import { Button, Form, InputFormField } from '@md/ui'
 import { useState } from 'react'
-import { Link, useNavigate } from 'react-router-dom'
+import { Link, useNavigate, useSearchParams } from 'react-router-dom'
 import { z } from 'zod'
 
 import { useSession } from '@/features/auth/session'
@@ -11,8 +11,10 @@ import { login } from '@/rpc/api/users/v1/users-UsersService_connectquery'
 
 export const LoginForm = () => {
   const navigate = useNavigate()
+  const [searchParams] = useSearchParams()
   const [, setSession] = useSession()
   const [error, setError] = useState<string>()
+  const returnUrl = searchParams.get('returnUrl')
   const methods = useZodForm({
     schema: schemas.me.emailPasswordSchema,
     defaultValues: {
@@ -33,6 +35,9 @@ export const LoginForm = () => {
       setTimeout(() => {
         if (pendingInvite) {
           navigate(`/invite-authenticated?token=${pendingInvite}`)
+        } else if (returnUrl && returnUrl.startsWith('/')) {
+          // Redirect to returnUrl if it's a valid relative path
+          navigate(returnUrl)
         } else {
           navigate('/')
         }

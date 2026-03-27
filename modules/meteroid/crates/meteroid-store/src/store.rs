@@ -1,12 +1,14 @@
 use crate::StoreResult;
 use crate::errors::{StoreError, StoreErrorReport};
+use common_domain::ids::{OrganizationId, PlanId};
 use common_eventbus::{Event, EventBus};
+use deadpool_postgres::Runtime;
 use diesel::{ConnectionError, ConnectionResult};
-use diesel_async::pooled_connection::deadpool::Object;
-use diesel_async::pooled_connection::deadpool::Pool;
+use diesel_async::pooled_connection::deadpool::{Object, Pool};
 use diesel_async::pooled_connection::{AsyncDieselConnectionManager, ManagerConfig};
 use diesel_async::scoped_futures::{ScopedBoxFuture, ScopedFutureExt};
 use diesel_async::{AsyncConnection, AsyncPgConnection};
+use envconfig::Envconfig;
 use error_stack::{Report, ResultExt};
 use futures::FutureExt;
 use futures::future::BoxFuture;
@@ -18,6 +20,7 @@ use rustls::pki_types::{CertificateDer, ServerName, UnixTime};
 use rustls::{DigitallySignedStruct, Error, SignatureScheme};
 use std::str::FromStr;
 use std::sync::Arc;
+use std::time::Duration;
 use tokio_postgres_rustls::MakeRustlsConnect;
 
 pub type PgPool = Pool<AsyncPgConnection>;
@@ -31,7 +34,12 @@ pub struct Settings {
     pub public_url: String,
     pub skip_email_validation: bool,
     pub domains_whitelist: Vec<String>,
+    pub billing_default_plan_id: Option<PlanId>,
+    pub admin_organization: Option<OrganizationId>,
 }
+
+#[allow(clippy::upper_case_acronyms)]
+type PLACEHOLDER = i32; // enterprise placeholder
 
 #[derive(Clone)]
 pub struct Store {
@@ -41,10 +49,11 @@ pub struct Store {
     pub(crate) internal: StoreInternal,
     pub(crate) oauth: OauthServices,
     pub mailer: Arc<dyn MailerService>,
+    pub billing: Option<Arc<PLACEHOLDER>>,
 }
 
 pub struct StoreConfig {
-    pub database_url: String,
+    pub pg: PgConfig,
     pub crypt_key: secrecy::SecretString,
     pub jwt_secret: secrecy::SecretString,
     pub multi_organization_enabled: bool,
@@ -54,6 +63,9 @@ pub struct StoreConfig {
     pub mailer: Arc<dyn MailerService>,
     pub oauth: OauthServices,
     pub domains_whitelist: Vec<String>,
+    pub admin_organization_id: Option<OrganizationId>,
+    pub billing: Option<Arc<PLACEHOLDER>>,
+    pub billing_default_plan_id: Option<PlanId>,
 }
 
 /**
@@ -65,30 +77,44 @@ pub struct StoreConfig {
 #[derive(Clone)]
 pub struct StoreInternal {}
 
-pub fn diesel_make_pg_pool(db_url: String) -> StoreResult<PgPool> {
-    let config = tokio_postgres::Config::from_str(db_url.as_str()).unwrap();
+pub fn diesel_make_pg_pool(pg_config: PgConfig) -> StoreResult<PgPool> {
+    let database_url = pg_config.database_url.as_str();
+    let config = tokio_postgres::Config::from_str(database_url).unwrap();
 
-    let mgr: AsyncDieselConnectionManager<AsyncPgConnection> =
-        if config.get_ssl_mode() == tokio_postgres::config::SslMode::Disable {
-            AsyncDieselConnectionManager::<AsyncPgConnection>::new(db_url)
-        } else {
-            let mut config = ManagerConfig::default();
-            // First we have to construct a connection manager with our custom `establish_connection`
-            // function
-            config.custom_setup = Box::new(establish_secure_connection);
+    let mgr: AsyncDieselConnectionManager<AsyncPgConnection> = if config.get_ssl_mode()
+        == tokio_postgres::config::SslMode::Disable
+    {
+        AsyncDieselConnectionManager::<AsyncPgConnection>::new(database_url)
+    } else {
+        let mut mgr_config = ManagerConfig::default();
+        // First we have to construct a connection manager with our custom `establish_connection`
+        // function
+        mgr_config.custom_setup = Box::new(establish_secure_connection);
 
-            // From that connection we can then create a pool, here given with some example settings.
-            //
-            // This creates a TLS configuration that's equivalent to `libpq` `sslmode=verify-full`, which
-            // means this will check whether the provided certificate is valid for the given database host.
-            //
-            // `libpq` does not perform these checks by default (https://www.postgresql.org/docs/current/libpq-connect.html)
-            // If you hit a TLS error while connecting to the database double-check your certificates
+        // From that connection we can then create a pool, here given with some example settings.
+        //
+        // This creates a TLS configuration that's equivalent to `libpq` `sslmode=verify-full`, which
+        // means this will check whether the provided certificate is valid for the given database host.
+        //
+        // `libpq` does not perform these checks by default (https://www.postgresql.org/docs/current/libpq-connect.html)
+        // If you hit a TLS error while connecting to the database double-check your certificates
 
-            AsyncDieselConnectionManager::<AsyncPgConnection>::new_with_config(db_url, config)
-        };
+        AsyncDieselConnectionManager::<AsyncPgConnection>::new_with_config(database_url, mgr_config)
+    };
 
     Pool::builder(mgr)
+        .max_size(pg_config.pool.max_size)
+        .runtime(Runtime::Tokio1)
+        // Timeout for creating a new connection
+        .create_timeout(Some(Duration::from_secs(
+            pg_config.pool.create_timeout_secs,
+        )))
+        // Timeout for waiting to get a connection from the pool
+        .wait_timeout(Some(Duration::from_secs(pg_config.pool.wait_timeout_secs)))
+        // Recycle connections after 10 minutes to avoid stale "idle in transaction" states
+        .recycle_timeout(Some(Duration::from_secs(
+            pg_config.pool.recycle_timeout_secs,
+        )))
         .build()
         .map_err(Report::from)
         .change_context(StoreError::InitializationError(
@@ -115,7 +141,7 @@ fn establish_secure_connection(db_url: &str) -> BoxFuture<'_, ConnectionResult<A
 
 impl Store {
     pub fn new(config: StoreConfig) -> StoreResult<Self> {
-        let pool: PgPool = diesel_make_pg_pool(config.database_url)?;
+        let pool: PgPool = diesel_make_pg_pool(config.pg)?;
 
         Ok(Store {
             pool,
@@ -127,10 +153,13 @@ impl Store {
                 public_url: config.public_url,
                 skip_email_validation: config.skip_email_validation,
                 domains_whitelist: config.domains_whitelist,
+                billing_default_plan_id: config.billing_default_plan_id,
+                admin_organization: config.admin_organization_id,
             },
             internal: StoreInternal {},
             mailer: config.mailer,
             oauth: config.oauth,
+            billing: config.billing,
         })
     }
 
@@ -167,6 +196,10 @@ impl Store {
         R: Send + 'a,
     {
         self.internal.transaction_with(conn, callback).await
+    }
+
+    pub fn billing_default_plan_id(&self) -> Option<PlanId> {
+        self.settings.billing_default_plan_id
     }
 }
 
@@ -258,5 +291,45 @@ pub fn get_tls(database_url: &str) -> Option<MakeRustlsConnect> {
             .with_no_client_auth();
 
         Some(MakeRustlsConnect::new(tls_config))
+    }
+}
+
+#[derive(Envconfig, Debug, Clone)]
+pub struct PgConfig {
+    #[envconfig(from = "DATABASE_URL")]
+    pub database_url: String,
+    #[envconfig(nested)]
+    pub pool: PgPoolConfig,
+}
+
+impl PgConfig {
+    pub fn new(database_url: String) -> Self {
+        Self {
+            database_url,
+            pool: PgPoolConfig::default(),
+        }
+    }
+}
+
+#[derive(Envconfig, Debug, Clone)]
+pub struct PgPoolConfig {
+    #[envconfig(from = "PG_POOL_MAX_SIZE", default = "10")]
+    pub max_size: usize,
+    #[envconfig(from = "PG_POOL_CREATE_TIMEOUT_SECS", default = "30")]
+    pub create_timeout_secs: u64,
+    #[envconfig(from = "PG_POOL_WAIT_TIMEOUT_SECS", default = "30")]
+    pub wait_timeout_secs: u64,
+    #[envconfig(from = "PG_POOL_RECYCLE_TIMEOUT_SECS", default = "600")]
+    pub recycle_timeout_secs: u64,
+}
+
+impl Default for PgPoolConfig {
+    fn default() -> Self {
+        Self {
+            max_size: 10,
+            create_timeout_secs: 30,
+            wait_timeout_secs: 30,
+            recycle_timeout_secs: 600,
+        }
     }
 }

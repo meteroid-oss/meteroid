@@ -16,7 +16,8 @@ expression: "&list"
       "currency": "EUR",
       "invoicing_entity_id": "ive_xxx",
       "vat_number": null,
-      "custom_taxes": []
+      "custom_taxes": [],
+      "connected_account_id": null
     },
     {
       "id": "cus_xxx",
@@ -30,7 +31,8 @@ expression: "&list"
       "currency": "EUR",
       "invoicing_entity_id": "ive_xxx",
       "vat_number": null,
-      "custom_taxes": []
+      "custom_taxes": [],
+      "connected_account_id": null
     },
     {
       "id": "cus_xxx",
@@ -59,7 +61,8 @@ expression: "&list"
           "name": "Standard Tax",
           "rate": 20.0
         }
-      ]
+      ],
+      "connected_account_id": null
     }
   ],
   "pagination_meta": {

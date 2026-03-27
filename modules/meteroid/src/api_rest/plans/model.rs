@@ -27,7 +27,7 @@ pub struct PlanListRequest {
     pub status: Vec<PlanStatusEnum>,
     /// Filter by plan type (can be repeated)
     #[serde(default)]
-    pub r#type: Vec<PlanTypeEnum>,
+    pub plan_type: Vec<PlanTypeEnum>,
 }
 
 #[derive(Clone, ToSchema, serde::Serialize, serde::Deserialize)]
@@ -256,17 +256,7 @@ pub struct MatrixDimension {
     pub value: String,
 }
 
-#[derive(
-    o2o, Copy, Clone, ToSchema, Deserialize_enum_str, Serialize_enum_str, Debug, PartialEq, Eq, Hash,
-)]
-#[serde(rename_all = "SCREAMING_SNAKE_CASE")]
-#[map_owned(meteroid_store::domain::enums::BillingPeriodEnum)]
-pub enum BillingPeriodEnum {
-    Monthly,
-    Quarterly,
-    Semiannual,
-    Annual,
-}
+pub use crate::api_rest::model::BillingPeriodEnum;
 
 #[derive(
     o2o, Copy, Clone, ToSchema, Deserialize_enum_str, Serialize_enum_str, Debug, PartialEq, Eq,

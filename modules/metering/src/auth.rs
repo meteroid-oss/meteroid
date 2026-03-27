@@ -19,7 +19,7 @@ use common_grpc::middleware::common::filters::Filter;
 
 use common_domain::ids::{OrganizationId, TenantId};
 use common_grpc::middleware::server::auth::{
-    AuthenticatedState, AuthorizedAsTenant, AuthorizedState,
+    AuthenticatedState, AuthorizedAsTenant, AuthorizedState, TenantEnv,
 };
 use meteroid_grpc::meteroid::internal::v1::ResolveApiKeyRequest;
 use meteroid_grpc::meteroid::internal::v1::internal_service_client::InternalServiceClient;
@@ -112,10 +112,12 @@ where
                     tenant_id,
                     id,
                     organization_id,
+                    tenant_env,
                 } => Ok(AuthorizedState::Tenant(AuthorizedAsTenant {
                     tenant_id,
                     organization_id,
                     actor_id: id,
+                    tenant_env,
                 })),
                 _ => Err(Box::new(Status::permission_denied(
                     "Only Api Key authentication is enabled for this service",
@@ -152,7 +154,7 @@ async fn validate_api_token_by_id_cached(
     internal_client: &InternalServiceClient<LayeredClientService>,
     validator: &ApiTokenValidator,
     api_key_id: &Uuid,
-) -> Result<(OrganizationId, TenantId), Status> {
+) -> Result<(OrganizationId, TenantId, TenantEnv), Status> {
     let res = internal_client
         .clone()
         .resolve_api_key(ResolveApiKeyRequest {
@@ -176,7 +178,8 @@ async fn validate_api_token_by_id_cached(
 
     let organization_uuid = OrganizationId::from_proto(inner.organization_id)?;
 
-    Ok((organization_uuid, tenant_uuid))
+    // TODO: resolve from internal API once ResolveApiKeyResponse includes environment
+    Ok((organization_uuid, tenant_uuid, TenantEnv::Production))
 }
 
 pub async fn validate_api_key(
@@ -196,12 +199,13 @@ pub async fn validate_api_key(
         Status::permission_denied("Invalid API key format. Failed to extract identifier")
     })?;
 
-    let (organization_id, tenant_id) =
+    let (organization_id, tenant_id, tenant_env) =
         validate_api_token_by_id_cached(internal_client, &validator, &id).await?;
 
     Ok(AuthenticatedState::ApiKey {
         id,
         tenant_id,
         organization_id,
+        tenant_env,
     })
 }

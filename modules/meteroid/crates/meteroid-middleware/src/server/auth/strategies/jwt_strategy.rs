@@ -4,10 +4,11 @@ use common_domain::ids::{OrganizationId, TenantId};
 use common_grpc::GrpcServiceMethod;
 use common_grpc::middleware::common::auth::{BEARER_AUTH_HEADER, INTERNAL_API_CONTEXT_HEADER};
 use common_grpc::middleware::server::AuthorizedState;
-use common_grpc::middleware::server::auth::{AuthenticatedState, AuthorizedAsTenant};
+use common_grpc::middleware::server::auth::{AuthenticatedState, AuthorizedAsTenant, TenantEnv};
 use http::HeaderMap;
 use jsonwebtoken::DecodingKey;
 use meteroid_store::Store;
+use meteroid_store::domain::TenantEnvironmentEnum;
 use meteroid_store::domain::enums::OrganizationUserRole;
 use meteroid_store::repositories::users::UserInterface;
 use meteroid_store::repositories::{OrganizationsInterface, TenantInterface};
@@ -23,7 +24,7 @@ pub fn validate_jwt(
         .get(BEARER_AUTH_HEADER)
         .ok_or(Status::unauthenticated("Missing JWT"))?
         .to_str()
-        .map_err(|_| Status::permission_denied("Invalid JWT"))?;
+        .map_err(|_| Status::unauthenticated("Invalid JWT"))?;
 
     let token = header
         .strip_prefix("Bearer ")
@@ -35,14 +36,14 @@ pub fn validate_jwt(
     validation.set_audience(&[Audience::WebApi.as_str()]);
 
     let decoded = jsonwebtoken::decode::<JwtClaims>(token, &decoding_key, &validation)
-        .map_err(|_| Status::permission_denied("Invalid JWT"))?;
+        .map_err(|_| Status::unauthenticated("Invalid JWT"))?;
 
-    let user_id = Uuid::parse_str(&decoded.claims.sub)
-        .map_err(|_| Status::permission_denied("Invalid JWT"))?;
+    let user_id =
+        Uuid::parse_str(&decoded.claims.sub).map_err(|_| Status::unauthenticated("Invalid JWT"))?;
 
     // check expiry
     if decoded.claims.exp < chrono::Utc::now().timestamp() as usize {
-        return Err(Status::permission_denied("JWT expired"));
+        return Err(Status::unauthenticated("JWT expired"));
     }
 
     Ok(AuthenticatedState::User { id: user_id })
@@ -59,7 +60,7 @@ const OWNER_ONLY_METHODS: [&str; 0] = [];
     convert = r#"{ (organization_slug.clone(), tenant_slug.clone()) }"#
 )]
 async fn resolve_slugs_cached(
-    store: Store,
+    store: &Store,
     organization_slug: String,
     tenant_slug: Option<String>,
 ) -> Result<(OrganizationId, Option<TenantId>), Status> {
@@ -107,7 +108,7 @@ pub async fn invalidate_resolve_slugs_cache(organization_slug: &str, tenant_slug
     convert = r#"{ (*user_id, org_id) }"#
 )]
 async fn get_user_role_oss_cached(
-    store: Store,
+    store: &Store,
     user_id: &Uuid,
     org_id: OrganizationId,
 ) -> Result<OrganizationUserRole, Status> {
@@ -154,23 +155,24 @@ fn extract_context(header_map: &HeaderMap) -> Result<(String, Option<String>), S
 pub async fn authorize_user(
     header_map: &HeaderMap,
     user_id: Uuid,
-    store: Store,
+    store: &Store,
     gm: GrpcServiceMethod,
 ) -> Result<AuthorizedState, Status> {
     let (org_slug, tenant_slug) = extract_context(header_map)?;
-    let (organization_id, tenant_id) =
-        resolve_slugs_cached(store.clone(), org_slug, tenant_slug).await?;
+    let (organization_id, tenant_id) = resolve_slugs_cached(store, org_slug, tenant_slug).await?;
 
-    let role = get_user_role_oss_cached(store.clone(), &user_id, organization_id).await?;
+    let role = get_user_role_oss_cached(store, &user_id, organization_id).await?;
 
     // if we have a tenant header, we resolve role via tenant (validating tenant access at the same time)
     let (role, state) = if let Some(tenant_id) = tenant_id {
+        let tenant_env = get_tenant_env(store, tenant_id).await?;
         (
             role,
             AuthorizedState::Tenant(AuthorizedAsTenant {
                 tenant_id,
                 organization_id,
                 actor_id: user_id,
+                tenant_env,
             }),
         )
     } else {
@@ -189,4 +191,17 @@ pub async fn authorize_user(
     }
 
     Ok(state)
+}
+
+async fn get_tenant_env(store: &Store, tenant_id: TenantId) -> Result<TenantEnv, Status> {
+    let tenant = store
+        // this one is cached already
+        .find_tenant_by_id(tenant_id)
+        .await
+        .map_err(|_| Status::permission_denied(format!("Failed to retrieve tenant {tenant_id}")))?;
+
+    match tenant.tenant.environment {
+        TenantEnvironmentEnum::Production => Ok(TenantEnv::Production),
+        _ => Ok(TenantEnv::NonProduction),
+    }
 }

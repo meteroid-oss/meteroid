@@ -2459,7 +2459,7 @@ async fn test_immediate_plan_change_mixed_beta_to_alpha_downgrade() {
 #[tokio::test]
 async fn test_immediate_plan_change_capacity_tier_upgrade() {
     let jan1 = NaiveDate::from_ymd_opt(2025, 1, 1).unwrap();
-    let feb1 = NaiveDate::from_ymd_opt(2025, 2, 1).unwrap();
+    let _feb1 = NaiveDate::from_ymd_opt(2025, 2, 1).unwrap();
     let feb15 = NaiveDate::from_ymd_opt(2025, 2, 15).unwrap();
     let mar1 = NaiveDate::from_ymd_opt(2025, 3, 1).unwrap();
 
@@ -3144,7 +3144,7 @@ async fn test_sequential_immediate_plan_changes(#[future] test_env: TestEnv) {
     assert!(comp_ids.contains(&COMP_PRO_SEATS_ID));
 
     // --- Jan 20: Pro → Starter (downgrade) ---
-    let result2 = env
+    let _result2 = env
         .services()
         .apply_plan_change_immediate_at(sub_id, TENANT_ID, PLAN_VERSION_STARTER_ID, vec![], jan20)
         .await
@@ -3361,7 +3361,7 @@ async fn test_plan_change_monthly_to_annual(#[future] test_env: TestEnv) {
     sub.assert().is_active();
 
     // Immediate plan change: Monthly Starter → Annual Rate
-    let result = env
+    let _result = env
         .services()
         .apply_plan_change_immediate_at(
             sub_id,

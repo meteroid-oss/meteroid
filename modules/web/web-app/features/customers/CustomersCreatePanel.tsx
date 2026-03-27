@@ -1,4 +1,4 @@
-import { useMutation } from '@connectrpc/connect-query'
+import { disableQuery, useMutation } from '@connectrpc/connect-query'
 import {
   Badge,
   Button,
@@ -35,6 +35,11 @@ import { schemas } from '@/lib/schemas'
 import { CreateCustomerSchema } from '@/lib/schemas/customers'
 import { percentToRate } from '@/lib/utils/numbers'
 import {
+  getPlatformSettings,
+  listConnectedAccounts,
+} from '@/rpc/api/connect/v1/connect-ConnectAdminService_connectquery'
+import { ConnectionStatus } from '@/rpc/api/connect/v1/models_pb'
+import {
   createCustomer,
   listCustomers,
 } from '@/rpc/api/customers/v1/customers-CustomersService_connectquery'
@@ -61,6 +66,17 @@ export const CustomersCreatePanel = ({ visible, closePanel }: CustomersCreatePan
   const activeCurrencies = activeCurrenciesQuery.data?.currencies ?? []
 
   const listInvoicingEntitiesQuery = useQuery(listInvoicingEntities)
+
+  const platformSettingsQuery = useQuery(getPlatformSettings)
+  const isPlatformEnabled = platformSettingsQuery.data?.settings?.isPlatformEnabled ?? false
+
+  const connectedAccountsQuery = useQuery(
+    listConnectedAccounts,
+    isPlatformEnabled
+      ? { statusFilter: ConnectionStatus.ACTIVE }
+      : disableQuery
+  )
+  const activeConnectedAccounts = connectedAccountsQuery.data?.accounts ?? []
 
   const methods = useZodForm({
     schema: schemas.customers.createCustomerSchema,
@@ -118,6 +134,7 @@ export const CustomersCreatePanel = ({ visible, closePanel }: CustomersCreatePan
         isTaxExempt: values.isTaxExempt,
         billingAddress: values.billingAddress,
         shippingAddress: values.shippingAddress,
+        connectedAccountId: values.connectedAccountId || undefined,
       },
     })
     if (res.customer?.id) {
@@ -206,6 +223,46 @@ export const CustomersCreatePanel = ({ visible, closePanel }: CustomersCreatePan
                             </FormItem>
                           )}
                         />
+                        {isPlatformEnabled && activeConnectedAccounts.length > 0 && (
+                          <FormField
+                            control={methods.control}
+                            name="connectedAccountId"
+                            render={({ field }) => (
+                              <FormItem>
+                                <FormLabel>Connected account</FormLabel>
+                                <Select
+                                  onValueChange={v => field.onChange(v === '__none__' ? undefined : v)}
+                                  value={field.value ?? '__none__'}
+                                >
+                                  <FormControl>
+                                    <SelectTrigger>
+                                      <SelectValue placeholder="None" />
+                                    </SelectTrigger>
+                                  </FormControl>
+                                  <SelectContent>
+                                    <SelectItem value="__none__">None</SelectItem>
+                                    {activeConnectedAccounts.map(account => (
+                                      <SelectItem key={account.id} value={account.id}>
+                                        <div className="flex flex-col">
+                                          <span>
+                                            {account.connectedOrganizationName ||
+                                              account.pendingOrganizationName ||
+                                              account.pendingEmail ||
+                                              'Unnamed account'}
+                                          </span>
+                                          <span className="text-xs text-muted-foreground font-mono">
+                                            {account.id.slice(0, 8)}...
+                                          </span>
+                                        </div>
+                                      </SelectItem>
+                                    ))}
+                                  </SelectContent>
+                                </Select>
+                                <FormMessage />
+                              </FormItem>
+                            )}
+                          />
+                        )}
                       </div>
 
                       {/* Shared customer form fields */}

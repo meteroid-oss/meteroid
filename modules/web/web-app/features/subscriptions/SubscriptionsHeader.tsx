@@ -7,6 +7,7 @@ import { Link } from 'react-router-dom'
 import PageHeading from '@/components/PageHeading/PageHeading'
 import { MultiFilter } from '@/features/TablePage'
 import { SubscriptionsImportModal } from '@/features/subscriptions/modals/SubscriptionsImportModal'
+import { useIsExpressOrganization } from '@/hooks/useIsExpressOrganization'
 import { SetQueryStateAction } from '@/hooks/useQueryState'
 
 interface SubscriptionsProps {
@@ -27,23 +28,26 @@ export const SubscriptionsHeader: FunctionComponent<SubscriptionsProps> = ({
   onImportSuccess,
 }) => {
   const [importVisible, setImportVisible] = useState(false)
+  const isExpress = useIsExpressOrganization()
 
   return (
     <>
       <div className="flex flex-col gap-8">
         <div className="flex flex-row items-center justify-between">
           <PageHeading count={count}>Subscriptions</PageHeading>
-          <div className="flex flex-row gap-2">
-            <Button variant="secondary" size="sm" onClick={() => setImportVisible(true)}>
-              <FileUpIcon className="h-4 w-4 mr-2" />
-              Import CSV
-            </Button>
-            <Link to="create">
-              <Button variant="primary" size="sm" hasIcon>
-                <PlusIcon size={10} fill="white" /> New subscription
+          {!isExpress && (
+            <div className="flex flex-row gap-2">
+              <Button variant="secondary" size="sm" onClick={() => setImportVisible(true)}>
+                <FileUpIcon className="h-4 w-4 mr-2" />
+                Import CSV
               </Button>
-            </Link>
-          </div>
+              <Link to="create">
+                <Button variant="primary" size="sm" hasIcon>
+                  <PlusIcon size={10} fill="white" /> New subscription
+                </Button>
+              </Link>
+            </div>
+          )}
         </div>
         <div className="flex flex-row items-center justify-between">
           <div className="flex flex-row items-center gap-2">

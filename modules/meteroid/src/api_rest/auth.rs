@@ -12,7 +12,7 @@ use tracing::{error, log};
 
 use crate::api_rest::error::{ErrorCode, RestErrorResponse};
 use common_domain::ids::{OrganizationId, TenantId};
-use common_grpc::middleware::server::auth::{AuthenticatedState, AuthorizedAsTenant};
+use common_grpc::middleware::server::auth::{AuthenticatedState, AuthorizedAsTenant, TenantEnv};
 use meteroid_store::Store;
 use meteroid_store::errors::StoreError;
 use meteroid_store::repositories::api_tokens::ApiTokensInterface;
@@ -27,6 +27,7 @@ pub async fn auth_middleware(
         return Ok(next.run(req).await);
     }
 
+    // Handle API key
     let authenticated_state = validate_api_key(req.headers(), &store)
         .await
         .map_err(|err| {
@@ -42,12 +43,14 @@ pub async fn auth_middleware(
         tenant_id,
         id,
         organization_id,
+        tenant_env,
     } = authenticated_state
     {
         let state = AuthorizedAsTenant {
             tenant_id,
             organization_id,
             actor_id: id,
+            tenant_env,
         };
         req.extensions_mut().insert(state);
         return Ok(next.run(req).await);
@@ -61,7 +64,6 @@ pub async fn auth_middleware(
     Err((StatusCode::UNAUTHORIZED, err).into_response())
 }
 
-#[allow(unused)]
 #[derive(Debug)]
 struct AuthStatus {
     status: StatusCode,
@@ -79,7 +81,7 @@ async fn validate_api_token_by_id_cached(
     store: &Store,
     validator: &ApiTokenValidator,
     api_key_id: &Uuid,
-) -> Result<(OrganizationId, TenantId), AuthStatus> {
+) -> Result<(OrganizationId, TenantId, TenantEnv), AuthStatus> {
     let res = store
         .get_api_token_by_id_for_validation(api_key_id)
         .await
@@ -103,7 +105,14 @@ async fn validate_api_token_by_id_cached(
             msg: Some("Unauthorized. Invalid hash".to_string()),
         })?;
 
-    Ok((res.organization_id, res.tenant_id))
+    use meteroid_store::domain::enums::TenantEnvironmentEnum;
+    let tenant_env = if res.environment == TenantEnvironmentEnum::Production {
+        TenantEnv::Production
+    } else {
+        TenantEnv::NonProduction
+    };
+
+    Ok((res.organization_id, res.tenant_id, tenant_env))
 }
 
 async fn validate_api_key(
@@ -126,12 +135,13 @@ async fn validate_api_key(
             msg: Some("Invalid API key format".to_string()),
         })?;
 
-    let (organization_id, tenant_id) =
+    let (organization_id, tenant_id, tenant_env) =
         validate_api_token_by_id_cached(store, &validator, &id).await?;
 
     Ok(AuthenticatedState::ApiKey {
         id,
         tenant_id,
         organization_id,
+        tenant_env,
     })
 }

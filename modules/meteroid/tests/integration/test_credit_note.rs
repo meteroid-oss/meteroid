@@ -1328,6 +1328,7 @@ async fn create_customer_with_tax(conn: &mut PgConn, balance_cents: i64) -> Cust
         phone: None,
         is_tax_exempt: false,
         vat_number_format_valid: true,
+        connected_account_id: None,
     };
 
     customer_row.insert(conn).await.unwrap();

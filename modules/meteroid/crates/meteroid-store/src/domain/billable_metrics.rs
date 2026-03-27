@@ -30,8 +30,6 @@ pub struct BillableMetric {
     pub created_by: Uuid,
     pub updated_at: Option<NaiveDateTime>,
     pub archived_at: Option<NaiveDateTime>,
-    pub synced_at: Option<NaiveDateTime>,
-    pub sync_error: Option<String>,
     pub tenant_id: TenantId,
     pub product_family_id: ProductFamilyId,
     pub product_id: Option<ProductId>,
@@ -98,6 +96,4 @@ pub struct BillableMetricMeta {
     pub aggregation_key: Option<String>,
     pub created_at: NaiveDateTime,
     pub archived_at: Option<NaiveDateTime>,
-    pub synced_at: Option<NaiveDateTime>,
-    pub sync_error: Option<String>,
 }

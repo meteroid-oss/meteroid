@@ -17,6 +17,7 @@ import { LocalId } from '@/components/LocalId'
 import { StandardTable } from '@/components/table/StandardTable'
 import { PlanStatusBadge } from '@/features/plans/PlanStatusBadge'
 import { displayPlanType } from '@/features/plans/utils'
+import { useIsExpressOrganization } from '@/hooks/useIsExpressOrganization'
 import { PlanOverview, PlanStatus } from '@/rpc/api/plans/v1/models_pb'
 import {
   archivePlan,
@@ -39,6 +40,7 @@ export const PlansTable: FunctionComponent<PlansTableProps> = ({
 }) => {
   const navigate = useNavigate()
   const queryClient = useQueryClient()
+  const isExpress = useIsExpressOrganization()
 
   const archiveMutation = useMutation(archivePlan, {
     onSuccess: async () => {
@@ -112,11 +114,11 @@ export const PlansTable: FunctionComponent<PlansTableProps> = ({
         cell: ({ row }) => <LocalId localId={row.original.localId} className="max-w-16" />,
       },
 
-      {
+      ...(!isExpress ? [{
         accessorKey: 'id',
         header: '',
         maxSize: 0.1,
-        cell: ({ row }) => {
+        cell: ({ row }: { row: { original: PlanOverview } }) => {
           const isArchived = row.original.planStatus === PlanStatus.ARCHIVED
           return (
             <DropdownMenu>
@@ -141,9 +143,9 @@ export const PlansTable: FunctionComponent<PlansTableProps> = ({
             </DropdownMenu>
           )
         },
-      },
+      }] : []),
     ],
-    [navigate, handleArchive, handleUnarchive]
+    [navigate, handleArchive, handleUnarchive, isExpress]
   )
 
   return (

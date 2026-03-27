@@ -15,6 +15,7 @@ import { CustomerInvoiceModal } from '@/features/customers/modals/CustomerInvoic
 import { ManageConnectionsModal } from '@/features/customers/modals/ManageConnectionsModal'
 import { getCountryFlagEmoji, getCountryName } from '@/features/settings/utils'
 import { useBasePath } from '@/hooks/useBasePath'
+import { useIsExpressOrganization } from '@/hooks/useIsExpressOrganization'
 import { useQuery } from '@/lib/connectrpc'
 import { formatCurrency, rateToPercent } from '@/lib/utils/numbers'
 import { ConnectorProviderEnum } from '@/rpc/api/connectors/v1/models_pb'
@@ -29,6 +30,7 @@ export const Customer = () => {
   const { customerId } = useTypedParams<{ customerId: string }>()
   const navigate = useNavigate()
   const basePath = useBasePath()
+  const isExpress = useIsExpressOrganization()
 
   const [editPanelVisible, setEditPanelVisible] = useState(false)
   const [createInvoiceVisible, setCreateInvoiceVisible] = useState(false)
@@ -95,30 +97,36 @@ export const Customer = () => {
                     currency={data.currency}
                   />
                 </div>
-                <Flex align="center" justify="between" className="mt-4">
-                  <div className="text-lg font-medium">Subscriptions</div>
-                  <Flex
-                    align="center"
-                    className="gap-1 text-sm cursor-pointer hover:text-primary"
-                    onClick={() =>
-                      navigate(`${basePath}/subscriptions/create?customerId=${customerId}`)
-                    }
-                  >
-                    <Plus size={10} /> New subscription
-                  </Flex>
-                </Flex>
-                <div className="flex-none">
-                  <SubscriptionsCard customer={data} />
-                </div>
+                {!isExpress && (
+                  <>
+                    <Flex align="center" justify="between" className="mt-4">
+                      <div className="text-lg font-medium">Subscriptions</div>
+                      <Flex
+                        align="center"
+                        className="gap-1 text-sm cursor-pointer hover:text-primary"
+                        onClick={() =>
+                          navigate(`${basePath}/subscriptions/create?customerId=${customerId}`)
+                        }
+                      >
+                        <Plus size={10} /> New subscription
+                      </Flex>
+                    </Flex>
+                    <div className="flex-none">
+                      <SubscriptionsCard customer={data} />
+                    </div>
+                  </>
+                )}
                 <Flex align="center" justify="between" className="mt-4">
                   <div className="text-lg font-medium">Invoices</div>
-                  <Flex
-                    align="center"
-                    className="gap-1 text-sm cursor-pointer hover:text-primary"
-                    onClick={() => navigate(`${basePath}/invoices/create?customerId=${customerId}`)}
-                  >
-                    <Plus size={10} /> New invoice
-                  </Flex>
+                  {!isExpress && (
+                    <Flex
+                      align="center"
+                      className="gap-1 text-sm cursor-pointer hover:text-primary"
+                      onClick={() => navigate(`${basePath}/invoices/create?customerId=${customerId}`)}
+                    >
+                      <Plus size={10} /> New invoice
+                    </Flex>
+                  )}
                 </Flex>
                 <div className="flex-none">
                   <InvoicesCard customer={data} />
@@ -129,13 +137,15 @@ export const Customer = () => {
                   <div className="flex justify-between">
                     <div className="text-lg font-medium">{data.name}</div>
 
-                    <Button
-                      size="sm"
-                      variant="secondary"
-                      onClick={() => setEditCustomerVisible(true)}
-                    >
-                      Edit
-                    </Button>
+                    {!isExpress && (
+                      <Button
+                        size="sm"
+                        variant="secondary"
+                        onClick={() => setEditCustomerVisible(true)}
+                      >
+                        Edit
+                      </Button>
+                    )}
                   </div>
                   <div className="text-muted-foreground text-[13px] mb-3">{data.alias}</div>
                   <FlexDetails title="Legal name" value={data.name} />
@@ -207,32 +217,38 @@ export const Customer = () => {
                   <div className="text-[15px] font-medium">Invoicing</div>
                   <FlexDetails title="Invoicing emails" value={data.invoicingEmails?.join(', ')} />
                 </Flex>
-                <Separator className="-my-3" />
-                <Flex direction="column" className="gap-2 p-6">
-                  <div className="text-[15px] font-medium">Portal</div>
-                  <Button
-                    variant="secondary"
-                    size="sm"
-                    onClick={handleOpenCustomerPortal}
-                    disabled={portalTokenMutation.isPending}
-                    className="w-full"
-                  >
-                    <ExternalLink size={14} className="mr-2" />
-                    Open Customer Portal
-                  </Button>
-                </Flex>
+                {!isExpress && (
+                  <>
+                    <Separator className="-my-3" />
+                    <Flex direction="column" className="gap-2 p-6">
+                      <div className="text-[15px] font-medium">Portal</div>
+                      <Button
+                        variant="secondary"
+                        size="sm"
+                        onClick={handleOpenCustomerPortal}
+                        disabled={portalTokenMutation.isPending}
+                        className="w-full"
+                      >
+                        <ExternalLink size={14} className="mr-2" />
+                        Open Customer Portal
+                      </Button>
+                    </Flex>
+                  </>
+                )}
                 <Separator className="-my-3" />
                 <Flex direction="column" className="gap-2 p-6">
                   <Flex align="center" justify="between" className="mb-2">
                     <div className="text-[15px] font-medium">Integrations</div>
-                    <Button
-                      variant="secondary"
-                      size="sm"
-                      onClick={() => setManageConnectionsVisible(true)}
-                      className="h-7 text-xs"
-                    >
-                      Manage
-                    </Button>
+                    {!isExpress && (
+                      <Button
+                        variant="secondary"
+                        size="sm"
+                        onClick={() => setManageConnectionsVisible(true)}
+                        className="h-7 text-xs"
+                      >
+                        Manage
+                      </Button>
+                    )}
                   </Flex>
                   <FlexDetails title="Alias (External ID)" value={data.alias} />
                   {data.customerConnections?.map(connection => {

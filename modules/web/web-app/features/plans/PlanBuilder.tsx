@@ -24,6 +24,7 @@ import { editedComponentsAtom } from '@/features/plans/pricecomponents/utils'
 import { PlanTrial } from '@/features/plans/trial/PlanTrial'
 import { SubscriptionsTable } from '@/features/subscriptions'
 import { useBasePath } from '@/hooks/useBasePath'
+import { useIsExpressOrganization } from '@/hooks/useIsExpressOrganization'
 import { useQuery } from '@/lib/connectrpc'
 import { PlanType } from '@/rpc/api/plans/v1/models_pb'
 import { listSubscriptions } from '@/rpc/api/subscriptions/v1/subscriptions-SubscriptionsService_connectquery'
@@ -145,6 +146,7 @@ const OutdatedDraftAlert = () => {
 const SubscriptionsTab = () => {
   const overview = usePlanOverview()
   const planData = usePlanWithVersion()
+  const isExpress = useIsExpressOrganization()
 
   const navigate = useNavigate()
   const basePath = useBasePath()
@@ -174,17 +176,19 @@ const SubscriptionsTab = () => {
 
   return (
     <div>
-      <div className="flex py-2 justify-end">
-        <Button
-          variant="secondary"
-          hasIcon
-          onClick={() =>
-            navigate(`${basePath}/subscriptions/create?planVersionId=${planData?.version?.id}`)
-          }
-        >
-          <Plus size={10}/> New subscription
-        </Button>
-      </div>
+      {!isExpress && (
+        <div className="flex py-2 justify-end">
+          <Button
+            variant="secondary"
+            hasIcon
+            onClick={() =>
+              navigate(`${basePath}/subscriptions/create?planVersionId=${planData?.version?.id}`)
+            }
+          >
+            <Plus size={10}/> New subscription
+          </Button>
+        </div>
+      )}
 
       <SubscriptionsTable
         data={data}

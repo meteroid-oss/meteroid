@@ -41,6 +41,8 @@ message LoginResponse {
 message InitRegistrationRequest {
   string email = 1;
   optional string invite_key = 2;
+  // Relative path to redirect to after email validation (e.g. /connect/onboard/{token})
+  optional string return_path = 3;
 }
 
 message InitRegistrationResponse {

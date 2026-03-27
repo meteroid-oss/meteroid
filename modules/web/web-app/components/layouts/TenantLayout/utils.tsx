@@ -11,6 +11,65 @@ import {
   Zap,
 } from 'lucide-react'
 
+export const getFilteredSidebarItems = (isExpress: boolean) => {
+  if (!isExpress) return sidebarItems
+
+  return {
+    mainNav: [
+      {
+        title: 'Home',
+        url: '.',
+        icon: Home,
+      },
+      {
+        title: 'Product catalog',
+        icon: Box,
+        items: [
+          {
+            title: 'Plans',
+            url: 'plans',
+          },
+          {
+            title: 'Metrics',
+            url: 'metrics',
+          },
+        ],
+      },
+      {
+        title: 'Billing',
+        icon: ReceiptText,
+        items: [
+          {
+            title: 'Subscriptions',
+            url: 'subscriptions',
+          },
+          {
+            title: 'Invoices',
+            url: 'invoices',
+          },
+        ],
+      },
+      {
+        title: 'Customers',
+        url: 'customers',
+        icon: User,
+      },
+    ],
+    navSecondary: [
+      {
+        title: 'Help & Feedback',
+        url: 'help',
+        icon: LifeBuoy,
+      },
+      {
+        title: 'Settings',
+        url: 'settings',
+        icon: Settings,
+      },
+    ],
+  }
+}
+
 export const sidebarItems = {
   mainNav: [
     {

@@ -24,6 +24,12 @@ pub enum Prefix {
         connection_alias: String,
         tenant_id: TenantId,
     },
+    BatchJobInput {
+        tenant_id: TenantId,
+    },
+    BatchJobErrorOutput {
+        tenant_id: TenantId,
+    },
 }
 
 impl Prefix {
@@ -38,6 +44,10 @@ impl Prefix {
                 connection_alias,
                 tenant_id,
             } => format!("webhook_archive/{tenant_id}/{connection_alias}"),
+            Prefix::BatchJobInput { tenant_id } => format!("batch_job/{tenant_id}"),
+            Prefix::BatchJobErrorOutput { tenant_id } => {
+                format!("batch_job_errors/{tenant_id}")
+            }
         }
     }
 }
@@ -90,7 +100,7 @@ impl S3Storage {
         };
 
         let path = match path_prefix {
-            Some(prefix) => path.child(prefix.as_str()),
+            Some(prefix) => path.join(prefix.as_str()),
             None => path,
         };
 
@@ -111,8 +121,9 @@ impl ObjectStoreService for S3Storage {
 
         let path = self
             .path
-            .child(document_type.to_path_string().as_str())
-            .child(uid.as_uuid().to_string().as_str());
+            .clone()
+            .join(document_type.to_path_string().as_str())
+            .join(uid.as_uuid().to_string().as_str());
 
         self.object_store_client
             .put(&path, payload)
@@ -125,8 +136,9 @@ impl ObjectStoreService for S3Storage {
     async fn retrieve(&self, uid: StoredDocumentId, document_type: Prefix) -> Result<Bytes> {
         let path = self
             .path
-            .child(document_type.to_path_string().as_str())
-            .child(uid.as_uuid().to_string().as_str());
+            .clone()
+            .join(document_type.to_path_string().as_str())
+            .join(uid.as_uuid().to_string().as_str());
 
         let data = self
             .object_store_client
@@ -147,8 +159,9 @@ impl ObjectStoreService for S3Storage {
     ) -> Result<Option<String>> {
         let path = self
             .path
-            .child(prefix.to_path_string().as_str())
-            .child(uid.as_uuid().to_string().as_str());
+            .clone()
+            .join(prefix.to_path_string().as_str())
+            .join(uid.as_uuid().to_string().as_str());
 
         // Only some backends supports presigned URLs
         if let Some(s3_client) = self.signer.clone() {

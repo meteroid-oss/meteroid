@@ -1,10 +1,12 @@
 use crate::config::SvixConfig;
 use common_domain::ids::TenantId;
+use envconfig::Envconfig;
 use governor::middleware::NoOpMiddleware;
 use governor::state::{InMemoryState, NotKeyed};
 use governor::{Jitter, Quota, RateLimiter, clock};
 use nonzero::nonzero;
 use secrecy::ExposeSecret;
+use std::num::NonZero;
 use std::sync::Arc;
 use std::time::Duration;
 use svix::api::{
@@ -22,7 +24,14 @@ struct ApiRateLimiter;
 impl ApiRateLimiter {
     pub fn get()
     -> &'static RateLimiter<NotKeyed, InMemoryState, clock::DefaultClock, NoOpMiddleware> {
-        API_RATE_LIMITER.get_or_init(|| RateLimiter::direct(Quota::per_second(nonzero!(50u32))))
+        API_RATE_LIMITER.get_or_init(|| {
+            let rps = SvixConfig::init_from_env()
+                .ok()
+                .and_then(|x| NonZero::new(x.rps_quota))
+                .unwrap_or(nonzero!(25u32));
+
+            RateLimiter::direct(Quota::per_second(rps))
+        })
     }
 }
 

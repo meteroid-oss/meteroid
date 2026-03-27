@@ -44,31 +44,54 @@ impl InvoiceRowNew {
 }
 
 impl InvoiceRow {
-    /// locks the invoice and the customer (for the balance)
+    /// Locks the invoice and the customer for update.
+    ///
+    /// IMPORTANT: Locks are acquired in consistent order (customer first, then invoice)
+    /// to prevent deadlocks when multiple transactions process invoices for the same
+    /// customer concurrently. Previously, a JOIN with FOR UPDATE could lock tables in
+    /// unpredictable order depending on the query plan, causing deadlocks.
     pub async fn select_for_update_by_id(
         conn: &mut PgConn,
         param_tenant_id: TenantId,
         param_invoice_id: InvoiceId,
     ) -> DbResult<InvoiceLockRow> {
-        use crate::schema::customer::dsl as c_dsl;
-        use crate::schema::invoice::dsl as i_dsl;
+        use crate::customers::CustomerRow;
 
+        use crate::schema::invoice::dsl as i_dsl;
         use diesel_async::RunQueryDsl;
 
-        let query = i_dsl::invoice
-            .inner_join(c_dsl::customer.on(i_dsl::customer_id.eq(c_dsl::id)))
-            .select(InvoiceLockRow::as_select())
+        // Step 1: Get the invoice's customer_id first (no lock)
+        let invoice_customer_id: common_domain::ids::CustomerId = i_dsl::invoice
+            .select(i_dsl::customer_id)
+            .filter(i_dsl::tenant_id.eq(param_tenant_id))
+            .filter(i_dsl::id.eq(param_invoice_id))
+            .first(conn)
+            .await
+            .attach("Error while fetching invoice customer_id")
+            .into_db_result()?;
+
+        // Step 2: Lock customer FIRST (consistent ordering prevents deadlocks)
+        let customer =
+            CustomerRow::select_for_update(conn, invoice_customer_id, param_tenant_id).await?;
+
+        // Step 3: Lock invoice SECOND
+        let invoice_query = i_dsl::invoice
             .filter(i_dsl::tenant_id.eq(param_tenant_id))
             .filter(i_dsl::id.eq(param_invoice_id))
             .for_update();
 
-        log::debug!("{}", debug_query::<diesel::pg::Pg, _>(&query));
+        log::debug!("{}", debug_query::<diesel::pg::Pg, _>(&invoice_query));
 
-        query
+        let invoice = invoice_query
             .first(conn)
             .await
             .attach("Error while locking invoice by id")
-            .into_db_result()
+            .into_db_result()?;
+
+        Ok(InvoiceLockRow {
+            invoice,
+            customer_balance: customer.balance_value_cents,
+        })
     }
 
     /// Get the backdate_invoices flag from the subscription (if any)

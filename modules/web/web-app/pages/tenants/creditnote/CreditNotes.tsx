@@ -9,6 +9,7 @@ import { ListCreditNotesRequest_SortBy } from '@/rpc/api/creditnotes/v1/creditno
 
 import type { PaginationState } from '@tanstack/react-table'
 
+
 export const CreditNotes = () => {
   const [search, setSearch] = useState<CreditNotesSearch>({})
 

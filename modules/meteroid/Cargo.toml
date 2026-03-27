@@ -37,6 +37,7 @@ serde-enum-str.workspace = true
 serde_json.workspace = true
 serde_with.workspace = true
 serde_html_form.workspace = true
+serde_plain.workspace = true
 tap.workspace = true
 time.workspace = true
 tokio = { workspace = true, features = ["rt-multi-thread"] }
@@ -75,7 +76,10 @@ object_store = { workspace = true, features = ["aws", "azure", "gcp", "http", "f
 bytes.workspace = true
 async-trait.workspace = true
 url.workspace = true
+urlencoding.workspace = true
 csv = "1.3"
+encoding_rs.workspace = true
+typetag = { workspace = true }
 jsonwebtoken = { workspace = true, features = ["aws_lc_rs"] }
 image = { workspace = true }
 meteroid-store.workspace = true
@@ -87,6 +91,7 @@ meteroid-seeder = { workspace = true }
 hubspot-client = { workspace = true }
 pennylane-client = { workspace = true }
 moka = { workspace = true, features = ["future"] }
+sha2.workspace = true
 
 utoipa.workspace = true
 utoipa-axum.workspace = true
@@ -101,6 +106,7 @@ itertools = { workspace = true }
 validator = { workspace = true, features = ["derive"] }
 axum-valid = { workspace = true }
 metering = { workspace = true, features = ["clickhouse", "kafka"], optional = true }
+fred = { workspace = true }
 nonzero = "0.2.0"
 
 [dev-dependencies]

@@ -104,6 +104,7 @@ impl PgmqHandler for InvoiceOrchestration {
                             //
                             // },
                             _ => {
+                                log::warn!("Unhandled outbox event type: {:?}", event);
                                 return Err(PgmqError::HandleMessages).attach("Invalid event type");
                             }
                         }

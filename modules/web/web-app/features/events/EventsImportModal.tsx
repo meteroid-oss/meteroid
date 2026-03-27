@@ -1,153 +1,109 @@
-import { useMutation } from '@connectrpc/connect-query'
-import { Checkbox, Label } from '@md/ui'
 import { FileSpreadsheetIcon } from 'lucide-react'
 import { useState } from 'react'
-import { toast } from 'sonner'
+import { z } from 'zod'
 
-import { CSVImportConfig, CSVImportDialog, CSVImportResult } from '@/components/CSVImportDialog'
-import { ingestCsv } from '@/rpc/api/events/v1/events-EventsIngestService_connectquery'
-import { FileData, IngestCsvRequest } from '@/rpc/api/events/v1/events_pb'
+import { CSVImportDialog, CSVImportConfig } from '@/components/CSVImportDialog'
+import { useBatchJobCreate, CreateBatchJobRequest } from '@/features/batch-jobs/useBatchJobCreate'
+import { BatchJobType } from '@/rpc/api/batchjobs/v1/models_pb'
 
 import type { FunctionComponent } from 'react'
+
+const eventsRowSchema = z.object({
+  event_code: z.string().min(1, 'Required'),
+  customer_id: z.string().min(1, 'Required'),
+  timestamp: z.string().refine(
+    v => !v || !isNaN(Date.parse(v)),
+    'Must be a valid ISO 8601 timestamp'
+  ).optional(),
+})
+
+type EventsImportOptions = CSVImportConfig
 
 interface EventsImportModalProps {
   openState: [boolean, (open: boolean) => void]
   onSuccess?: () => void
 }
 
-interface EventsCsvOptions extends CSVImportConfig {
-  allowBackfilling: boolean
-}
-
 export const EventsImportModal: FunctionComponent<EventsImportModalProps> = ({
   openState,
-  onSuccess,
 }) => {
   const [isOpen, setIsOpen] = openState
   const [uploadFile, setUploadFile] = useState<File | null>(null)
-  const [csvOptions, setCsvOptions] = useState<EventsCsvOptions>({
+  const [csvOptions, setCsvOptions] = useState<EventsImportOptions>({
     delimiter: ',',
-    allowBackfilling: true,
-    failOnError: false,
   })
-  const [importResult, setImportResult] = useState<CSVImportResult<string> | null>(null)
+  const [batchJobId, setBatchJobId] = useState<string | null>(null)
+  const [duplicateDetected, setDuplicateDetected] = useState(false)
 
-  // CSV upload mutation
-  const uploadMutation = useMutation(ingestCsv, {
-    onSuccess: async response => {
-      const { totalRows, successfulEvents, failures } = response
+  const createMutation = useBatchJobCreate({
+    onSuccess: (jobId) => setBatchJobId(jobId),
+    onDuplicate: () => setDuplicateDetected(true),
+  })
 
-      setImportResult({
-        totalRows,
-        successful: successfulEvents,
-        failures:
-          failures?.map(f => ({
-            rowNumber: f.rowNumber,
-            identifier: f.eventId,
-            reason: f.reason,
-          })) || [],
-      })
-
-      // Only close modal and refetch if completely successful
-      if (!failures || failures.length === 0) {
-        setIsOpen(false)
-        setUploadFile(null)
-        setImportResult(null)
-        onSuccess?.()
-        toast.success(`Successfully imported ${successfulEvents} events`)
-      }
-    },
-    onError: error => {
-      setImportResult({
-        totalRows: 0,
-        successful: 0,
-        failures: [
-          {
-            rowNumber: 0,
-            identifier: '',
-            reason: error.message,
+  const buildRequest = (forceDuplicate = false) => {
+    if (!uploadFile) return null
+    return uploadFile.arrayBuffer().then(
+      buffer =>
+        new CreateBatchJobRequest({
+          fileData: new Uint8Array(buffer),
+          jobType: BatchJobType.EVENT_CSV_IMPORT,
+          fileName: uploadFile.name,
+          forceDuplicate,
+          params: {
+            delimiter: csvOptions.delimiter,
           },
-        ],
-      })
-    },
-  })
+        })
+    )
+  }
 
   const handleFileUpload = async () => {
-    if (!uploadFile) return
+    const request = await buildRequest()
+    if (request) createMutation.mutate(request)
+  }
 
-    setImportResult(null) // Clear previous results
-    const buffer = await uploadFile.arrayBuffer()
-    const request = new IngestCsvRequest({
-      file: new FileData({ data: new Uint8Array(buffer) }),
-      delimiter: csvOptions.delimiter,
-      allowBackfilling: csvOptions.allowBackfilling,
-      failOnError: csvOptions.failOnError,
-    })
-
-    uploadMutation.mutate(request)
+  const handleForceUpload = async () => {
+    const request = await buildRequest(true)
+    if (request) createMutation.mutate(request)
   }
 
   const handleCloseModal = () => {
     setIsOpen(false)
     setUploadFile(null)
-    setImportResult(null)
+    setBatchJobId(null)
+    setDuplicateDetected(false)
   }
 
   return (
-    <CSVImportDialog
+    <CSVImportDialog<EventsImportOptions>
       isOpen={isOpen}
       setIsOpen={setIsOpen}
       uploadFile={uploadFile}
       setUploadFile={setUploadFile}
       csvOptions={csvOptions}
       setCsvOptions={setCsvOptions}
-      importResult={importResult}
-      setImportResult={setImportResult}
-      isUploading={uploadMutation.isPending}
+      isUploading={createMutation.isPending}
+      batchJobId={batchJobId}
       onUpload={handleFileUpload}
+      onForceUpload={handleForceUpload}
       onClose={handleCloseModal}
+      duplicateDetected={duplicateDetected}
       entityName="events"
-      identifierLabel="Event ID"
       dialogTitle="Import Events from CSV"
-      dialogDescription="Import event data from a CSV file. All imports must include headers."
+      dialogDescription="Import usage events from a CSV file. All imports must include headers."
       dialogIcon={<FileSpreadsheetIcon className="h-5 w-5" />}
-      requiredColumns={[{ name: 'event_code' }, { name: 'customer_id' }]}
-      optionalColumns={[
-        { name: 'event_id' },
-        { name: 'timestamp', tooltipMessage: 'Should be in ISO 8601 format' },
+      rowSchema={eventsRowSchema}
+      requiredColumns={[
+        { name: 'event_code' },
         {
-          name: '+ any properties',
-          tooltipMessage: 'Additional columns will be stored as event properties',
+          name: 'customer_id',
+          tooltipMessage: 'Meteroid Customer ID or external alias',
         },
       ]}
-      additionalInfo={
-        <>
-          <ul>
-            <li>• Headers are required in the first row</li>
-          </ul>
-        </>
-      }
-      additionalOptions={
-        <div className="flex items-start space-x-3">
-          <div>
-            <Checkbox
-              id="allowBackfilling"
-              checked={csvOptions.allowBackfilling}
-              onCheckedChange={checked =>
-                setCsvOptions(prev => ({ ...prev, allowBackfilling: checked === true }))
-              }
-            />
-          </div>
-          <div className="space-y-1">
-            <Label htmlFor="allowBackfilling" className="text-sm font-medium">
-              Allow backfilling
-            </Label>
-            <p className="text-xs text-muted-foreground">
-              Allow importing events with timestamps in the past.
-            </p>
-          </div>
-        </div>
-      }
+      optionalColumns={[
+        { name: 'event_id', tooltipMessage: 'Auto-generated UUID if empty' },
+        { name: 'timestamp', tooltipMessage: 'ISO 8601 format. Defaults to current time.' },
+        { name: '(additional)', tooltipMessage: 'Any extra columns become event properties' },
+      ]}
     />
   )
 }

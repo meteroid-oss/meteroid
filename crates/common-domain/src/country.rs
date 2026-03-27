@@ -82,7 +82,7 @@ impl utoipa::ToSchema for CountryCode {
 
 impl CountryCode {
     pub fn parse_as_opt(code: &str) -> Option<Self> {
-        rust_iso3166::from_alpha2(code).map(std::convert::Into::into)
+        rust_iso3166::from_alpha2(&code.to_uppercase()).map(std::convert::Into::into)
     }
 
     pub fn subdivisions(&self) -> Vec<Subdivision> {

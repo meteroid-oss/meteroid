@@ -146,16 +146,18 @@ where
                     tenant_id,
                     id,
                     organization_id,
+                    tenant_env,
                 } => Ok(AuthorizedState::Tenant(AuthorizedAsTenant {
                     tenant_id,
                     organization_id,
                     actor_id: id,
+                    tenant_env,
                 })),
                 AuthenticatedState::User { id } => {
                     if UNAUTHORIZED_SERVICES.contains(&request.uri().path()) {
                         Ok(AuthorizedState::User { user_id: id })
                     } else {
-                        authorize_user(&metadata, id, store, sm)
+                        authorize_user(&metadata, id, &store, sm)
                             .await
                             .map_err(|e| BoxError::from(e) as BoxError)
                     }
@@ -173,11 +175,19 @@ where
             inner.call(request).await.map_err(Into::into)
         };
 
-        // if the future is an error , we recover by providing an empty Response
         let future = future.or_else(|e: BoxError| async move {
             log::warn!("Error in auth middleware: {e:?}");
+            let status_code = e
+                .downcast_ref::<Status>()
+                .map(|s| match s.code() {
+                    tonic::Code::PermissionDenied => StatusCode::FORBIDDEN,
+                    tonic::Code::Internal => StatusCode::INTERNAL_SERVER_ERROR,
+                    tonic::Code::NotFound => StatusCode::NOT_FOUND,
+                    _ => StatusCode::UNAUTHORIZED,
+                })
+                .unwrap_or(StatusCode::UNAUTHORIZED);
             let response = Response::builder()
-                .status(StatusCode::UNAUTHORIZED)
+                .status(status_code)
                 .body(Body::empty())
                 .unwrap();
             Ok(response)

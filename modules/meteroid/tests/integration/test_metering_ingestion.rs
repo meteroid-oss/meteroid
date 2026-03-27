@@ -9,7 +9,7 @@ use itertools::Itertools;
 use metering_grpc::meteroid::metering::v1::usage_query_service_client::UsageQueryServiceClient;
 use metering_grpc::meteroid::metering::v1::{Event, IngestRequest, QueryRawEventsRequest, event};
 use meteroid::clients::usage::MeteringUsageClient;
-use meteroid::workers::pgmq::processors::{run_metric_sync, run_outbox_dispatch};
+use meteroid::workers::pgmq::processors::run_outbox_dispatch;
 use meteroid_grpc::meteroid::api;
 use meteroid_mailer::config::MailerConfig;
 use meteroid_store::Store;
@@ -71,7 +71,6 @@ async fn test_metering_ingestion() {
     );
 
     let metering_client = Arc::new(metering_client);
-    let metering_client_clone = metering_client.clone();
 
     let meteroid_setup = meteroid_it::container::start_meteroid_with_port(
         meteroid_port,
@@ -96,10 +95,7 @@ async fn test_metering_ingestion() {
     let store_clone = store.clone();
 
     let pgmq_handle = tokio::spawn(async move {
-        tokio::join!(
-            run_outbox_dispatch(store_clone.clone()),
-            run_metric_sync(store_clone.clone(), metering_client_clone)
-        );
+        tokio::join!(run_outbox_dispatch(store_clone.clone()),);
     });
 
     let family = meteroid_clients

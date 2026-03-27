@@ -343,7 +343,7 @@ impl FullPlanRow {
         use diesel_async::RunQueryDsl;
 
         let mut query = p_dsl::plan
-            .inner_join(pv_dsl::plan_version.on(p_dsl::id.eq(pv_dsl::plan_id)))
+            .inner_join(pv_dsl::plan_version.on(p_dsl::active_version_id.eq(pv_dsl::id.nullable())))
             .inner_join(pf_dsl::product_family.on(p_dsl::product_family_id.eq(pf_dsl::id)))
             .filter(p_dsl::tenant_id.eq(tenant_id))
             .select(_FullPlanRowEmbed::as_select())

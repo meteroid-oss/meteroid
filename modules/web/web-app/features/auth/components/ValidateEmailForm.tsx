@@ -10,6 +10,8 @@ import { schemas } from '@/lib/schemas'
 import { getInstance } from '@/rpc/api/instance/v1/instance-InstanceService_connectquery'
 import { completeRegistration } from '@/rpc/api/users/v1/users-UsersService_connectquery'
 
+import { RETURN_URL_KEY } from './RegistrationForm'
+
 export const ValidateEmailForm = () => {
   const navigate = useNavigate()
   const [, setSession] = useSession()
@@ -43,7 +45,14 @@ export const ValidateEmailForm = () => {
       password: data.password,
       validationToken: token ?? '',
     })
-    navigate('/login', {
+
+    // Get and clear the pending return URL
+    const pendingReturnUrl = sessionStorage.getItem(RETURN_URL_KEY)
+    sessionStorage.removeItem(RETURN_URL_KEY)
+
+    // Navigate to login with returnUrl if available
+    const loginPath = pendingReturnUrl ? `/login?returnUrl=${encodeURIComponent(pendingReturnUrl)}` : '/login'
+    navigate(loginPath, {
       state: 'accountCreated',
     })
   }

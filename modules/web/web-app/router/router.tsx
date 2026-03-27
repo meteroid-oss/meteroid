@@ -60,6 +60,7 @@ const router = createBrowserRouter(
                   path: 'tenants/new',
                   element: <TenantNew />,
                 },
+
               ],
             },
           ],
@@ -74,6 +75,7 @@ const router = createBrowserRouter(
           path: '/invite',
           element: <AcceptInvite />,
         },
+
       ],
     },
   ],

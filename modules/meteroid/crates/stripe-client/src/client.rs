@@ -66,8 +66,8 @@ impl StripeClient {
     pub fn new() -> Self {
         Self::from_parts(
             "https://api.stripe.com/",
-            Duration::from_secs(5),
             Duration::from_secs(10),
+            Duration::from_secs(30),
         )
     }
 

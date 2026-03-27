@@ -522,7 +522,7 @@ impl PlanSeed {
         .update(tx)
         .await?;
 
-        Self::seed_components(tx, self.version_id, &self.components, &self.currency).await?;
+        Self::seed_components(tx, self.version_id, &self.components, self.currency).await?;
 
         Ok(())
     }

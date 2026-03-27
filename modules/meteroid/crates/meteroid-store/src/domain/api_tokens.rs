@@ -4,6 +4,8 @@ use diesel_models::api_tokens::{ApiTokenRow, ApiTokenRowNew, ApiTokenValidationR
 use o2o::o2o;
 use uuid::Uuid;
 
+use crate::domain::enums::TenantEnvironmentEnum;
+
 #[derive(Debug, o2o)]
 #[from_owned(ApiTokenRowNew)]
 pub struct ApiTokenNew {
@@ -32,4 +34,6 @@ pub struct ApiTokenValidation {
     pub tenant_id: TenantId,
     pub organization_id: OrganizationId,
     pub hash: String,
+    #[map(~.into())]
+    pub environment: TenantEnvironmentEnum,
 }

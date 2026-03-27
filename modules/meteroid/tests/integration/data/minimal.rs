@@ -30,6 +30,7 @@ pub async fn run_minimal_seed(pool: &PgPool) {
             trade_name: "Local Org".to_string(),
             slug: "TESTORG".to_string(),
             default_country: CountryCode::from_str("FR").expect("failed to parse country code"),
+            is_express: false,
         }.insert(tx).await?;
 
         OrganizationRow::update_invite_link(

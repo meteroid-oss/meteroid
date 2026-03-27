@@ -36,6 +36,12 @@ pub mod meteroid {
             }
         }
 
+        pub mod batchjobs {
+            pub mod v1 {
+                tonic::include_proto!("meteroid.api.batchjobs.v1");
+            }
+        }
+
         pub mod billablemetrics {
             pub mod v1 {
                 include_proto_serde!("meteroid.api.billablemetrics.v1");

@@ -15,6 +15,11 @@ use diesel_models::enums::{PaymentStatusEnum, PaymentTypeEnum};
 use diesel_models::invoices::InvoiceRow;
 use diesel_models::payments::{PaymentTransactionRow, PaymentTransactionRowNew};
 use error_stack::{Report, ResultExt};
+use std::time::Duration;
+
+/// Maximum time to wait for payment provider API calls.
+/// This is a safety net in addition to the HTTP client timeout.
+const PAYMENT_PROVIDER_TIMEOUT: Duration = Duration::from_secs(45);
 
 impl Services {
     /// Creates a payment intent and the associated payment transaction.
@@ -162,8 +167,9 @@ impl Services {
         let provider = initialize_payment_provider(&connector)
             .change_context(StoreError::PaymentProviderError)?;
 
-        let payment_intent = provider
-            .create_payment_intent_in_provider(
+        let payment_intent = tokio::time::timeout(
+            PAYMENT_PROVIDER_TIMEOUT,
+            provider.create_payment_intent_in_provider(
                 &connector,
                 transaction_id,
                 &connection.external_customer_id,
@@ -171,9 +177,14 @@ impl Services {
                 &method.payment_method_type.into(),
                 amount as i64,
                 &currency,
-            )
-            .await
-            .change_context_lazy(|| StoreError::PaymentProviderError)?;
+            ),
+        )
+        .await
+        .map_err(|_| {
+            Report::new(StoreError::PaymentProviderError)
+                .attach("Payment provider request timed out")
+        })?
+        .change_context_lazy(|| StoreError::PaymentProviderError)?;
 
         Ok(payment_intent)
     }
