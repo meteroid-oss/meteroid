@@ -12,7 +12,6 @@ use axum::{
     response::IntoResponse,
 };
 use axum_tracing_opentelemetry::middleware::{OtelAxumLayer, OtelInResponseLayer};
-use common_grpc::middleware::server::auth::AuthorizedAsTenant;
 
 use meteroid_store::{Services, Store};
 use std::any::Any;

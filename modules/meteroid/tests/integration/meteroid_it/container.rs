@@ -11,7 +11,6 @@ use meteroid_oauth::config::OauthConfig;
 use meteroid_store::Services;
 use meteroid_store::clients::usage::{MockUsageClient, UsageClient};
 use meteroid_store::store::{PgConfig, PgPool, StoreConfig};
-use rate_limiter::RateLimiter;
 use std::sync::Arc;
 use std::sync::atomic::{AtomicU32, Ordering};
 use std::time::Duration;
@@ -110,15 +109,7 @@ pub async fn start_meteroid_with_port(
         metering_port,
     );
 
-    start_meteroid_from_config(
-        config,
-        seed_level,
-        usage_client,
-        mailer,
-        rest_listener,
-        Default::default(),
-    )
-    .await
+    start_meteroid_from_config(config, seed_level, usage_client, mailer, rest_listener).await
 }
 
 async fn start_meteroid_from_config(
@@ -127,7 +118,6 @@ async fn start_meteroid_from_config(
     usage_client: Arc<dyn UsageClient>,
     mailer: Arc<dyn MailerService>,
     rest_listener: tokio::net::TcpListener,
-    rate_limiter: RateLimiter,
 ) -> MeteroidSetup {
     let token = CancellationToken::new();
     let cloned_token = token.clone();
@@ -163,7 +153,6 @@ async fn start_meteroid_from_config(
         services.clone(),
         in_memory_object_store(),
         None,
-        rate_limiter.clone(),
     );
 
     let stripe = Arc::new(StripeClient::new());
@@ -178,7 +167,6 @@ async fn start_meteroid_from_config(
         services.clone(),
         ready,
         rest_listener,
-        rate_limiter,
     );
 
     let join_handle_meteroid = tokio::spawn(async move {
@@ -209,38 +197,6 @@ async fn start_meteroid_from_config(
         store,
         services,
     }
-}
-
-pub async fn start_meteroid_with_rate_limiter(
-    postgres_connection_string: String,
-    seed_level: SeedLevel,
-    rate_limiter: RateLimiter,
-    rate_limit_config: meteroid::config::RateLimitConfig,
-) -> MeteroidSetup {
-    let meteroid_port = helpers::network::free_local_port().expect("Could not get free port");
-    let metering_port = helpers::network::free_local_port().expect("Could not get free port");
-    let rest_listener = tokio::net::TcpListener::bind("127.0.0.1:0")
-        .await
-        .expect("Could not bind REST listener");
-    let rest_api_addr = rest_listener.local_addr().expect("Could not get REST addr");
-
-    let mut config = super::config::mocked_config(
-        postgres_connection_string,
-        rest_api_addr,
-        meteroid_port,
-        metering_port,
-    );
-    config.rate_limit = rate_limit_config;
-
-    start_meteroid_from_config(
-        config,
-        seed_level,
-        Arc::new(MockUsageClient::noop()),
-        meteroid_mailer::service::mailer_service(MailerConfig::dummy()),
-        rest_listener,
-        rate_limiter,
-    )
-    .await
 }
 
 pub async fn start_meteroid(

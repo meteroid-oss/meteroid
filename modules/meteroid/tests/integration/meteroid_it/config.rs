@@ -7,7 +7,7 @@ use common_config::auth::InternalAuthConfig;
 use common_config::common::CommonConfig;
 use common_config::idempotency::IdempotencyConfig;
 use common_config::telemetry::TelemetryConfig;
-use meteroid::config::{Config, CryptKey, DogfoodingConfig, LoopsConfig, SvixConfig};
+use meteroid::config::{Config, CryptKey, SvixConfig};
 use meteroid_mailer::config::MailerConfig;
 use meteroid_oauth::config::OauthConfig;
 use meteroid_store::store::PgConfig;
@@ -58,14 +58,6 @@ pub fn mocked_config(
         public_url: "http://localhost:8080".to_owned(),
         oauth: OauthConfig::dummy(),
         domains_whitelist: None,
-        dogfooding: DogfoodingConfig {
-            default_plan_id: None,
-            api_key: None,
-            billing_url: None,
-        },
-        admin_organization_id: None,
-        loops: LoopsConfig { api_key: None },
         redis: Default::default(),
-        rate_limit: Default::default(),
     }
 }
