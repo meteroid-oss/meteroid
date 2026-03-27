@@ -33,8 +33,6 @@ import { getCurrentOrganizations } from '@/rpc/api/organizations/v1/organization
 import { OrganizationUserRole } from '@/rpc/api/users/v1/models_pb'
 import { me } from '@/rpc/api/users/v1/users-UsersService_connectquery'
 
-import { TestModeBanner } from '@/components/layouts/shared/TestModeBanner'
-
 export const TenantPageLayout = ({ children }: PropsWithChildren) => {
   return (
     <>
@@ -224,7 +222,6 @@ export const TenantLayoutOutlet = () => {
         </button>
       </Sidebar>
       <SidebarInset className="relative">
-        <TestModeBanner environment={tenant?.environment} />
         <Outlet />
       </SidebarInset>
     </>
