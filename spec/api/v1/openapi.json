@@ -87,6 +87,16 @@
                 }
               }
             }
+          },
+          "429": {
+            "description": "Too many requests",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/RestErrorResponse"
+                }
+              }
+            }
           }
         },
         "security": [
@@ -134,6 +144,16 @@
           },
           "401": {
             "description": "Unauthorized",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/RestErrorResponse"
+                }
+              }
+            }
+          },
+          "429": {
+            "description": "Too many requests",
             "content": {
               "application/json": {
                 "schema": {
@@ -191,6 +211,16 @@
           },
           "404": {
             "description": "Add-on not found",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/RestErrorResponse"
+                }
+              }
+            }
+          },
+          "429": {
+            "description": "Too many requests",
             "content": {
               "application/json": {
                 "schema": {
@@ -273,6 +303,16 @@
                 }
               }
             }
+          },
+          "429": {
+            "description": "Too many requests",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/RestErrorResponse"
+                }
+              }
+            }
           }
         },
         "security": [
@@ -316,6 +356,16 @@
           },
           "404": {
             "description": "Add-on not found",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/RestErrorResponse"
+                }
+              }
+            }
+          },
+          "429": {
+            "description": "Too many requests",
             "content": {
               "application/json": {
                 "schema": {
@@ -373,6 +423,301 @@
                 }
               }
             }
+          },
+          "429": {
+            "description": "Too many requests",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/RestErrorResponse"
+                }
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "bearer_auth": []
+          }
+        ]
+      }
+    },
+    "/api/v1/batch-jobs": {
+      "get": {
+        "tags": [
+          "Batch Jobs"
+        ],
+        "summary": "List batch jobs",
+        "description": "List batch jobs with optional filtering by type and status.",
+        "operationId": "list_batch_jobs",
+        "parameters": [
+          {
+            "name": "job_type",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "$ref": "#/components/schemas/BatchJobType"
+            }
+          },
+          {
+            "name": "status",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "array",
+              "items": {
+                "$ref": "#/components/schemas/BatchJobStatus"
+              }
+            }
+          },
+          {
+            "name": "page",
+            "in": "query",
+            "description": "Page number (0-indexed)",
+            "required": false,
+            "schema": {
+              "type": "integer",
+              "format": "int32",
+              "minimum": 0
+            }
+          },
+          {
+            "name": "per_page",
+            "in": "query",
+            "description": "Number of items per page",
+            "required": false,
+            "schema": {
+              "type": "integer",
+              "format": "int32",
+              "maximum": 100,
+              "minimum": 1
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "List of batch jobs",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/BatchJobListResponse"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Unauthorized",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/RestErrorResponse"
+                }
+              }
+            }
+          },
+          "429": {
+            "description": "Too many requests",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/RestErrorResponse"
+                }
+              }
+            }
+          },
+          "500": {
+            "description": "Internal error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/RestErrorResponse"
+                }
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "bearer_auth": []
+          }
+        ]
+      }
+    },
+    "/api/v1/batch-jobs/{batch_job_id}": {
+      "get": {
+        "tags": [
+          "Batch Jobs"
+        ],
+        "summary": "Get batch job detail",
+        "description": "Retrieve a single batch job with its chunks and failures.",
+        "operationId": "get_batch_job",
+        "parameters": [
+          {
+            "name": "batch_job_id",
+            "in": "path",
+            "description": "Batch job ID",
+            "required": true,
+            "schema": {
+              "$ref": "#/components/schemas/BatchJobId"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Batch job detail",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/BatchJobDetailResponse"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Unauthorized",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/RestErrorResponse"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "Batch job not found",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/RestErrorResponse"
+                }
+              }
+            }
+          },
+          "429": {
+            "description": "Too many requests",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/RestErrorResponse"
+                }
+              }
+            }
+          },
+          "500": {
+            "description": "Internal error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/RestErrorResponse"
+                }
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "bearer_auth": []
+          }
+        ]
+      }
+    },
+    "/api/v1/batch-jobs/{batch_job_id}/failures": {
+      "get": {
+        "tags": [
+          "Batch Jobs"
+        ],
+        "summary": "List batch job failures",
+        "description": "Retrieve paginated failures for a batch job.",
+        "operationId": "list_batch_job_failures",
+        "parameters": [
+          {
+            "name": "batch_job_id",
+            "in": "path",
+            "description": "Batch job ID",
+            "required": true,
+            "schema": {
+              "$ref": "#/components/schemas/BatchJobId"
+            }
+          },
+          {
+            "name": "chunk_id",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "$ref": "#/components/schemas/BatchJobChunkId"
+            }
+          },
+          {
+            "name": "limit",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "integer",
+              "format": "int32",
+              "minimum": 0
+            }
+          },
+          {
+            "name": "offset",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "integer",
+              "format": "int32",
+              "minimum": 0
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "List of failures",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/BatchJobFailuresResponse"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Unauthorized",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/RestErrorResponse"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "Batch job not found",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/RestErrorResponse"
+                }
+              }
+            }
+          },
+          "429": {
+            "description": "Too many requests",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/RestErrorResponse"
+                }
+              }
+            }
+          },
+          "500": {
+            "description": "Internal error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/RestErrorResponse"
+                }
+              }
+            }
           }
         },
         "security": [
@@ -420,6 +765,16 @@
           },
           "401": {
             "description": "Unauthorized",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/RestErrorResponse"
+                }
+              }
+            }
+          },
+          "429": {
+            "description": "Too many requests",
             "content": {
               "application/json": {
                 "schema": {
@@ -492,6 +847,16 @@
               }
             }
           },
+          "429": {
+            "description": "Too many requests",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/RestErrorResponse"
+                }
+              }
+            }
+          },
           "500": {
             "description": "Internal server error",
             "content": {
@@ -524,7 +889,7 @@
             "description": "Checkout session ID",
             "required": true,
             "schema": {
-              "type": "string"
+              "$ref": "#/components/schemas/CheckoutSessionId"
             }
           }
         ],
@@ -551,6 +916,16 @@
           },
           "404": {
             "description": "Not found",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/RestErrorResponse"
+                }
+              }
+            }
+          },
+          "429": {
+            "description": "Too many requests",
             "content": {
               "application/json": {
                 "schema": {
@@ -591,7 +966,7 @@
             "description": "Checkout session ID",
             "required": true,
             "schema": {
-              "type": "string"
+              "$ref": "#/components/schemas/CheckoutSessionId"
             }
           }
         ],
@@ -628,6 +1003,16 @@
           },
           "404": {
             "description": "Not found",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/RestErrorResponse"
+                }
+              }
+            }
+          },
+          "429": {
+            "description": "Too many requests",
             "content": {
               "application/json": {
                 "schema": {
@@ -728,6 +1113,16 @@
                 }
               }
             }
+          },
+          "429": {
+            "description": "Too many requests",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/RestErrorResponse"
+                }
+              }
+            }
           }
         },
         "security": [
@@ -775,6 +1170,16 @@
           },
           "401": {
             "description": "Unauthorized",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/RestErrorResponse"
+                }
+              }
+            }
+          },
+          "429": {
+            "description": "Too many requests",
             "content": {
               "application/json": {
                 "schema": {
@@ -832,6 +1237,16 @@
           },
           "404": {
             "description": "Coupon not found",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/RestErrorResponse"
+                }
+              }
+            }
+          },
+          "429": {
+            "description": "Too many requests",
             "content": {
               "application/json": {
                 "schema": {
@@ -914,6 +1329,16 @@
                 }
               }
             }
+          },
+          "429": {
+            "description": "Too many requests",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/RestErrorResponse"
+                }
+              }
+            }
           }
         },
         "security": [
@@ -957,6 +1382,16 @@
           },
           "404": {
             "description": "Coupon not found",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/RestErrorResponse"
+                }
+              }
+            }
+          },
+          "429": {
+            "description": "Too many requests",
             "content": {
               "application/json": {
                 "schema": {
@@ -1014,6 +1449,16 @@
                 }
               }
             }
+          },
+          "429": {
+            "description": "Too many requests",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/RestErrorResponse"
+                }
+              }
+            }
           }
         },
         "security": [
@@ -1064,6 +1509,16 @@
                 }
               }
             }
+          },
+          "429": {
+            "description": "Too many requests",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/RestErrorResponse"
+                }
+              }
+            }
           }
         },
         "security": [
@@ -1107,6 +1562,16 @@
           },
           "404": {
             "description": "Coupon not found",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/RestErrorResponse"
+                }
+              }
+            }
+          },
+          "429": {
+            "description": "Too many requests",
             "content": {
               "application/json": {
                 "schema": {
@@ -1166,6 +1631,16 @@
           },
           "404": {
             "description": "Credit note not found or PDF not available",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/RestErrorResponse"
+                }
+              }
+            }
+          },
+          "429": {
+            "description": "Too many requests",
             "content": {
               "application/json": {
                 "schema": {
@@ -1262,6 +1737,16 @@
               }
             }
           },
+          "429": {
+            "description": "Too many requests",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/RestErrorResponse"
+                }
+              }
+            }
+          },
           "500": {
             "description": "Internal error",
             "content": {
@@ -1336,6 +1821,16 @@
               }
             }
           },
+          "429": {
+            "description": "Too many requests",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/RestErrorResponse"
+                }
+              }
+            }
+          },
           "500": {
             "description": "Internal error",
             "content": {
@@ -1396,6 +1891,16 @@
           },
           "404": {
             "description": "Customer not found",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/RestErrorResponse"
+                }
+              }
+            }
+          },
+          "429": {
+            "description": "Too many requests",
             "content": {
               "application/json": {
                 "schema": {
@@ -1489,6 +1994,16 @@
               }
             }
           },
+          "429": {
+            "description": "Too many requests",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/RestErrorResponse"
+                }
+              }
+            }
+          },
           "500": {
             "description": "Internal error",
             "content": {
@@ -1540,6 +2055,16 @@
           },
           "404": {
             "description": "Customer not found",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/RestErrorResponse"
+                }
+              }
+            }
+          },
+          "429": {
+            "description": "Too many requests",
             "content": {
               "application/json": {
                 "schema": {
@@ -1634,6 +2159,16 @@
               }
             }
           },
+          "429": {
+            "description": "Too many requests",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/RestErrorResponse"
+                }
+              }
+            }
+          },
           "500": {
             "description": "Internal error",
             "content": {
@@ -1702,6 +2237,16 @@
               }
             }
           },
+          "429": {
+            "description": "Too many requests",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/RestErrorResponse"
+                }
+              }
+            }
+          },
           "500": {
             "description": "Internal error",
             "content": {
@@ -1762,6 +2307,16 @@
               }
             }
           },
+          "429": {
+            "description": "Too many requests",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/RestErrorResponse"
+                }
+              }
+            }
+          },
           "500": {
             "description": "Internal error",
             "content": {
@@ -1811,6 +2366,16 @@
           },
           "401": {
             "description": "Unauthorized",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/RestErrorResponse"
+                }
+              }
+            }
+          },
+          "429": {
+            "description": "Too many requests",
             "content": {
               "application/json": {
                 "schema": {
@@ -1919,6 +2484,16 @@
               }
             }
           },
+          "429": {
+            "description": "Too many requests",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/RestErrorResponse"
+                }
+              }
+            }
+          },
           "500": {
             "description": "Internal error",
             "content": {
@@ -1980,6 +2555,16 @@
           },
           "404": {
             "description": "Invoice not found",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/RestErrorResponse"
+                }
+              }
+            }
+          },
+          "429": {
+            "description": "Too many requests",
             "content": {
               "application/json": {
                 "schema": {
@@ -2051,6 +2636,16 @@
           },
           "404": {
             "description": "Invoice not found or PDF not available",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/RestErrorResponse"
+                }
+              }
+            }
+          },
+          "429": {
+            "description": "Too many requests",
             "content": {
               "application/json": {
                 "schema": {
@@ -2137,6 +2732,16 @@
                 }
               }
             }
+          },
+          "429": {
+            "description": "Too many requests",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/RestErrorResponse"
+                }
+              }
+            }
           }
         },
         "security": [
@@ -2184,6 +2789,16 @@
           },
           "401": {
             "description": "Unauthorized",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/RestErrorResponse"
+                }
+              }
+            }
+          },
+          "429": {
+            "description": "Too many requests",
             "content": {
               "application/json": {
                 "schema": {
@@ -2241,6 +2856,16 @@
           },
           "404": {
             "description": "Metric not found",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/RestErrorResponse"
+                }
+              }
+            }
+          },
+          "429": {
+            "description": "Too many requests",
             "content": {
               "application/json": {
                 "schema": {
@@ -2324,6 +2949,16 @@
                 }
               }
             }
+          },
+          "429": {
+            "description": "Too many requests",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/RestErrorResponse"
+                }
+              }
+            }
           }
         },
         "security": [
@@ -2367,6 +3002,16 @@
           },
           "404": {
             "description": "Metric not found",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/RestErrorResponse"
+                }
+              }
+            }
+          },
+          "429": {
+            "description": "Too many requests",
             "content": {
               "application/json": {
                 "schema": {
@@ -2424,6 +3069,16 @@
                 }
               }
             }
+          },
+          "429": {
+            "description": "Too many requests",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/RestErrorResponse"
+                }
+              }
+            }
           }
         },
         "security": [
@@ -2471,7 +3126,7 @@
             }
           },
           {
-            "name": "type",
+            "name": "plan_type",
             "in": "query",
             "description": "Filter by plan type (can be repeated)",
             "required": false,
@@ -2519,6 +3174,16 @@
           },
           "401": {
             "description": "Unauthorized",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/RestErrorResponse"
+                }
+              }
+            }
+          },
+          "429": {
+            "description": "Too many requests",
             "content": {
               "application/json": {
                 "schema": {
@@ -2591,6 +3256,16 @@
                 }
               }
             }
+          },
+          "429": {
+            "description": "Too many requests",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/RestErrorResponse"
+                }
+              }
+            }
           }
         },
         "security": [
@@ -2651,6 +3326,16 @@
           },
           "404": {
             "description": "Plan not found",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/RestErrorResponse"
+                }
+              }
+            }
+          },
+          "429": {
+            "description": "Too many requests",
             "content": {
               "application/json": {
                 "schema": {
@@ -2734,6 +3419,16 @@
                 }
               }
             }
+          },
+          "429": {
+            "description": "Too many requests",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/RestErrorResponse"
+                }
+              }
+            }
           }
         },
         "security": [
@@ -2810,6 +3505,16 @@
                 }
               }
             }
+          },
+          "429": {
+            "description": "Too many requests",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/RestErrorResponse"
+                }
+              }
+            }
           }
         },
         "security": [
@@ -2853,6 +3558,16 @@
           },
           "404": {
             "description": "Plan not found",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/RestErrorResponse"
+                }
+              }
+            }
+          },
+          "429": {
+            "description": "Too many requests",
             "content": {
               "application/json": {
                 "schema": {
@@ -2928,6 +3643,16 @@
                 }
               }
             }
+          },
+          "429": {
+            "description": "Too many requests",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/RestErrorResponse"
+                }
+              }
+            }
           }
         },
         "security": [
@@ -2971,6 +3696,16 @@
           },
           "404": {
             "description": "Plan not found",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/RestErrorResponse"
+                }
+              }
+            }
+          },
+          "429": {
+            "description": "Too many requests",
             "content": {
               "application/json": {
                 "schema": {
@@ -3058,6 +3793,16 @@
                 }
               }
             }
+          },
+          "429": {
+            "description": "Too many requests",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/RestErrorResponse"
+                }
+              }
+            }
           }
         },
         "security": [
@@ -3124,6 +3869,16 @@
           "401": {
             "description": "Unauthorized"
           },
+          "429": {
+            "description": "Too many requests",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/RestErrorResponse"
+                }
+              }
+            }
+          },
           "500": {
             "description": "Internal error"
           }
@@ -3166,6 +3921,16 @@
           },
           "401": {
             "description": "Unauthorized"
+          },
+          "429": {
+            "description": "Too many requests",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/RestErrorResponse"
+                }
+              }
+            }
           },
           "500": {
             "description": "Internal error"
@@ -3213,6 +3978,16 @@
           },
           "401": {
             "description": "Unauthorized"
+          },
+          "429": {
+            "description": "Too many requests",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/RestErrorResponse"
+                }
+              }
+            }
           },
           "500": {
             "description": "Internal error"
@@ -3293,6 +4068,16 @@
                 }
               }
             }
+          },
+          "429": {
+            "description": "Too many requests",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/RestErrorResponse"
+                }
+              }
+            }
           }
         },
         "security": [
@@ -3340,6 +4125,16 @@
           },
           "401": {
             "description": "Unauthorized",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/RestErrorResponse"
+                }
+              }
+            }
+          },
+          "429": {
+            "description": "Too many requests",
             "content": {
               "application/json": {
                 "schema": {
@@ -3397,6 +4192,16 @@
           },
           "404": {
             "description": "Product not found",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/RestErrorResponse"
+                }
+              }
+            }
+          },
+          "429": {
+            "description": "Too many requests",
             "content": {
               "application/json": {
                 "schema": {
@@ -3480,6 +4285,16 @@
                 }
               }
             }
+          },
+          "429": {
+            "description": "Too many requests",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/RestErrorResponse"
+                }
+              }
+            }
           }
         },
         "security": [
@@ -3530,6 +4345,16 @@
                 }
               }
             }
+          },
+          "429": {
+            "description": "Too many requests",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/RestErrorResponse"
+                }
+              }
+            }
           }
         },
         "security": [
@@ -3573,6 +4398,16 @@
           },
           "404": {
             "description": "Product not found",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/RestErrorResponse"
+                }
+              }
+            }
+          },
+          "429": {
+            "description": "Too many requests",
             "content": {
               "application/json": {
                 "schema": {
@@ -3671,6 +4506,16 @@
               }
             }
           },
+          "429": {
+            "description": "Too many requests",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/RestErrorResponse"
+                }
+              }
+            }
+          },
           "500": {
             "description": "Internal error",
             "content": {
@@ -3728,6 +4573,16 @@
           },
           "401": {
             "description": "Unauthorized",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/RestErrorResponse"
+                }
+              }
+            }
+          },
+          "429": {
+            "description": "Too many requests",
             "content": {
               "application/json": {
                 "schema": {
@@ -3796,6 +4651,16 @@
           },
           "404": {
             "description": "Subscription not found",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/RestErrorResponse"
+                }
+              }
+            }
+          },
+          "429": {
+            "description": "Too many requests",
             "content": {
               "application/json": {
                 "schema": {
@@ -3890,6 +4755,16 @@
               }
             }
           },
+          "429": {
+            "description": "Too many requests",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/RestErrorResponse"
+                }
+              }
+            }
+          },
           "500": {
             "description": "Internal error",
             "content": {
@@ -3969,6 +4844,16 @@
               }
             }
           },
+          "429": {
+            "description": "Too many requests",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/RestErrorResponse"
+                }
+              }
+            }
+          },
           "500": {
             "description": "Internal error",
             "content": {
@@ -4028,7 +4913,7 @@
             "in": "query",
             "required": false,
             "schema": {
-              "type": "string"
+              "$ref": "#/components/schemas/BillableMetricId"
             }
           }
         ],
@@ -4055,6 +4940,16 @@
           },
           "404": {
             "description": "Customer not found",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/RestErrorResponse"
+                }
+              }
+            }
+          },
+          "429": {
+            "description": "Too many requests",
             "content": {
               "application/json": {
                 "schema": {
@@ -4122,7 +5017,7 @@
             "in": "query",
             "required": false,
             "schema": {
-              "type": "string"
+              "$ref": "#/components/schemas/BillableMetricId"
             }
           }
         ],
@@ -4149,6 +5044,16 @@
           },
           "404": {
             "description": "Subscription not found",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/RestErrorResponse"
+                }
+              }
+            }
+          },
+          "429": {
+            "description": "Too many requests",
             "content": {
               "application/json": {
                 "schema": {
@@ -4207,7 +5112,7 @@
             "in": "query",
             "required": false,
             "schema": {
-              "type": "string"
+              "$ref": "#/components/schemas/BillableMetricId"
             }
           }
         ],
@@ -4224,6 +5129,16 @@
           },
           "401": {
             "description": "Unauthorized",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/RestErrorResponse"
+                }
+              }
+            }
+          },
+          "429": {
+            "description": "Too many requests",
             "content": {
               "application/json": {
                 "schema": {
@@ -4574,6 +5489,255 @@
           }
         }
       },
+      "BankAccountId": {
+        "type": "string",
+        "format": "MeteroidId",
+        "examples": [
+          "ba_7n42DGM5Tflk9n8mt7Fhc7"
+        ]
+      },
+      "BatchJobChunkId": {
+        "type": "string",
+        "format": "MeteroidId",
+        "examples": [
+          "bjch_7n42DGM5Tflk9n8mt7Fhc7"
+        ]
+      },
+      "BatchJobDetailResponse": {
+        "type": "object",
+        "required": [
+          "id",
+          "job_type",
+          "status",
+          "processed_items",
+          "failed_items",
+          "created_by",
+          "created_at",
+          "failure_count",
+          "has_error_csv"
+        ],
+        "properties": {
+          "completed_at": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "format": "date-time"
+          },
+          "created_at": {
+            "type": "string",
+            "format": "date-time"
+          },
+          "created_by": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "error_csv_url": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "failed_items": {
+            "type": "integer",
+            "format": "int32"
+          },
+          "failure_count": {
+            "type": "integer",
+            "format": "int64"
+          },
+          "has_error_csv": {
+            "type": "boolean"
+          },
+          "id": {
+            "$ref": "#/components/schemas/BatchJobId"
+          },
+          "input_file_name": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "input_file_url": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "job_type": {
+            "$ref": "#/components/schemas/BatchJobType"
+          },
+          "processed_items": {
+            "type": "integer",
+            "format": "int32"
+          },
+          "status": {
+            "$ref": "#/components/schemas/BatchJobStatus"
+          },
+          "total_items": {
+            "type": [
+              "integer",
+              "null"
+            ],
+            "format": "int32"
+          }
+        }
+      },
+      "BatchJobFailuresResponse": {
+        "type": "object",
+        "required": [
+          "data",
+          "total_count"
+        ],
+        "properties": {
+          "data": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/BatchJobItemFailureResponse"
+            }
+          },
+          "total_count": {
+            "type": "integer",
+            "format": "int64"
+          }
+        }
+      },
+      "BatchJobId": {
+        "type": "string",
+        "format": "MeteroidId",
+        "examples": [
+          "bjob_7n42DGM5Tflk9n8mt7Fhc7"
+        ]
+      },
+      "BatchJobItemFailureResponse": {
+        "type": "object",
+        "required": [
+          "id",
+          "chunk_id",
+          "item_index",
+          "reason"
+        ],
+        "properties": {
+          "chunk_id": {
+            "$ref": "#/components/schemas/BatchJobChunkId"
+          },
+          "id": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "item_identifier": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "item_index": {
+            "type": "integer",
+            "format": "int32"
+          },
+          "reason": {
+            "type": "string"
+          }
+        }
+      },
+      "BatchJobListResponse": {
+        "type": "object",
+        "required": [
+          "data",
+          "pagination_meta"
+        ],
+        "properties": {
+          "data": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/BatchJobResponse"
+            }
+          },
+          "pagination_meta": {
+            "$ref": "#/components/schemas/PaginationResponse"
+          }
+        }
+      },
+      "BatchJobResponse": {
+        "type": "object",
+        "required": [
+          "id",
+          "job_type",
+          "status",
+          "processed_items",
+          "failed_items",
+          "created_by",
+          "created_at"
+        ],
+        "properties": {
+          "completed_at": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "format": "date-time"
+          },
+          "created_at": {
+            "type": "string",
+            "format": "date-time"
+          },
+          "created_by": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "failed_items": {
+            "type": "integer",
+            "format": "int32"
+          },
+          "id": {
+            "$ref": "#/components/schemas/BatchJobId"
+          },
+          "input_file_name": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "job_type": {
+            "$ref": "#/components/schemas/BatchJobType"
+          },
+          "processed_items": {
+            "type": "integer",
+            "format": "int32"
+          },
+          "status": {
+            "$ref": "#/components/schemas/BatchJobStatus"
+          },
+          "total_items": {
+            "type": [
+              "integer",
+              "null"
+            ],
+            "format": "int32"
+          }
+        }
+      },
+      "BatchJobStatus": {
+        "type": "string",
+        "enum": [
+          "PENDING",
+          "CHUNKING",
+          "PROCESSING",
+          "COMPLETED",
+          "COMPLETED_WITH_ERRORS",
+          "FAILED",
+          "CANCELLED"
+        ]
+      },
+      "BatchJobType": {
+        "type": "string",
+        "enum": [
+          "EVENT_CSV_IMPORT",
+          "CUSTOMER_CSV_IMPORT",
+          "SUBSCRIPTION_CSV_IMPORT",
+          "SUBSCRIPTION_PLAN_MIGRATION"
+        ]
+      },
       "BillableMetricId": {
         "type": "string",
         "format": "MeteroidId",
@@ -4727,6 +5891,29 @@
             "items": {
               "$ref": "#/components/schemas/CapacityThreshold"
             }
+          }
+        }
+      },
+      "CapacityPricing": {
+        "type": "object",
+        "required": [
+          "rate",
+          "included",
+          "overage_rate"
+        ],
+        "properties": {
+          "included": {
+            "type": "integer",
+            "format": "int64",
+            "minimum": 0
+          },
+          "overage_rate": {
+            "type": "string",
+            "format": "decimal"
+          },
+          "rate": {
+            "type": "string",
+            "format": "decimal"
           }
         }
       },
@@ -4899,7 +6086,7 @@
             "type": "string"
           },
           "price_entry": {
-            "type": "object"
+            "$ref": "#/components/schemas/PriceEntry"
           }
         }
       },
@@ -5986,6 +7173,12 @@
               "null"
             ]
           },
+          "connected_account_id": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
           "currency": {
             "$ref": "#/components/schemas/Currency"
           },
@@ -6060,6 +7253,12 @@
             ]
           },
           "billing_email": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "connected_account_id": {
             "type": [
               "string",
               "null"
@@ -6482,6 +7681,7 @@
           "CONFLICT",
           "FORBIDDEN",
           "UNAUTHORIZED",
+          "TOO_MANY_REQUESTS",
           "INTERNAL_SERVER_ERROR"
         ]
       },
@@ -6556,6 +7756,28 @@
           "addon.archived"
         ]
       },
+      "ExistingPriceRef": {
+        "type": "object",
+        "required": [
+          "id"
+        ],
+        "properties": {
+          "id": {
+            "$ref": "#/components/schemas/PriceId"
+          }
+        }
+      },
+      "ExistingProductRef": {
+        "type": "object",
+        "required": [
+          "id"
+        ],
+        "properties": {
+          "id": {
+            "$ref": "#/components/schemas/ProductId"
+          }
+        }
+      },
       "ExtraComponent": {
         "type": "object",
         "required": [
@@ -6568,10 +7790,10 @@
             "type": "string"
           },
           "price_entry": {
-            "type": "object"
+            "$ref": "#/components/schemas/PriceEntry"
           },
           "product_ref": {
-            "type": "object"
+            "$ref": "#/components/schemas/ProductRef"
           }
         }
       },
@@ -6605,6 +7827,24 @@
           },
           "unit_price": {
             "type": "string"
+          }
+        }
+      },
+      "ExtraRecurringPricing": {
+        "type": "object",
+        "required": [
+          "unit_price",
+          "quantity"
+        ],
+        "properties": {
+          "quantity": {
+            "type": "integer",
+            "format": "int32",
+            "minimum": 0
+          },
+          "unit_price": {
+            "type": "string",
+            "format": "decimal"
           }
         }
       },
@@ -7064,28 +8304,28 @@
       "InvoicePaymentStatus": {
         "type": "string",
         "enum": [
-          "Unpaid",
-          "PartiallyPaid",
-          "Paid",
-          "Errored"
+          "UNPAID",
+          "PARTIALLY_PAID",
+          "PAID",
+          "ERRORED"
         ]
       },
       "InvoiceStatus": {
         "type": "string",
         "enum": [
-          "Draft",
-          "Finalized",
-          "Uncollectible",
-          "Void"
+          "DRAFT",
+          "FINALIZED",
+          "UNCOLLECTIBLE",
+          "VOID"
         ]
       },
       "InvoiceType": {
         "type": "string",
         "enum": [
-          "Recurring",
-          "OneOff",
-          "Adjustment",
-          "UsageThreshold"
+          "RECURRING",
+          "ONE_OFF",
+          "ADJUSTMENT",
+          "USAGE_THRESHOLD"
         ]
       },
       "InvoicingEntityId": {
@@ -7552,7 +8792,7 @@
             "type": "string"
           },
           "metric_id": {
-            "type": "string"
+            "$ref": "#/components/schemas/BillableMetricId"
           },
           "metric_name": {
             "type": "string"
@@ -7560,6 +8800,25 @@
           "total_value": {
             "type": "string",
             "format": "decimal"
+          }
+        }
+      },
+      "NewProductRef": {
+        "type": "object",
+        "required": [
+          "name",
+          "fee_type",
+          "fee_structure"
+        ],
+        "properties": {
+          "fee_structure": {
+            "$ref": "#/components/schemas/ProductFeeStructure"
+          },
+          "fee_type": {
+            "$ref": "#/components/schemas/ProductFeeTypeEnum"
+          },
+          "name": {
+            "type": "string"
           }
         }
       },
@@ -7596,6 +8855,24 @@
           },
           "unit_price": {
             "type": "string"
+          }
+        }
+      },
+      "OneTimePricing": {
+        "type": "object",
+        "required": [
+          "unit_price",
+          "quantity"
+        ],
+        "properties": {
+          "quantity": {
+            "type": "integer",
+            "format": "int32",
+            "minimum": 0
+          },
+          "unit_price": {
+            "type": "string",
+            "format": "decimal"
           }
         }
       },
@@ -7757,10 +9034,10 @@
       "PaymentMethodTypeEnum": {
         "type": "string",
         "enum": [
-          "Card",
-          "BankTransfer",
-          "Wallet",
-          "Other"
+          "CARD",
+          "BANK_TRANSFER",
+          "WALLET",
+          "OTHER"
         ]
       },
       "PaymentMethodsConfig": {
@@ -7797,9 +9074,13 @@
             ],
             "properties": {
               "account_id": {
-                "type": [
-                  "string",
-                  "null"
+                "oneOf": [
+                  {
+                    "type": "null"
+                  },
+                  {
+                    "$ref": "#/components/schemas/BankAccountId"
+                  }
                 ]
               },
               "type": {
@@ -7830,11 +9111,11 @@
       "PaymentStatusEnum": {
         "type": "string",
         "enum": [
-          "Ready",
-          "Pending",
-          "Settled",
-          "Cancelled",
-          "Failed"
+          "READY",
+          "PENDING",
+          "SETTLED",
+          "CANCELLED",
+          "FAILED"
         ]
       },
       "PaymentTransactionId": {
@@ -7847,8 +9128,8 @@
       "PaymentTypeEnum": {
         "type": "string",
         "enum": [
-          "Payment",
-          "Refund"
+          "PAYMENT",
+          "REFUND"
         ]
       },
       "PerUnitPlanPricing": {
@@ -8280,12 +9561,81 @@
           }
         }
       },
+      "PriceEntry": {
+        "oneOf": [
+          {
+            "$ref": "#/components/schemas/ExistingPriceRef"
+          },
+          {
+            "$ref": "#/components/schemas/PriceInput"
+          }
+        ],
+        "discriminator": {
+          "propertyName": "discriminator",
+          "mapping": {
+            "EXISTING": "#/components/schemas/ExistingPriceRef",
+            "NEW": "#/components/schemas/PriceInput"
+          }
+        }
+      },
       "PriceId": {
         "type": "string",
         "format": "MeteroidId",
         "examples": [
           "pri_7n42DGM5Tflk9n8mt7Fhc7"
         ]
+      },
+      "PriceInput": {
+        "type": "object",
+        "required": [
+          "cadence",
+          "currency",
+          "pricing"
+        ],
+        "properties": {
+          "cadence": {
+            "$ref": "#/components/schemas/BillingPeriodEnum"
+          },
+          "currency": {
+            "type": "string"
+          },
+          "pricing": {
+            "$ref": "#/components/schemas/Pricing"
+          }
+        }
+      },
+      "Pricing": {
+        "oneOf": [
+          {
+            "$ref": "#/components/schemas/RatePricing"
+          },
+          {
+            "$ref": "#/components/schemas/SlotPricing"
+          },
+          {
+            "$ref": "#/components/schemas/CapacityPricing"
+          },
+          {
+            "$ref": "#/components/schemas/UsagePricing"
+          },
+          {
+            "$ref": "#/components/schemas/ExtraRecurringPricing"
+          },
+          {
+            "$ref": "#/components/schemas/OneTimePricing"
+          }
+        ],
+        "discriminator": {
+          "propertyName": "discriminator",
+          "mapping": {
+            "CAPACITY": "#/components/schemas/CapacityPricing",
+            "EXTRA_RECURRING": "#/components/schemas/ExtraRecurringPricing",
+            "ONE_TIME": "#/components/schemas/OneTimePricing",
+            "RATE": "#/components/schemas/RatePricing",
+            "SLOT": "#/components/schemas/SlotPricing",
+            "USAGE": "#/components/schemas/UsagePricing"
+          }
+        }
       },
       "Product": {
         "type": "object",
@@ -8600,6 +9950,23 @@
           }
         }
       },
+      "ProductRef": {
+        "oneOf": [
+          {
+            "$ref": "#/components/schemas/ExistingProductRef"
+          },
+          {
+            "$ref": "#/components/schemas/NewProductRef"
+          }
+        ],
+        "discriminator": {
+          "propertyName": "discriminator",
+          "mapping": {
+            "EXISTING": "#/components/schemas/ExistingProductRef",
+            "NEW": "#/components/schemas/NewProductRef"
+          }
+        }
+      },
       "QuoteEvent": {
         "allOf": [
           {
@@ -8683,6 +10050,18 @@
             "items": {
               "$ref": "#/components/schemas/TermRate"
             }
+          }
+        }
+      },
+      "RatePricing": {
+        "type": "object",
+        "required": [
+          "rate"
+        ],
+        "properties": {
+          "rate": {
+            "type": "string",
+            "format": "decimal"
           }
         }
       },
@@ -8884,6 +10263,34 @@
           },
           "slot_unit_name": {
             "type": "string"
+          }
+        }
+      },
+      "SlotPricing": {
+        "type": "object",
+        "required": [
+          "unit_rate"
+        ],
+        "properties": {
+          "max_slots": {
+            "type": [
+              "integer",
+              "null"
+            ],
+            "format": "int32",
+            "minimum": 0
+          },
+          "min_slots": {
+            "type": [
+              "integer",
+              "null"
+            ],
+            "format": "int32",
+            "minimum": 0
+          },
+          "unit_rate": {
+            "type": "string",
+            "format": "decimal"
           }
         }
       },
@@ -9204,7 +10611,7 @@
             ]
           },
           "price_entry": {
-            "type": "object"
+            "$ref": "#/components/schemas/PriceEntry"
           }
         }
       },
@@ -9867,9 +11274,9 @@
       "TaxExemptionType": {
         "type": "string",
         "enum": [
-          "ReverseCharge",
-          "TaxExempt",
-          "NotRegistered"
+          "REVERSE_CHARGE",
+          "TAX_EXEMPT",
+          "NOT_REGISTERED"
         ]
       },
       "TermRate": {
@@ -10257,6 +11664,17 @@
           },
           "pricing": {
             "$ref": "#/components/schemas/PlanUsagePricingModel"
+          }
+        }
+      },
+      "UsagePricing": {
+        "type": "object",
+        "required": [
+          "model"
+        ],
+        "properties": {
+          "model": {
+            "$ref": "#/components/schemas/UsagePricingModel"
           }
         }
       },
@@ -10794,7 +12212,7 @@
                 "type": "invoice.created",
                 "invoice_id": "inv_7n42DGM5Tflk9n8mt7Fhc7",
                 "customer_id": "cus_7n42DGM5Tflk9n8mt7Fhc7",
-                "status": "Draft",
+                "status": "DRAFT",
                 "currency": "EUR",
                 "total": 10000,
                 "tax_amount": 2000,
@@ -10831,7 +12249,7 @@
                 "type": "invoice.finalized",
                 "invoice_id": "inv_7n42DGM5Tflk9n8mt7Fhc7",
                 "customer_id": "cus_7n42DGM5Tflk9n8mt7Fhc7",
-                "status": "Draft",
+                "status": "DRAFT",
                 "currency": "EUR",
                 "total": 10000,
                 "tax_amount": 2000,
@@ -10868,7 +12286,7 @@
                 "type": "invoice.paid",
                 "invoice_id": "inv_7n42DGM5Tflk9n8mt7Fhc7",
                 "customer_id": "cus_7n42DGM5Tflk9n8mt7Fhc7",
-                "status": "Draft",
+                "status": "DRAFT",
                 "currency": "EUR",
                 "total": 10000,
                 "tax_amount": 2000,
@@ -10905,7 +12323,7 @@
                 "type": "invoice.voided",
                 "invoice_id": "inv_7n42DGM5Tflk9n8mt7Fhc7",
                 "customer_id": "cus_7n42DGM5Tflk9n8mt7Fhc7",
-                "status": "Draft",
+                "status": "DRAFT",
                 "currency": "EUR",
                 "total": 10000,
                 "tax_amount": 2000,

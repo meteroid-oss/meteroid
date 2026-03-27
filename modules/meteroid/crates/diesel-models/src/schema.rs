@@ -1378,6 +1378,7 @@ diesel::joinable!(connect_access_token -> connect_oauth_app (oauth_app_id));
 diesel::joinable!(connect_access_token -> organization (connected_organization_id));
 diesel::joinable!(connect_authorization_code -> connect_oauth_app (oauth_app_id));
 diesel::joinable!(connect_authorization_code -> organization (connected_organization_id));
+diesel::joinable!(connect_connected_account -> customer (platform_customer_id));
 diesel::joinable!(connect_connected_account -> tenant (connected_tenant_id));
 diesel::joinable!(connect_oauth_app -> organization (organization_id));
 diesel::joinable!(connect_onboarding_link -> connect_connected_account (connected_account_id));
