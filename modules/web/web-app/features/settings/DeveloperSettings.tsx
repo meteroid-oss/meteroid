@@ -51,7 +51,6 @@ import {
   listApiTokens,
   revokeApiToken as revokeApiTokenMutation,
 } from '@/rpc/api/apitokens/v1/apitokens-ApiTokensService_connectquery'
-import { getPlatformSettings } from '@/rpc/api/connect/v1/connect-ConnectAdminService_connectquery'
 import { getInstance } from '@/rpc/api/instance/v1/instance-InstanceService_connectquery'
 import { getWebhookPortalAccess } from '@/rpc/api/webhooksout/v1/webhooksout-WebhooksService_connectquery'
 import { parseAndFormatDateTime } from '@/utils/date'
@@ -108,9 +107,6 @@ export const DeveloperSettings: FunctionComponent = () => {
     enabled: isSvixEnabled,
   })
 
-  const platformSettings = useQuery(getPlatformSettings)
-  const isPlatformEnabled = platformSettings.data?.settings?.isPlatformEnabled ?? false
-
   // Sort tokens by creation date (newest first)
   const sortedTokens = tokens.data?.apiTokens
     ? [...tokens.data.apiTokens].sort((a, b) => {
@@ -149,16 +145,6 @@ export const DeveloperSettings: FunctionComponent = () => {
             <TabsTrigger value="webhooks">Webhooks</TabsTrigger>
             <TabsTrigger value="batch-jobs">Batch Jobs</TabsTrigger>
             <TabsTrigger value="platform-settings">Connect Platform</TabsTrigger>
-            {isPlatformEnabled && (
-              <>
-                <TabsTrigger value="oauth-apps" disabled={!isPlatformEnabled}>
-                  OAuth Apps
-                </TabsTrigger>
-                <TabsTrigger value="connected-accounts" disabled={!isPlatformEnabled}>
-                  Connected Accounts
-                </TabsTrigger>
-              </>
-            )}
           </TabsList>
           <TabsContent value="api-keys">
             <div className="flex justify-between py-4">

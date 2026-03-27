@@ -26,7 +26,6 @@ import { NavMain } from '@/components/layouts/TenantLayout/components/NavMain'
 import { getFilteredSidebarItems } from '@/components/layouts/TenantLayout/utils'
 import { TenantDropdown } from '@/components/layouts/shared/LayoutHeader/TenantDropdown'
 import { useLogout } from '@/hooks/useLogout'
-import { useTenant } from '@/hooks/useTenant'
 import { useQuery } from '@/lib/connectrpc'
 import { getInstance } from '@/rpc/api/instance/v1/instance-InstanceService_connectquery'
 import { getCurrentOrganizations } from '@/rpc/api/organizations/v1/organizations-OrganizationsService_connectquery'
@@ -53,7 +52,6 @@ export const TenantLayoutOutlet = () => {
   const meData = useQuery(me)?.data
   const organizationData = useQuery(getCurrentOrganizations)?.data?.organization
   const getInstanceQuery = useQuery(getInstance)
-  const { tenant } = useTenant()
 
   const { toggleSidebar, state } = useSidebar()
 
