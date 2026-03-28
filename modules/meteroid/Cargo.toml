@@ -22,7 +22,7 @@ meteroid-middleware = { path = "crates/meteroid-middleware", features = ["server
 deadpool-postgres.workspace = true
 dotenvy.workspace = true
 diesel = { workspace = true, features = ["postgres"] }
-diesel-async = { workspace = true, features = ["postgres", "async-connection-wrapper"] }
+diesel-async = { workspace = true, features = ["postgres", "migrations"] }
 diesel_migrations = { workspace = true, features = ["postgres"] }
 envconfig.workspace = true
 futures.workspace = true
