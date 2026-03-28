@@ -15,7 +15,7 @@ argon2 = { workspace = true, features = ["rand"] }
 base62.workspace = true
 cached = { workspace = true, features = ["async", "tokio"] }
 chrono = { workspace = true, features = ["clock", "serde"] }
-deadpool-postgres = { workspace = true, features = ["rt_tokio_1"] }
+deadpool-runtime = { workspace = true, features = ["tokio_1"] }
 diesel.workspace = true
 diesel-async.workspace = true
 uuid = { workspace = true, features = ["serde"] }

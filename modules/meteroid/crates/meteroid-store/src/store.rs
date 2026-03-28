@@ -2,7 +2,6 @@ use crate::StoreResult;
 use crate::errors::{StoreError, StoreErrorReport};
 use common_domain::ids::{OrganizationId, PlanId};
 use common_eventbus::{Event, EventBus};
-use deadpool_postgres::Runtime;
 use diesel::{ConnectionError, ConnectionResult};
 use diesel_async::pooled_connection::deadpool::{Object, Pool};
 use diesel_async::pooled_connection::{AsyncDieselConnectionManager, ManagerConfig};
@@ -104,7 +103,7 @@ pub fn diesel_make_pg_pool(pg_config: PgConfig) -> StoreResult<PgPool> {
 
     Pool::builder(mgr)
         .max_size(pg_config.pool.max_size)
-        .runtime(Runtime::Tokio1)
+        .runtime(deadpool_runtime::Runtime::Tokio1)
         // Timeout for creating a new connection
         .create_timeout(Some(Duration::from_secs(
             pg_config.pool.create_timeout_secs,
