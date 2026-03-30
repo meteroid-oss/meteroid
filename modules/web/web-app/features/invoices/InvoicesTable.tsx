@@ -9,7 +9,7 @@ import {
   TooltipTrigger,
 } from '@md/ui'
 import { useQueryClient } from '@tanstack/react-query'
-import { ColumnDef, OnChangeFn, PaginationState } from '@tanstack/react-table'
+import { ColumnDef, OnChangeFn, PaginationState, SortingState } from '@tanstack/react-table'
 import { CheckCircleIcon, Eye, MoreVerticalIcon } from 'lucide-react'
 import { useMemo, useState } from 'react'
 import { useNavigate } from 'react-router-dom'
@@ -31,13 +31,14 @@ import {
 } from '@/rpc/api/invoices/v1/invoices-InvoicesService_connectquery'
 import { InvoicePaymentStatus, InvoiceStatus, Invoice } from '@/rpc/api/invoices/v1/models_pb'
 
-interface CustomersTableProps {
+interface InvoicesTableProps {
   data: Invoice[]
   pagination: PaginationState
   setPagination: OnChangeFn<PaginationState>
   totalCount: number
   isLoading?: boolean
-  linkPrefix?: string
+  sorting?: SortingState
+  onSortingChange?: OnChangeFn<SortingState>
 }
 
 const InvoiceRowActions = ({ invoiceId }: { invoiceId: string }) => {
@@ -169,38 +170,49 @@ export const InvoicesTable = ({
   setPagination,
   totalCount,
   isLoading,
-}: CustomersTableProps) => {
+  sorting,
+  onSortingChange,
+}: InvoicesTableProps) => {
   const basePath = useBasePath()
   const isExpress = useIsExpressOrganization()
 
   const columns = useMemo<ColumnDef<Invoice>[]>(
     () => [
       {
+        id: 'invoice_number',
         header: 'Invoice Number',
         accessorKey: 'invoiceNumber',
       },
       {
+        id: 'customer_name',
         header: 'Customer',
         accessorKey: 'customerName',
       },
       {
+        id: 'amount',
         header: 'Amount',
         accessorFn: amountFormat,
       },
       {
         header: 'Currency',
         accessorKey: 'currency',
+        enableSorting: false,
       },
       {
+        id: 'invoice_date',
         header: 'Invoice date',
         accessorFn: cell => cell.invoiceDate,
       },
       {
+        id: 'status',
         header: 'Status',
+        enableSorting: true,
         cell: ({ row }) => <InvoiceStatusBadge status={row.original.status} />,
       },
       {
+        id: 'payment_status',
         header: 'Payment Status',
+        enableSorting: true,
         cell: ({ row }) => <PaymentStatusBadge status={row.original.paymentStatus} />,
       },
       ...(!isExpress
@@ -209,6 +221,7 @@ export const InvoicesTable = ({
               accessorKey: 'id' as const,
               header: '',
               className: 'w-2',
+              enableSorting: false,
               cell: ({ row }: { row: { original: Invoice } }) => (
                 <InvoiceRowActions invoiceId={row.original.id} />
               ),
@@ -216,7 +229,7 @@ export const InvoicesTable = ({
           ]
         : []),
     ],
-    [basePath, isExpress]
+    [isExpress]
   )
 
   return (
@@ -224,6 +237,8 @@ export const InvoicesTable = ({
       columns={columns}
       data={data}
       sortable={true}
+      sorting={sorting}
+      onSortingChange={onSortingChange}
       pagination={pagination}
       setPagination={setPagination}
       totalCount={totalCount}

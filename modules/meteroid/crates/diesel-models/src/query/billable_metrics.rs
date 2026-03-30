@@ -1,11 +1,12 @@
 use crate::billable_metrics::{BillableMetricMetaRow, BillableMetricRow, BillableMetricRowNew};
 use crate::errors::IntoDbResult;
+use crate::extend::order::{OrderByParam, OrderDirection};
 
 use crate::{DbResult, PgConn};
 
 use crate::extend::pagination::{Paginate, PaginatedVec, PaginationRequest};
 use common_domain::ids::{BillableMetricId, ProductFamilyId, TenantId};
-use diesel::{ExpressionMethods, QueryDsl};
+use diesel::{BoolExpressionMethods, ExpressionMethods, PgTextExpressionMethods, QueryDsl};
 use diesel::{JoinOnDsl, SelectableHelper, debug_query};
 use error_stack::ResultExt;
 
@@ -70,6 +71,8 @@ impl BillableMetricRow {
         pagination: PaginationRequest,
         param_product_family_id: Option<ProductFamilyId>,
         param_archived: Option<bool>,
+        order_by: Option<&str>,
+        search: Option<String>,
     ) -> DbResult<PaginatedVec<BillableMetricMetaRow>> {
         use crate::schema::billable_metric::dsl as bm_dsl;
         use crate::schema::product_family::dsl as pf_dsl;
@@ -88,9 +91,42 @@ impl BillableMetricRow {
             _ => query.filter(bm_dsl::archived_at.is_null()),
         };
 
-        let query = query
-            .order(bm_dsl::created_at.asc())
-            .select(BillableMetricMetaRow::as_select());
+        if let Some(search) = search
+            && !search.trim().is_empty()
+        {
+            let pattern = format!("%{search}%");
+            query = query.filter(
+                bm_dsl::name
+                    .ilike(pattern.clone())
+                    .or(bm_dsl::code.ilike(pattern)),
+            );
+        }
+
+        let mut query = query.select(BillableMetricMetaRow::as_select());
+
+        let order = OrderByParam::parse(order_by, "name.asc");
+
+        match (order.column.as_str(), order.direction) {
+            ("name", OrderDirection::Asc) => {
+                query = query.order((bm_dsl::name.asc(), bm_dsl::id.asc()))
+            }
+            ("name", OrderDirection::Desc) => {
+                query = query.order((bm_dsl::name.desc(), bm_dsl::id.desc()))
+            }
+            ("code", OrderDirection::Asc) => {
+                query = query.order((bm_dsl::code.asc(), bm_dsl::id.asc()))
+            }
+            ("code", OrderDirection::Desc) => {
+                query = query.order((bm_dsl::code.desc(), bm_dsl::id.desc()))
+            }
+            ("created_at", OrderDirection::Asc) => {
+                query = query.order((bm_dsl::created_at.asc(), bm_dsl::id.asc()))
+            }
+            ("created_at", OrderDirection::Desc) => {
+                query = query.order((bm_dsl::created_at.desc(), bm_dsl::id.desc()))
+            }
+            _ => query = query.order((bm_dsl::name.asc(), bm_dsl::id.asc())),
+        }
 
         let paginated_query = query.paginate(pagination);
 

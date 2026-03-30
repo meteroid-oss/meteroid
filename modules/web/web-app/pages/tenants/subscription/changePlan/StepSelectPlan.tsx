@@ -9,7 +9,6 @@ import { useQuery } from '@/lib/connectrpc'
 import { changePlanAtom } from '@/pages/tenants/subscription/changePlan/state'
 import { PlanStatus, PlanType } from '@/rpc/api/plans/v1/models_pb'
 import { listPlans } from '@/rpc/api/plans/v1/plans-PlansService_connectquery'
-import { ListPlansRequest_SortBy } from '@/rpc/api/plans/v1/plans_pb'
 
 export const StepSelectPlan = () => {
   const { nextStep } = useWizard()
@@ -19,7 +18,6 @@ export const StepSelectPlan = () => {
   )
 
   const plansQuery = useQuery(listPlans, {
-    sortBy: ListPlansRequest_SortBy.NAME_ASC,
     filters: {
       types: [PlanType.STANDARD],
       statuses: [PlanStatus.ACTIVE],

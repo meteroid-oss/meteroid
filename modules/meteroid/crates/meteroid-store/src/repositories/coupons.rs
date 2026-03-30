@@ -18,6 +18,7 @@ pub trait CouponInterface {
         pagination: PaginationRequest,
         search: Option<String>,
         filter: CouponFilter,
+        order_by: Option<String>,
     ) -> StoreResult<PaginatedVec<Coupon>>;
     async fn get_coupon_by_id(&self, tenant_id: TenantId, id: CouponId) -> StoreResult<Coupon>;
 
@@ -55,6 +56,7 @@ impl CouponInterface for Store {
         pagination: PaginationRequest,
         search: Option<String>,
         filter: CouponFilter,
+        order_by: Option<String>,
     ) -> StoreResult<PaginatedVec<Coupon>> {
         let mut conn = self.get_conn().await?;
 
@@ -64,6 +66,7 @@ impl CouponInterface for Store {
             pagination.into(),
             search,
             filter.into(),
+            order_by.as_deref(),
         )
         .await
         .map_err(Into::<Report<StoreError>>::into)?;

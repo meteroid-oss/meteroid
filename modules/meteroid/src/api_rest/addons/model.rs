@@ -73,6 +73,8 @@ pub struct AddOnListRequest {
     /// Include archived add-ons in the results (default: false)
     #[serde(default)]
     pub include_archived: bool,
+    /// Sort order. Format: `column.direction`. Allowed columns: `name`, `created_at`. Direction: `asc` or `desc`. Default: `created_at.desc`.
+    pub order_by: Option<String>,
 }
 
 #[derive(Clone, Debug, Serialize, ToSchema)]

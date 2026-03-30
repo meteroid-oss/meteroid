@@ -5,7 +5,6 @@ import { useEffect, useState } from 'react'
 import { InvoicesTable } from '@/features/invoices'
 import { useQuery } from '@/lib/connectrpc'
 import { listInvoices } from '@/rpc/api/invoices/v1/invoices-InvoicesService_connectquery'
-import { ListInvoicesRequest_SortBy } from '@/rpc/api/invoices/v1/invoices_pb'
 
 type Props = {
   subscriptionId: string
@@ -24,7 +23,6 @@ export const SubscriptionInvoicesCard = ({ subscriptionId, onRefetchChange }: Pr
       page: pagination.pageIndex,
     },
     subscriptionId,
-    sortBy: ListInvoicesRequest_SortBy.DATE_DESC,
   })
 
   useEffect(() => {
@@ -45,7 +43,6 @@ export const SubscriptionInvoicesCard = ({ subscriptionId, onRefetchChange }: Pr
       pagination={pagination}
       setPagination={setPagination}
       isLoading={invoicesQuery.isFetching}
-      linkPrefix="../../billing/invoices/"
     />
   )
 }

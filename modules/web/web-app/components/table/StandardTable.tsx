@@ -1,5 +1,12 @@
 import { TableCell, TableRow } from '@md/ui'
-import { ColumnDef, OnChangeFn, PaginationState, Row, flexRender } from '@tanstack/react-table'
+import {
+  ColumnDef,
+  OnChangeFn,
+  PaginationState,
+  Row,
+  SortingState,
+  flexRender,
+} from '@tanstack/react-table'
 import { ReactNode } from 'react'
 import { Link } from 'react-router-dom'
 
@@ -9,6 +16,8 @@ interface StandardTableProps<A> {
   columns: ColumnDef<A>[]
   data: A[] | undefined
   sortable?: boolean
+  sorting?: SortingState
+  onSortingChange?: OnChangeFn<SortingState>
   pagination: PaginationState
   setPagination: OnChangeFn<PaginationState>
   totalCount: number
@@ -21,6 +30,8 @@ export const StandardTable = <A extends object>({
   columns,
   data,
   sortable,
+  sorting,
+  onSortingChange,
   pagination,
   setPagination,
   totalCount,
@@ -34,6 +45,8 @@ export const StandardTable = <A extends object>({
       columns={columns}
       data={data}
       sortable={sortable}
+      sorting={sorting}
+      onSortingChange={onSortingChange}
       pagination={pagination}
       setPagination={setPagination}
       totalCount={totalCount}

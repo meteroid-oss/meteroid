@@ -3,7 +3,7 @@ use crate::product_families::{ProductFamilyRow, ProductFamilyRowNew};
 
 use crate::{DbResult, PgConn};
 
-use crate::extend::order::OrderByRequest;
+use crate::extend::order::{OrderByParam, OrderDirection};
 use crate::extend::pagination::{Paginate, PaginatedVec, PaginationRequest};
 use common_domain::ids::{ProductFamilyId, TenantId};
 use diesel::{ExpressionMethods, PgTextExpressionMethods, QueryDsl, debug_query};
@@ -31,7 +31,7 @@ impl ProductFamilyRow {
         conn: &mut PgConn,
         tenant_id: TenantId,
         pagination: PaginationRequest,
-        order_by: OrderByRequest,
+        order_by: Option<&str>,
         param_query: Option<String>,
     ) -> DbResult<PaginatedVec<ProductFamilyRow>> {
         use crate::schema::product_family::dsl as pf_dsl;
@@ -44,12 +44,22 @@ impl ProductFamilyRow {
             query = query.filter(pf_dsl::name.ilike(format!("%{param_query}%")));
         }
 
-        match order_by {
-            OrderByRequest::IdAsc => query = query.order(pf_dsl::id.asc()),
-            OrderByRequest::IdDesc => query = query.order(pf_dsl::id.desc()),
-            OrderByRequest::DateAsc => query = query.order(pf_dsl::created_at.asc()),
-            OrderByRequest::DateDesc => query = query.order(pf_dsl::created_at.desc()),
-            _ => query = query.order(pf_dsl::id.asc()),
+        let order = OrderByParam::parse(order_by, "name.asc");
+
+        match (order.column.as_str(), order.direction) {
+            ("name", OrderDirection::Asc) => {
+                query = query.order((pf_dsl::name.asc(), pf_dsl::id.asc()))
+            }
+            ("name", OrderDirection::Desc) => {
+                query = query.order((pf_dsl::name.desc(), pf_dsl::id.desc()))
+            }
+            ("created_at", OrderDirection::Asc) => {
+                query = query.order((pf_dsl::created_at.asc(), pf_dsl::id.asc()))
+            }
+            ("created_at", OrderDirection::Desc) => {
+                query = query.order((pf_dsl::created_at.desc(), pf_dsl::id.desc()))
+            }
+            _ => query = query.order((pf_dsl::name.asc(), pf_dsl::id.asc())),
         }
 
         let paginated_query = query.paginate(pagination);
@@ -59,7 +69,7 @@ impl ProductFamilyRow {
         paginated_query
             .load_and_count_pages(conn)
             .await
-            .attach("Error while fetching customers")
+            .attach("Error while fetching product families")
             .into_db_result()
     }
 

@@ -1,4 +1,4 @@
-import { ColumnDef, PaginationState } from '@tanstack/react-table'
+import { ColumnDef, PaginationState, SortingState } from '@tanstack/react-table'
 import { FC, useMemo } from 'react'
 
 import { LocalId } from '@/components/LocalId'
@@ -17,6 +17,8 @@ interface ProductsTableProps {
   totalCount: number
   isLoading?: boolean
   onProductClick?: (product: ProductMeta) => void
+  sorting?: SortingState
+  onSortingChange?: OnChangeFn<SortingState>
 }
 export const ProductsTable: FC<ProductsTableProps> = ({
   data,
@@ -25,11 +27,15 @@ export const ProductsTable: FC<ProductsTableProps> = ({
   totalCount,
   isLoading,
   onProductClick,
+  sorting,
+  onSortingChange,
 }) => {
   const columns = useMemo<ColumnDef<ProductMeta>[]>(
     () => [
       {
+        id: 'name',
         header: 'Name',
+        enableSorting: true,
         cell: ({ row }) => (
           <button
             className="text-left cursor-pointer"
@@ -43,7 +49,6 @@ export const ProductsTable: FC<ProductsTableProps> = ({
             )}
           </button>
         ),
-        enableSorting: false,
       },
       {
         header: 'Fee Type',
@@ -61,7 +66,9 @@ export const ProductsTable: FC<ProductsTableProps> = ({
         enableSorting: false,
       },
       {
+        id: 'created_at',
         header: 'Created',
+        enableSorting: true,
         cell: ({ row }) => {
           const ts = row.original.createdAt
           if (!ts) return null
@@ -71,7 +78,6 @@ export const ProductsTable: FC<ProductsTableProps> = ({
             </span>
           )
         },
-        enableSorting: false,
       },
     ],
     [onProductClick]
@@ -82,6 +88,8 @@ export const ProductsTable: FC<ProductsTableProps> = ({
       columns={columns}
       data={data}
       sortable={true}
+      sorting={sorting}
+      onSortingChange={onSortingChange}
       pagination={pagination}
       setPagination={setPagination}
       totalCount={totalCount}

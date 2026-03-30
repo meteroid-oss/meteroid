@@ -1,13 +1,14 @@
 use crate::coupons::{CouponFilter, CouponRow, CouponRowNew, CouponRowPatch, CouponStatusRowPatch};
 use crate::errors::IntoDbResult;
+use crate::extend::order::{OrderByParam, OrderDirection};
 use crate::extend::pagination::{Paginate, PaginatedVec, PaginationRequest};
 
 use crate::{DbResult, PgConn};
 use common_domain::ids::{CouponId, TenantId};
 use diesel::dsl::not;
 use diesel::{
-    BoolExpressionMethods, ExpressionMethods, NullableExpressionMethods, PgTextExpressionMethods,
-    QueryDsl, debug_query,
+    BoolExpressionMethods, ExpressionMethods, NullableExpressionMethods, PgSortExpressionMethods,
+    PgTextExpressionMethods, QueryDsl, debug_query,
 };
 use diesel_async::RunQueryDsl;
 use error_stack::ResultExt;
@@ -57,6 +58,7 @@ impl CouponRow {
         pagination: PaginationRequest,
         search: Option<String>,
         filter: CouponFilter,
+        order_by: Option<&str>,
     ) -> DbResult<PaginatedVec<CouponRow>> {
         use crate::schema::coupon::dsl as c_dsl;
 
@@ -98,7 +100,26 @@ impl CouponRow {
             CouponFilter::ALL => {}
         }
 
-        let query = query.order(c_dsl::created_at.desc()).paginate(pagination);
+        let order = OrderByParam::parse(order_by, "created_at.desc");
+
+        let query = match (order.column.as_str(), order.direction) {
+            ("code", OrderDirection::Asc) => query.order((c_dsl::code.asc(), c_dsl::id.asc())),
+            ("code", OrderDirection::Desc) => query.order((c_dsl::code.desc(), c_dsl::id.desc())),
+            ("created_at", OrderDirection::Asc) => {
+                query.order((c_dsl::created_at.asc(), c_dsl::id.asc()))
+            }
+            ("created_at", OrderDirection::Desc) => {
+                query.order((c_dsl::created_at.desc(), c_dsl::id.desc()))
+            }
+            ("expires_at", OrderDirection::Asc) => {
+                query.order((c_dsl::expires_at.asc().nulls_last(), c_dsl::id.asc()))
+            }
+            ("expires_at", OrderDirection::Desc) => {
+                query.order((c_dsl::expires_at.desc().nulls_first(), c_dsl::id.desc()))
+            }
+            _ => query.order((c_dsl::created_at.desc(), c_dsl::id.desc())),
+        };
+        let query = query.paginate(pagination);
 
         log::debug!("{}", debug_query::<diesel::pg::Pg, _>(&query));
 

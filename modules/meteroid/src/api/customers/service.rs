@@ -11,7 +11,6 @@ use common_domain::ids::{
 };
 use common_grpc::middleware::server::auth::RequestExt;
 use error_stack::Report;
-use meteroid_grpc::meteroid::api::customers::v1::list_customer_request::SortBy;
 use meteroid_grpc::meteroid::api::customers::v1::{
     ArchiveCustomerRequest, ArchiveCustomerResponse, BuyCustomerCreditsRequest,
     BuyCustomerCreditsResponse, CreateCustomerRequest, CreateCustomerResponse, CustomerBrief,
@@ -26,7 +25,7 @@ use meteroid_grpc::meteroid::api::customers::v1::{
     customers_service_server::CustomersService,
 };
 use meteroid_store::domain::{
-    CustomerBuyCredits, CustomerNew, CustomerPatch, CustomerTopUpBalance, OrderByRequest,
+    CustomerBuyCredits, CustomerNew, CustomerPatch, CustomerTopUpBalance,
 };
 use meteroid_store::errors::StoreError;
 use meteroid_store::repositories::CustomersInterface;
@@ -179,20 +178,12 @@ impl CustomersService for CustomerServiceComponents {
 
         let pagination_req = inner.pagination.into_domain();
 
-        let order_by = match inner.sort_by.try_into() {
-            Ok(SortBy::DateAsc) => OrderByRequest::DateAsc,
-            Ok(SortBy::DateDesc) => OrderByRequest::DateDesc,
-            Ok(SortBy::NameAsc) => OrderByRequest::NameAsc,
-            Ok(SortBy::NameDesc) => OrderByRequest::NameDesc,
-            Err(_) => OrderByRequest::DateDesc,
-        };
-
         let res = self
             .store
             .list_customers(
                 tenant_id,
                 pagination_req,
-                order_by,
+                inner.order_by,
                 inner.search,
                 inner.archived,
             )

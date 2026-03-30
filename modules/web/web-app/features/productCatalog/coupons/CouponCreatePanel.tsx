@@ -33,7 +33,6 @@ import { useZodForm } from '@/hooks/useZodForm'
 import { schemas } from '@/lib/schemas'
 import { createCoupon, listCoupons } from '@/rpc/api/coupons/v1/coupons-CouponsService_connectquery'
 import { listPlans } from '@/rpc/api/plans/v1/plans-PlansService_connectquery'
-import { ListPlansRequest_SortBy } from '@/rpc/api/plans/v1/plans_pb'
 
 const nanoid = customAlphabet('23456789ABCDEFGHJKLMNPQRSTUVWXYZ')
 
@@ -56,9 +55,7 @@ export const CouponCreatePanel: FunctionComponent = () => {
     },
   })
 
-  const plansQuery = useQuery(listPlans, {
-    sortBy: ListPlansRequest_SortBy.NAME_ASC,
-  })
+  const plansQuery = useQuery(listPlans, {})
 
   const methods = useZodForm({
     schema: schemas.coupons.createCouponSchema,

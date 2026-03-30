@@ -6,8 +6,8 @@ use common_domain::ids::{BaseId, StoredDocumentId};
 use meteroid::workers::pgmq::processors::{
     run_once_invoice_orchestration, run_once_outbox_dispatch, run_once_payment_request,
 };
+use meteroid_store::domain::PaginationRequest;
 use meteroid_store::domain::enums::InvoiceStatusEnum;
-use meteroid_store::domain::{OrderByRequest, PaginationRequest};
 use meteroid_store::repositories::InvoiceInterface;
 
 use crate::data::ids::TENANT_ID;
@@ -60,7 +60,7 @@ impl TestEnv {
                 None,
                 Some(InvoiceStatusEnum::Finalized),
                 None,
-                OrderByRequest::DateAsc,
+                None,
                 PaginationRequest {
                     page: 0,
                     per_page: None,

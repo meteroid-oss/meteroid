@@ -157,6 +157,10 @@ pub struct MetricListRequest {
     pub pagination: PaginatedRequest,
     #[serde(default, with = "string_serde_opt")]
     pub product_family_id: Option<ProductFamilyId>,
+    /// Search by metric name or code
+    pub search: Option<String>,
+    /// Sort order. Format: `column.direction`. Allowed columns: `name`, `code`, `created_at`. Direction: `asc` or `desc`. Default: `name.asc`.
+    pub order_by: Option<String>,
 }
 
 #[derive(Clone, Debug, Serialize, ToSchema)]

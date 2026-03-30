@@ -1,7 +1,7 @@
 pub mod addons {
     use crate::api::prices::mapping::prices::PriceWrapper;
     use crate::api::productitems::mapping::products::{fee_structure_to_proto, fee_type_to_proto};
-    use crate::api::shared::mapping::datetime::chrono_to_timestamp;
+    use crate::api::shared::conversions::{AsProtoOpt, ProtoConv};
     use meteroid_grpc::meteroid::api::addons::v1 as server;
     use meteroid_store::domain;
 
@@ -18,8 +18,9 @@ pub mod addons {
                 price: value.price.map(|p| PriceWrapper::from(p).0),
                 self_serviceable: value.self_serviceable,
                 max_instances_per_subscription: value.max_instances_per_subscription,
-                archived_at: value.archived_at.map(chrono_to_timestamp),
+                archived_at: value.archived_at.as_proto(),
                 fee_structure: value.fee_structure.map(fee_structure_to_proto),
+                created_at: value.created_at.as_proto(),
             })
         }
     }

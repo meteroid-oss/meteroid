@@ -1,28 +1,48 @@
-import { PaginationState } from '@tanstack/react-table'
-import { Fragment, FunctionComponent, useState } from 'react'
+import { PaginationState, SortingState } from '@tanstack/react-table'
+import { Fragment, FunctionComponent, useCallback, useEffect, useState } from 'react'
 import { Outlet, useNavigate } from 'react-router-dom'
 
 import { ProductMetricsPageHeader } from '@/features/productCatalog/metrics/ProductMetricsPageHeader'
 import { BillableMetricTable } from '@/features/productCatalog/metrics/ProductMetricsTable'
+import { useDebounceValue } from '@/hooks/useDebounce'
 import { useQuery } from '@/lib/connectrpc'
+import { sortingStateToOrderBy } from '@/lib/utils/sorting'
 import { listBillableMetrics } from '@/rpc/api/billablemetrics/v1/billablemetrics-BillableMetricsService_connectquery'
 
 export const ProductMetrics: FunctionComponent = () => {
   const navigate = useNavigate()
+  const [search, setSearch] = useState('')
+  const debouncedSearch = useDebounceValue(search, 400)
+
   const [pagination, setPagination] = useState<PaginationState>({
     pageIndex: 0,
     pageSize: 20,
   })
   const [statusFilter, setStatusFilter] = useState<'all' | 'active' | 'archived'>('active')
+  const [sorting, setSorting] = useState<SortingState>([])
+
+  useEffect(() => {
+    setPagination(prev => ({ ...prev, pageIndex: 0 }))
+  }, [statusFilter, debouncedSearch])
+
+  const handleSortingChange = useCallback(
+    (updaterOrValue: SortingState | ((old: SortingState) => SortingState)) => {
+      setSorting(prev => (typeof updaterOrValue === 'function' ? updaterOrValue(prev) : updaterOrValue))
+      setPagination(prev => ({ ...prev, pageIndex: 0 }))
+    },
+    []
+  )
 
   const archivedParam = statusFilter === 'all' ? undefined : statusFilter === 'archived'
 
   const productMetricsQuery = useQuery(listBillableMetrics, {
     archived: archivedParam,
+    search: debouncedSearch || undefined,
     pagination: {
       page: pagination.pageIndex,
       perPage: pagination.pageSize,
     },
+    orderBy: sortingStateToOrderBy(sorting),
   })
 
   const totalCount = productMetricsQuery?.data?.paginationMeta?.totalItems ?? 0
@@ -43,12 +63,17 @@ export const ProductMetrics: FunctionComponent = () => {
           statusFilter={statusFilter}
           onStatusFilterChange={setStatusFilter}
           totalCount={totalCount}
+          search={search}
+          setSearch={setSearch}
         />
         <BillableMetricTable
           data={data}
           totalCount={totalCount}
           pagination={pagination}
           setPagination={setPagination}
+          sorting={sorting}
+          onSortingChange={handleSortingChange}
+          isLoading={isLoading}
         />
       </div>
       <Outlet />

@@ -6,7 +6,6 @@ import {
   getCustomerById,
   listCustomers,
 } from '@/rpc/api/customers/v1/customers-CustomersService_connectquery'
-import { ListCustomerRequest_SortBy } from '@/rpc/api/customers/v1/customers_pb'
 import { CustomerBrief } from '@/rpc/api/customers/v1/models_pb'
 
 interface Props {
@@ -61,7 +60,6 @@ const CustomerItems = ({ search }: { search: string }) => {
         page: 0,
       },
       search: search.length > 0 ? search : undefined,
-      sortBy: ListCustomerRequest_SortBy.NAME_ASC,
     },
     {}
   )

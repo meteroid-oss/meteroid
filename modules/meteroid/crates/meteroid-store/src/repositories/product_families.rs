@@ -1,4 +1,4 @@
-use crate::domain::{OrderByRequest, PaginatedVec, PaginationRequest, ProductFamily};
+use crate::domain::{PaginatedVec, PaginationRequest, ProductFamily};
 use crate::errors::StoreError;
 use crate::store::{PgConn, Store, StoreInternal};
 use crate::{StoreResult, domain};
@@ -20,7 +20,7 @@ pub trait ProductFamilyInterface {
         &self,
         auth_tenant_id: TenantId,
         pagination: PaginationRequest,
-        order_by: OrderByRequest,
+        order_by: Option<String>,
         query: Option<String>,
     ) -> StoreResult<PaginatedVec<domain::ProductFamily>>;
 
@@ -82,7 +82,7 @@ impl ProductFamilyInterface for Store {
         &self,
         auth_tenant_id: TenantId,
         pagination: PaginationRequest,
-        order_by: OrderByRequest,
+        order_by: Option<String>,
         query: Option<String>,
     ) -> StoreResult<PaginatedVec<domain::ProductFamily>> {
         let mut conn = self.get_conn().await?;
@@ -91,7 +91,7 @@ impl ProductFamilyInterface for Store {
             &mut conn,
             auth_tenant_id,
             pagination.into(),
-            order_by.into(),
+            order_by.as_deref(),
             query,
         )
         .await
@@ -132,7 +132,7 @@ impl ProductFamilyInterface for Store {
                 per_page: Some(1),
             }
             .into(),
-            OrderByRequest::IdAsc.into(),
+            Some("id.asc"),
             None,
         )
         .await

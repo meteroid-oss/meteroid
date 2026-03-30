@@ -11,6 +11,7 @@ message ListAddOnRequest {
   optional string search = 2;
   meteroid.common.v1.Pagination pagination = 3;
   optional string currency = 4;
+  optional string order_by = 5;
 }
 
 message ListAddOnResponse {

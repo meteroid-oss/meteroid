@@ -153,6 +153,8 @@ impl SubscriptionsService for SubscriptionServiceComponents {
                 } else {
                     Some(status_filter)
                 },
+                inner.search,
+                inner.order_by,
                 inner.pagination.into_domain(),
             )
             .await

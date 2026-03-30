@@ -1,4 +1,4 @@
-import { ColumnDef, OnChangeFn, PaginationState, Row } from '@tanstack/react-table'
+import { ColumnDef, OnChangeFn, PaginationState, Row, SortingState } from '@tanstack/react-table'
 import { format } from 'date-fns'
 import { useMemo } from 'react'
 
@@ -19,6 +19,8 @@ interface SubscriptionsTableProps {
   isLoading?: boolean
   hideCustomer?: boolean
   hidePlan?: boolean
+  sorting?: SortingState
+  onSortingChange?: OnChangeFn<SortingState>
 }
 
 export const SubscriptionsTable: FunctionComponent<SubscriptionsTableProps> = ({
@@ -29,6 +31,8 @@ export const SubscriptionsTable: FunctionComponent<SubscriptionsTableProps> = ({
   isLoading,
   hideCustomer = false,
   hidePlan = false,
+  sorting,
+  onSortingChange,
 }) => {
   const { formatAmount } = useCurrency()
   const basePath = useBasePath()
@@ -37,10 +41,12 @@ export const SubscriptionsTable: FunctionComponent<SubscriptionsTableProps> = ({
     () =>
       [
         {
+          id: 'customer_name',
           header: 'Customer',
           accessorKey: 'customerName',
         },
         {
+          id: 'plan_name',
           header: 'Plan',
           accessorKey: 'planName',
         },
@@ -51,30 +57,33 @@ export const SubscriptionsTable: FunctionComponent<SubscriptionsTableProps> = ({
           enableSorting: false,
         },
         {
+          id: 'mrr_cents',
           header: 'MRR',
-          accessorKey: 'mrrCents',
           accessorFn: (cell: Subscription) =>
             cell.mrrCents > 0 ? formatAmount(cell.mrrCents) : null,
         },
         {
+          id: 'billing_start_date',
           header: 'Start date',
           accessorFn: (cell: Subscription) =>
             cell.billingStartDate
               ? format(mapDateFromGrpcv2(cell.billingStartDate), 'dd/MM/yyyy')
               : '',
-          enableSorting: false,
         },
         {
+          id: 'end_date',
           header: 'End date',
+          enableSorting: true,
           cell: ({ row }: { row: Row<Subscription> }) =>
             row.original.endDate
               ? format(mapDateFromGrpcv2(row.original.endDate), 'dd/MM/yyyy')
               : null,
-          enableSorting: false,
         },
 
         {
+          id: 'status',
           header: 'Status',
+          enableSorting: true,
           cell: ({ row }: { row: Row<Subscription> }) => <SubscriptionStatusBadge status={row.original.status} />,
         },
         {
@@ -86,7 +95,7 @@ export const SubscriptionsTable: FunctionComponent<SubscriptionsTableProps> = ({
         .filter(col => !hideCustomer || col.header !== 'Customer')
         .filter(col => !hidePlan || col.header !== 'Plan'),
 
-    [hideCustomer]
+    [hideCustomer, hidePlan, formatAmount]
   )
 
   return (
@@ -94,6 +103,8 @@ export const SubscriptionsTable: FunctionComponent<SubscriptionsTableProps> = ({
       columns={columns}
       data={data}
       sortable={true}
+      sorting={sorting}
+      onSortingChange={onSortingChange}
       pagination={pagination}
       setPagination={setPagination}
       totalCount={totalCount}

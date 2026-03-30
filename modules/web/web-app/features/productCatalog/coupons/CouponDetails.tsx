@@ -41,7 +41,6 @@ import {
 } from '@/rpc/api/coupons/v1/coupons-CouponsService_connectquery'
 import { CouponAction } from '@/rpc/api/coupons/v1/coupons_pb'
 import { listPlans } from '@/rpc/api/plans/v1/plans-PlansService_connectquery'
-import { ListPlansRequest_SortBy } from '@/rpc/api/plans/v1/plans_pb'
 import { parseAndFormatDate, parseAndFormatDateOptional } from '@/utils/date'
 import { useTypedParams } from '@/utils/params'
 
@@ -78,9 +77,7 @@ export const CouponDetails: FunctionComponent = () => {
     onSuccess: invalidate,
   })
 
-  const plansQuery = useConnectQuery(listPlans, {
-    sortBy: ListPlansRequest_SortBy.NAME_ASC,
-  })
+  const plansQuery = useConnectQuery(listPlans, {})
 
   const [, setTab] = useQueryState<string>('filter', '')
 

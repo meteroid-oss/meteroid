@@ -1,5 +1,5 @@
-import { PaginationState } from '@tanstack/react-table'
-import { FunctionComponent, useMemo, useState } from 'react'
+import { PaginationState, SortingState } from '@tanstack/react-table'
+import { FunctionComponent, useCallback, useEffect, useMemo, useState } from 'react'
 import { Outlet } from 'react-router-dom'
 
 import { MultiFilter, SingleFilter } from '@/features/TablePage'
@@ -8,10 +8,13 @@ import { PlansTable } from '@/features/plans/PlansTable'
 import { useDebounceValue } from '@/hooks/useDebounce'
 import { ARRAY_SERDE, useQueryState } from '@/hooks/useQueryState'
 import { useQuery } from '@/lib/connectrpc'
+import { sortingStateToOrderBy } from '@/lib/utils/sorting'
 import { PlanStatus, PlanType } from '@/rpc/api/plans/v1/models_pb'
 import { listPlans } from '@/rpc/api/plans/v1/plans-PlansService_connectquery'
-import { ListPlansRequest_SortBy } from '@/rpc/api/plans/v1/plans_pb'
 import { listProductFamilies } from '@/rpc/api/productfamilies/v1/productfamilies-ProductFamiliesService_connectquery'
+
+const DEFAULT_STATUSES = ['active', 'draft']
+const DEFAULT_TYPES = ['free', 'standard', 'custom']
 
 export const Plans: FunctionComponent = () => {
   const productFamiliesQuery = useQuery(listProductFamilies)
@@ -22,8 +25,8 @@ export const Plans: FunctionComponent = () => {
     pageSize: 20,
   })
 
-  const [status, setStatus] = useQueryState('status', ['active', 'draft'], ARRAY_SERDE)
-  const [type, setType] = useQueryState('type', ['free', 'standard', 'custom'], ARRAY_SERDE)
+  const [status, setStatus] = useQueryState('status', DEFAULT_STATUSES, ARRAY_SERDE)
+  const [type, setType] = useQueryState('type', DEFAULT_TYPES, ARRAY_SERDE)
   const [line, setLine] = useQueryState<string | undefined>('line', undefined)
 
   const productFamilyData = useMemo(
@@ -37,13 +40,29 @@ export const Plans: FunctionComponent = () => {
 
   const debouncedSearch = useDebounceValue(search, 200)
 
+  const [sorting, setSorting] = useState<SortingState>([])
+
+  useEffect(() => {
+    setPagination(prev => ({ ...prev, pageIndex: 0 }))
+  }, [debouncedSearch, status, type, line])
+
+  const handleSortingChange = useCallback(
+    (updaterOrValue: SortingState | ((old: SortingState) => SortingState)) => {
+      setSorting(prev =>
+        typeof updaterOrValue === 'function' ? updaterOrValue(prev) : updaterOrValue
+      )
+      setPagination(prev => ({ ...prev, pageIndex: 0 }))
+    },
+    []
+  )
+
   const plansQuery = useQuery(listPlans, {
     productFamilyLocalId: line,
     pagination: {
       page: pagination.pageIndex,
       perPage: pagination.pageSize,
     },
-    sortBy: ListPlansRequest_SortBy.DATE_DESC,
+    orderBy: sortingStateToOrderBy(sorting),
     filters: {
       statuses: status.map(mapPlanStatusToGrpc),
       types: type.map(mapPlanTypeToGrpc),
@@ -75,7 +94,13 @@ export const Plans: FunctionComponent = () => {
           hook={[line, setLine]}
         />
       </PlansHeader>
-      <PlansTable plansQuery={plansQuery} pagination={pagination} setPagination={setPagination} />
+      <PlansTable
+        plansQuery={plansQuery}
+        pagination={pagination}
+        setPagination={setPagination}
+        sorting={sorting}
+        onSortingChange={handleSortingChange}
+      />
       <Outlet />
     </>
   )

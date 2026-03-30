@@ -910,7 +910,7 @@ async fn get_invoices_for_subscription(
     subscription_id: SubscriptionId,
     _unit: &str,
 ) -> Vec<meteroid_store::domain::Invoice> {
-    use meteroid_store::domain::{OrderByRequest, PaginationRequest};
+    use meteroid_store::domain::PaginationRequest;
 
     let all_invoices = store
         .list_invoices(
@@ -919,7 +919,7 @@ async fn get_invoices_for_subscription(
             Some(subscription_id),
             None,
             None,
-            OrderByRequest::DateAsc,
+            None,
             PaginationRequest {
                 page: 0,
                 per_page: None,

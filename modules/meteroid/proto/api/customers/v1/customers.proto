@@ -22,16 +22,9 @@ message UpdateCustomerResponse {}
 
 message ListCustomerRequest {
   optional string search = 1;
-  SortBy sort_by = 2;
+  optional string order_by = 2;
   meteroid.common.v1.Pagination pagination = 3;
   optional bool archived = 4;
-
-  enum SortBy {
-    DATE_DESC = 0;
-    DATE_ASC = 1;
-    NAME_DESC = 2;
-    NAME_ASC = 3;
-  }
 }
 message ListCustomerResponse {
   repeated CustomerBrief customers = 1;

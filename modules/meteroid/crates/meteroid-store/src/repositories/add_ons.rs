@@ -25,6 +25,7 @@ pub trait AddOnInterface {
         search: Option<String>,
         currency: Option<String>,
         include_archived: bool,
+        order_by: Option<String>,
     ) -> StoreResult<PaginatedVec<AddOn>>;
 
     async fn list_add_ons_by_ids(
@@ -122,6 +123,7 @@ impl AddOnInterface for Store {
         search: Option<String>,
         currency: Option<String>,
         include_archived: bool,
+        order_by: Option<String>,
     ) -> StoreResult<PaginatedVec<AddOn>> {
         let mut conn = self.get_conn().await?;
 
@@ -133,6 +135,7 @@ impl AddOnInterface for Store {
             search,
             currency,
             include_archived,
+            order_by.as_deref(),
         )
         .await
         .map_err(Into::<Report<StoreError>>::into)?;

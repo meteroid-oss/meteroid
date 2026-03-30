@@ -1,6 +1,6 @@
 use crate::StoreResult;
 use crate::domain::{
-    OrderByRequest, PaginatedVec, PaginationRequest, Quote, QuoteNew, QuoteWithCustomer,
+    PaginatedVec, PaginationRequest, Quote, QuoteNew, QuoteWithCustomer,
     enums::QuoteStatusEnum,
     outbox_event::OutboxEvent,
     pgmq::{PgmqQueue, SendEmailRequest},
@@ -52,7 +52,7 @@ pub trait QuotesInterface {
         customer_id: Option<CustomerId>,
         status: Option<QuoteStatusEnum>,
         search: Option<String>,
-        order_by: OrderByRequest,
+        order_by: Option<String>,
         pagination: PaginationRequest,
     ) -> StoreResult<PaginatedVec<QuoteWithCustomer>>;
 
@@ -396,7 +396,7 @@ impl QuotesInterface for Store {
         customer_id: Option<CustomerId>,
         status: Option<QuoteStatusEnum>,
         search: Option<String>,
-        order_by: OrderByRequest,
+        order_by: Option<String>,
         pagination: PaginationRequest,
     ) -> StoreResult<PaginatedVec<QuoteWithCustomer>> {
         let mut conn = self.get_conn().await?;
@@ -407,7 +407,7 @@ impl QuotesInterface for Store {
             customer_id,
             status.map(Into::into),
             search,
-            order_by.into(),
+            order_by.as_deref(),
             pagination.into(),
         )
         .await

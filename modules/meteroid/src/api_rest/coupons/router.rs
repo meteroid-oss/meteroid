@@ -14,7 +14,7 @@ use crate::api_rest::QueryParams;
 use crate::api_rest::coupons::mapping;
 use crate::api_rest::coupons::model::*;
 use crate::api_rest::error::RestErrorResponse;
-use crate::api_rest::model::PaginationExt;
+use crate::api_rest::model::{PaginationExt, validate_order_by};
 use crate::errors::RestApiError;
 
 // ── List coupons ──────────────────────────────────────────────
@@ -44,6 +44,13 @@ pub(crate) async fn list_coupons(
         Some(CouponFilterEnum::Archived) => meteroid_store::domain::coupons::CouponFilter::ARCHIVED,
     };
 
+    let order_by = validate_order_by(
+        &request.order_by,
+        &["code", "created_at", "expires_at"],
+        "created_at.desc",
+    )
+    .map_err(RestApiError::InvalidInput)?;
+
     let res = app_state
         .store
         .list_coupons(
@@ -51,6 +58,7 @@ pub(crate) async fn list_coupons(
             request.pagination.into(),
             request.search.clone(),
             filter,
+            Some(order_by),
         )
         .await
         .map_err(|e| {

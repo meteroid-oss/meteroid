@@ -18,6 +18,8 @@ pub struct ProductFamilyListRequest {
     #[serde(flatten)]
     #[validate(nested)]
     pub filters: ProductFamilyFilters,
+    /// Sort order. Format: `column.direction`. Allowed columns: `name`, `created_at`. Direction: `asc` or `desc`. Default: `created_at.desc`.
+    pub order_by: Option<String>,
 }
 
 #[derive(ToSchema, serde::Serialize, serde::Deserialize)]

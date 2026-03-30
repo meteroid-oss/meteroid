@@ -10,6 +10,7 @@ message ListCouponRequest {
   optional string search = 1;
   CouponFilter filter = 2;
   meteroid.common.v1.Pagination pagination = 3;
+  optional string order_by = 4;
 
   enum CouponFilter {
     ALL = 0;

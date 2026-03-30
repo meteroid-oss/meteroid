@@ -59,6 +59,8 @@ message ListSubscriptionsRequest {
   optional string plan_id = 2;
   meteroid.common.v1.Pagination pagination = 3;
   repeated SubscriptionStatus status = 4;
+  optional string search = 5;
+  optional string order_by = 6;
 }
 
 message ListSubscriptionsResponse {

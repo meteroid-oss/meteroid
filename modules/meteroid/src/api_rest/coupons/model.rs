@@ -102,6 +102,8 @@ pub struct CouponListRequest {
     pub search: Option<String>,
     #[param(inline)]
     pub filter: Option<CouponFilterEnum>,
+    /// Sort order. Format: `column.direction`. Allowed columns: `code`, `created_at`, `expires_at`. Direction: `asc` or `desc`. Default: `created_at.desc`.
+    pub order_by: Option<String>,
 }
 
 #[derive(Clone, Debug, Serialize, ToSchema)]

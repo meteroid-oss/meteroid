@@ -11,7 +11,7 @@ use crate::extend::connection_metadata;
 use crate::extend::cursor_pagination::{
     CursorPaginate, CursorPaginatedVec, CursorPaginationRequest,
 };
-use crate::extend::order::OrderByRequest;
+use crate::extend::order::{OrderByParam, OrderDirection};
 use crate::extend::pagination::{Paginate, PaginatedVec, PaginationRequest};
 use crate::payments::PaymentTransactionRow;
 use chrono::NaiveDateTime;
@@ -176,7 +176,7 @@ impl InvoiceRow {
         param_subscription_id: Option<SubscriptionId>,
         param_status: Option<InvoiceStatusEnum>,
         param_query: Option<String>,
-        order_by: OrderByRequest,
+        order_by: Option<&str>,
         pagination: PaginationRequest,
     ) -> DbResult<PaginatedVec<InvoiceWithCustomerRow>> {
         use crate::schema::customer::dsl as c_dsl;
@@ -203,24 +203,54 @@ impl InvoiceRow {
         if let Some(param_query) = param_query
             && !param_query.trim().is_empty()
         {
-            query = query.filter(c_dsl::name.ilike(format!("%{param_query}%")));
+            let pattern = format!("%{param_query}%");
+            query = query.filter(
+                c_dsl::name
+                    .ilike(pattern.clone())
+                    .or(i_dsl::invoice_number.ilike(pattern)),
+            );
         }
 
-        match order_by {
-            OrderByRequest::IdAsc => query = query.order(i_dsl::id.asc()),
-            OrderByRequest::IdDesc => query = query.order(i_dsl::id.desc()),
-            OrderByRequest::DateAsc => {
-                query = query.order((i_dsl::invoice_date.asc(), i_dsl::id.asc()));
+        let order = OrderByParam::parse(order_by, "invoice_date.desc");
+
+        match (order.column.as_str(), order.direction) {
+            ("invoice_number", OrderDirection::Asc) => {
+                query = query.order((i_dsl::invoice_number.asc(), i_dsl::id.asc()))
             }
-            OrderByRequest::DateDesc => {
-                query = query.order((i_dsl::invoice_date.desc(), i_dsl::id.desc()));
+            ("invoice_number", OrderDirection::Desc) => {
+                query = query.order((i_dsl::invoice_number.desc(), i_dsl::id.desc()))
             }
-            OrderByRequest::NameAsc => {
-                query = query.order((i_dsl::invoice_number.asc(), i_dsl::id.asc()));
+            ("customer_name", OrderDirection::Asc) => {
+                query = query.order((c_dsl::name.asc(), i_dsl::id.asc()))
             }
-            OrderByRequest::NameDesc => {
-                query = query.order((i_dsl::invoice_number.desc(), i_dsl::id.desc()));
+            ("customer_name", OrderDirection::Desc) => {
+                query = query.order((c_dsl::name.desc(), i_dsl::id.desc()))
             }
+            ("amount", OrderDirection::Asc) => {
+                query = query.order((i_dsl::total.asc(), i_dsl::id.asc()))
+            }
+            ("amount", OrderDirection::Desc) => {
+                query = query.order((i_dsl::total.desc(), i_dsl::id.desc()))
+            }
+            ("invoice_date", OrderDirection::Asc) => {
+                query = query.order((i_dsl::invoice_date.asc(), i_dsl::id.asc()))
+            }
+            ("invoice_date", OrderDirection::Desc) => {
+                query = query.order((i_dsl::invoice_date.desc(), i_dsl::id.desc()))
+            }
+            ("status", OrderDirection::Asc) => {
+                query = query.order((i_dsl::status.asc(), i_dsl::id.asc()))
+            }
+            ("status", OrderDirection::Desc) => {
+                query = query.order((i_dsl::status.desc(), i_dsl::id.desc()))
+            }
+            ("payment_status", OrderDirection::Asc) => {
+                query = query.order((i_dsl::payment_status.asc(), i_dsl::id.asc()))
+            }
+            ("payment_status", OrderDirection::Desc) => {
+                query = query.order((i_dsl::payment_status.desc(), i_dsl::id.desc()))
+            }
+            _ => query = query.order((i_dsl::invoice_date.desc(), i_dsl::id.desc())),
         }
 
         let paginated_query = query.paginate(pagination);
@@ -242,7 +272,7 @@ impl InvoiceRow {
         param_subscription_id: Option<SubscriptionId>,
         param_statuses: Option<Vec<InvoiceStatusEnum>>,
         param_query: Option<String>,
-        order_by: OrderByRequest,
+        order_by: Option<&str>,
         pagination: PaginationRequest,
     ) -> DbResult<PaginatedVec<(InvoiceWithCustomerRow, Vec<PaymentTransactionRow>)>> {
         use crate::schema::customer::dsl as c_dsl;
@@ -277,24 +307,54 @@ impl InvoiceRow {
         if let Some(param_query) = param_query
             && !param_query.trim().is_empty()
         {
-            query = query.filter(c_dsl::name.ilike(format!("%{param_query}%")));
+            let pattern = format!("%{param_query}%");
+            query = query.filter(
+                c_dsl::name
+                    .ilike(pattern.clone())
+                    .or(i_dsl::invoice_number.ilike(pattern)),
+            );
         }
 
-        match order_by {
-            OrderByRequest::IdAsc => query = query.order(i_dsl::id.asc()),
-            OrderByRequest::IdDesc => query = query.order(i_dsl::id.desc()),
-            OrderByRequest::DateAsc => {
-                query = query.order((i_dsl::invoice_date.asc(), i_dsl::id.asc()));
+        let order = OrderByParam::parse(order_by, "invoice_date.desc");
+
+        match (order.column.as_str(), order.direction) {
+            ("invoice_number", OrderDirection::Asc) => {
+                query = query.order((i_dsl::invoice_number.asc(), i_dsl::id.asc()))
             }
-            OrderByRequest::DateDesc => {
-                query = query.order((i_dsl::invoice_date.desc(), i_dsl::id.desc()));
+            ("invoice_number", OrderDirection::Desc) => {
+                query = query.order((i_dsl::invoice_number.desc(), i_dsl::id.desc()))
             }
-            OrderByRequest::NameAsc => {
-                query = query.order((i_dsl::invoice_number.asc(), i_dsl::id.asc()));
+            ("customer_name", OrderDirection::Asc) => {
+                query = query.order((c_dsl::name.asc(), i_dsl::id.asc()))
             }
-            OrderByRequest::NameDesc => {
-                query = query.order((i_dsl::invoice_number.desc(), i_dsl::id.desc()));
+            ("customer_name", OrderDirection::Desc) => {
+                query = query.order((c_dsl::name.desc(), i_dsl::id.desc()))
             }
+            ("amount", OrderDirection::Asc) => {
+                query = query.order((i_dsl::total.asc(), i_dsl::id.asc()))
+            }
+            ("amount", OrderDirection::Desc) => {
+                query = query.order((i_dsl::total.desc(), i_dsl::id.desc()))
+            }
+            ("invoice_date", OrderDirection::Asc) => {
+                query = query.order((i_dsl::invoice_date.asc(), i_dsl::id.asc()))
+            }
+            ("invoice_date", OrderDirection::Desc) => {
+                query = query.order((i_dsl::invoice_date.desc(), i_dsl::id.desc()))
+            }
+            ("status", OrderDirection::Asc) => {
+                query = query.order((i_dsl::status.asc(), i_dsl::id.asc()))
+            }
+            ("status", OrderDirection::Desc) => {
+                query = query.order((i_dsl::status.desc(), i_dsl::id.desc()))
+            }
+            ("payment_status", OrderDirection::Asc) => {
+                query = query.order((i_dsl::payment_status.asc(), i_dsl::id.asc()))
+            }
+            ("payment_status", OrderDirection::Desc) => {
+                query = query.order((i_dsl::payment_status.desc(), i_dsl::id.desc()))
+            }
+            _ => query = query.order((i_dsl::invoice_date.desc(), i_dsl::id.desc())),
         }
 
         let paginated_query = query.paginate(pagination);

@@ -1,5 +1,6 @@
 use crate::add_ons::{AddOnRow, AddOnRowNew, AddOnRowPatch};
 use crate::errors::IntoDbResult;
+use crate::extend::order::{OrderByParam, OrderDirection};
 use crate::extend::pagination::{Paginate, PaginatedVec, PaginationRequest};
 use crate::{DbResult, PgConn};
 use common_domain::ids::{AddOnId, PlanVersionId, TenantId};
@@ -56,6 +57,7 @@ impl AddOnRow {
         search: Option<String>,
         currency: Option<String>,
         include_archived: bool,
+        order_by: Option<&str>,
     ) -> DbResult<PaginatedVec<AddOnRow>> {
         use crate::schema::add_on::dsl as ao_dsl;
 
@@ -91,7 +93,25 @@ impl AddOnRow {
             query = query.filter(ao_dsl::name.ilike(format!("%{search}%")));
         }
 
-        let query = query.select(AddOnRow::as_select());
+        let mut query = query.select(AddOnRow::as_select());
+
+        let order = OrderByParam::parse(order_by, "created_at.desc");
+
+        match (order.column.as_str(), order.direction) {
+            ("name", OrderDirection::Asc) => {
+                query = query.order((ao_dsl::name.asc(), ao_dsl::id.asc()))
+            }
+            ("name", OrderDirection::Desc) => {
+                query = query.order((ao_dsl::name.desc(), ao_dsl::id.desc()))
+            }
+            ("created_at", OrderDirection::Asc) => {
+                query = query.order((ao_dsl::created_at.asc(), ao_dsl::id.asc()))
+            }
+            ("created_at", OrderDirection::Desc) => {
+                query = query.order((ao_dsl::created_at.desc(), ao_dsl::id.desc()))
+            }
+            _ => query = query.order((ao_dsl::created_at.desc(), ao_dsl::id.desc())),
+        }
 
         let query = query.paginate(pagination);
 

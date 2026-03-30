@@ -13,7 +13,6 @@ use meteroid_grpc::meteroid::api::creditnotes::v1::{
     RequestCreditNotePdfGenerationRequest, RequestCreditNotePdfGenerationResponse,
     VoidCreditNoteRequest, VoidCreditNoteResponse, credit_notes_service_server::CreditNotesService,
 };
-use meteroid_store::domain::OrderByRequest;
 use meteroid_store::repositories::CreditNoteInterface;
 use meteroid_store::repositories::credit_notes::{
     CreateCreditNoteParams, CreditLineItem, CreditType as DomainCreditType,
@@ -39,16 +38,6 @@ impl CreditNotesService for CreditNoteServiceComponents {
 
         let pagination_req = inner.pagination.clone().into_domain();
 
-        let order_by = match inner.sort_by.try_into() {
-            Ok(meteroid_grpc::meteroid::api::creditnotes::v1::list_credit_notes_request::SortBy::DateDesc) => OrderByRequest::DateDesc,
-            Ok(meteroid_grpc::meteroid::api::creditnotes::v1::list_credit_notes_request::SortBy::DateAsc) => OrderByRequest::DateAsc,
-            Ok(meteroid_grpc::meteroid::api::creditnotes::v1::list_credit_notes_request::SortBy::IdDesc) => OrderByRequest::IdDesc,
-            Ok(meteroid_grpc::meteroid::api::creditnotes::v1::list_credit_notes_request::SortBy::IdAsc) => OrderByRequest::IdAsc,
-            Ok(meteroid_grpc::meteroid::api::creditnotes::v1::list_credit_notes_request::SortBy::NumberAsc) => OrderByRequest::NameAsc,
-            Ok(meteroid_grpc::meteroid::api::creditnotes::v1::list_credit_notes_request::SortBy::NumberDesc) => OrderByRequest::NameDesc,
-            Err(_) => OrderByRequest::DateDesc,
-        };
-
         let res = self
             .store
             .list_credit_notes(
@@ -57,7 +46,7 @@ impl CreditNotesService for CreditNoteServiceComponents {
                 invoice_id,
                 status,
                 inner.search,
-                order_by,
+                inner.order_by,
                 pagination_req,
             )
             .await

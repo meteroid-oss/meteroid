@@ -3,11 +3,9 @@ import { PaginationState } from '@tanstack/react-table'
 import { useState } from 'react'
 
 import { InvoicesTable } from '@/features/invoices'
-import { useBasePath } from '@/hooks/useBasePath'
 import { useQuery } from '@/lib/connectrpc'
 import { Customer } from '@/rpc/api/customers/v1/models_pb'
 import { listInvoices } from '@/rpc/api/invoices/v1/invoices-InvoicesService_connectquery'
-import { ListInvoicesRequest_SortBy } from '@/rpc/api/invoices/v1/invoices_pb'
 
 type Props = {
   customer: Customer
@@ -19,15 +17,12 @@ export const InvoicesCard = ({ customer }: Props) => {
     pageSize: 5,
   })
 
-  const basePath = useBasePath()
-
   const invoicesQuery = useQuery(listInvoices, {
     pagination: {
       perPage: pagination.pageSize,
       page: pagination.pageIndex,
     },
     customerId: customer.id,
-    sortBy: ListInvoicesRequest_SortBy.DATE_DESC,
   })
 
   return invoicesQuery.isLoading ? (
@@ -42,7 +37,6 @@ export const InvoicesCard = ({ customer }: Props) => {
       pagination={pagination}
       setPagination={setPagination}
       isLoading={invoicesQuery.isLoading}
-      linkPrefix={`${basePath}/invoices/`}
     />
   )
 }

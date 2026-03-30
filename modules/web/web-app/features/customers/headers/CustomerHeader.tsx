@@ -43,7 +43,6 @@ import {
   listCustomers,
   unarchiveCustomer,
 } from '@/rpc/api/customers/v1/customers-CustomersService_connectquery'
-import { ListCustomerRequest_SortBy } from '@/rpc/api/customers/v1/customers_pb'
 import { SubscriptionStatus } from '@/rpc/api/subscriptions/v1/models_pb'
 import { listSubscriptions } from '@/rpc/api/subscriptions/v1/subscriptions-SubscriptionsService_connectquery'
 
@@ -86,7 +85,6 @@ export const CustomerHeader: FunctionComponent<CustomerHeaderProps> = ({
         page: pageIndex,
       },
       search: debouncedSearch.length > 0 ? debouncedSearch : undefined,
-      sortBy: ListCustomerRequest_SortBy.NAME_ASC,
     },
     {}
   )

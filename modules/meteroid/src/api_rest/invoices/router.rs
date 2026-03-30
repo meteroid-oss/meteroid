@@ -5,7 +5,7 @@ use crate::api_rest::invoices::mapping::{domain_to_rest, map_status_from_rest};
 use crate::api_rest::invoices::model::{
     BinaryFile, Invoice, InvoiceListRequest, InvoiceListResponse,
 };
-use crate::api_rest::model::PaginationExt;
+use crate::api_rest::model::{PaginationExt, validate_order_by};
 use crate::errors::RestApiError;
 use crate::services::storage::Prefix;
 use axum::extract::{Path, State};
@@ -43,6 +43,20 @@ pub(crate) async fn list_invoices(
     Valid(QueryParams(request)): Valid<QueryParams<InvoiceListRequest>>,
     State(app_state): State<AppState>,
 ) -> Result<impl IntoResponse, RestApiError> {
+    let order_by = validate_order_by(
+        &request.order_by,
+        &[
+            "invoice_number",
+            "customer_name",
+            "amount",
+            "invoice_date",
+            "status",
+            "payment_status",
+        ],
+        "invoice_date.desc",
+    )
+    .map_err(RestApiError::InvalidInput)?;
+
     let res = app_state
         .store
         .list_full_invoices(
@@ -54,7 +68,7 @@ pub(crate) async fn list_invoices(
                 .clone()
                 .map(|s| s.into_iter().map(map_status_from_rest).collect()),
             None,
-            meteroid_store::domain::OrderByRequest::IdDesc,
+            Some(order_by),
             request.pagination.into(),
         )
         .await

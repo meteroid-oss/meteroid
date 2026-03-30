@@ -6,10 +6,10 @@ use crate::domain::prices::{
     LegacyPricingData, extract_fee_structure, extract_legacy_pricing, extract_pricing,
 };
 use crate::domain::{
-    FullPlan, FullPlanNew, OrderByRequest, PaginatedVec, PaginationRequest, Plan,
-    PlanAndVersionPatch, PlanFilters, PlanOverview, PlanPatch, PlanStatusEnum, PlanVersion,
-    PlanVersionFilter, PlanVersionNew, PlanVersionNewInternal, PlanWithVersion, Price,
-    PriceComponent, PriceComponentNew, Product, ProductFamilyOverview, SelfServicePlan, TrialPatch,
+    FullPlan, FullPlanNew, PaginatedVec, PaginationRequest, Plan, PlanAndVersionPatch, PlanFilters,
+    PlanOverview, PlanPatch, PlanStatusEnum, PlanVersion, PlanVersionFilter, PlanVersionNew,
+    PlanVersionNewInternal, PlanWithVersion, Price, PriceComponent, PriceComponentNew, Product,
+    ProductFamilyOverview, SelfServicePlan, TrialPatch,
 };
 use crate::errors::StoreError;
 use crate::repositories::price_components::resolve_component_internal;
@@ -73,7 +73,7 @@ pub trait PlansInterface {
         product_family_id: Option<ProductFamilyId>,
         filters: PlanFilters,
         pagination: PaginationRequest,
-        order_by: OrderByRequest,
+        order_by: Option<String>,
     ) -> StoreResult<PaginatedVec<PlanOverview>>;
 
     async fn list_full_plans(
@@ -82,7 +82,7 @@ pub trait PlansInterface {
         product_family_id: Option<ProductFamilyId>,
         filters: PlanFilters,
         pagination: PaginationRequest,
-        order_by: OrderByRequest,
+        order_by: Option<String>,
     ) -> StoreResult<PaginatedVec<FullPlan>>;
 
     async fn get_plan_version_by_id(
@@ -505,7 +505,7 @@ impl PlansInterface for Store {
         product_family_id: Option<ProductFamilyId>,
         filters: PlanFilters,
         pagination: PaginationRequest,
-        order_by: OrderByRequest,
+        order_by: Option<String>,
     ) -> StoreResult<PaginatedVec<PlanOverview>> {
         let mut conn = self.get_conn().await?;
 
@@ -515,7 +515,7 @@ impl PlansInterface for Store {
             product_family_id,
             filters.into(),
             pagination.into(),
-            order_by.into(),
+            order_by.as_deref(),
         )
         .await
         .map_err(Into::<Report<StoreError>>::into)?;
@@ -535,7 +535,7 @@ impl PlansInterface for Store {
         product_family_id: Option<ProductFamilyId>,
         filters: PlanFilters,
         pagination: PaginationRequest,
-        order_by: OrderByRequest,
+        order_by: Option<String>,
     ) -> StoreResult<PaginatedVec<FullPlan>> {
         let mut conn = self.get_conn().await?;
 
@@ -545,7 +545,7 @@ impl PlansInterface for Store {
             product_family_id,
             filters.into(),
             pagination.into(),
-            order_by.into(),
+            order_by.as_deref(),
         )
         .await
         .map_err(Into::<Report<StoreError>>::into)?;

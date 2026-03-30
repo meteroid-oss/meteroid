@@ -7,13 +7,15 @@ use crate::subscriptions::{
 use crate::{DbResult, PgConn};
 
 use diesel::{
-    ExpressionMethods, JoinOnDsl, NullableExpressionMethods, OptionalExtension, QueryDsl,
+    BoolExpressionMethods, ExpressionMethods, JoinOnDsl, NullableExpressionMethods,
+    OptionalExtension, PgSortExpressionMethods, PgTextExpressionMethods, QueryDsl,
     SelectableHelper, debug_query,
 };
 use diesel_async::RunQueryDsl;
 
 use crate::enums::ConnectorProviderEnum;
 use crate::extend::connection_metadata;
+use crate::extend::order::{OrderByParam, OrderDirection};
 use crate::extend::pagination::{Paginate, PaginatedVec, PaginationRequest};
 use common_domain::ids::{BaseId, ConnectorId, CustomerId, PlanId, SubscriptionId, TenantId};
 use error_stack::ResultExt;
@@ -214,17 +216,24 @@ impl SubscriptionRow {
             .into_db_result()
     }
 
+    #[allow(clippy::too_many_arguments)]
     pub async fn list_subscriptions(
         conn: &mut PgConn,
         tenant_id_param: &TenantId,
         customer_id_opt: Option<CustomerId>,
         plan_id_param_opt: Option<PlanId>,
         status_opt: Option<Vec<crate::enums::SubscriptionStatusEnum>>,
+        param_search: Option<String>,
+        order_by: Option<&str>,
         pagination: PaginationRequest,
     ) -> DbResult<PaginatedVec<SubscriptionForDisplayRow>> {
+        use crate::schema::customer::dsl as c_dsl;
         use crate::schema::plan::dsl as p_dsl;
         use crate::schema::plan_version::dsl as pv_dsl;
-        use crate::schema::subscription::dsl::{customer_id, id, status, subscription, tenant_id};
+        use crate::schema::subscription::dsl::{
+            billing_start_date, created_at, customer_id, end_date, id, mrr_cents, status,
+            subscription, tenant_id,
+        };
 
         let mut query = subscription
             .filter(tenant_id.eq(tenant_id_param))
@@ -246,7 +255,57 @@ impl SubscriptionRow {
             query = query.filter(status.eq_any(status_param));
         }
 
-        query = query.order(id.desc());
+        if let Some(param_search) = param_search
+            && !param_search.trim().is_empty()
+        {
+            query = query.filter(
+                c_dsl::name
+                    .ilike(format!("%{param_search}%"))
+                    .or(p_dsl::name.ilike(format!("%{param_search}%"))),
+            );
+        }
+
+        let order = OrderByParam::parse(order_by, "created_at.desc");
+
+        match (order.column.as_str(), order.direction) {
+            ("customer_name", OrderDirection::Asc) => {
+                query = query.order((c_dsl::name.asc(), id.asc()))
+            }
+            ("customer_name", OrderDirection::Desc) => {
+                query = query.order((c_dsl::name.desc(), id.desc()))
+            }
+            ("plan_name", OrderDirection::Asc) => {
+                query = query.order((p_dsl::name.asc(), id.asc()))
+            }
+            ("plan_name", OrderDirection::Desc) => {
+                query = query.order((p_dsl::name.desc(), id.desc()))
+            }
+            ("mrr_cents", OrderDirection::Asc) => query = query.order((mrr_cents.asc(), id.asc())),
+            ("mrr_cents", OrderDirection::Desc) => {
+                query = query.order((mrr_cents.desc(), id.desc()))
+            }
+            ("billing_start_date", OrderDirection::Asc) => {
+                query = query.order((billing_start_date.asc().nulls_last(), id.asc()))
+            }
+            ("billing_start_date", OrderDirection::Desc) => {
+                query = query.order((billing_start_date.desc().nulls_first(), id.desc()))
+            }
+            ("end_date", OrderDirection::Asc) => {
+                query = query.order((end_date.asc().nulls_last(), id.asc()))
+            }
+            ("end_date", OrderDirection::Desc) => {
+                query = query.order((end_date.desc().nulls_first(), id.desc()))
+            }
+            ("status", OrderDirection::Asc) => query = query.order((status.asc(), id.asc())),
+            ("status", OrderDirection::Desc) => query = query.order((status.desc(), id.desc())),
+            ("created_at", OrderDirection::Asc) => {
+                query = query.order((created_at.asc(), id.asc()))
+            }
+            ("created_at", OrderDirection::Desc) => {
+                query = query.order((created_at.desc(), id.desc()))
+            }
+            _ => query = query.order((created_at.desc(), id.desc())),
+        }
 
         let paginated_query = query
             .select(SubscriptionForDisplayRow::as_select())

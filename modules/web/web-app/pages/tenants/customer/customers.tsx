@@ -1,5 +1,5 @@
 import { Button, Flex } from '@ui/index'
-import { Fragment, FunctionComponent, useState } from 'react'
+import { Fragment, FunctionComponent, useCallback, useEffect, useState } from 'react'
 import { useSearchParams } from 'react-router-dom'
 
 import { EmptyState } from '@/components/empty-state/EmptyState'
@@ -8,16 +8,17 @@ import { CustomersCreatePanel, CustomersHeader, CustomersTable } from '@/feature
 import { useDebounceValue } from '@/hooks/useDebounce'
 import { useIsExpressOrganization } from '@/hooks/useIsExpressOrganization'
 import { useQuery } from '@/lib/connectrpc'
+import { sortingStateToOrderBy } from '@/lib/utils/sorting'
 import { listCustomers } from '@/rpc/api/customers/v1/customers-CustomersService_connectquery'
-import { ListCustomerRequest_SortBy } from '@/rpc/api/customers/v1/customers_pb'
 
-import type { PaginationState } from '@tanstack/react-table'
+import type { PaginationState, SortingState } from '@tanstack/react-table'
 
 export const Customers: FunctionComponent = () => {
   const isExpress = useIsExpressOrganization()
   const [createPanelVisible, setCreatePanelVisible] = useState(false)
   const [search, setSearch] = useState('')
   const [searchParams] = useSearchParams()
+  const [sorting, setSorting] = useState<SortingState>([{ id: 'name', desc: false }])
 
   const currentTab = searchParams.get('tab') || 'active'
 
@@ -27,6 +28,18 @@ export const Customers: FunctionComponent = () => {
     pageIndex: 0,
     pageSize: 20,
   })
+
+  useEffect(() => {
+    setPagination(prev => ({ ...prev, pageIndex: 0 }))
+  }, [debouncedSearch, currentTab])
+
+  const handleSortingChange = useCallback(
+    (updaterOrValue: SortingState | ((old: SortingState) => SortingState)) => {
+      setSorting(prev => (typeof updaterOrValue === 'function' ? updaterOrValue(prev) : updaterOrValue))
+      setPagination(prev => ({ ...prev, pageIndex: 0 }))
+    },
+    []
+  )
 
   // Map tab to archived filter
   const archivedFilter =
@@ -40,7 +53,7 @@ export const Customers: FunctionComponent = () => {
         page: pagination.pageIndex,
       },
       search: debouncedSearch.length > 0 ? debouncedSearch : undefined,
-      sortBy: ListCustomerRequest_SortBy.NAME_ASC,
+      orderBy: sortingStateToOrderBy(sorting),
       archived: archivedFilter,
     },
     {}
@@ -85,6 +98,8 @@ export const Customers: FunctionComponent = () => {
               pagination={pagination}
               setPagination={setPagination}
               isLoading={isLoading}
+              sorting={sorting}
+              onSortingChange={handleSortingChange}
             />
           )}
         </Flex>

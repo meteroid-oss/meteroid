@@ -44,6 +44,15 @@
             }
           },
           {
+            "name": "order_by",
+            "in": "query",
+            "description": "Sort order. Format: `column.direction`. Allowed columns: `name`, `created_at`. Direction: `asc` or `desc`. Default: `created_at.desc`.",
+            "required": false,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
             "name": "page",
             "in": "query",
             "description": "Page number (0-indexed)",
@@ -1070,6 +1079,15 @@
             }
           },
           {
+            "name": "order_by",
+            "in": "query",
+            "description": "Sort order. Format: `column.direction`. Allowed columns: `code`, `created_at`, `expires_at`. Direction: `asc` or `desc`. Default: `created_at.desc`.",
+            "required": false,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
             "name": "page",
             "in": "query",
             "description": "Page number (0-indexed)",
@@ -1676,6 +1694,15 @@
         "description": "List customers with optional pagination and search filtering.",
         "operationId": "list_customers",
         "parameters": [
+          {
+            "name": "order_by",
+            "in": "query",
+            "description": "Sort order. Format: `column.direction`. Allowed columns: `name`, `email`, `alias`, `created_at`. Direction: `asc` or `desc`. Default: `created_at.desc`.",
+            "required": false,
+            "schema": {
+              "type": "string"
+            }
+          },
           {
             "name": "page",
             "in": "query",
@@ -2440,6 +2467,15 @@
             }
           },
           {
+            "name": "order_by",
+            "in": "query",
+            "description": "Sort order. Format: `column.direction`. Allowed columns: `invoice_number`, `customer_name`, `amount`, `invoice_date`, `status`, `payment_status`. Direction: `asc` or `desc`. Default: `invoice_date.desc`.",
+            "required": false,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
             "name": "page",
             "in": "query",
             "description": "Page number (0-indexed)",
@@ -2686,6 +2722,24 @@
             "required": false,
             "schema": {
               "$ref": "#/components/schemas/ProductFamilyId"
+            }
+          },
+          {
+            "name": "search",
+            "in": "query",
+            "description": "Search by metric name or code",
+            "required": false,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "order_by",
+            "in": "query",
+            "description": "Sort order. Format: `column.direction`. Allowed columns: `name`, `code`, `created_at`. Direction: `asc` or `desc`. Default: `name.asc`.",
+            "required": false,
+            "schema": {
+              "type": "string"
             }
           },
           {
@@ -3135,6 +3189,15 @@
               "items": {
                 "$ref": "#/components/schemas/PlanTypeEnum"
               }
+            }
+          },
+          {
+            "name": "order_by",
+            "in": "query",
+            "description": "Sort order. Format: `column.direction`. Allowed columns: `name`, `status`, `plan_type`, `created_at`. Direction: `asc` or `desc`. Default: `created_at.desc`.",
+            "required": false,
+            "schema": {
+              "type": "string"
             }
           },
           {
@@ -3821,6 +3884,15 @@
         "operationId": "list_product_families",
         "parameters": [
           {
+            "name": "order_by",
+            "in": "query",
+            "description": "Sort order. Format: `column.direction`. Allowed columns: `name`, `created_at`. Direction: `asc` or `desc`. Default: `created_at.desc`.",
+            "required": false,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
             "name": "page",
             "in": "query",
             "description": "Page number (0-indexed)",
@@ -4019,6 +4091,15 @@
           {
             "name": "search",
             "in": "query",
+            "required": false,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "order_by",
+            "in": "query",
+            "description": "Sort order. Format: `column.direction`. Allowed columns: `name`, `created_at`. Direction: `asc` or `desc`. Default: `name.asc`.",
             "required": false,
             "schema": {
               "type": "string"
@@ -4459,6 +4540,15 @@
               "items": {
                 "$ref": "#/components/schemas/SubscriptionStatusEnum"
               }
+            }
+          },
+          {
+            "name": "order_by",
+            "in": "query",
+            "description": "Sort order. Format: `column.direction`. Allowed columns: `customer_name`, `plan_name`, `mrr_cents`, `billing_start_date`, `end_date`, `status`, `created_at`. Direction: `asc` or `desc`. Default: `created_at.desc`.",
+            "required": false,
+            "schema": {
+              "type": "string"
             }
           },
           {

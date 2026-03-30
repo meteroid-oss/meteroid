@@ -13,14 +13,12 @@ use meteroid_grpc::meteroid::api::quotes::v1::{
     GenerateQuotePortalTokenRequest, GenerateQuotePortalTokenResponse, GetQuoteRequest,
     GetQuoteResponse, ListQuotesRequest, ListQuotesResponse, PreviewQuoteRequest,
     PreviewQuoteResponse, PublishQuoteRequest, PublishQuoteResponse, SendQuoteRequest,
-    SendQuoteResponse, UpdateQuoteRequest, UpdateQuoteResponse, list_quotes_request::SortBy,
+    SendQuoteResponse, UpdateQuoteRequest, UpdateQuoteResponse,
     quotes_service_server::QuotesService,
 };
 use meteroid_store::domain::add_ons::AddOn;
 use meteroid_store::domain::quotes::{QuoteAddOnNew, QuoteCouponNew};
-use meteroid_store::domain::{
-    CreateSubscriptionAddOns, CreateSubscriptionComponents, OrderByRequest,
-};
+use meteroid_store::domain::{CreateSubscriptionAddOns, CreateSubscriptionComponents};
 use meteroid_store::domain::{PriceComponent, quotes::QuotePriceComponentNew};
 use meteroid_store::repositories::QuotesInterface;
 use nanoid::nanoid;
@@ -349,17 +347,6 @@ impl QuotesService for QuoteServiceComponents {
         let customer_id = CustomerId::from_proto_opt(inner.customer_id)?;
         let pagination_req = inner.pagination.into_domain();
 
-        // TODO separate sort by for quote
-        let order_by = match inner.sort_by.try_into() {
-            Ok(SortBy::CreatedAtAsc) => OrderByRequest::IdAsc,
-            Ok(SortBy::CreatedAtDesc) => OrderByRequest::IdDesc,
-            Ok(SortBy::QuoteNumberAsc) => OrderByRequest::NameAsc,
-            Ok(SortBy::QuoteNumberDesc) => OrderByRequest::NameDesc,
-            Ok(SortBy::ExpiresAtAsc) => OrderByRequest::DateAsc,
-            Ok(SortBy::ExpiresAtDesc) => OrderByRequest::DateDesc,
-            Err(_) => OrderByRequest::IdDesc,
-        };
-
         let status = mapping::quotes::status_server_to_domain(inner.status);
 
         let quotes = self
@@ -369,7 +356,7 @@ impl QuotesService for QuoteServiceComponents {
                 customer_id,
                 status,
                 inner.search,
-                order_by,
+                inner.order_by,
                 pagination_req,
             )
             .await

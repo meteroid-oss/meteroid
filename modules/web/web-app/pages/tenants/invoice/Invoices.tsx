@@ -1,17 +1,18 @@
-import { Fragment, useState } from 'react'
+import { Fragment, useCallback, useEffect, useState } from 'react'
 
 import { InvoicesHeader, InvoicesTable } from '@/features/invoices'
 import { InvoicesSearch } from '@/features/invoices/types'
 import { useDebounceValue } from '@/hooks/useDebounce'
 import { useQuery } from '@/lib/connectrpc'
+import { sortingStateToOrderBy } from '@/lib/utils/sorting'
 import { listInvoices } from '@/rpc/api/invoices/v1/invoices-InvoicesService_connectquery'
-import { ListInvoicesRequest_SortBy } from '@/rpc/api/invoices/v1/invoices_pb'
 
-import type { PaginationState } from '@tanstack/react-table'
+import type { PaginationState, SortingState } from '@tanstack/react-table'
 
 export const Invoices = () => {
   const [, setEditPanelVisible] = useState(false)
   const [search, setSearch] = useState<InvoicesSearch>({})
+  const [sorting, setSorting] = useState<SortingState>([{ id: 'invoice_date', desc: true }])
 
   const debouncedSearch = useDebounceValue(search, 400)
 
@@ -20,10 +21,22 @@ export const Invoices = () => {
     pageSize: 20,
   })
 
+  useEffect(() => {
+    setPagination(prev => ({ ...prev, pageIndex: 0 }))
+  }, [debouncedSearch])
+
+  const handleSortingChange = useCallback(
+    (updaterOrValue: SortingState | ((old: SortingState) => SortingState)) => {
+      setSorting(prev => (typeof updaterOrValue === 'function' ? updaterOrValue(prev) : updaterOrValue))
+      setPagination(prev => ({ ...prev, pageIndex: 0 }))
+    },
+    []
+  )
+
   const invoicesQuery = useQuery(
     listInvoices,
     {
-      sortBy: ListInvoicesRequest_SortBy.DATE_DESC,
+      orderBy: sortingStateToOrderBy(sorting),
       search: debouncedSearch.text || '',
       status: debouncedSearch.status,
       pagination: {
@@ -35,7 +48,7 @@ export const Invoices = () => {
   )
 
   const data = invoicesQuery.data?.invoices ?? []
-  const count = data.length
+  const count = invoicesQuery.data?.paginationMeta?.totalItems ?? 0
   const isLoading = invoicesQuery.isLoading
 
   const refetch = () => {
@@ -59,6 +72,8 @@ export const Invoices = () => {
           pagination={pagination}
           setPagination={setPagination}
           isLoading={isLoading}
+          sorting={sorting}
+          onSortingChange={handleSortingChange}
         />
       </div>
     </Fragment>

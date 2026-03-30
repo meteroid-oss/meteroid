@@ -7,7 +7,6 @@ use meteroid_grpc::meteroid::api::products::v1::{
     UpdateProductRequest, UpdateProductResponse, products_service_server::ProductsService,
 };
 use meteroid_store::domain;
-use meteroid_store::domain::OrderByRequest;
 use meteroid_store::domain::prices::FeeStructure;
 use meteroid_store::repositories::billable_metrics::BillableMetricInterface;
 use meteroid_store::repositories::prices::PriceInterface;
@@ -103,8 +102,6 @@ impl ProductsService for ProductServiceComponents {
 
         let pagination_req = req.pagination.into_domain();
 
-        let order_by = OrderByRequest::IdAsc;
-
         let catalog_only = req.catalog_only.unwrap_or(true);
 
         let res = self
@@ -114,7 +111,7 @@ impl ProductsService for ProductServiceComponents {
                 ProductFamilyId::from_proto_opt(req.family_local_id)?,
                 catalog_only,
                 pagination_req,
-                order_by,
+                None,
             )
             .await
             .map_err(Into::<ProductApiError>::into)?;
@@ -142,8 +139,6 @@ impl ProductsService for ProductServiceComponents {
         let req = request.into_inner();
         let pagination_req = req.pagination.into_domain();
 
-        let order_by = OrderByRequest::IdAsc;
-
         let catalog_only = req.catalog_only.unwrap_or(true);
 
         let res = self
@@ -154,7 +149,7 @@ impl ProductsService for ProductServiceComponents {
                 req.query.unwrap_or_default().as_str(), // todo add some validation on the query
                 catalog_only,
                 pagination_req,
-                order_by,
+                req.order_by,
             )
             .await
             .map_err(Into::<ProductApiError>::into)?;

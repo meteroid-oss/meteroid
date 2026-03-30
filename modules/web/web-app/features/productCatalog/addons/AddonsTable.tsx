@@ -1,7 +1,8 @@
 import { UseQueryResult } from '@tanstack/react-query'
-import { ColumnDef, PaginationState } from '@tanstack/react-table'
+import { ColumnDef, OnChangeFn, PaginationState, SortingState } from '@tanstack/react-table'
 import { useMemo } from 'react'
 import { useNavigate } from 'react-router-dom'
+
 
 import { LocalId } from '@/components/LocalId'
 import { StandardTable } from '@/components/table/StandardTable'
@@ -9,6 +10,7 @@ import { feeTypeEnumToComponentFeeType } from '@/features/plans/addons/AddOnCard
 import { feeTypeToHuman, priceSummaryBadges } from '@/features/plans/pricecomponents/utils'
 import { ListAddOnResponse } from '@/rpc/api/addons/v1/addons_pb'
 import { AddOn } from '@/rpc/api/addons/v1/models_pb'
+import { parseAndFormatDate } from '@/utils/date'
 
 import type { FunctionComponent } from 'react'
 
@@ -16,18 +18,24 @@ interface AddonsTableProps {
   addonsQuery: UseQueryResult<ListAddOnResponse>
   pagination: PaginationState
   setPagination: React.Dispatch<React.SetStateAction<PaginationState>>
+  sorting?: SortingState
+  onSortingChange?: OnChangeFn<SortingState>
 }
 export const AddonsTable: FunctionComponent<AddonsTableProps> = ({
   addonsQuery,
   pagination,
   setPagination,
+  sorting,
+  onSortingChange,
 }) => {
   const navigate = useNavigate()
 
   const columns = useMemo<ColumnDef<AddOn>[]>(
     () => [
       {
+        id: 'name',
         header: 'Name',
+        enableSorting: true,
         cell: ({ row }) => (
           <div>
             <span className="font-medium">{row.original.name}</span>
@@ -38,7 +46,6 @@ export const AddonsTable: FunctionComponent<AddonsTableProps> = ({
             )}
           </div>
         ),
-        enableSorting: false,
       },
 
       {
@@ -76,9 +83,20 @@ export const AddonsTable: FunctionComponent<AddonsTableProps> = ({
       },
 
       {
+        id: 'created_at',
+        header: 'Created',
+        cell: ({ row }) => (
+          <span className="text-sm text-muted-foreground">
+            {parseAndFormatDate(row.original.createdAt)}
+          </span>
+        ),
+      },
+
+      {
         header: 'API Handle',
-        id: 'id',
+        id: 'localId',
         cell: ({ row }) => <LocalId localId={row.original.id} className="max-w-16" />,
+        enableSorting: false,
       },
     ],
     [navigate]
@@ -89,6 +107,8 @@ export const AddonsTable: FunctionComponent<AddonsTableProps> = ({
       columns={columns}
       data={addonsQuery.data?.addOns ?? []}
       sortable={true}
+      sorting={sorting}
+      onSortingChange={onSortingChange}
       pagination={pagination}
       setPagination={setPagination}
       totalCount={addonsQuery.data?.paginationMeta?.totalItems ?? 0}

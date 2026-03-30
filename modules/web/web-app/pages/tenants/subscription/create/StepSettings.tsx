@@ -39,7 +39,6 @@ import {
   getPlanWithVersionByVersionId,
   listPlans,
 } from '@/rpc/api/plans/v1/plans-PlansService_connectquery'
-import { ListPlansRequest_SortBy } from '@/rpc/api/plans/v1/plans_pb'
 import { ActivationCondition } from '@/rpc/api/subscriptions/v1/models_pb'
 
 const activationConditionToString = (
@@ -91,9 +90,7 @@ export const StepSettings = () => {
   )
 
   // Fetch all plans for resolving trialing plan name
-  const plansQuery = useQuery(listPlans, {
-    sortBy: ListPlansRequest_SortBy.NAME_ASC,
-  })
+  const plansQuery = useQuery(listPlans, {})
 
   const planTrialConfig = planQuery.data?.plan?.version?.trialConfig
   const planType = planQuery.data?.plan?.plan?.planType
