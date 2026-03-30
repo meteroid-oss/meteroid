@@ -67,7 +67,6 @@ import {
   getPlanWithVersionByVersionId,
   listPlans,
 } from '@/rpc/api/plans/v1/plans-PlansService_connectquery'
-import { ListPlansRequest_SortBy } from '@/rpc/api/plans/v1/plans_pb'
 import { listPriceComponents } from '@/rpc/api/pricecomponents/v1/pricecomponents-PriceComponentsService_connectquery'
 import {
   CreateQuoteCoupon,
@@ -247,9 +246,7 @@ export const CreateQuote = () => {
   )
 
   // Fetch all plans for resolving trialing plan name
-  const plansQuery = useQuery(listPlans, {
-    sortBy: ListPlansRequest_SortBy.NAME_ASC,
-  })
+  const plansQuery = useQuery(listPlans, {})
 
   const planCurrency = planQuery.data?.plan?.version?.currency
   const planTrialConfig = planQuery.data?.plan?.version?.trialConfig

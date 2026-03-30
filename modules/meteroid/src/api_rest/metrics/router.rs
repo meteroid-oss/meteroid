@@ -14,7 +14,7 @@ use crate::api_rest::QueryParams;
 use crate::api_rest::error::RestErrorResponse;
 use crate::api_rest::metrics::mapping;
 use crate::api_rest::metrics::model::*;
-use crate::api_rest::model::PaginationExt;
+use crate::api_rest::model::{PaginationExt, validate_order_by};
 use crate::errors::RestApiError;
 
 // ── List metrics ───────────────────────────────────────────────
@@ -37,6 +37,13 @@ pub(crate) async fn list_metrics(
     Valid(QueryParams(request)): Valid<QueryParams<MetricListRequest>>,
     State(app_state): State<AppState>,
 ) -> Result<impl IntoResponse, RestApiError> {
+    let order_by = validate_order_by(
+        &request.order_by,
+        &["name", "code", "created_at"],
+        "name.asc",
+    )
+    .map_err(RestApiError::InvalidInput)?;
+
     let res = app_state
         .store
         .list_billable_metrics(
@@ -44,6 +51,8 @@ pub(crate) async fn list_metrics(
             request.pagination.into(),
             request.product_family_id,
             None,
+            Some(order_by),
+            request.search,
         )
         .await
         .map_err(|e| {

@@ -4,7 +4,6 @@ import { Select, SelectContent, SelectGroup, SelectItem, SelectTrigger } from '@
 import { useQuery } from '@/lib/connectrpc'
 import { PlanOverview, PlanStatus, PlanVersion } from '@/rpc/api/plans/v1/models_pb'
 import { listPlans } from '@/rpc/api/plans/v1/plans-PlansService_connectquery'
-import { ListPlansRequest_SortBy } from '@/rpc/api/plans/v1/plans_pb'
 
 interface Props {
   value?: PlanVersion['id']
@@ -13,7 +12,6 @@ interface Props {
 
 export const SubscribablePlanVersionSelect = ({ value, onChange }: Props) => {
   const plansQuery = useQuery(listPlans, {
-    sortBy: ListPlansRequest_SortBy.DATE_DESC,
     filters: {
       statuses: [PlanStatus.ACTIVE],
       types: [],

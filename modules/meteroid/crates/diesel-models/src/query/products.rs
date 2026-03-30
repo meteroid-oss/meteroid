@@ -3,7 +3,7 @@ use crate::products::{ProductRow, ProductRowNew};
 
 use crate::{DbResult, PgConn};
 
-use crate::extend::order::OrderByRequest;
+use crate::extend::order::{OrderByParam, OrderDirection};
 use crate::extend::pagination::{Paginate, PaginatedVec, PaginationRequest};
 use common_domain::ids::{ProductFamilyId, ProductId, TenantId};
 use diesel::{
@@ -57,7 +57,7 @@ impl ProductRow {
         catalog_only: bool,
         fee_types: &[crate::enums::FeeTypeEnum],
         pagination: PaginationRequest,
-        order_by: OrderByRequest,
+        order_by: Option<&str>,
     ) -> DbResult<PaginatedVec<ProductRow>> {
         use crate::schema::product::dsl as p_dsl;
         use crate::schema::product_family::dsl as pf_dsl;
@@ -82,13 +82,22 @@ impl ProductRow {
 
         let mut query = query.select(ProductRow::as_select());
 
-        match order_by {
-            OrderByRequest::IdAsc => query = query.order(p_dsl::id.asc()),
-            OrderByRequest::IdDesc => query = query.order(p_dsl::id.desc()),
-            OrderByRequest::NameAsc => query = query.order(p_dsl::name.asc()),
-            OrderByRequest::NameDesc => query = query.order(p_dsl::name.desc()),
-            OrderByRequest::DateAsc => query = query.order(p_dsl::created_at.asc()),
-            OrderByRequest::DateDesc => query = query.order(p_dsl::created_at.desc()),
+        let order = OrderByParam::parse(order_by, "name.asc");
+
+        match (order.column.as_str(), order.direction) {
+            ("name", OrderDirection::Asc) => {
+                query = query.order((p_dsl::name.asc(), p_dsl::id.asc()))
+            }
+            ("name", OrderDirection::Desc) => {
+                query = query.order((p_dsl::name.desc(), p_dsl::id.desc()))
+            }
+            ("created_at", OrderDirection::Asc) => {
+                query = query.order((p_dsl::created_at.asc(), p_dsl::id.asc()))
+            }
+            ("created_at", OrderDirection::Desc) => {
+                query = query.order((p_dsl::created_at.desc(), p_dsl::id.desc()))
+            }
+            _ => query = query.order((p_dsl::name.asc(), p_dsl::id.asc())),
         }
 
         let paginated_query = query.paginate(pagination);
@@ -111,7 +120,7 @@ impl ProductRow {
         catalog_only: bool,
         fee_types: &[crate::enums::FeeTypeEnum],
         pagination: PaginationRequest,
-        order_by: OrderByRequest,
+        order_by: Option<&str>,
     ) -> DbResult<PaginatedVec<ProductRow>> {
         use crate::schema::product::dsl as p_dsl;
         use crate::schema::product_family::dsl as pf_dsl;
@@ -137,13 +146,22 @@ impl ProductRow {
 
         let mut query = query.select(ProductRow::as_select());
 
-        match order_by {
-            OrderByRequest::IdAsc => query = query.order(p_dsl::id.asc()),
-            OrderByRequest::IdDesc => query = query.order(p_dsl::id.desc()),
-            OrderByRequest::NameAsc => query = query.order(p_dsl::name.asc()),
-            OrderByRequest::NameDesc => query = query.order(p_dsl::name.desc()),
-            OrderByRequest::DateAsc => query = query.order(p_dsl::created_at.asc()),
-            OrderByRequest::DateDesc => query = query.order(p_dsl::created_at.desc()),
+        let order = OrderByParam::parse(order_by, "name.asc");
+
+        match (order.column.as_str(), order.direction) {
+            ("name", OrderDirection::Asc) => {
+                query = query.order((p_dsl::name.asc(), p_dsl::id.asc()))
+            }
+            ("name", OrderDirection::Desc) => {
+                query = query.order((p_dsl::name.desc(), p_dsl::id.desc()))
+            }
+            ("created_at", OrderDirection::Asc) => {
+                query = query.order((p_dsl::created_at.asc(), p_dsl::id.asc()))
+            }
+            ("created_at", OrderDirection::Desc) => {
+                query = query.order((p_dsl::created_at.desc(), p_dsl::id.desc()))
+            }
+            _ => query = query.order((p_dsl::name.asc(), p_dsl::id.asc())),
         }
 
         let paginated_query = query.paginate(pagination);

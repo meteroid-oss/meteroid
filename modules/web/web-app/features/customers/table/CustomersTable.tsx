@@ -1,4 +1,4 @@
-import { OnChangeFn, PaginationState } from '@tanstack/react-table'
+import { OnChangeFn, PaginationState, SortingState } from '@tanstack/react-table'
 
 import { StandardTable } from '@/components/table/StandardTable'
 import { useCustomersColumns } from '@/features/customers/table/customersColumns'
@@ -13,6 +13,8 @@ interface CustomersTableProps {
   setPagination: OnChangeFn<PaginationState>
   totalCount: number
   isLoading?: boolean
+  sorting?: SortingState
+  onSortingChange?: OnChangeFn<SortingState>
 }
 
 export const CustomersTable: FunctionComponent<CustomersTableProps> = ({
@@ -21,6 +23,8 @@ export const CustomersTable: FunctionComponent<CustomersTableProps> = ({
   setPagination,
   totalCount,
   isLoading,
+  sorting,
+  onSortingChange,
 }) => {
   const basePath = useBasePath()
 
@@ -32,6 +36,8 @@ export const CustomersTable: FunctionComponent<CustomersTableProps> = ({
         columns={columns}
         data={data}
         sortable={true}
+        sorting={sorting}
+        onSortingChange={onSortingChange}
         pagination={pagination}
         setPagination={setPagination}
         totalCount={totalCount}

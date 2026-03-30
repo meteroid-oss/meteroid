@@ -18,13 +18,11 @@ use meteroid_grpc::meteroid::api::invoices::v1::{
     RequestPdfGenerationRequest, RequestPdfGenerationResponse, SubLineItem as ProtoSubLineItem,
     SyncToPennylaneRequest, SyncToPennylaneResponse, UpdateInvoiceRequest, UpdateInvoiceResponse,
     VoidInvoiceRequest, VoidInvoiceResponse, invoices_service_server::InvoicesService,
-    list_invoices_request::SortBy,
 };
 use meteroid_store::Store;
 use meteroid_store::domain::pgmq::{InvoicePdfRequestEvent, PgmqMessageNew, PgmqQueue};
 use meteroid_store::domain::{
-    InvoiceNew, InvoicingEntity, LineItem, OrderByRequest, UpdateInvoiceParams,
-    UpdateLineItemParams,
+    InvoiceNew, InvoicingEntity, LineItem, UpdateInvoiceParams, UpdateLineItemParams,
 };
 use meteroid_store::repositories::InvoiceInterface;
 use meteroid_store::repositories::customers::CustomersInterfaceAuto;
@@ -52,16 +50,6 @@ impl InvoicesService for InvoiceServiceComponents {
 
         let pagination_req = inner.pagination.into_domain();
 
-        let order_by = match inner.sort_by.try_into() {
-            Ok(SortBy::DateAsc) => OrderByRequest::DateAsc,
-            Ok(SortBy::DateDesc) => OrderByRequest::DateDesc,
-            Ok(SortBy::IdAsc) => OrderByRequest::IdAsc,
-            Ok(SortBy::IdDesc) => OrderByRequest::IdDesc,
-            Ok(SortBy::NumberAsc) => OrderByRequest::NameAsc,
-            Ok(SortBy::NumberDesc) => OrderByRequest::NameDesc,
-            Err(_) => OrderByRequest::DateDesc,
-        };
-
         let res = self
             .store
             .list_invoices(
@@ -70,7 +58,7 @@ impl InvoicesService for InvoiceServiceComponents {
                 subscription_id,
                 mapping::invoices::status_server_to_domain(inner.status),
                 inner.search,
-                order_by,
+                inner.order_by,
                 pagination_req,
             )
             .await

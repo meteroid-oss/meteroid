@@ -1,14 +1,13 @@
-import { Fragment, useState } from 'react'
+import { Fragment, useCallback, useEffect, useState } from 'react'
 
 import { CreditNotesHeader, CreditNotesTable } from '@/features/creditNotes'
 import { CreditNotesSearch } from '@/features/creditNotes/types'
 import { useDebounceValue } from '@/hooks/useDebounce'
 import { useQuery } from '@/lib/connectrpc'
+import { sortingStateToOrderBy } from '@/lib/utils/sorting'
 import { listCreditNotes } from '@/rpc/api/creditnotes/v1/creditnotes-CreditNotesService_connectquery'
-import { ListCreditNotesRequest_SortBy } from '@/rpc/api/creditnotes/v1/creditnotes_pb'
 
-import type { PaginationState } from '@tanstack/react-table'
-
+import type { PaginationState, SortingState } from '@tanstack/react-table'
 
 export const CreditNotes = () => {
   const [search, setSearch] = useState<CreditNotesSearch>({})
@@ -20,10 +19,26 @@ export const CreditNotes = () => {
     pageSize: 20,
   })
 
+  const [sorting, setSorting] = useState<SortingState>([{ id: 'created_at', desc: true }])
+
+  useEffect(() => {
+    setPagination(prev => ({ ...prev, pageIndex: 0 }))
+  }, [debouncedSearch])
+
+  const handleSortingChange = useCallback(
+    (updaterOrValue: SortingState | ((old: SortingState) => SortingState)) => {
+      setSorting(prev =>
+        typeof updaterOrValue === 'function' ? updaterOrValue(prev) : updaterOrValue
+      )
+      setPagination(prev => ({ ...prev, pageIndex: 0 }))
+    },
+    []
+  )
+
   const creditNotesQuery = useQuery(
     listCreditNotes,
     {
-      sortBy: ListCreditNotesRequest_SortBy.DATE_DESC,
+      orderBy: sortingStateToOrderBy(sorting),
       search: debouncedSearch.text || undefined,
       status: debouncedSearch.status,
       pagination: {
@@ -35,7 +50,7 @@ export const CreditNotes = () => {
   )
 
   const data = creditNotesQuery.data?.creditNotes ?? []
-  const count = data.length
+  const count = creditNotesQuery.data?.paginationMeta?.totalItems ?? 0
   const isLoading = creditNotesQuery.isLoading
 
   const refetch = () => {
@@ -58,6 +73,8 @@ export const CreditNotes = () => {
           pagination={pagination}
           setPagination={setPagination}
           isLoading={isLoading}
+          sorting={sorting}
+          onSortingChange={handleSortingChange}
         />
       </div>
     </Fragment>

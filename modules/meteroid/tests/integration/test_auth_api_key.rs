@@ -145,7 +145,7 @@ async fn list_customers(
             meteroid_grpc::meteroid::api::customers::v1::ListCustomerRequest {
                 search: None,
                 archived: None,
-                sort_by: meteroid_grpc::meteroid::api::customers::v1::list_customer_request::SortBy::NameAsc as i32,
+                order_by: None,
                 pagination: None,
             },
         ))

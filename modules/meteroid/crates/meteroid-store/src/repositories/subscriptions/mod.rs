@@ -81,12 +81,15 @@ pub trait SubscriptionInterface {
         batch: Vec<SubscriptionComponentNew>,
     ) -> StoreResult<Vec<SubscriptionComponent>>;
 
+    #[allow(clippy::too_many_arguments)]
     async fn list_subscriptions(
         &self,
         tenant_id: TenantId,
         customer_id: Option<CustomerId>,
         plan_id: Option<PlanId>,
         status: Option<Vec<crate::domain::enums::SubscriptionStatusEnum>>,
+        search: Option<String>,
+        order_by: Option<String>,
         pagination: PaginationRequest,
     ) -> StoreResult<PaginatedVec<Subscription>>;
 
@@ -519,12 +522,15 @@ impl SubscriptionInterface for Store {
         })?
     }
 
+    #[allow(clippy::too_many_arguments)]
     async fn list_subscriptions(
         &self,
         tenant_id: TenantId,
         customer_id: Option<CustomerId>,
         plan_id: Option<PlanId>,
         status: Option<Vec<crate::domain::enums::SubscriptionStatusEnum>>,
+        search: Option<String>,
+        order_by: Option<String>,
         pagination: PaginationRequest,
     ) -> StoreResult<PaginatedVec<Subscription>> {
         let mut conn = self.get_conn().await?;
@@ -537,6 +543,8 @@ impl SubscriptionInterface for Store {
             customer_id,
             plan_id,
             status_filter,
+            search,
+            order_by.as_deref(),
             pagination.into(),
         )
         .await

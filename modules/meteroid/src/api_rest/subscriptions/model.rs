@@ -125,6 +125,8 @@ pub struct SubscriptionRequest {
     #[serde(default, with = "string_serde_opt")]
     pub plan_id: Option<PlanId>,
     pub statuses: Option<Vec<SubscriptionStatusEnum>>,
+    /// Sort order. Format: `column.direction`. Allowed columns: `customer_name`, `plan_name`, `mrr_cents`, `billing_start_date`, `end_date`, `status`, `created_at`. Direction: `asc` or `desc`. Default: `created_at.desc`.
+    pub order_by: Option<String>,
 }
 
 #[derive(Clone, ToSchema, Serialize, Deserialize, Debug)]

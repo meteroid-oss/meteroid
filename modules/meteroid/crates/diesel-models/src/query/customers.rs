@@ -4,7 +4,7 @@ use crate::customers::{
 use crate::enums::ConnectorProviderEnum;
 use crate::errors::IntoDbResult;
 use crate::extend::connection_metadata;
-use crate::extend::order::OrderByRequest;
+use crate::extend::order::{OrderByParam, OrderDirection};
 use crate::extend::pagination::{Paginate, PaginatedVec, PaginationRequest};
 use crate::{DbResult, PgConn};
 use common_domain::ids::{AliasOr, BaseId, ConnectorId, CustomerId, TenantId};
@@ -216,7 +216,7 @@ impl CustomerRow {
         conn: &mut PgConn,
         param_tenant_id: TenantId,
         pagination: PaginationRequest,
-        order_by: OrderByRequest,
+        order_by: Option<&str>,
         param_query: Option<String>,
         param_archived: Option<bool>,
     ) -> DbResult<PaginatedVec<CustomerRow>> {
@@ -246,12 +246,24 @@ impl CustomerRow {
             );
         }
 
-        match order_by {
-            OrderByRequest::IdAsc => query = query.order(id.asc()),
-            OrderByRequest::IdDesc => query = query.order(id.desc()),
-            OrderByRequest::DateAsc => query = query.order(created_at.asc()),
-            OrderByRequest::DateDesc => query = query.order(created_at.desc()),
-            _ => query = query.order(id.asc()),
+        let order = OrderByParam::parse(order_by, "name.asc");
+
+        match (order.column.as_str(), order.direction) {
+            ("name", OrderDirection::Asc) => query = query.order((name.asc(), id.asc())),
+            ("name", OrderDirection::Desc) => query = query.order((name.desc(), id.desc())),
+            ("email", OrderDirection::Asc) => query = query.order((billing_email.asc(), id.asc())),
+            ("email", OrderDirection::Desc) => {
+                query = query.order((billing_email.desc(), id.desc()))
+            }
+            ("alias", OrderDirection::Asc) => query = query.order((alias.asc(), id.asc())),
+            ("alias", OrderDirection::Desc) => query = query.order((alias.desc(), id.desc())),
+            ("created_at", OrderDirection::Asc) => {
+                query = query.order((created_at.asc(), id.asc()))
+            }
+            ("created_at", OrderDirection::Desc) => {
+                query = query.order((created_at.desc(), id.desc()))
+            }
+            _ => query = query.order((name.asc(), id.asc())),
         }
 
         let paginated_query = query.paginate(pagination);

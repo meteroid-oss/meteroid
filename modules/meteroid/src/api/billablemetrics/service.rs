@@ -96,6 +96,8 @@ impl BillableMetricsService for BillableMetricsComponents {
                 pagination_req,
                 ProductFamilyId::from_proto_opt(inner.family_local_id)?,
                 inner.archived,
+                inner.order_by,
+                inner.search,
             )
             .await
             .map_err(Into::<crate::api::customers::error::CustomerApiError>::into)?;

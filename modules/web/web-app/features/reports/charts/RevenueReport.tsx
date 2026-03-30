@@ -9,7 +9,6 @@ import { DatePickerWithRange } from '@/features/dashboard/DateRangePicker'
 import { RevenueChart } from '@/features/dashboard/charts/RevenueChart'
 import { useQuery } from '@/lib/connectrpc'
 import { listPlans } from '@/rpc/api/plans/v1/plans-PlansService_connectquery'
-import { ListPlansRequest_SortBy } from '@/rpc/api/plans/v1/plans_pb'
 
 const ALL_PLANS = '_all'
 
@@ -24,9 +23,7 @@ export const RevenueReport = () => {
   const [range, setRange] = React.useState<DateRange | undefined>(defaultRange)
   const [plan, setPlan] = React.useState<string>(ALL_PLANS)
 
-  const plans = useQuery(listPlans, {
-    sortBy: ListPlansRequest_SortBy.NAME_ASC,
-  })
+  const plans = useQuery(listPlans, {})
 
   const selectedPlanIds = plan === ALL_PLANS ? [] : [plan]
 

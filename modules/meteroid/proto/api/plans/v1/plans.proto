@@ -22,15 +22,9 @@ message CreateDraftPlanResponse {
 
 // Request and response messages for ListPlans RPC
 message ListPlansRequest {
-  enum SortBy {
-    DATE_DESC = 0;
-    DATE_ASC = 1;
-    NAME_DESC = 2;
-    NAME_ASC = 3;
-  }
   optional string product_family_local_id = 1;
   PlanFilters filters = 2;
-  SortBy sort_by = 3;
+  optional string order_by = 3;
   meteroid.common.v1.Pagination pagination = 4;
 }
 

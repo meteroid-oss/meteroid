@@ -20,7 +20,6 @@ import { MrrLogsCard } from '@/features/dashboard/cards/MrrLogsCard'
 import { MrrChart } from '@/features/dashboard/charts/MrrChart'
 import { useQuery } from '@/lib/connectrpc'
 import { listPlans } from '@/rpc/api/plans/v1/plans-PlansService_connectquery'
-import { ListPlansRequest_SortBy } from '@/rpc/api/plans/v1/plans_pb'
 
 const ALL_PLANS = '_all'
 
@@ -36,9 +35,7 @@ export const MrrReport = () => {
   const [range, setRange] = React.useState<DateRange | undefined>(defaultRange)
   const [plan, setPlan] = React.useState<string>(ALL_PLANS)
 
-  const plans = useQuery(listPlans, {
-    sortBy: ListPlansRequest_SortBy.NAME_ASC,
-  })
+  const plans = useQuery(listPlans, {})
 
   const selectedPlanIds = plan === ALL_PLANS ? [] : [plan]
 

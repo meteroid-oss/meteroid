@@ -1,5 +1,5 @@
 import { UseQueryResult } from '@tanstack/react-query'
-import { ColumnDef, PaginationState } from '@tanstack/react-table'
+import { ColumnDef, OnChangeFn, PaginationState, SortingState } from '@tanstack/react-table'
 import { useMemo } from 'react'
 import { useNavigate } from 'react-router-dom'
 
@@ -16,11 +16,15 @@ interface CouponsTableProps {
   couponsQuery: UseQueryResult<ListCouponResponse>
   pagination: PaginationState
   setPagination: React.Dispatch<React.SetStateAction<PaginationState>>
+  sorting?: SortingState
+  onSortingChange?: OnChangeFn<SortingState>
 }
 export const CouponsTable: FunctionComponent<CouponsTableProps> = ({
   couponsQuery,
   pagination,
   setPagination,
+  sorting,
+  onSortingChange,
 }) => {
   const navigate = useNavigate()
 
@@ -31,13 +35,15 @@ export const CouponsTable: FunctionComponent<CouponsTableProps> = ({
   const columns = useMemo<ColumnDef<Coupon>[]>(
     () => [
       {
+        id: 'code',
         header: 'Code',
+        enableSorting: true,
         cell: ({ row }) => <span>{row.original.code}</span>,
-        enableSozrting: false,
       },
 
       {
         header: 'Redemptions',
+        enableSorting: false,
         cell: ({ row }) => (
           <>
             <span>{row.original.redemptionCount}</span>
@@ -46,7 +52,9 @@ export const CouponsTable: FunctionComponent<CouponsTableProps> = ({
         ),
       },
       {
+        id: 'expires_at',
         header: 'Expiry',
+        enableSorting: true,
         cell: ({ row }) => <span>{parseAndFormatDateOptional(row.original.expiresAt)}</span>,
       },
       ...((isCompact
@@ -58,9 +66,10 @@ export const CouponsTable: FunctionComponent<CouponsTableProps> = ({
               enableSorting: false,
             },
             {
+              id: 'created_at',
               header: 'Created at',
+              enableSorting: true,
               cell: ({ row }) => <span>{parseAndFormatDate(row.original.createdAt)}</span>,
-              enableSorting: false,
             },
           ]) as ColumnDef<Coupon>[]),
       {
@@ -69,6 +78,7 @@ export const CouponsTable: FunctionComponent<CouponsTableProps> = ({
         cell: ({ row }) => (
           <LocalId localId={row.original.localId} className={isCompact ? 'max-w-10' : 'max-w-16'} />
         ),
+        enableSorting: false,
       },
     ],
     [navigate, isCompact]
@@ -79,6 +89,8 @@ export const CouponsTable: FunctionComponent<CouponsTableProps> = ({
       columns={columns}
       data={couponsQuery.data?.coupons ?? []}
       sortable={true}
+      sorting={sorting}
+      onSortingChange={onSortingChange}
       pagination={pagination}
       setPagination={setPagination}
       totalCount={couponsQuery.data?.paginationMeta?.totalItems ?? 0}

@@ -142,7 +142,7 @@ async fn test_customers_basic() {
         .list_customers(api::customers::v1::ListCustomerRequest {
             search: Some("fake".to_string()),
             archived: None,
-            sort_by: api::customers::v1::list_customer_request::SortBy::NameAsc as i32,
+            order_by: None,
             pagination: Some(common_grpc::meteroid::common::v1::Pagination {
                 per_page: Some(10),
                 page: 0,
@@ -162,7 +162,7 @@ async fn test_customers_basic() {
         .list_customers(api::customers::v1::ListCustomerRequest {
             search: Some("iiieeennn".to_string()), // part of alias
             archived: None,
-            sort_by: api::customers::v1::list_customer_request::SortBy::NameAsc as i32,
+            order_by: None,
             pagination: Some(common_grpc::meteroid::common::v1::Pagination {
                 per_page: Some(10),
                 page: 0,

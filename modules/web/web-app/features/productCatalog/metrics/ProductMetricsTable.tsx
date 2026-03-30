@@ -8,7 +8,7 @@ import {
   DropdownMenuTrigger,
 } from '@md/ui'
 import { useQueryClient } from '@tanstack/react-query'
-import { ColumnDef, OnChangeFn, PaginationState } from '@tanstack/react-table'
+import { ColumnDef, OnChangeFn, PaginationState, SortingState } from '@tanstack/react-table'
 import { ArchiveIcon, ArchiveRestoreIcon, CopyIcon, EditIcon, MoreVerticalIcon } from 'lucide-react'
 import { FC, useMemo } from 'react'
 import { useNavigate } from 'react-router-dom'
@@ -26,6 +26,7 @@ import {
   Aggregation_AggregationType,
   BillableMetricMeta,
 } from '@/rpc/api/billablemetrics/v1/models_pb'
+import { parseAndFormatDate } from '@/utils/date'
 
 export const aggregationTypeMapper: Record<Aggregation_AggregationType, string> = {
   [Aggregation_AggregationType.SUM]: 'sum',
@@ -41,12 +42,18 @@ interface BillableMetricableProps {
   pagination: PaginationState
   setPagination: OnChangeFn<PaginationState>
   totalCount: number
+  sorting?: SortingState
+  onSortingChange?: OnChangeFn<SortingState>
+  isLoading?: boolean
 }
 export const BillableMetricTable: FC<BillableMetricableProps> = ({
   data,
   pagination,
   setPagination,
   totalCount,
+  sorting,
+  onSortingChange,
+  isLoading,
 }) => {
   const navigate = useNavigate()
   const queryClient = useQueryClient()
@@ -83,6 +90,7 @@ export const BillableMetricTable: FC<BillableMetricableProps> = ({
   const columns = useMemo<ColumnDef<BillableMetricMeta>[]>(
     () => [
       {
+        id: 'name',
         header: 'Name',
         accessorKey: 'name',
         cell: ({ row }) => (
@@ -97,14 +105,17 @@ export const BillableMetricTable: FC<BillableMetricableProps> = ({
       {
         header: 'Description',
         accessorKey: 'description',
+        enableSorting: false,
       },
       {
+        id: 'code',
         header: 'Event name',
         accessorKey: 'code',
       },
       {
         header: 'Aggregation',
         maxSize: 0.1,
+        enableSorting: false,
         cell: c => (
           <code>
             {aggregationTypeMapper[c.row.original.aggregationType]}
@@ -113,7 +124,18 @@ export const BillableMetricTable: FC<BillableMetricableProps> = ({
         ),
       },
       {
+        id: 'created_at',
+        header: 'Created',
+        enableSorting: true,
+        cell: ({ row }) => {
+          const ts = row.original.createdAt
+          if (!ts) return null
+          return <span className="text-sm text-muted-foreground">{parseAndFormatDate(ts.toDate().toISOString())}</span>
+        },
+      },
+      {
         header: 'Status',
+        enableSorting: false,
         cell: ({ row }) => {
           const isArchived = !!row.original.archivedAt
           return (
@@ -130,6 +152,7 @@ export const BillableMetricTable: FC<BillableMetricableProps> = ({
               accessorKey: 'id' as const,
               header: '',
               maxSize: 0.1,
+              enableSorting: false,
               cell: ({ row }: { row: { original: BillableMetricMeta } }) => {
                 const isArchived = !!row.original.archivedAt
                 return (
@@ -185,9 +208,13 @@ export const BillableMetricTable: FC<BillableMetricableProps> = ({
     <StandardTable
       columns={columns}
       data={data}
+      sortable={true}
+      sorting={sorting}
+      onSortingChange={onSortingChange}
       pagination={pagination}
       setPagination={setPagination}
       totalCount={totalCount}
+      isLoading={isLoading}
     />
   )
 }

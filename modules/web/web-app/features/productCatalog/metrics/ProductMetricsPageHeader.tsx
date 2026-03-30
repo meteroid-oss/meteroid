@@ -14,6 +14,8 @@ interface MetricsHeaderProps {
   statusFilter: 'all' | 'active' | 'archived'
   onStatusFilterChange: (status: 'all' | 'active' | 'archived') => void
   totalCount: number
+  search: string
+  setSearch: (value: string) => void
 }
 
 export const ProductMetricsPageHeader: FunctionComponent<MetricsHeaderProps> = ({
@@ -23,6 +25,8 @@ export const ProductMetricsPageHeader: FunctionComponent<MetricsHeaderProps> = (
   statusFilter,
   onStatusFilterChange,
   totalCount,
+  search,
+  setSearch,
 }) => {
   const isExpress = useIsExpressOrganization()
 
@@ -43,6 +47,8 @@ export const ProductMetricsPageHeader: FunctionComponent<MetricsHeaderProps> = (
           <InputWithIcon
             placeholder="Search metrics"
             icon={<SearchIcon size={16} />}
+            value={search}
+            onChange={e => setSearch(e.target.value)}
             width="fit-content"
           />
           <BaseFilter

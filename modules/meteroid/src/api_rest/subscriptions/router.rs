@@ -6,7 +6,7 @@ use axum::{Json, extract::State, response::IntoResponse};
 
 use crate::api_rest::QueryParams;
 use crate::api_rest::error::RestErrorResponse;
-use crate::api_rest::model::PaginationExt;
+use crate::api_rest::model::{PaginationExt, validate_order_by};
 use crate::api_rest::subscriptions::mapping::{
     domain_to_rest, domain_to_rest_details, rest_to_domain_create_request,
     rest_to_domain_update_request,
@@ -77,6 +77,21 @@ pub(crate) async fn list_subscriptions(
         },
     };
 
+    let order_by = validate_order_by(
+        &request.order_by,
+        &[
+            "customer_name",
+            "plan_name",
+            "mrr_cents",
+            "billing_start_date",
+            "end_date",
+            "status",
+            "created_at",
+        ],
+        "created_at.desc",
+    )
+    .map_err(RestApiError::InvalidInput)?;
+
     let res = app_state
         .store
         .list_subscriptions(
@@ -84,6 +99,8 @@ pub(crate) async fn list_subscriptions(
             customer_id,
             request.plan_id,
             status_filter,
+            None,
+            Some(order_by),
             request.pagination.into(),
         )
         .await

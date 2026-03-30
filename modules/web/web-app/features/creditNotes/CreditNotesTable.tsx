@@ -1,5 +1,5 @@
 import { Popover, PopoverContent, PopoverTrigger } from '@md/ui'
-import { ColumnDef, OnChangeFn, PaginationState } from '@tanstack/react-table'
+import { ColumnDef, OnChangeFn, PaginationState, SortingState } from '@tanstack/react-table'
 import { MoreVerticalIcon } from 'lucide-react'
 import { useMemo } from 'react'
 import { Link } from 'react-router-dom'
@@ -18,6 +18,8 @@ interface CreditNotesTableProps {
   setPagination: OnChangeFn<PaginationState>
   totalCount: number
   isLoading?: boolean
+  sorting?: SortingState
+  onSortingChange?: OnChangeFn<SortingState>
 }
 
 export const CreditNotesTable = ({
@@ -26,39 +28,49 @@ export const CreditNotesTable = ({
   setPagination,
   totalCount,
   isLoading,
+  sorting,
+  onSortingChange,
 }: CreditNotesTableProps) => {
   const basePath = useBasePath()
 
   const columns = useMemo<ColumnDef<CreditNote>[]>(
     () => [
       {
+        id: 'credit_note_number',
         header: 'Credit Note #',
         accessorKey: 'creditNoteNumber',
       },
       {
+        id: 'customer_name',
         header: 'Customer',
         accessorKey: 'customerName',
       },
       {
+        id: 'amount',
         header: 'Amount',
         accessorFn: cell => formatCurrency(Math.abs(Number(cell.total)), cell.currency),
       },
       {
         header: 'Currency',
         accessorKey: 'currency',
+        enableSorting: false,
       },
       {
+        id: 'created_at',
         header: 'Created',
         accessorFn: cell => parseAndFormatDate(cell.createdAt),
       },
       {
+        id: 'status',
         header: 'Status',
+        enableSorting: true,
         cell: ({ row }) => <CreditNoteStatusBadge status={row.original.status} />,
       },
       {
         accessorKey: 'id',
         header: '',
         className: 'w-2',
+        enableSorting: false,
         cell: ({ row }) => (
           <Popover>
             <PopoverTrigger>
@@ -84,6 +96,8 @@ export const CreditNotesTable = ({
       columns={columns}
       data={data}
       sortable={true}
+      sorting={sorting}
+      onSortingChange={onSortingChange}
       pagination={pagination}
       setPagination={setPagination}
       totalCount={totalCount}

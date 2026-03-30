@@ -99,6 +99,7 @@ async fn test_products_basic() {
             query: Some("_nAm".to_string()),
             pagination: None,
             catalog_only: None,
+            order_by: None,
         })
         .await
         .unwrap()

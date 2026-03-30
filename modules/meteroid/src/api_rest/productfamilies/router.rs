@@ -2,7 +2,7 @@ use super::AppState;
 
 use axum::{Json, extract::State, response::IntoResponse};
 
-use crate::api_rest::model::PaginationExt;
+use crate::api_rest::model::{PaginationExt, validate_order_by};
 use crate::api_rest::productfamilies::mapping::{create_req_to_domain, domain_to_rest};
 use crate::api_rest::productfamilies::model::{
     ProductFamily, ProductFamilyCreateRequest, ProductFamilyListRequest, ProductFamilyListResponse,
@@ -14,7 +14,6 @@ use axum_valid::Valid;
 use common_domain::ids::{AliasOr, ProductFamilyId};
 use common_grpc::middleware::server::auth::AuthorizedAsTenant;
 use http::StatusCode;
-use meteroid_store::domain::OrderByRequest;
 use meteroid_store::repositories::ProductFamilyInterface;
 
 /// List product families
@@ -41,12 +40,19 @@ pub(crate) async fn list_product_families(
     Valid(Query(request)): Valid<Query<ProductFamilyListRequest>>,
     State(app_state): State<AppState>,
 ) -> Result<impl IntoResponse, RestApiError> {
+    let order_by = validate_order_by(
+        &request.order_by,
+        &["name", "created_at"],
+        "created_at.desc",
+    )
+    .map_err(RestApiError::InvalidInput)?;
+
     let res = app_state
         .store
         .list_product_families(
             authorized_state.tenant_id,
             request.pagination.into(),
-            OrderByRequest::IdAsc,
+            Some(order_by),
             None,
         )
         .await

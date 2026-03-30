@@ -83,7 +83,7 @@ pub trait CreditNoteInterface {
         invoice_id: Option<InvoiceId>,
         status: Option<crate::domain::enums::CreditNoteStatus>,
         search: Option<String>,
-        order_by: crate::domain::OrderByRequest,
+        order_by: Option<String>,
         pagination: crate::domain::PaginationRequest,
     ) -> StoreResult<crate::domain::PaginatedVec<CreditNote>>;
 
@@ -709,7 +709,7 @@ impl CreditNoteInterface for Store {
         invoice_id: Option<InvoiceId>,
         status: Option<crate::domain::enums::CreditNoteStatus>,
         search: Option<String>,
-        order_by: crate::domain::OrderByRequest,
+        order_by: Option<String>,
         pagination: crate::domain::PaginationRequest,
     ) -> StoreResult<crate::domain::PaginatedVec<CreditNote>> {
         let mut conn = self.get_conn().await?;
@@ -721,7 +721,7 @@ impl CreditNoteInterface for Store {
             invoice_id,
             status.map(Into::into),
             search,
-            order_by.into(),
+            order_by.as_deref(),
             pagination.into(),
         )
         .await

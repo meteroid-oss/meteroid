@@ -6,7 +6,7 @@ use meteroid_grpc::meteroid::api::productfamilies::v1::{
     product_families_service_server::ProductFamiliesService,
 };
 use meteroid_store::domain;
-use meteroid_store::domain::{OrderByRequest, PaginationRequest};
+use meteroid_store::domain::PaginationRequest;
 use meteroid_store::repositories::ProductFamilyInterface;
 use tonic::{Request, Response, Status};
 
@@ -32,7 +32,7 @@ impl ProductFamiliesService for ProductFamilyServiceComponents {
                     per_page: Some(u32::MAX),
                     page: 0,
                 },
-                OrderByRequest::IdAsc,
+                Some("id.asc".to_string()),
                 None,
             )
             .await

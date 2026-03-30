@@ -55,7 +55,7 @@ impl CouponsService for CouponsServiceComponents {
 
         let coupons = self
             .store
-            .list_coupons(tenant_id, pagination_req, req.search, filter)
+            .list_coupons(tenant_id, pagination_req, req.search, filter, req.order_by)
             .await
             .map_err(Into::<CouponApiError>::into)?;
 

@@ -27,7 +27,7 @@ use meteroid_store::Store;
 use meteroid_store::domain::enums::{InvoiceStatusEnum, InvoiceType};
 use meteroid_store::domain::{
     Address, InlineCustomer, InlineInvoicingEntity, Invoice, InvoiceNew, InvoicePaymentStatus,
-    OrderByRequest, PaginationRequest,
+    PaginationRequest,
 };
 use meteroid_store::repositories::InvoiceInterface;
 use rust_decimal::Decimal;
@@ -655,7 +655,7 @@ async fn fetch_invoices(store: &Store, tenant_id: TenantId) -> Vec<Invoice> {
             None,
             None,
             None,
-            OrderByRequest::DateAsc,
+            Some("created_at.asc".to_string()),
             PaginationRequest {
                 per_page: Some(100),
                 page: 0,

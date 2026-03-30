@@ -22,6 +22,7 @@ import { useQuery } from '@/lib/connectrpc'
 import { listConnectors } from '@/rpc/api/connectors/v1/connectors-ConnectorsService_connectquery'
 import { ConnectorProviderEnum } from '@/rpc/api/connectors/v1/models_pb'
 import { CustomerBrief } from '@/rpc/api/customers/v1/models_pb'
+import { parseAndFormatDate } from '@/utils/date'
 
 const CustomerRowActions = ({
   customerId,
@@ -115,29 +116,37 @@ export const useCustomersColumns = () =>
   useMemo<ColumnDef<CustomerBrief>[]>(
     () => [
       {
+        id: 'name',
         header: 'Name',
+        enableSorting: true,
         cell: ({ row }) => <Link to={`${row.original.id}`}>{row.original.name}</Link>,
       },
       {
         header: 'Country',
         cell: ({ row }) => <CountryFlag name={row.original.country} />,
+        enableSorting: false,
       },
       {
+        id: 'email',
         header: 'Email',
         accessorFn: cell => cell.billingEmail,
       },
       {
+        id: 'alias',
         header: 'Alias',
         accessorFn: cell => cell.alias,
       },
       {
-        header: 'Accrued',
-        accessorFn: () => '-',
+        id: 'created_at',
+        header: 'Created',
+        enableSorting: true,
+        cell: ({ row }) => <span className="text-sm text-muted-foreground">{parseAndFormatDate(row.original.createdAt)}</span>,
       },
       {
         accessorKey: 'id',
         header: '',
         className: 'w-2',
+        enableSorting: false,
         cell: ({ row }) => (
           <CustomerRowActions
             customerId={row.original.id}

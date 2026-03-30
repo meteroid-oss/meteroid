@@ -1,22 +1,42 @@
-import { useState } from 'react'
+import { useCallback, useEffect, useState } from 'react'
 
 import { SubscriptionsHeader, SubscriptionsTable } from '@/features/subscriptions'
+import { useDebounceValue } from '@/hooks/useDebounce'
 import { ARRAY_SERDE, useQueryState } from '@/hooks/useQueryState'
 import { useQuery } from '@/lib/connectrpc'
+import { sortingStateToOrderBy } from '@/lib/utils/sorting'
 import { SubscriptionStatus } from '@/rpc/api/subscriptions/v1/models_pb'
 import { listSubscriptions } from '@/rpc/api/subscriptions/v1/subscriptions-SubscriptionsService_connectquery'
 
-import type { PaginationState } from '@tanstack/react-table'
+import type { PaginationState, SortingState } from '@tanstack/react-table'
+
+const DEFAULT_STATUSES = ['pending', 'trialing', 'active']
 
 export const Subscriptions = () => {
+  const [search, setSearch] = useState('')
+  const [sorting, setSorting] = useState<SortingState>([])
+  const debouncedSearch = useDebounceValue(search, 400)
+
   const [pagination, setPagination] = useState<PaginationState>({
     pageIndex: 0,
     pageSize: 20,
   })
   const [statusFilter, setStatusFilter] = useQueryState(
     'status',
-    ['pending', 'trialing', 'active'],
+    DEFAULT_STATUSES,
     ARRAY_SERDE
+  )
+
+  useEffect(() => {
+    setPagination(prev => ({ ...prev, pageIndex: 0 }))
+  }, [debouncedSearch, statusFilter])
+
+  const handleSortingChange = useCallback(
+    (updaterOrValue: SortingState | ((old: SortingState) => SortingState)) => {
+      setSorting(prev => (typeof updaterOrValue === 'function' ? updaterOrValue(prev) : updaterOrValue))
+      setPagination(prev => ({ ...prev, pageIndex: 0 }))
+    },
+    []
   )
 
   const subscriptionsQuery = useQuery(
@@ -27,6 +47,8 @@ export const Subscriptions = () => {
         page: pagination.pageIndex,
       },
       status: statusFilter.map(mapSubscriptionStatusToGrpc),
+      search: debouncedSearch.length > 0 ? debouncedSearch : undefined,
+      orderBy: sortingStateToOrderBy(sorting),
     },
     {}
   )
@@ -48,6 +70,8 @@ export const Subscriptions = () => {
         statusFilter={statusFilter}
         setStatusFilter={setStatusFilter}
         onImportSuccess={() => subscriptionsQuery.refetch()}
+        search={search}
+        setSearch={setSearch}
       />
       <SubscriptionsTable
         data={data}
@@ -55,6 +79,8 @@ export const Subscriptions = () => {
         pagination={pagination}
         setPagination={setPagination}
         isLoading={isLoading}
+        sorting={sorting}
+        onSortingChange={handleSortingChange}
       />
     </div>
   )

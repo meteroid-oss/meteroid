@@ -24,6 +24,8 @@ message ListBillableMetricsRequest {
   optional string family_local_id = 1;
   meteroid.common.v1.Pagination pagination = 2;
   optional bool archived = 3;
+  optional string order_by = 4;
+  optional string search = 5;
 }
 
 message ListBillableMetricsResponse {

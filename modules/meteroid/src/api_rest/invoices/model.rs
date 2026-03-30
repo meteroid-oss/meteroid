@@ -91,6 +91,8 @@ pub struct InvoiceListRequest {
     pub subscription_id: Option<SubscriptionId>,
     #[serde(default)]
     pub statuses: Option<Vec<InvoiceStatus>>,
+    /// Sort order. Format: `column.direction`. Allowed columns: `invoice_number`, `customer_name`, `amount`, `invoice_date`, `status`, `payment_status`. Direction: `asc` or `desc`. Default: `invoice_date.desc`.
+    pub order_by: Option<String>,
 }
 
 #[derive(ToSchema, Serialize, Deserialize)]

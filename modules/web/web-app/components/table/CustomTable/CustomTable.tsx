@@ -23,6 +23,8 @@ interface CustomTableProps<A> {
   columns: ColumnDef<A>[]
   data: A[] | undefined
   sortable?: boolean
+  sorting?: SortingState
+  onSortingChange?: OnChangeFn<SortingState>
   emptyMessage?: string | ReactNode
   rowRenderer: (row: Row<A>) => JSX.Element
   optionsOveride?: Partial<TableOptions<A>>
@@ -36,6 +38,8 @@ export const CustomTable = <A extends object>({
   columns,
   data,
   sortable = false,
+  sorting: externalSorting,
+  onSortingChange: externalOnSortingChange,
   emptyMessage,
   rowRenderer,
   optionsOveride,
@@ -51,11 +55,26 @@ export const CustomTable = <A extends object>({
 
   const defaultData = useMemo(() => [], [])
 
-  const [sorting, setSorting] = useState<SortingState>([])
+  const [internalSorting, setInternalSorting] = useState<SortingState>([])
+
+  const isManualSorting = !!externalOnSortingChange
+  const sorting = isManualSorting ? (externalSorting ?? []) : internalSorting
+  const setSorting = isManualSorting ? externalOnSortingChange : setInternalSorting
+
+  // TanStack's getCanSort() requires accessorFn. For server-side sorting,
+  // columns with enableSorting: true but no accessor need a stub.
+  const resolvedColumns = useMemo(() => {
+    if (!isManualSorting) return columns
+    return columns.map(col =>
+      col.enableSorting === true && !('accessorKey' in col) && !('accessorFn' in col)
+        ? ({ ...col, accessorFn: () => null } as ColumnDef<A>)
+        : col
+    )
+  }, [columns, isManualSorting])
 
   const table = useReactTable({
     data: data ?? defaultData,
-    columns,
+    columns: resolvedColumns,
     pageCount: pageCount,
     state: {
       pagination,
@@ -63,10 +82,11 @@ export const CustomTable = <A extends object>({
     },
     getCoreRowModel: getCoreRowModel(),
     manualPagination: true,
+    manualSorting: isManualSorting,
     onPaginationChange: setPagination,
     getExpandedRowModel: getExpandedRowModel(),
     onSortingChange: sortable ? setSorting : undefined,
-    getSortedRowModel: sortable ? getSortedRowModel() : undefined,
+    getSortedRowModel: sortable && !isManualSorting ? getSortedRowModel() : undefined,
 
     ...optionsOveride,
   })

@@ -7,12 +7,12 @@ use axum_valid::Valid;
 use common_domain::ids::ProductId;
 use common_grpc::middleware::server::auth::AuthorizedAsTenant;
 use http::StatusCode;
-use meteroid_store::domain::{OrderByRequest, ProductNew};
+use meteroid_store::domain::ProductNew;
 use meteroid_store::repositories::products::{ProductInterface, ProductUpdate};
 
 use crate::api_rest::QueryParams;
 use crate::api_rest::error::RestErrorResponse;
-use crate::api_rest::model::PaginationExt;
+use crate::api_rest::model::{PaginationExt, validate_order_by};
 use crate::api_rest::products::mapping;
 use crate::api_rest::products::model::*;
 use crate::errors::RestApiError;
@@ -37,6 +37,9 @@ pub(crate) async fn list_products(
     Valid(QueryParams(request)): Valid<QueryParams<ProductListRequest>>,
     State(app_state): State<AppState>,
 ) -> Result<impl IntoResponse, RestApiError> {
+    let order_by = validate_order_by(&request.order_by, &["name", "created_at"], "name.asc")
+        .map_err(RestApiError::InvalidInput)?;
+
     let res = match &request.search {
         Some(q) if !q.is_empty() => {
             app_state
@@ -47,7 +50,7 @@ pub(crate) async fn list_products(
                     q,
                     false,
                     request.pagination.into(),
-                    OrderByRequest::NameAsc,
+                    Some(order_by),
                 )
                 .await
         }
@@ -59,7 +62,7 @@ pub(crate) async fn list_products(
                     request.product_family_id,
                     false,
                     request.pagination.into(),
-                    OrderByRequest::NameAsc,
+                    Some(order_by),
                 )
                 .await
         }

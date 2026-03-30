@@ -18,13 +18,11 @@ use meteroid_grpc::meteroid::api::plans::v1::{
     PublishPlanVersionRequest, PublishPlanVersionResponse, UnarchivePlanRequest,
     UnarchivePlanResponse, UpdateDraftPlanOverviewRequest, UpdateDraftPlanOverviewResponse,
     UpdatePlanTrialRequest, UpdatePlanTrialResponse, UpdatePublishedPlanOverviewRequest,
-    UpdatePublishedPlanOverviewResponse, list_plans_request::SortBy,
-    plans_service_server::PlansService,
+    UpdatePublishedPlanOverviewResponse, plans_service_server::PlansService,
 };
 use meteroid_store::domain;
 use meteroid_store::domain::{
-    OrderByRequest, PlanAndVersionPatch, PlanFilters, PlanPatch, PlanVersionFilter,
-    PlanVersionPatch, TrialPatch,
+    PlanAndVersionPatch, PlanFilters, PlanPatch, PlanVersionFilter, PlanVersionPatch, TrialPatch,
 };
 use meteroid_store::repositories::{PlansInterface, ProductFamilyInterface};
 use tonic::{Request, Response, Status};
@@ -98,14 +96,6 @@ impl PlansService for PlanServiceComponents {
 
         let pagination_req = req.pagination.into_domain();
 
-        let order_by = match req.sort_by.try_into() {
-            Ok(SortBy::DateAsc) => OrderByRequest::DateAsc,
-            Ok(SortBy::DateDesc) => OrderByRequest::DateDesc,
-            Ok(SortBy::NameAsc) => OrderByRequest::NameAsc,
-            Ok(SortBy::NameDesc) => OrderByRequest::NameDesc,
-            Err(_) => OrderByRequest::DateDesc,
-        };
-
         let plan_filters = match req.filters {
             None => PlanFilters {
                 search: None,
@@ -134,7 +124,7 @@ impl PlansService for PlanServiceComponents {
                 ProductFamilyId::from_proto_opt(req.product_family_local_id)?,
                 plan_filters,
                 pagination_req,
-                order_by,
+                req.order_by,
             )
             .await
             .map_err(Into::<PlanApiError>::into)?;

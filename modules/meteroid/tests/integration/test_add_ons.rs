@@ -79,6 +79,7 @@ async fn test_add_ons_basic() {
             search: None,
             pagination: None,
             currency: None,
+            order_by: None,
         })
         .await
         .unwrap()
@@ -146,6 +147,7 @@ async fn test_add_ons_basic() {
             search: None,
             pagination: None,
             currency: None,
+            order_by: None,
         })
         .await
         .unwrap()

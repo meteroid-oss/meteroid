@@ -23,7 +23,6 @@ import {
   listPlans,
   updatePlanTrial,
 } from '@/rpc/api/plans/v1/plans-PlansService_connectquery'
-import { ListPlansRequest_SortBy } from '@/rpc/api/plans/v1/plans_pb'
 
 interface TrialProps {
   config?: TrialConfig
@@ -108,9 +107,7 @@ export function PlanTrialForm({
     },
   })
 
-  const plans = useQuery(listPlans, {
-    sortBy: ListPlansRequest_SortBy.NAME_ASC,
-  })
+  const plans = useQuery(listPlans, {})
 
   const data = methods.watch()
 
@@ -290,9 +287,7 @@ interface PlanTrialReadonlyProps {
   planType?: PlanType
 }
 export function PlanTrialReadonly({ config, currentPlanId, planType }: PlanTrialReadonlyProps) {
-  const { data: plansData, isLoading } = useQuery(listPlans, {
-    sortBy: ListPlansRequest_SortBy.NAME_ASC,
-  })
+  const { data: plansData, isLoading } = useQuery(listPlans, {})
 
   const resolvePlanName = (id: string): string => {
     if (isLoading) return '...'

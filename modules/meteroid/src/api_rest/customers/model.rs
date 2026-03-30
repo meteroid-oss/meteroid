@@ -29,6 +29,8 @@ pub struct CustomerListRequest {
     #[serde(flatten)]
     #[validate(nested)]
     pub customer_filters: CustomerFilters,
+    /// Sort order. Format: `column.direction`. Allowed columns: `name`, `email`, `alias`, `created_at`. Direction: `asc` or `desc`. Default: `created_at.desc`.
+    pub order_by: Option<String>,
 }
 
 #[derive(Clone, ToSchema, serde::Serialize, serde::Deserialize)]

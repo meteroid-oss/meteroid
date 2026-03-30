@@ -28,6 +28,8 @@ pub struct PlanListRequest {
     /// Filter by plan type (can be repeated)
     #[serde(default)]
     pub plan_type: Vec<PlanTypeEnum>,
+    /// Sort order. Format: `column.direction`. Allowed columns: `name`, `status`, `plan_type`, `created_at`. Direction: `asc` or `desc`. Default: `created_at.desc`.
+    pub order_by: Option<String>,
 }
 
 #[derive(Clone, ToSchema, serde::Serialize, serde::Deserialize)]

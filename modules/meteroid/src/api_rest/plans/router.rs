@@ -9,13 +9,13 @@ use common_domain::ids::{PlanId, PlanVersionId, TenantId};
 use common_grpc::middleware::server::auth::AuthorizedAsTenant;
 use http::StatusCode;
 use meteroid_store::domain::{
-    FullPlanNew, OrderByRequest, PlanFilters, PlanNew, PlanPatch, PlanTrial, PlanVersionFilter,
+    FullPlanNew, PlanFilters, PlanNew, PlanPatch, PlanTrial, PlanVersionFilter,
     PlanVersionNewInternal,
 };
 use meteroid_store::repositories::PlansInterface;
 
 use crate::api_rest::error::RestErrorResponse;
-use crate::api_rest::model::PaginationExt;
+use crate::api_rest::model::{PaginationExt, validate_order_by};
 use crate::api_rest::plans::mapping;
 use crate::api_rest::plans::model::*;
 use crate::errors::RestApiError;
@@ -47,6 +47,13 @@ pub(crate) async fn list_plans(
         filter_currency: None,
     };
 
+    let order_by = validate_order_by(
+        &request.order_by,
+        &["name", "status", "plan_type", "created_at"],
+        "created_at.desc",
+    )
+    .map_err(RestApiError::InvalidInput)?;
+
     let res = app_state
         .store
         .list_full_plans(
@@ -54,7 +61,7 @@ pub(crate) async fn list_plans(
             request.product_family_id,
             filters,
             request.pagination.into(),
-            OrderByRequest::IdAsc,
+            Some(order_by),
         )
         .await
         .map_err(|e| {

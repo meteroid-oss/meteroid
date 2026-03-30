@@ -71,6 +71,7 @@ async fn test_coupons_basic() {
             search: None,
             pagination: None,
             filter: api::coupons::v1::list_coupon_request::CouponFilter::All as i32,
+            order_by: None,
         })
         .await
         .unwrap()
@@ -120,6 +121,7 @@ async fn test_coupons_basic() {
             search: None,
             pagination: None,
             filter: api::coupons::v1::list_coupon_request::CouponFilter::All as i32,
+            order_by: None,
         })
         .await
         .unwrap()

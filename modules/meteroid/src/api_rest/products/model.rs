@@ -314,6 +314,8 @@ pub struct ProductListRequest {
     #[serde(default, with = "string_serde_opt")]
     pub product_family_id: Option<ProductFamilyId>,
     pub search: Option<String>,
+    /// Sort order. Format: `column.direction`. Allowed columns: `name`, `created_at`. Direction: `asc` or `desc`. Default: `name.asc`.
+    pub order_by: Option<String>,
 }
 
 #[derive(Clone, Debug, Serialize, ToSchema)]

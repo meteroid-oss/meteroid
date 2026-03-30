@@ -85,7 +85,7 @@ async fn test_plans_basic() {
         .clone()
         .list_plans(api::plans::v1::ListPlansRequest {
             product_family_local_id: None,
-            sort_by: 0,
+            order_by: None,
             pagination: None,
             filters: None,
         })

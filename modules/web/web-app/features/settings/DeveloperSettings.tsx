@@ -61,9 +61,10 @@ interface ApiToken {
   apiKey: string
 }
 
+const DEFAULT_TAB = 'api-keys'
 export const DeveloperSettings: FunctionComponent = () => {
   const queryClient = useQueryClient()
-  const [tab, setTab] = useQueryState('tab', 'api-keys')
+  const [tab, setTab] = useQueryState('tab', DEFAULT_TAB)
 
   const [displayed, setDisplayed] = useState<ApiToken>()
   const [loading, setLoading] = useState(false)

@@ -20,8 +20,8 @@ use meteroid_store::domain::enums::InvoiceStatusEnum;
 use meteroid_store::domain::subscription_coupons::CreateSubscriptionCoupon;
 use meteroid_store::domain::{
     Address, BillingPeriodEnum, CreateSubscription, CreateSubscriptionCoupons, CustomerCustomTax,
-    FeeType, InvoicingEntityPatch, OrderByRequest, PaginationRequest,
-    SubscriptionActivationCondition, SubscriptionNew, TermRate,
+    FeeType, InvoicingEntityPatch, PaginationRequest, SubscriptionActivationCondition,
+    SubscriptionNew, TermRate,
 };
 use meteroid_store::repositories::coupons::CouponInterface;
 use meteroid_store::repositories::credit_notes::{
@@ -140,7 +140,7 @@ async fn test_credit_note_partial_credits() {
             Some(subscription.id),
             None,
             None,
-            OrderByRequest::DateAsc,
+            Some("created_at.asc".to_string()),
             PaginationRequest {
                 page: 0,
                 per_page: None,
@@ -542,7 +542,7 @@ async fn test_credit_note_race_condition() {
             Some(subscription.id),
             None,
             None,
-            OrderByRequest::DateAsc,
+            Some("created_at.asc".to_string()),
             PaginationRequest {
                 page: 0,
                 per_page: None,
@@ -698,7 +698,7 @@ async fn test_credit_note_refund_with_applied_credits() {
             Some(subscription.id),
             None,
             None,
-            OrderByRequest::DateAsc,
+            Some("created_at.asc".to_string()),
             PaginationRequest {
                 page: 0,
                 per_page: None,
@@ -721,7 +721,7 @@ async fn test_credit_note_refund_with_applied_credits() {
             Some(subscription.id),
             None,
             None,
-            OrderByRequest::DateAsc,
+            Some("created_at.asc".to_string()),
             PaginationRequest {
                 page: 0,
                 per_page: None,
@@ -752,7 +752,7 @@ async fn test_credit_note_refund_with_applied_credits() {
             Some(subscription.id),
             None,
             None,
-            OrderByRequest::DateAsc,
+            Some("created_at.asc".to_string()),
             PaginationRequest {
                 page: 0,
                 per_page: None,
@@ -969,7 +969,7 @@ async fn test_credit_note_partial_amounts() {
             Some(subscription.id),
             None,
             None,
-            OrderByRequest::DateAsc,
+            Some("created_at.asc".to_string()),
             PaginationRequest {
                 page: 0,
                 per_page: None,

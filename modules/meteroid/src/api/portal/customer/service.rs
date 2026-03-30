@@ -8,7 +8,7 @@ use common_utils::integers::ToNonNegativeU64;
 use meteroid_grpc::meteroid::portal::customer::v1::portal_customer_service_server::PortalCustomerService;
 use meteroid_grpc::meteroid::portal::customer::v1::*;
 use meteroid_store::domain::enums::SubscriptionStatusEnum;
-use meteroid_store::domain::{InvoiceStatusEnum, OrderByRequest, PaginationRequest};
+use meteroid_store::domain::{InvoiceStatusEnum, PaginationRequest};
 use meteroid_store::repositories::customer_payment_methods::CustomerPaymentMethodsInterface;
 use meteroid_store::repositories::customers::CustomersInterfaceAuto;
 use meteroid_store::repositories::invoicing_entities::InvoicingEntityInterfaceAuto;
@@ -45,6 +45,8 @@ impl PortalCustomerService for PortalCustomerServiceComponents {
                     SubscriptionStatusEnum::TrialActive,
                     SubscriptionStatusEnum::Paused,
                 ]),
+                None,
+                None,
                 PaginationRequest {
                     page: 0,
                     per_page: Some(10),
@@ -92,7 +94,7 @@ impl PortalCustomerService for PortalCustomerServiceComponents {
                 None,
                 None,
                 None,
-                OrderByRequest::IdDesc,
+                None,
                 PaginationRequest {
                     page: 0,
                     per_page: Some(5),
@@ -197,7 +199,7 @@ impl PortalCustomerService for PortalCustomerServiceComponents {
                 None,
                 None,
                 None,
-                OrderByRequest::IdDesc,
+                None,
                 pagination_req,
             )
             .await

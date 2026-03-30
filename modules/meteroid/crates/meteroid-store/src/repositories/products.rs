@@ -5,8 +5,7 @@ use crate::domain::enums::FeeTypeEnum;
 use crate::domain::outbox_event::{OutboxEvent, ProductEvent};
 use crate::domain::prices::FeeStructure;
 use crate::domain::{
-    OrderByRequest, PaginatedVec, PaginationRequest, Price, Product, ProductNew,
-    ProductWithLatestPrice,
+    PaginatedVec, PaginationRequest, Price, Product, ProductNew, ProductWithLatestPrice,
 };
 use crate::errors::StoreError;
 use crate::store::Store;
@@ -47,7 +46,7 @@ pub trait ProductInterface {
         family_id: Option<ProductFamilyId>,
         catalog_only: bool,
         pagination: PaginationRequest,
-        order_by: OrderByRequest,
+        order_by: Option<String>,
     ) -> StoreResult<PaginatedVec<Product>>;
     async fn search_products(
         &self,
@@ -56,7 +55,7 @@ pub trait ProductInterface {
         query: &str,
         catalog_only: bool,
         pagination: PaginationRequest,
-        order_by: OrderByRequest,
+        order_by: Option<String>,
     ) -> StoreResult<PaginatedVec<Product>>;
 
     async fn archive_product(&self, id: ProductId, tenant_id: TenantId) -> StoreResult<Product>;
@@ -232,7 +231,7 @@ impl ProductInterface for Store {
         family_id: Option<ProductFamilyId>,
         catalog_only: bool,
         pagination: PaginationRequest,
-        order_by: OrderByRequest,
+        order_by: Option<String>,
     ) -> StoreResult<PaginatedVec<Product>> {
         let mut conn = self.get_conn().await?;
 
@@ -243,7 +242,7 @@ impl ProductInterface for Store {
             catalog_only,
             &[],
             pagination.into(),
-            order_by.into(),
+            order_by.as_deref(),
         )
         .await
         .map_err(Into::<Report<StoreError>>::into)?;
@@ -304,7 +303,7 @@ impl ProductInterface for Store {
         query: &str,
         catalog_only: bool,
         pagination: PaginationRequest,
-        order_by: OrderByRequest,
+        order_by: Option<String>,
     ) -> StoreResult<PaginatedVec<Product>> {
         let mut conn = self.get_conn().await?;
 
@@ -316,7 +315,7 @@ impl ProductInterface for Store {
             catalog_only,
             &[],
             pagination.into(),
-            order_by.into(),
+            order_by.as_deref(),
         )
         .await
         .map_err(Into::<Report<StoreError>>::into)?;
@@ -358,7 +357,7 @@ impl ProductInterface for Store {
                     catalog_only,
                     &db_fee_types,
                     pagination.into(),
-                    OrderByRequest::NameAsc.into(),
+                    Some("name.asc"),
                 )
                 .await
             }
@@ -370,7 +369,7 @@ impl ProductInterface for Store {
                     catalog_only,
                     &db_fee_types,
                     pagination.into(),
-                    OrderByRequest::NameAsc.into(),
+                    Some("name.asc"),
                 )
                 .await
             }

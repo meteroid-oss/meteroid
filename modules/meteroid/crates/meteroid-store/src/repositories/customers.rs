@@ -6,8 +6,8 @@ use crate::domain::pgmq::{
 };
 use crate::domain::{
     ConnectorProviderEnum, Customer, CustomerBatchResult, CustomerBrief, CustomerNew,
-    CustomerNewWrapper, CustomerPatch, CustomerTopUpBalance, CustomerUpdate, OrderByRequest,
-    PaginatedVec, PaginationRequest,
+    CustomerNewWrapper, CustomerPatch, CustomerTopUpBalance, CustomerUpdate, PaginatedVec,
+    PaginationRequest,
 };
 use crate::errors::StoreError;
 use crate::repositories::connectors::ConnectorsInterface;
@@ -76,7 +76,7 @@ pub trait CustomersInterface {
         &self,
         tenant_id: TenantId,
         pagination: PaginationRequest,
-        order_by: OrderByRequest,
+        order_by: Option<String>,
         query: Option<String>,
         archived: Option<bool>,
     ) -> StoreResult<PaginatedVec<Customer>>;
@@ -238,7 +238,7 @@ impl CustomersInterface for Store {
         &self,
         tenant_id: TenantId,
         pagination: PaginationRequest,
-        order_by: OrderByRequest,
+        order_by: Option<String>,
         query: Option<String>,
         archived: Option<bool>,
     ) -> StoreResult<PaginatedVec<Customer>> {
@@ -248,7 +248,7 @@ impl CustomersInterface for Store {
             &mut conn,
             tenant_id,
             pagination.into(),
-            order_by.into(),
+            order_by.as_deref(),
             query,
             archived,
         )
@@ -677,6 +677,8 @@ impl CustomersInterface for Store {
             Some(customer.id),
             None,
             Some(blocking_statuses),
+            None,
+            Some("id.desc"),
             PaginationRequest {
                 per_page: Some(1), // We only need to know if any exist
                 page: 0,

@@ -47,6 +47,7 @@ message SearchProductsRequest {
   optional string query = 2;
   meteroid.common.v1.Pagination pagination = 3;
   optional bool catalog_only = 4;
+  optional string order_by = 5;
 }
 
 message SearchProductsResponse {

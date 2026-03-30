@@ -25,6 +25,8 @@ pub trait BillableMetricInterface {
         pagination: PaginationRequest,
         product_family_id: Option<ProductFamilyId>,
         archived: Option<bool>,
+        order_by: Option<String>,
+        search: Option<String>,
     ) -> StoreResult<PaginatedVec<domain::BillableMetricMeta>>;
 
     async fn insert_billable_metric(
@@ -85,6 +87,8 @@ impl BillableMetricInterface for Store {
         pagination: PaginationRequest,
         product_family_id: Option<ProductFamilyId>,
         archived: Option<bool>,
+        order_by: Option<String>,
+        search: Option<String>,
     ) -> StoreResult<PaginatedVec<BillableMetricMeta>> {
         let mut conn = self.get_conn().await?;
 
@@ -94,6 +98,8 @@ impl BillableMetricInterface for Store {
             pagination.into(),
             product_family_id,
             archived,
+            order_by.as_deref(),
+            search,
         )
         .await
         .map_err(Into::<Report<StoreError>>::into)?;

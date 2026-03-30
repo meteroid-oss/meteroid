@@ -81,6 +81,42 @@ impl PaginationExt for PaginatedRequest {
     }
 }
 
+/// Validates an `order_by` query param like `"column.asc"` or `"column.desc"`.
+/// Returns the validated string or an error message listing allowed values.
+pub fn validate_order_by(
+    order_by: &Option<String>,
+    allowed_columns: &[&str],
+    default: &str,
+) -> Result<String, String> {
+    let raw = match order_by {
+        Some(v) => v.as_str(),
+        None => return Ok(default.to_string()),
+    };
+
+    let (column, direction) = match raw.rsplit_once('.') {
+        Some((col, dir @ ("asc" | "desc"))) => (col, dir),
+        Some((_, dir)) => {
+            return Err(format!(
+                "Invalid sort direction '{dir}'. Must be 'asc' or 'desc'"
+            ));
+        }
+        None => {
+            return Err(format!(
+                "Invalid order_by format '{raw}'. Expected 'column.asc' or 'column.desc'"
+            ));
+        }
+    };
+
+    if !allowed_columns.contains(&column) {
+        return Err(format!(
+            "Invalid sort column '{column}'. Allowed values: {}",
+            allowed_columns.join(", ")
+        ));
+    }
+
+    Ok(format!("{column}.{direction}"))
+}
+
 #[derive(
     o2o, Copy, Clone, ToSchema, serde::Serialize, serde::Deserialize, Debug, PartialEq, Eq, Hash,
 )]

@@ -8,7 +8,7 @@ use meteroid_grpc::meteroid::api;
 use meteroid_grpc::meteroid::api::plans::v1::PlanType;
 
 use crate::data::ids::TENANT_ID;
-use meteroid_store::domain::{OrderByRequest, PaginationRequest};
+use meteroid_store::domain::PaginationRequest;
 use meteroid_store::repositories::InvoiceInterface;
 
 #[tokio::test]
@@ -199,7 +199,7 @@ async fn test_main() {
             None,
             None,
             None,
-            OrderByRequest::DateAsc,
+            Some("created_at.asc".to_string()),
             PaginationRequest {
                 per_page: Some(10),
                 page: 0,

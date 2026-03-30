@@ -19,7 +19,7 @@ use meteroid_grpc::meteroid::api::subscriptions::v1::SubscriptionStatus;
 use meteroid_grpc::meteroid::api::subscriptions::v1::cancel_subscription_request::{
     BillingPeriodEnd, EffectiveAt,
 };
-use meteroid_store::domain::{LineItem, OrderByRequest, PaginationRequest};
+use meteroid_store::domain::{LineItem, PaginationRequest};
 use meteroid_store::repositories::InvoiceInterface;
 use meteroid_store::repositories::subscriptions::slots::SubscriptionSlotsInterfaceAuto;
 
@@ -180,7 +180,7 @@ async fn test_subscription_create() {
             None,
             None,
             None,
-            OrderByRequest::DateAsc,
+            Some("created_at.asc".to_string()),
             PaginationRequest {
                 per_page: Some(10),
                 page: 0,
@@ -489,7 +489,7 @@ async fn test_subscription_create_invoice_seats() {
             None,
             None,
             None,
-            OrderByRequest::DateAsc,
+            Some("created_at.asc".to_string()),
             PaginationRequest {
                 per_page: Some(10),
                 page: 0,
@@ -677,7 +677,7 @@ async fn test_subscription_create_invoice_rate() {
             None,
             None,
             None,
-            OrderByRequest::DateAsc,
+            Some("created_at.asc".to_string()),
             PaginationRequest {
                 per_page: Some(10),
                 page: 0,
@@ -814,7 +814,7 @@ async fn test_subscription_create_invoice_usage() {
             None,
             None,
             None,
-            OrderByRequest::DateAsc,
+            Some("created_at.asc".to_string()),
             PaginationRequest {
                 per_page: Some(10),
                 page: 0,

@@ -5,8 +5,7 @@ use crate::domain::pgmq::{
 };
 use crate::domain::{
     ConnectorProviderEnum, CursorPaginatedVec, CursorPaginationRequest, DetailedInvoice, Invoice,
-    InvoiceNew, InvoiceWithCustomer, LineItem, OrderByRequest, PaginatedVec, PaginationRequest,
-    TaxBreakdownItem,
+    InvoiceNew, InvoiceWithCustomer, LineItem, PaginatedVec, PaginationRequest, TaxBreakdownItem,
 };
 use crate::errors::StoreError;
 use crate::repositories::connectors::ConnectorsInterface;
@@ -63,7 +62,7 @@ pub trait InvoiceInterface {
         subscription_id: Option<SubscriptionId>,
         status: Option<domain::enums::InvoiceStatusEnum>,
         query: Option<String>,
-        order_by: OrderByRequest,
+        order_by: Option<String>,
         pagination: PaginationRequest,
     ) -> StoreResult<PaginatedVec<InvoiceWithCustomer>>;
 
@@ -75,7 +74,7 @@ pub trait InvoiceInterface {
         subscription_id: Option<SubscriptionId>,
         statuses: Option<Vec<domain::enums::InvoiceStatusEnum>>,
         query: Option<String>,
-        order_by: OrderByRequest,
+        order_by: Option<String>,
         pagination: PaginationRequest,
     ) -> StoreResult<PaginatedVec<(InvoiceWithCustomer, Vec<domain::PaymentTransaction>)>>;
 
@@ -185,7 +184,7 @@ impl InvoiceInterface for Store {
         subscription_id: Option<SubscriptionId>,
         status: Option<domain::enums::InvoiceStatusEnum>,
         query: Option<String>,
-        order_by: OrderByRequest,
+        order_by: Option<String>,
         pagination: PaginationRequest,
     ) -> StoreResult<PaginatedVec<InvoiceWithCustomer>> {
         let mut conn = self.get_conn().await?;
@@ -197,7 +196,7 @@ impl InvoiceInterface for Store {
             subscription_id,
             status.map(Into::into),
             query,
-            order_by.into(),
+            order_by.as_deref(),
             pagination.into(),
         )
         .await
@@ -223,7 +222,7 @@ impl InvoiceInterface for Store {
         subscription_id: Option<SubscriptionId>,
         statuses: Option<Vec<domain::enums::InvoiceStatusEnum>>,
         query: Option<String>,
-        order_by: OrderByRequest,
+        order_by: Option<String>,
         pagination: PaginationRequest,
     ) -> StoreResult<PaginatedVec<(InvoiceWithCustomer, Vec<domain::PaymentTransaction>)>> {
         let mut conn = self.get_conn().await?;
@@ -235,7 +234,7 @@ impl InvoiceInterface for Store {
             subscription_id,
             statuses.map(|s| s.into_iter().map(Into::into).collect()),
             query,
-            order_by.into(),
+            order_by.as_deref(),
             pagination.into(),
         )
         .await

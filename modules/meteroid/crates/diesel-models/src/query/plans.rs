@@ -8,7 +8,7 @@ use crate::plans::{
 use crate::{DbResult, PgConn};
 
 use crate::enums::{PlanStatusEnum, PlanTypeEnum};
-use crate::extend::order::OrderByRequest;
+use crate::extend::order::{OrderByParam, OrderDirection};
 use crate::extend::pagination::{Paginate, PaginatedVec, PaginationRequest};
 
 use crate::price_components::PriceComponentRow;
@@ -335,7 +335,7 @@ impl FullPlanRow {
         product_family_id: Option<ProductFamilyId>,
         filters: PlanFilters,
         pagination: PaginationRequest,
-        order_by: OrderByRequest,
+        order_by: Option<&str>,
     ) -> DbResult<PaginatedVec<FullPlanRow>> {
         use crate::schema::plan::dsl as p_dsl;
         use crate::schema::plan_version::dsl as pv_dsl;
@@ -369,12 +369,34 @@ impl FullPlanRow {
             query = query.filter(pv_dsl::currency.eq(currency));
         }
 
-        match order_by {
-            OrderByRequest::NameAsc => query = query.order(p_dsl::name.asc()),
-            OrderByRequest::NameDesc => query = query.order(p_dsl::name.desc()),
-            OrderByRequest::DateAsc => query = query.order(p_dsl::created_at.asc()),
-            OrderByRequest::DateDesc => query = query.order(p_dsl::created_at.desc()),
-            _ => query = query.order(p_dsl::created_at.desc()),
+        let order = OrderByParam::parse(order_by, "created_at.desc");
+
+        match (order.column.as_str(), order.direction) {
+            ("name", OrderDirection::Asc) => {
+                query = query.order((p_dsl::name.asc(), p_dsl::id.asc()))
+            }
+            ("name", OrderDirection::Desc) => {
+                query = query.order((p_dsl::name.desc(), p_dsl::id.desc()))
+            }
+            ("status", OrderDirection::Asc) => {
+                query = query.order((p_dsl::status.asc(), p_dsl::id.asc()))
+            }
+            ("status", OrderDirection::Desc) => {
+                query = query.order((p_dsl::status.desc(), p_dsl::id.desc()))
+            }
+            ("plan_type", OrderDirection::Asc) => {
+                query = query.order((p_dsl::plan_type.asc(), p_dsl::id.asc()))
+            }
+            ("plan_type", OrderDirection::Desc) => {
+                query = query.order((p_dsl::plan_type.desc(), p_dsl::id.desc()))
+            }
+            ("created_at", OrderDirection::Asc) => {
+                query = query.order((p_dsl::created_at.asc(), p_dsl::id.asc()))
+            }
+            ("created_at", OrderDirection::Desc) => {
+                query = query.order((p_dsl::created_at.desc(), p_dsl::id.desc()))
+            }
+            _ => query = query.order((p_dsl::created_at.desc(), p_dsl::id.desc())),
         }
 
         let paginated_query = query.paginate(pagination);
@@ -492,7 +514,7 @@ impl PlanRowOverview {
         product_family_id: Option<ProductFamilyId>,
         filters: PlanFilters,
         pagination: PaginationRequest,
-        order_by: OrderByRequest,
+        order_by: Option<&str>,
     ) -> DbResult<PaginatedVec<PlanRowOverview>> {
         use crate::schema::plan::dsl as p_dsl;
         use crate::schema::plan_version;
@@ -575,12 +597,34 @@ impl PlanRowOverview {
             );
         }
 
-        match order_by {
-            OrderByRequest::NameAsc => query = query.order(p_dsl::name.asc()),
-            OrderByRequest::NameDesc => query = query.order(p_dsl::name.desc()),
-            OrderByRequest::DateAsc => query = query.order(p_dsl::created_at.asc()),
-            OrderByRequest::DateDesc => query = query.order(p_dsl::created_at.desc()),
-            _ => query = query.order(p_dsl::created_at.desc()),
+        let order = OrderByParam::parse(order_by, "created_at.desc");
+
+        match (order.column.as_str(), order.direction) {
+            ("name", OrderDirection::Asc) => {
+                query = query.order((p_dsl::name.asc(), p_dsl::id.asc()))
+            }
+            ("name", OrderDirection::Desc) => {
+                query = query.order((p_dsl::name.desc(), p_dsl::id.desc()))
+            }
+            ("status", OrderDirection::Asc) => {
+                query = query.order((p_dsl::status.asc(), p_dsl::id.asc()))
+            }
+            ("status", OrderDirection::Desc) => {
+                query = query.order((p_dsl::status.desc(), p_dsl::id.desc()))
+            }
+            ("plan_type", OrderDirection::Asc) => {
+                query = query.order((p_dsl::plan_type.asc(), p_dsl::id.asc()))
+            }
+            ("plan_type", OrderDirection::Desc) => {
+                query = query.order((p_dsl::plan_type.desc(), p_dsl::id.desc()))
+            }
+            ("created_at", OrderDirection::Asc) => {
+                query = query.order((p_dsl::created_at.asc(), p_dsl::id.asc()))
+            }
+            ("created_at", OrderDirection::Desc) => {
+                query = query.order((p_dsl::created_at.desc(), p_dsl::id.desc()))
+            }
+            _ => query = query.order((p_dsl::created_at.desc(), p_dsl::id.desc())),
         }
 
         let paginated_query = query.paginate(pagination);

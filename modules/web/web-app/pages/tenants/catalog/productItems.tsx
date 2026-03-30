@@ -1,12 +1,13 @@
-import { Fragment, FunctionComponent, useState } from 'react'
+import { Fragment, FunctionComponent, useCallback, useState } from 'react'
 
 import { ProductDetailPanel } from '@/features/productCatalog/items/ProductDetailPanel'
 import { ProductsHeader } from '@/features/productCatalog/items/ProductItemsHeader'
 import { ProductsTable } from '@/features/productCatalog/items/ProductItemsTable'
 import { useQuery } from '@/lib/connectrpc'
+import { sortingStateToOrderBy } from '@/lib/utils/sorting'
 import { searchProducts } from '@/rpc/api/products/v1/products-ProductsService_connectquery'
 
-import type { PaginationState } from '@tanstack/react-table'
+import type { PaginationState, SortingState } from '@tanstack/react-table'
 
 export const Products: FunctionComponent = () => {
   const [selectedProductId, setSelectedProductId] = useState<string | null>(null)
@@ -15,10 +16,20 @@ export const Products: FunctionComponent = () => {
     pageIndex: 0,
     pageSize: 20,
   })
+  const [sorting, setSorting] = useState<SortingState>([])
+
+  const handleSortingChange = useCallback(
+    (updaterOrValue: SortingState | ((old: SortingState) => SortingState)) => {
+      setSorting(prev => (typeof updaterOrValue === 'function' ? updaterOrValue(prev) : updaterOrValue))
+      setPagination(prev => ({ ...prev, pageIndex: 0 }))
+    },
+    []
+  )
 
   const productsQuery = useQuery(searchProducts, {
     query: search || undefined,
     pagination: { perPage: pagination.pageSize, page: pagination.pageIndex },
+    orderBy: sortingStateToOrderBy(sorting),
   })
   const data = productsQuery.data?.products ?? []
   const isLoading = productsQuery.isLoading
@@ -50,6 +61,8 @@ export const Products: FunctionComponent = () => {
         totalCount={totalCount}
         isLoading={isLoading}
         onProductClick={product => setSelectedProductId(product.id)}
+        sorting={sorting}
+        onSortingChange={handleSortingChange}
       />
       <ProductDetailPanel
         productId={selectedProductId}

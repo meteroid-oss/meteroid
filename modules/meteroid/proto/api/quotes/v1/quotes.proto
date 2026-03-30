@@ -23,15 +23,7 @@ message GetQuoteResponse {
 }
 
 message ListQuotesRequest {
-  enum SortBy {
-    CREATED_AT_DESC = 0;
-    CREATED_AT_ASC = 1;
-    QUOTE_NUMBER_DESC = 2;
-    QUOTE_NUMBER_ASC = 3;
-    EXPIRES_AT_DESC = 6;
-    EXPIRES_AT_ASC = 7;
-  }
-  SortBy sort_by = 1;
+  optional string order_by = 1;
   optional string search = 2;
   meteroid.common.v1.Pagination pagination = 3;
   optional QuoteStatus status = 4;

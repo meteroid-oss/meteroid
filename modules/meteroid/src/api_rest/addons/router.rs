@@ -15,7 +15,7 @@ use crate::api_rest::QueryParams;
 use crate::api_rest::addons::mapping;
 use crate::api_rest::addons::model::*;
 use crate::api_rest::error::RestErrorResponse;
-use crate::api_rest::model::PaginationExt;
+use crate::api_rest::model::{PaginationExt, validate_order_by};
 use crate::errors::RestApiError;
 
 // ── List add-ons ──────────────────────────────────────────────
@@ -38,6 +38,13 @@ pub(crate) async fn list_addons(
     Valid(QueryParams(request)): Valid<QueryParams<AddOnListRequest>>,
     State(app_state): State<AppState>,
 ) -> Result<impl IntoResponse, RestApiError> {
+    let order_by = validate_order_by(
+        &request.order_by,
+        &["name", "created_at"],
+        "created_at.desc",
+    )
+    .map_err(RestApiError::InvalidInput)?;
+
     let res = app_state
         .store
         .list_add_ons(
@@ -47,6 +54,7 @@ pub(crate) async fn list_addons(
             request.search,
             request.currency,
             request.include_archived,
+            Some(order_by),
         )
         .await
         .map_err(|e| {

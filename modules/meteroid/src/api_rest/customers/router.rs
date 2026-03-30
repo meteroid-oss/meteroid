@@ -7,7 +7,7 @@ use crate::api_rest::customers::model::{
     CustomerPatchRequest, CustomerPortalTokenResponse, CustomerUpdateRequest,
 };
 use crate::api_rest::error::RestErrorResponse;
-use crate::api_rest::model::PaginationExt;
+use crate::api_rest::model::{PaginationExt, validate_order_by};
 use crate::errors::RestApiError;
 use axum::extract::{Path, Query, State};
 use axum::response::IntoResponse;
@@ -16,7 +16,6 @@ use axum_valid::Valid;
 use common_domain::ids::{AliasOr, CustomerId};
 use common_grpc::middleware::server::auth::AuthorizedAsTenant;
 use http::StatusCode;
-use meteroid_store::domain::OrderByRequest;
 use meteroid_store::jwt_claims::{ResourceAccess, generate_portal_token};
 use meteroid_store::repositories::CustomersInterface;
 
@@ -45,12 +44,19 @@ pub(crate) async fn list_customers(
     Valid(Query(request)): Valid<Query<CustomerListRequest>>,
     State(app_state): State<AppState>,
 ) -> Result<impl IntoResponse, RestApiError> {
+    let order_by = validate_order_by(
+        &request.order_by,
+        &["name", "email", "alias", "created_at"],
+        "created_at.desc",
+    )
+    .map_err(RestApiError::InvalidInput)?;
+
     let res = app_state
         .store
         .list_customers(
             authorized_state.tenant_id,
             request.pagination.into(),
-            OrderByRequest::IdAsc,
+            Some(order_by),
             request.customer_filters.search,
             request.customer_filters.archived,
         )

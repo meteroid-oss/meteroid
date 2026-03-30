@@ -51,6 +51,7 @@ impl AddOnsService for AddOnsServiceComponents {
                 req.search,
                 currency,
                 false,
+                req.order_by,
             )
             .await
             .map_err(Into::<AddOnApiError>::into)?;

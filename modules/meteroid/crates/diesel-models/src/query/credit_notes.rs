@@ -4,7 +4,7 @@ use crate::errors::IntoDbResult;
 use crate::extend::pagination::{Paginate, PaginatedVec, PaginationRequest};
 use crate::{DbResult, PgConn};
 
-use crate::extend::order::OrderByRequest;
+use crate::extend::order::{OrderByParam, OrderDirection};
 use common_domain::ids::{CreditNoteId, CustomerId, InvoiceId, StoredDocumentId, TenantId};
 use diesel::{
     BoolExpressionMethods, ExpressionMethods, JoinOnDsl, PgTextExpressionMethods, QueryDsl,
@@ -190,7 +190,7 @@ impl CreditNoteRow {
         param_invoice_id: Option<InvoiceId>,
         param_status: Option<CreditNoteStatus>,
         param_search: Option<String>,
-        order_by: OrderByRequest,
+        order_by: Option<&str>,
         pagination: PaginationRequest,
     ) -> DbResult<PaginatedVec<CreditNoteRow>> {
         use crate::schema::credit_note::dsl as cn_dsl;
@@ -223,14 +223,41 @@ impl CreditNoteRow {
             );
         }
 
-        query = match order_by {
-            OrderByRequest::DateAsc => query.order(cn_dsl::created_at.asc()),
-            OrderByRequest::DateDesc => query.order(cn_dsl::created_at.desc()),
-            OrderByRequest::IdAsc => query.order(cn_dsl::id.asc()),
-            OrderByRequest::IdDesc => query.order(cn_dsl::id.desc()),
-            OrderByRequest::NameAsc => query.order(cn_dsl::credit_note_number.asc()),
-            OrderByRequest::NameDesc => query.order(cn_dsl::credit_note_number.desc()),
-        };
+        let order = OrderByParam::parse(order_by, "created_at.desc");
+
+        match (order.column.as_str(), order.direction) {
+            ("credit_note_number", OrderDirection::Asc) => {
+                query = query.order((cn_dsl::credit_note_number.asc(), cn_dsl::id.asc()))
+            }
+            ("credit_note_number", OrderDirection::Desc) => {
+                query = query.order((cn_dsl::credit_note_number.desc(), cn_dsl::id.desc()))
+            }
+            ("customer_name", OrderDirection::Asc) => {
+                query = query.order((c_dsl::name.asc(), cn_dsl::id.asc()))
+            }
+            ("customer_name", OrderDirection::Desc) => {
+                query = query.order((c_dsl::name.desc(), cn_dsl::id.desc()))
+            }
+            ("amount", OrderDirection::Asc) => {
+                query = query.order((cn_dsl::total.asc(), cn_dsl::id.asc()))
+            }
+            ("amount", OrderDirection::Desc) => {
+                query = query.order((cn_dsl::total.desc(), cn_dsl::id.desc()))
+            }
+            ("status", OrderDirection::Asc) => {
+                query = query.order((cn_dsl::status.asc(), cn_dsl::id.asc()))
+            }
+            ("status", OrderDirection::Desc) => {
+                query = query.order((cn_dsl::status.desc(), cn_dsl::id.desc()))
+            }
+            ("created_at", OrderDirection::Asc) => {
+                query = query.order((cn_dsl::created_at.asc(), cn_dsl::id.asc()))
+            }
+            ("created_at", OrderDirection::Desc) => {
+                query = query.order((cn_dsl::created_at.desc(), cn_dsl::id.desc()))
+            }
+            _ => query = query.order((cn_dsl::created_at.desc(), cn_dsl::id.desc())),
+        }
 
         let paginated_query = query.paginate(pagination);
 

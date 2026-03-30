@@ -17,6 +17,8 @@ interface SubscriptionsProps {
   statusFilter: string[]
   setStatusFilter: (value: SetQueryStateAction<string[]>) => void
   onImportSuccess?: () => void
+  search: string
+  setSearch: (value: string) => void
 }
 
 export const SubscriptionsHeader: FunctionComponent<SubscriptionsProps> = ({
@@ -26,6 +28,8 @@ export const SubscriptionsHeader: FunctionComponent<SubscriptionsProps> = ({
   statusFilter,
   setStatusFilter,
   onImportSuccess,
+  search,
+  setSearch,
 }) => {
   const [importVisible, setImportVisible] = useState(false)
   const isExpress = useIsExpressOrganization()
@@ -55,7 +59,8 @@ export const SubscriptionsHeader: FunctionComponent<SubscriptionsProps> = ({
               placeholder="Search subscriptions"
               icon={<SearchIcon size={16} />}
               width="fit-content"
-              disabled
+              value={search}
+              onChange={e => setSearch(e.target.value)}
             />
             <MultiFilter
               emptyLabel="All statuses"

@@ -53,7 +53,6 @@ import {
   getPlanWithVersionByVersionId,
   listPlans,
 } from '@/rpc/api/plans/v1/plans-PlansService_connectquery'
-import { ListPlansRequest_SortBy } from '@/rpc/api/plans/v1/plans_pb'
 import {
   PaymentMethodsConfig,
   PendingScheduledEvent,
@@ -328,9 +327,7 @@ export const Subscription = () => {
   )
 
   // Fetch all plans for resolving trialing plan name
-  const plansQuery = useQuery(listPlans, {
-    sortBy: ListPlansRequest_SortBy.NAME_ASC,
-  })
+  const plansQuery = useQuery(listPlans, {})
 
   const planTrialConfig = planVersionQuery.data?.plan?.version?.trialConfig
   const planType = planVersionQuery.data?.plan?.plan?.planType

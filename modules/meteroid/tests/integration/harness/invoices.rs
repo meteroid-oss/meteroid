@@ -1,7 +1,7 @@
 //! Invoice test helpers.
 
 use common_domain::ids::{InvoiceId, SubscriptionId};
-use meteroid_store::domain::{DetailedInvoice, Invoice, OrderByRequest, PaginationRequest};
+use meteroid_store::domain::{DetailedInvoice, Invoice, PaginationRequest};
 use meteroid_store::repositories::InvoiceInterface;
 use meteroid_store::repositories::payment_transactions::PaymentTransactionInterface;
 
@@ -19,7 +19,7 @@ impl TestEnv {
                 Some(subscription_id),
                 None,
                 None,
-                OrderByRequest::DateAsc,
+                Some("created_at.asc".to_string()),
                 PaginationRequest {
                     page: 0,
                     per_page: None,

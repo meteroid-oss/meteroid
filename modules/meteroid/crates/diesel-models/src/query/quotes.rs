@@ -1,6 +1,6 @@
 use crate::enums::QuoteStatusEnum;
 use crate::errors::IntoDbResult;
-use crate::extend::order::OrderByRequest;
+use crate::extend::order::{OrderByParam, OrderDirection};
 use crate::extend::pagination::{Paginate, PaginatedVec, PaginationRequest};
 use crate::quotes::{
     QuoteActivityRow, QuoteActivityRowNew, QuoteComponentRow, QuoteComponentRowNew, QuoteRow,
@@ -9,7 +9,8 @@ use crate::quotes::{
 use crate::{DbResult, PgConn};
 use common_domain::ids::{CustomerId, QuoteId, StoredDocumentId, TenantId};
 use diesel::{
-    BoolExpressionMethods, JoinOnDsl, PgTextExpressionMethods, SelectableHelper, debug_query,
+    BoolExpressionMethods, JoinOnDsl, PgSortExpressionMethods, PgTextExpressionMethods,
+    SelectableHelper, debug_query,
 };
 use diesel::{ExpressionMethods, QueryDsl};
 use error_stack::ResultExt;
@@ -98,12 +99,11 @@ impl QuoteRow {
         param_customer_id: Option<CustomerId>,
         param_status: Option<QuoteStatusEnum>,
         search: Option<String>,
-        order_by: OrderByRequest,
+        order_by: Option<&str>,
         pagination: PaginationRequest,
     ) -> DbResult<PaginatedVec<QuoteWithCustomerRow>> {
         use crate::schema::customer::dsl as c_dsl;
         use crate::schema::quote::dsl as q_dsl;
-
         let mut query = q_dsl::quote
             .inner_join(c_dsl::customer.on(q_dsl::customer_id.eq(c_dsl::id)))
             .filter(q_dsl::tenant_id.eq(param_tenant_id))
@@ -122,18 +122,46 @@ impl QuoteRow {
             query = query.filter(
                 q_dsl::quote_number
                     .ilike(search_pattern.clone())
-                    .or(q_dsl::internal_notes.ilike(search_pattern)),
+                    .or(q_dsl::internal_notes.ilike(search_pattern.clone()))
+                    .or(c_dsl::name.ilike(search_pattern)),
             );
         }
 
-        let query = match order_by {
-            OrderByRequest::DateAsc => query.order(q_dsl::created_at.asc()),
-            OrderByRequest::DateDesc => query.order(q_dsl::created_at.desc()),
-            OrderByRequest::IdAsc => query.order(q_dsl::id.asc()),
-            OrderByRequest::IdDesc => query.order(q_dsl::id.desc()),
-            OrderByRequest::NameAsc => query.order(q_dsl::quote_number.asc()),
-            OrderByRequest::NameDesc => query.order(q_dsl::quote_number.desc()),
-        };
+        let order = OrderByParam::parse(order_by, "created_at.desc");
+
+        match (order.column.as_str(), order.direction) {
+            ("quote_number", OrderDirection::Asc) => {
+                query = query.order((q_dsl::quote_number.asc(), q_dsl::id.asc()))
+            }
+            ("quote_number", OrderDirection::Desc) => {
+                query = query.order((q_dsl::quote_number.desc(), q_dsl::id.desc()))
+            }
+            ("customer_name", OrderDirection::Asc) => {
+                query = query.order((c_dsl::name.asc(), q_dsl::id.asc()))
+            }
+            ("customer_name", OrderDirection::Desc) => {
+                query = query.order((c_dsl::name.desc(), q_dsl::id.desc()))
+            }
+            ("status", OrderDirection::Asc) => {
+                query = query.order((q_dsl::status.asc(), q_dsl::id.asc()))
+            }
+            ("status", OrderDirection::Desc) => {
+                query = query.order((q_dsl::status.desc(), q_dsl::id.desc()))
+            }
+            ("created_at", OrderDirection::Asc) => {
+                query = query.order((q_dsl::created_at.asc(), q_dsl::id.asc()))
+            }
+            ("created_at", OrderDirection::Desc) => {
+                query = query.order((q_dsl::created_at.desc(), q_dsl::id.desc()))
+            }
+            ("expires_at", OrderDirection::Asc) => {
+                query = query.order((q_dsl::expires_at.asc().nulls_last(), q_dsl::id.asc()))
+            }
+            ("expires_at", OrderDirection::Desc) => {
+                query = query.order((q_dsl::expires_at.desc().nulls_first(), q_dsl::id.desc()))
+            }
+            _ => query = query.order((q_dsl::created_at.desc(), q_dsl::id.desc())),
+        }
 
         let query = query.select(QuoteWithCustomerRow::as_select());
 

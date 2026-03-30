@@ -13,8 +13,8 @@ use meteroid_mailer::service::MockMailerService;
 use meteroid_store::clients::usage::MockUsageClient;
 use meteroid_store::domain::enums::InvoiceStatusEnum;
 use meteroid_store::domain::{
-    CreateSubscription, CustomerNew, Invoice, OrderByRequest, PaginationRequest,
-    PaymentMethodsConfig, SubscriptionActivationCondition, SubscriptionNew,
+    CreateSubscription, CustomerNew, Invoice, PaginationRequest, PaymentMethodsConfig,
+    SubscriptionActivationCondition, SubscriptionNew,
 };
 use meteroid_store::repositories::subscriptions::CancellationEffectiveAt;
 use meteroid_store::repositories::{CustomersInterface, InvoiceInterface};
@@ -781,7 +781,7 @@ async fn get_invoices(store: &Store, subscription_id: SubscriptionId) -> Vec<Inv
             Some(subscription_id),
             None,
             None,
-            OrderByRequest::DateAsc,
+            Some("created_at.asc".to_string()),
             PaginationRequest {
                 page: 0,
                 per_page: None,
