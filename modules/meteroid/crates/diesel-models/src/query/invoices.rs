@@ -213,8 +213,6 @@ impl InvoiceRow {
 
         let order = OrderByParam::parse(order_by, "created_at.desc");
 
-        log::info!("ORDER >>>>>>>>   {:?}", order);
-
         match (order.column.as_str(), order.direction) {
             ("created_at", OrderDirection::Asc) => {
                 query = query.order((i_dsl::created_at.asc(), i_dsl::id.asc()))
