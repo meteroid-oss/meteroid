@@ -60,7 +60,7 @@ impl TestEnv {
                 None,
                 Some(InvoiceStatusEnum::Finalized),
                 None,
-                None,
+                Some("created_at.asc".to_string()),
                 PaginationRequest {
                     page: 0,
                     per_page: None,

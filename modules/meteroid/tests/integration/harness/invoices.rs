@@ -19,7 +19,7 @@ impl TestEnv {
                 Some(subscription_id),
                 None,
                 None,
-                None,
+                Some("created_at.asc".to_string()),
                 PaginationRequest {
                     page: 0,
                     per_page: None,

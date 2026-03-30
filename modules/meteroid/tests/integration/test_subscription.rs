@@ -180,7 +180,7 @@ async fn test_subscription_create() {
             None,
             None,
             None,
-            None,
+            Some("created_at.asc".to_string()),
             PaginationRequest {
                 per_page: Some(10),
                 page: 0,
@@ -489,7 +489,7 @@ async fn test_subscription_create_invoice_seats() {
             None,
             None,
             None,
-            None,
+            Some("created_at.asc".to_string()),
             PaginationRequest {
                 per_page: Some(10),
                 page: 0,
@@ -677,7 +677,7 @@ async fn test_subscription_create_invoice_rate() {
             None,
             None,
             None,
-            None,
+            Some("created_at.asc".to_string()),
             PaginationRequest {
                 per_page: Some(10),
                 page: 0,
@@ -814,7 +814,7 @@ async fn test_subscription_create_invoice_usage() {
             None,
             None,
             None,
-            None,
+            Some("created_at.asc".to_string()),
             PaginationRequest {
                 per_page: Some(10),
                 page: 0,

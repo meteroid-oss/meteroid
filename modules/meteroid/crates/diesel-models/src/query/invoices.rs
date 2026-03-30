@@ -211,9 +211,17 @@ impl InvoiceRow {
             );
         }
 
-        let order = OrderByParam::parse(order_by, "invoice_date.desc");
+        let order = OrderByParam::parse(order_by, "created_at.desc");
+
+        log::info!("ORDER >>>>>>>>   {:?}", order);
 
         match (order.column.as_str(), order.direction) {
+            ("created_at", OrderDirection::Asc) => {
+                query = query.order((i_dsl::created_at.asc(), i_dsl::id.asc()))
+            }
+            ("created_at", OrderDirection::Desc) => {
+                query = query.order((i_dsl::created_at.desc(), i_dsl::id.desc()))
+            }
             ("invoice_number", OrderDirection::Asc) => {
                 query = query.order((i_dsl::invoice_number.asc(), i_dsl::id.asc()))
             }
@@ -315,9 +323,15 @@ impl InvoiceRow {
             );
         }
 
-        let order = OrderByParam::parse(order_by, "invoice_date.desc");
+        let order = OrderByParam::parse(order_by, "created_at.desc");
 
         match (order.column.as_str(), order.direction) {
+            ("created_at", OrderDirection::Asc) => {
+                query = query.order((i_dsl::created_at.asc(), i_dsl::id.asc()))
+            }
+            ("created_at", OrderDirection::Desc) => {
+                query = query.order((i_dsl::created_at.desc(), i_dsl::id.desc()))
+            }
             ("invoice_number", OrderDirection::Asc) => {
                 query = query.order((i_dsl::invoice_number.asc(), i_dsl::id.asc()))
             }

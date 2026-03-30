@@ -655,7 +655,7 @@ async fn fetch_invoices(store: &Store, tenant_id: TenantId) -> Vec<Invoice> {
             None,
             None,
             None,
-            None,
+            Some("created_at.asc".to_string()),
             PaginationRequest {
                 per_page: Some(100),
                 page: 0,

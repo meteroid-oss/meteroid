@@ -199,7 +199,7 @@ async fn test_main() {
             None,
             None,
             None,
-            None,
+            Some("created_at.asc".to_string()),
             PaginationRequest {
                 per_page: Some(10),
                 page: 0,

@@ -46,6 +46,7 @@ pub(crate) async fn list_invoices(
     let order_by = validate_order_by(
         &request.order_by,
         &[
+            "created_at",
             "invoice_number",
             "customer_name",
             "amount",
@@ -53,7 +54,7 @@ pub(crate) async fn list_invoices(
             "status",
             "payment_status",
         ],
-        "invoice_date.desc",
+        "created_at.desc",
     )
     .map_err(RestApiError::InvalidInput)?;
 

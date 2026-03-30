@@ -781,7 +781,7 @@ async fn get_invoices(store: &Store, subscription_id: SubscriptionId) -> Vec<Inv
             Some(subscription_id),
             None,
             None,
-            None,
+            Some("created_at.asc".to_string()),
             PaginationRequest {
                 page: 0,
                 per_page: None,
