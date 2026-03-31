@@ -118,6 +118,7 @@ pub struct ListCheckoutSessionsResponse {
 pub struct ListCheckoutSessionsQuery {
     #[serde(default, with = "string_serde_opt")]
     pub customer_id: Option<CustomerId>,
+    #[param(inline)]
     pub status: Option<CheckoutSessionStatus>,
 }
 

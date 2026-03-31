@@ -18,10 +18,21 @@ fn validate_coupon_code(code: &str) -> Result<(), validator::ValidationError> {
 // ── Enums ──────────────────────────────────────────────────────
 
 #[derive(Clone, Debug, Serialize, Deserialize, ToSchema)]
+pub struct CouponPercentageDiscount {
+    pub percentage: String,
+}
+
+#[derive(Clone, Debug, Serialize, Deserialize, ToSchema)]
+pub struct CouponFixedDiscount {
+    pub currency: String,
+    pub amount: String,
+}
+
+#[derive(Clone, Debug, Serialize, Deserialize, ToSchema)]
 #[serde(tag = "discount_type", rename_all = "SCREAMING_SNAKE_CASE")]
 pub enum CouponDiscountRest {
-    Percentage { percentage: String },
-    Fixed { currency: String, amount: String },
+    Percentage(CouponPercentageDiscount),
+    Fixed(CouponFixedDiscount),
 }
 
 #[derive(Clone, Debug, Serialize, Deserialize, ToSchema)]

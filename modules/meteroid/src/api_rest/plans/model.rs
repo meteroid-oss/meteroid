@@ -23,9 +23,11 @@ pub struct PlanListRequest {
     /// Search by plan name
     pub search: Option<String>,
     /// Filter by plan status (can be repeated)
+    #[param(inline)]
     #[serde(default)]
     pub status: Vec<PlanStatusEnum>,
     /// Filter by plan type (can be repeated)
+    #[param(inline)]
     #[serde(default)]
     pub plan_type: Vec<PlanTypeEnum>,
     /// Sort order. Format: `column.direction`. Allowed columns: `name`, `status`, `plan_type`, `created_at`. Direction: `asc` or `desc`. Default: `created_at.desc`.
