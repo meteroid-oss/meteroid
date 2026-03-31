@@ -465,7 +465,13 @@
             "in": "query",
             "required": false,
             "schema": {
-              "$ref": "#/components/schemas/BatchJobType"
+              "type": "string",
+              "enum": [
+                "EVENT_CSV_IMPORT",
+                "CUSTOMER_CSV_IMPORT",
+                "SUBSCRIPTION_CSV_IMPORT",
+                "SUBSCRIPTION_PLAN_MIGRATION"
+              ]
             }
           },
           {
@@ -475,7 +481,16 @@
             "schema": {
               "type": "array",
               "items": {
-                "$ref": "#/components/schemas/BatchJobStatus"
+                "type": "string",
+                "enum": [
+                  "PENDING",
+                  "CHUNKING",
+                  "PROCESSING",
+                  "COMPLETED",
+                  "COMPLETED_WITH_ERRORS",
+                  "FAILED",
+                  "CANCELLED"
+                ]
               }
             }
           },
@@ -757,7 +772,14 @@
             "in": "query",
             "required": false,
             "schema": {
-              "$ref": "#/components/schemas/CheckoutSessionStatus"
+              "type": "string",
+              "enum": [
+                "CREATED",
+                "AWAITING_PAYMENT",
+                "COMPLETED",
+                "EXPIRED",
+                "CANCELLED"
+              ]
             }
           }
         ],
@@ -2462,7 +2484,13 @@
             "schema": {
               "type": "array",
               "items": {
-                "$ref": "#/components/schemas/InvoiceStatus"
+                "type": "string",
+                "enum": [
+                  "DRAFT",
+                  "FINALIZED",
+                  "UNCOLLECTIBLE",
+                  "VOID"
+                ]
               }
             }
           },
@@ -3175,7 +3203,13 @@
             "schema": {
               "type": "array",
               "items": {
-                "$ref": "#/components/schemas/PlanStatusEnum"
+                "type": "string",
+                "enum": [
+                  "DRAFT",
+                  "ACTIVE",
+                  "INACTIVE",
+                  "ARCHIVED"
+                ]
               }
             }
           },
@@ -3187,7 +3221,12 @@
             "schema": {
               "type": "array",
               "items": {
-                "$ref": "#/components/schemas/PlanTypeEnum"
+                "type": "string",
+                "enum": [
+                  "STANDARD",
+                  "FREE",
+                  "CUSTOM"
+                ]
               }
             }
           },
@@ -4538,7 +4577,20 @@
             "schema": {
               "type": "array",
               "items": {
-                "$ref": "#/components/schemas/SubscriptionStatusEnum"
+                "type": "string",
+                "enum": [
+                  "PENDING_ACTIVATION",
+                  "PENDING_CHARGE",
+                  "TRIAL_ACTIVE",
+                  "ACTIVE",
+                  "TRIAL_EXPIRED",
+                  "PAUSED",
+                  "SUSPENDED",
+                  "CANCELLED",
+                  "COMPLETED",
+                  "SUPERSEDED",
+                  "ERRORED"
+                ]
               }
             }
           },
@@ -5586,6 +5638,21 @@
           "ba_7n42DGM5Tflk9n8mt7Fhc7"
         ]
       },
+      "BankTransferPaymentMethodConfig": {
+        "type": "object",
+        "properties": {
+          "account_id": {
+            "oneOf": [
+              {
+                "type": "null"
+              },
+              {
+                "$ref": "#/components/schemas/BankAccountId"
+              }
+            ]
+          }
+        }
+      },
       "BatchJobChunkId": {
         "type": "string",
         "format": "MeteroidId",
@@ -5961,6 +6028,17 @@
           }
         }
       },
+      "CapacityFeeStructure": {
+        "type": "object",
+        "required": [
+          "metric_id"
+        ],
+        "properties": {
+          "metric_id": {
+            "$ref": "#/components/schemas/BillableMetricId"
+          }
+        }
+      },
       "CapacityPlanFee": {
         "type": "object",
         "description": "Capacity-based fee with included committed usage and overage",
@@ -6307,46 +6385,19 @@
       "CouponDiscountRest": {
         "oneOf": [
           {
-            "type": "object",
-            "required": [
-              "percentage",
-              "discount_type"
-            ],
-            "properties": {
-              "discount_type": {
-                "type": "string",
-                "enum": [
-                  "PERCENTAGE"
-                ]
-              },
-              "percentage": {
-                "type": "string"
-              }
-            }
+            "$ref": "#/components/schemas/CouponPercentageDiscount"
           },
           {
-            "type": "object",
-            "required": [
-              "currency",
-              "amount",
-              "discount_type"
-            ],
-            "properties": {
-              "amount": {
-                "type": "string"
-              },
-              "currency": {
-                "type": "string"
-              },
-              "discount_type": {
-                "type": "string",
-                "enum": [
-                  "FIXED"
-                ]
-              }
-            }
+            "$ref": "#/components/schemas/CouponFixedDiscount"
           }
-        ]
+        ],
+        "discriminator": {
+          "propertyName": "discount_type",
+          "mapping": {
+            "FIXED": "#/components/schemas/CouponFixedDiscount",
+            "PERCENTAGE": "#/components/schemas/CouponPercentageDiscount"
+          }
+        }
       },
       "CouponEvent": {
         "allOf": [
@@ -6432,6 +6483,21 @@
           }
         }
       },
+      "CouponFixedDiscount": {
+        "type": "object",
+        "required": [
+          "currency",
+          "amount"
+        ],
+        "properties": {
+          "amount": {
+            "type": "string"
+          },
+          "currency": {
+            "type": "string"
+          }
+        }
+      },
       "CouponId": {
         "type": "string",
         "format": "MeteroidId",
@@ -6474,6 +6540,17 @@
           },
           "pagination_meta": {
             "$ref": "#/components/schemas/PaginationResponse"
+          }
+        }
+      },
+      "CouponPercentageDiscount": {
+        "type": "object",
+        "required": [
+          "percentage"
+        ],
+        "properties": {
+          "percentage": {
+            "type": "string"
           }
         }
       },
@@ -7868,6 +7945,9 @@
           }
         }
       },
+      "ExternalPaymentMethodConfig": {
+        "type": "object"
+      },
       "ExtraComponent": {
         "type": "object",
         "required": [
@@ -7893,6 +7973,17 @@
           "ADVANCE",
           "ARREARS"
         ]
+      },
+      "ExtraRecurringFeeStructure": {
+        "type": "object",
+        "required": [
+          "billing_type"
+        ],
+        "properties": {
+          "billing_type": {
+            "$ref": "#/components/schemas/ExtraRecurringBillingTypeEnum"
+          }
+        }
       },
       "ExtraRecurringPlanFee": {
         "type": "object",
@@ -8930,6 +9021,9 @@
           }
         }
       },
+      "OneTimeFeeStructure": {
+        "type": "object"
+      },
       "OneTimePlanFee": {
         "type": "object",
         "description": "One-time fee",
@@ -8997,6 +9091,22 @@
               },
               {
                 "$ref": "#/components/schemas/OnlineMethodConfig"
+              }
+            ]
+          }
+        }
+      },
+      "OnlinePaymentMethodConfig": {
+        "type": "object",
+        "properties": {
+          "config": {
+            "oneOf": [
+              {
+                "type": "null"
+              },
+              {
+                "$ref": "#/components/schemas/OnlineMethodsConfig",
+                "description": "If None, inherits all online providers from invoicing entity."
               }
             ]
           }
@@ -9133,70 +9243,24 @@
       "PaymentMethodsConfig": {
         "oneOf": [
           {
-            "type": "object",
-            "required": [
-              "type"
-            ],
-            "properties": {
-              "config": {
-                "oneOf": [
-                  {
-                    "type": "null"
-                  },
-                  {
-                    "$ref": "#/components/schemas/OnlineMethodsConfig",
-                    "description": "If None, inherits all online providers from invoicing entity."
-                  }
-                ]
-              },
-              "type": {
-                "type": "string",
-                "enum": [
-                  "online"
-                ]
-              }
-            }
+            "$ref": "#/components/schemas/OnlinePaymentMethodConfig"
           },
           {
-            "type": "object",
-            "required": [
-              "type"
-            ],
-            "properties": {
-              "account_id": {
-                "oneOf": [
-                  {
-                    "type": "null"
-                  },
-                  {
-                    "$ref": "#/components/schemas/BankAccountId"
-                  }
-                ]
-              },
-              "type": {
-                "type": "string",
-                "enum": [
-                  "bank_transfer"
-                ]
-              }
-            }
+            "$ref": "#/components/schemas/BankTransferPaymentMethodConfig"
           },
           {
-            "type": "object",
-            "required": [
-              "type"
-            ],
-            "properties": {
-              "type": {
-                "type": "string",
-                "enum": [
-                  "external"
-                ]
-              }
-            }
+            "$ref": "#/components/schemas/ExternalPaymentMethodConfig"
           }
         ],
-        "description": "Online (card/direct debit), BankTransfer, or External."
+        "description": "Online (card/direct debit), BankTransfer, or External.",
+        "discriminator": {
+          "propertyName": "type",
+          "mapping": {
+            "bank_transfer": "#/components/schemas/BankTransferPaymentMethodConfig",
+            "external": "#/components/schemas/ExternalPaymentMethodConfig",
+            "online": "#/components/schemas/OnlinePaymentMethodConfig"
+          }
+        }
       },
       "PaymentStatusEnum": {
         "type": "string",
@@ -9891,118 +9955,35 @@
       "ProductFeeStructure": {
         "oneOf": [
           {
-            "type": "object",
-            "required": [
-              "fee_type"
-            ],
-            "properties": {
-              "fee_type": {
-                "type": "string",
-                "enum": [
-                  "RATE"
-                ]
-              }
-            }
+            "$ref": "#/components/schemas/RateFeeStructure"
           },
           {
-            "type": "object",
-            "required": [
-              "slot_unit_name",
-              "upgrade_policy",
-              "downgrade_policy",
-              "fee_type"
-            ],
-            "properties": {
-              "downgrade_policy": {
-                "$ref": "#/components/schemas/SlotDowngradePolicyEnum"
-              },
-              "fee_type": {
-                "type": "string",
-                "enum": [
-                  "SLOT"
-                ]
-              },
-              "slot_unit_name": {
-                "type": "string"
-              },
-              "upgrade_policy": {
-                "$ref": "#/components/schemas/SlotUpgradePolicyEnum"
-              }
-            }
+            "$ref": "#/components/schemas/SlotFeeStructure"
           },
           {
-            "type": "object",
-            "required": [
-              "metric_id",
-              "fee_type"
-            ],
-            "properties": {
-              "fee_type": {
-                "type": "string",
-                "enum": [
-                  "CAPACITY"
-                ]
-              },
-              "metric_id": {
-                "$ref": "#/components/schemas/BillableMetricId"
-              }
-            }
+            "$ref": "#/components/schemas/CapacityFeeStructure"
           },
           {
-            "type": "object",
-            "required": [
-              "metric_id",
-              "model",
-              "fee_type"
-            ],
-            "properties": {
-              "fee_type": {
-                "type": "string",
-                "enum": [
-                  "USAGE"
-                ]
-              },
-              "metric_id": {
-                "$ref": "#/components/schemas/BillableMetricId"
-              },
-              "model": {
-                "$ref": "#/components/schemas/UsageModelEnum"
-              }
-            }
+            "$ref": "#/components/schemas/UsageFeeStructure"
           },
           {
-            "type": "object",
-            "required": [
-              "billing_type",
-              "fee_type"
-            ],
-            "properties": {
-              "billing_type": {
-                "$ref": "#/components/schemas/ExtraRecurringBillingTypeEnum"
-              },
-              "fee_type": {
-                "type": "string",
-                "enum": [
-                  "EXTRA_RECURRING"
-                ]
-              }
-            }
+            "$ref": "#/components/schemas/ExtraRecurringFeeStructure"
           },
           {
-            "type": "object",
-            "required": [
-              "fee_type"
-            ],
-            "properties": {
-              "fee_type": {
-                "type": "string",
-                "enum": [
-                  "ONE_TIME"
-                ]
-              }
-            }
+            "$ref": "#/components/schemas/OneTimeFeeStructure"
           }
-        ]
+        ],
+        "discriminator": {
+          "propertyName": "fee_type",
+          "mapping": {
+            "CAPACITY": "#/components/schemas/CapacityFeeStructure",
+            "EXTRA_RECURRING": "#/components/schemas/ExtraRecurringFeeStructure",
+            "ONE_TIME": "#/components/schemas/OneTimeFeeStructure",
+            "RATE": "#/components/schemas/RateFeeStructure",
+            "SLOT": "#/components/schemas/SlotFeeStructure",
+            "USAGE": "#/components/schemas/UsageFeeStructure"
+          }
+        }
       },
       "ProductFeeTypeEnum": {
         "type": "string",
@@ -10127,6 +10108,9 @@
             "format": "decimal"
           }
         }
+      },
+      "RateFeeStructure": {
+        "type": "object"
       },
       "RatePlanFee": {
         "type": "object",
@@ -10318,6 +10302,25 @@
           "unit_rate": {
             "type": "string",
             "format": "decimal"
+          }
+        }
+      },
+      "SlotFeeStructure": {
+        "type": "object",
+        "required": [
+          "slot_unit_name",
+          "upgrade_policy",
+          "downgrade_policy"
+        ],
+        "properties": {
+          "downgrade_policy": {
+            "$ref": "#/components/schemas/SlotDowngradePolicyEnum"
+          },
+          "slot_unit_name": {
+            "type": "string"
+          },
+          "upgrade_policy": {
+            "$ref": "#/components/schemas/SlotUpgradePolicyEnum"
           }
         }
       },
@@ -11724,6 +11727,21 @@
           },
           "model": {
             "$ref": "#/components/schemas/UsagePricingModel"
+          }
+        }
+      },
+      "UsageFeeStructure": {
+        "type": "object",
+        "required": [
+          "metric_id",
+          "model"
+        ],
+        "properties": {
+          "metric_id": {
+            "$ref": "#/components/schemas/BillableMetricId"
+          },
+          "model": {
+            "$ref": "#/components/schemas/UsageModelEnum"
           }
         }
       },

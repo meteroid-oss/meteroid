@@ -12,20 +12,29 @@ use serde::{Deserialize, Serialize};
 use utoipa::{IntoParams, ToSchema};
 use validator::Validate;
 
+#[derive(Clone, ToSchema, Serialize, Deserialize, Debug)]
+pub struct OnlinePaymentMethodConfig {
+    /// If None, inherits all online providers from invoicing entity.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub config: Option<OnlineMethodsConfig>,
+}
+
+#[derive(Clone, ToSchema, Serialize, Deserialize, Debug)]
+pub struct BankTransferPaymentMethodConfig {
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub account_id: Option<BankAccountId>,
+}
+
+#[derive(Clone, ToSchema, Serialize, Deserialize, Debug)]
+pub struct ExternalPaymentMethodConfig {}
+
 /// Online (card/direct debit), BankTransfer, or External.
 #[derive(Clone, ToSchema, Serialize, Deserialize, Debug)]
 #[serde(tag = "type", rename_all = "snake_case")]
 pub enum PaymentMethodsConfig {
-    Online {
-        /// If None, inherits all online providers from invoicing entity.
-        #[serde(default, skip_serializing_if = "Option::is_none")]
-        config: Option<OnlineMethodsConfig>,
-    },
-    BankTransfer {
-        #[serde(default, skip_serializing_if = "Option::is_none")]
-        account_id: Option<BankAccountId>,
-    },
-    External,
+    Online(OnlinePaymentMethodConfig),
+    BankTransfer(BankTransferPaymentMethodConfig),
+    External(ExternalPaymentMethodConfig),
 }
 
 #[derive(Clone, ToSchema, Serialize, Deserialize, Debug, Default)]
@@ -44,17 +53,17 @@ pub struct OnlineMethodConfig {
 impl From<PaymentMethodsConfig> for meteroid_store::domain::subscriptions::PaymentMethodsConfig {
     fn from(config: PaymentMethodsConfig) -> Self {
         match config {
-            PaymentMethodsConfig::Online { config } => {
+            PaymentMethodsConfig::Online(c) => {
                 meteroid_store::domain::subscriptions::PaymentMethodsConfig::Online {
-                    config: config.map(|c| c.into()),
+                    config: c.config.map(|c| c.into()),
                 }
             }
-            PaymentMethodsConfig::BankTransfer { account_id } => {
+            PaymentMethodsConfig::BankTransfer(c) => {
                 meteroid_store::domain::subscriptions::PaymentMethodsConfig::BankTransfer {
-                    account_id,
+                    account_id: c.account_id,
                 }
             }
-            PaymentMethodsConfig::External => {
+            PaymentMethodsConfig::External(_) => {
                 meteroid_store::domain::subscriptions::PaymentMethodsConfig::External
             }
         }
@@ -65,15 +74,15 @@ impl From<meteroid_store::domain::subscriptions::PaymentMethodsConfig> for Payme
     fn from(config: meteroid_store::domain::subscriptions::PaymentMethodsConfig) -> Self {
         match config {
             meteroid_store::domain::subscriptions::PaymentMethodsConfig::Online { config } => {
-                PaymentMethodsConfig::Online {
+                PaymentMethodsConfig::Online(OnlinePaymentMethodConfig {
                     config: config.map(|c| c.into()),
-                }
+                })
             }
             meteroid_store::domain::subscriptions::PaymentMethodsConfig::BankTransfer {
                 account_id,
-            } => PaymentMethodsConfig::BankTransfer { account_id },
+            } => PaymentMethodsConfig::BankTransfer(BankTransferPaymentMethodConfig { account_id }),
             meteroid_store::domain::subscriptions::PaymentMethodsConfig::External => {
-                PaymentMethodsConfig::External
+                PaymentMethodsConfig::External(ExternalPaymentMethodConfig {})
             }
         }
     }
@@ -124,6 +133,7 @@ pub struct SubscriptionRequest {
     pub customer_id: Option<AliasOr<CustomerId>>,
     #[serde(default, with = "string_serde_opt")]
     pub plan_id: Option<PlanId>,
+    #[param(inline)]
     pub statuses: Option<Vec<SubscriptionStatusEnum>>,
     /// Sort order. Format: `column.direction`. Allowed columns: `customer_name`, `plan_name`, `mrr_cents`, `billing_start_date`, `end_date`, `status`, `created_at`. Direction: `asc` or `desc`. Default: `created_at.desc`.
     pub order_by: Option<String>,

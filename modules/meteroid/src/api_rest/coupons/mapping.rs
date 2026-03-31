@@ -29,13 +29,17 @@ pub fn coupon_to_rest(coupon: domain::coupons::Coupon) -> Coupon {
 
 fn coupon_discount_to_rest(discount: &domain::coupons::CouponDiscount) -> CouponDiscountRest {
     match discount {
-        domain::coupons::CouponDiscount::Percentage(pct) => CouponDiscountRest::Percentage {
-            percentage: pct.to_string(),
-        },
-        domain::coupons::CouponDiscount::Fixed { currency, amount } => CouponDiscountRest::Fixed {
-            currency: currency.clone(),
-            amount: amount.to_string(),
-        },
+        domain::coupons::CouponDiscount::Percentage(pct) => {
+            CouponDiscountRest::Percentage(CouponPercentageDiscount {
+                percentage: pct.to_string(),
+            })
+        }
+        domain::coupons::CouponDiscount::Fixed { currency, amount } => {
+            CouponDiscountRest::Fixed(CouponFixedDiscount {
+                currency: currency.clone(),
+                amount: amount.to_string(),
+            })
+        }
     }
 }
 
@@ -43,8 +47,8 @@ pub fn rest_discount_to_domain(
     discount: &CouponDiscountRest,
 ) -> Result<domain::coupons::CouponDiscount, RestApiError> {
     match discount {
-        CouponDiscountRest::Percentage { percentage } => {
-            let pct = Decimal::from_str(percentage)
+        CouponDiscountRest::Percentage(p) => {
+            let pct = Decimal::from_str(&p.percentage)
                 .map_err(|_| RestApiError::InvalidInput("Invalid percentage value".to_string()))?;
             if pct <= Decimal::ZERO || pct > Decimal::from(100) {
                 return Err(RestApiError::InvalidInput(
@@ -53,8 +57,8 @@ pub fn rest_discount_to_domain(
             }
             Ok(domain::coupons::CouponDiscount::Percentage(pct))
         }
-        CouponDiscountRest::Fixed { currency, amount } => {
-            let amt = Decimal::from_str(amount)
+        CouponDiscountRest::Fixed(f) => {
+            let amt = Decimal::from_str(&f.amount)
                 .map_err(|_| RestApiError::InvalidInput("Invalid amount value".to_string()))?;
             if amt <= Decimal::ZERO {
                 return Err(RestApiError::InvalidInput(
@@ -62,7 +66,7 @@ pub fn rest_discount_to_domain(
                 ));
             }
             Ok(domain::coupons::CouponDiscount::Fixed {
-                currency: currency.clone(),
+                currency: f.currency.clone(),
                 amount: amt,
             })
         }

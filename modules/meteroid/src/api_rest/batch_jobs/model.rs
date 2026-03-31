@@ -18,7 +18,9 @@ pub struct BatchJobListRequest {
     #[serde(flatten)]
     #[validate(nested)]
     pub pagination: PaginatedRequest,
+    #[param(inline)]
     pub job_type: Option<BatchJobType>,
+    #[param(inline)]
     #[serde(default)]
     pub status: Option<Vec<BatchJobStatus>>,
 }
