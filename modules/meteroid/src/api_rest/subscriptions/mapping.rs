@@ -1,9 +1,9 @@
+use crate::api_rest::coupons::model::{CouponDiscount, FixedDiscount, PercentageDiscount};
 use crate::api_rest::currencies;
 use crate::api_rest::subscriptions::model::{
-    AppliedCoupon, AppliedCouponDetailed, Coupon, CouponDiscount, CreateSubscriptionAddOn,
-    CreateSubscriptionComponents, FixedDiscount, PercentageDiscount, Subscription,
-    SubscriptionAddOnCustomization, SubscriptionCreateRequest, SubscriptionDetails,
-    SubscriptionUpdateRequest,
+    AppliedCoupon, AppliedCouponDetailed, Coupon, CreateSubscriptionAddOn,
+    CreateSubscriptionComponents, Subscription, SubscriptionAddOnCustomization,
+    SubscriptionCreateRequest, SubscriptionDetails, SubscriptionUpdateRequest,
 };
 use crate::errors::RestApiError;
 use common_domain::ids::{CouponId, CustomerId, PlanVersionId, SubscriptionId};
@@ -115,10 +115,15 @@ fn domain_applied_coupon_to_rest(
 fn domain_coupon_to_rest(c: domain::coupons::Coupon) -> Result<Coupon, RestApiError> {
     let discount = match c.discount {
         domain::coupons::CouponDiscount::Percentage(percentage) => {
-            CouponDiscount::Percentage(PercentageDiscount { percentage })
+            CouponDiscount::Percentage(PercentageDiscount {
+                percentage: percentage.to_string(),
+            })
         }
         domain::coupons::CouponDiscount::Fixed { currency, amount } => {
-            CouponDiscount::Fixed(FixedDiscount { currency, amount })
+            CouponDiscount::Fixed(FixedDiscount {
+                currency,
+                amount: amount.to_string(),
+            })
         }
     };
 

@@ -18,21 +18,21 @@ fn validate_coupon_code(code: &str) -> Result<(), validator::ValidationError> {
 // ── Enums ──────────────────────────────────────────────────────
 
 #[derive(Clone, Debug, Serialize, Deserialize, ToSchema)]
-pub struct CouponPercentageDiscount {
+pub struct PercentageDiscount {
     pub percentage: String,
 }
 
 #[derive(Clone, Debug, Serialize, Deserialize, ToSchema)]
-pub struct CouponFixedDiscount {
+pub struct FixedDiscount {
     pub currency: String,
     pub amount: String,
 }
 
 #[derive(Clone, Debug, Serialize, Deserialize, ToSchema)]
-#[serde(tag = "discount_type", rename_all = "SCREAMING_SNAKE_CASE")]
-pub enum CouponDiscountRest {
-    Percentage(CouponPercentageDiscount),
-    Fixed(CouponFixedDiscount),
+#[serde(tag = "type", rename_all = "SCREAMING_SNAKE_CASE")]
+pub enum CouponDiscount {
+    Percentage(PercentageDiscount),
+    Fixed(FixedDiscount),
 }
 
 #[derive(Clone, Debug, Serialize, Deserialize, ToSchema)]
@@ -53,7 +53,7 @@ pub struct Coupon {
     pub code: String,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub description: Option<String>,
-    pub discount: CouponDiscountRest,
+    pub discount: CouponDiscount,
     #[serde(
         skip_serializing_if = "Option::is_none",
         serialize_with = "crate::api_rest::model::serialize_datetime_opt"
@@ -84,7 +84,7 @@ pub struct CreateCouponRequest {
     #[validate(length(min = 1, max = 64), custom(function = "validate_coupon_code"))]
     pub code: String,
     pub description: Option<String>,
-    pub discount: CouponDiscountRest,
+    pub discount: CouponDiscount,
     pub expires_at: Option<NaiveDateTime>,
     pub redemption_limit: Option<i32>,
     pub recurring_value: Option<i32>,
@@ -97,7 +97,7 @@ pub struct CreateCouponRequest {
 #[derive(Clone, Debug, Deserialize, Validate, ToSchema)]
 pub struct UpdateCouponRequest {
     pub description: Option<String>,
-    pub discount: Option<CouponDiscountRest>,
+    pub discount: Option<CouponDiscount>,
     #[serde(default, with = "string_serde_vec_opt")]
     pub plan_ids: Option<Vec<PlanId>>,
 }

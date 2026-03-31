@@ -1,6 +1,4 @@
-use crate::api_rest::coupons::model::{
-    CouponDiscountRest, CouponFixedDiscount, CouponPercentageDiscount,
-};
+use crate::api_rest::coupons::model::{CouponDiscount, FixedDiscount, PercentageDiscount};
 use crate::api_rest::invoices::model::InvoiceStatus;
 use crate::api_rest::metrics::model::{
     BillingMetricAggregateEnum, MetricSegmentationMatrix, UnitConversionRoundingEnum,
@@ -252,7 +250,7 @@ pub struct WebhookOutCouponEventData {
     pub coupon_id: CouponId,
     pub code: String,
     pub description: String,
-    pub discount: CouponDiscountRest,
+    pub discount: CouponDiscount,
     #[serde(serialize_with = "ser_naive_dt_opt")]
     pub expires_at: Option<NaiveDateTime>,
     pub redemption_limit: Option<i32>,
@@ -267,12 +265,12 @@ impl From<CouponEvent> for WebhookOutCouponEventData {
     fn from(e: CouponEvent) -> Self {
         let discount = match &e.discount {
             meteroid_store::domain::coupons::CouponDiscount::Percentage(pct) => {
-                CouponDiscountRest::Percentage(CouponPercentageDiscount {
+                CouponDiscount::Percentage(PercentageDiscount {
                     percentage: pct.to_string(),
                 })
             }
             meteroid_store::domain::coupons::CouponDiscount::Fixed { currency, amount } => {
-                CouponDiscountRest::Fixed(CouponFixedDiscount {
+                CouponDiscount::Fixed(FixedDiscount {
                     currency: currency.clone(),
                     amount: amount.to_string(),
                 })

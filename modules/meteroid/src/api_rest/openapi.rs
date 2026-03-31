@@ -332,12 +332,11 @@ impl Modify for WebhooksAddon {
                             coupon_id: CouponId::default(),
                             code: "WELCOME20".to_string(),
                             description: "20% off for new customers".to_string(),
-                            discount:
-                                crate::api_rest::coupons::model::CouponDiscountRest::Percentage(
-                                    crate::api_rest::coupons::model::CouponPercentageDiscount {
-                                        percentage: "20".to_string(),
-                                    },
-                                ),
+                            discount: crate::api_rest::coupons::model::CouponDiscount::Percentage(
+                                crate::api_rest::coupons::model::PercentageDiscount {
+                                    percentage: "20".to_string(),
+                                },
+                            ),
                             expires_at: None,
                             redemption_limit: Some(100),
                             recurring_value: Some(3),

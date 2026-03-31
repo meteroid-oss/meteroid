@@ -191,34 +191,12 @@ pub struct Subscription {
 }
 
 #[derive(Clone, ToSchema, Serialize, Deserialize, Debug)]
-pub struct PercentageDiscount {
-    #[schema(value_type = String, format = "decimal")]
-    pub percentage: rust_decimal::Decimal,
-}
-
-#[derive(Clone, ToSchema, Serialize, Deserialize, Debug)]
-pub struct FixedDiscount {
-    pub currency: String,
-    #[schema(value_type = String, format = "decimal")]
-    pub amount: rust_decimal::Decimal,
-}
-
-#[derive(Clone, ToSchema, Serialize, Deserialize, Debug)]
-#[serde(tag = "discriminator", rename_all = "SCREAMING_SNAKE_CASE")]
-pub enum CouponDiscount {
-    #[serde(rename = "PERCENTAGE")]
-    Percentage(PercentageDiscount),
-    #[serde(rename = "FIXED")]
-    Fixed(FixedDiscount),
-}
-
-#[derive(Clone, ToSchema, Serialize, Deserialize, Debug)]
 pub struct Coupon {
     #[serde(with = "string_serde")]
     pub id: CouponId,
     pub code: String,
     pub description: String,
-    pub discount: CouponDiscount,
+    pub discount: crate::api_rest::coupons::model::CouponDiscount,
     pub expires_at: Option<chrono::NaiveDateTime>,
     pub redemption_limit: Option<i32>,
     pub recurring_value: Option<i32>,
@@ -438,7 +416,7 @@ pub struct UsageFee {
 }
 
 #[derive(ToSchema, Serialize, Deserialize, Clone, Debug)]
-#[serde(tag = "discriminator", rename_all = "SCREAMING_SNAKE_CASE")]
+#[serde(tag = "type", rename_all = "SCREAMING_SNAKE_CASE")]
 pub enum SubscriptionFee {
     #[serde(rename = "RATE")]
     Rate(RateFee),
@@ -607,7 +585,7 @@ pub struct MatrixPricing {
 }
 
 #[derive(ToSchema, Serialize, Deserialize, Clone, Debug)]
-#[serde(tag = "discriminator", rename_all = "SCREAMING_SNAKE_CASE")]
+#[serde(tag = "type", rename_all = "SCREAMING_SNAKE_CASE")]
 pub enum UsagePricingModel {
     #[serde(rename = "PER_UNIT")]
     PerUnit(PerUnitPricing),
@@ -709,7 +687,7 @@ pub struct ComponentParameters {
 // ── PriceEntry / ProductRef types ───────────────────────────────
 
 #[derive(ToSchema, Serialize, Deserialize, Clone, Debug)]
-#[serde(tag = "discriminator", rename_all = "SCREAMING_SNAKE_CASE")]
+#[serde(tag = "type", rename_all = "SCREAMING_SNAKE_CASE")]
 pub enum PriceEntry {
     #[serde(rename = "EXISTING")]
     Existing(ExistingPriceRef),
@@ -731,7 +709,7 @@ pub struct PriceInput {
 }
 
 #[derive(ToSchema, Serialize, Deserialize, Clone, Debug)]
-#[serde(tag = "discriminator", rename_all = "SCREAMING_SNAKE_CASE")]
+#[serde(tag = "type", rename_all = "SCREAMING_SNAKE_CASE")]
 pub enum Pricing {
     #[serde(rename = "RATE")]
     Rate(RatePricing),
@@ -790,7 +768,7 @@ pub struct OneTimePricing {
 }
 
 #[derive(ToSchema, Serialize, Deserialize, Clone, Debug)]
-#[serde(tag = "discriminator", rename_all = "SCREAMING_SNAKE_CASE")]
+#[serde(tag = "type", rename_all = "SCREAMING_SNAKE_CASE")]
 pub enum ProductRef {
     #[serde(rename = "EXISTING")]
     Existing(ExistingProductRef),
@@ -958,7 +936,7 @@ pub struct SubscriptionAddOnParameterization {
 }
 
 #[derive(ToSchema, Serialize, Deserialize, Clone, Debug)]
-#[serde(tag = "discriminator", rename_all = "SCREAMING_SNAKE_CASE")]
+#[serde(tag = "type", rename_all = "SCREAMING_SNAKE_CASE")]
 pub enum SubscriptionAddOnCustomization {
     PriceOverride(SubscriptionAddOnPriceOverride),
     Parameterization(SubscriptionAddOnParameterization),

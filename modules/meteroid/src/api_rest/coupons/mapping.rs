@@ -27,15 +27,15 @@ pub fn coupon_to_rest(coupon: domain::coupons::Coupon) -> Coupon {
     }
 }
 
-fn coupon_discount_to_rest(discount: &domain::coupons::CouponDiscount) -> CouponDiscountRest {
+fn coupon_discount_to_rest(discount: &domain::coupons::CouponDiscount) -> CouponDiscount {
     match discount {
         domain::coupons::CouponDiscount::Percentage(pct) => {
-            CouponDiscountRest::Percentage(CouponPercentageDiscount {
+            CouponDiscount::Percentage(PercentageDiscount {
                 percentage: pct.to_string(),
             })
         }
         domain::coupons::CouponDiscount::Fixed { currency, amount } => {
-            CouponDiscountRest::Fixed(CouponFixedDiscount {
+            CouponDiscount::Fixed(FixedDiscount {
                 currency: currency.clone(),
                 amount: amount.to_string(),
             })
@@ -44,10 +44,10 @@ fn coupon_discount_to_rest(discount: &domain::coupons::CouponDiscount) -> Coupon
 }
 
 pub fn rest_discount_to_domain(
-    discount: &CouponDiscountRest,
+    discount: &CouponDiscount,
 ) -> Result<domain::coupons::CouponDiscount, RestApiError> {
     match discount {
-        CouponDiscountRest::Percentage(p) => {
+        CouponDiscount::Percentage(p) => {
             let pct = Decimal::from_str(&p.percentage)
                 .map_err(|_| RestApiError::InvalidInput("Invalid percentage value".to_string()))?;
             if pct <= Decimal::ZERO || pct > Decimal::from(100) {
@@ -57,7 +57,7 @@ pub fn rest_discount_to_domain(
             }
             Ok(domain::coupons::CouponDiscount::Percentage(pct))
         }
-        CouponDiscountRest::Fixed(f) => {
+        CouponDiscount::Fixed(f) => {
             let amt = Decimal::from_str(&f.amount)
                 .map_err(|_| RestApiError::InvalidInput("Invalid amount value".to_string()))?;
             if amt <= Decimal::ZERO {
