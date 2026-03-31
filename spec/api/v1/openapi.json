@@ -6375,27 +6375,10 @@
           }
         ],
         "discriminator": {
-          "propertyName": "discriminator",
+          "propertyName": "type",
           "mapping": {
             "FIXED": "#/components/schemas/FixedDiscount",
             "PERCENTAGE": "#/components/schemas/PercentageDiscount"
-          }
-        }
-      },
-      "CouponDiscountRest": {
-        "oneOf": [
-          {
-            "$ref": "#/components/schemas/CouponPercentageDiscount"
-          },
-          {
-            "$ref": "#/components/schemas/CouponFixedDiscount"
-          }
-        ],
-        "discriminator": {
-          "propertyName": "discount_type",
-          "mapping": {
-            "FIXED": "#/components/schemas/CouponFixedDiscount",
-            "PERCENTAGE": "#/components/schemas/CouponPercentageDiscount"
           }
         }
       },
@@ -6455,7 +6438,7 @@
             "type": "boolean"
           },
           "discount": {
-            "$ref": "#/components/schemas/CouponDiscountRest"
+            "$ref": "#/components/schemas/CouponDiscount"
           },
           "expires_at": {
             "type": [
@@ -6480,21 +6463,6 @@
           },
           "reusable": {
             "type": "boolean"
-          }
-        }
-      },
-      "CouponFixedDiscount": {
-        "type": "object",
-        "required": [
-          "currency",
-          "amount"
-        ],
-        "properties": {
-          "amount": {
-            "type": "string"
-          },
-          "currency": {
-            "type": "string"
           }
         }
       },
@@ -6540,17 +6508,6 @@
           },
           "pagination_meta": {
             "$ref": "#/components/schemas/PaginationResponse"
-          }
-        }
-      },
-      "CouponPercentageDiscount": {
-        "type": "object",
-        "required": [
-          "percentage"
-        ],
-        "properties": {
-          "percentage": {
-            "type": "string"
           }
         }
       },
@@ -6754,7 +6711,7 @@
             ]
           },
           "discount": {
-            "$ref": "#/components/schemas/CouponDiscountRest"
+            "$ref": "#/components/schemas/CouponDiscount"
           },
           "expires_at": {
             "type": [
@@ -7840,6 +7797,21 @@
           }
         }
       },
+      "DoubleSegmentationMatrix": {
+        "type": "object",
+        "required": [
+          "dimension1",
+          "dimension2"
+        ],
+        "properties": {
+          "dimension1": {
+            "$ref": "#/components/schemas/MetricDimension"
+          },
+          "dimension2": {
+            "$ref": "#/components/schemas/MetricDimension"
+          }
+        }
+      },
       "ErrorCode": {
         "type": "string",
         "enum": [
@@ -8051,7 +8023,7 @@
           }
         ],
         "discriminator": {
-          "propertyName": "fee_type",
+          "propertyName": "type",
           "mapping": {
             "CAPACITY": "#/components/schemas/CapacityPlanFee",
             "EXTRA_RECURRING": "#/components/schemas/ExtraRecurringPlanFee",
@@ -8070,8 +8042,7 @@
         ],
         "properties": {
           "amount": {
-            "type": "string",
-            "format": "decimal"
+            "type": "string"
           },
           "currency": {
             "type": "string"
@@ -8516,6 +8487,34 @@
           "ive_7n42DGM5Tflk9n8mt7Fhc7"
         ]
       },
+      "LinkedSegmentationMatrix": {
+        "type": "object",
+        "required": [
+          "dimension1_key",
+          "dimension2_key",
+          "values"
+        ],
+        "properties": {
+          "dimension1_key": {
+            "type": "string"
+          },
+          "dimension2_key": {
+            "type": "string"
+          },
+          "values": {
+            "type": "object",
+            "additionalProperties": {
+              "type": "array",
+              "items": {
+                "type": "string"
+              }
+            },
+            "propertyNames": {
+              "type": "string"
+            }
+          }
+        }
+      },
       "ListCheckoutSessionsResponse": {
         "type": "object",
         "required": [
@@ -8842,66 +8841,17 @@
             "$ref": "#/components/schemas/MetricDimension"
           },
           {
-            "type": "object",
-            "required": [
-              "dimension1",
-              "dimension2",
-              "discriminator"
-            ],
-            "properties": {
-              "dimension1": {
-                "$ref": "#/components/schemas/MetricDimension"
-              },
-              "dimension2": {
-                "$ref": "#/components/schemas/MetricDimension"
-              },
-              "discriminator": {
-                "type": "string",
-                "enum": [
-                  "DOUBLE"
-                ]
-              }
-            }
+            "$ref": "#/components/schemas/DoubleSegmentationMatrix"
           },
           {
-            "type": "object",
-            "required": [
-              "dimension1_key",
-              "dimension2_key",
-              "values",
-              "discriminator"
-            ],
-            "properties": {
-              "dimension1_key": {
-                "type": "string"
-              },
-              "dimension2_key": {
-                "type": "string"
-              },
-              "discriminator": {
-                "type": "string",
-                "enum": [
-                  "LINKED"
-                ]
-              },
-              "values": {
-                "type": "object",
-                "additionalProperties": {
-                  "type": "array",
-                  "items": {
-                    "type": "string"
-                  }
-                },
-                "propertyNames": {
-                  "type": "string"
-                }
-              }
-            }
+            "$ref": "#/components/schemas/LinkedSegmentationMatrix"
           }
         ],
         "discriminator": {
-          "propertyName": "discriminator",
+          "propertyName": "type",
           "mapping": {
+            "DOUBLE": "#/components/schemas/DoubleSegmentationMatrix",
+            "LINKED": "#/components/schemas/LinkedSegmentationMatrix",
             "SINGLE": "#/components/schemas/MetricDimension"
           }
         }
@@ -9316,8 +9266,7 @@
         ],
         "properties": {
           "percentage": {
-            "type": "string",
-            "format": "decimal"
+            "type": "string"
           }
         }
       },
@@ -9584,7 +9533,7 @@
           }
         ],
         "discriminator": {
-          "propertyName": "discriminator",
+          "propertyName": "type",
           "mapping": {
             "MATRIX": "#/components/schemas/MatrixPlanPricing",
             "PACKAGE": "#/components/schemas/PackagePlanPricing",
@@ -9725,7 +9674,7 @@
           }
         ],
         "discriminator": {
-          "propertyName": "discriminator",
+          "propertyName": "type",
           "mapping": {
             "EXISTING": "#/components/schemas/ExistingPriceRef",
             "NEW": "#/components/schemas/PriceInput"
@@ -9780,7 +9729,7 @@
           }
         ],
         "discriminator": {
-          "propertyName": "discriminator",
+          "propertyName": "type",
           "mapping": {
             "CAPACITY": "#/components/schemas/CapacityPricing",
             "EXTRA_RECURRING": "#/components/schemas/ExtraRecurringPricing",
@@ -9974,7 +9923,7 @@
           }
         ],
         "discriminator": {
-          "propertyName": "fee_type",
+          "propertyName": "type",
           "mapping": {
             "CAPACITY": "#/components/schemas/CapacityFeeStructure",
             "EXTRA_RECURRING": "#/components/schemas/ExtraRecurringFeeStructure",
@@ -10031,7 +9980,7 @@
           }
         ],
         "discriminator": {
-          "propertyName": "discriminator",
+          "propertyName": "type",
           "mapping": {
             "EXISTING": "#/components/schemas/ExistingProductRef",
             "NEW": "#/components/schemas/NewProductRef"
@@ -10646,7 +10595,7 @@
           }
         ],
         "discriminator": {
-          "propertyName": "discriminator",
+          "propertyName": "type",
           "mapping": {
             "PARAMETERIZATION": "#/components/schemas/SubscriptionAddOnParameterization",
             "PRICE_OVERRIDE": "#/components/schemas/SubscriptionAddOnPriceOverride"
@@ -11200,7 +11149,7 @@
           }
         ],
         "discriminator": {
-          "propertyName": "discriminator",
+          "propertyName": "type",
           "mapping": {
             "CAPACITY": "#/components/schemas/CapacityFee",
             "ONE_TIME": "#/components/schemas/OneTimeFee",
@@ -11636,7 +11585,7 @@
                 "type": "null"
               },
               {
-                "$ref": "#/components/schemas/CouponDiscountRest"
+                "$ref": "#/components/schemas/CouponDiscount"
               }
             ]
           },
@@ -11805,7 +11754,7 @@
           }
         ],
         "discriminator": {
-          "propertyName": "discriminator",
+          "propertyName": "type",
           "mapping": {
             "MATRIX": "#/components/schemas/MatrixPricing",
             "PACKAGE": "#/components/schemas/PackagePricing",
@@ -12037,7 +11986,7 @@
                 "code": "WELCOME20",
                 "description": "20% off for new customers",
                 "discount": {
-                  "discount_type": "PERCENTAGE",
+                  "type": "PERCENTAGE",
                   "percentage": "20"
                 },
                 "redemption_limit": 100,
@@ -12079,7 +12028,7 @@
                 "code": "WELCOME20",
                 "description": "20% off for new customers",
                 "discount": {
-                  "discount_type": "PERCENTAGE",
+                  "type": "PERCENTAGE",
                   "percentage": "20"
                 },
                 "redemption_limit": 100,
@@ -12121,7 +12070,7 @@
                 "code": "WELCOME20",
                 "description": "20% off for new customers",
                 "discount": {
-                  "discount_type": "PERCENTAGE",
+                  "type": "PERCENTAGE",
                   "percentage": "20"
                 },
                 "redemption_limit": 100,

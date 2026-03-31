@@ -177,7 +177,7 @@ pub struct OneTimePlanFee {
 }
 
 #[derive(Clone, ToSchema, serde::Serialize, serde::Deserialize, Debug)]
-#[serde(tag = "fee_type", rename_all = "SCREAMING_SNAKE_CASE")]
+#[serde(tag = "type", rename_all = "SCREAMING_SNAKE_CASE")]
 pub enum Fee {
     Rate(RatePlanFee),
     Slot(SlotPlanFee),
@@ -229,7 +229,7 @@ pub struct MatrixPlanPricing {
 }
 
 #[derive(Clone, ToSchema, serde::Serialize, serde::Deserialize, Debug)]
-#[serde(tag = "discriminator", rename_all = "SCREAMING_SNAKE_CASE")]
+#[serde(tag = "type", rename_all = "SCREAMING_SNAKE_CASE")]
 #[schema(as = PlanUsagePricingModel)]
 pub enum UsagePricingModel {
     PerUnit(PerUnitPlanPricing),

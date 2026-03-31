@@ -41,22 +41,72 @@ pub struct MetricDimension {
     pub values: Vec<String>,
 }
 
-#[derive(Clone, Debug, Serialize, Deserialize, o2o, utoipa::ToSchema)]
-#[serde(tag = "discriminator", rename_all = "SCREAMING_SNAKE_CASE")]
-#[map_owned(meteroid_store::domain::billable_metrics::SegmentationMatrix)]
+#[derive(Clone, Debug, Serialize, Deserialize, utoipa::ToSchema)]
+pub struct DoubleSegmentationMatrix {
+    pub dimension1: MetricDimension,
+    pub dimension2: MetricDimension,
+}
+
+#[derive(Clone, Debug, Serialize, Deserialize, utoipa::ToSchema)]
+pub struct LinkedSegmentationMatrix {
+    pub dimension1_key: String,
+    pub dimension2_key: String,
+    pub values: HashMap<String, Vec<String>>,
+}
+
+#[derive(Clone, Debug, Serialize, Deserialize, utoipa::ToSchema)]
+#[serde(tag = "type", rename_all = "SCREAMING_SNAKE_CASE")]
 pub enum MetricSegmentationMatrix {
-    Single(#[map(~.into())] MetricDimension),
-    Double {
-        #[map(~.into())]
-        dimension1: MetricDimension,
-        #[map(~.into())]
-        dimension2: MetricDimension,
-    },
-    Linked {
-        dimension1_key: String,
-        dimension2_key: String,
-        values: HashMap<String, Vec<String>>,
-    },
+    Single(MetricDimension),
+    Double(DoubleSegmentationMatrix),
+    Linked(LinkedSegmentationMatrix),
+}
+
+impl From<meteroid_store::domain::billable_metrics::SegmentationMatrix>
+    for MetricSegmentationMatrix
+{
+    fn from(val: meteroid_store::domain::billable_metrics::SegmentationMatrix) -> Self {
+        match val {
+            meteroid_store::domain::billable_metrics::SegmentationMatrix::Single(d) => {
+                Self::Single(d.into())
+            }
+            meteroid_store::domain::billable_metrics::SegmentationMatrix::Double {
+                dimension1,
+                dimension2,
+            } => Self::Double(DoubleSegmentationMatrix {
+                dimension1: dimension1.into(),
+                dimension2: dimension2.into(),
+            }),
+            meteroid_store::domain::billable_metrics::SegmentationMatrix::Linked {
+                dimension1_key,
+                dimension2_key,
+                values,
+            } => Self::Linked(LinkedSegmentationMatrix {
+                dimension1_key,
+                dimension2_key,
+                values,
+            }),
+        }
+    }
+}
+
+impl From<MetricSegmentationMatrix>
+    for meteroid_store::domain::billable_metrics::SegmentationMatrix
+{
+    fn from(val: MetricSegmentationMatrix) -> Self {
+        match val {
+            MetricSegmentationMatrix::Single(d) => Self::Single(d.into()),
+            MetricSegmentationMatrix::Double(d) => Self::Double {
+                dimension1: d.dimension1.into(),
+                dimension2: d.dimension2.into(),
+            },
+            MetricSegmentationMatrix::Linked(l) => Self::Linked {
+                dimension1_key: l.dimension1_key,
+                dimension2_key: l.dimension2_key,
+                values: l.values,
+            },
+        }
+    }
 }
 
 // ── Response types ─────────────────────────────────────────────

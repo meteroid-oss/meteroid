@@ -189,7 +189,7 @@ pub struct ExtraRecurringFeeStructure {
 pub struct OneTimeFeeStructure {}
 
 #[derive(Clone, Debug, Serialize, Deserialize, ToSchema)]
-#[serde(tag = "fee_type", rename_all = "SCREAMING_SNAKE_CASE")]
+#[serde(tag = "type", rename_all = "SCREAMING_SNAKE_CASE")]
 pub enum ProductFeeStructure {
     Rate(RateFeeStructure),
     Slot(SlotFeeStructure),
