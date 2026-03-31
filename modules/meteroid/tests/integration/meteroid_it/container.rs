@@ -11,8 +11,8 @@ use meteroid_oauth::config::OauthConfig;
 use meteroid_store::Services;
 use meteroid_store::clients::usage::{MockUsageClient, UsageClient};
 use meteroid_store::store::{PgConfig, PgPool, StoreConfig};
-use std::sync::Arc;
 use std::sync::atomic::{AtomicU32, Ordering};
+use std::sync::{Arc, OnceLock};
 use std::time::Duration;
 use stripe_client::client::StripeClient;
 use testcontainers::core::WaitFor;
@@ -29,6 +29,25 @@ use tonic::transport::Channel;
 static POSTGRES_INSTANCE: OnceCell<SharedPostgres> = OnceCell::const_new();
 static TEST_DB_COUNTER: AtomicU32 = AtomicU32::new(0);
 
+/// Container ID for cleanup at process exit.
+/// Rust never drops statics, so ContainerAsync::Drop never fires.
+/// We register a C atexit handler to `docker rm -f` the container on normal exit.
+/// The testcontainers `watchdog` feature handles signal-based termination (SIGINT/SIGTERM).
+static CLEANUP_CONTAINER_ID: OnceLock<String> = OnceLock::new();
+
+unsafe extern "C" {
+    fn atexit(cb: extern "C" fn()) -> std::ffi::c_int;
+}
+
+extern "C" fn cleanup_postgres_container() {
+    if let Some(id) = CLEANUP_CONTAINER_ID.get() {
+        log::info!("Cleaning up test Postgres container {}", id);
+        let _ = std::process::Command::new("docker")
+            .args(["rm", "-f", id])
+            .output();
+    }
+}
+
 struct SharedPostgres {
     #[allow(dead_code)]
     container: ContainerAsync<GenericImage>,
@@ -43,6 +62,11 @@ async fn get_shared_postgres() -> &'static SharedPostgres {
             use diesel_async::RunQueryDsl;
 
             let container = start_postgres_container().await;
+
+            // Register cleanup so the container is removed on process exit
+            CLEANUP_CONTAINER_ID.set(container.id().to_string()).ok();
+            unsafe { atexit(cleanup_postgres_container) };
+
             let port = container.get_host_port_ipv4(5432).await.unwrap();
             let base_connection_string =
                 format!("postgres://postgres:postgres@127.0.0.1:{}/postgres", port);
