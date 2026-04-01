@@ -118,7 +118,6 @@
 
   grid(
     columns: (140pt, auto),
-    rows: (auto, auto, auto, auto),
     row-gutter: 6pt,
 
     [#text(fill: color.accent, weight: "medium", translations.credit_note_number)],
@@ -130,13 +129,19 @@
     [#text(fill: color.accent, weight: "medium", translations.related_invoice)],
     [#text(weight: "medium", related_invoice_number)],
 
-    if organization.tax_id != none [
-      #text(fill: color.accent, weight: "medium", translations.vat_id)
-    ] else [],
+    ..if organization.tax_id != none {
+      (
+        [#text(fill: color.accent, weight: "medium", translations.seller_vat_id)],
+        [#text(weight: "medium", organization.tax_id)],
+      )
+    },
 
-    if organization.tax_id != none [
-      #text(weight: "medium", organization.tax_id)
-    ] else [],
+    ..if customer.tax_id != none {
+      (
+        [#text(fill: color.accent, weight: "medium", translations.customer_vat_id)],
+        [#text(weight: "medium", customer.tax_id)],
+      )
+    },
   )
 
   v(40pt)

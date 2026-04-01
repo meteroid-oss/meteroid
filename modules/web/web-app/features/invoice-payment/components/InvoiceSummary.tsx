@@ -1,6 +1,7 @@
 import { Separator } from '@md/ui'
 
 import { PaymentMethodBadge } from '@/features/invoice-payment/components/TransactionList'
+import { getCountryName } from '@/features/settings/utils'
 import { InvoicePaymentStatus } from '@/rpc/api/invoices/v1/models_pb'
 import { parseAndFormatDate } from '@/utils/date'
 import { formatCurrency, formatCurrencyNoRounding, rateToPercent } from '@/utils/numbers'
@@ -17,6 +18,8 @@ export const InvoiceSummary = ({ invoicePaymentData }: InvoicePaymentData) => {
     footerLegal,
     legalNumber,
     footerInfo,
+    sellerVatNumber,
+    sellerAddress,
   } = invoicePaymentData
 
   if (!invoice) {
@@ -90,9 +93,16 @@ export const InvoiceSummary = ({ invoicePaymentData }: InvoicePaymentData) => {
               </>
             )}
 
+            {sellerVatNumber && (
+              <>
+                <span className="text-gray-600">Seller Tax ID</span>
+                <span>{sellerVatNumber}</span>
+              </>
+            )}
+
             {customerDetails?.vatNumber && (
               <>
-                <span className="text-gray-600">VAT ID</span>
+                <span className="text-gray-600">Customer Tax ID</span>
                 <span>{customerDetails.vatNumber}</span>
               </>
             )}
@@ -110,6 +120,18 @@ export const InvoiceSummary = ({ invoicePaymentData }: InvoicePaymentData) => {
         {/* From (Organization) */}
         <div className="col-span-3">
           <div className="text-gray-900 mb-1.5">{tradeName}</div>
+          {sellerAddress && (
+            <div className="text-gray-600">
+              {sellerAddress.line1 && <div>{sellerAddress.line1}</div>}
+              {sellerAddress.line2 && <div>{sellerAddress.line2}</div>}
+              {(sellerAddress.zipCode || sellerAddress.city) && (
+                <div>
+                  {sellerAddress.zipCode} {sellerAddress.city}
+                </div>
+              )}
+              {sellerAddress.country && <div>{getCountryName(sellerAddress.country)}</div>}
+            </div>
+          )}
         </div>
 
         {/* Bill To */}
@@ -132,7 +154,7 @@ export const InvoiceSummary = ({ invoicePaymentData }: InvoicePaymentData) => {
                   </div>
                 )}
                 {customerDetails.billingAddress.country && (
-                  <div>{customerDetails.billingAddress.country}</div>
+                  <div>{getCountryName(customerDetails.billingAddress.country)}</div>
                 )}
               </>
             )}
