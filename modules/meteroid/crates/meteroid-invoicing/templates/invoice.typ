@@ -128,7 +128,6 @@
 
   grid(
     columns: (120pt, auto),
-    rows: (auto, auto, auto, auto),
     row-gutter: 6pt,
 
     [#text(fill: color.accent, weight: "medium", translations.invoice_number)],
@@ -140,21 +139,26 @@
     [#text(fill: color.accent, weight: "medium", translations.due_date)],
     [#text(weight: "medium", due_date)],
 
-    if purchase_order != none [
-      #text(fill: color.accent, weight: "medium", translations.purchase_order)
-    ] else [],
+    ..if purchase_order != none {
+      (
+        [#text(fill: color.accent, weight: "medium", translations.purchase_order)],
+        [#text(weight: "medium", purchase_order)],
+      )
+    },
 
-   if purchase_order != none [
-      #text(weight: "medium", purchase_order)
-   ] else [],
+    ..if organization.tax_id != none {
+      (
+        [#text(fill: color.accent, weight: "medium", translations.seller_vat_id)],
+        [#text(weight: "medium", organization.tax_id)],
+      )
+    },
 
-    if organization.tax_id != none [
-      #text(fill: color.accent, weight: "medium", translations.vat_id)
-    ] else [],
-
-    if organization.tax_id != none [
-      #text(weight: "medium", organization.tax_id)
-    ] else [],
+    ..if customer.tax_id != none {
+      (
+        [#text(fill: color.accent, weight: "medium", translations.customer_vat_id)],
+        [#text(weight: "medium", customer.tax_id)],
+      )
+    },
   )
 
   v(40pt)
@@ -254,71 +258,71 @@
 
   // Line items with compact styling and improved sublines
   for (index, item) in lines.enumerate() {
-    grid(
-      columns: (4fr, 1fr, 1fr, 0.8fr, 1.2fr),
-      column-gutter: 6pt,
-      row-gutter: 0pt, // Remove row gap
+    block(breakable: false, width: 100%, [
+      #grid(
+        columns: (4fr, 1fr, 1fr, 0.8fr, 1.2fr),
+        column-gutter: 6pt,
+        row-gutter: 0pt,
 
-      [
-        #text(weight: "medium", fill: color.heading, item.name)
-        #if item.description != none [
-          #text(size: 9pt, fill: color.accent, item.description)
-        ]
-        #linebreak() // Keep dates on new line as requested
-        #text(size: 8pt, fill: color.date_text, item.start_date + " → " + item.end_date)
-      ],
-
-      align(center, text(weight: "regular", if item.quantity != none { str(item.quantity) } else { "" })),
-
-      align(right, text(weight: "regular", if item.unit_price != none { format_amount(item.unit_price) } else { "" })),
-
-      align(right, text(weight: "regular", if item.vat_rate != none { str(item.vat_rate) + "%" } else { "" })),
-
-      align(right, text(weight: "regular", format_amount(item.subtotal))),
-    )
-
-    // Add sublines if they exist
-    if item.sub_lines != none and item.sub_lines.len() > 0 {
-
-      // Container for all sublines with background color
-      block(
-        width: 100%,
-        radius: 3pt,
-        inset: (x: 3pt, y: 2pt),
         [
-          // Iterate through sublines
-          #for (sub_index, sub_item) in item.sub_lines.enumerate() {
-            grid(
-              columns: (4fr, 1fr, 1fr, 0.8fr, 1.2fr),
-              column-gutter: 6pt,
-              row-gutter: 0pt,
+          #text(weight: "medium", fill: color.heading, item.name)
+          #if item.description != none [
+            #text(size: 9pt, fill: color.accent, item.description)
+          ]
+          #linebreak()
+          #text(size: 8pt, fill: color.date_text, item.start_date + " → " + item.end_date)
+        ],
 
-              // Subline with indent and icon
-              [
-                #box(width: 12pt, [])
-                #text(size: 8.5pt,   fill: color.accent, [
-                  #sub_item.name
-                ])
-              ],
+        align(center, text(weight: "regular", if item.quantity != none { str(item.quantity) } else { "" })),
 
-              align(center, text(size: 8.5pt, fill: color.accent, if sub_item.quantity != none { str(sub_item.quantity) } else { "" })),
+        align(right, text(weight: "regular", if item.unit_price != none { format_amount(item.unit_price) } else { "" })),
 
-              align(right, text(size: 8.5pt, fill: color.accent, if sub_item.unit_price != none { format_amount(sub_item.unit_price) } else { "" })),
+        align(right, text(weight: "regular", if item.vat_rate != none { str(item.vat_rate) + "%" } else { "" })),
 
-              [], // Empty tax rate column for sublines
-
-              align(right, text(size: 8.5pt, fill: color.accent, format_amount(sub_item.total))),
-            )
-
-          }
-        ]
+        align(right, text(weight: "regular", format_amount(item.subtotal))),
       )
-    }
 
-    // Add minimal spacing between items
+      // Add sublines if they exist
+      #if item.sub_lines != none and item.sub_lines.len() > 0 {
+        block(
+          width: 100%,
+          radius: 3pt,
+          inset: (x: 3pt, y: 2pt),
+          [
+            #for (sub_index, sub_item) in item.sub_lines.enumerate() {
+              grid(
+                columns: (4fr, 1fr, 1fr, 0.8fr, 1.2fr),
+                column-gutter: 6pt,
+                row-gutter: 0pt,
+
+                [
+                  #box(width: 12pt, [])
+                  #text(size: 8.5pt, fill: color.accent, [
+                    #sub_item.name
+                  ])
+                ],
+
+                align(center, text(size: 8.5pt, fill: color.accent, if sub_item.quantity != none { str(sub_item.quantity) } else { "" })),
+
+                align(right, text(size: 8.5pt, fill: color.accent, if sub_item.unit_price != none { format_amount(sub_item.unit_price) } else { "" })),
+
+                [],
+
+                align(right, text(size: 8.5pt, fill: color.accent, format_amount(sub_item.total))),
+              )
+            }
+          ]
+        )
+      }
+
+      // Add minimal spacing between items
+      #if index < lines.len() - 1 {
+        v(3pt)
+        line(length: 100%, stroke: 0.75pt + color.light_border)
+      }
+    ])
+
     if index < lines.len() - 1 {
-      v(3pt)
-      line(length: 100%, stroke: 0.75pt + color.light_border)
       v(3pt)
     }
   }
@@ -326,7 +330,7 @@
   v(16pt)
 
   // Summary section aligned right with payment status on the left
-  grid(
+  block(breakable: false, width: 100%, grid(
     columns: (1fr, 1fr),
     column-gutter: 40pt,
 
@@ -453,13 +457,14 @@
         align(right, text(weight: "medium", size: 12pt, fill: color.heading, format_amount(total_amount))),
       )
     ])
-  )
+  ))
 
   v(30pt)
 
   // Add payment information section if provided and enabled
   if show_payment_info and payment_info != none {
     block(
+      breakable: false,
       width: 100%,
       [
         #line(length: 100%, stroke: 0.5pt + color.border)
@@ -492,6 +497,7 @@
   // Payment terms and tax info - only if enabled
   if show_terms or show_tax_info {
     block(
+      breakable: false,
       width: 100%,
       [
         #line(length: 100%, stroke: 0.5pt + color.border)
@@ -541,36 +547,38 @@
 
   v(16pt)
 
-  // Legal information - only if enabled
-  if show_legal_info and organization.footer_legal != none {
-    grid(
-      columns: (1fr),
-      [
-        #text(fill: color.heading, weight: "medium", size: 10pt, translations.legal_info)
-        #v(4pt)
-        #text(size: 8pt, fill: color.footer_text, organization.footer_legal)
+  // Legal, footer, and exchange rate info — kept together to avoid orphan breaks
+  block(breakable: false, width: 100%, [
+    // Legal information
+    #if show_legal_info and organization.footer_legal != none {
+      grid(
+        columns: (1fr),
+        [
+          #text(fill: color.heading, weight: "medium", size: 10pt, translations.legal_info)
+          #v(4pt)
+          #text(size: 8pt, fill: color.footer_text, organization.footer_legal)
 
-        // Add company registration info if available
-        #if organization.legal_number != none {
-          v(4pt)
-          text(size: 8pt, fill: color.footer_text, [
-            #translations.at("company_registration", default: "Registration"): #organization.legal_number
-          ])
-        }
-      ]
-    )
-  }
+          #if organization.legal_number != none {
+            v(4pt)
+            text(size: 8pt, fill: color.footer_text, [
+              #translations.at("company_registration", default: "Registration"): #organization.legal_number
+            ])
+          }
+        ]
+      )
+    }
 
-  // Footer custom information - only if enabled
-  if show_footer_custom_info and organization.footer_info != none {
-    v(16pt)
-    text(size: 8pt, fill: color.footer_text, organization.footer_info)
-  }
+    // Footer custom information
+    #if show_footer_custom_info and organization.footer_info != none {
+      v(16pt)
+      text(size: 8pt, fill: color.footer_text, organization.footer_info)
+    }
 
-  // Add exchange rate info if available
-  if organization.exchange_rate != none and organization.accounting_currency_code != none and translations.at("exchange_rate_info", default: none) != none {
-    v(8pt)
-    text(size: 8pt, fill: color.footer_text, translations.exchange_rate_info)
-  }
+    // Exchange rate info
+    #if organization.exchange_rate != none and organization.accounting_currency_code != none and translations.at("exchange_rate_info", default: none) != none {
+      v(8pt)
+      text(size: 8pt, fill: color.footer_text, translations.exchange_rate_info)
+    }
+  ])
 }
 

@@ -197,8 +197,17 @@ impl PortalInvoiceService for PortalInvoiceServiceComponents {
                 direct_debit_connection_id: direct_debit_connection_id.map(|t| t.as_proto()),
                 bank_account,
                 footer_legal: invoicing_entity.invoice_footer_legal,
-                legal_number: invoicing_entity.vat_number,
+                legal_number: None,
                 footer_info: invoicing_entity.invoice_footer_info,
+                seller_vat_number: invoicing_entity.vat_number,
+                seller_address: Some(meteroid_grpc::meteroid::api::customers::v1::Address {
+                    line1: invoicing_entity.address_line1,
+                    line2: invoicing_entity.address_line2,
+                    city: invoicing_entity.city,
+                    country: Some(invoicing_entity.country.as_proto()),
+                    state: invoicing_entity.state,
+                    zip_code: invoicing_entity.zip_code,
+                }),
             }),
         }))
     }

@@ -18,4 +18,6 @@ message InvoiceForPayment {
   optional string footer_legal = 9;
   optional string legal_number = 10;
   optional string footer_info = 11;
+  optional string seller_vat_number = 12;
+  optional api.customers.v1.Address seller_address = 13;
 }
