@@ -6,6 +6,7 @@ use error_stack::ResultExt;
 use itertools::Itertools;
 use meteroid_store::Store;
 use meteroid_store::domain::dead_letter::DeadLetterMessageNew;
+use meteroid_store::domain::pgmq::extract_tenant_id_from_headers;
 use meteroid_store::domain::pgmq::{PgmqMessage, PgmqQueue};
 use meteroid_store::repositories::dead_letter::DeadLetterInterface;
 use meteroid_store::repositories::pgmq::PgmqInterface;
@@ -49,6 +50,27 @@ impl HandleResult {
             failed: vec![],
         }
     }
+
+    pub fn fail(id: MessageId, err: &dyn std::fmt::Debug) -> (MessageId, String) {
+        (id, format!("{err:?}"))
+    }
+}
+
+fn strip_ansi(s: &str) -> String {
+    let mut result = String::with_capacity(s.len());
+    let mut chars = s.chars();
+    while let Some(c) = chars.next() {
+        if c == '\x1b' {
+            for c2 in chars.by_ref() {
+                if c2.is_ascii_alphabetic() {
+                    break;
+                }
+            }
+        } else {
+            result.push(c);
+        }
+    }
+    result
 }
 
 #[async_trait::async_trait]
@@ -195,10 +217,14 @@ pub(crate) async fn run_once(
             .map(|msg| {
                 let last_error = failed_errors
                     .get(&msg.msg_id.0)
-                    .map(|e| e.to_string())
+                    .map(|e| strip_ansi(e))
                     .unwrap_or_else(|| "Handler did not report error details".to_string());
 
+                let headers_json = msg.headers.as_ref().map(|h| h.0.clone());
+                let tenant_id = extract_tenant_id_from_headers(&headers_json);
+
                 DeadLetterMessageNew {
+                    tenant_id,
                     queue: queue.as_str().to_string(),
                     pgmq_msg_id: msg.msg_id.0,
                     message: msg.message.as_ref().map(|m| m.0.clone()),
@@ -219,10 +245,7 @@ pub(crate) async fn run_once(
 
         log::warn!("[{queue}] Dead-lettered {count} message(s): {dlq_ids:?}");
 
-        MESSAGES_DEAD_LETTERED.add(
-            count as u64,
-            &[KeyValue::new("queue", queue.as_str())],
-        );
+        MESSAGES_DEAD_LETTERED.add(count as u64, &[KeyValue::new("queue", queue.as_str())]);
 
         store
             .pgmq_delete(queue, dlq_ids)

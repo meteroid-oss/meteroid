@@ -200,15 +200,6 @@ pub async fn spawn_workers(
         });
     }
 
-    // DLQ alert worker (only if webhook URL configured)
-    if let Some(webhook_url) = &config.dlq_alert_webhook_url {
-        let store = store.clone();
-        let url = webhook_url.clone();
-        join_set.spawn(async move {
-            pgmq::dlq_alert::run_dlq_alert_worker(store, url).await;
-        });
-    }
-
     join_set.spawn(async move {
         misc::currency_rates_worker::run_currency_rates_worker(&store, &currency_rates_service)
             .await;

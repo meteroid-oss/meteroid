@@ -72,9 +72,7 @@ pub mod platform_admin {
         let actor = request.actor()?;
         match store.settings.admin_organization {
             Some(admin_org) if admin_org == org_id => Ok(actor),
-            Some(_) => Err(Status::permission_denied(
-                "Platform admin access required",
-            )),
+            Some(_) => Err(Status::permission_denied("Platform admin access required")),
             None => Err(Status::permission_denied(
                 "Platform admin is not configured (ADMIN_ORGANIZATION_ID not set)",
             )),

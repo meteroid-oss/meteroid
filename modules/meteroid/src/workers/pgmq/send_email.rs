@@ -334,7 +334,7 @@ impl PgmqHandler for EmailSender {
                 }
                 Ok((id, Err(e))) => {
                     log::warn!("Failed to send email: {e:?}");
-                    result.failed.push((id, format!("{e:?}")));
+                    result.failed.push(HandleResult::fail(id, &e));
                 }
                 Err(e) => {
                     log::warn!("Email send task panicked: {e:?}");

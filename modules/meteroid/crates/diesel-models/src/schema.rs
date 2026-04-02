@@ -710,18 +710,12 @@ diesel::table! {
 }
 
 diesel::table! {
-    dead_letter_alert_state (queue) {
-        queue -> Text,
-        last_alerted_at -> Timestamptz,
-    }
-}
-
-diesel::table! {
     use diesel::sql_types::*;
     use super::sql_types::DeadLetterStatusEnum;
 
     dead_letter_message (id) {
         id -> Uuid,
+        tenant_id -> Nullable<Uuid>,
         queue -> Text,
         pgmq_msg_id -> Int8,
         message -> Nullable<Jsonb>,
@@ -1443,6 +1437,7 @@ diesel::joinable!(customer_connection -> connector (connector_id));
 diesel::joinable!(customer_connection -> customer (customer_id));
 diesel::joinable!(customer_payment_method -> customer_connection (connection_id));
 diesel::joinable!(customer_payment_method -> tenant (tenant_id));
+diesel::joinable!(dead_letter_message -> tenant (tenant_id));
 diesel::joinable!(invoice -> customer (customer_id));
 diesel::joinable!(invoice -> invoicing_entity (invoicing_entity_id));
 diesel::joinable!(invoice -> plan_version (plan_version_id));
@@ -1545,7 +1540,6 @@ diesel::allow_tables_to_appear_in_same_query!(
     customer_balance_tx,
     customer_connection,
     customer_payment_method,
-    dead_letter_alert_state,
     dead_letter_message,
     express_onboarding_link,
     historical_rates_from_usd,

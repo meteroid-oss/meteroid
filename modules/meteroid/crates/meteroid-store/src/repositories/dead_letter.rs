@@ -1,29 +1,40 @@
 use crate::domain::dead_letter::{
-    DeadLetterMessage, DeadLetterMessageNew, DeadLetterQueueStats, DeadLetterStatus,
+    DeadLetterMessage, DeadLetterMessageNew, DeadLetterQueueStats, OrganizationWithTenants,
+    TenantSummary,
 };
+use crate::domain::enums::DeadLetterStatus;
 use crate::domain::pgmq::PgmqQueue;
+use crate::domain::{PaginatedVec, PaginationRequest};
 use crate::errors::StoreError;
 use crate::{Store, StoreResult};
-use chrono::NaiveDateTime;
+use common_domain::ids::{OrganizationId, TenantId};
 use common_domain::pgmq::{Headers, Message};
-use diesel_models::query::{dead_letter, pgmq};
+use diesel_models::dead_letter::DeadLetterMessageRow;
+use diesel_models::query::pgmq;
 use error_stack::Report;
 use uuid::Uuid;
 
 #[async_trait::async_trait]
 pub trait DeadLetterInterface {
     async fn insert_dead_letter_batch(&self, entries: Vec<DeadLetterMessageNew>)
-        -> StoreResult<()>;
+    -> StoreResult<()>;
 
     async fn list_dead_letters(
         &self,
         queue: Option<&str>,
         status: Option<DeadLetterStatus>,
-        limit: i64,
-        offset: i64,
-    ) -> StoreResult<(Vec<DeadLetterMessage>, i64)>;
+        tenant_id: Option<TenantId>,
+        organization_id: Option<OrganizationId>,
+        pagination: PaginationRequest,
+    ) -> StoreResult<PaginatedVec<DeadLetterMessage>>;
 
     async fn get_dead_letter(&self, id: Uuid) -> StoreResult<DeadLetterMessage>;
+
+    async fn find_dead_letter_by_pgmq_msg_id(
+        &self,
+        queue: &str,
+        pgmq_msg_id: i64,
+    ) -> StoreResult<Option<DeadLetterMessage>>;
 
     async fn requeue_dead_letter(
         &self,
@@ -37,19 +48,25 @@ pub trait DeadLetterInterface {
         resolved_by: Uuid,
     ) -> StoreResult<DeadLetterMessage>;
 
+    async fn batch_requeue_dead_letters(
+        &self,
+        ids: Vec<Uuid>,
+        resolved_by: Uuid,
+    ) -> StoreResult<u32>;
+
+    async fn batch_discard_dead_letters(
+        &self,
+        ids: Vec<Uuid>,
+        resolved_by: Uuid,
+    ) -> StoreResult<u32>;
+
     async fn dead_letter_queue_stats(&self) -> StoreResult<Vec<DeadLetterQueueStats>>;
 
-    async fn dead_letters_pending_since(
+    async fn search_organizations(
         &self,
-        since: NaiveDateTime,
-    ) -> StoreResult<Vec<DeadLetterQueueStats>>;
-
-    async fn upsert_dead_letter_alert_state(&self, queue: &str) -> StoreResult<()>;
-
-    async fn get_dead_letter_alert_state(
-        &self,
-        queue: &str,
-    ) -> StoreResult<Option<NaiveDateTime>>;
+        query: &str,
+        limit: u32,
+    ) -> StoreResult<Vec<OrganizationWithTenants>>;
 }
 
 #[async_trait::async_trait]
@@ -59,8 +76,8 @@ impl DeadLetterInterface for Store {
         entries: Vec<DeadLetterMessageNew>,
     ) -> StoreResult<()> {
         let mut conn = self.get_conn().await?;
-        let rows = entries.into_iter().map(Into::into).collect();
-        dead_letter::insert_batch(&mut conn, rows)
+        let rows: Vec<_> = entries.into_iter().map(Into::into).collect();
+        diesel_models::dead_letter::DeadLetterMessageRowNew::insert_batch(&mut conn, &rows)
             .await
             .map_err(Into::<Report<StoreError>>::into)
     }
@@ -69,30 +86,47 @@ impl DeadLetterInterface for Store {
         &self,
         queue: Option<&str>,
         status: Option<DeadLetterStatus>,
-        limit: i64,
-        offset: i64,
-    ) -> StoreResult<(Vec<DeadLetterMessage>, i64)> {
+        tenant_id: Option<TenantId>,
+        organization_id: Option<OrganizationId>,
+        pagination: PaginationRequest,
+    ) -> StoreResult<PaginatedVec<DeadLetterMessage>> {
         let mut conn = self.get_conn().await?;
 
-        let status_db = status.map(Into::into);
+        let rows = DeadLetterMessageRow::list(
+            &mut conn,
+            queue,
+            status.map(Into::into),
+            tenant_id,
+            organization_id,
+            pagination.into(),
+        )
+        .await
+        .map_err(Into::<Report<StoreError>>::into)?;
 
-        let items = dead_letter::list(&mut conn, queue, status_db.clone(), limit, offset)
-            .await
-            .map(|rows| rows.into_iter().map(Into::into).collect::<Vec<_>>())
-            .map_err(Into::<Report<StoreError>>::into)?;
-
-        let total = dead_letter::count(&mut conn, queue, status_db)
-            .await
-            .map_err(Into::<Report<StoreError>>::into)?;
-
-        Ok((items, total))
+        Ok(PaginatedVec {
+            items: rows.items.into_iter().map(Into::into).collect(),
+            total_pages: rows.total_pages,
+            total_results: rows.total_results,
+        })
     }
 
     async fn get_dead_letter(&self, id: Uuid) -> StoreResult<DeadLetterMessage> {
         let mut conn = self.get_conn().await?;
-        dead_letter::get_by_id(&mut conn, id)
+        DeadLetterMessageRow::find_by_id_with_tenant(&mut conn, id)
             .await
             .map(Into::into)
+            .map_err(Into::<Report<StoreError>>::into)
+    }
+
+    async fn find_dead_letter_by_pgmq_msg_id(
+        &self,
+        queue: &str,
+        pgmq_msg_id: i64,
+    ) -> StoreResult<Option<DeadLetterMessage>> {
+        let mut conn = self.get_conn().await?;
+        DeadLetterMessageRow::find_by_pgmq_msg_id(&mut conn, queue, pgmq_msg_id)
+            .await
+            .map(|opt| opt.map(Into::into))
             .map_err(Into::<Report<StoreError>>::into)
     }
 
@@ -103,11 +137,10 @@ impl DeadLetterInterface for Store {
     ) -> StoreResult<DeadLetterMessage> {
         let mut conn = self.get_conn().await?;
 
-        let entry: DeadLetterMessage =
-            dead_letter::get_by_id(&mut conn, id)
-                .await
-                .map(Into::into)
-                .map_err(Into::<Report<StoreError>>::into)?;
+        let entry: DeadLetterMessage = DeadLetterMessageRow::find_by_id(&mut conn, id)
+            .await
+            .map(Into::into)
+            .map_err(Into::<Report<StoreError>>::into)?;
 
         if entry.status != DeadLetterStatus::Pending {
             return Err(Report::new(StoreError::InvalidArgument(format!(
@@ -116,9 +149,10 @@ impl DeadLetterInterface for Store {
             ))));
         }
 
-        let queue: PgmqQueue = entry.queue.parse().map_err(|e: String| {
-            Report::new(StoreError::InvalidArgument(e))
-        })?;
+        let queue: PgmqQueue = entry
+            .queue
+            .parse()
+            .map_err(|e: String| Report::new(StoreError::InvalidArgument(e)))?;
 
         let msg = diesel_models::pgmq::PgmqMessageRowNew {
             message: entry.message.map(Message),
@@ -129,7 +163,7 @@ impl DeadLetterInterface for Store {
             .await
             .map_err(Into::<Report<StoreError>>::into)?;
 
-        let updated = dead_letter::update_status(
+        DeadLetterMessageRow::update_status(
             &mut conn,
             id,
             diesel_models::enums::DeadLetterStatusEnum::Requeued,
@@ -137,9 +171,8 @@ impl DeadLetterInterface for Store {
             None,
         )
         .await
-        .map_err(Into::<Report<StoreError>>::into)?;
-
-        Ok(updated.into())
+        .map(Into::into)
+        .map_err(Into::<Report<StoreError>>::into)
     }
 
     async fn discard_dead_letter(
@@ -149,11 +182,10 @@ impl DeadLetterInterface for Store {
     ) -> StoreResult<DeadLetterMessage> {
         let mut conn = self.get_conn().await?;
 
-        let entry: DeadLetterMessage =
-            dead_letter::get_by_id(&mut conn, id)
-                .await
-                .map(Into::into)
-                .map_err(Into::<Report<StoreError>>::into)?;
+        let entry: DeadLetterMessage = DeadLetterMessageRow::find_by_id(&mut conn, id)
+            .await
+            .map(Into::into)
+            .map_err(Into::<Report<StoreError>>::into)?;
 
         if entry.status != DeadLetterStatus::Pending {
             return Err(Report::new(StoreError::InvalidArgument(format!(
@@ -162,7 +194,7 @@ impl DeadLetterInterface for Store {
             ))));
         }
 
-        let updated = dead_letter::update_status(
+        DeadLetterMessageRow::update_status(
             &mut conn,
             id,
             diesel_models::enums::DeadLetterStatusEnum::Discarded,
@@ -170,14 +202,63 @@ impl DeadLetterInterface for Store {
             None,
         )
         .await
+        .map(Into::into)
+        .map_err(Into::<Report<StoreError>>::into)
+    }
+
+    async fn batch_requeue_dead_letters(
+        &self,
+        ids: Vec<Uuid>,
+        resolved_by: Uuid,
+    ) -> StoreResult<u32> {
+        let mut conn = self.get_conn().await?;
+
+        let updated = DeadLetterMessageRow::batch_update_status(
+            &mut conn,
+            &ids,
+            diesel_models::enums::DeadLetterStatusEnum::Requeued,
+            resolved_by,
+        )
+        .await
         .map_err(Into::<Report<StoreError>>::into)?;
 
-        Ok(updated.into())
+        for row in &updated {
+            if let Ok(queue) = row.queue.parse::<PgmqQueue>() {
+                let msg = diesel_models::pgmq::PgmqMessageRowNew {
+                    message: row.message.clone().map(Message),
+                    headers: row.headers.clone().map(Headers),
+                };
+                if let Err(e) = pgmq::send_batch(&mut conn, queue.as_str(), &[msg]).await {
+                    log::error!("Failed to requeue dead letter {}: {:?}", row.id, e);
+                }
+            }
+        }
+
+        Ok(updated.len() as u32)
+    }
+
+    async fn batch_discard_dead_letters(
+        &self,
+        ids: Vec<Uuid>,
+        resolved_by: Uuid,
+    ) -> StoreResult<u32> {
+        let mut conn = self.get_conn().await?;
+
+        let updated = DeadLetterMessageRow::batch_update_status(
+            &mut conn,
+            &ids,
+            diesel_models::enums::DeadLetterStatusEnum::Discarded,
+            resolved_by,
+        )
+        .await
+        .map_err(Into::<Report<StoreError>>::into)?;
+
+        Ok(updated.len() as u32)
     }
 
     async fn dead_letter_queue_stats(&self) -> StoreResult<Vec<DeadLetterQueueStats>> {
         let mut conn = self.get_conn().await?;
-        dead_letter::queue_stats(&mut conn)
+        DeadLetterMessageRow::queue_stats(&mut conn)
             .await
             .map(|rows| {
                 rows.into_iter()
@@ -192,41 +273,33 @@ impl DeadLetterInterface for Store {
             .map_err(Into::<Report<StoreError>>::into)
     }
 
-    async fn dead_letters_pending_since(
+    async fn search_organizations(
         &self,
-        since: NaiveDateTime,
-    ) -> StoreResult<Vec<DeadLetterQueueStats>> {
+        query: &str,
+        limit: u32,
+    ) -> StoreResult<Vec<OrganizationWithTenants>> {
+        use diesel_models::query::dead_letter::search_organizations;
+
         let mut conn = self.get_conn().await?;
-        dead_letter::pending_since(&mut conn, since)
+        let rows = search_organizations(&mut conn, query, limit as i64)
             .await
-            .map(|rows| {
-                rows.into_iter()
-                    .map(|r| DeadLetterQueueStats {
-                        queue: r.queue,
-                        pending_count: r.pending_count,
-                        requeued_count: r.requeued_count,
-                        discarded_count: r.discarded_count,
+            .map_err(Into::<Report<StoreError>>::into)?;
+
+        Ok(rows
+            .into_iter()
+            .map(|(org, tenants)| OrganizationWithTenants {
+                id: org.id,
+                trade_name: org.trade_name,
+                slug: org.slug,
+                tenants: tenants
+                    .into_iter()
+                    .map(|t| TenantSummary {
+                        id: t.id,
+                        name: t.name,
+                        slug: t.slug,
                     })
-                    .collect()
+                    .collect(),
             })
-            .map_err(Into::<Report<StoreError>>::into)
-    }
-
-    async fn upsert_dead_letter_alert_state(&self, queue: &str) -> StoreResult<()> {
-        let mut conn = self.get_conn().await?;
-        dead_letter::upsert_alert_state(&mut conn, queue)
-            .await
-            .map_err(Into::<Report<StoreError>>::into)
-    }
-
-    async fn get_dead_letter_alert_state(
-        &self,
-        queue: &str,
-    ) -> StoreResult<Option<NaiveDateTime>> {
-        let mut conn = self.get_conn().await?;
-        dead_letter::get_alert_state(&mut conn, queue)
-            .await
-            .map(|opt| opt.map(|r| r.last_alerted_at))
-            .map_err(Into::<Report<StoreError>>::into)
+            .collect())
     }
 }

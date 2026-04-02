@@ -42,6 +42,7 @@ impl PgmqOutboxDispatch {
                 Some(PgmqMessageNew {
                     message: None,
                     headers: Some(headers),
+                    tenant_id: None,
                 })
             })
             .collect();
@@ -178,6 +179,7 @@ impl PgmqOutboxDispatch {
                         }
                         .try_into()?,
                     ),
+                    tenant_id: None,
                 });
             }
         }
@@ -393,10 +395,7 @@ impl PgmqHandler for PgmqOutboxProxy {
             })
             .collect();
 
-        Ok(HandleResult {
-            succeeded,
-            failed,
-        })
+        Ok(HandleResult { succeeded, failed })
     }
 }
 

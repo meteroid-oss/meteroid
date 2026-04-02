@@ -73,9 +73,6 @@ impl PgmqHandler for PdfRender {
             }
         }
 
-        Ok(HandleResult {
-            succeeded,
-            failed,
-        })
+        Ok(HandleResult { succeeded, failed })
     }
 }

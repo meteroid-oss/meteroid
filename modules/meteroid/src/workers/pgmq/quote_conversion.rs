@@ -70,7 +70,7 @@ impl PgmqHandler for QuoteConversion {
                                 quote_id.as_uuid(),
                                 e
                             );
-                            Err((msg_id, format!("quote {}: {e:?}", quote_id.as_uuid())))
+                            Err(HandleResult::fail(msg_id, &e))
                         }
                     }
                 })

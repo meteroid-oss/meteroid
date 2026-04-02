@@ -373,7 +373,7 @@ impl PgmqHandler for WebhookOut {
         for (msg_id, result) in results {
             match result {
                 Ok(id) => succeeded.push(id),
-                Err(e) => failed.push((msg_id, format!("{e:?}"))),
+                Err(e) => failed.push(HandleResult::fail(msg_id, &e)),
             }
         }
 

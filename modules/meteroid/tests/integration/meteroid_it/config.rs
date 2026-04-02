@@ -60,6 +60,5 @@ pub fn mocked_config(
         domains_whitelist: None,
         admin_organization_id: None,
         redis: Default::default(),
-        dlq_alert_webhook_url: None,
     }
 }

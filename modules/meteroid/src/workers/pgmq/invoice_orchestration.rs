@@ -57,7 +57,7 @@ impl PgmqHandler for InvoiceOrchestration {
                     log::error!(
                         "Failed to handle invoice orchestration message {msg_id:?}: {err:?}"
                     );
-                    failed.push((msg_id, format!("{err:?}")));
+                    failed.push(HandleResult::fail(msg_id, &err));
                 }
                 Err(join_err) => {
                     log::error!("Task panicked during invoice orchestration: {join_err}");
@@ -65,23 +65,17 @@ impl PgmqHandler for InvoiceOrchestration {
             }
         }
 
-        Ok(HandleResult {
-            succeeded,
-            failed,
-        })
+        Ok(HandleResult { succeeded, failed })
     }
 }
 
-async fn process_event(
-    store: &Store,
-    services: &Services,
-    event: OutboxEvent,
-) -> PgmqResult<()> {
+async fn process_event(store: &Store, services: &Services, event: OutboxEvent) -> PgmqResult<()> {
     let tenant_id = event.tenant_id();
     match event {
         OutboxEvent::InvoiceFinalized(event) => {
             // request the pdf to be generated
             let evt: StoreResult<PgmqMessageNew> = InvoicePdfRequestEvent::new(
+                tenant_id,
                 event.invoice_id,
                 false, // we do not want to send the email yet
             )
@@ -117,7 +111,7 @@ async fn process_event(
         OutboxEvent::CreditNoteFinalized(event) => {
             // request the credit note pdf to be generated
             let evt: StoreResult<PgmqMessageNew> =
-                CreditNotePdfRequestEvent::new(event.credit_note_id).try_into();
+                CreditNotePdfRequestEvent::new(tenant_id, event.credit_note_id).try_into();
             store
                 .pgmq_send_batch(
                     PgmqQueue::CreditNotePdfRequest,

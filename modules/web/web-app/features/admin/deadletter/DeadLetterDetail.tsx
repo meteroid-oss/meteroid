@@ -14,7 +14,7 @@ import {
 } from '@md/ui'
 import { ArrowLeftIcon, RefreshCwIcon, XCircleIcon } from 'lucide-react'
 import { useState } from 'react'
-import { useNavigate, useParams } from 'react-router-dom'
+import { Link, useNavigate, useParams } from 'react-router-dom'
 import { toast } from 'sonner'
 
 import { getStatusConfig } from '@/features/admin/deadletter/statusConfig'
@@ -113,18 +113,43 @@ export const DeadLetterDetail = () => {
         </div>
       )}
 
+      {entry.requeuedPgmqMsgId != null && entry.requeuedPgmqMsgId !== 0n && (
+        <div className="flex items-center gap-2 p-3 bg-muted rounded-md text-sm">
+          <RefreshCwIcon size={14} className="text-muted-foreground" />
+          <span>
+            Requeued as PGMQ message <span className="font-mono">{String(entry.requeuedPgmqMsgId)}</span>
+            {entry.requeuedDeadLetterId && (
+              <>
+                {' — '}
+                <Link to={`../${entry.requeuedDeadLetterId}`} className="text-primary underline">
+                  failed again (view)
+                </Link>
+              </>
+            )}
+          </span>
+        </div>
+      )}
+
       <div className="grid grid-cols-2 gap-4 max-w-2xl">
         <InfoRow label="Queue" value={entry.queue} mono />
         <InfoRow label="PGMQ Message ID" value={String(entry.pgmqMsgId)} mono />
+        {entry.organizationName && (
+          <InfoRow
+            label="Organization"
+            value={`${entry.organizationName} (${entry.organizationSlug})`}
+          />
+        )}
+        {entry.tenantName && (
+          <InfoRow
+            label="Tenant"
+            value={`${entry.tenantName} (${entry.tenantSlug})`}
+          />
+        )}
         <InfoRow label="Read Count" value={String(entry.readCount)} />
         <InfoRow label="Enqueued At" value={parseAndFormatDateTime(entry.enqueuedAt)} />
         <InfoRow label="Dead-lettered At" value={parseAndFormatDateTime(entry.deadLetteredAt)} />
         {entry.resolvedAt && (
           <InfoRow label="Resolved At" value={parseAndFormatDateTime(entry.resolvedAt)} />
-        )}
-        {entry.resolvedBy && <InfoRow label="Resolved By" value={entry.resolvedBy} mono />}
-        {entry.requeuedPgmqMsgId != null && entry.requeuedPgmqMsgId !== 0n && (
-          <InfoRow label="Requeued PGMQ ID" value={String(entry.requeuedPgmqMsgId)} mono />
         )}
       </div>
 

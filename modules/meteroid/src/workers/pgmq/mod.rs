@@ -4,7 +4,6 @@ use std::time::Duration;
 
 mod bi_aggregation;
 mod credit_note_pdf_render;
-pub(crate) mod dlq_alert;
 mod error;
 mod hubspot_sync;
 

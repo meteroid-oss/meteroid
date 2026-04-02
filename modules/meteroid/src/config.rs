@@ -87,9 +87,6 @@ pub struct Config {
 
     #[envconfig(nested)]
     pub redis: RedisConfig,
-
-    #[envconfig(from = "DLQ_ALERT_WEBHOOK_URL")]
-    pub dlq_alert_webhook_url: Option<String>,
 }
 
 impl Config {

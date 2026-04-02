@@ -58,9 +58,7 @@ impl PgmqHandler for CreditNotePdfRender {
                     credit_note_id,
                     error,
                 } => {
-                    log::warn!(
-                        "Failed to generate pdf for credit note {credit_note_id}: {error}"
-                    );
+                    log::warn!("Failed to generate pdf for credit note {credit_note_id}: {error}");
                     failed_credit_note_ids.push((*credit_note_id, error.clone()));
                 }
             }

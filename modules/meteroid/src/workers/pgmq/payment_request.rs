@@ -70,7 +70,7 @@ impl PgmqHandler for PaymentRequest {
                         event.invoice_id,
                         err
                     );
-                    failed.push((msg_id, format!("{err:?}")));
+                    failed.push(HandleResult::fail(msg_id, &err));
                 }
             }
         }

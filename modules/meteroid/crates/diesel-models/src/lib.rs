@@ -29,7 +29,6 @@ pub mod subscriptions;
 
 pub mod accounting;
 pub mod add_ons;
-pub mod dead_letter;
 pub mod applied_coupons;
 pub mod bank_accounts;
 pub mod checkout_sessions;
@@ -37,6 +36,7 @@ pub mod coupon_plans;
 pub mod coupons;
 pub mod customer_balance_txs;
 pub mod customer_payment_methods;
+pub mod dead_letter;
 pub mod extend;
 pub mod historical_rates_from_usd;
 pub mod invoicing_entities;

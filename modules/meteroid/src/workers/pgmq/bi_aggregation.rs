@@ -96,7 +96,7 @@ impl PgmqHandler for BiAggregation {
                             }
                             Err(e) => {
                                 log::error!("Failed to process BI aggregation event: {:?}", e);
-                                Err((msg_id, format!("{:?}", e)))
+                                Err(HandleResult::fail(msg_id, &e))
                             }
                         }
                     }
