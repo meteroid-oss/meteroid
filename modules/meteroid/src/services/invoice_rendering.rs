@@ -332,7 +332,7 @@ impl PdfRenderingService {
             {
                 Err(error) => GenerateResult::Failure {
                     invoice_id,
-                    error: error.to_string(),
+                    error: format!("{error:?}"),
                 },
                 Ok(pdf_id) => GenerateResult::Success {
                     invoice_id,

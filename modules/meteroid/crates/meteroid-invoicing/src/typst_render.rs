@@ -19,6 +19,14 @@ static TEMPLATE_CORE: &str = include_str!("../templates/template.typ");
 static MAIN_TEMPLATE: &str = include_str!("../templates/main.typ");
 
 static INTER_VARIABLE_FONT: &[u8] = include_bytes!("../assets/fonts/Inter-Variable.ttf");
+static NOTO_SANS_HEBREW: &[u8] = include_bytes!("../assets/fonts/NotoSansHebrew-Regular.ttf");
+static NOTO_SANS_ARABIC: &[u8] = include_bytes!("../assets/fonts/NotoSansArabic-Regular.ttf");
+static NOTO_SANS_DEVANAGARI: &[u8] =
+    include_bytes!("../assets/fonts/NotoSansDevanagari-Regular.ttf");
+static NOTO_SANS_BENGALI: &[u8] = include_bytes!("../assets/fonts/NotoSansBengali-Regular.ttf");
+static NOTO_SANS_THAI: &[u8] = include_bytes!("../assets/fonts/NotoSansThai-Regular.ttf");
+static NOTO_SANS_TAMIL: &[u8] = include_bytes!("../assets/fonts/NotoSansTamil-Regular.ttf");
+static NOTO_SANS_CJK: &[u8] = include_bytes!("../assets/fonts/NotoSansCJKsc-Regular.otf");
 static WORDMARK_LOGO: &[u8] = include_bytes!("../assets/wordmark.svg");
 static LOGO: &[u8] = include_bytes!("../assets/logo.png");
 
@@ -483,15 +491,31 @@ fn format_currency_dec(amount: Decimal, currency: &iso::Currency) -> String {
     rusty_money::Money::from_decimal(amount, currency).to_string()
 }
 
+pub(crate) fn load_fonts() -> Result<Vec<Font>, InvoicingError> {
+    fn load(data: &'static [u8], name: &str) -> Result<Font, InvoicingError> {
+        Font::new(Bytes::new(data), 0)
+            .ok_or_else(|| InvoicingError::I18nError(format!("Failed to load {name} font")))
+    }
+
+    Ok(vec![
+        load(INTER_VARIABLE_FONT, "Inter")?,
+        load(NOTO_SANS_HEBREW, "Noto Sans Hebrew")?,
+        load(NOTO_SANS_ARABIC, "Noto Sans Arabic")?,
+        load(NOTO_SANS_DEVANAGARI, "Noto Sans Devanagari")?,
+        load(NOTO_SANS_BENGALI, "Noto Sans Bengali")?,
+        load(NOTO_SANS_THAI, "Noto Sans Thai")?,
+        load(NOTO_SANS_TAMIL, "Noto Sans Tamil")?,
+        load(NOTO_SANS_CJK, "Noto Sans CJK")?,
+    ])
+}
+
 pub struct TypstInvoiceRenderer {
     engine: TypstEngine,
 }
 
 impl TypstInvoiceRenderer {
     pub fn new() -> Result<Self, InvoicingError> {
-        let font = Font::new(Bytes::new(INTER_VARIABLE_FONT), 0).ok_or(
-            InvoicingError::I18nError("Failed to load Inter variable font".to_string()),
-        )?;
+        let fonts = load_fonts()?;
 
         let engine = TypstEngine::builder()
             .with_static_source_file_resolver([
@@ -501,7 +525,7 @@ impl TypstInvoiceRenderer {
             ])
             .with_static_file_resolver([("wordmark.svg", WORDMARK_LOGO)])
             .with_static_file_resolver([("logo.png", LOGO)])
-            .fonts([font])
+            .fonts(fonts)
             .build();
 
         Ok(TypstInvoiceRenderer { engine })

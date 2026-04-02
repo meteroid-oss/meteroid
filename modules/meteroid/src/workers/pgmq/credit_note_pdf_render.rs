@@ -51,7 +51,13 @@ impl PgmqHandler for CreditNotePdfRender {
             .iter()
             .filter_map(|x| match x {
                 CreditNoteGenerateResult::Success { credit_note_id, .. } => Some(*credit_note_id),
-                _ => None,
+                CreditNoteGenerateResult::Failure {
+                    credit_note_id,
+                    error,
+                } => {
+                    log::warn!("Failed to generate pdf for credit note {credit_note_id}: {error}");
+                    None
+                }
             })
             .collect();
 

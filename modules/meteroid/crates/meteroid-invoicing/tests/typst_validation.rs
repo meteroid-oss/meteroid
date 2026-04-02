@@ -15,6 +15,7 @@ use meteroid_invoicing::{
 use rust_decimal::Decimal;
 use rusty_money::{Money, iso};
 use std::collections::HashMap;
+use std::path::Path;
 use std::str::FromStr;
 
 #[tokio::test]
@@ -50,6 +51,10 @@ async fn test_typst_invoice_with_full_data() {
     );
 
     let pdf_data = result.unwrap();
+
+    let output_path = Path::new("benchmark_invoice.pdf");
+    std::fs::write(output_path, &pdf_data).unwrap();
+
     assert!(!pdf_data.is_empty(), "Generated PDF should not be empty");
     assert!(pdf_data.len() > 1000, "Generated PDF seems too small");
     assert!(
@@ -211,7 +216,7 @@ fn create_full_invoice() -> Invoice {
             exchange_rate: Some(Decimal::from_str("1.08").unwrap()),
         },
         customer: Customer {
-            name: "Premium Customer Ltd".to_string(),
+            name: "Premium Customer Ltd لد語தא어简".to_string(),
             legal_number: Some("987654321".to_string()),
             address: Address {
                 line1: Some("321 Premium Plaza".to_string()),

@@ -11,14 +11,12 @@ use rust_decimal::prelude::ToPrimitive;
 use rusty_money::{FormattableCurrency, iso};
 use typst::foundations::{Bytes, Dict, IntoValue};
 use typst::layout::PagedDocument;
-use typst::text::Font;
 use typst_as_lib::TypstEngine;
 
 static CREDIT_NOTE_CORE: &str = include_str!("../templates/credit_note.typ");
 static TEMPLATE_CORE: &str = include_str!("../templates/template.typ");
 static CREDIT_NOTE_MAIN_TEMPLATE: &str = include_str!("../templates/credit_note_main.typ");
 
-static INTER_VARIABLE_FONT: &[u8] = include_bytes!("../assets/fonts/Inter-Variable.ttf");
 static WORDMARK_LOGO: &[u8] = include_bytes!("../assets/wordmark.svg");
 static LOGO: &[u8] = include_bytes!("../assets/logo.png");
 
@@ -430,9 +428,7 @@ pub struct TypstCreditNoteRenderer {
 
 impl TypstCreditNoteRenderer {
     pub fn new() -> Result<Self, InvoicingError> {
-        let font = Font::new(Bytes::new(INTER_VARIABLE_FONT), 0).ok_or(
-            InvoicingError::I18nError("Failed to load Inter variable font".to_string()),
-        )?;
+        let fonts = crate::typst_render::load_fonts()?;
 
         let engine = TypstEngine::builder()
             .with_static_source_file_resolver([
@@ -442,7 +438,7 @@ impl TypstCreditNoteRenderer {
             ])
             .with_static_file_resolver([("wordmark.svg", WORDMARK_LOGO)])
             .with_static_file_resolver([("logo.png", LOGO)])
-            .fonts([font])
+            .fonts(fonts)
             .build();
 
         Ok(TypstCreditNoteRenderer { engine })
