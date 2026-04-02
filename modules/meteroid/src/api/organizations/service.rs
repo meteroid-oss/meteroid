@@ -49,11 +49,18 @@ impl OrganizationsService for OrganizationsServiceComponents {
             .await
             .map_err(Into::<OrganizationApiError>::into)?;
 
+        let is_platform_admin = self
+            .store
+            .settings
+            .admin_organization
+            .is_some_and(|admin_org| admin_org == organization_id);
+
         let response = GetCurrentOrganizationResponse {
             organization: Some(mapping::organization::domain_with_tenants_to_proto(
                 organization,
                 None,
             )),
+            is_platform_admin,
         };
 
         Ok(Response::new(response))

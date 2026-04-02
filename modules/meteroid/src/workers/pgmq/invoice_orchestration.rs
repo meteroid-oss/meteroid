@@ -1,10 +1,8 @@
 use crate::workers::pgmq::PgmqResult;
 use crate::workers::pgmq::error::PgmqError;
 use crate::workers::pgmq::outbox::to_outbox_events;
-use crate::workers::pgmq::processor::PgmqHandler;
-use common_domain::pgmq::MessageId;
-use error_stack::{Report, ResultExt};
-use futures::future::try_join_all;
+use crate::workers::pgmq::processor::{HandleResult, PgmqHandler};
+use error_stack::ResultExt;
 use meteroid_store::domain::PaymentStatusEnum;
 use meteroid_store::domain::outbox_event::OutboxEvent;
 use meteroid_store::domain::pgmq::{
@@ -28,7 +26,7 @@ impl InvoiceOrchestration {
 
 #[async_trait::async_trait]
 impl PgmqHandler for InvoiceOrchestration {
-    async fn handle(&self, msgs: &[PgmqMessage]) -> PgmqResult<Vec<MessageId>> {
+    async fn handle(&self, msgs: &[PgmqMessage]) -> PgmqResult<HandleResult> {
         let msg_id_to_out_evt = to_outbox_events(msgs).await?;
 
         // TODO optimize by grouping by event type
@@ -40,87 +38,100 @@ impl PgmqHandler for InvoiceOrchestration {
                     let services_clone = self.services.clone();
 
                     async move {
-                        let tenant_id = event.tenant_id();
-                        match event {
-                            OutboxEvent::InvoiceFinalized(event) => {
-                                // request the pdf to be generated
-                                let evt: StoreResult<PgmqMessageNew> = InvoicePdfRequestEvent::new(
-                                    event.invoice_id,
-                                    false, // we do not want to send the email yet
-                                )
-                                .try_into();
-                                store_clone
-                                    .pgmq_send_batch(
-                                        PgmqQueue::InvoicePdfRequest,
-                                        vec![evt.change_context(PgmqError::HandleMessages)?],
-                                    )
-                                    .await
-                                    .change_context(PgmqError::HandleMessages)?;
-                            }
-                            OutboxEvent::InvoiceAccountingPdfGenerated(event) => {
-                                services_clone
-                                    .on_invoice_accounting_pdf_generated(*event, tenant_id)
-                                    .await
-                                    .change_context(PgmqError::HandleMessages)?;
-
-                                return Ok(msg_id);
-                            }
-                            OutboxEvent::InvoicePaid(event) => {
-                                services_clone
-                                    .on_invoice_paid(*event, tenant_id)
-                                    .await
-                                    .change_context(PgmqError::HandleMessages)?;
-
-                                return Ok(msg_id);
-                            }
-                            OutboxEvent::PaymentTransactionSaved(event)
-                                if event.status == PaymentStatusEnum::Settled =>
-                            {
-                                services_clone
-                                    .on_payment_transaction_settled(*event)
-                                    .await
-                                    .change_context(PgmqError::HandleMessages)?;
-
-                                return Ok(msg_id);
-                            }
-                            OutboxEvent::CreditNoteFinalized(event) => {
-                                // request the credit note pdf to be generated
-                                let evt: StoreResult<PgmqMessageNew> =
-                                    CreditNotePdfRequestEvent::new(event.credit_note_id).try_into();
-                                store_clone
-                                    .pgmq_send_batch(
-                                        PgmqQueue::CreditNotePdfRequest,
-                                        vec![evt.change_context(PgmqError::HandleMessages)?],
-                                    )
-                                    .await
-                                    .change_context(PgmqError::HandleMessages)?;
-                            }
-
-                            // OutboxEvent::PaymentTransactionSaved(event) if event.status == PaymentStatusEnum::Failed or Cancelled ?
-                            // => notify customer if failed, delete draft/checkout invoice, automated payment retry
-                            //
-                            // OutboxEvent::PaymentReceiptGenerated(event) =>  {
-                            //     // we can send the email. Check if the invoice is paid first
-                            //
-                            // },
-                            _ => {
-                                log::warn!("Unhandled outbox event type: {:?}", event);
-                                return Err(PgmqError::HandleMessages).attach("Invalid event type");
-                            }
-                        }
-
-                        Ok::<MessageId, Report<PgmqError>>(msg_id)
+                        let result = process_event(&store_clone, &services_clone, event).await;
+                        (msg_id, result)
                     }
                 })
             })
             .collect();
 
-        let results = try_join_all(tasks)
-            .await
-            .change_context(PgmqError::HandleMessages)?;
+        let results = futures::future::join_all(tasks).await;
 
-        let ids: Vec<_> = results.into_iter().filter_map(Result::ok).collect();
+        let mut succeeded = Vec::new();
+        let mut failed = Vec::new();
 
-        Ok(ids)
+        for result in results {
+            match result {
+                Ok((msg_id, Ok(()))) => succeeded.push(msg_id),
+                Ok((msg_id, Err(err))) => {
+                    log::error!(
+                        "Failed to handle invoice orchestration message {msg_id:?}: {err:?}"
+                    );
+                    failed.push(HandleResult::fail(msg_id, &err));
+                }
+                Err(join_err) => {
+                    log::error!("Task panicked during invoice orchestration: {join_err}");
+                }
+            }
+        }
+
+        Ok(HandleResult { succeeded, failed })
     }
+}
+
+async fn process_event(store: &Store, services: &Services, event: OutboxEvent) -> PgmqResult<()> {
+    let tenant_id = event.tenant_id();
+    match event {
+        OutboxEvent::InvoiceFinalized(event) => {
+            // request the pdf to be generated
+            let evt: StoreResult<PgmqMessageNew> = InvoicePdfRequestEvent::new(
+                tenant_id,
+                event.invoice_id,
+                false, // we do not want to send the email yet
+            )
+            .try_into();
+            store
+                .pgmq_send_batch(
+                    PgmqQueue::InvoicePdfRequest,
+                    vec![evt.change_context(PgmqError::HandleMessages)?],
+                )
+                .await
+                .change_context(PgmqError::HandleMessages)?;
+        }
+        OutboxEvent::InvoiceAccountingPdfGenerated(event) => {
+            services
+                .on_invoice_accounting_pdf_generated(*event, tenant_id)
+                .await
+                .change_context(PgmqError::HandleMessages)?;
+        }
+        OutboxEvent::InvoicePaid(event) => {
+            services
+                .on_invoice_paid(*event, tenant_id)
+                .await
+                .change_context(PgmqError::HandleMessages)?;
+        }
+        OutboxEvent::PaymentTransactionSaved(event)
+            if event.status == PaymentStatusEnum::Settled =>
+        {
+            services
+                .on_payment_transaction_settled(*event)
+                .await
+                .change_context(PgmqError::HandleMessages)?;
+        }
+        OutboxEvent::CreditNoteFinalized(event) => {
+            // request the credit note pdf to be generated
+            let evt: StoreResult<PgmqMessageNew> =
+                CreditNotePdfRequestEvent::new(tenant_id, event.credit_note_id).try_into();
+            store
+                .pgmq_send_batch(
+                    PgmqQueue::CreditNotePdfRequest,
+                    vec![evt.change_context(PgmqError::HandleMessages)?],
+                )
+                .await
+                .change_context(PgmqError::HandleMessages)?;
+        }
+        // OutboxEvent::PaymentTransactionSaved(event) if event.status == PaymentStatusEnum::Failed or Cancelled ?
+        // => notify customer if failed, delete draft/checkout invoice, automated payment retry
+        //
+        // OutboxEvent::PaymentReceiptGenerated(event) =>  {
+        //     // we can send the email. Check if the invoice is paid first
+        //
+        // },
+        _ => {
+            log::warn!("Unhandled outbox event type: {:?}", event);
+            return Err(PgmqError::HandleMessages).attach("Invalid event type");
+        }
+    }
+
+    Ok(())
 }

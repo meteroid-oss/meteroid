@@ -1,6 +1,6 @@
 use crate::workers::pgmq::PgmqResult;
 use crate::workers::pgmq::error::PgmqError;
-use crate::workers::pgmq::processor::PgmqHandler;
+use crate::workers::pgmq::processor::{HandleResult, PgmqHandler};
 use cached::proc_macro::cached;
 use common_domain::ids::{ConnectorId, CustomerId, TenantId};
 use common_domain::pgmq::MessageId;
@@ -490,7 +490,7 @@ impl HubspotSync {
 
 #[async_trait::async_trait]
 impl PgmqHandler for HubspotSync {
-    async fn handle(&self, msgs: &[PgmqMessage]) -> PgmqResult<Vec<MessageId>> {
+    async fn handle(&self, msgs: &[PgmqMessage]) -> PgmqResult<HandleResult> {
         let events = self.convert_to_events(msgs)?;
         let (connected_tenants, orphan_msg_ids) = self.get_connected_tenants(events).await?;
 
@@ -498,7 +498,7 @@ impl PgmqHandler for HubspotSync {
         let mut success_msg_ids = orphan_msg_ids;
 
         if connected_tenants.is_empty() {
-            return Ok(success_msg_ids);
+            return Ok(HandleResult::from_succeeded(success_msg_ids));
         }
 
         let tasks = connected_tenants
@@ -525,7 +525,7 @@ impl PgmqHandler for HubspotSync {
             }
         }
 
-        Ok(success_msg_ids)
+        Ok(HandleResult::from_succeeded(success_msg_ids))
     }
 }
 

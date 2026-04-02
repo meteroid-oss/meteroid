@@ -62,6 +62,10 @@ pub mod sql_types {
     pub struct CycleActionEnum;
 
     #[derive(diesel::query_builder::QueryId, diesel::sql_types::SqlType)]
+    #[diesel(postgres_type(name = "DeadLetterStatusEnum"))]
+    pub struct DeadLetterStatusEnum;
+
+    #[derive(diesel::query_builder::QueryId, diesel::sql_types::SqlType)]
     #[diesel(postgres_type(name = "FeeTypeEnum"))]
     pub struct FeeTypeEnum;
 
@@ -702,6 +706,29 @@ diesel::table! {
         card_last4 -> Nullable<Text>,
         card_exp_month -> Nullable<Int4>,
         card_exp_year -> Nullable<Int4>,
+    }
+}
+
+diesel::table! {
+    use diesel::sql_types::*;
+    use super::sql_types::DeadLetterStatusEnum;
+
+    dead_letter_message (id) {
+        id -> Uuid,
+        tenant_id -> Nullable<Uuid>,
+        queue -> Text,
+        pgmq_msg_id -> Int8,
+        message -> Nullable<Jsonb>,
+        headers -> Nullable<Jsonb>,
+        read_ct -> Int4,
+        enqueued_at -> Timestamptz,
+        dead_lettered_at -> Timestamptz,
+        last_error -> Nullable<Text>,
+        status -> DeadLetterStatusEnum,
+        resolved_at -> Nullable<Timestamptz>,
+        resolved_by -> Nullable<Uuid>,
+        requeued_pgmq_msg_id -> Nullable<Int8>,
+        created_at -> Timestamptz,
     }
 }
 
@@ -1410,6 +1437,7 @@ diesel::joinable!(customer_connection -> connector (connector_id));
 diesel::joinable!(customer_connection -> customer (customer_id));
 diesel::joinable!(customer_payment_method -> customer_connection (connection_id));
 diesel::joinable!(customer_payment_method -> tenant (tenant_id));
+diesel::joinable!(dead_letter_message -> tenant (tenant_id));
 diesel::joinable!(invoice -> customer (customer_id));
 diesel::joinable!(invoice -> invoicing_entity (invoicing_entity_id));
 diesel::joinable!(invoice -> plan_version (plan_version_id));
@@ -1512,6 +1540,7 @@ diesel::allow_tables_to_appear_in_same_query!(
     customer_balance_tx,
     customer_connection,
     customer_payment_method,
+    dead_letter_message,
     express_onboarding_link,
     historical_rates_from_usd,
     invoice,

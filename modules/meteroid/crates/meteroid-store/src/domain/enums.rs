@@ -376,6 +376,14 @@ pub enum QuoteStatusEnum {
     Cancelled,
 }
 
+#[derive(o2o, Serialize, Deserialize, Debug, Clone, PartialEq, Eq)]
+#[map_owned(diesel_enums::DeadLetterStatusEnum)]
+pub enum DeadLetterStatus {
+    Pending,
+    Requeued,
+    Discarded,
+}
+
 #[derive(o2o, Serialize, Deserialize, Debug, Clone, PartialEq, Eq, Hash)]
 #[map_owned(diesel_enums::BatchJobTypeEnum)]
 pub enum BatchJobTypeEnum {

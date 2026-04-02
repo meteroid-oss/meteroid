@@ -842,8 +842,13 @@ impl TryInto<PgmqMessageNew> for OutboxEvent {
     type Error = StoreErrorReport;
 
     fn try_into(self) -> Result<PgmqMessageNew, Self::Error> {
+        let tenant_id = Some(self.tenant_id());
         let message = Some(common_domain::pgmq::Message(self.payload_json()?));
         let headers = Some(self.try_into()?);
-        Ok(PgmqMessageNew { message, headers })
+        Ok(PgmqMessageNew {
+            message,
+            headers,
+            tenant_id,
+        })
     }
 }

@@ -1,7 +1,7 @@
 use crate::services::storage::{ObjectStoreService, Prefix};
 use crate::workers::pgmq::PgmqResult;
 use crate::workers::pgmq::error::PgmqError;
-use crate::workers::pgmq::processor::PgmqHandler;
+use crate::workers::pgmq::processor::{HandleResult, PgmqHandler};
 use common_domain::ids::BaseId;
 use common_domain::ids::TenantId;
 use common_domain::pgmq::MessageId;
@@ -309,35 +309,39 @@ impl EmailSender {
 
 #[async_trait::async_trait]
 impl PgmqHandler for EmailSender {
-    async fn handle(&self, msgs: &[PgmqMessage]) -> PgmqResult<Vec<MessageId>> {
+    async fn handle(&self, msgs: &[PgmqMessage]) -> PgmqResult<HandleResult> {
         let events = self.convert_to_events(msgs)?;
 
-        let mut success_msg_ids = vec![];
+        let mut result = HandleResult {
+            succeeded: vec![],
+            failed: vec![],
+        };
 
         let tasks = events
             .into_iter()
             .map(|(ev, id)| {
                 tokio::spawn({
                     let value = self.clone();
-                    async move { value.send_email(ev).await.map(|()| id) }
+                    async move { (id, value.send_email(ev).await) }
                 })
             })
             .collect_vec();
 
         for task in tasks {
             match task.await {
-                Ok(Ok(id)) => {
-                    success_msg_ids.push(id);
+                Ok((id, Ok(()))) => {
+                    result.succeeded.push(id);
                 }
-                Ok(Err(e)) => {
-                    log::warn!("Failed to sync connected tenant: {e:?}");
+                Ok((id, Err(e))) => {
+                    log::warn!("Failed to send email: {e:?}");
+                    result.failed.push(HandleResult::fail(id, &e));
                 }
                 Err(e) => {
-                    log::warn!("Sync task failed: {e:?}");
+                    log::warn!("Email send task panicked: {e:?}");
                 }
             }
         }
 
-        Ok(success_msg_ids)
+        Ok(result)
     }
 }

@@ -53,7 +53,11 @@ pub async fn start_api_server(
         .layer(common_middleware::metric::create())
         .layer(
             meteroid_middleware::server::auth::create(config.jwt_secret.clone(), store.clone())
-                .filter(|path| common_filters::only_api(path) || common_filters::only_portal(path)),
+                .filter(|path| {
+                    common_filters::only_api(path)
+                        || common_filters::only_portal(path)
+                        || common_filters::only_admin(path)
+                }),
         )
         .layer(
             common_middleware::auth::create_admin(&config.internal_auth)
@@ -84,6 +88,7 @@ pub async fn start_api_server(
         ))
         .add_service(api::connectors::service(store.clone(), services.clone()))
         .add_service(api::coupons::service(store.clone()))
+        .add_service(api::deadletter::service(store.clone()))
         .add_service(api::creditnotes::service(
             store.clone(),
             credit_note_preview_rendering,

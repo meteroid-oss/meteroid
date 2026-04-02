@@ -25,6 +25,7 @@ import { NavLink, Outlet, useLocation, useNavigate } from 'react-router-dom'
 import { NavMain } from '@/components/layouts/TenantLayout/components/NavMain'
 import { getFilteredSidebarItems } from '@/components/layouts/TenantLayout/utils'
 import { TenantDropdown } from '@/components/layouts/shared/LayoutHeader/TenantDropdown'
+import { AdminToolbox } from '@/features/admin/AdminToolbox'
 import { useLogout } from '@/hooks/useLogout'
 import { useQuery } from '@/lib/connectrpc'
 import { getInstance } from '@/rpc/api/instance/v1/instance-InstanceService_connectquery'
@@ -50,13 +51,15 @@ export const TenantLayoutOutlet = () => {
   const navigate = useNavigate()
   const logout = useLogout()
   const meData = useQuery(me)?.data
-  const organizationData = useQuery(getCurrentOrganizations)?.data?.organization
+  const orgResponse = useQuery(getCurrentOrganizations)?.data
+  const organizationData = orgResponse?.organization
   const getInstanceQuery = useQuery(getInstance)
 
   const { toggleSidebar, state } = useSidebar()
 
   const isExpress = organizationData?.isExpress ?? false
-  const filteredSidebarItems = getFilteredSidebarItems(isExpress)
+  const isPlatformAdmin = orgResponse?.isPlatformAdmin ?? false
+  const filteredSidebarItems = getFilteredSidebarItems(isExpress, isPlatformAdmin)
 
   const isCollapsed = state === 'collapsed'
 
@@ -221,6 +224,7 @@ export const TenantLayoutOutlet = () => {
       </Sidebar>
       <SidebarInset className="relative">
         <Outlet />
+        {isPlatformAdmin && pathname.includes('/admin') && <AdminToolbox />}
       </SidebarInset>
     </>
   )

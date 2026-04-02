@@ -58,6 +58,7 @@ pub fn mocked_config(
         public_url: "http://localhost:8080".to_owned(),
         oauth: OauthConfig::dummy(),
         domains_whitelist: None,
+        admin_organization_id: None,
         redis: Default::default(),
     }
 }

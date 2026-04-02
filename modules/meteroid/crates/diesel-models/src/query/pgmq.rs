@@ -33,7 +33,8 @@ pub async fn read(
     limit: MessageReadQty,
     vt: MessageReadVtSec,
 ) -> DbResult<Vec<PgmqMessageRow>> {
-    let raw_query = r"SELECT * from pgmq.read($1, $2, $3)";
+    let raw_query =
+        r"SELECT msg_id, read_ct, message, headers, enqueued_at FROM pgmq.read($1, $2, $3)";
 
     diesel::sql_query(raw_query)
         .bind::<sql_types::Text, _>(queue)
@@ -76,7 +77,9 @@ pub async fn list_archived(
     queue: &str,
     ids: &[MessageId],
 ) -> DbResult<Vec<PgmqMessageRow>> {
-    let raw_query = format!(r"SELECT * from pgmq.a_{queue} where msg_id = any($1)");
+    let raw_query = format!(
+        r"SELECT msg_id, read_ct, message, headers, enqueued_at FROM pgmq.a_{queue} WHERE msg_id = any($1)"
+    );
 
     diesel::sql_query(raw_query)
         .bind::<sql_types::Array<sql_types::BigInt>, _>(ids)

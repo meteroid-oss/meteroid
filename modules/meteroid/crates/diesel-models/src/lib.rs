@@ -36,6 +36,7 @@ pub mod coupon_plans;
 pub mod coupons;
 pub mod customer_balance_txs;
 pub mod customer_payment_methods;
+pub mod dead_letter;
 pub mod extend;
 pub mod historical_rates_from_usd;
 pub mod invoicing_entities;

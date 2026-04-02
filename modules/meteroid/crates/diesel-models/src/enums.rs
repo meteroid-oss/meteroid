@@ -379,6 +379,15 @@ pub enum BatchJobStatusEnum {
 }
 
 #[derive(diesel_derive_enum::DbEnum, Debug, Clone, PartialEq, Eq)]
+#[ExistingTypePath = "crate::schema::sql_types::DeadLetterStatusEnum"]
+#[DbValueStyle = "SCREAMING_SNAKE_CASE"]
+pub enum DeadLetterStatusEnum {
+    Pending,
+    Requeued,
+    Discarded,
+}
+
+#[derive(diesel_derive_enum::DbEnum, Debug, Clone, PartialEq, Eq)]
 #[ExistingTypePath = "crate::schema::sql_types::BatchJobChunkStatusEnum"]
 #[DbValueStyle = "SCREAMING_SNAKE_CASE"]
 pub enum BatchJobChunkStatusEnum {

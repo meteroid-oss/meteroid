@@ -7,6 +7,7 @@ use common_config::analytics::AnalyticsConfig;
 use common_config::auth::InternalAuthConfig;
 use common_config::common::CommonConfig;
 use common_config::idempotency::IdempotencyConfig;
+use common_domain::ids::OrganizationId;
 use meteroid_mailer::config::MailerConfig;
 use meteroid_oauth::config::OauthConfig;
 use meteroid_store::store::PgConfig;
@@ -80,6 +81,9 @@ pub struct Config {
 
     #[envconfig(from = "DOMAINS_WHITELIST")]
     pub domains_whitelist: Option<DomainWhitelist>,
+
+    #[envconfig(from = "ADMIN_ORGANIZATION_ID")]
+    pub admin_organization_id: Option<OrganizationId>,
 
     #[envconfig(nested)]
     pub redis: RedisConfig,

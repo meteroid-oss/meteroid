@@ -1,0 +1,134 @@
+syntax = "proto3";
+
+package meteroid.admin.deadletter.v1;
+
+import "common/v1/pagination.proto";
+
+enum DeadLetterStatus {
+  DEAD_LETTER_STATUS_UNSPECIFIED = 0;
+  DEAD_LETTER_STATUS_PENDING = 1;
+  DEAD_LETTER_STATUS_REQUEUED = 2;
+  DEAD_LETTER_STATUS_DISCARDED = 3;
+}
+
+message DeadLetterEntry {
+  string id = 1;
+  optional string tenant_id = 14;
+  optional string tenant_name = 16;
+  optional string tenant_slug = 20;
+  optional string organization_id = 15;
+  optional string organization_name = 17;
+  optional string organization_slug = 18;
+  string queue = 2;
+  int64 pgmq_msg_id = 3;
+  optional string message_json = 4;
+  optional string headers_json = 5;
+  int32 read_count = 6;
+  string enqueued_at = 7;
+  string dead_lettered_at = 8;
+  optional string last_error = 9;
+  DeadLetterStatus status = 10;
+  optional string resolved_at = 11;
+  optional string resolved_by = 12;
+  optional int64 requeued_pgmq_msg_id = 13;
+  optional string requeued_dead_letter_id = 19;
+}
+
+message QueueHealth {
+  string queue = 1;
+  int64 pending_count = 2;
+  int64 requeued_count = 3;
+  int64 discarded_count = 4;
+}
+
+message ListDeadLettersRequest {
+  optional string queue = 1;
+  optional DeadLetterStatus status = 2;
+  optional string tenant_id = 5;
+  optional string organization_id = 6;
+  meteroid.common.v1.Pagination pagination = 3;
+}
+
+message ListDeadLettersResponse {
+  repeated DeadLetterEntry entries = 1;
+  meteroid.common.v1.PaginationResponse pagination_meta = 2;
+}
+
+message GetDeadLetterRequest {
+  string id = 1;
+}
+
+message GetDeadLetterResponse {
+  DeadLetterEntry entry = 1;
+}
+
+message RequeueDeadLetterRequest {
+  string id = 1;
+}
+
+message RequeueDeadLetterResponse {
+  DeadLetterEntry entry = 1;
+}
+
+message DiscardDeadLetterRequest {
+  string id = 1;
+}
+
+message DiscardDeadLetterResponse {
+  DeadLetterEntry entry = 1;
+}
+
+message BatchRequeueRequest {
+  repeated string ids = 1;
+}
+
+message BatchRequeueResponse {
+  uint32 requeued_count = 1;
+}
+
+message BatchDiscardRequest {
+  repeated string ids = 1;
+}
+
+message BatchDiscardResponse {
+  uint32 discarded_count = 1;
+}
+
+message GetQueueHealthRequest {}
+
+message GetQueueHealthResponse {
+  repeated QueueHealth queues = 1;
+}
+
+message SearchOrganizationsRequest {
+  string query = 1;
+  uint32 limit = 2;
+}
+
+message SearchOrganizationsResponse {
+  repeated OrganizationItem organizations = 1;
+}
+
+message OrganizationItem {
+  string id = 1;
+  string trade_name = 2;
+  string slug = 3;
+  repeated TenantItem tenants = 4;
+}
+
+message TenantItem {
+  string id = 1;
+  string name = 2;
+  string slug = 3;
+}
+
+service DeadLetterService {
+  rpc ListDeadLetters(ListDeadLettersRequest) returns (ListDeadLettersResponse) {}
+  rpc GetDeadLetter(GetDeadLetterRequest) returns (GetDeadLetterResponse) {}
+  rpc RequeueDeadLetter(RequeueDeadLetterRequest) returns (RequeueDeadLetterResponse) {}
+  rpc DiscardDeadLetter(DiscardDeadLetterRequest) returns (DiscardDeadLetterResponse) {}
+  rpc BatchRequeue(BatchRequeueRequest) returns (BatchRequeueResponse) {}
+  rpc BatchDiscard(BatchDiscardRequest) returns (BatchDiscardResponse) {}
+  rpc GetQueueHealth(GetQueueHealthRequest) returns (GetQueueHealthResponse) {}
+  rpc SearchOrganizations(SearchOrganizationsRequest) returns (SearchOrganizationsResponse) {}
+}

@@ -30,6 +30,7 @@ message GetCurrentOrganizationRequest {}
 
 message GetCurrentOrganizationResponse {
   OrganizationWithTenant organization = 1;
+  bool is_platform_admin = 2;
 }
 
 service OrganizationsService {

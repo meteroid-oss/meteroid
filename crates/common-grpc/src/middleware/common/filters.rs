@@ -15,3 +15,7 @@ pub fn only_api(path: &str) -> bool {
 pub fn only_portal(path: &str) -> bool {
     path.starts_with("/meteroid.portal.")
 }
+
+pub fn only_admin(path: &str) -> bool {
+    path.starts_with("/meteroid.admin.")
+}

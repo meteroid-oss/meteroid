@@ -1,10 +1,9 @@
 use crate::workers::pgmq::PgmqResult;
 use crate::workers::pgmq::error::PgmqError;
-use crate::workers::pgmq::processor::PgmqHandler;
+use crate::workers::pgmq::processor::{HandleResult, PgmqHandler};
 use common_domain::ids::BaseId;
 use common_domain::pgmq::MessageId;
 use error_stack::ResultExt;
-use futures::future::try_join_all;
 use meteroid_store::Services;
 use meteroid_store::StoreResult;
 use meteroid_store::domain::pgmq::{PgmqMessage, QuoteConversionRequestEvent};
@@ -36,7 +35,7 @@ impl QuoteConversion {
 
 #[async_trait::async_trait]
 impl PgmqHandler for QuoteConversion {
-    async fn handle(&self, msgs: &[PgmqMessage]) -> PgmqResult<Vec<MessageId>> {
+    async fn handle(&self, msgs: &[PgmqMessage]) -> PgmqResult<HandleResult> {
         let msg_id_to_out_evt = self.convert_to_events(msgs)?;
 
         let tasks: Vec<_> = msg_id_to_out_evt
@@ -44,50 +43,53 @@ impl PgmqHandler for QuoteConversion {
             .map(|(event, msg_id)| {
                 let services = self.services.clone();
 
-                tokio::spawn({
-                    async move {
-                        let QuoteConversionRequestEvent::QuoteAccepted(quote_accepted) = event;
+                tokio::spawn(async move {
+                    let QuoteConversionRequestEvent::QuoteAccepted(quote_accepted) = event;
 
-                        let tenant_id = quote_accepted.tenant_id;
-                        let quote_id = quote_accepted.quote_id;
+                    let tenant_id = quote_accepted.tenant_id;
+                    let quote_id = quote_accepted.quote_id;
 
-                        // Use system user for automated conversion
-                        let created_by = Uuid::nil();
+                    // Use system user for automated conversion
+                    let created_by = Uuid::nil();
 
-                        match services
-                            .convert_quote_to_subscription(tenant_id, quote_id, created_by)
-                            .await
-                        {
-                            Ok(result) => {
-                                log::info!(
-                                    "Quote {} converted to subscription {} successfully",
-                                    quote_id.as_uuid(),
-                                    result.subscription.id.as_uuid()
-                                );
-                                Ok::<MessageId, error_stack::Report<PgmqError>>(msg_id)
-                            }
-                            Err(e) => {
-                                log::error!(
-                                    "Failed to convert quote {} to subscription: {:?}",
-                                    quote_id.as_uuid(),
-                                    e
-                                );
-                                Err(e
-                                    .attach("Failed to convert quote to subscription")
-                                    .change_context(PgmqError::HandleMessages))
-                            }
+                    match services
+                        .convert_quote_to_subscription(tenant_id, quote_id, created_by)
+                        .await
+                    {
+                        Ok(result) => {
+                            log::info!(
+                                "Quote {} converted to subscription {} successfully",
+                                quote_id.as_uuid(),
+                                result.subscription.id.as_uuid()
+                            );
+                            Ok((msg_id, quote_id))
+                        }
+                        Err(e) => {
+                            log::error!(
+                                "Failed to convert quote {} to subscription: {:?}",
+                                quote_id.as_uuid(),
+                                e
+                            );
+                            Err(HandleResult::fail(msg_id, &e))
                         }
                     }
                 })
             })
             .collect();
 
-        let results = try_join_all(tasks)
-            .await
-            .change_context(PgmqError::HandleMessages)?;
+        let mut succeeded = Vec::new();
+        let mut failed = Vec::new();
 
-        let ids: Vec<_> = results.into_iter().filter_map(Result::ok).collect();
+        for task in tasks {
+            match task.await {
+                Ok(Ok((msg_id, _))) => succeeded.push(msg_id),
+                Ok(Err((msg_id, error))) => failed.push((msg_id, error)),
+                Err(e) => {
+                    log::error!("Quote conversion task panicked: {e:?}");
+                }
+            }
+        }
 
-        Ok(ids)
+        Ok(HandleResult { succeeded, failed })
     }
 }

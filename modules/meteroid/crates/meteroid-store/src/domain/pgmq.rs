@@ -10,6 +10,7 @@ use common_domain::pgmq::{Headers, Message, MessageId, ReadCt};
 use diesel_models::pgmq::{PgmqMessageRow, PgmqMessageRowNew};
 use o2o::o2o;
 use serde::{Deserialize, Serialize};
+use std::str::FromStr;
 use strum::Display;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Display)]
@@ -45,6 +46,27 @@ impl PgmqQueue {
     }
 }
 
+impl std::str::FromStr for PgmqQueue {
+    type Err = String;
+
+    fn from_str(s: &str) -> Result<Self, Self::Err> {
+        match s {
+            "outbox_event" => Ok(PgmqQueue::OutboxEvent),
+            "invoice_pdf_request" => Ok(PgmqQueue::InvoicePdfRequest),
+            "credit_note_pdf_request" => Ok(PgmqQueue::CreditNotePdfRequest),
+            "webhook_out" => Ok(PgmqQueue::WebhookOut),
+            "hubspot_sync" => Ok(PgmqQueue::HubspotSync),
+            "pennylane_sync" => Ok(PgmqQueue::PennylaneSync),
+            "invoice_orchestration" => Ok(PgmqQueue::InvoiceOrchestration),
+            "payment_request" => Ok(PgmqQueue::PaymentRequest),
+            "send_email_request" => Ok(PgmqQueue::SendEmailRequest),
+            "quote_conversion" => Ok(PgmqQueue::QuoteConversion),
+            "bi_aggregation" => Ok(PgmqQueue::BiAggregation),
+            _ => Err(format!("Unknown queue: {s}")),
+        }
+    }
+}
+
 #[derive(Debug, Clone, o2o)]
 #[from_owned(PgmqMessageRow)]
 pub struct PgmqMessage {
@@ -52,17 +74,114 @@ pub struct PgmqMessage {
     pub message: Option<Message>,
     pub headers: Option<Headers>,
     pub read_ct: ReadCt,
+    pub enqueued_at: NaiveDateTime,
 }
 
-#[derive(Debug, Clone, o2o)]
-#[owned_into(PgmqMessageRowNew)]
+#[derive(Debug, Clone)]
 pub struct PgmqMessageNew {
     pub message: Option<Message>,
     pub headers: Option<Headers>,
+    pub tenant_id: Option<TenantId>,
 }
 
-/// Macro to implement `PgmqEvent` and `json_value_serde` for a type
+impl From<PgmqMessageNew> for PgmqMessageRowNew {
+    fn from(val: PgmqMessageNew) -> PgmqMessageRowNew {
+        let headers = merge_tenant_into_headers(val.headers, val.tenant_id);
+        PgmqMessageRowNew {
+            message: val.message,
+            headers,
+        }
+    }
+}
+
+fn merge_tenant_into_headers(
+    existing: Option<Headers>,
+    tenant_id: Option<TenantId>,
+) -> Option<Headers> {
+    let tid = match tenant_id {
+        Some(tid) => tid,
+        None => return existing,
+    };
+
+    let mut obj = match existing {
+        Some(Headers(serde_json::Value::Object(map))) => map,
+        Some(Headers(val)) => {
+            let mut map = serde_json::Map::new();
+            map.insert("_original".to_string(), val);
+            map
+        }
+        None => serde_json::Map::new(),
+    };
+
+    obj.insert(
+        "tenant_id".to_string(),
+        serde_json::Value::String(tid.to_string()),
+    );
+
+    Some(Headers(serde_json::Value::Object(obj)))
+}
+
+/// Extract tenant_id from PGMQ message headers (set at enqueue time).
+pub fn extract_tenant_id_from_headers(headers: &Option<serde_json::Value>) -> Option<TenantId> {
+    let s = headers.as_ref()?.get("tenant_id")?.as_str()?;
+    TenantId::from_str(s).ok()
+}
+
+/// Macro to implement conversions for a pgmq message type.
+/// Use `derive_pgmq_message!(Type, tenant_id)` when `.tenant_id()` returns `TenantId`.
+/// Use `derive_pgmq_message!(Type, opt_tenant_id)` when `.tenant_id()` returns `Option<TenantId>`.
+/// Use `derive_pgmq_message!(Type)` when there's no tenant_id.
 macro_rules! derive_pgmq_message {
+    ($type:ty, tenant_id) => {
+        impl TryInto<PgmqMessageNew> for $type {
+            type Error = StoreErrorReport;
+            fn try_into(self) -> Result<PgmqMessageNew, Self::Error> {
+                let tenant_id = Some(self.tenant_id());
+                Ok(PgmqMessageNew {
+                    message: Some(Message(self.try_into()?)),
+                    headers: None,
+                    tenant_id,
+                })
+            }
+        }
+
+        impl TryInto<$type> for &PgmqMessage {
+            type Error = StoreErrorReport;
+            fn try_into(self) -> Result<$type, Self::Error> {
+                let payload = &self
+                    .message
+                    .as_ref()
+                    .ok_or(StoreError::ValueNotFound("Pgmq message".to_string()))?
+                    .0;
+                payload.try_into()
+            }
+        }
+    };
+    ($type:ty, opt_tenant_id) => {
+        impl TryInto<PgmqMessageNew> for $type {
+            type Error = StoreErrorReport;
+            fn try_into(self) -> Result<PgmqMessageNew, Self::Error> {
+                let tenant_id = self.tenant_id();
+                Ok(PgmqMessageNew {
+                    message: Some(Message(self.try_into()?)),
+                    headers: None,
+                    tenant_id,
+                })
+            }
+        }
+
+        impl TryInto<$type> for &PgmqMessage {
+            type Error = StoreErrorReport;
+            fn try_into(self) -> Result<$type, Self::Error> {
+                let payload = &self
+                    .message
+                    .as_ref()
+                    .ok_or(StoreError::ValueNotFound("Pgmq message".to_string()))?
+                    .0;
+                payload.try_into()
+            }
+        }
+    };
     ($type:ty) => {
         impl TryInto<PgmqMessageNew> for $type {
             type Error = StoreErrorReport;
@@ -70,6 +189,7 @@ macro_rules! derive_pgmq_message {
                 Ok(PgmqMessageNew {
                     message: Some(Message(self.try_into()?)),
                     headers: None,
+                    tenant_id: None,
                 })
             }
         }
@@ -107,9 +227,13 @@ impl PaymentRequestEvent {
             payment_method_id,
         }
     }
+
+    pub fn tenant_id(&self) -> TenantId {
+        self.tenant_id
+    }
 }
 json_value_serde!(PaymentRequestEvent);
-derive_pgmq_message!(PaymentRequestEvent);
+derive_pgmq_message!(PaymentRequestEvent, tenant_id);
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub enum SendEmailRequest {
@@ -179,38 +303,65 @@ pub enum SendEmailRequest {
         currency: String,
     },
 }
+impl SendEmailRequest {
+    pub fn tenant_id(&self) -> TenantId {
+        match self {
+            SendEmailRequest::InvoiceReady { tenant_id, .. }
+            | SendEmailRequest::InvoicePaid { tenant_id, .. }
+            | SendEmailRequest::PaymentReminder { tenant_id, .. }
+            | SendEmailRequest::PaymentRejected { tenant_id, .. }
+            | SendEmailRequest::QuoteReady { tenant_id, .. } => *tenant_id,
+        }
+    }
+}
 json_value_serde!(SendEmailRequest);
-derive_pgmq_message!(SendEmailRequest);
+derive_pgmq_message!(SendEmailRequest, tenant_id);
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct InvoicePdfRequestEvent {
+    #[serde(default)]
+    pub tenant_id: Option<TenantId>,
     pub invoice_id: InvoiceId,
     pub is_accounting: bool,
 }
 
 impl InvoicePdfRequestEvent {
-    pub fn new(invoice_id: InvoiceId, is_accounting: bool) -> Self {
+    pub fn new(tenant_id: TenantId, invoice_id: InvoiceId, is_accounting: bool) -> Self {
         Self {
+            tenant_id: Some(tenant_id),
             invoice_id,
             is_accounting,
         }
     }
+
+    pub fn tenant_id(&self) -> Option<TenantId> {
+        self.tenant_id
+    }
 }
 json_value_serde!(InvoicePdfRequestEvent);
-derive_pgmq_message!(InvoicePdfRequestEvent);
+derive_pgmq_message!(InvoicePdfRequestEvent, opt_tenant_id);
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct CreditNotePdfRequestEvent {
+    #[serde(default)]
+    pub tenant_id: Option<TenantId>,
     pub credit_note_id: CreditNoteId,
 }
 
 impl CreditNotePdfRequestEvent {
-    pub fn new(credit_note_id: CreditNoteId) -> Self {
-        Self { credit_note_id }
+    pub fn new(tenant_id: TenantId, credit_note_id: CreditNoteId) -> Self {
+        Self {
+            tenant_id: Some(tenant_id),
+            credit_note_id,
+        }
+    }
+
+    pub fn tenant_id(&self) -> Option<TenantId> {
+        self.tenant_id
     }
 }
 json_value_serde!(CreditNotePdfRequestEvent);
-derive_pgmq_message!(CreditNotePdfRequestEvent);
+derive_pgmq_message!(CreditNotePdfRequestEvent, opt_tenant_id);
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub enum HubspotSyncRequestEvent {
@@ -250,7 +401,7 @@ impl HubspotSyncRequestEvent {
     }
 }
 json_value_serde!(HubspotSyncRequestEvent);
-derive_pgmq_message!(HubspotSyncRequestEvent);
+derive_pgmq_message!(HubspotSyncRequestEvent, tenant_id);
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub enum PennylaneSyncRequestEvent {
@@ -272,7 +423,7 @@ impl PennylaneSyncRequestEvent {
     }
 }
 json_value_serde!(PennylaneSyncRequestEvent);
-derive_pgmq_message!(PennylaneSyncRequestEvent);
+derive_pgmq_message!(PennylaneSyncRequestEvent, tenant_id);
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct PennylaneSyncCustomer {
@@ -299,7 +450,7 @@ impl QuoteConversionRequestEvent {
     }
 }
 json_value_serde!(QuoteConversionRequestEvent);
-derive_pgmq_message!(QuoteConversionRequestEvent);
+derive_pgmq_message!(QuoteConversionRequestEvent, tenant_id);
 
 /// BI aggregation events for revenue and customer YTD tracking
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -317,7 +468,7 @@ impl BiAggregationEvent {
     }
 }
 json_value_serde!(BiAggregationEvent);
-derive_pgmq_message!(BiAggregationEvent);
+derive_pgmq_message!(BiAggregationEvent, tenant_id);
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct BiInvoiceFinalizedEvent {

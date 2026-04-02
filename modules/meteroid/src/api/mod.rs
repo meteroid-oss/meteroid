@@ -13,6 +13,7 @@ pub mod connectors;
 pub mod coupons;
 pub mod creditnotes;
 pub mod customers;
+pub mod deadletter;
 mod domain_mapping;
 pub mod errors;
 pub mod events;

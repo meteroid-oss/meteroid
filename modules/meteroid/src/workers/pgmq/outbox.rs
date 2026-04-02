@@ -1,6 +1,6 @@
 use crate::workers::pgmq::PgmqResult;
 use crate::workers::pgmq::error::PgmqError;
-use crate::workers::pgmq::processor::PgmqHandler;
+use crate::workers::pgmq::processor::{HandleResult, PgmqHandler};
 use async_trait::async_trait;
 use common_domain::pgmq::{Headers, MessageId};
 use error_stack::{Report, ResultExt};
@@ -42,6 +42,7 @@ impl PgmqOutboxDispatch {
                 Some(PgmqMessageNew {
                     message: None,
                     headers: Some(headers),
+                    tenant_id: None,
                 })
             })
             .collect();
@@ -178,6 +179,7 @@ impl PgmqOutboxDispatch {
                         }
                         .try_into()?,
                     ),
+                    tenant_id: None,
                 });
             }
         }
@@ -285,7 +287,7 @@ impl PgmqOutboxDispatch {
 
 #[async_trait]
 impl PgmqHandler for PgmqOutboxDispatch {
-    async fn handle(&self, msgs: &[PgmqMessage]) -> PgmqResult<Vec<MessageId>> {
+    async fn handle(&self, msgs: &[PgmqMessage]) -> PgmqResult<HandleResult> {
         let ids = msgs.iter().map(|x| x.msg_id).collect::<Vec<_>>();
 
         // todo handle errors, some handlers might fail, we don't want to reprocess again everything
@@ -306,7 +308,7 @@ impl PgmqHandler for PgmqOutboxDispatch {
             result?;
         }
 
-        Ok(ids)
+        Ok(HandleResult::from_succeeded(ids))
     }
 }
 
@@ -350,9 +352,9 @@ impl PgmqOutboxProxy {
 
 #[async_trait::async_trait]
 impl PgmqHandler for PgmqOutboxProxy {
-    async fn handle(&self, msgs: &[PgmqMessage]) -> PgmqResult<Vec<MessageId>> {
+    async fn handle(&self, msgs: &[PgmqMessage]) -> PgmqResult<HandleResult> {
         if msgs.is_empty() {
-            return Ok(vec![]);
+            return Ok(HandleResult::from_succeeded(vec![]));
         }
 
         let msg_ids = msgs.iter().try_fold(Vec::new(), |mut acc, msg| {
@@ -369,12 +371,12 @@ impl PgmqHandler for PgmqOutboxProxy {
             .await
             .change_context(PgmqError::ListArchived)?;
 
-        let succeeded_archived = self.underlying.handle(&outbox_archived).await?;
+        let result = self.underlying.handle(&outbox_archived).await?;
 
-        let succeeded_original_ids = msg_ids
+        let succeeded = msg_ids
             .iter()
             .filter_map(|(orig, out)| {
-                if succeeded_archived.contains(out) {
+                if result.succeeded.contains(out) {
                     Some(*orig)
                 } else {
                     None
@@ -382,7 +384,18 @@ impl PgmqHandler for PgmqOutboxProxy {
             })
             .collect();
 
-        Ok(succeeded_original_ids)
+        let failed = msg_ids
+            .iter()
+            .filter_map(|(orig, out)| {
+                result
+                    .failed
+                    .iter()
+                    .find(|(id, _)| id == out)
+                    .map(|(_, err)| (*orig, err.clone()))
+            })
+            .collect();
+
+        Ok(HandleResult { succeeded, failed })
     }
 }
 

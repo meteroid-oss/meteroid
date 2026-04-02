@@ -11,7 +11,7 @@ use crate::svix::SvixOps;
 use crate::workers::pgmq::PgmqResult;
 use crate::workers::pgmq::error::PgmqError;
 use crate::workers::pgmq::outbox::to_outbox_events;
-use crate::workers::pgmq::processor::PgmqHandler;
+use crate::workers::pgmq::processor::{HandleResult, PgmqHandler};
 use common_domain::pgmq::MessageId;
 use error_stack::{Report, ResultExt};
 use futures::future::try_join_all;
@@ -338,7 +338,7 @@ impl WebhookOut {
 
 #[async_trait::async_trait]
 impl PgmqHandler for WebhookOut {
-    async fn handle(&self, msgs: &[PgmqMessage]) -> PgmqResult<Vec<MessageId>> {
+    async fn handle(&self, msgs: &[PgmqMessage]) -> PgmqResult<HandleResult> {
         let msg_id_to_out_evt = to_outbox_events(msgs).await?;
 
         let tasks: Vec<_> = msg_id_to_out_evt
@@ -358,7 +358,7 @@ impl PgmqHandler for WebhookOut {
                         );
                     }
 
-                    res
+                    (msg_id, res)
                 })
             })
             .collect();
@@ -367,8 +367,16 @@ impl PgmqHandler for WebhookOut {
             .await
             .change_context(PgmqError::HandleMessages)?;
 
-        let ids: Vec<_> = results.into_iter().filter_map(Result::ok).collect();
+        let mut succeeded = Vec::new();
+        let mut failed = Vec::new();
 
-        Ok(ids)
+        for (msg_id, result) in results {
+            match result {
+                Ok(id) => succeeded.push(id),
+                Err(e) => failed.push(HandleResult::fail(msg_id, &e)),
+            }
+        }
+
+        Ok(HandleResult { succeeded, failed })
     }
 }
