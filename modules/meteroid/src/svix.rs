@@ -85,12 +85,8 @@ impl SvixOps for Arc<Svix> {
     }
 
     async fn app_portal_access(&self, tenant_id: TenantId) -> Result<AppPortalAccessOut, Error> {
-        let app_in = ApplicationIn {
-            metadata: None,
-            name: tenant_id.to_string(),
-            rate_limit: None,
-            uid: Some(tenant_id.to_string()),
-        };
+        let mut app_in = ApplicationIn::new(tenant_id.to_string());
+        app_in.uid = Some(tenant_id.to_string());
 
         let access_in = AppPortalAccessIn {
             application: Some(app_in),
