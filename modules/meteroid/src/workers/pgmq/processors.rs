@@ -67,11 +67,11 @@ pub async fn run_pdf_render(store: Arc<Store>, pdf_service: Arc<PdfRenderingServ
         queue,
         handler: processor,
         store,
-        qty: MessageReadQty(10),
-        vt: MessageReadVtSec(20),
+        qty: MessageReadQty(3),
+        vt: MessageReadVtSec(2),
         delete_succeeded: true,
         sleep_duration: std::time::Duration::from_millis(250),
-        max_read_count: ReadCt(10),
+        max_read_count: ReadCt(3),
     })
     .await;
 }

@@ -1,3 +1,4 @@
+use chrono::NaiveDateTime;
 use common_domain::pgmq::Headers;
 use common_domain::pgmq::Message;
 use common_domain::pgmq::MessageId;
@@ -21,4 +22,6 @@ pub struct PgmqMessageRow {
     pub message: Option<Message>,
     #[diesel(sql_type = sql_types::Nullable<sql_types::Jsonb>)]
     pub headers: Option<Headers>,
+    #[diesel(sql_type = sql_types::Timestamptz)]
+    pub enqueued_at: NaiveDateTime,
 }

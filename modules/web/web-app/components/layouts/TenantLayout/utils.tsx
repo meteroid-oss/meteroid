@@ -7,12 +7,28 @@ import {
   LifeBuoy,
   ReceiptText,
   Settings,
+  ShieldIcon,
   User,
   Zap,
 } from 'lucide-react'
 
-export const getFilteredSidebarItems = (isExpress: boolean) => {
-  if (!isExpress) return sidebarItems
+export const getFilteredSidebarItems = (isExpress: boolean, isPlatformAdmin?: boolean) => {
+  if (!isExpress) {
+    if (isPlatformAdmin) {
+      return {
+        ...sidebarItems,
+        navSecondary: [
+          ...sidebarItems.navSecondary,
+          {
+            title: 'Platform Admin',
+            url: 'admin/dead-letters',
+            icon: ShieldIcon,
+          },
+        ],
+      }
+    }
+    return sidebarItems
+  }
 
   return {
     mainNav: [

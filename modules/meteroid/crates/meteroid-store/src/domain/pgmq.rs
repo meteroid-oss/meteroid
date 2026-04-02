@@ -43,6 +43,28 @@ impl PgmqQueue {
             PgmqQueue::BiAggregation => "bi_aggregation",
         }
     }
+
+}
+
+impl std::str::FromStr for PgmqQueue {
+    type Err = String;
+
+    fn from_str(s: &str) -> Result<Self, Self::Err> {
+        match s {
+            "outbox_event" => Ok(PgmqQueue::OutboxEvent),
+            "invoice_pdf_request" => Ok(PgmqQueue::InvoicePdfRequest),
+            "credit_note_pdf_request" => Ok(PgmqQueue::CreditNotePdfRequest),
+            "webhook_out" => Ok(PgmqQueue::WebhookOut),
+            "hubspot_sync" => Ok(PgmqQueue::HubspotSync),
+            "pennylane_sync" => Ok(PgmqQueue::PennylaneSync),
+            "invoice_orchestration" => Ok(PgmqQueue::InvoiceOrchestration),
+            "payment_request" => Ok(PgmqQueue::PaymentRequest),
+            "send_email_request" => Ok(PgmqQueue::SendEmailRequest),
+            "quote_conversion" => Ok(PgmqQueue::QuoteConversion),
+            "bi_aggregation" => Ok(PgmqQueue::BiAggregation),
+            _ => Err(format!("Unknown queue: {s}")),
+        }
+    }
 }
 
 #[derive(Debug, Clone, o2o)]
@@ -52,6 +74,7 @@ pub struct PgmqMessage {
     pub message: Option<Message>,
     pub headers: Option<Headers>,
     pub read_ct: ReadCt,
+    pub enqueued_at: NaiveDateTime,
 }
 
 #[derive(Debug, Clone, o2o)]

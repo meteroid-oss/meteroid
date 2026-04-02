@@ -70,7 +70,7 @@ export const errorInterceptor: Interceptor = next => async req => {
 }
 
 export const authInterceptor: Interceptor = next => async req => {
-  if (req.service.typeName.startsWith('meteroid.api')) {
+  if (req.service.typeName.startsWith('meteroid.api') || req.service.typeName.startsWith('meteroid.admin')) {
     const matchingRoutes = matchRoutes(router.routes, window.location)
     const params = matchingRoutes?.[0]?.params
     const organizationSlug = params?.organizationSlug

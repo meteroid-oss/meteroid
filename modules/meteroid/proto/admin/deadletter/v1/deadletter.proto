@@ -1,0 +1,83 @@
+syntax = "proto3";
+
+package meteroid.admin.deadletter.v1;
+
+enum DeadLetterStatus {
+  DEAD_LETTER_STATUS_UNSPECIFIED = 0;
+  DEAD_LETTER_STATUS_PENDING = 1;
+  DEAD_LETTER_STATUS_REQUEUED = 2;
+  DEAD_LETTER_STATUS_DISCARDED = 3;
+}
+
+message DeadLetterEntry {
+  string id = 1;
+  string queue = 2;
+  int64 pgmq_msg_id = 3;
+  optional string message_json = 4;
+  optional string headers_json = 5;
+  int32 read_count = 6;
+  string enqueued_at = 7;
+  string dead_lettered_at = 8;
+  optional string last_error = 9;
+  DeadLetterStatus status = 10;
+  optional string resolved_at = 11;
+  optional string resolved_by = 12;
+  optional int64 requeued_pgmq_msg_id = 13;
+}
+
+message QueueHealth {
+  string queue = 1;
+  int64 pending_count = 2;
+  int64 requeued_count = 3;
+  int64 discarded_count = 4;
+}
+
+message ListDeadLettersRequest {
+  optional string queue = 1;
+  optional DeadLetterStatus status = 2;
+  int32 limit = 3;
+  int32 offset = 4;
+}
+
+message ListDeadLettersResponse {
+  repeated DeadLetterEntry entries = 1;
+  int64 total_count = 2;
+}
+
+message GetDeadLetterRequest {
+  string id = 1;
+}
+
+message GetDeadLetterResponse {
+  DeadLetterEntry entry = 1;
+}
+
+message RequeueDeadLetterRequest {
+  string id = 1;
+}
+
+message RequeueDeadLetterResponse {
+  DeadLetterEntry entry = 1;
+}
+
+message DiscardDeadLetterRequest {
+  string id = 1;
+}
+
+message DiscardDeadLetterResponse {
+  DeadLetterEntry entry = 1;
+}
+
+message GetQueueHealthRequest {}
+
+message GetQueueHealthResponse {
+  repeated QueueHealth queues = 1;
+}
+
+service DeadLetterService {
+  rpc ListDeadLetters(ListDeadLettersRequest) returns (ListDeadLettersResponse) {}
+  rpc GetDeadLetter(GetDeadLetterRequest) returns (GetDeadLetterResponse) {}
+  rpc RequeueDeadLetter(RequeueDeadLetterRequest) returns (RequeueDeadLetterResponse) {}
+  rpc DiscardDeadLetter(DiscardDeadLetterRequest) returns (DiscardDeadLetterResponse) {}
+  rpc GetQueueHealth(GetQueueHealthRequest) returns (GetQueueHealthResponse) {}
+}

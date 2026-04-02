@@ -1,6 +1,6 @@
 use crate::workers::pgmq::PgmqResult;
 use crate::workers::pgmq::error::PgmqError;
-use crate::workers::pgmq::processor::PgmqHandler;
+use crate::workers::pgmq::processor::{HandleResult, PgmqHandler};
 use common_domain::ids::BaseId;
 use common_domain::pgmq::MessageId;
 use error_stack::ResultExt;
@@ -38,7 +38,7 @@ impl BiAggregation {
 
 #[async_trait::async_trait]
 impl PgmqHandler for BiAggregation {
-    async fn handle(&self, msgs: &[PgmqMessage]) -> PgmqResult<Vec<MessageId>> {
+    async fn handle(&self, msgs: &[PgmqMessage]) -> PgmqResult<HandleResult> {
         let msg_id_to_out_evt = self.convert_to_events(msgs)?;
 
         let tasks: Vec<_> = msg_id_to_out_evt
@@ -92,13 +92,11 @@ impl PgmqHandler for BiAggregation {
                         match result {
                             Ok(()) => {
                                 log::debug!("BI aggregation event processed successfully");
-                                Ok::<MessageId, error_stack::Report<PgmqError>>(msg_id)
+                                Ok(msg_id)
                             }
                             Err(e) => {
                                 log::error!("Failed to process BI aggregation event: {:?}", e);
-                                Err(e
-                                    .attach("Failed to process BI aggregation event")
-                                    .change_context(PgmqError::HandleMessages))
+                                Err((msg_id, format!("{:?}", e)))
                             }
                         }
                     }
@@ -110,8 +108,16 @@ impl PgmqHandler for BiAggregation {
             .await
             .change_context(PgmqError::HandleMessages)?;
 
-        let ids: Vec<_> = results.into_iter().filter_map(Result::ok).collect();
+        let mut succeeded = Vec::new();
+        let mut failed = Vec::new();
 
-        Ok(ids)
+        for result in results {
+            match result {
+                Ok(msg_id) => succeeded.push(msg_id),
+                Err((msg_id, err)) => failed.push((msg_id, err)),
+            }
+        }
+
+        Ok(HandleResult { succeeded, failed })
     }
 }

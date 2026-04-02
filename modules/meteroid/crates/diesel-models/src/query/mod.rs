@@ -11,6 +11,7 @@ pub mod connectors;
 pub mod coupon_plans;
 pub mod coupons;
 pub mod credit_notes;
+pub mod dead_letter;
 pub mod customer_balance_txs;
 pub mod customer_connections;
 pub mod customer_payment_methods;

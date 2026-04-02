@@ -1,6 +1,6 @@
 use crate::workers::pgmq::PgmqResult;
 use crate::workers::pgmq::error::PgmqError;
-use crate::workers::pgmq::processor::PgmqHandler;
+use crate::workers::pgmq::processor::{HandleResult, PgmqHandler};
 use common_domain::pgmq::MessageId;
 use error_stack::ResultExt;
 use meteroid_store::domain::pgmq::{PaymentRequestEvent, PgmqMessage};
@@ -33,10 +33,11 @@ impl PaymentRequest {
 
 #[async_trait::async_trait]
 impl PgmqHandler for PaymentRequest {
-    async fn handle(&self, msgs: &[PgmqMessage]) -> PgmqResult<Vec<MessageId>> {
+    async fn handle(&self, msgs: &[PgmqMessage]) -> PgmqResult<HandleResult> {
         let events = self.convert_to_events(msgs)?;
 
         let mut succeeded = Vec::new();
+        let mut failed = Vec::new();
 
         for (event, msg_id) in events {
             log::info!(
@@ -69,10 +70,11 @@ impl PgmqHandler for PaymentRequest {
                         event.invoice_id,
                         err
                     );
+                    failed.push((msg_id, format!("{err:?}")));
                 }
             }
         }
 
-        Ok(succeeded)
+        Ok(HandleResult { succeeded, failed })
     }
 }

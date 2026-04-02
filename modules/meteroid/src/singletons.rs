@@ -31,7 +31,7 @@ pub async fn get_store() -> &'static Store {
                 domains_whitelist: config.domains_whitelist(),
                 billing: None,
                 billing_default_plan_id: None,
-                admin_organization_id: None,
+                admin_organization_id: config.admin_organization_id,
             })
             .expect("Failed to initialize store");
 

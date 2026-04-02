@@ -12,6 +12,7 @@ pub mod billablemetrics;
 pub mod connectors;
 pub mod coupons;
 pub mod creditnotes;
+pub mod deadletter;
 pub mod customers;
 mod domain_mapping;
 pub mod errors;

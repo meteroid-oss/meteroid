@@ -1,9 +1,8 @@
 use crate::services::invoice_rendering::{GenerateResult, PdfRenderingService};
 use crate::workers::pgmq::PgmqResult;
 use crate::workers::pgmq::error::PgmqError;
-use crate::workers::pgmq::processor::PgmqHandler;
+use crate::workers::pgmq::processor::{HandleResult, PgmqHandler};
 use common_domain::ids::InvoiceId;
-use common_domain::pgmq::MessageId;
 use error_stack::ResultExt;
 use meteroid_store::StoreResult;
 use meteroid_store::domain::pgmq::{InvoicePdfRequestEvent, PgmqMessage};
@@ -21,7 +20,7 @@ impl PdfRender {
 
 #[async_trait::async_trait]
 impl PgmqHandler for PdfRender {
-    async fn handle(&self, msgs: &[PgmqMessage]) -> PgmqResult<Vec<MessageId>> {
+    async fn handle(&self, msgs: &[PgmqMessage]) -> PgmqResult<HandleResult> {
         let mut evts = vec![];
 
         for msg in msgs {
@@ -39,34 +38,44 @@ impl PgmqHandler for PdfRender {
 
         let invoice_ids = evts.iter().map(|(evt, _)| evt.invoice_id).collect();
 
-        let result = self
+        let results = self
             .pdf_service
             .generate_pdfs(invoice_ids)
             .await
             .change_context(PgmqError::HandleMessages)?;
 
-        let success_invoice_ids: Vec<InvoiceId> = result
-            .iter()
-            .filter_map(|x| match x {
-                GenerateResult::Success { invoice_id, .. } => Some(*invoice_id),
+        let mut success_invoice_ids: Vec<InvoiceId> = Vec::new();
+        let mut failed_invoice_ids: Vec<(InvoiceId, String)> = Vec::new();
+
+        for r in &results {
+            match r {
+                GenerateResult::Success { invoice_id, .. } => {
+                    success_invoice_ids.push(*invoice_id);
+                }
                 GenerateResult::Failure { invoice_id, error } => {
                     log::warn!("Failed to generate pdf for invoice {invoice_id}: {error}");
-                    None
+                    failed_invoice_ids.push((*invoice_id, error.clone()));
                 }
-            })
-            .collect();
+            }
+        }
 
-        let success_msg_ids = evts
-            .iter()
-            .filter_map(|(evt, msg_id)| {
-                if success_invoice_ids.contains(&evt.invoice_id) {
-                    Some(*msg_id)
-                } else {
-                    None
-                }
-            })
-            .collect();
+        let mut succeeded = Vec::new();
+        let mut failed = Vec::new();
 
-        Ok(success_msg_ids)
+        for (evt, msg_id) in &evts {
+            if let Some((_, error)) = failed_invoice_ids
+                .iter()
+                .find(|(id, _)| *id == evt.invoice_id)
+            {
+                failed.push((*msg_id, error.clone()));
+            } else if success_invoice_ids.contains(&evt.invoice_id) {
+                succeeded.push(*msg_id);
+            }
+        }
+
+        Ok(HandleResult {
+            succeeded,
+            failed,
+        })
     }
 }

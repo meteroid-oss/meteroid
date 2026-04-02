@@ -50,7 +50,12 @@ impl TypstPdfGenerator {
 impl PdfGenerator for TypstPdfGenerator {
     async fn generate_pdf(&self, invoice: &Invoice) -> InvoicingResult<Bytes> {
         let result = self.renderer.render_invoice(invoice)?;
-        generate_pdf_from_document(&result)
+
+        return Err(InvoicingError::PdfGenerationError(  // TODO
+            "TEMPORARY ERROR: PDF generation is currently disabled for invoice ".to_string(),
+           ))
+
+        // generate_pdf_from_document(&result)
     }
 }
 

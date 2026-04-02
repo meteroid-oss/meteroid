@@ -200,6 +200,14 @@ pub mod meteroid {
         }
     }
 
+    pub mod admin {
+        pub mod deadletter {
+            pub mod v1 {
+                tonic::include_proto!("meteroid.admin.deadletter.v1");
+            }
+        }
+    }
+
     pub mod internal {
         pub mod v1 {
             tonic::include_proto!("meteroid.internal.v1");

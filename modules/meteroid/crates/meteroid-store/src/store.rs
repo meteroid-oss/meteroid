@@ -44,7 +44,7 @@ type PLACEHOLDER = i32; // enterprise placeholder
 pub struct Store {
     pub pool: PgPool,
     pub eventbus: Arc<dyn EventBus<Event>>,
-    pub(crate) settings: Settings,
+    pub settings: Settings,
     pub(crate) internal: StoreInternal,
     pub(crate) oauth: OauthServices,
     pub mailer: Arc<dyn MailerService>,

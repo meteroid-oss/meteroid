@@ -61,6 +61,27 @@ pub mod mapping {
     }
 }
 
+pub mod platform_admin {
+    use common_grpc::middleware::server::auth::RequestExt;
+    use meteroid_store::Store;
+    use tonic::{Request, Status};
+    use uuid::Uuid;
+
+    pub fn require_platform_admin<T>(request: &Request<T>, store: &Store) -> Result<Uuid, Status> {
+        let org_id = request.organization()?;
+        let actor = request.actor()?;
+        match store.settings.admin_organization {
+            Some(admin_org) if admin_org == org_id => Ok(actor),
+            Some(_) => Err(Status::permission_denied(
+                "Platform admin access required",
+            )),
+            None => Err(Status::permission_denied(
+                "Platform admin is not configured (ADMIN_ORGANIZATION_ID not set)",
+            )),
+        }
+    }
+}
+
 // v2 conversions, we should now encode dates/decimals etc as string
 pub mod conversions {
 

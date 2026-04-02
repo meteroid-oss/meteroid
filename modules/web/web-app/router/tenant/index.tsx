@@ -10,6 +10,8 @@ import { EditHubspotIntegrationModal } from '@/features/settings/integrations/Ed
 import { HubspotIntegrationModal } from '@/features/settings/integrations/HubspotIntegration'
 import { PennylaneIntegrationModal } from '@/features/settings/integrations/PennylaneIntegration'
 import { StripeIntegrationModal } from '@/features/settings/integrations/StripeIntegration'
+import { DeadLetterPage } from '@/pages/admin/deadletter'
+import { DeadLetterDetailPage } from '@/pages/admin/deadletter-detail'
 import { BatchJobPage } from '@/pages/tenants/batchjob'
 import { DashboardPage as Dashboard } from '@/pages/tenants/dashboard'
 import { DeveloperSettings } from '@/pages/tenants/developers'
@@ -97,6 +99,19 @@ export const tenantRoutes: RouteObject = {
           element: <PlanVersionRedirect />,
         },
         growthRoutes,
+      ],
+    },
+    {
+      path: 'admin',
+      children: [
+        {
+          path: 'dead-letters',
+          element: <DeadLetterPage />,
+        },
+        {
+          path: 'dead-letters/:deadLetterId',
+          element: <DeadLetterDetailPage />,
+        },
       ],
     },
     {

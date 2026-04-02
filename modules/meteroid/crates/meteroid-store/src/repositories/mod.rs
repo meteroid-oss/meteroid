@@ -28,6 +28,7 @@ pub mod coupons;
 pub mod credit_notes;
 pub mod customer_balance;
 pub mod customer_connection;
+pub mod dead_letter;
 pub mod historical_rates;
 pub mod invoicing_entities;
 pub mod organizations;

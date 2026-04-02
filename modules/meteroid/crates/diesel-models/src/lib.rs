@@ -29,6 +29,7 @@ pub mod subscriptions;
 
 pub mod accounting;
 pub mod add_ons;
+pub mod dead_letter;
 pub mod applied_coupons;
 pub mod bank_accounts;
 pub mod checkout_sessions;

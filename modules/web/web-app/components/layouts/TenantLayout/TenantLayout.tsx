@@ -50,13 +50,15 @@ export const TenantLayoutOutlet = () => {
   const navigate = useNavigate()
   const logout = useLogout()
   const meData = useQuery(me)?.data
-  const organizationData = useQuery(getCurrentOrganizations)?.data?.organization
+  const orgResponse = useQuery(getCurrentOrganizations)?.data
+  const organizationData = orgResponse?.organization
   const getInstanceQuery = useQuery(getInstance)
 
   const { toggleSidebar, state } = useSidebar()
 
   const isExpress = organizationData?.isExpress ?? false
-  const filteredSidebarItems = getFilteredSidebarItems(isExpress)
+  const isPlatformAdmin = orgResponse?.isPlatformAdmin ?? false
+  const filteredSidebarItems = getFilteredSidebarItems(isExpress, isPlatformAdmin)
 
   const isCollapsed = state === 'collapsed'
 

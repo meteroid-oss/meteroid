@@ -46,7 +46,10 @@ fn generate_grpc_types(root: &Path) -> Result<(), Report<BuildError>> {
         let service_path = root.join(format!("proto/api/{service}/v1"));
         proto_files.push(service_path.join(format!("{service}.proto"))); // main service file
     }
-    // Add additional paths as needed
+    // Admin protos (platform admin, separate from tenant-scoped API)
+    proto_files.push(root.join("proto/admin/deadletter/v1/deadletter.proto"));
+
+    // Internal service-to-service protos
     proto_files.push(root.join("proto/internal/v1/internal.proto"));
     proto_files.push(root.join("proto/portal/checkout/v1/checkout.proto"));
     proto_files.push(root.join("proto/portal/invoice/v1/invoice.proto"));

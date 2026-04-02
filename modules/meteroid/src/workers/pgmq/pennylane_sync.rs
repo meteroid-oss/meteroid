@@ -1,7 +1,7 @@
 use crate::services::storage::{ObjectStoreService, Prefix};
 use crate::workers::pgmq::PgmqResult;
 use crate::workers::pgmq::error::PgmqError;
-use crate::workers::pgmq::processor::PgmqHandler;
+use crate::workers::pgmq::processor::{HandleResult, PgmqHandler};
 use common_domain::ids::TenantId;
 use common_domain::pgmq::MessageId;
 use common_logging::unwrapper::UnwrapLogger;
@@ -594,7 +594,7 @@ impl PennylaneSync {
 
 #[async_trait::async_trait]
 impl PgmqHandler for PennylaneSync {
-    async fn handle(&self, msgs: &[PgmqMessage]) -> PgmqResult<Vec<MessageId>> {
+    async fn handle(&self, msgs: &[PgmqMessage]) -> PgmqResult<HandleResult> {
         let events = self.convert_to_events(msgs)?;
         let (connected_tenants, orphan_msg_ids) = self.get_connected_tenants(events).await?;
 
@@ -602,7 +602,7 @@ impl PgmqHandler for PennylaneSync {
         let mut success_msg_ids = orphan_msg_ids;
 
         if connected_tenants.is_empty() {
-            return Ok(success_msg_ids);
+            return Ok(HandleResult::from_succeeded(success_msg_ids));
         }
 
         let tasks = connected_tenants
@@ -629,7 +629,7 @@ impl PgmqHandler for PennylaneSync {
             }
         }
 
-        Ok(success_msg_ids)
+        Ok(HandleResult::from_succeeded(success_msg_ids))
     }
 }
 
