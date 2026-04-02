@@ -19,7 +19,7 @@ total-due = Total Due
 legal-info = Legal Information
 vat-exempt-legal = Tax not applicable
 exchange-rate-info = Exchange rate on {$date}:  {$equality} | Total amount converted = {$amount_converted}
-payment-status = payment Status
+payment-status = Payment Status
 payment-status-paid = Paid
 payment-status-partially-paid = Partially Paid
 payment-status-unpaid = Unpaid

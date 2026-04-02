@@ -180,7 +180,7 @@ impl CreditNotePdfRenderingService {
             {
                 Err(error) => CreditNoteGenerateResult::Failure {
                     credit_note_id,
-                    error: error.to_string(),
+                    error: format!("{error:?}"),
                 },
                 Ok(pdf_id) => CreditNoteGenerateResult::Success {
                     credit_note_id,
