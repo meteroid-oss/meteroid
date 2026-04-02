@@ -11,6 +11,22 @@ pub async fn send_batch(
     queue: &str,
     batch: &[PgmqMessageRowNew],
 ) -> DbResult<()> {
+    send_batch_returning_ids(conn, queue, batch)
+        .await
+        .map(drop)
+}
+
+pub async fn send_batch_returning_ids(
+    conn: &mut PgConn,
+    queue: &str,
+    batch: &[PgmqMessageRowNew],
+) -> DbResult<Vec<i64>> {
+    #[derive(diesel::QueryableByName)]
+    struct SendResult {
+        #[diesel(sql_type = sql_types::BigInt)]
+        msg_id: i64,
+    }
+
     let raw_query = r"SELECT * from pgmq.send_batch($1, $2, $3) as msg_id";
 
     let (messages, headers): (Vec<_>, Vec<_>) =
@@ -20,9 +36,9 @@ pub async fn send_batch(
         .bind::<sql_types::Text, _>(queue)
         .bind::<sql_types::Array<sql_types::Nullable<sql_types::Jsonb>>, _>(messages)
         .bind::<sql_types::Array<sql_types::Nullable<sql_types::Jsonb>>, _>(headers)
-        .execute(conn)
+        .get_results::<SendResult>(conn)
         .await
-        .map(drop)
+        .map(|rows| rows.into_iter().map(|r| r.msg_id).collect())
         .attach("Error while sending batch of messages to pgmq")
         .into_db_result()
 }

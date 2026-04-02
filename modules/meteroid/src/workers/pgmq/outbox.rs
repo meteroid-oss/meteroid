@@ -9,7 +9,7 @@ use meteroid_store::domain::outbox_event::{EventType, OutboxEvent, OutboxPgmqHea
 use meteroid_store::domain::pgmq::{
     BiAggregationEvent, BiCreditNoteFinalizedEvent, BiInvoiceFinalizedEvent,
     HubspotSyncRequestEvent, PennylaneSyncInvoice, PennylaneSyncRequestEvent, PgmqMessage,
-    PgmqMessageNew, PgmqQueue, QuoteConversionRequestEvent,
+    PgmqMessageNew, PgmqQueue, QuoteConversionRequestEvent, extract_tenant_id_from_headers,
 };
 use meteroid_store::repositories::pgmq::PgmqInterface;
 use meteroid_store::{Store, StoreResult};
@@ -39,10 +39,13 @@ impl PgmqOutboxDispatch {
                 .try_into()
                 .ok()?;
 
+                let tenant_id =
+                    extract_tenant_id_from_headers(&x.headers.as_ref().map(|h| h.0.clone()));
+
                 Some(PgmqMessageNew {
                     message: None,
                     headers: Some(headers),
-                    tenant_id: None,
+                    tenant_id,
                 })
             })
             .collect();
@@ -171,6 +174,10 @@ impl PgmqOutboxDispatch {
                     continue;
                 }
 
+                let tenant_id = extract_tenant_id_from_headers(
+                    &msg.headers.as_ref().map(|h| h.0.clone()),
+                );
+
                 events.push(PgmqMessageNew {
                     message: None,
                     headers: Some(
@@ -179,7 +186,7 @@ impl PgmqOutboxDispatch {
                         }
                         .try_into()?,
                     ),
-                    tenant_id: None,
+                    tenant_id,
                 });
             }
         }

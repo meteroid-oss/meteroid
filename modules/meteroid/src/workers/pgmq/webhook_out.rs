@@ -14,7 +14,6 @@ use crate::workers::pgmq::outbox::to_outbox_events;
 use crate::workers::pgmq::processor::{HandleResult, PgmqHandler};
 use common_domain::pgmq::MessageId;
 use error_stack::{Report, ResultExt};
-use futures::future::try_join_all;
 use meteroid_store::domain::outbox_event::OutboxEvent;
 use meteroid_store::domain::pgmq::PgmqMessage;
 use std::sync::Arc;
@@ -363,17 +362,16 @@ impl PgmqHandler for WebhookOut {
             })
             .collect();
 
-        let results = try_join_all(tasks)
-            .await
-            .change_context(PgmqError::HandleMessages)?;
+        let results = futures::future::join_all(tasks).await;
 
         let mut succeeded = Vec::new();
         let mut failed = Vec::new();
 
-        for (msg_id, result) in results {
+        for result in results {
             match result {
-                Ok(id) => succeeded.push(id),
-                Err(e) => failed.push(HandleResult::fail(msg_id, &e)),
+                Ok((_, Ok(id))) => succeeded.push(id),
+                Ok((msg_id, Err(e))) => failed.push(HandleResult::fail(msg_id, &e)),
+                Err(e) => log::error!("Webhook out task panicked: {e:?}"),
             }
         }
 
