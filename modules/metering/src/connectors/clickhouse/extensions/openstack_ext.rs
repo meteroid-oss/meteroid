@@ -7,6 +7,11 @@ use clickhouse::Client;
 use error_stack::Report;
 use std::sync::Arc;
 
+/**
+ * OpenstackClickhouseExtension is a Clickhouse extension that provides
+ * custom queries for some Openstack-related events with custom aggregation/query requirements.
+ * Currently, it only supports the "openstack.instance.uptime" event. Other events are supported via standard queries (ex: bandwidth)
+ */
 pub(crate) struct OpenstackClickhouseExtension {
     pub events_table: String,
 }
