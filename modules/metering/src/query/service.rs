@@ -18,6 +18,7 @@ use crate::domain::{
 };
 use crate::error::MeteringApiError;
 use crate::utils::{datetime_to_timestamp, timestamp_to_datetime};
+use common_domain::identifiers::{validate_code, validate_property_key, validate_timezone};
 use common_domain::ids::{CustomerId, TenantId};
 use metering_grpc::meteroid::metering::v1::Event;
 
@@ -40,6 +41,39 @@ impl UsageQueryServiceGrpc for UsageQueryService {
         request: Request<QueryMeterRequest>,
     ) -> Result<Response<QueryMeterResponse>, Status> {
         let req = request.into_inner();
+
+        validate_code(&req.code).map_err(|e| Status::invalid_argument(e.to_string()))?;
+
+        if let Some(ref key) = req.value_property {
+            validate_property_key(key).map_err(|e| Status::invalid_argument(e.to_string()))?;
+        }
+
+        for key in &req.group_by_properties {
+            validate_property_key(key).map_err(|e| Status::invalid_argument(e.to_string()))?;
+        }
+
+        if let Some(ref tz) = req.timezone {
+            validate_timezone(tz).map_err(|e| Status::invalid_argument(e.to_string()))?;
+        }
+
+        if let Some(ref sf) = req.segmentation_filter {
+            use metering_grpc::meteroid::metering::v1::segmentation_filter::Filter;
+            match &sf.filter {
+                Some(Filter::Independent(ind)) => {
+                    for f in &ind.filters {
+                        validate_property_key(&f.property_name)
+                            .map_err(|e| Status::invalid_argument(e.to_string()))?;
+                    }
+                }
+                Some(Filter::Linked(linked)) => {
+                    validate_property_key(&linked.dimension1_key)
+                        .map_err(|e| Status::invalid_argument(e.to_string()))?;
+                    validate_property_key(&linked.dimension2_key)
+                        .map_err(|e| Status::invalid_argument(e.to_string()))?;
+                }
+                None => {}
+            }
+        }
 
         let aggregation_type: AggregationType = req.meter_aggregation_type();
 
@@ -144,6 +178,10 @@ impl UsageQueryServiceGrpc for UsageQueryService {
         request: Request<QueryRawEventsRequest>,
     ) -> Result<Response<QueryRawEventsResponse>, Status> {
         let req = request.into_inner();
+
+        for code in &req.event_codes {
+            validate_code(code).map_err(|e| Status::invalid_argument(e.to_string()))?;
+        }
 
         let sort_order = match req.sort_order() {
             SortOrder::TimestampDesc => EventSortOrder::TimestampDesc,

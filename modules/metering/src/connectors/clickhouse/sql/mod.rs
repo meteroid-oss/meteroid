@@ -1,10 +1,35 @@
 pub mod query_raw;
 
-fn escape_sql_identifier(identifier: &str) -> String {
-    identifier.replace('\'', "''")
+#[derive(Debug)]
+pub enum BindValue {
+    String(String),
+    Strings(Vec<String>),
+    I64(i64),
+    U32(u32),
 }
 
-pub struct PropertyColumn<'a>(&'a str);
+#[derive(Debug)]
+pub struct SafeQuery {
+    pub sql: String,
+    pub binds: Vec<BindValue>,
+}
+
+impl SafeQuery {
+    pub fn into_query(self, client: &clickhouse::Client) -> clickhouse::query::Query {
+        let mut q = client.query(&self.sql);
+        for b in self.binds {
+            q = match b {
+                BindValue::String(s) => q.bind(s),
+                BindValue::Strings(v) => q.bind(v),
+                BindValue::I64(v) => q.bind(v),
+                BindValue::U32(v) => q.bind(v),
+            };
+        }
+        q
+    }
+}
+
+pub struct PropertyColumn<'a>(pub &'a str);
 
 impl<'a> PropertyColumn<'a> {
     const ALIAS_PREFIX: &'static str = "_prop_";
@@ -14,18 +39,28 @@ impl<'a> PropertyColumn<'a> {
     }
 
     pub fn as_alias(&self) -> String {
-        format!("{}{}", Self::ALIAS_PREFIX, self.raw_name())
+        let sanitized: String = self
+            .0
+            .chars()
+            .map(|c| {
+                if c.is_alphanumeric() || c == '_' {
+                    c
+                } else {
+                    '_'
+                }
+            })
+            .collect();
+        format!("{}{}", Self::ALIAS_PREFIX, sanitized)
     }
 
-    pub fn path(&self) -> String {
-        let escaped = escape_sql_identifier(self.0);
-        format!("properties['{escaped}']")
+    pub fn path_sql(&self, binds: &mut Vec<BindValue>) -> String {
+        binds.push(BindValue::String(self.0.to_string()));
+        "properties[?]".to_string()
     }
 
-    pub fn as_select(&self) -> String {
-        let path = self.path();
-        let alias = self.as_alias();
-        format!("{path} AS {alias}")
+    pub fn select_sql(&self, binds: &mut Vec<BindValue>) -> String {
+        binds.push(BindValue::String(self.0.to_string()));
+        format!("properties[?] AS {}", self.as_alias())
     }
 
     pub fn from_str_ref(s: &'a str) -> Self {
