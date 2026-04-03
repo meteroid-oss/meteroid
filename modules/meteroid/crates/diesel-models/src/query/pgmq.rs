@@ -11,9 +11,7 @@ pub async fn send_batch(
     queue: &str,
     batch: &[PgmqMessageRowNew],
 ) -> DbResult<()> {
-    send_batch_returning_ids(conn, queue, batch)
-        .await
-        .map(drop)
+    send_batch_returning_ids(conn, queue, batch).await.map(drop)
 }
 
 pub async fn send_batch_returning_ids(

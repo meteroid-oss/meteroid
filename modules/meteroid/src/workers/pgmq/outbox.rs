@@ -174,9 +174,8 @@ impl PgmqOutboxDispatch {
                     continue;
                 }
 
-                let tenant_id = extract_tenant_id_from_headers(
-                    &msg.headers.as_ref().map(|h| h.0.clone()),
-                );
+                let tenant_id =
+                    extract_tenant_id_from_headers(&msg.headers.as_ref().map(|h| h.0.clone()));
 
                 events.push(PgmqMessageNew {
                     message: None,

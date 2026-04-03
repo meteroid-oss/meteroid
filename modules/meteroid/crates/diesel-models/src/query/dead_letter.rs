@@ -212,7 +212,10 @@ pub async fn search_organizations(
     use crate::schema::tenant;
     use diesel_async::RunQueryDsl;
 
-    let escaped = query.replace('\\', "\\\\").replace('%', "\\%").replace('_', "\\_");
+    let escaped = query
+        .replace('\\', "\\\\")
+        .replace('%', "\\%")
+        .replace('_', "\\_");
     let pattern = format!("%{escaped}%");
 
     let orgs: Vec<OrganizationRow> = organization::table
