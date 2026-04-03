@@ -3,14 +3,12 @@ use std::fmt;
 /// Maximum length for identifier strings (codes, property keys, etc.)
 const MAX_IDENTIFIER_LEN: usize = 128;
 
-/// Maximum length for timezone strings
-const MAX_TIMEZONE_LEN: usize = 64;
-
 #[derive(Debug, Clone)]
 pub enum IdentifierError {
     Empty,
     TooLong { max: usize, actual: usize },
     InvalidChar { ch: char, kind: &'static str },
+    InvalidTimezone(String),
 }
 
 impl fmt::Display for IdentifierError {
@@ -22,6 +20,9 @@ impl fmt::Display for IdentifierError {
             }
             Self::InvalidChar { ch, kind } => {
                 write!(f, "invalid character '{ch}' in {kind}")
+            }
+            Self::InvalidTimezone(tz) => {
+                write!(f, "invalid IANA timezone: '{tz}'")
             }
         }
     }
@@ -63,30 +64,9 @@ fn validate_identifier_inner(s: &str, kind: &'static str) -> Result<(), Identifi
     Ok(())
 }
 
-/// Allowed: `[a-zA-Z0-9/_+-]`. Covers IANA timezone names like `America/New_York`, `Etc/GMT+1`.
-fn is_valid_timezone_char(c: char) -> bool {
-    c.is_ascii_alphanumeric() || c == '/' || c == '_' || c == '+' || c == '-'
-}
-
-pub fn validate_timezone(tz: &str) -> Result<(), IdentifierError> {
-    if tz.is_empty() {
-        return Err(IdentifierError::Empty);
-    }
-    if tz.len() > MAX_TIMEZONE_LEN {
-        return Err(IdentifierError::TooLong {
-            max: MAX_TIMEZONE_LEN,
-            actual: tz.len(),
-        });
-    }
-    for ch in tz.chars() {
-        if !is_valid_timezone_char(ch) {
-            return Err(IdentifierError::InvalidChar {
-                ch,
-                kind: "timezone",
-            });
-        }
-    }
-    Ok(())
+pub fn parse_timezone(tz: &str) -> Result<chrono_tz::Tz, IdentifierError> {
+    tz.parse::<chrono_tz::Tz>()
+        .map_err(|_| IdentifierError::InvalidTimezone(tz.to_string()))
 }
 
 /// Validator adapter for the `validator` crate's `#[validate(custom(...))]`.
@@ -109,7 +89,7 @@ pub fn validator_property_key(key: &str) -> Result<(), validator::ValidationErro
 
 /// Validator adapter for timezone.
 pub fn validator_timezone(tz: &str) -> Result<(), validator::ValidationError> {
-    validate_timezone(tz).map_err(|e| {
+    parse_timezone(tz).map(|_| ()).map_err(|e| {
         let mut err = validator::ValidationError::new("invalid_timezone");
         err.message = Some(e.to_string().into());
         err
@@ -156,17 +136,17 @@ mod tests {
 
     #[test]
     fn valid_timezones() {
-        assert!(validate_timezone("UTC").is_ok());
-        assert!(validate_timezone("America/New_York").is_ok());
-        assert!(validate_timezone("Etc/GMT+1").is_ok());
-        assert!(validate_timezone("Europe/London").is_ok());
+        assert!(parse_timezone("UTC").is_ok());
+        assert!(parse_timezone("America/New_York").is_ok());
+        assert!(parse_timezone("Etc/GMT+1").is_ok());
+        assert!(parse_timezone("Europe/London").is_ok());
     }
 
     #[test]
     fn invalid_timezones() {
-        assert!(validate_timezone("").is_err());
-        assert!(validate_timezone("UTC') UNION SELECT 1 --").is_err());
-        assert!(validate_timezone("time zone").is_err());
+        assert!(parse_timezone("").is_err());
+        assert!(parse_timezone("UTC') UNION SELECT 1 --").is_err());
+        assert!(parse_timezone("Not/A/Real/Zone").is_err());
     }
 
     #[test]

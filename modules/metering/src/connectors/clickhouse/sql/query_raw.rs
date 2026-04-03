@@ -193,9 +193,9 @@ pub fn query_meter_sql(params: QueryMeterParams, events_table: &str) -> Result<S
 
     let tz = params
         .window_time_zone
-        .as_ref()
-        .unwrap_or(&"UTC".to_string())
-        .clone();
+        .unwrap_or(chrono_tz::UTC)
+        .name()
+        .to_string();
 
     if let Some(window_size) = &params.window_size {
         let interval = match window_size {
@@ -378,7 +378,7 @@ mod tests {
             segmentation_filter: None,
             group_by: vec![],
             window_size: Some(WindowSize::Minute),
-            window_time_zone: Some("UTC".to_string()),
+            window_time_zone: Some(chrono_tz::UTC),
             from: Utc.with_ymd_and_hms(2024, 1, 1, 0, 0, 0).unwrap(),
             to: Some(Utc.with_ymd_and_hms(2024, 1, 2, 0, 0, 0).unwrap()),
         };
@@ -432,6 +432,7 @@ mod tests {
             group_by: vec![],
             window_size: None,
             window_time_zone: None,
+
             from: Utc.with_ymd_and_hms(2024, 1, 1, 0, 0, 0).unwrap(),
             to: Some(Utc.with_ymd_and_hms(2024, 1, 2, 0, 0, 0).unwrap()),
         };
@@ -480,6 +481,7 @@ mod tests {
             group_by: vec![],
             window_size: Some(WindowSize::Hour),
             window_time_zone: None,
+
             from: Utc.with_ymd_and_hms(2024, 1, 1, 0, 0, 0).unwrap(),
             to: None,
         };
@@ -534,6 +536,7 @@ mod tests {
             group_by: vec!["region".to_string(), "endpoint".to_string()],
             window_size: Some(WindowSize::Day),
             window_time_zone: None,
+
             from: Utc.with_ymd_and_hms(2024, 1, 1, 0, 0, 0).unwrap(),
             to: None,
         };
@@ -595,6 +598,7 @@ mod tests {
             group_by: vec![],
             window_size: None,
             window_time_zone: None,
+
             from: Utc.with_ymd_and_hms(2024, 1, 1, 0, 0, 0).unwrap(),
             to: None,
         };
@@ -661,6 +665,7 @@ mod tests {
             group_by: vec![],
             window_size: None,
             window_time_zone: None,
+
             from: Utc.with_ymd_and_hms(2024, 1, 1, 0, 0, 0).unwrap(),
             to: None,
         };
@@ -752,6 +757,7 @@ mod tests {
             group_by: vec![],
             window_size: Some(WindowSize::Day),
             window_time_zone: None,
+
             from: Utc.with_ymd_and_hms(2024, 1, 1, 0, 0, 0).unwrap(),
             to: None,
         };
@@ -801,6 +807,7 @@ mod tests {
             group_by: vec![],
             window_size: None,
             window_time_zone: None,
+
             from: Utc.with_ymd_and_hms(2024, 1, 1, 0, 0, 0).unwrap(),
             to: None,
         };
@@ -849,6 +856,7 @@ mod tests {
             group_by: vec![],
             window_size: None,
             window_time_zone: None,
+
             from: Utc.with_ymd_and_hms(2024, 1, 1, 0, 0, 0).unwrap(),
             to: None,
         };
@@ -870,6 +878,7 @@ mod tests {
             group_by: vec![],
             window_size: None,
             window_time_zone: None,
+
             from: Utc.with_ymd_and_hms(2024, 1, 1, 0, 0, 0).unwrap(),
             to: None,
         };
@@ -894,6 +903,7 @@ mod tests {
             group_by: vec![],
             window_size: None,
             window_time_zone: None,
+
             from: Utc.with_ymd_and_hms(2024, 1, 1, 0, 0, 0).unwrap(),
             to: None,
         };
@@ -939,6 +949,7 @@ mod tests {
             group_by: vec![],
             window_size: None,
             window_time_zone: None,
+
             from: Utc.with_ymd_and_hms(2024, 1, 1, 0, 0, 0).unwrap(),
             to: Some(Utc.with_ymd_and_hms(2024, 1, 2, 0, 0, 0).unwrap()),
         };
@@ -984,6 +995,7 @@ mod tests {
             group_by: vec!["code".to_string()],
             window_size: None,
             window_time_zone: None,
+
             from: Utc.with_ymd_and_hms(2024, 1, 1, 0, 0, 0).unwrap(),
             to: None,
         };
@@ -1035,6 +1047,7 @@ mod tests {
             group_by: vec![],
             window_size: None,
             window_time_zone: None,
+
             from: Utc.with_ymd_and_hms(2024, 1, 1, 0, 0, 0).unwrap(),
             to: None,
         };
@@ -1090,6 +1103,7 @@ mod tests {
             ],
             window_size: None,
             window_time_zone: None,
+
             from: Utc.with_ymd_and_hms(2024, 1, 1, 0, 0, 0).unwrap(),
             to: None,
         };

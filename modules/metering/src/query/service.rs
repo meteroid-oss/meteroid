@@ -18,7 +18,7 @@ use crate::domain::{
 };
 use crate::error::MeteringApiError;
 use crate::utils::{datetime_to_timestamp, timestamp_to_datetime};
-use common_domain::identifiers::{validate_code, validate_property_key, validate_timezone};
+use common_domain::identifiers::{parse_timezone, validate_code, validate_property_key};
 use common_domain::ids::{CustomerId, TenantId};
 use metering_grpc::meteroid::metering::v1::Event;
 
@@ -52,9 +52,12 @@ impl UsageQueryServiceGrpc for UsageQueryService {
             validate_property_key(key).map_err(|e| Status::invalid_argument(e.to_string()))?;
         }
 
-        if let Some(ref tz) = req.timezone {
-            validate_timezone(tz).map_err(|e| Status::invalid_argument(e.to_string()))?;
-        }
+        let window_time_zone = req
+            .timezone
+            .as_deref()
+            .map(parse_timezone)
+            .transpose()
+            .map_err(|e| Status::invalid_argument(e.to_string()))?;
 
         if let Some(ref sf) = req.segmentation_filter {
             use metering_grpc::meteroid::metering::v1::segmentation_filter::Filter;
@@ -137,7 +140,7 @@ impl UsageQueryServiceGrpc for UsageQueryService {
                 .collect::<Result<Vec<_>, _>>()?,
             group_by: req.group_by_properties,
             window_size,
-            window_time_zone: req.timezone,
+            window_time_zone,
             segmentation_filter,
             from: req
                 .from
