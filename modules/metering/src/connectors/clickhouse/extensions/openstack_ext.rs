@@ -1,12 +1,11 @@
-// init the clickhouse MV
-
-use crate::connectors::clickhouse::ClickhouseConnector;
 use crate::connectors::clickhouse::extensions::ConnectorClickhouseExtension;
+use crate::connectors::clickhouse::sql::{BindValue, SafeQuery};
 use crate::connectors::errors::ConnectorError;
-use crate::domain::WindowSize;
-use crate::domain::{QueryMeterParams, Usage};
+use crate::domain::{QueryMeterParams, WindowSize};
 use chrono::{DateTime, Utc};
 use clickhouse::Client;
+use error_stack::Report;
+use std::sync::Arc;
 
 /**
  * OpenstackClickhouseExtension is a Clickhouse extension that provides
@@ -23,31 +22,27 @@ impl ConnectorClickhouseExtension for OpenstackClickhouseExtension {
         "openstack".to_string()
     }
 
-    async fn init(&self, _client: Arc<Client>) -> error_stack::Result<(), ConnectorError> {
-        // let instance_mv_dll = get_instance_mv_dll();
-        // self.clickhouse_connector.execute_ddl(instance_mv_dll).await?;
+    async fn init(&self, _client: Arc<Client>) -> Result<(), Report<ConnectorError>> {
         log::info!("Openstack extension enabled");
         Ok(())
     }
 
-    fn build_query(&self, params: &QueryMeterParams) -> Option<String> {
+    fn build_query(&self, params: &QueryMeterParams) -> Option<SafeQuery> {
         if params.code == "openstack.instance.uptime" {
-            let params = params.clone();
             let cust = params.customer_ids[0].clone();
 
             let query = build_openstack_instance_query(&QueryOpenStackInstanceParams {
-                customer_id: cust.id,
-                tenant_id: params.namespace,
+                customer_id: (*cust).to_string(),
+                tenant_id: (*params.tenant_id).to_string(),
                 from: params.from,
                 to: params.to,
-                window_size: params.window_size,
-                group_by_flavor: params.group_by.iter().find(|&x| x == "flavor").is_some(),
+                window_size: params.window_size.clone(),
+                group_by_flavor: params.group_by.iter().any(|x| x == "flavor"),
                 events_table: self.events_table.clone(),
             });
 
             Some(query)
         } else {
-            // we rely on standard query
             None
         }
     }
@@ -64,8 +59,9 @@ pub struct QueryOpenStackInstanceParams {
     pub events_table: String,
 }
 
-pub fn build_openstack_instance_query(params: &QueryOpenStackInstanceParams) -> String {
+pub fn build_openstack_instance_query(params: &QueryOpenStackInstanceParams) -> SafeQuery {
     let to = params.to.unwrap_or_else(Utc::now);
+    let mut binds = Vec::new();
 
     let window_function = match params.window_size {
         Some(WindowSize::Minute) => "toStartOfMinute",
@@ -97,15 +93,21 @@ pub fn build_openstack_instance_query(params: &QueryOpenStackInstanceParams) -> 
         ""
     };
 
-    format!(
+    // Bind order: from, to, customer_id, tenant_id
+    binds.push(BindValue::I64(params.from.timestamp()));
+    binds.push(BindValue::I64(to.timestamp()));
+    binds.push(BindValue::String(params.customer_id.clone()));
+    binds.push(BindValue::String(params.tenant_id.clone()));
+
+    let sql = format!(
         r#"
 WITH
     params AS (
         SELECT
-            toDateTime('{from}') AS window_start,
-            toDateTime('{to}') AS window_end,
-            '{customer_id}' AS param_customer_id,
-            '{tenant_id}' AS param_tenant_id
+            toDateTime(?) AS window_start,
+            toDateTime(?) AS window_end,
+            ? AS param_customer_id,
+            ? AS param_tenant_id
     ),
     event_lifecycle AS (
         SELECT
@@ -167,17 +169,15 @@ WHERE ip.period_start < ts.windowend AND ip.period_end > ts.windowstart
 GROUP BY ts.windowstart, ts.windowend, customer_id, tenant_id{flavor_group_by}
 ORDER BY ts.windowstart{flavor_order_by}
 "#,
-        from = params.from.format("%Y-%m-%d %H:%M:%S"),
-        to = to.format("%Y-%m-%d %H:%M:%S"),
-        customer_id = params.customer_id,
-        tenant_id = params.tenant_id,
+        events_table = params.events_table,
         window_function = window_function,
         seconds_in_interval = seconds_in_interval,
         flavor_select = flavor_select,
         flavor_group_by = flavor_group_by,
         flavor_order_by = flavor_order_by,
-        events_table = params.events_table,
-    )
+    );
+
+    SafeQuery { sql, binds }
 }
 
 #[cfg(test)]
@@ -197,17 +197,16 @@ mod tests {
             events_table: "raw_events_v2".to_string(),
         };
 
-        let query = build_openstack_instance_query(&params);
+        let result = build_openstack_instance_query(&params);
 
-        println!("{}", query);
-
-        assert!(query.contains("toStartOfHour"));
+        assert!(result.sql.contains("toStartOfHour"));
         assert!(
-            query.contains(
+            result.sql.contains(
                 "GROUP BY ts.windowstart, ts.windowend, customer_id, tenant_id, ip.flavor"
             )
         );
-        assert!(query.contains("ORDER BY ts.windowstart, ip.flavor"));
+        assert!(result.sql.contains("ORDER BY ts.windowstart, ip.flavor"));
+        assert_eq!(result.binds.len(), 4);
     }
 
     #[test]
@@ -222,13 +221,16 @@ mod tests {
             events_table: "raw_events_v2".to_string(),
         };
 
-        let query = build_openstack_instance_query(&params);
-        println!("{}", query);
+        let result = build_openstack_instance_query(&params);
 
-        assert!(query.contains("toStartOfDay"));
-        assert!(query.contains("GROUP BY ts.windowstart, ts.windowend, customer_id, tenant_id"));
-        assert!(!query.contains("ip.flavor"));
-        assert!(query.contains("ORDER BY ts.windowstart"));
+        assert!(result.sql.contains("toStartOfDay"));
+        assert!(
+            result
+                .sql
+                .contains("GROUP BY ts.windowstart, ts.windowend, customer_id, tenant_id")
+        );
+        assert!(!result.sql.contains("ip.flavor"));
+        assert!(result.sql.contains("ORDER BY ts.windowstart"));
     }
 
     #[test]
@@ -243,14 +245,13 @@ mod tests {
             events_table: "raw_events_v2".to_string(),
         };
 
-        let query = build_openstack_instance_query(&params);
-        println!("{}", query);
+        let result = build_openstack_instance_query(&params);
 
-        assert!(query.contains("toStartOfMinute"));
-        assert!(query.contains("toDateTime('2023-08-01 12:00:00') AS window_start"));
-        assert!(query.contains("toDateTime('2023-08-01 13:00:00') AS window_end"));
+        assert!(result.sql.contains("toStartOfMinute"));
+        assert!(result.sql.contains("toDateTime(?) AS window_start"));
+        assert!(result.sql.contains("toDateTime(?) AS window_end"));
         assert!(
-            query.contains(
+            result.sql.contains(
                 "GROUP BY ts.windowstart, ts.windowend, customer_id, tenant_id, ip.flavor"
             )
         );

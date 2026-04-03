@@ -4,6 +4,7 @@ use crate::domain::{
 };
 use crate::errors::StoreError;
 use crate::{Store, StoreResult, domain};
+use common_domain::identifiers::{validate_code, validate_property_key};
 use common_domain::ids::{BaseId, BillableMetricId, ProductFamilyId, TenantId};
 use common_eventbus::Event;
 use diesel_async::scoped_futures::ScopedFutureExt;
@@ -121,6 +122,24 @@ impl BillableMetricInterface for Store {
         &self,
         billable_metric: BillableMetricNew,
     ) -> StoreResult<BillableMetric> {
+        validate_code(&billable_metric.code)
+            .map_err(|e| Report::new(StoreError::InvalidArgument(e.to_string())))?;
+
+        if let Some(ref key) = billable_metric.aggregation_key {
+            validate_property_key(key)
+                .map_err(|e| Report::new(StoreError::InvalidArgument(e.to_string())))?;
+        }
+
+        if let Some(ref key) = billable_metric.usage_group_key {
+            validate_property_key(key)
+                .map_err(|e| Report::new(StoreError::InvalidArgument(e.to_string())))?;
+        }
+
+        if let Some(ref sm) = billable_metric.segmentation_matrix {
+            validate_segmentation_matrix_keys(sm)
+                .map_err(|e| Report::new(StoreError::InvalidArgument(e.to_string())))?;
+        }
+
         let mut conn = self.get_conn().await?;
 
         let family = ProductFamilyRow::find_by_id(
@@ -317,5 +336,29 @@ impl BillableMetricInterface for Store {
             .scope_boxed()
         })
         .await
+    }
+}
+
+fn validate_segmentation_matrix_keys(
+    sm: &domain::billable_metrics::SegmentationMatrix,
+) -> Result<(), common_domain::identifiers::IdentifierError> {
+    use domain::billable_metrics::SegmentationMatrix;
+    match sm {
+        SegmentationMatrix::Single(dim) => validate_property_key(&dim.key),
+        SegmentationMatrix::Double {
+            dimension1,
+            dimension2,
+        } => {
+            validate_property_key(&dimension1.key)?;
+            validate_property_key(&dimension2.key)
+        }
+        SegmentationMatrix::Linked {
+            dimension1_key,
+            dimension2_key,
+            ..
+        } => {
+            validate_property_key(dimension1_key)?;
+            validate_property_key(dimension2_key)
+        }
     }
 }

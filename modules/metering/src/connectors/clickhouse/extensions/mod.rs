@@ -1,3 +1,4 @@
+use crate::connectors::clickhouse::sql::SafeQuery;
 use crate::connectors::errors::ConnectorError;
 use crate::domain::QueryMeterParams;
 use clickhouse::Client;
@@ -12,6 +13,5 @@ pub trait ConnectorClickhouseExtension {
     fn prefix(&self) -> String;
     async fn init(&self, client: Arc<Client>) -> Result<(), Report<ConnectorError>>;
 
-    // we don't yet need postprocessing, but we can refactor to run_query(pool, params) if we have this use case
-    fn build_query(&self, params: &QueryMeterParams) -> Option<String>;
+    fn build_query(&self, params: &QueryMeterParams) -> Option<SafeQuery>;
 }

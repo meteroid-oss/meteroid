@@ -18,6 +18,7 @@ diesel = { workspace = true, features = [
 ], optional = true }
 diesel-derive-newtype = { workspace = true, optional = true }
 utoipa = { workspace = true, optional = true }
+chrono-tz = { workspace = true }
 validator = { workspace = true, features = ["derive"] }
 sealed = { workspace = true }
 tonic = { workspace = true, optional = true }

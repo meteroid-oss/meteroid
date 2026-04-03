@@ -1,4 +1,5 @@
 use chrono::{DateTime, Utc};
+use common_domain::identifiers::{validate_code, validate_property_key};
 use common_domain::ids::{CustomerId, TenantId};
 use metering_grpc::meteroid::metering::v1::event::CustomerId as ProtoCustomerId;
 use metering_grpc::meteroid::metering::v1::{Event, IngestFailure};
@@ -268,6 +269,12 @@ pub fn validate_event(
     now: &DateTime<Utc>,
     allow_backfill: bool,
 ) -> Result<(ProtoCustomerId, DateTime<Utc>), String> {
+    validate_code(&event.code).map_err(|e| e.to_string())?;
+
+    for key in event.properties.keys() {
+        validate_property_key(key).map_err(|e| e.to_string())?;
+    }
+
     let customer = event.customer_id.as_ref().ok_or("No customer provided")?;
 
     let ts = if event.timestamp.is_empty() {
