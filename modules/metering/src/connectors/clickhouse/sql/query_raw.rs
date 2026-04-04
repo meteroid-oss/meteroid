@@ -4,6 +4,7 @@ use crate::domain::{
     WindowSize,
 };
 use chrono::Utc;
+use common_domain::ids::BaseId;
 
 pub fn query_raw_events_sql(
     params: QueryRawEventsParams,
@@ -13,7 +14,7 @@ pub fn query_raw_events_sql(
     let mut binds: Vec<BindValue> = Vec::new();
 
     conditions.push("tenant_id = ?".to_string());
-    binds.push(BindValue::String((*params.tenant_id).to_string()));
+    binds.push(BindValue::Uuid(params.tenant_id.as_uuid()));
 
     conditions.push("timestamp >= toDateTime(?)".to_string());
     binds.push(BindValue::I64(params.from.timestamp()));
@@ -28,12 +29,8 @@ pub fn query_raw_events_sql(
 
     if !params.customer_ids.is_empty() {
         conditions.push("customer_id IN ?".to_string());
-        binds.push(BindValue::Strings(
-            params
-                .customer_ids
-                .iter()
-                .map(|id| (**id).to_string())
-                .collect(),
+        binds.push(BindValue::Uuids(
+            params.customer_ids.iter().map(|id| id.as_uuid()).collect(),
         ));
     }
 
@@ -60,34 +57,39 @@ pub fn query_raw_events_sql(
         EventSortOrder::IngestedAsc => "ingested_at ASC",
     };
 
-    let where_clause = if conditions.is_empty() {
-        String::new()
-    } else {
-        format!("WHERE {}", conditions.join(" AND "))
-    };
+    let dedup_subquery = build_dedup_subquery(RAW_EVENT_COLUMNS, events_table, &conditions);
 
-    let sql = format!(
-        "SELECT id, code, customer_id, tenant_id, timestamp, ingested_at, properties FROM {events_table} {where_clause} ORDER BY {order_by} LIMIT ? OFFSET ?"
-    );
+    let columns = RAW_EVENT_COLUMNS.join(", ");
+    let sql =
+        format!("SELECT {columns} FROM ( {dedup_subquery} ) ORDER BY {order_by} LIMIT ? OFFSET ?");
     binds.push(BindValue::U32(params.limit));
     binds.push(BindValue::U32(params.offset));
 
     Ok(SafeQuery { sql, binds })
 }
 
-fn conditions_push_customer_ids(
-    customer_ids: &[common_domain::ids::CustomerId],
-    conditions: &mut Vec<String>,
-    binds: &mut Vec<BindValue>,
-) {
-    let id_parts: Vec<String> = customer_ids
-        .iter()
-        .map(|id| {
-            binds.push(BindValue::String((**id).to_string()));
-            "customer_id = ?".to_string()
-        })
-        .collect();
-    conditions.push(format!("({})", id_parts.join(" OR ")));
+const RAW_EVENT_COLUMNS: &[&str] = &[
+    "id",
+    "code",
+    "customer_id",
+    "tenant_id",
+    "timestamp",
+    "ingested_at",
+    "properties",
+];
+
+const METER_EVENT_COLUMNS: &[&str] = &["id", "customer_id", "timestamp", "properties"];
+
+fn build_dedup_subquery(columns: &[&str], events_table: &str, conditions: &[String]) -> String {
+    let where_clause = if conditions.is_empty() {
+        String::new()
+    } else {
+        format!("WHERE {}", conditions.join(" AND "))
+    };
+    let columns = columns.join(", ");
+    format!(
+        "SELECT {columns} FROM {events_table} {where_clause} ORDER BY timestamp DESC LIMIT 1 BY id, customer_id"
+    )
 }
 
 pub fn query_meter_sql(params: QueryMeterParams, events_table: &str) -> Result<SafeQuery, String> {
@@ -99,7 +101,7 @@ pub fn query_meter_sql(params: QueryMeterParams, events_table: &str) -> Result<S
     let mut subquery_conditions = Vec::new();
 
     subquery_conditions.push("tenant_id = ?".to_string());
-    subquery_binds.push(BindValue::String((*params.tenant_id).to_string()));
+    subquery_binds.push(BindValue::Uuid(params.tenant_id.as_uuid()));
 
     subquery_conditions.push("code = ?".to_string());
     subquery_binds.push(BindValue::String(params.code.clone()));
@@ -113,11 +115,10 @@ pub fn query_meter_sql(params: QueryMeterParams, events_table: &str) -> Result<S
     }
 
     if !params.customer_ids.is_empty() {
-        conditions_push_customer_ids(
-            &params.customer_ids,
-            &mut subquery_conditions,
-            &mut subquery_binds,
-        );
+        subquery_conditions.push("customer_id IN ?".to_string());
+        subquery_binds.push(BindValue::Uuids(
+            params.customer_ids.iter().map(|id| id.as_uuid()).collect(),
+        ));
     }
 
     if let Some(ref segmentation) = params.segmentation_filter {
@@ -181,13 +182,7 @@ pub fn query_meter_sql(params: QueryMeterParams, events_table: &str) -> Result<S
         ));
     }
 
-    // Phase 2: Build dedup subquery
-    let dedup_subquery = format!(
-        "( SELECT id, customer_id, timestamp, properties FROM {events_table} WHERE {} ORDER BY timestamp DESC LIMIT 1 BY id, customer_id )",
-        subquery_conditions.join(" AND ")
-    );
-
-    // Phase 3: Build SELECT columns
+    // Phase 2: Build SELECT columns
     let mut select_columns = Vec::new();
     let mut group_by_columns = Vec::new();
 
@@ -282,7 +277,7 @@ pub fn query_meter_sql(params: QueryMeterParams, events_table: &str) -> Result<S
         }
     }
 
-    // Phase 4: Build GROUP BY columns
+    // Phase 3: Build GROUP BY columns
     if let Some(window_size) = &params.window_size {
         let interval = match window_size {
             WindowSize::Minute => "toIntervalMinute(1)",
@@ -325,9 +320,13 @@ pub fn query_meter_sql(params: QueryMeterParams, events_table: &str) -> Result<S
         }
     }
 
+    // Phase 4: Deduplication subquery
+    let dedup_subquery =
+        build_dedup_subquery(METER_EVENT_COLUMNS, events_table, &subquery_conditions);
+
     // Phase 5: Assemble
     let mut sql = format!("SELECT {}", select_columns.join(", "));
-    sql.push_str(&format!(" FROM {dedup_subquery}"));
+    sql.push_str(&format!(" FROM ( {dedup_subquery} )"));
     if !group_by_columns.is_empty() {
         sql.push_str(&format!(" GROUP BY {}", group_by_columns.join(", ")));
     }
@@ -363,6 +362,16 @@ mod tests {
                 BindValue::Strings(v) => format!("A:{}", v.join(",")),
                 BindValue::I64(v) => format!("I:{v}"),
                 BindValue::U32(v) => format!("U:{v}"),
+                BindValue::Uuid(v) => format!("Uuid:{v}"),
+                BindValue::Uuids(v) => {
+                    format!(
+                        "AUuid:{}",
+                        v.iter()
+                            .map(|u| u.to_string())
+                            .collect::<Vec<_>>()
+                            .join(",")
+                    )
+                }
             })
             .collect()
     }
@@ -503,7 +512,7 @@ mod tests {
                 WHERE tenant_id = ?
                     AND code = ?
                     AND timestamp >= toDateTime(?)
-                    AND (customer_id = ? OR customer_id = ?)
+                    AND customer_id IN ?
                     AND properties[?] != ''
                     AND isNotNull(toFloat64OrNull(properties[?]))
                 ORDER BY timestamp DESC
@@ -520,8 +529,12 @@ mod tests {
         let bs = bind_strings(&result.binds);
         assert!(bs.contains(&"S:usage".to_string()));
         assert!(bs.contains(&"S:bytes".to_string()));
-        assert!(bs.contains(&"S:00000000-0000-0000-0000-000000000001".to_string()));
-        assert!(bs.contains(&"S:00000000-0000-0000-0000-000000000002".to_string()));
+        assert!(
+            bs.contains(
+                &"AUuid:00000000-0000-0000-0000-000000000001,00000000-0000-0000-0000-000000000002"
+                    .to_string()
+            )
+        );
     }
 
     #[test]
@@ -1139,5 +1152,116 @@ mod tests {
         assert!(bs.contains(&"S:customer_id".to_string()));
         assert!(bs.contains(&"S:region".to_string()));
         assert!(bs.contains(&"S:code".to_string()));
+    }
+
+    #[test]
+    fn test_query_raw_events_basic() {
+        let params = QueryRawEventsParams {
+            tenant_id: TenantId::default(),
+            from: Utc.with_ymd_and_hms(2024, 1, 1, 0, 0, 0).unwrap(),
+            to: Some(Utc.with_ymd_and_hms(2024, 1, 2, 0, 0, 0).unwrap()),
+            limit: 10,
+            offset: 0,
+            search: None,
+            event_codes: vec![],
+            customer_ids: vec![],
+            sort_order: EventSortOrder::TimestampDesc,
+        };
+
+        let result = query_raw_events_sql(params, "raw_events_v2").unwrap();
+        let expected = r#"
+            SELECT id, code, customer_id, tenant_id, timestamp, ingested_at, properties
+            FROM (
+                SELECT id, code, customer_id, tenant_id, timestamp, ingested_at, properties
+                FROM raw_events_v2
+                WHERE tenant_id = ?
+                    AND timestamp >= toDateTime(?)
+                    AND timestamp < toDateTime(?)
+                ORDER BY timestamp DESC LIMIT 1 BY id, customer_id
+            )
+            ORDER BY timestamp DESC LIMIT ? OFFSET ?
+        "#;
+
+        assert_eq!(normalize_sql(&result.sql), normalize_sql(expected));
+        let bs = bind_strings(&result.binds);
+        assert!(bs.contains(&"Uuid:ffffffff-ffff-ffff-ffff-ffffffffffff".to_string()));
+        assert!(bs.contains(&"I:1704067200".to_string()));
+        assert!(bs.contains(&"I:1704153600".to_string()));
+        assert!(bs.contains(&"U:10".to_string()));
+        assert!(bs.contains(&"U:0".to_string()));
+    }
+
+    #[test]
+    fn test_query_raw_events_with_customer_and_code_filters() {
+        let params = QueryRawEventsParams {
+            tenant_id: TenantId::default(),
+            from: Utc.with_ymd_and_hms(2024, 1, 1, 0, 0, 0).unwrap(),
+            to: Some(Utc.with_ymd_and_hms(2024, 1, 2, 0, 0, 0).unwrap()),
+            limit: 20,
+            offset: 5,
+            search: None,
+            event_codes: vec!["api_call".to_string(), "storage".to_string()],
+            customer_ids: vec![
+                CustomerId::from(Uuid::from_u128(1)),
+                CustomerId::from(Uuid::from_u128(2)),
+            ],
+            sort_order: EventSortOrder::IngestedDesc,
+        };
+
+        let result = query_raw_events_sql(params, "raw_events_v2").unwrap();
+        let expected = r#"
+            SELECT id, code, customer_id, tenant_id, timestamp, ingested_at, properties
+            FROM (
+                SELECT id, code, customer_id, tenant_id, timestamp, ingested_at, properties
+                FROM raw_events_v2
+                WHERE tenant_id = ?
+                    AND timestamp >= toDateTime(?)
+                    AND timestamp < toDateTime(?)
+                    AND customer_id IN ?
+                    AND code IN ?
+                ORDER BY timestamp DESC LIMIT 1 BY id, customer_id
+            )
+            ORDER BY ingested_at DESC LIMIT ? OFFSET ?
+        "#;
+
+        assert_eq!(normalize_sql(&result.sql), normalize_sql(expected));
+        let bs = bind_strings(&result.binds);
+        assert!(bs.contains(&"A:api_call,storage".to_string()));
+        assert!(bs.contains(&"U:20".to_string()));
+        assert!(bs.contains(&"U:5".to_string()));
+    }
+
+    #[test]
+    fn test_query_raw_events_with_search() {
+        let params = QueryRawEventsParams {
+            tenant_id: TenantId::default(),
+            from: Utc.with_ymd_and_hms(2024, 1, 1, 0, 0, 0).unwrap(),
+            to: None,
+            limit: 10,
+            offset: 0,
+            search: Some("foo".to_string()),
+            event_codes: vec![],
+            customer_ids: vec![],
+            sort_order: EventSortOrder::TimestampAsc,
+        };
+
+        let result = query_raw_events_sql(params, "raw_events_v2").unwrap();
+        let expected = r#"
+            SELECT id, code, customer_id, tenant_id, timestamp, ingested_at, properties
+            FROM (
+                SELECT id, code, customer_id, tenant_id, timestamp, ingested_at, properties
+                FROM raw_events_v2
+                WHERE tenant_id = ?
+                    AND timestamp >= toDateTime(?)
+                    AND timestamp < toDateTime(?)
+                    AND (id ILIKE ? OR code ILIKE ? OR arrayStringConcat(mapValues(properties), ' ') ILIKE ?)
+                ORDER BY timestamp DESC LIMIT 1 BY id, customer_id
+            )
+            ORDER BY timestamp ASC LIMIT ? OFFSET ?
+        "#;
+
+        assert_eq!(normalize_sql(&result.sql), normalize_sql(expected));
+        let bs = bind_strings(&result.binds);
+        assert_eq!(bs.iter().filter(|b| *b == "S:%foo%").count(), 3);
     }
 }

@@ -6,6 +6,8 @@ pub enum BindValue {
     Strings(Vec<String>),
     I64(i64),
     U32(u32),
+    Uuid(uuid::Uuid),
+    Uuids(Vec<uuid::Uuid>),
 }
 
 #[derive(Debug)]
@@ -23,6 +25,8 @@ impl SafeQuery {
                 BindValue::Strings(v) => q.bind(v),
                 BindValue::I64(v) => q.bind(v),
                 BindValue::U32(v) => q.bind(v),
+                BindValue::Uuid(v) => q.bind(v),
+                BindValue::Uuids(v) => q.bind(v),
             };
         }
         q
