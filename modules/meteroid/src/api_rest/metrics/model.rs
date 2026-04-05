@@ -1,6 +1,6 @@
 use crate::api_rest::model::{PaginatedRequest, PaginationResponse};
 use chrono::NaiveDateTime;
-use common_domain::identifiers::{validator_code, validator_property_key};
+use common_domain::identifiers::validator_code;
 use common_domain::ids::{
     BillableMetricId, ProductFamilyId, ProductId, string_serde, string_serde_opt,
 };
@@ -12,29 +12,6 @@ use validator::Validate;
 
 fn validate_metric_code(code: &str) -> Result<(), validator::ValidationError> {
     validator_code(code)
-}
-
-fn validate_optional_property_key(key: &str) -> Result<(), validator::ValidationError> {
-    validator_property_key(key)
-}
-
-fn validate_segmentation_matrix(
-    matrix: &MetricSegmentationMatrix,
-) -> Result<(), validator::ValidationError> {
-    match matrix {
-        MetricSegmentationMatrix::Single(dim) => {
-            validator_property_key(&dim.key)?;
-        }
-        MetricSegmentationMatrix::Double(d) => {
-            validator_property_key(&d.dimension1.key)?;
-            validator_property_key(&d.dimension2.key)?;
-        }
-        MetricSegmentationMatrix::Linked(l) => {
-            validator_property_key(&l.dimension1_key)?;
-            validator_property_key(&l.dimension2_key)?;
-        }
-    }
-    Ok(())
 }
 
 #[derive(o2o, Serialize, Deserialize, Debug, Clone, utoipa::ToSchema)]
@@ -208,12 +185,9 @@ pub struct CreateMetricRequest {
     pub code: String,
     pub description: Option<String>,
     pub aggregation_type: BillingMetricAggregateEnum,
-    #[validate(custom(function = "validate_optional_property_key"))]
     pub aggregation_key: Option<String>,
     pub unit_conversion: Option<UnitConversion>,
-    #[validate(custom(function = "validate_segmentation_matrix"))]
     pub segmentation_matrix: Option<MetricSegmentationMatrix>,
-    #[validate(custom(function = "validate_optional_property_key"))]
     pub usage_group_key: Option<String>,
     #[serde(with = "string_serde")]
     pub product_family_id: ProductFamilyId,
@@ -227,7 +201,6 @@ pub struct UpdateMetricRequest {
     pub name: Option<String>,
     pub description: Option<Option<String>>,
     pub unit_conversion: Option<Option<UnitConversion>>,
-    #[validate(custom(function = "validate_segmentation_matrix"))]
     pub segmentation_matrix: Option<Option<MetricSegmentationMatrix>>,
 }
 

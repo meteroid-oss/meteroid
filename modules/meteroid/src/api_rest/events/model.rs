@@ -1,4 +1,4 @@
-use common_domain::identifiers::{validator_code, validator_property_key};
+use common_domain::identifiers::validator_code;
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
 use utoipa::ToSchema;
@@ -6,15 +6,6 @@ use validator::Validate;
 
 fn validate_event_code(code: &str) -> Result<(), validator::ValidationError> {
     validator_code(code)
-}
-
-fn validate_event_properties(
-    props: &HashMap<String, String>,
-) -> Result<(), validator::ValidationError> {
-    for key in props.keys() {
-        validator_property_key(key)?;
-    }
-    Ok(())
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, ToSchema, Validate)]
@@ -26,7 +17,6 @@ pub struct Event {
     pub customer_id: String,
     pub timestamp: String,
     #[serde(default)]
-    #[validate(custom(function = "validate_event_properties"))]
     pub properties: HashMap<String, String>,
 }
 

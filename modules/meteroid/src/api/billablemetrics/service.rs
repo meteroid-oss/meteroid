@@ -3,7 +3,7 @@ use crate::api::billablemetrics::mapping::metric::{
     ServerBillableMetricMetaWrapper, ServerBillableMetricWrapper,
 };
 use crate::api::utils::PaginationExt;
-use common_domain::identifiers::{validate_code, validate_property_key};
+use common_domain::identifiers::validate_code;
 use common_domain::ids::{BillableMetricId, ProductFamilyId, ProductId};
 use common_grpc::middleware::server::auth::RequestExt;
 use error_stack::Report;
@@ -34,45 +34,6 @@ impl BillableMetricsService for BillableMetricsComponents {
         let inner = request.into_inner();
 
         validate_code(&inner.code).map_err(|e| Status::invalid_argument(e.to_string()))?;
-
-        if let Some(ref agg) = inner.aggregation
-            && let Some(ref key) = agg.aggregation_key
-        {
-            validate_property_key(key).map_err(|e| Status::invalid_argument(e.to_string()))?;
-        }
-
-        if let Some(ref key) = inner.usage_group_key {
-            validate_property_key(key).map_err(|e| Status::invalid_argument(e.to_string()))?;
-        }
-
-        if let Some(ref sm) = inner.segmentation_matrix {
-            use meteroid_grpc::meteroid::api::billablemetrics::v1::segmentation_matrix::Matrix;
-            match &sm.matrix {
-                Some(Matrix::Single(s)) => {
-                    if let Some(ref dim) = s.dimension {
-                        validate_property_key(&dim.key)
-                            .map_err(|e| Status::invalid_argument(e.to_string()))?;
-                    }
-                }
-                Some(Matrix::Double(d)) => {
-                    if let Some(ref dim) = d.dimension1 {
-                        validate_property_key(&dim.key)
-                            .map_err(|e| Status::invalid_argument(e.to_string()))?;
-                    }
-                    if let Some(ref dim) = d.dimension2 {
-                        validate_property_key(&dim.key)
-                            .map_err(|e| Status::invalid_argument(e.to_string()))?;
-                    }
-                }
-                Some(Matrix::Linked(l)) => {
-                    validate_property_key(&l.dimension_key)
-                        .map_err(|e| Status::invalid_argument(e.to_string()))?;
-                    validate_property_key(&l.linked_dimension_key)
-                        .map_err(|e| Status::invalid_argument(e.to_string()))?;
-                }
-                None => {}
-            }
-        }
 
         let (aggregation_key, aggregation_type, unit_conversion) = match inner.aggregation.as_ref()
         {
