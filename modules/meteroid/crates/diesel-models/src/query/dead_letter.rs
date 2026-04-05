@@ -118,6 +118,19 @@ impl DeadLetterMessageRow {
             .into_db_result()
     }
 
+    pub async fn find_pending_by_ids(
+        conn: &mut PgConn,
+        ids: &[Uuid],
+    ) -> DbResult<Vec<DeadLetterMessageRow>> {
+        dead_letter_message::table
+            .filter(dead_letter_message::id.eq_any(ids))
+            .filter(dead_letter_message::status.eq(DeadLetterStatusEnum::Pending))
+            .get_results(conn)
+            .await
+            .attach("Failed to fetch pending dead letter messages")
+            .into_db_result()
+    }
+
     pub async fn batch_update_status(
         conn: &mut PgConn,
         ids: &[Uuid],
@@ -199,7 +212,11 @@ pub async fn search_organizations(
     use crate::schema::tenant;
     use diesel_async::RunQueryDsl;
 
-    let pattern = format!("%{query}%");
+    let escaped = query
+        .replace('\\', "\\\\")
+        .replace('%', "\\%")
+        .replace('_', "\\_");
+    let pattern = format!("%{escaped}%");
 
     let orgs: Vec<OrganizationRow> = organization::table
         .filter(
