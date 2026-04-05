@@ -312,10 +312,10 @@ async fn test_metering_ingestion() {
         },
     ];
 
+    let unique_events = to_ingest.clone();
+
     // simulate duplicate events
     to_ingest.extend(to_ingest.clone());
-
-    let to_ingest_len = to_ingest.len();
 
     // we ingest events in metering
     let ingested = metering_clients
@@ -337,12 +337,12 @@ async fn test_metering_ingestion() {
         ids::TENANT_ID,
         period_1_start - chrono::Duration::days(1),
         now + chrono::Duration::days(1),
-        to_ingest_len,
+        unique_events.len(),
     )
     .await
     .expect("Failed to validate raw events via gRPC");
 
-    assert_raw_events_eq(&to_ingest, &grpc_events);
+    assert_raw_events_eq(&unique_events, &grpc_events);
     log::info!("Raw events via gRPC validated!");
 
     log::info!("Validating clickhouse usage data...");

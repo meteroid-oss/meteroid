@@ -100,7 +100,7 @@ export const EventsImportModal: FunctionComponent<EventsImportModalProps> = ({
         },
       ]}
       optionalColumns={[
-        { name: 'event_id', tooltipMessage: 'Auto-generated UUID if empty' },
+        { name: 'event_id', tooltipMessage: 'Auto-generated UUID if empty. Used as the uniqueness key for deduplication.' },
         { name: 'timestamp', tooltipMessage: 'ISO 8601 format. Defaults to current time.' },
         { name: '(additional)', tooltipMessage: 'Any extra columns become event properties' },
       ]}
