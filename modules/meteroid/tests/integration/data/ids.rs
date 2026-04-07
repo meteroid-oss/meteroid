@@ -65,6 +65,16 @@ pub const COMP_LEETCODE_RATE_ID: PriceComponentId =
 pub const PRICE_LEETCODE_RATE_ID: PriceId =
     PriceId::from_const(uuid!("019438e0-0080-7000-8000-000000000001"));
 
+// LeetCode Quarterly (Rate, quarterly billing — used for proration regression test)
+pub const PLAN_LEETCODE_QUARTERLY_ID: PlanId =
+    PlanId::from_const(uuid!("019438e0-0042-7000-8000-000000000001"));
+pub const PLAN_VERSION_LEETCODE_QUARTERLY_ID: PlanVersionId =
+    PlanVersionId::from_const(uuid!("019438e0-0043-7000-8000-000000000001"));
+pub const COMP_LEETCODE_QUARTERLY_RATE_ID: PriceComponentId =
+    PriceComponentId::from_const(uuid!("019438e0-0044-7000-8000-000000000001"));
+pub const PRICE_LEETCODE_QUARTERLY_RATE_ID: PriceId =
+    PriceId::from_const(uuid!("019438e0-0045-7000-8000-000000000001"));
+
 // Notion (Slot, monthly + annual)
 pub const PLAN_NOTION_ID: PlanId =
     PlanId::from_const(uuid!("018c344b-da85-70dc-ae6f-5b919847dbbf"));
