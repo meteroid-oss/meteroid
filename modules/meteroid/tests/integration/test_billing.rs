@@ -267,7 +267,8 @@ async fn test_quarterly_subscription_first_cycle_proration(
     services.get_and_process_due_events().await.unwrap();
 
     let subscription = get_subscription_row(conn, subscription_id).await;
-    assert_subscription_state(&subscription, 1, &invoice_dates, full_quarterly_total);
+    // Quarterly MRR = total / 3
+    assert_subscription_state(&subscription, 1, &invoice_dates, full_quarterly_total / 3);
 
     let invoices = get_invoices(store, subscription_id).await;
     assert_eq!(invoices.len(), 2);
