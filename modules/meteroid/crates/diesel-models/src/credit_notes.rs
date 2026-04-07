@@ -14,7 +14,6 @@ pub struct CreditNoteRow {
     pub id: CreditNoteId,
     pub credit_note_number: String,
     pub status: CreditNoteStatus,
-    pub credit_type: CreditTypeEnum,
     pub created_at: NaiveDateTime,
     pub updated_at: Option<NaiveDateTime>,
     pub finalized_at: Option<NaiveDateTime>,
@@ -40,6 +39,7 @@ pub struct CreditNoteRow {
     pub pdf_document_id: Option<StoredDocumentId>,
     pub conn_meta: Option<serde_json::Value>,
     pub invoicing_entity_id: InvoicingEntityId,
+    pub credit_type: CreditTypeEnum,
 }
 
 #[derive(Insertable, Debug)]
