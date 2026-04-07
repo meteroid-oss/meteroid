@@ -29,7 +29,11 @@ import {
 } from '@/rpc/api/creditnotes/v1/creditnotes-CreditNotesService_connectquery'
 import { CreditNoteStatus, CreditType } from '@/rpc/api/creditnotes/v1/models_pb'
 import { getInvoice } from '@/rpc/api/invoices/v1/invoices-InvoicesService_connectquery'
-import { DetailedInvoice, LineItem } from '@/rpc/api/invoices/v1/models_pb'
+import {
+  DetailedInvoice,
+  InvoicePaymentStatus,
+  LineItem,
+} from '@/rpc/api/invoices/v1/models_pb'
 
 
 interface CreateCreditNoteDialogProps {
@@ -69,6 +73,20 @@ export const CreateCreditNoteDialog: React.FC<CreateCreditNoteDialogProps> = ({
   const navigate = useNavigate()
   const queryClient = useQueryClient()
 
+
+  const paymentStatus = invoice.paymentStatus
+  const isPaid = paymentStatus === InvoicePaymentStatus.PAID
+  const isPartiallyPaid = paymentStatus === InvoicePaymentStatus.PARTIALLY_PAID
+  const hasOutstanding = !isPaid
+  const hasAmountPaid = isPaid || isPartiallyPaid
+
+  const allowedTypes: CreditType[] = []
+  if (hasOutstanding) allowedTypes.push(CreditType.DEBT_CANCELLATION)
+  if (hasAmountPaid) {
+    allowedTypes.push(CreditType.CREDIT_TO_BALANCE)
+    allowedTypes.push(CreditType.REFUND)
+  }
+  const defaultType = allowedTypes[0]!
   // Fetch existing credit notes for this invoice to compute per-line remaining amounts.
   // Without this, the UI would show the original subtotal as the cap even when the line
   // was already partially credited, and the backend would silently cap the difference.
@@ -121,7 +139,7 @@ export const CreateCreditNoteDialog: React.FC<CreateCreditNoteDialogProps> = ({
   useEffect(() => {
     setLineItems(initialLineItems)
   }, [initialLineItems])
-  const [creditType, setCreditType] = useState<CreditType>(CreditType.CREDIT_TO_BALANCE)
+  const [creditType, setCreditType] = useState<CreditType>(defaultType)
   const [reason, setReason] = useState('')
   const [memo, setMemo] = useState('')
 
@@ -314,7 +332,7 @@ export const CreateCreditNoteDialog: React.FC<CreateCreditNoteDialogProps> = ({
   const handleClose = () => {
     // Reset state when closing
     setLineItems(initialLineItems)
-    setCreditType(CreditType.CREDIT_TO_BALANCE)
+    setCreditType(defaultType)
     setReason('')
     setMemo('')
     onOpenChange(false)
@@ -455,31 +473,52 @@ export const CreateCreditNoteDialog: React.FC<CreateCreditNoteDialogProps> = ({
               value={creditType.toString()}
               onValueChange={value => setCreditType(parseInt(value) as CreditType)}
             >
-              <div className="flex items-center space-x-2">
-                <RadioGroupItem
-                  value={CreditType.CREDIT_TO_BALANCE.toString()}
-                  id="credit-balance"
-                />
-                <Label htmlFor="credit-balance" className="text-sm font-normal cursor-pointer">
-                  Credit to customer balance
-                  <span className="block text-xs text-muted-foreground">
-                    Amount will be applied to future invoices
-                  </span>
-                </Label>
-              </div>
-              <div className="flex items-center space-x-2">
-                <RadioGroupItem value={CreditType.REFUND.toString()} id="credit-refund" />
-                <Label htmlFor="credit-refund" className="text-sm font-normal cursor-pointer">
-                  Refund
-                  <span className="block text-xs text-warning">
-                    Paid amount must be refunded via your payment provider{' '}
-                    <b>(NOT yet handled by Meteroid)</b>.
-                  </span>
-                  <span className="block text-xs text-muted-foreground">
-                    Credit used will be re-credited to customer balance.
-                  </span>
-                </Label>
-              </div>
+              {allowedTypes.includes(CreditType.DEBT_CANCELLATION) && (
+                <div className="flex items-center space-x-2">
+                  <RadioGroupItem
+                    value={CreditType.DEBT_CANCELLATION.toString()}
+                    id="credit-debt-cancellation"
+                  />
+                  <Label
+                    htmlFor="credit-debt-cancellation"
+                    className="text-sm font-normal cursor-pointer"
+                  >
+                    Cancel debt
+                    <span className="block text-xs text-muted-foreground">
+                      Reduces the invoice amount due. The invoice is marked paid if it
+                      reaches zero. Nothing is refunded and the customer balance is
+                      unchanged.
+                    </span>
+                  </Label>
+                </div>
+              )}
+              {allowedTypes.includes(CreditType.CREDIT_TO_BALANCE) && (
+                <div className="flex items-center space-x-2">
+                  <RadioGroupItem
+                    value={CreditType.CREDIT_TO_BALANCE.toString()}
+                    id="credit-balance"
+                  />
+                  <Label htmlFor="credit-balance" className="text-sm font-normal cursor-pointer">
+                    Credit to customer balance
+                    <span className="block text-xs text-muted-foreground">
+                      Amount will be applied to future invoices.
+                    </span>
+                  </Label>
+                </div>
+              )}
+              {allowedTypes.includes(CreditType.REFUND) && (
+                <div className="flex items-center space-x-2">
+                  <RadioGroupItem value={CreditType.REFUND.toString()} id="credit-refund" />
+                  <Label htmlFor="credit-refund" className="text-sm font-normal cursor-pointer">
+                    Refund
+                    <span className="block text-xs text-muted-foreground">
+                      The paid amount must be refunded to the customer via your payment
+                      provider (out of band). Any applied customer credit is restored to
+                      the customer balance.
+                    </span>
+                  </Label>
+                </div>
+              )}
             </RadioGroup>
           </div>
 
@@ -488,7 +527,7 @@ export const CreateCreditNoteDialog: React.FC<CreateCreditNoteDialogProps> = ({
             <Label htmlFor="reason" className="text-sm font-medium">
               Reason (optional)
               <span className="block text-xs text-muted-foreground">
-                (displayed on the credit note)
+                Displayed on the credit note (visible to customer).
               </span>
             </Label>
             <Input
@@ -504,7 +543,7 @@ export const CreateCreditNoteDialog: React.FC<CreateCreditNoteDialogProps> = ({
             <Label htmlFor="memo" className="text-sm font-medium">
               Memo (optional)
               <span className="block text-xs text-muted-foreground">
-                (displayed on the credit note)
+                Internal note (not visible to customer).
               </span>
             </Label>
             <Textarea

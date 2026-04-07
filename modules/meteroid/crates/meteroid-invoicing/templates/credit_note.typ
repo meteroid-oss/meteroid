@@ -147,8 +147,7 @@
 
   v(16pt)
 
-  // Legal notice referencing the original invoice (required by French law for any
-  // credit note correcting a finalized invoice).
+  // Legal notice referencing the original invoice
   block(
     width: 100%,
     fill: color.light_border,

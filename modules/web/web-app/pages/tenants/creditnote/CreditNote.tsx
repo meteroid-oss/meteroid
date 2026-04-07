@@ -34,7 +34,11 @@ import {
   previewCreditNoteSvg,
   voidCreditNote,
 } from '@/rpc/api/creditnotes/v1/creditnotes-CreditNotesService_connectquery'
-import { CreditNoteStatus, DetailedCreditNote } from '@/rpc/api/creditnotes/v1/models_pb'
+import {
+  CreditNoteStatus,
+  CreditType,
+  DetailedCreditNote,
+} from '@/rpc/api/creditnotes/v1/models_pb'
 import { LineItem, TaxBreakdownItem } from '@/rpc/api/invoices/v1/models_pb'
 import { parseAndFormatDate } from '@/utils/date'
 import { useTypedParams } from '@/utils/params'
@@ -334,6 +338,7 @@ const CreditNoteView = ({ creditNote, creditNoteId }: Props) => {
         <div className="flex-1 overflow-auto">
           <Flex direction="column" className="gap-2 p-6">
             <FlexDetails title="Credit note number" value={creditNote.creditNoteNumber} />
+            <FlexDetails title="Type" value={<CreditTypeLabel type={creditNote.creditType} />} />
             <FlexDetails
               title="Related invoice"
               value={
@@ -469,6 +474,30 @@ const CreditNoteView = ({ creditNote, creditNoteId }: Props) => {
   )
 }
 
+
+const CreditTypeLabel: React.FC<{ type: CreditType }> = ({ type }) => {
+  switch (type) {
+    case CreditType.DEBT_CANCELLATION:
+      return (
+        <span className="text-[13px] px-2 py-0.5 rounded bg-muted text-muted-foreground">
+          Debt cancellation
+        </span>
+      )
+    case CreditType.REFUND:
+      return (
+        <span className="text-[13px] px-2 py-0.5 rounded bg-destructive/10 text-destructive">
+          Refund
+        </span>
+      )
+    case CreditType.CREDIT_TO_BALANCE:
+    default:
+      return (
+        <span className="text-[13px] px-2 py-0.5 rounded bg-success/10 text-success">
+          Credit to balance
+        </span>
+      )
+  }
+}
 
 const CreditNoteSummaryLines: React.FC<{ creditNote: DetailedCreditNote }> = ({ creditNote }) => {
   const subtotal = Math.abs(Number(creditNote.subtotal)) || 0

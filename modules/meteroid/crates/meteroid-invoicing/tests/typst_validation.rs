@@ -423,7 +423,6 @@ async fn test_typst_credit_note_debt_cancellation_type() {
         "Output should be a valid PDF file"
     );
 
-    // Also verify French rendering (the legal "Annule et remplace" notice).
     let mut credit_note_fr = create_minimal_credit_note();
     credit_note_fr.lang = "fr-FR".to_string();
     credit_note_fr.metadata.credit_type = CreditType::DebtCancellation;
