@@ -264,6 +264,8 @@ impl From<&CreditNote> for TypstCreditNoteContent {
             "reason" => credit_note_l10n.reason().into_value(),
             "refunded" => credit_note_l10n.refunded().into_value(),
             "credit_to_balance" => credit_note_l10n.credit_to_balance().into_value(),
+            "debt_cancellation" => credit_note_l10n.debt_cancellation().into_value(),
+            "cancels_and_replaces" => credit_note_l10n.cancels_and_replaces(&credit_note.metadata.related_invoice_number).into_value(),
             "refunded_amount" => credit_note_l10n.refunded_amount().into_value(),
             "credited_amount" => credit_note_l10n.credited_amount().into_value(),
             "total_credit" => credit_note_l10n.total_credit().into_value(),

@@ -1041,7 +1041,16 @@ impl CreditNoteInterface for Store {
                             ));
                         }
                     }
-                    CreditType::CreditToBalance => {}
+                    CreditType::CreditToBalance => {
+                        if !matches!(
+                            invoice.payment_status,
+                            InvoicePaymentStatus::Paid | InvoicePaymentStatus::PartiallyPaid
+                        ) {
+                            bail!(StoreError::InvalidArgument(
+                                "CreditToBalance credit notes can only be created for paid or partially paid invoices".to_string()
+                            ));
+                        }
+                    }
                 }
 
                 // 4. Create credit note using shared implementation

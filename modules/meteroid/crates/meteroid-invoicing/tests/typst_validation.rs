@@ -401,6 +401,41 @@ async fn test_typst_credit_note_with_multiple_languages() {
 }
 
 #[tokio::test]
+async fn test_typst_credit_note_debt_cancellation_type() {
+    let generator =
+        TypstCreditNotePdfGenerator::new().expect("Failed to create TypstCreditNotePdfGenerator");
+
+    let mut credit_note = create_minimal_credit_note();
+    credit_note.metadata.credit_type = CreditType::DebtCancellation;
+    credit_note.metadata.refunded_amount = Money::from_major(0, iso::find("EUR").unwrap());
+    credit_note.metadata.credited_amount = Money::from_major(0, iso::find("EUR").unwrap());
+
+    let result = generator.generate_credit_note_pdf(&credit_note).await;
+    assert!(
+        result.is_ok(),
+        "Failed to generate debt-cancellation credit note PDF: {:?}",
+        result.err()
+    );
+
+    let pdf_data = result.unwrap();
+    assert!(
+        &pdf_data[0..4] == b"%PDF",
+        "Output should be a valid PDF file"
+    );
+
+    // Also verify French rendering (the legal "Annule et remplace" notice).
+    let mut credit_note_fr = create_minimal_credit_note();
+    credit_note_fr.lang = "fr-FR".to_string();
+    credit_note_fr.metadata.credit_type = CreditType::DebtCancellation;
+    let result_fr = generator.generate_credit_note_pdf(&credit_note_fr).await;
+    assert!(
+        result_fr.is_ok(),
+        "Failed to generate French debt-cancellation credit note PDF: {:?}",
+        result_fr.err()
+    );
+}
+
+#[tokio::test]
 async fn test_typst_credit_note_refund_type() {
     let generator =
         TypstCreditNotePdfGenerator::new().expect("Failed to create TypstCreditNotePdfGenerator");
