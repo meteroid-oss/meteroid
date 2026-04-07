@@ -46,7 +46,18 @@ pub fn calculate_component_period_for_invoice_date(
                     &billing_period,
                 );
                 let proration_factor = if cycle_index == 0 {
-                    calculate_proration_factor(&advance_period)
+                    subtract_months_at_billing_day(
+                        advance_period.end,
+                        billing_period.as_months(),
+                        billing_day,
+                    )
+                    .and_then(|full_start| {
+                        let full_period = Period {
+                            start: full_start,
+                            end: advance_period.end,
+                        };
+                        calculate_proration_factor(&advance_period, &full_period)
+                    })
                 } else {
                     None
                 };
@@ -73,28 +84,17 @@ pub fn calculate_component_period_for_invoice_date(
     }
 }
 
-pub fn calculate_proration_factor(period: &Period) -> Option<f64> {
-    let days_in_period = period.end.signed_duration_since(period.start).num_days() as u64; // +1 ?
-    let days_in_month_from = u64::from(period.start.days_in_month());
-    let days_in_month_to = u64::from(period.end.days_in_month());
+/// Factor = partial_days / full_days, in `[0.0, 1.0)`. Returns `None` only when no
+/// proration is needed (partial covers the whole reference period) or inputs are invalid.
+pub fn calculate_proration_factor(partial: &Period, full: &Period) -> Option<f64> {
+    let partial_days = partial.end.signed_duration_since(partial.start).num_days();
+    let full_days = full.end.signed_duration_since(full.start).num_days();
 
-    // if from is end of month and from.day <= to.day. Ex: 2023-02-28 -> 2023-03-28+
-    if period.start.day() == days_in_month_from as u32 && period.end.day() >= period.start.day() {
+    if full_days <= 0 || partial_days < 0 || partial_days >= full_days {
         return None;
     }
 
-    if days_in_period >= days_in_month_from {
-        return None;
-    }
-
-    // if to is end of month and from.day >= to.day. Ex: 2023-01-28+ -> 2023-02-28
-    if period.end.day() == days_in_month_to as u32 && period.start.day() >= period.end.day() {
-        return None;
-    }
-
-    let proration_factor = days_in_period as f64 / days_in_month_from as f64;
-
-    Some(proration_factor.clamp(0.0, 1.0))
+    Some(partial_days as f64 / full_days as f64)
 }
 
 fn applies_this_period(
@@ -362,9 +362,10 @@ fn subtract_months_at_billing_day(
 mod test {
     use super::{
         Period, calculate_advance_period_range, calculate_arrear_period_range,
-        calculate_elapsed_cycles, find_period_containing_date,
+        calculate_component_period_for_invoice_date, calculate_elapsed_cycles,
+        calculate_proration_factor, find_period_containing_date,
     };
-    use crate::domain::enums::BillingPeriodEnum;
+    use crate::domain::enums::{BillingPeriodEnum, SubscriptionFeeBillingPeriod};
 
     use chrono::NaiveDate;
 
@@ -987,6 +988,139 @@ mod test {
                 "After {elapsed} cycles from {billing_start}, expected to be at {}, but got {current_start}",
                 period.start
             );
+        }
+
+        fn p(start: &str, end: &str) -> Period {
+            Period {
+                start: start.parse().unwrap(),
+                end: end.parse().unwrap(),
+            }
+        }
+
+        #[test]
+        fn proration_equal_periods_return_none() {
+            let full = p("2025-01-01", "2025-02-01");
+            assert_eq!(calculate_proration_factor(&full, &full), None);
+        }
+
+        #[test]
+        fn proration_monthly_half_period() {
+            let full = p("2025-01-01", "2025-02-01");
+            let partial = p("2025-01-17", "2025-02-01");
+            let factor = calculate_proration_factor(&partial, &full).unwrap();
+            assert!((factor - (15.0 / 31.0)).abs() < 1e-9);
+        }
+
+        #[test]
+        fn proration_empty_partial_is_zero() {
+            // Zero-day partial (e.g. addon purchase at period end) should bill 0, not full.
+            assert_eq!(
+                calculate_proration_factor(
+                    &p("2025-01-15", "2025-01-15"),
+                    &p("2025-01-01", "2025-02-01")
+                ),
+                Some(0.0)
+            );
+        }
+
+        #[test]
+        fn proration_empty_full_returns_none() {
+            assert_eq!(
+                calculate_proration_factor(
+                    &p("2025-01-15", "2025-01-20"),
+                    &p("2025-01-01", "2025-01-01")
+                ),
+                None
+            );
+        }
+
+        #[test]
+        fn proration_partial_exceeds_full_returns_none() {
+            assert_eq!(
+                calculate_proration_factor(
+                    &p("2025-01-01", "2025-03-01"),
+                    &p("2025-01-01", "2025-02-01")
+                ),
+                None
+            );
+        }
+
+        #[test]
+        fn first_cycle_quarterly_partial_period_is_prorated() {
+            // Regression: quarterly started 2025-10-08 with anchor day=1 must prorate.
+            let invoice_date = NaiveDate::from_ymd_opt(2025, 10, 8).unwrap();
+            let periods = calculate_component_period_for_invoice_date(
+                invoice_date,
+                &BillingPeriodEnum::Quarterly,
+                &SubscriptionFeeBillingPeriod::Quarterly,
+                invoice_date,
+                0,
+                1,
+                false,
+            )
+            .expect("should return periods");
+
+            let advance = periods.advance.expect("should have advance");
+            assert_eq!(advance.start, NaiveDate::from_ymd_opt(2025, 10, 8).unwrap());
+            assert_eq!(advance.end, NaiveDate::from_ymd_opt(2026, 1, 1).unwrap());
+
+            let factor = periods.proration_factor.expect("should be prorated");
+            assert!((factor - 85.0 / 92.0).abs() < 1e-9, "got {factor}");
+        }
+
+        #[test]
+        fn first_cycle_quarterly_aligned_no_proration() {
+            let invoice_date = NaiveDate::from_ymd_opt(2025, 1, 1).unwrap();
+            let periods = calculate_component_period_for_invoice_date(
+                invoice_date,
+                &BillingPeriodEnum::Quarterly,
+                &SubscriptionFeeBillingPeriod::Quarterly,
+                invoice_date,
+                0,
+                1,
+                false,
+            )
+            .expect("should return periods");
+
+            assert_eq!(periods.proration_factor, None);
+        }
+
+        #[test]
+        fn first_cycle_annual_partial_period_is_prorated() {
+            let invoice_date = NaiveDate::from_ymd_opt(2025, 4, 15).unwrap();
+            let periods = calculate_component_period_for_invoice_date(
+                invoice_date,
+                &BillingPeriodEnum::Annual,
+                &SubscriptionFeeBillingPeriod::Annual,
+                invoice_date,
+                0,
+                1,
+                false,
+            )
+            .expect("should return periods");
+
+            let advance = periods.advance.expect("should have advance");
+            assert_eq!(advance.start, NaiveDate::from_ymd_opt(2025, 4, 15).unwrap());
+            assert_eq!(advance.end, NaiveDate::from_ymd_opt(2026, 4, 1).unwrap());
+
+            let factor = periods.proration_factor.expect("should be prorated");
+            assert!((factor - 351.0 / 365.0).abs() < 1e-9, "got {factor}");
+        }
+
+        #[test]
+        fn second_cycle_never_prorated() {
+            let periods = calculate_component_period_for_invoice_date(
+                NaiveDate::from_ymd_opt(2026, 1, 1).unwrap(),
+                &BillingPeriodEnum::Quarterly,
+                &SubscriptionFeeBillingPeriod::Quarterly,
+                NaiveDate::from_ymd_opt(2025, 10, 8).unwrap(),
+                1,
+                1,
+                false,
+            )
+            .expect("should return periods");
+
+            assert_eq!(periods.proration_factor, None);
         }
     }
 }

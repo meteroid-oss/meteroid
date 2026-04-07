@@ -44,6 +44,9 @@ async fn test_lifecycle_billing() {
     // Monthly subscription with billing day anchor
     test_monthly_subscription_with_billing_anchor(&services, &store, &mut conn).await;
 
+    // Quarterly subscription first-cycle proration
+    test_quarterly_subscription_first_cycle_proration(&services, &store, &mut conn).await;
+
     // Anniversary billing (no anchor)
     test_anniversary_billing(&services, &store, &mut conn).await;
 
@@ -198,6 +201,77 @@ async fn test_monthly_subscription_with_billing_anchor(
         assert_eq!(invoices.len(), cycle + 1);
         assert_full_invoice(&invoices[cycle], invoice_dates[cycle], expected_total);
     }
+}
+
+/// a quarterly subscription that starts mid-period with a billing day anchor
+/// must prorate the first invoice, not charge the full quarterly rate.
+async fn test_quarterly_subscription_first_cycle_proration(
+    services: &Services,
+    store: &Store,
+    conn: &mut PgConn,
+) {
+    log::info!(">>> Testing quarterly subscription first-cycle proration");
+
+    // Start 2025-10-08, billing anchor day=1 → first period [2025-10-08, 2026-01-01] = 85 days
+    // Full reference quarter [2025-10-01, 2026-01-01] = 92 days
+    // Plan rate = €90.00 = 9000 cents
+    // Expected prorated = round(9000 * 85 / 92) = 8315 cents
+    let start_date = NaiveDate::from_ymd_opt(2025, 10, 8).unwrap();
+    let billing_day = 1u16;
+    let full_quarterly_total = 9000i64;
+    let expected_prorated_total = 8315i64;
+
+    let first_period_end = NaiveDate::from_ymd_opt(2026, 1, 1).unwrap();
+    let second_period_end = NaiveDate::from_ymd_opt(2026, 4, 1).unwrap();
+    let invoice_dates = [start_date, first_period_end, second_period_end];
+
+    let subscription_id = create_subscription(
+        services,
+        SubscriptionParams {
+            start_date,
+            billing_day_anchor: Some(billing_day),
+            plan_version_id: Some(PLAN_VERSION_LEETCODE_QUARTERLY_ID),
+            ..Default::default()
+        },
+    )
+    .await;
+
+    // First cycle: must be prorated with the exact expected amount
+    let subscription = get_subscription_row(conn, subscription_id).await;
+    assert_period(&subscription, start_date, first_period_end);
+
+    let invoices = get_invoices(store, subscription_id).await;
+    assert_eq!(invoices.len(), 1);
+    let first_invoice = &invoices[0];
+
+    let is_prorated = first_invoice.line_items.iter().any(|li| li.is_prorated);
+    assert!(
+        is_prorated,
+        "first quarterly invoice must be prorated, got line_items={:?}",
+        first_invoice.line_items
+    );
+    assert_eq!(
+        first_invoice.total, expected_prorated_total,
+        "first quarterly invoice should be prorated to {} cents (85/92 of {}), got {}",
+        expected_prorated_total, full_quarterly_total, first_invoice.total
+    );
+    assert!(
+        first_invoice.total < full_quarterly_total,
+        "prorated total {} must be strictly less than full quarterly {}",
+        first_invoice.total,
+        full_quarterly_total
+    );
+
+    // Second cycle: full quarterly amount, not prorated
+    services.get_and_process_cycle_transitions().await.unwrap();
+    services.get_and_process_due_events().await.unwrap();
+
+    let subscription = get_subscription_row(conn, subscription_id).await;
+    assert_subscription_state(&subscription, 1, &invoice_dates, full_quarterly_total);
+
+    let invoices = get_invoices(store, subscription_id).await;
+    assert_eq!(invoices.len(), 2);
+    assert_full_invoice(&invoices[1], first_period_end, full_quarterly_total);
 }
 
 async fn test_anniversary_billing(services: &Services, store: &Store, conn: &mut PgConn) {
@@ -801,7 +875,7 @@ async fn create_subscription(services: &Services, params: SubscriptionParams) ->
             CreateSubscription {
                 subscription: SubscriptionNew {
                     customer_id: CUST_UBER_ID,
-                    plan_version_id: PLAN_VERSION_1_LEETCODE_ID,
+                    plan_version_id: params.plan_version_id.unwrap_or(PLAN_VERSION_1_LEETCODE_ID),
                     created_by: USER_ID,
                     net_terms: None,
                     invoice_memo: None,
@@ -839,6 +913,7 @@ struct SubscriptionParams {
     pub trial_duration: Option<u32>,
     pub payment_methods_config: Option<PaymentMethodsConfig>,
     pub billing_start_date: Option<NaiveDate>,
+    pub plan_version_id: Option<common_domain::ids::PlanVersionId>,
 }
 
 impl Default for SubscriptionParams {
@@ -851,6 +926,7 @@ impl Default for SubscriptionParams {
             trial_duration: None,
             payment_methods_config: None,
             billing_start_date: None,
+            plan_version_id: None,
         }
     }
 }

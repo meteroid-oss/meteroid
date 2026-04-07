@@ -511,12 +511,17 @@ impl Services {
             .change_context(StoreError::InvoiceComputationError)?;
 
         let period_end = original_subscription.current_period_end.unwrap_or(now);
+        let full_period = crate::domain::Period {
+            start: original_subscription.current_period_start,
+            end: period_end,
+        };
+        let partial_period = crate::domain::Period {
+            start: now,
+            end: period_end,
+        };
         let proration_factor =
-            crate::utils::periods::calculate_proration_factor(&crate::domain::Period {
-                start: now,
-                end: period_end,
-            })
-            .unwrap_or(1.0);
+            crate::utils::periods::calculate_proration_factor(&partial_period, &full_period)
+                .unwrap_or(1.0);
 
         let proration = ProrationResult {
             lines: invoice_content
