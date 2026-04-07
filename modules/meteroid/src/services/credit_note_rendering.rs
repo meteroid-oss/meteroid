@@ -290,11 +290,14 @@ mod mapper {
                 ))
             })?;
 
-        // Determine credit type from amounts
-        let credit_type = if credit_note.refunded_amount_cents > 0 {
-            invoicing_model::CreditType::Refund
-        } else {
-            invoicing_model::CreditType::CreditToBalance
+        let credit_type = match credit_note.credit_type {
+            store_model::CreditType::CreditToBalance => {
+                invoicing_model::CreditType::CreditToBalance
+            }
+            store_model::CreditType::Refund => invoicing_model::CreditType::Refund,
+            store_model::CreditType::DebtCancellation => {
+                invoicing_model::CreditType::DebtCancellation
+            }
         };
 
         let metadata = invoicing_model::CreditNoteMetadata {

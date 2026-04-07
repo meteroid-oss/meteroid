@@ -58,6 +58,7 @@ message DetailedCreditNote {
 enum CreditType {
   CREDIT_TO_BALANCE = 0;
   REFUND = 1;
+  DEBT_CANCELLATION = 2;
 }
 
 message CreditLineItem {

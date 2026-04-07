@@ -87,6 +87,14 @@ pub enum CreditNoteStatus {
 }
 
 #[derive(o2o, Serialize, Deserialize, Debug, Clone, Copy, Eq, PartialEq)]
+#[map_owned(diesel_enums::CreditTypeEnum)]
+pub enum CreditType {
+    CreditToBalance,
+    Refund,
+    DebtCancellation,
+}
+
+#[derive(o2o, Serialize, Deserialize, Debug, Clone, Copy, Eq, PartialEq)]
 #[map_owned(diesel_enums::InvoiceStatusEnum)]
 pub enum InvoiceStatusEnum {
     Draft,

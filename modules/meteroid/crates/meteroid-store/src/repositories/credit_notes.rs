@@ -23,12 +23,7 @@ use rust_decimal::Decimal;
 use rust_decimal::prelude::ToPrimitive;
 use std::collections::HashMap;
 
-/// How the credit note amount should be applied
-#[derive(Debug, Clone)]
-pub enum CreditType {
-    CreditToBalance,
-    Refund, // not implemented (external only)
-}
+pub use crate::domain::enums::CreditType;
 
 /// Specifies a line item to credit.
 #[derive(Debug, Clone)]
@@ -728,6 +723,7 @@ pub(crate) async fn create_credit_note_tx(
 
     let (credited_amount_cents, refunded_amount_cents) = match params.credit_type {
         CreditType::CreditToBalance => (credit_total, 0),
+        CreditType::DebtCancellation => (0, 0),
         CreditType::Refund => {
             // For refunds, we need to handle applied credits from the original invoice.
             // If the invoice was partially paid with customer balance (applied_credits),
@@ -764,6 +760,7 @@ pub(crate) async fn create_credit_note_tx(
     let credit_note_new = CreditNoteNew {
         credit_note_number: credit_note_number.clone(),
         status: params.status.clone(),
+        credit_type: params.credit_type,
         tenant_id,
         customer_id: invoice.customer_id,
         invoice_id: invoice.id,

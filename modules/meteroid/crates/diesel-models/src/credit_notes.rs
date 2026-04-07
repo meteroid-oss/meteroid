@@ -1,6 +1,6 @@
 use chrono::NaiveDateTime;
 
-use crate::enums::CreditNoteStatus;
+use crate::enums::{CreditNoteStatus, CreditTypeEnum};
 use common_domain::ids::{
     CreditNoteId, CustomerId, InvoiceId, InvoicingEntityId, PlanVersionId, StoredDocumentId,
     SubscriptionId, TenantId,
@@ -14,6 +14,7 @@ pub struct CreditNoteRow {
     pub id: CreditNoteId,
     pub credit_note_number: String,
     pub status: CreditNoteStatus,
+    pub credit_type: CreditTypeEnum,
     pub created_at: NaiveDateTime,
     pub updated_at: Option<NaiveDateTime>,
     pub finalized_at: Option<NaiveDateTime>,
@@ -47,6 +48,7 @@ pub struct CreditNoteRowNew {
     pub id: CreditNoteId,
     pub credit_note_number: String,
     pub status: CreditNoteStatus,
+    pub credit_type: CreditTypeEnum,
     pub tenant_id: TenantId,
     pub customer_id: CustomerId,
     pub invoice_id: InvoiceId,

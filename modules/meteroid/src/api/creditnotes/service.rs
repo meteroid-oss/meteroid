@@ -260,6 +260,7 @@ impl CreditNotesService for CreditNoteServiceComponents {
         {
             CreditType::CreditToBalance => DomainCreditType::CreditToBalance,
             CreditType::Refund => DomainCreditType::Refund,
+            CreditType::DebtCancellation => DomainCreditType::DebtCancellation,
         };
 
         let params = CreateCreditNoteParams {
