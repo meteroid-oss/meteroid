@@ -156,29 +156,19 @@ pub mod customer {
         custom_taxes: Option<server::update_customer::CustomTaxesList>,
     ) -> Result<Option<Vec<domain::CustomerCustomTax>>, CustomerApiError> {
         custom_taxes
-            .and_then(|list| {
-                if list.taxes.is_empty() {
-                    None
-                } else {
-                    Some(
-                        list.taxes
-                            .into_iter()
-                            .map(|t| {
-                                Ok(domain::CustomerCustomTax {
-                                    tax_code: t.tax_code,
-                                    name: t.name,
-                                    rate: rust_decimal::Decimal::from_proto(t.rate).map_err(
-                                        |_| {
-                                            CustomerApiError::InvalidArgument(
-                                                "Invalid tax rate".to_string(),
-                                            )
-                                        },
-                                    )?,
-                                })
-                            })
-                            .collect::<Result<Vec<_>, _>>(),
-                    )
-                }
+            .map(|list| {
+                list.taxes
+                    .into_iter()
+                    .map(|t| {
+                        Ok(domain::CustomerCustomTax {
+                            tax_code: t.tax_code,
+                            name: t.name,
+                            rate: rust_decimal::Decimal::from_proto(t.rate).map_err(|_| {
+                                CustomerApiError::InvalidArgument("Invalid tax rate".to_string())
+                            })?,
+                        })
+                    })
+                    .collect::<Result<Vec<_>, _>>()
             })
             .transpose()
     }

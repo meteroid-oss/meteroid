@@ -671,13 +671,33 @@ impl InvoiceLineInner {
     }
 
     pub fn from_usage_sublines(
-        sublines: Vec<SubLineItem>,
+        mut sublines: Vec<SubLineItem>,
         period: Period,
         proration_factor: Option<f64>,
         metric_id: BillableMetricId,
     ) -> StoreResult<InvoiceLineInner> {
         let total = sublines.iter().map(|subline| subline.total).sum::<i64>();
         let total_cents = prorate(total, proration_factor);
+
+        // When prorating, apply the same factor to each subline so the invariant
+        // `line.total == Σ sublines.total` holds. Any rounding delta is absorbed
+        // by the largest-magnitude subline (largest-remainder correction).
+        if proration_factor.is_some_and(|f| (f - 1.0).abs() > f64::EPSILON) && !sublines.is_empty()
+        {
+            for subline in sublines.iter_mut() {
+                subline.total = prorate(subline.total, proration_factor) as i64;
+            }
+            let current_sum: i64 = sublines.iter().map(|s| s.total).sum();
+            let diff = total_cents as i64 - current_sum;
+            if diff != 0
+                && let Some((idx, _)) = sublines
+                    .iter()
+                    .enumerate()
+                    .max_by_key(|(_, s)| s.total.unsigned_abs())
+            {
+                sublines[idx].total += diff;
+            }
+        }
 
         Ok(InvoiceLineInner {
             quantity: None,
@@ -700,5 +720,81 @@ fn prorate(price_cents: i64, proration_factor: Option<f64>) -> u64 {
             only_positive(prorated_price)
         }
         None => only_positive(price_cents),
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use common_domain::ids::BaseId;
+
+    fn subline(name: &str, total: i64) -> SubLineItem {
+        SubLineItem {
+            local_id: name.to_string(),
+            name: name.to_string(),
+            total,
+            quantity: dec!(1),
+            unit_price: Decimal::from(total) / Decimal::from(100),
+            attributes: None,
+        }
+    }
+
+    fn period() -> Period {
+        Period {
+            start: NaiveDate::from_ymd_opt(2025, 1, 1).unwrap(),
+            end: NaiveDate::from_ymd_opt(2025, 1, 31).unwrap(),
+        }
+    }
+
+    #[test]
+    fn usage_sublines_invariant_no_proration() {
+        let sublines = vec![subline("a", 1_000), subline("b", 2_345), subline("c", 777)];
+        let line = InvoiceLineInner::from_usage_sublines(
+            sublines,
+            period(),
+            None,
+            BillableMetricId::new(),
+        )
+        .unwrap();
+        let sum: i64 = line.sublines.iter().map(|s| s.total).sum();
+        assert_eq!(line.total as i64, sum);
+    }
+
+    #[test]
+    fn usage_sublines_invariant_with_proration() {
+        // 0.37 proration introduces per-subline rounding drift
+        let sublines = vec![
+            subline("a", 1_000),
+            subline("b", 2_345),
+            subline("c", 777),
+            subline("d", 133),
+        ];
+        let line = InvoiceLineInner::from_usage_sublines(
+            sublines,
+            period(),
+            Some(0.37),
+            BillableMetricId::new(),
+        )
+        .unwrap();
+        let sum: i64 = line.sublines.iter().map(|s| s.total).sum();
+        assert_eq!(
+            line.total as i64, sum,
+            "line.total ({}) != Σ sublines.total ({})",
+            line.total, sum
+        );
+    }
+
+    #[test]
+    fn usage_sublines_invariant_factor_one() {
+        let sublines = vec![subline("a", 1_000), subline("b", 2_345)];
+        let line = InvoiceLineInner::from_usage_sublines(
+            sublines,
+            period(),
+            Some(1.0),
+            BillableMetricId::new(),
+        )
+        .unwrap();
+        let sum: i64 = line.sublines.iter().map(|s| s.total).sum();
+        assert_eq!(line.total as i64, sum);
     }
 }
