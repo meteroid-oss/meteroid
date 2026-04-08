@@ -1,9 +1,12 @@
 use crate::api::invoices::mapping as invoice_mapping;
+use crate::api::sharable::generate_entity_share_key;
 use crate::api::shared::conversions::{AsProtoOpt, ProtoConv};
+use common_domain::ids::BaseId;
 use meteroid_grpc::meteroid::api::creditnotes::v1;
 use meteroid_store::domain::{
     CreditNote as DomainCreditNote, CreditNoteStatus, DetailedCreditNote,
 };
+use secrecy::SecretString;
 
 pub fn credit_note_status_domain_to_server(status: CreditNoteStatus) -> v1::CreditNoteStatus {
     match status {
@@ -41,7 +44,22 @@ pub fn domain_to_server(credit_note: DomainCreditNote, customer_name: String) ->
 
 pub fn detailed_domain_to_server(
     detailed: DetailedCreditNote,
+    jwt_secret: &SecretString,
 ) -> Result<v1::DetailedCreditNote, tonic::Status> {
+    let share_key = if detailed.credit_note.pdf_document_id.is_some() {
+        Some(
+            generate_entity_share_key(
+                detailed.credit_note.id.as_uuid(),
+                detailed.credit_note.tenant_id,
+                jwt_secret,
+                (chrono::Utc::now() + chrono::Duration::days(7)).timestamp() as usize,
+            )
+            .map_err(|e| tonic::Status::internal(e.to_string()))?,
+        )
+    } else {
+        None
+    };
+
     Ok(v1::DetailedCreditNote {
         id: detailed.credit_note.id.as_proto(),
         credit_note_number: detailed.credit_note.credit_note_number.clone(),
@@ -79,5 +97,6 @@ pub fn detailed_domain_to_server(
         ),
         pdf_document_id: detailed.credit_note.pdf_document_id.map(|id| id.as_proto()),
         voided_at: detailed.credit_note.voided_at.as_proto(),
+        document_sharing_key: share_key,
     })
 }

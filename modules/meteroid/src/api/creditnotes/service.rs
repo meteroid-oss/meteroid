@@ -96,7 +96,10 @@ impl CreditNotesService for CreditNoteServiceComponents {
         };
 
         let response = GetCreditNoteResponse {
-            credit_note: Some(mapping::detailed_domain_to_server(detailed)?),
+            credit_note: Some(mapping::detailed_domain_to_server(
+                detailed,
+                &self.jwt_secret,
+            )?),
         };
 
         Ok(Response::new(response))
@@ -132,7 +135,10 @@ impl CreditNotesService for CreditNoteServiceComponents {
                 customer,
             };
 
-            detailed_credit_notes.push(mapping::detailed_domain_to_server(detailed)?);
+            detailed_credit_notes.push(mapping::detailed_domain_to_server(
+                detailed,
+                &self.jwt_secret,
+            )?);
         }
 
         let response = ListCreditNotesByInvoiceIdResponse {
@@ -172,7 +178,10 @@ impl CreditNotesService for CreditNoteServiceComponents {
                 customer: customer.clone(),
             };
 
-            detailed_credit_notes.push(mapping::detailed_domain_to_server(detailed)?);
+            detailed_credit_notes.push(mapping::detailed_domain_to_server(
+                detailed,
+                &self.jwt_secret,
+            )?);
         }
 
         let response = ListCreditNotesByCustomerIdResponse {
@@ -240,7 +249,10 @@ impl CreditNotesService for CreditNoteServiceComponents {
         };
 
         let response = CreateCreditNoteResponse {
-            credit_note: Some(mapping::detailed_domain_to_server(detailed)?),
+            credit_note: Some(mapping::detailed_domain_to_server(
+                detailed,
+                &self.jwt_secret,
+            )?),
         };
 
         Ok(Response::new(response))
@@ -274,7 +286,10 @@ impl CreditNotesService for CreditNoteServiceComponents {
         };
 
         let response = FinalizeCreditNoteResponse {
-            credit_note: Some(mapping::detailed_domain_to_server(detailed)?),
+            credit_note: Some(mapping::detailed_domain_to_server(
+                detailed,
+                &self.jwt_secret,
+            )?),
         };
 
         Ok(Response::new(response))
@@ -308,7 +323,10 @@ impl CreditNotesService for CreditNoteServiceComponents {
         };
 
         let response = VoidCreditNoteResponse {
-            credit_note: Some(mapping::detailed_domain_to_server(detailed)?),
+            credit_note: Some(mapping::detailed_domain_to_server(
+                detailed,
+                &self.jwt_secret,
+            )?),
         };
 
         Ok(Response::new(response))

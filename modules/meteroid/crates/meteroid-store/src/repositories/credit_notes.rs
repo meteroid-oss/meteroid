@@ -1,5 +1,5 @@
 use crate::StoreResult;
-use crate::domain::invoice_lines::LineItem;
+use crate::domain::invoice_lines::{LineItem, TaxDetail};
 use crate::domain::invoices::TaxBreakdownItem;
 use crate::domain::{
     CreditNote, CreditNoteNew, Invoice, InvoicePaymentStatus, InvoiceStatusEnum,
@@ -136,6 +136,43 @@ pub trait CreditNoteInterface {
     ) -> StoreResult<()>;
 }
 
+/// Prorates each tax detail by `proportion`, negates it, and applies a largest-magnitude
+/// residual correction so the resulting sum equals `expected_sum` exactly (to the cent).
+fn prorate_and_negate_tax_details(
+    details: &[TaxDetail],
+    proportion: Decimal,
+    expected_sum: i64,
+) -> Vec<TaxDetail> {
+    if details.is_empty() {
+        return Vec::new();
+    }
+
+    let mut out: Vec<TaxDetail> = details
+        .iter()
+        .map(|d| TaxDetail {
+            tax_rate: d.tax_rate,
+            tax_name: d.tax_name.clone(),
+            tax_amount: -(Decimal::from(d.tax_amount) * proportion)
+                .round()
+                .to_i64()
+                .unwrap_or(0),
+        })
+        .collect();
+
+    let current_sum: i64 = out.iter().map(|d| d.tax_amount).sum();
+    let diff = expected_sum - current_sum;
+    if diff != 0
+        && let Some((idx, _)) = out
+            .iter()
+            .enumerate()
+            .max_by_key(|(_, d)| d.tax_amount.unsigned_abs())
+    {
+        out[idx].tax_amount += diff;
+    }
+
+    out
+}
+
 /// Creates negated line items for a credit note.
 /// The amounts are negated to represent credits.
 ///
@@ -200,6 +237,12 @@ fn negate_line_items(
                     .to_i64()
                     .unwrap_or(0);
 
+                // Prorate each tax detail so the breakdown reflects the credited portion,
+                // then negate and apply a residual correction so the sum matches -prorated_tax
+                // to the cent (largest-magnitude detail absorbs the rounding delta).
+                let prorated_tax_details =
+                    prorate_and_negate_tax_details(&item.tax_details, proportion, -prorated_tax);
+
                 // Total = taxable + tax (uses taxable to account for discounts)
                 let credit_total = prorated_taxable + prorated_tax;
 
@@ -218,7 +261,7 @@ fn negate_line_items(
                     amount_total: -credit_total,
                     // Keep tax rate as-is
                     tax_rate: item.tax_rate,
-                    tax_details: item.tax_details.clone(),
+                    tax_details: prorated_tax_details,
                     // Set quantity to 1 and unit_price to the credited amount
                     // This makes the math consistent: 1 × unit_price = subtotal
                     quantity: Some(Decimal::ONE),
@@ -247,7 +290,15 @@ fn negate_line_items(
                     tax_amount: -item.tax_amount,
                     amount_total: -(item.taxable_amount + item.tax_amount),
                     tax_rate: item.tax_rate,
-                    tax_details: item.tax_details.clone(),
+                    tax_details: item
+                        .tax_details
+                        .iter()
+                        .map(|d| TaxDetail {
+                            tax_rate: d.tax_rate,
+                            tax_name: d.tax_name.clone(),
+                            tax_amount: -d.tax_amount,
+                        })
+                        .collect(),
                     quantity: item.quantity,
                     unit_price: item.unit_price.map(|p| -p),
                     start_date: item.start_date,
@@ -1009,5 +1060,195 @@ impl CreditNoteInterface for Store {
         .map_err(Into::<Report<StoreError>>::into)?;
 
         Ok(())
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::domain::invoice_lines::{SubLineItem, TaxDetail};
+    use chrono::NaiveDate;
+    use rust_decimal_macros::dec;
+
+    fn make_line(
+        local_id: &str,
+        amount_subtotal: i64,
+        taxable_amount: i64,
+        tax_amount: i64,
+        tax_details: Vec<TaxDetail>,
+    ) -> LineItem {
+        LineItem {
+            local_id: local_id.to_string(),
+            name: "test".to_string(),
+            amount_subtotal,
+            tax_rate: dec!(0.2),
+            taxable_amount,
+            tax_amount,
+            amount_total: taxable_amount + tax_amount,
+            tax_details,
+            quantity: Some(Decimal::ONE),
+            unit_price: Some(Decimal::from(amount_subtotal) / Decimal::from(100)),
+            start_date: NaiveDate::from_ymd_opt(2025, 1, 1).unwrap(),
+            end_date: NaiveDate::from_ymd_opt(2025, 1, 31).unwrap(),
+            sub_lines: Vec::<SubLineItem>::new(),
+            is_prorated: false,
+            price_component_id: None,
+            sub_component_id: None,
+            sub_add_on_id: None,
+            product_id: None,
+            metric_id: None,
+            description: None,
+            group_by_dimensions: None,
+        }
+    }
+
+    fn assert_breakdown_matches(items: &[LineItem], expected_tax_amount: i64, case: &str) {
+        let breakdown = compute_tax_breakdown(items);
+        let sum: i64 = breakdown.iter().map(|b| b.tax_amount as i64).sum();
+        assert_eq!(
+            sum,
+            expected_tax_amount.unsigned_abs() as i64,
+            "[{}] Σ breakdown.tax_amount ({}) != |credit_note.tax_amount| ({})",
+            case,
+            sum,
+            expected_tax_amount.unsigned_abs()
+        );
+    }
+
+    #[test]
+    fn full_credit_breakdown_matches_tax_amount() {
+        let line = make_line(
+            "l1",
+            10_000,
+            10_000,
+            2_000,
+            vec![
+                TaxDetail {
+                    tax_rate: dec!(0.15),
+                    tax_name: "VAT".into(),
+                    tax_amount: 1_500,
+                },
+                TaxDetail {
+                    tax_rate: dec!(0.05),
+                    tax_name: "City".into(),
+                    tax_amount: 500,
+                },
+            ],
+        );
+        let amounts = HashMap::from([("l1".to_string(), None)]);
+        let negated = negate_line_items(&[line], &amounts);
+        let tax: i64 = negated.iter().map(|i| i.tax_amount).sum();
+        assert_eq!(tax, -2_000);
+        assert_breakdown_matches(&negated, tax, "full");
+    }
+
+    #[test]
+    fn partial_credit_breakdown_matches_tax_amount_and_values() {
+        // 3333 / 10000 = 0.3333 proportion
+        // VAT: 1500 * 0.3333 = 499.95 → 500
+        // City: 500 * 0.3333 = 166.65 → 167
+        // Total tax: 2000 * 0.3333 = 666.6 → 667 (equals 500 + 167)
+        let line = make_line(
+            "l1",
+            10_000,
+            10_000,
+            2_000,
+            vec![
+                TaxDetail {
+                    tax_rate: dec!(0.15),
+                    tax_name: "VAT".into(),
+                    tax_amount: 1_500,
+                },
+                TaxDetail {
+                    tax_rate: dec!(0.05),
+                    tax_name: "City".into(),
+                    tax_amount: 500,
+                },
+            ],
+        );
+        let amounts = HashMap::from([("l1".to_string(), Some(3_333i64))]);
+        let negated = negate_line_items(&[line], &amounts);
+        let tax: i64 = negated.iter().map(|i| i.tax_amount).sum();
+        assert_eq!(tax, -667, "prorated tax_amount on negated line");
+        assert_breakdown_matches(&negated, tax, "partial");
+
+        // Value-level: each detail must reflect the credited portion, not the invoice
+        let details = &negated[0].tax_details;
+        let vat = details.iter().find(|d| d.tax_name == "VAT").unwrap();
+        let city = details.iter().find(|d| d.tax_name == "City").unwrap();
+        assert_eq!(
+            vat.tax_amount, -500,
+            "VAT detail should be prorated 1500→500"
+        );
+        assert_eq!(
+            city.tax_amount, -167,
+            "City detail should be prorated 500→167"
+        );
+    }
+
+    #[test]
+    fn two_partials_of_same_line_sum_exactly() {
+        // Helper-level test: exercises proration math. Does NOT go through
+        // create_credit_note_tx's already-credited tracking — see integration tests
+        // for the full sequential-credit flow.
+        //
+        // VAT 1501 + City 500 = 2001 total tax.
+        // a1 (40%): tax = round(800.4) = 800; VAT = round(600.4) = 600; City = 200
+        // a2 (60%): tax = round(1200.6) = 1201; VAT = round(900.6) = 901; City = 300
+        // Σ = 800 + 1201 = 2001 exactly.
+        let line = make_line(
+            "l1",
+            10_000,
+            10_000,
+            2_001,
+            vec![
+                TaxDetail {
+                    tax_rate: dec!(0.15),
+                    tax_name: "VAT".into(),
+                    tax_amount: 1_501,
+                },
+                TaxDetail {
+                    tax_rate: dec!(0.05),
+                    tax_name: "City".into(),
+                    tax_amount: 500,
+                },
+            ],
+        );
+        let a1 = HashMap::from([("l1".to_string(), Some(4_000i64))]);
+        let a2 = HashMap::from([("l1".to_string(), Some(6_000i64))]);
+        let n1 = negate_line_items(&[line.clone()], &a1);
+        let n2 = negate_line_items(&[line], &a2);
+
+        let tax1: i64 = n1.iter().map(|i| i.tax_amount).sum();
+        let tax2: i64 = n2.iter().map(|i| i.tax_amount).sum();
+        assert_breakdown_matches(&n1, tax1, "partial-1");
+        assert_breakdown_matches(&n2, tax2, "partial-2");
+        // Exactly equal — residual correction must guarantee no drift
+        assert_eq!(
+            tax1.unsigned_abs() + tax2.unsigned_abs(),
+            2_001,
+            "Σ partial tax should exactly equal original tax"
+        );
+    }
+
+    #[test]
+    fn partial_credit_with_empty_tax_details_uses_fallback() {
+        // No tax_details: compute_tax_breakdown must use the scalar tax_rate/tax_amount
+        // path and still produce a correct breakdown.
+        let line = make_line("l1", 10_000, 10_000, 2_000, vec![]);
+        let amounts = HashMap::from([("l1".to_string(), Some(3_333i64))]);
+        let negated = negate_line_items(&[line], &amounts);
+        let tax: i64 = negated.iter().map(|i| i.tax_amount).sum();
+        assert_eq!(tax, -667);
+        assert!(
+            negated[0].tax_details.is_empty(),
+            "tax_details should remain empty"
+        );
+
+        let breakdown = compute_tax_breakdown(&negated);
+        assert_eq!(breakdown.len(), 1);
+        assert_eq!(breakdown[0].name, "Tax");
+        assert_eq!(breakdown[0].tax_rate, dec!(0.2));
+        assert_eq!(breakdown[0].tax_amount, 667);
     }
 }

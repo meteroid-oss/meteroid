@@ -8,9 +8,12 @@ import {
   Flex,
   Separator,
   Skeleton,
+  Tooltip,
+  TooltipContent,
+  TooltipTrigger,
 } from '@md/ui'
 import { useQueryClient } from '@tanstack/react-query'
-import { BanIcon, CheckCircleIcon, ChevronDown, Trash2Icon } from 'lucide-react'
+import { BanIcon, CheckCircleIcon, ChevronDown, Download, Trash2Icon } from 'lucide-react'
 import { Fragment, useState } from 'react'
 import { Link, useNavigate } from 'react-router-dom'
 import { toast } from 'sonner'
@@ -20,6 +23,7 @@ import { AddressLinesCompact } from '@/features/customers/cards/address/AddressC
 import { getCountryName } from '@/features/settings/utils'
 import { useBasePath } from '@/hooks/useBasePath'
 import { useQuery } from '@/lib/connectrpc'
+import { env } from '@/lib/env'
 import { formatCurrency, rateToPercent } from '@/lib/utils/numbers'
 import { InvoiceConfirmationDialog } from '@/pages/tenants/invoice/InvoiceConfirmationDialog'
 import {
@@ -67,12 +71,20 @@ export const CreditNote = () => {
   )
 }
 
-const CreditNotePreviewFrame: React.FC<{ creditNoteId: string }> = ({ creditNoteId }) => {
+const CreditNotePreviewFrame: React.FC<{
+  creditNoteId: string
+  creditNote: DetailedCreditNote
+}> = ({ creditNoteId, creditNote }) => {
   const previewQuery = useQuery(
     previewCreditNoteSvg,
     { id: creditNoteId },
     { refetchOnMount: 'always' }
   )
+
+  const pdfUrl =
+    creditNote.pdfDocumentId && creditNote.documentSharingKey
+      ? `${env.meteroidRestApiUri}/files/v1/credit-note/pdf/${creditNote.id}?token=${creditNote.documentSharingKey}`
+      : null
 
   if (previewQuery.isLoading) {
     return (
@@ -116,6 +128,23 @@ const CreditNotePreviewFrame: React.FC<{ creditNoteId: string }> = ({ creditNote
             dangerouslySetInnerHTML={{ __html: svgContent }}
           />
         ))}
+
+        {/* Floating Download Button */}
+        {pdfUrl && (
+          <div className="absolute top-16 right-16">
+            <Button asChild variant="flat" size="icon" className="shadow-lg">
+              <a
+                href={pdfUrl}
+                download={`credit_note_${creditNote.creditNoteNumber}.pdf`}
+                target="_blank"
+                rel="noreferrer"
+                className="flex items-center gap-2"
+              >
+                <Download size="16" />
+              </a>
+            </Button>
+          </div>
+        )}
       </div>
     </div>
   )
@@ -196,6 +225,11 @@ const CreditNoteView = ({ creditNote, creditNoteId }: Props) => {
   const canVoid = isDraft || isFinalized
   const canDelete = isDraft
 
+  const pdfUrl =
+    creditNote.pdfDocumentId && creditNote.documentSharingKey
+      ? `${env.meteroidRestApiUri}/files/v1/credit-note/pdf/${creditNote.id}?token=${creditNote.documentSharingKey}`
+      : null
+
   return (
     <Flex className="h-full">
       <InvoiceConfirmationDialog
@@ -245,6 +279,25 @@ const CreditNoteView = ({ creditNote, creditNoteId }: Props) => {
                 </Button>
               </DropdownMenuTrigger>
               <DropdownMenuContent align="end">
+                <Tooltip>
+                  <TooltipTrigger asChild>
+                    <div>
+                      <DropdownMenuItem disabled={!pdfUrl} asChild>
+                        <a
+                          href={pdfUrl ?? '#'}
+                          download={`credit_note_${creditNote.creditNoteNumber}.pdf`}
+                          target="_blank"
+                          rel="noreferrer"
+                          className="flex items-center"
+                        >
+                          <Download size="16" className="mr-2" />
+                          Download PDF
+                        </a>
+                      </DropdownMenuItem>
+                    </div>
+                  </TooltipTrigger>
+                  {!pdfUrl && <TooltipContent>PDF not yet generated</TooltipContent>}
+                </Tooltip>
                 <DropdownMenuItem
                   disabled={!canFinalize}
                   onClick={() => setShowFinalizeConfirmation(true)}
@@ -409,7 +462,7 @@ const CreditNoteView = ({ creditNote, creditNoteId }: Props) => {
       {/* Right Panel - Credit Note Preview */}
       <div className="w-2/3 flex flex-col">
         <div className="flex-1 overflow-auto p-6">
-          <CreditNotePreviewFrame creditNoteId={creditNoteId} />
+          <CreditNotePreviewFrame creditNoteId={creditNoteId} creditNote={creditNote} />
         </div>
       </div>
     </Flex>

@@ -9,6 +9,10 @@ pub fn file_routes() -> Router<AppState> {
         .route("/v1/logo/{uuid}", get(router::get_logo))
         .route("/v1/invoice/pdf/{uuid}", get(router::get_invoice_pdf))
         .route(
+            "/v1/credit-note/pdf/{uuid}",
+            get(router::get_credit_note_pdf),
+        )
+        .route(
             "/v1/batch-job/errors/{batch_job_id}",
             get(router::get_batch_job_error_csv),
         )

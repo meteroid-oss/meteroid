@@ -92,6 +92,7 @@ pub async fn start_api_server(
         .add_service(api::creditnotes::service(
             store.clone(),
             credit_note_preview_rendering,
+            config.jwt_secret.clone(),
         ))
         .add_service(api::customers::service(
             store.clone(),

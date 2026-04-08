@@ -14,10 +14,11 @@ use crate::errors;
 use crate::api::sharable::ShareableEntityClaims;
 use crate::api_rest::error::{ErrorCode, RestErrorResponse};
 use crate::services::storage::Prefix;
-use common_domain::ids::{BatchJobId, InvoiceId, StoredDocumentId};
+use common_domain::ids::{BatchJobId, CreditNoteId, InvoiceId, StoredDocumentId};
 use error_stack::{Report, ResultExt};
 use image::ImageFormat::Png;
 use jsonwebtoken::{DecodingKey, Validation, decode};
+use meteroid_store::repositories::CreditNoteInterface;
 use meteroid_store::repositories::InvoiceInterface;
 use meteroid_store::repositories::batch_jobs::BatchJobsInterface;
 use secrecy::ExposeSecret;
@@ -107,6 +108,72 @@ async fn get_invoice_pdf_handler(
             let data = app_state
                 .object_store
                 .retrieve(id, Prefix::InvoicePdf)
+                .await
+                .change_context(errors::RestApiError::ObjectStoreError)?;
+
+            Ok((
+                StatusCode::OK,
+                [
+                    ("Content-Type", "application/pdf"),
+                    ("Content-Disposition", "inline"),
+                ],
+                data,
+            )
+                .into_response())
+        }
+        None => Ok((
+            StatusCode::NOT_FOUND,
+            Json(RestErrorResponse {
+                code: ErrorCode::NotFound,
+                message: "No attached PDF. Generation may be pending".to_string(),
+            }),
+        )
+            .into_response()),
+    }
+}
+
+#[axum::debug_handler]
+pub async fn get_credit_note_pdf(
+    Path(uid): Path<CreditNoteId>,
+    Query(params): Query<TokenParams>,
+    State(app_state): State<AppState>,
+) -> impl IntoResponse {
+    match get_credit_note_pdf_handler(uid, params, app_state).await {
+        Ok(r) => r.into_response(),
+        Err(e) => {
+            log::error!("Error handling credit note PDF: {e:?}");
+            e.current_context().clone().into_response()
+        }
+    }
+}
+
+async fn get_credit_note_pdf_handler(
+    credit_note_uid: CreditNoteId,
+    token: TokenParams,
+    app_state: AppState,
+) -> Result<Response, Report<errors::RestApiError>> {
+    let claims = decode::<ShareableEntityClaims>(
+        &token.token,
+        &DecodingKey::from_secret(app_state.jwt_secret.expose_secret().as_bytes()),
+        &Validation::default(),
+    )
+    .map_err(|_| Report::new(errors::RestApiError::Unauthorized))?
+    .claims;
+
+    let credit_note = app_state
+        .store
+        .get_credit_note_by_id(claims.tenant_id, claims.entity_id.into())
+        .await
+        .change_context(errors::RestApiError::StoreError)?;
+
+    if credit_note.id != credit_note_uid {
+        return Err(Report::new(errors::RestApiError::Forbidden));
+    }
+    match credit_note.pdf_document_id {
+        Some(id) => {
+            let data = app_state
+                .object_store
+                .retrieve(id, Prefix::CreditNotePdf)
                 .await
                 .change_context(errors::RestApiError::ObjectStoreError)?;
 

@@ -406,7 +406,8 @@ mod mapper {
                 invoicing_model::TaxBreakdownItem {
                     name: t.name.clone(),
                     rate: t.tax_rate,
-                    amount: rusty_money::Money::from_minor(t.tax_amount as i64, currency),
+                    // Negate to match the credit note's negative subtotal/total rendering
+                    amount: rusty_money::Money::from_minor(-(t.tax_amount as i64), currency),
                     exemption_type,
                 }
             })
