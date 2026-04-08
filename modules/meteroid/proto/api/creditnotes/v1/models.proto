@@ -52,6 +52,7 @@ message DetailedCreditNote {
   api.invoices.v1.InlineCustomer customer_details = 22;
   optional string pdf_document_id = 23;
   optional string voided_at = 24;
+  optional string document_sharing_key = 25;
 }
 
 enum CreditType {
