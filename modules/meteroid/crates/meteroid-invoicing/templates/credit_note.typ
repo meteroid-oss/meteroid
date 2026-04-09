@@ -42,6 +42,7 @@
     credit_note_accent: rgb(59, 130, 246),
     refund_badge: rgb(239, 68, 68),
     credit_badge: rgb(34, 197, 94),
+    debt_cancellation_badge: rgb(107, 114, 128),
   )
 
   // Format currency values
@@ -144,7 +145,18 @@
     },
   )
 
-  v(40pt)
+  v(16pt)
+
+  // Legal notice referencing the original invoice
+  block(
+    width: 100%,
+    fill: color.light_border,
+    radius: 4pt,
+    inset: (x: 12pt, y: 8pt),
+    text(fill: color.heading, weight: "medium", size: 9.5pt, translations.cancels_and_replaces)
+  )
+
+  v(24pt)
 
   // Company and client info
   grid(
@@ -194,12 +206,16 @@
         // Credit type badge
         #let type_text = if credit_type == "refund" {
           translations.refunded
+        } else if credit_type == "debt_cancellation" {
+          translations.debt_cancellation
         } else {
           translations.credit_to_balance
         }
 
         #let type_color = if credit_type == "refund" {
           color.refund_badge
+        } else if credit_type == "debt_cancellation" {
+          color.debt_cancellation_badge
         } else {
           color.credit_badge
         }

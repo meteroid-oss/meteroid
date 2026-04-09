@@ -17,10 +17,12 @@ use crate::services::invoice_lines::invoice_lines::ComputedInvoiceContent;
 use crate::store::PgConn;
 use chrono::{NaiveDate, NaiveTime, Utc};
 use common_domain::ids::{
-    BaseId, PriceId, ProductId, SubscriptionAddOnId, SubscriptionId, TenantId,
+    BaseId, InvoiceId, PriceId, ProductId, SubscriptionAddOnId, SubscriptionId, TenantId,
 };
+use diesel_async::scoped_futures::ScopedFutureExt;
+use diesel_models::credit_notes::CreditNoteRow;
 use diesel_models::invoices::InvoiceRow;
-use error_stack::{Report, ResultExt};
+use error_stack::{Report, ResultExt, bail};
 use rust_decimal::Decimal;
 use rust_decimal::prelude::Zero;
 use std::collections::HashMap;
@@ -110,6 +112,7 @@ impl Services {
             tax_amount: invoice_content.tax_amount,
             manual: false,
             invoicing_entity_id: subscription.invoicing_entity_id,
+            parent_invoice_id: None,
         };
 
         let inserted_invoice = insert_invoice_tx(&self.store, conn, invoice_new).await?;
@@ -128,6 +131,10 @@ impl Services {
         currency: String,
         discount: Option<u64>,
         prepaid_amount: Option<u64>,
+        subscription_id: Option<SubscriptionId>,
+        plan_version_id: Option<common_domain::ids::PlanVersionId>,
+        parent_invoice_id: Option<common_domain::ids::InvoiceId>,
+        memo: Option<String>,
     ) -> Result<Option<Invoice>, StoreErrorReport> {
         let invoicing_entity = self
             .store
@@ -158,8 +165,8 @@ impl Services {
         let invoice_new = InvoiceNew {
             tenant_id: customer.tenant_id,
             customer_id: customer.id,
-            subscription_id: None,
-            plan_version_id: None,
+            subscription_id,
+            plan_version_id,
             invoice_type: InvoiceType::OneOff,
             currency,
             line_items: invoice_content.invoice_lines,
@@ -176,7 +183,7 @@ impl Services {
             subtotal_recurring: invoice_content.subtotal_recurring,
             reference: None,
             purchase_order: None,
-            memo: None,
+            memo,
             due_at: Some(due_date),
             plan_name: None,
             invoice_number: invoice_number.to_string(),
@@ -203,11 +210,179 @@ impl Services {
             tax_amount: invoice_content.tax_amount,
             manual: false,
             invoicing_entity_id: invoicing_entity.id,
+            parent_invoice_id,
         };
 
         let inserted_invoice = insert_invoice_tx(&self.store, conn, invoice_new).await?;
 
         Ok(Some(inserted_invoice))
+    }
+
+    /// Creates a draft corrected invoice that replaces a previous invoice whose debt was
+    /// cancelled via a DebtCancellation credit note. The new draft clones the parent's line
+    /// items (with fresh local_ids), preserves subscription_id/plan_version_id, and links
+    /// back via parent_invoice_id. It is returned in Draft status so the user can edit
+    /// quantities / line items before finalising.
+    pub async fn create_corrected_invoice_from(
+        &self,
+        tenant_id: TenantId,
+        parent_invoice_id: InvoiceId,
+    ) -> Result<Invoice, StoreErrorReport> {
+        self.store
+            .transaction(|conn| {
+                async move {
+                    self.create_corrected_invoice_from_tx(conn, tenant_id, parent_invoice_id)
+                        .await
+                }
+                .scope_boxed()
+            })
+            .await
+    }
+
+    pub(in crate::services) async fn create_corrected_invoice_from_tx(
+        &self,
+        conn: &mut PgConn,
+        tenant_id: TenantId,
+        parent_invoice_id: InvoiceId,
+    ) -> Result<Invoice, StoreErrorReport> {
+        // Lock the parent row for the duration of the tx. This serializes concurrent
+        // correction attempts on the same invoice (double-click / two tabs) so the 1:1
+        // child check below is race-free.
+        let parent: Invoice =
+            InvoiceRow::select_for_update_by_id(conn, tenant_id, parent_invoice_id)
+                .await
+                .map_err(Into::<Report<StoreError>>::into)?
+                .invoice
+                .try_into()?;
+
+        if parent.status != InvoiceStatusEnum::Finalized {
+            bail!(StoreError::InvalidArgument(format!(
+                "Cannot create a corrected invoice: parent invoice {} must be finalized (current status: {:?})",
+                parent.invoice_number, parent.status
+            )));
+        }
+
+        // The parent must be fully credited: the sum of finalized (non-voided) credit
+        // note totals on the parent must cover its total. This unifies the unpaid path
+        // (full DebtCancellation CN) with the paid path (full Refund or CreditToBalance
+        // CN), and rejects partial credits — reissuing off a partial CN would double-bill.
+        let cns = CreditNoteRow::list_by_invoice_id(conn, tenant_id, parent.id)
+            .await
+            .map_err(Into::<Report<StoreError>>::into)?;
+        let total_credited: i64 = cns
+            .iter()
+            .filter(|cn| cn.finalized_at.is_some() && cn.voided_at.is_none())
+            .map(|cn| cn.total.unsigned_abs() as i64)
+            .sum();
+        if total_credited < parent.total {
+            bail!(StoreError::InvalidArgument(format!(
+                "Cannot create a corrected invoice: parent invoice {} is not fully credited ({} of {} {})",
+                parent.invoice_number, total_credited, parent.total, parent.currency
+            )));
+        }
+
+        // Enforce 1:1 — refuse if a corrected invoice already exists for this parent.
+        if let Some(existing) = InvoiceRow::find_child_id_by_parent(conn, tenant_id, parent.id)
+            .await
+            .map_err(Into::<Report<StoreError>>::into)?
+        {
+            bail!(StoreError::InvalidArgument(format!(
+                "A corrected invoice already exists for invoice {} (child: {})",
+                parent.invoice_number, existing
+            )));
+        }
+
+        // Clone line items with fresh local_ids so the new draft owns its identifiers.
+        let cloned_lines: Vec<LineItem> = parent
+            .line_items
+            .iter()
+            .map(|l| {
+                let mut copy = l.clone();
+                copy.local_id = uuid::Uuid::now_v7().to_string();
+                copy
+            })
+            .collect();
+
+        let invoice_date = Utc::now().date_naive();
+        let due_date = (invoice_date + chrono::Duration::days(i64::from(parent.net_terms)))
+            .and_time(NaiveTime::MIN);
+
+        let invoice_new = InvoiceNew {
+            tenant_id: parent.tenant_id,
+            customer_id: parent.customer_id,
+            subscription_id: parent.subscription_id,
+            plan_version_id: parent.plan_version_id,
+            // A correction is a one-time remediation, not recurring revenue: OneOff
+            // skips process_mrr and find_existing_recurring_invoice cleanly.
+            invoice_type: InvoiceType::OneOff,
+            currency: parent.currency.clone(),
+            line_items: cloned_lines,
+            coupons: vec![],
+            data_updated_at: None,
+            status: InvoiceStatusEnum::Draft,
+            invoice_date,
+            finalized_at: None,
+            total: parent.total,
+            amount_due: parent.total,
+            applied_credits: 0,
+            net_terms: parent.net_terms,
+            subtotal: parent.subtotal,
+            subtotal_recurring: parent.subtotal_recurring,
+            reference: parent.reference.clone(),
+            purchase_order: parent.purchase_order.clone(),
+            memo: None,
+            due_at: Some(due_date),
+            plan_name: parent.plan_name.clone(),
+            invoice_number: "draft".to_string(),
+            customer_details: parent.customer_details.clone(),
+            seller_details: parent.seller_details.clone(),
+            auto_advance: false,
+            payment_status: InvoicePaymentStatus::Unpaid,
+            discount: parent.discount,
+            tax_breakdown: parent.tax_breakdown.clone(),
+            tax_amount: parent.tax_amount,
+            manual: true,
+            invoicing_entity_id: parent.invoicing_entity_id,
+            parent_invoice_id: Some(parent.id),
+        };
+
+        insert_invoice_tx(&self.store, conn, invoice_new).await
+    }
+
+    /// Atomically creates + finalizes a credit note and optionally issues a corrected
+    /// draft invoice in the same transaction. When `reissue_as_draft` is true the CN
+    /// must fully credit the parent — enforced by `create_corrected_invoice_from_tx`.
+    pub async fn create_and_finalize_credit_note_with_reissue(
+        &self,
+        tenant_id: TenantId,
+        params: crate::repositories::credit_notes::CreateCreditNoteParams,
+        reissue_as_draft: bool,
+    ) -> Result<(crate::domain::CreditNote, Option<Invoice>), StoreErrorReport> {
+        use crate::repositories::credit_notes::{
+            create_user_credit_note_tx, finalize_credit_note_tx,
+        };
+
+        self.store
+            .transaction(|conn| {
+                async move {
+                    let draft =
+                        create_user_credit_note_tx(&self.store, conn, tenant_id, params).await?;
+                    let invoice_id = draft.invoice_id;
+                    let finalized =
+                        finalize_credit_note_tx(&self.store, conn, tenant_id, draft.id).await?;
+                    let corrected = if reissue_as_draft {
+                        Some(
+                            self.create_corrected_invoice_from_tx(conn, tenant_id, invoice_id)
+                                .await?,
+                        )
+                    } else {
+                        None
+                    };
+                    Ok((finalized, corrected))
+                }
+                .scope_boxed()
+            })
+            .await
     }
 
     /// Creates a draft adjustment invoice for an immediate plan change based on proration results.
@@ -425,6 +600,7 @@ impl Services {
             tax_amount: content.computed.tax_amount,
             manual: false,
             invoicing_entity_id: subscription.invoicing_entity_id,
+            parent_invoice_id: None,
         };
 
         let inserted_invoice = insert_invoice_tx(&self.store, conn, invoice_new).await?;

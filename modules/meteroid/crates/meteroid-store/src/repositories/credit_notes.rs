@@ -18,17 +18,13 @@ use diesel_models::credit_notes::CreditNoteRow;
 use diesel_models::customers::CustomerRow;
 use diesel_models::invoices::InvoiceRow;
 use diesel_models::invoicing_entities::InvoicingEntityRow;
+use diesel_models::payments::PaymentTransactionRow;
 use error_stack::{Report, bail};
 use rust_decimal::Decimal;
 use rust_decimal::prelude::ToPrimitive;
 use std::collections::HashMap;
 
-/// How the credit note amount should be applied
-#[derive(Debug, Clone)]
-pub enum CreditType {
-    CreditToBalance,
-    Refund, // not implemented (external only)
-}
+pub use crate::domain::enums::CreditType;
 
 /// Specifies a line item to credit.
 #[derive(Debug, Clone)]
@@ -92,6 +88,15 @@ pub trait CreditNoteInterface {
     async fn insert_credit_note(&self, credit_note: CreditNoteNew) -> StoreResult<CreditNote>;
 
     async fn create_credit_note(
+        &self,
+        tenant_id: TenantId,
+        params: CreateCreditNoteParams,
+    ) -> StoreResult<CreditNote>;
+
+    /// Create and finalize a credit note in a single transaction. Used by interactive
+    /// UI paths so the user never sees a Draft CN (which would be a footgun: actions
+    /// like settling the parent invoice and offering reissue only fire on finalize).
+    async fn create_and_finalize_credit_note(
         &self,
         tenant_id: TenantId,
         params: CreateCreditNoteParams,
@@ -448,6 +453,260 @@ fn compute_tax_breakdown(line_items: &[LineItem]) -> Vec<TaxBreakdownItem> {
         .collect()
 }
 
+/// Reduces an invoice's `amount_due` by the credit note total.
+/// If the outstanding balance reaches zero, transitions `payment_status` to Paid and emits an
+/// `invoice_paid` outbox event for audit. Only applies to DebtCancellation credit notes
+async fn apply_credit_note_to_invoice_tx(
+    store: &Store,
+    conn: &mut PgConn,
+    tenant_id: TenantId,
+    credit_note: &CreditNote,
+) -> StoreResult<()> {
+    if credit_note.credit_type != CreditType::DebtCancellation {
+        return Ok(());
+    }
+
+    let cn_amount = credit_note.total.unsigned_abs() as i64;
+    if cn_amount == 0 {
+        return Ok(());
+    }
+
+    let updated = InvoiceRow::apply_transaction(conn, credit_note.invoice_id, tenant_id, cn_amount)
+        .await
+        .map_err(Into::<Report<StoreError>>::into)?;
+
+    if updated.amount_due <= 0
+        && updated.payment_status != diesel_models::enums::InvoicePaymentStatus::Paid
+    {
+        let updated_row = InvoiceRow::apply_payment_status(
+            conn,
+            credit_note.invoice_id,
+            tenant_id,
+            diesel_models::enums::InvoicePaymentStatus::Paid,
+            credit_note.finalized_at,
+        )
+        .await
+        .map_err(Into::<Report<StoreError>>::into)?;
+
+        let invoice: Invoice = updated_row.try_into()?;
+        store
+            .internal
+            .insert_outbox_events_tx(conn, vec![OutboxEvent::invoice_paid((&invoice).into())])
+            .await?;
+    }
+
+    Ok(())
+}
+
+/// Reverses the effect of `apply_credit_note_to_invoice_tx` when voiding a CN.
+/// Adds the credit note total back to `amount_due`. If the invoice was Paid and now has outstanding balance, recomputes payment_status from
+/// settled payment transactions (Unpaid if none, PartiallyPaid otherwise).
+async fn revert_credit_note_from_invoice_tx(
+    conn: &mut PgConn,
+    tenant_id: TenantId,
+    credit_note_row: &CreditNoteRow,
+) -> StoreResult<()> {
+    if credit_note_row.credit_type != diesel_models::enums::CreditTypeEnum::DebtCancellation {
+        return Ok(());
+    }
+
+    let cn_amount = credit_note_row.total.unsigned_abs() as i64;
+    if cn_amount == 0 {
+        return Ok(());
+    }
+
+    let updated =
+        InvoiceRow::apply_transaction(conn, credit_note_row.invoice_id, tenant_id, -cn_amount)
+            .await
+            .map_err(Into::<Report<StoreError>>::into)?;
+
+    if updated.payment_status == diesel_models::enums::InvoicePaymentStatus::Paid
+        && updated.amount_due > 0
+    {
+        let txs =
+            PaymentTransactionRow::list_by_invoice_id(conn, credit_note_row.invoice_id, tenant_id)
+                .await
+                .map_err(Into::<Report<StoreError>>::into)?;
+
+        let amount_paid: i64 = txs
+            .iter()
+            .filter(|t| t.transaction.status == diesel_models::enums::PaymentStatusEnum::Settled)
+            .map(|t| t.transaction.amount)
+            .sum();
+
+        let new_status = if amount_paid > 0 {
+            diesel_models::enums::InvoicePaymentStatus::PartiallyPaid
+        } else {
+            diesel_models::enums::InvoicePaymentStatus::Unpaid
+        };
+
+        InvoiceRow::apply_payment_status(
+            conn,
+            credit_note_row.invoice_id,
+            tenant_id,
+            new_status,
+            None,
+        )
+        .await
+        .map_err(Into::<Report<StoreError>>::into)?;
+    }
+
+    Ok(())
+}
+
+/// User-facing create path: loads the invoice, validates status + credit type invariants,
+/// and delegates to the shared `create_credit_note_tx`. Used by both `create_credit_note`
+/// (draft) and `create_and_finalize_credit_note` (interactive).
+pub(crate) async fn create_user_credit_note_tx(
+    store: &Store,
+    conn: &mut PgConn,
+    tenant_id: TenantId,
+    params: CreateCreditNoteParams,
+) -> StoreResult<CreditNote> {
+    let detailed_invoice = InvoiceRow::find_detailed_by_id(conn, tenant_id, params.invoice_id)
+        .await
+        .map_err(Into::<Report<StoreError>>::into)?;
+
+    let invoice: Invoice = detailed_invoice.invoice.try_into()?;
+
+    if invoice.status != InvoiceStatusEnum::Finalized {
+        bail!(StoreError::InvalidArgument(
+            "Credit notes can only be created for finalized invoices".to_string()
+        ));
+    }
+
+    match params.credit_type {
+        CreditType::DebtCancellation => {
+            if invoice.amount_due <= 0 {
+                bail!(StoreError::InvalidArgument(
+                    "DebtCancellation credit notes can only be created for invoices with an outstanding balance".to_string()
+                ));
+            }
+        }
+        CreditType::Refund => {
+            if !matches!(
+                invoice.payment_status,
+                InvoicePaymentStatus::Paid | InvoicePaymentStatus::PartiallyPaid
+            ) {
+                bail!(StoreError::InvalidArgument(
+                    "Refund-type credit notes can only be created for paid or partially paid invoices".to_string()
+                ));
+            }
+        }
+        CreditType::CreditToBalance => {
+            if !matches!(
+                invoice.payment_status,
+                InvoicePaymentStatus::Paid | InvoicePaymentStatus::PartiallyPaid
+            ) {
+                bail!(StoreError::InvalidArgument(
+                    "CreditToBalance credit notes can only be created for paid or partially paid invoices".to_string()
+                ));
+            }
+        }
+    }
+
+    let line_items = if params.line_items.is_empty() {
+        None
+    } else {
+        Some(params.line_items)
+    };
+
+    create_credit_note_tx(
+        store,
+        conn,
+        tenant_id,
+        CreateCreditNoteTxParams {
+            invoice,
+            line_items,
+            status: crate::domain::enums::CreditNoteStatus::Draft,
+            finalized_at: None,
+            reason: params.reason,
+            memo: params.memo,
+            credit_type: params.credit_type,
+        },
+    )
+    .await
+}
+
+pub(crate) async fn finalize_credit_note_tx(
+    store: &Store,
+    conn: &mut PgConn,
+    tenant_id: TenantId,
+    credit_note_id: CreditNoteId,
+) -> StoreResult<CreditNote> {
+    let credit_note_row = CreditNoteRow::find_by_id(conn, tenant_id, credit_note_id).await?;
+
+    if credit_note_row.status != diesel_models::enums::CreditNoteStatus::Draft {
+        bail!(StoreError::InvalidArgument(
+            "Only draft credit notes can be finalized".to_string()
+        ));
+    }
+
+    let invoicing_entity = InvoicingEntityRow::select_for_update_by_id_and_tenant(
+        conn,
+        credit_note_row.invoicing_entity_id,
+        tenant_id,
+    )
+    .await
+    .map_err(Into::<Report<StoreError>>::into)?;
+
+    let credit_note_number_value = invoicing_entity.next_credit_note_number;
+    let credit_note_number = format!("CN-{:06}", credit_note_number_value);
+
+    CreditNoteRow::finalize_with_number(conn, credit_note_id, tenant_id, &credit_note_number)
+        .await
+        .map_err(Into::<Report<StoreError>>::into)?;
+
+    InvoicingEntityRow::update_credit_note_number(
+        conn,
+        credit_note_row.invoicing_entity_id,
+        tenant_id,
+        credit_note_number_value,
+    )
+    .await
+    .map_err(Into::<Report<StoreError>>::into)?;
+
+    if credit_note_row.credited_amount_cents > 0 {
+        let customer = CustomerRow::find_by_id(conn, &credit_note_row.customer_id, &tenant_id)
+            .await
+            .map_err(Into::<Report<StoreError>>::into)?;
+
+        let converted_amount = convert_currency(
+            conn,
+            credit_note_row.credited_amount_cents,
+            &credit_note_row.currency,
+            &customer.currency,
+        )
+        .await?;
+
+        CustomerBalance::update(
+            conn,
+            credit_note_row.customer_id,
+            tenant_id,
+            converted_amount,
+            None,
+        )
+        .await?;
+    }
+
+    let credit_note: CreditNote = CreditNoteRow::find_by_id(conn, tenant_id, credit_note_id)
+        .await
+        .map_err(Into::<Report<StoreError>>::into)?
+        .try_into()?;
+
+    apply_credit_note_to_invoice_tx(store, conn, tenant_id, &credit_note).await?;
+
+    store
+        .internal
+        .insert_outbox_events_tx(
+            conn,
+            vec![OutboxEvent::credit_note_finalized((&credit_note).into())],
+        )
+        .await?;
+
+    Ok(credit_note)
+}
+
 // shared implementation used by both `create_credit_note` and `void_invoice`.
 pub(crate) async fn create_credit_note_tx(
     store: &Store,
@@ -700,6 +959,16 @@ pub(crate) async fn create_credit_note_tx(
         .map(|item| item.amount_total)
         .sum();
 
+    if params.credit_type == CreditType::DebtCancellation
+        && total.unsigned_abs() as i64 > invoice.amount_due
+    {
+        bail!(StoreError::InvalidArgument(format!(
+            "DebtCancellation credit note total ({}) exceeds invoice outstanding amount due ({})",
+            total.unsigned_abs(),
+            invoice.amount_due
+        )));
+    }
+
     // 7. Compute tax breakdown from negated line items (uses actual credited amounts)
     let tax_breakdown = compute_tax_breakdown(&negated_line_items);
 
@@ -728,6 +997,7 @@ pub(crate) async fn create_credit_note_tx(
 
     let (credited_amount_cents, refunded_amount_cents) = match params.credit_type {
         CreditType::CreditToBalance => (credit_total, 0),
+        CreditType::DebtCancellation => (0, 0),
         CreditType::Refund => {
             // For refunds, we need to handle applied credits from the original invoice.
             // If the invoice was partially paid with customer balance (applied_credits),
@@ -764,6 +1034,7 @@ pub(crate) async fn create_credit_note_tx(
     let credit_note_new = CreditNoteNew {
         credit_note_number: credit_note_number.clone(),
         status: params.status.clone(),
+        credit_type: params.credit_type,
         tenant_id,
         customer_id: invoice.customer_id,
         invoice_id: invoice.id,
@@ -796,7 +1067,13 @@ pub(crate) async fn create_credit_note_tx(
     // 12. Convert to domain model
     let credit_note: CreditNote = inserted_credit_note.try_into()?;
 
-    // 13. If credit note is created as Finalized, update customer balance immediately
+    // 13a. If credit note is created as Finalized and is a DebtCancellation,
+    // apply it to the invoice's amount_due (settle if reaching zero).
+    if params.status == crate::domain::enums::CreditNoteStatus::Finalized {
+        apply_credit_note_to_invoice_tx(store, conn, tenant_id, &credit_note).await?;
+    }
+
+    // 13b. If credit note is created as Finalized, update customer balance immediately
     if params.status == crate::domain::enums::CreditNoteStatus::Finalized
         && credit_note.credited_amount_cents > 0
     {
@@ -866,56 +1143,21 @@ impl CreditNoteInterface for Store {
         params: CreateCreditNoteParams,
     ) -> StoreResult<CreditNote> {
         self.transaction(|conn| {
+            async move { create_user_credit_note_tx(self, conn, tenant_id, params).await }
+                .scope_boxed()
+        })
+        .await
+    }
+
+    async fn create_and_finalize_credit_note(
+        &self,
+        tenant_id: TenantId,
+        params: CreateCreditNoteParams,
+    ) -> StoreResult<CreditNote> {
+        self.transaction(|conn| {
             async move {
-                // 1. Get and validate the invoice
-                let detailed_invoice =
-                    InvoiceRow::find_detailed_by_id(conn, tenant_id, params.invoice_id)
-                        .await
-                        .map_err(Into::<Report<StoreError>>::into)?;
-
-                let invoice: Invoice = detailed_invoice.invoice.try_into()?;
-
-                // 2. Validate invoice is finalized
-                if invoice.status != InvoiceStatusEnum::Finalized {
-                    bail!(StoreError::InvalidArgument(
-                        "Credit notes can only be created for finalized invoices".to_string()
-                    ));
-                }
-
-                // 3. Validate payment status for refund type
-                if matches!(params.credit_type, CreditType::Refund)
-                    && !matches!(
-                        invoice.payment_status,
-                        InvoicePaymentStatus::Paid | InvoicePaymentStatus::PartiallyPaid
-                    )
-                {
-                    bail!(StoreError::InvalidArgument(
-                        "Refund-type credit notes can only be created for paid or partially paid invoices".to_string()
-                    ));
-                }
-
-                // 4. Create credit note using shared implementation
-                let line_items = if params.line_items.is_empty() {
-                    None
-                } else {
-                    Some(params.line_items)
-                };
-
-                create_credit_note_tx(
-                    self,
-                    conn,
-                    tenant_id,
-                    CreateCreditNoteTxParams {
-                        invoice,
-                        line_items,
-                        status: crate::domain::enums::CreditNoteStatus::Draft,
-                        finalized_at: None,
-                        reason: params.reason,
-                        memo: params.memo,
-                        credit_type: params.credit_type,
-                    },
-                )
-                .await
+                let draft = create_user_credit_note_tx(self, conn, tenant_id, params).await?;
+                finalize_credit_note_tx(self, conn, tenant_id, draft.id).await
             }
             .scope_boxed()
         })
@@ -1011,95 +1253,8 @@ impl CreditNoteInterface for Store {
         credit_note_id: CreditNoteId,
     ) -> StoreResult<CreditNote> {
         self.transaction(|conn| {
-            async move {
-                // 1. Get the credit note
-                let credit_note_row =
-                    CreditNoteRow::find_by_id(conn, tenant_id, credit_note_id).await?;
-
-                // 2. Validate it's a draft
-                if credit_note_row.status != diesel_models::enums::CreditNoteStatus::Draft {
-                    bail!(StoreError::InvalidArgument(
-                        "Only draft credit notes can be finalized".to_string()
-                    ));
-                }
-
-                // 3. Lock invoicing entity and get next credit note number
-                let invoicing_entity = InvoicingEntityRow::select_for_update_by_id_and_tenant(
-                    conn,
-                    credit_note_row.invoicing_entity_id,
-                    tenant_id,
-                )
-                .await
-                .map_err(Into::<Report<StoreError>>::into)?;
-
-                let credit_note_number_value = invoicing_entity.next_credit_note_number;
-                let credit_note_number = format!("CN-{:06}", credit_note_number_value);
-
-                // 4. Finalize the credit note with the assigned number
-                CreditNoteRow::finalize_with_number(
-                    conn,
-                    credit_note_id,
-                    tenant_id,
-                    &credit_note_number,
-                )
-                .await
-                .map_err(Into::<Report<StoreError>>::into)?;
-
-                // 5. Update invoicing entity's next credit note number
-                InvoicingEntityRow::update_credit_note_number(
-                    conn,
-                    credit_note_row.invoicing_entity_id,
-                    tenant_id,
-                    credit_note_number_value,
-                )
-                .await
-                .map_err(Into::<Report<StoreError>>::into)?;
-
-                // 6. Update customer balance if there are credited amounts
-                if credit_note_row.credited_amount_cents > 0 {
-                    // Get the customer to determine their balance currency
-                    let customer =
-                        CustomerRow::find_by_id(conn, &credit_note_row.customer_id, &tenant_id)
-                            .await
-                            .map_err(Into::<Report<StoreError>>::into)?;
-
-                    // Convert credited amount from credit note currency to customer's balance currency
-                    let converted_amount = convert_currency(
-                        conn,
-                        credit_note_row.credited_amount_cents,
-                        &credit_note_row.currency,
-                        &customer.currency,
-                    )
-                    .await?;
-
-                    CustomerBalance::update(
-                        conn,
-                        credit_note_row.customer_id,
-                        tenant_id,
-                        converted_amount,
-                        None, // No invoice_id for credit note balance updates
-                    )
-                    .await?;
-                }
-
-                // 7. Get the finalized credit note
-                let credit_note: CreditNote =
-                    CreditNoteRow::find_by_id(conn, tenant_id, credit_note_id)
-                        .await
-                        .map_err(Into::<Report<StoreError>>::into)?
-                        .try_into()?;
-
-                // 8. Emit outbox event for finalized credit note
-                self.internal
-                    .insert_outbox_events_tx(
-                        conn,
-                        vec![OutboxEvent::credit_note_finalized((&credit_note).into())],
-                    )
-                    .await?;
-
-                Ok(credit_note)
-            }
-            .scope_boxed()
+            async move { finalize_credit_note_tx(self, conn, tenant_id, credit_note_id).await }
+                .scope_boxed()
         })
         .await
     }
@@ -1126,6 +1281,9 @@ impl CreditNoteInterface for Store {
                 CreditNoteRow::void(conn, credit_note_id, tenant_id)
                     .await
                     .map_err(Into::<Report<StoreError>>::into)?;
+
+                // 3b. Reverse the invoice settlement (DebtCancellation only)
+                revert_credit_note_from_invoice_tx(conn, tenant_id, &credit_note_row).await?;
 
                 // 4. Reverse customer balance if there were credited amounts
                 if credit_note_row.credited_amount_cents > 0 {

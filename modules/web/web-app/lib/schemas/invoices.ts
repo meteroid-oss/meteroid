@@ -53,7 +53,19 @@ export const updateInvoiceLineSchema = baseLineItemObject.extend({
   validateLineItemDates
 )
 
-export const updateInvoiceLineWithSublinesSchema = baseLineItemSchema
+export const subLineSchema = z.object({
+  id: z.string().optional(),
+  name: z.string().min(1, "Name is required"),
+  quantity: z.number().min(0, "Quantity must be 0 or greater"),
+  unitPrice: z.number().min(0, "Unit price must be 0 or greater"),
+})
+export type SubLineSchema = z.infer<typeof subLineSchema>
+
+export const updateInvoiceLineWithSublinesSchema = baseLineItemObject
+  .extend({
+    subLines: z.array(subLineSchema).min(1, "At least one subline is required"),
+  })
+  .refine((data) => data.endDate > data.startDate, validateLineItemDates)
 
 export type SubLineItem = {
   id: string
@@ -92,6 +104,8 @@ export type UpdateInvoiceLineSchemaRegular = z.infer<typeof updateInvoiceLineSch
 export type UpdateInvoiceLineSchemaWithSublines = z.infer<typeof updateInvoiceLineWithSublinesSchema> & {
   _originalItem?: OriginalLineItem
 }
+
+export type UpdateInvoiceLineSchemaAny = UpdateInvoiceLineSchemaRegular | UpdateInvoiceLineSchemaWithSublines
 
 // Schema for updating customer details
 export const updateInlineCustomerSchema = z.object({

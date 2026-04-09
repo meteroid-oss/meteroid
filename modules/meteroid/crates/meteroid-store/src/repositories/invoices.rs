@@ -54,6 +54,12 @@ pub trait InvoiceInterface {
         invoice_id: InvoiceId,
     ) -> StoreResult<Invoice>;
 
+    async fn find_child_invoice_id(
+        &self,
+        tenant_id: TenantId,
+        parent_invoice_id: InvoiceId,
+    ) -> StoreResult<Option<InvoiceId>>;
+
     #[allow(clippy::too_many_arguments)]
     async fn list_invoices(
         &self,
@@ -175,6 +181,18 @@ impl InvoiceInterface for Store {
             .await
             .map_err(Into::into)
             .and_then(std::convert::TryInto::try_into)
+    }
+
+    async fn find_child_invoice_id(
+        &self,
+        tenant_id: TenantId,
+        parent_invoice_id: InvoiceId,
+    ) -> StoreResult<Option<InvoiceId>> {
+        let mut conn = self.get_conn().await?;
+
+        InvoiceRow::find_child_id_by_parent(&mut conn, tenant_id, parent_invoice_id)
+            .await
+            .map_err(Into::into)
     }
 
     async fn list_invoices(

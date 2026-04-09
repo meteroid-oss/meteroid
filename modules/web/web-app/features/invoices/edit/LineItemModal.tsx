@@ -15,22 +15,28 @@ import {
   TooltipProvider,
   TooltipTrigger,
 } from '@md/ui'
-import { Info } from 'lucide-react'
+import { Info, Plus, Trash2 } from 'lucide-react'
 import { useEffect } from 'react'
+import { useFieldArray } from 'react-hook-form'
 
 import { UncontrolledPriceInput } from '@/components/form/PriceInput'
 import { DatePickerWithRange } from '@/features/dashboard/DateRangePicker'
 import { useZodForm } from '@/hooks/useZodForm'
 import { schemas } from '@/lib/schemas'
-import { UpdateInvoiceLineSchema } from '@/lib/schemas/invoices'
+import {
+  UpdateInvoiceLineSchema,
+  UpdateInvoiceLineSchemaWithSublines,
+} from '@/lib/schemas/invoices'
 import { formatCurrency, majorToMinorUnit } from '@/utils/numbers'
+
+type LineModalValue = UpdateInvoiceLineSchema | UpdateInvoiceLineSchemaWithSublines
 
 interface LineItemModalProps {
   isOpen: boolean
   onClose: () => void
-  onSave: (item: UpdateInvoiceLineSchema) => void
+  onSave: (item: LineModalValue) => void
   currency: string
-  initialData?: UpdateInvoiceLineSchema
+  initialData?: LineModalValue
   isUsageBased?: boolean
   hasSublines?: boolean
 }
@@ -47,35 +53,44 @@ export const LineItemModal = ({
   const lineItemMethods = useZodForm({
     schema: hasSublines
       ? (schemas.invoices
-          .updateInvoiceLineWithSublinesSchema as typeof schemas.invoices.updateInvoiceLineSchema)
+          .updateInvoiceLineWithSublinesSchema as unknown as typeof schemas.invoices.updateInvoiceLineSchema)
       : schemas.invoices.updateInvoiceLineSchema,
-    defaultValues: initialData || {
-      name: '',
-      startDate: new Date(),
-      endDate: (() => {
-        const d = new Date()
-        d.setDate(d.getDate() + 1)
-        return d
-      })(),
-      quantity: hasSublines ? undefined : 1.0,
-      unitPrice: hasSublines ? undefined : 1.0,
-      taxRate: 20.0,
-      description: '',
-    },
+    defaultValues:
+      initialData ||
+      ({
+        name: '',
+        startDate: new Date(),
+        endDate: (() => {
+          const d = new Date()
+          d.setDate(d.getDate() + 1)
+          return d
+        })(),
+        quantity: hasSublines ? undefined : 1.0,
+        unitPrice: hasSublines ? undefined : 1.0,
+        taxRate: 20.0,
+        description: '',
+      } as unknown as UpdateInvoiceLineSchema),
   })
 
   useEffect(() => {
     if (initialData) {
-      lineItemMethods.reset(initialData)
+      lineItemMethods.reset(initialData as UpdateInvoiceLineSchema)
     }
   }, [])
+
+  const sublinesArray = useFieldArray({
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    control: lineItemMethods.control as any,
+    name: 'subLines' as never,
+  })
 
   const handleSubmit = (data: UpdateInvoiceLineSchema) => {
     const itemToSave = {
       ...data,
-      id: initialData?.lineItemId,
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      id: (initialData as any)?.lineItemId,
     }
-    onSave(itemToSave)
+    onSave(itemToSave as LineModalValue)
     onClose()
     lineItemMethods.reset()
   }
@@ -95,10 +110,24 @@ export const LineItemModal = ({
 
   const watchQuantity = lineItemMethods.watch('quantity')
   const watchUnitPrice = lineItemMethods.watch('unitPrice')
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  const watchSubLines = lineItemMethods.watch('subLines' as any) as
+    | Array<{ quantity: number; unitPrice: number }>
+    | undefined
+
+  const sublinesTotalMinor =
+    watchSubLines?.reduce(
+      (acc, sl) =>
+        acc +
+        Number(
+          majorToMinorUnit(Number(sl.quantity ?? 0) * Number(sl.unitPrice ?? 0), currency)
+        ),
+      0
+    ) ?? 0
 
   return (
     <Dialog open={isOpen} onOpenChange={onClose}>
-      <DialogContent className="max-w-md">
+      <DialogContent className={hasSublines ? 'max-w-2xl' : 'max-w-md'}>
         <Form {...lineItemMethods}>
           <form onSubmit={lineItemMethods.handleSubmit(handleSubmit)}>
             <DialogHeader>
@@ -115,13 +144,10 @@ export const LineItemModal = ({
                         finalization.
                       </>
                     )}
-                    {hasSublines && !isUsageBased && (
-                      <>This line item has sublines. Quantity and unit price cannot be edited.</>
-                    )}
-                    {hasSublines && isUsageBased && (
+                    {hasSublines && (
                       <>
-                        This is a usage-based line item with sublines. Quantity will be calculated
-                        from metrics, and unit price is derived from sublines.
+                        This line item is composed of sublines. Edit each subline&apos;s quantity and
+                        unit price; the line total is the sum of subline totals.
                       </>
                     )}
                   </span>
@@ -231,6 +257,132 @@ export const LineItemModal = ({
                       />
                     )}
                   />
+                </div>
+              )}
+
+              {hasSublines && (
+                <div className="space-y-2">
+                  <Label className="font-normal text-xs text-muted-foreground block">
+                    Sublines
+                  </Label>
+                  <div className="border rounded-md divide-y">
+                    <div className="grid grid-cols-[1fr_90px_120px_100px_28px] gap-2 px-2 py-1.5 text-[10px] uppercase tracking-wide text-muted-foreground bg-muted/30">
+                      <div>Name</div>
+                      <div className="text-right">Qty</div>
+                      <div className="text-right">Unit price</div>
+                      <div className="text-right">Total</div>
+                      <div />
+                    </div>
+                    {sublinesArray.fields.length === 0 && (
+                      <div className="px-2 py-3 text-center text-xs text-muted-foreground">
+                        No sublines. Add at least one.
+                      </div>
+                    )}
+                    {sublinesArray.fields.map((field, idx) => {
+                      const row = watchSubLines?.[idx]
+                      const rowTotalMinor = Number(
+                        majorToMinorUnit(
+                          Number(row?.quantity ?? 0) * Number(row?.unitPrice ?? 0),
+                          currency
+                        )
+                      )
+                      return (
+                        <div
+                          key={field.id}
+                          className="grid grid-cols-[1fr_90px_120px_100px_28px] gap-2 px-2 py-1.5 items-center"
+                        >
+                          <GenericFormField
+                            control={lineItemMethods.control}
+                            layout="vertical"
+                            // eslint-disable-next-line @typescript-eslint/no-explicit-any
+                            name={`subLines.${idx}.name` as any}
+                            render={({ field: f }) => (
+                              <Input
+                                {...f}
+                                placeholder="Subline name"
+                                className="h-8 text-xs"
+                                autoComplete="off"
+                              />
+                            )}
+                          />
+                          <GenericFormField
+                            control={lineItemMethods.control}
+                            layout="vertical"
+                            // eslint-disable-next-line @typescript-eslint/no-explicit-any
+                            name={`subLines.${idx}.quantity` as any}
+                            render={({ field: f }) => (
+                              <Input
+                                {...f}
+                                type="number"
+                                step="0.01"
+                                min="0"
+                                value={f.value}
+                                onChange={e => f.onChange(Number(e.target.value) || 0)}
+                                className="h-8 text-xs text-right"
+                                autoComplete="off"
+                              />
+                            )}
+                          />
+                          <GenericFormField
+                            control={lineItemMethods.control}
+                            layout="vertical"
+                            // eslint-disable-next-line @typescript-eslint/no-explicit-any
+                            name={`subLines.${idx}.unitPrice` as any}
+                            render={({ field: f }) => (
+                              <UncontrolledPriceInput
+                                {...f}
+                                currency={currency}
+                                showCurrency={false}
+                                precision={2}
+                                value={f.value}
+                                onChange={e => f.onChange(Number(e.target.value) || 0)}
+                                className="h-8 text-xs text-right"
+                                autoComplete="off"
+                              />
+                            )}
+                          />
+                          <div className="text-xs text-right tabular-nums">
+                            {formatCurrency(rowTotalMinor, currency)}
+                          </div>
+                          <Button
+                            type="button"
+                            variant="link"
+                            size="icon"
+                            className="h-6 w-6 p-0 text-destructive hover:text-destructive"
+                            onClick={() => sublinesArray.remove(idx)}
+                          >
+                            <Trash2 size={14} />
+                          </Button>
+                        </div>
+                      )
+                    })}
+                  </div>
+                  <div className="flex items-center justify-between">
+                    <Button
+                      type="button"
+                      variant="link"
+                      size="sm"
+                      className="h-7 px-0 text-xs"
+                      onClick={() =>
+                        // eslint-disable-next-line @typescript-eslint/no-explicit-any
+                        sublinesArray.append({
+                          name: '',
+                          quantity: 1,
+                          unitPrice: 0,
+                          // eslint-disable-next-line @typescript-eslint/no-explicit-any
+                        } as any)
+                      }
+                    >
+                      <Plus size={12} className="mr-1" />
+                      Add subline
+                    </Button>
+                    <div className="text-xs">
+                      <span className="text-muted-foreground mr-2">Line total</span>
+                      <span className="font-medium tabular-nums">
+                        {formatCurrency(sublinesTotalMinor, currency)}
+                      </span>
+                    </div>
+                  </div>
                 </div>
               )}
 

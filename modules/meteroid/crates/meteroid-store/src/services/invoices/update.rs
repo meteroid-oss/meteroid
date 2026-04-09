@@ -185,33 +185,27 @@ impl Services {
                     .as_ref()
                     .and_then(|id| existing_lines_map.get(id));
 
-                // Check if line has sublines (either from params or existing)
-                let has_sublines = !line_params.sub_lines.is_empty()
-                    || existing_line
-                        .map(|line| !line.sub_lines.is_empty())
-                        .unwrap_or(false);
+                // Recompute each incoming subline total from qty * unit_price using the
+                // invoice currency precision — backend is authoritative.
+                let mut incoming_sublines = line_params.sub_lines.clone();
+                for sl in &mut incoming_sublines {
+                    sl.total = (sl.quantity * sl.unit_price)
+                        .to_subunit_opt(currency.exponent as u8)
+                        .unwrap_or(0);
+                }
 
-                // For lines with sublines, preserve the original values
-                // Otherwise, use the updated values from params
-                let (quantity, unit_price, amount_subtotal) = if has_sublines {
-                    if let Some(existing) = existing_line {
-                        (
-                            existing.quantity,
-                            existing.unit_price,
-                            existing.amount_subtotal,
-                        )
-                    } else {
-                        // Calculate from sublines passed in params
-                        let subtotal = line_params.sub_lines.iter().map(|s| s.total).sum();
-                        (None, None, subtotal)
-                    }
+                let has_sublines = !incoming_sublines.is_empty();
+
+                let (quantity, unit_price, amount_subtotal, sub_lines) = if has_sublines {
+                    let subtotal = incoming_sublines.iter().map(|s| s.total).sum();
+                    (None, None, subtotal, incoming_sublines)
                 } else {
                     let q = line_params.quantity.unwrap_or(rust_decimal::Decimal::ZERO);
                     let p = line_params
                         .unit_price
                         .unwrap_or(rust_decimal::Decimal::ZERO);
                     let amount = (q * p).to_subunit_opt(currency.exponent as u8).unwrap_or(0);
-                    (line_params.quantity, line_params.unit_price, amount)
+                    (line_params.quantity, line_params.unit_price, amount, vec![])
                 };
 
                 let item = LineItem {
@@ -227,7 +221,7 @@ impl Services {
                     unit_price,
                     start_date: line_params.start_date,
                     end_date: line_params.end_date,
-                    sub_lines: line_params.sub_lines.clone(),
+                    sub_lines,
                     is_prorated: existing_line.map(|l| l.is_prorated).unwrap_or(false),
                     price_component_id: existing_line.and_then(|l| l.price_component_id),
                     sub_component_id: existing_line.and_then(|l| l.sub_component_id),

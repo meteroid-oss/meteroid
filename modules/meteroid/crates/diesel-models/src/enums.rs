@@ -52,6 +52,15 @@ pub enum CreditNoteStatus {
     Voided,
 }
 
+#[derive(diesel_derive_enum::DbEnum, Debug, Clone, Copy, Eq, PartialEq)]
+#[ExistingTypePath = "crate::schema::sql_types::CreditTypeEnum"]
+#[DbValueStyle = "SCREAMING_SNAKE_CASE"]
+pub enum CreditTypeEnum {
+    CreditToBalance,
+    Refund,
+    DebtCancellation,
+}
+
 #[derive(diesel_derive_enum::DbEnum, Debug, Clone, Eq, PartialEq)]
 #[ExistingTypePath = "crate::schema::sql_types::InvoiceStatusEnum"]
 #[DbValueStyle = "SCREAMING_SNAKE_CASE"]

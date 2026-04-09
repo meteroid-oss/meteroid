@@ -25,6 +25,7 @@ message CreditNote {
   int64 credited_amount_cents = 11;
   int64 refunded_amount_cents = 12;
   optional string finalized_at = 13;
+  CreditType credit_type = 14;
 }
 
 message DetailedCreditNote {
@@ -53,11 +54,13 @@ message DetailedCreditNote {
   optional string pdf_document_id = 23;
   optional string voided_at = 24;
   optional string document_sharing_key = 25;
+  CreditType credit_type = 26;
 }
 
 enum CreditType {
   CREDIT_TO_BALANCE = 0;
   REFUND = 1;
+  DEBT_CANCELLATION = 2;
 }
 
 message CreditLineItem {
