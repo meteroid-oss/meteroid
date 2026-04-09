@@ -64,6 +64,14 @@ message CreateInvoiceResponse {
   DetailedInvoice invoice = 1;
 }
 
+message CreateCorrectedInvoiceRequest {
+  string parent_invoice_id = 1;
+}
+
+message CreateCorrectedInvoiceResponse {
+  DetailedInvoice invoice = 1;
+}
+
 message PreviewNewInvoiceRequest {
   NewInvoice invoice = 1;
 }
@@ -158,6 +166,7 @@ service InvoicesService {
   rpc SyncToPennylane(SyncToPennylaneRequest) returns (SyncToPennylaneResponse) {}
   rpc GenerateInvoicePaymentToken(GenerateInvoicePaymentTokenRequest) returns (GenerateInvoicePaymentTokenResponse) {}
   rpc CreateInvoice(CreateInvoiceRequest) returns (CreateInvoiceResponse) {}
+  rpc CreateCorrectedInvoice(CreateCorrectedInvoiceRequest) returns (CreateCorrectedInvoiceResponse) {}
   rpc PreviewNewInvoiceSvg(PreviewNewInvoiceRequest) returns (PreviewNewInvoiceResponse) {}
   rpc FinalizeInvoice(FinalizeInvoiceRequest) returns (FinalizeInvoiceResponse) {}
   rpc UpdateInvoice(UpdateInvoiceRequest) returns (UpdateInvoiceResponse) {}

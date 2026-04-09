@@ -527,6 +527,7 @@ async fn test_metering_e2e() {
             tax_breakdown: vec![],
             manual: false,
             invoicing_entity_id: INVOICING_ENTITY_ID,
+            parent_invoice_id: None,
         })
         .await
         .unwrap();

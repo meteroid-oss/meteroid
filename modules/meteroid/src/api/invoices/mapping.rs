@@ -251,6 +251,8 @@ pub mod invoices {
             purchase_order: invoice.purchase_order,
             voided_at: invoice.voided_at.as_proto(),
             marked_as_uncollectible_at: invoice.marked_as_uncollectible_at.as_proto(),
+            parent_invoice_id: invoice.parent_invoice_id.map(|id| id.as_proto()),
+            child_invoice_id: None,
         })
     }
 

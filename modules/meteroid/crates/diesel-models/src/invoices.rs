@@ -57,6 +57,7 @@ pub struct InvoiceRow {
     pub voided_at: Option<NaiveDateTime>,
     pub marked_as_uncollectible_at: Option<NaiveDateTime>,
     pub invoicing_entity_id: InvoicingEntityId,
+    pub parent_invoice_id: Option<InvoiceId>,
 }
 
 #[derive(Debug, AsChangeset)]
@@ -131,6 +132,7 @@ pub struct InvoiceRowNew {
     pub tax_breakdown: serde_json::Value,
     pub manual: bool,
     pub invoicing_entity_id: InvoicingEntityId,
+    pub parent_invoice_id: Option<InvoiceId>,
 }
 
 #[derive(Debug, Queryable, Selectable)]

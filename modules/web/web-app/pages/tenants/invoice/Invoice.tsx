@@ -1,4 +1,5 @@
 import { createConnectQueryKey, useMutation } from '@connectrpc/connect-query'
+import { FilePlus2 } from 'lucide-react'
 import {
   Button,
   cn,
@@ -60,7 +61,9 @@ import { getLatestConnMeta } from '@/pages/tenants/utils'
 import { listConnectors } from '@/rpc/api/connectors/v1/connectors-ConnectorsService_connectquery'
 import { ConnectorProviderEnum } from '@/rpc/api/connectors/v1/models_pb'
 import { listCreditNotesByInvoiceId } from '@/rpc/api/creditnotes/v1/creditnotes-CreditNotesService_connectquery'
+import { CreditType } from '@/rpc/api/creditnotes/v1/models_pb'
 import {
+  createCorrectedInvoice,
   deleteInvoice,
   finalizeInvoice,
   generateInvoicePaymentToken,
@@ -343,6 +346,28 @@ export const InvoiceView: React.FC<Props & { invoiceId: string }> = ({ invoice, 
   const canVoid = isFinalized
   const canMarkAsUncollectible = isFinalized
 
+  const hasDebtCancellationCn = creditNotes.some(
+    cn => cn.creditType === CreditType.DEBT_CANCELLATION
+  )
+  const hasChildInvoice = Boolean(invoice.childInvoiceId)
+  const canCreateCorrectedInvoice = hasDebtCancellationCn && !hasChildInvoice
+
+  const createCorrectedInvoiceMutation = useMutation(createCorrectedInvoice, {
+    onSuccess: data => {
+      toast.success('Corrected invoice created')
+      if (data.invoice?.id) {
+        navigate(`${basePath}/invoices/${data.invoice.id}`)
+      }
+    },
+    onError: error => {
+      toast.error(`Failed to create corrected invoice: ${error.message}`)
+    },
+  })
+
+  const handleCreateCorrectedInvoice = () => {
+    createCorrectedInvoiceMutation.mutate({ parentInvoiceId: invoice.id })
+  }
+
   useEffect(() => {
     if (canRefresh) {
       doRefresh()
@@ -429,6 +454,22 @@ export const InvoiceView: React.FC<Props & { invoiceId: string }> = ({ invoice, 
             <div className="flex items-center gap-3">
               <InvoiceStatusBadge status={invoice.status}/>
               <div className="text-lg font-medium">Invoice {invoice.invoiceNumber}</div>
+              {invoice.parentInvoiceId && (
+                <Link
+                  to={`${basePath}/invoices/${invoice.parentInvoiceId}`}
+                  className="text-xs text-muted-foreground hover:text-foreground underline"
+                >
+                  Replaces original
+                </Link>
+              )}
+              {invoice.childInvoiceId && (
+                <Link
+                  to={`${basePath}/invoices/${invoice.childInvoiceId}`}
+                  className="text-xs text-muted-foreground hover:text-foreground underline"
+                >
+                  Replaced by corrected
+                </Link>
+              )}
             </div>
             <DropdownMenu>
               <DropdownMenuTrigger asChild>
@@ -535,6 +576,24 @@ export const InvoiceView: React.FC<Props & { invoiceId: string }> = ({ invoice, 
                       </span>
                     </TooltipTrigger>
                     {!canCreateCreditNote && <TooltipContent>Only finalized invoices can have credit notes</TooltipContent>}
+                  </Tooltip>
+                )}
+                {!isExpress && hasDebtCancellationCn && (
+                  <Tooltip>
+                    <TooltipTrigger asChild>
+                      <span>
+                        <DropdownMenuItem
+                          disabled={!canCreateCorrectedInvoice || createCorrectedInvoiceMutation.isPending}
+                          onClick={handleCreateCorrectedInvoice}
+                        >
+                          <FilePlus2 size="16" className="mr-2"/>
+                          Create Corrected Invoice
+                        </DropdownMenuItem>
+                      </span>
+                    </TooltipTrigger>
+                    {hasChildInvoice && (
+                      <TooltipContent>A corrected invoice already exists for this invoice</TooltipContent>
+                    )}
                   </Tooltip>
                 )}
                 <Tooltip>

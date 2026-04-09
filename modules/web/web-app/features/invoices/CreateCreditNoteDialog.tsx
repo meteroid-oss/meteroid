@@ -28,7 +28,10 @@ import {
   listCreditNotesByInvoiceId,
 } from '@/rpc/api/creditnotes/v1/creditnotes-CreditNotesService_connectquery'
 import { CreditNoteStatus, CreditType } from '@/rpc/api/creditnotes/v1/models_pb'
-import { getInvoice } from '@/rpc/api/invoices/v1/invoices-InvoicesService_connectquery'
+import {
+  createCorrectedInvoice,
+  getInvoice,
+} from '@/rpc/api/invoices/v1/invoices-InvoicesService_connectquery'
 import {
   DetailedInvoice,
   InvoicePaymentStatus,
@@ -142,21 +145,47 @@ export const CreateCreditNoteDialog: React.FC<CreateCreditNoteDialogProps> = ({
   const [creditType, setCreditType] = useState<CreditType>(defaultType)
   const [reason, setReason] = useState('')
   const [memo, setMemo] = useState('')
+  const [createdDebtCancellation, setCreatedDebtCancellation] = useState<{
+    id: string
+    number: string
+  } | null>(null)
 
   const createCreditNoteMutation = useMutation(createCreditNote, {
-    onSuccess: async data => {
+    onSuccess: async (data, variables) => {
       toast.success('Credit note created successfully')
       await queryClient.invalidateQueries({
         queryKey: createConnectQueryKey(getInvoice, { id: invoice.id }),
       })
-      onOpenChange(false)
-      // Navigate to the new credit note
-      if (data.creditNote?.id) {
-        navigate(`${basePath}/credit-notes/${data.creditNote.id}`)
+      if (!data.creditNote?.id) {
+        onOpenChange(false)
+        return
       }
+      // For DebtCancellation, stay on the dialog and offer the corrected-invoice CTA.
+      if (variables.creditNote?.creditType === CreditType.DEBT_CANCELLATION) {
+        setCreatedDebtCancellation({
+          id: data.creditNote.id,
+          number: data.creditNote.creditNoteNumber,
+        })
+        return
+      }
+      onOpenChange(false)
+      navigate(`${basePath}/credit-notes/${data.creditNote.id}`)
     },
     onError: error => {
       toast.error(`Failed to create credit note: ${error.message}`)
+    },
+  })
+
+  const createCorrectedInvoiceMutation = useMutation(createCorrectedInvoice, {
+    onSuccess: data => {
+      toast.success('Corrected invoice created')
+      onOpenChange(false)
+      if (data.invoice?.id) {
+        navigate(`${basePath}/invoices/${data.invoice.id}`)
+      }
+    },
+    onError: error => {
+      toast.error(`Failed to create corrected invoice: ${error.message}`)
     },
   })
 
@@ -335,6 +364,7 @@ export const CreateCreditNoteDialog: React.FC<CreateCreditNoteDialogProps> = ({
     setCreditType(defaultType)
     setReason('')
     setMemo('')
+    setCreatedDebtCancellation(null)
     onOpenChange(false)
   }
 
@@ -342,13 +372,42 @@ export const CreateCreditNoteDialog: React.FC<CreateCreditNoteDialogProps> = ({
     <Dialog open={open} onOpenChange={handleClose}>
       <DialogContent className="max-w-2xl max-h-[90vh] overflow-y-auto">
         <DialogHeader>
-          <DialogTitle>Create Credit Note</DialogTitle>
+          <DialogTitle>
+            {createdDebtCancellation ? 'Credit note created' : 'Create Credit Note'}
+          </DialogTitle>
           <DialogDescription>
-            Create a credit note for invoice {invoice.invoiceNumber}. Select the line items you want
-            to credit.
+            {createdDebtCancellation
+              ? `Credit note ${createdDebtCancellation.number} was created and the invoice debt was cancelled. You can now issue a corrected invoice with the right line items.`
+              : `Create a credit note for invoice ${invoice.invoiceNumber}. Select the line items you want to credit.`}
           </DialogDescription>
         </DialogHeader>
 
+        {createdDebtCancellation && (
+          <DialogFooter className="pt-4">
+            <Button
+              variant="outline"
+              onClick={() => {
+                onOpenChange(false)
+                navigate(`${basePath}/credit-notes/${createdDebtCancellation.id}`)
+              }}
+            >
+              Done
+            </Button>
+            <Button
+              onClick={() =>
+                createCorrectedInvoiceMutation.mutate({ parentInvoiceId: invoice.id })
+              }
+              disabled={createCorrectedInvoiceMutation.isPending}
+            >
+              {createCorrectedInvoiceMutation.isPending
+                ? 'Creating...'
+                : 'Create corrected invoice'}
+            </Button>
+          </DialogFooter>
+        )}
+
+        {!createdDebtCancellation && (
+        <>
         <div className="space-y-6 py-4">
           {/* Line Items Selection */}
           <div className="space-y-3">
@@ -567,6 +626,8 @@ export const CreateCreditNoteDialog: React.FC<CreateCreditNoteDialogProps> = ({
             {createCreditNoteMutation.isPending ? 'Creating...' : 'Create Credit Note'}
           </Button>
         </DialogFooter>
+        </>
+        )}
       </DialogContent>
     </Dialog>
   )

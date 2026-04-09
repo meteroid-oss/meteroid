@@ -8,7 +8,8 @@ use common_domain::ids::{CustomerId, InvoiceId, SubscriptionId, TenantId};
 use common_grpc::middleware::server::auth::RequestExt;
 use common_utils::decimals::ToSubunit;
 use meteroid_grpc::meteroid::api::invoices::v1::{
-    CreateInvoiceRequest, CreateInvoiceResponse, DeleteInvoiceRequest, DeleteInvoiceResponse,
+    CreateCorrectedInvoiceRequest, CreateCorrectedInvoiceResponse, CreateInvoiceRequest,
+    CreateInvoiceResponse, DeleteInvoiceRequest, DeleteInvoiceResponse,
     FinalizeInvoiceRequest, FinalizeInvoiceResponse, GenerateInvoicePaymentTokenRequest,
     GenerateInvoicePaymentTokenResponse, GetInvoiceRequest, GetInvoiceResponse, Invoice,
     ListInvoicesRequest, ListInvoicesResponse, MarkInvoiceAsUncollectibleRequest,
@@ -112,6 +113,13 @@ impl InvoicesService for InvoiceServiceComponents {
             .map_err(Into::<InvoiceApiError>::into)?;
 
         invoice.transactions = transactions;
+
+        invoice.child_invoice_id = self
+            .store
+            .find_child_invoice_id(tenant_id, invoice_id)
+            .await
+            .map_err(Into::<InvoiceApiError>::into)?
+            .map(|id| id.as_proto());
 
         let response = GetInvoiceResponse {
             invoice: Some(invoice),
@@ -258,6 +266,40 @@ impl InvoicesService for InvoiceServiceComponents {
             .map_err(Into::<InvoiceApiError>::into)?;
 
         Ok(Response::new(CreateInvoiceResponse {
+            invoice: Some(invoice),
+        }))
+    }
+
+    #[tracing::instrument(skip_all)]
+    async fn create_corrected_invoice(
+        &self,
+        request: Request<CreateCorrectedInvoiceRequest>,
+    ) -> Result<Response<CreateCorrectedInvoiceResponse>, Status> {
+        let tenant_id = request.tenant()?;
+        let req = request.into_inner();
+
+        let parent_invoice_id = InvoiceId::from_proto(&req.parent_invoice_id)?;
+
+        let created = self
+            .services
+            .create_corrected_invoice_from(tenant_id, parent_invoice_id)
+            .await
+            .map_err(Into::<InvoiceApiError>::into)?;
+
+        let invoice = self
+            .store
+            .get_detailed_invoice_by_id(tenant_id, created.id)
+            .await
+            .and_then(|inv| {
+                mapping::invoices::domain_invoice_with_transactions_to_server(
+                    inv.invoice,
+                    inv.transactions,
+                    self.jwt_secret.clone(),
+                )
+            })
+            .map_err(Into::<InvoiceApiError>::into)?;
+
+        Ok(Response::new(CreateCorrectedInvoiceResponse {
             invoice: Some(invoice),
         }))
     }
@@ -834,6 +876,7 @@ async fn to_domain_invoice_new(
         tax_breakdown,
         manual: true,
         invoicing_entity_id: invoicing_entity.id,
+        parent_invoice_id: None,
     };
     Ok((invoice_new, invoicing_entity))
 }

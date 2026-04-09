@@ -809,6 +809,7 @@ diesel::table! {
         voided_at -> Nullable<Timestamp>,
         marked_as_uncollectible_at -> Nullable<Timestamp>,
         invoicing_entity_id -> Uuid,
+        parent_invoice_id -> Nullable<Uuid>,
     }
 }
 

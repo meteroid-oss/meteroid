@@ -86,6 +86,7 @@ pub struct Invoice {
     pub voided_at: Option<NaiveDateTime>,
     pub marked_as_uncollectible_at: Option<NaiveDateTime>,
     pub invoicing_entity_id: InvoicingEntityId,
+    pub parent_invoice_id: Option<InvoiceId>,
 }
 
 impl Invoice {
@@ -166,6 +167,7 @@ pub struct InvoiceNew {
     pub tax_breakdown: Vec<TaxBreakdownItem>,
     pub manual: bool,
     pub invoicing_entity_id: InvoicingEntityId,
+    pub parent_invoice_id: Option<InvoiceId>,
 }
 
 #[derive(Debug, o2o)]
@@ -297,13 +299,13 @@ impl From<InvoiceNew> for Invoice {
             updated_at: None,
             tenant_id: value.tenant_id,
             customer_id: value.customer_id,
-            subscription_id: None,
+            subscription_id: value.subscription_id,
             currency: value.currency,
             invoice_number: value.invoice_number,
             line_items: value.line_items,
             data_updated_at: None,
             invoice_date: value.invoice_date,
-            plan_version_id: None,
+            plan_version_id: value.plan_version_id,
             invoice_type: value.invoice_type,
             finalized_at: None,
             subtotal: value.subtotal,
@@ -334,6 +336,7 @@ impl From<InvoiceNew> for Invoice {
             voided_at: None,
             marked_as_uncollectible_at: None,
             invoicing_entity_id: value.invoicing_entity_id,
+            parent_invoice_id: value.parent_invoice_id,
         }
     }
 }
