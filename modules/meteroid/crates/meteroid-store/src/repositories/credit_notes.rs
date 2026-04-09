@@ -1239,6 +1239,21 @@ mod tests {
     use chrono::NaiveDate;
     use rust_decimal_macros::dec;
 
+    fn resolved_map(entries: &[(&str, Option<i64>)]) -> HashMap<String, ResolvedCredit> {
+        entries
+            .iter()
+            .map(|(id, credit_subtotal)| {
+                (
+                    (*id).to_string(),
+                    ResolvedCredit {
+                        credit_subtotal: *credit_subtotal,
+                        sub_lines_override: None,
+                    },
+                )
+            })
+            .collect()
+    }
+
     fn make_line(
         local_id: &str,
         amount_subtotal: i64,
@@ -1304,8 +1319,8 @@ mod tests {
                 },
             ],
         );
-        let amounts = HashMap::from([("l1".to_string(), None)]);
-        let negated = negate_line_items(&[line], &amounts);
+        let amounts = resolved_map(&[("l1", None)]);
+        let negated = negate_line_items(&[line], &amounts, 2);
         let tax: i64 = negated.iter().map(|i| i.tax_amount).sum();
         assert_eq!(tax, -2_000);
         assert_breakdown_matches(&negated, tax, "full");
@@ -1335,8 +1350,8 @@ mod tests {
                 },
             ],
         );
-        let amounts = HashMap::from([("l1".to_string(), Some(3_333i64))]);
-        let negated = negate_line_items(&[line], &amounts);
+        let amounts = resolved_map(&[("l1", Some(3_333))]);
+        let negated = negate_line_items(&[line], &amounts, 2);
         let tax: i64 = negated.iter().map(|i| i.tax_amount).sum();
         assert_eq!(tax, -667, "prorated tax_amount on negated line");
         assert_breakdown_matches(&negated, tax, "partial");
@@ -1383,10 +1398,10 @@ mod tests {
                 },
             ],
         );
-        let a1 = HashMap::from([("l1".to_string(), Some(4_000i64))]);
-        let a2 = HashMap::from([("l1".to_string(), Some(6_000i64))]);
-        let n1 = negate_line_items(&[line.clone()], &a1);
-        let n2 = negate_line_items(&[line], &a2);
+        let a1 = resolved_map(&[("l1", Some(4_000))]);
+        let a2 = resolved_map(&[("l1", Some(6_000))]);
+        let n1 = negate_line_items(&[line.clone()], &a1, 2);
+        let n2 = negate_line_items(&[line], &a2, 2);
 
         let tax1: i64 = n1.iter().map(|i| i.tax_amount).sum();
         let tax2: i64 = n2.iter().map(|i| i.tax_amount).sum();
@@ -1405,8 +1420,8 @@ mod tests {
         // No tax_details: compute_tax_breakdown must use the scalar tax_rate/tax_amount
         // path and still produce a correct breakdown.
         let line = make_line("l1", 10_000, 10_000, 2_000, vec![]);
-        let amounts = HashMap::from([("l1".to_string(), Some(3_333i64))]);
-        let negated = negate_line_items(&[line], &amounts);
+        let amounts = resolved_map(&[("l1", Some(3_333))]);
+        let negated = negate_line_items(&[line], &amounts, 2);
         let tax: i64 = negated.iter().map(|i| i.tax_amount).sum();
         assert_eq!(tax, -667);
         assert!(
