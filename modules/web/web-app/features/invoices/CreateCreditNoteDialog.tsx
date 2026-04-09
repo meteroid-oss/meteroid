@@ -1,4 +1,4 @@
-import { createConnectQueryKey, useMutation } from '@connectrpc/connect-query'
+import { createConnectQueryKey, useMutation, useQuery } from '@connectrpc/connect-query'
 import {
   Button,
   Checkbox,
@@ -16,14 +16,17 @@ import {
 } from '@md/ui'
 import { useQueryClient } from '@tanstack/react-query'
 import Decimal from 'decimal.js'
-import { useState } from 'react'
+import { useEffect, useMemo, useState } from 'react'
 import { useNavigate } from 'react-router-dom'
 import { toast } from 'sonner'
 
 import { useBasePath } from '@/hooks/useBasePath'
 import { formatCurrency } from '@/lib/utils/numbers'
-import { createCreditNote } from '@/rpc/api/creditnotes/v1/creditnotes-CreditNotesService_connectquery'
-import { CreditType } from '@/rpc/api/creditnotes/v1/models_pb'
+import {
+  createCreditNote,
+  listCreditNotesByInvoiceId,
+} from '@/rpc/api/creditnotes/v1/creditnotes-CreditNotesService_connectquery'
+import { CreditNoteStatus, CreditType } from '@/rpc/api/creditnotes/v1/models_pb'
 import { getInvoice } from '@/rpc/api/invoices/v1/invoices-InvoicesService_connectquery'
 import { DetailedInvoice, LineItem } from '@/rpc/api/invoices/v1/models_pb'
 
@@ -51,6 +54,7 @@ interface LineItemSelection {
   originalQuantity: string
   unitPrice: string | undefined
   maxAmount: number
+  fullyCredited: boolean
   name: string
   subLines: SubLineSelection[]
 }
@@ -64,27 +68,58 @@ export const CreateCreditNoteDialog: React.FC<CreateCreditNoteDialogProps> = ({
   const navigate = useNavigate()
   const queryClient = useQueryClient()
 
-  // Initialize line items from invoice
-  const initialLineItems: LineItemSelection[] = invoice.lineItems.map((item: LineItem) => ({
-    lineItemLocalId: item.id,
-    selected: false,
-    quantity: item.quantity ?? '1',
-    originalQuantity: item.quantity ?? '1',
-    unitPrice: item.unitPrice,
-    maxAmount: Math.abs(Number(item.subtotal)),
-    name: item.name,
-    subLines: item.subLineItems.map(sl => ({
-      subLineLocalId: sl.id,
-      name: sl.name,
-      included: true,
-      quantity: sl.quantity,
-      originalQuantity: sl.quantity,
-      unitPrice: sl.unitPrice,
-      originalTotal: Math.abs(Number(sl.total)),
-    })),
-  }))
+  // Fetch existing credit notes for this invoice to compute per-line remaining amounts.
+  // Without this, the UI would show the original subtotal as the cap even when the line
+  // was already partially credited, and the backend would silently cap the difference.
+  const existingCreditNotesQuery = useQuery(
+    listCreditNotesByInvoiceId,
+    { invoiceId: invoice.id },
+    { enabled: open && Boolean(invoice.id) }
+  )
+
+  const existingCreditNotes = existingCreditNotesQuery.data?.creditNotes
+
+  const initialLineItems = useMemo<LineItemSelection[]>(() => {
+    const alreadyByLine: Record<string, number> = {}
+    for (const cn of existingCreditNotes ?? []) {
+      if (cn.status === CreditNoteStatus.VOIDED) continue
+      for (const li of cn.lineItems) {
+        alreadyByLine[li.id] = (alreadyByLine[li.id] ?? 0) + Math.abs(Number(li.subtotal))
+      }
+    }
+    return invoice.lineItems.map((item: LineItem) => {
+      const original = Math.abs(Number(item.subtotal))
+      const already = alreadyByLine[item.id] ?? 0
+      const remaining = Math.max(0, original - already)
+      return {
+        lineItemLocalId: item.id,
+        selected: false,
+        quantity: item.quantity ?? '1',
+        originalQuantity: item.quantity ?? '1',
+        unitPrice: item.unitPrice,
+        maxAmount: remaining,
+        fullyCredited: remaining === 0,
+        name: item.name,
+        subLines: item.subLineItems.map(sl => ({
+          subLineLocalId: sl.id,
+          name: sl.name,
+          included: true,
+          quantity: sl.quantity,
+          originalQuantity: sl.quantity,
+          unitPrice: sl.unitPrice,
+          originalTotal: Math.abs(Number(sl.total)),
+        })),
+      }
+    })
+  }, [invoice.lineItems, existingCreditNotes])
 
   const [lineItems, setLineItems] = useState<LineItemSelection[]>(initialLineItems)
+
+  // Reset local selection state when the underlying invoice or existing credit notes change
+  // (e.g. query finishes loading after dialog opens).
+  useEffect(() => {
+    setLineItems(initialLineItems)
+  }, [initialLineItems])
   const [creditType, setCreditType] = useState<CreditType>(CreditType.CREDIT_TO_BALANCE)
   const [reason, setReason] = useState('')
   const [memo, setMemo] = useState('')
@@ -203,6 +238,37 @@ export const CreateCreditNoteDialog: React.FC<CreateCreditNoteDialogProps> = ({
       return
     }
 
+    for (const item of selectedItems) {
+      if (item.fullyCredited) {
+        toast.error(`"${item.name}" has already been fully credited`)
+        return
+      }
+      if (item.subLines.length > 0) {
+        const kept = item.subLines.filter(sl => {
+          if (!sl.included) return false
+          const q = parseDecimal(sl.quantity)
+          return q !== null && q.gt(0)
+        })
+        if (kept.length === 0) {
+          toast.error(
+            `"${item.name}": select at least one sub-line with a positive quantity, or deselect the line`
+          )
+          return
+        }
+      } else if (item.quantity.trim() !== '') {
+        const q = parseDecimal(item.quantity)
+        if (!q || q.lte(0)) {
+          toast.error(`"${item.name}": quantity must be a positive number`)
+          return
+        }
+        const maxQ = parseDecimal(item.originalQuantity)
+        if (maxQ && q.gt(maxQ)) {
+          toast.error(`"${item.name}": quantity exceeds original (${item.originalQuantity})`)
+          return
+        }
+      }
+    }
+
     const creditLineItems = selectedItems.map(item => {
       if (item.subLines.length > 0) {
         const subLines = item.subLines
@@ -281,12 +347,16 @@ export const CreateCreditNoteDialog: React.FC<CreateCreditNoteDialogProps> = ({
                     <div className="flex items-center gap-3">
                       <Checkbox
                         checked={item.selected}
+                        disabled={item.fullyCredited}
                         onCheckedChange={() => handleToggleLineItem(item.lineItemLocalId)}
                       />
                       <span className="text-sm font-medium">{item.name}</span>
+                      {item.fullyCredited && (
+                        <span className="text-xs text-muted-foreground">(fully credited)</span>
+                      )}
                     </div>
                     <span className="text-sm text-muted-foreground">
-                      Max: {formatCurrency(item.maxAmount, invoice.currency)}
+                      Remaining: {formatCurrency(item.maxAmount, invoice.currency)}
                     </span>
                   </div>
 

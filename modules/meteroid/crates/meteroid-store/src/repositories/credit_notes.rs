@@ -566,7 +566,13 @@ pub(crate) async fn create_credit_note_tx(
                                 csl.local_id, item.local_id
                             )))
                         })?;
-                    if csl.quantity.abs() > original_sl.quantity.abs() {
+                    if original_sl.quantity <= Decimal::ZERO {
+                        bail!(StoreError::InvalidArgument(format!(
+                            "Sub-line '{}' has non-positive original quantity",
+                            csl.local_id
+                        )));
+                    }
+                    if csl.quantity > original_sl.quantity {
                         bail!(StoreError::InvalidArgument(format!(
                             "Sub-line '{}' credit quantity {} exceeds original {}",
                             csl.local_id, csl.quantity, original_sl.quantity
@@ -613,7 +619,13 @@ pub(crate) async fn create_credit_note_tx(
                     )))
                 })?;
                 let original_qty = item.quantity.unwrap_or(Decimal::ONE);
-                if qty.abs() > original_qty.abs() {
+                if original_qty <= Decimal::ZERO {
+                    bail!(StoreError::InvalidArgument(format!(
+                        "Line item '{}' has non-positive original quantity",
+                        item.local_id
+                    )));
+                }
+                if qty > original_qty {
                     bail!(StoreError::InvalidArgument(format!(
                         "Line item '{}' credit quantity {} exceeds original {}",
                         item.local_id, qty, original_qty
