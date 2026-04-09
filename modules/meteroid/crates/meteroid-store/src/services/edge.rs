@@ -932,6 +932,17 @@ impl ServicesEdge {
             .await
     }
 
+    pub async fn create_and_finalize_credit_note_with_reissue(
+        &self,
+        tenant_id: TenantId,
+        params: crate::repositories::credit_notes::CreateCreditNoteParams,
+        reissue_as_draft: bool,
+    ) -> StoreResult<(crate::domain::CreditNote, Option<Invoice>)> {
+        self.services
+            .create_and_finalize_credit_note_with_reissue(tenant_id, params, reissue_as_draft)
+            .await
+    }
+
     pub async fn update_draft_invoice(
         &self,
         invoice_id: InvoiceId,

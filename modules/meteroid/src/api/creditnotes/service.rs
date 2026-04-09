@@ -271,11 +271,34 @@ impl CreditNotesService for CreditNoteServiceComponents {
             credit_type,
         };
 
-        let created = self
-            .store
-            .create_credit_note(tenant_id, params)
-            .await
-            .map_err(Into::<CreditNoteApiError>::into)?;
+        if req.reissue_as_draft && !req.finalize {
+            return Err(Status::invalid_argument(
+                "reissue_as_draft requires finalize=true",
+            ));
+        }
+
+        let (created, corrected_invoice_id) = if req.finalize && req.reissue_as_draft {
+            let (cn, inv) = self
+                .services
+                .create_and_finalize_credit_note_with_reissue(tenant_id, params, true)
+                .await
+                .map_err(Into::<CreditNoteApiError>::into)?;
+            (cn, inv.map(|i| i.id.as_proto()))
+        } else if req.finalize {
+            let cn = self
+                .store
+                .create_and_finalize_credit_note(tenant_id, params)
+                .await
+                .map_err(Into::<CreditNoteApiError>::into)?;
+            (cn, None)
+        } else {
+            let cn = self
+                .store
+                .create_credit_note(tenant_id, params)
+                .await
+                .map_err(Into::<CreditNoteApiError>::into)?;
+            (cn, None)
+        };
 
         let customer = self
             .store
@@ -293,6 +316,7 @@ impl CreditNotesService for CreditNoteServiceComponents {
                 detailed,
                 &self.jwt_secret,
             )?),
+            corrected_invoice_id,
         };
 
         Ok(Response::new(response))

@@ -21,7 +21,6 @@ use common_domain::ids::{
 };
 use diesel_async::scoped_futures::ScopedFutureExt;
 use diesel_models::credit_notes::CreditNoteRow;
-use diesel_models::enums::CreditTypeEnum;
 use diesel_models::invoices::InvoiceRow;
 use error_stack::{Report, ResultExt, bail};
 use rust_decimal::Decimal;
@@ -263,29 +262,29 @@ impl Services {
             )));
         }
 
-        // Require a *finalized* DebtCancellation credit note on the parent. Draft CNs
-        // have no ledger effect and must not authorise a reissue.
+        // The parent must be fully credited: the sum of finalized (non-voided) credit
+        // note totals on the parent must cover its total. This unifies the unpaid path
+        // (full DebtCancellation CN) with the paid path (full Refund or CreditToBalance
+        // CN), and rejects partial credits — reissuing off a partial CN would double-bill.
         let cns = CreditNoteRow::list_by_invoice_id(conn, tenant_id, parent.id)
             .await
             .map_err(Into::<Report<StoreError>>::into)?;
-        let debt_cn = cns
+        let total_credited: i64 = cns
             .iter()
-            .find(|cn| {
-                cn.credit_type == CreditTypeEnum::DebtCancellation
-                    && cn.finalized_at.is_some()
-            })
-            .ok_or_else(|| {
-                Report::new(StoreError::InvalidArgument(
-                    "Cannot create a corrected invoice: the source invoice has no finalized DebtCancellation credit note"
-                        .to_string(),
-                ))
-            })?;
+            .filter(|cn| cn.finalized_at.is_some() && cn.voided_at.is_none())
+            .map(|cn| cn.total.unsigned_abs() as i64)
+            .sum();
+        if total_credited < parent.total {
+            bail!(StoreError::InvalidArgument(format!(
+                "Cannot create a corrected invoice: parent invoice {} is not fully credited ({} of {} {})",
+                parent.invoice_number, total_credited, parent.total, parent.currency
+            )));
+        }
 
         // Enforce 1:1 — refuse if a corrected invoice already exists for this parent.
-        if let Some(existing) =
-            InvoiceRow::find_child_id_by_parent(conn, tenant_id, parent.id)
-                .await
-                .map_err(Into::<Report<StoreError>>::into)?
+        if let Some(existing) = InvoiceRow::find_child_id_by_parent(conn, tenant_id, parent.id)
+            .await
+            .map_err(Into::<Report<StoreError>>::into)?
         {
             bail!(StoreError::InvalidArgument(format!(
                 "A corrected invoice already exists for invoice {} (child: {})",
@@ -308,10 +307,7 @@ impl Services {
         let due_date = (invoice_date + chrono::Duration::days(i64::from(parent.net_terms)))
             .and_time(NaiveTime::MIN);
 
-        let memo = Some(format!(
-            "Corrected invoice for {} (Credit Note {})",
-            parent.invoice_number, debt_cn.credit_note_number
-        ));
+        let memo = Some(format!("Corrected invoice for {}", parent.invoice_number));
 
         let invoice_new = InvoiceNew {
             tenant_id: parent.tenant_id,
@@ -353,6 +349,42 @@ impl Services {
         };
 
         insert_invoice_tx(&self.store, conn, invoice_new).await
+    }
+
+    /// Atomically creates + finalizes a credit note and optionally issues a corrected
+    /// draft invoice in the same transaction. When `reissue_as_draft` is true the CN
+    /// must fully credit the parent — enforced by `create_corrected_invoice_from_tx`.
+    pub async fn create_and_finalize_credit_note_with_reissue(
+        &self,
+        tenant_id: TenantId,
+        params: crate::repositories::credit_notes::CreateCreditNoteParams,
+        reissue_as_draft: bool,
+    ) -> Result<(crate::domain::CreditNote, Option<Invoice>), StoreErrorReport> {
+        use crate::repositories::credit_notes::{
+            create_user_credit_note_tx, finalize_credit_note_tx,
+        };
+
+        self.store
+            .transaction(|conn| {
+                async move {
+                    let draft =
+                        create_user_credit_note_tx(&self.store, conn, tenant_id, params).await?;
+                    let invoice_id = draft.invoice_id;
+                    let finalized =
+                        finalize_credit_note_tx(&self.store, conn, tenant_id, draft.id).await?;
+                    let corrected = if reissue_as_draft {
+                        Some(
+                            self.create_corrected_invoice_from_tx(conn, tenant_id, invoice_id)
+                                .await?,
+                        )
+                    } else {
+                        None
+                    };
+                    Ok((finalized, corrected))
+                }
+                .scope_boxed()
+            })
+            .await
     }
 
     /// Creates a draft adjustment invoice for an immediate plan change based on proration results.

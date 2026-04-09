@@ -4,6 +4,7 @@ import { useState } from 'react'
 
 import {
   OriginalLineItem,
+  SubLineSchema,
   UpdateInvoiceLineSchema,
   UpdateInvoiceLineSchemaRegular,
   UpdateInvoiceLineSchemaWithSublines,
@@ -27,11 +28,19 @@ export const LineItemDisplay = ({
   onRemove,
   onEdit,
   isUsageBased,
-  originalItem,
 }: LineItemDisplayProps) => {
   const [isExpanded, setIsExpanded] = useState(false)
   const itemWithValues = item as UpdateInvoiceLineSchemaRegular
-  const hasSublines = originalItem?.subLineItems && originalItem.subLineItems.length > 0
+  const subLines = (item as UpdateInvoiceLineSchemaWithSublines).subLines as
+    | SubLineSchema[]
+    | undefined
+  const hasSublines = !!subLines && subLines.length > 0
+
+  const sublineRowTotalMinor = (sl: SubLineSchema) =>
+    Number(majorToMinorUnit(Number(sl.quantity ?? 0) * Number(sl.unitPrice ?? 0), currency))
+  const sublinesTotalMinor = hasSublines
+    ? subLines!.reduce((acc, sl) => acc + sublineRowTotalMinor(sl), 0)
+    : 0
 
   return (
     <div className="py-2 border-b last:border-b-0">
@@ -91,16 +100,8 @@ export const LineItemDisplay = ({
                 </div>
               )}
             <div className="text-[13px] font-medium">
-              {hasSublines && originalItem
-                ? formatCurrency(
-                    originalItem.subLineItems && originalItem.subLineItems.length > 0
-                      ? originalItem.subLineItems.reduce(
-                          (sum: number, sub) => sum + Number(sub.total),
-                          0
-                        )
-                      : Number(originalItem.subtotal),
-                    currency
-                  )
+              {hasSublines
+                ? formatCurrency(sublinesTotalMinor, currency)
                 : formatCurrency(
                     Number(itemWithValues.quantity ?? 0) *
                       Number(majorToMinorUnit(itemWithValues.unitPrice ?? 0, currency)),
@@ -133,10 +134,12 @@ export const LineItemDisplay = ({
 
       {isExpanded && hasSublines && (
         <div className="mt-2 ml-4 pt-2 border-t space-y-1">
-          {(originalItem.subLineItems ?? []).map(subItem => (
-            <div key={subItem.id} className="flex justify-between items-center py-1">
-              <span className="text-[11px] text-muted-foreground">{subItem.name}</span>
-              <span className="text-[11px]">{formatCurrency(Number(subItem.total), currency)}</span>
+          {subLines!.map((sl, i) => (
+            <div key={sl.id ?? `new-${i}`} className="flex justify-between items-center py-1">
+              <span className="text-[11px] text-muted-foreground">{sl.name}</span>
+              <span className="text-[11px]">
+                {formatCurrency(sublineRowTotalMinor(sl), currency)}
+              </span>
             </div>
           ))}
         </div>

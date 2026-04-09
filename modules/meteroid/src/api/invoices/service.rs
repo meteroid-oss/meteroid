@@ -9,8 +9,8 @@ use common_grpc::middleware::server::auth::RequestExt;
 use common_utils::decimals::ToSubunit;
 use meteroid_grpc::meteroid::api::invoices::v1::{
     CreateCorrectedInvoiceRequest, CreateCorrectedInvoiceResponse, CreateInvoiceRequest,
-    CreateInvoiceResponse, DeleteInvoiceRequest, DeleteInvoiceResponse,
-    FinalizeInvoiceRequest, FinalizeInvoiceResponse, GenerateInvoicePaymentTokenRequest,
+    CreateInvoiceResponse, DeleteInvoiceRequest, DeleteInvoiceResponse, FinalizeInvoiceRequest,
+    FinalizeInvoiceResponse, GenerateInvoicePaymentTokenRequest,
     GenerateInvoicePaymentTokenResponse, GetInvoiceRequest, GetInvoiceResponse, Invoice,
     ListInvoicesRequest, ListInvoicesResponse, MarkInvoiceAsUncollectibleRequest,
     MarkInvoiceAsUncollectibleResponse, NewInvoice, PreviewInvoiceRequest, PreviewInvoiceResponse,
@@ -637,6 +637,9 @@ fn parse_as_minor_opt(
         .transpose()
 }
 
+/// Converts proto sublines to domain. Does NOT compute `total` — callers must
+/// recompute from quantity * unit_price using the invoice currency's precision
+/// (the client-supplied `total` is ignored; backend is authoritative).
 fn convert_sublines_from_proto(
     proto_sublines: &[ProtoSubLineItem],
 ) -> Result<Vec<meteroid_store::domain::invoice_lines::SubLineItem>, Status> {
@@ -693,9 +696,13 @@ fn convert_sublines_from_proto(
             });
 
             Ok(meteroid_store::domain::invoice_lines::SubLineItem {
-                local_id: sub.id.clone(),
+                local_id: if sub.id.is_empty() {
+                    LocalId::generate_for(IdType::Other)
+                } else {
+                    sub.id.clone()
+                },
                 name: sub.name.clone(),
-                total: sub.total,
+                total: 0, // computed by caller using invoice currency precision
                 quantity: quantity_dec,
                 unit_price: unit_price_dec,
                 attributes,
@@ -746,8 +753,14 @@ async fn to_domain_invoice_new(
             .map(rust_decimal::Decimal::from_proto)
             .transpose()?;
 
-        // Convert sublines from proto to domain
-        let sub_lines = convert_sublines_from_proto(&line.sub_line_items)?;
+        // Convert sublines from proto to domain; recompute each total from qty * unit_price
+        // using the invoice currency precision (backend is authoritative on totals).
+        let mut sub_lines = convert_sublines_from_proto(&line.sub_line_items)?;
+        for sl in &mut sub_lines {
+            sl.total = (sl.quantity * sl.unit_price)
+                .to_subunit_opt(currency.exponent as u8)
+                .unwrap_or(0);
+        }
 
         // Calculate amount_subtotal
         // If we have sublines, sum their totals; otherwise calculate from quantity * unit_price

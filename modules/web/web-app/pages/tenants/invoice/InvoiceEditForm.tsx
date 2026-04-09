@@ -32,8 +32,10 @@ import { mapDatev2 } from '@/lib/mapping'
 import { schemas } from '@/lib/schemas'
 import {
   OriginalLineItem,
+  SubLineSchema,
   UpdateInvoiceLineSchema,
   UpdateInvoiceLineSchemaRegular,
+  UpdateInvoiceLineSchemaWithSublines,
   UpdateInvoiceSchema,
 } from '@/lib/schemas/invoices'
 import { parseDate } from '@/lib/utils/date'
@@ -87,6 +89,17 @@ const mapCustomerDetailsForApi = (
   }
 }
 
+const mapSublinesForApi = (subLines: SubLineSchema[]): PlainMessage<SubLineItem>[] =>
+  subLines.map(sl => ({
+    id: sl.id ?? '',
+    name: sl.name,
+    // `total` is recomputed server-side from quantity * unit_price using currency precision.
+    total: 0n,
+    quantity: sl.quantity.toString(),
+    unitPrice: sl.unitPrice.toString(),
+    sublineAttributes: { case: undefined },
+  }))
+
 export const InvoiceEditForm: React.FC<InvoiceEditFormProps> = ({
   invoice,
   invoiceId,
@@ -136,7 +149,13 @@ export const InvoiceEditForm: React.FC<InvoiceEditFormProps> = ({
           taxRate: rateToPercent(item.taxRate),
           description: item.description,
           metricId: item.metricId,
-        }
+          subLines: item.subLineItems.map(sl => ({
+            id: sl.id,
+            name: sl.name,
+            quantity: parseFloat(sl.quantity || '0'),
+            unitPrice: parseFloat(sl.unitPrice || '0'),
+          })),
+        } as UpdateInvoiceLineSchemaWithSublines
       } else {
         return {
           lineItemId: item.id,
@@ -203,8 +222,8 @@ export const InvoiceEditForm: React.FC<InvoiceEditFormProps> = ({
       setIsSvgPreviewLoading(true)
 
       const lineItems: PlainMessage<UpdateInvoiceLineItem>[] = (formData.lines || []).map(line => {
-        const originalItem = line.lineItemId ? originalLineItems.get(line.lineItemId) : undefined
-        const hasSublines = originalItem?.subLineItems && originalItem.subLineItems.length > 0
+        const lineWithSublines = line as UpdateInvoiceLineSchemaWithSublines
+        const hasSublines = !!lineWithSublines.subLines && lineWithSublines.subLines.length > 0
         const lineWithValues = line as UpdateInvoiceLineSchemaRegular
 
         return {
@@ -212,14 +231,12 @@ export const InvoiceEditForm: React.FC<InvoiceEditFormProps> = ({
           name: line.name,
           startDate: mapDatev2(line.startDate),
           endDate: mapDatev2(line.endDate),
-          quantity: hasSublines ? originalItem.quantity : lineWithValues.quantity?.toString(),
-          unitPrice: hasSublines ? originalItem.unitPrice : lineWithValues.unitPrice?.toString(),
+          quantity: hasSublines ? undefined : lineWithValues.quantity?.toString(),
+          unitPrice: hasSublines ? undefined : lineWithValues.unitPrice?.toString(),
           taxRate: percentToRate(line.taxRate || 0),
           description: line.description,
           metricId: line.metricId,
-          subLineItems: hasSublines
-            ? ((originalItem.subLineItems ?? []) as PlainMessage<SubLineItem>[])
-            : [],
+          subLineItems: hasSublines ? mapSublinesForApi(lineWithSublines.subLines) : [],
         }
       })
 
@@ -270,10 +287,9 @@ export const InvoiceEditForm: React.FC<InvoiceEditFormProps> = ({
           memo: formData.memo || undefined,
           reference: formData.reference || undefined,
           lineItems: (formData.lines || []).map(line => {
-            const originalItem = line.lineItemId
-              ? originalLineItems.get(line.lineItemId)
-              : undefined
-            const hasSublines = originalItem?.subLineItems && originalItem.subLineItems.length > 0
+            const lineWithSublines = line as UpdateInvoiceLineSchemaWithSublines
+            const hasSublines =
+              !!lineWithSublines.subLines && lineWithSublines.subLines.length > 0
             const lineWithValues = line as UpdateInvoiceLineSchemaRegular
 
             return {
@@ -284,9 +300,7 @@ export const InvoiceEditForm: React.FC<InvoiceEditFormProps> = ({
               unitPrice: hasSublines ? undefined : lineWithValues.unitPrice?.toString(),
               taxRate: percentToRate(line.taxRate || 0),
               description: line.description,
-              subLineItems: hasSublines
-                ? ((originalItem.subLineItems ?? []) as PlainMessage<SubLineItem>[])
-                : [],
+              subLineItems: hasSublines ? mapSublinesForApi(lineWithSublines.subLines) : [],
             }
           }),
           customerDetails: svgCustomerDetails,
@@ -324,8 +338,8 @@ export const InvoiceEditForm: React.FC<InvoiceEditFormProps> = ({
 
       if (data.lines && data.lines.length > 0) {
         const lineItems: PlainMessage<UpdateInvoiceLineItem>[] = data.lines.map(line => {
-          const originalItem = line.lineItemId ? originalLineItems.get(line.lineItemId) : undefined
-          const hasSublines = originalItem?.subLineItems && originalItem.subLineItems.length > 0
+          const lineWithSublines = line as UpdateInvoiceLineSchemaWithSublines
+          const hasSublines = !!lineWithSublines.subLines && lineWithSublines.subLines.length > 0
           const lineWithValues = line as UpdateInvoiceLineSchemaRegular
 
           return {
@@ -333,14 +347,12 @@ export const InvoiceEditForm: React.FC<InvoiceEditFormProps> = ({
             name: line.name,
             startDate: mapDatev2(line.startDate),
             endDate: mapDatev2(line.endDate),
-            quantity: hasSublines ? originalItem.quantity : lineWithValues.quantity?.toString(),
-            unitPrice: hasSublines ? originalItem.unitPrice : lineWithValues.unitPrice?.toString(),
+            quantity: hasSublines ? undefined : lineWithValues.quantity?.toString(),
+            unitPrice: hasSublines ? undefined : lineWithValues.unitPrice?.toString(),
             taxRate: percentToRate(line.taxRate || 0),
             description: line.description,
             metricId: line.metricId,
-            subLineItems: hasSublines
-              ? ((originalItem.subLineItems ?? []) as PlainMessage<SubLineItem>[])
-              : [],
+            subLineItems: hasSublines ? mapSublinesForApi(lineWithSublines.subLines) : [],
           }
         })
 
@@ -363,8 +375,8 @@ export const InvoiceEditForm: React.FC<InvoiceEditFormProps> = ({
     }
   }
 
-  const handleAddLine = (item: UpdateInvoiceLineSchema) => {
-    append(item)
+  const handleAddLine = (item: UpdateInvoiceLineSchema | UpdateInvoiceLineSchemaWithSublines) => {
+    append(item as UpdateInvoiceLineSchema)
     setIsLineItemModalOpen(false)
     callPreview(methods.getValues())
   }
@@ -374,9 +386,11 @@ export const InvoiceEditForm: React.FC<InvoiceEditFormProps> = ({
     setIsLineItemModalOpen(true)
   }
 
-  const handleSaveEditedLine = (item: UpdateInvoiceLineSchema) => {
+  const handleSaveEditedLine = (
+    item: UpdateInvoiceLineSchema | UpdateInvoiceLineSchemaWithSublines
+  ) => {
     if (editingLineIndex !== null) {
-      update(editingLineIndex, item)
+      update(editingLineIndex, item as UpdateInvoiceLineSchema)
       setEditingLineIndex(null)
     }
     setIsLineItemModalOpen(false)
@@ -702,8 +716,8 @@ export const InvoiceEditForm: React.FC<InvoiceEditFormProps> = ({
         }
         isUsageBased={editingLineIndex !== null ? !!fields[editingLineIndex].metricId : false}
         hasSublines={
-          editingLineIndex !== null && fields[editingLineIndex].lineItemId
-            ? !!originalLineItems.get(fields[editingLineIndex].lineItemId!)?.subLineItems?.length
+          editingLineIndex !== null
+            ? !!(fields[editingLineIndex] as UpdateInvoiceLineSchemaWithSublines).subLines?.length
             : false
         }
       />
