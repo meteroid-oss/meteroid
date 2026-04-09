@@ -206,41 +206,51 @@ impl CreditNotesService for CreditNoteServiceComponents {
 
         let invoice_id = InvoiceId::from_proto(&credit_note_req.invoice_id)?;
 
-        // Convert line items (quantity-based, optional per-subline overrides)
+        // Convert line items: either per-subline overrides or a line-level quantity.
         let line_items: Vec<CreditLineItem> = credit_note_req
             .line_items
             .iter()
             .map(|li| {
-                let quantity = li
-                    .quantity
-                    .as_ref()
-                    .map(|q| rust_decimal::Decimal::from_str(q))
-                    .transpose()
-                    .map_err(|e| {
+                let local_id = li.line_item_local_id.clone();
+                if !li.sub_lines.is_empty() {
+                    if li.quantity.is_some() {
+                        return Err(CreditNoteApiError::InvalidArgument(format!(
+                            "Line '{}': quantity and sub_lines are mutually exclusive",
+                            local_id
+                        )));
+                    }
+                    let sub_lines =
+                        li.sub_lines
+                            .iter()
+                            .map(|sl| {
+                                Ok::<_, CreditNoteApiError>(CreditSubLineItem {
+                                    local_id: sl.sub_line_local_id.clone(),
+                                    quantity: rust_decimal::Decimal::from_str(&sl.quantity)
+                                        .map_err(|e| {
+                                            CreditNoteApiError::InvalidArgument(format!(
+                                                "Invalid sub-line quantity: {}",
+                                                e
+                                            ))
+                                        })?,
+                                })
+                            })
+                            .collect::<Result<Vec<_>, _>>()?;
+                    Ok(CreditLineItem::SubLines {
+                        local_id,
+                        sub_lines,
+                    })
+                } else {
+                    let qty_str = li.quantity.as_ref().ok_or_else(|| {
+                        CreditNoteApiError::InvalidArgument(format!(
+                            "Line '{}': quantity or sub_lines is required",
+                            local_id
+                        ))
+                    })?;
+                    let quantity = rust_decimal::Decimal::from_str(qty_str).map_err(|e| {
                         CreditNoteApiError::InvalidArgument(format!("Invalid quantity: {}", e))
                     })?;
-                let sub_lines = li
-                    .sub_lines
-                    .iter()
-                    .map(|sl| {
-                        Ok::<_, CreditNoteApiError>(CreditSubLineItem {
-                            local_id: sl.sub_line_local_id.clone(),
-                            quantity: rust_decimal::Decimal::from_str(&sl.quantity).map_err(
-                                |e| {
-                                    CreditNoteApiError::InvalidArgument(format!(
-                                        "Invalid sub-line quantity: {}",
-                                        e
-                                    ))
-                                },
-                            )?,
-                        })
-                    })
-                    .collect::<Result<Vec<_>, _>>()?;
-                Ok::<_, CreditNoteApiError>(CreditLineItem {
-                    local_id: li.line_item_local_id.clone(),
-                    quantity,
-                    sub_lines,
-                })
+                    Ok(CreditLineItem::Line { local_id, quantity })
+                }
             })
             .collect::<Result<Vec<_>, _>>()?;
 

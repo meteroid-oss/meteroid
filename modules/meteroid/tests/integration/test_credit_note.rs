@@ -216,15 +216,13 @@ async fn test_credit_note_partial_credits() {
             CreateCreditNoteParams {
                 invoice_id: invoice.id,
                 line_items: vec![
-                    CreditLineItem {
+                    CreditLineItem::Line {
                         local_id: line_ids[0].clone(),
-                        quantity: None,
-                        sub_lines: vec![],
+                        quantity: dec!(1),
                     },
-                    CreditLineItem {
+                    CreditLineItem::Line {
                         local_id: line_ids[1].clone(),
-                        quantity: None,
-                        sub_lines: vec![],
+                        quantity: dec!(1),
                     },
                 ],
                 reason: Some("Partial refund - first batch".to_string()),
@@ -277,15 +275,13 @@ async fn test_credit_note_partial_credits() {
             CreateCreditNoteParams {
                 invoice_id: invoice.id,
                 line_items: vec![
-                    CreditLineItem {
+                    CreditLineItem::Line {
                         local_id: line_ids[2].clone(),
-                        quantity: None,
-                        sub_lines: vec![],
+                        quantity: dec!(1),
                     },
-                    CreditLineItem {
+                    CreditLineItem::Line {
                         local_id: line_ids[3].clone(),
-                        quantity: None,
-                        sub_lines: vec![],
+                        quantity: dec!(1),
                     },
                 ],
                 reason: Some("Partial refund - second batch".to_string()),
@@ -450,10 +446,9 @@ async fn test_credit_note_partial_credits() {
             CreateCreditNoteParams {
                 invoice_id: invoice.id,
                 line_items: vec![
-                    CreditLineItem {
+                    CreditLineItem::Line {
                         local_id: line_ids[0].clone(),
-                        quantity: None,
-                        sub_lines: vec![],
+                        quantity: dec!(1),
                     }, // Already credited
                 ],
                 reason: Some("Should fail - duplicate".to_string()),
@@ -578,10 +573,9 @@ async fn test_credit_note_race_condition() {
                     TENANT_ID,
                     CreateCreditNoteParams {
                         invoice_id,
-                        line_items: vec![CreditLineItem {
+                        line_items: vec![CreditLineItem::Line {
                             local_id: line_id,
-                            quantity: None,
-                            sub_lines: vec![],
+                            quantity: dec!(1),
                         }],
                         reason: Some("Concurrent 1".to_string()),
                         memo: None,
@@ -596,10 +590,9 @@ async fn test_credit_note_race_condition() {
                     TENANT_ID,
                     CreateCreditNoteParams {
                         invoice_id,
-                        line_items: vec![CreditLineItem {
+                        line_items: vec![CreditLineItem::Line {
                             local_id: line_id_clone,
-                            quantity: None,
-                            sub_lines: vec![],
+                            quantity: dec!(1),
                         }],
                         reason: Some("Concurrent 2".to_string()),
                         memo: None,
@@ -1026,15 +1019,13 @@ async fn test_credit_note_partial_amounts() {
             CreateCreditNoteParams {
                 invoice_id: invoice.id,
                 line_items: vec![
-                    CreditLineItem {
+                    CreditLineItem::Line {
                         local_id: line_ids[0].clone(),
-                        quantity: Some(dec!(0.5)),
-                        sub_lines: vec![],
+                        quantity: dec!(0.5),
                     }, // Half of subtotal (qty 0.5 × unit 10.00 = 500 cents)
-                    CreditLineItem {
+                    CreditLineItem::Line {
                         local_id: line_ids[1].clone(),
-                        quantity: None,
-                        sub_lines: vec![],
+                        quantity: dec!(1),
                     }, // Full
                 ],
                 reason: Some("Partial amount credit test".to_string()),
@@ -1123,10 +1114,9 @@ async fn test_credit_note_partial_amounts() {
             CreateCreditNoteParams {
                 invoice_id: invoice.id,
                 line_items: vec![
-                    CreditLineItem {
+                    CreditLineItem::Line {
                         local_id: line_ids[2].clone(),
-                        quantity: Some(dec!(100)),
-                        sub_lines: vec![],
+                        quantity: dec!(100),
                     }, // Exceeds original quantity (1)
                 ],
                 reason: Some("Should fail - exceeds subtotal".to_string()),
@@ -1154,10 +1144,9 @@ async fn test_credit_note_partial_amounts() {
             TENANT_ID,
             CreateCreditNoteParams {
                 invoice_id: invoice.id,
-                line_items: vec![CreditLineItem {
+                line_items: vec![CreditLineItem::Line {
                     local_id: line_ids[2].clone(),
-                    quantity: Some(dec!(-1)),
-                    sub_lines: vec![],
+                    quantity: dec!(-1),
                 }],
                 reason: Some("Should fail - negative amount".to_string()),
                 memo: None,

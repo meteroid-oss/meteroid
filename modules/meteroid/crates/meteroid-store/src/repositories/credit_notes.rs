@@ -1,4 +1,5 @@
 use crate::StoreResult;
+use crate::constants::Currencies;
 use crate::domain::invoice_lines::{LineItem, TaxDetail};
 use crate::domain::invoices::TaxBreakdownItem;
 use crate::domain::{
@@ -10,6 +11,7 @@ use crate::repositories::customer_balance::{CustomerBalance, convert_currency};
 use crate::store::Store;
 use chrono::NaiveDateTime;
 use common_domain::ids::{CreditNoteId, CustomerId, InvoiceId, StoredDocumentId, TenantId};
+use common_utils::decimals::{ToSubunit, ToUnit};
 use diesel_async::scoped_futures::ScopedFutureExt;
 use diesel_models::PgConn;
 use diesel_models::credit_notes::CreditNoteRow;
@@ -29,17 +31,26 @@ pub enum CreditType {
 }
 
 /// Specifies a line item to credit.
-///
-/// Three forms:
-/// - `quantity = None`, `sub_lines = []` → credit the full remaining line
-/// - `quantity = Some(q)`, `sub_lines = []` → credit q × unit_price (line must have unit_price)
-/// - `sub_lines = [..]` → credit per-subline; line subtotal is summed from sublines.
-///   Sublines not listed (or with quantity 0) are dropped from the credited line.
 #[derive(Debug, Clone)]
-pub struct CreditLineItem {
-    pub local_id: String,
-    pub quantity: Option<Decimal>,
-    pub sub_lines: Vec<CreditSubLineItem>,
+pub enum CreditLineItem {
+    /// Credit `quantity × line.unit_price`. The line must have a unit_price.
+    Line { local_id: String, quantity: Decimal },
+    /// Credit specific sub-lines; line subtotal is summed from their
+    /// `quantity × unit_price`. Sub-lines not listed are dropped from the credited line.
+    SubLines {
+        local_id: String,
+        sub_lines: Vec<CreditSubLineItem>,
+    },
+}
+
+impl CreditLineItem {
+    pub fn local_id(&self) -> &str {
+        match self {
+            CreditLineItem::Line { local_id, .. } | CreditLineItem::SubLines { local_id, .. } => {
+                local_id
+            }
+        }
+    }
 }
 
 #[derive(Debug, Clone)]
@@ -244,6 +255,7 @@ struct SubLineOverride {
 fn negate_line_items(
     line_items: &[LineItem],
     resolved: &HashMap<String, ResolvedCredit>,
+    precision: u8,
 ) -> Vec<LineItem> {
     line_items
         .iter()
@@ -319,7 +331,7 @@ fn negate_line_items(
                 } else {
                     (
                         Some(Decimal::ONE),
-                        Some(-Decimal::from(credit_subtotal) / Decimal::from(100)),
+                        Some(-(credit_subtotal.to_unit(precision))),
                     )
                 };
 
@@ -471,6 +483,13 @@ pub(crate) async fn create_credit_note_tx(
         }
     }
 
+    let precision = Currencies::resolve_currency_precision(&invoice.currency).ok_or_else(|| {
+        Report::from(StoreError::InvalidArgument(format!(
+            "Unknown currency '{}'",
+            invoice.currency
+        )))
+    })?;
+
     // 2. Resolve which lines are being credited and how (full / partial qty / per-subline)
     let requested: Vec<CreditLineItem> = params.line_items.unwrap_or_default();
 
@@ -517,14 +536,13 @@ pub(crate) async fn create_credit_note_tx(
     } else {
         let mut items: Vec<LineItem> = Vec::with_capacity(requested.len());
         for ci in requested {
-            let item = *invoice_lines_by_id
-                .get(ci.local_id.as_str())
-                .ok_or_else(|| {
-                    Report::from(StoreError::InvalidArgument(format!(
-                        "Line item '{}' not found on invoice",
-                        ci.local_id
-                    )))
-                })?;
+            let local_id = ci.local_id().to_string();
+            let item = *invoice_lines_by_id.get(local_id.as_str()).ok_or_else(|| {
+                Report::from(StoreError::InvalidArgument(format!(
+                    "Line item '{}' not found on invoice",
+                    local_id
+                )))
+            })?;
             let already = already_credited_amounts
                 .get(&item.local_id)
                 .copied()
@@ -537,119 +555,122 @@ pub(crate) async fn create_credit_note_tx(
                 )));
             }
 
-            let rc = if !ci.sub_lines.is_empty() {
-                if item.sub_lines.is_empty() {
-                    bail!(StoreError::InvalidArgument(format!(
-                        "Line item '{}' has no sub-lines to credit",
-                        item.local_id
-                    )));
-                }
-                if ci.quantity.is_some() {
-                    bail!(StoreError::InvalidArgument(format!(
-                        "Line item '{}': quantity and sub_lines are mutually exclusive",
-                        item.local_id
-                    )));
-                }
-                let mut overrides: Vec<SubLineOverride> = Vec::new();
-                let mut total_cents: i64 = 0;
-                for csl in &ci.sub_lines {
-                    if csl.quantity <= Decimal::ZERO {
-                        continue; // drop zero/negative
-                    }
-                    let original_sl = item
-                        .sub_lines
-                        .iter()
-                        .find(|s| s.local_id == csl.local_id)
-                        .ok_or_else(|| {
-                            Report::from(StoreError::InvalidArgument(format!(
-                                "Sub-line '{}' not found on line '{}'",
-                                csl.local_id, item.local_id
-                            )))
-                        })?;
-                    if original_sl.quantity <= Decimal::ZERO {
+            let rc = match ci {
+                CreditLineItem::SubLines { sub_lines, .. } => {
+                    if item.sub_lines.is_empty() {
                         bail!(StoreError::InvalidArgument(format!(
-                            "Sub-line '{}' has non-positive original quantity",
-                            csl.local_id
+                            "Line item '{}' has no sub-lines to credit",
+                            item.local_id
                         )));
                     }
-                    if csl.quantity > original_sl.quantity {
+                    let mut overrides: Vec<SubLineOverride> = Vec::new();
+                    let mut total_cents: i64 = 0;
+                    for csl in &sub_lines {
+                        if csl.quantity <= Decimal::ZERO {
+                            bail!(StoreError::InvalidArgument(format!(
+                                "Sub-line '{}' quantity must be positive",
+                                csl.local_id
+                            )));
+                        }
+                        let original_sl = item
+                            .sub_lines
+                            .iter()
+                            .find(|s| s.local_id == csl.local_id)
+                            .ok_or_else(|| {
+                                Report::from(StoreError::InvalidArgument(format!(
+                                    "Sub-line '{}' not found on line '{}'",
+                                    csl.local_id, item.local_id
+                                )))
+                            })?;
+                        if original_sl.quantity <= Decimal::ZERO {
+                            bail!(StoreError::InvalidArgument(format!(
+                                "Sub-line '{}' has non-positive original quantity",
+                                csl.local_id
+                            )));
+                        }
+                        if csl.quantity > original_sl.quantity {
+                            bail!(StoreError::InvalidArgument(format!(
+                                "Sub-line '{}' credit quantity {} exceeds original {}",
+                                csl.local_id, csl.quantity, original_sl.quantity
+                            )));
+                        }
+                        let new_total = (original_sl.unit_price * csl.quantity)
+                            .to_subunit_opt(precision)
+                            .ok_or_else(|| {
+                                Report::from(StoreError::InvalidArgument(format!(
+                                    "Sub-line '{}' credit amount overflow",
+                                    csl.local_id
+                                )))
+                            })?;
+                        total_cents += new_total;
+                        overrides.push(SubLineOverride {
+                            original_local_id: csl.local_id.clone(),
+                            new_quantity: csl.quantity,
+                            new_total_cents: new_total,
+                        });
+                    }
+                    if overrides.is_empty() {
                         bail!(StoreError::InvalidArgument(format!(
-                            "Sub-line '{}' credit quantity {} exceeds original {}",
-                            csl.local_id, csl.quantity, original_sl.quantity
+                            "Line item '{}': at least one sub-line is required",
+                            item.local_id
                         )));
                     }
-                    let new_total = (original_sl.unit_price * csl.quantity * Decimal::from(100))
-                        .round()
-                        .to_i64()
-                        .unwrap_or(0);
-                    total_cents += new_total;
-                    overrides.push(SubLineOverride {
-                        original_local_id: csl.local_id.clone(),
-                        new_quantity: csl.quantity,
-                        new_total_cents: new_total,
-                    });
+                    if total_cents > remaining {
+                        bail!(StoreError::InvalidArgument(format!(
+                            "Sub-line credit total {} for line '{}' exceeds remaining {}",
+                            total_cents, item.local_id, remaining
+                        )));
+                    }
+                    ResolvedCredit {
+                        credit_subtotal: Some(total_cents),
+                        sub_lines_override: Some(overrides),
+                    }
                 }
-                if overrides.is_empty() {
-                    bail!(StoreError::InvalidArgument(format!(
-                        "Line item '{}': all sub-line quantities are zero",
-                        item.local_id
-                    )));
-                }
-                if total_cents > remaining {
-                    bail!(StoreError::InvalidArgument(format!(
-                        "Sub-line credit total {} for line '{}' exceeds remaining {}",
-                        total_cents, item.local_id, remaining
-                    )));
-                }
-                ResolvedCredit {
-                    credit_subtotal: Some(total_cents),
-                    sub_lines_override: Some(overrides),
-                }
-            } else if let Some(qty) = ci.quantity {
-                if qty <= Decimal::ZERO {
-                    bail!(StoreError::InvalidArgument(format!(
-                        "Line item '{}' quantity must be positive",
-                        item.local_id
-                    )));
-                }
-                let unit_price = item.unit_price.ok_or_else(|| {
-                    Report::from(StoreError::InvalidArgument(format!(
-                        "Line item '{}' has no unit_price; provide sub_lines instead",
-                        item.local_id
-                    )))
-                })?;
-                let original_qty = item.quantity.unwrap_or(Decimal::ONE);
-                if original_qty <= Decimal::ZERO {
-                    bail!(StoreError::InvalidArgument(format!(
-                        "Line item '{}' has non-positive original quantity",
-                        item.local_id
-                    )));
-                }
-                if qty > original_qty {
-                    bail!(StoreError::InvalidArgument(format!(
-                        "Line item '{}' credit quantity {} exceeds original {}",
-                        item.local_id, qty, original_qty
-                    )));
-                }
-                let credit_cents = (unit_price * qty * Decimal::from(100))
-                    .round()
-                    .to_i64()
-                    .unwrap_or(0);
-                if credit_cents > remaining {
-                    bail!(StoreError::InvalidArgument(format!(
-                        "Credit amount {} for line item '{}' exceeds remaining {}",
-                        credit_cents, item.local_id, remaining
-                    )));
-                }
-                ResolvedCredit {
-                    credit_subtotal: Some(credit_cents),
-                    sub_lines_override: None,
-                }
-            } else {
-                // Full remaining
-                ResolvedCredit {
-                    credit_subtotal: if already == 0 { None } else { Some(remaining) },
-                    sub_lines_override: None,
+                CreditLineItem::Line { quantity: qty, .. } => {
+                    if qty <= Decimal::ZERO {
+                        bail!(StoreError::InvalidArgument(format!(
+                            "Line item '{}' quantity must be positive",
+                            item.local_id
+                        )));
+                    }
+                    let unit_price = item.unit_price.ok_or_else(|| {
+                        Report::from(StoreError::InvalidArgument(format!(
+                            "Line item '{}' has no unit_price; provide sub_lines instead",
+                            item.local_id
+                        )))
+                    })?;
+                    let original_qty = item.quantity.unwrap_or(Decimal::ONE);
+                    if original_qty <= Decimal::ZERO {
+                        bail!(StoreError::InvalidArgument(format!(
+                            "Line item '{}' has non-positive original quantity",
+                            item.local_id
+                        )));
+                    }
+                    if qty > original_qty {
+                        bail!(StoreError::InvalidArgument(format!(
+                            "Line item '{}' credit quantity {} exceeds original {}",
+                            item.local_id, qty, original_qty
+                        )));
+                    }
+                    let credit_cents =
+                        (unit_price * qty)
+                            .to_subunit_opt(precision)
+                            .ok_or_else(|| {
+                                Report::from(StoreError::InvalidArgument(format!(
+                                    "Line item '{}' credit amount overflow",
+                                    item.local_id
+                                )))
+                            })?;
+                    if credit_cents > remaining {
+                        bail!(StoreError::InvalidArgument(format!(
+                            "Credit amount {} for line item '{}' exceeds remaining {}",
+                            credit_cents, item.local_id, remaining
+                        )));
+                    }
+                    ResolvedCredit {
+                        credit_subtotal: Some(credit_cents),
+                        sub_lines_override: None,
+                    }
                 }
             };
 
@@ -666,7 +687,7 @@ pub(crate) async fn create_credit_note_tx(
     }
 
     // 3. Create negated line items for the credit note
-    let negated_line_items = negate_line_items(&line_items_to_credit, &resolved);
+    let negated_line_items = negate_line_items(&line_items_to_credit, &resolved, precision);
 
     // 6. Calculate totals from negated line items (will be negative)
     let subtotal: i64 = negated_line_items

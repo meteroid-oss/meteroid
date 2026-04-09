@@ -21,6 +21,7 @@ import { useNavigate } from 'react-router-dom'
 import { toast } from 'sonner'
 
 import { useBasePath } from '@/hooks/useBasePath'
+import { CURRENCIES } from '@/lib/data/currencies'
 import { formatCurrency } from '@/lib/utils/numbers'
 import {
   createCreditNote,
@@ -201,28 +202,28 @@ export const CreateCreditNoteDialog: React.FC<CreateCreditNoteDialogProps> = ({
     }
   }
 
-  // Compute the credited cents for a selected line, mirroring backend rules
-  // (unit_price × quantity, rounded to nearest cent, summed). Uses Decimal end-to-end.
-  const computeLineCreditCents = (item: LineItemSelection): number => {
-    const HUNDRED = new Decimal(100)
+  // Currency-aware: precision comes from CURRENCIES (e.g. JPY=0, USD=2, BHD=3).
+  const precision = CURRENCIES[invoice.currency]?.precision ?? 2
+  const pow10 = new Decimal(10).pow(precision)
+
+  const toSubunit = (amount: Decimal): Decimal =>
+    amount.times(pow10).toDecimalPlaces(0, Decimal.ROUND_HALF_UP)
+
+  // Credited amount in minor units, mirroring backend (unit_price × quantity per row, summed).
+  const computeLineCreditSubunit = (item: LineItemSelection): number => {
     if (item.subLines.length > 0) {
       const total = item.subLines.reduce((sum, sl) => {
         if (!sl.included) return sum
         const q = parseDecimal(sl.quantity)
         if (!q || q.lte(0)) return sum
-        const up = new Decimal(sl.unitPrice)
-        return sum.plus(up.times(q).times(HUNDRED).toDecimalPlaces(0, Decimal.ROUND_HALF_UP))
+        return sum.plus(toSubunit(new Decimal(sl.unitPrice).times(q)))
       }, new Decimal(0))
       return total.toNumber()
     }
     if (item.quantity.trim() === '') return item.maxAmount
     const q = parseDecimal(item.quantity)
     if (!q || q.lte(0) || !item.unitPrice) return 0
-    return new Decimal(item.unitPrice)
-      .times(q)
-      .times(HUNDRED)
-      .toDecimalPlaces(0, Decimal.ROUND_HALF_UP)
-      .toNumber()
+    return toSubunit(new Decimal(item.unitPrice).times(q)).toNumber()
   }
 
   const handleSelectAll = () => {
@@ -308,7 +309,7 @@ export const CreateCreditNoteDialog: React.FC<CreateCreditNoteDialogProps> = ({
   const selectedCount = lineItems.filter(item => item.selected).length
   const totalCreditAmount = lineItems
     .filter(item => item.selected)
-    .reduce((sum, item) => sum + computeLineCreditCents(item), 0)
+    .reduce((sum, item) => sum + computeLineCreditSubunit(item), 0)
 
   const handleClose = () => {
     // Reset state when closing
@@ -380,7 +381,7 @@ export const CreateCreditNoteDialog: React.FC<CreateCreditNoteDialogProps> = ({
                       {item.unitPrice && (
                         <span className="text-xs text-muted-foreground">
                           × {item.unitPrice} {invoice.currency} ={' '}
-                          {formatCurrency(computeLineCreditCents(item), invoice.currency)}
+                          {formatCurrency(computeLineCreditSubunit(item), invoice.currency)}
                         </span>
                       )}
                     </div>
@@ -428,7 +429,7 @@ export const CreateCreditNoteDialog: React.FC<CreateCreditNoteDialogProps> = ({
                       <div className="text-xs text-right">
                         Line credit:{' '}
                         <span className="font-medium">
-                          {formatCurrency(computeLineCreditCents(item), invoice.currency)}
+                          {formatCurrency(computeLineCreditSubunit(item), invoice.currency)}
                         </span>
                       </div>
                     </div>
