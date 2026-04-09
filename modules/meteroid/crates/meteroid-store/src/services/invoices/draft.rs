@@ -246,21 +246,37 @@ impl Services {
         tenant_id: TenantId,
         parent_invoice_id: InvoiceId,
     ) -> Result<Invoice, StoreErrorReport> {
-        let parent: Invoice = InvoiceRow::find_by_id(conn, tenant_id, parent_invoice_id)
-            .await
-            .map_err(Into::<Report<StoreError>>::into)?
-            .try_into()?;
+        // Lock the parent row for the duration of the tx. This serializes concurrent
+        // correction attempts on the same invoice (double-click / two tabs) so the 1:1
+        // child check below is race-free.
+        let parent: Invoice =
+            InvoiceRow::select_for_update_by_id(conn, tenant_id, parent_invoice_id)
+                .await
+                .map_err(Into::<Report<StoreError>>::into)?
+                .invoice
+                .try_into()?;
 
-        // Require a DebtCancellation credit note on the parent.
+        if parent.status != InvoiceStatusEnum::Finalized {
+            bail!(StoreError::InvalidArgument(format!(
+                "Cannot create a corrected invoice: parent invoice {} must be finalized (current status: {:?})",
+                parent.invoice_number, parent.status
+            )));
+        }
+
+        // Require a *finalized* DebtCancellation credit note on the parent. Draft CNs
+        // have no ledger effect and must not authorise a reissue.
         let cns = CreditNoteRow::list_by_invoice_id(conn, tenant_id, parent.id)
             .await
             .map_err(Into::<Report<StoreError>>::into)?;
         let debt_cn = cns
             .iter()
-            .find(|cn| cn.credit_type == CreditTypeEnum::DebtCancellation)
+            .find(|cn| {
+                cn.credit_type == CreditTypeEnum::DebtCancellation
+                    && cn.finalized_at.is_some()
+            })
             .ok_or_else(|| {
                 Report::new(StoreError::InvalidArgument(
-                    "Cannot create a corrected invoice: the source invoice has no DebtCancellation credit note"
+                    "Cannot create a corrected invoice: the source invoice has no finalized DebtCancellation credit note"
                         .to_string(),
                 ))
             })?;
@@ -302,6 +318,8 @@ impl Services {
             customer_id: parent.customer_id,
             subscription_id: parent.subscription_id,
             plan_version_id: parent.plan_version_id,
+            // A correction is a one-time remediation, not recurring revenue: OneOff
+            // skips process_mrr and find_existing_recurring_invoice cleanly.
             invoice_type: InvoiceType::OneOff,
             currency: parent.currency.clone(),
             line_items: cloned_lines,
@@ -311,7 +329,7 @@ impl Services {
             invoice_date,
             finalized_at: None,
             total: parent.total,
-            amount_due: parent.amount_due.max(parent.total),
+            amount_due: parent.total,
             applied_credits: 0,
             net_terms: parent.net_terms,
             subtotal: parent.subtotal,

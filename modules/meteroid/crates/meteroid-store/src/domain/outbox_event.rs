@@ -522,6 +522,7 @@ pub struct InvoiceEvent {
     pub conn_meta: Option<ConnectionMeta>,
     pub amount_due: i64,
     pub finalized_at: Option<NaiveDateTime>,
+    pub parent_invoice_id: Option<InvoiceId>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]

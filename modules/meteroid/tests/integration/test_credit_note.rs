@@ -1542,7 +1542,11 @@ async fn test_create_corrected_invoice_after_debt_cancellation() {
     assert_eq!(corrected.parent_invoice_id, Some(invoice.id));
     assert_eq!(corrected.customer_id, invoice.customer_id);
     assert_eq!(corrected.currency, invoice.currency);
-    assert_eq!(corrected.invoice_type, meteroid_store::domain::InvoiceType::OneOff);
+    assert_eq!(
+        corrected.invoice_type,
+        meteroid_store::domain::InvoiceType::OneOff,
+        "a correction is a one-time remediation, not recurring revenue"
+    );
     assert!(corrected.manual);
     assert_eq!(
         corrected.subscription_id, invoice.subscription_id,
