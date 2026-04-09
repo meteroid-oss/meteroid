@@ -1,4 +1,4 @@
-import { createConnectQueryKey, useMutation } from '@connectrpc/connect-query'
+import { createConnectQueryKey, useMutation, useQuery } from '@connectrpc/connect-query'
 import {
   Button,
   Checkbox,
@@ -15,14 +15,19 @@ import {
   Textarea,
 } from '@md/ui'
 import { useQueryClient } from '@tanstack/react-query'
-import { useState } from 'react'
+import Decimal from 'decimal.js'
+import { useEffect, useMemo, useState } from 'react'
 import { useNavigate } from 'react-router-dom'
 import { toast } from 'sonner'
 
 import { useBasePath } from '@/hooks/useBasePath'
+import { CURRENCIES } from '@/lib/data/currencies'
 import { formatCurrency } from '@/lib/utils/numbers'
-import { createCreditNote } from '@/rpc/api/creditnotes/v1/creditnotes-CreditNotesService_connectquery'
-import { CreditType } from '@/rpc/api/creditnotes/v1/models_pb'
+import {
+  createCreditNote,
+  listCreditNotesByInvoiceId,
+} from '@/rpc/api/creditnotes/v1/creditnotes-CreditNotesService_connectquery'
+import { CreditNoteStatus, CreditType } from '@/rpc/api/creditnotes/v1/models_pb'
 import { getInvoice } from '@/rpc/api/invoices/v1/invoices-InvoicesService_connectquery'
 import { DetailedInvoice, LineItem } from '@/rpc/api/invoices/v1/models_pb'
 
@@ -33,12 +38,26 @@ interface CreateCreditNoteDialogProps {
   invoice: DetailedInvoice
 }
 
+interface SubLineSelection {
+  subLineLocalId: string
+  name: string
+  included: boolean
+  quantity: string // user input (decimal string), prefilled with originalQuantity
+  originalQuantity: string
+  unitPrice: string
+  originalTotal: number // cents, for display
+}
+
 interface LineItemSelection {
   lineItemLocalId: string
   selected: boolean
-  amount: string // Store as string for input handling
+  quantity: string // used when no sublines
+  originalQuantity: string
+  unitPrice: string | undefined
   maxAmount: number
+  fullyCredited: boolean
   name: string
+  subLines: SubLineSelection[]
 }
 
 export const CreateCreditNoteDialog: React.FC<CreateCreditNoteDialogProps> = ({
@@ -50,19 +69,58 @@ export const CreateCreditNoteDialog: React.FC<CreateCreditNoteDialogProps> = ({
   const navigate = useNavigate()
   const queryClient = useQueryClient()
 
-  // Initialize line items from invoice
-  const initialLineItems: LineItemSelection[] = invoice.lineItems.map((item: LineItem) => ({
-    lineItemLocalId: item.id,
-    selected: false,
-    amount: '',
-    maxAmount: Math.abs(Number(item.subtotal)),
-    name: item.name,
-  }))
+  // Fetch existing credit notes for this invoice to compute per-line remaining amounts.
+  // Without this, the UI would show the original subtotal as the cap even when the line
+  // was already partially credited, and the backend would silently cap the difference.
+  const existingCreditNotesQuery = useQuery(
+    listCreditNotesByInvoiceId,
+    { invoiceId: invoice.id },
+    { enabled: open && Boolean(invoice.id) }
+  )
 
-  console.log('Initial Line Itemséé:', invoice.lineItems)
-  console.log('Initial Line Items:', initialLineItems)
+  const existingCreditNotes = existingCreditNotesQuery.data?.creditNotes
+
+  const initialLineItems = useMemo<LineItemSelection[]>(() => {
+    const alreadyByLine: Record<string, number> = {}
+    for (const cn of existingCreditNotes ?? []) {
+      if (cn.status === CreditNoteStatus.VOIDED) continue
+      for (const li of cn.lineItems) {
+        alreadyByLine[li.id] = (alreadyByLine[li.id] ?? 0) + Math.abs(Number(li.subtotal))
+      }
+    }
+    return invoice.lineItems.map((item: LineItem) => {
+      const original = Math.abs(Number(item.subtotal))
+      const already = alreadyByLine[item.id] ?? 0
+      const remaining = Math.max(0, original - already)
+      return {
+        lineItemLocalId: item.id,
+        selected: false,
+        quantity: item.quantity ?? '1',
+        originalQuantity: item.quantity ?? '1',
+        unitPrice: item.unitPrice,
+        maxAmount: remaining,
+        fullyCredited: remaining === 0,
+        name: item.name,
+        subLines: item.subLineItems.map(sl => ({
+          subLineLocalId: sl.id,
+          name: sl.name,
+          included: true,
+          quantity: sl.quantity,
+          originalQuantity: sl.quantity,
+          unitPrice: sl.unitPrice,
+          originalTotal: Math.abs(Number(sl.total)),
+        })),
+      }
+    })
+  }, [invoice.lineItems, existingCreditNotes])
 
   const [lineItems, setLineItems] = useState<LineItemSelection[]>(initialLineItems)
+
+  // Reset local selection state when the underlying invoice or existing credit notes change
+  // (e.g. query finishes loading after dialog opens).
+  useEffect(() => {
+    setLineItems(initialLineItems)
+  }, [initialLineItems])
   const [creditType, setCreditType] = useState<CreditType>(CreditType.CREDIT_TO_BALANCE)
   const [reason, setReason] = useState('')
   const [memo, setMemo] = useState('')
@@ -92,10 +150,80 @@ export const CreateCreditNoteDialog: React.FC<CreateCreditNoteDialogProps> = ({
     )
   }
 
-  const handleAmountChange = (localId: string, value: string) => {
+  const handleQuantityChange = (localId: string, value: string) => {
     setLineItems(prev =>
-      prev.map(item => (item.lineItemLocalId === localId ? { ...item, amount: value } : item))
+      prev.map(item => (item.lineItemLocalId === localId ? { ...item, quantity: value } : item))
     )
+  }
+
+  const handleSubLineQuantityChange = (
+    lineLocalId: string,
+    subLocalId: string,
+    value: string
+  ) => {
+    setLineItems(prev =>
+      prev.map(item =>
+        item.lineItemLocalId === lineLocalId
+          ? {
+              ...item,
+              subLines: item.subLines.map(sl =>
+                sl.subLineLocalId === subLocalId ? { ...sl, quantity: value } : sl
+              ),
+            }
+          : item
+      )
+    )
+  }
+
+  const handleToggleSubLine = (lineLocalId: string, subLocalId: string) => {
+    setLineItems(prev =>
+      prev.map(item =>
+        item.lineItemLocalId === lineLocalId
+          ? {
+              ...item,
+              subLines: item.subLines.map(sl =>
+                sl.subLineLocalId === subLocalId ? { ...sl, included: !sl.included } : sl
+              ),
+            }
+          : item
+      )
+    )
+  }
+
+  // Parse a user-entered decimal; returns null on invalid/empty.
+  const parseDecimal = (s: string): Decimal | null => {
+    const t = s.trim()
+    if (t === '') return null
+    try {
+      const d = new Decimal(t)
+      return d.isFinite() ? d : null
+    } catch {
+      return null
+    }
+  }
+
+  // Currency-aware: precision comes from CURRENCIES (e.g. JPY=0, USD=2, BHD=3).
+  const precision = CURRENCIES[invoice.currency]?.precision ?? 2
+  const pow10 = new Decimal(10).pow(precision)
+
+  const toSubunit = (amount: Decimal): Decimal =>
+    amount.times(pow10).toDecimalPlaces(0, Decimal.ROUND_HALF_UP)
+
+  // Credited amount in minor units, mirroring backend (unit_price × quantity per row, summed).
+  const computeLineCreditSubunit = (item: LineItemSelection): number => {
+    if (item.subLines.length > 0) {
+      const total = item.subLines.reduce((sum, sl) => {
+        if (!sl.included) return sum
+        const q = parseDecimal(sl.quantity)
+        if (!q || q.lte(0)) return sum
+        return sum.plus(toSubunit(new Decimal(sl.unitPrice).times(q)))
+      }, new Decimal(0))
+      return total.toNumber()
+    }
+    if (item.quantity.trim() === '') return item.maxAmount
+    const q = parseDecimal(item.quantity)
+    if (!q || q.lte(0) || !item.unitPrice) return 0
+    return toSubunit(new Decimal(item.unitPrice).times(q)).toNumber()
   }
 
   const handleSelectAll = () => {
@@ -111,11 +239,59 @@ export const CreateCreditNoteDialog: React.FC<CreateCreditNoteDialogProps> = ({
       return
     }
 
+    for (const item of selectedItems) {
+      if (item.fullyCredited) {
+        toast.error(`"${item.name}" has already been fully credited`)
+        return
+      }
+      if (item.subLines.length > 0) {
+        const kept = item.subLines.filter(sl => {
+          if (!sl.included) return false
+          const q = parseDecimal(sl.quantity)
+          return q !== null && q.gt(0)
+        })
+        if (kept.length === 0) {
+          toast.error(
+            `"${item.name}": select at least one sub-line with a positive quantity, or deselect the line`
+          )
+          return
+        }
+      } else if (item.quantity.trim() !== '') {
+        const q = parseDecimal(item.quantity)
+        if (!q || q.lte(0)) {
+          toast.error(`"${item.name}": quantity must be a positive number`)
+          return
+        }
+        const maxQ = parseDecimal(item.originalQuantity)
+        if (maxQ && q.gt(maxQ)) {
+          toast.error(`"${item.name}": quantity exceeds original (${item.originalQuantity})`)
+          return
+        }
+      }
+    }
+
     const creditLineItems = selectedItems.map(item => {
-      const amount = item.amount ? Math.round(parseFloat(item.amount) * 100) : undefined
+      if (item.subLines.length > 0) {
+        const subLines = item.subLines
+          .filter(sl => {
+            if (!sl.included) return false
+            const q = parseDecimal(sl.quantity)
+            return q !== null && q.gt(0)
+          })
+          .map(sl => ({
+            subLineLocalId: sl.subLineLocalId,
+            quantity: sl.quantity,
+          }))
+        return {
+          lineItemLocalId: item.lineItemLocalId,
+          quantity: undefined,
+          subLines,
+        }
+      }
       return {
         lineItemLocalId: item.lineItemLocalId,
-        amount: amount ? BigInt(amount) : undefined,
+        quantity: item.quantity.trim() === '' ? undefined : item.quantity,
+        subLines: [],
       }
     })
 
@@ -133,10 +309,7 @@ export const CreateCreditNoteDialog: React.FC<CreateCreditNoteDialogProps> = ({
   const selectedCount = lineItems.filter(item => item.selected).length
   const totalCreditAmount = lineItems
     .filter(item => item.selected)
-    .reduce((sum, item) => {
-      const amount = item.amount ? parseFloat(item.amount) * 100 : item.maxAmount
-      return sum + amount
-    }, 0)
+    .reduce((sum, item) => sum + computeLineCreditSubunit(item), 0)
 
   const handleClose = () => {
     // Reset state when closing
@@ -175,31 +348,90 @@ export const CreateCreditNoteDialog: React.FC<CreateCreditNoteDialogProps> = ({
                     <div className="flex items-center gap-3">
                       <Checkbox
                         checked={item.selected}
+                        disabled={item.fullyCredited}
                         onCheckedChange={() => handleToggleLineItem(item.lineItemLocalId)}
                       />
                       <span className="text-sm font-medium">{item.name}</span>
+                      {item.fullyCredited && (
+                        <span className="text-xs text-muted-foreground">(fully credited)</span>
+                      )}
                     </div>
                     <span className="text-sm text-muted-foreground">
-                      Max: {formatCurrency(item.maxAmount, invoice.currency)}
+                      Remaining: {formatCurrency(item.maxAmount, invoice.currency)}
                     </span>
                   </div>
 
-                  {item.selected && (
+                  {item.selected && item.subLines.length === 0 && (
                     <div className="ml-7 flex items-center gap-2">
                       <Label className="text-xs text-muted-foreground whitespace-nowrap">
-                        Credit amount:
+                        Credit quantity:
                       </Label>
                       <Input
                         type="number"
-                        step="0.01"
+                        step="any"
                         min="0"
-                        max={(item.maxAmount / 100).toFixed(2)}
-                        placeholder={`Full amount (${(item.maxAmount / 100).toFixed(2)})`}
-                        value={item.amount}
-                        onChange={e => handleAmountChange(item.lineItemLocalId, e.target.value)}
-                        className="w-40 h-8"
+                        max={item.originalQuantity}
+                        placeholder={`Full (${item.originalQuantity})`}
+                        value={item.quantity}
+                        onChange={e =>
+                          handleQuantityChange(item.lineItemLocalId, e.target.value)
+                        }
+                        className="w-32 h-8"
                       />
-                      <span className="text-xs text-muted-foreground">{invoice.currency}</span>
+                      {item.unitPrice && (
+                        <span className="text-xs text-muted-foreground">
+                          × {item.unitPrice} {invoice.currency} ={' '}
+                          {formatCurrency(computeLineCreditSubunit(item), invoice.currency)}
+                        </span>
+                      )}
+                    </div>
+                  )}
+
+                  {item.selected && item.subLines.length > 0 && (
+                    <div className="ml-7 space-y-1.5 border-l pl-3">
+                      <div className="text-xs text-muted-foreground">
+                        Uncheck to exclude a sub-line, or edit its quantity:
+                      </div>
+                      {item.subLines.map(sl => (
+                        <div
+                          key={sl.subLineLocalId}
+                          className={`flex items-center gap-2 ${sl.included ? '' : 'opacity-50'}`}
+                        >
+                          <Checkbox
+                            checked={sl.included}
+                            onCheckedChange={() =>
+                              handleToggleSubLine(item.lineItemLocalId, sl.subLineLocalId)
+                            }
+                          />
+                          <span className="text-xs flex-1 truncate">{sl.name}</span>
+                          <Input
+                            type="number"
+                            step="any"
+                            min="0"
+                            max={sl.originalQuantity}
+                            placeholder={sl.originalQuantity}
+                            value={sl.quantity}
+                            disabled={!sl.included}
+                            onChange={e =>
+                              handleSubLineQuantityChange(
+                                item.lineItemLocalId,
+                                sl.subLineLocalId,
+                                e.target.value
+                              )
+                            }
+                            className="w-24 h-7 text-xs"
+                          />
+                          <span className="text-xs text-muted-foreground whitespace-nowrap">
+                            × {sl.unitPrice} {invoice.currency}
+                          </span>
+                        </div>
+                      ))}
+                      <div className="text-xs text-right">
+                        Line credit:{' '}
+                        <span className="font-medium">
+                          {formatCurrency(computeLineCreditSubunit(item), invoice.currency)}
+                        </span>
+                      </div>
                     </div>
                   )}
                 </div>

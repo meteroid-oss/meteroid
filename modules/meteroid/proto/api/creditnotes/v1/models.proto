@@ -62,7 +62,18 @@ enum CreditType {
 
 message CreditLineItem {
   string line_item_local_id = 1;
-  optional int64 amount = 2; // Amount to credit EXCLUDING TAX (subtotal in cents). If null, credits full line item subtotal. Tax is calculated proportionally.
+  // Quantity to credit (decimal string). When null and sub_lines is empty,
+  // credits the full remaining line. Mutually exclusive with sub_lines.
+  optional string quantity = 2;
+  // Per-subline credit quantities. When non-empty, the line subtotal is
+  // computed from the listed sublines (sub.unit_price * quantity, summed).
+  // Sublines not listed (or with zero quantity) are excluded from the credit note.
+  repeated CreditSubLineItem sub_lines = 3;
+}
+
+message CreditSubLineItem {
+  string sub_line_local_id = 1;
+  string quantity = 2; // decimal string
 }
 
 message NewCreditNote {
