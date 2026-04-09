@@ -28,13 +28,24 @@ pub enum CreditType {
     Refund, // not implemented (external only)
 }
 
-/// Specifies a line item to credit, optionally with a partial amount
+/// Specifies a line item to credit.
+///
+/// Three forms:
+/// - `quantity = None`, `sub_lines = []` → credit the full remaining line
+/// - `quantity = Some(q)`, `sub_lines = []` → credit q × unit_price (line must have unit_price)
+/// - `sub_lines = [..]` → credit per-subline; line subtotal is summed from sublines.
+///   Sublines not listed (or with quantity 0) are dropped from the credited line.
 #[derive(Debug, Clone)]
 pub struct CreditLineItem {
     pub local_id: String,
-    /// Optional amount to credit, excl tax (subtotal).
-    /// If None, credits the full line item subtotal.
-    pub amount: Option<i64>,
+    pub quantity: Option<Decimal>,
+    pub sub_lines: Vec<CreditSubLineItem>,
+}
+
+#[derive(Debug, Clone)]
+pub struct CreditSubLineItem {
+    pub local_id: String,
+    pub quantity: Decimal,
 }
 
 /// Parameters for creating a credit note via the public API
@@ -173,24 +184,78 @@ fn prorate_and_negate_tax_details(
     out
 }
 
+/// Builds negated sub_lines for a credited line.
+/// - If `override_` is Some: keep only the listed sublines (preserving original order),
+///   set their `quantity`/`total` to the requested values (negated), drop the rest.
+/// - If None: simply negate the original sublines as-is.
+fn negate_sub_lines(
+    original: &[crate::domain::invoice_lines::SubLineItem],
+    override_: Option<&[SubLineOverride]>,
+) -> Vec<crate::domain::invoice_lines::SubLineItem> {
+    use crate::domain::invoice_lines::SubLineItem;
+    match override_ {
+        None => original
+            .iter()
+            .map(|sl| SubLineItem {
+                local_id: sl.local_id.clone(),
+                name: sl.name.clone(),
+                total: -sl.total,
+                quantity: -sl.quantity,
+                unit_price: sl.unit_price,
+                attributes: sl.attributes.clone(),
+            })
+            .collect(),
+        Some(ovs) => original
+            .iter()
+            .filter_map(|sl| {
+                let ov = ovs.iter().find(|o| o.original_local_id == sl.local_id)?;
+                Some(SubLineItem {
+                    local_id: sl.local_id.clone(),
+                    name: sl.name.clone(),
+                    total: -ov.new_total_cents,
+                    quantity: -ov.new_quantity,
+                    unit_price: sl.unit_price,
+                    attributes: sl.attributes.clone(),
+                })
+            })
+            .collect(),
+    }
+}
+
+/// Per-line resolved credit instruction used by `negate_line_items`.
+#[derive(Debug, Clone)]
+struct ResolvedCredit {
+    /// Subtotal (excl. tax) to credit, in cents. `None` means credit the full line as-is.
+    credit_subtotal: Option<i64>,
+    /// When set, replaces the line's sub_lines with these (already non-negated; will be negated).
+    /// Each entry is the subline's new (quantity, total_cents) and the original subline to copy from.
+    sub_lines_override: Option<Vec<SubLineOverride>>,
+}
+
+#[derive(Debug, Clone)]
+struct SubLineOverride {
+    original_local_id: String,
+    new_quantity: Decimal,
+    new_total_cents: i64,
+}
+
 /// Creates negated line items for a credit note.
-/// The amounts are negated to represent credits.
-///
-/// If `amounts` is provided, it maps local_id to the subtotal (excl. tax) to credit.
-/// If a line item's local_id is not in the map or maps to None, the full amount is credited.
-/// For partial amounts:
-/// - The provided amount becomes the new subtotal
-/// - Tax is calculated proportionally based on subtotal proportion
-/// - unit_price is set to the credited subtotal (so quantity × unit_price = subtotal)
+/// `resolved` maps line local_id → ResolvedCredit. Lines not present are skipped.
 fn negate_line_items(
     line_items: &[LineItem],
-    amounts: &HashMap<String, Option<i64>>,
+    resolved: &HashMap<String, ResolvedCredit>,
 ) -> Vec<LineItem> {
     line_items
         .iter()
-        .map(|item| {
-            // Check if we have a partial amount (subtotal excl. tax) for this line item
-            let partial_subtotal = amounts.get(&item.local_id).and_then(|a| *a);
+        .filter_map(|item| {
+            let r = resolved.get(&item.local_id)?;
+            Some((item, r))
+        })
+        .map(|(item, r)| {
+            let partial_subtotal = r.credit_subtotal;
+            let sub_override = r.sub_lines_override.as_deref();
+            let negated_sub_lines = negate_sub_lines(&item.sub_lines, sub_override);
+            let has_override = sub_override.is_some();
 
             if let Some(credit_subtotal) = partial_subtotal {
                 // Partial credit: amount is the subtotal (excl. tax)
@@ -210,7 +275,7 @@ fn negate_line_items(
                         unit_price: Some(Decimal::ZERO),
                         start_date: item.start_date,
                         end_date: item.end_date,
-                        sub_lines: item.sub_lines.clone(),
+                        sub_lines: negated_sub_lines,
                         is_prorated: item.is_prorated,
                         price_component_id: item.price_component_id,
                         sub_component_id: item.sub_component_id,
@@ -246,29 +311,32 @@ fn negate_line_items(
                 // Total = taxable + tax (uses taxable to account for discounts)
                 let credit_total = prorated_taxable + prorated_tax;
 
-                // For partial credits, set unit_price to the credited subtotal (negated)
-                // This ensures: quantity (1) × unit_price = subtotal (which is negative)
-                // Converting cents to decimal (assuming 2 decimal places for currency)
-                let credited_unit_price = -Decimal::from(credit_subtotal) / Decimal::from(100);
+                // For sub_lines override the parent line has no meaningful unit_price/quantity
+                // (the credited amount is the sum of negated sublines). Otherwise we collapse
+                // to "1 × credited_subtotal" so the PDF stays consistent.
+                let (credited_quantity, credited_unit_price) = if has_override {
+                    (None, None)
+                } else {
+                    (
+                        Some(Decimal::ONE),
+                        Some(-Decimal::from(credit_subtotal) / Decimal::from(100)),
+                    )
+                };
 
                 LineItem {
                     local_id: item.local_id.clone(),
                     name: item.name.clone(),
-                    // Negate the amounts
                     amount_subtotal: -credit_subtotal,
                     taxable_amount: -prorated_taxable,
                     tax_amount: -prorated_tax,
                     amount_total: -credit_total,
-                    // Keep tax rate as-is
                     tax_rate: item.tax_rate,
                     tax_details: prorated_tax_details,
-                    // Set quantity to 1 and unit_price to the credited amount
-                    // This makes the math consistent: 1 × unit_price = subtotal
-                    quantity: Some(Decimal::ONE),
-                    unit_price: Some(credited_unit_price),
+                    quantity: credited_quantity,
+                    unit_price: credited_unit_price,
                     start_date: item.start_date,
                     end_date: item.end_date,
-                    sub_lines: item.sub_lines.clone(),
+                    sub_lines: negated_sub_lines,
                     is_prorated: item.is_prorated,
                     price_component_id: item.price_component_id,
                     sub_component_id: item.sub_component_id,
@@ -303,7 +371,7 @@ fn negate_line_items(
                     unit_price: item.unit_price.map(|p| -p),
                     start_date: item.start_date,
                     end_date: item.end_date,
-                    sub_lines: item.sub_lines.clone(),
+                    sub_lines: negated_sub_lines,
                     is_prorated: item.is_prorated,
                     price_component_id: item.price_component_id,
                     sub_component_id: item.sub_component_id,
@@ -403,68 +471,181 @@ pub(crate) async fn create_credit_note_tx(
         }
     }
 
-    // 2. Build amounts map and filter line items to credit
-    // For each line item, calculate the remaining creditable amount
-    let (line_items_to_credit, amounts_map): (Vec<LineItem>, HashMap<String, Option<i64>>) =
-        match params.line_items {
-            None => {
-                // Credit all line items with their remaining amounts
-                let items: Vec<LineItem> = invoice
-                    .line_items
-                    .iter()
-                    .filter(|item| {
-                        let already_credited = already_credited_amounts
-                            .get(&item.local_id)
-                            .copied()
-                            .unwrap_or(0);
-                        item.amount_subtotal > already_credited
-                    })
-                    .cloned()
-                    .collect();
-                let amounts = items
-                    .iter()
-                    .map(|item| (item.local_id.clone(), None)) // None means "remaining amount"
-                    .collect();
-                (items, amounts)
-            }
-            Some(ref credit_items) if credit_items.is_empty() => {
-                // Credit all line items with their remaining amounts
-                let items: Vec<LineItem> = invoice
-                    .line_items
-                    .iter()
-                    .filter(|item| {
-                        let already_credited = already_credited_amounts
-                            .get(&item.local_id)
-                            .copied()
-                            .unwrap_or(0);
-                        item.amount_subtotal > already_credited
-                    })
-                    .cloned()
-                    .collect();
-                let amounts = items
-                    .iter()
-                    .map(|item| (item.local_id.clone(), None))
-                    .collect();
-                (items, amounts)
-            }
-            Some(credit_items) => {
-                // Build a map of local_id -> amount from the request
-                let requested_amounts: HashMap<String, Option<i64>> = credit_items
-                    .iter()
-                    .map(|ci| (ci.local_id.clone(), ci.amount))
-                    .collect();
+    // 2. Resolve which lines are being credited and how (full / partial qty / per-subline)
+    let requested: Vec<CreditLineItem> = params.line_items.unwrap_or_default();
 
-                // Filter invoice line items to only those requested
-                let items: Vec<LineItem> = invoice
-                    .line_items
-                    .iter()
-                    .filter(|item| requested_amounts.contains_key(&item.local_id))
-                    .cloned()
-                    .collect();
+    // Map original invoice lines by local_id for lookup
+    let invoice_lines_by_id: HashMap<&str, &LineItem> = invoice
+        .line_items
+        .iter()
+        .map(|l| (l.local_id.as_str(), l))
+        .collect();
 
-                (items, requested_amounts)
+    let mut resolved: HashMap<String, ResolvedCredit> = HashMap::new();
+    let line_items_to_credit: Vec<LineItem>;
+
+    if requested.is_empty() {
+        // Credit all lines with their remaining amounts (full credit)
+        line_items_to_credit = invoice
+            .line_items
+            .iter()
+            .filter(|item| {
+                let already = already_credited_amounts
+                    .get(&item.local_id)
+                    .copied()
+                    .unwrap_or(0);
+                item.amount_subtotal > already
+            })
+            .cloned()
+            .collect();
+        for item in &line_items_to_credit {
+            let already = already_credited_amounts
+                .get(&item.local_id)
+                .copied()
+                .unwrap_or(0);
+            let remaining = item.amount_subtotal - already;
+            // Treat as partial when there's already been a credit; otherwise full negation
+            let credit_subtotal = if already == 0 { None } else { Some(remaining) };
+            resolved.insert(
+                item.local_id.clone(),
+                ResolvedCredit {
+                    credit_subtotal,
+                    sub_lines_override: None,
+                },
+            );
+        }
+    } else {
+        let mut items: Vec<LineItem> = Vec::with_capacity(requested.len());
+        for ci in requested {
+            let item = *invoice_lines_by_id
+                .get(ci.local_id.as_str())
+                .ok_or_else(|| {
+                    Report::from(StoreError::InvalidArgument(format!(
+                        "Line item '{}' not found on invoice",
+                        ci.local_id
+                    )))
+                })?;
+            let already = already_credited_amounts
+                .get(&item.local_id)
+                .copied()
+                .unwrap_or(0);
+            let remaining = item.amount_subtotal - already;
+            if remaining <= 0 {
+                bail!(StoreError::InvalidArgument(format!(
+                    "Line item '{}' has already been fully credited",
+                    item.local_id
+                )));
             }
-        };
+
+            let rc = if !ci.sub_lines.is_empty() {
+                if item.sub_lines.is_empty() {
+                    bail!(StoreError::InvalidArgument(format!(
+                        "Line item '{}' has no sub-lines to credit",
+                        item.local_id
+                    )));
+                }
+                if ci.quantity.is_some() {
+                    bail!(StoreError::InvalidArgument(format!(
+                        "Line item '{}': quantity and sub_lines are mutually exclusive",
+                        item.local_id
+                    )));
+                }
+                let mut overrides: Vec<SubLineOverride> = Vec::new();
+                let mut total_cents: i64 = 0;
+                for csl in &ci.sub_lines {
+                    if csl.quantity <= Decimal::ZERO {
+                        continue; // drop zero/negative
+                    }
+                    let original_sl = item
+                        .sub_lines
+                        .iter()
+                        .find(|s| s.local_id == csl.local_id)
+                        .ok_or_else(|| {
+                            Report::from(StoreError::InvalidArgument(format!(
+                                "Sub-line '{}' not found on line '{}'",
+                                csl.local_id, item.local_id
+                            )))
+                        })?;
+                    if csl.quantity.abs() > original_sl.quantity.abs() {
+                        bail!(StoreError::InvalidArgument(format!(
+                            "Sub-line '{}' credit quantity {} exceeds original {}",
+                            csl.local_id, csl.quantity, original_sl.quantity
+                        )));
+                    }
+                    let new_total = (original_sl.unit_price * csl.quantity * Decimal::from(100))
+                        .round()
+                        .to_i64()
+                        .unwrap_or(0);
+                    total_cents += new_total;
+                    overrides.push(SubLineOverride {
+                        original_local_id: csl.local_id.clone(),
+                        new_quantity: csl.quantity,
+                        new_total_cents: new_total,
+                    });
+                }
+                if overrides.is_empty() {
+                    bail!(StoreError::InvalidArgument(format!(
+                        "Line item '{}': all sub-line quantities are zero",
+                        item.local_id
+                    )));
+                }
+                if total_cents > remaining {
+                    bail!(StoreError::InvalidArgument(format!(
+                        "Sub-line credit total {} for line '{}' exceeds remaining {}",
+                        total_cents, item.local_id, remaining
+                    )));
+                }
+                ResolvedCredit {
+                    credit_subtotal: Some(total_cents),
+                    sub_lines_override: Some(overrides),
+                }
+            } else if let Some(qty) = ci.quantity {
+                if qty <= Decimal::ZERO {
+                    bail!(StoreError::InvalidArgument(format!(
+                        "Line item '{}' quantity must be positive",
+                        item.local_id
+                    )));
+                }
+                let unit_price = item.unit_price.ok_or_else(|| {
+                    Report::from(StoreError::InvalidArgument(format!(
+                        "Line item '{}' has no unit_price; provide sub_lines instead",
+                        item.local_id
+                    )))
+                })?;
+                let original_qty = item.quantity.unwrap_or(Decimal::ONE);
+                if qty.abs() > original_qty.abs() {
+                    bail!(StoreError::InvalidArgument(format!(
+                        "Line item '{}' credit quantity {} exceeds original {}",
+                        item.local_id, qty, original_qty
+                    )));
+                }
+                let credit_cents = (unit_price * qty * Decimal::from(100))
+                    .round()
+                    .to_i64()
+                    .unwrap_or(0);
+                if credit_cents > remaining {
+                    bail!(StoreError::InvalidArgument(format!(
+                        "Credit amount {} for line item '{}' exceeds remaining {}",
+                        credit_cents, item.local_id, remaining
+                    )));
+                }
+                ResolvedCredit {
+                    credit_subtotal: Some(credit_cents),
+                    sub_lines_override: None,
+                }
+            } else {
+                // Full remaining
+                ResolvedCredit {
+                    credit_subtotal: if already == 0 { None } else { Some(remaining) },
+                    sub_lines_override: None,
+                }
+            };
+
+            resolved.insert(item.local_id.clone(), rc);
+            items.push(item.clone());
+        }
+        line_items_to_credit = items;
+    }
 
     if line_items_to_credit.is_empty() {
         bail!(StoreError::InvalidArgument(
@@ -472,53 +653,8 @@ pub(crate) async fn create_credit_note_tx(
         ));
     }
 
-    // 3. Validate amounts and calculate effective amounts to credit
-    // For each line item, check that requested + already_credited <= original_subtotal
-    let mut effective_amounts: HashMap<String, Option<i64>> = HashMap::new();
-    for item in &line_items_to_credit {
-        let already_credited = already_credited_amounts
-            .get(&item.local_id)
-            .copied()
-            .unwrap_or(0);
-        let remaining = item.amount_subtotal - already_credited;
-
-        match amounts_map.get(&item.local_id) {
-            Some(Some(requested_amount)) => {
-                // Explicit amount requested
-                if *requested_amount < 0 {
-                    bail!(StoreError::InvalidArgument(format!(
-                        "Credit amount for line item '{}' must be positive",
-                        item.local_id
-                    )));
-                }
-                if *requested_amount > remaining {
-                    bail!(StoreError::InvalidArgument(format!(
-                        "Credit amount {} for line item '{}' exceeds remaining creditable amount {} (original: {}, already credited: {})",
-                        requested_amount,
-                        item.local_id,
-                        remaining,
-                        item.amount_subtotal,
-                        already_credited
-                    )));
-                }
-                effective_amounts.insert(item.local_id.clone(), Some(*requested_amount));
-            }
-            Some(None) | None => {
-                // No amount specified - credit the remaining amount
-                if remaining <= 0 {
-                    bail!(StoreError::InvalidArgument(format!(
-                        "Line item '{}' has already been fully credited",
-                        item.local_id
-                    )));
-                }
-                // Use remaining amount as the effective amount
-                effective_amounts.insert(item.local_id.clone(), Some(remaining));
-            }
-        }
-    }
-
-    // 4. Create negated line items for the credit note
-    let negated_line_items = negate_line_items(&line_items_to_credit, &effective_amounts);
+    // 3. Create negated line items for the credit note
+    let negated_line_items = negate_line_items(&line_items_to_credit, &resolved);
 
     // 6. Calculate totals from negated line items (will be negative)
     let subtotal: i64 = negated_line_items

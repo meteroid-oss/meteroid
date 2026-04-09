@@ -15,9 +15,10 @@ use meteroid_grpc::meteroid::api::creditnotes::v1::{
 };
 use meteroid_store::repositories::CreditNoteInterface;
 use meteroid_store::repositories::credit_notes::{
-    CreateCreditNoteParams, CreditLineItem, CreditType as DomainCreditType,
+    CreateCreditNoteParams, CreditLineItem, CreditSubLineItem, CreditType as DomainCreditType,
 };
 use meteroid_store::repositories::customers::CustomersInterfaceAuto;
+use std::str::FromStr;
 use tonic::{Request, Response, Status};
 
 use crate::api::creditnotes::CreditNoteServiceComponents;
@@ -205,15 +206,43 @@ impl CreditNotesService for CreditNoteServiceComponents {
 
         let invoice_id = InvoiceId::from_proto(&credit_note_req.invoice_id)?;
 
-        // Convert line items with optional amounts
+        // Convert line items (quantity-based, optional per-subline overrides)
         let line_items: Vec<CreditLineItem> = credit_note_req
             .line_items
             .iter()
-            .map(|li| CreditLineItem {
-                local_id: li.line_item_local_id.clone(),
-                amount: li.amount,
+            .map(|li| {
+                let quantity = li
+                    .quantity
+                    .as_ref()
+                    .map(|q| rust_decimal::Decimal::from_str(q))
+                    .transpose()
+                    .map_err(|e| {
+                        CreditNoteApiError::InvalidArgument(format!("Invalid quantity: {}", e))
+                    })?;
+                let sub_lines = li
+                    .sub_lines
+                    .iter()
+                    .map(|sl| {
+                        Ok::<_, CreditNoteApiError>(CreditSubLineItem {
+                            local_id: sl.sub_line_local_id.clone(),
+                            quantity: rust_decimal::Decimal::from_str(&sl.quantity).map_err(
+                                |e| {
+                                    CreditNoteApiError::InvalidArgument(format!(
+                                        "Invalid sub-line quantity: {}",
+                                        e
+                                    ))
+                                },
+                            )?,
+                        })
+                    })
+                    .collect::<Result<Vec<_>, _>>()?;
+                Ok::<_, CreditNoteApiError>(CreditLineItem {
+                    local_id: li.line_item_local_id.clone(),
+                    quantity,
+                    sub_lines,
+                })
             })
-            .collect();
+            .collect::<Result<Vec<_>, _>>()?;
 
         // Convert credit type
         let credit_type = match CreditType::try_from(credit_note_req.credit_type)
