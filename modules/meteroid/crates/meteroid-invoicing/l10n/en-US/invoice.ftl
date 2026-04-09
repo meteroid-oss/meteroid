@@ -62,5 +62,7 @@ refunded-amount = Refunded Amount
 credited-amount = Credited Amount
 total-credit = Total Credit
 cancels-and-replaces = Cancels and replaces invoice {$invoice_number}
+corrects-invoice = Corrects invoice {$invoice_number} (credit note {$credit_note_number})
+corrects-invoice-no-cn = Corrects invoice {$invoice_number}
 credit-note-vat-directive-notice = This credit note complies with EU VAT Directive 2006/112/EC
 credit-note-reverse-charge-notice = Reverse charge under Articles 44 and 196 of Directive 2006/112/EC. The original invoice recipient is liable for VAT.

@@ -33,6 +33,7 @@
   show_legal_info: true,     // Show legal information section
   show_footer_custom_info: true,   // Show footer custom information section
   whitelabel: false,         // Hide meteroid branding
+  corrects_invoice_number: none,  // Parent invoice number if this is a corrective invoice
 ) = {
   // Define color palette with named variables
   let color = (
@@ -161,7 +162,21 @@
     },
   )
 
-  v(40pt)
+  v(16pt)
+
+  // Corrective invoice notice referencing the original invoice (EU/FR compliance aid)
+  if corrects_invoice_number != none {
+    block(
+      width: 100%,
+      fill: color.light_border,
+      radius: 4pt,
+      inset: (x: 12pt, y: 8pt),
+      text(fill: color.heading, weight: "medium", size: 9.5pt, translations.at("corrects_invoice_label", default: ""))
+    )
+    v(16pt)
+  } else {
+    v(24pt)
+  }
 
   // Company and client info in a modern horizontal layout
   grid(

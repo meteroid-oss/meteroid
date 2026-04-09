@@ -153,6 +153,7 @@ fn create_minimal_invoice() -> Invoice {
             },
             discount: Money::from_major(0, eur),
             purchase_order: Some("some order".to_string()),
+            corrects: None,
         },
         lines: vec![InvoiceLine {
             name: "Test Service".to_string(),
@@ -251,6 +252,7 @@ fn create_full_invoice() -> Invoice {
             },
             discount: Money::from_major(0, eur),
             purchase_order: Some("some order".to_string()),
+            corrects: None,
         },
         lines: vec![
             InvoiceLine {

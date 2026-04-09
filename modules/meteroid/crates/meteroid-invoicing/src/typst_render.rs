@@ -294,6 +294,7 @@ pub struct TypstInvoiceContent {
     pub tax_breakdown: Vec<TypstTaxBreakdownItem>,
     pub discount: f64,
     pub purchase_order: Option<String>,
+    pub corrects_invoice_number: Option<String>,
 }
 
 impl From<&Invoice> for TypstInvoiceContent {
@@ -356,6 +357,18 @@ impl From<&Invoice> for TypstInvoiceContent {
             "reverse_charge_label" => invoice_l10n.reverse_charge_label().into_value(),
             "no_tax_applied" => invoice_l10n.no_tax_applied().into_value()
         };
+
+        if let Some(corrects) = &invoice.metadata.corrects {
+            let label = match &corrects.credit_note_number {
+                Some(cn) => invoice_l10n
+                    .corrects_invoice(&corrects.invoice_number, cn)
+                    .to_string(),
+                None => invoice_l10n
+                    .corrects_invoice_no_cn(&corrects.invoice_number)
+                    .to_string(),
+            };
+            translations.insert("corrects_invoice_label".into(), label.into_value());
+        }
 
         if let Some(exchange_rate) = invoice.organization.exchange_rate {
             let date = format_date(lang, &invoice.metadata.issue_date)
@@ -474,6 +487,11 @@ impl From<&Invoice> for TypstInvoiceContent {
             tax_breakdown,
             discount,
             purchase_order: invoice.metadata.purchase_order.clone(),
+            corrects_invoice_number: invoice
+                .metadata
+                .corrects
+                .as_ref()
+                .map(|c| c.invoice_number.clone()),
         }
     }
 }

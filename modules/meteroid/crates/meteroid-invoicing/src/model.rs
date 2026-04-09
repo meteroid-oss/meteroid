@@ -94,6 +94,13 @@ pub struct InvoiceMetadata {
     pub payment_url: Option<String>,
     pub flags: Flags,
     pub purchase_order: Option<String>,
+    pub corrects: Option<CorrectsReference>,
+}
+
+#[derive(Clone)]
+pub struct CorrectsReference {
+    pub invoice_number: String,
+    pub credit_note_number: Option<String>,
 }
 
 #[derive(Default)]

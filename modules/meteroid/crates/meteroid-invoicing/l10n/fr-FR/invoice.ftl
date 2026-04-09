@@ -63,5 +63,7 @@ refunded-amount = Montant remboursé
 credited-amount = Montant crédité
 total-credit = Total de l'avoir
 cancels-and-replaces = Annule et remplace la facture {$invoice_number}
+corrects-invoice = Rectifie la facture {$invoice_number} (avoir {$credit_note_number})
+corrects-invoice-no-cn = Rectifie la facture {$invoice_number}
 credit-note-vat-directive-notice = Cet avoir est conforme à la Directive TVA UE 2006/112/CE
 credit-note-reverse-charge-notice = Autoliquidation des articles 44 et 196 de la directive 2006/112/CE. Le destinataire de la facture originale est redevable de la TVA.

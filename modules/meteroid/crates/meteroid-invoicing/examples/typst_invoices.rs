@@ -156,6 +156,7 @@ fn create_test_invoice() -> Invoice {
             },
             discount: Money::from_major(0, eur),
             purchase_order: Some("Order #210".to_string()),
+            corrects: None,
         },
         lines: vec![
             InvoiceLine {

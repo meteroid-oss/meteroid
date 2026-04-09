@@ -10,6 +10,7 @@ use meteroid_store::domain::{Invoice, InvoicingEntity, ResolvedPaymentMethod};
 use meteroid_store::jwt_claims::{ResourceAccess, generate_portal_token};
 use meteroid_store::repositories::InvoiceInterface;
 use meteroid_store::repositories::bank_accounts::BankAccountsInterface;
+use meteroid_store::repositories::credit_notes::CreditNoteInterface;
 use meteroid_store::repositories::customer_payment_methods::CustomerPaymentMethodsInterface;
 use meteroid_store::repositories::customers::CustomersInterfaceAuto;
 use meteroid_store::repositories::historical_rates::HistoricalRatesInterface;
@@ -20,6 +21,38 @@ use meteroid_store::repositories::subscriptions::SubscriptionInterface;
 use std::collections::HashMap;
 use std::io::Cursor;
 use std::sync::Arc;
+
+/// Resolve the corrective-invoice header for the PDF: if the invoice has a `parent_invoice_id`,
+/// look up the parent invoice number and the finalized non-voided credit note(s) referenced by
+/// that parent. Returns None for regular (non-corrective) invoices.
+async fn resolve_corrects_reference(
+    store: &Arc<Store>,
+    invoice: &Invoice,
+) -> Result<Option<meteroid_invoicing::model::CorrectsReference>, Report<InvoicingRenderError>> {
+    let Some(parent_id) = invoice.parent_invoice_id else {
+        return Ok(None);
+    };
+
+    let parent = store
+        .get_invoice_by_id(invoice.tenant_id, parent_id)
+        .await
+        .change_context(InvoicingRenderError::StoreError)?;
+
+    let cns = store
+        .list_credit_notes_by_invoice_id(invoice.tenant_id, parent_id)
+        .await
+        .change_context(InvoicingRenderError::StoreError)?;
+
+    let credit_note_number = cns
+        .iter()
+        .find(|cn| cn.finalized_at.is_some() && cn.voided_at.is_none())
+        .map(|cn| cn.credit_note_number.clone());
+
+    Ok(Some(meteroid_invoicing::model::CorrectsReference {
+        invoice_number: parent.invoice_number,
+        credit_note_number,
+    }))
+}
 
 async fn resolve_payment_info(
     store: &Arc<Store>,
@@ -208,6 +241,8 @@ impl InvoicePreviewRenderingService {
         )
         .await?;
 
+        let corrects = resolve_corrects_reference(&self.store, &invoice).await?;
+
         let mapped = mapper::map_invoice_to_invoicing(
             invoice,
             &invoicing_entity,
@@ -215,6 +250,7 @@ impl InvoicePreviewRenderingService {
             rate,
             bank_details,
             payment_url,
+            corrects,
         )?;
 
         let svgs = self
@@ -392,6 +428,8 @@ impl PdfRenderingService {
 
         let customer_id = invoice.customer_id;
 
+        let corrects = resolve_corrects_reference(&self.store, &invoice).await?;
+
         let mapped_invoice = mapper::map_invoice_to_invoicing(
             invoice,
             invoicing_entity,
@@ -399,6 +437,7 @@ impl PdfRenderingService {
             rate,
             bank_details,
             payment_url,
+            corrects,
         )?;
 
         let pdf = self
@@ -442,6 +481,7 @@ mod mapper {
         accounting_rate: Option<HistoricalRate>,
         bank_details: Option<HashMap<String, String>>,
         payment_url: Option<String>,
+        corrects: Option<invoicing_model::CorrectsReference>,
     ) -> Result<invoicing_model::Invoice, Report<InvoicingRenderError>> {
         let finalized_date = invoice
             .finalized_at
@@ -485,6 +525,7 @@ mod mapper {
                 whitelabel: Some(false),
             },
             purchase_order: invoice.purchase_order.clone(),
+            corrects,
         };
 
         fn map_address(address: store_model::Address) -> invoicing_model::Address {
