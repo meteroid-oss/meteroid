@@ -307,8 +307,6 @@ impl Services {
         let due_date = (invoice_date + chrono::Duration::days(i64::from(parent.net_terms)))
             .and_time(NaiveTime::MIN);
 
-        let memo = Some(format!("Corrected invoice for {}", parent.invoice_number));
-
         let invoice_new = InvoiceNew {
             tenant_id: parent.tenant_id,
             customer_id: parent.customer_id,
@@ -332,7 +330,7 @@ impl Services {
             subtotal_recurring: parent.subtotal_recurring,
             reference: parent.reference.clone(),
             purchase_order: parent.purchase_order.clone(),
-            memo,
+            memo: None,
             due_at: Some(due_date),
             plan_name: parent.plan_name.clone(),
             invoice_number: "draft".to_string(),

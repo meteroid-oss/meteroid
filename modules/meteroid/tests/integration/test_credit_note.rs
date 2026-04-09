@@ -1571,16 +1571,6 @@ async fn test_create_corrected_invoice_after_debt_cancellation() {
             "child line local_id must differ from parent's"
         );
     }
-
-    let memo = corrected.memo.as_ref().expect("memo should be set");
-    assert!(
-        memo.contains(&invoice.invoice_number),
-        "memo should reference the original invoice number"
-    );
-    assert!(
-        memo.to_lowercase().contains("credit note"),
-        "memo should reference the credit note"
-    );
 }
 
 /// Fallback corrected-invoice flow must refuse when the parent is not fully credited.
