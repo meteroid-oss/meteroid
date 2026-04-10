@@ -9,7 +9,7 @@ This project uses
 - [protoc](https://grpc.io/docs/protoc-installation/)
 - [docker-compose](https://docs.docker.com/compose/install/)
 
-Make sure to install them before proceeding, and that **your docker daemon is running**.
+Make sure to install them before proceeding and that **your docker daemon is running**.
 
 ### Version Requirements
 
@@ -20,7 +20,7 @@ Make sure to install them before proceeding, and that **your docker daemon is ru
 - protoc >= 3.17
 - Docker >= 27
 
-### Install the dependencies & build
+### Install the dependencies and build
 
 - `cargo build -p meteroid`
 - if you need the metering api : `cargo build -p metering`
@@ -35,13 +35,13 @@ Metering requires quite a lot of resources (clickhouse + kafka), so if you don't
 
 - Start the database with :
   `docker compose -f docker/develop/docker-compose.yml --env-file .env up`.
-   
+
   `docker compose -f docker/develop/docker-compose.yml --env-file .env --profile metering up`
 
 - Start the Rust backend
   `cargo run -p meteroid --bin standalone`.
 
-  Or if you need Metering: 
+  Or if you need Metering:
   `cargo run -p meteroid --bin standalone --features="metering-server`
 
 - Start the Web frontend
@@ -74,8 +74,9 @@ After a pull, you should update/build the dependencies.
 
 Protobuf files are found in /modules/meteroid/proto and /modules/metering/proto
 
-After an update, you can rebuild rust, reinstall the web dependencies and generate from proto via the commands in the section "Install the dependencies & build" of this docuemnt
- 
+After an update, you can rebuild rust, reinstall the web dependencies and generate from proto via the commands in the
+section "Install the dependencies & build" of this document.
+
 ### Updating the Open API Specification
 
 Open API specification is generated from routes annotations found in `modules/meteroid/src/api_rest`
@@ -86,18 +87,18 @@ On every change in the routes, the openapi.json file should be regenerated via t
 
 ### Database Migrations
 
-To add new migration following steps are needed (executed from the project root):
+To add new migration, the following steps are needed (executed from the project root):
 
 - make sure the database server is running
 - make sure diesel_cli is installed : `cargo install diesel_cli --no-default-features --features postgres`
-- create the migration file : `diesel migration generate <migration_name>`. Generates empty migrations file under
+- create the migration file : `diesel migration generate <migration_name>`. Generates empty migration files under
   `modules/meteroid/migrations/diesel`
 - add sql code to the generated migration files
 - apply the migration : `diesel migration run`. Applies the migration(s) and regenerates the schema.rs file.
 - revert the migration : `diesel migration revert`. Un-applies the last applied migration(s) and regenerates the
   schema.rs file.
 
-On meteroid_api startup the un-applied migrations run automatically.
+On meteroid_api startup the unapplied migrations run automatically.
 
 See https://diesel.rs/guides/getting-started for more info.
 
@@ -105,8 +106,8 @@ See https://diesel.rs/guides/getting-started for more info.
 
 We provide a light docker compose that starts the latest api docker image from the main branch.
 
-Noticer that this doesn't start the metering server, nor the automation processes (invoice finalization, payment, generations etc), so some functionalities will be
-missing.
+Notice that this doesn't start the metering server, nor the automation processes (invoice finalization, payment,
+generations, etc.), so some functionalities will be missing.
 
 - copy the .env.example to a .env
 
