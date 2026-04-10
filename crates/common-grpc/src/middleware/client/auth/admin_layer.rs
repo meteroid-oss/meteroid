@@ -1,7 +1,7 @@
 use crate::middleware::common::auth::{HMAC_SIGNATURE_HEADER, HMAC_TIMESTAMP_HEADER};
 use common_config::auth::InternalAuthConfig;
 
-use hmac::{Hmac, Mac};
+use hmac::{Hmac, KeyInit, Mac};
 use secrecy::{ExposeSecret, SecretString};
 use sha2::Sha256;
 use std::task::{Context, Poll};

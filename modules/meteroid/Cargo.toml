@@ -92,6 +92,7 @@ hubspot-client = { workspace = true }
 pennylane-client = { workspace = true }
 moka = { workspace = true, features = ["future"] }
 sha2.workspace = true
+hex.workspace = true
 
 utoipa.workspace = true
 utoipa-axum.workspace = true
