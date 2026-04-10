@@ -2,7 +2,7 @@ use std::task::{Context, Poll};
 
 use futures_util::FutureExt;
 use futures_util::future::BoxFuture;
-use hmac::{Hmac, Mac};
+use hmac::{Hmac, KeyInit, Mac};
 use hyper::{Request, Response};
 use secrecy::{ExposeSecret, SecretString};
 use sha2::Sha256;

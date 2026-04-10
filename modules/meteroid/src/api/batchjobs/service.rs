@@ -47,7 +47,7 @@ impl BatchJobsService for BatchJobsServiceComponents {
 
                 let data = Bytes::from(file_data);
 
-                let hash = format!("{:x}", Sha256::digest(&data));
+                let hash = hex::encode(Sha256::digest(&data));
 
                 // Check for active duplicate (Pending/Chunking/Processing) — return existing job
                 if let Some(existing) = self
