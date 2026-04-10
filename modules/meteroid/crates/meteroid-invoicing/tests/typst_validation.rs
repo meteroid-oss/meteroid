@@ -52,8 +52,8 @@ async fn test_typst_invoice_with_full_data() {
 
     let pdf_data = result.unwrap();
 
-    let output_path = Path::new("benchmark_invoice.pdf");
-    std::fs::write(output_path, &pdf_data).unwrap();
+    // let output_path = Path::new("benchmark_invoice.pdf");
+    // std::fs::write(output_path, &pdf_data).unwrap();
 
     assert!(!pdf_data.is_empty(), "Generated PDF should not be empty");
     assert!(pdf_data.len() > 1000, "Generated PDF seems too small");
@@ -153,6 +153,8 @@ fn create_minimal_invoice() -> Invoice {
             },
             discount: Money::from_major(0, eur),
             purchase_order: Some("some order".to_string()),
+            parent_invoice_number: None,
+            parent_invoice_date: None,
         },
         lines: vec![InvoiceLine {
             name: "Test Service".to_string(),
@@ -251,6 +253,8 @@ fn create_full_invoice() -> Invoice {
             },
             discount: Money::from_major(0, eur),
             purchase_order: Some("some order".to_string()),
+            parent_invoice_number: None,
+            parent_invoice_date: None,
         },
         lines: vec![
             InvoiceLine {
@@ -504,6 +508,7 @@ fn create_minimal_credit_note() -> CreditNote {
             number: "CN-001".to_string(),
             issue_date,
             related_invoice_number: "INV-001".to_string(),
+            related_invoice_date: issue_date,
             subtotal: Money::from_major(100, eur),
             tax_amount: Money::from_major(20, eur),
             total_amount: Money::from_major(120, eur),
@@ -586,6 +591,7 @@ fn create_full_credit_note() -> CreditNote {
             number: "CN-2025-FULL-001".to_string(),
             issue_date,
             related_invoice_number: "INV-2025-FULL-001".to_string(),
+            related_invoice_date: issue_date,
             subtotal: Money::from_major(500, eur),
             tax_amount: Money::from_major(100, eur),
             total_amount: Money::from_major(600, eur),

@@ -48,6 +48,7 @@ company-registration = Company registration number
 discount = Discount
 purchase-order = Purchase Order
 no-tax-applied = No tax applied
+cancels-and-replaces = Cancels and replaces invoice {$invoice_number} dated {$invoice_date}
 
 # Credit Note specific translations
 credit-note-title = Credit Note
@@ -61,6 +62,6 @@ debt-cancellation = Debt Cancellation
 refunded-amount = Refunded Amount
 credited-amount = Credited Amount
 total-credit = Total Credit
-cancels-and-replaces = Cancels and replaces invoice {$invoice_number}
+related-invoice-value = {$invoice_number} dated {$invoice_date}
 credit-note-vat-directive-notice = This credit note complies with EU VAT Directive 2006/112/EC
 credit-note-reverse-charge-notice = Reverse charge under Articles 44 and 196 of Directive 2006/112/EC. The original invoice recipient is liable for VAT.

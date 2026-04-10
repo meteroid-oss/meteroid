@@ -7,6 +7,7 @@
   customer,
   number,
   related_invoice_number,
+  related_invoice_date,
   issue_date,
   subtotal,
   tax_amount,
@@ -128,7 +129,7 @@
     [#text(weight: "medium", issue_date)],
 
     [#text(fill: color.accent, weight: "medium", translations.related_invoice)],
-    [#text(weight: "medium", related_invoice_number)],
+    [#text(weight: "medium", translations.related_invoice_value)],
 
     ..if organization.tax_id != none {
       (
@@ -143,17 +144,6 @@
         [#text(weight: "medium", customer.tax_id)],
       )
     },
-  )
-
-  v(16pt)
-
-  // Legal notice referencing the original invoice
-  block(
-    width: 100%,
-    fill: color.light_border,
-    radius: 4pt,
-    inset: (x: 12pt, y: 8pt),
-    text(fill: color.heading, weight: "medium", size: 9.5pt, translations.cancels_and_replaces)
   )
 
   v(24pt)
@@ -227,13 +217,6 @@
           text(fill: type_color, weight: "medium", size: 9pt, type_text)
         )
 
-        #v(8pt)
-
-        #if memo != none {
-          text(fill: color.accent, [
-            #memo
-          ])
-        }
       ])
     ]
   )
