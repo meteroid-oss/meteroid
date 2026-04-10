@@ -77,20 +77,24 @@ impl Connector for ClickhouseConnector {
         &self,
         params: QueryMeterParams,
     ) -> Result<Vec<Usage>, Report<ConnectorError>> {
-        let query = match self
+        let ch_query = match self
             .match_extension(&params)
             .and_then(|ext| ext.build_query(&params))
         {
-            Some(ext) => ext,
-            None => sql::query_raw::query_meter_sql(params.clone(), &self.events_table)
-                .map_err(ConnectorError::InvalidQuery)?,
+            Some(safe_query) => {
+                tracing::debug!("Generated query (extension): {}", safe_query.sql);
+                safe_query.into_query(&self.client)
+            }
+            None => {
+                let safe_query =
+                    sql::query_raw::query_meter_sql(params.clone(), &self.events_table)
+                        .map_err(ConnectorError::InvalidQuery)?;
+                tracing::debug!("Generated query: {}", safe_query.sql);
+                safe_query.into_query(&self.client)
+            }
         };
 
-        tracing::debug!("Generated query: {}", query.as_str());
-
-        let mut lines = self
-            .client
-            .query(query.as_str())
+        let mut lines = ch_query
             .fetch_bytes("JSONEachRow")
             .change_context(ConnectorError::QueryError)
             .attach("Failed to execute query with JSONEachRow")?
@@ -180,12 +184,11 @@ impl Connector for ClickhouseConnector {
         &self,
         params: QueryRawEventsParams,
     ) -> Result<QueryRawEventsResult, Report<ConnectorError>> {
-        let query = sql::query_raw::query_raw_events_sql(params.clone(), &self.events_table)
+        let safe_query = sql::query_raw::query_raw_events_sql(params.clone(), &self.events_table)
             .map_err(ConnectorError::InvalidQuery)?;
 
-        let rows = self
-            .client
-            .query(query.as_str())
+        let rows = safe_query
+            .into_query(&self.client)
             .fetch_all::<crate::ingest::domain::RawEventRow>()
             .await
             .change_context(ConnectorError::QueryError)?;

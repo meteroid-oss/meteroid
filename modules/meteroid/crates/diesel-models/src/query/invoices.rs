@@ -115,6 +115,25 @@ impl InvoiceRow {
             .into_db_result()
     }
 
+    pub async fn find_child_id_by_parent(
+        conn: &mut PgConn,
+        param_tenant_id: TenantId,
+        param_parent_invoice_id: InvoiceId,
+    ) -> DbResult<Option<InvoiceId>> {
+        use crate::schema::invoice::dsl as i_dsl;
+        use diesel_async::RunQueryDsl;
+
+        i_dsl::invoice
+            .filter(i_dsl::tenant_id.eq(param_tenant_id))
+            .filter(i_dsl::parent_invoice_id.eq(param_parent_invoice_id))
+            .select(i_dsl::id)
+            .first::<InvoiceId>(conn)
+            .await
+            .optional()
+            .attach("Error while finding child invoice by parent id")
+            .into_db_result()
+    }
+
     pub async fn find_by_id(
         conn: &mut PgConn,
         param_tenant_id: TenantId,

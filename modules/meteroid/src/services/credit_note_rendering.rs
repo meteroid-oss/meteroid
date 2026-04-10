@@ -7,6 +7,7 @@ use meteroid_invoicing::{pdf, svg};
 use meteroid_store::Store;
 use meteroid_store::domain::{CreditNote, InvoicingEntity};
 use meteroid_store::repositories::CreditNoteInterface;
+use meteroid_store::repositories::InvoiceInterface;
 use meteroid_store::repositories::historical_rates::HistoricalRatesInterface;
 use meteroid_store::repositories::invoicing_entities::{
     InvoicingEntityInterface, InvoicingEntityInterfaceAuto,
@@ -63,11 +64,18 @@ impl CreditNotePreviewRenderingService {
                 .change_context(InvoicingRenderError::StoreError)?;
         }
 
+        let related_invoice = self
+            .store
+            .get_invoice_by_id(credit_note.tenant_id, credit_note.invoice_id)
+            .await
+            .change_context(InvoicingRenderError::StoreError)?;
+
         let mapped = mapper::map_credit_note_to_invoicing(
             credit_note,
             &invoicing_entity,
             organization_logo,
             rate,
+            related_invoice.invoice_date,
         )?;
 
         let svgs = self
@@ -228,11 +236,18 @@ impl CreditNotePdfRenderingService {
                 .change_context(InvoicingRenderError::StoreError)?;
         }
 
+        let related_invoice = self
+            .store
+            .get_invoice_by_id(credit_note.tenant_id, credit_note.invoice_id)
+            .await
+            .change_context(InvoicingRenderError::StoreError)?;
+
         let mapped_credit_note = mapper::map_credit_note_to_invoicing(
             credit_note,
             invoicing_entity,
             organization_logo,
             rate,
+            related_invoice.invoice_date,
         )?;
 
         let pdf = self
@@ -271,6 +286,7 @@ mod mapper {
         invoicing_entity: &store_model::InvoicingEntity,
         organization_logo_bytes: Option<Vec<u8>>,
         accounting_rate: Option<HistoricalRate>,
+        related_invoice_date: chrono::NaiveDate,
     ) -> Result<invoicing_model::CreditNote, Report<InvoicingRenderError>> {
         let issue_date = credit_note
             .finalized_at
@@ -290,17 +306,21 @@ mod mapper {
                 ))
             })?;
 
-        // Determine credit type from amounts
-        let credit_type = if credit_note.refunded_amount_cents > 0 {
-            invoicing_model::CreditType::Refund
-        } else {
-            invoicing_model::CreditType::CreditToBalance
+        let credit_type = match credit_note.credit_type {
+            store_model::CreditType::CreditToBalance => {
+                invoicing_model::CreditType::CreditToBalance
+            }
+            store_model::CreditType::Refund => invoicing_model::CreditType::Refund,
+            store_model::CreditType::DebtCancellation => {
+                invoicing_model::CreditType::DebtCancellation
+            }
         };
 
         let metadata = invoicing_model::CreditNoteMetadata {
             currency,
             number: credit_note.credit_note_number,
             related_invoice_number: credit_note.invoice_number.clone(),
+            related_invoice_date,
             issue_date,
             total_amount: rusty_money::Money::from_minor(credit_note.total, currency),
             tax_amount: rusty_money::Money::from_minor(credit_note.tax_amount, currency),
@@ -406,7 +426,8 @@ mod mapper {
                 invoicing_model::TaxBreakdownItem {
                     name: t.name.clone(),
                     rate: t.tax_rate,
-                    amount: rusty_money::Money::from_minor(t.tax_amount as i64, currency),
+                    // Negate to match the credit note's negative subtotal/total rendering
+                    amount: rusty_money::Money::from_minor(-(t.tax_amount as i64), currency),
                     exemption_type,
                 }
             })

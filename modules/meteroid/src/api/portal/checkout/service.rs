@@ -624,11 +624,15 @@ impl PortalCheckoutService for PortalCheckoutServiceComponents {
             .current_period_end
             .ok_or_else(|| tonic::Status::invalid_argument("No current_period_end"))?;
 
-        let period = Period {
+        let full_period = Period {
+            start: subscription_details.subscription.current_period_start,
+            end: period_end,
+        };
+        let partial_period = Period {
             start: now,
             end: period_end,
         };
-        let proration_factor = calculate_proration_factor(&period);
+        let proration_factor = calculate_proration_factor(&partial_period, &full_period);
         let base_amount = rust_decimal::Decimal::from(inner.delta) * unit_rate;
         let prorated = if let Some(factor) = proration_factor {
             base_amount

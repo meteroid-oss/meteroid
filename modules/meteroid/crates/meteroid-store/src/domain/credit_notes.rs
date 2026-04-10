@@ -1,4 +1,4 @@
-use super::enums::CreditNoteStatus;
+use super::enums::{CreditNoteStatus, CreditType};
 use super::invoice_lines::LineItem;
 use super::invoices::{InlineCustomer, InlineInvoicingEntity, TaxBreakdownItem};
 use crate::domain::Customer;
@@ -19,6 +19,8 @@ pub struct CreditNote {
     pub credit_note_number: String,
     #[from(~.into())]
     pub status: CreditNoteStatus,
+    #[from(~.into())]
+    pub credit_type: CreditType,
     pub created_at: NaiveDateTime,
     pub updated_at: Option<NaiveDateTime>,
     pub finalized_at: Option<NaiveDateTime>,
@@ -66,6 +68,8 @@ pub struct CreditNoteNew {
     pub credit_note_number: String,
     #[into(~.into())]
     pub status: CreditNoteStatus,
+    #[into(~.into())]
+    pub credit_type: CreditType,
     pub tenant_id: TenantId,
     pub customer_id: CustomerId,
     pub invoice_id: InvoiceId,

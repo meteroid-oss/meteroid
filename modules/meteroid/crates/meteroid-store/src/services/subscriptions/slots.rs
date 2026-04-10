@@ -22,7 +22,6 @@ use crate::store::PgConn;
 use crate::utils::local_id::LocalId;
 use chrono::{NaiveDateTime, NaiveTime};
 use common_domain::ids::{InvoiceId, PriceComponentId, SubscriptionId, TenantId};
-use common_utils::date::NaiveDateExt;
 use common_utils::decimals::ToSubunit;
 use diesel_async::scoped_futures::ScopedFutureExt;
 use error_stack::{ResultExt, bail};
@@ -107,8 +106,15 @@ impl Services {
                             ))
                         })?;
 
+                    let period_start = subscription.current_period_start;
                     let prorated = self
-                        .calculate_slot_upgrade_amount(now_date, period_end, delta, &unit_rate)?
+                        .calculate_slot_upgrade_amount(
+                            period_start,
+                            now_date,
+                            period_end,
+                            delta,
+                            &unit_rate,
+                        )?
                         .round_dp(currency.precision as u32);
 
                     match billing_mode {
@@ -165,17 +171,23 @@ impl Services {
 
     fn calculate_slot_upgrade_amount(
         &self,
+        period_start: chrono::NaiveDate,
         now: chrono::NaiveDate,
         period_end: chrono::NaiveDate,
         delta: i32,
         unit_rate: &Decimal,
     ) -> StoreResult<Decimal> {
-        let period = Period {
+        let full_period = Period {
+            start: period_start,
+            end: period_end,
+        };
+        let partial_period = Period {
             start: now,
             end: period_end,
         };
 
-        let proration_factor = self.calculate_proration_factor(&period);
+        let proration_factor =
+            crate::utils::periods::calculate_proration_factor(&partial_period, &full_period);
         let base_amount = Decimal::from(delta) * unit_rate;
 
         let prorated = if let Some(factor) = proration_factor {
@@ -325,18 +337,6 @@ impl Services {
             prorated_amount: Some(prorated_amount),
             slots_active: true,
         })
-    }
-
-    fn calculate_proration_factor(&self, period: &Period) -> Option<f64> {
-        let days_in_period = period.end.signed_duration_since(period.start).num_days() as u64;
-        let days_in_month_from = u64::from(period.start.days_in_month());
-
-        if days_in_period >= days_in_month_from {
-            return None;
-        }
-
-        let proration_factor = days_in_period as f64 / days_in_month_from as f64;
-        Some(proration_factor)
     }
 
     fn extract_slot(
@@ -564,6 +564,7 @@ impl Services {
             tax_amount: invoice_content.tax_amount,
             manual: false,
             invoicing_entity_id: subscription.invoicing_entity_id,
+            parent_invoice_id: None,
         };
 
         let draft_invoice = insert_invoice_tx(&self.store, conn, invoice_new).await?;
@@ -662,9 +663,17 @@ impl Services {
             StoreError::ValueNotFound(format!("Currency {} not found", subscription.currency))
         })?;
 
+        let period_start = subscription.current_period_start;
+
         let (prorated_amount, full_period_amount) = if delta > 0 {
             let prorated = self
-                .calculate_slot_upgrade_amount(now_date, period_end, delta, &slot.unit_rate)?
+                .calculate_slot_upgrade_amount(
+                    period_start,
+                    now_date,
+                    period_end,
+                    delta,
+                    &slot.unit_rate,
+                )?
                 .round_dp(currency.precision as u32);
             let full_period =
                 (Decimal::from(delta) * slot.unit_rate).round_dp(currency.precision as u32);
@@ -676,12 +685,8 @@ impl Services {
             (Decimal::ZERO, -full_period_reduction)
         };
 
-        let period = Period {
-            start: now_date,
-            end: period_end,
-        };
-        let days_remaining = period.end.signed_duration_since(period.start).num_days() as i32;
-        let days_total = now_date.days_in_month() as i32;
+        let days_remaining = period_end.signed_duration_since(now_date).num_days() as i32;
+        let days_total = period_end.signed_duration_since(period_start).num_days() as i32;
 
         Ok(SlotUpdatePreview {
             current_slots,
@@ -748,8 +753,15 @@ impl Services {
                             ))
                         })?;
 
+                    let period_start = subscription_details.subscription.current_period_start;
                     let prorated = self
-                        .calculate_slot_upgrade_amount(now_date, period_end, delta, &unit_rate)?
+                        .calculate_slot_upgrade_amount(
+                            period_start,
+                            now_date,
+                            period_end,
+                            delta,
+                            &unit_rate,
+                        )?
                         .round_dp(currency.precision as u32);
 
                     let active_slots = self

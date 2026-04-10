@@ -4,6 +4,7 @@ use crate::domain::{
 };
 use crate::errors::StoreError;
 use crate::{Store, StoreResult, domain};
+use common_domain::identifiers::validate_code;
 use common_domain::ids::{BaseId, BillableMetricId, ProductFamilyId, TenantId};
 use common_eventbus::Event;
 use diesel_async::scoped_futures::ScopedFutureExt;
@@ -121,6 +122,9 @@ impl BillableMetricInterface for Store {
         &self,
         billable_metric: BillableMetricNew,
     ) -> StoreResult<BillableMetric> {
+        validate_code(&billable_metric.code)
+            .map_err(|e| Report::new(StoreError::InvalidArgument(e.to_string())))?;
+
         let mut conn = self.get_conn().await?;
 
         let family = ProductFamilyRow::find_by_id(

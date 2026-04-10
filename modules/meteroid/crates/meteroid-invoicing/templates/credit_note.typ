@@ -7,6 +7,7 @@
   customer,
   number,
   related_invoice_number,
+  related_invoice_date,
   issue_date,
   subtotal,
   tax_amount,
@@ -42,6 +43,7 @@
     credit_note_accent: rgb(59, 130, 246),
     refund_badge: rgb(239, 68, 68),
     credit_badge: rgb(34, 197, 94),
+    debt_cancellation_badge: rgb(107, 114, 128),
   )
 
   // Format currency values
@@ -127,7 +129,7 @@
     [#text(weight: "medium", issue_date)],
 
     [#text(fill: color.accent, weight: "medium", translations.related_invoice)],
-    [#text(weight: "medium", related_invoice_number)],
+    [#text(weight: "medium", translations.related_invoice_value)],
 
     ..if organization.tax_id != none {
       (
@@ -144,7 +146,7 @@
     },
   )
 
-  v(40pt)
+  v(24pt)
 
   // Company and client info
   grid(
@@ -194,12 +196,16 @@
         // Credit type badge
         #let type_text = if credit_type == "refund" {
           translations.refunded
+        } else if credit_type == "debt_cancellation" {
+          translations.debt_cancellation
         } else {
           translations.credit_to_balance
         }
 
         #let type_color = if credit_type == "refund" {
           color.refund_badge
+        } else if credit_type == "debt_cancellation" {
+          color.debt_cancellation_badge
         } else {
           color.credit_badge
         }
@@ -211,13 +217,6 @@
           text(fill: type_color, weight: "medium", size: 9pt, type_text)
         )
 
-        #v(8pt)
-
-        #if memo != none {
-          text(fill: color.accent, [
-            #memo
-          ])
-        }
       ])
     ]
   )

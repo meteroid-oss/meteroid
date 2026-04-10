@@ -4,10 +4,11 @@ use rust_decimal::Decimal;
 use rusty_money::iso;
 use rusty_money::iso::Currency;
 
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, Copy)]
 pub enum CreditType {
     CreditToBalance,
     Refund,
+    DebtCancellation,
 }
 
 impl CreditType {
@@ -15,6 +16,7 @@ impl CreditType {
         match self {
             CreditType::CreditToBalance => "credit_to_balance".to_string(),
             CreditType::Refund => "refund".to_string(),
+            CreditType::DebtCancellation => "debt_cancellation".to_string(),
         }
     }
 }
@@ -32,6 +34,7 @@ pub struct CreditNoteMetadata {
     pub number: String,
     pub issue_date: NaiveDate,
     pub related_invoice_number: String,
+    pub related_invoice_date: NaiveDate,
     pub subtotal: Price,
     pub tax_amount: Price,
     pub total_amount: Price,

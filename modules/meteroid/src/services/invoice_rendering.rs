@@ -208,6 +208,16 @@ impl InvoicePreviewRenderingService {
         )
         .await?;
 
+        let parent_invoice = match invoice.parent_invoice_id {
+            Some(parent_id) => Some(
+                self.store
+                    .get_invoice_by_id(invoice.tenant_id, parent_id)
+                    .await
+                    .change_context(InvoicingRenderError::StoreError)?,
+            ),
+            None => None,
+        };
+
         let mapped = mapper::map_invoice_to_invoicing(
             invoice,
             &invoicing_entity,
@@ -215,6 +225,7 @@ impl InvoicePreviewRenderingService {
             rate,
             bank_details,
             payment_url,
+            parent_invoice.as_ref(),
         )?;
 
         let svgs = self
@@ -392,6 +403,16 @@ impl PdfRenderingService {
 
         let customer_id = invoice.customer_id;
 
+        let parent_invoice = match invoice.parent_invoice_id {
+            Some(parent_id) => Some(
+                self.store
+                    .get_invoice_by_id(invoice.tenant_id, parent_id)
+                    .await
+                    .change_context(InvoicingRenderError::StoreError)?,
+            ),
+            None => None,
+        };
+
         let mapped_invoice = mapper::map_invoice_to_invoicing(
             invoice,
             invoicing_entity,
@@ -399,6 +420,7 @@ impl PdfRenderingService {
             rate,
             bank_details,
             payment_url,
+            parent_invoice.as_ref(),
         )?;
 
         let pdf = self
@@ -442,6 +464,7 @@ mod mapper {
         accounting_rate: Option<HistoricalRate>,
         bank_details: Option<HashMap<String, String>>,
         payment_url: Option<String>,
+        parent_invoice: Option<&store_model::Invoice>,
     ) -> Result<invoicing_model::Invoice, Report<InvoicingRenderError>> {
         let finalized_date = invoice
             .finalized_at
@@ -485,6 +508,8 @@ mod mapper {
                 whitelabel: Some(false),
             },
             purchase_order: invoice.purchase_order.clone(),
+            parent_invoice_number: parent_invoice.map(|pi| pi.invoice_number.clone()),
+            parent_invoice_date: parent_invoice.map(|pi| pi.invoice_date),
         };
 
         fn map_address(address: store_model::Address) -> invoicing_model::Address {

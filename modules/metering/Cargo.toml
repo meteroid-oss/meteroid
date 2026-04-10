@@ -10,6 +10,7 @@ rand.workspace = true
 async-trait.workspace = true
 cached = { workspace = true, features = ["async", "tokio", "redis_store", "redis_tokio"] }
 chrono = { workspace = true, features = ["clock", "serde"] }
+chrono-tz = { workspace = true }
 common-build-info.workspace = true
 common-config.workspace = true
 common-logging.workspace = true

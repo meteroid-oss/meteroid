@@ -7,6 +7,7 @@
   inputs.customer,
   inputs.number,
   inputs.related_invoice_number,
+  inputs.related_invoice_date,
   inputs.issue_date,
   inputs.subtotal,
   inputs.tax_amount,

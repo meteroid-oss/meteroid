@@ -15,9 +15,10 @@ use meteroid_grpc::meteroid::api::creditnotes::v1::{
 };
 use meteroid_store::repositories::CreditNoteInterface;
 use meteroid_store::repositories::credit_notes::{
-    CreateCreditNoteParams, CreditLineItem, CreditType as DomainCreditType,
+    CreateCreditNoteParams, CreditLineItem, CreditSubLineItem, CreditType as DomainCreditType,
 };
 use meteroid_store::repositories::customers::CustomersInterfaceAuto;
+use std::str::FromStr;
 use tonic::{Request, Response, Status};
 
 use crate::api::creditnotes::CreditNoteServiceComponents;
@@ -96,7 +97,10 @@ impl CreditNotesService for CreditNoteServiceComponents {
         };
 
         let response = GetCreditNoteResponse {
-            credit_note: Some(mapping::detailed_domain_to_server(detailed)?),
+            credit_note: Some(mapping::detailed_domain_to_server(
+                detailed,
+                &self.jwt_secret,
+            )?),
         };
 
         Ok(Response::new(response))
@@ -132,7 +136,10 @@ impl CreditNotesService for CreditNoteServiceComponents {
                 customer,
             };
 
-            detailed_credit_notes.push(mapping::detailed_domain_to_server(detailed)?);
+            detailed_credit_notes.push(mapping::detailed_domain_to_server(
+                detailed,
+                &self.jwt_secret,
+            )?);
         }
 
         let response = ListCreditNotesByInvoiceIdResponse {
@@ -172,7 +179,10 @@ impl CreditNotesService for CreditNoteServiceComponents {
                 customer: customer.clone(),
             };
 
-            detailed_credit_notes.push(mapping::detailed_domain_to_server(detailed)?);
+            detailed_credit_notes.push(mapping::detailed_domain_to_server(
+                detailed,
+                &self.jwt_secret,
+            )?);
         }
 
         let response = ListCreditNotesByCustomerIdResponse {
@@ -196,15 +206,53 @@ impl CreditNotesService for CreditNoteServiceComponents {
 
         let invoice_id = InvoiceId::from_proto(&credit_note_req.invoice_id)?;
 
-        // Convert line items with optional amounts
+        // Convert line items: either per-subline overrides or a line-level quantity.
         let line_items: Vec<CreditLineItem> = credit_note_req
             .line_items
             .iter()
-            .map(|li| CreditLineItem {
-                local_id: li.line_item_local_id.clone(),
-                amount: li.amount,
+            .map(|li| {
+                let local_id = li.line_item_local_id.clone();
+                if !li.sub_lines.is_empty() {
+                    if li.quantity.is_some() {
+                        return Err(CreditNoteApiError::InvalidArgument(format!(
+                            "Line '{}': quantity and sub_lines are mutually exclusive",
+                            local_id
+                        )));
+                    }
+                    let sub_lines =
+                        li.sub_lines
+                            .iter()
+                            .map(|sl| {
+                                Ok::<_, CreditNoteApiError>(CreditSubLineItem {
+                                    local_id: sl.sub_line_local_id.clone(),
+                                    quantity: rust_decimal::Decimal::from_str(&sl.quantity)
+                                        .map_err(|e| {
+                                            CreditNoteApiError::InvalidArgument(format!(
+                                                "Invalid sub-line quantity: {}",
+                                                e
+                                            ))
+                                        })?,
+                                })
+                            })
+                            .collect::<Result<Vec<_>, _>>()?;
+                    Ok(CreditLineItem::SubLines {
+                        local_id,
+                        sub_lines,
+                    })
+                } else {
+                    let qty_str = li.quantity.as_ref().ok_or_else(|| {
+                        CreditNoteApiError::InvalidArgument(format!(
+                            "Line '{}': quantity or sub_lines is required",
+                            local_id
+                        ))
+                    })?;
+                    let quantity = rust_decimal::Decimal::from_str(qty_str).map_err(|e| {
+                        CreditNoteApiError::InvalidArgument(format!("Invalid quantity: {}", e))
+                    })?;
+                    Ok(CreditLineItem::Line { local_id, quantity })
+                }
             })
-            .collect();
+            .collect::<Result<Vec<_>, _>>()?;
 
         // Convert credit type
         let credit_type = match CreditType::try_from(credit_note_req.credit_type)
@@ -212,6 +260,7 @@ impl CreditNotesService for CreditNoteServiceComponents {
         {
             CreditType::CreditToBalance => DomainCreditType::CreditToBalance,
             CreditType::Refund => DomainCreditType::Refund,
+            CreditType::DebtCancellation => DomainCreditType::DebtCancellation,
         };
 
         let params = CreateCreditNoteParams {
@@ -222,11 +271,34 @@ impl CreditNotesService for CreditNoteServiceComponents {
             credit_type,
         };
 
-        let created = self
-            .store
-            .create_credit_note(tenant_id, params)
-            .await
-            .map_err(Into::<CreditNoteApiError>::into)?;
+        if req.reissue_as_draft && !req.finalize {
+            return Err(Status::invalid_argument(
+                "reissue_as_draft requires finalize=true",
+            ));
+        }
+
+        let (created, corrected_invoice_id) = if req.finalize && req.reissue_as_draft {
+            let (cn, inv) = self
+                .services
+                .create_and_finalize_credit_note_with_reissue(tenant_id, params, true)
+                .await
+                .map_err(Into::<CreditNoteApiError>::into)?;
+            (cn, inv.map(|i| i.id.as_proto()))
+        } else if req.finalize {
+            let cn = self
+                .store
+                .create_and_finalize_credit_note(tenant_id, params)
+                .await
+                .map_err(Into::<CreditNoteApiError>::into)?;
+            (cn, None)
+        } else {
+            let cn = self
+                .store
+                .create_credit_note(tenant_id, params)
+                .await
+                .map_err(Into::<CreditNoteApiError>::into)?;
+            (cn, None)
+        };
 
         let customer = self
             .store
@@ -240,7 +312,11 @@ impl CreditNotesService for CreditNoteServiceComponents {
         };
 
         let response = CreateCreditNoteResponse {
-            credit_note: Some(mapping::detailed_domain_to_server(detailed)?),
+            credit_note: Some(mapping::detailed_domain_to_server(
+                detailed,
+                &self.jwt_secret,
+            )?),
+            corrected_invoice_id,
         };
 
         Ok(Response::new(response))
@@ -274,7 +350,10 @@ impl CreditNotesService for CreditNoteServiceComponents {
         };
 
         let response = FinalizeCreditNoteResponse {
-            credit_note: Some(mapping::detailed_domain_to_server(detailed)?),
+            credit_note: Some(mapping::detailed_domain_to_server(
+                detailed,
+                &self.jwt_secret,
+            )?),
         };
 
         Ok(Response::new(response))
@@ -308,7 +387,10 @@ impl CreditNotesService for CreditNoteServiceComponents {
         };
 
         let response = VoidCreditNoteResponse {
-            credit_note: Some(mapping::detailed_domain_to_server(detailed)?),
+            credit_note: Some(mapping::detailed_domain_to_server(
+                detailed,
+                &self.jwt_secret,
+            )?),
         };
 
         Ok(Response::new(response))

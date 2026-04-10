@@ -58,6 +58,10 @@ pub mod sql_types {
     pub struct CreditNoteStatus;
 
     #[derive(diesel::query_builder::QueryId, diesel::sql_types::SqlType)]
+    #[diesel(postgres_type(name = "CreditTypeEnum"))]
+    pub struct CreditTypeEnum;
+
+    #[derive(diesel::query_builder::QueryId, diesel::sql_types::SqlType)]
     #[diesel(postgres_type(name = "CycleActionEnum"))]
     pub struct CycleActionEnum;
 
@@ -572,6 +576,7 @@ diesel::table! {
 diesel::table! {
     use diesel::sql_types::*;
     use super::sql_types::CreditNoteStatus;
+    use super::sql_types::CreditTypeEnum;
 
     credit_note (id) {
         id -> Uuid,
@@ -602,6 +607,7 @@ diesel::table! {
         pdf_document_id -> Nullable<Uuid>,
         conn_meta -> Nullable<Jsonb>,
         invoicing_entity_id -> Uuid,
+        credit_type -> CreditTypeEnum,
     }
 }
 
@@ -803,6 +809,7 @@ diesel::table! {
         voided_at -> Nullable<Timestamp>,
         marked_as_uncollectible_at -> Nullable<Timestamp>,
         invoicing_entity_id -> Uuid,
+        parent_invoice_id -> Nullable<Uuid>,
     }
 }
 

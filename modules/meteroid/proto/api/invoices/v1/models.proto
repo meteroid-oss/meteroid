@@ -95,6 +95,8 @@ message DetailedInvoice {
   optional string voided_at = 46;
   optional string marked_as_uncollectible_at = 47;
   int64 discount = 48;
+  optional string parent_invoice_id = 49;
+  optional string child_invoice_id = 50;
 }
 
 message TaxBreakdownItem {

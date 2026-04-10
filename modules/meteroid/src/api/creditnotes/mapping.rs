@@ -1,15 +1,27 @@
 use crate::api::invoices::mapping as invoice_mapping;
+use crate::api::sharable::generate_entity_share_key;
 use crate::api::shared::conversions::{AsProtoOpt, ProtoConv};
+use common_domain::ids::BaseId;
 use meteroid_grpc::meteroid::api::creditnotes::v1;
 use meteroid_store::domain::{
-    CreditNote as DomainCreditNote, CreditNoteStatus, DetailedCreditNote,
+    CreditNote as DomainCreditNote, CreditNoteStatus, CreditType as DomainCreditType,
+    DetailedCreditNote,
 };
+use secrecy::SecretString;
 
 pub fn credit_note_status_domain_to_server(status: CreditNoteStatus) -> v1::CreditNoteStatus {
     match status {
         CreditNoteStatus::Draft => v1::CreditNoteStatus::Draft,
         CreditNoteStatus::Finalized => v1::CreditNoteStatus::Finalized,
         CreditNoteStatus::Voided => v1::CreditNoteStatus::Voided,
+    }
+}
+
+pub fn credit_type_domain_to_server(credit_type: DomainCreditType) -> v1::CreditType {
+    match credit_type {
+        DomainCreditType::CreditToBalance => v1::CreditType::CreditToBalance,
+        DomainCreditType::Refund => v1::CreditType::Refund,
+        DomainCreditType::DebtCancellation => v1::CreditType::DebtCancellation,
     }
 }
 
@@ -36,12 +48,28 @@ pub fn domain_to_server(credit_note: DomainCreditNote, customer_name: String) ->
         credited_amount_cents: credit_note.credited_amount_cents,
         refunded_amount_cents: credit_note.refunded_amount_cents,
         finalized_at: credit_note.finalized_at.as_proto(),
+        credit_type: credit_type_domain_to_server(credit_note.credit_type) as i32,
     }
 }
 
 pub fn detailed_domain_to_server(
     detailed: DetailedCreditNote,
+    jwt_secret: &SecretString,
 ) -> Result<v1::DetailedCreditNote, tonic::Status> {
+    let share_key = if detailed.credit_note.pdf_document_id.is_some() {
+        Some(
+            generate_entity_share_key(
+                detailed.credit_note.id.as_uuid(),
+                detailed.credit_note.tenant_id,
+                jwt_secret,
+                (chrono::Utc::now() + chrono::Duration::days(7)).timestamp() as usize,
+            )
+            .map_err(|e| tonic::Status::internal(e.to_string()))?,
+        )
+    } else {
+        None
+    };
+
     Ok(v1::DetailedCreditNote {
         id: detailed.credit_note.id.as_proto(),
         credit_note_number: detailed.credit_note.credit_note_number.clone(),
@@ -79,5 +107,7 @@ pub fn detailed_domain_to_server(
         ),
         pdf_document_id: detailed.credit_note.pdf_document_id.map(|id| id.as_proto()),
         voided_at: detailed.credit_note.voided_at.as_proto(),
+        document_sharing_key: share_key,
+        credit_type: credit_type_domain_to_server(detailed.credit_note.credit_type) as i32,
     })
 }

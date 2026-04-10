@@ -53,6 +53,23 @@ pub async fn run_plans_seed(pool: &PgPool) {
             .seed(tx)
             .await?;
 
+            // Quarterly-billed Rate plan
+            PlanSeed::new(
+                ids::PLAN_LEETCODE_QUARTERLY_ID,
+                "LeetCode Quarterly",
+                ids::PLAN_VERSION_LEETCODE_QUARTERLY_ID,
+            )
+            .components(vec![SeedComp::rate(
+                ids::COMP_LEETCODE_QUARTERLY_RATE_ID,
+                "Subscription Rate",
+                ids::PRODUCT_PLATFORM_FEE_ID,
+                ids::PRICE_LEETCODE_QUARTERLY_RATE_ID,
+                DieselBillingPeriodEnum::Quarterly,
+                Decimal::new(9000, 2),
+            )])
+            .seed(tx)
+            .await?;
+
             PlanSeed::new(ids::PLAN_NOTION_ID, "Notion", ids::PLAN_VERSION_NOTION_ID)
                 .components(vec![SeedComp::slot_multi(
                     ids::COMP_NOTION_SEATS_ID,

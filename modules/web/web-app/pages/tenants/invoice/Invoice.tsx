@@ -22,6 +22,7 @@ import {
   Download,
   Edit,
   ExternalLink,
+  FilePlus2,
   FileText,
   FileX2Icon,
   FolderSyncIcon,
@@ -60,7 +61,9 @@ import { getLatestConnMeta } from '@/pages/tenants/utils'
 import { listConnectors } from '@/rpc/api/connectors/v1/connectors-ConnectorsService_connectquery'
 import { ConnectorProviderEnum } from '@/rpc/api/connectors/v1/models_pb'
 import { listCreditNotesByInvoiceId } from '@/rpc/api/creditnotes/v1/creditnotes-CreditNotesService_connectquery'
+import { CreditNoteStatus } from '@/rpc/api/creditnotes/v1/models_pb'
 import {
+  createCorrectedInvoice,
   deleteInvoice,
   finalizeInvoice,
   generateInvoicePaymentToken,
@@ -83,7 +86,6 @@ import { useTypedParams } from '@/utils/params'
 import { InvoiceConfirmationDialog } from './InvoiceConfirmationDialog'
 import { InvoiceEditForm } from './InvoiceEditForm'
 
-
 export const Invoice = () => {
   const { invoiceId } = useTypedParams<{ invoiceId: string }>()
   const invoiceQuery = useQuery(
@@ -102,11 +104,11 @@ export const Invoice = () => {
       <Flex direction="column" className="h-full">
         {isLoading || !data ? (
           <>
-            <Skeleton height={16} width={50}/>
-            <Skeleton height={44}/>
+            <Skeleton height={16} width={50} />
+            <Skeleton height={44} />
           </>
         ) : (
-          <InvoiceView invoice={data} invoiceId={invoiceId ?? ''}/>
+          <InvoiceView invoice={data} invoiceId={invoiceId ?? ''} />
         )}
       </Flex>
     </Fragment>
@@ -184,7 +186,7 @@ const InvoicePreviewFrame: React.FC<{ invoiceId: string; invoice: DetailedInvoic
                 rel="noreferrer"
                 className="flex items-center gap-2"
               >
-                <Download size="16"/>
+                <Download size="16" />
               </a>
             </Button>
           </div>
@@ -343,9 +345,35 @@ export const InvoiceView: React.FC<Props & { invoiceId: string }> = ({ invoice, 
   const canVoid = isFinalized
   const canMarkAsUncollectible = isFinalized
 
+  // "Create Corrected Invoice" is enabled when the parent is fully credited
+  // (sum of finalized CN totals ≥ invoice total) and no child draft exists yet.
+  // Matches the backend invariant in create_corrected_invoice_from_tx.
+  const totalCredited = creditNotes
+    .filter(cn => cn.status === CreditNoteStatus.FINALIZED)
+    .reduce((sum, cn) => sum + Math.abs(Number(cn.total)), 0)
+  const hasChildInvoice = Boolean(invoice.childInvoiceId)
+  const canCreateCorrectedInvoice =
+    totalCredited >= Number(invoice.total) && !hasChildInvoice
+
+  const createCorrectedInvoiceMutation = useMutation(createCorrectedInvoice, {
+    onSuccess: data => {
+      toast.success('Corrected invoice created')
+      if (data.invoice?.id) {
+        navigate(`${basePath}/invoices/${data.invoice.id}`)
+      }
+    },
+    onError: error => {
+      toast.error(`Failed to create corrected invoice: ${error.message}`)
+    },
+  })
+
+  const handleCreateCorrectedInvoice = () => {
+    createCorrectedInvoiceMutation.mutate({ parentInvoiceId: invoice.id })
+  }
+
   useEffect(() => {
     if (canRefresh) {
-      doRefresh()
+      // doRefresh() TODO uncomment
     }
   }, [])
 
@@ -427,14 +455,30 @@ export const InvoiceView: React.FC<Props & { invoiceId: string }> = ({ invoice, 
         <Flex direction="column" className="gap-2 p-6 border-b border-border">
           <div className="flex justify-between items-center">
             <div className="flex items-center gap-3">
-              <InvoiceStatusBadge status={invoice.status}/>
+              <InvoiceStatusBadge status={invoice.status} />
               <div className="text-lg font-medium">Invoice {invoice.invoiceNumber}</div>
+              {invoice.parentInvoiceId && (
+                <Link
+                  to={`${basePath}/invoices/${invoice.parentInvoiceId}`}
+                  className="text-xs text-muted-foreground hover:text-foreground underline"
+                >
+                  Replaces original
+                </Link>
+              )}
+              {invoice.childInvoiceId && (
+                <Link
+                  to={`${basePath}/invoices/${invoice.childInvoiceId}`}
+                  className="text-xs text-muted-foreground hover:text-foreground underline"
+                >
+                  Replaced by corrected
+                </Link>
+              )}
             </div>
             <DropdownMenu>
               <DropdownMenuTrigger asChild>
                 <Button variant="secondary" size="sm" hasIcon>
                   Actions
-                  <ChevronDown className="w-4 h-4"/>
+                  <ChevronDown className="w-4 h-4" />
                 </Button>
               </DropdownMenuTrigger>
               <DropdownMenuContent align="end">
@@ -443,7 +487,7 @@ export const InvoiceView: React.FC<Props & { invoiceId: string }> = ({ invoice, 
                     <TooltipTrigger asChild>
                       <span>
                         <DropdownMenuItem onClick={() => setIsEditMode(true)} disabled={!canEdit}>
-                          <Edit size="16" className="mr-2"/>
+                          <Edit size="16" className="mr-2" />
                           Edit Invoice
                         </DropdownMenuItem>
                       </span>
@@ -455,7 +499,10 @@ export const InvoiceView: React.FC<Props & { invoiceId: string }> = ({ invoice, 
                   <Tooltip>
                     <TooltipTrigger asChild>
                       <span>
-                        <DropdownMenuItem onClick={doRefresh} disabled={!canRefresh || refresh.isPending}>
+                        <DropdownMenuItem
+                          onClick={doRefresh}
+                          disabled={!canRefresh || refresh.isPending}
+                        >
                           <RefreshCcw
                             size="16"
                             className={cn(refresh.isPending && 'animate-spin', 'mr-2')}
@@ -466,7 +513,9 @@ export const InvoiceView: React.FC<Props & { invoiceId: string }> = ({ invoice, 
                     </TooltipTrigger>
                     {!canRefresh && (
                       <TooltipContent>
-                        {!isDraft ? 'Only draft invoices can be refreshed' : 'Manual invoices cannot be refreshed'}
+                        {!isDraft
+                          ? 'Only draft invoices can be refreshed'
+                          : 'Manual invoices cannot be refreshed'}
                       </TooltipContent>
                     )}
                   </Tooltip>
@@ -477,16 +526,18 @@ export const InvoiceView: React.FC<Props & { invoiceId: string }> = ({ invoice, 
                       onClick={handlePayOnline}
                       disabled={paymentTokenMutation.isPending}
                     >
-                      <ExternalLink size="16" className="mr-2"/>
+                      <ExternalLink size="16" className="mr-2" />
                       Share Payment Link
                     </DropdownMenuItem>
                   )}
-                {!isExpress && invoice.status === InvoiceStatus.FINALIZED && Number(invoice.amountDue) > 0 && (
-                  <DropdownMenuItem onClick={() => setIsMarkAsPaidDialogOpen(true)}>
-                    <CheckCircleIcon size="16" className="mr-2"/>
-                    Mark as Paid
-                  </DropdownMenuItem>
-                )}
+                {!isExpress &&
+                  invoice.status === InvoiceStatus.FINALIZED &&
+                  Number(invoice.amountDue) > 0 && (
+                    <DropdownMenuItem onClick={() => setIsMarkAsPaidDialogOpen(true)}>
+                      <CheckCircleIcon size="16" className="mr-2" />
+                      Mark as Paid
+                    </DropdownMenuItem>
+                  )}
                 {!isExpress && (
                   <Tooltip>
                     <TooltipTrigger asChild>
@@ -495,12 +546,14 @@ export const InvoiceView: React.FC<Props & { invoiceId: string }> = ({ invoice, 
                           disabled={!canFinalize}
                           onClick={() => setShowFinalizeConfirmation(true)}
                         >
-                          <CheckCircleIcon size="16" className="mr-2"/>
+                          <CheckCircleIcon size="16" className="mr-2" />
                           Finalize & Send
                         </DropdownMenuItem>
                       </span>
                     </TooltipTrigger>
-                    {!canFinalize && <TooltipContent>Only draft invoices can be finalized</TooltipContent>}
+                    {!canFinalize && (
+                      <TooltipContent>Only draft invoices can be finalized</TooltipContent>
+                    )}
                   </Tooltip>
                 )}
                 {!isExpress && (
@@ -511,7 +564,7 @@ export const InvoiceView: React.FC<Props & { invoiceId: string }> = ({ invoice, 
                           disabled={!canSendToPennylane}
                           onClick={() => setShowSyncPennylaneModal(true)}
                         >
-                          <FolderSyncIcon size="16" className="mr-2"/>
+                          <FolderSyncIcon size="16" className="mr-2" />
                           Sync to Pennylane
                         </DropdownMenuItem>
                       </span>
@@ -529,12 +582,36 @@ export const InvoiceView: React.FC<Props & { invoiceId: string }> = ({ invoice, 
                           disabled={!canCreateCreditNote}
                           onClick={() => setShowCreateCreditNoteDialog(true)}
                         >
-                          <FileText size="16" className="mr-2"/>
+                          <FileText size="16" className="mr-2" />
                           Create Credit Note
                         </DropdownMenuItem>
                       </span>
                     </TooltipTrigger>
-                    {!canCreateCreditNote && <TooltipContent>Only finalized invoices can have credit notes</TooltipContent>}
+                    {!canCreateCreditNote && (
+                      <TooltipContent>Only finalized invoices can have credit notes</TooltipContent>
+                    )}
+                  </Tooltip>
+                )}
+                {!isExpress && totalCredited > 0 && (
+                  <Tooltip>
+                    <TooltipTrigger asChild>
+                      <span>
+                        <DropdownMenuItem
+                          disabled={
+                            !canCreateCorrectedInvoice || createCorrectedInvoiceMutation.isPending
+                          }
+                          onClick={handleCreateCorrectedInvoice}
+                        >
+                          <FilePlus2 size="16" className="mr-2" />
+                          Create Corrected Invoice
+                        </DropdownMenuItem>
+                      </span>
+                    </TooltipTrigger>
+                    {hasChildInvoice && (
+                      <TooltipContent>
+                        A corrected invoice already exists for this invoice
+                      </TooltipContent>
+                    )}
                   </Tooltip>
                 )}
                 <Tooltip>
@@ -548,7 +625,7 @@ export const InvoiceView: React.FC<Props & { invoiceId: string }> = ({ invoice, 
                           rel="noreferrer"
                           className="flex items-center gap-2"
                         >
-                          <Download size="16"/>
+                          <Download size="16" />
                           Download PDF
                         </a>
                       </DropdownMenuItem>
@@ -565,12 +642,14 @@ export const InvoiceView: React.FC<Props & { invoiceId: string }> = ({ invoice, 
                           onClick={() => setShowDeleteConfirmation(true)}
                           className="text-destructive focus:text-destructive"
                         >
-                          <Trash2 size="16" className="mr-2"/>
+                          <Trash2 size="16" className="mr-2" />
                           Delete
                         </DropdownMenuItem>
                       </span>
                     </TooltipTrigger>
-                    {!canDelete && <TooltipContent>Only draft invoices can be deleted</TooltipContent>}
+                    {!canDelete && (
+                      <TooltipContent>Only draft invoices can be deleted</TooltipContent>
+                    )}
                   </Tooltip>
                 )}
                 {!isExpress && (
@@ -582,12 +661,14 @@ export const InvoiceView: React.FC<Props & { invoiceId: string }> = ({ invoice, 
                           onClick={() => setShowVoidConfirmation(true)}
                           className="text-destructive focus:text-destructive"
                         >
-                          <BanIcon size="16" className="mr-2"/>
+                          <BanIcon size="16" className="mr-2" />
                           Void
                         </DropdownMenuItem>
                       </span>
                     </TooltipTrigger>
-                    {!canVoid && <TooltipContent>Only finalized invoices can be voided</TooltipContent>}
+                    {!canVoid && (
+                      <TooltipContent>Only finalized invoices can be voided</TooltipContent>
+                    )}
                   </Tooltip>
                 )}
                 {!isExpress && (
@@ -599,12 +680,16 @@ export const InvoiceView: React.FC<Props & { invoiceId: string }> = ({ invoice, 
                           onClick={() => setShowMarkAsUncollectibleConfirmation(true)}
                           className="text-destructive focus:text-destructive"
                         >
-                          <FileX2Icon size="16" className="mr-2"/>
+                          <FileX2Icon size="16" className="mr-2" />
                           Mark As Uncollectible
                         </DropdownMenuItem>
                       </span>
                     </TooltipTrigger>
-                    {!canMarkAsUncollectible && <TooltipContent>Only finalized invoices can be marked as uncollectible</TooltipContent>}
+                    {!canMarkAsUncollectible && (
+                      <TooltipContent>
+                        Only finalized invoices can be marked as uncollectible
+                      </TooltipContent>
+                    )}
                   </Tooltip>
                 )}
               </DropdownMenuContent>
@@ -619,7 +704,7 @@ export const InvoiceView: React.FC<Props & { invoiceId: string }> = ({ invoice, 
         {/* Scrollable Content */}
         <div className="flex-1 overflow-auto">
           <Flex direction="column" className="gap-2 p-6">
-            <FlexDetails title="Invoice number" value={invoice.invoiceNumber}/>
+            <FlexDetails title="Invoice number" value={invoice.invoiceNumber} />
 
             <FlexDetails
               title="Plan"
@@ -632,15 +717,15 @@ export const InvoiceView: React.FC<Props & { invoiceId: string }> = ({ invoice, 
                 </Link>
               }
             />
-            <FlexDetails title="Invoice date" value={parseAndFormatDate(invoice.invoiceDate)}/>
-            <FlexDetails title="Due date" value={parseAndFormatDateOptional(invoice.dueAt)}/>
+            <FlexDetails title="Invoice date" value={parseAndFormatDate(invoice.invoiceDate)} />
+            <FlexDetails title="Due date" value={parseAndFormatDateOptional(invoice.dueAt)} />
             {invoice.purchaseOrder && (
-              <FlexDetails title="Purchase order" value={invoice.purchaseOrder}/>
+              <FlexDetails title="Purchase order" value={invoice.purchaseOrder} />
             )}
-            <FlexDetails title="Currency" value={invoice.currency}/>
+            <FlexDetails title="Currency" value={invoice.currency} />
           </Flex>
 
-          <Separator className="-my-3"/>
+          <Separator className="-my-3" />
 
           <Flex direction="column" className="gap-2 p-6">
             <div className="text-[15px] font-medium">Customer</div>
@@ -649,7 +734,7 @@ export const InvoiceView: React.FC<Props & { invoiceId: string }> = ({ invoice, 
               value={invoice.customerDetails?.name}
               link={`${basePath}/customers/${invoice.customerId}`}
             />
-            <FlexDetails title="Email" value={invoice.customerDetails?.email}/>
+            <FlexDetails title="Email" value={invoice.customerDetails?.email} />
             {invoice.customerDetails?.billingAddress && (
               <>
                 <FlexDetails
@@ -671,27 +756,27 @@ export const InvoiceView: React.FC<Props & { invoiceId: string }> = ({ invoice, 
               </>
             )}
             {invoice.customerDetails?.vatNumber && (
-              <FlexDetails title="VAT Number" value={invoice.customerDetails.vatNumber}/>
+              <FlexDetails title="VAT Number" value={invoice.customerDetails.vatNumber} />
             )}
           </Flex>
 
-          <Separator className="-my-3"/>
+          <Separator className="-my-3" />
 
           <Flex direction="column" className="gap-2 p-6">
             <div className="text-[15px] font-medium">Line Items</div>
-            <InvoiceLineItems items={invoice.lineItems} invoice={invoice}/>
+            <InvoiceLineItems items={invoice.lineItems} invoice={invoice} />
             <div className="mt-4 pt-4 border-t">
-              <InvoiceSummaryLines invoice={invoice}/>
+              <InvoiceSummaryLines invoice={invoice} />
             </div>
           </Flex>
 
-          <Separator className="-my-3"/>
+          <Separator className="-my-3" />
 
           <Flex direction="column" className="gap-2 p-6">
             <div className="text-[15px] font-medium">Payment Information</div>
             <FlexDetails
               title="Payment Status"
-              value={<PaymentStatusBadge status={invoice.paymentStatus}/>}
+              value={<PaymentStatusBadge status={invoice.paymentStatus} />}
             />
             <FlexDetails
               title="Amount Due"
@@ -707,19 +792,21 @@ export const InvoiceView: React.FC<Props & { invoiceId: string }> = ({ invoice, 
               </div>
             )}
 
-            {!isExpress && invoice.status === InvoiceStatus.FINALIZED && Number(invoice.amountDue) > 0 && (
-              <div className="mt-4">
-                <Button
-                  variant="outline"
-                  size="sm"
-                  onClick={() => setIsAddPaymentDialogOpen(true)}
-                  className="w-full"
-                >
-                  <CreditCard className="w-4 h-4 mr-2"/>
-                  Add Manual Payment
-                </Button>
-              </div>
-            )}
+            {!isExpress &&
+              invoice.status === InvoiceStatus.FINALIZED &&
+              Number(invoice.amountDue) > 0 && (
+                <div className="mt-4">
+                  <Button
+                    variant="outline"
+                    size="sm"
+                    onClick={() => setIsAddPaymentDialogOpen(true)}
+                    className="w-full"
+                  >
+                    <CreditCard className="w-4 h-4 mr-2" />
+                    Add Manual Payment
+                  </Button>
+                </div>
+              )}
           </Flex>
 
           <AddManualPaymentDialog
@@ -741,7 +828,7 @@ export const InvoiceView: React.FC<Props & { invoiceId: string }> = ({ invoice, 
 
           {invoice.memo && (
             <>
-              <Separator className="-my-3"/>
+              <Separator className="-my-3" />
               <Flex direction="column" className="gap-2 p-6">
                 <div className="text-[15px] font-medium">Memo</div>
                 <div className="text-[13px] text-muted-foreground whitespace-pre-line">
@@ -751,7 +838,7 @@ export const InvoiceView: React.FC<Props & { invoiceId: string }> = ({ invoice, 
             </>
           )}
 
-          <Separator className="-my-3"/>
+          <Separator className="-my-3" />
 
           <Flex direction="column" className="gap-2 p-6">
             <div className="text-[15px] font-medium">Timeline</div>
@@ -803,7 +890,7 @@ export const InvoiceView: React.FC<Props & { invoiceId: string }> = ({ invoice, 
 
           {creditNotes.length > 0 && (
             <>
-              <Separator className="-my-3"/>
+              <Separator className="-my-3" />
               <Flex direction="column" className="gap-2 p-6">
                 <div className="text-[15px] font-medium">Credit Notes</div>
                 <div className="space-y-2">
@@ -814,7 +901,7 @@ export const InvoiceView: React.FC<Props & { invoiceId: string }> = ({ invoice, 
                       className="flex items-center justify-between p-2 rounded-md hover:bg-muted/50 transition-colors"
                     >
                       <div className="flex items-center gap-3">
-                        <FileText size={14} className="text-muted-foreground"/>
+                        <FileText size={14} className="text-muted-foreground" />
                         <div>
                           <div className="text-[13px] font-medium">{cn.creditNoteNumber}</div>
                           <div className="text-[11px] text-muted-foreground">
@@ -826,7 +913,7 @@ export const InvoiceView: React.FC<Props & { invoiceId: string }> = ({ invoice, 
                         <span className="text-[13px] font-medium">
                           {formatCurrency(Math.abs(Number(cn.total)), cn.currency)}
                         </span>
-                        <CreditNoteStatusBadge status={cn.status}/>
+                        <CreditNoteStatusBadge status={cn.status} />
                       </div>
                     </Link>
                   ))}
@@ -837,7 +924,7 @@ export const InvoiceView: React.FC<Props & { invoiceId: string }> = ({ invoice, 
 
           {getLatestConnMeta(invoice.connectionMetadata?.pennylane)?.externalId && (
             <>
-              <Separator className="-my-3"/>
+              <Separator className="-my-3" />
               <Flex direction="column" className="gap-2 p-6">
                 <div className="text-[15px] font-medium">Integrations</div>
                 <FlexDetails
@@ -854,13 +941,12 @@ export const InvoiceView: React.FC<Props & { invoiceId: string }> = ({ invoice, 
       {/* Right Panel - Invoice Preview */}
       <div className="w-2/3 flex flex-col">
         <div className="flex-1 overflow-auto p-6">
-          <InvoicePreviewFrame invoiceId={invoiceId} invoice={invoice}/>
+          <InvoicePreviewFrame invoiceId={invoiceId} invoice={invoice} />
         </div>
       </div>
     </Flex>
   )
 }
-
 
 export const InvoiceSummaryLines: React.FC<{ invoice: DetailedInvoice }> = ({ invoice }) => {
   const subtotal = Number(invoice.subtotal) || 0
@@ -870,7 +956,7 @@ export const InvoiceSummaryLines: React.FC<{ invoice: DetailedInvoice }> = ({ in
 
   return (
     <div className="space-y-1">
-      <FlexDetails title="Subtotal" value={formatCurrency(subtotal, invoice.currency)}/>
+      <FlexDetails title="Subtotal" value={formatCurrency(subtotal, invoice.currency)} />
 
       {invoice.couponLineItems.map(c => {
         const couponTotal = Number(c.total) || 0
@@ -885,23 +971,23 @@ export const InvoiceSummaryLines: React.FC<{ invoice: DetailedInvoice }> = ({ in
 
       {invoice.taxBreakdown && invoice.taxBreakdown.length > 0
         ? invoice.taxBreakdown.map(tax => {
-          const taxRate = rateToPercent(tax.taxRate)
-          const taxAmountValue = Number(tax.amount) || 0
-          // Only show tax breakdown if rate is greater than 0
-          if (taxRate > 0) {
-            return (
-              <FlexDetails
-                key={tax.name}
-                title={`${tax.name} (${taxRate}%)`}
-                value={formatCurrency(taxAmountValue, invoice.currency)}
-              />
-            )
-          }
-          return null
-        })
+            const taxRate = rateToPercent(tax.taxRate)
+            const taxAmountValue = Number(tax.amount) || 0
+            // Only show tax breakdown if rate is greater than 0
+            if (taxRate > 0) {
+              return (
+                <FlexDetails
+                  key={tax.name}
+                  title={`${tax.name} (${taxRate}%)`}
+                  value={formatCurrency(taxAmountValue, invoice.currency)}
+                />
+              )
+            }
+            return null
+          })
         : taxAmount > 0 && (
-        <FlexDetails title="Tax" value={formatCurrency(taxAmount, invoice.currency)}/>
-      )}
+            <FlexDetails title="Tax" value={formatCurrency(taxAmount, invoice.currency)} />
+          )}
 
       <div className="pt-2 border-t">
         <FlexDetails
@@ -937,7 +1023,7 @@ export const InvoiceLineItems: React.FC<{ items: LineItem[]; invoice: DetailedIn
       {items
         .sort((a, b) => a.name.localeCompare(b.name))
         .map(item => {
-          return <InvoiceLineItemCard key={item.id} line_item={item} invoice={invoice}/>
+          return <InvoiceLineItemCard key={item.id} line_item={item} invoice={invoice} />
         })}
     </div>
   )
@@ -985,9 +1071,9 @@ const InvoiceLineItemCard: React.FC<{
           <div className="text-[13px] font-medium">
             {hasSubItems
               ? formatCurrency(
-                line_item.subLineItems.reduce((sum, sub) => sum + Number(sub.total), 0),
-                invoice.currency
-              )
+                  line_item.subLineItems.reduce((sum, sub) => sum + Number(sub.total), 0),
+                  invoice.currency
+                )
               : formatCurrency(line_item.subtotal, invoice.currency)}
           </div>
         </div>

@@ -1,5 +1,6 @@
 use crate::api_rest::model::{PaginatedRequest, PaginationResponse};
 use chrono::NaiveDateTime;
+use common_domain::identifiers::validator_code;
 use common_domain::ids::{
     BillableMetricId, ProductFamilyId, ProductId, string_serde, string_serde_opt,
 };
@@ -8,6 +9,10 @@ use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
 use utoipa::{IntoParams, ToSchema};
 use validator::Validate;
+
+fn validate_metric_code(code: &str) -> Result<(), validator::ValidationError> {
+    validator_code(code)
+}
 
 #[derive(o2o, Serialize, Deserialize, Debug, Clone, utoipa::ToSchema)]
 #[serde(rename_all = "SCREAMING_SNAKE_CASE")]
@@ -176,7 +181,7 @@ pub struct MetricSummary {
 pub struct CreateMetricRequest {
     #[validate(length(min = 1))]
     pub name: String,
-    #[validate(length(min = 1))]
+    #[validate(length(min = 1), custom(function = "validate_metric_code"))]
     pub code: String,
     pub description: Option<String>,
     pub aggregation_type: BillingMetricAggregateEnum,

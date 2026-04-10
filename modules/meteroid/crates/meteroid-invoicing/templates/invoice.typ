@@ -33,6 +33,8 @@
   show_legal_info: true,     // Show legal information section
   show_footer_custom_info: true,   // Show footer custom information section
   whitelabel: false,         // Hide meteroid branding
+  parent_invoice_number: none,     // Set when this is a corrective invoice
+  parent_invoice_date: none,       // Date of the original invoice
 ) = {
   // Define color palette with named variables
   let color = (
@@ -160,6 +162,18 @@
       )
     },
   )
+
+  // Legal notice for corrective invoices
+  if parent_invoice_number != none {
+    v(16pt)
+    block(
+      width: 100%,
+      fill: color.light_border,
+      radius: 4pt,
+      inset: (x: 12pt, y: 8pt),
+      text(fill: color.heading, weight: "medium", size: 9.5pt, translations.cancels_and_replaces)
+    )
+  }
 
   v(40pt)
 

@@ -1,56 +1,53 @@
-use crate::connectors::clickhouse::sql::{PropertyColumn, escape_sql_identifier};
+use crate::connectors::clickhouse::sql::{BindValue, PropertyColumn, SafeQuery};
 use crate::domain::{
     EventSortOrder, MeterAggregation, QueryMeterParams, QueryRawEventsParams, SegmentationFilter,
     WindowSize,
 };
 use chrono::Utc;
+use common_domain::ids::BaseId;
 
 pub fn query_raw_events_sql(
     params: QueryRawEventsParams,
     events_table: &str,
-) -> Result<String, String> {
-    let table_name = events_table;
-    let mut conditions = vec![
-        format!("tenant_id = '{}'", *params.tenant_id),
-        format!("timestamp >= toDateTime({})", params.from.timestamp()),
-    ];
+) -> Result<SafeQuery, String> {
+    let mut conditions = Vec::new();
+    let mut binds: Vec<BindValue> = Vec::new();
 
-    // Add time range filter
+    conditions.push("tenant_id = ?".to_string());
+    binds.push(BindValue::Uuid(params.tenant_id.as_uuid()));
+
+    conditions.push("timestamp >= toDateTime(?)".to_string());
+    binds.push(BindValue::I64(params.from.timestamp()));
+
     if let Some(to) = params.to {
-        conditions.push(format!("timestamp < toDateTime({})", to.timestamp()));
+        conditions.push("timestamp < toDateTime(?)".to_string());
+        binds.push(BindValue::I64(to.timestamp()));
     } else {
-        conditions.push(format!(
-            "timestamp < toDateTime({})",
-            Utc::now().timestamp()
-        ));
+        conditions.push("timestamp < toDateTime(?)".to_string());
+        binds.push(BindValue::I64(Utc::now().timestamp()));
     }
 
     if !params.customer_ids.is_empty() {
-        let customer_ids_str = params
-            .customer_ids
-            .iter()
-            .map(|id| format!("'{}'", **id))
-            .collect::<Vec<_>>()
-            .join(", ");
-        conditions.push(format!("customer_id IN ({customer_ids_str})"));
+        conditions.push("customer_id IN ?".to_string());
+        binds.push(BindValue::Uuids(
+            params.customer_ids.iter().map(|id| id.as_uuid()).collect(),
+        ));
     }
 
     if !params.event_codes.is_empty() {
-        let event_codes_str = params
-            .event_codes
-            .iter()
-            .map(|code| format!("'{}'", code.replace('\'', "''")))
-            .collect::<Vec<_>>()
-            .join(", ");
-        conditions.push(format!("code IN ({event_codes_str})"));
+        conditions.push("code IN ?".to_string());
+        binds.push(BindValue::Strings(params.event_codes));
     }
 
     if let Some(search) = params.search {
-        let escaped_search = search.replace('\'', "''");
-        let search_condition = format!(
-            "(id ILIKE '%{escaped_search}%' OR code ILIKE '%{escaped_search}%' OR arrayStringConcat(mapValues(properties), ' ') ILIKE '%{escaped_search}%')"
+        let pattern = format!("%{search}%");
+        conditions.push(
+            "(id ILIKE ? OR code ILIKE ? OR arrayStringConcat(mapValues(properties), ' ') ILIKE ?)"
+                .to_string(),
         );
-        conditions.push(search_condition);
+        binds.push(BindValue::String(pattern.clone()));
+        binds.push(BindValue::String(pattern.clone()));
+        binds.push(BindValue::String(pattern));
     }
 
     let order_by = match params.sort_order {
@@ -60,59 +57,70 @@ pub fn query_raw_events_sql(
         EventSortOrder::IngestedAsc => "ingested_at ASC",
     };
 
+    let dedup_subquery = build_dedup_subquery(RAW_EVENT_COLUMNS, events_table, &conditions);
+
+    let columns = RAW_EVENT_COLUMNS.join(", ");
+    let sql =
+        format!("SELECT {columns} FROM ( {dedup_subquery} ) ORDER BY {order_by} LIMIT ? OFFSET ?");
+    binds.push(BindValue::U32(params.limit));
+    binds.push(BindValue::U32(params.offset));
+
+    Ok(SafeQuery { sql, binds })
+}
+
+const RAW_EVENT_COLUMNS: &[&str] = &[
+    "id",
+    "code",
+    "customer_id",
+    "tenant_id",
+    "timestamp",
+    "ingested_at",
+    "properties",
+];
+
+const METER_EVENT_COLUMNS: &[&str] = &["id", "customer_id", "timestamp", "properties"];
+
+fn build_dedup_subquery(columns: &[&str], events_table: &str, conditions: &[String]) -> String {
     let where_clause = if conditions.is_empty() {
         String::new()
     } else {
         format!("WHERE {}", conditions.join(" AND "))
     };
-
-    let query = format!(
-        "SELECT
-            id,
-            code,
-            customer_id,
-            tenant_id,
-            timestamp,
-            ingested_at,
-            properties
-        FROM {}
-        {}
-        ORDER BY {}
-        LIMIT {}
-        OFFSET {}",
-        table_name, where_clause, order_by, params.limit, params.offset
-    );
-
-    Ok(query)
+    let columns = columns.join(", ");
+    format!(
+        "SELECT {columns} FROM {events_table} {where_clause} ORDER BY timestamp DESC LIMIT 1 BY id, customer_id"
+    )
 }
 
-pub fn query_meter_sql(params: QueryMeterParams, events_table: &str) -> Result<String, String> {
-    let table_name = events_table;
-    let tenant_uuid = (*params.tenant_id).to_string();
-    let escaped_code = escape_sql_identifier(&params.code);
+pub fn query_meter_sql(params: QueryMeterParams, events_table: &str) -> Result<SafeQuery, String> {
+    let mut select_binds: Vec<BindValue> = Vec::new();
+    let mut subquery_binds: Vec<BindValue> = Vec::new();
+    let mut group_by_binds: Vec<BindValue> = Vec::new();
 
-    // Step 1: Build WHERE conditions for subquery
-    let mut subquery_conditions = vec![
-        format!("tenant_id = '{}'", tenant_uuid),
-        format!("code = '{}'", escaped_code),
-        format!("timestamp >= toDateTime({})", params.from.timestamp()),
-    ];
+    // Phase 1: Build subquery conditions
+    let mut subquery_conditions = Vec::new();
+
+    subquery_conditions.push("tenant_id = ?".to_string());
+    subquery_binds.push(BindValue::Uuid(params.tenant_id.as_uuid()));
+
+    subquery_conditions.push("code = ?".to_string());
+    subquery_binds.push(BindValue::String(params.code.clone()));
+
+    subquery_conditions.push("timestamp >= toDateTime(?)".to_string());
+    subquery_binds.push(BindValue::I64(params.from.timestamp()));
 
     if let Some(to) = params.to {
-        subquery_conditions.push(format!("timestamp <= toDateTime({})", to.timestamp()));
+        subquery_conditions.push("timestamp <= toDateTime(?)".to_string());
+        subquery_binds.push(BindValue::I64(to.timestamp()));
     }
 
     if !params.customer_ids.is_empty() {
-        let customer_ids_condition = params
-            .customer_ids
-            .iter()
-            .map(|id| format!("customer_id = '{}'", **id))
-            .collect::<Vec<_>>()
-            .join(" OR ");
-        subquery_conditions.push(format!("({})", customer_ids_condition));
+        subquery_conditions.push("customer_id IN ?".to_string());
+        subquery_binds.push(BindValue::Uuids(
+            params.customer_ids.iter().map(|id| id.as_uuid()).collect(),
+        ));
     }
 
-    // Add segmentation filters to subquery
     if let Some(ref segmentation) = params.segmentation_filter {
         match segmentation {
             SegmentationFilter::Independent(filters) => {
@@ -124,8 +132,9 @@ pub fn query_meter_sql(params: QueryMeterParams, events_table: &str) -> Result<S
                     let column_condition = values
                         .iter()
                         .map(|value| {
-                            let escaped_val = escape_sql_identifier(value);
-                            format!("{} = '{escaped_val}'", col.path())
+                            let path = col.path_sql(&mut subquery_binds);
+                            subquery_binds.push(BindValue::String(value.clone()));
+                            format!("{path} = ?")
                         })
                         .collect::<Vec<_>>()
                         .join(" OR ");
@@ -142,23 +151,16 @@ pub fn query_meter_sql(params: QueryMeterParams, events_table: &str) -> Result<S
                 let col2 = PropertyColumn(dimension2_key);
 
                 for (dim1_value, dim2_values) in values {
-                    let escaped_dim1_val = escape_sql_identifier(dim1_value);
                     if dim2_values.is_empty() {
-                        linked_conditions.push(format!("{} = '{escaped_dim1_val}'", col1.path()));
+                        let path = col1.path_sql(&mut subquery_binds);
+                        subquery_binds.push(BindValue::String(dim1_value.clone()));
+                        linked_conditions.push(format!("{path} = ?"));
                     } else {
-                        let dim2_condition = dim2_values
-                            .iter()
-                            .map(|v| {
-                                let escaped_v = escape_sql_identifier(v);
-                                format!("'{escaped_v}'")
-                            })
-                            .collect::<Vec<_>>()
-                            .join(", ");
-                        linked_conditions.push(format!(
-                            "({} = '{escaped_dim1_val}' AND {} IN ({dim2_condition}))",
-                            col1.path(),
-                            col2.path()
-                        ));
+                        let path1 = col1.path_sql(&mut subquery_binds);
+                        subquery_binds.push(BindValue::String(dim1_value.clone()));
+                        let path2 = col2.path_sql(&mut subquery_binds);
+                        subquery_binds.push(BindValue::Strings(dim2_values.clone()));
+                        linked_conditions.push(format!("({path1} = ? AND {path2} IN ?)"));
                     }
                 }
 
@@ -169,96 +171,73 @@ pub fn query_meter_sql(params: QueryMeterParams, events_table: &str) -> Result<S
         }
     }
 
-    // Add value property filter to subquery for non-Count aggregations
     if let Some(ref value_prop) = params.value_property
         && !matches!(params.aggregation, MeterAggregation::Count)
     {
         let col = PropertyColumn(value_prop);
+        let path1 = col.path_sql(&mut subquery_binds);
+        let path2 = col.path_sql(&mut subquery_binds);
         subquery_conditions.push(format!(
-            "{} != '' AND isNotNull(toFloat64OrNull({}))",
-            col.path(),
-            col.path()
+            "{path1} != '' AND isNotNull(toFloat64OrNull({path2}))"
         ));
     }
 
-    // Create deduplicated events subquery
-    // Deduplicates by (id, customer_id), picking the latest record by timestamp using LIMIT 1 BY
-    let dedup_subquery = format!(
-        r#"(
-        SELECT
-            id,
-            customer_id,
-            timestamp,
-            properties
-        FROM {}
-        WHERE {}
-        ORDER BY timestamp DESC
-        LIMIT 1 BY id, customer_id
-    )"#,
-        table_name,
-        subquery_conditions.join("\n            AND ")
-    );
-
-    // Step 2: Build the main query
+    // Phase 2: Build SELECT columns
     let mut select_columns = Vec::new();
     let mut group_by_columns = Vec::new();
 
     let tz = params
         .window_time_zone
-        .as_ref()
-        .unwrap_or(&"UTC".to_string())
-        .clone();
+        .unwrap_or(chrono_tz::UTC)
+        .name()
+        .to_string();
 
-    // Window columns for SELECT and GROUP BY
     if let Some(window_size) = &params.window_size {
-        let (tumble_start, tumble_end) = match window_size {
-            WindowSize::Minute => (
-                format!("tumbleStart(toDateTime(timestamp), toIntervalMinute(1), '{tz}')"),
-                format!("tumbleEnd(toDateTime(timestamp), toIntervalMinute(1), '{tz}')"),
-            ),
-            WindowSize::Hour => (
-                format!("tumbleStart(toDateTime(timestamp), toIntervalHour(1), '{tz}')"),
-                format!("tumbleEnd(toDateTime(timestamp), toIntervalHour(1), '{tz}')"),
-            ),
-            WindowSize::Day => (
-                format!("tumbleStart(toDateTime(timestamp), toIntervalDay(1), '{tz}')"),
-                format!("tumbleEnd(toDateTime(timestamp), toIntervalDay(1), '{tz}')"),
-            ),
+        let interval = match window_size {
+            WindowSize::Minute => "toIntervalMinute(1)",
+            WindowSize::Hour => "toIntervalHour(1)",
+            WindowSize::Day => "toIntervalDay(1)",
         };
 
-        select_columns.push(format!("{} AS window_start", tumble_start));
-        select_columns.push(format!("{} AS window_end", tumble_end.clone()));
-        group_by_columns.push(tumble_start);
-        group_by_columns.push(tumble_end);
+        select_binds.push(BindValue::String(tz.clone()));
+        let tumble_start_select =
+            format!("tumbleStart(toDateTime(timestamp), {interval}, ?) AS window_start");
+        select_binds.push(BindValue::String(tz.clone()));
+        let tumble_end_select =
+            format!("tumbleEnd(toDateTime(timestamp), {interval}, ?) AS window_end");
+
+        select_columns.push(tumble_start_select);
+        select_columns.push(tumble_end_select);
     } else {
         select_columns.push("min(toDateTime(timestamp)) AS window_start".to_string());
         select_columns.push("max(toDateTime(timestamp)) AS window_end".to_string());
     }
 
-    // Determine the value expression based on value_property
+    // Value expression + aggregation
     let value_expr = if let Some(ref value_prop) = params.value_property {
-        let escaped_prop = escape_sql_identifier(value_prop);
-        format!("toFloat64OrZero(properties['{}'])", escaped_prop)
+        let col = PropertyColumn(value_prop);
+        let path = col.path_sql(&mut select_binds);
+        format!("toFloat64OrZero({path})")
     } else if matches!(params.aggregation, MeterAggregation::Count) {
-        "1".to_string() // For COUNT aggregation without value property
+        "1".to_string()
     } else {
         return Err("value_property is required for non-Count aggregations".to_string());
     };
 
-    // Aggregation function
     let aggregation_column = match &params.aggregation {
-        MeterAggregation::Sum => format!("sum({}) AS value", value_expr),
-        MeterAggregation::Avg => format!("avg({}) AS value", value_expr),
-        MeterAggregation::Min => format!("min({}) AS value", value_expr),
-        MeterAggregation::Max => format!("max({}) AS value", value_expr),
+        MeterAggregation::Sum => format!("sum({value_expr}) AS value"),
+        MeterAggregation::Avg => format!("avg({value_expr}) AS value"),
+        MeterAggregation::Min => format!("min({value_expr}) AS value"),
+        MeterAggregation::Max => format!("max({value_expr}) AS value"),
         MeterAggregation::Count => "toFloat64(count(*)) AS value".to_string(),
         MeterAggregation::Latest => {
-            format!("argMax({}, toDateTime(timestamp)) AS value", value_expr)
+            format!("argMax({value_expr}, toDateTime(timestamp)) AS value")
         }
         MeterAggregation::CountDistinct => {
             if let Some(ref value_prop) = params.value_property {
-                let escaped_prop = escape_sql_identifier(value_prop);
-                format!("toFloat64(uniq(properties['{escaped_prop}'])) AS value")
+                let col = PropertyColumn(value_prop);
+                let path = col.path_sql(&mut select_binds);
+                format!("toFloat64(uniq({path})) AS value")
             } else {
                 return Err("value_property is required for CountDistinct aggregation".to_string());
             }
@@ -266,50 +245,88 @@ pub fn query_meter_sql(params: QueryMeterParams, events_table: &str) -> Result<S
     };
     select_columns.push(aggregation_column);
 
-    // Handle customer_ids grouping (filtering already done in subquery)
+    let add_customer_id_group_by =
+        !params.customer_ids.is_empty() && !params.group_by.contains(&"customer_id".to_string());
     if !params.customer_ids.is_empty() {
-        // Add to group by if not already in user's group_by
-        if !params.group_by.contains(&"customer_id".to_string()) {
-            group_by_columns.push("customer_id".to_string());
-        }
         select_columns.push("customer_id".to_string());
     }
 
-    // Handle user-specified group by columns
     for column in &params.group_by {
         let col = PropertyColumn(column);
-        group_by_columns.push(col.path());
-        select_columns.push(col.as_select());
+        select_columns.push(col.select_sql(&mut select_binds));
     }
 
-    // Handle segmentation grouping (filtering already done in subquery)
     if let Some(ref segmentation) = params.segmentation_filter {
         match segmentation {
             SegmentationFilter::Independent(filters) => {
-                for (column, _values) in filters {
+                for (column, _) in filters {
                     let col = PropertyColumn(column);
-                    group_by_columns.push(col.path());
-                    select_columns.push(col.as_select());
+                    select_columns.push(col.select_sql(&mut select_binds));
                 }
             }
             SegmentationFilter::Linked {
                 dimension1_key,
                 dimension2_key,
-                values: _,
+                ..
             } => {
                 let col1 = PropertyColumn(dimension1_key);
                 let col2 = PropertyColumn(dimension2_key);
-                group_by_columns.push(col1.path());
-                group_by_columns.push(col2.path());
-                select_columns.push(col1.as_select());
-                select_columns.push(col2.as_select());
+                select_columns.push(col1.select_sql(&mut select_binds));
+                select_columns.push(col2.select_sql(&mut select_binds));
             }
         }
     }
 
-    // Construct the final SQL query with subquery
+    // Phase 3: Build GROUP BY columns
+    if let Some(window_size) = &params.window_size {
+        let interval = match window_size {
+            WindowSize::Minute => "toIntervalMinute(1)",
+            WindowSize::Hour => "toIntervalHour(1)",
+            WindowSize::Day => "toIntervalDay(1)",
+        };
+        group_by_binds.push(BindValue::String(tz.clone()));
+        group_by_columns.push(format!("tumbleStart(toDateTime(timestamp), {interval}, ?)"));
+        group_by_binds.push(BindValue::String(tz.clone()));
+        group_by_columns.push(format!("tumbleEnd(toDateTime(timestamp), {interval}, ?)"));
+    }
+
+    if add_customer_id_group_by {
+        group_by_columns.push("customer_id".to_string());
+    }
+
+    for column in &params.group_by {
+        let col = PropertyColumn(column);
+        group_by_columns.push(col.path_sql(&mut group_by_binds));
+    }
+
+    if let Some(ref segmentation) = params.segmentation_filter {
+        match segmentation {
+            SegmentationFilter::Independent(filters) => {
+                for (column, _) in filters {
+                    let col = PropertyColumn(column);
+                    group_by_columns.push(col.path_sql(&mut group_by_binds));
+                }
+            }
+            SegmentationFilter::Linked {
+                dimension1_key,
+                dimension2_key,
+                ..
+            } => {
+                let col1 = PropertyColumn(dimension1_key);
+                let col2 = PropertyColumn(dimension2_key);
+                group_by_columns.push(col1.path_sql(&mut group_by_binds));
+                group_by_columns.push(col2.path_sql(&mut group_by_binds));
+            }
+        }
+    }
+
+    // Phase 4: Deduplication subquery
+    let dedup_subquery =
+        build_dedup_subquery(METER_EVENT_COLUMNS, events_table, &subquery_conditions);
+
+    // Phase 5: Assemble
     let mut sql = format!("SELECT {}", select_columns.join(", "));
-    sql.push_str(&format!(" FROM {}", dedup_subquery));
+    sql.push_str(&format!(" FROM ( {dedup_subquery} )"));
     if !group_by_columns.is_empty() {
         sql.push_str(&format!(" GROUP BY {}", group_by_columns.join(", ")));
     }
@@ -317,7 +334,11 @@ pub fn query_meter_sql(params: QueryMeterParams, events_table: &str) -> Result<S
         sql.push_str(" ORDER BY window_start");
     }
 
-    Ok(sql)
+    let mut binds = select_binds;
+    binds.extend(subquery_binds);
+    binds.extend(group_by_binds);
+
+    Ok(SafeQuery { sql, binds })
 }
 
 #[cfg(test)]
@@ -327,10 +348,32 @@ mod tests {
     use chrono::{TimeZone, Utc};
     use common_domain::ids::{CustomerId, TenantId};
     use std::collections::HashMap;
-    use uuid::Uuid; // needed for CustomerId::from(Uuid::from_u128(...))
+    use uuid::Uuid;
 
     fn normalize_sql(sql: &str) -> String {
         sql.split_whitespace().collect::<Vec<_>>().join(" ")
+    }
+
+    fn bind_strings(binds: &[BindValue]) -> Vec<String> {
+        binds
+            .iter()
+            .map(|b| match b {
+                BindValue::String(s) => format!("S:{s}"),
+                BindValue::Strings(v) => format!("A:{}", v.join(",")),
+                BindValue::I64(v) => format!("I:{v}"),
+                BindValue::U32(v) => format!("U:{v}"),
+                BindValue::Uuid(v) => format!("Uuid:{v}"),
+                BindValue::Uuids(v) => {
+                    format!(
+                        "AUuid:{}",
+                        v.iter()
+                            .map(|u| u.to_string())
+                            .collect::<Vec<_>>()
+                            .join(",")
+                    )
+                }
+            })
+            .collect()
     }
 
     #[test]
@@ -344,7 +387,7 @@ mod tests {
             segmentation_filter: None,
             group_by: vec![],
             window_size: Some(WindowSize::Minute),
-            window_time_zone: Some("UTC".to_string()),
+            window_time_zone: Some(chrono_tz::UTC),
             from: Utc.with_ymd_and_hms(2024, 1, 1, 0, 0, 0).unwrap(),
             to: Some(Utc.with_ymd_and_hms(2024, 1, 2, 0, 0, 0).unwrap()),
         };
@@ -352,9 +395,9 @@ mod tests {
         let result = query_meter_sql(params, "raw_events_v2").unwrap();
         let expected = r#"
             SELECT
-                tumbleStart(toDateTime(timestamp), toIntervalMinute(1), 'UTC') AS window_start,
-                tumbleEnd(toDateTime(timestamp), toIntervalMinute(1), 'UTC') AS window_end,
-                sum(toFloat64OrZero(properties['amount'])) AS value
+                tumbleStart(toDateTime(timestamp), toIntervalMinute(1), ?) AS window_start,
+                tumbleEnd(toDateTime(timestamp), toIntervalMinute(1), ?) AS window_end,
+                sum(toFloat64OrZero(properties[?])) AS value
             FROM (
                 SELECT
                     id,
@@ -362,22 +405,28 @@ mod tests {
                     timestamp,
                     properties
                 FROM raw_events_v2
-                WHERE tenant_id = 'ffffffff-ffff-ffff-ffff-ffffffffffff'
-                    AND code = 'test_event'
-                    AND timestamp >= toDateTime(1704067200)
-                    AND timestamp <= toDateTime(1704153600)
-                    AND properties['amount'] != ''
-                    AND isNotNull(toFloat64OrNull(properties['amount']))
+                WHERE tenant_id = ?
+                    AND code = ?
+                    AND timestamp >= toDateTime(?)
+                    AND timestamp <= toDateTime(?)
+                    AND properties[?] != ''
+                    AND isNotNull(toFloat64OrNull(properties[?]))
                 ORDER BY timestamp DESC
                 LIMIT 1 BY id, customer_id
             )
             GROUP BY
-                tumbleStart(toDateTime(timestamp), toIntervalMinute(1), 'UTC'),
-                tumbleEnd(toDateTime(timestamp), toIntervalMinute(1), 'UTC')
+                tumbleStart(toDateTime(timestamp), toIntervalMinute(1), ?),
+                tumbleEnd(toDateTime(timestamp), toIntervalMinute(1), ?)
             ORDER BY window_start
         "#;
 
-        assert_eq!(normalize_sql(&result), normalize_sql(expected));
+        assert_eq!(normalize_sql(&result.sql), normalize_sql(expected));
+        let bs = bind_strings(&result.binds);
+        assert!(bs.contains(&"S:test_event".to_string()));
+        assert!(bs.contains(&"S:amount".to_string()));
+        assert!(bs.contains(&"I:1704067200".to_string()));
+        assert!(bs.contains(&"I:1704153600".to_string()));
+        assert!(bs.contains(&"S:UTC".to_string()));
     }
 
     #[test]
@@ -392,6 +441,7 @@ mod tests {
             group_by: vec![],
             window_size: None,
             window_time_zone: None,
+
             from: Utc.with_ymd_and_hms(2024, 1, 1, 0, 0, 0).unwrap(),
             to: Some(Utc.with_ymd_and_hms(2024, 1, 2, 0, 0, 0).unwrap()),
         };
@@ -409,16 +459,20 @@ mod tests {
                     timestamp,
                     properties
                 FROM raw_events_v2
-                WHERE tenant_id = 'ffffffff-ffff-ffff-ffff-ffffffffffff'
-                    AND code = 'api_call'
-                    AND timestamp >= toDateTime(1704067200)
-                    AND timestamp <= toDateTime(1704153600)
+                WHERE tenant_id = ?
+                    AND code = ?
+                    AND timestamp >= toDateTime(?)
+                    AND timestamp <= toDateTime(?)
                 ORDER BY timestamp DESC
                 LIMIT 1 BY id, customer_id
             )
         "#;
 
-        assert_eq!(normalize_sql(&result), normalize_sql(expected));
+        assert_eq!(normalize_sql(&result.sql), normalize_sql(expected));
+        let bs = bind_strings(&result.binds);
+        assert!(bs.contains(&"S:api_call".to_string()));
+        assert!(bs.contains(&"I:1704067200".to_string()));
+        assert!(bs.contains(&"I:1704153600".to_string()));
     }
 
     #[test]
@@ -436,6 +490,7 @@ mod tests {
             group_by: vec![],
             window_size: Some(WindowSize::Hour),
             window_time_zone: None,
+
             from: Utc.with_ymd_and_hms(2024, 1, 1, 0, 0, 0).unwrap(),
             to: None,
         };
@@ -443,9 +498,9 @@ mod tests {
         let result = query_meter_sql(params, "raw_events_v2").unwrap();
         let expected = r#"
             SELECT
-                tumbleStart(toDateTime(timestamp), toIntervalHour(1), 'UTC') AS window_start,
-                tumbleEnd(toDateTime(timestamp), toIntervalHour(1), 'UTC') AS window_end,
-                sum(toFloat64OrZero(properties['bytes'])) AS value,
+                tumbleStart(toDateTime(timestamp), toIntervalHour(1), ?) AS window_start,
+                tumbleEnd(toDateTime(timestamp), toIntervalHour(1), ?) AS window_end,
+                sum(toFloat64OrZero(properties[?])) AS value,
                 customer_id
             FROM (
                 SELECT
@@ -454,23 +509,32 @@ mod tests {
                     timestamp,
                     properties
                 FROM raw_events_v2
-                WHERE tenant_id = 'ffffffff-ffff-ffff-ffff-ffffffffffff'
-                    AND code = 'usage'
-                    AND timestamp >= toDateTime(1704067200)
-                    AND (customer_id = '00000000-0000-0000-0000-000000000001' OR customer_id = '00000000-0000-0000-0000-000000000002')
-                    AND properties['bytes'] != ''
-                    AND isNotNull(toFloat64OrNull(properties['bytes']))
+                WHERE tenant_id = ?
+                    AND code = ?
+                    AND timestamp >= toDateTime(?)
+                    AND customer_id IN ?
+                    AND properties[?] != ''
+                    AND isNotNull(toFloat64OrNull(properties[?]))
                 ORDER BY timestamp DESC
                 LIMIT 1 BY id, customer_id
             )
             GROUP BY
-                tumbleStart(toDateTime(timestamp), toIntervalHour(1), 'UTC'),
-                tumbleEnd(toDateTime(timestamp), toIntervalHour(1), 'UTC'),
+                tumbleStart(toDateTime(timestamp), toIntervalHour(1), ?),
+                tumbleEnd(toDateTime(timestamp), toIntervalHour(1), ?),
                 customer_id
             ORDER BY window_start
         "#;
 
-        assert_eq!(normalize_sql(&result), normalize_sql(expected));
+        assert_eq!(normalize_sql(&result.sql), normalize_sql(expected));
+        let bs = bind_strings(&result.binds);
+        assert!(bs.contains(&"S:usage".to_string()));
+        assert!(bs.contains(&"S:bytes".to_string()));
+        assert!(
+            bs.contains(
+                &"AUuid:00000000-0000-0000-0000-000000000001,00000000-0000-0000-0000-000000000002"
+                    .to_string()
+            )
+        );
     }
 
     #[test]
@@ -485,6 +549,7 @@ mod tests {
             group_by: vec!["region".to_string(), "endpoint".to_string()],
             window_size: Some(WindowSize::Day),
             window_time_zone: None,
+
             from: Utc.with_ymd_and_hms(2024, 1, 1, 0, 0, 0).unwrap(),
             to: None,
         };
@@ -492,11 +557,11 @@ mod tests {
         let result = query_meter_sql(params, "raw_events_v2").unwrap();
         let expected = r#"
             SELECT
-                tumbleStart(toDateTime(timestamp), toIntervalDay(1), 'UTC') AS window_start,
-                tumbleEnd(toDateTime(timestamp), toIntervalDay(1), 'UTC') AS window_end,
-                avg(toFloat64OrZero(properties['duration'])) AS value,
-                properties['region'] AS _prop_region,
-                properties['endpoint'] AS _prop_endpoint
+                tumbleStart(toDateTime(timestamp), toIntervalDay(1), ?) AS window_start,
+                tumbleEnd(toDateTime(timestamp), toIntervalDay(1), ?) AS window_end,
+                avg(toFloat64OrZero(properties[?])) AS value,
+                properties[?] AS _prop_region,
+                properties[?] AS _prop_endpoint
             FROM (
                 SELECT
                     id,
@@ -504,23 +569,28 @@ mod tests {
                     timestamp,
                     properties
                 FROM raw_events_v2
-                WHERE tenant_id = 'ffffffff-ffff-ffff-ffff-ffffffffffff'
-                    AND code = 'transaction'
-                    AND timestamp >= toDateTime(1704067200)
-                    AND properties['duration'] != ''
-                    AND isNotNull(toFloat64OrNull(properties['duration']))
+                WHERE tenant_id = ?
+                    AND code = ?
+                    AND timestamp >= toDateTime(?)
+                    AND properties[?] != ''
+                    AND isNotNull(toFloat64OrNull(properties[?]))
                 ORDER BY timestamp DESC
                 LIMIT 1 BY id, customer_id
             )
             GROUP BY
-                tumbleStart(toDateTime(timestamp), toIntervalDay(1), 'UTC'),
-                tumbleEnd(toDateTime(timestamp), toIntervalDay(1), 'UTC'),
-                properties['region'],
-                properties['endpoint']
+                tumbleStart(toDateTime(timestamp), toIntervalDay(1), ?),
+                tumbleEnd(toDateTime(timestamp), toIntervalDay(1), ?),
+                properties[?],
+                properties[?]
             ORDER BY window_start
         "#;
 
-        assert_eq!(normalize_sql(&result), normalize_sql(expected));
+        assert_eq!(normalize_sql(&result.sql), normalize_sql(expected));
+        let bs = bind_strings(&result.binds);
+        assert!(bs.contains(&"S:transaction".to_string()));
+        assert!(bs.contains(&"S:duration".to_string()));
+        assert!(bs.contains(&"S:region".to_string()));
+        assert!(bs.contains(&"S:endpoint".to_string()));
     }
 
     #[test]
@@ -541,6 +611,7 @@ mod tests {
             group_by: vec![],
             window_size: None,
             window_time_zone: None,
+
             from: Utc.with_ymd_and_hms(2024, 1, 1, 0, 0, 0).unwrap(),
             to: None,
         };
@@ -550,9 +621,9 @@ mod tests {
             SELECT
                 min(toDateTime(timestamp)) AS window_start,
                 max(toDateTime(timestamp)) AS window_end,
-                sum(toFloat64OrZero(properties['amount'])) AS value,
-                properties['region'] AS _prop_region,
-                properties['tier'] AS _prop_tier
+                sum(toFloat64OrZero(properties[?])) AS value,
+                properties[?] AS _prop_region,
+                properties[?] AS _prop_tier
             FROM (
                 SELECT
                     id,
@@ -560,20 +631,28 @@ mod tests {
                     timestamp,
                     properties
                 FROM raw_events_v2
-                WHERE tenant_id = 'ffffffff-ffff-ffff-ffff-ffffffffffff'
-                    AND code = 'sale'
-                    AND timestamp >= toDateTime(1704067200)
-                    AND (properties['region'] = 'us-east' OR properties['region'] = 'us-west')
-                    AND (properties['tier'] = 'premium')
-                    AND properties['amount'] != ''
-                    AND isNotNull(toFloat64OrNull(properties['amount']))
+                WHERE tenant_id = ?
+                    AND code = ?
+                    AND timestamp >= toDateTime(?)
+                    AND (properties[?] = ? OR properties[?] = ?)
+                    AND (properties[?] = ?)
+                    AND properties[?] != ''
+                    AND isNotNull(toFloat64OrNull(properties[?]))
                 ORDER BY timestamp DESC
                 LIMIT 1 BY id, customer_id
             )
-            GROUP BY properties['region'], properties['tier']
+            GROUP BY properties[?], properties[?]
         "#;
 
-        assert_eq!(normalize_sql(&result), normalize_sql(expected));
+        assert_eq!(normalize_sql(&result.sql), normalize_sql(expected));
+        let bs = bind_strings(&result.binds);
+        assert!(bs.contains(&"S:sale".to_string()));
+        assert!(bs.contains(&"S:amount".to_string()));
+        assert!(bs.contains(&"S:region".to_string()));
+        assert!(bs.contains(&"S:tier".to_string()));
+        assert!(bs.contains(&"S:us-east".to_string()));
+        assert!(bs.contains(&"S:us-west".to_string()));
+        assert!(bs.contains(&"S:premium".to_string()));
     }
 
     #[test]
@@ -599,6 +678,7 @@ mod tests {
             group_by: vec![],
             window_size: None,
             window_time_zone: None,
+
             from: Utc.with_ymd_and_hms(2024, 1, 1, 0, 0, 0).unwrap(),
             to: None,
         };
@@ -610,9 +690,9 @@ mod tests {
             SELECT
                 min(toDateTime(timestamp)) AS window_start,
                 max(toDateTime(timestamp)) AS window_end,
-                sum(toFloat64OrZero(properties['count'])) AS value,
-                properties['product'] AS _prop_product,
-                properties['version'] AS _prop_version
+                sum(toFloat64OrZero(properties[?])) AS value,
+                properties[?] AS _prop_product,
+                properties[?] AS _prop_version
             FROM (
                 SELECT
                     id,
@@ -620,26 +700,26 @@ mod tests {
                     timestamp,
                     properties
                 FROM raw_events_v2
-                WHERE tenant_id = 'ffffffff-ffff-ffff-ffff-ffffffffffff'
-                    AND code = 'usage'
-                    AND timestamp >= toDateTime(1704067200)
-                    AND ((properties['product'] = 'prod1' AND properties['version'] IN ('v1', 'v2'))
-                         OR (properties['product'] = 'prod2' AND properties['version'] IN ('v3')))
-                    AND properties['count'] != ''
-                    AND isNotNull(toFloat64OrNull(properties['count']))
+                WHERE tenant_id = ?
+                    AND code = ?
+                    AND timestamp >= toDateTime(?)
+                    AND ((properties[?] = ? AND properties[?] IN ?)
+                         OR (properties[?] = ? AND properties[?] IN ?))
+                    AND properties[?] != ''
+                    AND isNotNull(toFloat64OrNull(properties[?]))
                 ORDER BY timestamp DESC
                 LIMIT 1 BY id, customer_id
             )
-            GROUP BY properties['product'], properties['version']
+            GROUP BY properties[?], properties[?]
         "#;
 
         let expected2 = r#"
             SELECT
                 min(toDateTime(timestamp)) AS window_start,
                 max(toDateTime(timestamp)) AS window_end,
-                sum(toFloat64OrZero(properties['count'])) AS value,
-                properties['product'] AS _prop_product,
-                properties['version'] AS _prop_version
+                sum(toFloat64OrZero(properties[?])) AS value,
+                properties[?] AS _prop_product,
+                properties[?] AS _prop_version
             FROM (
                 SELECT
                     id,
@@ -647,28 +727,35 @@ mod tests {
                     timestamp,
                     properties
                 FROM raw_events_v2
-                WHERE tenant_id = 'ffffffff-ffff-ffff-ffff-ffffffffffff'
-                    AND code = 'usage'
-                    AND timestamp >= toDateTime(1704067200)
-                    AND ((properties['product'] = 'prod2' AND properties['version'] IN ('v3'))
-                         OR (properties['product'] = 'prod1' AND properties['version'] IN ('v1', 'v2')))
-                    AND properties['count'] != ''
-                    AND isNotNull(toFloat64OrNull(properties['count']))
+                WHERE tenant_id = ?
+                    AND code = ?
+                    AND timestamp >= toDateTime(?)
+                    AND ((properties[?] = ? AND properties[?] IN ?)
+                         OR (properties[?] = ? AND properties[?] IN ?))
+                    AND properties[?] != ''
+                    AND isNotNull(toFloat64OrNull(properties[?]))
                 ORDER BY timestamp DESC
                 LIMIT 1 BY id, customer_id
             )
-            GROUP BY properties['product'], properties['version']
+            GROUP BY properties[?], properties[?]
         "#;
 
-        let result_normalized = normalize_sql(&result);
+        let result_normalized = normalize_sql(&result.sql);
         assert!(
             result_normalized == normalize_sql(expected1)
                 || result_normalized == normalize_sql(expected2),
             "SQL did not match either expected variant.\nGot:\n{}\n\nExpected either:\n{}\n\nor:\n{}",
-            result,
+            result.sql,
             expected1,
             expected2
         );
+        let bs = bind_strings(&result.binds);
+        assert!(bs.contains(&"S:usage".to_string()));
+        assert!(bs.contains(&"S:count".to_string()));
+        assert!(bs.contains(&"S:product".to_string()));
+        assert!(bs.contains(&"S:version".to_string()));
+        assert!(bs.contains(&"S:prod1".to_string()));
+        assert!(bs.contains(&"S:prod2".to_string()));
     }
 
     #[test]
@@ -683,6 +770,7 @@ mod tests {
             group_by: vec![],
             window_size: Some(WindowSize::Day),
             window_time_zone: None,
+
             from: Utc.with_ymd_and_hms(2024, 1, 1, 0, 0, 0).unwrap(),
             to: None,
         };
@@ -690,9 +778,9 @@ mod tests {
         let result = query_meter_sql(params, "raw_events_v2").unwrap();
         let expected = r#"
             SELECT
-                tumbleStart(toDateTime(timestamp), toIntervalDay(1), 'UTC') AS window_start,
-                tumbleEnd(toDateTime(timestamp), toIntervalDay(1), 'UTC') AS window_end,
-                toFloat64(uniq(properties['user_id'])) AS value
+                tumbleStart(toDateTime(timestamp), toIntervalDay(1), ?) AS window_start,
+                tumbleEnd(toDateTime(timestamp), toIntervalDay(1), ?) AS window_end,
+                toFloat64(uniq(properties[?])) AS value
             FROM (
                 SELECT
                     id,
@@ -700,21 +788,24 @@ mod tests {
                     timestamp,
                     properties
                 FROM raw_events_v2
-                WHERE tenant_id = 'ffffffff-ffff-ffff-ffff-ffffffffffff'
-                    AND code = 'login'
-                    AND timestamp >= toDateTime(1704067200)
-                    AND properties['user_id'] != ''
-                    AND isNotNull(toFloat64OrNull(properties['user_id']))
+                WHERE tenant_id = ?
+                    AND code = ?
+                    AND timestamp >= toDateTime(?)
+                    AND properties[?] != ''
+                    AND isNotNull(toFloat64OrNull(properties[?]))
                 ORDER BY timestamp DESC
                 LIMIT 1 BY id, customer_id
             )
             GROUP BY
-                tumbleStart(toDateTime(timestamp), toIntervalDay(1), 'UTC'),
-                tumbleEnd(toDateTime(timestamp), toIntervalDay(1), 'UTC')
+                tumbleStart(toDateTime(timestamp), toIntervalDay(1), ?),
+                tumbleEnd(toDateTime(timestamp), toIntervalDay(1), ?)
             ORDER BY window_start
         "#;
 
-        assert_eq!(normalize_sql(&result), normalize_sql(expected));
+        assert_eq!(normalize_sql(&result.sql), normalize_sql(expected));
+        let bs = bind_strings(&result.binds);
+        assert!(bs.contains(&"S:login".to_string()));
+        assert!(bs.contains(&"S:user_id".to_string()));
     }
 
     #[test]
@@ -729,6 +820,7 @@ mod tests {
             group_by: vec![],
             window_size: None,
             window_time_zone: None,
+
             from: Utc.with_ymd_and_hms(2024, 1, 1, 0, 0, 0).unwrap(),
             to: None,
         };
@@ -738,7 +830,7 @@ mod tests {
             SELECT
                 min(toDateTime(timestamp)) AS window_start,
                 max(toDateTime(timestamp)) AS window_end,
-                argMax(toFloat64OrZero(properties['value']), toDateTime(timestamp)) AS value
+                argMax(toFloat64OrZero(properties[?]), toDateTime(timestamp)) AS value
             FROM (
                 SELECT
                     id,
@@ -746,17 +838,20 @@ mod tests {
                     timestamp,
                     properties
                 FROM raw_events_v2
-                WHERE tenant_id = 'ffffffff-ffff-ffff-ffff-ffffffffffff'
-                    AND code = 'status'
-                    AND timestamp >= toDateTime(1704067200)
-                    AND properties['value'] != ''
-                    AND isNotNull(toFloat64OrNull(properties['value']))
+                WHERE tenant_id = ?
+                    AND code = ?
+                    AND timestamp >= toDateTime(?)
+                    AND properties[?] != ''
+                    AND isNotNull(toFloat64OrNull(properties[?]))
                 ORDER BY timestamp DESC
                 LIMIT 1 BY id, customer_id
             )
         "#;
 
-        assert_eq!(normalize_sql(&result), normalize_sql(expected));
+        assert_eq!(normalize_sql(&result.sql), normalize_sql(expected));
+        let bs = bind_strings(&result.binds);
+        assert!(bs.contains(&"S:status".to_string()));
+        assert!(bs.contains(&"S:value".to_string()));
     }
 
     #[test]
@@ -774,6 +869,7 @@ mod tests {
             group_by: vec![],
             window_size: None,
             window_time_zone: None,
+
             from: Utc.with_ymd_and_hms(2024, 1, 1, 0, 0, 0).unwrap(),
             to: None,
         };
@@ -795,6 +891,7 @@ mod tests {
             group_by: vec![],
             window_size: None,
             window_time_zone: None,
+
             from: Utc.with_ymd_and_hms(2024, 1, 1, 0, 0, 0).unwrap(),
             to: None,
         };
@@ -819,6 +916,7 @@ mod tests {
             group_by: vec![],
             window_size: None,
             window_time_zone: None,
+
             from: Utc.with_ymd_and_hms(2024, 1, 1, 0, 0, 0).unwrap(),
             to: None,
         };
@@ -828,7 +926,7 @@ mod tests {
             SELECT
                 min(toDateTime(timestamp)) AS window_start,
                 max(toDateTime(timestamp)) AS window_end,
-                sum(toFloat64OrZero(properties['price'])) AS value
+                sum(toFloat64OrZero(properties[?])) AS value
             FROM (
                 SELECT
                     id,
@@ -836,17 +934,20 @@ mod tests {
                     timestamp,
                     properties
                 FROM raw_events_v2
-                WHERE tenant_id = 'ffffffff-ffff-ffff-ffff-ffffffffffff'
-                    AND code = 'purchase'
-                    AND timestamp >= toDateTime(1704067200)
-                    AND properties['price'] != ''
-                    AND isNotNull(toFloat64OrNull(properties['price']))
+                WHERE tenant_id = ?
+                    AND code = ?
+                    AND timestamp >= toDateTime(?)
+                    AND properties[?] != ''
+                    AND isNotNull(toFloat64OrNull(properties[?]))
                 ORDER BY timestamp DESC
                 LIMIT 1 BY id, customer_id
             )
         "#;
 
-        assert_eq!(normalize_sql(&result), normalize_sql(expected));
+        assert_eq!(normalize_sql(&result.sql), normalize_sql(expected));
+        let bs = bind_strings(&result.binds);
+        assert!(bs.contains(&"S:purchase".to_string()));
+        assert!(bs.contains(&"S:price".to_string()));
     }
 
     #[test]
@@ -861,6 +962,7 @@ mod tests {
             group_by: vec![],
             window_size: None,
             window_time_zone: None,
+
             from: Utc.with_ymd_and_hms(2024, 1, 1, 0, 0, 0).unwrap(),
             to: Some(Utc.with_ymd_and_hms(2024, 1, 2, 0, 0, 0).unwrap()),
         };
@@ -878,22 +980,24 @@ mod tests {
                     timestamp,
                     properties
                 FROM raw_events_v2
-                WHERE tenant_id = 'ffffffff-ffff-ffff-ffff-ffffffffffff'
-                    AND code = 'event'
-                    AND timestamp >= toDateTime(1704067200)
-                    AND timestamp <= toDateTime(1704153600)
+                WHERE tenant_id = ?
+                    AND code = ?
+                    AND timestamp >= toDateTime(?)
+                    AND timestamp <= toDateTime(?)
                 ORDER BY timestamp DESC
                 LIMIT 1 BY id, customer_id
             )
         "#;
 
-        assert_eq!(normalize_sql(&result), normalize_sql(expected));
+        assert_eq!(normalize_sql(&result.sql), normalize_sql(expected));
+        let bs = bind_strings(&result.binds);
+        assert!(bs.contains(&"S:event".to_string()));
+        assert!(bs.contains(&"I:1704067200".to_string()));
+        assert!(bs.contains(&"I:1704153600".to_string()));
     }
 
     #[test]
     fn test_query_meter_dedup_with_reserved_column_in_group_by() {
-        // Test that when grouping by a property named "code" (same as reserved column),
-        // it uses properties map and aliases as "prop_code" to avoid collision
         let params = QueryMeterParams {
             aggregation: MeterAggregation::Sum,
             tenant_id: TenantId::default(),
@@ -901,9 +1005,10 @@ mod tests {
             value_property: Some("amount".to_string()),
             customer_ids: vec![],
             segmentation_filter: None,
-            group_by: vec!["code".to_string()], // Property named "code" - collides with reserved column
+            group_by: vec!["code".to_string()],
             window_size: None,
             window_time_zone: None,
+
             from: Utc.with_ymd_and_hms(2024, 1, 1, 0, 0, 0).unwrap(),
             to: None,
         };
@@ -913,8 +1018,8 @@ mod tests {
             SELECT
                 min(toDateTime(timestamp)) AS window_start,
                 max(toDateTime(timestamp)) AS window_end,
-                sum(toFloat64OrZero(properties['amount'])) AS value,
-                properties['code'] AS _prop_code
+                sum(toFloat64OrZero(properties[?])) AS value,
+                properties[?] AS _prop_code
             FROM (
                 SELECT
                     id,
@@ -922,24 +1027,26 @@ mod tests {
                     timestamp,
                     properties
                 FROM raw_events_v2
-                WHERE tenant_id = 'ffffffff-ffff-ffff-ffff-ffffffffffff'
-                    AND code = 'purchase'
-                    AND timestamp >= toDateTime(1704067200)
-                    AND properties['amount'] != ''
-                    AND isNotNull(toFloat64OrNull(properties['amount']))
+                WHERE tenant_id = ?
+                    AND code = ?
+                    AND timestamp >= toDateTime(?)
+                    AND properties[?] != ''
+                    AND isNotNull(toFloat64OrNull(properties[?]))
                 ORDER BY timestamp DESC
                 LIMIT 1 BY id, customer_id
             )
-            GROUP BY properties['code']
+            GROUP BY properties[?]
         "#;
 
-        assert_eq!(normalize_sql(&result), normalize_sql(expected));
+        assert_eq!(normalize_sql(&result.sql), normalize_sql(expected));
+        let bs = bind_strings(&result.binds);
+        assert!(bs.contains(&"S:purchase".to_string()));
+        assert!(bs.contains(&"S:amount".to_string()));
+        assert!(bs.contains(&"S:code".to_string()));
     }
 
     #[test]
     fn test_query_meter_dedup_with_customer_id_in_segmentation() {
-        // Test that when filtering/grouping by a property named "customer_id" (same as reserved column),
-        // it uses properties map and aliases as "prop_customer_id" to avoid collision
         let params = QueryMeterParams {
             aggregation: MeterAggregation::Sum,
             tenant_id: TenantId::default(),
@@ -953,6 +1060,7 @@ mod tests {
             group_by: vec![],
             window_size: None,
             window_time_zone: None,
+
             from: Utc.with_ymd_and_hms(2024, 1, 1, 0, 0, 0).unwrap(),
             to: None,
         };
@@ -962,8 +1070,8 @@ mod tests {
             SELECT
                 min(toDateTime(timestamp)) AS window_start,
                 max(toDateTime(timestamp)) AS window_end,
-                sum(toFloat64OrZero(properties['bytes'])) AS value,
-                properties['customer_id'] AS _prop_customer_id
+                sum(toFloat64OrZero(properties[?])) AS value,
+                properties[?] AS _prop_customer_id
             FROM (
                 SELECT
                     id,
@@ -971,25 +1079,29 @@ mod tests {
                     timestamp,
                     properties
                 FROM raw_events_v2
-                WHERE tenant_id = 'ffffffff-ffff-ffff-ffff-ffffffffffff'
-                    AND code = 'usage'
-                    AND timestamp >= toDateTime(1704067200)
-                    AND (properties['customer_id'] = 'cust1' OR properties['customer_id'] = 'cust2')
-                    AND properties['bytes'] != ''
-                    AND isNotNull(toFloat64OrNull(properties['bytes']))
+                WHERE tenant_id = ?
+                    AND code = ?
+                    AND timestamp >= toDateTime(?)
+                    AND (properties[?] = ? OR properties[?] = ?)
+                    AND properties[?] != ''
+                    AND isNotNull(toFloat64OrNull(properties[?]))
                 ORDER BY timestamp DESC
                 LIMIT 1 BY id, customer_id
             )
-            GROUP BY properties['customer_id']
+            GROUP BY properties[?]
         "#;
 
-        assert_eq!(normalize_sql(&result), normalize_sql(expected));
+        assert_eq!(normalize_sql(&result.sql), normalize_sql(expected));
+        let bs = bind_strings(&result.binds);
+        assert!(bs.contains(&"S:usage".to_string()));
+        assert!(bs.contains(&"S:bytes".to_string()));
+        assert!(bs.contains(&"S:customer_id".to_string()));
+        assert!(bs.contains(&"S:cust1".to_string()));
+        assert!(bs.contains(&"S:cust2".to_string()));
     }
 
     #[test]
     fn test_query_meter_dedup_mixed_reserved_and_custom_columns() {
-        // Test mix of properties with reserved names and custom properties in group_by
-        // Reserved names get prop_ prefix, custom properties use their normal name
         let params = QueryMeterParams {
             aggregation: MeterAggregation::Count,
             tenant_id: TenantId::default(),
@@ -998,12 +1110,13 @@ mod tests {
             customer_ids: vec![],
             segmentation_filter: None,
             group_by: vec![
-                "customer_id".to_string(), // property with reserved name - gets prop_ prefix
-                "region".to_string(),      // custom property - normal alias
-                "code".to_string(),        // property with reserved name - gets prop_ prefix
+                "customer_id".to_string(),
+                "region".to_string(),
+                "code".to_string(),
             ],
             window_size: None,
             window_time_zone: None,
+
             from: Utc.with_ymd_and_hms(2024, 1, 1, 0, 0, 0).unwrap(),
             to: None,
         };
@@ -1014,9 +1127,9 @@ mod tests {
                 min(toDateTime(timestamp)) AS window_start,
                 max(toDateTime(timestamp)) AS window_end,
                 toFloat64(count(*)) AS value,
-                properties['customer_id'] AS _prop_customer_id,
-                properties['region'] AS _prop_region,
-                properties['code'] AS _prop_code
+                properties[?] AS _prop_customer_id,
+                properties[?] AS _prop_region,
+                properties[?] AS _prop_code
             FROM (
                 SELECT
                     id,
@@ -1024,15 +1137,131 @@ mod tests {
                     timestamp,
                     properties
                 FROM raw_events_v2
-                WHERE tenant_id = 'ffffffff-ffff-ffff-ffff-ffffffffffff'
-                    AND code = 'event'
-                    AND timestamp >= toDateTime(1704067200)
+                WHERE tenant_id = ?
+                    AND code = ?
+                    AND timestamp >= toDateTime(?)
                 ORDER BY timestamp DESC
                 LIMIT 1 BY id, customer_id
             )
-            GROUP BY properties['customer_id'], properties['region'], properties['code']
+            GROUP BY properties[?], properties[?], properties[?]
         "#;
 
-        assert_eq!(normalize_sql(&result), normalize_sql(expected));
+        assert_eq!(normalize_sql(&result.sql), normalize_sql(expected));
+        let bs = bind_strings(&result.binds);
+        assert!(bs.contains(&"S:event".to_string()));
+        assert!(bs.contains(&"S:customer_id".to_string()));
+        assert!(bs.contains(&"S:region".to_string()));
+        assert!(bs.contains(&"S:code".to_string()));
+    }
+
+    #[test]
+    fn test_query_raw_events_basic() {
+        let params = QueryRawEventsParams {
+            tenant_id: TenantId::default(),
+            from: Utc.with_ymd_and_hms(2024, 1, 1, 0, 0, 0).unwrap(),
+            to: Some(Utc.with_ymd_and_hms(2024, 1, 2, 0, 0, 0).unwrap()),
+            limit: 10,
+            offset: 0,
+            search: None,
+            event_codes: vec![],
+            customer_ids: vec![],
+            sort_order: EventSortOrder::TimestampDesc,
+        };
+
+        let result = query_raw_events_sql(params, "raw_events_v2").unwrap();
+        let expected = r#"
+            SELECT id, code, customer_id, tenant_id, timestamp, ingested_at, properties
+            FROM (
+                SELECT id, code, customer_id, tenant_id, timestamp, ingested_at, properties
+                FROM raw_events_v2
+                WHERE tenant_id = ?
+                    AND timestamp >= toDateTime(?)
+                    AND timestamp < toDateTime(?)
+                ORDER BY timestamp DESC LIMIT 1 BY id, customer_id
+            )
+            ORDER BY timestamp DESC LIMIT ? OFFSET ?
+        "#;
+
+        assert_eq!(normalize_sql(&result.sql), normalize_sql(expected));
+        let bs = bind_strings(&result.binds);
+        assert!(bs.contains(&"Uuid:ffffffff-ffff-ffff-ffff-ffffffffffff".to_string()));
+        assert!(bs.contains(&"I:1704067200".to_string()));
+        assert!(bs.contains(&"I:1704153600".to_string()));
+        assert!(bs.contains(&"U:10".to_string()));
+        assert!(bs.contains(&"U:0".to_string()));
+    }
+
+    #[test]
+    fn test_query_raw_events_with_customer_and_code_filters() {
+        let params = QueryRawEventsParams {
+            tenant_id: TenantId::default(),
+            from: Utc.with_ymd_and_hms(2024, 1, 1, 0, 0, 0).unwrap(),
+            to: Some(Utc.with_ymd_and_hms(2024, 1, 2, 0, 0, 0).unwrap()),
+            limit: 20,
+            offset: 5,
+            search: None,
+            event_codes: vec!["api_call".to_string(), "storage".to_string()],
+            customer_ids: vec![
+                CustomerId::from(Uuid::from_u128(1)),
+                CustomerId::from(Uuid::from_u128(2)),
+            ],
+            sort_order: EventSortOrder::IngestedDesc,
+        };
+
+        let result = query_raw_events_sql(params, "raw_events_v2").unwrap();
+        let expected = r#"
+            SELECT id, code, customer_id, tenant_id, timestamp, ingested_at, properties
+            FROM (
+                SELECT id, code, customer_id, tenant_id, timestamp, ingested_at, properties
+                FROM raw_events_v2
+                WHERE tenant_id = ?
+                    AND timestamp >= toDateTime(?)
+                    AND timestamp < toDateTime(?)
+                    AND customer_id IN ?
+                    AND code IN ?
+                ORDER BY timestamp DESC LIMIT 1 BY id, customer_id
+            )
+            ORDER BY ingested_at DESC LIMIT ? OFFSET ?
+        "#;
+
+        assert_eq!(normalize_sql(&result.sql), normalize_sql(expected));
+        let bs = bind_strings(&result.binds);
+        assert!(bs.contains(&"A:api_call,storage".to_string()));
+        assert!(bs.contains(&"U:20".to_string()));
+        assert!(bs.contains(&"U:5".to_string()));
+    }
+
+    #[test]
+    fn test_query_raw_events_with_search() {
+        let params = QueryRawEventsParams {
+            tenant_id: TenantId::default(),
+            from: Utc.with_ymd_and_hms(2024, 1, 1, 0, 0, 0).unwrap(),
+            to: None,
+            limit: 10,
+            offset: 0,
+            search: Some("foo".to_string()),
+            event_codes: vec![],
+            customer_ids: vec![],
+            sort_order: EventSortOrder::TimestampAsc,
+        };
+
+        let result = query_raw_events_sql(params, "raw_events_v2").unwrap();
+        let expected = r#"
+            SELECT id, code, customer_id, tenant_id, timestamp, ingested_at, properties
+            FROM (
+                SELECT id, code, customer_id, tenant_id, timestamp, ingested_at, properties
+                FROM raw_events_v2
+                WHERE tenant_id = ?
+                    AND timestamp >= toDateTime(?)
+                    AND timestamp < toDateTime(?)
+                    AND (id ILIKE ? OR code ILIKE ? OR arrayStringConcat(mapValues(properties), ' ') ILIKE ?)
+                ORDER BY timestamp DESC LIMIT 1 BY id, customer_id
+            )
+            ORDER BY timestamp ASC LIMIT ? OFFSET ?
+        "#;
+
+        assert_eq!(normalize_sql(&result.sql), normalize_sql(expected));
+        let bs = bind_strings(&result.binds);
+        assert_eq!(bs.iter().filter(|b| *b == "S:%foo%").count(), 3);
     }
 }

@@ -18,6 +18,7 @@ use crate::domain::{
 };
 use crate::error::MeteringApiError;
 use crate::utils::{datetime_to_timestamp, timestamp_to_datetime};
+use common_domain::identifiers::{parse_timezone, validate_code};
 use common_domain::ids::{CustomerId, TenantId};
 use metering_grpc::meteroid::metering::v1::Event;
 
@@ -40,6 +41,15 @@ impl UsageQueryServiceGrpc for UsageQueryService {
         request: Request<QueryMeterRequest>,
     ) -> Result<Response<QueryMeterResponse>, Status> {
         let req = request.into_inner();
+
+        validate_code(&req.code).map_err(|e| Status::invalid_argument(e.to_string()))?;
+
+        let window_time_zone = req
+            .timezone
+            .as_deref()
+            .map(parse_timezone)
+            .transpose()
+            .map_err(|e| Status::invalid_argument(e.to_string()))?;
 
         let aggregation_type: AggregationType = req.meter_aggregation_type();
 
@@ -103,7 +113,7 @@ impl UsageQueryServiceGrpc for UsageQueryService {
                 .collect::<Result<Vec<_>, _>>()?,
             group_by: req.group_by_properties,
             window_size,
-            window_time_zone: req.timezone,
+            window_time_zone,
             segmentation_filter,
             from: req
                 .from
@@ -144,6 +154,10 @@ impl UsageQueryServiceGrpc for UsageQueryService {
         request: Request<QueryRawEventsRequest>,
     ) -> Result<Response<QueryRawEventsResponse>, Status> {
         let req = request.into_inner();
+
+        for code in &req.event_codes {
+            validate_code(code).map_err(|e| Status::invalid_argument(e.to_string()))?;
+        }
 
         let sort_order = match req.sort_order() {
             SortOrder::TimestampDesc => EventSortOrder::TimestampDesc,

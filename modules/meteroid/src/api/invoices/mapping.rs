@@ -1,18 +1,18 @@
 pub mod invoices {
     use crate::api::connectors::mapping::connectors::connection_metadata_to_server;
     use crate::api::customers::mapping::customer::ServerAddressWrapper;
-    use crate::api::sharable::ShareableEntityClaims;
+    use crate::api::sharable::generate_entity_share_key;
     use crate::api::shared::conversions::{AsProtoOpt, ProtoConv};
-    use common_domain::ids::{BaseId, InvoiceId, TenantId};
-    use error_stack::{Report, ResultExt};
+    use common_domain::ids::BaseId;
+    use error_stack::Report;
     use meteroid_grpc::meteroid::api::invoices::v1::{
         CouponLineItem, DetailedInvoice, InlineCustomer, Invoice, InvoicePaymentStatus,
         InvoiceStatus, InvoiceType, LineItem,
     };
+    use meteroid_store::domain;
     use meteroid_store::domain::invoice_lines as domain_invoice_lines;
     use meteroid_store::errors::StoreError;
-    use meteroid_store::{StoreResult, domain};
-    use secrecy::{ExposeSecret, SecretString};
+    use secrecy::SecretString;
 
     pub fn status_domain_to_server(value: &domain::enums::InvoiceStatusEnum) -> InvoiceStatus {
         match value {
@@ -177,39 +177,14 @@ pub mod invoices {
         })
     }
 
-    pub fn generate_invoice_share_key(
-        invoice_id: InvoiceId,
-        tenant_id: TenantId,
-        jwt_secret: &SecretString,
-        exp: usize,
-    ) -> StoreResult<String> {
-        let claims = ShareableEntityClaims {
-            exp,
-            sub: invoice_id.to_string(),
-            entity_id: invoice_id.as_uuid(),
-            tenant_id,
-        };
-
-        let encoded = jsonwebtoken::encode(
-            &jsonwebtoken::Header::default(),
-            &claims,
-            &jsonwebtoken::EncodingKey::from_secret(jwt_secret.expose_secret().as_bytes()),
-        )
-        .change_context(StoreError::CryptError(
-            "Failed to encode shareable claims".to_string(),
-        ))?;
-
-        Ok(encoded)
-    }
-
     pub fn domain_invoice_with_transactions_to_server(
         invoice: domain::Invoice,
         transactions: Vec<domain::PaymentTransaction>,
         jwt_secret: SecretString,
     ) -> Result<DetailedInvoice, Report<StoreError>> {
         let share_key = if invoice.pdf_document_id.is_some() || invoice.xml_document_id.is_some() {
-            let encoded = generate_invoice_share_key(
-                invoice.id,
+            let encoded = generate_entity_share_key(
+                invoice.id.as_uuid(),
                 invoice.tenant_id,
                 &jwt_secret,
                 (chrono::Utc::now() + chrono::Duration::days(7)).timestamp() as usize,
@@ -276,6 +251,8 @@ pub mod invoices {
             purchase_order: invoice.purchase_order,
             voided_at: invoice.voided_at.as_proto(),
             marked_as_uncollectible_at: invoice.marked_as_uncollectible_at.as_proto(),
+            parent_invoice_id: invoice.parent_invoice_id.map(|id| id.as_proto()),
+            child_invoice_id: None,
         })
     }
 

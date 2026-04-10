@@ -3,6 +3,7 @@ use crate::api::billablemetrics::mapping::metric::{
     ServerBillableMetricMetaWrapper, ServerBillableMetricWrapper,
 };
 use crate::api::utils::PaginationExt;
+use common_domain::identifiers::validate_code;
 use common_domain::ids::{BillableMetricId, ProductFamilyId, ProductId};
 use common_grpc::middleware::server::auth::RequestExt;
 use error_stack::Report;
@@ -31,6 +32,8 @@ impl BillableMetricsService for BillableMetricsComponents {
         let tenant_id = request.tenant()?;
         let actor = request.actor()?;
         let inner = request.into_inner();
+
+        validate_code(&inner.code).map_err(|e| Status::invalid_argument(e.to_string()))?;
 
         let (aggregation_key, aggregation_type, unit_conversion) = match inner.aggregation.as_ref()
         {

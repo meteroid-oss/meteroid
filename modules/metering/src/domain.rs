@@ -65,7 +65,7 @@ pub struct QueryMeterParams {
     pub segmentation_filter: Option<SegmentationFilter>,
     pub group_by: Vec<String>,
     pub window_size: Option<WindowSize>,
-    pub window_time_zone: Option<String>,
+    pub window_time_zone: Option<chrono_tz::Tz>,
     pub from: DateTime<Utc>,
     pub to: Option<DateTime<Utc>>,
 }

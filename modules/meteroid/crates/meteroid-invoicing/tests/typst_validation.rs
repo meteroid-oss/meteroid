@@ -52,8 +52,8 @@ async fn test_typst_invoice_with_full_data() {
 
     let pdf_data = result.unwrap();
 
-    let output_path = Path::new("benchmark_invoice.pdf");
-    std::fs::write(output_path, &pdf_data).unwrap();
+    // let output_path = Path::new("benchmark_invoice.pdf");
+    // std::fs::write(output_path, &pdf_data).unwrap();
 
     assert!(!pdf_data.is_empty(), "Generated PDF should not be empty");
     assert!(pdf_data.len() > 1000, "Generated PDF seems too small");
@@ -153,6 +153,8 @@ fn create_minimal_invoice() -> Invoice {
             },
             discount: Money::from_major(0, eur),
             purchase_order: Some("some order".to_string()),
+            parent_invoice_number: None,
+            parent_invoice_date: None,
         },
         lines: vec![InvoiceLine {
             name: "Test Service".to_string(),
@@ -251,6 +253,8 @@ fn create_full_invoice() -> Invoice {
             },
             discount: Money::from_major(0, eur),
             purchase_order: Some("some order".to_string()),
+            parent_invoice_number: None,
+            parent_invoice_date: None,
         },
         lines: vec![
             InvoiceLine {
@@ -401,6 +405,40 @@ async fn test_typst_credit_note_with_multiple_languages() {
 }
 
 #[tokio::test]
+async fn test_typst_credit_note_debt_cancellation_type() {
+    let generator =
+        TypstCreditNotePdfGenerator::new().expect("Failed to create TypstCreditNotePdfGenerator");
+
+    let mut credit_note = create_minimal_credit_note();
+    credit_note.metadata.credit_type = CreditType::DebtCancellation;
+    credit_note.metadata.refunded_amount = Money::from_major(0, iso::find("EUR").unwrap());
+    credit_note.metadata.credited_amount = Money::from_major(0, iso::find("EUR").unwrap());
+
+    let result = generator.generate_credit_note_pdf(&credit_note).await;
+    assert!(
+        result.is_ok(),
+        "Failed to generate debt-cancellation credit note PDF: {:?}",
+        result.err()
+    );
+
+    let pdf_data = result.unwrap();
+    assert!(
+        &pdf_data[0..4] == b"%PDF",
+        "Output should be a valid PDF file"
+    );
+
+    let mut credit_note_fr = create_minimal_credit_note();
+    credit_note_fr.lang = "fr-FR".to_string();
+    credit_note_fr.metadata.credit_type = CreditType::DebtCancellation;
+    let result_fr = generator.generate_credit_note_pdf(&credit_note_fr).await;
+    assert!(
+        result_fr.is_ok(),
+        "Failed to generate French debt-cancellation credit note PDF: {:?}",
+        result_fr.err()
+    );
+}
+
+#[tokio::test]
 async fn test_typst_credit_note_refund_type() {
     let generator =
         TypstCreditNotePdfGenerator::new().expect("Failed to create TypstCreditNotePdfGenerator");
@@ -470,6 +508,7 @@ fn create_minimal_credit_note() -> CreditNote {
             number: "CN-001".to_string(),
             issue_date,
             related_invoice_number: "INV-001".to_string(),
+            related_invoice_date: issue_date,
             subtotal: Money::from_major(100, eur),
             tax_amount: Money::from_major(20, eur),
             total_amount: Money::from_major(120, eur),
@@ -552,6 +591,7 @@ fn create_full_credit_note() -> CreditNote {
             number: "CN-2025-FULL-001".to_string(),
             issue_date,
             related_invoice_number: "INV-2025-FULL-001".to_string(),
+            related_invoice_date: issue_date,
             subtotal: Money::from_major(500, eur),
             tax_amount: Money::from_major(100, eur),
             total_amount: Money::from_major(600, eur),

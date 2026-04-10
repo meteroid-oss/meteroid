@@ -225,6 +225,7 @@ pub struct TypstCreditNoteContent {
     pub customer: TypstCustomer,
     pub number: String,
     pub related_invoice_number: String,
+    pub related_invoice_date: String,
     pub issue_date: String,
     pub subtotal: f64,
     pub tax_amount: f64,
@@ -260,10 +261,16 @@ impl From<&CreditNote> for TypstCreditNoteContent {
             "credit_note_title" => credit_note_l10n.credit_note_title().into_value(),
             "credit_note_number" => credit_note_l10n.credit_note_number().into_value(),
             "related_invoice" => credit_note_l10n.related_invoice().into_value(),
+            "related_invoice_value" => {
+                let formatted_related_date = format_date(lang, &credit_note.metadata.related_invoice_date)
+                    .unwrap_or_else(|_| credit_note.metadata.related_invoice_date.format("%Y-%m-%d").to_string());
+                credit_note_l10n.related_invoice_value(&credit_note.metadata.related_invoice_number, &formatted_related_date).into_value()
+            },
             "credit_to" => credit_note_l10n.credit_to().into_value(),
             "reason" => credit_note_l10n.reason().into_value(),
             "refunded" => credit_note_l10n.refunded().into_value(),
             "credit_to_balance" => credit_note_l10n.credit_to_balance().into_value(),
+            "debt_cancellation" => credit_note_l10n.debt_cancellation().into_value(),
             "refunded_amount" => credit_note_l10n.refunded_amount().into_value(),
             "credited_amount" => credit_note_l10n.credited_amount().into_value(),
             "total_credit" => credit_note_l10n.total_credit().into_value(),
@@ -383,6 +390,14 @@ impl From<&CreditNote> for TypstCreditNoteContent {
             customer: TypstCustomer::from_customer_with_lang(&credit_note.customer, lang),
             number: credit_note.metadata.number.clone(),
             related_invoice_number: credit_note.metadata.related_invoice_number.clone(),
+            related_invoice_date: format_date(lang, &credit_note.metadata.related_invoice_date)
+                .unwrap_or_else(|_| {
+                    credit_note
+                        .metadata
+                        .related_invoice_date
+                        .format("%Y-%m-%d")
+                        .to_string()
+                }),
             issue_date: formatted_issue_date,
             subtotal,
             tax_amount,

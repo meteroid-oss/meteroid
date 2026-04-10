@@ -61,10 +61,20 @@ message VoidCreditNoteResponse {
 
 message CreateCreditNoteRequest {
   NewCreditNote credit_note = 1;
+  // When true, create and finalize in a single transaction. Used by interactive
+  // UI paths so the user never sees a Draft CN.
+  bool finalize = 2;
+  // When true AND finalize=true, after finalizing the credit note the same transaction
+  // creates a corrected draft child invoice. Only valid when the CN fully credits the
+  // parent invoice.
+  bool reissue_as_draft = 3;
 }
 
 message CreateCreditNoteResponse {
   DetailedCreditNote credit_note = 1;
+  // Populated when reissue_as_draft=true on the request: the id of the corrected draft
+  // invoice created in the same transaction. The frontend refetches the invoice details.
+  optional string corrected_invoice_id = 2;
 }
 
 message PreviewCreditNoteSvgRequest {

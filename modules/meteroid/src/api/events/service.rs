@@ -1,5 +1,6 @@
 use super::EventsServiceComponents;
 use crate::api::events::error::EventsApiError;
+use common_domain::identifiers::validate_code;
 use common_grpc::middleware::server::auth::RequestExt;
 use metering_grpc::meteroid::metering::v1::{
     event::CustomerId, query_raw_events_request::SortOrder as MeteringSortOrder,
@@ -20,6 +21,10 @@ impl EventsService for EventsServiceComponents {
     ) -> Result<Response<SearchEventsResponse>, Status> {
         let tenant_id = request.tenant()?;
         let req = request.into_inner();
+
+        for code in &req.event_codes {
+            validate_code(code).map_err(|e| Status::invalid_argument(e.to_string()))?;
+        }
 
         let sort_order = match req.sort_order() {
             SortOrder::TimestampDesc => MeteringSortOrder::TimestampDesc,
