@@ -30,5 +30,7 @@
   show_terms: inputs.at("show_terms", default: true),
   show_tax_info: inputs.at("show_tax_info", default: true),
   show_legal_info: inputs.at("show_legal_info", default: true),
-  show_footer_custom_info: inputs.at("show_footer_custom_info", default: true)
+  show_footer_custom_info: inputs.at("show_footer_custom_info", default: true),
+  parent_invoice_number: inputs.at("parent_invoice_number", default: none),
+  parent_invoice_date: inputs.at("parent_invoice_date", default: none)
 )

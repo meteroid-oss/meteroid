@@ -94,6 +94,8 @@ pub struct InvoiceMetadata {
     pub payment_url: Option<String>,
     pub flags: Flags,
     pub purchase_order: Option<String>,
+    pub parent_invoice_number: Option<String>,
+    pub parent_invoice_date: Option<chrono::NaiveDate>,
 }
 
 #[derive(Default)]

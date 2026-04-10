@@ -34,6 +34,7 @@ pub struct CreditNoteMetadata {
     pub number: String,
     pub issue_date: NaiveDate,
     pub related_invoice_number: String,
+    pub related_invoice_date: NaiveDate,
     pub subtotal: Price,
     pub tax_amount: Price,
     pub total_amount: Price,

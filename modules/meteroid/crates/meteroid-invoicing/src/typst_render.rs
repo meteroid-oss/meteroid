@@ -294,6 +294,8 @@ pub struct TypstInvoiceContent {
     pub tax_breakdown: Vec<TypstTaxBreakdownItem>,
     pub discount: f64,
     pub purchase_order: Option<String>,
+    pub parent_invoice_number: Option<String>,
+    pub parent_invoice_date: Option<String>,
 }
 
 impl From<&Invoice> for TypstInvoiceContent {
@@ -356,6 +358,20 @@ impl From<&Invoice> for TypstInvoiceContent {
             "reverse_charge_label" => invoice_l10n.reverse_charge_label().into_value(),
             "no_tax_applied" => invoice_l10n.no_tax_applied().into_value()
         };
+
+        if let (Some(parent_number), Some(parent_date)) = (
+            &invoice.metadata.parent_invoice_number,
+            &invoice.metadata.parent_invoice_date,
+        ) {
+            let formatted_parent_date = format_date(lang, parent_date)
+                .unwrap_or_else(|_| parent_date.format("%Y-%m-%d").to_string());
+            translations.insert(
+                "cancels_and_replaces".into(),
+                invoice_l10n
+                    .cancels_and_replaces(parent_number, &formatted_parent_date)
+                    .into_value(),
+            );
+        }
 
         if let Some(exchange_rate) = invoice.organization.exchange_rate {
             let date = format_date(lang, &invoice.metadata.issue_date)
@@ -474,6 +490,10 @@ impl From<&Invoice> for TypstInvoiceContent {
             tax_breakdown,
             discount,
             purchase_order: invoice.metadata.purchase_order.clone(),
+            parent_invoice_number: invoice.metadata.parent_invoice_number.clone(),
+            parent_invoice_date: invoice.metadata.parent_invoice_date.map(|d| {
+                format_date(lang, &d).unwrap_or_else(|_| d.format("%Y-%m-%d").to_string())
+            }),
         }
     }
 }
