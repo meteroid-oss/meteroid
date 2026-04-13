@@ -125,11 +125,19 @@ export function buildPriceInputs(
   formData: Record<string, any>,
   currency: string
 ): PriceInput[] {
-  // Capacity: one PriceInput per threshold row
+  // Capacity: one PriceInput per threshold row, or a single flat threshold (overrides)
   if (pricingType === 'capacity') {
     const cadence = formData.term as Cadence
-    const thresholds = formData.thresholds as { included: number; rate: string; overageRate: string }[]
-    return thresholds.map(t => {
+    const thresholds = formData.thresholds as
+      | { included: number; rate: string; overageRate: string }[]
+      | undefined
+
+    // Flat capacity data (from override forms) — single threshold at top level
+    const entries = thresholds ?? [
+      { included: formData.included as number, rate: formData.rate as string, overageRate: formData.overageRate as string },
+    ]
+
+    return entries.map(t => {
       const protoPricing = formDataToProtoPricing('capacity', {
         rate: t.rate,
         included: t.included,
@@ -357,7 +365,17 @@ export function formDataToPrice(
   const cadence = formData.term
     ? cadenceToProto(formData.term as Cadence)
     : BillingPeriod.MONTHLY
-  const pricing = formDataToProtoPricing(pricingType, formData)
+
+  // Capacity form data may use thresholds array (plan context) or flat fields (override context)
+  let pricingData = formData
+  if (pricingType === 'capacity' && formData.thresholds) {
+    const thresholds = formData.thresholds as { included: number; rate: string; overageRate: string }[]
+    if (thresholds.length > 0) {
+      pricingData = thresholds[0]
+    }
+  }
+
+  const pricing = formDataToProtoPricing(pricingType, pricingData)
   return new Price({ cadence, currency, pricing })
 }
 

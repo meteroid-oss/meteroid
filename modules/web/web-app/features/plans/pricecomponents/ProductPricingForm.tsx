@@ -75,6 +75,12 @@ const pricingOnlySchemas: Record<string, z.ZodType> = {
   oneTime: z.object({ ...OneTimePricingSchema.shape }),
 }
 
+// Flat capacity schema for overrides — single threshold, no thresholds array
+const capacityOverrideSchema = z.object({
+  term: Cadence,
+  ...CapacityPricingSchema.shape,
+})
+
 // Usage pricing-only schemas keyed by usage model — no metricId/usageModel (those live on the product)
 const usagePricingOnlySchemas: Record<string, z.ZodType> = {
   per_unit: z.object({ term: Cadence, ...PerUnitPricingSchema.shape }),
@@ -93,9 +99,11 @@ const usagePricingOnlySchemas: Record<string, z.ZodType> = {
 export function getComponentSchema(
   feeType: ComponentFeeType,
   mode: 'full' | 'pricingOnly',
-  usageModel?: string
+  usageModel?: string,
+  isOverride?: boolean
 ): z.ZodType {
   if (mode === 'full') return fullSchemas[feeType]
+  if (feeType === 'capacity' && isOverride) return capacityOverrideSchema
   if (feeType === 'usage') return usagePricingOnlySchemas[usageModel ?? 'per_unit']
   return pricingOnlySchemas[feeType]
 }
@@ -124,9 +132,13 @@ const usageModelProtoToForm: Record<string, string> = {
 
 export function buildDefaults(
   feeType: ComponentFeeType,
-  existingPrice?: Price
+  existingPrice?: Price,
+  isOverride?: boolean
 ): Record<string, unknown> {
   if (!existingPrice) {
+    if (feeType === 'capacity' && isOverride) {
+      return { term: 'MONTHLY', rate: '0.00', included: 0, overageRate: '0.00000000' }
+    }
     switch (feeType) {
       case 'rate':
         return { term: 'MONTHLY', rate: '0.00' }
@@ -157,6 +169,13 @@ export function buildDefaults(
   const usageModel = deriveUsageModelFromPrice(existingPrice)
   const pricingType = toPricingTypeFromFeeType(feeType, usageModel)
   const formData = pricesToFormData([existingPrice], pricingType)
+
+  // For capacity overrides, flatten thresholds to a single threshold
+  if (feeType === 'capacity' && isOverride && formData.thresholds) {
+    const thresholds = formData.thresholds as { included: number; rate: string; overageRate: string }[]
+    const t = thresholds[0] ?? { included: 0, rate: '0.00', overageRate: '0.00000000' }
+    return { term: formData.term, rate: t.rate, included: t.included, overageRate: t.overageRate }
+  }
 
   if (feeType === 'usage' && usageModel) {
     return { ...formData, usageModel: usageModelProtoToForm[usageModel] ?? 'per_unit' }
@@ -191,6 +210,7 @@ export const PriceComponentFormContent = ({
   structural,
   editableStructure,
   isEdit,
+  isOverride,
   familyLocalId,
 }: {
   feeType: ComponentFeeType
@@ -199,6 +219,7 @@ export const PriceComponentFormContent = ({
   structural?: StructuralInfo
   editableStructure?: boolean
   isEdit?: boolean
+  isOverride?: boolean
   familyLocalId?: string
 }) => (
   <div className="space-y-4">
@@ -221,6 +242,7 @@ export const PriceComponentFormContent = ({
       currency={currency}
       methods={methods}
       structural={structural ?? {}}
+      isOverride={isOverride}
     />
   </div>
 )
@@ -233,6 +255,7 @@ interface ProductPricingFormProps {
   existingPrice?: Price
   structuralInfo?: StructuralInfo
   editableStructure?: boolean
+  isOverride?: boolean
   onSubmit: (formData: Record<string, unknown>) => void
   submitLabel?: string
   familyLocalId?: string
@@ -244,22 +267,27 @@ export const ProductPricingForm = ({
   existingPrice,
   structuralInfo,
   editableStructure,
+  isOverride,
   onSubmit,
   submitLabel = 'Add to Plan',
   familyLocalId,
 }: ProductPricingFormProps) => {
   const structural = structuralInfo ?? {}
 
-  const defaults = useMemo(() => buildDefaults(feeType, existingPrice), [feeType, existingPrice])
+  const defaults = useMemo(
+    () => buildDefaults(feeType, existingPrice, isOverride),
+    [feeType, existingPrice, isOverride]
+  )
 
   const schema = useMemo(
     () =>
       getComponentSchema(
         feeType,
         editableStructure ? 'full' : 'pricingOnly',
-        structural.usageModel
+        structural.usageModel,
+        isOverride
       ),
-    [feeType, editableStructure, structural.usageModel]
+    [feeType, editableStructure, structural.usageModel, isOverride]
   )
 
   const methods = useZodForm({ schema: schema as z.ZodType, defaultValues: defaults })
@@ -283,6 +311,7 @@ export const ProductPricingForm = ({
         methods={methods}
         structural={structural}
         editableStructure={editableStructure}
+        isOverride={isOverride}
         familyLocalId={familyLocalId}
       />
       <div className="flex justify-end pt-2">
@@ -533,11 +562,13 @@ const PricingFormFields = ({
   currency,
   methods,
   structural,
+  isOverride,
 }: {
   feeType: ComponentFeeType
   currency: string
   methods: Methods<z.ZodType>
   structural: StructuralInfo
+  isOverride?: boolean
 }) => {
   switch (feeType) {
     case 'rate':
@@ -545,7 +576,11 @@ const PricingFormFields = ({
     case 'slot':
       return <SlotPricingFields methods={methods} currency={currency} />
     case 'capacity':
-      return <CapacityPricingInline methods={methods} currency={currency} />
+      return isOverride ? (
+        <CapacityOverrideInline methods={methods} currency={currency} />
+      ) : (
+        <CapacityPricingInline methods={methods} currency={currency} />
+      )
     case 'usage':
       return <UsagePricingInline methods={methods} currency={currency} structural={structural} />
     case 'extraRecurring':
@@ -627,6 +662,42 @@ const CapacityPricingInline = ({
   <div className="space-y-4">
     <CadenceSelect methods={methods} />
     <PricingFields pricingType="capacity" control={methods.control} currency={currency} />
+  </div>
+)
+
+// Flat capacity fields for overrides — single committed threshold
+const CapacityOverrideInline = ({
+  methods,
+  currency,
+}: {
+  methods: Methods<z.ZodType>
+  currency: string
+}) => (
+  <div className="space-y-4">
+    <CadenceSelect methods={methods} />
+    <InputFormField
+      name="included"
+      label="Included units"
+      type="number"
+      control={methods.control}
+      className="max-w-xs"
+    />
+    <GenericFormField
+      control={methods.control}
+      name="rate"
+      label="Rate"
+      render={({ field }) => (
+        <UncontrolledPriceInput {...field} currency={currency} className="max-w-xs" />
+      )}
+    />
+    <GenericFormField
+      control={methods.control}
+      name="overageRate"
+      label="Overage rate"
+      render={({ field }) => (
+        <UncontrolledPriceInput {...field} currency={currency} className="max-w-xs" precision={8} />
+      )}
+    />
   </div>
 )
 
