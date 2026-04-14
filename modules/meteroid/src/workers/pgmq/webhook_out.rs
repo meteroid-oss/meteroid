@@ -411,7 +411,7 @@ impl PgmqHandler for WebhookOut {
     async fn handle(&self, msgs: &[PgmqMessage]) -> PgmqResult<HandleResult> {
         let msg_id_to_out_evt = to_outbox_events(msgs).await?;
 
-        // Resolve once per unique tenant — collapses N-per-tenant bursts (e.g. 00:00 invoicing) to 1 roundtrip.
+        // collapses N-per-tenant bursts (e.g. 00:00 invoicing) to 1 roundtrip.
         let unique_tenants: HashSet<TenantId> = msg_id_to_out_evt
             .iter()
             .map(|(_, e)| e.tenant_id())

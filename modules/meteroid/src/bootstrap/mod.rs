@@ -87,7 +87,6 @@ pub async fn verify_svix_setup(
     }
 
     if let Some(svix) = svix {
-        // Scheme/slash-lenient substring match.
         let trimmed = rest_api_external_url
             .trim_end_matches('/')
             .trim_start_matches("https://")

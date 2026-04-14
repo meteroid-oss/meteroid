@@ -113,7 +113,6 @@ pub async fn start_rest_server_with_listener(
         .fallback(handler_404)
         .with_state(app_state);
 
-    // Mounted after with_state — uses its own state, not AppState
     let app = if let Some(svix_op_state) = svix_operational_state {
         app.nest(
             crate::api_rest::svix_operational::OP_WEBHOOK_PATH,

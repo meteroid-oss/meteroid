@@ -53,7 +53,6 @@ async fn main() -> Result<(), Box<dyn Error>> {
 
     let services_arc = Arc::new(services.clone());
 
-    // Create a single shared fred::Client (connection pool) for all Redis-backed services.
     let fred_client = connect_redis(&config.redis);
     let redis_available = fred_client.is_some();
 

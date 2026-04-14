@@ -109,7 +109,6 @@ impl SvixRateLimiter {
     }
 
     async fn redis_wait(&self, client: &fred::prelude::Client) {
-        // Check global backoff (set on 429)
         if let Ok(Some(backoff_until)) = client.get::<Option<i64>, _>(RATE_LIMIT_BACKOFF_KEY).await
         {
             let now = chrono::Utc::now().timestamp();
@@ -121,7 +120,6 @@ impl SvixRateLimiter {
         }
 
         loop {
-            // Fixed-window counter: key must be recomputed each iter so retries land in the new second.
             let now_sec = chrono::Utc::now().timestamp();
             let key = format!("{RATE_LIMIT_WINDOW_PREFIX}:{now_sec}");
 
@@ -256,7 +254,7 @@ impl SvixOps for SvixClient {
             self.rate_limiter.wait_for_permit().await;
 
             let opts = svix::api::EndpointListOptions {
-                iterator,
+                iterator: iterator.clone(),
                 ..Default::default()
             };
 
@@ -267,7 +265,8 @@ impl SvixOps for SvixClient {
                 .await?;
             all_endpoints.extend(page.data);
 
-            if page.done {
+            // Defensive: break on done, or if Svix returns a non-advancing iterator.
+            if page.done || page.iterator.is_none() || page.iterator == iterator {
                 break;
             }
             iterator = page.iterator;
@@ -286,7 +285,7 @@ impl SvixOps for SvixClient {
             self.rate_limiter.wait_for_permit().await;
 
             let opts = OperationalWebhookEndpointListOptions {
-                iterator,
+                iterator: iterator.clone(),
                 ..Default::default()
             };
 
@@ -298,7 +297,7 @@ impl SvixOps for SvixClient {
                 .await?;
             all.extend(page.data);
 
-            if page.done {
+            if page.done || page.iterator.is_none() || page.iterator == iterator {
                 break;
             }
             iterator = page.iterator;

@@ -79,7 +79,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
 
     let svix_wiring = wire_svix(&config.svix, fred_client);
 
-    // Scheduler doesn't host the op-webhook route — skip Svix-side check, just verify Redis.
+    // Scheduler doesn't host the op-webhook route, just verify Redis.
     bootstrap::verify_svix_setup(&config.svix, "", None, redis_available).await;
 
     workers::spawn_workers(

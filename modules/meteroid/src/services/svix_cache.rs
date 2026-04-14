@@ -58,8 +58,8 @@ pub enum LockOutcome {
     /// Caller holds the lock and must call `release_lock` after populating the cache.
     Acquired,
     CachedByOther(EndpointConfig),
-    /// Lock taken by another caller, but their value didn't land in cache
-    /// within the poll window — caller should load on its own.
+    /// Lock taken by another caller, but their value didn't land in cache within the poll window
+    /// — caller should load on its own.
     TimedOut,
     /// No Redis: act as solo caller.
     NoCache,
@@ -85,7 +85,6 @@ fn portal_key(tenant_id: &TenantId) -> String {
     format!("{REDIS_PORTAL_ACTIVE_PREFIX}:{tenant_id}")
 }
 
-/// Redis-backed endpoint cache. Fail-open on all Redis errors.
 pub struct RedisSvixEndpointCache {
     client: fred::prelude::Client,
     default_ttl_secs: i64,
@@ -228,7 +227,7 @@ impl SvixEndpointCache for RedisSvixEndpointCache {
     }
 }
 
-/// Used when Redis is absent: always send, never cache — matches pre-cache behaviour.
+/// Used when Redis is absent: always send, never cache
 pub struct NoopSvixEndpointCache;
 
 #[async_trait]
