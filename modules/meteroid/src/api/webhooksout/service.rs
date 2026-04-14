@@ -8,7 +8,6 @@ use meteroid_grpc::meteroid::api::webhooks::out::v1::{
 
 use crate::api::webhooksout::WebhooksServiceComponents;
 use crate::api::webhooksout::error::WebhookApiError;
-use crate::svix::SvixOps;
 
 #[tonic::async_trait]
 impl WebhooksService for WebhooksServiceComponents {

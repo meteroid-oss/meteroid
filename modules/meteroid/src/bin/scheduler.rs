@@ -15,6 +15,9 @@ use meteroid::services::currency_rates::OpenexchangeRatesService;
 use meteroid::services::idempotency::{
     IdempotencyService, InMemoryIdempotencyService, RedisIdempotencyService,
 };
+use meteroid::services::svix_cache::{
+    NoopSvixEndpointCache, RedisSvixEndpointCache, SvixEndpointCache,
+};
 use meteroid::services::invoice_rendering::PdfRenderingService;
 use meteroid::services::storage::S3Storage;
 use meteroid::singletons;
@@ -38,7 +41,6 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
 
     let store = Arc::new(singletons::get_store().await.clone());
 
-    let svix = new_svix(&config.svix);
     let stripe = Arc::new(StripeClient::new());
 
     let usage_clients = Arc::new(MeteringUsageClient::get().clone());
@@ -70,10 +72,32 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     let mailer_service = mailer_service(config.mailer.clone());
 
     let fred_client = connect_redis(&config.redis);
-    let idempotency: Arc<dyn IdempotencyService> = match fred_client {
-        Some(client) => Arc::new(RedisIdempotencyService::new(client)),
-        None => Arc::new(InMemoryIdempotencyService::new()),
+    let (idempotency, endpoint_cache): (
+        Arc<dyn IdempotencyService>,
+        Arc<dyn SvixEndpointCache>,
+    ) = match &fred_client {
+        Some(client) => (
+            Arc::new(RedisIdempotencyService::new(client.clone())),
+            Arc::new(RedisSvixEndpointCache::new(
+                client.clone(),
+                config.svix.operational_webhook_secret.is_some(),
+            )),
+        ),
+        None => (
+            Arc::new(InMemoryIdempotencyService::new()),
+            Arc::new(NoopSvixEndpointCache),
+        ),
     };
+
+    let svix_rate_limiter = Arc::new(meteroid::svix::SvixRateLimiter::new(
+        fred_client,
+        config.svix.rps_quota,
+    ));
+    let svix_raw = new_svix(&config.svix);
+    let svix: Option<Arc<dyn meteroid::svix::SvixOps>> = svix_raw.map(|s| {
+        Arc::new(meteroid::svix::SvixClient::new(s, svix_rate_limiter))
+            as Arc<dyn meteroid::svix::SvixOps>
+    });
 
     workers::spawn_workers(
         store.clone(),
@@ -85,6 +109,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         credit_note_pdf_service,
         mailer_service,
         idempotency,
+        endpoint_cache,
         config,
     )
     .await;

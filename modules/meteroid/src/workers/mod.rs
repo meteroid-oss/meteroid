@@ -4,6 +4,7 @@ use crate::services::currency_rates::CurrencyRatesService;
 use crate::services::idempotency::IdempotencyService;
 use crate::services::invoice_rendering::PdfRenderingService;
 use crate::services::storage::S3Storage;
+use crate::services::svix_cache::SvixEndpointCache;
 use crate::workers::pgmq::processors;
 use hubspot_client::client::HubspotClient;
 use meteroid_mailer::service::MailerService;
@@ -45,13 +46,14 @@ pub mod pgmq;
 pub async fn spawn_workers(
     store: Arc<meteroid_store::Store>,
     services: Arc<Services>,
-    svix: Option<Arc<svix::api::Svix>>,
+    svix: Option<Arc<dyn crate::svix::SvixOps>>,
     object_store_service: Arc<S3Storage>,
     currency_rates_service: Arc<dyn CurrencyRatesService>,
     pdf_rendering_service: Arc<PdfRenderingService>,
     credit_note_pdf_rendering_service: Arc<CreditNotePdfRenderingService>,
     mailer_service: Arc<dyn MailerService>,
     idempotency: Arc<dyn IdempotencyService>,
+    endpoint_cache: Arc<dyn SvixEndpointCache>,
     config: &Config,
 ) {
     let hubspot_client = Arc::new(HubspotClient::default());
@@ -86,7 +88,7 @@ pub async fn spawn_workers(
     {
         let store = store.clone();
         join_set.spawn(async move {
-            processors::run_webhook_out(store, svix).await;
+            processors::run_webhook_out(store, svix, endpoint_cache).await;
         });
     }
     {

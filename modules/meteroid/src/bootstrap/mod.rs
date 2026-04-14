@@ -2,7 +2,6 @@ use crate::constants::OSS_API;
 use crate::svix::SvixOps;
 use meteroid_store::repositories::historical_rates::HistoricalRatesInterface;
 use std::sync::Arc;
-use svix::api::Svix;
 use tap::TapFallible;
 
 mod historical_rates;
@@ -13,7 +12,7 @@ const BASE_DATE: chrono::NaiveDate =
 
 pub async fn bootstrap_once(
     store: meteroid_store::Store,
-    svix: Option<Arc<Svix>>,
+    svix: Option<Arc<dyn SvixOps>>,
 ) -> Result<(), Box<dyn std::error::Error>> {
     // register svix event types
     if let Some(svix) = svix {

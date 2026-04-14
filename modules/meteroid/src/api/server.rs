@@ -24,7 +24,7 @@ pub async fn start_api_server(
     store: Store,
     services: Services,
     object_store: Arc<dyn ObjectStoreService>,
-    svix: Option<Arc<svix::api::Svix>>,
+    svix: Option<Arc<dyn crate::svix::SvixOps>>,
 ) -> Result<(), Box<dyn std::error::Error>> {
     log::info!("Starting GRPC API on {}", config.grpc_listen_addr);
 

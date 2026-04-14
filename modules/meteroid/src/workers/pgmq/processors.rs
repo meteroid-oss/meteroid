@@ -12,6 +12,7 @@ use crate::workers::pgmq::pennylane_sync::PennylaneSync;
 use crate::workers::pgmq::processor::{Noop, PgmqHandler, ProcessorConfig, run};
 use crate::workers::pgmq::quote_conversion::QuoteConversion;
 use crate::workers::pgmq::send_email::EmailSender;
+use crate::services::svix_cache::SvixEndpointCache;
 use crate::workers::pgmq::webhook_out::WebhookOut;
 use common_domain::pgmq::{MessageReadQty, MessageReadVtSec, ReadCt};
 use hubspot_client::client::HubspotClient;
@@ -20,8 +21,8 @@ use meteroid_store::domain::pgmq::PgmqQueue;
 use meteroid_store::{Services, Store};
 use pennylane_client::client::PennylaneClient;
 use rand::RngExt;
+use crate::svix::SvixOps;
 use std::sync::Arc;
-use svix::api::Svix;
 
 pub async fn run_outbox_dispatch(store: Arc<Store>) {
     let queue = PgmqQueue::OutboxEvent;
@@ -97,18 +98,23 @@ pub async fn run_credit_note_pdf_render(
     .await;
 }
 
-pub async fn run_webhook_out(store: Arc<Store>, svix: Option<Arc<Svix>>) {
+pub async fn run_webhook_out(
+    store: Arc<Store>,
+    svix: Option<Arc<dyn SvixOps>>,
+    endpoint_cache: Arc<dyn SvixEndpointCache>,
+) {
     let queue = PgmqQueue::WebhookOut;
 
-    let processor: Arc<dyn PgmqHandler> = match svix.as_ref() {
+    let has_svix = svix.is_some();
+    let processor: Arc<dyn PgmqHandler> = match svix {
         None => Arc::new(Noop),
         Some(svix) => Arc::new(PgmqOutboxProxy::new(
             store.clone(),
-            Arc::new(WebhookOut::new(svix.clone())),
+            Arc::new(WebhookOut::new(svix, endpoint_cache)),
         )),
     };
 
-    let proc_name = if svix.is_some() {
+    let proc_name = if has_svix {
         processor_name("WebhookOut")
     } else {
         processor_name("NoopWebhookOut")

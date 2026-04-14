@@ -7,6 +7,7 @@ use crate::api_rest::webhooks::out_model::{
     WebhookOutProductEvent, WebhookOutProductEventData, WebhookOutQuoteEvent,
     WebhookOutQuoteEventData, WebhookOutSubscriptionEvent, WebhookOutSubscriptionEventData,
 };
+use crate::services::svix_cache::{SvixEndpointCache, build_endpoint_config, EndpointConfig};
 use crate::svix::SvixOps;
 use crate::workers::pgmq::PgmqResult;
 use crate::workers::pgmq::error::PgmqError;
@@ -18,21 +19,61 @@ use futures::future::try_join_all;
 use meteroid_store::domain::outbox_event::OutboxEvent;
 use meteroid_store::domain::pgmq::PgmqMessage;
 use std::sync::Arc;
-use svix::api::{MessageIn, Svix};
+use svix::api::MessageIn;
 
 pub(crate) struct WebhookOut {
-    pub svix: Arc<Svix>,
+    pub svix: Arc<dyn SvixOps>,
+    pub endpoint_cache: Arc<dyn SvixEndpointCache>,
 }
 
 impl WebhookOut {
-    pub fn new(svix: Arc<Svix>) -> Self {
-        Self { svix }
+    pub fn new(svix: Arc<dyn SvixOps>, endpoint_cache: Arc<dyn SvixEndpointCache>) -> Self {
+        Self {
+            svix,
+            endpoint_cache,
+        }
+    }
+
+    /// Check if the tenant has an active endpoint for this event type, populating cache on miss.
+    async fn check_endpoint_cache(
+        svix: &Arc<dyn SvixOps>,
+        endpoint_cache: &Arc<dyn SvixEndpointCache>,
+        tenant_id: &common_domain::ids::TenantId,
+        event_type: &str,
+    ) -> bool {
+        if let Some(should_send) = endpoint_cache.should_send(tenant_id, event_type).await {
+            return should_send;
+        }
+
+        // Cache miss — fetch endpoints from Svix and populate
+        let config = match svix.list_endpoints(*tenant_id).await {
+            Ok(endpoints) => build_endpoint_config(&endpoints),
+            Err(svix::error::Error::Http(e)) if e.status.as_u16() == 404 => {
+                // No Svix app for this tenant
+                EndpointConfig {
+                    wildcard: false,
+                    event_types: vec![],
+                    empty: true,
+                }
+            }
+            Err(e) => {
+                log::warn!(
+                    "Failed to list Svix endpoints for tenant {tenant_id}: {e:?}. Sending anyway."
+                );
+                return true; // fail-open
+            }
+        };
+
+        let should_send = config.should_send(event_type);
+        endpoint_cache.store(tenant_id, &config).await;
+        should_send
     }
 
     async fn handle_event(
         msg_id: MessageId,
         event: OutboxEvent,
-        svix: Arc<Svix>,
+        svix: Arc<dyn SvixOps>,
+        endpoint_cache: Arc<dyn SvixEndpointCache>,
     ) -> Result<MessageId, Report<PgmqError>> {
         let event_id = event.event_id();
         let tenant_id = event.tenant_id();
@@ -42,15 +83,33 @@ impl WebhookOut {
             let message_in =
                 message_in.map_err(|e| Report::new(PgmqError::HandleMessages).attach(e))?;
 
+            // Check if tenant has an active endpoint for this event type
+            if !Self::check_endpoint_cache(
+                &svix,
+                &endpoint_cache,
+                &tenant_id,
+                &message_in.event_type,
+            )
+            .await
+            {
+                log::debug!(
+                    "[svix_cache] Skipped webhook {event_id} for tenant {tenant_id}: no active endpoint for {}",
+                    message_in.event_type
+                );
+                return Ok(msg_id);
+            }
+
             let message_result = svix.create_message(tenant_id, message_in).await;
 
             if let Err(svix::error::Error::Http(e)) = message_result {
                 match e.status.as_u16() {
-                    // there is no svix application created for this tenant, yet
-                    // it is auto-created once the tenant accesses the webhook portal the first time
-                    404 => log::debug!(
-                        "[svix_404] Skipped webhook {event_id} as the tenant {tenant_id} did not configure webhooks"
-                    ),
+                    404 => {
+                        // Svix app was removed since we cached — invalidate and skip
+                        endpoint_cache.invalidate(&tenant_id).await;
+                        log::debug!(
+                            "[svix_404] Skipped webhook {event_id} as the tenant {tenant_id} did not configure webhooks"
+                        );
+                    }
                     409 => log::info!("[svix_409] Skipped webhook {event_id} as it already exists"),
                     _ => {
                         return Err(svix::error::Error::Http(e))
@@ -345,9 +404,10 @@ impl PgmqHandler for WebhookOut {
             .into_iter()
             .map(|(msg_id, event)| {
                 let svix = self.svix.clone();
+                let endpoint_cache = self.endpoint_cache.clone();
                 tokio::spawn(async move {
                     let event_type = event.event_type();
-                    let res = Self::handle_event(msg_id, event, svix).await;
+                    let res = Self::handle_event(msg_id, event, svix, endpoint_cache).await;
 
                     if let Err(ref e) = res {
                         log::warn!(

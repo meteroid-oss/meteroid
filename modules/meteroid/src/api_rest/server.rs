@@ -34,6 +34,7 @@ pub async fn start_rest_server(
     store: Store,
     services: Services,
     ready: Arc<std::sync::atomic::AtomicBool>,
+    svix_operational_state: Option<crate::api_rest::svix_operational::SvixOperationalState>,
 ) -> Result<(), Box<dyn std::error::Error>> {
     let listener = TcpListener::bind(&config.rest_api_addr)
         .await
@@ -46,10 +47,12 @@ pub async fn start_rest_server(
         services,
         ready,
         listener,
+        svix_operational_state,
     )
     .await
 }
 
+#[allow(clippy::too_many_arguments)]
 #[allow(clippy::too_many_arguments)]
 pub async fn start_rest_server_with_listener(
     config: Config,
@@ -59,6 +62,7 @@ pub async fn start_rest_server_with_listener(
     services: Services,
     ready: std::sync::Arc<std::sync::atomic::AtomicBool>,
     listener: TcpListener,
+    svix_operational_state: Option<crate::api_rest::svix_operational::SvixOperationalState>,
 ) -> Result<(), Box<dyn std::error::Error>> {
     let app_state = AppState {
         object_store,
@@ -107,7 +111,19 @@ pub async fn start_rest_server_with_listener(
         .merge(crate::api_rest::oauth::oauth_routes())
         .merge(api_router)
         .fallback(handler_404)
-        .with_state(app_state)
+        .with_state(app_state);
+
+    // Mounted after with_state — uses its own state, not AppState
+    let app = if let Some(svix_op_state) = svix_operational_state {
+        app.nest(
+            "/internal/svix-operational",
+            crate::api_rest::svix_operational::svix_operational_routes(svix_op_state),
+        )
+    } else {
+        app
+    };
+
+    let app = app
         .layer(auth_layer)
         .layer(DefaultBodyLimit::disable())
         .layer(RequestBodyLimitLayer::new(1024 * 1024)) // 1 MB

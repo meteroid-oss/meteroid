@@ -6,3 +6,4 @@ pub mod idempotency;
 pub mod invoice_rendering;
 pub mod storage;
 pub mod subscription_ingest;
+pub mod svix_cache;

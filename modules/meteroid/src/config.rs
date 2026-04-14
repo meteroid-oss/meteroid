@@ -161,6 +161,9 @@ pub struct SvixConfig {
 
     #[envconfig(from = "SVIX_RPS_QUOTA", default = "25")]
     pub rps_quota: u32,
+
+    #[envconfig(from = "SVIX_OPERATIONAL_WEBHOOK_SECRET")]
+    pub operational_webhook_secret: Option<String>,
 }
 
 #[derive(Envconfig, Debug, Clone, Default)]

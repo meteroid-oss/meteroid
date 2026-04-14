@@ -191,6 +191,7 @@ async fn start_meteroid_from_config(
         services.clone(),
         ready,
         rest_listener,
+        None,
     );
 
     let join_handle_meteroid = tokio::spawn(async move {

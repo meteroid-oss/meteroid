@@ -53,6 +53,7 @@ pub fn mocked_config(
             server_url: Some("http://localhost:8071".to_owned()),
             token: Some("fake".to_owned().into()),
             rps_quota: 25,
+            operational_webhook_secret: None,
         },
         mailer: MailerConfig::dummy(),
         public_url: "http://localhost:8080".to_owned(),
