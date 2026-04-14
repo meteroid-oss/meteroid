@@ -51,7 +51,7 @@ pub fn mocked_config(
         openexchangerates_api_key: None,
         svix: SvixConfig {
             server_url: Some("http://localhost:8071".to_owned()),
-            token: "fake".to_owned().into(),
+            token: Some("fake".to_owned().into()),
             rps_quota: 25,
         },
         mailer: MailerConfig::dummy(),

@@ -1019,6 +1019,7 @@ const OverrideFeeModal = ({
           existingPrice={originalComponent ? getPrice(originalComponent) : undefined}
           structuralInfo={structural}
           editableStructure={!hasProduct}
+          isOverride
           onSubmit={handleSubmit}
           submitLabel="Save Override"
         />

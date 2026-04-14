@@ -36,21 +36,25 @@ impl ApiRateLimiter {
 }
 
 pub fn new_svix(config: &SvixConfig) -> Option<Arc<Svix>> {
-    config.server_url.as_ref().map(|x| {
-        log::info!("Initializing Svix client with server URL: {}", x);
+    config
+        .server_url
+        .as_ref()
+        .zip(config.token.as_ref())
+        .map(|(url, token)| {
+            log::info!("Initializing Svix client with server URL: {}", url);
 
-        Arc::new(Svix::new(
-            config.token.expose_secret().to_string(),
-            Some(svix::api::SvixOptions {
-                debug: true,
-                server_url: Some(x.clone()),
-                timeout: Some(Duration::from_secs(30)),
-                num_retries: Some(3),
-                retry_schedule: None,
-                proxy_address: None,
-            }),
-        ))
-    })
+            Arc::new(Svix::new(
+                token.expose_secret().to_string(),
+                Some(svix::api::SvixOptions {
+                    debug: true,
+                    server_url: Some(url.clone()),
+                    timeout: Some(Duration::from_secs(30)),
+                    num_retries: Some(3),
+                    retry_schedule: None,
+                    proxy_address: None,
+                }),
+            ))
+        })
 }
 
 #[async_trait::async_trait]

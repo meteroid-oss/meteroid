@@ -157,7 +157,7 @@ pub struct SvixConfig {
     pub server_url: Option<String>,
 
     #[envconfig(from = "SVIX_JWT_TOKEN")]
-    pub token: SecretString,
+    pub token: Option<SecretString>,
 
     #[envconfig(from = "SVIX_RPS_QUOTA", default = "25")]
     pub rps_quota: u32,
