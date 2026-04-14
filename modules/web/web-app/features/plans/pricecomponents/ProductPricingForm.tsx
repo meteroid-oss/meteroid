@@ -726,10 +726,16 @@ const UsagePricingInline = ({
     if (usageModel && usageModel !== prevModel.current) {
       const newType = toPricingTypeFromFeeType('usage', usageModel)
       const defaults = pricingDefaults(newType)
+      // Skip clearing 'rows' when switching to matrix: MatrixPricingFields owns row sync
+      // from validCombinations, and effects fire child-first so a parent reset would wipe
+      // the child's freshly populated rows.
+      const skipRows = usageModel === 'matrix'
       for (const key of pricingFieldKeys) {
+        if (key === 'rows' && skipRows) continue
         methods.setValue(key, key === 'rows' ? [] : undefined, { shouldValidate: false })
       }
       for (const [key, val] of Object.entries(defaults)) {
+        if (key === 'rows' && skipRows) continue
         methods.setValue(key, val, { shouldValidate: false })
       }
       prevModel.current = usageModel

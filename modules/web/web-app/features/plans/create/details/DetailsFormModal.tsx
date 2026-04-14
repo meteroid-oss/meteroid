@@ -144,31 +144,35 @@ const BasicDetailedForm = ({ plan, version }: Props) => {
             </div>
           </div>
         </div>
-        {isDraft && (
-          <>
-            <div className="px-6 border-t pb-2">
-              <div className="py-4 text-sm text-foreground flex flex-col">
-                <span>Version details</span>
-              </div>
-              <div className="pl-2">
-                <div className="space-y-6 py-2">
-                  <InputFormField
-                    name="netTerms"
-                    control={methods.control}
-                    label="Net terms (days)"
-                    type="number"
-                    placeholder="30"
-                    layout="horizontal"
-                    min={0}
-                    max={180}
-                    step={1}
-                    className="w-[100px]"
-                  />
-                </div>
-              </div>
+        <div className="px-6 border-t pb-2">
+          <div className="py-4 text-sm text-foreground flex flex-col w-full">
+            <span className="flex w-full justify-between">
+              <span>Version details</span>
+              <span className="bg-muted text-muted-foreground p-1 rounded-sm ml-4 text-xs">
+                {isDraft
+                  ? 'applies to this version only'
+                  : 'create a new draft version to edit'}
+              </span>
+            </span>
+          </div>
+          <div className="pl-2">
+            <div className="space-y-6 py-2">
+              <InputFormField
+                name="netTerms"
+                control={methods.control}
+                label="Net terms (days)"
+                type="number"
+                placeholder="30"
+                layout="horizontal"
+                min={0}
+                max={180}
+                step={1}
+                className="w-[100px]"
+                disabled={!isDraft}
+              />
             </div>
-          </>
-        )}
+          </div>
+        </div>
         <div className="flex justify-end gap-2 py-3 px-5 border-t ">
           <div className="flex w-full space-x-2 justify-end">
             <Button

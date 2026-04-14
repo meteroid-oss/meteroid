@@ -570,27 +570,34 @@ function MatrixPricingFields({
   dimensionHeaders?: string[]
   validCombinations?: DimensionCombination[]
 }) {
-  const { fields, append } = useFieldArray({
+  const { fields, replace } = useFieldArray({
     control,
     name: 'rows',
   })
   const { getValues } = useFormContext()
 
-  // Auto-populate missing combinations when validCombinations changes
+  // Sync rows with validCombinations: keep prices for matching combos, drop orphans, add new.
   useEffect(() => {
-    if (!validCombinations?.length) return
+    if (!validCombinations) return
 
     const currentRows = (getValues('rows') ?? []) as MatrixRow[]
+    const synced = validCombinations.map(combo => {
+      const existing = currentRows.find(row =>
+        areDimensionsEqual(row as unknown as DimensionCombination, combo)
+      )
+      return { ...combo, perUnitPrice: existing?.perUnitPrice ?? '0' }
+    })
 
-    const newRows = validCombinations.filter(
-      combo =>
-        !currentRows.some(row => areDimensionsEqual(row as unknown as DimensionCombination, combo))
-    )
-
-    if (newRows.length > 0) {
-      append(newRows.map(dimensions => ({ ...dimensions, perUnitPrice: '0' })))
-    }
-  }, [validCombinations, append, getValues])
+    const isSame =
+      synced.length === currentRows.length &&
+      synced.every((row, i) =>
+        areDimensionsEqual(
+          row as DimensionCombination,
+          currentRows[i] as unknown as DimensionCombination
+        ) && row.perUnitPrice === currentRows[i].perUnitPrice
+      )
+    if (!isSame) replace(synced)
+  }, [validCombinations, replace, getValues])
 
   const isOrphaned = useCallback(
     (row: DimensionCombination) => {
