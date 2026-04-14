@@ -50,9 +50,9 @@ impl WebhookOut {
 
         match cache.try_acquire_lock(tenant_id).await {
             LockOutcome::CachedByOther(c) => c,
-            LockOutcome::Acquired(token) => {
+            LockOutcome::Acquired => {
                 let result = Self::load_and_store(svix, cache, tenant_id).await;
-                cache.release_lock(tenant_id, &token).await;
+                cache.release_lock(tenant_id).await;
                 result
             }
             LockOutcome::TimedOut | LockOutcome::NoCache => {

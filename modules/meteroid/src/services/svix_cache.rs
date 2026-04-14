@@ -1,10 +1,8 @@
 use async_trait::async_trait;
 use common_domain::ids::TenantId;
-use fred::interfaces::LuaInterface;
 use fred::prelude::{Expiration, KeysInterface, SetOptions};
 use serde::{Deserialize, Serialize};
 use std::time::Duration;
-use uuid::Uuid;
 
 const REDIS_KEY_PREFIX: &str = "svix:endpoints";
 const REDIS_LOCK_PREFIX: &str = "svix:endpoints:lock";
@@ -15,19 +13,11 @@ const CACHE_TTL_SHORT_SECS: i64 = 5 * 60;
 const CACHE_TTL_NO_OP_WEBHOOKS_SECS: i64 = 5 * 60;
 const PORTAL_ACTIVE_TTL_SECS: i64 = 4 * 3600;
 
-// Must cover worst-case list_endpoints (pagination × rate-limiter permit waits).
-const LOCK_TTL_SECS: i64 = 15;
+// Deduplication hint, not a mutex. Followers fall through to solo-load after LOCK_POLL_MAX
+// regardless, so the TTL only bounds how long a stale key lingers after a dead holder.
+const LOCK_TTL_SECS: i64 = 60;
 const LOCK_POLL_MAX: Duration = Duration::from_millis(2000);
 const LOCK_POLL_INTERVAL: Duration = Duration::from_millis(100);
-
-// CAS release: only DEL if the value still matches our fencing token.
-const LOCK_RELEASE_SCRIPT: &str = r#"
-if redis.call('GET', KEYS[1]) == ARGV[1] then
-  return redis.call('DEL', KEYS[1])
-else
-  return 0
-end
-"#;
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct EndpointConfig {
@@ -65,10 +55,8 @@ impl EndpointConfig {
 }
 
 pub enum LockOutcome {
-    /// Caller holds the lock. The String is a fencing token that must be
-    /// passed back to `release_lock` so a TTL-expired holder can't delete a
-    /// subsequent acquirer's lock.
-    Acquired(String),
+    /// Caller holds the lock and must call `release_lock` after populating the cache.
+    Acquired,
     CachedByOther(EndpointConfig),
     /// Lock taken by another caller, but their value didn't land in cache
     /// within the poll window — caller should load on its own.
@@ -84,7 +72,7 @@ pub trait SvixEndpointCache: Send + Sync {
     async fn invalidate(&self, tenant_id: &TenantId);
     async fn mark_portal_active(&self, tenant_id: &TenantId);
     async fn try_acquire_lock(&self, tenant_id: &TenantId) -> LockOutcome;
-    async fn release_lock(&self, tenant_id: &TenantId, token: &str);
+    async fn release_lock(&self, tenant_id: &TenantId);
 }
 
 fn cache_key(tenant_id: &TenantId) -> String {
@@ -195,13 +183,12 @@ impl SvixEndpointCache for RedisSvixEndpointCache {
     async fn try_acquire_lock(&self, tenant_id: &TenantId) -> LockOutcome {
         let lkey = lock_key(tenant_id);
         let ckey = cache_key(tenant_id);
-        let token = Uuid::new_v4().to_string();
 
         let acquired: Result<Option<String>, _> = self
             .client
             .set(
                 &lkey,
-                token.clone(),
+                "1",
                 Some(Expiration::EX(LOCK_TTL_SECS)),
                 Some(SetOptions::NX),
                 false,
@@ -209,7 +196,7 @@ impl SvixEndpointCache for RedisSvixEndpointCache {
             .await;
 
         match acquired {
-            Ok(Some(_)) => LockOutcome::Acquired(token),
+            Ok(Some(_)) => LockOutcome::Acquired,
             Ok(None) => {
                 let deadline = std::time::Instant::now() + LOCK_POLL_MAX;
                 loop {
@@ -232,16 +219,9 @@ impl SvixEndpointCache for RedisSvixEndpointCache {
         }
     }
 
-    async fn release_lock(&self, tenant_id: &TenantId, token: &str) {
+    async fn release_lock(&self, tenant_id: &TenantId) {
         let key = lock_key(tenant_id);
-        let result: Result<i64, _> = self
-            .client
-            .eval(
-                LOCK_RELEASE_SCRIPT,
-                vec![key.clone()],
-                vec![token.to_string()],
-            )
-            .await;
+        let result: Result<u64, _> = self.client.del(&key).await;
         if let Err(e) = result {
             tracing::warn!("Redis error releasing single-flight lock for {key}: {e}");
         }
@@ -262,7 +242,7 @@ impl SvixEndpointCache for NoopSvixEndpointCache {
     async fn try_acquire_lock(&self, _tenant_id: &TenantId) -> LockOutcome {
         LockOutcome::NoCache
     }
-    async fn release_lock(&self, _tenant_id: &TenantId, _token: &str) {}
+    async fn release_lock(&self, _tenant_id: &TenantId) {}
 }
 
 pub fn build_endpoint_config(endpoints: &[svix::api::EndpointOut]) -> EndpointConfig {

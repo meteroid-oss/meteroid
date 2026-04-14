@@ -85,7 +85,7 @@ fastrand = "2.0.1"
 fixnum = { version = "0.9.3", default-features = false }
 fluent = "0.17"
 fluent-static = "0.5.1"
-fred = { version = "10.1.0", features = ["enable-rustls", "i-scripts"] }
+fred = { version = "10.1.0", features = ["enable-rustls"] }
 futures = "0.3.28"
 futures-lite = "2.3.0"
 futures-util = { version = "0.3.29", features = [] }
