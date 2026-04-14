@@ -10,11 +10,8 @@ use meteroid::config::Config;
 use meteroid::eventbus::setup_eventbus_handlers;
 use meteroid::migrations;
 use meteroid::services::storage::S3Storage;
-use meteroid::services::svix_cache::{
-    NoopSvixEndpointCache, RedisSvixEndpointCache, SvixEndpointCache,
-};
 use meteroid::singletons::connect_redis;
-use meteroid::svix::new_svix;
+use meteroid::svix::wire_svix;
 use meteroid::{bootstrap, singletons};
 use meteroid_store::Services;
 use stripe_client::client::StripeClient;
@@ -47,27 +44,19 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     );
 
     let fred_client = connect_redis(&config.redis);
+    let redis_available = fred_client.is_some();
 
-    let endpoint_cache: Arc<dyn SvixEndpointCache> = match &fred_client {
-        Some(client) => Arc::new(RedisSvixEndpointCache::new(
-            client.clone(),
-            config.svix.operational_webhook_secret.is_some(),
-        )),
-        None => Arc::new(NoopSvixEndpointCache),
-    };
-
-    let svix_rate_limiter = Arc::new(meteroid::svix::SvixRateLimiter::new(
-        fred_client,
-        config.svix.rps_quota,
-    ));
-    let svix_raw = new_svix(&config.svix);
-    let svix: Option<Arc<dyn meteroid::svix::SvixOps>> = svix_raw.map(|s| {
-        Arc::new(meteroid::svix::SvixClient::new(s, svix_rate_limiter))
-            as Arc<dyn meteroid::svix::SvixOps>
-    });
+    let svix_wiring = wire_svix(&config.svix, fred_client);
 
     migrations::run(&store.pool).await?;
-    bootstrap::bootstrap_once(store.clone(), svix.clone()).await?;
+    bootstrap::bootstrap_once(store.clone(), svix_wiring.svix.clone()).await?;
+    bootstrap::verify_svix_setup(
+        &config.svix,
+        &config.rest_api_external_url,
+        svix_wiring.svix.as_ref(),
+        redis_available,
+    )
+    .await;
     setup_eventbus_handlers(store.clone(), config.clone()).await;
 
     let ready = Arc::new(AtomicBool::new(true));
@@ -82,26 +71,14 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         store.clone(),
         services.clone(),
         object_store_service.clone(),
-        svix,
+        svix_wiring.svix,
+        svix_wiring.endpoint_cache,
     );
 
     let exit = signal::ctrl_c();
 
     let stripe = Arc::new(StripeClient::new());
     let stripe_adapter = Arc::new(Stripe { client: stripe });
-
-    let svix_op_state = config
-        .svix
-        .operational_webhook_secret
-        .as_ref()
-        .map(|secret| {
-            let verifier = svix::webhooks::Webhook::new(secret)
-                .expect("Invalid SVIX_OPERATIONAL_WEBHOOK_SECRET");
-            meteroid::api_rest::svix_operational::SvixOperationalState {
-                webhook_verifier: Arc::new(verifier),
-                endpoint_cache: endpoint_cache.clone(),
-            }
-        });
 
     let rest_server = meteroid::api_rest::server::start_rest_server(
         config.clone(),
@@ -110,22 +87,22 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         store.clone(),
         services.clone(),
         ready.clone(),
-        svix_op_state,
+        svix_wiring.op_webhook_state,
     );
 
     tokio::select! {
         grpc_result = grpc_server => {
             if let Err(e) = grpc_result {
-                log::error!("Error starting gRPC API server: {e:?}");
+                tracing::error!("Error starting gRPC API server: {e:?}");
             }
         },
         rest_result = rest_server => {
             if let Err(e) = rest_result {
-                log::error!("Error starting REST API server: {e:?}");
+                tracing::error!("Error starting REST API server: {e:?}");
             }
         },
         _ = exit => {
-              log::info!("Interrupted");
+              tracing::info!("Interrupted");
         }
     }
 

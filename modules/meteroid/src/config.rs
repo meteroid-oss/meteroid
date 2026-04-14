@@ -162,6 +162,10 @@ pub struct SvixConfig {
     #[envconfig(from = "SVIX_RPS_QUOTA", default = "25")]
     pub rps_quota: u32,
 
+    // Svix SDK doesn't expose response headers, so we can't honor Retry-After — flat backoff instead.
+    #[envconfig(from = "SVIX_429_BACKOFF_SECS", default = "5")]
+    pub rate_limit_429_backoff_secs: u32,
+
     #[envconfig(from = "SVIX_OPERATIONAL_WEBHOOK_SECRET")]
     pub operational_webhook_secret: Option<String>,
 }

@@ -177,6 +177,7 @@ async fn start_meteroid_from_config(
         services.clone(),
         in_memory_object_store(),
         None,
+        Arc::new(meteroid::services::svix_cache::NoopSvixEndpointCache),
     );
 
     let stripe = Arc::new(StripeClient::new());

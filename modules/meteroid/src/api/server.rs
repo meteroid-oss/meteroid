@@ -12,6 +12,7 @@ use crate::api::cors::cors;
 use crate::services::credit_note_rendering::CreditNotePreviewRenderingService;
 use crate::services::invoice_rendering::InvoicePreviewRenderingService;
 use crate::services::storage::ObjectStoreService;
+use crate::services::svix_cache::SvixEndpointCache;
 
 use super::super::config::Config;
 
@@ -25,8 +26,9 @@ pub async fn start_api_server(
     services: Services,
     object_store: Arc<dyn ObjectStoreService>,
     svix: Option<Arc<dyn crate::svix::SvixOps>>,
+    endpoint_cache: Arc<dyn SvixEndpointCache>,
 ) -> Result<(), Box<dyn std::error::Error>> {
-    log::info!("Starting GRPC API on {}", config.grpc_listen_addr);
+    tracing::info!("Starting GRPC API on {}", config.grpc_listen_addr);
 
     let preview_rendering = InvoicePreviewRenderingService::try_new(
         Arc::new(store.clone()),
@@ -132,7 +134,7 @@ pub async fn start_api_server(
             config.jwt_secret.clone(),
         ))
         .add_service(api::taxes::service(store.clone()))
-        .add_service(api::webhooksout::service(svix))
+        .add_service(api::webhooksout::service(svix, endpoint_cache))
         .add_service(api::internal::service(store.clone()))
         .add_service(api::portal::checkout::service(
             store.clone(),

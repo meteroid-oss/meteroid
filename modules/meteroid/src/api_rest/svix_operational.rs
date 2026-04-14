@@ -1,17 +1,42 @@
 use crate::services::svix_cache::SvixEndpointCache;
+use axum::Router;
 use axum::body::Bytes;
 use axum::extract::State;
 use axum::http::{HeaderMap, StatusCode};
 use axum::routing::post;
-use axum::Router;
 use common_domain::ids::TenantId;
 use serde::Deserialize;
 use std::sync::Arc;
+use std::sync::atomic::{AtomicU64, Ordering};
+use std::time::{SystemTime, UNIX_EPOCH};
+
+/// Path segment where our Axum router mounts the handler. Shared with the
+/// boot-time registration check so they can't drift.
+pub const OP_WEBHOOK_PATH: &str = "/webhooks/svix-operational";
+
+// Endpoint is public (signature-protected), so unbounded logs on bad sigs = DoS vector.
+const SIG_FAIL_LOG_INTERVAL_SECS: u64 = 30;
 
 #[derive(Clone)]
 pub struct SvixOperationalState {
     pub webhook_verifier: Arc<svix::webhooks::Webhook>,
     pub endpoint_cache: Arc<dyn SvixEndpointCache>,
+    pub sig_fail_last_log: Arc<AtomicU64>,
+    pub sig_fail_suppressed: Arc<AtomicU64>,
+}
+
+impl SvixOperationalState {
+    pub fn new(
+        webhook_verifier: Arc<svix::webhooks::Webhook>,
+        endpoint_cache: Arc<dyn SvixEndpointCache>,
+    ) -> Self {
+        Self {
+            webhook_verifier,
+            endpoint_cache,
+            sig_fail_last_log: Arc::new(AtomicU64::new(0)),
+            sig_fail_suppressed: Arc::new(AtomicU64::new(0)),
+        }
+    }
 }
 
 pub fn svix_operational_routes(state: SvixOperationalState) -> Router {
@@ -40,14 +65,44 @@ const ENDPOINT_EVENTS: &[&str] = &[
     "endpoint.updated",
 ];
 
+fn now_secs() -> u64 {
+    SystemTime::now()
+        .duration_since(UNIX_EPOCH)
+        .map(|d| d.as_secs())
+        .unwrap_or(0)
+}
+
+fn log_signature_failure(state: &SvixOperationalState, err: impl std::fmt::Display) {
+    let now = now_secs();
+    let last = state.sig_fail_last_log.load(Ordering::Relaxed);
+
+    if now.saturating_sub(last) >= SIG_FAIL_LOG_INTERVAL_SECS
+        && state
+            .sig_fail_last_log
+            .compare_exchange(last, now, Ordering::Relaxed, Ordering::Relaxed)
+            .is_ok()
+    {
+        let suppressed = state.sig_fail_suppressed.swap(0, Ordering::Relaxed);
+        if suppressed > 0 {
+            tracing::warn!(
+                "Svix operational webhook signature verification failed: {err} \
+                 ({suppressed} similar failures suppressed in the last {SIG_FAIL_LOG_INTERVAL_SECS}s)"
+            );
+        } else {
+            tracing::warn!("Svix operational webhook signature verification failed: {err}");
+        }
+    } else {
+        state.sig_fail_suppressed.fetch_add(1, Ordering::Relaxed);
+    }
+}
+
 async fn handle_svix_operational(
     State(state): State<SvixOperationalState>,
     headers: HeaderMap,
     body: Bytes,
 ) -> StatusCode {
-    // Verify webhook signature
     if let Err(e) = state.webhook_verifier.verify(&body, &headers) {
-        tracing::warn!("Svix operational webhook signature verification failed: {e}");
+        log_signature_failure(&state, e);
         return StatusCode::BAD_REQUEST;
     }
 

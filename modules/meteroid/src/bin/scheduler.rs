@@ -8,6 +8,7 @@ use std::sync::Arc;
 
 use common_build_info::BuildInfo;
 use common_logging::telemetry;
+use meteroid::bootstrap;
 use meteroid::clients::usage::MeteringUsageClient;
 use meteroid::config::Config;
 use meteroid::services::credit_note_rendering::CreditNotePdfRenderingService;
@@ -15,14 +16,11 @@ use meteroid::services::currency_rates::OpenexchangeRatesService;
 use meteroid::services::idempotency::{
     IdempotencyService, InMemoryIdempotencyService, RedisIdempotencyService,
 };
-use meteroid::services::svix_cache::{
-    NoopSvixEndpointCache, RedisSvixEndpointCache, SvixEndpointCache,
-};
 use meteroid::services::invoice_rendering::PdfRenderingService;
 use meteroid::services::storage::S3Storage;
 use meteroid::singletons;
 use meteroid::singletons::connect_redis;
-use meteroid::svix::new_svix;
+use meteroid::svix::wire_svix;
 use meteroid::workers;
 use meteroid_mailer::service::mailer_service;
 use meteroid_store::Services;
@@ -72,44 +70,29 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     let mailer_service = mailer_service(config.mailer.clone());
 
     let fred_client = connect_redis(&config.redis);
-    let (idempotency, endpoint_cache): (
-        Arc<dyn IdempotencyService>,
-        Arc<dyn SvixEndpointCache>,
-    ) = match &fred_client {
-        Some(client) => (
-            Arc::new(RedisIdempotencyService::new(client.clone())),
-            Arc::new(RedisSvixEndpointCache::new(
-                client.clone(),
-                config.svix.operational_webhook_secret.is_some(),
-            )),
-        ),
-        None => (
-            Arc::new(InMemoryIdempotencyService::new()),
-            Arc::new(NoopSvixEndpointCache),
-        ),
+    let redis_available = fred_client.is_some();
+
+    let idempotency: Arc<dyn IdempotencyService> = match &fred_client {
+        Some(client) => Arc::new(RedisIdempotencyService::new(client.clone())),
+        None => Arc::new(InMemoryIdempotencyService::new()),
     };
 
-    let svix_rate_limiter = Arc::new(meteroid::svix::SvixRateLimiter::new(
-        fred_client,
-        config.svix.rps_quota,
-    ));
-    let svix_raw = new_svix(&config.svix);
-    let svix: Option<Arc<dyn meteroid::svix::SvixOps>> = svix_raw.map(|s| {
-        Arc::new(meteroid::svix::SvixClient::new(s, svix_rate_limiter))
-            as Arc<dyn meteroid::svix::SvixOps>
-    });
+    let svix_wiring = wire_svix(&config.svix, fred_client);
+
+    // Scheduler doesn't host the op-webhook route — skip Svix-side check, just verify Redis.
+    bootstrap::verify_svix_setup(&config.svix, "", None, redis_available).await;
 
     workers::spawn_workers(
         store.clone(),
         services.clone(),
-        svix,
+        svix_wiring.svix,
         object_store_service.clone(),
         Arc::new(currency_rate_service),
         pdf_service.clone(),
         credit_note_pdf_service,
         mailer_service,
         idempotency,
-        endpoint_cache,
+        svix_wiring.endpoint_cache,
         config,
     )
     .await;

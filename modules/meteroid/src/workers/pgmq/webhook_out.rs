@@ -7,17 +7,21 @@ use crate::api_rest::webhooks::out_model::{
     WebhookOutProductEvent, WebhookOutProductEventData, WebhookOutQuoteEvent,
     WebhookOutQuoteEventData, WebhookOutSubscriptionEvent, WebhookOutSubscriptionEventData,
 };
-use crate::services::svix_cache::{SvixEndpointCache, build_endpoint_config, EndpointConfig};
+use crate::services::svix_cache::{
+    EndpointConfig, LockOutcome, SvixEndpointCache, build_endpoint_config,
+};
 use crate::svix::SvixOps;
 use crate::workers::pgmq::PgmqResult;
 use crate::workers::pgmq::error::PgmqError;
 use crate::workers::pgmq::outbox::to_outbox_events;
 use crate::workers::pgmq::processor::{HandleResult, PgmqHandler};
+use common_domain::ids::TenantId;
 use common_domain::pgmq::MessageId;
 use error_stack::{Report, ResultExt};
-use futures::future::try_join_all;
+use futures::future::{join_all, try_join_all};
 use meteroid_store::domain::outbox_event::OutboxEvent;
 use meteroid_store::domain::pgmq::PgmqMessage;
+use std::collections::{HashMap, HashSet};
 use std::sync::Arc;
 use svix::api::MessageIn;
 
@@ -34,39 +38,52 @@ impl WebhookOut {
         }
     }
 
-    /// Check if the tenant has an active endpoint for this event type, populating cache on miss.
-    async fn check_endpoint_cache(
+    /// Fail-open on any underlying error (returns `send_all`).
+    async fn resolve_endpoint_config(
         svix: &Arc<dyn SvixOps>,
-        endpoint_cache: &Arc<dyn SvixEndpointCache>,
-        tenant_id: &common_domain::ids::TenantId,
-        event_type: &str,
-    ) -> bool {
-        if let Some(should_send) = endpoint_cache.should_send(tenant_id, event_type).await {
-            return should_send;
+        cache: &Arc<dyn SvixEndpointCache>,
+        tenant_id: &TenantId,
+    ) -> EndpointConfig {
+        if let Some(c) = cache.get(tenant_id).await {
+            return c;
         }
 
-        // Cache miss — fetch endpoints from Svix and populate
-        let config = match svix.list_endpoints(*tenant_id).await {
-            Ok(endpoints) => build_endpoint_config(&endpoints),
+        match cache.try_acquire_lock(tenant_id).await {
+            LockOutcome::CachedByOther(c) => c,
+            LockOutcome::Acquired(token) => {
+                let result = Self::load_and_store(svix, cache, tenant_id).await;
+                cache.release_lock(tenant_id, &token).await;
+                result
+            }
+            LockOutcome::TimedOut | LockOutcome::NoCache => {
+                Self::load_and_store(svix, cache, tenant_id).await
+            }
+        }
+    }
+
+    async fn load_and_store(
+        svix: &Arc<dyn SvixOps>,
+        cache: &Arc<dyn SvixEndpointCache>,
+        tenant_id: &TenantId,
+    ) -> EndpointConfig {
+        match svix.list_endpoints(*tenant_id).await {
+            Ok(endpoints) => {
+                let config = build_endpoint_config(&endpoints);
+                cache.store(tenant_id, &config).await;
+                config
+            }
             Err(svix::error::Error::Http(e)) if e.status.as_u16() == 404 => {
-                // No Svix app for this tenant
-                EndpointConfig {
-                    wildcard: false,
-                    event_types: vec![],
-                    empty: true,
-                }
+                let config = EndpointConfig::empty();
+                cache.store(tenant_id, &config).await;
+                config
             }
             Err(e) => {
-                log::warn!(
-                    "Failed to list Svix endpoints for tenant {tenant_id}: {e:?}. Sending anyway."
+                tracing::warn!(
+                    "Failed to list Svix endpoints for tenant {tenant_id}: {e:?}. Fail-open."
                 );
-                return true; // fail-open
+                EndpointConfig::send_all()
             }
-        };
-
-        let should_send = config.should_send(event_type);
-        endpoint_cache.store(tenant_id, &config).await;
-        should_send
+        }
     }
 
     async fn handle_event(
@@ -74,6 +91,7 @@ impl WebhookOut {
         event: OutboxEvent,
         svix: Arc<dyn SvixOps>,
         endpoint_cache: Arc<dyn SvixEndpointCache>,
+        endpoint_config: EndpointConfig,
     ) -> Result<MessageId, Report<PgmqError>> {
         let event_id = event.event_id();
         let tenant_id = event.tenant_id();
@@ -83,16 +101,8 @@ impl WebhookOut {
             let message_in =
                 message_in.map_err(|e| Report::new(PgmqError::HandleMessages).attach(e))?;
 
-            // Check if tenant has an active endpoint for this event type
-            if !Self::check_endpoint_cache(
-                &svix,
-                &endpoint_cache,
-                &tenant_id,
-                &message_in.event_type,
-            )
-            .await
-            {
-                log::debug!(
+            if !endpoint_config.should_send(&message_in.event_type) {
+                tracing::debug!(
                     "[svix_cache] Skipped webhook {event_id} for tenant {tenant_id}: no active endpoint for {}",
                     message_in.event_type
                 );
@@ -104,13 +114,14 @@ impl WebhookOut {
             if let Err(svix::error::Error::Http(e)) = message_result {
                 match e.status.as_u16() {
                     404 => {
-                        // Svix app was removed since we cached — invalidate and skip
                         endpoint_cache.invalidate(&tenant_id).await;
-                        log::debug!(
+                        tracing::debug!(
                             "[svix_404] Skipped webhook {event_id} as the tenant {tenant_id} did not configure webhooks"
                         );
                     }
-                    409 => log::info!("[svix_409] Skipped webhook {event_id} as it already exists"),
+                    409 => {
+                        tracing::info!("[svix_409] Skipped webhook {event_id} as it already exists")
+                    }
                     _ => {
                         return Err(svix::error::Error::Http(e))
                             .change_context(PgmqError::HandleMessages);
@@ -400,17 +411,42 @@ impl PgmqHandler for WebhookOut {
     async fn handle(&self, msgs: &[PgmqMessage]) -> PgmqResult<HandleResult> {
         let msg_id_to_out_evt = to_outbox_events(msgs).await?;
 
+        // Resolve once per unique tenant — collapses N-per-tenant bursts (e.g. 00:00 invoicing) to 1 roundtrip.
+        let unique_tenants: HashSet<TenantId> = msg_id_to_out_evt
+            .iter()
+            .map(|(_, e)| e.tenant_id())
+            .collect();
+
+        let resolved: Vec<(TenantId, EndpointConfig)> =
+            join_all(unique_tenants.into_iter().map(|tid| {
+                let svix = self.svix.clone();
+                let cache = self.endpoint_cache.clone();
+                async move {
+                    let config = Self::resolve_endpoint_config(&svix, &cache, &tid).await;
+                    (tid, config)
+                }
+            }))
+            .await;
+
+        let configs: HashMap<TenantId, EndpointConfig> = resolved.into_iter().collect();
+
         let tasks: Vec<_> = msg_id_to_out_evt
             .into_iter()
             .map(|(msg_id, event)| {
                 let svix = self.svix.clone();
                 let endpoint_cache = self.endpoint_cache.clone();
+                let endpoint_config = configs
+                    .get(&event.tenant_id())
+                    .cloned()
+                    .unwrap_or_else(EndpointConfig::send_all);
                 tokio::spawn(async move {
                     let event_type = event.event_type();
-                    let res = Self::handle_event(msg_id, event, svix, endpoint_cache).await;
+                    let res =
+                        Self::handle_event(msg_id, event, svix, endpoint_cache, endpoint_config)
+                            .await;
 
                     if let Err(ref e) = res {
-                        log::warn!(
+                        tracing::warn!(
                             "Failed to handle webhook_out {} event with msg_id={}: {:?}",
                             event_type,
                             msg_id.0,

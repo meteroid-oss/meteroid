@@ -35,6 +35,10 @@ impl WebhooksService for WebhooksServiceComponents {
             })
             .map_err(Into::<WebhookApiError>::into)?;
 
+        // Customer is about to configure endpoints: invalidate + short-TTL window until op-webhooks catch up.
+        self.endpoint_cache.invalidate(&tenant_id).await;
+        self.endpoint_cache.mark_portal_active(&tenant_id).await;
+
         Ok(Response::new(resp))
     }
 }

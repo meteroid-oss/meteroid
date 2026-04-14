@@ -27,6 +27,7 @@ use utoipa::OpenApi;
 use utoipa_axum::router::OpenApiRouter;
 use utoipa_scalar::{Scalar, Servable as ScalarServable};
 
+#[allow(clippy::too_many_arguments)]
 pub async fn start_rest_server(
     config: Config,
     object_store: Arc<dyn ObjectStoreService>,
@@ -52,7 +53,6 @@ pub async fn start_rest_server(
     .await
 }
 
-#[allow(clippy::too_many_arguments)]
 #[allow(clippy::too_many_arguments)]
 pub async fn start_rest_server_with_listener(
     config: Config,
@@ -116,7 +116,7 @@ pub async fn start_rest_server_with_listener(
     // Mounted after with_state — uses its own state, not AppState
     let app = if let Some(svix_op_state) = svix_operational_state {
         app.nest(
-            "/internal/svix-operational",
+            crate::api_rest::svix_operational::OP_WEBHOOK_PATH,
             crate::api_rest::svix_operational::svix_operational_routes(svix_op_state),
         )
     } else {

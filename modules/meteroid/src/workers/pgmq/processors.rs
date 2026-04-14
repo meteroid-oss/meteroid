@@ -1,6 +1,8 @@
 use crate::services::credit_note_rendering::CreditNotePdfRenderingService;
 use crate::services::invoice_rendering::PdfRenderingService;
 use crate::services::storage::ObjectStoreService;
+use crate::services::svix_cache::SvixEndpointCache;
+use crate::svix::SvixOps;
 use crate::workers::pgmq::bi_aggregation::BiAggregation;
 use crate::workers::pgmq::credit_note_pdf_render::CreditNotePdfRender;
 use crate::workers::pgmq::hubspot_sync::HubspotSync;
@@ -12,7 +14,6 @@ use crate::workers::pgmq::pennylane_sync::PennylaneSync;
 use crate::workers::pgmq::processor::{Noop, PgmqHandler, ProcessorConfig, run};
 use crate::workers::pgmq::quote_conversion::QuoteConversion;
 use crate::workers::pgmq::send_email::EmailSender;
-use crate::services::svix_cache::SvixEndpointCache;
 use crate::workers::pgmq::webhook_out::WebhookOut;
 use common_domain::pgmq::{MessageReadQty, MessageReadVtSec, ReadCt};
 use hubspot_client::client::HubspotClient;
@@ -21,7 +22,6 @@ use meteroid_store::domain::pgmq::PgmqQueue;
 use meteroid_store::{Services, Store};
 use pennylane_client::client::PennylaneClient;
 use rand::RngExt;
-use crate::svix::SvixOps;
 use std::sync::Arc;
 
 pub async fn run_outbox_dispatch(store: Arc<Store>) {

@@ -1,4 +1,8 @@
+use crate::api_rest::svix_operational::SvixOperationalState;
 use crate::config::SvixConfig;
+use crate::services::svix_cache::{
+    NoopSvixEndpointCache, RedisSvixEndpointCache, SvixEndpointCache,
+};
 use common_domain::ids::TenantId;
 use fred::prelude::{Expiration, KeysInterface};
 use governor::middleware::NoOpMiddleware;
@@ -11,22 +15,16 @@ use std::sync::Arc;
 use std::time::Duration;
 use svix::api::{
     AppPortalAccessIn, AppPortalAccessOut, ApplicationIn, EndpointOut, EventTypeImportOpenApiIn,
-    EventTypeImportOpenApiOut, MessageIn, MessageOut, Svix,
+    EventTypeImportOpenApiOut, MessageIn, MessageOut, OperationalWebhookEndpointListOptions,
+    OperationalWebhookEndpointOut, Svix,
 };
 use svix::error::Error;
 
-/// Fallback in-memory rate limiter, used when Redis is unavailable.
-static FALLBACK_RATE_LIMITER: std::sync::OnceLock<
-    RateLimiter<NotKeyed, InMemoryState, clock::DefaultClock, NoOpMiddleware>,
-> = std::sync::OnceLock::new();
+type GovernorLimiter = RateLimiter<NotKeyed, InMemoryState, clock::DefaultClock, NoOpMiddleware>;
 
-fn fallback_limiter(
-    rps: u32,
-) -> &'static RateLimiter<NotKeyed, InMemoryState, clock::DefaultClock, NoOpMiddleware> {
-    FALLBACK_RATE_LIMITER.get_or_init(|| {
-        let rps = NonZero::new(rps).unwrap_or(nonzero!(25u32));
-        RateLimiter::direct(Quota::per_second(rps))
-    })
+fn build_limiter(rps: u32) -> GovernorLimiter {
+    let rps = NonZero::new(rps).unwrap_or(nonzero!(25u32));
+    RateLimiter::direct(Quota::per_second(rps))
 }
 
 pub fn new_svix(config: &SvixConfig) -> Option<Arc<Svix>> {
@@ -35,7 +33,7 @@ pub fn new_svix(config: &SvixConfig) -> Option<Arc<Svix>> {
         .as_ref()
         .zip(config.token.as_ref())
         .map(|(url, token)| {
-            log::info!("Initializing Svix client with server URL: {}", url);
+            tracing::info!("Initializing Svix client with server URL: {}", url);
 
             Arc::new(Svix::new(
                 token.expose_secret().to_string(),
@@ -50,8 +48,6 @@ pub fn new_svix(config: &SvixConfig) -> Option<Arc<Svix>> {
             ))
         })
 }
-
-// ── SvixOps trait ──────────────────────────────────────────────
 
 #[async_trait::async_trait]
 pub trait SvixOps: Send + Sync {
@@ -69,40 +65,52 @@ pub trait SvixOps: Send + Sync {
     ) -> Result<EventTypeImportOpenApiOut, Error>;
 
     async fn list_endpoints(&self, tenant_id: TenantId) -> Result<Vec<EndpointOut>, Error>;
-}
 
-// ── Redis-based rate limiter (shared across instances) ─────────
+    async fn list_operational_webhook_endpoints(
+        &self,
+    ) -> Result<Vec<OperationalWebhookEndpointOut>, Error>;
+}
 
 const RATE_LIMIT_WINDOW_PREFIX: &str = "svix:rate_limit:window";
 const RATE_LIMIT_BACKOFF_KEY: &str = "svix:rate_limit:backoff";
-const DEFAULT_429_BACKOFF_SECS: i64 = 5;
 
 pub struct SvixRateLimiter {
     redis: Option<fred::prelude::Client>,
     rps_quota: u32,
+    backoff_429_secs: i64,
+    fallback: GovernorLimiter,
 }
 
 impl SvixRateLimiter {
-    pub fn new(redis: Option<fred::prelude::Client>, rps_quota: u32) -> Self {
-        Self { redis, rps_quota }
+    pub fn new(
+        redis: Option<fred::prelude::Client>,
+        rps_quota: u32,
+        backoff_429_secs: u32,
+    ) -> Self {
+        Self {
+            redis,
+            rps_quota,
+            backoff_429_secs: backoff_429_secs as i64,
+            fallback: build_limiter(rps_quota),
+        }
     }
 
     pub async fn wait_for_permit(&self) {
         match &self.redis {
             Some(client) => self.redis_wait(client).await,
-            None => {
-                fallback_limiter(self.rps_quota)
-                    .until_ready_with_jitter(Jitter::up_to(Duration::from_secs(1)))
-                    .await;
-            }
+            None => self.fallback_wait().await,
         }
+    }
+
+    async fn fallback_wait(&self) {
+        self.fallback
+            .until_ready_with_jitter(Jitter::up_to(Duration::from_secs(1)))
+            .await;
     }
 
     async fn redis_wait(&self, client: &fred::prelude::Client) {
         // Check global backoff (set on 429)
-        if let Ok(Some(backoff_until)) = client
-            .get::<Option<i64>, _>(RATE_LIMIT_BACKOFF_KEY)
-            .await
+        if let Ok(Some(backoff_until)) = client.get::<Option<i64>, _>(RATE_LIMIT_BACKOFF_KEY).await
         {
             let now = chrono::Utc::now().timestamp();
             if backoff_until > now {
@@ -112,20 +120,17 @@ impl SvixRateLimiter {
             }
         }
 
-        // Fixed-window counter keyed to current second
-        let now_sec = chrono::Utc::now().timestamp();
-        let key = format!("{RATE_LIMIT_WINDOW_PREFIX}:{now_sec}");
-
         loop {
+            // Fixed-window counter: key must be recomputed each iter so retries land in the new second.
+            let now_sec = chrono::Utc::now().timestamp();
+            let key = format!("{RATE_LIMIT_WINDOW_PREFIX}:{now_sec}");
+
             let count: Result<i64, _> = client.incr(&key).await;
             match count {
                 Ok(1) => {
-                    // First increment — set expiry
-                    let _: Result<(), _> =
-                        client.expire(&key, 2, None).await;
+                    let _: Result<(), _> = client.expire(&key, 2, None).await;
                 }
                 Ok(n) if n > self.rps_quota as i64 => {
-                    // Over quota — wait for next second window
                     let now_ms = chrono::Utc::now().timestamp_millis();
                     let next_sec_ms = (now_sec + 1) * 1000;
                     let wait_ms = (next_sec_ms - now_ms).max(10) as u64;
@@ -134,9 +139,7 @@ impl SvixRateLimiter {
                 }
                 Err(e) => {
                     tracing::warn!("Redis rate limiter error: {e}. Falling back to governor.");
-                    fallback_limiter(self.rps_quota)
-                        .until_ready_with_jitter(Jitter::up_to(Duration::from_secs(1)))
-                        .await;
+                    self.fallback_wait().await;
                 }
                 _ => {} // within quota
             }
@@ -144,15 +147,20 @@ impl SvixRateLimiter {
         }
     }
 
-    /// Record a 429 backoff in Redis so all instances respect it.
+    /// Shared across instances. Only overwrites if our target is later, so concurrent 429s can't shorten the window.
     pub async fn record_429_backoff(&self) {
-        if let Some(client) = &self.redis {
-            let backoff_until = chrono::Utc::now().timestamp() + DEFAULT_429_BACKOFF_SECS;
+        let Some(client) = &self.redis else { return };
+        let backoff_until = chrono::Utc::now().timestamp() + self.backoff_429_secs;
+
+        let current: Result<Option<i64>, _> = client.get(RATE_LIMIT_BACKOFF_KEY).await;
+        let should_write = !matches!(current, Ok(Some(existing)) if existing >= backoff_until);
+
+        if should_write {
             let result: Result<Option<String>, _> = client
                 .set(
                     RATE_LIMIT_BACKOFF_KEY,
                     backoff_until,
-                    Some(Expiration::EX(DEFAULT_429_BACKOFF_SECS)),
+                    Some(Expiration::EX(self.backoff_429_secs)),
                     None,
                     false,
                 )
@@ -163,8 +171,6 @@ impl SvixRateLimiter {
         }
     }
 }
-
-// ── SvixClient: wraps Svix + rate limiter, implements SvixOps ──
 
 pub struct SvixClient {
     svix: Arc<Svix>,
@@ -191,10 +197,10 @@ impl SvixOps for SvixClient {
             .create(tenant_id.to_string(), msg, None)
             .await;
 
-        if let Err(Error::Http(e)) = &result {
-            if e.status.as_u16() == 429 {
-                self.rate_limiter.record_429_backoff().await;
-            }
+        if let Err(Error::Http(e)) = &result
+            && e.status.as_u16() == 429
+        {
+            self.rate_limiter.record_429_backoff().await;
         }
 
         result
@@ -249,8 +255,10 @@ impl SvixOps for SvixClient {
         loop {
             self.rate_limiter.wait_for_permit().await;
 
-            let mut opts = svix::api::EndpointListOptions::default();
-            opts.iterator = iterator;
+            let opts = svix::api::EndpointListOptions {
+                iterator,
+                ..Default::default()
+            };
 
             let page = self
                 .svix
@@ -266,5 +274,74 @@ impl SvixOps for SvixClient {
         }
 
         Ok(all_endpoints)
+    }
+
+    async fn list_operational_webhook_endpoints(
+        &self,
+    ) -> Result<Vec<OperationalWebhookEndpointOut>, Error> {
+        let mut all = Vec::new();
+        let mut iterator: Option<String> = None;
+
+        loop {
+            self.rate_limiter.wait_for_permit().await;
+
+            let opts = OperationalWebhookEndpointListOptions {
+                iterator,
+                ..Default::default()
+            };
+
+            let page = self
+                .svix
+                .operational_webhook()
+                .endpoint()
+                .list(Some(opts))
+                .await?;
+            all.extend(page.data);
+
+            if page.done {
+                break;
+            }
+            iterator = page.iterator;
+        }
+
+        Ok(all)
+    }
+}
+
+pub struct SvixWiring {
+    pub svix: Option<Arc<dyn SvixOps>>,
+    pub endpoint_cache: Arc<dyn SvixEndpointCache>,
+    pub op_webhook_state: Option<SvixOperationalState>,
+}
+
+/// Wires the Svix client, rate limiter, endpoint cache, and operational-webhook
+/// state from config + an optional shared Redis client.
+pub fn wire_svix(config: &SvixConfig, fred_client: Option<fred::prelude::Client>) -> SvixWiring {
+    let has_op_secret = config.operational_webhook_secret.is_some();
+
+    let endpoint_cache: Arc<dyn SvixEndpointCache> = match &fred_client {
+        Some(client) => Arc::new(RedisSvixEndpointCache::new(client.clone(), has_op_secret)),
+        None => Arc::new(NoopSvixEndpointCache),
+    };
+
+    let rate_limiter = Arc::new(SvixRateLimiter::new(
+        fred_client,
+        config.rps_quota,
+        config.rate_limit_429_backoff_secs,
+    ));
+
+    let svix: Option<Arc<dyn SvixOps>> =
+        new_svix(config).map(|s| Arc::new(SvixClient::new(s, rate_limiter)) as Arc<dyn SvixOps>);
+
+    let op_webhook_state = config.operational_webhook_secret.as_ref().map(|secret| {
+        let verifier =
+            svix::webhooks::Webhook::new(secret).expect("Invalid SVIX_OPERATIONAL_WEBHOOK_SECRET");
+        SvixOperationalState::new(Arc::new(verifier), endpoint_cache.clone())
+    });
+
+    SvixWiring {
+        svix,
+        endpoint_cache,
+        op_webhook_state,
     }
 }

@@ -1,23 +1,58 @@
 use async_trait::async_trait;
 use common_domain::ids::TenantId;
-use fred::prelude::{Expiration, KeysInterface};
+use fred::interfaces::LuaInterface;
+use fred::prelude::{Expiration, KeysInterface, SetOptions};
 use serde::{Deserialize, Serialize};
+use std::time::Duration;
+use uuid::Uuid;
 
 const REDIS_KEY_PREFIX: &str = "svix:endpoints";
-const CACHE_TTL_WITH_INVALIDATION: i64 = 7 * 24 * 3600; // 7 days (operational webhooks handle invalidation)
-const CACHE_TTL_WITHOUT_INVALIDATION: i64 = 5 * 60; // 5 minutes (no operational webhooks, must re-check periodically)
+const REDIS_LOCK_PREFIX: &str = "svix:endpoints:lock";
+const REDIS_PORTAL_ACTIVE_PREFIX: &str = "svix:portal_active";
+
+const CACHE_TTL_LONG_SECS: i64 = 7 * 24 * 3600;
+const CACHE_TTL_SHORT_SECS: i64 = 5 * 60;
+const CACHE_TTL_NO_OP_WEBHOOKS_SECS: i64 = 5 * 60;
+const PORTAL_ACTIVE_TTL_SECS: i64 = 4 * 3600;
+
+// Must cover worst-case list_endpoints (pagination × rate-limiter permit waits).
+const LOCK_TTL_SECS: i64 = 15;
+const LOCK_POLL_MAX: Duration = Duration::from_millis(2000);
+const LOCK_POLL_INTERVAL: Duration = Duration::from_millis(100);
+
+// CAS release: only DEL if the value still matches our fencing token.
+const LOCK_RELEASE_SCRIPT: &str = r#"
+if redis.call('GET', KEYS[1]) == ARGV[1] then
+  return redis.call('DEL', KEYS[1])
+else
+  return 0
+end
+"#;
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct EndpointConfig {
-    /// At least one endpoint has no filter_types (listens to all event types).
     pub wildcard: bool,
-    /// Union of filter_types across all non-disabled endpoints.
     pub event_types: Vec<String>,
-    /// Tenant has zero active endpoints.
     pub empty: bool,
 }
 
 impl EndpointConfig {
+    pub fn empty() -> Self {
+        Self {
+            wildcard: false,
+            event_types: vec![],
+            empty: true,
+        }
+    }
+
+    pub fn send_all() -> Self {
+        Self {
+            wildcard: true,
+            event_types: vec![],
+            empty: false,
+        }
+    }
+
     pub fn should_send(&self, event_type: &str) -> bool {
         if self.empty {
             return false;
@@ -29,131 +64,226 @@ impl EndpointConfig {
     }
 }
 
-#[async_trait]
-pub trait SvixEndpointCache: Send + Sync {
-    /// Returns Some(true/false) if cached, None on cache miss.
-    async fn should_send(&self, tenant_id: &TenantId, event_type: &str) -> Option<bool>;
-
-    /// Store the endpoint configuration for a tenant.
-    async fn store(&self, tenant_id: &TenantId, config: &EndpointConfig);
-
-    /// Invalidate (delete) the cache for a tenant.
-    async fn invalidate(&self, tenant_id: &TenantId);
+pub enum LockOutcome {
+    /// Caller holds the lock. The String is a fencing token that must be
+    /// passed back to `release_lock` so a TTL-expired holder can't delete a
+    /// subsequent acquirer's lock.
+    Acquired(String),
+    CachedByOther(EndpointConfig),
+    /// Lock taken by another caller, but their value didn't land in cache
+    /// within the poll window — caller should load on its own.
+    TimedOut,
+    /// No Redis: act as solo caller.
+    NoCache,
 }
 
-fn redis_key(tenant_id: &TenantId) -> String {
+#[async_trait]
+pub trait SvixEndpointCache: Send + Sync {
+    async fn get(&self, tenant_id: &TenantId) -> Option<EndpointConfig>;
+    async fn store(&self, tenant_id: &TenantId, config: &EndpointConfig);
+    async fn invalidate(&self, tenant_id: &TenantId);
+    async fn mark_portal_active(&self, tenant_id: &TenantId);
+    async fn try_acquire_lock(&self, tenant_id: &TenantId) -> LockOutcome;
+    async fn release_lock(&self, tenant_id: &TenantId, token: &str);
+}
+
+fn cache_key(tenant_id: &TenantId) -> String {
     format!("{REDIS_KEY_PREFIX}:{tenant_id}")
+}
+fn lock_key(tenant_id: &TenantId) -> String {
+    format!("{REDIS_LOCK_PREFIX}:{tenant_id}")
+}
+fn portal_key(tenant_id: &TenantId) -> String {
+    format!("{REDIS_PORTAL_ACTIVE_PREFIX}:{tenant_id}")
 }
 
 /// Redis-backed endpoint cache. Fail-open on all Redis errors.
 pub struct RedisSvixEndpointCache {
     client: fred::prelude::Client,
-    ttl_seconds: i64,
+    default_ttl_secs: i64,
 }
 
 impl RedisSvixEndpointCache {
     pub fn new(client: fred::prelude::Client, has_operational_webhooks: bool) -> Self {
-        let ttl_seconds = if has_operational_webhooks {
-            CACHE_TTL_WITH_INVALIDATION
+        let default_ttl_secs = if has_operational_webhooks {
+            CACHE_TTL_LONG_SECS
         } else {
-            CACHE_TTL_WITHOUT_INVALIDATION
+            CACHE_TTL_NO_OP_WEBHOOKS_SECS
         };
-        Self { client, ttl_seconds }
+        Self {
+            client,
+            default_ttl_secs,
+        }
+    }
+
+    async fn is_portal_active(&self, tenant_id: &TenantId) -> bool {
+        let result: Result<Option<String>, _> = self.client.get(&portal_key(tenant_id)).await;
+        matches!(result, Ok(Some(_)))
     }
 }
 
 #[async_trait]
 impl SvixEndpointCache for RedisSvixEndpointCache {
-    async fn should_send(&self, tenant_id: &TenantId, event_type: &str) -> Option<bool> {
-        let key = redis_key(tenant_id);
+    async fn get(&self, tenant_id: &TenantId) -> Option<EndpointConfig> {
+        let key = cache_key(tenant_id);
         let result: Result<Option<String>, _> = self.client.get(&key).await;
         match result {
             Ok(Some(json)) => match serde_json::from_str::<EndpointConfig>(&json) {
-                Ok(config) => Some(config.should_send(event_type)),
+                Ok(config) => Some(config),
                 Err(e) => {
                     tracing::warn!("Failed to deserialize endpoint cache for {key}: {e}");
                     None
                 }
             },
-            Ok(None) => None, // cache miss
+            Ok(None) => None,
             Err(e) => {
                 tracing::warn!("Redis error reading endpoint cache for {key}: {e}");
-                None // fail-open
+                None
             }
         }
     }
 
     async fn store(&self, tenant_id: &TenantId, config: &EndpointConfig) {
-        let key = redis_key(tenant_id);
-        match serde_json::to_string(config) {
-            Ok(json) => {
-                let result: Result<Option<String>, _> = self
-                    .client
-                    .set(&key, json, Some(Expiration::EX(self.ttl_seconds)), None, false)
-                    .await;
-                if let Err(e) = result {
-                    tracing::warn!("Redis error storing endpoint cache for {key}: {e}");
-                }
-            }
+        let ttl = if self.is_portal_active(tenant_id).await {
+            CACHE_TTL_SHORT_SECS
+        } else {
+            self.default_ttl_secs
+        };
+
+        let key = cache_key(tenant_id);
+        let json = match serde_json::to_string(config) {
+            Ok(j) => j,
             Err(e) => {
                 tracing::warn!("Failed to serialize endpoint cache for {key}: {e}");
+                return;
             }
+        };
+        let result: Result<Option<String>, _> = self
+            .client
+            .set(&key, json, Some(Expiration::EX(ttl)), None, false)
+            .await;
+        if let Err(e) = result {
+            tracing::warn!("Redis error storing endpoint cache for {key}: {e}");
         }
     }
 
     async fn invalidate(&self, tenant_id: &TenantId) {
-        let key = redis_key(tenant_id);
+        let key = cache_key(tenant_id);
         let result: Result<u64, _> = self.client.del(&key).await;
         if let Err(e) = result {
             tracing::warn!("Redis error invalidating endpoint cache for {key}: {e}");
         }
     }
+
+    async fn mark_portal_active(&self, tenant_id: &TenantId) {
+        let key = portal_key(tenant_id);
+        let result: Result<Option<String>, _> = self
+            .client
+            .set(
+                &key,
+                "1",
+                Some(Expiration::EX(PORTAL_ACTIVE_TTL_SECS)),
+                None,
+                false,
+            )
+            .await;
+        if let Err(e) = result {
+            tracing::warn!("Redis error marking portal active for {key}: {e}");
+        }
+    }
+
+    async fn try_acquire_lock(&self, tenant_id: &TenantId) -> LockOutcome {
+        let lkey = lock_key(tenant_id);
+        let ckey = cache_key(tenant_id);
+        let token = Uuid::new_v4().to_string();
+
+        let acquired: Result<Option<String>, _> = self
+            .client
+            .set(
+                &lkey,
+                token.clone(),
+                Some(Expiration::EX(LOCK_TTL_SECS)),
+                Some(SetOptions::NX),
+                false,
+            )
+            .await;
+
+        match acquired {
+            Ok(Some(_)) => LockOutcome::Acquired(token),
+            Ok(None) => {
+                let deadline = std::time::Instant::now() + LOCK_POLL_MAX;
+                loop {
+                    tokio::time::sleep(LOCK_POLL_INTERVAL).await;
+                    let got: Result<Option<String>, _> = self.client.get(&ckey).await;
+                    if let Ok(Some(json)) = got
+                        && let Ok(config) = serde_json::from_str::<EndpointConfig>(&json)
+                    {
+                        return LockOutcome::CachedByOther(config);
+                    }
+                    if std::time::Instant::now() >= deadline {
+                        return LockOutcome::TimedOut;
+                    }
+                }
+            }
+            Err(e) => {
+                tracing::warn!("Redis error acquiring single-flight lock for {lkey}: {e}");
+                LockOutcome::TimedOut
+            }
+        }
+    }
+
+    async fn release_lock(&self, tenant_id: &TenantId, token: &str) {
+        let key = lock_key(tenant_id);
+        let result: Result<i64, _> = self
+            .client
+            .eval(
+                LOCK_RELEASE_SCRIPT,
+                vec![key.clone()],
+                vec![token.to_string()],
+            )
+            .await;
+        if let Err(e) = result {
+            tracing::warn!("Redis error releasing single-flight lock for {key}: {e}");
+        }
+    }
 }
 
-/// No-op cache that always sends. Used when Redis is not configured.
+/// Used when Redis is absent: always send, never cache — matches pre-cache behaviour.
 pub struct NoopSvixEndpointCache;
 
 #[async_trait]
 impl SvixEndpointCache for NoopSvixEndpointCache {
-    async fn should_send(&self, _tenant_id: &TenantId, _event_type: &str) -> Option<bool> {
-        Some(true)
+    async fn get(&self, _tenant_id: &TenantId) -> Option<EndpointConfig> {
+        Some(EndpointConfig::send_all())
     }
-
     async fn store(&self, _tenant_id: &TenantId, _config: &EndpointConfig) {}
-
     async fn invalidate(&self, _tenant_id: &TenantId) {}
+    async fn mark_portal_active(&self, _tenant_id: &TenantId) {}
+    async fn try_acquire_lock(&self, _tenant_id: &TenantId) -> LockOutcome {
+        LockOutcome::NoCache
+    }
+    async fn release_lock(&self, _tenant_id: &TenantId, _token: &str) {}
 }
 
-/// Build an EndpointConfig from a list of Svix endpoints.
 pub fn build_endpoint_config(endpoints: &[svix::api::EndpointOut]) -> EndpointConfig {
-    let active: Vec<_> = endpoints
-        .iter()
-        .filter(|ep| ep.disabled != Some(true))
-        .collect();
+    let mut wildcard = false;
+    let mut event_types: std::collections::HashSet<String> = std::collections::HashSet::new();
+    let mut has_active = false;
 
-    if active.is_empty() {
-        return EndpointConfig {
-            wildcard: false,
-            event_types: vec![],
-            empty: true,
-        };
+    for ep in endpoints {
+        if ep.disabled == Some(true) {
+            continue;
+        }
+        has_active = true;
+        match &ep.filter_types {
+            None => wildcard = true,
+            Some(types) if types.is_empty() => wildcard = true,
+            Some(types) => event_types.extend(types.iter().cloned()),
+        }
     }
 
-    let mut wildcard = false;
-    let mut event_types = std::collections::HashSet::new();
-
-    for ep in &active {
-        match &ep.filter_types {
-            None => {
-                wildcard = true;
-            }
-            Some(types) if types.is_empty() => {
-                wildcard = true;
-            }
-            Some(types) => {
-                event_types.extend(types.iter().cloned());
-            }
-        }
+    if !has_active {
+        return EndpointConfig::empty();
     }
 
     EndpointConfig {
@@ -162,4 +292,3 @@ pub fn build_endpoint_config(endpoints: &[svix::api::EndpointOut]) -> EndpointCo
         empty: false,
     }
 }
-
