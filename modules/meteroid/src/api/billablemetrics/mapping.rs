@@ -133,6 +133,7 @@ pub mod metric {
                 created_at: Some(chrono_to_timestamp(value.created_at)),
                 usage_group_key: value.usage_group_key,
                 product_id: value.product_id.map(|x| x.as_proto()),
+                family_local_id: value.product_family_id.as_proto(),
             }))
         }
     }

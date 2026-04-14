@@ -20,13 +20,14 @@ import {
   TextareaFormField,
 } from '@md/ui'
 import { useQueryClient } from '@tanstack/react-query'
-import { PlusIcon, XIcon } from 'lucide-react'
+import { PlusIcon } from 'lucide-react'
 import { useEffect, useRef, useState } from 'react'
 import { useNavigate } from 'react-router-dom'
 import { toast } from 'sonner'
 import { z } from 'zod'
 
 import { aggregationTypeMapper } from '@/features/productCatalog/metrics/ProductMetricsTable'
+import { ValuesTagInput } from '@/features/productCatalog/metrics/ValuesTagInput'
 import { useZodForm } from '@/hooks/useZodForm'
 import { useQuery } from '@/lib/connectrpc'
 import {
@@ -80,69 +81,19 @@ const editMetricSchema = z.object({
 
 type EditMetricFormData = z.infer<typeof editMetricSchema>
 
-// Helper component for managing string arrays
-function StringArrayEditor({
+function LabeledValuesTagInput({
   label,
-  value = [],
+  value,
   onChange,
 }: {
   label: string
   value?: string[]
   onChange: (value: string[]) => void
 }) {
-  const handleAdd = () => {
-    onChange([...value, ''])
-  }
-
-  const handleRemove = (index: number) => {
-    onChange(value.filter((_, i) => i !== index))
-  }
-
-  const handleChange = (index: number, newValue: string) => {
-    const updated = [...value]
-    updated[index] = newValue
-    onChange(updated)
-  }
-
   return (
     <div className="space-y-2">
       <Label>{label}</Label>
-      <div className="space-y-2">
-        {value.map((item, idx) => (
-          <div key={idx} className="flex items-center gap-2">
-            <Input
-              value={item}
-              onChange={e => handleChange(idx, e.target.value)}
-              placeholder="Enter value..."
-              className="flex-1"
-            />
-            <Button
-              type="button"
-              variant="ghost"
-              size="icon"
-              onMouseDown={e => {
-                e.preventDefault()
-                handleRemove(idx)
-              }}
-            >
-              <XIcon className="h-4 w-4" />
-            </Button>
-          </div>
-        ))}
-        <Button
-          type="button"
-          variant="outline"
-          size="sm"
-          onMouseDown={e => {
-            e.preventDefault()
-            handleAdd()
-          }}
-          className="w-full"
-        >
-          <PlusIcon className="h-4 w-4 mr-2" />
-          Add Value
-        </Button>
-      </div>
+      <ValuesTagInput value={value} onChange={onChange} placeholder="Type and press Enter" />
     </div>
   )
 }
@@ -158,15 +109,13 @@ function LinkedDimensionsEditor({
   primaryKey?: string
   linkedKey?: string
 }) {
-  // Store raw input strings to preserve commas during typing
-  const [entries, setEntries] = useState<Array<{ id: string; key: string; valuesInput: string }>>(
-    () => {
-      return value.map(({ key, values }) => ({
+  const [entries, setEntries] = useState<Array<{ id: string; key: string; values: string[] }>>(
+    () =>
+      value.map(({ key, values }) => ({
         id: Math.random().toString(36).substring(2),
         key,
-        valuesInput: values.join(','),
+        values,
       }))
-    }
   )
 
   const isOurChangeRef = useRef(false)
@@ -181,28 +130,21 @@ function LinkedDimensionsEditor({
       value.map(({ key, values }) => ({
         id: Math.random().toString(36).substring(2),
         key,
-        valuesInput: values.join(','),
+        values,
       }))
     )
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [value])
 
-  const notifyChange = (newEntries: Array<{ id: string; key: string; valuesInput: string }>) => {
-    const updated = newEntries.map(({ key, valuesInput }) => ({
-      key: key.trim(),
-      values: valuesInput
-        .split(',')
-        .map(v => v.trim())
-        .filter(Boolean),
-    }))
+  const notifyChange = (newEntries: Array<{ id: string; key: string; values: string[] }>) => {
     isOurChangeRef.current = true
-    onChange(updated)
+    onChange(newEntries.map(({ key, values }) => ({ key: key.trim(), values })))
   }
 
   const handleAddKey = () => {
     const newEntries = [
       ...entries,
-      { id: Math.random().toString(36).substring(2), key: '', valuesInput: '' },
+      { id: Math.random().toString(36).substring(2), key: '', values: [] },
     ]
     setEntries(newEntries)
     notifyChange(newEntries)
@@ -220,8 +162,8 @@ function LinkedDimensionsEditor({
     notifyChange(newEntries)
   }
 
-  const handleValuesInputChange = (id: string, valuesInput: string) => {
-    const newEntries = entries.map(e => (e.id === id ? { ...e, valuesInput } : e))
+  const handleValuesChange = (id: string, values: string[]) => {
+    const newEntries = entries.map(e => (e.id === id ? { ...e, values } : e))
     setEntries(newEntries)
     notifyChange(newEntries)
   }
@@ -239,7 +181,15 @@ function LinkedDimensionsEditor({
         </div>
       )}
 
-      {entries.map(({ id, key, valuesInput }, index) => {
+      {entries.length > 0 && (
+        <div className="flex gap-2 items-center text-xs text-muted-foreground">
+          <Label className="flex-1">{primaryKey || 'Primary'}</Label>
+          <Label className="flex-[2]">{linkedKey || 'Linked'}</Label>
+          <div className="w-[72px]" />
+        </div>
+      )}
+
+      {entries.map(({ id, key, values }, index) => {
         const isDuplicate =
           key.trim() && entries.findIndex(e => e.key.trim() === key.trim()) !== index
         const isEmpty = !key.trim()
@@ -259,10 +209,10 @@ function LinkedDimensionsEditor({
                 {isDuplicate && <p className="text-xs text-destructive mt-1">Duplicate key</p>}
               </div>
               <div className="flex-[2]">
-                <Input
-                  value={valuesInput}
-                  onChange={e => handleValuesInputChange(id, e.target.value)}
-                  placeholder={`${linkedKey || 'Linked'} (e.g. us-east-1, us-west-2)`}
+                <ValuesTagInput
+                  value={values}
+                  onChange={vals => handleValuesChange(id, vals)}
+                  placeholder={`${linkedKey || 'values'} (e.g. us-east-1, us-west-2)`}
                 />
               </div>
               <Button
@@ -644,7 +594,7 @@ export const ProductMetricsEditView = ({ metricId }: ProductMetricsEditViewProps
                               control={methods.control}
                               name="singleDimensionValues"
                               render={({ field }) => (
-                                <StringArrayEditor
+                                <LabeledValuesTagInput
                                   label="Allowed Values"
                                   value={field.value}
                                   onChange={field.onChange}
@@ -665,7 +615,7 @@ export const ProductMetricsEditView = ({ metricId }: ProductMetricsEditViewProps
                                 control={methods.control}
                                 name="doubleDimension1Values"
                                 render={({ field }) => (
-                                  <StringArrayEditor
+                                  <LabeledValuesTagInput
                                     label="Allowed Values"
                                     value={field.value}
                                     onChange={field.onChange}
@@ -682,7 +632,7 @@ export const ProductMetricsEditView = ({ metricId }: ProductMetricsEditViewProps
                                 control={methods.control}
                                 name="doubleDimension2Values"
                                 render={({ field }) => (
-                                  <StringArrayEditor
+                                  <LabeledValuesTagInput
                                     label="Allowed Values"
                                     value={field.value}
                                     onChange={field.onChange}

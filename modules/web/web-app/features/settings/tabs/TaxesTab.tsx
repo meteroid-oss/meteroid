@@ -157,6 +157,7 @@ export const TaxesTab = () => {
 
   const customTaxMethods = useZodForm({
     schema: customTaxSchema,
+    mode: 'onChange',
     defaultValues: {
       name: '',
       taxCode: '',

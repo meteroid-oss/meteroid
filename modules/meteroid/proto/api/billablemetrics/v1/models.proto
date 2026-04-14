@@ -102,6 +102,7 @@ message BillableMetric {
   google.protobuf.Timestamp archived_at = 9;
   optional string product_id = 10;
   string local_id = 11;
+  string family_local_id = 12;
 }
 
 message BillableMetricMeta {

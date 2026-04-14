@@ -155,7 +155,7 @@ export const ProductMetricsCreatePanel = ({
         metricName: `${metric.name} (Copy)`,
         eventCode: `${metric.code}`,
         metricDescription: metric.description || '',
-        productFamilyId: metric.localId,
+        productFamilyId: metric.familyLocalId,
         aggregation: {
           aggregationType: aggregationTypeKey || 'COUNT',
           aggregationKey: metric.aggregation?.aggregationKey || undefined,
