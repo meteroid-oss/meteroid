@@ -72,11 +72,17 @@ message CreditLineItem {
   // computed from the listed sublines (sub.unit_price * quantity, summed).
   // Sublines not listed (or with zero quantity) are excluded from the credit note.
   repeated CreditSubLineItem sub_lines = 3;
+  // Optional override unit price (decimal string). Must be <= the original
+  // line unit price. Applied only when sub_lines is empty.
+  optional string unit_price = 4;
 }
 
 message CreditSubLineItem {
   string sub_line_local_id = 1;
   string quantity = 2; // decimal string
+  // Optional override unit price (decimal string). Must be <= the original
+  // sub-line unit price.
+  optional string unit_price = 3;
 }
 
 message NewCreditNote {

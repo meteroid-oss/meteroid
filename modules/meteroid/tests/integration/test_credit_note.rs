@@ -223,10 +223,12 @@ async fn test_credit_note_partial_credits() {
                     CreditLineItem::Line {
                         local_id: line_ids[0].clone(),
                         quantity: dec!(1),
+                        unit_price: None,
                     },
                     CreditLineItem::Line {
                         local_id: line_ids[1].clone(),
                         quantity: dec!(1),
+                        unit_price: None,
                     },
                 ],
                 reason: Some("Partial refund - first batch".to_string()),
@@ -282,10 +284,12 @@ async fn test_credit_note_partial_credits() {
                     CreditLineItem::Line {
                         local_id: line_ids[2].clone(),
                         quantity: dec!(1),
+                        unit_price: None,
                     },
                     CreditLineItem::Line {
                         local_id: line_ids[3].clone(),
                         quantity: dec!(1),
+                        unit_price: None,
                     },
                 ],
                 reason: Some("Partial refund - second batch".to_string()),
@@ -453,6 +457,7 @@ async fn test_credit_note_partial_credits() {
                     CreditLineItem::Line {
                         local_id: line_ids[0].clone(),
                         quantity: dec!(1),
+                        unit_price: None,
                     }, // Already credited
                 ],
                 reason: Some("Should fail - duplicate".to_string()),
@@ -583,6 +588,7 @@ async fn test_credit_note_race_condition() {
                         line_items: vec![CreditLineItem::Line {
                             local_id: line_id,
                             quantity: dec!(1),
+                            unit_price: None,
                         }],
                         reason: Some("Concurrent 1".to_string()),
                         memo: None,
@@ -600,6 +606,7 @@ async fn test_credit_note_race_condition() {
                         line_items: vec![CreditLineItem::Line {
                             local_id: line_id_clone,
                             quantity: dec!(1),
+                            unit_price: None,
                         }],
                         reason: Some("Concurrent 2".to_string()),
                         memo: None,
@@ -1032,10 +1039,12 @@ async fn test_credit_note_partial_amounts() {
                     CreditLineItem::Line {
                         local_id: line_ids[0].clone(),
                         quantity: dec!(0.5),
+                        unit_price: None,
                     }, // Half of subtotal (qty 0.5 × unit 10.00 = 500 cents)
                     CreditLineItem::Line {
                         local_id: line_ids[1].clone(),
                         quantity: dec!(1),
+                        unit_price: None,
                     }, // Full
                 ],
                 reason: Some("Partial amount credit test".to_string()),
@@ -1127,6 +1136,7 @@ async fn test_credit_note_partial_amounts() {
                     CreditLineItem::Line {
                         local_id: line_ids[2].clone(),
                         quantity: dec!(100),
+                        unit_price: None,
                     }, // Exceeds original quantity (1)
                 ],
                 reason: Some("Should fail - exceeds subtotal".to_string()),
@@ -1157,6 +1167,7 @@ async fn test_credit_note_partial_amounts() {
                 line_items: vec![CreditLineItem::Line {
                     local_id: line_ids[2].clone(),
                     quantity: dec!(-1),
+                    unit_price: None,
                 }],
                 reason: Some("Should fail - negative amount".to_string()),
                 memo: None,
@@ -1361,6 +1372,7 @@ async fn test_credit_note_debt_cancellation_partial_leaves_unpaid() {
                 line_items: vec![CreditLineItem::Line {
                     local_id: line_ids[0].clone(),
                     quantity: dec!(1),
+                    unit_price: None,
                 }],
                 reason: Some("Partial debt cancellation".to_string()),
                 memo: None,
@@ -1656,6 +1668,7 @@ async fn test_corrected_invoice_rejected_after_partial_debt_cancellation() {
                 line_items: vec![CreditLineItem::Line {
                     local_id: line_id,
                     quantity: dec!(1),
+                    unit_price: None,
                 }],
                 reason: None,
                 memo: None,
@@ -1792,6 +1805,7 @@ async fn test_cn_with_reissue_rejected_when_partial() {
                 line_items: vec![CreditLineItem::Line {
                     local_id: line_id,
                     quantity: dec!(1),
+                    unit_price: None,
                 }],
                 reason: None,
                 memo: None,

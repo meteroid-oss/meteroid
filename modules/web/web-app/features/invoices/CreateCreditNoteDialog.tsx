@@ -52,6 +52,7 @@ interface SubLineSelection {
   quantity: string
   originalQuantity: string
   unitPrice: string
+  originalUnitPrice: string
   originalTotal: number
 }
 
@@ -61,10 +62,48 @@ interface LineItemSelection {
   quantity: string
   originalQuantity: string
   unitPrice: string | undefined
+  originalUnitPrice: string | undefined
   maxAmount: number
   fullyCredited: boolean
   name: string
   subLines: SubLineSelection[]
+}
+
+const BarePriceInput: React.FC<{
+  currency: string
+  value: string
+  placeholder?: string
+  disabled?: boolean
+  onChange: (value: string) => void
+  className?: string
+  inputClassName?: string
+}> = ({ currency, value, placeholder, disabled, onChange, className, inputClassName }) => {
+  const symbol = useMemo(() => {
+    const f = new Intl.NumberFormat('en-US', { style: 'currency', currency, minimumFractionDigits: 2 })
+    return f.format(0).replace(/\d|\./g, '').trim()
+  }, [currency])
+  return (
+    <div className={`relative ${className ?? ''}`}>
+      {symbol && (
+        <div className="absolute inset-y-0 left-0 pl-2 flex items-center pointer-events-none">
+          <span className="text-muted-foreground text-xs">{symbol}</span>
+        </div>
+      )}
+      <input
+        type="number"
+        step="any"
+        min="0"
+        value={value}
+        placeholder={placeholder}
+        disabled={disabled}
+        onChange={e => onChange(e.target.value)}
+        className={`pl-6 pr-10 bg-input block w-full border border-border rounded-md focus:outline-none focus:ring-1 focus:ring-ring placeholder:text-muted-foreground disabled:opacity-50 ${inputClassName ?? ''}`}
+      />
+      <div className="absolute inset-y-0 right-0 pr-2 flex items-center pointer-events-none">
+        <span className="text-muted-foreground text-xs">{currency}</span>
+      </div>
+    </div>
+  )
 }
 
 export const CreateCreditNoteDialog: React.FC<CreateCreditNoteDialogProps> = ({
@@ -132,6 +171,7 @@ export const CreateCreditNoteDialog: React.FC<CreateCreditNoteDialogProps> = ({
         quantity: item.quantity ?? '1',
         originalQuantity: item.quantity ?? '1',
         unitPrice: item.unitPrice,
+        originalUnitPrice: item.unitPrice,
         maxAmount: remaining,
         fullyCredited: remaining === 0,
         name: item.name,
@@ -142,6 +182,7 @@ export const CreateCreditNoteDialog: React.FC<CreateCreditNoteDialogProps> = ({
           quantity: sl.quantity,
           originalQuantity: sl.quantity,
           unitPrice: sl.unitPrice,
+          originalUnitPrice: sl.unitPrice,
           originalTotal: Math.abs(Number(sl.total)),
         })),
       }
@@ -206,6 +247,31 @@ export const CreateCreditNoteDialog: React.FC<CreateCreditNoteDialogProps> = ({
     )
   }
 
+  const handleUnitPriceChange = (localId: string, value: string) => {
+    setLineItems(prev =>
+      prev.map(item => (item.lineItemLocalId === localId ? { ...item, unitPrice: value } : item))
+    )
+  }
+
+  const handleSubLineUnitPriceChange = (
+    lineLocalId: string,
+    subLocalId: string,
+    value: string
+  ) => {
+    setLineItems(prev =>
+      prev.map(item =>
+        item.lineItemLocalId === lineLocalId
+          ? {
+              ...item,
+              subLines: item.subLines.map(sl =>
+                sl.subLineLocalId === subLocalId ? { ...sl, unitPrice: value } : sl
+              ),
+            }
+          : item
+      )
+    )
+  }
+
   const handleSubLineQuantityChange = (lineLocalId: string, subLocalId: string, value: string) => {
     setLineItems(prev =>
       prev.map(item =>
@@ -257,15 +323,18 @@ export const CreateCreditNoteDialog: React.FC<CreateCreditNoteDialogProps> = ({
       const total = item.subLines.reduce((sum, sl) => {
         if (!sl.included) return sum
         const q = parseDecimal(sl.quantity)
-        if (!q || q.lte(0)) return sum
-        return sum.plus(toSubunit(new Decimal(sl.unitPrice).times(q)))
+        const up = parseDecimal(sl.unitPrice)
+        if (!q || q.lte(0) || !up || up.lte(0)) return sum
+        return sum.plus(toSubunit(up.times(q)))
       }, new Decimal(0))
       return total.toNumber()
     }
-    if (item.quantity.trim() === '') return item.maxAmount
-    const q = parseDecimal(item.quantity)
-    if (!q || q.lte(0) || !item.unitPrice) return 0
-    return toSubunit(new Decimal(item.unitPrice).times(q)).toNumber()
+    if (!item.unitPrice) return 0
+    const up = parseDecimal(item.unitPrice)
+    if (!up || up.lte(0)) return 0
+    const q = item.quantity.trim() === '' ? parseDecimal(item.originalQuantity) : parseDecimal(item.quantity)
+    if (!q || q.lte(0)) return 0
+    return toSubunit(up.times(q)).toNumber()
   }
 
   const handleSelectAll = () => {
@@ -286,7 +355,8 @@ export const CreateCreditNoteDialog: React.FC<CreateCreditNoteDialogProps> = ({
     let creditLineItems: Array<{
       lineItemLocalId: string
       quantity?: string
-      subLines: Array<{ subLineLocalId: string; quantity: string }>
+      unitPrice?: string
+      subLines: Array<{ subLineLocalId: string; quantity: string; unitPrice?: string }>
     }> = []
 
     if (scope === 'partial') {
@@ -313,16 +383,46 @@ export const CreateCreditNoteDialog: React.FC<CreateCreditNoteDialogProps> = ({
             )
             return
           }
-        } else if (item.quantity.trim() !== '') {
-          const q = parseDecimal(item.quantity)
-          if (!q || q.lte(0)) {
-            toast.error(`"${item.name}": quantity must be a positive number`)
-            return
+          for (const sl of kept) {
+            const up = parseDecimal(sl.unitPrice)
+            if (!up || up.lte(0)) {
+              toast.error(`"${item.name} / ${sl.name}": unit price must be positive`)
+              return
+            }
+            const origUp = parseDecimal(sl.originalUnitPrice)
+            if (origUp && up.gt(origUp)) {
+              toast.error(
+                `"${item.name} / ${sl.name}": unit price exceeds original (${sl.originalUnitPrice})`
+              )
+              return
+            }
           }
-          const maxQ = parseDecimal(item.originalQuantity)
-          if (maxQ && q.gt(maxQ)) {
-            toast.error(`"${item.name}": quantity exceeds original (${item.originalQuantity})`)
-            return
+        } else {
+          if (item.quantity.trim() !== '') {
+            const q = parseDecimal(item.quantity)
+            if (!q || q.lte(0)) {
+              toast.error(`"${item.name}": quantity must be a positive number`)
+              return
+            }
+            const maxQ = parseDecimal(item.originalQuantity)
+            if (maxQ && q.gt(maxQ)) {
+              toast.error(`"${item.name}": quantity exceeds original (${item.originalQuantity})`)
+              return
+            }
+          }
+          if (item.unitPrice !== undefined && item.unitPrice.trim() !== '') {
+            const up = parseDecimal(item.unitPrice)
+            if (!up || up.lte(0)) {
+              toast.error(`"${item.name}": unit price must be positive`)
+              return
+            }
+            const origUp = parseDecimal(item.originalUnitPrice ?? '')
+            if (origUp && up.gt(origUp)) {
+              toast.error(
+                `"${item.name}": unit price exceeds original (${item.originalUnitPrice})`
+              )
+              return
+            }
           }
         }
       }
@@ -338,6 +438,7 @@ export const CreateCreditNoteDialog: React.FC<CreateCreditNoteDialogProps> = ({
             .map(sl => ({
               subLineLocalId: sl.subLineLocalId,
               quantity: sl.quantity,
+              unitPrice: sl.unitPrice !== sl.originalUnitPrice ? sl.unitPrice : undefined,
             }))
           return {
             lineItemLocalId: item.lineItemLocalId,
@@ -345,9 +446,14 @@ export const CreateCreditNoteDialog: React.FC<CreateCreditNoteDialogProps> = ({
             subLines,
           }
         }
+        const unitPriceChanged =
+          item.unitPrice !== undefined &&
+          item.unitPrice.trim() !== '' &&
+          item.unitPrice !== item.originalUnitPrice
         return {
           lineItemLocalId: item.lineItemLocalId,
           quantity: item.quantity.trim() === '' ? undefined : item.quantity,
+          unitPrice: unitPriceChanged ? item.unitPrice : undefined,
           subLines: [],
         }
       })
@@ -542,26 +648,29 @@ export const CreateCreditNoteDialog: React.FC<CreateCreditNoteDialogProps> = ({
                     </div>
 
                     {item.selected && item.subLines.length === 0 && (
-                      <div className="ml-7 flex items-center gap-2">
-                        <Label className="text-xs text-muted-foreground whitespace-nowrap">
-                          Credit quantity:
-                        </Label>
+                      <div className="ml-7 flex items-center gap-2 flex-wrap">
                         <Input
                           type="number"
                           step="any"
                           min="0"
                           max={item.originalQuantity}
-                          placeholder={`Full (${item.originalQuantity})`}
+                          placeholder={item.originalQuantity}
                           value={item.quantity}
                           onChange={e => handleQuantityChange(item.lineItemLocalId, e.target.value)}
-                          className="w-32 h-8"
+                          className="w-20 h-8"
                         />
-                        {item.unitPrice && (
-                          <span className="text-xs text-muted-foreground">
-                            × {item.unitPrice} {invoice.currency} ={' '}
-                            {formatCurrency(computeLineCreditSubunit(item), invoice.currency)}
-                          </span>
-                        )}
+                        <span className="text-xs text-muted-foreground">×</span>
+                        <BarePriceInput
+                          currency={invoice.currency}
+                          placeholder={item.originalUnitPrice ?? ''}
+                          value={item.unitPrice ?? ''}
+                          onChange={v => handleUnitPriceChange(item.lineItemLocalId, v)}
+                          className="w-36"
+                          inputClassName="h-8 text-sm"
+                        />
+                        <span className="text-xs text-muted-foreground whitespace-nowrap">
+                          = {formatCurrency(computeLineCreditSubunit(item), invoice.currency)}
+                        </span>
                       </div>
                     )}
 
@@ -597,11 +706,24 @@ export const CreateCreditNoteDialog: React.FC<CreateCreditNoteDialogProps> = ({
                                   e.target.value
                                 )
                               }
-                              className="w-24 h-7 text-xs"
+                              className="w-20 h-7 text-xs"
                             />
-                            <span className="text-xs text-muted-foreground whitespace-nowrap">
-                              × {sl.unitPrice} {invoice.currency}
-                            </span>
+                            <span className="text-xs text-muted-foreground">×</span>
+                            <BarePriceInput
+                              currency={invoice.currency}
+                              placeholder={sl.originalUnitPrice}
+                              value={sl.unitPrice}
+                              disabled={!sl.included}
+                              onChange={v =>
+                                handleSubLineUnitPriceChange(
+                                  item.lineItemLocalId,
+                                  sl.subLineLocalId,
+                                  v
+                                )
+                              }
+                              className="w-32"
+                              inputClassName="h-7 text-xs"
+                            />
                           </div>
                         ))}
                         <div className="text-xs text-right">
