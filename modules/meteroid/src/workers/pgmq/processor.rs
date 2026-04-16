@@ -253,12 +253,8 @@ pub(crate) async fn run_once(
             .change_context(PgmqError::DeleteMessages)?;
     }
 
-    // Succeeded messages — delete or archive (excluding dead-lettered ones, already handled)
-    let to_ack: Vec<MessageId> = handle_result
-        .succeeded
-        .into_iter()
-        .filter(|id| !exhausted_ids.contains(&id.0) || succeeded_ids.contains(&id.0))
-        .collect();
+    // Succeeded messages — delete or archive
+    let to_ack: Vec<MessageId> = handle_result.succeeded;
 
     if !to_ack.is_empty() {
         if delete_processed {

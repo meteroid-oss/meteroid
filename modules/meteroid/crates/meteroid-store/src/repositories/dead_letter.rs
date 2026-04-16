@@ -159,16 +159,18 @@ impl DeadLetterInterface for Store {
             headers: entry.headers.map(Headers),
         };
 
-        pgmq::send_batch(&mut conn, queue.as_str(), &[msg])
+        let new_ids = pgmq::send_batch_returning_ids(&mut conn, queue.as_str(), &[msg])
             .await
             .map_err(Into::<Report<StoreError>>::into)?;
+
+        let requeued_pgmq_msg_id = new_ids.into_iter().next();
 
         DeadLetterMessageRow::update_status(
             &mut conn,
             id,
             diesel_models::enums::DeadLetterStatusEnum::Requeued,
             resolved_by,
-            None,
+            requeued_pgmq_msg_id,
         )
         .await
         .map(Into::into)
@@ -213,28 +215,43 @@ impl DeadLetterInterface for Store {
     ) -> StoreResult<u32> {
         let mut conn = self.get_conn().await?;
 
-        let updated = DeadLetterMessageRow::batch_update_status(
-            &mut conn,
-            &ids,
-            diesel_models::enums::DeadLetterStatusEnum::Requeued,
-            resolved_by,
-        )
-        .await
-        .map_err(Into::<Report<StoreError>>::into)?;
+        let pending = DeadLetterMessageRow::find_pending_by_ids(&mut conn, &ids)
+            .await
+            .map_err(Into::<Report<StoreError>>::into)?;
 
-        for row in &updated {
-            if let Ok(queue) = row.queue.parse::<PgmqQueue>() {
-                let msg = diesel_models::pgmq::PgmqMessageRowNew {
-                    message: row.message.clone().map(Message),
-                    headers: row.headers.clone().map(Headers),
-                };
-                if let Err(e) = pgmq::send_batch(&mut conn, queue.as_str(), &[msg]).await {
-                    log::error!("Failed to requeue dead letter {}: {:?}", row.id, e);
+        // Enqueue first, collect IDs of successfully enqueued entries
+        let mut enqueued_ids = Vec::new();
+        for row in &pending {
+            let queue: PgmqQueue = match row.queue.parse() {
+                Ok(q) => q,
+                Err(e) => {
+                    log::error!("Unknown queue for dead letter {}: {e}", row.id);
+                    continue;
                 }
+            };
+            let msg = diesel_models::pgmq::PgmqMessageRowNew {
+                message: row.message.clone().map(Message),
+                headers: row.headers.clone().map(Headers),
+            };
+            match pgmq::send_batch(&mut conn, queue.as_str(), &[msg]).await {
+                Ok(()) => enqueued_ids.push(row.id),
+                Err(e) => log::error!("Failed to requeue dead letter {}: {:?}", row.id, e),
             }
         }
 
-        Ok(updated.len() as u32)
+        // Only mark successfully enqueued entries as requeued
+        if !enqueued_ids.is_empty() {
+            DeadLetterMessageRow::batch_update_status(
+                &mut conn,
+                &enqueued_ids,
+                diesel_models::enums::DeadLetterStatusEnum::Requeued,
+                resolved_by,
+            )
+            .await
+            .map_err(Into::<Report<StoreError>>::into)?;
+        }
+
+        Ok(enqueued_ids.len() as u32)
     }
 
     async fn batch_discard_dead_letters(
