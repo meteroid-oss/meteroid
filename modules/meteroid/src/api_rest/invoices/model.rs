@@ -71,6 +71,7 @@ pub struct InvoiceLineItem {
 #[derive(o2o, Debug, Clone, Serialize, Deserialize, ToSchema)]
 #[map_owned(meteroid_store::domain::enums::InvoiceStatusEnum)]
 #[serde(rename_all = "SCREAMING_SNAKE_CASE")]
+#[schema(title = "InvoiceStatus")]
 pub enum InvoiceStatus {
     Draft,
     Finalized,

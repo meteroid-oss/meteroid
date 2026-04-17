@@ -466,6 +466,7 @@
             "required": false,
             "schema": {
               "type": "string",
+              "title": "BatchJobType",
               "enum": [
                 "EVENT_CSV_IMPORT",
                 "CUSTOMER_CSV_IMPORT",
@@ -482,6 +483,7 @@
               "type": "array",
               "items": {
                 "type": "string",
+                "title": "BatchJobStatus",
                 "enum": [
                   "PENDING",
                   "CHUNKING",
@@ -773,6 +775,7 @@
             "required": false,
             "schema": {
               "type": "string",
+              "title": "CheckoutSessionStatus",
               "enum": [
                 "CREATED",
                 "AWAITING_PAYMENT",
@@ -1092,6 +1095,7 @@
             "required": false,
             "schema": {
               "type": "string",
+              "title": "CouponFilter",
               "enum": [
                 "ALL",
                 "ACTIVE",
@@ -2485,6 +2489,7 @@
               "type": "array",
               "items": {
                 "type": "string",
+                "title": "InvoiceStatus",
                 "enum": [
                   "DRAFT",
                   "FINALIZED",
@@ -3204,6 +3209,7 @@
               "type": "array",
               "items": {
                 "type": "string",
+                "title": "PlanStatus",
                 "enum": [
                   "DRAFT",
                   "ACTIVE",
@@ -3222,6 +3228,7 @@
               "type": "array",
               "items": {
                 "type": "string",
+                "title": "PlanType",
                 "enum": [
                   "STANDARD",
                   "FREE",
@@ -4578,6 +4585,7 @@
               "type": "array",
               "items": {
                 "type": "string",
+                "title": "SubscriptionStatus",
                 "enum": [
                   "PENDING_ACTIVATION",
                   "PENDING_CHARGE",
@@ -5876,6 +5884,7 @@
       },
       "BatchJobStatus": {
         "type": "string",
+        "title": "BatchJobStatus",
         "enum": [
           "PENDING",
           "CHUNKING",
@@ -5888,6 +5897,7 @@
       },
       "BatchJobType": {
         "type": "string",
+        "title": "BatchJobType",
         "enum": [
           "EVENT_CSV_IMPORT",
           "CUSTOMER_CSV_IMPORT",
@@ -6222,6 +6232,7 @@
       },
       "CheckoutSessionStatus": {
         "type": "string",
+        "title": "CheckoutSessionStatus",
         "enum": [
           "CREATED",
           "AWAITING_PAYMENT",
@@ -8464,6 +8475,7 @@
       },
       "InvoiceStatus": {
         "type": "string",
+        "title": "InvoiceStatus",
         "enum": [
           "DRAFT",
           "FINALIZED",
@@ -9499,6 +9511,7 @@
       },
       "PlanStatusEnum": {
         "type": "string",
+        "title": "PlanStatus",
         "enum": [
           "DRAFT",
           "ACTIVE",
@@ -9508,6 +9521,7 @@
       },
       "PlanTypeEnum": {
         "type": "string",
+        "title": "PlanType",
         "enum": [
           "STANDARD",
           "FREE",
@@ -11197,6 +11211,7 @@
       },
       "SubscriptionStatusEnum": {
         "type": "string",
+        "title": "SubscriptionStatus",
         "enum": [
           "PENDING_ACTIVATION",
           "PENDING_CHARGE",

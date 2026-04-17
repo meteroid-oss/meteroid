@@ -34,6 +34,7 @@ fn default_limit() -> u32 {
 #[derive(o2o, Clone, Debug, Serialize, Deserialize, ToSchema, PartialEq, Eq)]
 #[map_owned(meteroid_store::domain::enums::BatchJobTypeEnum)]
 #[serde(rename_all = "SCREAMING_SNAKE_CASE")]
+#[schema(title = "BatchJobType")]
 pub enum BatchJobType {
     EventCsvImport,
     CustomerCsvImport,
@@ -44,6 +45,7 @@ pub enum BatchJobType {
 #[derive(o2o, Clone, Debug, Serialize, Deserialize, ToSchema, PartialEq, Eq)]
 #[map_owned(meteroid_store::domain::enums::BatchJobStatusEnum)]
 #[serde(rename_all = "SCREAMING_SNAKE_CASE")]
+#[schema(title = "BatchJobStatus")]
 pub enum BatchJobStatus {
     Pending,
     Chunking,

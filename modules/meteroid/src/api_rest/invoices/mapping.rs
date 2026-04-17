@@ -7,44 +7,6 @@ use crate::api_rest::invoices::model::{
 use crate::errors::RestApiError;
 use meteroid_store::domain;
 
-pub fn map_status_from_rest(
-    s: crate::api_rest::invoices::model::InvoiceStatus,
-) -> domain::enums::InvoiceStatusEnum {
-    match s {
-        crate::api_rest::invoices::model::InvoiceStatus::Draft => {
-            domain::enums::InvoiceStatusEnum::Draft
-        }
-        crate::api_rest::invoices::model::InvoiceStatus::Finalized => {
-            domain::enums::InvoiceStatusEnum::Finalized
-        }
-        crate::api_rest::invoices::model::InvoiceStatus::Uncollectible => {
-            domain::enums::InvoiceStatusEnum::Uncollectible
-        }
-        crate::api_rest::invoices::model::InvoiceStatus::Void => {
-            domain::enums::InvoiceStatusEnum::Void
-        }
-    }
-}
-
-pub fn map_status_to_rest(
-    s: domain::enums::InvoiceStatusEnum,
-) -> crate::api_rest::invoices::model::InvoiceStatus {
-    match s {
-        domain::enums::InvoiceStatusEnum::Draft => {
-            crate::api_rest::invoices::model::InvoiceStatus::Draft
-        }
-        domain::enums::InvoiceStatusEnum::Finalized => {
-            crate::api_rest::invoices::model::InvoiceStatus::Finalized
-        }
-        domain::enums::InvoiceStatusEnum::Uncollectible => {
-            crate::api_rest::invoices::model::InvoiceStatus::Uncollectible
-        }
-        domain::enums::InvoiceStatusEnum::Void => {
-            crate::api_rest::invoices::model::InvoiceStatus::Void
-        }
-    }
-}
-
 pub fn domain_to_rest(
     d: domain::Invoice,
     transactions: Vec<domain::PaymentTransaction>,
@@ -55,7 +17,7 @@ pub fn domain_to_rest(
         invoice_date: d.invoice_date,
         due_date: d.due_at.map(|dt| dt.date()),
         invoice_number: d.invoice_number,
-        status: map_status_to_rest(d.status),
+        status: d.status.into(),
         customer_id: d.customer_id,
         subscription_id: d.subscription_id,
         subtotal: d.subtotal,

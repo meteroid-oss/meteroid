@@ -1,7 +1,7 @@
 use crate::api_rest::AppState;
 use crate::api_rest::QueryParams;
 use crate::api_rest::error::{ErrorCode, RestErrorResponse};
-use crate::api_rest::invoices::mapping::{domain_to_rest, map_status_from_rest};
+use crate::api_rest::invoices::mapping::domain_to_rest;
 use crate::api_rest::invoices::model::{
     BinaryFile, Invoice, InvoiceListRequest, InvoiceListResponse,
 };
@@ -67,7 +67,7 @@ pub(crate) async fn list_invoices(
             request
                 .statuses
                 .clone()
-                .map(|s| s.into_iter().map(map_status_from_rest).collect()),
+                .map(|s| s.into_iter().map(Into::into).collect()),
             None,
             Some(order_by),
             request.pagination.into(),

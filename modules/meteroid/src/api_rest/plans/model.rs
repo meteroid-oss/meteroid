@@ -44,6 +44,7 @@ pub struct ProductFamily {
 #[derive(o2o, Clone, ToSchema, Deserialize_enum_str, Serialize_enum_str, Debug, PartialEq, Eq)]
 #[serde(rename_all = "SCREAMING_SNAKE_CASE")]
 #[map_owned(meteroid_store::domain::enums::PlanTypeEnum)]
+#[schema(title = "PlanType")]
 pub enum PlanTypeEnum {
     Standard,
     Free,
@@ -53,6 +54,7 @@ pub enum PlanTypeEnum {
 #[derive(o2o, Clone, ToSchema, Deserialize_enum_str, Serialize_enum_str, Debug, PartialEq, Eq)]
 #[serde(rename_all = "SCREAMING_SNAKE_CASE")]
 #[map_owned(meteroid_store::domain::enums::PlanStatusEnum)]
+#[schema(title = "PlanStatus")]
 pub enum PlanStatusEnum {
     Draft,
     Active,
