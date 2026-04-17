@@ -1,7 +1,10 @@
 import { Button, Input } from '@md/ui'
-import { useState } from 'react'
+import { useMemo, useState } from 'react'
 
+import { formatSubscriptionFee } from '@/features/subscriptions/utils/fees'
 import { formatCurrency, formatCurrencyNoRounding, rateToPercent } from '@/lib/utils/numbers'
+import { FeeStructure_BillingType } from '@/rpc/api/prices/v1/models_pb'
+import { SubscriptionComponent, SubscriptionFee } from '@/rpc/api/subscriptions/v1/models_pb'
 import { Checkout } from '@/rpc/portal/checkout/v1/models_pb'
 
 import type {
@@ -13,6 +16,17 @@ import type {
 const formatDate = (dateString: string): string => {
   const date = new Date(dateString)
   return date.toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' })
+}
+
+// Label for the right column of orphan components (no charge today but billed later).
+// Usage and Recurring(Arrears) are the only fee types that end up here at checkout.
+const orphanRightLabel = (fee: SubscriptionFee | undefined): string => {
+  if (!fee || !fee.fee.case) return '—'
+  if (fee.fee.case === 'usage') return 'Based on usage'
+  if (fee.fee.case === 'recurring' && fee.fee.value.billingType === FeeStructure_BillingType.ARREAR) {
+    return 'Billed in arrears'
+  }
+  return '—'
 }
 
 interface SubscriptionSummaryProps {
@@ -60,6 +74,25 @@ const SubscriptionSummary: React.FC<SubscriptionSummaryProps> = ({
 
   // Get currency from subscription
   const currency = subscription?.subscription?.currency || '?'
+
+  // Index price components by their plan price_component_id so we can render
+  // pricing terms (rate, included allowance, tiers, matrix) alongside each line.
+  const componentByPriceComponentId = useMemo(() => {
+    const map = new Map<string, SubscriptionComponent>()
+    for (const c of subscription?.priceComponents ?? []) {
+      if (c.priceComponentId) map.set(c.priceComponentId, c)
+    }
+    return map
+  }, [subscription?.priceComponents])
+
+  // Components that produced an invoice line for this period — so we can surface
+  // the remainder (e.g. pure usage with 0 consumption at checkout) as rate-only rows.
+  const invoicedPriceComponentIds = new Set(
+    invoiceLines.map(l => l.priceComponentId).filter((id): id is string => !!id)
+  )
+  const orphanComponents = (subscription?.priceComponents ?? []).filter(
+    c => c.priceComponentId && !invoicedPriceComponentIds.has(c.priceComponentId)
+  )
 
   // Determine if there are any applied coupons
   const hasCoupons: boolean = appliedCoupons.length > 0
@@ -136,29 +169,73 @@ const SubscriptionSummary: React.FC<SubscriptionSummaryProps> = ({
 
       {/* Line Items */}
       <div className=" py-4 space-y-4 text-sm">
-        {invoiceLines.map((line, index) => (
-          <div key={line.id || index} className="flex justify-between">
-            <div>
-              <div className="font-medium ">{line.name}</div>
-              {line.description && (
-                <div className="text-xs text-muted-foreground">{line.description}</div>
-              )}
-              {line.quantity && line.unitPrice && Number(line.quantity) > 1 && (
-                <div className="text-xs text-muted-foreground">
-                  {/* TODO */}
-                  {line.quantity} × {formatCurrencyNoRounding(Number(line.unitPrice), currency)}
-                </div>
-              )}
-              {line.isProrated && line.startDate && line.endDate && (
-                <div className="text-xs text-muted-foreground">
-                  <span className="">Prorated</span> ({formatDate(line.startDate)} →{' '}
-                  {formatDate(line.endDate)})
-                </div>
-              )}
+        {invoiceLines.map((line, index) => {
+          const component = line.priceComponentId
+            ? componentByPriceComponentId.get(line.priceComponentId)
+            : undefined
+          const pricing = component ? formatSubscriptionFee(component.fee, currency) : undefined
+          const hasQuantityLine =
+            !!line.quantity && !!line.unitPrice && Number(line.quantity) > 1
+          const showPricingSublabel = !!pricing && !hasQuantityLine && !pricing.redundantDetails
+          return (
+            <div key={line.id || index} className="flex justify-between">
+              <div>
+                <div className="font-medium ">{line.name}</div>
+                {line.description && (
+                  <div className="text-xs text-muted-foreground">{line.description}</div>
+                )}
+                {hasQuantityLine && (
+                  <div className="text-xs text-muted-foreground">
+                    {line.quantity} × {formatCurrencyNoRounding(Number(line.unitPrice), currency)}
+                  </div>
+                )}
+                {showPricingSublabel && pricing && (
+                  <div className="text-xs text-muted-foreground">
+                    {pricing.amount}
+                    {pricing.details ? ` · ${pricing.details}` : ''}
+                  </div>
+                )}
+                {pricing?.breakdown && (
+                  <pre className="mt-0.5 text-[11px] text-muted-foreground font-mono whitespace-pre leading-tight">
+                    {pricing.breakdown}
+                  </pre>
+                )}
+                {line.isProrated && line.startDate && line.endDate && (
+                  <div className="text-xs text-muted-foreground">
+                    <span className="">Prorated</span> ({formatDate(line.startDate)} →{' '}
+                    {formatDate(line.endDate)})
+                  </div>
+                )}
+              </div>
+              <div className="font-medium">{formatCurrency(line.subtotal, currency)}</div>
             </div>
-            <div className="font-medium">{formatCurrency(line.subtotal, currency)}</div>
-          </div>
-        ))}
+          )
+        })}
+
+        {/* Components that don't produce a charge today but will on the next invoice
+            (usage-based, or recurring billed in arrears). Surface their rate terms
+            so the customer understands what they're committing to. */}
+        {orphanComponents.map((c, index) => {
+          const pricing = formatSubscriptionFee(c.fee, currency)
+          const rightLabel = orphanRightLabel(c.fee)
+          return (
+            <div key={c.id || `orphan-${index}`} className="flex justify-between">
+              <div>
+                <div className="font-medium">{c.name}</div>
+                <div className="text-xs text-muted-foreground">
+                  {pricing.amount}
+                  {pricing.details && !pricing.redundantDetails ? ` · ${pricing.details}` : ''}
+                </div>
+                {pricing.breakdown && (
+                  <pre className="mt-0.5 text-[11px] text-muted-foreground font-mono whitespace-pre leading-tight">
+                    {pricing.breakdown}
+                  </pre>
+                )}
+              </div>
+              <div className="text-muted-foreground">{rightLabel}</div>
+            </div>
+          )
+        })}
       </div>
 
       {/* Subtotal */}

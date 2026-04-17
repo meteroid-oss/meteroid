@@ -11,6 +11,10 @@ export const formatSubscriptionFee = (
   details: string
   amount: string
   breakdown?: string // Optional detailed breakdown for complex pricing
+  // True when `details` is boilerplate that conveys no pricing information
+  // beyond `amount` (e.g. "Flat rate fee"). Callers rendering both side-by-side
+  // should hide `details` in that case.
+  redundantDetails?: boolean
 } => {
   if (!fee || !fee.fee.case) {
     return {
@@ -26,18 +30,18 @@ export const formatSubscriptionFee = (
         type: 'Rate',
         details: 'Flat rate fee',
         amount: formatCurrencyNoRounding(Number(fee.fee.value.rate), currency),
+        redundantDetails: true,
       }
     }
 
     case 'oneTime': {
       const oneTimeFee = fee.fee.value
+      const multi = oneTimeFee.quantity > 1
       return {
         type: 'One-time',
-        details:
-          oneTimeFee.quantity > 1
-            ? `${oneTimeFee.quantity}x @ ${oneTimeFee.rate}`
-            : 'Single payment',
+        details: multi ? `${oneTimeFee.quantity}x @ ${oneTimeFee.rate}` : 'Single payment',
         amount: formatCurrencyNoRounding(Number(oneTimeFee.total || oneTimeFee.rate), currency),
+        redundantDetails: !multi,
       }
     }
 
