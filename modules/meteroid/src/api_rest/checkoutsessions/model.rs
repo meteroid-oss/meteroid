@@ -12,6 +12,7 @@ use validator::Validate;
 
 #[derive(Debug, Clone, Serialize, Deserialize, ToSchema, PartialEq, Eq)]
 #[serde(rename_all = "SCREAMING_SNAKE_CASE")]
+#[schema(title = "CheckoutSessionStatus")]
 pub enum CheckoutSessionStatus {
     Created,
     AwaitingPayment,

@@ -343,6 +343,7 @@ pub enum SubscriptionFeeBillingPeriodEnum {
 #[derive(o2o, Clone, ToSchema, Serialize, Deserialize, Debug)]
 #[map_owned(meteroid_store::domain::enums::SubscriptionStatusEnum)]
 #[serde(rename_all = "SCREAMING_SNAKE_CASE")]
+#[schema(title = "SubscriptionStatus")]
 pub enum SubscriptionStatusEnum {
     PendingActivation,
     PendingCharge,
