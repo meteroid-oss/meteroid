@@ -8,7 +8,6 @@ use meteroid_grpc::meteroid::api::webhooks::out::v1::{
 
 use crate::api::webhooksout::WebhooksServiceComponents;
 use crate::api::webhooksout::error::WebhookApiError;
-use crate::svix::SvixOps;
 
 #[tonic::async_trait]
 impl WebhooksService for WebhooksServiceComponents {
@@ -35,6 +34,10 @@ impl WebhooksService for WebhooksServiceComponents {
                 ),
             })
             .map_err(Into::<WebhookApiError>::into)?;
+
+        // Customer is about to configure endpoints: invalidate + short-TTL window until op-webhooks catch up.
+        self.endpoint_cache.invalidate(&tenant_id).await;
+        self.endpoint_cache.mark_portal_active(&tenant_id).await;
 
         Ok(Response::new(resp))
     }

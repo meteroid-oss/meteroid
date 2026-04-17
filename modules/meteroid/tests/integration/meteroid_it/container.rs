@@ -177,6 +177,7 @@ async fn start_meteroid_from_config(
         services.clone(),
         in_memory_object_store(),
         None,
+        Arc::new(meteroid::services::svix_cache::NoopSvixEndpointCache),
     );
 
     let stripe = Arc::new(StripeClient::new());
@@ -191,6 +192,7 @@ async fn start_meteroid_from_config(
         services.clone(),
         ready,
         rest_listener,
+        None,
     );
 
     let join_handle_meteroid = tokio::spawn(async move {

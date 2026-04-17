@@ -8,6 +8,7 @@ use std::sync::Arc;
 
 use common_build_info::BuildInfo;
 use common_logging::telemetry;
+use meteroid::bootstrap;
 use meteroid::clients::usage::MeteringUsageClient;
 use meteroid::config::Config;
 use meteroid::services::credit_note_rendering::CreditNotePdfRenderingService;
@@ -19,7 +20,7 @@ use meteroid::services::invoice_rendering::PdfRenderingService;
 use meteroid::services::storage::S3Storage;
 use meteroid::singletons;
 use meteroid::singletons::connect_redis;
-use meteroid::svix::new_svix;
+use meteroid::svix::wire_svix;
 use meteroid::workers;
 use meteroid_mailer::service::mailer_service;
 use meteroid_store::Services;
@@ -38,7 +39,6 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
 
     let store = Arc::new(singletons::get_store().await.clone());
 
-    let svix = new_svix(&config.svix);
     let stripe = Arc::new(StripeClient::new());
 
     let usage_clients = Arc::new(MeteringUsageClient::get().clone());
@@ -70,21 +70,29 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     let mailer_service = mailer_service(config.mailer.clone());
 
     let fred_client = connect_redis(&config.redis);
-    let idempotency: Arc<dyn IdempotencyService> = match fred_client {
-        Some(client) => Arc::new(RedisIdempotencyService::new(client)),
+    let redis_available = fred_client.is_some();
+
+    let idempotency: Arc<dyn IdempotencyService> = match &fred_client {
+        Some(client) => Arc::new(RedisIdempotencyService::new(client.clone())),
         None => Arc::new(InMemoryIdempotencyService::new()),
     };
+
+    let svix_wiring = wire_svix(&config.svix, fred_client);
+
+    // Scheduler doesn't host the op-webhook route, just verify Redis.
+    bootstrap::verify_svix_setup(&config.svix, "", None, redis_available).await;
 
     workers::spawn_workers(
         store.clone(),
         services.clone(),
-        svix,
+        svix_wiring.svix,
         object_store_service.clone(),
         Arc::new(currency_rate_service),
         pdf_service.clone(),
         credit_note_pdf_service,
         mailer_service,
         idempotency,
+        svix_wiring.endpoint_cache,
         config,
     )
     .await;

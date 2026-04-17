@@ -50,6 +50,7 @@ mod productfamilies;
 pub(crate) mod products;
 pub mod server;
 mod subscriptions;
+pub mod svix_operational;
 mod usage;
 pub mod webhooks;
 

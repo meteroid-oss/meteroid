@@ -20,7 +20,7 @@ use meteroid::services::idempotency::{
 use meteroid::services::invoice_rendering::PdfRenderingService;
 use meteroid::services::storage::S3Storage;
 use meteroid::singletons::connect_redis;
-use meteroid::svix::new_svix;
+use meteroid::svix::wire_svix;
 use meteroid::workers;
 use meteroid::{bootstrap, singletons};
 use meteroid_mailer::service::mailer_service;
@@ -45,7 +45,6 @@ async fn main() -> Result<(), Box<dyn Error>> {
     let store = singletons::get_store().await;
 
     let store_arc = Arc::new(store.clone()); // TODO harmonize, arc everywhere or nowhere
-    let svix = new_svix(&config.svix);
     let stripe = Arc::new(StripeClient::new());
 
     let usage_clients = Arc::new(MeteringUsageClient::get().clone());
@@ -54,8 +53,25 @@ async fn main() -> Result<(), Box<dyn Error>> {
 
     let services_arc = Arc::new(services.clone());
 
+    let fred_client = connect_redis(&config.redis);
+    let redis_available = fred_client.is_some();
+
+    let idempotency: Arc<dyn IdempotencyService> = match &fred_client {
+        Some(client) => Arc::new(RedisIdempotencyService::new(client.clone())),
+        None => Arc::new(InMemoryIdempotencyService::new()),
+    };
+
+    let svix_wiring = wire_svix(&config.svix, fred_client);
+
     migrations::run(&store.pool).await?;
-    bootstrap::bootstrap_once(store.clone(), svix.clone()).await?;
+    bootstrap::bootstrap_once(store.clone(), svix_wiring.svix.clone()).await?;
+    bootstrap::verify_svix_setup(
+        &config.svix,
+        &config.rest_api_external_url,
+        svix_wiring.svix.as_ref(),
+        redis_available,
+    )
+    .await;
     setup_eventbus_handlers(store.clone(), config.clone()).await;
 
     let ready = Arc::new(AtomicBool::new(true));
@@ -65,20 +81,13 @@ async fn main() -> Result<(), Box<dyn Error>> {
         &config.object_store_prefix,
     )?);
 
-    // Create a single shared fred::Client (connection pool) for all Redis-backed services.
-    let fred_client = connect_redis(&config.redis);
-
-    let idempotency: Arc<dyn IdempotencyService> = match fred_client {
-        Some(client) => Arc::new(RedisIdempotencyService::new(client)),
-        None => Arc::new(InMemoryIdempotencyService::new()),
-    };
-
     let grpc_server = meteroid::api::server::start_api_server(
         config.clone(),
         store.clone(),
         services.clone(),
         object_store_service.clone(),
-        svix.clone(),
+        svix_wiring.svix.clone(),
+        svix_wiring.endpoint_cache.clone(),
     );
 
     #[cfg(feature = "metering-server")]
@@ -89,7 +98,7 @@ async fn main() -> Result<(), Box<dyn Error>> {
 
     #[cfg(not(feature = "metering-server"))]
     let metering_grpc_server = async {
-        log::info!("Metering server is not enabled");
+        tracing::info!("Metering server is not enabled");
         // sleep forever
         tokio::time::sleep(std::time::Duration::MAX).await;
         Ok::<(), Box<dyn Error>>(())
@@ -105,6 +114,7 @@ async fn main() -> Result<(), Box<dyn Error>> {
         store.clone(),
         services.clone(),
         ready.clone(),
+        svix_wiring.op_webhook_state,
     );
 
     let object_store_service = Arc::new(S3Storage::try_new(
@@ -131,17 +141,20 @@ async fn main() -> Result<(), Box<dyn Error>> {
 
     let mailer_service = mailer_service(config.mailer.clone());
 
+    let svix_for_workers = svix_wiring.svix.clone();
+    let endpoint_cache_for_workers = svix_wiring.endpoint_cache.clone();
     let workers_handle = tokio::spawn(async move {
         workers::spawn_workers(
             store_arc.clone(),
             services_arc.clone(),
-            svix.clone(),
+            svix_for_workers,
             object_store_service.clone(),
             Arc::new(currency_rate_service),
             pdf_service,
             credit_note_pdf_service,
             mailer_service,
             idempotency,
+            endpoint_cache_for_workers,
             config,
         )
         .await;
@@ -151,28 +164,28 @@ async fn main() -> Result<(), Box<dyn Error>> {
     tokio::select! {
         metering_grpc_result = metering_grpc_server => {
             if let Err(e) = metering_grpc_result {
-                log::error!("Error starting gRPC Metering server: {e}");
+                tracing::error!("Error starting gRPC Metering server: {e}");
             }
         },
         grpc_result = grpc_server => {
             if let Err(e) = grpc_result {
-                log::error!("Error starting gRPC API server: {e}");
+                tracing::error!("Error starting gRPC API server: {e}");
             }
         },
         rest_result = rest_server => {
             if let Err(e) = rest_result {
-                log::error!("Error starting REST API server: {e}");
+                tracing::error!("Error starting REST API server: {e}");
             }
         },
         workers_result = workers_handle => {
             match workers_result {
-                Ok(()) => log::info!("Workers exited normally"),
-                Err(e) => log::error!("Workers error: {e}"),
+                Ok(()) => tracing::info!("Workers exited normally"),
+                Err(e) => tracing::error!("Workers error: {e}"),
             }
         },
 
         _ = signal::ctrl_c() => {
-            log::info!("Interrupted");
+            tracing::info!("Interrupted");
         }
     }
 
