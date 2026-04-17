@@ -43,6 +43,7 @@ struct OperationalWebhookPayload {
 
 #[derive(Deserialize)]
 struct OperationalWebhookData {
+    #[serde(rename = "appUid")]
     app_uid: Option<String>,
 }
 
