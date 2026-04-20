@@ -29,7 +29,7 @@
     "@tanstack/react-table": "^8.21.3",
     "@uiw/codemirror-theme-github": "^4.25.3",
     "@uiw/react-codemirror": "^4.25.3",
-    "ajv": "^8.17.1",
+    "ajv": "^8.18.0",
     "cmdk": "^1.1.1",
     "date-fns": "^3.6.0",
     "dayjs": "^1.11.19",
