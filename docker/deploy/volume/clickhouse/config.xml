@@ -1,10 +1,11 @@
 <clickhouse>
   <!-- Ensure clickhous logs errors to stdout, instad of to an error file. Error files in exited containers are difficult to debug -->
-  <logger>
-    <log>/dev/null</log>
-    <errorlog>/dev/null</errorlog>
-    <console>1</console>
-  </logger>
+  <!-- Uncomment to enable logging to stdout for debugging -->
+  <!-- logger>
+      <log>/dev/null</log>
+      <errorlog>/dev/null</errorlog>
+      <console>1</console>
+  </logger -->
   <!-- Embedded Keeper (single node, no separate ZooKeeper needed) -->
   <keeper_server>
     <tcp_port>9181</tcp_port>
