@@ -1,5 +1,5 @@
 <clickhouse>
-  <!-- Ensure clickhous logs errors to stdout, instad of to an error file. Error files in exited containers are difficult to debug -->
+  <!-- Ensure clickhouse logs errors to stdout, instad of to an error file. Error files in exited containers are difficult to debug -->
   <!-- Uncomment to enable logging to stdout for debugging -->
   <!-- logger>
       <log>/dev/null</log>
