@@ -10,21 +10,30 @@ fn validate_event_code(code: &str) -> Result<(), validator::ValidationError> {
 
 #[derive(Debug, Clone, Serialize, Deserialize, ToSchema, Validate)]
 pub struct Event {
+    /// Unique event identifier. Max 255 characters. A UUID or ULID is recommended.
+    #[validate(length(min = 1, max = 255))]
     pub event_id: String,
+    /// Billable metric code. Max 512 characters.
     #[validate(custom(function = "validate_event_code"))]
     pub code: String,
-    /// Either Meteroid's customer_id or an alias
+    /// Meteroid customer ID or external customer alias.
     pub customer_id: String,
+    /// RFC 3339 timestamp. Defaults to ingestion time if omitted.
+    /// Must be between 24 hours ago and 1 hour from now. Set `allow_backfilling` to remove the past limit.
+    #[schema(example = "2026-01-15T10:30:00Z")]
     pub timestamp: String,
+    /// Arbitrary string key-value pairs used by billable metrics for filtering and aggregation.
+    #[schema(example = json!({"region": "us-east-1", "tier": "pro", "bytes": "1048576"}))]
     #[serde(default)]
     pub properties: HashMap<String, String>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, ToSchema, Validate)]
 pub struct IngestEventsRequest {
+    /// 1–100 events per request.
     #[validate(length(min = 1, max = 100), nested)]
     pub events: Vec<Event>,
-    /// allow ingesting events with timestamps more than a day in the past
+    /// Allow events with timestamps more than 1 day in the past. Defaults to `false`.
     #[serde(default)]
     pub allow_backfilling: Option<bool>,
 }
@@ -37,6 +46,7 @@ pub struct IngestFailure {
 
 #[derive(Debug, Clone, Serialize, Deserialize, ToSchema)]
 pub struct IngestEventsResponse {
+    /// Events that failed to ingest. Omitted when no failures.
     #[serde(skip_serializing_if = "Vec::is_empty", default)]
     pub failures: Vec<IngestFailure>,
 }
