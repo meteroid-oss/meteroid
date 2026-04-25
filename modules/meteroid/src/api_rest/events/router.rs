@@ -13,6 +13,11 @@ use http::StatusCode;
 /// Ingest events
 ///
 /// Ingest usage events for metering and billing purposes.
+///
+/// Events are deduplicated by `(event_id, customer_id)` — re-sending the same pair will not be
+/// double-counted. If timestamps differ across duplicates, the event with the latest timestamp is used.
+///
+/// Partial failures are reported in the response body; a 200 status with a non-empty `failures` array means some events were rejected.
 #[utoipa::path(
     post,
     tag = "Events",

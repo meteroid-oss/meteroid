@@ -2394,7 +2394,7 @@
           "Events"
         ],
         "summary": "Ingest events",
-        "description": "Ingest usage events for metering and billing purposes.",
+        "description": "Ingest usage events for metering and billing purposes.\n\nEvents are deduplicated by `(event_id, customer_id)` — re-sending the same pair will not be\ndouble-counted. If timestamps differ across duplicates, the event with the latest timestamp is used.\n\nPartial failures are reported in the response body; a 200 status with a non-empty `failures` array means some events were rejected.",
         "operationId": "ingest_events",
         "requestBody": {
           "content": {
@@ -7845,26 +7845,36 @@
         ],
         "properties": {
           "code": {
-            "type": "string"
+            "type": "string",
+            "description": "Billable metric code. Max 512 characters."
           },
           "customer_id": {
             "type": "string",
-            "description": "Either Meteroid's customer_id or an alias"
+            "description": "Meteroid customer ID or external customer alias."
           },
           "event_id": {
-            "type": "string"
+            "type": "string",
+            "description": "Unique event identifier. Max 255 characters. A UUID or ULID is recommended."
           },
           "properties": {
             "type": "object",
+            "description": "Arbitrary string key-value pairs used by billable metrics for filtering and aggregation.",
             "additionalProperties": {
               "type": "string"
             },
             "propertyNames": {
               "type": "string"
+            },
+            "example": {
+              "region": "us-east-1",
+              "tier": "pro",
+              "bytes": "1048576"
             }
           },
           "timestamp": {
-            "type": "string"
+            "type": "string",
+            "description": "RFC 3339 timestamp. Defaults to ingestion time if omitted.\nMust be between 24 hours ago and 1 hour from now. Set `allow_backfilling` to remove the past limit.",
+            "example": "2026-01-15T10:30:00Z"
           }
         }
       },
@@ -8104,13 +8114,14 @@
               "boolean",
               "null"
             ],
-            "description": "allow ingesting events with timestamps more than a day in the past"
+            "description": "Allow events with timestamps more than 1 day in the past. Defaults to `false`."
           },
           "events": {
             "type": "array",
             "items": {
               "$ref": "#/components/schemas/Event"
-            }
+            },
+            "description": "1–100 events per request."
           }
         }
       },
@@ -8121,7 +8132,8 @@
             "type": "array",
             "items": {
               "$ref": "#/components/schemas/IngestFailure"
-            }
+            },
+            "description": "Events that failed to ingest. Omitted when no failures."
           }
         }
       },
