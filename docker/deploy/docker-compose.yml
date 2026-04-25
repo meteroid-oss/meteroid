@@ -46,6 +46,21 @@ services:
       - meteroid_net
     logging: *logging
 
+  # Ensure clickhouse_coordination folders are setup with the correct user permissions
+  # clickhouse-server seems to use uid:gid -> 101:101, and default volume permissions are based on root
+  clickhouse-volume-init:
+    image: alpine:3.21
+    user: root
+    command:
+      - sh
+      - -c
+      - mkdir -p /coordination/log /coordination/snapshots && chown -R 101:101
+        /coordination
+    volumes:
+      - clickhouse_coordination:/coordination
+    restart: "no"
+    logging: *logging
+
   clickhouse:
     image: clickhouse/clickhouse-server:25.6.2-alpine
     ports:
@@ -223,6 +238,7 @@ services:
     environment:
       - INTERNAL_API_SECRET=${INTERNAL_API_SECRET}
       - METERING_API_LISTEN_ADDRESS=0.0.0.0:50062
+      - METEROID_API_EXTERNAL_URL=http://meteroid-api:50061
       - KAFKA_BOOTSTRAP_SERVERS=redpanda:29092
       - KAFKA_RAW_TOPIC=${KAFKA_RAW_TOPIC:-meteroid-events-raw}
       - CLICKHOUSE_DATABASE=${CLICKHOUSE_DATABASE:-meteroid}
