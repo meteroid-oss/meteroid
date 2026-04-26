@@ -20,7 +20,7 @@ services:
 
   ### Meteroid Dependencies
   meteroid-db:
-    image: ghcr.io/meteroid-oss/meteroid-postgres:17.4
+    image: ghcr.io/meteroid-oss/meteroid-postgres:18.3-standard
     container_name: meteroid-db
     ports:
       - '5432:5432'
@@ -30,7 +30,7 @@ services:
       - POSTGRES_PASSWORD=${DATABASE_PASSWORD}
       - POSTGRES_DB=${DATABASE_NAME:-meteroid}
     volumes:
-      - pg_data:/var/lib/postgresql/data
+      - pg_data:/var/lib/postgresql
       - ./init-db/svix/init_svix.sql:/docker-entrypoint-initdb.d/init_svix.sql:ro
     healthcheck:
       test: [ 'CMD-SHELL', 'pg_isready -d $${POSTGRES_DB} -U $${POSTGRES_USER}' ]

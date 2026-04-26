@@ -21,7 +21,7 @@ services:
 
   ### Infrastructure Services
   meteroid-db:
-    image: ghcr.io/meteroid-oss/meteroid-postgres:17.4
+    image: ghcr.io/meteroid-oss/meteroid-postgres:18.3-standard
     ports:
       - '5432:5432'
     user: postgres
@@ -30,9 +30,9 @@ services:
       - POSTGRES_PASSWORD=${DATABASE_PASSWORD}
       - POSTGRES_DB=${DATABASE_NAME:-meteroid}
     volumes:
-      - pg_data:/var/lib/postgresql/data
+      - pg_data:/var/lib/postgresql
     healthcheck:
-      test: ['CMD-SHELL', 'pg_isready -d $${POSTGRES_DB} -U $${POSTGRES_USER}']
+      test: [ 'CMD-SHELL', 'pg_isready -d $${POSTGRES_DB} -U $${POSTGRES_USER}' ]
       interval: 10s
       timeout: 5s
       retries: 5
@@ -91,7 +91,7 @@ services:
     ports:
       - 9092:9092
     healthcheck:
-      test: ["CMD-SHELL", "rpk cluster health | grep -E 'Healthy:.+true' || exit 1"]
+      test: [ "CMD-SHELL", "rpk cluster health | grep -E 'Healthy:.+true' || exit 1" ]
       interval: 10s
       timeout: 5s
       retries: 10
@@ -137,30 +137,30 @@ services:
       - METEROID_PUBLIC_URL=${METEROID_PUBLIC_URL:-http://localhost:3000}
       - OBJECT_STORE_URI=${OBJECT_STORE_URI:-file:///data/object-store}
       - SVIX_JWT_TOKEN=${SVIX_JWT_TOKEN:-}
-#      # S3/MinIO configuration (only needed if using s3:// OBJECT_STORE_URI)
-#      - AWS_ALLOW_HTTP=${AWS_ALLOW_HTTP:-}
-#      - AWS_ENDPOINT=${AWS_ENDPOINT:-}
-#      - AWS_ACCESS_KEY_ID=${AWS_ACCESS_KEY_ID:-}
-#      - AWS_SECRET_ACCESS_KEY=${AWS_SECRET_ACCESS_KEY:-}
-#      # Optional: Webhook support via Svix
-#      - SVIX_SERVER_URL=${SVIX_SERVER_URL:-}
-#      # Optional: OAuth
-#      - OAUTH_GOOGLE_CLIENT_ID=${OAUTH_GOOGLE_CLIENT_ID:-}
-#      - OAUTH_GOOGLE_CLIENT_SECRET=${OAUTH_GOOGLE_CLIENT_SECRET:-}
-#      # Optional: Mail
-#      - MAILER_SMTP_HOST=${MAILER_SMTP_HOST:-}
-#      - MAILER_SMTP_USERNAME=${MAILER_SMTP_USERNAME:-}
-#      - MAILER_SMTP_PASSWORD=${MAILER_SMTP_PASSWORD:-}
-#      - MAILER_SMTP_TLS=${MAILER_SMTP_TLS:-false}
-#      - MAILER_FROM=${MAILER_FROM:-}
-#      # Optional: Telemetry
-#      - TELEMETRY_TRACING_ENABLED=${TELEMETRY_TRACING_ENABLED:-false}
-#      - TELEMETRY_METRICS_ENABLED=${TELEMETRY_METRICS_ENABLED:-false}
-#      - TELEMETRY_OTEL_ENDPOINT=${TELEMETRY_OTEL_ENDPOINT:-}
+    #      # S3/MinIO configuration (only needed if using s3:// OBJECT_STORE_URI)
+    #      - AWS_ALLOW_HTTP=${AWS_ALLOW_HTTP:-}
+    #      - AWS_ENDPOINT=${AWS_ENDPOINT:-}
+    #      - AWS_ACCESS_KEY_ID=${AWS_ACCESS_KEY_ID:-}
+    #      - AWS_SECRET_ACCESS_KEY=${AWS_SECRET_ACCESS_KEY:-}
+    #      # Optional: Webhook support via Svix
+    #      - SVIX_SERVER_URL=${SVIX_SERVER_URL:-}
+    #      # Optional: OAuth
+    #      - OAUTH_GOOGLE_CLIENT_ID=${OAUTH_GOOGLE_CLIENT_ID:-}
+    #      - OAUTH_GOOGLE_CLIENT_SECRET=${OAUTH_GOOGLE_CLIENT_SECRET:-}
+    #      # Optional: Mail
+    #      - MAILER_SMTP_HOST=${MAILER_SMTP_HOST:-}
+    #      - MAILER_SMTP_USERNAME=${MAILER_SMTP_USERNAME:-}
+    #      - MAILER_SMTP_PASSWORD=${MAILER_SMTP_PASSWORD:-}
+    #      - MAILER_SMTP_TLS=${MAILER_SMTP_TLS:-false}
+    #      - MAILER_FROM=${MAILER_FROM:-}
+    #      # Optional: Telemetry
+    #      - TELEMETRY_TRACING_ENABLED=${TELEMETRY_TRACING_ENABLED:-false}
+    #      - TELEMETRY_METRICS_ENABLED=${TELEMETRY_METRICS_ENABLED:-false}
+    #      - TELEMETRY_OTEL_ENDPOINT=${TELEMETRY_OTEL_ENDPOINT:-}
     volumes:
       - object_store_data:/data/object-store
     healthcheck:
-      test: ["CMD", "/bin/grpc_health_probe", "-addr=:50061"]
+      test: [ "CMD", "/bin/grpc_health_probe", "-addr=:50061" ]
       interval: 10s
       timeout: 5s
       retries: 10
@@ -187,26 +187,26 @@ services:
       - METEROID_PUBLIC_URL=${METEROID_PUBLIC_URL:-http://localhost:3000}
       - OBJECT_STORE_URI=${OBJECT_STORE_URI:-file:///data/object-store}
       - SVIX_JWT_TOKEN=${SVIX_JWT_TOKEN:-}
-#      # S3/MinIO configuration (only needed if using s3:// OBJECT_STORE_URI)
-#      - AWS_ALLOW_HTTP=${AWS_ALLOW_HTTP:-}
-#      - AWS_ENDPOINT=${AWS_ENDPOINT:-}
-#      - AWS_ACCESS_KEY_ID=${AWS_ACCESS_KEY_ID:-}
-#      - AWS_SECRET_ACCESS_KEY=${AWS_SECRET_ACCESS_KEY:-}
-#      # Optional: Webhook support via Svix
-#      - SVIX_SERVER_URL=${SVIX_SERVER_URL:-}
-#      # Optional: OAuth
-#      - OAUTH_GOOGLE_CLIENT_ID=${OAUTH_GOOGLE_CLIENT_ID:-}
-#      - OAUTH_GOOGLE_CLIENT_SECRET=${OAUTH_GOOGLE_CLIENT_SECRET:-}
-#      # Optional: Mail
-#      - MAILER_SMTP_HOST=${MAILER_SMTP_HOST:-}
-#      - MAILER_SMTP_USERNAME=${MAILER_SMTP_USERNAME:-}
-#      - MAILER_SMTP_PASSWORD=${MAILER_SMTP_PASSWORD:-}
-#      - MAILER_SMTP_TLS=${MAILER_SMTP_TLS:-false}
-#      - MAILER_FROM=${MAILER_FROM:-}
-#      # Optional: Telemetry
-#      - TELEMETRY_TRACING_ENABLED=${TELEMETRY_TRACING_ENABLED:-false}
-#      - TELEMETRY_METRICS_ENABLED=${TELEMETRY_METRICS_ENABLED:-false}
-#      - TELEMETRY_OTEL_ENDPOINT=${TELEMETRY_OTEL_ENDPOINT:-}
+    #      # S3/MinIO configuration (only needed if using s3:// OBJECT_STORE_URI)
+    #      - AWS_ALLOW_HTTP=${AWS_ALLOW_HTTP:-}
+    #      - AWS_ENDPOINT=${AWS_ENDPOINT:-}
+    #      - AWS_ACCESS_KEY_ID=${AWS_ACCESS_KEY_ID:-}
+    #      - AWS_SECRET_ACCESS_KEY=${AWS_SECRET_ACCESS_KEY:-}
+    #      # Optional: Webhook support via Svix
+    #      - SVIX_SERVER_URL=${SVIX_SERVER_URL:-}
+    #      # Optional: OAuth
+    #      - OAUTH_GOOGLE_CLIENT_ID=${OAUTH_GOOGLE_CLIENT_ID:-}
+    #      - OAUTH_GOOGLE_CLIENT_SECRET=${OAUTH_GOOGLE_CLIENT_SECRET:-}
+    #      # Optional: Mail
+    #      - MAILER_SMTP_HOST=${MAILER_SMTP_HOST:-}
+    #      - MAILER_SMTP_USERNAME=${MAILER_SMTP_USERNAME:-}
+    #      - MAILER_SMTP_PASSWORD=${MAILER_SMTP_PASSWORD:-}
+    #      - MAILER_SMTP_TLS=${MAILER_SMTP_TLS:-false}
+    #      - MAILER_FROM=${MAILER_FROM:-}
+    #      # Optional: Telemetry
+    #      - TELEMETRY_TRACING_ENABLED=${TELEMETRY_TRACING_ENABLED:-false}
+    #      - TELEMETRY_METRICS_ENABLED=${TELEMETRY_METRICS_ENABLED:-false}
+    #      - TELEMETRY_OTEL_ENDPOINT=${TELEMETRY_OTEL_ENDPOINT:-}
     networks:
       - meteroid_net
     logging: *logging

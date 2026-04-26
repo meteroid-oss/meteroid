@@ -274,7 +274,7 @@ impl Drop for MeteroidSetup {
 /// Start the raw Postgres container (internal use).
 async fn start_postgres_container() -> ContainerAsync<GenericImage> {
     (|| async {
-        let postgres = GenericImage::new("ghcr.io/meteroid-oss/meteroid-postgres", "17.4")
+        let postgres = GenericImage::new("ghcr.io/meteroid-oss/meteroid-postgres", "18.3-standard")
             .with_wait_for(WaitFor::log(LogWaitStrategy::stdout(
                 "database system is ready to accept connections",
             )))
