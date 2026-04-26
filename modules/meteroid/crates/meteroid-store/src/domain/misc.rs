@@ -1,4 +1,4 @@
-use chrono::NaiveDate;
+use chrono::{NaiveDate, NaiveDateTime, NaiveTime};
 use common_domain::ids::{OrganizationId, TenantId};
 use uuid::Uuid;
 
@@ -94,6 +94,21 @@ pub enum Actor {
 pub struct Period {
     pub start: NaiveDate,
     pub end: NaiveDate,
+}
+
+#[derive(Debug, Clone, Eq, PartialEq, Hash)]
+pub struct UsagePeriod {
+    pub start: NaiveDateTime,
+    pub end: NaiveDateTime,
+}
+
+impl From<Period> for UsagePeriod {
+    fn from(p: Period) -> Self {
+        UsagePeriod {
+            start: p.start.and_time(NaiveTime::MIN),
+            end: p.end.and_time(NaiveTime::MIN),
+        }
+    }
 }
 
 #[derive(Debug, Clone)]

@@ -76,6 +76,7 @@ impl TestEnv {
     // ========================================================================
 
     /// Get payment method details (connection_id, connector_id) if found.
+    #[allow(dead_code)]
     pub async fn get_payment_method_provider(
         &self,
         payment_method_id: CustomerPaymentMethodId,
@@ -128,6 +129,7 @@ impl TestEnv {
     }
 
     /// Switch the invoicing entity back to the primary payment provider.
+    #[allow(dead_code)]
     pub async fn switch_to_provider_1(&self) {
         let mut conn = self
             .pool()

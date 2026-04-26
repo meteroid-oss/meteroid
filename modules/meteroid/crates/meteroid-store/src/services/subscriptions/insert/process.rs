@@ -69,6 +69,7 @@ pub struct ProcessedSubscription {
     skip_checkout_session: bool,
     /// When true, skip billing for this subscription (migration mode).
     skip_past_invoices: bool,
+    entitlements: Vec<crate::domain::entitlements::EntitlementSpec>,
 }
 
 pub struct DetailedSubscription {
@@ -81,6 +82,7 @@ pub struct DetailedSubscription {
     pub slot_transactions: Vec<SlotTransactionNewInternal>,
     pub pending_materializations: Vec<PendingMaterialization>,
     pub pending_addon_materializations: Vec<PendingMaterialization>,
+    pub entitlements: Vec<crate::domain::entitlements::EntitlementSpec>,
 }
 
 impl Services {
@@ -97,6 +99,7 @@ impl Services {
                 price_components,
                 add_ons,
                 coupons,
+                entitlements,
             } = params;
 
             let customer = context
@@ -166,6 +169,7 @@ impl Services {
                 slot_transactions,
                 pending_materializations,
                 pending_addon_materializations,
+                entitlements: entitlements.clone(),
             });
         }
 
@@ -223,6 +227,7 @@ impl Services {
             slot_transactions,
             pending_materializations: vec![], // Quotes have pre-resolved products/prices
             pending_addon_materializations: vec![], // Quotes have pre-resolved add-on prices
+            entitlements: params.entitlements.clone(),
         })
     }
 
@@ -614,6 +619,7 @@ impl Services {
             pending_addon_materializations: sub.pending_addon_materializations.clone(),
             skip_checkout_session: sub.subscription.skip_checkout_session,
             skip_past_invoices: sub.subscription.skip_past_invoices,
+            entitlements: sub.entitlements.clone(),
         })
     }
 
@@ -913,6 +919,19 @@ impl Services {
                         SubscriptionRow::insert_subscription_batch(conn, subscriptions)
                             .await
                             .map(|v| v.into_iter().map(Into::into).collect())?;
+
+                    for (proc, created) in processed.iter().zip(inserted.iter()) {
+                        if !proc.entitlements.is_empty() {
+                            crate::repositories::entitlements::insert_entitlement_specs(
+                                conn,
+                                proc.entitlements.clone(),
+                                common_domain::ids::EntitlementEntityId::Subscription(created.id),
+                                tenant_id,
+                                proc.subscription.created_by,
+                            )
+                            .await?;
+                        }
+                    }
 
                     SubscriptionComponentRow::insert_subscription_component_batch(conn, components)
                         .map_err(Into::<StoreErrorReport>::into)

@@ -1,3 +1,4 @@
+use crate::domain::entitlements::Entitlement;
 use crate::domain::enums::{FeeTypeEnum, SubscriptionFeeBillingPeriod};
 use crate::domain::price_components::{ComponentParameters, PriceEntry, ResolvedFee};
 use crate::domain::prices;
@@ -30,6 +31,7 @@ pub struct AddOn {
     pub fee_type: Option<FeeTypeEnum>,
     pub fee_structure: Option<FeeStructure>,
     pub price: Option<Price>,
+    pub entitlements: Vec<Entitlement>,
 }
 
 impl From<AddOnRow> for AddOn {
@@ -49,6 +51,7 @@ impl From<AddOnRow> for AddOn {
             fee_type: None,
             fee_structure: None,
             price: None,
+            entitlements: vec![],
         }
     }
 }
@@ -208,6 +211,8 @@ pub struct AddOnNew {
     pub description: Option<String>,
     pub self_serviceable: bool,
     pub max_instances_per_subscription: Option<i32>,
+    pub created_by: uuid::Uuid,
+    pub entitlements: Vec<crate::domain::entitlements::EntitlementSpec>,
 }
 
 impl From<AddOnNew> for AddOnRowNew {

@@ -1,4 +1,5 @@
 use super::{QuoteServiceComponents, mapping};
+use crate::api::entitlements::mapping::entitlement_spec_from_proto;
 use crate::api::quotes::error::QuoteApiError;
 use crate::api::shared::conversions::FromProtoOpt;
 use crate::api::utils::PaginationExt;
@@ -125,6 +126,11 @@ impl QuotesService for QuoteServiceComponents {
             payment_methods_config: mapping::quotes::payment_methods_config_to_domain(
                 quote.payment_methods_config,
             ),
+            entitlements: quote
+                .entitlements
+                .into_iter()
+                .map(entitlement_spec_from_proto)
+                .collect::<Result<Vec<_>, _>>()?,
         };
 
         // Process quote components (fetch plan price components + products + prices first)

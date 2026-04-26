@@ -25,7 +25,7 @@ import {
 } from '@md/ui'
 import { Eye, InfoIcon, Plus, Save, Trash2 } from 'lucide-react'
 import { customAlphabet } from 'nanoid'
-import { useEffect, useState } from 'react'
+import { useEffect, useMemo, useState } from 'react'
 import { useFieldArray } from 'react-hook-form'
 import { useNavigate } from 'react-router-dom'
 import { toast } from 'sonner'
@@ -33,6 +33,8 @@ import { z } from 'zod'
 
 import { AddOnCouponSelector } from '@/features/addons/AddOnCouponSelector'
 import { CustomerSelect } from '@/features/customers/CustomerSelect'
+import { resolveEntitlementSpecs } from '@/features/entitlements/creation/resolveEntitlementSpecs'
+import { PendingEntitlementsPanel } from '@/features/entitlements/pending/PendingEntitlementsPanel'
 import { SubscribablePlanVersionSelect } from '@/features/plans/SubscribablePlanVersionSelect'
 import {
   buildExistingProductRef,
@@ -48,6 +50,7 @@ import { PriceComponentsState } from '@/features/subscriptions/pricecomponents/P
 import { useBasePath } from '@/hooks/useBasePath'
 import { useZodForm } from '@/hooks/useZodForm'
 import { useQuery } from '@/lib/connectrpc'
+import { env } from '@/lib/env'
 import { mapDatev2 } from '@/lib/mapping'
 import {
   getPrice,
@@ -58,6 +61,7 @@ import { listAddOns } from '@/rpc/api/addons/v1/addons-AddOnsService_connectquer
 import { listCoupons } from '@/rpc/api/coupons/v1/coupons-CouponsService_connectquery'
 import { ListCouponRequest_CouponFilter } from '@/rpc/api/coupons/v1/coupons_pb'
 import { getCustomerById } from '@/rpc/api/customers/v1/customers-CustomersService_connectquery'
+import { createFeature } from '@/rpc/api/entitlements/v1/entitlements-EntitlementsService_connectquery'
 import {
   getInvoicingEntity,
   getInvoicingEntityProviders,
@@ -90,6 +94,8 @@ import {
   OnlinePayment,
   PaymentMethodsConfig,
 } from '@/rpc/api/subscriptions/v1/models_pb'
+
+import type { PendingEntitlementSpec } from '@/features/entitlements/creation/types'
 
 const recipientSchema = z.object({
   name: z.string().min(1, 'Recipient name is required'),
@@ -174,6 +180,23 @@ export const CreateQuote = () => {
   // Add-ons and coupons state
   const [selectedAddOns, setSelectedAddOns] = useState<{ addOnId: string }[]>([])
   const [selectedCoupons, setSelectedCoupons] = useState<{ couponId: string }[]>([])
+  // Entitlements state
+  const [pendingEntitlements, setPendingEntitlements] = useState<PendingEntitlementSpec[]>([])
+
+  // Collect product ids from in-flight (not-yet-persisted) extra and overridden price components.
+  // Only components with an existing productId contribute — new-product refs have no id yet.
+  const extraProductIds = useMemo(() => {
+    const ids = new Set<string>()
+    for (const c of priceComponentsState.components.extra) {
+      if (c.productId) ids.add(c.productId)
+    }
+    for (const c of priceComponentsState.components.overridden) {
+      if (c.productId) ids.add(c.productId)
+    }
+    return Array.from(ids)
+  }, [priceComponentsState.components.extra, priceComponentsState.components.overridden])
+
+  const createFeatureMutation = useMutation(createFeature)
 
 
   const createQuoteMutation = useMutation(createQuote, {
@@ -353,6 +376,11 @@ export const CreateQuote = () => {
     try {
       if (!planCurrency) throw new Error('Currency is required')
 
+      const resolvedEntitlements = await resolveEntitlementSpecs(
+        pendingEntitlements,
+        req => createFeatureMutation.mutateAsync(req),
+      )
+
       const subscriptionComponents = new CreateSubscriptionComponents({
         parameterizedComponents: priceComponentsState.components.parameterized,
         overriddenComponents: priceComponentsState.components.overridden.map(c => {
@@ -423,6 +451,7 @@ export const CreateQuote = () => {
         components: subscriptionComponents,
         addOns: addOns,
         coupons: coupons,
+        entitlements: resolvedEntitlements,
       })
 
       const request = new CreateQuoteRequest({
@@ -781,6 +810,27 @@ export const CreateQuote = () => {
                       }
                       availableCoupons={availableCoupons}
                       currency={planCurrency}
+                    />
+                  </CardContent>
+                </Card>
+              )}
+
+              {/* Entitlements */}
+              {env.entitlementsEnabled && planVersionId && (
+                <Card>
+                  <CardHeader>
+                    <CardTitle>Entitlements</CardTitle>
+                    <CardDescription>Features and limits this quote will grant the customer.</CardDescription>
+                  </CardHeader>
+                  <CardContent>
+                    <PendingEntitlementsPanel
+                      selection={{
+                        planVersionId,
+                        addOnIds: selectedAddOns.map(a => a.addOnId),
+                        extraProductIds,
+                      }}
+                      pending={pendingEntitlements}
+                      onChange={setPendingEntitlements}
                     />
                   </CardContent>
                 </Card>

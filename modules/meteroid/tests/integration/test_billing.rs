@@ -898,6 +898,7 @@ async fn create_subscription(services: &Services, params: SubscriptionParams) ->
                 price_components: None,
                 add_ons: None,
                 coupons: None,
+                entitlements: vec![],
             },
             TENANT_ID,
         )

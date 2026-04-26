@@ -10,7 +10,8 @@ use crate::domain::{
 };
 use chrono::NaiveDate;
 use common_domain::ids::{
-    ConnectorId, CustomerId, PlanId, PriceId, ProductId, SubscriptionId, TenantId,
+    ConnectorId, CustomerId, EntitlementEntityId, PlanId, PriceId, ProductId, SubscriptionId,
+    TenantId,
 };
 use std::collections::HashMap;
 
@@ -20,9 +21,11 @@ use crate::store::Store;
 use error_stack::{Report, bail};
 use itertools::Itertools;
 
+use crate::domain::entitlements::Entitlement;
 use crate::domain::subscription_add_ons::SubscriptionAddOn;
 use diesel_models::applied_coupons::AppliedCouponDetailedRow;
 use diesel_models::billable_metrics::BillableMetricRow;
+use diesel_models::entitlements::EntitlementRow;
 use diesel_models::prices::PriceRow;
 use diesel_models::products::ProductRow;
 use diesel_models::schedules::ScheduleRow;
@@ -189,6 +192,7 @@ impl SubscriptionInterface for Store {
             checkout_url: None,
             trial_config: None,
             pending_events: vec![],
+            entitlements: vec![],
         })
     }
 
@@ -480,6 +484,19 @@ impl SubscriptionInterface for Store {
             events
         };
 
+        let entitlement_rows = EntitlementRow::list_by_entity(
+            conn,
+            tenant_id,
+            EntitlementEntityId::Subscription(subscription.id),
+        )
+        .await
+        .map_err(Into::<Report<StoreError>>::into)?;
+
+        let entitlements: Vec<Entitlement> = entitlement_rows
+            .into_iter()
+            .map(TryInto::try_into)
+            .collect::<Result<Vec<_>, _>>()?;
+
         Ok(SubscriptionDetails {
             subscription,
             price_components: subscription_components,
@@ -492,6 +509,7 @@ impl SubscriptionInterface for Store {
             invoicing_entity,
             trial_config,
             pending_events,
+            entitlements,
         })
     }
 

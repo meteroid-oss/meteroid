@@ -75,6 +75,7 @@ async fn test_main() {
                 product_family_local_id: product_family.local_id,
                 plan_type: PlanType::Standard as i32,
                 currency: "EUR".to_string(),
+                entitlements: vec![],
             },
         ))
         .await

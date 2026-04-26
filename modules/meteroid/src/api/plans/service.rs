@@ -1,4 +1,5 @@
 use super::PlanServiceComponents;
+use crate::api::entitlements::mapping::entitlement_spec_from_proto;
 use crate::api::plans::error::PlanApiError;
 use crate::api::plans::mapping::plans::{
     ListPlanVersionWrapper, PlanOverviewWrapper, PlanStatusWrapper, PlanTypeWrapper,
@@ -52,6 +53,12 @@ impl PlansService for PlanServiceComponents {
             ProductFamilyId::from_proto(req.product_family_local_id)?
         };
 
+        let entitlements = req
+            .entitlements
+            .into_iter()
+            .map(entitlement_spec_from_proto)
+            .collect::<Result<Vec<_>, _>>()?;
+
         let plan_new = domain::FullPlanNew {
             plan: domain::PlanNew {
                 name: req.name,
@@ -69,6 +76,7 @@ impl PlansService for PlanServiceComponents {
                 net_terms: 0,
                 currency: Some(req.currency),
                 billing_cycles: None,
+                entitlements,
             },
             price_components: vec![],
         };

@@ -13,7 +13,7 @@ pub enum BankAccountFormat {
     AccountBicSwift,
 }
 
-#[derive(o2o, Serialize, Deserialize, Debug, Clone)]
+#[derive(o2o, Serialize, Deserialize, Debug, Copy, Clone, PartialEq, Eq)]
 #[map_owned(diesel_enums::BillingMetricAggregateEnum)]
 pub enum BillingMetricAggregateEnum {
     Count,
@@ -421,4 +421,22 @@ pub enum BatchJobChunkStatusEnum {
     Completed,
     Failed,
     Skipped,
+}
+
+/// Internal-only entitlement composition mode. Resolved automatically on the BE based on
+/// the entity that owns the entitlement (e.g. add-on with `max_instances_per_subscription`
+/// forces `Stack` mode). Not exposed via API/FE.
+#[derive(o2o, Serialize, Deserialize, Debug, Clone, PartialEq, Eq)]
+#[map_owned(diesel_enums::EntitlementModeEnum)]
+pub enum EntitlementModeEnum {
+    Override,
+    Stack,
+}
+
+#[derive(o2o, Serialize, Deserialize, Debug, Clone, PartialEq, Eq, Display, EnumString)]
+#[map_owned(diesel_enums::FeatureStatusEnum)]
+pub enum FeatureStatusEnum {
+    Active,
+    Disabled,
+    Archived,
 }

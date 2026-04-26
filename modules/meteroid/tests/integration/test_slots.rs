@@ -1001,6 +1001,7 @@ async fn create_subscription_with_slots(
                 }),
                 add_ons: None,
                 coupons: None,
+                entitlements: vec![],
             },
             TENANT_ID,
         )

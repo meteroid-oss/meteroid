@@ -16,8 +16,10 @@ import {
 } from '@md/ui'
 import { Link } from 'react-router-dom'
 
+import { ResolvedEntitlementsPanel } from '@/features/entitlements/resolved/ResolvedEntitlementsPanel'
 import { useBasePath } from '@/hooks/useBasePath'
 import { useQuery } from '@/lib/connectrpc'
+import { env } from '@/lib/env'
 import { feeTypeLabel, formatCadence, formatPricingSummary } from '@/lib/mapping/prices'
 import { FeeStructure_BillingType, FeeStructure_UsageModel } from '@/rpc/api/prices/v1/models_pb'
 import { listPricesByProduct } from '@/rpc/api/prices/v1/prices-PricesService_connectquery'
@@ -147,6 +149,19 @@ export const ProductDetailPanel = ({ productId, onClose }: ProductDetailPanelPro
                   />
                 </>
               )}
+
+            {env.entitlementsEnabled && (
+              <>
+                <Separator />
+                <section className="flex flex-col gap-3">
+                  <h3 className="text-sm font-medium text-muted-foreground">Entitlements</h3>
+                  <ResolvedEntitlementsPanel
+                    entity={{ type: 'product', id: product.id }}
+                    canPin={false}
+                  />
+                </section>
+              </>
+            )}
 
             <Separator />
             <section className="flex flex-col gap-3">

@@ -13,7 +13,13 @@ use meteroid_store::domain::{
     PlanVersionNewInternal,
 };
 use meteroid_store::repositories::PlansInterface;
+use meteroid_store::repositories::entitlements::EntitlementsInterface;
+use meteroid_store::repositories::entitlements::ResolveTarget;
 
+use crate::api_rest::entitlements::mapping::{
+    entitlement_spec_from_rest, resolved_entitlement_to_rest,
+};
+use crate::api_rest::entitlements::model::ResolvedEntitlementListResponse;
 use crate::api_rest::error::RestErrorResponse;
 use crate::api_rest::model::{PaginationExt, validate_order_by};
 use crate::api_rest::plans::mapping;
@@ -205,6 +211,11 @@ pub(crate) async fn create_plan(
             currency: Some(payload.currency),
             billing_cycles: billing.billing_cycles,
             trial,
+            entitlements: payload
+                .entitlements
+                .into_iter()
+                .map(entitlement_spec_from_rest)
+                .collect(),
         },
         price_components: components,
     };
@@ -238,6 +249,8 @@ pub(crate) async fn create_plan(
         full_plan.plan.self_service_rank = Some(rank);
     }
 
+    let created_entitlements = std::mem::take(&mut full_plan.version.entitlements);
+
     // Attach add-ons
     if !payload.add_ons.is_empty() {
         attach_add_ons(
@@ -250,7 +263,7 @@ pub(crate) async fn create_plan(
     }
 
     // Re-fetch to get full resolved data including products
-    let fp = app_state
+    let mut fp = app_state
         .store
         .get_full_plan(
             full_plan.plan.id,
@@ -266,6 +279,8 @@ pub(crate) async fn create_plan(
             log::error!("Error re-fetching plan: {e}");
             RestApiError::from(e)
         })?;
+
+    fp.version.entitlements = created_entitlements;
 
     Ok((
         StatusCode::CREATED,
@@ -357,6 +372,7 @@ pub(crate) async fn replace_plan(
                 currency: Some(payload.currency),
                 billing_cycles: billing.billing_cycles,
                 trial,
+                entitlements: vec![],
             },
             components,
             add_ons,
@@ -649,6 +665,51 @@ pub(crate) async fn list_plan_versions(
         pagination_meta: request
             .pagination
             .into_response(res.total_pages, res.total_results),
+    }))
+}
+
+// ── Resolved entitlements ──────────────────────────────────────
+
+/// List resolved entitlements for a plan version
+#[utoipa::path(
+    get,
+    tag = "Plans",
+    path = "/api/v1/plan-versions/{plan_version_id}/entitlements",
+    params(("plan_version_id" = PlanVersionId, Path, description = "Plan version ID")),
+    responses(
+        (status = 200, description = "Resolved entitlements for this plan version", body = ResolvedEntitlementListResponse),
+        (status = 401, description = "Unauthorized", body = RestErrorResponse),
+        (status = 404, description = "Plan version not found", body = RestErrorResponse),
+    ),
+    security(("bearer_auth" = []))
+)]
+#[axum::debug_handler]
+pub(crate) async fn list_plan_version_resolved_entitlements(
+    Extension(authorized_state): Extension<AuthorizedAsTenant>,
+    State(app_state): State<AppState>,
+    Path(plan_version_id): Path<PlanVersionId>,
+) -> Result<impl IntoResponse, RestApiError> {
+    let mut conn = app_state.store.get_conn().await.map_err(|e| {
+        log::error!("Error getting db connection: {e}");
+        RestApiError::StoreError
+    })?;
+    let resolved = app_state
+        .store
+        .resolve_for_entity(
+            &mut conn,
+            authorized_state.tenant_id,
+            ResolveTarget::PlanVersion(plan_version_id),
+        )
+        .await
+        .map_err(|e| {
+            log::error!("Error resolving plan version entitlements: {e}");
+            RestApiError::from(e)
+        })?;
+    Ok(Json(ResolvedEntitlementListResponse {
+        data: resolved
+            .into_iter()
+            .map(resolved_entitlement_to_rest)
+            .collect(),
     }))
 }
 

@@ -2,6 +2,7 @@ syntax = "proto3";
 
 package meteroid.api.plans.v1;
 
+import "api/entitlements/v1/models.proto";
 import "api/plans/v1/models.proto";
 import "common/v1/pagination.proto";
 
@@ -14,6 +15,7 @@ message CreateDraftPlanRequest {
   string product_family_local_id = 4;
   PlanType plan_type = 5;
   string currency = 6;
+  repeated meteroid.api.entitlements.v1.EntitlementSpec entitlements = 7;
 }
 
 message CreateDraftPlanResponse {

@@ -1,4 +1,7 @@
 #![allow(non_snake_case)]
+// prost-generated oneof variants can grow large as we add fields; boxing them at the
+// .proto level is awkward and uniformly enlarging unrelated enums isn't worth it.
+#![allow(clippy::large_enum_variant)]
 
 macro_rules! include_proto_serde {
     ($package: tt) => {
@@ -75,6 +78,12 @@ pub mod meteroid {
         pub mod events {
             pub mod v1 {
                 tonic::include_proto!("meteroid.api.events.v1");
+            }
+        }
+
+        pub mod entitlements {
+            pub mod v1 {
+                tonic::include_proto!("meteroid.api.entitlements.v1");
             }
         }
 

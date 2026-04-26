@@ -22,7 +22,7 @@ use meteroid_store::clients::usage::{
 use meteroid_store::domain::subscription_components::{
     ComponentParameterization, ComponentParameters,
 };
-use meteroid_store::domain::{BillingType, Period, SlotUpgradeBillingMode, UsagePricingModel};
+use meteroid_store::domain::{BillingType, SlotUpgradeBillingMode, UsagePeriod, UsagePricingModel};
 use meteroid_store::repositories::subscriptions::slots::SubscriptionSlotsInterfaceAuto;
 use meteroid_store::repositories::subscriptions::{
     CancellationEffectiveAt, SubscriptionInterfaceAuto,
@@ -1314,7 +1314,7 @@ async fn test_immediate_plan_change_rate_only_to_plan_with_slots(#[future] test_
 fn build_usage_mock(entries: Vec<(MockUsageDataParams, Decimal)>) -> Arc<MockUsageClient> {
     let mut data = HashMap::new();
     for (params, value) in entries {
-        let period = Period {
+        let period = UsagePeriod {
             start: params.period_start,
             end: params.period_end,
         };
@@ -1363,8 +1363,8 @@ async fn test_immediate_plan_change_usage_temporal_split() {
         (
             MockUsageDataParams {
                 metric_id: METRIC_BANDWIDTH,
-                period_start: jan1,
-                period_end: feb1,
+                period_start: jan1.and_time(NaiveTime::MIN),
+                period_end: feb1.and_time(NaiveTime::MIN),
             },
             Decimal::new(1000, 0), // 1000 units
         ),
@@ -1372,8 +1372,8 @@ async fn test_immediate_plan_change_usage_temporal_split() {
         (
             MockUsageDataParams {
                 metric_id: METRIC_BANDWIDTH,
-                period_start: feb1,
-                period_end: feb15,
+                period_start: feb1.and_time(NaiveTime::MIN),
+                period_end: feb15.and_time(NaiveTime::MIN),
             },
             Decimal::new(50, 0), // 50 units
         ),
@@ -1381,8 +1381,8 @@ async fn test_immediate_plan_change_usage_temporal_split() {
         (
             MockUsageDataParams {
                 metric_id: METRIC_BANDWIDTH,
-                period_start: feb15,
-                period_end: mar1,
+                period_start: feb15.and_time(NaiveTime::MIN),
+                period_end: mar1.and_time(NaiveTime::MIN),
             },
             Decimal::new(200, 0), // 200 units
         ),
@@ -1390,8 +1390,8 @@ async fn test_immediate_plan_change_usage_temporal_split() {
         (
             MockUsageDataParams {
                 metric_id: METRIC_DATABASE_SIZE,
-                period_start: feb15,
-                period_end: mar1,
+                period_start: feb15.and_time(NaiveTime::MIN),
+                period_end: mar1.and_time(NaiveTime::MIN),
             },
             Decimal::new(100, 0), // 100 units
         ),
@@ -1627,8 +1627,8 @@ async fn test_immediate_plan_change_usage_upcoming_invoice() {
         (
             MockUsageDataParams {
                 metric_id: METRIC_BANDWIDTH,
-                period_start: jan1,
-                period_end: feb1,
+                period_start: jan1.and_time(NaiveTime::MIN),
+                period_end: feb1.and_time(NaiveTime::MIN),
             },
             Decimal::new(1000, 0),
         ),
@@ -1636,8 +1636,8 @@ async fn test_immediate_plan_change_usage_upcoming_invoice() {
         (
             MockUsageDataParams {
                 metric_id: METRIC_BANDWIDTH,
-                period_start: feb1,
-                period_end: feb15,
+                period_start: feb1.and_time(NaiveTime::MIN),
+                period_end: feb15.and_time(NaiveTime::MIN),
             },
             Decimal::new(50, 0),
         ),
@@ -1645,8 +1645,8 @@ async fn test_immediate_plan_change_usage_upcoming_invoice() {
         (
             MockUsageDataParams {
                 metric_id: METRIC_BANDWIDTH,
-                period_start: feb15,
-                period_end: mar1,
+                period_start: feb15.and_time(NaiveTime::MIN),
+                period_end: mar1.and_time(NaiveTime::MIN),
             },
             Decimal::new(200, 0),
         ),
@@ -1654,8 +1654,8 @@ async fn test_immediate_plan_change_usage_upcoming_invoice() {
         (
             MockUsageDataParams {
                 metric_id: METRIC_DATABASE_SIZE,
-                period_start: feb15,
-                period_end: mar1,
+                period_start: feb15.and_time(NaiveTime::MIN),
+                period_end: mar1.and_time(NaiveTime::MIN),
             },
             Decimal::new(100, 0),
         ),
@@ -2467,8 +2467,8 @@ async fn test_immediate_plan_change_capacity_tier_upgrade() {
     let usage_client = build_usage_mock(vec![(
         MockUsageDataParams {
             metric_id: METRIC_BANDWIDTH,
-            period_start: feb15,
-            period_end: mar1,
+            period_start: feb15.and_time(NaiveTime::MIN),
+            period_end: mar1.and_time(NaiveTime::MIN),
         },
         Decimal::new(600, 0),
     )]);
@@ -2631,8 +2631,8 @@ async fn test_immediate_plan_change_usage_price_only() {
         (
             MockUsageDataParams {
                 metric_id: METRIC_BANDWIDTH,
-                period_start: jan1,
-                period_end: feb1,
+                period_start: jan1.and_time(NaiveTime::MIN),
+                period_end: feb1.and_time(NaiveTime::MIN),
             },
             Decimal::new(1000, 0), // 1000 units
         ),
@@ -2640,8 +2640,8 @@ async fn test_immediate_plan_change_usage_price_only() {
         (
             MockUsageDataParams {
                 metric_id: METRIC_BANDWIDTH,
-                period_start: feb1,
-                period_end: feb15,
+                period_start: feb1.and_time(NaiveTime::MIN),
+                period_end: feb15.and_time(NaiveTime::MIN),
             },
             Decimal::new(500, 0), // 500 units
         ),
@@ -2649,8 +2649,8 @@ async fn test_immediate_plan_change_usage_price_only() {
         (
             MockUsageDataParams {
                 metric_id: METRIC_BANDWIDTH,
-                period_start: feb15,
-                period_end: mar1,
+                period_start: feb15.and_time(NaiveTime::MIN),
+                period_end: mar1.and_time(NaiveTime::MIN),
             },
             Decimal::new(800, 0), // 800 units
         ),

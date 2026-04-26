@@ -1,5 +1,6 @@
 import { SearchIcon } from '@md/icons'
 import {
+  BetaBadge,
   Button,
   DropdownMenu,
   DropdownMenuCheckboxItem,
@@ -25,6 +26,7 @@ type EntityHeaderProps = {
   count?: number
   primaryAction?: Action
   secondaryActions?: Action[]
+  beta?: boolean
 }
 
 export const EntityHeader = ({
@@ -32,15 +34,17 @@ export const EntityHeader = ({
   count,
   primaryAction,
   secondaryActions,
+  beta,
 }: EntityHeaderProps) => {
   const hasSecondaryActions = !!secondaryActions?.length
   return (
     <div className="flex justify-between items-center">
-      <h1 className="text-2xl font-bold">
-        {title}{' '}
+      <h1 className="text-2xl font-bold flex items-center gap-2">
+        <span>{title}</span>
         {count !== undefined && (
           <span className="text-xs font-medium text-muted-foreground">({count})</span>
         )}
+        {beta && <BetaBadge />}
       </h1>
       {primaryAction && (
         <div className="flex gap-0.5">

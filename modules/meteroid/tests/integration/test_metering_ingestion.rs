@@ -3,7 +3,7 @@ use crate::metering_it;
 use crate::metering_it::clients::TestLayeredClientService;
 use crate::{helpers, meteroid_it};
 use backon::Retryable;
-use chrono::Days;
+use chrono::{Days, NaiveTime};
 use common_domain::ids::{BillableMetricId, TenantId};
 use itertools::Itertools;
 use metering_grpc::meteroid::metering::v1::usage_query_service_client::UsageQueryServiceClient;
@@ -14,7 +14,7 @@ use meteroid_grpc::meteroid::api;
 use meteroid_mailer::config::MailerConfig;
 use meteroid_store::Store;
 use meteroid_store::clients::usage::{UsageClient, UsageData};
-use meteroid_store::domain::Period;
+use meteroid_store::domain::{Period, UsagePeriod};
 use meteroid_store::repositories::billable_metrics::BillableMetricInterface;
 use rust_decimal::Decimal;
 use std::sync::Arc;
@@ -461,9 +461,9 @@ async fn get_eventually_usage(
                 &ids::TENANT_ID,
                 &ids::CUST_SPOTIFY_ID,
                 bm,
-                Period {
-                    start: period_start,
-                    end: period_end,
+                UsagePeriod {
+                    start: period_start.and_time(NaiveTime::MIN),
+                    end: period_end.and_time(NaiveTime::MIN),
                 },
             )
             .await

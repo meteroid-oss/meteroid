@@ -271,6 +271,7 @@ async fn test_migration_rejects_future_start_date(#[future] test_env: TestEnv) {
                 price_components: None,
                 add_ons: None,
                 coupons: None,
+                entitlements: vec![],
             },
             TENANT_ID,
         )
@@ -317,6 +318,7 @@ async fn test_migration_rejects_manual_activation(#[future] test_env: TestEnv) {
                 price_components: None,
                 add_ons: None,
                 coupons: None,
+                entitlements: vec![],
             },
             TENANT_ID,
         )
@@ -363,6 +365,7 @@ async fn test_migration_rejects_on_checkout_activation(#[future] test_env: TestE
                 price_components: None,
                 add_ons: None,
                 coupons: None,
+                entitlements: vec![],
             },
             TENANT_ID,
         )

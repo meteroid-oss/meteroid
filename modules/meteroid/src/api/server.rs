@@ -103,6 +103,10 @@ pub async fn start_api_server(
             config.jwt_secret.clone(),
         ))
         .add_service(api::events::service(store.clone(), services.clone()))
+        .add_service(api::entitlements::entitlements_service(
+            store.clone(),
+            services.clone(),
+        ))
         .add_service(api::tenants::service(store.clone(), services.clone()))
         .add_service(api::apitokens::service(store.clone()))
         .add_service(api::pricecomponents::service(store.clone()))

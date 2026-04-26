@@ -165,6 +165,7 @@ pub async fn run_preset(
                     net_terms: 30,
                     currency: Some(plan.currency),
                     billing_cycles: None, // TODO drop
+                    entitlements: vec![],
                 },
                 price_components: components,
             })
@@ -269,6 +270,7 @@ pub async fn run_preset(
             price_components: None, // TODO parameters
             add_ons: None,
             coupons: None,
+            entitlements: vec![],
         });
     }
 

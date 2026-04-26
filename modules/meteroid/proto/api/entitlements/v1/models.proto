@@ -1,0 +1,197 @@
+syntax = "proto3";
+
+package meteroid.api.entitlements.v1;
+
+enum CalendarUnit {
+  HOUR = 0;
+  DAY = 1;
+  WEEK = 2;
+  MONTH = 3;
+  YEAR = 4;
+}
+
+// What happens when a customer exceeds their entitlement limit. Required on every metered value.
+message OverageBehavior {
+  oneof Inner {
+    Block block = 1;
+    Allow allow = 2;
+  }
+
+  // Reject requests once limit (+ optional grace) is reached.
+  message Block {
+    optional uint32 grace_period_pct = 1;
+  }
+  // Permit usage past the limit; overage billing handled separately.
+  message Allow {}
+}
+
+// Operator-facing lifecycle for a feature. DISABLED is the kill switch; ARCHIVED hides the
+// feature without deleting its rows.
+enum FeatureStatus {
+  ACTIVE = 0;
+  DISABLED = 1;
+  ARCHIVED = 2;
+}
+
+message ResetPeriod {
+  oneof Inner {
+    BillingCycle billing_cycle = 1;
+    Calendar calendar = 2;
+    FixedWindow fixed_window = 3;
+    SlidingWindow sliding_window = 4;
+    Never never = 5;
+  }
+
+  message BillingCycle {}
+  message Calendar {
+    CalendarUnit unit = 1;
+    uint32 interval = 2;
+  }
+  // Resets every `interval` units measured from first use.
+  message FixedWindow {
+    CalendarUnit unit = 1;
+    uint32 interval = 2;
+  }
+  // Window is always the last `interval` units from now.
+  message SlidingWindow {
+    CalendarUnit unit = 1;
+    uint32 interval = 2;
+  }
+  message Never {}
+}
+
+message FeatureType {
+  oneof Inner {
+    BooleanFeature boolean = 1;
+    MeteredFeature metered = 2;
+  }
+
+  message BooleanFeature {}
+  message MeteredFeature {
+    string metric_id = 1;
+  }
+}
+
+// Product a feature belongs to.
+message ProductRef {
+  string id = 1;
+  string name = 2;
+}
+
+// Feature identity plus its product (unset product ⇒ tenant-global feature).
+message FeatureRef {
+  string id = 1;
+  string name = 2;
+  optional ProductRef product = 3;
+}
+
+message Feature {
+  string id = 1;
+  string name = 2;
+  optional string description = 3;
+  FeatureType feature_type = 4;
+  FeatureStatus status = 5;
+  // Product the feature belongs to. Unset ⇒ tenant-global feature.
+  optional ProductRef product = 6;
+  string created_at = 7;
+}
+
+message EntitlementEntity {
+  oneof EntityId {
+    string feature_id = 1;
+    string plan_id = 2;
+    string plan_version_id = 3;
+    string add_on_id = 4;
+    string subscription_id = 5;
+    string quote_id = 6;
+  }
+}
+
+message Entitlement {
+  string id = 1;
+  string feature_id = 2;
+  EntitlementEntity entity = 3;
+  EntitlementValue value = 4;
+  string created_at = 11;
+  string updated_at = 12;
+}
+
+message EntitlementValue {
+  oneof value {
+    BooleanValue boolean_value = 1;
+    MeteredValue metered_value = 2;
+  }
+
+  message BooleanValue {
+    bool enabled = 1;
+  }
+  message MeteredValue {
+    optional string limit = 1;
+    optional ResetPeriod reset_period = 2;
+    OverageBehavior overage_behavior = 3;
+    optional uint32 warning_threshold_pct = 4;
+    bool enabled = 5;
+  }
+}
+
+message EntitlementSpec {
+  string feature_id = 1;
+  EntitlementValue value = 2;
+}
+
+// Resolved entity that contributed the winning value, with a human-readable label.
+message ResolvedOrigin {
+  EntitlementEntity entity = 1;
+  optional string name = 2;
+}
+
+message EffectiveEntitlement {
+  FeatureRef feature = 1;
+  oneof value {
+    BooleanEntitlement boolean = 2;
+    MeteredEntitlement metered = 3;
+  }
+  string created_at = 4;
+  // Highest-priority entity that contributed to the final value, with its human-readable name.
+  ResolvedOrigin origin = 5;
+
+  message BooleanEntitlement {
+    bool enabled = 1;
+  }
+  message MeteredEntitlement {
+    string metric_id = 1;
+    optional string limit = 2;
+    optional string consumed = 3;
+    optional string remaining = 4;
+    optional string reset_at = 6;
+    optional ResetPeriod reset_period = 7;
+    OverageBehavior overage_behavior = 8;
+    optional uint32 warning_threshold_pct = 9;
+    bool enabled = 10;
+  }
+}
+
+// Like EffectiveEntitlement but without usage data — used by the per-entity
+// resolved-entitlements preview endpoints.
+message ResolvedEntitlement {
+  FeatureRef feature = 1;
+  oneof value {
+    BooleanResolved boolean = 2;
+    MeteredResolved metered = 3;
+  }
+  string created_at = 4;
+  // Highest-priority entity that contributed to the final value, with its human-readable name.
+  ResolvedOrigin origin = 5;
+
+  message BooleanResolved {
+    bool enabled = 1;
+  }
+  message MeteredResolved {
+    string metric_id = 1;
+    optional string limit = 2;
+    optional ResetPeriod reset_period = 3;
+    OverageBehavior overage_behavior = 4;
+    optional uint32 warning_threshold_pct = 5;
+    bool enabled = 6;
+  }
+}

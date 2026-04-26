@@ -12,6 +12,8 @@ import {
   Zap,
 } from 'lucide-react'
 
+import { env } from '@/lib/env'
+
 export const getFilteredSidebarItems = (isExpress: boolean, isPlatformAdmin?: boolean) => {
   if (!isExpress) {
     if (isPlatformAdmin) {
@@ -121,7 +123,8 @@ export const sidebarItems = {
         {
           title: 'Features',
           url: 'features',
-          disabled: true,
+          disabled: !env.entitlementsEnabled,
+          beta: true,
         },
       ],
     },

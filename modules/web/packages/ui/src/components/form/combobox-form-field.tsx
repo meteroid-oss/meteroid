@@ -32,6 +32,10 @@ interface FormComboboxProps<
   className?: string
   layout?: 'vertical' | 'horizontal' | null
   hasSearch?: boolean
+  /** Called every time the search input changes — use it to drive server-side search. */
+  onSearchChange?: (value: string) => void
+  /** Set false when the caller filters `options` itself (e.g. server-side search). */
+  shouldFilter?: boolean
   placeholder?: string
   action?: React.ReactNode
   unit?: string
@@ -48,6 +52,8 @@ export function ComboboxFormField<
   labelClassName,
   className,
   hasSearch,
+  onSearchChange,
+  shouldFilter,
   placeholder,
   action,
   unit = '...',
@@ -86,10 +92,14 @@ export function ComboboxFormField<
               </FormControl>
             </PopoverTrigger>
             <PopoverContent className="w-[var(--radix-popover-trigger-width)] p-0">
-              <Command className="border border-border ">
+              <Command className="border border-border " shouldFilter={shouldFilter}>
                 {hasSearch && (
                   <>
-                    <CommandInput placeholder={`Search ${unit}`} className="h-9  " />
+                    <CommandInput
+                      placeholder={`Search ${unit}`}
+                      className="h-9  "
+                      onValueChange={onSearchChange}
+                    />
                     <CommandEmpty>No data found.</CommandEmpty>
                   </>
                 )}

@@ -1,4 +1,5 @@
 import {
+  BetaBadge,
   Collapsible,
   CollapsibleContent,
   CollapsibleTrigger,
@@ -26,6 +27,7 @@ function Tree({
       title: string
       url: To
       disabled?: boolean
+      beta?: boolean
     }[]
   }
 }) {
@@ -95,7 +97,10 @@ function Tree({
                 >
                   <NavLink to={subItem.url}>
                     <SidebarMenuButton key={index} isActive={isSubActive} className="pl-10">
-                      {subItem.title}
+                      <Flex align="center" className="gap-2">
+                        <span>{subItem.title}</span>
+                        {subItem.beta && <BetaBadge />}
+                      </Flex>
                     </SidebarMenuButton>
                   </NavLink>
                 </div>
@@ -138,6 +143,7 @@ export function NavMain({
       url: To
       isActive?: boolean
       disabled?: boolean
+      beta?: boolean
     }[]
   }[]
 }) {

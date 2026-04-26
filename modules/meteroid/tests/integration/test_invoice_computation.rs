@@ -78,6 +78,7 @@ async fn test_compute_invoice_basic(
                 price_components: None,
                 add_ons: None,
                 coupons: None,
+                entitlements: vec![],
             },
             TENANT_ID,
         )
@@ -209,6 +210,7 @@ async fn test_compute_invoice_with_eu_vat(
                 price_components: None,
                 add_ons: None,
                 coupons: None,
+                entitlements: vec![],
             },
             TENANT_ID,
         )
@@ -348,6 +350,7 @@ async fn test_compute_invoice_with_reverse_charge(
                 price_components: None,
                 add_ons: None,
                 coupons: None,
+                entitlements: vec![],
             },
             TENANT_ID,
         )
@@ -447,6 +450,7 @@ async fn test_compute_invoice_with_manual_tax_and_coupon(
                 coupons: Some(CreateSubscriptionCoupons {
                     coupons: vec![CreateSubscriptionCoupon { coupon_id }],
                 }),
+                entitlements: vec![],
             },
             TENANT_ID,
         )

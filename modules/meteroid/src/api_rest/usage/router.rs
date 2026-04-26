@@ -12,7 +12,7 @@ use axum::{Extension, Json};
 use axum_valid::Valid;
 use common_domain::ids::{AliasOr, BillableMetricId, CustomerId, SubscriptionId};
 use common_grpc::middleware::server::auth::AuthorizedAsTenant;
-use meteroid_store::domain::{BillableMetric, Period};
+use meteroid_store::domain::{BillableMetric, UsagePeriod};
 use meteroid_store::repositories::CustomersInterface;
 use meteroid_store::repositories::billable_metrics::BillableMetricInterface;
 use meteroid_store::repositories::subscriptions::SubscriptionInterfaceAuto;
@@ -57,9 +57,9 @@ pub(crate) async fn get_customer_usage(
 
     let metrics = load_metrics(&app_state, authorized_state.tenant_id, query.metric_id).await?;
 
-    let period = Period {
-        start: query.start_date,
-        end: query.end_date,
+    let period = UsagePeriod {
+        start: query.start_date.and_time(chrono::NaiveTime::MIN),
+        end: query.end_date.and_time(chrono::NaiveTime::MIN),
     };
 
     let usage = fetch_usage_for_metrics(
@@ -72,8 +72,8 @@ pub(crate) async fn get_customer_usage(
     .await?;
 
     Ok(Json(UsageResponse {
-        period_start: period.start,
-        period_end: period.end,
+        period_start: period.start.date(),
+        period_end: period.end.date(),
         usage,
     }))
 }
@@ -136,9 +136,9 @@ pub(crate) async fn get_subscription_usage(
         None => details.metrics,
     };
 
-    let period = Period {
-        start: period_start,
-        end: period_end,
+    let period = UsagePeriod {
+        start: period_start.and_time(chrono::NaiveTime::MIN),
+        end: period_end.and_time(chrono::NaiveTime::MIN),
     };
 
     let usage = fetch_usage_for_metrics(
@@ -151,8 +151,8 @@ pub(crate) async fn get_subscription_usage(
     .await?;
 
     Ok(Json(UsageResponse {
-        period_start: period.start,
-        period_end: period.end,
+        period_start: period.start.date(),
+        period_end: period.end.date(),
         usage,
     }))
 }
@@ -184,9 +184,9 @@ pub(crate) async fn get_usage_summary(
 ) -> Result<impl IntoResponse, RestApiError> {
     let metrics = load_metrics(&app_state, authorized_state.tenant_id, query.metric_id).await?;
 
-    let period = Period {
-        start: query.start_date,
-        end: query.end_date,
+    let period = UsagePeriod {
+        start: query.start_date.and_time(chrono::NaiveTime::MIN),
+        end: query.end_date.and_time(chrono::NaiveTime::MIN),
     };
 
     let usage = fetch_usage_for_metrics(
@@ -199,8 +199,8 @@ pub(crate) async fn get_usage_summary(
     .await?;
 
     Ok(Json(UsageResponse {
-        period_start: period.start,
-        period_end: period.end,
+        period_start: period.start.date(),
+        period_end: period.end.date(),
         usage,
     }))
 }
@@ -238,7 +238,7 @@ async fn fetch_usage_for_metrics(
     tenant_id: &common_domain::ids::TenantId,
     customer_id: Option<&CustomerId>,
     metrics: &[BillableMetric],
-    period: Period,
+    period: UsagePeriod,
 ) -> Result<Vec<MetricUsage>, RestApiError> {
     let mut usage_items = Vec::with_capacity(metrics.len());
 

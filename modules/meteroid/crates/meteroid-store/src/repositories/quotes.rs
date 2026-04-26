@@ -1,4 +1,5 @@
 use crate::StoreResult;
+use crate::domain::entitlements::Entitlement;
 use crate::domain::{
     PaginatedVec, PaginationRequest, Quote, QuoteNew, QuoteWithCustomer,
     enums::QuoteStatusEnum,
@@ -14,9 +15,11 @@ use crate::jwt_claims::{ResourceAccess, generate_portal_token};
 use crate::repositories::pgmq::PgmqInterface;
 use crate::store::Store;
 use common_domain::ids::{
-    BaseId, CustomerId, QuoteId, QuotePriceComponentId, StoredDocumentId, TenantId,
+    BaseId, CustomerId, EntitlementEntityId, QuoteId, QuotePriceComponentId, StoredDocumentId,
+    TenantId,
 };
 use diesel_async::scoped_futures::ScopedFutureExt;
+use diesel_models::entitlements::EntitlementRow;
 use diesel_models::invoicing_entities::InvoicingEntityRow;
 use diesel_models::quote_add_ons::{QuoteAddOnRow, QuoteAddOnRowNew};
 use diesel_models::quote_coupons::{QuoteCouponRow, QuoteCouponRowNew};
@@ -378,6 +381,19 @@ impl QuotesInterface for Store {
             .map_err(Into::<Report<StoreError>>::into)
             .map(|l| l.into_iter().map(std::convert::Into::into).collect())?;
 
+        let entitlement_rows = EntitlementRow::list_by_entity(
+            &mut conn,
+            tenant_id,
+            EntitlementEntityId::Quote(quote_id),
+        )
+        .await
+        .map_err(Into::<Report<StoreError>>::into)?;
+
+        let entitlements: Vec<Entitlement> = entitlement_rows
+            .into_iter()
+            .map(TryInto::try_into)
+            .collect::<Result<Vec<_>, _>>()?;
+
         Ok(DetailedQuote {
             quote: quote_with_customer.quote,
             customer: quote_with_customer.customer,
@@ -387,6 +403,7 @@ impl QuotesInterface for Store {
             coupons,
             signatures,
             activities,
+            entitlements,
         })
     }
 
@@ -772,6 +789,7 @@ impl QuotesInterface for Store {
                 }
 
                 let tenant_id = quote.tenant_id;
+                let entitlement_specs = quote.entitlements.clone();
 
                 // Insert the quote
                 let quote_row: QuoteRowNew = quote.try_into()?;
@@ -861,6 +879,18 @@ impl QuotesInterface for Store {
                     QuoteCouponRowNew::insert_batch(&coupon_rows, conn)
                         .await
                         .map_err(Into::<Report<StoreError>>::into)?;
+                }
+
+                // Insert entitlements if any
+                if !entitlement_specs.is_empty() {
+                    crate::repositories::entitlements::insert_entitlement_specs(
+                        conn,
+                        entitlement_specs,
+                        EntitlementEntityId::Quote(quote_id),
+                        tenant_id,
+                        created_by,
+                    )
+                    .await?;
                 }
 
                 created_quote.try_into()

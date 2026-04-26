@@ -1,7 +1,7 @@
 use crate::errors::IntoDbResult;
 use crate::subscription_add_ons::{SubscriptionAddOnRow, SubscriptionAddOnRowNew};
 use crate::{DbResult, PgConn};
-use common_domain::ids::{SubscriptionAddOnId, SubscriptionId, TenantId};
+use common_domain::ids::{ProductId, SubscriptionAddOnId, SubscriptionId, TenantId};
 use diesel::{ExpressionMethods, OptionalExtension, SelectableHelper};
 use diesel::{QueryDsl, debug_query};
 use diesel_async::RunQueryDsl;
@@ -118,5 +118,66 @@ impl SubscriptionAddOnRow {
         }
 
         Ok(())
+    }
+
+    pub async fn list_add_on_ids(
+        conn: &mut PgConn,
+        subscription_ids: &[SubscriptionId],
+        tenant_id: &TenantId,
+    ) -> DbResult<Vec<common_domain::ids::AddOnId>> {
+        use crate::schema::subscription::dsl as s_dsl;
+        use crate::schema::subscription_add_on::dsl as sao_dsl;
+        use error_stack::ResultExt;
+
+        if subscription_ids.is_empty() {
+            return Ok(vec![]);
+        }
+
+        let query = sao_dsl::subscription_add_on
+            .inner_join(s_dsl::subscription)
+            .filter(sao_dsl::subscription_id.eq_any(subscription_ids))
+            .filter(s_dsl::tenant_id.eq(tenant_id))
+            .select(sao_dsl::add_on_id);
+
+        log::debug!("{}", debug_query::<diesel::pg::Pg, _>(&query));
+
+        query
+            .get_results(conn)
+            .await
+            .attach("Error while fetching add-on ids by subscription ids")
+            .into_db_result()
+    }
+
+    /// Fetch distinct product IDs from subscription add-ons for the given subscriptions.
+    pub async fn list_product_ids(
+        conn: &mut PgConn,
+        subscription_ids: &[SubscriptionId],
+        tenant_id: &TenantId,
+    ) -> DbResult<Vec<ProductId>> {
+        use crate::schema::subscription::dsl as s_dsl;
+        use crate::schema::subscription_add_on::dsl as sao_dsl;
+        use diesel::dsl::not;
+        use error_stack::ResultExt;
+
+        if subscription_ids.is_empty() {
+            return Ok(vec![]);
+        }
+
+        let query = sao_dsl::subscription_add_on
+            .inner_join(s_dsl::subscription)
+            .filter(sao_dsl::subscription_id.eq_any(subscription_ids))
+            .filter(s_dsl::tenant_id.eq(tenant_id))
+            .filter(not(sao_dsl::product_id.is_null()))
+            .select(sao_dsl::product_id);
+
+        log::debug!("{}", debug_query::<diesel::pg::Pg, _>(&query));
+
+        let rows: Vec<Option<ProductId>> = query
+            .get_results(conn)
+            .await
+            .attach("Error while fetching product ids from subscription add-ons")
+            .into_db_result()?;
+
+        Ok(rows.into_iter().flatten().collect())
     }
 }

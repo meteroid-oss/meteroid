@@ -190,6 +190,7 @@ impl SubscriptionBuilder {
                     price_components: None,
                     add_ons: None,
                     coupons,
+                    entitlements: vec![],
                 },
                 TENANT_ID,
             )

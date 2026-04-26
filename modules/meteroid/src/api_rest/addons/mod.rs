@@ -14,4 +14,5 @@ pub fn addon_routes() -> OpenApiRouter<AppState> {
         .routes(routes!(router::update_addon))
         .routes(routes!(router::archive_addon))
         .routes(routes!(router::unarchive_addon))
+        .routes(routes!(router::list_resolved_entitlements))
 }

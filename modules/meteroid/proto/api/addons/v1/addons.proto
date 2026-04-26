@@ -3,6 +3,7 @@ syntax = "proto3";
 package meteroid.api.addons.v1;
 
 import "api/addons/v1/models.proto";
+import "api/entitlements/v1/models.proto";
 import "api/pricecomponents/v1/models.proto";
 import "common/v1/pagination.proto";
 
@@ -28,6 +29,7 @@ message CreateAddOnRequest {
   bool self_serviceable = 6;
   optional int32 max_instances_per_subscription = 7;
   optional string product_family_local_id = 8;
+  repeated meteroid.api.entitlements.v1.EntitlementSpec entitlements = 9;
 }
 
 message CreateAddOnResponse {

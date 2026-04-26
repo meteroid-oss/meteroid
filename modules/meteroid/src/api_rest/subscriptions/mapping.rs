@@ -1,5 +1,6 @@
 use crate::api_rest::coupons::model::{CouponDiscount, FixedDiscount, PercentageDiscount};
 use crate::api_rest::currencies;
+use crate::api_rest::entitlements::mapping::{entitlement_spec_from_rest, entitlement_to_rest};
 use crate::api_rest::subscriptions::model::{
     AppliedCoupon, AppliedCouponDetailed, Coupon, CreateSubscriptionAddOn,
     CreateSubscriptionComponents, Subscription, SubscriptionAddOnCustomization,
@@ -89,6 +90,11 @@ pub fn domain_to_rest_details(
         add_ons,
         applied_coupons,
         checkout_url: s.checkout_url,
+        entitlements: s
+            .entitlements
+            .into_iter()
+            .map(entitlement_to_rest)
+            .collect(),
     })
 }
 
@@ -178,6 +184,11 @@ pub fn rest_to_domain_create_request(
                 .map(|coupon_id| domain::CreateSubscriptionCoupon { coupon_id })
                 .collect(),
         }),
+        entitlements: sub
+            .entitlements
+            .into_iter()
+            .map(entitlement_spec_from_rest)
+            .collect(),
     };
 
     Ok(converted)

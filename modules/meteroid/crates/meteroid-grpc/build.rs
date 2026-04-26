@@ -18,6 +18,7 @@ fn generate_grpc_types(root: &Path) -> Result<(), Report<BuildError>> {
         "batchjobs",
         "billablemetrics",
         "connectors",
+        "entitlements",
         "customers",
         "coupons",
         "creditnotes",
@@ -42,9 +43,14 @@ fn generate_grpc_types(root: &Path) -> Result<(), Report<BuildError>> {
     ];
 
     let mut proto_files = Vec::new();
-    for service in services {
+    for service in &services {
         let service_path = root.join(format!("proto/api/{service}/v1"));
         proto_files.push(service_path.join(format!("{service}.proto"))); // main service file
+        // Watch model files imported by service protos
+        let models_path = service_path.join("models.proto");
+        if models_path.exists() {
+            println!("cargo:rerun-if-changed={}", models_path.display());
+        }
     }
     // Admin protos (platform admin, separate from tenant-scoped API)
     proto_files.push(root.join("proto/admin/deadletter/v1/deadletter.proto"));

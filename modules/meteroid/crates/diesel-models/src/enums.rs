@@ -406,3 +406,40 @@ pub enum BatchJobChunkStatusEnum {
     Failed,
     Skipped,
 }
+
+#[derive(diesel_derive_enum::DbEnum, Debug, Clone, PartialEq, Eq)]
+#[ExistingTypePath = "crate::schema::sql_types::FeatureTypeEnum"]
+#[DbValueStyle = "SCREAMING_SNAKE_CASE"]
+pub enum FeatureTypeEnum {
+    Boolean,
+    Metered,
+}
+
+#[derive(diesel_derive_enum::DbEnum, Debug, Clone, PartialEq, Eq)]
+#[ExistingTypePath = "crate::schema::sql_types::FeatureStatusEnum"]
+#[DbValueStyle = "SCREAMING_SNAKE_CASE"]
+pub enum FeatureStatusEnum {
+    Active,
+    Disabled,
+    Archived,
+}
+
+#[derive(diesel_derive_enum::DbEnum, Debug, Clone, PartialEq, Eq)]
+#[ExistingTypePath = "crate::schema::sql_types::EntitlementModeEnum"]
+#[DbValueStyle = "SCREAMING_SNAKE_CASE"]
+pub enum EntitlementModeEnum {
+    Override,
+    Stack,
+}
+
+#[derive(diesel_derive_enum::DbEnum, Debug, Copy, Clone, PartialEq, Eq, Hash, PartialOrd, Ord)]
+#[ExistingTypePath = "crate::schema::sql_types::EntitlementEntityTypeEnum"]
+#[DbValueStyle = "SCREAMING_SNAKE_CASE"]
+pub enum EntitlementEntityTypeEnum {
+    Feature,
+    PlanVersion,
+    AddOn,
+    Plan,
+    Subscription,
+    Quote,
+}

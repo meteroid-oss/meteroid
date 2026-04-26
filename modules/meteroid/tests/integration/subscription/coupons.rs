@@ -382,6 +382,7 @@ async fn test_plan_restricted_coupon_rejected(#[future] test_env: TestEnv) {
                 coupons: Some(meteroid_store::domain::CreateSubscriptionCoupons {
                     coupons: vec![meteroid_store::domain::CreateSubscriptionCoupon { coupon_id }],
                 }),
+                entitlements: vec![],
             },
             TENANT_ID,
         )
@@ -593,6 +594,7 @@ async fn test_expired_coupon_rejected(#[future] test_env: TestEnv) {
                 coupons: Some(meteroid_store::domain::CreateSubscriptionCoupons {
                     coupons: vec![meteroid_store::domain::CreateSubscriptionCoupon { coupon_id }],
                 }),
+                entitlements: vec![],
             },
             TENANT_ID,
         )
@@ -654,6 +656,7 @@ async fn test_disabled_coupon_rejected(#[future] test_env: TestEnv) {
                 coupons: Some(meteroid_store::domain::CreateSubscriptionCoupons {
                     coupons: vec![meteroid_store::domain::CreateSubscriptionCoupon { coupon_id }],
                 }),
+                entitlements: vec![],
             },
             TENANT_ID,
         )
@@ -710,6 +713,7 @@ async fn test_archived_coupon_rejected(#[future] test_env: TestEnv) {
                 coupons: Some(meteroid_store::domain::CreateSubscriptionCoupons {
                     coupons: vec![meteroid_store::domain::CreateSubscriptionCoupon { coupon_id }],
                 }),
+                entitlements: vec![],
             },
             TENANT_ID,
         )
@@ -779,6 +783,7 @@ async fn test_non_reusable_coupon_same_customer_rejected(#[future] test_env: Tes
                 coupons: Some(meteroid_store::domain::CreateSubscriptionCoupons {
                     coupons: vec![meteroid_store::domain::CreateSubscriptionCoupon { coupon_id }],
                 }),
+                entitlements: vec![],
             },
             TENANT_ID,
         )
@@ -948,6 +953,7 @@ async fn test_redemption_limit_reached(#[future] test_env: TestEnv) {
                 coupons: Some(meteroid_store::domain::CreateSubscriptionCoupons {
                     coupons: vec![meteroid_store::domain::CreateSubscriptionCoupon { coupon_id }],
                 }),
+                entitlements: vec![],
             },
             TENANT_ID,
         )
@@ -1011,6 +1017,7 @@ async fn test_currency_mismatch_rejected(#[future] test_env: TestEnv) {
                 coupons: Some(meteroid_store::domain::CreateSubscriptionCoupons {
                     coupons: vec![meteroid_store::domain::CreateSubscriptionCoupon { coupon_id }],
                 }),
+                entitlements: vec![],
             },
             TENANT_ID,
         )
@@ -1215,6 +1222,7 @@ async fn test_multiple_coupons_one_fails_plan_restriction(#[future] test_env: Te
                         },
                     ],
                 }),
+                entitlements: vec![],
             },
             TENANT_ID,
         )

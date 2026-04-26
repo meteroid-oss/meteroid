@@ -161,6 +161,7 @@ async fn start_meteroid_from_config(
         billing: None,
         billing_default_plan_id: None,
         admin_organization_id: None,
+        usage_client: usage_client.clone(),
     })
     .expect("Could not create store");
 
@@ -338,6 +339,7 @@ pub async fn create_test_database() -> String {
     )
 }
 
+#[allow(dead_code)]
 pub async fn start_redis_container() -> ContainerAsync<GenericImage> {
     GenericImage::new("redis", "8-alpine")
         .with_wait_for(WaitFor::log(LogWaitStrategy::stdout(
@@ -350,6 +352,7 @@ pub async fn start_redis_container() -> ContainerAsync<GenericImage> {
 
 /// Legacy function for backwards compatibility.
 /// Prefer using `create_test_database()` for new tests.
+#[allow(dead_code)]
 pub async fn start_postgres() -> (ContainerAsync<GenericImage>, String) {
     let container = start_postgres_container().await;
     let port = container.get_host_port_ipv4(5432).await.unwrap();
@@ -385,6 +388,7 @@ pub async fn populate_postgres(pool: &PgPool, seed_level: SeedLevel) {
 }
 
 #[allow(clippy::upper_case_acronyms)]
+#[allow(dead_code)]
 pub enum SeedLevel {
     NONE,
     MINIMAL,

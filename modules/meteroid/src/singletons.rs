@@ -1,3 +1,4 @@
+use crate::clients::usage::MeteringUsageClient;
 use crate::config::{Config, RedisConfig};
 use crate::eventbus::{create_eventbus_memory, setup_eventbus_handlers};
 use common_logging::GLOBAL_METER;
@@ -7,6 +8,7 @@ use meteroid_store::store::{PgPool, StoreConfig};
 use opentelemetry::KeyValue;
 use opentelemetry::metrics::ObservableGauge;
 use secrecy::ExposeSecret;
+use std::sync::Arc;
 
 static STORE: tokio::sync::OnceCell<Store> = tokio::sync::OnceCell::const_new();
 
@@ -32,6 +34,7 @@ pub async fn get_store() -> &'static Store {
                 billing: None,
                 billing_default_plan_id: None,
                 admin_organization_id: config.admin_organization_id,
+                usage_client: Arc::new(MeteringUsageClient::get().clone()),
             })
             .expect("Failed to initialize store");
 

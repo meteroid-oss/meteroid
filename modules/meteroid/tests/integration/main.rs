@@ -32,5 +32,6 @@ mod test_tenant;
 mod test_user;
 
 mod data;
+mod test_entitlements;
 mod test_invoice_computation;
 mod test_metering_ingestion;

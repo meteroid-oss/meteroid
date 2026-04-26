@@ -13,10 +13,13 @@ const _env = parseEnv(window._env, {
   VITE_METEROID_REST_API_EXTERNAL_URL: z.string().default('http://127.0.0.1:8080'),
   // enable developer experience mode
   VITE_DX: z.boolean().default(false),
+  // todo move to feature flag service
+  VITE_ENTITLEMENTS_ENABLED: z.boolean().default(false),
 })
 
 export const env = {
   meteroidApiUri: _env.VITE_METEROID_API_EXTERNAL_URL,
   meteroidRestApiUri: _env.VITE_METEROID_REST_API_EXTERNAL_URL,
   dx: _env.VITE_DX,
+  entitlementsEnabled: _env.VITE_ENTITLEMENTS_ENABLED,
 }

@@ -3,10 +3,12 @@ import { ArrowLeftIcon, PencilIcon } from 'lucide-react'
 import { createElement } from 'react'
 import { z } from 'zod'
 
+import { EntitlementCreationStep } from '@/features/entitlements/creation/EntitlementCreationStep'
 import { FeeTypePicker } from '@/features/plans/pricecomponents/FeeTypePicker'
 import { ProductPricingForm } from '@/features/plans/pricecomponents/ProductPricingForm'
 import { feeTypeIcon, feeTypeToHuman } from '@/features/plans/pricecomponents/utils'
 
+import type { PendingEntitlementSpec } from '@/features/entitlements/creation/types'
 import type { FeeTypeOption } from '@/features/plans/pricecomponents/FeeTypePicker'
 import type { ComponentFeeType } from '@/features/pricing/conversions'
 
@@ -16,7 +18,7 @@ export const IdentitySchema = z.object({
 })
 
 interface CustomCreationFlowProps {
-  step: 'identity' | 'feeType' | 'form'
+  step: 'identity' | 'feeType' | 'form' | 'entitlements'
   name: string
   description: string
   selectedFeeType: ComponentFeeType | null
@@ -25,10 +27,13 @@ interface CustomCreationFlowProps {
   currency: string
   onIdentitySubmit: (data: { productName: string; description?: string }) => void
   onFeeTypeSelect: (feeType: ComponentFeeType) => void
-  onBack: (step: 'identity' | 'feeType') => void
+  onBack: (step: 'identity' | 'feeType' | 'form') => void
   onSubmit: (formData: Record<string, unknown>) => void
   feeTypeOptions?: FeeTypeOption[]
   submitLabel?: string
+  pendingEntitlements?: PendingEntitlementSpec[]
+  isSubmitting?: boolean
+  onEntitlementsSubmit?: (entitlements: PendingEntitlementSpec[]) => Promise<void>
 }
 
 export const CustomCreationFlow = ({
@@ -44,6 +49,9 @@ export const CustomCreationFlow = ({
   onSubmit,
   feeTypeOptions,
   submitLabel = 'Create Add-on',
+  pendingEntitlements = [],
+  isSubmitting,
+  onEntitlementsSubmit,
 }: CustomCreationFlowProps) => {
   switch (step) {
     case 'identity':
@@ -126,11 +134,21 @@ export const CustomCreationFlow = ({
                 currency={currency}
                 editableStructure
                 onSubmit={onSubmit}
-                submitLabel={submitLabel}
+                submitLabel="Next →"
               />
             </div>
           </div>
         </div>
+      )
+    case 'entitlements':
+      return (
+        <EntitlementCreationStep
+          initialEntitlements={pendingEntitlements}
+          submitLabel={submitLabel}
+          onBack={() => onBack('form')}
+          onSubmit={onEntitlementsSubmit ?? (() => Promise.resolve())}
+          isSubmitting={isSubmitting}
+        />
       )
   }
 }

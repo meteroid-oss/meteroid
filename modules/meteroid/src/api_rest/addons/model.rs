@@ -1,3 +1,4 @@
+use crate::api_rest::entitlements::model::{Entitlement, EntitlementSpec};
 use crate::api_rest::model::{PaginatedRequest, PaginationResponse};
 use crate::api_rest::products::model::ProductFeeTypeEnum;
 use chrono::NaiveDateTime;
@@ -31,6 +32,8 @@ pub struct AddOn {
         serialize_with = "crate::api_rest::model::serialize_datetime_opt"
     )]
     pub archived_at: Option<NaiveDateTime>,
+    #[serde(skip_serializing_if = "Vec::is_empty", default)]
+    pub entitlements: Vec<Entitlement>,
 }
 
 // ── Requests ───────────────────────────────────────────────────
@@ -47,6 +50,9 @@ pub struct CreateAddOnRequest {
     #[serde(default)]
     pub self_serviceable: bool,
     pub max_instances_per_subscription: Option<i32>,
+    /// Inline entitlements to attach when creating this add-on.
+    #[serde(default)]
+    pub entitlements: Vec<EntitlementSpec>,
 }
 
 #[derive(Clone, Debug, Deserialize, Validate, ToSchema)]

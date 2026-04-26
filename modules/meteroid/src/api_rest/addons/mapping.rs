@@ -1,6 +1,7 @@
 use meteroid_store::domain;
 
 use super::model;
+use crate::api_rest::entitlements::mapping::entitlement_to_rest;
 use crate::api_rest::products::model::ProductFeeTypeEnum;
 
 pub fn addon_to_rest(addon: domain::add_ons::AddOn) -> model::AddOn {
@@ -15,5 +16,10 @@ pub fn addon_to_rest(addon: domain::add_ons::AddOn) -> model::AddOn {
         max_instances_per_subscription: addon.max_instances_per_subscription,
         created_at: addon.created_at,
         archived_at: addon.archived_at,
+        entitlements: addon
+            .entitlements
+            .into_iter()
+            .map(entitlement_to_rest)
+            .collect(),
     }
 }

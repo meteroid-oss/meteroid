@@ -31,6 +31,7 @@ import { Link, useNavigate } from 'react-router-dom'
 import { toast } from 'sonner'
 
 import { CopyToClipboardButton } from '@/components/CopyToClipboard'
+import { EffectiveEntitlementsCard } from '@/features/entitlements/customer/EffectiveEntitlementsCard'
 import {
   IntegrationType,
   SyncSubscriptionModal,
@@ -45,6 +46,7 @@ import { formatSubscriptionFee } from '@/features/subscriptions/utils/fees'
 import { useBasePath } from '@/hooks/useBasePath'
 import { useIsExpressOrganization } from '@/hooks/useIsExpressOrganization'
 import { useQuery } from '@/lib/connectrpc'
+import { env } from '@/lib/env'
 import { getLatestConnMeta } from '@/pages/tenants/utils'
 import { listConnectors } from '@/rpc/api/connectors/v1/connectors-ConnectorsService_connectquery'
 import { ConnectorProviderEnum } from '@/rpc/api/connectors/v1/models_pb'
@@ -831,6 +833,20 @@ export const Subscription = () => {
             />
           </div>
         </div>
+
+        {env.entitlementsEnabled && (
+          <div className="bg-card rounded-lg border border-border shadow-sm mb-6">
+            <div className="p-4 border-b border-border">
+              <h3 className="text-md font-medium text-foreground">Entitlements</h3>
+            </div>
+            <div className="p-4">
+              <EffectiveEntitlementsCard
+                customerId={data.customerId}
+                currentSubscriptionId={data.id}
+              />
+            </div>
+          </div>
+        )}
       </div>
 
       {/* Sidebar */}
@@ -936,6 +952,7 @@ export const Subscription = () => {
             )}
           </DetailSection>
         )}
+
       </div>
     </div>
   )

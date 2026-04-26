@@ -1,6 +1,7 @@
 use crate::StoreResult;
 use crate::store::{PgConn, Store};
 
+use crate::domain::entitlements::Entitlement;
 use crate::domain::price_components::FeeType;
 use crate::domain::prices::{
     LegacyPricingData, extract_fee_structure, extract_legacy_pricing, extract_pricing,
@@ -12,13 +13,15 @@ use crate::domain::{
     ProductFamilyOverview, SelfServicePlan, TrialPatch,
 };
 use crate::errors::StoreError;
+use crate::repositories::entitlements::insert_entitlement_specs;
 use crate::repositories::price_components::resolve_component_internal;
-use common_domain::ids::PriceId;
 use common_domain::ids::{
     BaseId, PlanId, PlanVersionId, PriceComponentId, ProductFamilyId, ProductId, TenantId,
 };
+use common_domain::ids::{EntitlementEntityId, PriceId};
 use common_eventbus::Event;
 use diesel_async::scoped_futures::ScopedFutureExt;
+use diesel_models::entitlements::EntitlementRow;
 use diesel_models::plan_component_prices::{PlanComponentPriceRow, PlanComponentPriceRowNew};
 use diesel_models::plan_versions::{
     PlanVersionRow, PlanVersionRowNew, PlanVersionRowPatch, PlanVersionTrialRowPatch,
@@ -274,6 +277,22 @@ async fn convert_full_plan_row(
             .collect::<Result<HashMap<_, _>, _>>()?
     };
 
+    let entitlement_rows = EntitlementRow::list_by_entity(
+        conn,
+        tenant_id,
+        EntitlementEntityId::PlanVersion(version.id),
+    )
+    .await
+    .map_err(Into::<Report<StoreError>>::into)?;
+
+    let entitlements: Vec<Entitlement> = entitlement_rows
+        .into_iter()
+        .map(TryInto::try_into)
+        .collect::<Result<Vec<_>, _>>()?;
+
+    let mut version = version;
+    version.entitlements = entitlements;
+
     Ok(FullPlan {
         plan,
         version,
@@ -293,6 +312,7 @@ impl PlansInterface for Store {
             version,
             price_components,
         } = full_plan;
+        let version_entitlements = version.entitlements.clone();
 
         let product_family: ProductFamilyOverview =
             ProductFamilyRow::find_by_id(&mut conn, plan.product_family_id, plan.tenant_id)
@@ -324,7 +344,7 @@ impl PlansInterface for Store {
                     // TODO parameter
                     .into_raw(tenant.reporting_currency);
 
-                    let inserted_plan_version_new: PlanVersion = plan_version_to_insert
+                    let mut inserted_plan_version_new: PlanVersion = plan_version_to_insert
                         .insert(conn)
                         .await
                         .map(Into::into)
@@ -397,6 +417,19 @@ impl PlansInterface for Store {
                     }
 
                     let inserted_price_components = all_inserted_components;
+
+                    if !version_entitlements.is_empty() {
+                        inserted_plan_version_new.entitlements = insert_entitlement_specs(
+                            conn,
+                            version_entitlements,
+                            common_domain::ids::EntitlementEntityId::PlanVersion(
+                                inserted_plan_version_new.id,
+                            ),
+                            inserted.tenant_id,
+                            inserted.created_by,
+                        )
+                        .await?;
+                    }
 
                     // Emit outbox event for webhooks
                     let plan_event = crate::domain::outbox_event::PlanEvent::new(
@@ -840,6 +873,16 @@ impl PlansInterface for Store {
                     conn,
                     original.id,
                     new.id,
+                )
+                .await
+                .map_err(Into::<Report<StoreError>>::into)?;
+
+                EntitlementRow::clone_all_for_plan_version(
+                    conn,
+                    original.id,
+                    new.id,
+                    auth_tenant_id,
+                    auth_actor,
                 )
                 .await
                 .map_err(Into::<Report<StoreError>>::into)?;

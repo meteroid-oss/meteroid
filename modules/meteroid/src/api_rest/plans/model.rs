@@ -1,3 +1,4 @@
+use crate::api_rest::entitlements::model::{Entitlement, EntitlementSpec};
 use crate::api_rest::model::PaginatedRequest;
 use crate::api_rest::model::PaginationResponse;
 use chrono::NaiveDateTime;
@@ -89,6 +90,9 @@ pub struct Plan {
     pub price_components: Vec<PriceComponent>,
 
     pub available_parameters: AvailableParameters,
+
+    #[serde(skip_serializing_if = "Vec::is_empty", default)]
+    pub entitlements: Vec<Entitlement>,
 }
 
 #[derive(Clone, ToSchema, serde::Serialize, serde::Deserialize, Debug)]
@@ -307,6 +311,9 @@ pub struct CreatePlanRequest {
     pub components: Vec<PriceComponentInput>,
     #[serde(default)]
     pub add_ons: Vec<PlanAddOnInput>,
+    /// Inline entitlements to attach to the plan version when creating this plan.
+    #[serde(default)]
+    pub entitlements: Vec<EntitlementSpec>,
 }
 
 fn validate_create_plan(req: &CreatePlanRequest) -> Result<(), validator::ValidationError> {

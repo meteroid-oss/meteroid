@@ -15,6 +15,7 @@ pub mod creditnotes;
 pub mod customers;
 pub mod deadletter;
 mod domain_mapping;
+pub mod entitlements;
 pub mod errors;
 pub mod events;
 pub mod instance;

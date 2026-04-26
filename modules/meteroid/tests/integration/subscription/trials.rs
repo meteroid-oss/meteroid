@@ -788,7 +788,7 @@ async fn test_paid_free_trial_90_days_generates_all_invoices(#[future] test_env:
     }
 
     // 90 days from Jan 1 = Mar 31, then monthly billing anchored to that day
-    let expected_dates = vec![
+    let expected_dates = [
         NaiveDate::from_ymd_opt(2024, 3, 31).unwrap(), // Trial end (Jan 1 + 90 days)
         NaiveDate::from_ymd_opt(2024, 4, 30).unwrap(), // +1 month (Apr 30 because Apr has 30 days)
         NaiveDate::from_ymd_opt(2024, 5, 31).unwrap(), // +1 month

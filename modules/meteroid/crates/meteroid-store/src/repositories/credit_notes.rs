@@ -1558,7 +1558,7 @@ mod tests {
         );
         let a1 = resolved_map(&[("l1", Some(4_000))]);
         let a2 = resolved_map(&[("l1", Some(6_000))]);
-        let n1 = negate_line_items(&[line.clone()], &a1, 2);
+        let n1 = negate_line_items(std::slice::from_ref(&line), &a1, 2);
         let n2 = negate_line_items(&[line], &a2, 2);
 
         let tax1: i64 = n1.iter().map(|i| i.tax_amount).sum();

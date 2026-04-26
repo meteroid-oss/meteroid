@@ -1,4 +1,4 @@
-use chrono::{NaiveDate, Timelike};
+use chrono::{NaiveDateTime, Timelike};
 use common_domain::ids::{CustomerId, TenantId};
 use common_grpc::middleware::client::LayeredClientService;
 
@@ -18,7 +18,7 @@ use meteroid_store::clients::usage::{
     EventSearchOptions, EventSearchResult, GroupedUsageData, UsageClient, UsageData,
     WindowedUsageData, WindowedUsagePoint,
 };
-use meteroid_store::domain::{BillableMetric, Period};
+use meteroid_store::domain::{BillableMetric, UsagePeriod};
 use meteroid_store::errors::StoreError;
 use meteroid_store::{StoreResult, domain};
 use rust_decimal::Decimal;
@@ -120,7 +120,7 @@ impl UsageClient for MeteringUsageClient {
         tenant_id: &TenantId,
         customer_id: &CustomerId,
         metric: &BillableMetric,
-        period: Period,
+        period: UsagePeriod,
     ) -> StoreResult<UsageData> {
         if period.start >= period.end {
             bail!(StoreError::InvalidArgument("invalid period".to_string()));
@@ -132,8 +132,8 @@ impl UsageClient for MeteringUsageClient {
             code: metric.code.clone(),
             meter_aggregation_type: map_aggregation_type(&metric.aggregation_type),
             customer_ids: vec![customer_id.to_string()],
-            from: Some(date_to_timestamp(period.start)),
-            to: Some(date_to_timestamp(period.end)),
+            from: Some(datetime_to_timestamp(period.start)),
+            to: Some(datetime_to_timestamp(period.end)),
             group_by_properties: metric
                 .usage_group_key
                 .as_ref()
@@ -191,7 +191,7 @@ impl UsageClient for MeteringUsageClient {
         tenant_id: &TenantId,
         customer_id: &CustomerId,
         metric: &BillableMetric,
-        period: Period,
+        period: UsagePeriod,
     ) -> StoreResult<WindowedUsageData> {
         if period.start >= period.end {
             bail!(StoreError::InvalidArgument("invalid period".to_string()));
@@ -203,8 +203,8 @@ impl UsageClient for MeteringUsageClient {
             code: metric.code.clone(),
             meter_aggregation_type: map_aggregation_type(&metric.aggregation_type),
             customer_ids: vec![customer_id.to_string()],
-            from: Some(date_to_timestamp(period.start)),
-            to: Some(date_to_timestamp(period.end)),
+            from: Some(datetime_to_timestamp(period.start)),
+            to: Some(datetime_to_timestamp(period.end)),
             group_by_properties: metric
                 .usage_group_key
                 .as_ref()
@@ -259,7 +259,7 @@ impl UsageClient for MeteringUsageClient {
         tenant_id: &TenantId,
         customer_id: Option<&CustomerId>,
         metric: &BillableMetric,
-        period: Period,
+        period: UsagePeriod,
     ) -> StoreResult<UsageData> {
         if period.start >= period.end {
             bail!(StoreError::InvalidArgument("invalid period".to_string()));
@@ -275,8 +275,8 @@ impl UsageClient for MeteringUsageClient {
             code: metric.code.clone(),
             meter_aggregation_type: map_aggregation_type(&metric.aggregation_type),
             customer_ids,
-            from: Some(date_to_timestamp(period.start)),
-            to: Some(date_to_timestamp(period.end)),
+            from: Some(datetime_to_timestamp(period.start)),
+            to: Some(datetime_to_timestamp(period.end)),
             group_by_properties: metric
                 .usage_group_key
                 .as_ref()
@@ -409,10 +409,9 @@ impl UsageClient for MeteringUsageClient {
     }
 }
 
-fn date_to_timestamp(dt: NaiveDate) -> prost_types::Timestamp {
-    let dt_at_start_of_day = dt.and_hms_opt(0, 0, 0).unwrap();
+fn datetime_to_timestamp(dt: NaiveDateTime) -> prost_types::Timestamp {
     prost_types::Timestamp {
-        seconds: dt_at_start_of_day.and_utc().timestamp(),
-        nanos: dt_at_start_of_day.nanosecond() as i32,
+        seconds: dt.and_utc().timestamp(),
+        nanos: dt.nanosecond() as i32,
     }
 }

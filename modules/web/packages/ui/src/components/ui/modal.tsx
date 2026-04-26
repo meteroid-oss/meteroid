@@ -136,12 +136,14 @@ const Modal = ({
             className={cn(variants({ size }), className)}
             onInteractOutside={props.onInteractOutside}
             onEscapeKeyDown={props.onEscapeKeyDown}
+            aria-describedby={undefined}
           >
             {header && (
               <div className=" space-y-1 py-3 px-4 sm:px-5 rounded-xl rounded-b-none border-b border-border">
-                {header}
+                <Dialog.Title className="text-sm font-medium">{header}</Dialog.Title>
               </div>
             )}
+            {!header && <Dialog.Title className="sr-only">Dialog</Dialog.Title>}
             {children}
             {!hideFooter && (
               <div className="flex justify-end gap-2 py-3 px-5 border-t ">{footerContent}</div>
