@@ -13,7 +13,7 @@ Make sure to install them before proceeding and that **your docker daemon is run
 
 ### Version Requirements
 
-- Postgres >= 18
+- Postgres >= 12
 - Rust >= 1.74
 - Node >= 20
 - pnpm >= 8
