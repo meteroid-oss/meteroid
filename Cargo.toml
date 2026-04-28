@@ -65,7 +65,7 @@ chrono = { version = "0.4.31", default-features = false }
 chrono-tz = { version = "0.10.3" }
 clap = "4.5.16"
 clickhouse = { version = "0.15.0", default-features = false }
-ctor = "0.9.1"
+ctor = "0.10.1"
 deadpool-postgres = "0.14.1"
 deadpool-runtime = "0.3.1"
 diesel = { version = "2.3.7", features = ["chrono", "uuid", "serde_json", "numeric"] }
