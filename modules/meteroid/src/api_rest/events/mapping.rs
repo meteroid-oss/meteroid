@@ -27,7 +27,7 @@ pub fn rest_request_to_usage_client(req: model::IngestEventsRequest) -> usage::I
     usage::IngestEventsRequest {
         events: req.events.into_iter().map(rest_event_to_grpc).collect(),
         allow_backfilling: req.allow_backfilling.unwrap_or(false),
-        fail_on_error: true,
+        fail_on_error: !req.allow_partial_failures.unwrap_or(false),
     }
 }
 

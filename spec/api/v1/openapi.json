@@ -2394,7 +2394,7 @@
           "Events"
         ],
         "summary": "Ingest events",
-        "description": "Ingest usage events for metering and billing purposes.\n\nEvents are deduplicated by `(event_id, customer_id)` — re-sending the same pair will not be\ndouble-counted. If timestamps differ across duplicates, the event with the latest timestamp is used.\n\nPartial failures are reported in the response body; a 200 status with a non-empty `failures` array means some events were rejected.",
+        "description": "Ingest usage events for metering and billing purposes.\n\nEvents are deduplicated by `(event_id, customer_id)` — re-sending the same pair will not be\ndouble-counted. If timestamps differ across duplicates, the event with the latest timestamp is used.\n\nBy default, any invalid event rejects the entire batch. Set `allow_partial_failures` to `true` to ingest valid events and receive per-event failure details in the response body.",
         "operationId": "ingest_events",
         "requestBody": {
           "content": {
@@ -8115,6 +8115,13 @@
               "null"
             ],
             "description": "Allow events with timestamps more than 1 day in the past. Defaults to `false`."
+          },
+          "allow_partial_failures": {
+            "type": [
+              "boolean",
+              "null"
+            ],
+            "description": "Accept the batch even if some events fail validation. Defaults to `false`.\nWhen `true`, valid events are ingested and failures are reported in the response body.\nWhen `false` (default), any invalid event rejects the entire batch."
           },
           "events": {
             "type": "array",
