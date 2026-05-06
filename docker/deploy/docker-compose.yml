@@ -62,6 +62,9 @@ services:
     logging: *logging
 
   clickhouse:
+    depends_on:                                                                                                                                                                                                                        
+    clickhouse-volume-init:                                                                                                                                                                                                          
+      condition: service_completed_successfully                                                                                                                                                                                      
     image: clickhouse/clickhouse-server:25.6.2-alpine
     ports:
       - 8123:8123
