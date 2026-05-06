@@ -4,12 +4,13 @@ import { FunctionComponent, useCallback, useEffect, useState } from 'react'
 import { AddonsHeader } from '@/features/productCatalog/addons/AddonsHeader'
 import { AddonsTable } from '@/features/productCatalog/addons/AddonsTable'
 import { useDebounceValue } from '@/hooks/useDebounce'
+import { useQueryState } from '@/hooks/useQueryState'
 import { useQuery } from '@/lib/connectrpc'
 import { sortingStateToOrderBy } from '@/lib/utils/sorting'
 import { listAddOns } from '@/rpc/api/addons/v1/addons-AddOnsService_connectquery'
 
 export const AddonsPage: FunctionComponent = () => {
-  const [search, setSearch] = useState('')
+  const [search] = useQueryState<string | undefined>('q', undefined)
   const debouncedSearch = useDebounceValue(search, 400)
 
   const [pagination, setPagination] = useState<PaginationState>({
@@ -41,7 +42,7 @@ export const AddonsPage: FunctionComponent = () => {
 
   return (
     <>
-      <AddonsHeader count={addonsQuery.data?.paginationMeta?.totalItems} search={search} setSearch={setSearch} />
+      <AddonsHeader count={addonsQuery.data?.paginationMeta?.totalItems} />
       <AddonsTable
         addonsQuery={addonsQuery}
         pagination={pagination}
