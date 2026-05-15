@@ -26,36 +26,44 @@ export const anonymousRoutes: RouteObject = {
             {
               path: '/login',
               element: <Login />,
+              handle: { title: 'Sign in' },
             },
             {
               path: '/registration',
               element: <Registration />,
+              handle: { title: 'Sign up' },
             },
           ],
         },
         {
           path: '/check-inbox',
           element: <CheckInbox />,
+          handle: { title: 'Check your inbox' },
         },
         {
           path: '/validate-email',
           element: <ValidateEmail />,
+          handle: { title: 'Validate email' },
         },
         {
           path: '/forgot-password',
           element: <ForgotPassword />,
+          handle: { title: 'Forgot password' },
         },
         {
           path: '/check-inbox-password',
           element: <CheckInboxPassword />,
+          handle: { title: 'Check your inbox' },
         },
         {
           path: '/reset-password',
           element: <ResetPassword />,
+          handle: { title: 'Reset password' },
         },
         {
           path: '/oauth_success',
           element: <OauthSuccess />,
+          handle: { title: 'Sign in' },
         },
       ],
     },

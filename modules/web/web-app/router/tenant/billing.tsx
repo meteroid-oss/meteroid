@@ -22,24 +22,34 @@ export const billingRoutes: RouteObject = {
     {
       path: 'invoices',
       children: [
-        { index: true, element: <Invoices /> },
-        { path: ':invoiceId', element: <Invoice /> },
+        { index: true, element: <Invoices />, handle: { title: 'Invoices' } },
+        { path: ':invoiceId', element: <Invoice />, handle: { title: 'Invoice' } },
         {
           element: <StandardOnly />,
-          children: [{ path: 'create', element: <InvoiceCreate /> }],
+          children: [
+            { path: 'create', element: <InvoiceCreate />, handle: { title: 'New invoice' } },
+          ],
         },
       ],
     },
     {
       path: 'subscriptions',
       children: [
-        { index: true, element: <Subscriptions /> },
-        { path: ':subscriptionId', element: <Subscription /> },
+        { index: true, element: <Subscriptions />, handle: { title: 'Subscriptions' } },
+        { path: ':subscriptionId', element: <Subscription />, handle: { title: 'Subscription' } },
         {
           element: <StandardOnly />,
           children: [
-            { path: 'create', element: <SubscriptionCreate /> },
-            { path: ':subscriptionId/change-plan', element: <ChangePlanWizard /> },
+            {
+              path: 'create',
+              element: <SubscriptionCreate />,
+              handle: { title: 'New subscription' },
+            },
+            {
+              path: ':subscriptionId/change-plan',
+              element: <ChangePlanWizard />,
+              handle: { title: 'Change plan' },
+            },
           ],
         },
       ],
@@ -50,16 +60,20 @@ export const billingRoutes: RouteObject = {
         {
           path: 'quotes',
           children: [
-            { index: true, element: <Quotes /> },
-            { path: 'create', element: <CreateQuote /> },
-            { path: ':quoteId', element: <Quote /> },
+            { index: true, element: <Quotes />, handle: { title: 'Quotes' } },
+            { path: 'create', element: <CreateQuote />, handle: { title: 'New quote' } },
+            { path: ':quoteId', element: <Quote />, handle: { title: 'Quote' } },
           ],
         },
         {
           path: 'credit-notes',
           children: [
-            { index: true, element: <CreditNotes /> },
-            { path: ':creditNoteId', element: <CreditNote /> },
+            { index: true, element: <CreditNotes />, handle: { title: 'Credit notes' } },
+            {
+              path: ':creditNoteId',
+              element: <CreditNote />,
+              handle: { title: 'Credit note' },
+            },
           ],
         },
       ],

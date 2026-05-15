@@ -36,10 +36,12 @@ export const tenantRoutes: RouteObject = {
     {
       index: true,
       element: <Dashboard />,
+      handle: { title: 'Dashboard' },
     },
     {
       path: 'settings',
       element: <TenantSettings />,
+      handle: { title: 'Settings' },
       children: [
         {
           path: 'add-stripe',
@@ -62,6 +64,7 @@ export const tenantRoutes: RouteObject = {
     {
       path: 'help',
       element: <HelpPage />,
+      handle: { title: 'Help' },
     },
     customersRoutes,
     billingRoutes,
@@ -72,27 +75,36 @@ export const tenantRoutes: RouteObject = {
         {
           path: 'reports',
           element: <ReportsPage />,
+          handle: { title: 'Reports' },
           children: [
             {
               index: true,
               element: <MrrReport />,
+              handle: { title: 'MRR' },
             },
             {
               path: 'revenue',
               element: <RevenueReport />,
+              handle: { title: 'Revenue' },
             },
           ],
         },
         {
           path: 'developers',
+          handle: { title: 'Developers' },
           children: [
             { index: true, element: <DeveloperSettings /> },
-            { path: 'batch-jobs/:batchJobId', element: <BatchJobPage /> },
+            {
+              path: 'batch-jobs/:batchJobId',
+              element: <BatchJobPage />,
+              handle: { title: 'Batch job' },
+            },
           ],
         },
         {
           path: 'events',
           element: <EventsPage />,
+          handle: { title: 'Events' },
         },
         {
           path: 'plan-version/:planVersionId',
@@ -107,10 +119,12 @@ export const tenantRoutes: RouteObject = {
         {
           path: 'dead-letters',
           element: <DeadLetterPage />,
+          handle: { title: 'Dead letters' },
         },
         {
           path: 'dead-letters/:deadLetterId',
           element: <DeadLetterDetailPage />,
+          handle: { title: 'Dead letter' },
         },
       ],
     },
