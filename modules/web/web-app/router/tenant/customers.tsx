@@ -8,10 +8,12 @@ export const customersRoutes: RouteObject = {
     {
       index: true,
       element: <Customers />,
+      handle: { title: 'Customers' },
     },
     {
       path: ':customerId',
       element: <Customer />,
+      handle: { title: 'Customer' },
     },
   ],
 }

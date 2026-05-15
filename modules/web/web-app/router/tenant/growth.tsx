@@ -6,6 +6,7 @@ import { Growth, GrowthOutlet } from '@/pages/tenants/growth'
 export const growthRoutes: RouteObject = {
   path: 'growth',
   element: <GrowthOutlet />,
+  handle: { title: 'Growth' },
   children: [
     {
       index: true,

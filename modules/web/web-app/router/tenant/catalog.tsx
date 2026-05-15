@@ -35,6 +35,7 @@ export const productCatalogRoutes: RouteObject = {
         {
           path: 'metrics',
           element: <ProductMetrics />,
+          handle: { title: 'Metrics' },
           children: [
             {
               element: <StandardOnly />,
@@ -54,6 +55,7 @@ export const productCatalogRoutes: RouteObject = {
         {
           path: 'metrics/:metricId',
           element: <ProductMetricDetail />,
+          handle: { title: 'Metric' },
         },
         {
           path: 'plans',
@@ -61,6 +63,7 @@ export const productCatalogRoutes: RouteObject = {
             {
               path: ':planLocalId/:planVersion?',
               element: <PlanEdit />,
+              handle: { title: 'Plan' },
               children: [
                 {
                   element: <StandardOnly />,
@@ -94,6 +97,7 @@ export const productCatalogRoutes: RouteObject = {
         {
           path: 'plans',
           element: <Plans />,
+          handle: { title: 'Plans' },
           children: [
             {
               index: true,
@@ -115,10 +119,12 @@ export const productCatalogRoutes: RouteObject = {
             {
               path: 'items',
               element: <Products />,
+              handle: { title: 'Items' },
             },
             {
               path: 'addons',
               element: <Addons />,
+              handle: { title: 'Add-ons' },
               children: [
                 {
                   index: true,
@@ -127,20 +133,24 @@ export const productCatalogRoutes: RouteObject = {
                 {
                   path: 'add-addon',
                   element: <CreateAddon />,
+                  handle: { title: 'New add-on' },
                 },
                 {
                   path: ':addonId',
                   element: <AddonDetails />,
+                  handle: { title: 'Add-on' },
                 },
                 {
                   path: 'edit/:addonId',
                   element: <EditAddon />,
+                  handle: { title: 'Edit add-on' },
                 },
               ],
             },
             {
               path: 'coupons',
               element: <Coupons />,
+              handle: { title: 'Coupons' },
               children: [
                 {
                   index: true,
@@ -149,10 +159,12 @@ export const productCatalogRoutes: RouteObject = {
                 {
                   path: 'add-coupon',
                   element: <CreateCoupon />,
+                  handle: { title: 'New coupon' },
                 },
                 {
                   path: ':couponLocalId',
                   element: <CouponDetails />,
+                  handle: { title: 'Coupon' },
                 },
               ],
             },

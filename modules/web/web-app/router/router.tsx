@@ -29,10 +29,12 @@ const router = createBrowserRouter(
             {
               path: '/invite-authenticated',
               element: <InviteAuthenticated />,
+              handle: { title: 'Accept invite' },
             },
             {
               path: '/onboarding',
               element: <OnboardingLayout />,
+              handle: { title: 'Onboarding' },
               children: [
                 {
                   path: 'user',
@@ -59,6 +61,7 @@ const router = createBrowserRouter(
                 {
                   path: 'tenants/new',
                   element: <TenantNew />,
+                  handle: { title: 'New tenant' },
                 },
 
               ],
@@ -70,10 +73,12 @@ const router = createBrowserRouter(
         {
           path: '/logout',
           element: <Logout />,
+          handle: { title: 'Logout' },
         },
         {
           path: '/invite',
           element: <AcceptInvite />,
+          handle: { title: 'Accept invite' },
         },
 
       ],

@@ -26,6 +26,7 @@ export const portalRoutes: RouteObject = {
   children: [
     {
       path: 'checkout',
+      handle: { title: 'Checkout' },
       children: [
         {
           index: true,
@@ -38,6 +39,7 @@ export const portalRoutes: RouteObject = {
         {
           path: 'success',
           element: <PortalCheckoutSuccess />,
+          handle: { title: 'Checkout success' },
         },
       ],
     },
@@ -56,6 +58,7 @@ export const portalRoutes: RouteObject = {
     },
     {
       path: 'portal/invoice-payment',
+      handle: { title: 'Pay invoice' },
       children: [
         {
           index: true,
@@ -68,11 +71,13 @@ export const portalRoutes: RouteObject = {
         {
           path: 'success',
           element: <PortalCheckoutSuccess />,
+          handle: { title: 'Payment success' },
         },
       ],
     },
     {
       path: 'portal/quote',
+      handle: { title: 'Quote' },
       children: [
         {
           index: true,
@@ -83,10 +88,12 @@ export const portalRoutes: RouteObject = {
     {
       path: 'portal/customer',
       element: <PortalCustomer />,
+      handle: { title: 'Customer portal' },
     },
     {
       path: 'portal/subscription/:subscriptionId',
       element: <PortalSubscription />,
+      handle: { title: 'Subscription' },
     },
   ],
 }
