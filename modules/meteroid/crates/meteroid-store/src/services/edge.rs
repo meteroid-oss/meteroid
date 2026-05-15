@@ -1409,10 +1409,9 @@ impl ServicesEdge {
 
             None
         } else if is_zero_amount {
-            // Zero amount (e.g., 100% coupon) but not a free trial
-            // Could still be a paid trial with 100% discount
-            // Create invoice (to show line items + discount) and set up billing cycles
-            // Zero amount is already marked as paid by bill_subscription_tx with Immediate mode
+            // Zero amount: either a 100% coupon discount (invoice with line items + discount,
+            // marked paid via Immediate mode) or a usage-only plan with nothing to bill at
+            // activation (no invoice; first invoice will be produced at period end).
             self.services
                 .bill_subscription_tx(
                     conn,
@@ -1420,9 +1419,7 @@ impl ServicesEdge {
                     created_subscription.id,
                     InvoiceBillingMode::Immediate,
                 )
-                .await?
-                .ok_or(StoreError::InsertError)
-                .attach("Failed to create invoice for zero-amount subscription")?;
+                .await?;
 
             let subscription =
                 SubscriptionRow::get_subscription_by_id(conn, &tenant_id, created_subscription.id)
