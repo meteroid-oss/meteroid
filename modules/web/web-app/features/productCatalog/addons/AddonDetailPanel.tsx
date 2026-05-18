@@ -14,6 +14,7 @@ import { PencilIcon, Trash2Icon } from 'lucide-react'
 import { useNavigate, useParams } from 'react-router-dom'
 
 import { LocalId } from '@/components/LocalId'
+import { ResolvedEntitlementsPanel } from '@/features/entitlements/resolved/ResolvedEntitlementsPanel'
 import { feeTypeEnumToComponentFeeType } from '@/features/plans/addons/AddOnCard'
 import { PricingDetailsView } from '@/features/plans/pricecomponents/components/PricingDetailsView'
 import {
@@ -21,6 +22,7 @@ import {
   feeTypeToHuman,
 } from '@/features/plans/pricecomponents/utils'
 import { useQuery } from '@/lib/connectrpc'
+import { env } from '@/lib/env'
 import { formatCadence } from '@/lib/mapping/prices'
 import {
   getAddOn,
@@ -140,6 +142,19 @@ export const AddonDetailPanel = () => {
             </section>
 
             <Separator />
+
+            {env.entitlementsEnabled && addonId && (
+              <>
+                <section className="flex flex-col gap-3">
+                  <h3 className="text-sm font-medium text-muted-foreground">Entitlements</h3>
+                  <ResolvedEntitlementsPanel
+                    entity={{ type: 'add-on', id: addOn.id }}
+                    canPin={false}
+                  />
+                </section>
+                <Separator />
+              </>
+            )}
 
             <section className="flex flex-col gap-3">
               <h3 className="text-sm font-medium text-muted-foreground">Settings</h3>

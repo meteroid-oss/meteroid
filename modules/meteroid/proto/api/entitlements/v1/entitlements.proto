@@ -1,0 +1,169 @@
+syntax = "proto3";
+
+package meteroid.api.entitlements.v1;
+
+import "api/entitlements/v1/models.proto";
+import "common/v1/pagination.proto";
+
+message FeatureEntitlementSpec {
+  EntitlementEntity entity = 1;
+  EntitlementValue value = 2;
+}
+
+message CreateFeatureRequest {
+  string name = 1;
+  optional string description = 2;
+  FeatureType feature_type = 3;
+  // Product the feature belongs to. Unset ⇒ tenant-global feature.
+  optional string product_id = 4;
+  optional FeatureEntitlementSpec entitlement = 5;
+}
+
+message CreateFeatureResponse {
+  Feature feature = 1;
+  optional Entitlement entitlement = 2;
+}
+
+message GetFeatureRequest {
+  string id = 1;
+}
+
+message GetFeatureResponse {
+  Feature feature = 1;
+}
+
+message ListFeaturesRequest {
+  meteroid.common.v1.Pagination pagination = 1;
+  repeated FeatureStatus statuses = 2;
+  optional string search = 3;
+  optional string product_id = 4;
+}
+
+message ListFeaturesResponse {
+  repeated Feature features = 1;
+  meteroid.common.v1.PaginationResponse pagination_meta = 2;
+}
+
+message UpdateFeatureRequest {
+  string id = 1;
+  optional string name = 2;
+  optional string description = 3;
+  // Send unset to leave product_id unchanged; send `clear_product_id = true` to detach.
+  optional string product_id = 4;
+  bool clear_product_id = 5;
+}
+
+message UpdateFeatureResponse {
+  Feature feature = 1;
+}
+
+message SetFeatureStatusRequest {
+  string id = 1;
+  FeatureStatus status = 2;
+}
+
+message SetFeatureStatusResponse {}
+
+message CreateEntitlementRequest {
+  string feature_id = 1;
+  EntitlementEntity entity = 2;
+  EntitlementValue value = 3;
+}
+
+message CreateEntitlementResponse {
+  Entitlement entitlement = 1;
+}
+
+message GetEntitlementRequest {
+  string id = 1;
+}
+
+message GetEntitlementResponse {
+  Entitlement entitlement = 1;
+}
+
+message ListEntitlementsByFeatureRequest {
+  string feature_id = 1;
+}
+
+message ListEntitlementsByFeatureResponse {
+  repeated Entitlement entitlements = 1;
+}
+
+message ListEntitlementsByEntityRequest {
+  EntitlementEntity entity = 1;
+}
+
+message ListEntitlementsByEntityResponse {
+  repeated Entitlement entitlements = 1;
+}
+
+message UpdateEntitlementRequest {
+  string id = 1;
+  // Omit to leave value unchanged; set to replace.
+  optional EntitlementValue value = 2;
+}
+
+message UpdateEntitlementResponse {
+  Entitlement entitlement = 1;
+}
+
+message DeleteEntitlementRequest {
+  string id = 1;
+}
+
+message DeleteEntitlementResponse {}
+
+message GetEffectiveEntitlementsRequest {
+  string customer_id = 1;
+}
+
+message GetEffectiveEntitlementsResponse {
+  repeated EffectiveEntitlement entitlements = 1;
+}
+
+message GetResolvedForProductRequest      {string product_id = 1;}
+message GetResolvedForAddOnRequest        {string add_on_id = 1;}
+message GetResolvedForPlanVersionRequest  {string plan_version_id = 1;}
+message GetResolvedForSubscriptionRequest {string subscription_id = 1;}
+message GetResolvedForQuoteRequest        {string quote_id = 1;}
+message GetResolvedForSelectionRequest {
+  string plan_version_id = 1;
+  repeated string add_on_ids = 2;
+  repeated string extra_product_ids = 3;
+}
+message GetResolvedResponse {
+  repeated ResolvedEntitlement entitlements = 1;
+}
+
+message BatchCreateEntitlementsRequest {
+  EntitlementEntity entity = 1;
+  repeated EntitlementSpec specs = 2;
+}
+message BatchCreateEntitlementsResponse {
+  repeated Entitlement created = 1;
+}
+
+service EntitlementsService {
+  rpc CreateFeature(CreateFeatureRequest) returns (CreateFeatureResponse) {}
+  rpc GetFeature(GetFeatureRequest) returns (GetFeatureResponse) {}
+  rpc ListFeatures(ListFeaturesRequest) returns (ListFeaturesResponse) {}
+  rpc UpdateFeature(UpdateFeatureRequest) returns (UpdateFeatureResponse) {}
+  rpc SetFeatureStatus(SetFeatureStatusRequest) returns (SetFeatureStatusResponse) {}
+
+  rpc CreateEntitlement(CreateEntitlementRequest) returns (CreateEntitlementResponse) {}
+  rpc GetEntitlement(GetEntitlementRequest) returns (GetEntitlementResponse) {}
+  rpc ListEntitlementsByFeature(ListEntitlementsByFeatureRequest) returns (ListEntitlementsByFeatureResponse) {}
+  rpc ListEntitlementsByEntity(ListEntitlementsByEntityRequest) returns (ListEntitlementsByEntityResponse) {}
+  rpc UpdateEntitlement(UpdateEntitlementRequest) returns (UpdateEntitlementResponse) {}
+  rpc DeleteEntitlement(DeleteEntitlementRequest) returns (DeleteEntitlementResponse) {}
+  rpc GetEffectiveEntitlements(GetEffectiveEntitlementsRequest) returns (GetEffectiveEntitlementsResponse) {}
+
+  rpc GetResolvedEntitlementsForProduct(GetResolvedForProductRequest) returns (GetResolvedResponse);
+  rpc GetResolvedEntitlementsForAddOn(GetResolvedForAddOnRequest) returns (GetResolvedResponse);
+  rpc GetResolvedEntitlementsForPlanVersion(GetResolvedForPlanVersionRequest) returns (GetResolvedResponse);
+  rpc GetResolvedEntitlementsForSubscription(GetResolvedForSubscriptionRequest) returns (GetResolvedResponse);
+  rpc GetResolvedEntitlementsForQuote(GetResolvedForQuoteRequest) returns (GetResolvedResponse);
+  rpc GetResolvedEntitlementsForSelection(GetResolvedForSelectionRequest) returns (GetResolvedResponse);
+  rpc BatchCreateEntitlements(BatchCreateEntitlementsRequest) returns (BatchCreateEntitlementsResponse);
+}

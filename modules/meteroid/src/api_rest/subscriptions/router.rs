@@ -5,6 +5,8 @@ use axum::extract::Path;
 use axum::{Json, extract::State, response::IntoResponse};
 
 use crate::api_rest::QueryParams;
+use crate::api_rest::entitlements::mapping::resolved_entitlement_to_rest;
+use crate::api_rest::entitlements::model::ResolvedEntitlementListResponse;
 use crate::api_rest::error::RestErrorResponse;
 use crate::api_rest::model::{PaginationExt, validate_order_by};
 use crate::api_rest::subscriptions::mapping::{
@@ -23,6 +25,8 @@ use common_grpc::middleware::server::auth::AuthorizedAsTenant;
 use http::StatusCode;
 use itertools::Itertools;
 use meteroid_store::repositories::coupons::CouponInterface;
+use meteroid_store::repositories::entitlements::EntitlementsInterface;
+use meteroid_store::repositories::entitlements::ResolveTarget;
 use meteroid_store::repositories::subscriptions::{
     CancellationEffectiveAt, SubscriptionInterfaceAuto,
 };
@@ -361,5 +365,50 @@ pub(crate) async fn update_subscription(
 
     Ok(Json(SubscriptionUpdateResponse {
         subscription: details,
+    }))
+}
+
+// ── Resolved entitlements ──────────────────────────────────────
+
+/// List resolved entitlements for a subscription
+#[utoipa::path(
+    get,
+    tag = "Subscriptions",
+    path = "/api/v1/subscriptions/{subscription_id}/entitlements",
+    params(("subscription_id" = SubscriptionId, Path, description = "Subscription ID")),
+    responses(
+        (status = 200, description = "Resolved entitlements for this subscription", body = ResolvedEntitlementListResponse),
+        (status = 401, description = "Unauthorized", body = RestErrorResponse),
+        (status = 404, description = "Subscription not found", body = RestErrorResponse),
+    ),
+    security(("bearer_auth" = []))
+)]
+#[axum::debug_handler]
+pub(crate) async fn list_resolved_entitlements(
+    Extension(authorized_state): Extension<AuthorizedAsTenant>,
+    State(app_state): State<AppState>,
+    Path(subscription_id): Path<SubscriptionId>,
+) -> Result<impl IntoResponse, RestApiError> {
+    let mut conn = app_state.store.get_conn().await.map_err(|e| {
+        log::error!("Error getting db connection: {e}");
+        RestApiError::StoreError
+    })?;
+    let resolved = app_state
+        .store
+        .resolve_for_entity(
+            &mut conn,
+            authorized_state.tenant_id,
+            ResolveTarget::Subscription(subscription_id),
+        )
+        .await
+        .map_err(|e| {
+            log::error!("Error resolving subscription entitlements: {e}");
+            RestApiError::from(e)
+        })?;
+    Ok(Json(ResolvedEntitlementListResponse {
+        data: resolved
+            .into_iter()
+            .map(resolved_entitlement_to_rest)
+            .collect(),
     }))
 }

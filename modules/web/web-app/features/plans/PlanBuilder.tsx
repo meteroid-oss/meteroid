@@ -4,12 +4,17 @@ import { Alert, Button, Tabs, TabsContent, TabsList, TabsTrigger } from '@md/ui'
 import { PaginationState } from '@tanstack/react-table'
 import { ScopeProvider } from 'jotai-scope'
 import { AlertTriangleIcon, ChevronLeftIcon, ExternalLinkIcon, Plus } from 'lucide-react'
-import { ReactNode, useState } from 'react'
+import { ReactNode, useRef, useState } from 'react'
 import { Link, useNavigate, useParams } from 'react-router-dom'
+
 
 import { Loading } from '@/components/Loading'
 import { PageSection } from '@/components/layouts/shared/PageSection'
 import { SimpleTable } from '@/components/table/SimpleTable'
+import {
+  ResolvedEntitlementsPanel,
+  ResolvedEntitlementsPanelHandle,
+} from '@/features/entitlements/resolved/ResolvedEntitlementsPanel'
 import { ListPlanVersionTab } from '@/features/plans/ListPlanVersion'
 import { PlanActions } from '@/features/plans/PlanActions'
 import { AddOnSection } from '@/features/plans/addons/AddOnSection'
@@ -26,6 +31,7 @@ import { SubscriptionsTable } from '@/features/subscriptions'
 import { useBasePath } from '@/hooks/useBasePath'
 import { useIsExpressOrganization } from '@/hooks/useIsExpressOrganization'
 import { useQuery } from '@/lib/connectrpc'
+import { env } from '@/lib/env'
 import { PlanType } from '@/rpc/api/plans/v1/models_pb'
 import { listSubscriptions } from '@/rpc/api/subscriptions/v1/subscriptions-SubscriptionsService_connectquery'
 
@@ -202,6 +208,34 @@ const SubscriptionsTab = () => {
   )
 }
 
+const EntitlementsSectionForPlanVersion = ({ planVersionId }: { planVersionId: string }) => {
+  const panelRef = useRef<ResolvedEntitlementsPanelHandle>(null)
+  return (
+    <PageSection
+      header={{
+        title: 'Entitlements',
+        subtitle: 'Features and limits applied to this plan version.',
+        actions: (
+          <Button
+            variant="outline"
+            onClick={() => panelRef.current?.openAdd()}
+            className="py-1.5"
+          >
+            + Add entitlement
+          </Button>
+        ),
+      }}
+    >
+      <ResolvedEntitlementsPanel
+        ref={panelRef}
+        entity={{ type: 'plan-version', id: planVersionId }}
+        canPin={true}
+        hideAddButton
+      />
+    </PageSection>
+  )
+}
+
 const PlanBody = () => {
   const planData = usePlanWithVersion()
 
@@ -289,6 +323,10 @@ const PlanBody = () => {
       )}
 
       <AddOnSection />
+
+      {env.entitlementsEnabled && (
+        <EntitlementsSectionForPlanVersion planVersionId={current.id} />
+      )}
     </>
   )
 }

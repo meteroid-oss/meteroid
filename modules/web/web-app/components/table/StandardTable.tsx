@@ -62,18 +62,22 @@ const standardRowRenderer = <A extends object>(
   rowLink?: (row: Row<A>) => string,
   rowClassName?: (row: Row<A>) => string
 ) => {
-  const cells = row.getVisibleCells().map(cell => (
+  const cells = row.getVisibleCells().map(cell => {
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
-    <TableCell key={cell.id} className={(cell.column.columnDef as any).className}>
-      {rowLink ? (
-        <Link to={rowLink(row)} className="block w-full h-full  align-middle min-h-[20px] min-w-1">
-          {flexRender(cell.column.columnDef.cell, cell.getContext())}
-        </Link>
-      ) : (
-        flexRender(cell.column.columnDef.cell, cell.getContext())
-      )}
-    </TableCell>
-  ))
+    const colDef = cell.column.columnDef as any
+    const skipLink = colDef.meta?.skipLink === true
+    return (
+      <TableCell key={cell.id} className={colDef.className}>
+        {rowLink && !skipLink ? (
+          <Link to={rowLink(row)} className="block w-full h-full align-middle min-h-[20px] min-w-1">
+            {flexRender(cell.column.columnDef.cell, cell.getContext())}
+          </Link>
+        ) : (
+          flexRender(cell.column.columnDef.cell, cell.getContext())
+        )}
+      </TableCell>
+    )
+  })
 
   return (
     <TableRow key={row.id} className={rowClassName?.(row)}>

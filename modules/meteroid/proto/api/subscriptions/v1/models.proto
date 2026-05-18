@@ -2,6 +2,7 @@ syntax = "proto3";
 
 import "api/shared/v1/shared.proto";
 
+import "api/entitlements/v1/models.proto";
 import "api/schedules/v1/models.proto";
 import "api/pricecomponents/v1/models.proto";
 import "api/prices/v1/models.proto";
@@ -160,6 +161,7 @@ message CreateSubscription {
   // Migration mode: when true with a past start_date, skip creating invoices for past cycles.
   // The subscription will be set to the current billing period with correct cycle_index.
   optional bool skip_past_invoices = 22;
+  repeated meteroid.api.entitlements.v1.EntitlementSpec entitlements = 23;
 }
 
 enum ActivationCondition {

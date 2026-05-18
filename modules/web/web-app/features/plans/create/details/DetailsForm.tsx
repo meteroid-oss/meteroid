@@ -1,4 +1,3 @@
-import { useMutation } from '@connectrpc/connect-query'
 import {
   Button,
   Form,
@@ -9,23 +8,20 @@ import {
   RadioGroupItem,
   SelectFormField,
   SelectItem,
-  Spinner,
   TextareaFormField,
 } from '@md/ui'
-import { useQueryClient } from '@tanstack/react-query'
 import { customAlphabet } from 'nanoid'
 import { FC, useEffect } from 'react'
 import { ControllerRenderProps, FieldPath, FieldValues, useController } from 'react-hook-form'
-import { useNavigate } from 'react-router-dom'
 import { z } from 'zod'
 
 import { CurrencySelect } from '@/components/CurrencySelect'
 import { Methods, useZodForm } from '@/hooks/useZodForm'
 import { useQuery } from '@/lib/connectrpc'
 import { createPlanSchema } from '@/lib/schemas/plans'
-import { PlanType } from '@/rpc/api/plans/v1/models_pb'
-import { createDraftPlan, listPlans } from '@/rpc/api/plans/v1/plans-PlansService_connectquery'
 import { listProductFamilies } from '@/rpc/api/productfamilies/v1/productfamilies-ProductFamiliesService_connectquery'
+
+export { createPlanSchema } from '@/lib/schemas/plans'
 
 const nanoid = customAlphabet('1234567890abcdef', 5)
 
@@ -49,8 +45,10 @@ export const generateFromName = (name: string) => {
 
 interface Props {
   onCancel: () => void
+  onNext: (values: z.infer<typeof createPlanSchema>) => void
+  defaultValues?: Partial<z.infer<typeof createPlanSchema>>
 }
-export const DetailsForm: FC<Props> = ({ onCancel }) => {
+export const DetailsForm: FC<Props> = ({ onCancel, onNext, defaultValues }) => {
   const familiesQuery = useQuery(listProductFamilies)
   const families = (familiesQuery.data?.productFamilies ?? []).sort((a, b) =>
     a.id > b.id ? 1 : -1
@@ -59,36 +57,19 @@ export const DetailsForm: FC<Props> = ({ onCancel }) => {
     schema: createPlanSchema,
     defaultValues: {
       planType: 'STANDARD',
+      ...defaultValues,
     },
     mode: 'onChange',
   })
-  const queryClient = useQueryClient()
 
-  const createPlan = useMutation(createDraftPlan, {
-    onSuccess: async () => {
-      queryClient.invalidateQueries({ queryKey: [listPlans.service.typeName] })
-    },
-  })
-
-  const navigate = useNavigate()
-
-  const onSubmit = async (data: z.infer<typeof createPlanSchema>) => {
-    const plan = await createPlan.mutateAsync({
-      name: data.planName,
-      description: data.description,
-      planType: PlanType[data.planType],
-      productFamilyLocalId: data.productFamilyLocalId,
-      currency: data.currency,
-    })
-    if (data.planType === 'FREE') {
-      navigate(`../${plan.plan?.plan?.localId}`)
-    } else {
-      navigate(`../${plan.plan?.plan?.localId}/draft`) // /draft/onboarding
-    }
+  const onSubmit = (data: z.infer<typeof createPlanSchema>) => {
+    onNext(data)
   }
 
   useEffect(() => {
-    methods.setValue('productFamilyLocalId', families[0]?.localId)
+    if (!defaultValues?.productFamilyLocalId) {
+      methods.setValue('productFamilyLocalId', families[0]?.localId)
+    }
   }, [families])
 
   return (
@@ -170,13 +151,7 @@ export const DetailsForm: FC<Props> = ({ onCancel }) => {
             </Button>
 
             <Button variant="primary" type="submit" disabled={!methods.formState.isValid}>
-              {createPlan.isPending ? (
-                <>
-                  <Spinner /> Loading...
-                </>
-              ) : (
-                'Configure'
-              )}
+              Next →
             </Button>
           </div>
         </section>

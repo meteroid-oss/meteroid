@@ -157,6 +157,7 @@ impl<'a> SubscriptionAssert<'a> {
     }
 
     /// Assert imported_at is set (non-None).
+    #[allow(clippy::wrong_self_convention)]
     pub fn is_imported(self) -> Self {
         assert!(
             self.sub.imported_at.is_some(),
@@ -167,6 +168,7 @@ impl<'a> SubscriptionAssert<'a> {
     }
 
     /// Assert imported_at is not set.
+    #[allow(clippy::wrong_self_convention)]
     pub fn is_not_imported(self) -> Self {
         assert!(
             self.sub.imported_at.is_none(),

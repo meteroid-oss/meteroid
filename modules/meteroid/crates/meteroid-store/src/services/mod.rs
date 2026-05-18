@@ -1,3 +1,4 @@
+use crate::domain::entitlements::EffectiveEntitlement;
 use crate::domain::{CheckoutSession, Coupon};
 use crate::errors::StoreError;
 use crate::repositories::coupons::CouponInterface;
@@ -20,6 +21,7 @@ pub mod clients;
 mod connectors;
 mod credits;
 mod edge;
+mod entitlements;
 pub mod invoice_lines;
 mod invoices;
 mod lifecycle;
@@ -80,6 +82,27 @@ impl ServicesEdge {
 
     pub fn usage_clients(&self) -> Arc<dyn UsageClient> {
         self.services.usage_client.clone()
+    }
+
+    pub async fn get_effective_entitlements(
+        &self,
+        customer_id: CustomerId,
+        tenant_id: TenantId,
+    ) -> StoreResult<Vec<EffectiveEntitlement>> {
+        self.services
+            .get_effective_entitlements(customer_id, tenant_id)
+            .await
+    }
+
+    pub async fn get_effective_entitlement_for_feature(
+        &self,
+        customer_id: CustomerId,
+        tenant_id: TenantId,
+        feature_id: common_domain::ids::FeatureId,
+    ) -> StoreResult<Option<EffectiveEntitlement>> {
+        self.services
+            .get_effective_entitlement_for_feature(customer_id, tenant_id, feature_id)
+            .await
     }
 
     pub async fn update_subscription_slots(

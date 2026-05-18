@@ -553,7 +553,7 @@ impl Services {
                 &subscription_details.subscription.tenant_id,
                 &subscription_details.subscription.customer_id,
                 metric,
-                period,
+                period.into(),
             )
             .await?;
 

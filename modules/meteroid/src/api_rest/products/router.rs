@@ -8,9 +8,13 @@ use common_domain::ids::ProductId;
 use common_grpc::middleware::server::auth::AuthorizedAsTenant;
 use http::StatusCode;
 use meteroid_store::domain::ProductNew;
+use meteroid_store::repositories::entitlements::EntitlementsInterface;
+use meteroid_store::repositories::entitlements::ResolveTarget;
 use meteroid_store::repositories::products::{ProductInterface, ProductUpdate};
 
 use crate::api_rest::QueryParams;
+use crate::api_rest::entitlements::mapping::resolved_entitlement_to_rest;
+use crate::api_rest::entitlements::model::ResolvedEntitlementListResponse;
 use crate::api_rest::error::RestErrorResponse;
 use crate::api_rest::model::{PaginationExt, validate_order_by};
 use crate::api_rest::products::mapping;
@@ -276,4 +280,49 @@ pub(crate) async fn unarchive_product(
             RestApiError::from(e)
         })
         .map(|_| StatusCode::NO_CONTENT)
+}
+
+// ── Resolved entitlements ──────────────────────────────────────
+
+/// List resolved entitlements for a product
+#[utoipa::path(
+    get,
+    tag = "Products",
+    path = "/api/v1/products/{product_id}/entitlements",
+    params(("product_id" = ProductId, Path, description = "Product ID")),
+    responses(
+        (status = 200, description = "Resolved entitlements for this product", body = ResolvedEntitlementListResponse),
+        (status = 401, description = "Unauthorized", body = RestErrorResponse),
+        (status = 404, description = "Product not found", body = RestErrorResponse),
+    ),
+    security(("bearer_auth" = []))
+)]
+#[axum::debug_handler]
+pub(crate) async fn list_resolved_entitlements(
+    Extension(authorized_state): Extension<AuthorizedAsTenant>,
+    State(app_state): State<AppState>,
+    Path(product_id): Path<ProductId>,
+) -> Result<impl IntoResponse, RestApiError> {
+    let mut conn = app_state.store.get_conn().await.map_err(|e| {
+        log::error!("Error getting db connection: {e}");
+        RestApiError::StoreError
+    })?;
+    let resolved = app_state
+        .store
+        .resolve_for_entity(
+            &mut conn,
+            authorized_state.tenant_id,
+            ResolveTarget::Product(product_id),
+        )
+        .await
+        .map_err(|e| {
+            log::error!("Error resolving product entitlements: {e}");
+            RestApiError::from(e)
+        })?;
+    Ok(Json(ResolvedEntitlementListResponse {
+        data: resolved
+            .into_iter()
+            .map(resolved_entitlement_to_rest)
+            .collect(),
+    }))
 }

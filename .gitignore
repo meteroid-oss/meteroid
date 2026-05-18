@@ -18,6 +18,8 @@ Cargo.lock
 .env.*
 !.env.example
 
+.run
+
 _dev_
 _local_
 _migrations

@@ -35,7 +35,7 @@ macro_rules! id_type {
 
             #[cfg(feature = "tonic")]
             pub fn from_proto<T: AsRef<str>>(value: T) -> Result<$id_name, tonic::Status> {
-                $id_name::from_str(value.as_ref()).map_err(|_| {
+                <$id_name as std::str::FromStr>::from_str(value.as_ref()).map_err(|_| {
                     tonic::Status::invalid_argument(format!(
                         "Invalid {}: {}",
                         stringify!($id_name),

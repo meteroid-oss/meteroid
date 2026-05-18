@@ -2,12 +2,13 @@ import { disableQuery, useMutation } from '@connectrpc/connect-query'
 import { useQueryClient } from '@tanstack/react-query'
 import { Badge, Button, Card, CardContent, CardHeader, CardTitle } from '@ui/components'
 import { useAtom } from 'jotai'
-import { Calendar, Package, PlusIcon, Tag, User } from 'lucide-react'
+import { Calendar, Package, PlusIcon, Shield, Tag, User } from 'lucide-react'
 import { useNavigate } from 'react-router-dom'
 import { useWizard } from 'react-use-wizard'
 import { toast } from 'sonner'
 
 import { PageSection } from '@/components/layouts/shared/PageSection'
+import { resolveEntitlementSpecs } from '@/features/entitlements/creation/resolveEntitlementSpecs'
 import {
   buildExistingProductRef,
   buildNewProductRef,
@@ -19,6 +20,7 @@ import {
 import { getApiComponentBillingPeriodLabel } from '@/features/subscriptions/utils/billingPeriods'
 import { useBasePath } from '@/hooks/useBasePath'
 import { useQuery } from '@/lib/connectrpc'
+import { env } from '@/lib/env'
 import { mapDatev2 } from '@/lib/mapping'
 import {
   formatUsagePriceSummary,
@@ -35,6 +37,7 @@ import { listCoupons } from '@/rpc/api/coupons/v1/coupons-CouponsService_connect
 import { ListCouponRequest_CouponFilter } from '@/rpc/api/coupons/v1/coupons_pb'
 import { Coupon } from '@/rpc/api/coupons/v1/models_pb'
 import { getCustomerById } from '@/rpc/api/customers/v1/customers-CustomersService_connectquery'
+import { createFeature } from '@/rpc/api/entitlements/v1/entitlements-EntitlementsService_connectquery'
 import { getPlanWithVersionByVersionId } from '@/rpc/api/plans/v1/plans-PlansService_connectquery'
 import { PriceComponent } from '@/rpc/api/pricecomponents/v1/models_pb'
 import { listPriceComponents } from '@/rpc/api/pricecomponents/v1/pricecomponents-PriceComponentsService_connectquery'
@@ -102,6 +105,8 @@ export const StepReviewAndCreate = () => {
     },
   })
 
+  const createFeatureMutation = useMutation(createFeature)
+
   const allComponents = componentsQuery.data?.components || []
   const includedComponents = allComponents.filter(c => !state.components.removed.includes(c.id))
   const currency = planQuery.data?.plan?.version?.currency
@@ -137,6 +142,11 @@ export const StepReviewAndCreate = () => {
 
   const handleCreate = async () => {
     try {
+      const resolvedEntitlements = await resolveEntitlementSpecs(
+        state.entitlements,
+        req => createFeatureMutation.mutateAsync(req)
+      )
+
       // Map billingDay to billingDayAnchor
       // 'FIRST' = 1st of month (fixed day), 'SUB_START_DAY' = anniversary (undefined)
       const billingDayAnchor = state.billingDay === 'FIRST' ? 1 : state.billingDayAnchor
@@ -218,6 +228,7 @@ export const StepReviewAndCreate = () => {
               couponId: c.couponId,
             })),
           },
+          entitlements: resolvedEntitlements,
         },
       })
       toast.success('Subscription created successfully')
@@ -486,6 +497,36 @@ export const StepReviewAndCreate = () => {
                   </Card>
                 )}
               </div>
+            )}
+            {env.entitlementsEnabled && state.entitlements.length > 0 && (
+              <Card>
+                <CardHeader className="flex flex-row items-center gap-2">
+                  <Shield className="h-5 w-5" />
+                  <CardTitle className="text-base">
+                    Entitlements ({state.entitlements.length})
+                  </CardTitle>
+                </CardHeader>
+                <CardContent>
+                  <div className="space-y-2">
+                    {state.entitlements.map((e, i) => (
+                      <div key={i} className="flex items-center justify-between text-sm">
+                        <span className="font-medium">{e.featureDisplayName}</span>
+                        <div className="flex items-center gap-2 text-xs text-muted-foreground">
+                          <span>
+                            {e.featureType === 'boolean'
+                              ? e.boolEnabled !== false
+                                ? 'Enabled'
+                                : 'Disabled'
+                              : e.limit
+                                ? `${e.limit} / ${e.resetPeriodType ?? 'cycle'}`
+                                : 'Unlimited'}
+                          </span>
+                        </div>
+                      </div>
+                    ))}
+                  </div>
+                </CardContent>
+              </Card>
             )}
           </div>
 
@@ -804,11 +845,13 @@ export const StepReviewAndCreate = () => {
         </Button>
         <Button
           onClick={handleCreate}
-          disabled={createSubscriptionMutation.isPending}
+          disabled={createSubscriptionMutation.isPending || createFeatureMutation.isPending}
           className="min-w-[120px]"
           variant="brand"
         >
-          {createSubscriptionMutation.isPending ? 'Creating...' : 'Create subscription'}
+          {createSubscriptionMutation.isPending || createFeatureMutation.isPending
+            ? 'Creating...'
+            : 'Create subscription'}
         </Button>
       </div>
     </div>

@@ -4,6 +4,7 @@ import { atomWithReset } from 'jotai/utils'
 import { BillingPeriod } from '@/rpc/api/shared/v1/shared_pb'
 import { ActivationCondition } from '@/rpc/api/subscriptions/v1/models_pb'
 
+import type { PendingEntitlementSpec } from '@/features/entitlements/creation/types'
 import type { ComponentFeeType } from '@/features/pricing'
 
 export type PaymentMethodsConfigType = 'online' | 'bankTransfer' | 'external'
@@ -80,6 +81,9 @@ export interface CreateSubscriptionState {
   // Add-ons & coupons
   addOns: CreateSubscriptionAddOn[]
   coupons: CreateSubscriptionCoupon[]
+
+  // Entitlements
+  entitlements: PendingEntitlementSpec[]
 }
 
 export const createSubscriptionAtom = atomWithReset<CreateSubscriptionState>({
@@ -110,5 +114,6 @@ export const createSubscriptionAtom = atomWithReset<CreateSubscriptionState>({
   },
 
   addOns: [],
-  coupons: []
+  coupons: [],
+  entitlements: []
 })

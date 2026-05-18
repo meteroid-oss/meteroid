@@ -755,6 +755,7 @@ impl SeedComp {
         }
     }
 
+    #[allow(clippy::too_many_arguments)]
     pub(crate) fn capacity(
         id: PriceComponentId,
         name: &'static str,
@@ -793,6 +794,7 @@ impl SeedComp {
         }
     }
 
+    #[allow(clippy::too_many_arguments)]
     pub(crate) fn extra_recurring(
         id: PriceComponentId,
         name: &'static str,

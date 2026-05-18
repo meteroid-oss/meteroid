@@ -55,6 +55,7 @@ async fn test_add_ons_basic() {
             self_serviceable: true,
             max_instances_per_subscription: Some(3),
             product_family_local_id: None,
+            entitlements: vec![],
         })
         .await
         .unwrap()

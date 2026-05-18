@@ -3,6 +3,7 @@ pub mod subscriptions {
     use meteroid_store::domain;
 
     use crate::api::connectors::mapping::connectors::connection_metadata_to_server;
+    use crate::api::entitlements::mapping::entitlement_spec_from_proto;
     use crate::api::shared::conversions::{AsProtoOpt, FromProtoOpt, ProtoConv};
     use common_domain::ids::{CustomerId, PlanVersionId, SubscriptionId};
     use common_utils::integers::ToNonNegativeU64;
@@ -203,6 +204,12 @@ pub mod subscriptions {
             skip_past_invoices: param.skip_past_invoices.unwrap_or(false),
         };
 
+        let entitlements = param
+            .entitlements
+            .into_iter()
+            .map(entitlement_spec_from_proto)
+            .collect::<Result<Vec<_>, _>>()?;
+
         let res = domain::CreateSubscription {
             subscription: subscription_new,
             price_components: param
@@ -218,6 +225,7 @@ pub mod subscriptions {
                 .as_ref()
                 .map(super::coupons::create_subscription_coupons_from_grpc)
                 .transpose()?,
+            entitlements,
         };
 
         Ok(res)

@@ -268,6 +268,7 @@ fn map_to_domain(
         price_components: None,
         add_ons: None,
         coupons: None,
+        entitlements: vec![],
     }
 }
 

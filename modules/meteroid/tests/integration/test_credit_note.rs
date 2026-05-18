@@ -124,6 +124,7 @@ async fn test_credit_note_partial_credits() {
                 coupons: Some(CreateSubscriptionCoupons {
                     coupons: vec![CreateSubscriptionCoupon { coupon_id }],
                 }),
+                entitlements: vec![],
             },
             TENANT_ID,
         )
@@ -529,6 +530,7 @@ async fn test_credit_note_race_condition() {
                 price_components: None,
                 add_ons: None,
                 coupons: None,
+                entitlements: vec![],
             },
             TENANT_ID,
         )
@@ -691,6 +693,7 @@ async fn test_credit_note_refund_with_applied_credits() {
                 price_components: None,
                 add_ons: None,
                 coupons: None,
+                entitlements: vec![],
             },
             TENANT_ID,
         )
@@ -959,6 +962,7 @@ async fn test_credit_note_partial_amounts() {
                 price_components: None,
                 add_ons: None,
                 coupons: None,
+                entitlements: vec![],
             },
             TENANT_ID,
         )
@@ -1250,6 +1254,7 @@ async fn setup_unpaid_invoice() -> (
                 price_components: None,
                 add_ons: None,
                 coupons: None,
+                entitlements: vec![],
             },
             TENANT_ID,
         )
@@ -1581,8 +1586,7 @@ async fn test_create_corrected_invoice_rejected_when_parent_not_fully_credited()
     let err = services
         .create_corrected_invoice_from(TENANT_ID, invoice.id)
         .await
-        .err()
-        .expect("should reject: parent is not fully credited");
+        .expect_err("should reject: parent is not fully credited");
 
     let msg = format!("{:?}", err);
     assert!(
@@ -1605,8 +1609,7 @@ async fn test_create_corrected_invoice_rejected_when_child_already_exists() {
     let err = services
         .create_corrected_invoice_from(TENANT_ID, invoice.id)
         .await
-        .err()
-        .expect("second call should fail — one child per parent");
+        .expect_err("second call should fail — one child per parent");
 
     let msg = format!("{:?}", err);
     assert!(
@@ -1674,8 +1677,7 @@ async fn test_corrected_invoice_rejected_after_partial_debt_cancellation() {
     let err = services
         .create_corrected_invoice_from(TENANT_ID, invoice.id)
         .await
-        .err()
-        .expect("should refuse: parent is not fully credited");
+        .expect_err("should refuse: parent is not fully credited");
 
     let msg = format!("{:?}", err);
     assert!(
@@ -1767,8 +1769,7 @@ async fn test_cn_with_reissue_rejected_if_already_reissued() {
     let err = services
         .create_corrected_invoice_from(TENANT_ID, invoice.id)
         .await
-        .err()
-        .expect("second reissue should fail: child already exists");
+        .expect_err("second reissue should fail: child already exists");
 
     let msg = format!("{:?}", err);
     assert!(
@@ -1800,8 +1801,7 @@ async fn test_cn_with_reissue_rejected_when_partial() {
             true,
         )
         .await
-        .err()
-        .expect("partial CN + reissue must fail");
+        .expect_err("partial CN + reissue must fail");
 
     let msg = format!("{:?}", err);
     assert!(

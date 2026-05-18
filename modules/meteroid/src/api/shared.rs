@@ -152,6 +152,18 @@ pub mod conversions {
         }
     }
 
+    impl ProtoConv<String> for chrono::DateTime<chrono::Utc> {
+        fn as_proto(&self) -> String {
+            self.to_rfc3339()
+        }
+
+        fn from_proto_ref(proto: &String) -> Result<Self, tonic::Status> {
+            chrono::DateTime::parse_from_rfc3339(proto)
+                .map(|dt| dt.with_timezone(&chrono::Utc))
+                .map_err(|e| tonic::Status::invalid_argument(format!("Invalid datetime: {e}")))
+        }
+    }
+
     impl ProtoConv<String> for rust_decimal::Decimal {
         fn as_proto(&self) -> String {
             self.to_string()

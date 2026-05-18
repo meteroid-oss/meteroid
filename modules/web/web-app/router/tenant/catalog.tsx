@@ -19,6 +19,7 @@ import { PlanOnboardingComponent } from '@/pages/tenants/billing/plans/onboardin
 import { CatalogOutlet } from '@/pages/tenants/catalog'
 import { CreateBillableMetric } from '@/pages/tenants/catalog/createBillableMetric'
 import { EditBillableMetric } from '@/pages/tenants/catalog/editBillableMetric'
+import { FeatureCreate, FeatureDetail, FeatureEdit, Features } from '@/pages/tenants/catalog/features'
 import { Products } from '@/pages/tenants/catalog/productItems'
 import { ProductMetricDetail } from '@/pages/tenants/catalog/productMetricDetail'
 import { ProductMetrics } from '@/pages/tenants/catalog/productMetrics'
@@ -116,6 +117,17 @@ export const productCatalogRoutes: RouteObject = {
         {
           element: <StandardOnly />,
           children: [
+            {
+              path: 'features',
+              element: <Features />,
+              handle: { title: 'Features' },
+              children: [
+                { index: true, element: null },
+                { path: 'create', element: <FeatureCreate />, handle: { title: 'New feature' } },
+                { path: ':featureId', element: <FeatureDetail /> },
+                { path: 'edit/:featureId', element: <FeatureEdit />, handle: { title: 'Edit feature' } },
+              ],
+            },
             {
               path: 'items',
               element: <Products />,

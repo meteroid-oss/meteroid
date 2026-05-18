@@ -6,6 +6,7 @@ pub mod connectors;
 pub mod credit_notes;
 pub mod customer_connection;
 pub mod customers;
+pub mod entitlements;
 pub mod enums;
 pub mod errors;
 pub mod invoices;

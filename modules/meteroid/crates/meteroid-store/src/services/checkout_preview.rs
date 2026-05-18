@@ -269,6 +269,7 @@ impl Services {
             checkout_url: None,
             trial_config,
             pending_events: Vec::new(),
+            entitlements: Vec::new(),
         })
     }
 

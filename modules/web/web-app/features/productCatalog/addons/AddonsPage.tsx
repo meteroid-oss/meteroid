@@ -42,7 +42,11 @@ export const AddonsPage: FunctionComponent = () => {
 
   return (
     <>
-      <AddonsHeader count={addonsQuery.data?.paginationMeta?.totalItems} />
+      <AddonsHeader
+        count={addonsQuery.data?.paginationMeta?.totalItems}
+        isLoading={addonsQuery.isLoading}
+        refetch={() => addonsQuery.refetch()}
+      />
       <AddonsTable
         addonsQuery={addonsQuery}
         pagination={pagination}

@@ -14,4 +14,5 @@ pub fn product_routes() -> OpenApiRouter<AppState> {
         .routes(routes!(router::update_product))
         .routes(routes!(router::archive_product))
         .routes(routes!(router::unarchive_product))
+        .routes(routes!(router::list_resolved_entitlements))
 }

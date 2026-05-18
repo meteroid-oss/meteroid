@@ -5,6 +5,9 @@ use crate::api_rest::checkoutsessions::checkout_session_routes;
 use crate::api_rest::coupons::coupon_routes;
 use crate::api_rest::creditnotes::credit_note_routes;
 use crate::api_rest::customers::customer_routes;
+use crate::api_rest::entitlements::{
+    effective_entitlement_routes, entitlement_routes, entity_entitlement_routes, feature_routes,
+};
 use crate::api_rest::events::event_routes;
 use crate::api_rest::invoices::invoice_routes;
 use crate::api_rest::metrics::metric_routes;
@@ -37,6 +40,7 @@ pub(crate) mod coupons;
 mod creditnotes;
 mod currencies;
 mod customers;
+mod entitlements;
 pub mod error;
 mod events;
 mod files;
@@ -70,6 +74,10 @@ pub fn api_routes() -> OpenApiRouter<AppState> {
         .merge(product_routes())
         .merge(coupon_routes())
         .merge(metric_routes())
+        .merge(feature_routes())
+        .merge(entity_entitlement_routes())
+        .merge(entitlement_routes())
+        .merge(effective_entitlement_routes())
 }
 
 #[derive(Clone)]

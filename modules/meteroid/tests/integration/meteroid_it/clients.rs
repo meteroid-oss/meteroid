@@ -14,6 +14,7 @@ use meteroid_grpc::meteroid::api::components::v1::price_components_service_clien
 use meteroid_grpc::meteroid::api::connectors::v1::connectors_service_client::ConnectorsServiceClient;
 use meteroid_grpc::meteroid::api::coupons::v1::coupons_service_client::CouponsServiceClient;
 use meteroid_grpc::meteroid::api::customers::v1::customers_service_client::CustomersServiceClient;
+use meteroid_grpc::meteroid::api::entitlements::v1::entitlements_service_client::EntitlementsServiceClient;
 use meteroid_grpc::meteroid::api::instance::v1::instance_service_client::InstanceServiceClient;
 use meteroid_grpc::meteroid::api::invoicingentities::v1::invoicing_entities_service_client::InvoicingEntitiesServiceClient;
 use meteroid_grpc::meteroid::api::organizations::v1::organizations_service_client::OrganizationsServiceClient;
@@ -30,8 +31,10 @@ use meteroid_grpc::meteroid::api::webhooks::out::v1::webhooks_service_client::We
 
 pub type TestLayeredClientService = AddAuthorization<SetRequestHeader<Channel, HeaderValue>>;
 
+#[allow(dead_code)]
 pub struct AllClients {
     pub add_ons: AddOnsServiceClient<TestLayeredClientService>,
+    pub entitlements: EntitlementsServiceClient<TestLayeredClientService>,
     pub api_tokens: ApiTokensServiceClient<TestLayeredClientService>,
     pub bank_accounts: BankAccountsServiceClient<TestLayeredClientService>,
     pub connectors: ConnectorsServiceClient<TestLayeredClientService>,
@@ -66,6 +69,7 @@ impl AllClients {
 
         Self {
             add_ons: AddOnsServiceClient::new(service.clone()),
+            entitlements: EntitlementsServiceClient::new(service.clone()),
             api_tokens: ApiTokensServiceClient::new(service.clone()),
             bank_accounts: BankAccountsServiceClient::new(service.clone()),
             connectors: ConnectorsServiceClient::new(service.clone()),

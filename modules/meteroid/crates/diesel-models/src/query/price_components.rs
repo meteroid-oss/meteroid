@@ -4,7 +4,7 @@ use std::collections::HashMap;
 
 use crate::{DbResult, PgConn};
 
-use common_domain::ids::{PlanVersionId, PriceComponentId, TenantId};
+use common_domain::ids::{PlanVersionId, PriceComponentId, ProductId, TenantId};
 use diesel::{
     ExpressionMethods, Insertable, IntoSql, OptionalExtension, QueryDsl, SelectableHelper,
     debug_query,
@@ -12,6 +12,36 @@ use diesel::{
 use error_stack::ResultExt;
 use itertools::Itertools;
 use tap::prelude::*;
+
+/// Fetch distinct product IDs referenced by price components for the given plan version.
+pub async fn list_product_ids_for_plan_version(
+    conn: &mut PgConn,
+    tenant_id: &TenantId,
+    plan_version_id: PlanVersionId,
+) -> DbResult<Vec<ProductId>> {
+    use crate::schema::plan_version::dsl as pv_dsl;
+    use crate::schema::price_component::dsl as pc_dsl;
+    use diesel::dsl::not;
+    use diesel_async::RunQueryDsl;
+
+    let query = pc_dsl::price_component
+        .inner_join(pv_dsl::plan_version)
+        .filter(pc_dsl::plan_version_id.eq(plan_version_id))
+        .filter(pv_dsl::tenant_id.eq(tenant_id))
+        .filter(not(pc_dsl::product_id.is_null()))
+        .select(pc_dsl::product_id);
+
+    log::debug!("{}", debug_query::<diesel::pg::Pg, _>(&query));
+
+    let rows: Vec<Option<ProductId>> = query
+        .get_results(conn)
+        .await
+        .tap_err(|e| log::error!("Error while fetching product ids for plan version: {e:?}"))
+        .attach("Error while fetching product ids for plan version")
+        .into_db_result()?;
+
+    Ok(rows.into_iter().flatten().collect())
+}
 
 impl PriceComponentRowNew {
     pub async fn insert(&self, conn: &mut PgConn) -> DbResult<PriceComponentRow> {

@@ -12,6 +12,7 @@ use diesel_models::plans::PlanRowPatch;
 use diesel_models::plans::PlanVersionRowInfo;
 use diesel_models::plans::PlanWithVersionRow;
 
+use super::entitlements::Entitlement;
 use super::enums::{PlanStatusEnum, PlanTypeEnum};
 use common_domain::ids::{BaseId, PlanId, PlanVersionId, ProductFamilyId, ProductId, TenantId};
 use o2o::o2o;
@@ -80,6 +81,7 @@ pub struct PlanVersionNewInternal {
     pub currency: Option<String>,
     pub billing_cycles: Option<i32>,
     pub trial: Option<PlanTrial>,
+    pub entitlements: Vec<crate::domain::entitlements::EntitlementSpec>,
 }
 
 #[derive(Debug, Clone)]
@@ -166,6 +168,8 @@ pub struct PlanVersion {
     pub trial_is_free: bool,
     pub trial_duration_days: Option<i32>,
     pub uses_product_pricing: bool,
+    #[ghost({vec![]})]
+    pub entitlements: Vec<Entitlement>,
 }
 
 #[derive(Clone, Debug, o2o)]

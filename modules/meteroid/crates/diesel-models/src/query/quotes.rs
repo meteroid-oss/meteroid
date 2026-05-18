@@ -7,7 +7,7 @@ use crate::quotes::{
     QuoteRowNew, QuoteRowUpdate, QuoteSignatureRow, QuoteSignatureRowNew, QuoteWithCustomerRow,
 };
 use crate::{DbResult, PgConn};
-use common_domain::ids::{CustomerId, QuoteId, StoredDocumentId, TenantId};
+use common_domain::ids::{CustomerId, ProductId, QuoteId, StoredDocumentId, TenantId};
 use diesel::{
     BoolExpressionMethods, JoinOnDsl, PgSortExpressionMethods, PgTextExpressionMethods,
     SelectableHelper, debug_query,
@@ -420,6 +420,39 @@ impl QuoteActivityRow {
 }
 
 impl QuoteComponentRow {
+    /// Fetch distinct product IDs from quote components for the given quotes.
+    pub async fn list_product_ids(
+        conn: &mut PgConn,
+        quote_ids: &[QuoteId],
+        tenant_id: &TenantId,
+    ) -> DbResult<Vec<ProductId>> {
+        use crate::schema::quote::dsl as q_dsl;
+        use crate::schema::quote_component::dsl as qc_dsl;
+        use diesel::dsl::not;
+        use diesel_async::RunQueryDsl;
+
+        if quote_ids.is_empty() {
+            return Ok(vec![]);
+        }
+
+        let query = qc_dsl::quote_component
+            .inner_join(q_dsl::quote)
+            .filter(qc_dsl::quote_id.eq_any(quote_ids))
+            .filter(q_dsl::tenant_id.eq(tenant_id))
+            .filter(not(qc_dsl::product_id.is_null()))
+            .select(qc_dsl::product_id);
+
+        log::debug!("{}", debug_query::<diesel::pg::Pg, _>(&query));
+
+        let rows: Vec<Option<ProductId>> = query
+            .get_results(conn)
+            .await
+            .attach("Error while fetching product ids from quote components")
+            .into_db_result()?;
+
+        Ok(rows.into_iter().flatten().collect())
+    }
+
     pub async fn list_by_quote_id(
         conn: &mut PgConn,
         param_quote_id: QuoteId,

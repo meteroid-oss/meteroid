@@ -38,6 +38,33 @@ impl PlanRowNew {
 }
 
 impl PlanRow {
+    /// Batch-load plan rows by id, scoped to a tenant. Used to resolve origin names.
+    pub async fn list_by_ids(
+        conn: &mut PgConn,
+        ids: &[PlanId],
+        tenant_id: TenantId,
+    ) -> DbResult<Vec<PlanRow>> {
+        use crate::schema::plan::dsl as p_dsl;
+        use diesel_async::RunQueryDsl;
+
+        if ids.is_empty() {
+            return Ok(Vec::new());
+        }
+
+        let query = p_dsl::plan
+            .filter(p_dsl::id.eq_any(ids))
+            .filter(p_dsl::tenant_id.eq(tenant_id))
+            .select(PlanRow::as_select());
+
+        log::debug!("{}", debug_query::<diesel::pg::Pg, _>(&query));
+
+        query
+            .load(conn)
+            .await
+            .attach("Error while listing plans by ids")
+            .into_db_result()
+    }
+
     pub async fn activate(conn: &mut PgConn, id: PlanId, tenant_id: TenantId) -> DbResult<PlanRow> {
         use crate::schema::plan::dsl as p_dsl;
         use diesel_async::RunQueryDsl;

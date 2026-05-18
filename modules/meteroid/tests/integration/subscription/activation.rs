@@ -5,6 +5,8 @@
 //! - Trial configuration (None, Free, Paid)
 //! - Auto-charge setting
 
+#![allow(clippy::too_many_arguments)]
+
 use rstest::rstest;
 
 use crate::data::ids::*;

@@ -1,4 +1,5 @@
 use crate::StoreResult;
+use crate::domain::entitlements::EntitlementSpec;
 use crate::domain::enums::QuoteStatusEnum;
 use crate::domain::quotes::DetailedQuote;
 use crate::domain::subscription_add_ons::SubscriptionAddOnNewInternal;
@@ -124,11 +125,21 @@ fn build_subscription_from_quote(
 
     let coupon_ids = detailed_quote.coupons.iter().map(|c| c.coupon_id).collect();
 
+    let entitlements: Vec<EntitlementSpec> = detailed_quote
+        .entitlements
+        .iter()
+        .map(|e| EntitlementSpec {
+            feature_id: e.feature_id,
+            value: e.value.clone(),
+        })
+        .collect();
+
     Ok(CreateSubscriptionFromQuote {
         subscription: subscription_new,
         components,
         add_ons,
         coupon_ids,
         quote_id: quote.id,
+        entitlements,
     })
 }

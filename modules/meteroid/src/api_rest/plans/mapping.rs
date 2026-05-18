@@ -1,3 +1,4 @@
+use crate::api_rest::entitlements::mapping::entitlement_to_rest;
 use crate::api_rest::plans::model::{
     AvailableParameters, BillingPeriodEnum, CapacityPlanFee, CapacityThreshold,
     ExtraRecurringPlanFee, Fee, MatrixDimension, MatrixPlanPricing, MatrixRow, OneTimePlanFee,
@@ -59,6 +60,11 @@ pub fn plan_to_rest(
         trial,
         price_components: rest_components,
         available_parameters,
+        entitlements: version
+            .entitlements
+            .into_iter()
+            .map(entitlement_to_rest)
+            .collect(),
     }
 }
 

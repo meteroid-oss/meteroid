@@ -62,7 +62,7 @@ impl Services {
         if period.start >= period.end {
             return Ok(WindowedUsageData {
                 data: vec![],
-                period,
+                period: period.into(),
             });
         }
 
@@ -71,7 +71,7 @@ impl Services {
                 &subscription_details.subscription.tenant_id,
                 &subscription_details.subscription.customer_id,
                 metric,
-                period,
+                period.into(),
             )
             .await
     }

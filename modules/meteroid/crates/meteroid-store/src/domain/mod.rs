@@ -7,6 +7,7 @@ pub use coupons::*;
 pub use credit_notes::*;
 pub use customer_payment_methods::*;
 pub use customers::*;
+pub use entitlements::*;
 pub use enums::*;
 pub use invoice_lines::*;
 pub use invoices::*;
@@ -50,6 +51,7 @@ pub mod coupons;
 pub mod credit_notes;
 pub mod customer_payment_methods;
 pub mod dead_letter;
+pub mod entitlements;
 pub mod enums;
 
 pub mod historical_rates;

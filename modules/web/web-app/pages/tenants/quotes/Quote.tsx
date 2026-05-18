@@ -35,12 +35,14 @@ import { Fragment, useState } from 'react'
 import { Link } from 'react-router-dom'
 import { toast } from 'sonner'
 
+import { ResolvedEntitlementsPanel } from '@/features/entitlements/resolved/ResolvedEntitlementsPanel'
 import { QuoteStatusBadge } from '@/features/quotes/QuoteStatusBadge'
 import { QuoteView } from '@/features/quotes/QuoteView'
 import { SendQuoteDialog } from '@/features/quotes/SendQuoteDialog'
 import { formatSubscriptionFee } from '@/features/subscriptions/utils/fees'
 import { useBasePath } from '@/hooks/useBasePath'
 import { useQuery } from '@/lib/connectrpc'
+import { env } from '@/lib/env'
 import {
   DetailedQuote,
   QuoteComponent,
@@ -512,6 +514,19 @@ export const QuoteDetailView: React.FC<Props> = ({ quote }) => {
               )) || <div className="text-[13px] text-muted-foreground">No activity recorded</div>}
             </div>
           </Flex>
+
+          {env.entitlementsEnabled && quote.quote?.id && (
+            <>
+              <Separator className="-my-3" />
+              <Flex direction="column" className="gap-2 p-6">
+                <div className="text-[15px] font-medium">Entitlements</div>
+                <ResolvedEntitlementsPanel
+                  entity={{ type: 'quote', id: quote.quote.id }}
+                  canPin={true}
+                />
+              </Flex>
+            </>
+          )}
         </div>
       </Flex>
 

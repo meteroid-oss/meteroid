@@ -9,7 +9,7 @@ use diesel::debug_query;
 use error_stack::ResultExt;
 
 use common_domain::ids::{
-    PriceComponentId, PriceId, SubscriptionId, SubscriptionPriceComponentId, TenantId,
+    PriceComponentId, PriceId, ProductId, SubscriptionId, SubscriptionPriceComponentId, TenantId,
 };
 use diesel::{BoolExpressionMethods, ExpressionMethods, QueryDsl, SelectableHelper};
 use itertools::Itertools;
@@ -271,5 +271,39 @@ impl SubscriptionComponentRow {
             .await
             .attach("Error while listing component history for period")
             .into_db_result()
+    }
+
+    /// Fetch distinct product IDs from subscription components for the given subscriptions.
+    pub async fn list_product_ids(
+        conn: &mut PgConn,
+        subscription_ids: &[SubscriptionId],
+        tenant_id: &TenantId,
+    ) -> DbResult<Vec<ProductId>> {
+        use crate::schema::subscription::dsl as s_dsl;
+        use crate::schema::subscription_component::dsl as sc_dsl;
+        use diesel::dsl::not;
+        use diesel_async::RunQueryDsl;
+
+        if subscription_ids.is_empty() {
+            return Ok(vec![]);
+        }
+
+        let query = sc_dsl::subscription_component
+            .inner_join(s_dsl::subscription)
+            .filter(sc_dsl::subscription_id.eq_any(subscription_ids))
+            .filter(s_dsl::tenant_id.eq(tenant_id))
+            .filter(sc_dsl::effective_to.is_null())
+            .filter(not(sc_dsl::product_id.is_null()))
+            .select(sc_dsl::product_id);
+
+        log::debug!("{}", debug_query::<diesel::pg::Pg, _>(&query));
+
+        let rows: Vec<Option<ProductId>> = query
+            .get_results(conn)
+            .await
+            .attach("Error while fetching product ids from subscription components")
+            .into_db_result()?;
+
+        Ok(rows.into_iter().flatten().collect())
     }
 }

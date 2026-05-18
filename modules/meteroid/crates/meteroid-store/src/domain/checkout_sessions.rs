@@ -143,6 +143,7 @@ impl CheckoutSession {
             price_components: self.components.clone(),
             add_ons: self.add_ons.clone(),
             coupons,
+            entitlements: vec![],
         }
     }
 }

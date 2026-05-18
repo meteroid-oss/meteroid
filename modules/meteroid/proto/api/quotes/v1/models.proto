@@ -3,6 +3,7 @@ syntax = "proto3";
 package meteroid.api.quotes.v1;
 
 import "api/customers/v1/models.proto";
+import "api/entitlements/v1/models.proto";
 import "api/invoicingentities/v1/models.proto";
 import "api/subscriptions/v1/models.proto";
 
@@ -178,6 +179,9 @@ message CreateQuote {
   // Add-ons and coupons
   meteroid.api.subscriptions.v1.CreateSubscriptionAddOns add_ons = 27;
   CreateQuoteCoupons coupons = 28;
+
+  // Inline entitlement specs to attach to the quote
+  repeated meteroid.api.entitlements.v1.EntitlementSpec entitlements = 30;
 }
 
 message CreateQuoteCoupon {

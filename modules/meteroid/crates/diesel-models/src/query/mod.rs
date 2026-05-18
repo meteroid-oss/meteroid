@@ -16,6 +16,7 @@ pub mod customer_connections;
 pub mod customer_payment_methods;
 pub mod customers;
 pub mod dead_letter;
+pub mod entitlements;
 pub mod historical_rates_from_usd;
 pub mod invoices;
 pub mod invoicing_entities;

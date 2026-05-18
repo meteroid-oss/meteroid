@@ -3,6 +3,7 @@ use common_domain::ids::BankAccountId;
 use serde::{Deserialize, Serialize};
 
 use crate::domain::connectors::ConnectionMeta;
+use crate::domain::entitlements::{Entitlement, EntitlementSpec};
 use crate::domain::enums::{
     BillingPeriodEnum, ScheduledEventTypeEnum, SubscriptionActivationCondition,
 };
@@ -399,6 +400,7 @@ pub struct CreateSubscription {
     pub price_components: Option<CreateSubscriptionComponents>,
     pub add_ons: Option<CreateSubscriptionAddOns>,
     pub coupons: Option<CreateSubscriptionCoupons>,
+    pub entitlements: Vec<EntitlementSpec>,
 }
 
 /// Components and add-ons are already processed (fees computed), so we skip plan-based processing.
@@ -409,6 +411,7 @@ pub struct CreateSubscriptionFromQuote {
     pub add_ons: Vec<SubscriptionAddOnNewInternal>,
     pub coupon_ids: Vec<CouponId>,
     pub quote_id: QuoteId,
+    pub entitlements: Vec<crate::domain::entitlements::EntitlementSpec>,
 }
 
 /// Trial configuration from the plan version
@@ -443,6 +446,7 @@ pub struct SubscriptionDetails {
     pub checkout_url: Option<String>,
     pub trial_config: Option<TrialConfig>,
     pub pending_events: Vec<PendingScheduledEvent>,
+    pub entitlements: Vec<Entitlement>,
 }
 
 #[derive(Clone, Debug)]

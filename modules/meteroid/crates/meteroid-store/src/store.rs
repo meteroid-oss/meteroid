@@ -1,5 +1,6 @@
 use crate::StoreResult;
 use crate::errors::{StoreError, StoreErrorReport};
+use crate::services::clients::usage::UsageClient;
 use common_domain::ids::{OrganizationId, PlanId};
 use common_eventbus::{Event, EventBus};
 use diesel::{ConnectionError, ConnectionResult};
@@ -49,6 +50,7 @@ pub struct Store {
     pub(crate) oauth: OauthServices,
     pub mailer: Arc<dyn MailerService>,
     pub billing: Option<Arc<PLACEHOLDER>>,
+    pub usage_client: Arc<dyn UsageClient>,
 }
 
 pub struct StoreConfig {
@@ -65,6 +67,7 @@ pub struct StoreConfig {
     pub admin_organization_id: Option<OrganizationId>,
     pub billing: Option<Arc<PLACEHOLDER>>,
     pub billing_default_plan_id: Option<PlanId>,
+    pub usage_client: Arc<dyn UsageClient>,
 }
 
 /**
@@ -159,6 +162,7 @@ impl Store {
             mailer: config.mailer,
             oauth: config.oauth,
             billing: config.billing,
+            usage_client: config.usage_client,
         })
     }
 

@@ -1,6 +1,7 @@
 use crate::api::addons::AddOnsServiceComponents;
 use crate::api::addons::error::AddOnApiError;
 use crate::api::addons::mapping::addons::{AddOnWrapper, PlanVersionAddOnWrapper};
+use crate::api::entitlements::mapping::entitlement_spec_from_proto;
 use crate::api::pricecomponents::mapping::components::{
     price_entries_from_proto, product_ref_from_proto,
 };
@@ -97,6 +98,12 @@ impl AddOnsService for AddOnsServiceComponents {
             }
         };
 
+        let entitlements = req
+            .entitlements
+            .into_iter()
+            .map(entitlement_spec_from_proto)
+            .collect::<Result<Vec<_>, _>>()?;
+
         let added = self
             .store
             .create_add_on_from_ref(
@@ -109,6 +116,7 @@ impl AddOnsService for AddOnsServiceComponents {
                 tenant_id,
                 actor,
                 pf_id,
+                entitlements,
             )
             .await
             .map(|x| AddOnWrapper::from(x).0)

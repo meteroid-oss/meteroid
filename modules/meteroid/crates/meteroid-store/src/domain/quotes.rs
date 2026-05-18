@@ -128,6 +128,10 @@ pub struct QuoteNew {
     StoreError::SerdeError("Failed to serialize payment_methods_config".to_string(), e)
     })?)]
     pub payment_methods_config: Option<PaymentMethodsConfig>,
+    /// Entitlement specs to create inline when the quote is created.
+    /// Not persisted to `quote_rows` — inserted into the entitlements table instead.
+    #[ghost]
+    pub entitlements: Vec<crate::domain::entitlements::EntitlementSpec>,
 }
 
 #[derive(o2o, Debug, Clone)]
@@ -149,6 +153,7 @@ pub struct DetailedQuote {
     pub coupons: Vec<QuoteCoupon>,
     pub signatures: Vec<QuoteSignature>,
     pub activities: Vec<QuoteActivity>,
+    pub entitlements: Vec<crate::domain::entitlements::Entitlement>,
 }
 
 #[derive(Debug, Clone)]

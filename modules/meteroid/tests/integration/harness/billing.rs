@@ -103,6 +103,7 @@ impl TestEnv {
     }
 
     /// Process only due scheduled events (e.g. grace-period invoice finalization).
+    #[allow(dead_code)]
     pub async fn process_due_events(&self) {
         self.services()
             .get_and_process_due_events()

@@ -1052,6 +1052,7 @@ impl PreparedPlanChange {
             metrics: self.subscription_details.metrics.clone(),
             checkout_url: None,
             pending_events: Vec::new(),
+            entitlements: Vec::new(),
         })
     }
 }

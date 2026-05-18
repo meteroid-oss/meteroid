@@ -25,6 +25,8 @@ import { useNavigate } from 'react-router-dom'
 import { toast } from 'sonner'
 
 import { CustomCreationFlow, IdentitySchema } from '@/features/addons/CustomCreationFlow'
+import { EntitlementCreationStep } from '@/features/entitlements/creation/EntitlementCreationStep'
+import { resolveEntitlementSpecs } from '@/features/entitlements/creation/resolveEntitlementSpecs'
 import { feeTypeEnumToComponentFeeType } from '@/features/plans/addons/AddOnCard'
 import { usePlanWithVersion } from '@/features/plans/hooks/usePlan'
 import {
@@ -55,8 +57,10 @@ import {
   createAddOn,
   listAddOns,
 } from '@/rpc/api/addons/v1/addons-AddOnsService_connectquery'
+import { createFeature } from '@/rpc/api/entitlements/v1/entitlements-EntitlementsService_connectquery'
 import { listProductFamilies } from '@/rpc/api/productfamilies/v1/productfamilies-ProductFamiliesService_connectquery'
 
+import type { PendingEntitlementSpec } from '@/features/entitlements/creation/types'
 import type { ComponentFeeType } from '@/features/pricing/conversions'
 import type { AddOn } from '@/rpc/api/addons/v1/models_pb'
 
@@ -78,10 +82,19 @@ export const AddAddOnPanel = () => {
     }
   }, [families])
 
-  const [customStep, setCustomStep] = useState<'identity' | 'feeType' | 'form'>('identity')
+  const [customStep, setCustomStep] = useState<'identity' | 'feeType' | 'form' | 'entitlements'>('identity')
   const [customName, setCustomName] = useState('')
   const [customDescription, setCustomDescription] = useState('')
   const [selectedFeeType, setSelectedFeeType] = useState<ComponentFeeType | null>(null)
+  const [pendingFormData, setPendingFormData] = useState<Record<string, unknown> | null>(null)
+  const [pendingEntitlements, setPendingEntitlements] = useState<PendingEntitlementSpec[]>([])
+
+  const [productStep, setProductStep] = useState<'browser' | 'entitlements'>('browser')
+  const [pendingProductData, setPendingProductData] = useState<{
+    productId: string; componentName: string; formData: Record<string, unknown>; feeType: ComponentFeeType
+  } | null>(null)
+  const [productPendingEntitlements, setProductPendingEntitlements] = useState<PendingEntitlementSpec[]>([])
+
   const [catalogSearch, setCatalogSearch] = useState('')
   const debouncedSearch = useDebounceValue(catalogSearch, 300)
 
@@ -136,6 +149,8 @@ export const AddAddOnPanel = () => {
     },
   })
 
+  const createFeatureMutation = useMutation(createFeature)
+
   const handleAttachExisting = (addOn: AddOn) => {
     if (!version?.id) return
     attachMutation.mutate({
@@ -156,7 +171,20 @@ export const AddAddOnPanel = () => {
     feeType: ComponentFeeType
   }) => {
     if (!version?.id) return
+    setPendingProductData({ productId, componentName, formData, feeType })
+    setProductPendingEntitlements([])
+    setProductStep('entitlements')
+  }
 
+  const handleProductEntitlementsSubmit = async (entitlements: PendingEntitlementSpec[]) => {
+    if (!pendingProductData) return
+    setProductPendingEntitlements(entitlements)
+
+    const resolved = await resolveEntitlementSpecs(entitlements, req =>
+      createFeatureMutation.mutateAsync(req)
+    )
+
+    const { productId, componentName, formData, feeType } = pendingProductData
     const pricingType = toPricingTypeFromFeeType(
       feeType,
       feeType === 'usage' ? (formData.usageModel as string) : undefined
@@ -169,18 +197,30 @@ export const AddAddOnPanel = () => {
       product,
       price: wrapAsNewPriceEntries(priceInputs)[0],
       productFamilyLocalId,
+      entitlements: resolved,
     })
   }
 
   const handleCreateNewProduct = (formData: Record<string, unknown>) => {
-    if (!version?.id || !selectedFeeType) return
+    if (!selectedFeeType) return
+    setPendingFormData(formData)
+    setCustomStep('entitlements')
+  }
+
+  const handleEntitlementsSubmit = async (entitlements: PendingEntitlementSpec[]) => {
+    if (!pendingFormData || !selectedFeeType) return
+    setPendingEntitlements(entitlements)
+
+    const resolved = await resolveEntitlementSpecs(entitlements, req =>
+      createFeatureMutation.mutateAsync(req)
+    )
 
     const pricingType = toPricingTypeFromFeeType(
       selectedFeeType,
-      selectedFeeType === 'usage' ? (formData.usageModel as string) : undefined
+      selectedFeeType === 'usage' ? (pendingFormData.usageModel as string) : undefined
     )
-    const priceInputs = buildPriceInputs(pricingType, formData, currency)
-    const product = buildNewProductRef(customName, selectedFeeType, formData)
+    const priceInputs = buildPriceInputs(pricingType, pendingFormData, currency)
+    const product = buildNewProductRef(customName, selectedFeeType, pendingFormData)
 
     createAddOnMutation.mutate({
       name: customName,
@@ -188,6 +228,7 @@ export const AddAddOnPanel = () => {
       product,
       price: wrapAsNewPriceEntries(priceInputs)[0],
       productFamilyLocalId,
+      entitlements: resolved,
     })
   }
 
@@ -196,6 +237,8 @@ export const AddAddOnPanel = () => {
     setCustomName('')
     setCustomDescription('')
     setSelectedFeeType(null)
+    setPendingFormData(null)
+    setPendingEntitlements([])
     identityMethods.reset()
   }
 
@@ -248,12 +291,22 @@ export const AddAddOnPanel = () => {
           </TabsContent>
           <TabsContent value="product" className="flex-1 overflow-hidden mt-0">
             <ScrollArea className="h-full">
-              <ProductBrowser
-                currency={currency}
-                onAdd={handleAddExistingProduct}
-                submitLabel="Create & Attach"
-                feeTypes={ADDON_PROTO_FEE_TYPES}
-              />
+              {productStep === 'entitlements' ? (
+                <EntitlementCreationStep
+                  initialEntitlements={productPendingEntitlements}
+                  submitLabel="Create & Attach"
+                  onBack={() => setProductStep('browser')}
+                  onSubmit={handleProductEntitlementsSubmit}
+                  isSubmitting={createAddOnMutation.isPending || createFeatureMutation.isPending}
+                />
+              ) : (
+                <ProductBrowser
+                  currency={currency}
+                  onAdd={handleAddExistingProduct}
+                  submitLabel="Next →"
+                  feeTypes={ADDON_PROTO_FEE_TYPES}
+                />
+              )}
             </ScrollArea>
           </TabsContent>
           <TabsContent value="custom" className="flex-1 overflow-hidden mt-0">
@@ -278,6 +331,9 @@ export const AddAddOnPanel = () => {
                 onSubmit={handleCreateNewProduct}
                 submitLabel="Create & Attach"
                 feeTypeOptions={ADDON_FEE_TYPE_OPTIONS}
+                pendingEntitlements={pendingEntitlements}
+                isSubmitting={createAddOnMutation.isPending || createFeatureMutation.isPending}
+                onEntitlementsSubmit={handleEntitlementsSubmit}
               />
             </ScrollArea>
           </TabsContent>
