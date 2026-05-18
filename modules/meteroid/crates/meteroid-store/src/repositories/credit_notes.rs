@@ -26,13 +26,15 @@ use std::collections::HashMap;
 
 pub use crate::domain::enums::CreditType;
 
-/// Specifies a line item to credit.
+/// Specifies a line item to credit. `unit_price`, when provided, must be
+/// <= the original and replaces it for the credited amount calculation.
 #[derive(Debug, Clone)]
 pub enum CreditLineItem {
-    /// Credit `quantity × line.unit_price`. The line must have a unit_price.
-    Line { local_id: String, quantity: Decimal },
-    /// Credit specific sub-lines; line subtotal is summed from their
-    /// `quantity × unit_price`. Sub-lines not listed are dropped from the credited line.
+    Line {
+        local_id: String,
+        quantity: Decimal,
+        unit_price: Option<Decimal>,
+    },
     SubLines {
         local_id: String,
         sub_lines: Vec<CreditSubLineItem>,
@@ -53,6 +55,7 @@ impl CreditLineItem {
 pub struct CreditSubLineItem {
     pub local_id: String,
     pub quantity: Decimal,
+    pub unit_price: Option<Decimal>,
 }
 
 /// Parameters for creating a credit note via the public API
@@ -230,7 +233,7 @@ fn negate_sub_lines(
                     name: sl.name.clone(),
                     total: -ov.new_total_cents,
                     quantity: -ov.new_quantity,
-                    unit_price: sl.unit_price,
+                    unit_price: ov.new_unit_price,
                     attributes: sl.attributes.clone(),
                 })
             })
@@ -246,12 +249,22 @@ struct ResolvedCredit {
     /// When set, replaces the line's sub_lines with these (already non-negated; will be negated).
     /// Each entry is the subline's new (quantity, total_cents) and the original subline to copy from.
     sub_lines_override: Option<Vec<SubLineOverride>>,
+    /// For line-level partial credits (no sub_lines override): the qty and effective unit price
+    /// that produced `credit_subtotal`. Used so the credit note line reads as "qty × unit" on the PDF.
+    line_display: Option<LineDisplay>,
+}
+
+#[derive(Debug, Clone)]
+struct LineDisplay {
+    quantity: Decimal,
+    unit_price: Decimal,
 }
 
 #[derive(Debug, Clone)]
 struct SubLineOverride {
     original_local_id: String,
     new_quantity: Decimal,
+    new_unit_price: Decimal,
     new_total_cents: i64,
 }
 
@@ -328,11 +341,13 @@ fn negate_line_items(
                 // Total = taxable + tax (uses taxable to account for discounts)
                 let credit_total = prorated_taxable + prorated_tax;
 
-                // For sub_lines override the parent line has no meaningful unit_price/quantity
-                // (the credited amount is the sum of negated sublines). Otherwise we collapse
-                // to "1 × credited_subtotal" so the PDF stays consistent.
+                // Sub-line override: parent line has no meaningful qty/unit (sum of sublines).
+                // Line display present: preserve qty × effective unit price.
+                // Fallback: collapse to 1 × credited_subtotal.
                 let (credited_quantity, credited_unit_price) = if has_override {
                     (None, None)
+                } else if let Some(d) = &r.line_display {
+                    (Some(d.quantity), Some(-d.unit_price))
                 } else {
                     (
                         Some(Decimal::ONE),
@@ -789,6 +804,7 @@ pub(crate) async fn create_credit_note_tx(
                 ResolvedCredit {
                     credit_subtotal,
                     sub_lines_override: None,
+                    line_display: None,
                 },
             );
         }
@@ -853,7 +869,25 @@ pub(crate) async fn create_credit_note_tx(
                                 csl.local_id, csl.quantity, original_sl.quantity
                             )));
                         }
-                        let new_total = (original_sl.unit_price * csl.quantity)
+                        let effective_unit_price = match csl.unit_price {
+                            Some(up) => {
+                                if up <= Decimal::ZERO {
+                                    bail!(StoreError::InvalidArgument(format!(
+                                        "Sub-line '{}' unit_price must be positive",
+                                        csl.local_id
+                                    )));
+                                }
+                                if up > original_sl.unit_price {
+                                    bail!(StoreError::InvalidArgument(format!(
+                                        "Sub-line '{}' unit_price {} exceeds original {}",
+                                        csl.local_id, up, original_sl.unit_price
+                                    )));
+                                }
+                                up
+                            }
+                            None => original_sl.unit_price,
+                        };
+                        let new_total = (effective_unit_price * csl.quantity)
                             .to_subunit_opt(precision)
                             .ok_or_else(|| {
                                 Report::from(StoreError::InvalidArgument(format!(
@@ -865,6 +899,7 @@ pub(crate) async fn create_credit_note_tx(
                         overrides.push(SubLineOverride {
                             original_local_id: csl.local_id.clone(),
                             new_quantity: csl.quantity,
+                            new_unit_price: effective_unit_price,
                             new_total_cents: new_total,
                         });
                     }
@@ -883,21 +918,44 @@ pub(crate) async fn create_credit_note_tx(
                     ResolvedCredit {
                         credit_subtotal: Some(total_cents),
                         sub_lines_override: Some(overrides),
+                        line_display: None,
                     }
                 }
-                CreditLineItem::Line { quantity: qty, .. } => {
+                CreditLineItem::Line {
+                    quantity: qty,
+                    unit_price: override_unit_price,
+                    ..
+                } => {
                     if qty <= Decimal::ZERO {
                         bail!(StoreError::InvalidArgument(format!(
                             "Line item '{}' quantity must be positive",
                             item.local_id
                         )));
                     }
-                    let unit_price = item.unit_price.ok_or_else(|| {
+                    let original_unit_price = item.unit_price.ok_or_else(|| {
                         Report::from(StoreError::InvalidArgument(format!(
                             "Line item '{}' has no unit_price; provide sub_lines instead",
                             item.local_id
                         )))
                     })?;
+                    let effective_unit_price = match override_unit_price {
+                        Some(up) => {
+                            if up <= Decimal::ZERO {
+                                bail!(StoreError::InvalidArgument(format!(
+                                    "Line item '{}' unit_price must be positive",
+                                    item.local_id
+                                )));
+                            }
+                            if up > original_unit_price {
+                                bail!(StoreError::InvalidArgument(format!(
+                                    "Line item '{}' unit_price {} exceeds original {}",
+                                    item.local_id, up, original_unit_price
+                                )));
+                            }
+                            up
+                        }
+                        None => original_unit_price,
+                    };
                     let original_qty = item.quantity.unwrap_or(Decimal::ONE);
                     if original_qty <= Decimal::ZERO {
                         bail!(StoreError::InvalidArgument(format!(
@@ -911,15 +969,14 @@ pub(crate) async fn create_credit_note_tx(
                             item.local_id, qty, original_qty
                         )));
                     }
-                    let credit_cents =
-                        (unit_price * qty)
-                            .to_subunit_opt(precision)
-                            .ok_or_else(|| {
-                                Report::from(StoreError::InvalidArgument(format!(
-                                    "Line item '{}' credit amount overflow",
-                                    item.local_id
-                                )))
-                            })?;
+                    let credit_cents = (effective_unit_price * qty)
+                        .to_subunit_opt(precision)
+                        .ok_or_else(|| {
+                            Report::from(StoreError::InvalidArgument(format!(
+                                "Line item '{}' credit amount overflow",
+                                item.local_id
+                            )))
+                        })?;
                     if credit_cents > remaining {
                         bail!(StoreError::InvalidArgument(format!(
                             "Credit amount {} for line item '{}' exceeds remaining {}",
@@ -929,6 +986,10 @@ pub(crate) async fn create_credit_note_tx(
                     ResolvedCredit {
                         credit_subtotal: Some(credit_cents),
                         sub_lines_override: None,
+                        line_display: Some(LineDisplay {
+                            quantity: qty,
+                            unit_price: effective_unit_price,
+                        }),
                     }
                 }
             };
@@ -1406,6 +1467,7 @@ mod tests {
                     ResolvedCredit {
                         credit_subtotal: *credit_subtotal,
                         sub_lines_override: None,
+                        line_display: None,
                     },
                 )
             })
