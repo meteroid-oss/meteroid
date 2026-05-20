@@ -17,5 +17,4 @@ pub fn plan_routes() -> OpenApiRouter<AppState> {
         .routes(routes!(router::archive_plan))
         .routes(routes!(router::unarchive_plan))
         .routes(routes!(router::list_plan_versions))
-        .routes(routes!(router::list_plan_version_resolved_entitlements))
 }

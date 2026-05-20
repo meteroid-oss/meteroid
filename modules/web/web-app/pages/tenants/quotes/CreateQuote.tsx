@@ -297,6 +297,13 @@ export const CreateQuote = () => {
     { enabled: Boolean(planVersionId) }
   )
 
+  const removedProductIds = useMemo(() => {
+    const removedSet = new Set(priceComponentsState.components.removed)
+    return (priceComponentsQuery.data?.components ?? [])
+      .filter(c => removedSet.has(c.id) && c.productId)
+      .map(c => c.productId!)
+  }, [priceComponentsState.components.removed, priceComponentsQuery.data?.components])
+
   // Add-ons and coupons queries
   const addOnsQuery = useQuery(
     listAddOns,
@@ -828,6 +835,7 @@ export const CreateQuote = () => {
                         planVersionId,
                         addOnIds: selectedAddOns.map(a => a.addOnId),
                         extraProductIds,
+                        removedProductIds,
                       }}
                       pending={pendingEntitlements}
                       onChange={setPendingEntitlements}

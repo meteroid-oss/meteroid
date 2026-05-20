@@ -83,6 +83,7 @@ pub async fn start_rest_server_with_listener(
 
     // enterprise placeholder: ratelimit
     crate::api_rest::openapi::add_rate_limit_responses(&mut open_api);
+    crate::api_rest::openapi::apply_sorted_tags(&mut open_api);
 
     let openapi_json: bytes::Bytes = open_api
         .to_json()

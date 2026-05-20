@@ -394,10 +394,11 @@
     "/api/v1/addons/{addon_id}/entitlements": {
       "get": {
         "tags": [
-          "Add-ons"
+          "Add-ons",
+          "Entitlements"
         ],
-        "summary": "List resolved entitlements for an add-on",
-        "operationId": "list_resolved_entitlements",
+        "summary": "List add-on entitlements",
+        "operationId": "list_add_on_entitlements",
         "parameters": [
           {
             "name": "addon_id",
@@ -411,11 +412,11 @@
         ],
         "responses": {
           "200": {
-            "description": "Resolved entitlements for this add-on",
+            "description": "Entitlements for this add-on",
             "content": {
               "application/json": {
                 "schema": {
-                  "$ref": "#/components/schemas/ResolvedEntitlementListResponse"
+                  "$ref": "#/components/schemas/EntitlementListResponse"
                 }
               }
             }
@@ -432,81 +433,6 @@
           },
           "404": {
             "description": "Add-on not found",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/RestErrorResponse"
-                }
-              }
-            }
-          },
-          "429": {
-            "description": "Too many requests",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/RestErrorResponse"
-                }
-              }
-            }
-          }
-        },
-        "security": [
-          {
-            "bearer_auth": []
-          }
-        ]
-      },
-      "post": {
-        "tags": [
-          "Entitlements"
-        ],
-        "summary": "Add an entitlement to an add-on",
-        "operationId": "create_add_on_entitlement",
-        "parameters": [
-          {
-            "name": "addon_id",
-            "in": "path",
-            "description": "Add-on ID",
-            "required": true,
-            "schema": {
-              "$ref": "#/components/schemas/AddOnId"
-            }
-          }
-        ],
-        "requestBody": {
-          "content": {
-            "application/json": {
-              "schema": {
-                "$ref": "#/components/schemas/EntitlementSpec"
-              }
-            }
-          },
-          "required": true
-        },
-        "responses": {
-          "201": {
-            "description": "Entitlement created",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/Entitlement"
-                }
-              }
-            }
-          },
-          "400": {
-            "description": "Bad request",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/RestErrorResponse"
-                }
-              }
-            }
-          },
-          "401": {
-            "description": "Unauthorized",
             "content": {
               "application/json": {
                 "schema": {
@@ -2385,9 +2311,10 @@
     "/api/v1/customers/{id_or_alias}/entitlements": {
       "get": {
         "tags": [
-          "Entitlements"
+          "Entitlements",
+          "Customers"
         ],
-        "summary": "Get all entitlements for a customer",
+        "summary": "List customer entitlements",
         "operationId": "get_effective_entitlements",
         "parameters": [
           {
@@ -2423,82 +2350,6 @@
           },
           "404": {
             "description": "Customer not found",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/RestErrorResponse"
-                }
-              }
-            }
-          },
-          "429": {
-            "description": "Too many requests",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/RestErrorResponse"
-                }
-              }
-            }
-          }
-        },
-        "security": [
-          {
-            "bearer_auth": []
-          }
-        ]
-      }
-    },
-    "/api/v1/customers/{id_or_alias}/entitlements/{feature_id}": {
-      "get": {
-        "tags": [
-          "Entitlements"
-        ],
-        "summary": "Get a single entitlement for a customer",
-        "operationId": "get_effective_entitlement",
-        "parameters": [
-          {
-            "name": "id_or_alias",
-            "in": "path",
-            "description": "Customer ID or alias",
-            "required": true,
-            "schema": {
-              "type": "string"
-            }
-          },
-          {
-            "name": "feature_id",
-            "in": "path",
-            "description": "Feature ID",
-            "required": true,
-            "schema": {
-              "$ref": "#/components/schemas/FeatureId"
-            }
-          }
-        ],
-        "responses": {
-          "200": {
-            "description": "Customer entitlement for this feature",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/EffectiveEntitlement"
-                }
-              }
-            }
-          },
-          "401": {
-            "description": "Unauthorized",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/RestErrorResponse"
-                }
-              }
-            }
-          },
-          "404": {
-            "description": "Customer or feature not found",
             "content": {
               "application/json": {
                 "schema": {
@@ -2673,151 +2524,6 @@
         ]
       }
     },
-    "/api/v1/entitlements/{entitlement_id}": {
-      "delete": {
-        "tags": [
-          "Entitlements"
-        ],
-        "summary": "Delete an entitlement",
-        "operationId": "delete_entitlement",
-        "parameters": [
-          {
-            "name": "entitlement_id",
-            "in": "path",
-            "description": "Entitlement ID",
-            "required": true,
-            "schema": {
-              "$ref": "#/components/schemas/EntitlementId"
-            }
-          }
-        ],
-        "responses": {
-          "204": {
-            "description": "Entitlement deleted"
-          },
-          "401": {
-            "description": "Unauthorized",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/RestErrorResponse"
-                }
-              }
-            }
-          },
-          "404": {
-            "description": "Entitlement not found",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/RestErrorResponse"
-                }
-              }
-            }
-          },
-          "429": {
-            "description": "Too many requests",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/RestErrorResponse"
-                }
-              }
-            }
-          }
-        },
-        "security": [
-          {
-            "bearer_auth": []
-          }
-        ]
-      },
-      "patch": {
-        "tags": [
-          "Entitlements"
-        ],
-        "summary": "Update an entitlement",
-        "operationId": "update_entitlement",
-        "parameters": [
-          {
-            "name": "entitlement_id",
-            "in": "path",
-            "description": "Entitlement ID",
-            "required": true,
-            "schema": {
-              "$ref": "#/components/schemas/EntitlementId"
-            }
-          }
-        ],
-        "requestBody": {
-          "content": {
-            "application/json": {
-              "schema": {
-                "$ref": "#/components/schemas/UpdateEntitlementRequest"
-              }
-            }
-          },
-          "required": true
-        },
-        "responses": {
-          "200": {
-            "description": "Entitlement updated",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/Entitlement"
-                }
-              }
-            }
-          },
-          "400": {
-            "description": "Bad request",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/RestErrorResponse"
-                }
-              }
-            }
-          },
-          "401": {
-            "description": "Unauthorized",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/RestErrorResponse"
-                }
-              }
-            }
-          },
-          "404": {
-            "description": "Entitlement not found",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/RestErrorResponse"
-                }
-              }
-            }
-          },
-          "429": {
-            "description": "Too many requests",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/RestErrorResponse"
-                }
-              }
-            }
-          }
-        },
-        "security": [
-          {
-            "bearer_auth": []
-          }
-        ]
-      }
-    },
     "/api/v1/events/ingest": {
       "post": {
         "tags": [
@@ -2888,7 +2594,7 @@
     "/api/v1/features": {
       "get": {
         "tags": [
-          "Entitlements"
+          "Features"
         ],
         "summary": "List features",
         "operationId": "list_features",
@@ -2984,76 +2690,12 @@
             "bearer_auth": []
           }
         ]
-      },
-      "post": {
-        "tags": [
-          "Entitlements"
-        ],
-        "summary": "Create a feature",
-        "operationId": "create_feature",
-        "requestBody": {
-          "content": {
-            "application/json": {
-              "schema": {
-                "$ref": "#/components/schemas/CreateFeatureRequest"
-              }
-            }
-          },
-          "required": true
-        },
-        "responses": {
-          "201": {
-            "description": "Feature created",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/Feature"
-                }
-              }
-            }
-          },
-          "400": {
-            "description": "Bad request",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/RestErrorResponse"
-                }
-              }
-            }
-          },
-          "401": {
-            "description": "Unauthorized",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/RestErrorResponse"
-                }
-              }
-            }
-          },
-          "429": {
-            "description": "Too many requests",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/RestErrorResponse"
-                }
-              }
-            }
-          }
-        },
-        "security": [
-          {
-            "bearer_auth": []
-          }
-        ]
       }
     },
     "/api/v1/features/{feature_id}": {
       "get": {
         "tags": [
-          "Entitlements"
+          "Features"
         ],
         "summary": "Get feature details",
         "operationId": "get_feature",
@@ -3078,317 +2720,6 @@
                 }
               }
             }
-          },
-          "401": {
-            "description": "Unauthorized",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/RestErrorResponse"
-                }
-              }
-            }
-          },
-          "404": {
-            "description": "Feature not found",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/RestErrorResponse"
-                }
-              }
-            }
-          },
-          "429": {
-            "description": "Too many requests",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/RestErrorResponse"
-                }
-              }
-            }
-          }
-        },
-        "security": [
-          {
-            "bearer_auth": []
-          }
-        ]
-      },
-      "patch": {
-        "tags": [
-          "Entitlements"
-        ],
-        "summary": "Update a feature",
-        "description": "Partially update feature fields. Feature type is immutable.",
-        "operationId": "update_feature",
-        "parameters": [
-          {
-            "name": "feature_id",
-            "in": "path",
-            "description": "Feature ID",
-            "required": true,
-            "schema": {
-              "$ref": "#/components/schemas/FeatureId"
-            }
-          }
-        ],
-        "requestBody": {
-          "content": {
-            "application/json": {
-              "schema": {
-                "$ref": "#/components/schemas/UpdateFeatureRequest"
-              }
-            }
-          },
-          "required": true
-        },
-        "responses": {
-          "200": {
-            "description": "Feature updated",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/Feature"
-                }
-              }
-            }
-          },
-          "400": {
-            "description": "Bad request",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/RestErrorResponse"
-                }
-              }
-            }
-          },
-          "401": {
-            "description": "Unauthorized",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/RestErrorResponse"
-                }
-              }
-            }
-          },
-          "404": {
-            "description": "Feature not found",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/RestErrorResponse"
-                }
-              }
-            }
-          },
-          "429": {
-            "description": "Too many requests",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/RestErrorResponse"
-                }
-              }
-            }
-          }
-        },
-        "security": [
-          {
-            "bearer_auth": []
-          }
-        ]
-      }
-    },
-    "/api/v1/features/{feature_id}/entitlement": {
-      "post": {
-        "tags": [
-          "Entitlements"
-        ],
-        "summary": "Add a feature-level (baseline) entitlement",
-        "operationId": "create_feature_entitlement",
-        "parameters": [
-          {
-            "name": "feature_id",
-            "in": "path",
-            "description": "Feature ID",
-            "required": true,
-            "schema": {
-              "$ref": "#/components/schemas/FeatureId"
-            }
-          }
-        ],
-        "requestBody": {
-          "content": {
-            "application/json": {
-              "schema": {
-                "$ref": "#/components/schemas/EntitlementSpec"
-              }
-            }
-          },
-          "required": true
-        },
-        "responses": {
-          "201": {
-            "description": "Entitlement created",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/Entitlement"
-                }
-              }
-            }
-          },
-          "400": {
-            "description": "Bad request",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/RestErrorResponse"
-                }
-              }
-            }
-          },
-          "401": {
-            "description": "Unauthorized",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/RestErrorResponse"
-                }
-              }
-            }
-          },
-          "404": {
-            "description": "Feature not found",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/RestErrorResponse"
-                }
-              }
-            }
-          },
-          "429": {
-            "description": "Too many requests",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/RestErrorResponse"
-                }
-              }
-            }
-          }
-        },
-        "security": [
-          {
-            "bearer_auth": []
-          }
-        ]
-      }
-    },
-    "/api/v1/features/{feature_id}/entitlements": {
-      "get": {
-        "tags": [
-          "Entitlements"
-        ],
-        "summary": "List entitlements that target a feature across all entities",
-        "operationId": "list_entitlements_by_feature",
-        "parameters": [
-          {
-            "name": "feature_id",
-            "in": "path",
-            "description": "Feature ID",
-            "required": true,
-            "schema": {
-              "$ref": "#/components/schemas/FeatureId"
-            }
-          }
-        ],
-        "responses": {
-          "200": {
-            "description": "Entitlements that target this feature",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/EntitlementListResponse"
-                }
-              }
-            }
-          },
-          "401": {
-            "description": "Unauthorized",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/RestErrorResponse"
-                }
-              }
-            }
-          },
-          "404": {
-            "description": "Feature not found",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/RestErrorResponse"
-                }
-              }
-            }
-          },
-          "429": {
-            "description": "Too many requests",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/RestErrorResponse"
-                }
-              }
-            }
-          }
-        },
-        "security": [
-          {
-            "bearer_auth": []
-          }
-        ]
-      }
-    },
-    "/api/v1/features/{feature_id}/status": {
-      "post": {
-        "tags": [
-          "Entitlements"
-        ],
-        "summary": "Set feature status (Active / Disabled / Archived)",
-        "description": "`Disabled` is the operator kill switch — the feature is hidden from resolution while\nits entitlements stay intact. `Archived` is the long-form retire action. `Active` restores\nthe feature.",
-        "operationId": "set_feature_status",
-        "parameters": [
-          {
-            "name": "feature_id",
-            "in": "path",
-            "description": "Feature ID",
-            "required": true,
-            "schema": {
-              "$ref": "#/components/schemas/FeatureId"
-            }
-          }
-        ],
-        "requestBody": {
-          "content": {
-            "application/json": {
-              "schema": {
-                "$ref": "#/components/schemas/SetFeatureStatusRequest"
-              }
-            }
-          },
-          "required": true
-        },
-        "responses": {
-          "204": {
-            "description": "Feature status updated"
           },
           "401": {
             "description": "Unauthorized",
@@ -4151,10 +3482,11 @@
     "/api/v1/plan-versions/{plan_version_id}/entitlements": {
       "get": {
         "tags": [
-          "Plans"
+          "Plans",
+          "Entitlements"
         ],
-        "summary": "List resolved entitlements for a plan version",
-        "operationId": "list_plan_version_resolved_entitlements",
+        "summary": "List plan version entitlements",
+        "operationId": "list_plan_version_entitlements",
         "parameters": [
           {
             "name": "plan_version_id",
@@ -4168,11 +3500,11 @@
         ],
         "responses": {
           "200": {
-            "description": "Resolved entitlements for this plan version",
+            "description": "Entitlements for this plan version",
             "content": {
               "application/json": {
                 "schema": {
-                  "$ref": "#/components/schemas/ResolvedEntitlementListResponse"
+                  "$ref": "#/components/schemas/EntitlementListResponse"
                 }
               }
             }
@@ -4189,81 +3521,6 @@
           },
           "404": {
             "description": "Plan version not found",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/RestErrorResponse"
-                }
-              }
-            }
-          },
-          "429": {
-            "description": "Too many requests",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/RestErrorResponse"
-                }
-              }
-            }
-          }
-        },
-        "security": [
-          {
-            "bearer_auth": []
-          }
-        ]
-      },
-      "post": {
-        "tags": [
-          "Entitlements"
-        ],
-        "summary": "Add an entitlement to a plan version",
-        "operationId": "create_plan_version_entitlement",
-        "parameters": [
-          {
-            "name": "plan_version_id",
-            "in": "path",
-            "description": "Plan version ID",
-            "required": true,
-            "schema": {
-              "$ref": "#/components/schemas/PlanVersionId"
-            }
-          }
-        ],
-        "requestBody": {
-          "content": {
-            "application/json": {
-              "schema": {
-                "$ref": "#/components/schemas/EntitlementSpec"
-              }
-            }
-          },
-          "required": true
-        },
-        "responses": {
-          "201": {
-            "description": "Entitlement created",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/Entitlement"
-                }
-              }
-            }
-          },
-          "400": {
-            "description": "Bad request",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/RestErrorResponse"
-                }
-              }
-            }
-          },
-          "401": {
-            "description": "Unauthorized",
             "content": {
               "application/json": {
                 "schema": {
@@ -4782,148 +4039,6 @@
           },
           "404": {
             "description": "Plan not found",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/RestErrorResponse"
-                }
-              }
-            }
-          },
-          "429": {
-            "description": "Too many requests",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/RestErrorResponse"
-                }
-              }
-            }
-          }
-        },
-        "security": [
-          {
-            "bearer_auth": []
-          }
-        ]
-      }
-    },
-    "/api/v1/plans/{plan_id}/entitlements": {
-      "get": {
-        "tags": [
-          "Entitlements"
-        ],
-        "summary": "List entitlements on a plan",
-        "operationId": "list_plan_entitlements",
-        "parameters": [
-          {
-            "name": "plan_id",
-            "in": "path",
-            "description": "Plan ID",
-            "required": true,
-            "schema": {
-              "$ref": "#/components/schemas/PlanId"
-            }
-          }
-        ],
-        "responses": {
-          "200": {
-            "description": "Entitlements for this plan",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/EntitlementListResponse"
-                }
-              }
-            }
-          },
-          "401": {
-            "description": "Unauthorized",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/RestErrorResponse"
-                }
-              }
-            }
-          },
-          "404": {
-            "description": "Plan not found",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/RestErrorResponse"
-                }
-              }
-            }
-          },
-          "429": {
-            "description": "Too many requests",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/RestErrorResponse"
-                }
-              }
-            }
-          }
-        },
-        "security": [
-          {
-            "bearer_auth": []
-          }
-        ]
-      },
-      "post": {
-        "tags": [
-          "Entitlements"
-        ],
-        "summary": "Add an entitlement to a plan",
-        "operationId": "create_plan_entitlement",
-        "parameters": [
-          {
-            "name": "plan_id",
-            "in": "path",
-            "description": "Plan ID",
-            "required": true,
-            "schema": {
-              "$ref": "#/components/schemas/PlanId"
-            }
-          }
-        ],
-        "requestBody": {
-          "content": {
-            "application/json": {
-              "schema": {
-                "$ref": "#/components/schemas/EntitlementSpec"
-              }
-            }
-          },
-          "required": true
-        },
-        "responses": {
-          "201": {
-            "description": "Entitlement created",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/Entitlement"
-                }
-              }
-            }
-          },
-          "400": {
-            "description": "Bad request",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/RestErrorResponse"
-                }
-              }
-            }
-          },
-          "401": {
-            "description": "Unauthorized",
             "content": {
               "application/json": {
                 "schema": {
@@ -5751,10 +4866,11 @@
     "/api/v1/products/{product_id}/entitlements": {
       "get": {
         "tags": [
-          "Products"
+          "Products",
+          "Entitlements"
         ],
-        "summary": "List resolved entitlements for a product",
-        "operationId": "list_resolved_entitlements",
+        "summary": "List product entitlements",
+        "operationId": "list_product_entitlements",
         "parameters": [
           {
             "name": "product_id",
@@ -5768,7 +4884,7 @@
         ],
         "responses": {
           "200": {
-            "description": "Resolved entitlements for this product",
+            "description": "List entitlements for this product",
             "content": {
               "application/json": {
                 "schema": {
@@ -5849,93 +4965,6 @@
           },
           "404": {
             "description": "Product not found",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/RestErrorResponse"
-                }
-              }
-            }
-          },
-          "429": {
-            "description": "Too many requests",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/RestErrorResponse"
-                }
-              }
-            }
-          }
-        },
-        "security": [
-          {
-            "bearer_auth": []
-          }
-        ]
-      }
-    },
-    "/api/v1/quotes/{quote_id}/entitlements": {
-      "post": {
-        "tags": [
-          "Entitlements"
-        ],
-        "summary": "Add an entitlement to a quote",
-        "operationId": "create_quote_entitlement",
-        "parameters": [
-          {
-            "name": "quote_id",
-            "in": "path",
-            "description": "Quote ID",
-            "required": true,
-            "schema": {
-              "$ref": "#/components/schemas/QuoteId"
-            }
-          }
-        ],
-        "requestBody": {
-          "content": {
-            "application/json": {
-              "schema": {
-                "$ref": "#/components/schemas/EntitlementSpec"
-              }
-            }
-          },
-          "required": true
-        },
-        "responses": {
-          "201": {
-            "description": "Entitlement created",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/Entitlement"
-                }
-              }
-            }
-          },
-          "400": {
-            "description": "Bad request",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/RestErrorResponse"
-                }
-              }
-            }
-          },
-          "401": {
-            "description": "Unauthorized",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/RestErrorResponse"
-                }
-              }
-            }
-          },
-          "404": {
-            "description": "Quote not found",
             "content": {
               "application/json": {
                 "schema": {
@@ -6436,10 +5465,11 @@
     "/api/v1/subscriptions/{subscription_id}/entitlements": {
       "get": {
         "tags": [
-          "Subscriptions"
+          "Subscriptions",
+          "Entitlements"
         ],
-        "summary": "List resolved entitlements for a subscription",
-        "operationId": "list_resolved_entitlements",
+        "summary": "List subscription entitlements",
+        "operationId": "list_subscription_entitlements",
         "parameters": [
           {
             "name": "subscription_id",
@@ -6453,11 +5483,11 @@
         ],
         "responses": {
           "200": {
-            "description": "Resolved entitlements for this subscription",
+            "description": "Entitlements for this subscription",
             "content": {
               "application/json": {
                 "schema": {
-                  "$ref": "#/components/schemas/ResolvedEntitlementListResponse"
+                  "$ref": "#/components/schemas/EntitlementListResponse"
                 }
               }
             }
@@ -6474,81 +5504,6 @@
           },
           "404": {
             "description": "Subscription not found",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/RestErrorResponse"
-                }
-              }
-            }
-          },
-          "429": {
-            "description": "Too many requests",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/RestErrorResponse"
-                }
-              }
-            }
-          }
-        },
-        "security": [
-          {
-            "bearer_auth": []
-          }
-        ]
-      },
-      "post": {
-        "tags": [
-          "Entitlements"
-        ],
-        "summary": "Add an entitlement to a subscription",
-        "operationId": "create_subscription_entitlement",
-        "parameters": [
-          {
-            "name": "subscription_id",
-            "in": "path",
-            "description": "Subscription ID",
-            "required": true,
-            "schema": {
-              "$ref": "#/components/schemas/SubscriptionId"
-            }
-          }
-        ],
-        "requestBody": {
-          "content": {
-            "application/json": {
-              "schema": {
-                "$ref": "#/components/schemas/EntitlementSpec"
-              }
-            }
-          },
-          "required": true
-        },
-        "responses": {
-          "201": {
-            "description": "Entitlement created",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/Entitlement"
-                }
-              }
-            }
-          },
-          "400": {
-            "description": "Bad request",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/RestErrorResponse"
-                }
-              }
-            }
-          },
-          "401": {
-            "description": "Unauthorized",
             "content": {
               "application/json": {
                 "schema": {
@@ -8332,49 +7287,6 @@
           }
         }
       },
-      "CreateFeatureRequest": {
-        "type": "object",
-        "required": [
-          "name",
-          "feature_type"
-        ],
-        "properties": {
-          "description": {
-            "type": [
-              "string",
-              "null"
-            ]
-          },
-          "entitlement": {
-            "oneOf": [
-              {
-                "type": "null"
-              },
-              {
-                "$ref": "#/components/schemas/FeatureEntitlementSpec",
-                "description": "Inline entitlement to attach when creating the feature."
-              }
-            ]
-          },
-          "feature_type": {
-            "$ref": "#/components/schemas/FeatureType"
-          },
-          "name": {
-            "type": "string"
-          },
-          "product_id": {
-            "oneOf": [
-              {
-                "type": "null"
-              },
-              {
-                "$ref": "#/components/schemas/ProductId",
-                "description": "Product this feature belongs to. Omit for tenant-global features."
-              }
-            ]
-          }
-        }
-      },
       "CreateMetricRequest": {
         "type": "object",
         "required": [
@@ -9512,31 +8424,13 @@
           {
             "type": "object",
             "required": [
-              "metric_id",
-              "reset_period",
-              "overage_behavior",
-              "enabled",
+              "spec",
               "usage",
               "type"
             ],
             "properties": {
-              "enabled": {
-                "type": "boolean"
-              },
-              "limit": {
-                "type": [
-                  "string",
-                  "null"
-                ]
-              },
-              "metric_id": {
-                "$ref": "#/components/schemas/BillableMetricId"
-              },
-              "overage_behavior": {
-                "$ref": "#/components/schemas/OverageBehavior"
-              },
-              "reset_period": {
-                "$ref": "#/components/schemas/ResetPeriod"
+              "spec": {
+                "$ref": "#/components/schemas/MeteredEntitlementSpec"
               },
               "type": {
                 "type": "string",
@@ -9545,15 +8439,7 @@
                 ]
               },
               "usage": {
-                "$ref": "#/components/schemas/EntitlementUsage"
-              },
-              "warning_threshold_pct": {
-                "type": [
-                  "integer",
-                  "null"
-                ],
-                "format": "int32",
-                "minimum": 0
+                "$ref": "#/components/schemas/MeteredEntitlementUsage"
               }
             }
           }
@@ -9733,30 +8619,6 @@
           },
           "value": {
             "$ref": "#/components/schemas/EntitlementValue"
-          }
-        }
-      },
-      "EntitlementUsage": {
-        "type": "object",
-        "properties": {
-          "consumed": {
-            "type": [
-              "string",
-              "null"
-            ]
-          },
-          "remaining": {
-            "type": [
-              "string",
-              "null"
-            ]
-          },
-          "reset_at": {
-            "type": [
-              "string",
-              "null"
-            ],
-            "format": "date-time"
           }
         }
       },
@@ -10075,22 +8937,6 @@
           },
           "status": {
             "$ref": "#/components/schemas/FeatureStatus"
-          }
-        }
-      },
-      "FeatureEntitlementSpec": {
-        "type": "object",
-        "description": "Entitlement spec for inline attachment at feature creation time.\nfeature_id is implicit (the feature being created); the caller specifies which entity receives it.",
-        "required": [
-          "entity",
-          "value"
-        ],
-        "properties": {
-          "entity": {
-            "$ref": "#/components/schemas/EntitlementEntity"
-          },
-          "value": {
-            "$ref": "#/components/schemas/EntitlementValue"
           }
         }
       },
@@ -10793,6 +9639,67 @@
           "per_unit_price": {
             "type": "string",
             "format": "decimal"
+          }
+        }
+      },
+      "MeteredEntitlementSpec": {
+        "type": "object",
+        "required": [
+          "metric_id",
+          "reset_period",
+          "overage_behavior",
+          "enabled"
+        ],
+        "properties": {
+          "enabled": {
+            "type": "boolean"
+          },
+          "limit": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "metric_id": {
+            "$ref": "#/components/schemas/BillableMetricId"
+          },
+          "overage_behavior": {
+            "$ref": "#/components/schemas/OverageBehavior"
+          },
+          "reset_period": {
+            "$ref": "#/components/schemas/ResetPeriod"
+          },
+          "warning_threshold_pct": {
+            "type": [
+              "integer",
+              "null"
+            ],
+            "format": "int32",
+            "minimum": 0
+          }
+        }
+      },
+      "MeteredEntitlementUsage": {
+        "type": "object",
+        "properties": {
+          "consumed": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "remaining": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "reset_at": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "format": "date-time"
           }
         }
       },
@@ -12220,17 +11127,19 @@
         }
       },
       "ProductRef": {
-        "type": "object",
-        "required": [
-          "id",
-          "name"
-        ],
-        "properties": {
-          "id": {
-            "$ref": "#/components/schemas/ProductId"
+        "oneOf": [
+          {
+            "$ref": "#/components/schemas/ExistingProductRef"
           },
-          "name": {
-            "type": "string"
+          {
+            "$ref": "#/components/schemas/NewProductRef"
+          }
+        ],
+        "discriminator": {
+          "propertyName": "type",
+          "mapping": {
+            "EXISTING": "#/components/schemas/ExistingProductRef",
+            "NEW": "#/components/schemas/NewProductRef"
           }
         }
       },
@@ -12665,17 +11574,6 @@
           },
           "message": {
             "type": "string"
-          }
-        }
-      },
-      "SetFeatureStatusRequest": {
-        "type": "object",
-        "required": [
-          "status"
-        ],
-        "properties": {
-          "status": {
-            "$ref": "#/components/schemas/FeatureStatus"
           }
         }
       },
@@ -14104,51 +13002,6 @@
           }
         }
       },
-      "UpdateEntitlementRequest": {
-        "type": "object",
-        "properties": {
-          "value": {
-            "oneOf": [
-              {
-                "type": "null"
-              },
-              {
-                "$ref": "#/components/schemas/EntitlementValue",
-                "description": "Replace the entitlement value entirely."
-              }
-            ]
-          }
-        }
-      },
-      "UpdateFeatureRequest": {
-        "type": "object",
-        "properties": {
-          "description": {
-            "type": [
-              "string",
-              "null"
-            ],
-            "description": "Three-state: missing leaves unchanged, `null` clears, value sets."
-          },
-          "name": {
-            "type": [
-              "string",
-              "null"
-            ]
-          },
-          "product_id": {
-            "oneOf": [
-              {
-                "type": "null"
-              },
-              {
-                "$ref": "#/components/schemas/ProductId",
-                "description": "Three-state: missing leaves unchanged, `null` clears, value sets."
-              }
-            ]
-          }
-        }
-      },
       "UpdateMetricRequest": {
         "type": "object",
         "properties": {
@@ -14393,6 +13246,54 @@
     {
       "name": "Meteroid",
       "description": "Meteroid API"
+    },
+    {
+      "name": "Add-ons"
+    },
+    {
+      "name": "Batch Jobs"
+    },
+    {
+      "name": "Checkout Sessions"
+    },
+    {
+      "name": "Coupons"
+    },
+    {
+      "name": "Credit Notes"
+    },
+    {
+      "name": "Customers"
+    },
+    {
+      "name": "Entitlements"
+    },
+    {
+      "name": "Events"
+    },
+    {
+      "name": "Features"
+    },
+    {
+      "name": "Invoices"
+    },
+    {
+      "name": "Metrics"
+    },
+    {
+      "name": "Plans"
+    },
+    {
+      "name": "Product Families"
+    },
+    {
+      "name": "Products"
+    },
+    {
+      "name": "Subscriptions"
+    },
+    {
+      "name": "Usage"
     }
   ],
   "webhooks": {

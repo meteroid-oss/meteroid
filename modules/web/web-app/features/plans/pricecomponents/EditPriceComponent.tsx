@@ -28,6 +28,7 @@ import {
 } from '@/features/pricing/conversions'
 import { useZodForm } from '@/hooks/useZodForm'
 import { useQuery } from '@/lib/connectrpc'
+import { getResolvedEntitlementsForPlanVersion } from '@/rpc/api/entitlements/v1/entitlements-EntitlementsService_connectquery'
 import {
   editPriceComponent as editPriceComponentMutation,
   listPriceComponents as listPriceComponentsQuery,
@@ -131,6 +132,7 @@ export const EditPriceComponent = ({ component }: EditPriceComponentProps) => {
           })
         )
       }
+      queryClient.invalidateQueries({ queryKey: [getResolvedEntitlementsForPlanVersion.service.typeName] })
     },
   })
 

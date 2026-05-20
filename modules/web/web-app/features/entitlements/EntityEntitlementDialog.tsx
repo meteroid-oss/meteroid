@@ -25,6 +25,7 @@ import {
   Entitlement,
   EntitlementEntity,
   EntitlementValue,
+  FeatureStatus,
   OverageBehavior,
 } from '@/rpc/api/entitlements/v1/models_pb'
 
@@ -62,11 +63,8 @@ function valueToFormValues(value: EntitlementValue | undefined): Partial<Entitle
   const hasInterval = rp?.case === 'calendar' || rp?.case === 'fixedWindow' || rp?.case === 'slidingWindow'
 
   const overageBehaviorInner = metered?.overageBehavior?.Inner
-  const overageBehaviorType =
-    !overageBehaviorInner ? 'none'
-    : overageBehaviorInner.case === 'allow' ? 'allow'
-    : overageBehaviorInner.case === 'block' ? 'block'
-    : 'none'
+  const overageBehaviorType: EntitlementFormValues['overageBehaviorType'] =
+    overageBehaviorInner?.case === 'allow' ? 'allow' : 'block'
   const gracePeriodPct =
     overageBehaviorInner?.case === 'block' ? overageBehaviorInner.value.gracePeriodPct : undefined
 
@@ -81,7 +79,7 @@ function valueToFormValues(value: EntitlementValue | undefined): Partial<Entitle
     resetInterval: hasInterval
       ? (rp as { case: string; value: { interval: number } }).value.interval
       : 1,
-    overageBehaviorType: overageBehaviorType as EntitlementFormValues['overageBehaviorType'],
+    overageBehaviorType,
     gracePeriodPct,
     warningThresholdPct: metered?.warningThresholdPct,
     meteredEnabled: metered?.enabled ?? true,
@@ -162,7 +160,7 @@ export const EntityEntitlementDialog = ({
   const isEdit = !!existing
   const isOverride = !isEdit && !!seedValue
 
-  const featuresQuery = useQuery(listFeatures, { pagination: { page: 0, perPage: 100 }, statuses: [] })
+  const featuresQuery = useQuery(listFeatures, { pagination: { page: 0, perPage: 100 }, statuses: [FeatureStatus.ACTIVE] })
   const featureMap = Object.fromEntries(
     (featuresQuery.data?.features ?? []).map(f => [f.id, f])
   )
@@ -179,7 +177,6 @@ export const EntityEntitlementDialog = ({
     onError: err => toast.error(`Failed to update entitlement: ${err.message}`),
   })
   const createFeatureMutation = useMutation(createFeature, {
-    onSuccess: () => { invalidate(); onClose() },
     onError: err => toast.error(`Failed to create feature: ${err.message}`),
   })
 
@@ -221,17 +218,18 @@ export const EntityEntitlementDialog = ({
         value,
       })
     } else {
-      createFeatureMutation.mutate({
+      const created = await createFeatureMutation.mutateAsync({
         name: data.featureName!,
         description: data.featureDescription || undefined,
         featureType:
           data.featureType === 'boolean'
             ? { Inner: { case: 'boolean', value: {} } }
             : { Inner: { case: 'metered', value: { metricId: data.metricId! } } },
-        entitlement: {
-          entity: entity as EntitlementEntity,
-          value,
-        },
+      })
+      createEntitlementMutation.mutate({
+        featureId: created.feature!.id,
+        entity: entity as EntitlementEntity,
+        value,
       })
     }
   }

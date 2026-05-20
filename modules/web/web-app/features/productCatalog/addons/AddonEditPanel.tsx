@@ -25,7 +25,6 @@ import { useEffect, useId, useState } from 'react'
 import { useNavigate, useParams } from 'react-router-dom'
 import { toast } from 'sonner'
 
-import { EntityEntitlementsSection } from '@/features/entitlements/EntityEntitlementsSection'
 import { feeTypeEnumToComponentFeeType } from '@/features/plans/addons/AddOnCard'
 import { extractStructuralInfo } from '@/features/plans/pricecomponents/ProductBrowser'
 import { ProductPricingForm } from '@/features/plans/pricecomponents/ProductPricingForm'
@@ -41,6 +40,8 @@ import {
   getAddOn,
   listAddOns,
 } from '@/rpc/api/addons/v1/addons-AddOnsService_connectquery'
+
+import { AddonEntitlementsSection } from './AddonEntitlementsSection'
 
 import type { ComponentFeeType } from '@/features/pricing/conversions'
 
@@ -231,17 +232,14 @@ export const AddonEditPanel = () => {
               </div>
             </div>
 
-            <Separator className="my-4" />
-
             {env.entitlementsEnabled && addonId && (
-              <div className="pb-4">
-                <EntityEntitlementsSection
-                  entity={{ EntityId: { case: 'addOnId', value: addonId } }}
-                />
-              </div>
+              <>
+                <div className="pb-4">
+                  <AddonEntitlementsSection addonId={addonId} />
+                </div>
+                <Separator className="my-4" />
+              </>
             )}
-
-            <Separator className="my-4" />
 
             {componentFeeType && currency && (
               <div className="pb-4">

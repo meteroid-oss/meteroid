@@ -32,6 +32,7 @@ pub fn generate_spec() {
         .split_for_parts();
 
     add_rate_limit_responses(&mut open_api);
+    apply_sorted_tags(&mut open_api);
 
     // Convert to JSON and move webhooks from extensions to top-level
     let mut json_value: serde_json::Value =
@@ -106,6 +107,66 @@ impl Modify for SecurityAddon {
             );
         }
     }
+}
+
+/// Collects all tags used across path operations and sets the top-level `tags`
+/// array to a sorted, deduplicated list. Call this **after** routes have been merged.
+pub fn apply_sorted_tags(openapi: &mut utoipa::openapi::OpenApi) {
+    use std::collections::BTreeSet;
+    use utoipa::openapi::tag::TagBuilder;
+
+    // Index existing tags by name so we can preserve their descriptions
+    let mut existing: std::collections::HashMap<String, utoipa::openapi::Tag> = openapi
+        .tags
+        .take()
+        .unwrap_or_default()
+        .into_iter()
+        .map(|t| (t.name.clone(), t))
+        .collect();
+
+    let mut tag_names = BTreeSet::new();
+    for tag in existing.keys() {
+        tag_names.insert(tag.clone());
+    }
+    for (_, path_item) in openapi.paths.paths.iter() {
+        for op in [
+            path_item.get.as_ref(),
+            path_item.put.as_ref(),
+            path_item.post.as_ref(),
+            path_item.delete.as_ref(),
+            path_item.options.as_ref(),
+            path_item.head.as_ref(),
+            path_item.patch.as_ref(),
+            path_item.trace.as_ref(),
+        ]
+        .into_iter()
+        .flatten()
+        {
+            if let Some(tags) = &op.tags {
+                for tag in tags {
+                    tag_names.insert(tag.clone());
+                }
+            }
+        }
+    }
+
+    let mut sorted_tags: Vec<utoipa::openapi::Tag> = tag_names
+        .into_iter()
+        .map(|name| {
+            existing
+                .remove(&name)
+                .unwrap_or_else(|| TagBuilder::new().name(name).build())
+        })
+        .collect();
+
+    // todo do we need Meteroid tag?
+    // Pin "Meteroid" as the first entry
+    if let Some(pos) = sorted_tags.iter().position(|t| t.name == "Meteroid") {
+        let meteroid = sorted_tags.remove(pos);
+        sorted_tags.insert(0, meteroid);
+    }
+
+    openapi.tags = Some(sorted_tags);
 }
 
 /// Adds a `429 Too Many Requests` response to every operation whose path starts

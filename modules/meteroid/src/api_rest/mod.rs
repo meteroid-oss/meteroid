@@ -6,7 +6,7 @@ use crate::api_rest::coupons::coupon_routes;
 use crate::api_rest::creditnotes::credit_note_routes;
 use crate::api_rest::customers::customer_routes;
 use crate::api_rest::entitlements::{
-    effective_entitlement_routes, entitlement_routes, entity_entitlement_routes, feature_routes,
+    effective_entitlement_routes, entity_entitlement_routes, feature_routes,
 };
 use crate::api_rest::events::event_routes;
 use crate::api_rest::invoices::invoice_routes;
@@ -76,7 +76,6 @@ pub fn api_routes() -> OpenApiRouter<AppState> {
         .merge(metric_routes())
         .merge(feature_routes())
         .merge(entity_entitlement_routes())
-        .merge(entitlement_routes())
         .merge(effective_entitlement_routes())
 }
 

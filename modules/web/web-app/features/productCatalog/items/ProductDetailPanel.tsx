@@ -16,7 +16,7 @@ import {
 } from '@md/ui'
 import { Link } from 'react-router-dom'
 
-import { ResolvedEntitlementsPanel } from '@/features/entitlements/resolved/ResolvedEntitlementsPanel'
+import { ProductEntitlementsSection } from '@/features/productCatalog/items/ProductEntitlementsSection'
 import { useBasePath } from '@/hooks/useBasePath'
 import { useQuery } from '@/lib/connectrpc'
 import { env } from '@/lib/env'
@@ -155,10 +155,7 @@ export const ProductDetailPanel = ({ productId, onClose }: ProductDetailPanelPro
                 <Separator />
                 <section className="flex flex-col gap-3">
                   <h3 className="text-sm font-medium text-muted-foreground">Entitlements</h3>
-                  <ResolvedEntitlementsPanel
-                    entity={{ type: 'product', id: product.id }}
-                    canPin={false}
-                  />
+                  <ProductEntitlementsSection productId={product.id} />
                 </section>
               </>
             )}

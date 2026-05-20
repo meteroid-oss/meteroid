@@ -22,6 +22,7 @@ import { listAddOns } from '@/rpc/api/addons/v1/addons-AddOnsService_connectquer
 import { listCoupons } from '@/rpc/api/coupons/v1/coupons-CouponsService_connectquery'
 import { ListCouponRequest_CouponFilter } from '@/rpc/api/coupons/v1/coupons_pb'
 import { getPlanWithVersionByVersionId } from '@/rpc/api/plans/v1/plans-PlansService_connectquery'
+import { listPriceComponents } from '@/rpc/api/pricecomponents/v1/pricecomponents-PriceComponentsService_connectquery'
 
 // TODO confirm & reset form on leave
 export const StepPlanAndCustomer = () => {
@@ -93,6 +94,15 @@ export const StepPlanAndCustomer = () => {
     return coupon.planIds.includes(selectedPlanId)
   }
 
+  const planComponentsQuery = useQuery(
+    listPriceComponents,
+    planVersionId ? { planVersionId } : disableQuery
+  )
+  const planComponents = useMemo(
+    () => planComponentsQuery.data?.components ?? [],
+    [planComponentsQuery.data?.components]
+  )
+
   // Collect product ids from in-flight (not-yet-persisted) extra and overridden price components.
   // Only components with an existing productId contribute — new-product refs have no id yet.
   const extraProductIds = useMemo(() => {
@@ -105,6 +115,13 @@ export const StepPlanAndCustomer = () => {
     }
     return Array.from(ids)
   }, [state.components.extra, state.components.overridden])
+
+  const removedProductIds = useMemo(() => {
+    const removedSet = new Set(state.components.removed)
+    return planComponents
+      .filter(c => removedSet.has(c.id) && c.productId)
+      .map(c => c.productId!)
+  }, [state.components.removed, planComponents])
 
   const onSubmit = async (data: z.infer<typeof schema>) => {
     setState({
@@ -228,6 +245,7 @@ export const StepPlanAndCustomer = () => {
                     planVersionId,
                     addOnIds: state.addOns.map(a => a.addOnId),
                     extraProductIds,
+                    removedProductIds,
                   }}
                   pending={state.entitlements}
                   onChange={next => setState(prev => ({ ...prev, entitlements: next }))}

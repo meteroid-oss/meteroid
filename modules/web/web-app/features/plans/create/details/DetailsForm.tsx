@@ -47,8 +47,10 @@ interface Props {
   onCancel: () => void
   onNext: (values: z.infer<typeof createPlanSchema>) => void
   defaultValues?: Partial<z.infer<typeof createPlanSchema>>
+  submitLabel?: string
+  isSubmitting?: boolean
 }
-export const DetailsForm: FC<Props> = ({ onCancel, onNext, defaultValues }) => {
+export const DetailsForm: FC<Props> = ({ onCancel, onNext, defaultValues, submitLabel = 'Next →', isSubmitting }) => {
   const familiesQuery = useQuery(listProductFamilies)
   const families = (familiesQuery.data?.productFamilies ?? []).sort((a, b) =>
     a.id > b.id ? 1 : -1
@@ -150,8 +152,8 @@ export const DetailsForm: FC<Props> = ({ onCancel, onNext, defaultValues }) => {
               Cancel
             </Button>
 
-            <Button variant="primary" type="submit" disabled={!methods.formState.isValid}>
-              Next →
+            <Button variant="primary" type="submit" disabled={!methods.formState.isValid || isSubmitting}>
+              {submitLabel}
             </Button>
           </div>
         </section>

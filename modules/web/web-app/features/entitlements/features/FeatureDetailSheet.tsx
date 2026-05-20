@@ -23,6 +23,7 @@ import { ArchiveRestoreIcon, ExternalLinkIcon, PencilIcon, PowerIcon } from 'luc
 import { useState } from 'react'
 import { Link, useNavigate, useParams } from 'react-router-dom'
 
+import { CopyToClipboardButton } from '@/components/CopyToClipboard'
 import { EntityEntitlementsSection } from '@/features/entitlements/EntityEntitlementsSection'
 import { FeatureStatusBadge } from '@/features/entitlements/features/FeatureStatusBadge'
 import { featureKindFromProto, featureTypeLabel, MeteredFeatureKind } from '@/features/entitlements/utils'
@@ -138,6 +139,13 @@ export const FeatureDetailSheet = () => {
                       )}
                     </div>
                   </div>
+
+                  <section>
+                    <div className="text-xs font-medium text-muted-foreground uppercase tracking-wide mb-1">
+                      Feature ID
+                    </div>
+                    <CopyToClipboardButton text={feature.id} className="max-w-xs" />
+                  </section>
 
                   {feature.description && (
                     <section>

@@ -10,23 +10,6 @@ pub fn entitlement_spec_from_rest(spec: EntitlementSpec) -> domain::EntitlementS
     }
 }
 
-pub fn feature_entitlement_spec_from_rest(
-    spec: FeatureEntitlementSpec,
-) -> domain::FeatureEntitlementSpec {
-    let entity = match spec.entity {
-        EntitlementEntity::Feature { id } => EntitlementEntityId::Feature(id),
-        EntitlementEntity::Plan { id } => EntitlementEntityId::Plan(id),
-        EntitlementEntity::PlanVersion { id } => EntitlementEntityId::PlanVersion(id),
-        EntitlementEntity::AddOn { id } => EntitlementEntityId::AddOn(id),
-        EntitlementEntity::Subscription { id } => EntitlementEntityId::Subscription(id),
-        EntitlementEntity::Quote { id } => EntitlementEntityId::Quote(id),
-    };
-    domain::FeatureEntitlementSpec {
-        entity,
-        value: value_from_rest(spec.value),
-    }
-}
-
 pub fn feature_to_rest(f: domain::Feature) -> Feature {
     Feature {
         id: f.id,
@@ -160,13 +143,15 @@ pub fn effective_entitlement_to_rest(r: domain::EffectiveEntitlement) -> Effecti
             enabled,
             usage,
         } => EffectiveEntitlementValue::Metered {
-            metric_id,
-            limit,
-            reset_period: reset_period.into(),
-            overage_behavior: overage_behavior.into(),
-            warning_threshold_pct,
-            enabled,
-            usage: EntitlementUsage {
+            spec: MeteredEntitlementSpec {
+                metric_id,
+                limit,
+                reset_period: reset_period.into(),
+                overage_behavior: overage_behavior.into(),
+                warning_threshold_pct,
+                enabled,
+            },
+            usage: MeteredEntitlementUsage {
                 consumed: usage.consumed,
                 remaining: usage.remaining,
                 reset_at: usage.reset_at,

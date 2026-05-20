@@ -4,11 +4,10 @@ use crate::meteroid_it::container::SeedLevel;
 use meteroid::api::shared::conversions::ProtoConv;
 use meteroid_grpc::meteroid::api::entitlements::v1::{
     CreateEntitlementRequest, CreateFeatureRequest, DeleteEntitlementRequest, EntitlementEntity,
-    EntitlementValue, FeatureEntitlementSpec, FeatureStatus, FeatureType,
-    GetEffectiveEntitlementsRequest, GetEntitlementRequest, GetFeatureRequest,
-    ListEntitlementsByFeatureRequest, ListFeaturesRequest, ResolvedOrigin, SetFeatureStatusRequest,
-    UpdateEntitlementRequest, UpdateFeatureRequest, entitlement_entity, entitlement_value,
-    feature_type,
+    EntitlementValue, FeatureStatus, FeatureType, GetEffectiveEntitlementsRequest,
+    GetEntitlementRequest, GetFeatureRequest, ListEntitlementsByFeatureRequest,
+    ListFeaturesRequest, ResolvedOrigin, SetFeatureStatusRequest, UpdateEntitlementRequest,
+    UpdateFeatureRequest, entitlement_entity, entitlement_value, feature_type,
 };
 use meteroid_grpc::meteroid::api::subscriptions::v1 as sub_api;
 
@@ -539,8 +538,6 @@ async fn test_create_feature_with_entitlement() {
         "testslug",
     );
 
-    let plan_version_id = ids::PLAN_VERSION_NOTION_ID.as_proto();
-
     let response = clients
         .entitlements
         .clone()
@@ -553,17 +550,10 @@ async fn test_create_feature_with_entitlement() {
                     feature_type::BooleanFeature {},
                 )),
             }),
-            entitlement: Some(FeatureEntitlementSpec {
-                entity: Some(EntitlementEntity {
-                    entity_id: Some(entitlement_entity::EntityId::PlanVersionId(
-                        plan_version_id.clone(),
-                    )),
-                }),
-                value: Some(EntitlementValue {
-                    value: Some(entitlement_value::Value::BooleanValue(
-                        entitlement_value::BooleanValue { enabled: true },
-                    )),
-                }),
+            entitlement: Some(EntitlementValue {
+                value: Some(entitlement_value::Value::BooleanValue(
+                    entitlement_value::BooleanValue { enabled: true },
+                )),
             }),
         })
         .await
@@ -584,7 +574,7 @@ async fn test_create_feature_with_entitlement() {
     assert_eq!(
         entitlement.entity,
         Some(EntitlementEntity {
-            entity_id: Some(entitlement_entity::EntityId::PlanVersionId(plan_version_id))
+            entity_id: Some(entitlement_entity::EntityId::FeatureId(feature.id.clone()))
         })
     );
     assert!(matches!(

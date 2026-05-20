@@ -86,7 +86,7 @@ export const EntityEntitlementsSection = ({ entity, hint, hideHeader, canEdit = 
       {!hideHeader && (
         <div className="flex items-center justify-between mb-3">
           <div className="flex items-center gap-1.5">
-            <h3 className="text-sm font-medium">{isFeatureEntity ? 'Entitlement' : 'Entitlements'}</h3>
+            <h3 className="text-sm font-medium">{isFeatureEntity ? 'Default entitlement' : 'Entitlements'}</h3>
             {hint && (
               <TooltipProvider>
                 <Tooltip>
@@ -102,6 +102,7 @@ export const EntityEntitlementsSection = ({ entity, hint, hideHeader, canEdit = 
           </div>
           {canAdd && (
             <Button
+              type="button"
               size="sm"
               variant="secondary"
               hasIcon
@@ -134,19 +135,23 @@ export const EntityEntitlementsSection = ({ entity, hint, hideHeader, canEdit = 
                 {canEdit && (
                   <>
                     <button
+                      type="button"
                       className="p-1 hover:bg-muted rounded"
                       onClick={() => setSheet({ open: true, existing: e })}
                       title="Edit"
                     >
                       <Pencil size={12} />
                     </button>
-                    <button
-                      className="p-1 hover:bg-muted rounded text-destructive"
-                      onClick={() => setPendingDelete(e)}
-                      title="Delete"
-                    >
-                      <Trash2 size={12} />
-                    </button>
+                    {!isFeatureEntity && (
+                      <button
+                        type="button"
+                        className="p-1 hover:bg-muted rounded text-destructive"
+                        onClick={() => setPendingDelete(e)}
+                        title="Delete"
+                      >
+                        <Trash2 size={12} />
+                      </button>
+                    )}
                   </>
                 )}
               </div>

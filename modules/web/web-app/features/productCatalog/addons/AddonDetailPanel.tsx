@@ -14,7 +14,6 @@ import { PencilIcon, Trash2Icon } from 'lucide-react'
 import { useNavigate, useParams } from 'react-router-dom'
 
 import { LocalId } from '@/components/LocalId'
-import { ResolvedEntitlementsPanel } from '@/features/entitlements/resolved/ResolvedEntitlementsPanel'
 import { feeTypeEnumToComponentFeeType } from '@/features/plans/addons/AddOnCard'
 import { PricingDetailsView } from '@/features/plans/pricecomponents/components/PricingDetailsView'
 import {
@@ -30,6 +29,8 @@ import {
   removeAddOn,
 } from '@/rpc/api/addons/v1/addons-AddOnsService_connectquery'
 import { useConfirmationModal } from 'providers/ConfirmationProvider'
+
+import { AddonEntitlementsSection } from './AddonEntitlementsSection'
 
 export const AddonDetailPanel = () => {
   const navigate = useNavigate()
@@ -145,13 +146,7 @@ export const AddonDetailPanel = () => {
 
             {env.entitlementsEnabled && addonId && (
               <>
-                <section className="flex flex-col gap-3">
-                  <h3 className="text-sm font-medium text-muted-foreground">Entitlements</h3>
-                  <ResolvedEntitlementsPanel
-                    entity={{ type: 'add-on', id: addOn.id }}
-                    canPin={false}
-                  />
-                </section>
+                <AddonEntitlementsSection addonId={addOn.id} />
                 <Separator />
               </>
             )}

@@ -133,7 +133,7 @@ pub struct FeatureNew {
     pub description: Option<String>,
     pub feature_type: FeatureType,
     pub created_by: Uuid,
-    pub entitlement: Option<FeatureEntitlementSpec>,
+    pub entitlement: Option<EntitlementValue>,
 }
 
 impl From<FeatureNew> for FeatureRowNew {
@@ -218,14 +218,6 @@ impl TryFrom<EntitlementRow> for Entitlement {
 #[derive(Clone, Debug)]
 pub struct EntitlementSpec {
     pub feature_id: FeatureId,
-    pub value: EntitlementValue,
-}
-
-/// Caller-provided entitlement spec for feature creation: feature_id is implicit
-/// (the feature being created), caller supplies which entity receives the entitlement.
-#[derive(Clone, Debug)]
-pub struct FeatureEntitlementSpec {
-    pub entity: EntitlementEntityId,
     pub value: EntitlementValue,
 }
 

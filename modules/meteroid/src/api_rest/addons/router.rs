@@ -1,5 +1,12 @@
 use super::AppState;
 
+use crate::api_rest::QueryParams;
+use crate::api_rest::addons::mapping;
+use crate::api_rest::addons::model::*;
+use crate::api_rest::entitlements::mapping::entitlement_spec_from_rest;
+use crate::api_rest::error::RestErrorResponse;
+use crate::api_rest::model::{PaginationExt, validate_order_by};
+use crate::errors::RestApiError;
 use axum::extract::{Path, State};
 use axum::response::IntoResponse;
 use axum::{Extension, Json};
@@ -10,19 +17,6 @@ use http::StatusCode;
 use meteroid_store::domain::add_ons::{AddOnNew, AddOnPatch};
 use meteroid_store::domain::price_components::PriceEntry;
 use meteroid_store::repositories::add_ons::AddOnInterface;
-use meteroid_store::repositories::entitlements::EntitlementsInterface;
-use meteroid_store::repositories::entitlements::ResolveTarget;
-
-use crate::api_rest::QueryParams;
-use crate::api_rest::addons::mapping;
-use crate::api_rest::addons::model::*;
-use crate::api_rest::entitlements::mapping::{
-    entitlement_spec_from_rest, resolved_entitlement_to_rest,
-};
-use crate::api_rest::entitlements::model::ResolvedEntitlementListResponse;
-use crate::api_rest::error::RestErrorResponse;
-use crate::api_rest::model::{PaginationExt, validate_order_by};
-use crate::errors::RestApiError;
 
 // ── List add-ons ──────────────────────────────────────────────
 
@@ -269,49 +263,4 @@ pub(crate) async fn unarchive_addon(
             RestApiError::from(e)
         })
         .map(|_| StatusCode::NO_CONTENT)
-}
-
-// ── Resolved entitlements ──────────────────────────────────────
-
-/// List resolved entitlements for an add-on
-#[utoipa::path(
-    get,
-    tag = "Add-ons",
-    path = "/api/v1/addons/{addon_id}/entitlements",
-    params(("addon_id" = AddOnId, Path, description = "Add-on ID")),
-    responses(
-        (status = 200, description = "Resolved entitlements for this add-on", body = ResolvedEntitlementListResponse),
-        (status = 401, description = "Unauthorized", body = RestErrorResponse),
-        (status = 404, description = "Add-on not found", body = RestErrorResponse),
-    ),
-    security(("bearer_auth" = []))
-)]
-#[axum::debug_handler]
-pub(crate) async fn list_resolved_entitlements(
-    Extension(authorized_state): Extension<AuthorizedAsTenant>,
-    State(app_state): State<AppState>,
-    Path(addon_id): Path<AddOnId>,
-) -> Result<impl IntoResponse, RestApiError> {
-    let mut conn = app_state.store.get_conn().await.map_err(|e| {
-        log::error!("Error getting db connection: {e}");
-        RestApiError::StoreError
-    })?;
-    let resolved = app_state
-        .store
-        .resolve_for_entity(
-            &mut conn,
-            authorized_state.tenant_id,
-            ResolveTarget::AddOn(addon_id),
-        )
-        .await
-        .map_err(|e| {
-            log::error!("Error resolving add-on entitlements: {e}");
-            RestApiError::from(e)
-        })?;
-    Ok(Json(ResolvedEntitlementListResponse {
-        data: resolved
-            .into_iter()
-            .map(resolved_entitlement_to_rest)
-            .collect(),
-    }))
 }

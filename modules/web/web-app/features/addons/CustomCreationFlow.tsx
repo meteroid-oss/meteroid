@@ -134,7 +134,8 @@ export const CustomCreationFlow = ({
                 currency={currency}
                 editableStructure
                 onSubmit={onSubmit}
-                submitLabel="Next →"
+                submitLabel={onEntitlementsSubmit ? 'Next →' : submitLabel}
+                submitVariant={onEntitlementsSubmit ? 'brand' : 'primary'}
               />
             </div>
           </div>

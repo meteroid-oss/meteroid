@@ -3,8 +3,7 @@
  *
  * Displays the full resolved entitlement list for any entity (product, add-on,
  * plan-version, subscription, quote), grouped by product.  Each row shows the
- * winning value and its origin layer, with a kebab menu for Override / Pin /
- * Disable / Remove-local-override actions.
+ * winning value and its origin layer with inline icon actions.
  */
 import { PartialMessage } from '@bufbuild/protobuf'
 import { useMutation } from '@connectrpc/connect-query'
@@ -17,12 +16,7 @@ import {
   AlertDialogFooter,
   AlertDialogHeader,
   AlertDialogTitle,
-  Badge,
   Button,
-  DropdownMenu,
-  DropdownMenuContent,
-  DropdownMenuItem,
-  DropdownMenuTrigger,
   Skeleton,
   Tooltip,
   TooltipContent,
@@ -31,12 +25,13 @@ import {
 } from '@md/ui'
 import { useQueryClient } from '@tanstack/react-query'
 import { cn } from '@ui/lib'
-import { MoreVerticalIcon } from 'lucide-react'
+import { CirclePower, Pencil, Pin, PinOff } from 'lucide-react'
 import { FC, forwardRef, useImperativeHandle, useState } from 'react'
 import { toast } from 'sonner'
 
 import { EntityEntitlementDialog } from '@/features/entitlements/EntityEntitlementDialog'
 import { InheritedIcon } from '@/features/entitlements/InheritedIcon'
+import { entitlementTooltip } from '@/features/entitlements/entitlementTooltips'
 import {
   buildInheritanceTooltip,
   entitlementValueToSpec,
@@ -144,7 +139,6 @@ const RowActions: FC<RowActionsProps> = ({
   onOverride,
   onInvalidate,
 }) => {
-  const featureName = row.feature?.name ?? row.feature?.id ?? ''
   const disabled = isEntitlementDisabled(row.value)
 
   // ── Mutations ──────────────────────────────────────────────────────────────
@@ -251,89 +245,77 @@ const RowActions: FC<RowActionsProps> = ({
   const isBusy =
     createMutation.isPending || updateMutation.isPending || deleteMutation.isPending
 
+  const isBoolean = row.value.case === 'boolean'
+  const isMetered = row.value.case === 'metered'
+
   return (
-    <DropdownMenu>
-      <DropdownMenuTrigger asChild>
-        <button
-          className="p-1 hover:bg-muted rounded text-muted-foreground"
-          aria-label={`Actions for ${featureName}`}
-        >
-          <MoreVerticalIcon size={14} />
-        </button>
-      </DropdownMenuTrigger>
-      <DropdownMenuContent align="end" className="min-w-[200px]">
-        {/* Override */}
+    <div className="flex items-center gap-1">
+      {!isBoolean && (
         <Tooltip>
           <TooltipTrigger asChild>
-            <DropdownMenuItem
-              onSelect={() => onOverride(row)}
+            <button
+              type="button"
+              className="p-1 hover:bg-muted rounded"
+              onClick={() => onOverride(row)}
               disabled={isBusy}
             >
-              Override
-            </DropdownMenuItem>
+              <Pencil size={12} />
+            </button>
           </TooltipTrigger>
-          <TooltipContent side="left" className="max-w-56">
-            {`Edit this entitlement for this ${label}. Saves a local copy with your changes.`}
-          </TooltipContent>
+          <TooltipContent>{entitlementTooltip(label, 'override')}</TooltipContent>
         </Tooltip>
+      )}
 
-        {/* Pin (only when canPin and not already pinned here) */}
-        {canPin && !pinnedHere && (
+      {canPin && (
+        pinnedHere ? (
           <Tooltip>
             <TooltipTrigger asChild>
-              <DropdownMenuItem
-                onSelect={handlePin}
+              <button
+                type="button"
+                className="p-1 hover:bg-muted rounded text-destructive"
+                onClick={handleRemove}
+                disabled={isBusy || !canRemove}
+              >
+                <PinOff size={12} />
+              </button>
+            </TooltipTrigger>
+            <TooltipContent>{entitlementTooltip(label, 'unpin')}</TooltipContent>
+          </Tooltip>
+        ) : (
+          <Tooltip>
+            <TooltipTrigger asChild>
+              <button
+                type="button"
+                className="p-1 hover:bg-muted rounded"
+                onClick={handlePin}
                 disabled={isBusy || entity.type === 'product'}
               >
-                Pin
-              </DropdownMenuItem>
+                <Pin size={12} />
+              </button>
             </TooltipTrigger>
-            <TooltipContent side="left" className="max-w-56">
-              {`Save a local copy of this entitlement on this ${label}. Same value as upstream, but locked even if upstream changes.`}
-            </TooltipContent>
+            <TooltipContent>{entitlementTooltip(label, 'pin')}</TooltipContent>
           </Tooltip>
-        )}
+        )
+      )}
 
-        {/* Disable / Enable toggle */}
+      {(isBoolean || isMetered) && (
         <Tooltip>
           <TooltipTrigger asChild>
-            <DropdownMenuItem
-              onSelect={handleToggleDisable}
+            <button
+              type="button"
+              className="p-1 hover:bg-muted rounded"
+              onClick={handleToggleDisable}
               disabled={isBusy || entity.type === 'product'}
             >
-              {disabled ? 'Enable' : 'Disable'}
-            </DropdownMenuItem>
+              {disabled
+                ? <CirclePower size={12} className="text-destructive" />
+                : <CirclePower size={12} className="text-primary" />}
+            </button>
           </TooltipTrigger>
-          <TooltipContent side="left" className="max-w-56">
-            {disabled
-              ? `Re-enable this entitlement on this ${label}.`
-              : `Mark this entitlement as disabled here. Stays visible so you can re-enable it later.`}
-          </TooltipContent>
+          <TooltipContent>{entitlementTooltip(label, disabled ? 'enable' : 'disable')}</TooltipContent>
         </Tooltip>
-
-        {/* Remove local override */}
-        {pinnedHere && (
-          <Tooltip>
-            <TooltipTrigger asChild>
-              <span>
-                <DropdownMenuItem
-                  onSelect={handleRemove}
-                  disabled={isBusy || !canRemove}
-                  className={cn(!canRemove && 'cursor-not-allowed opacity-50')}
-                >
-                  Remove local override
-                </DropdownMenuItem>
-              </span>
-            </TooltipTrigger>
-            <TooltipContent side="left" className="max-w-56">
-              {canRemove
-                ? `Delete the local copy. The entitlement falls back to the upstream value.`
-                : 'Coming soon — local row id not available.'}
-            </TooltipContent>
-          </Tooltip>
-        )}
-      </DropdownMenuContent>
-    </DropdownMenu>
+      )}
+    </div>
   )
 }
 
@@ -400,8 +382,8 @@ export const ResolvedEntitlementsPanel = forwardRef<ResolvedEntitlementsPanelHan
   const showGrouping = entity.type !== 'product'
   const groups = showGrouping
     ? groupByProduct(resolved, r =>
-        r.feature?.product ? { id: r.feature.product.id, name: r.feature.product.name } : undefined
-      )
+      r.feature?.product ? { id: r.feature.product.id, name: r.feature.product.name } : undefined
+    )
     : [{ id: null, name: '', items: resolved }]
 
   // Proto entity for dialog (product has no proto variant — undefined disables the dialog)
@@ -469,7 +451,7 @@ export const ResolvedEntitlementsPanel = forwardRef<ResolvedEntitlementsPanelHan
                   </Button>
                 </TooltipTrigger>
                 <TooltipContent className="max-w-56">
-                  {`Save local copies of every upstream entitlement on this ${label}. Already-pinned entries are skipped.`}
+                  {entitlementTooltip(label, 'pinAll')}
                 </TooltipContent>
               </Tooltip>
             )}
@@ -479,13 +461,19 @@ export const ResolvedEntitlementsPanel = forwardRef<ResolvedEntitlementsPanelHan
         {/* Body */}
         {isLoading ? (
           <div className="flex flex-col gap-2">
-            <Skeleton className="h-10 w-full" />
-            <Skeleton className="h-10 w-full" />
+            <Skeleton className="h-10 w-full"/>
+            <Skeleton className="h-10 w-full"/>
           </div>
         ) : resolved.length === 0 ? (
           <p className="text-sm text-muted-foreground">No entitlements resolved for this {label}.</p>
         ) : (
-          groups.map(group => (
+          [...groups]
+            .sort((a, b) => {
+              if (!a.id) return 1
+              if (!b.id) return -1
+              return a.name.localeCompare(b.name)
+            })
+            .map(group => (
             <div key={group.id ?? '__general__'}>
               {showGrouping && (
                 <p className="text-xs font-semibold uppercase tracking-wide text-muted-foreground mb-1 px-1">
@@ -496,61 +484,56 @@ export const ResolvedEntitlementsPanel = forwardRef<ResolvedEntitlementsPanelHan
                 {[...group.items]
                   .sort((a, b) => (a.feature?.name ?? '').localeCompare(b.feature?.name ?? ''))
                   .map(r => {
-                  const featureId = r.feature?.id ?? ''
-                  const featureName = r.feature?.name ?? featureId
-                  const disabled = isEntitlementDisabled(r.value)
-                  const pinned = isPinnedHere(r, entity)
+                    const featureId = r.feature?.id ?? ''
+                    const featureName = r.feature?.name ?? featureId
+                    const disabled = isEntitlementDisabled(r.value)
+                    const pinned = isPinnedHere(r, entity)
 
-                  return (
-                    <div
-                      key={featureId}
-                      className={cn(
-                        'group flex items-center justify-between px-4 py-2.5 text-sm',
-                        disabled && 'opacity-60'
-                      )}
-                    >
-                      {/* Feature name + inheritance icon + disabled badge. */}
-                      <div className="flex items-center gap-2 min-w-0">
-                        <span className="font-medium truncate">{featureName}</span>
-                        {(() => {
-                          const featureProduct = r.feature?.product
-                          const isDirectlySet =
-                            entity.type === 'product' ? !!featureProduct : pinned
-                          if (isDirectlySet) return null
-                          // On a product surface the row is, by definition, inherited
-                          // from a global (cross-product) feature.
-                          const tooltip =
-                            entity.type === 'product'
-                              ? 'Inherited from a global feature.'
-                              : buildInheritanceTooltip(r.origin, featureProduct)
-                          return <InheritedIcon tooltip={tooltip} />
-                        })()}
-                        {disabled && (
-                          <Badge variant="secondary" className="text-xs shrink-0">
-                            Disabled
-                          </Badge>
+                    return (
+                      <div
+                        key={featureId}
+                        className={cn(
+                          'group flex items-center justify-between px-4 py-2.5 text-sm',
+                          disabled && 'opacity-60'
                         )}
-                      </div>
+                      >
+                        {/* Feature name + inheritance icon. */}
+                        <div className="flex items-center gap-2 min-w-0">
+                          <span className="font-medium truncate">{featureName}</span>
+                          {(() => {
+                            const featureProduct = r.feature?.product
+                            const isDirectlySet =
+                              entity.type === 'product' ? !!featureProduct : pinned
+                            if (isDirectlySet) return null
+                            // On a product surface the row is, by definition, inherited
+                            // from a global (cross-product) feature.
+                            const tooltip =
+                              entity.type === 'product'
+                                ? 'Inherited from a global feature.'
+                                : buildInheritanceTooltip(r.origin, featureProduct)
+                            return <InheritedIcon tooltip={tooltip}/>
+                          })()}
+                        </div>
 
-                      {/* Value + actions */}
-                      <div className="flex items-center gap-2 shrink-0 ml-4">
+                        {/* Value + actions */}
+                        <div className="flex items-center gap-2 shrink-0 ml-4">
                         <span className="text-muted-foreground text-xs tabular-nums">
                           {formatResolvedValue(r.value)}
                         </span>
-                        <RowActions
-                          row={r}
-                          entity={entity}
-                          label={label}
-                          canPin={canPin}
-                          pinnedHere={pinned}
-                          localEntitlements={localEntitlements}
-                          onOverride={row => setDialog({ open: true, row })}
-                          onInvalidate={invalidate}
-                        />
+                          <RowActions
+                            row={r}
+                            entity={entity}
+                            label={label}
+                            canPin={canPin}
+                            pinnedHere={pinned}
+                            localEntitlements={localEntitlements}
+                            onOverride={row => setDialog({ open: true, row })}
+                            onInvalidate={invalidate}
+                          />
+                        </div>
                       </div>
-                    </div>
-                  )
-                })}
+                    )
+                  })}
               </div>
             </div>
           ))
@@ -573,6 +556,7 @@ export const ResolvedEntitlementsPanel = forwardRef<ResolvedEntitlementsPanelHan
               existing={existing}
               seedValue={seedValue}
               featureId={dialog.row?.feature?.id}
+              featureIsMetered={dialog.row?.value.case === 'metered'}
               existingFeatureIds={existingFeatureIds}
               onClose={() => setDialog({ open: false })}
             />

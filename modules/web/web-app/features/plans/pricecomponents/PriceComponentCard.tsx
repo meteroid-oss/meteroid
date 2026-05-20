@@ -20,6 +20,7 @@ import {
 import { useQuery } from '@/lib/connectrpc'
 import { formatCadence } from '@/lib/mapping/prices'
 import { getBillableMetric } from '@/rpc/api/billablemetrics/v1/billablemetrics-BillableMetricsService_connectquery'
+import { getResolvedEntitlementsForPlanVersion } from '@/rpc/api/entitlements/v1/entitlements-EntitlementsService_connectquery'
 import {
   listPriceComponents,
   removePriceComponent,
@@ -55,6 +56,7 @@ export const PriceComponentCard: React.FC<{
             components: prev?.components.filter(c => c.id !== component.id) ?? [],
           }))
         )
+      queryClient.invalidateQueries({ queryKey: [getResolvedEntitlementsForPlanVersion.service.typeName] })
     },
   })
 

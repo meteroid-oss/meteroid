@@ -1,15 +1,19 @@
+import { disableQuery } from '@connectrpc/connect-query'
 import { Badge, Input } from '@md/ui'
 import { ChevronDownIcon, ChevronUpIcon, Loader2Icon, SearchIcon } from 'lucide-react'
-import { createElement, useCallback, useEffect, useMemo, useRef, useState } from 'react'
+import { ReactNode, createElement, useCallback, useEffect, useMemo, useRef, useState } from 'react'
 
 import { feeTypeIcon, priceSummaryBadges } from '@/features/plans/pricecomponents/utils'
 import { useDebounceValue } from '@/hooks/useDebounce'
 import { useQuery } from '@/lib/connectrpc'
+import { env } from '@/lib/env'
+import { getResolvedEntitlementsForProduct } from '@/rpc/api/entitlements/v1/entitlements-EntitlementsService_connectquery'
 import { FeeStructure_UsageModel, FeeType } from '@/rpc/api/prices/v1/models_pb'
 import { listProductsWithPrices } from '@/rpc/api/products/v1/products-ProductsService_connectquery'
 
 import { ProductPricingForm, type StructuralInfo } from './ProductPricingForm'
 
+import type { PendingEntitlementSpec } from '@/features/entitlements/creation/types'
 import type { ComponentFeeType } from '@/features/pricing/conversions'
 import type { FeeStructure } from '@/rpc/api/prices/v1/models_pb'
 import type { ProductWithPrice } from '@/rpc/api/products/v1/models_pb'
@@ -48,6 +52,15 @@ function protoFeeTypeToComponentFeeType(feeType: FeeType): ComponentFeeType {
   }
 }
 
+export type EntitlementSlotArgs = {
+  productId: string
+  productName: string
+  formData: Record<string, unknown>
+  feeType: ComponentFeeType
+  onBack: () => void
+  onConfirm: (entitlements: PendingEntitlementSpec[]) => void
+}
+
 interface ProductBrowserProps {
   currency: string
   onAdd: (data: {
@@ -55,14 +68,18 @@ interface ProductBrowserProps {
     componentName: string
     formData: Record<string, unknown>
     feeType: ComponentFeeType
+    entitlements?: PendingEntitlementSpec[]
   }) => void
   submitLabel?: string
+  /** Label for the submit button when the selected product has no entitlements and the step is skipped. */
+  finalSubmitLabel?: string
   feeTypes?: FeeType[]
+  renderEntitlements?: (args: EntitlementSlotArgs) => ReactNode
 }
 
 const PAGE_SIZE = 10
 
-export const ProductBrowser = ({ currency, onAdd, submitLabel, feeTypes }: ProductBrowserProps) => {
+export const ProductBrowser = ({ currency, onAdd, submitLabel, finalSubmitLabel, feeTypes, renderEntitlements }: ProductBrowserProps) => {
   const [search, setSearch] = useState('')
   const [expandedId, setExpandedId] = useState<string | null>(null)
   const [page, setPage] = useState(0)
@@ -143,6 +160,8 @@ export const ProductBrowser = ({ currency, onAdd, submitLabel, feeTypes }: Produ
               currency={currency}
               onAdd={onAdd}
               submitLabel={submitLabel}
+              finalSubmitLabel={finalSubmitLabel}
+              renderEntitlements={renderEntitlements}
             />
           )
         })}
@@ -175,6 +194,8 @@ interface ProductCardProps {
   currency: string
   onAdd: ProductBrowserProps['onAdd']
   submitLabel?: string
+  finalSubmitLabel?: string
+  renderEntitlements?: ProductBrowserProps['renderEntitlements']
 }
 
 const ProductCard = ({
@@ -184,10 +205,34 @@ const ProductCard = ({
   currency,
   onAdd,
   submitLabel,
+  finalSubmitLabel,
+  renderEntitlements,
 }: ProductCardProps) => {
   const product = item.product!
   const feeType =
     product.feeType !== undefined ? protoFeeTypeToComponentFeeType(product.feeType) : undefined
+
+  const [savedFormData, setSavedFormData] = useState<Record<string, unknown> | null>(null)
+
+  useEffect(() => {
+    if (!isExpanded) setSavedFormData(null)
+  }, [isExpanded])
+
+  const productEntitlementsQuery = useQuery(
+    getResolvedEntitlementsForProduct,
+    renderEntitlements && isExpanded && env.entitlementsEnabled
+      ? { productId: product.id }
+      : disableQuery
+  )
+  const productHasEntitlements =
+    (productEntitlementsQuery.data?.entitlements?.length ?? 0) > 0
+  const entitlementsLoading =
+    !!renderEntitlements && isExpanded && env.entitlementsEnabled && productEntitlementsQuery.isLoading
+
+  const isFinalStep = !renderEntitlements || (!entitlementsLoading && !productHasEntitlements)
+
+  const effectiveSubmitLabel = isFinalStep ? (finalSubmitLabel ?? submitLabel) : submitLabel
+  const effectiveSubmitVariant = isFinalStep ? ('primary' as const) : ('brand' as const)
 
   const structural = useMemo(
     () => extractStructuralInfo(feeType, product.feeStructure),
@@ -251,22 +296,43 @@ const ProductCard = ({
 
       {isExpanded && feeType && (
         <div className="border-t border-border/60 px-4 pb-4 pt-4">
-          <ProductPricingForm
-            feeType={feeType}
-            currency={currency}
-            existingPrice={item.latestPrice ?? undefined}
-            structuralInfo={structural}
-            onSubmit={formData => {
-              // For usage library products, inject usageModel so downstream mapping
-              // (toPricingTypeFromFeeType) resolves the correct pricing type
-              const enrichedFormData =
-                feeType === 'usage' && structural.usageModel
-                  ? { ...formData, usageModel: structural.usageModel }
-                  : formData
-              onAdd({ productId: product.id, componentName: product.name, formData: enrichedFormData, feeType })
-            }}
-            submitLabel={submitLabel}
-          />
+          {renderEntitlements && savedFormData ? (
+            renderEntitlements({
+              productId: product.id,
+              productName: product.name,
+              formData: savedFormData,
+              feeType,
+              onBack: () => setSavedFormData(null),
+              onConfirm: entitlements =>
+                onAdd({
+                  productId: product.id,
+                  componentName: product.name,
+                  formData: savedFormData,
+                  feeType,
+                  entitlements,
+                }),
+            })
+          ) : (
+            <ProductPricingForm
+              feeType={feeType}
+              currency={currency}
+              existingPrice={item.latestPrice ?? undefined}
+              structuralInfo={structural}
+              onSubmit={formData => {
+                const enrichedFormData =
+                  feeType === 'usage' && structural.usageModel
+                    ? { ...formData, usageModel: structural.usageModel }
+                    : formData
+                if (renderEntitlements && productHasEntitlements) {
+                  setSavedFormData(enrichedFormData)
+                } else {
+                  onAdd({ productId: product.id, componentName: product.name, formData: enrichedFormData, feeType, entitlements: [] })
+                }
+              }}
+              submitLabel={effectiveSubmitLabel}
+              submitVariant={effectiveSubmitVariant}
+            />
+          )}
         </div>
       )}
     </div>

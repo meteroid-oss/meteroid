@@ -180,14 +180,14 @@ fn validate_value_matches_feature_type(
 impl EntitlementsInterface for Store {
     async fn create_feature(&self, feature: FeatureNew) -> StoreResult<Feature> {
         let mut conn = self.get_conn().await?;
-        let entitlement_spec = feature.entitlement.clone();
+        let entitlement_value = feature.entitlement.clone();
         let tenant_id = feature.tenant_id;
         let created_by = feature.created_by;
-        if let Some(spec) = &entitlement_spec {
-            validate_value_matches_feature_type(&spec.value, &feature.feature_type)?;
+        if let Some(value) = &entitlement_value {
+            validate_value_matches_feature_type(value, &feature.feature_type)?;
         }
         let row: FeatureRowNew = feature.into();
-        if let Some(spec) = entitlement_spec {
+        if let Some(value) = entitlement_value {
             self.transaction_with(&mut conn, |conn| {
                 async move {
                     let inserted = row
@@ -199,15 +199,15 @@ impl EntitlementsInterface for Store {
                         .map_err(Into::<Report<StoreError>>::into)?;
                     let mut f: Feature = joined.try_into()?;
 
-                    let mode = resolve_mode_for_entity(conn, &spec.entity, tenant_id).await?;
-                    let json_value = value_to_json(&spec.value)?;
+                    let entity = EntitlementEntityId::Feature(f.id);
+                    let json_value = value_to_json(&value)?;
                     let entitlement: Entitlement = EntitlementRowNew {
                         id: EntitlementId::new(),
                         tenant_id,
                         feature_id: f.id,
-                        entity_id: spec.entity.as_uuid(),
-                        entity_type: EntitlementEntityTypeEnum::from(&spec.entity),
-                        mode: mode.into(),
+                        entity_id: entity.as_uuid(),
+                        entity_type: EntitlementEntityTypeEnum::from(&entity),
+                        mode: EntitlementModeEnum::Override.into(),
                         value: json_value,
                         created_by,
                     }

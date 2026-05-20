@@ -1,6 +1,6 @@
 /**
  * FeatureCreateSheet — sheet for creating or editing a feature in the feature catalog.
- * On create, optionally configures a feature-level entitlement (lowest-priority baseline).
+ * On create, always configures a feature-level entitlement (lowest-priority baseline).
  * Feature-level entitlements apply when no higher-priority entitlement exists for an entity.
  */
 import { useMutation } from '@connectrpc/connect-query'
@@ -26,7 +26,6 @@ import {
   SheetContent,
   SheetHeader,
   SheetTitle,
-  Switch,
   Textarea,
 } from '@md/ui'
 import { useQueryClient } from '@tanstack/react-query'
@@ -41,7 +40,6 @@ import { useZodForm } from '@/hooks/useZodForm'
 import { useQuery } from '@/lib/connectrpc'
 import { listBillableMetrics } from '@/rpc/api/billablemetrics/v1/billablemetrics-BillableMetricsService_connectquery'
 import {
-  createEntitlement,
   createFeature,
   listFeatures,
   updateFeature,
@@ -60,7 +58,6 @@ const schema = z
     productId: z.string().optional(),
     type: z.enum(['boolean', 'metered']),
     metricId: z.string().optional(),
-    addEntitlement: z.boolean().optional(),
     boolEnabled: z.boolean().optional(),
     limit: z.string().optional(),
     resetPeriodType: z
@@ -86,6 +83,7 @@ interface Props {
   initialDescription?: string
   initialProductId?: string
   initialKind?: FeatureKind
+  onClose?: () => void
 }
 
 function buildEntitlementValue(
@@ -164,8 +162,10 @@ export const FeatureCreateSheet = ({
   initialDescription = '',
   initialProductId,
   initialKind = { type: 'boolean' },
+  onClose,
 }: Props) => {
   const navigate = useNavigate()
+  const handleClose = onClose ?? (() => navigate('..'))
   const queryClient = useQueryClient()
   const isEdit = !!featureId
 
@@ -183,7 +183,6 @@ export const FeatureCreateSheet = ({
       productId: initialProductId ?? '',
       type: initialKind.type,
       metricId: initialKind.type === 'metered' ? initialKind.metricId : '',
-      addEntitlement: false,
       boolEnabled: true,
       resetPeriodType: 'billingCycle',
       resetUnit: CalendarUnit.MONTH,
@@ -194,13 +193,13 @@ export const FeatureCreateSheet = ({
   })
 
   const type = form.watch('type')
-  const addEntitlement = form.watch('addEntitlement')
+  const selectedProductId = form.watch('productId')
+  const selectedProductName = products.find(p => p.id === selectedProductId)?.name
 
   const invalidate = () =>
     queryClient.invalidateQueries({ queryKey: [listFeatures.service.typeName] })
 
   const createMutation = useMutation(createFeature)
-  const createEntitlementMutation = useMutation(createEntitlement)
   const updateMutation = useMutation(updateFeature)
 
   const onSubmit = form.handleSubmit(async data => {
@@ -215,7 +214,7 @@ export const FeatureCreateSheet = ({
           clearProductId: detach,
         })
       } else {
-        const result = await createMutation.mutateAsync({
+        await createMutation.mutateAsync({
           name: data.name,
           description: data.description,
           productId: data.productId || undefined,
@@ -223,30 +222,21 @@ export const FeatureCreateSheet = ({
             data.type === 'boolean'
               ? { Inner: { case: 'boolean', value: {} } }
               : { Inner: { case: 'metered', value: { metricId: data.metricId! } } },
+          entitlement: new EntitlementValue(buildEntitlementValue(data.type === 'boolean', data)),
         })
-        const newFeatureId = result.feature?.id
-        if (data.addEntitlement && newFeatureId) {
-          const value = new EntitlementValue(buildEntitlementValue(data.type === 'boolean', data))
-          await createEntitlementMutation.mutateAsync({
-            featureId: newFeatureId,
-            entity: { EntityId: { case: 'featureId', value: newFeatureId } },
-            value,
-          })
-        }
       }
       invalidate()
-      navigate('..')
+      handleClose()
     } catch (err: unknown) {
       const message = err instanceof Error ? err.message : String(err)
       toast.error(`Failed: ${message}`)
     }
   })
 
-  const isPending =
-    createMutation.isPending || updateMutation.isPending || createEntitlementMutation.isPending
+  const isPending = createMutation.isPending || updateMutation.isPending
 
   return (
-    <Sheet open onOpenChange={() => navigate('..')}>
+    <Sheet open onOpenChange={() => handleClose()}>
       <SheetContent size="small">
         <SheetHeader className="pb-2">
           <SheetTitle>{isEdit ? 'Edit Feature' : 'New Feature'}</SheetTitle>
@@ -376,28 +366,18 @@ export const FeatureCreateSheet = ({
             {!isEdit && (
               <>
                 <Separator />
-                <div className="flex items-center justify-between gap-4">
-                  <div>
-                    <p className="text-sm font-medium">Feature-level entitlement</p>
-                    <p className="text-xs text-muted-foreground">
-                      Baseline applied when no higher-priority entitlement exists
-                    </p>
-                  </div>
-                  <FormField
-                    control={form.control}
-                    name="addEntitlement"
-                    render={({ field }) => (
-                      <Switch checked={field.value ?? false} onCheckedChange={field.onChange} />
-                    )}
-                  />
+                <div>
+                  <p className="text-sm font-medium">Default entitlement</p>
+                  <p className="text-xs text-muted-foreground">
+                    {selectedProductName
+                      ? `Applies to customers subscribed to any plan that includes ${selectedProductName}. Can be overridden per plan or subscription.`
+                      : 'Applies to all customers by default. Can be overridden per plan or subscription.'}
+                  </p>
                 </div>
-
-                {addEntitlement && (
-                  <EntitlementValueFields
-                    featureType={type}
-                    idPrefix="fcs"
-                  />
-                )}
+                <EntitlementValueFields
+                  featureType={type}
+                  idPrefix="fcs"
+                />
               </>
             )}
 
@@ -412,7 +392,7 @@ export const FeatureCreateSheet = ({
             )}
 
             <div className="flex justify-end gap-2 pt-2">
-              <Button type="button" variant="outline" onClick={() => navigate('..')}>
+              <Button type="button" variant="outline" onClick={() => handleClose()}>
                 Cancel
               </Button>
               <Button type="submit" disabled={isPending}>

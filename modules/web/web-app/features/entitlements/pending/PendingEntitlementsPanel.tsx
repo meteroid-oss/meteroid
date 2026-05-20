@@ -13,12 +13,7 @@ import {
   AlertDialogFooter,
   AlertDialogHeader,
   AlertDialogTitle,
-  Badge,
   Button,
-  DropdownMenu,
-  DropdownMenuContent,
-  DropdownMenuItem,
-  DropdownMenuTrigger,
   Skeleton,
   Tooltip,
   TooltipContent,
@@ -26,7 +21,7 @@ import {
   TooltipTrigger,
 } from '@md/ui'
 import { cn } from '@ui/lib'
-import { GitMerge, MoreVerticalIcon } from 'lucide-react'
+import { CirclePower, Pencil, Pin, PinOff } from 'lucide-react'
 import { FC, useMemo, useState } from 'react'
 import { toast } from 'sonner'
 
@@ -37,6 +32,7 @@ import {
   pendingSpecKey,
   resolvedToPendingSpec,
 } from '@/features/entitlements/creation/types'
+import { entitlementTooltip } from '@/features/entitlements/entitlementTooltips'
 import {
   useResolvedEntitlementsForSelection,
   type SelectionInput,
@@ -149,80 +145,59 @@ const RowActions: FC<RowActionsProps> = ({
 }) => {
   const hasPending = !!row.pending
   const hasInherited = !!row.inherited
-  const featureName = row.featureName
+  const featureType =
+    row.pending?.featureType ??
+    (row.inherited?.value.case === 'boolean' ? 'boolean' :
+     row.inherited?.value.case === 'metered' ? 'metered' : undefined)
+  const isBoolean = featureType === 'boolean'
+  const isMetered = featureType === 'metered'
 
   return (
-    <DropdownMenu>
-      <DropdownMenuTrigger asChild>
-        <button
-          className="p-1 hover:bg-muted rounded text-muted-foreground"
-          aria-label={`Actions for ${featureName}`}
-        >
-          <MoreVerticalIcon size={14} />
-        </button>
-      </DropdownMenuTrigger>
-      <DropdownMenuContent align="end" className="min-w-[200px]">
-        {/* Override — opens dialog pre-filled with current value */}
+    <div className="flex items-center gap-1">
+      {!isBoolean && (
         <Tooltip>
           <TooltipTrigger asChild>
-            <DropdownMenuItem onSelect={() => onOverride(row)}>
-              Override
-            </DropdownMenuItem>
+            <button type="button" className="p-1 hover:bg-muted rounded" onClick={() => onOverride(row)}>
+              <Pencil size={12} />
+            </button>
           </TooltipTrigger>
-          <TooltipContent side="left" className="max-w-56">
-            Edit this entitlement for this quote. Saves a local copy with your changes.
-          </TooltipContent>
+          <TooltipContent>{entitlementTooltip('quote', 'override')}</TooltipContent>
         </Tooltip>
+      )}
 
-        {/* Pin — copies the inherited value verbatim into a pending spec (only when inherited exists and not already pinned) */}
-        {hasInherited && !hasPending && (
-          <Tooltip>
-            <TooltipTrigger asChild>
-              <DropdownMenuItem onSelect={() => onPin(row)}>
-                Pin
-              </DropdownMenuItem>
-            </TooltipTrigger>
-            <TooltipContent side="left" className="max-w-56">
-              Save a local copy of this entitlement on this quote. Same value as the plan version,
-              but locked even if the plan changes.
-            </TooltipContent>
-          </Tooltip>
-        )}
-
-        {/* Disable / Enable */}
+      {hasPending ? (
         <Tooltip>
           <TooltipTrigger asChild>
-            <DropdownMenuItem onSelect={() => onToggleDisable(row)}>
-              {row.disabled ? 'Enable' : 'Disable'}
-            </DropdownMenuItem>
+            <button type="button" className="p-1 hover:bg-muted rounded text-destructive" onClick={() => onRemovePending(row.featureId)}>
+              <PinOff size={12} />
+            </button>
           </TooltipTrigger>
-          <TooltipContent side="left" className="max-w-56">
-            {row.disabled
-              ? 'Re-enable this entitlement on this quote.'
-              : 'Mark this entitlement as disabled here. Stays visible so you can re-enable it later.'}
-          </TooltipContent>
+          <TooltipContent>{entitlementTooltip('quote', 'unpin')}</TooltipContent>
         </Tooltip>
+      ) : hasInherited ? (
+        <Tooltip>
+          <TooltipTrigger asChild>
+            <button type="button" className="p-1 hover:bg-muted rounded" onClick={() => onPin(row)}>
+              <Pin size={12} />
+            </button>
+          </TooltipTrigger>
+          <TooltipContent>{entitlementTooltip('quote', 'pin')}</TooltipContent>
+        </Tooltip>
+      ) : null}
 
-        {/* Remove local override — only when a pending spec exists */}
-        {hasPending && (
-          <Tooltip>
-            <TooltipTrigger asChild>
-              <DropdownMenuItem
-                onSelect={() => onRemovePending(row.featureId)}
-                className={cn(!hasInherited && 'text-destructive focus:text-destructive')}
-              >
-                Remove local override
-              </DropdownMenuItem>
-            </TooltipTrigger>
-            <TooltipContent side="left" className="max-w-56">
-              {hasInherited
-                ? 'Delete the local copy. The entitlement falls back to the plan or add-on value.'
-                : 'Remove this entitlement from the quote entirely.'}
-            </TooltipContent>
-          </Tooltip>
-        )}
-      </DropdownMenuContent>
-    </DropdownMenu>
+      {(isBoolean || isMetered) && (
+        <Tooltip>
+          <TooltipTrigger asChild>
+            <button type="button" className="p-1 hover:bg-muted rounded" onClick={() => onToggleDisable(row)}>
+              {row.disabled
+                ? <CirclePower size={12} className="text-destructive" />
+                : <CirclePower size={12} className="text-primary" />}
+            </button>
+          </TooltipTrigger>
+          <TooltipContent>{entitlementTooltip('quote', row.disabled ? 'enable' : 'disable')}</TooltipContent>
+        </Tooltip>
+      )}
+    </div>
   )
 }
 
@@ -394,7 +369,13 @@ export const PendingEntitlementsPanel: FC<Props> = ({ selection, pending, onChan
             No entitlements on the selected plan and add-ons. Use &ldquo;Add entitlement&rdquo; to attach one.
           </p>
         ) : (
-          groups.map(group => (
+          [...groups]
+            .sort((a, b) => {
+              if (!a.id) return 1
+              if (!b.id) return -1
+              return a.name.localeCompare(b.name)
+            })
+            .map(group => (
             <div key={group.id ?? '__general__'}>
               <p className="text-xs font-semibold uppercase tracking-wide text-muted-foreground mb-1 px-1">
                 {group.name}
@@ -419,9 +400,6 @@ export const PendingEntitlementsPanel: FC<Props> = ({ selection, pending, onChan
                         : 'Inherited from the selected plan and add-ons.'
                       : ''
 
-                    // When pending+inherited: show a "pinned here" icon with a different tooltip
-                    const showPinnedIcon = hasPending && hasInherited
-
                     return (
                       <div
                         key={row.featureId}
@@ -430,33 +408,10 @@ export const PendingEntitlementsPanel: FC<Props> = ({ selection, pending, onChan
                           row.disabled && 'opacity-60'
                         )}
                       >
-                        {/* Left: feature name + icon + disabled badge */}
+                        {/* Left: feature name + inheritance icon */}
                         <div className="flex items-center gap-2 min-w-0">
                           <span className="font-medium truncate">{row.featureName}</span>
-
-                          {showPinnedIcon && (
-                            <Tooltip>
-                              <TooltipTrigger asChild>
-                                <span
-                                  className="text-primary cursor-help shrink-0"
-                                  aria-label="Overridden locally"
-                                >
-                                  <GitMerge size={14} />
-                                </span>
-                              </TooltipTrigger>
-                              <TooltipContent>
-                                Set locally on this quote; overrides plan and add-ons.
-                              </TooltipContent>
-                            </Tooltip>
-                          )}
-
                           {showInheritanceIcon && <InheritedIcon tooltip={inheritanceTooltip} />}
-
-                          {row.disabled && (
-                            <Badge variant="secondary" className="text-xs shrink-0">
-                              Disabled
-                            </Badge>
-                          )}
                         </div>
 
                         {/* Right: value + kebab menu */}

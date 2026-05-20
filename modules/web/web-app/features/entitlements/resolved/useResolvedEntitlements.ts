@@ -34,6 +34,8 @@ export type SelectionInput = {
   planVersionId: string
   addOnIds: string[]
   extraProductIds?: string[]
+  /** Product IDs whose entitlements should be excluded (e.g. from removed price components). Client-side filter only. */
+  removedProductIds?: string[]
 }
 
 /**
@@ -133,9 +135,13 @@ export const useResolvedEntitlementsForSelection = (input: SelectionInput) => {
     addOnIds: input.addOnIds,
     extraProductIds: input.extraProductIds ?? [],
   })
+  const removedSet = new Set(input.removedProductIds ?? [])
+  const entitlements = (selectionQuery.data?.entitlements ?? []).filter(
+    e => !e.feature?.product?.id || !removedSet.has(e.feature.product.id)
+  )
   return {
     ...selectionQuery,
-    entitlements: selectionQuery.data?.entitlements ?? [],
+    entitlements,
   }
 }
 

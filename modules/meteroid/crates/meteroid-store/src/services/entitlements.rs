@@ -311,6 +311,8 @@ fn reduce_usage(
 
 fn build_metered_entitlement(meta: MeteredMeta, consumed: Decimal) -> EffectiveEntitlement {
     let remaining = meta.limit.map(|l| (l - consumed).max(Decimal::ZERO));
+    // Auto-disable when usage has reached or exceeded the limit.
+    let enabled = meta.enabled && meta.limit.is_none_or(|l| consumed < l);
     EffectiveEntitlement {
         feature: meta.feature,
         created_at: meta.created_at,
@@ -321,7 +323,7 @@ fn build_metered_entitlement(meta: MeteredMeta, consumed: Decimal) -> EffectiveE
             reset_period: meta.reset_period,
             overage_behavior: meta.overage_behavior,
             warning_threshold_pct: meta.warning_threshold_pct,
-            enabled: meta.enabled,
+            enabled,
             usage: EntitlementUsage {
                 consumed: Some(consumed),
                 remaining,
@@ -526,6 +528,58 @@ mod tests {
             panic!("expected Metered");
         };
         assert_eq!(usage.remaining, Some(Decimal::ZERO));
+    }
+
+    #[test]
+    fn build_enabled_false_when_consumed_equals_limit() {
+        let period_start = Utc::now().naive_utc();
+        let ent = build_metered_entitlement(meta(Some(100.0), period_start), Decimal::from(100));
+        let EffectiveEntitlementValue::Metered { enabled, .. } = ent.value else {
+            panic!("expected Metered");
+        };
+        assert!(!enabled);
+    }
+
+    #[test]
+    fn build_enabled_false_when_consumed_over_limit() {
+        let period_start = Utc::now().naive_utc();
+        let ent = build_metered_entitlement(meta(Some(100.0), period_start), Decimal::from(150));
+        let EffectiveEntitlementValue::Metered { enabled, .. } = ent.value else {
+            panic!("expected Metered");
+        };
+        assert!(!enabled);
+    }
+
+    #[test]
+    fn build_enabled_true_when_under_limit() {
+        let period_start = Utc::now().naive_utc();
+        let ent = build_metered_entitlement(meta(Some(100.0), period_start), Decimal::from(99));
+        let EffectiveEntitlementValue::Metered { enabled, .. } = ent.value else {
+            panic!("expected Metered");
+        };
+        assert!(enabled);
+    }
+
+    #[test]
+    fn build_enabled_true_when_no_limit() {
+        let period_start = Utc::now().naive_utc();
+        let ent = build_metered_entitlement(meta(None, period_start), Decimal::from(999));
+        let EffectiveEntitlementValue::Metered { enabled, .. } = ent.value else {
+            panic!("expected Metered");
+        };
+        assert!(enabled);
+    }
+
+    #[test]
+    fn build_enabled_false_propagates_when_already_disabled() {
+        let period_start = Utc::now().naive_utc();
+        let mut m = meta(Some(100.0), period_start);
+        m.enabled = false;
+        let ent = build_metered_entitlement(m, Decimal::from(10));
+        let EffectiveEntitlementValue::Metered { enabled, .. } = ent.value else {
+            panic!("expected Metered");
+        };
+        assert!(!enabled);
     }
 
     #[test]

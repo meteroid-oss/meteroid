@@ -20,7 +20,6 @@ use meteroid_grpc::meteroid::api::entitlements::v1::{
     UpdateEntitlementRequest, UpdateEntitlementResponse, UpdateFeatureRequest,
     UpdateFeatureResponse, entitlements_service_server::EntitlementsService,
 };
-use meteroid_store::domain::entitlements::FeatureEntitlementSpec;
 use meteroid_store::domain::{EntitlementNew, EntitlementUpdate, FeatureNew, FeatureUpdate};
 use meteroid_store::repositories::EntitlementsInterface;
 use meteroid_store::repositories::entitlements::ResolveTarget;
@@ -44,12 +43,7 @@ impl EntitlementsService for EntitlementsComponents {
 
         let entitlement = inner
             .entitlement
-            .map(|spec| -> Result<FeatureEntitlementSpec, Status> {
-                Ok(FeatureEntitlementSpec {
-                    entity: mapping::entity_from_proto(spec.entity.as_ref())?,
-                    value: mapping::entitlement_value_from_proto(spec.value)?,
-                })
-            })
+            .map(|v| mapping::entitlement_value_from_proto(Some(v)))
             .transpose()?;
 
         let mut feature = self

@@ -5,18 +5,13 @@ package meteroid.api.entitlements.v1;
 import "api/entitlements/v1/models.proto";
 import "common/v1/pagination.proto";
 
-message FeatureEntitlementSpec {
-  EntitlementEntity entity = 1;
-  EntitlementValue value = 2;
-}
-
 message CreateFeatureRequest {
   string name = 1;
   optional string description = 2;
   FeatureType feature_type = 3;
   // Product the feature belongs to. Unset ⇒ tenant-global feature.
   optional string product_id = 4;
-  optional FeatureEntitlementSpec entitlement = 5;
+  optional EntitlementValue entitlement = 5;
 }
 
 message CreateFeatureResponse {

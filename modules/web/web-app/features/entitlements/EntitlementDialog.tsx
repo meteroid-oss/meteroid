@@ -45,7 +45,7 @@ import { useZodForm } from '@/hooks/useZodForm'
 import { useQuery } from '@/lib/connectrpc'
 import { listBillableMetrics } from '@/rpc/api/billablemetrics/v1/billablemetrics-BillableMetricsService_connectquery'
 import { listFeatures } from '@/rpc/api/entitlements/v1/entitlements-EntitlementsService_connectquery'
-import { CalendarUnit } from '@/rpc/api/entitlements/v1/models_pb'
+import { CalendarUnit, FeatureStatus } from '@/rpc/api/entitlements/v1/models_pb'
 
 // ── Shared form value type ─────────────────────────────────────────────────────
 
@@ -137,7 +137,7 @@ export function EntitlementDialog({
   // Only Active features are pickable for live entitlement attachment.
   const featuresQuery = useQuery(listFeatures, {
     pagination: { page: 0, perPage: 100 },
-    statuses: [],
+    statuses: [FeatureStatus.ACTIVE],
     search: debouncedFeatureSearch || undefined,
   })
   const features = (featuresQuery.data?.features ?? []).slice().sort((a, b) => a.name.localeCompare(b.name))
@@ -165,7 +165,10 @@ export function EntitlementDialog({
       form.reset({ ...defaultValues, ...iv })
       setIsCreatingNew(!lf && !!iv?.featureName)
     }
-  }, [open, form])
+    // form excluded: useZodForm spreads useForm into a new object each render,
+    // so including it would reset user edits on every re-render. form.reset is stable.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [open])
 
   useEffect(() => {
     if (selectedFeatureId && !lockedFeature) {

@@ -114,22 +114,27 @@ pub enum EntitlementValue {
 }
 
 #[derive(Serialize, Debug, Clone, ToSchema)]
+pub struct MeteredEntitlementSpec {
+    #[serde(serialize_with = "string_serde::serialize")]
+    pub metric_id: BillableMetricId,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub limit: Option<Decimal>,
+    pub reset_period: ResetPeriod,
+    pub overage_behavior: OverageBehavior,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub warning_threshold_pct: Option<u32>,
+    pub enabled: bool,
+}
+
+#[derive(Serialize, Debug, Clone, ToSchema)]
 #[serde(tag = "type", rename_all = "SCREAMING_SNAKE_CASE")]
 pub enum EffectiveEntitlementValue {
     Boolean {
         enabled: bool,
     },
     Metered {
-        #[serde(serialize_with = "string_serde::serialize")]
-        metric_id: BillableMetricId,
-        #[serde(skip_serializing_if = "Option::is_none")]
-        limit: Option<Decimal>,
-        reset_period: ResetPeriod,
-        overage_behavior: OverageBehavior,
-        #[serde(skip_serializing_if = "Option::is_none")]
-        warning_threshold_pct: Option<u32>,
-        enabled: bool,
-        usage: EntitlementUsage,
+        spec: MeteredEntitlementSpec,
+        usage: MeteredEntitlementUsage,
     },
 }
 
@@ -174,7 +179,7 @@ pub struct EntitlementListResponse {
 }
 
 #[derive(Serialize, Debug, Clone, ToSchema)]
-pub struct EntitlementUsage {
+pub struct MeteredEntitlementUsage {
     #[serde(skip_serializing_if = "Option::is_none")]
     pub consumed: Option<Decimal>,
     #[serde(skip_serializing_if = "Option::is_none")]
@@ -255,14 +260,6 @@ pub struct ResolvedEntitlementListResponse {
     pub data: Vec<ResolvedEntitlement>,
 }
 
-/// Entitlement spec for inline attachment at feature creation time.
-/// feature_id is implicit (the feature being created); the caller specifies which entity receives it.
-#[derive(Serialize, Deserialize, Debug, Clone, Validate, ToSchema)]
-pub struct FeatureEntitlementSpec {
-    pub entity: EntitlementEntity,
-    pub value: EntitlementValue,
-}
-
 #[derive(Serialize, Deserialize, Debug, Clone, ToSchema)]
 #[serde(tag = "type", rename_all = "SCREAMING_SNAKE_CASE")]
 pub enum EntitlementEntity {
@@ -292,36 +289,6 @@ pub enum EntitlementEntity {
     },
 }
 
-#[derive(Deserialize, Debug, Clone, Validate, ToSchema)]
-pub struct CreateFeatureRequest {
-    #[validate(length(min = 1))]
-    pub name: String,
-    pub description: Option<String>,
-    pub feature_type: FeatureType,
-    /// Product this feature belongs to. Omit for tenant-global features.
-    #[serde(default, with = "common_domain::ids::string_serde_opt")]
-    pub product_id: Option<ProductId>,
-    /// Inline entitlement to attach when creating the feature.
-    pub entitlement: Option<FeatureEntitlementSpec>,
-}
-
-#[derive(Deserialize, Debug, Clone, Validate, ToSchema)]
-pub struct UpdateFeatureRequest {
-    #[validate(length(min = 1))]
-    pub name: Option<String>,
-    /// Three-state: missing leaves unchanged, `null` clears, value sets.
-    #[serde(default, with = "::serde_with::rust::double_option")]
-    pub description: Option<Option<String>>,
-    /// Three-state: missing leaves unchanged, `null` clears, value sets.
-    #[serde(default, with = "::serde_with::rust::double_option")]
-    pub product_id: Option<Option<ProductId>>,
-}
-
-#[derive(Deserialize, Debug, Clone, Validate, ToSchema)]
-pub struct SetFeatureStatusRequest {
-    pub status: FeatureStatus,
-}
-
 #[derive(Deserialize, Debug, Clone, Validate, IntoParams)]
 #[into_params(parameter_in = Query)]
 pub struct FeatureListRequest {
@@ -343,28 +310,4 @@ pub struct EntitlementSpec {
     #[serde(with = "string_serde")]
     pub feature_id: FeatureId,
     pub value: EntitlementValue,
-}
-
-#[derive(Deserialize, Debug, Clone, Validate, ToSchema)]
-pub struct UpdateEntitlementRequest {
-    /// Replace the entitlement value entirely.
-    pub value: Option<EntitlementValue>,
-}
-
-#[cfg(test)]
-mod tests {
-    use super::*;
-
-    #[test]
-    fn update_feature_description_three_states() {
-        let missing: UpdateFeatureRequest = serde_json::from_str("{}").unwrap();
-        assert_eq!(missing.description, None);
-
-        let null: UpdateFeatureRequest = serde_json::from_str(r#"{"description": null}"#).unwrap();
-        assert_eq!(null.description, Some(None));
-
-        let value: UpdateFeatureRequest =
-            serde_json::from_str(r#"{"description": "hello"}"#).unwrap();
-        assert_eq!(value.description, Some(Some("hello".to_string())));
-    }
 }

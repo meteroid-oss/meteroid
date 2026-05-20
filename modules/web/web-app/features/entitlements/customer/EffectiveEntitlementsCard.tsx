@@ -9,12 +9,7 @@ import {
   AlertDialogFooter,
   AlertDialogHeader,
   AlertDialogTitle,
-  Badge,
   Button,
-  DropdownMenu,
-  DropdownMenuContent,
-  DropdownMenuItem,
-  DropdownMenuTrigger,
   Skeleton,
   Tooltip,
   TooltipContent,
@@ -23,20 +18,18 @@ import {
 } from '@md/ui'
 import { useQueryClient } from '@tanstack/react-query'
 import { cn } from '@ui/lib'
-import { Decimal } from 'decimal.js'
-import { MoreVerticalIcon } from 'lucide-react'
+import { CirclePower, Pencil, Pin, PinOff } from 'lucide-react'
 import { useState } from 'react'
 import { toast } from 'sonner'
 
 import { EntityEntitlementDialog } from '@/features/entitlements/EntityEntitlementDialog'
 import { InheritedIcon } from '@/features/entitlements/InheritedIcon'
+import { entitlementTooltip } from '@/features/entitlements/entitlementTooltips'
 import {
   buildInheritanceTooltip,
   entitlementValueToSpec,
   groupByProduct,
   isEntitlementDisabled,
-  overageBehaviorLabel,
-  resetPeriodLabel,
 } from '@/features/entitlements/utils'
 import { useQuery } from '@/lib/connectrpc'
 import {
@@ -202,13 +195,21 @@ export const EffectiveEntitlementsCard = ({ customerId, currentSubscriptionId }:
             </Tooltip>
           </div>
         )}
-        {groups.map(group => (
+        {[...groups]
+          .sort((a, b) => {
+            if (!a.id) return 1
+            if (!b.id) return -1
+            return a.name.localeCompare(b.name)
+          })
+          .map(group => (
           <div key={group.id ?? '__general__'}>
             <p className="text-xs font-semibold uppercase tracking-wide text-muted-foreground mb-1 px-1">
               {group.name}
             </p>
             <div className="border border-border rounded-lg divide-y divide-border overflow-hidden">
-              {group.items.map((e, i) => (
+              {[...group.items]
+                .sort((a, b) => (a.feature?.name ?? '').localeCompare(b.feature?.name ?? ''))
+                .map((e, i) => (
                 <EntitlementRow
                   key={i}
                   entitlement={e}
@@ -318,7 +319,6 @@ const RowActions = ({
   localEntitlements: Entitlement[]
   onOverride: (row: EffectiveEntitlement) => void
 }) => {
-  const featureName = entitlement.feature?.name ?? entitlement.feature?.id ?? ''
   const featureId = entitlement.feature?.id
   const value = entitlement.value
   const isDisabled = isEntitlementDisabled(value)
@@ -407,35 +407,75 @@ const RowActions = ({
     if (local) deleteMutation.mutate({ id: local.id })
   }
 
+  const isBoolean = value.case === 'boolean'
+  const isMetered = value.case === 'metered'
+
   return (
-    <DropdownMenu>
-      <DropdownMenuTrigger asChild>
-        <button
-          className="p-1 hover:bg-muted rounded text-muted-foreground"
-          aria-label={`Actions for ${featureName}`}
-        >
-          <MoreVerticalIcon size={14} />
-        </button>
-      </DropdownMenuTrigger>
-      <DropdownMenuContent align="end" className="min-w-[200px]">
-        <DropdownMenuItem onSelect={() => onOverride(entitlement)} disabled={isBusy}>
-          Override
-        </DropdownMenuItem>
-        {!pinnedHere && (
-          <DropdownMenuItem onSelect={handlePin} disabled={isBusy}>
-            Pin
-          </DropdownMenuItem>
-        )}
-        <DropdownMenuItem onSelect={handleToggleDisable} disabled={isBusy}>
-          {isDisabled ? 'Enable' : 'Disable'}
-        </DropdownMenuItem>
-        {pinnedHere && (
-          <DropdownMenuItem onSelect={handleRemove} disabled={isBusy}>
-            Remove local override
-          </DropdownMenuItem>
-        )}
-      </DropdownMenuContent>
-    </DropdownMenu>
+    <div className="flex items-center gap-1">
+      {!isBoolean && (
+        <Tooltip>
+          <TooltipTrigger asChild>
+            <button
+              type="button"
+              className="p-1 hover:bg-muted rounded"
+              onClick={() => onOverride(entitlement)}
+              disabled={isBusy}
+            >
+              <Pencil size={12} />
+            </button>
+          </TooltipTrigger>
+          <TooltipContent>{entitlementTooltip('subscription', 'override')}</TooltipContent>
+        </Tooltip>
+      )}
+
+      {pinnedHere ? (
+        <Tooltip>
+          <TooltipTrigger asChild>
+            <button
+              type="button"
+              className="p-1 hover:bg-muted rounded text-destructive"
+              onClick={handleRemove}
+              disabled={isBusy}
+            >
+              <PinOff size={12} />
+            </button>
+          </TooltipTrigger>
+          <TooltipContent>{entitlementTooltip('subscription', 'unpin')}</TooltipContent>
+        </Tooltip>
+      ) : (
+        <Tooltip>
+          <TooltipTrigger asChild>
+            <button
+              type="button"
+              className="p-1 hover:bg-muted rounded"
+              onClick={handlePin}
+              disabled={isBusy}
+            >
+              <Pin size={12} />
+            </button>
+          </TooltipTrigger>
+          <TooltipContent>{entitlementTooltip('subscription', 'pin')}</TooltipContent>
+        </Tooltip>
+      )}
+
+      {(isBoolean || isMetered) && (
+        <Tooltip>
+          <TooltipTrigger asChild>
+            <button
+              type="button"
+              className="p-1 hover:bg-muted rounded"
+              onClick={handleToggleDisable}
+              disabled={isBusy}
+            >
+              {isDisabled
+                ? <CirclePower size={12} className="text-destructive" />
+                : <CirclePower size={12} className="text-primary" />}
+            </button>
+          </TooltipTrigger>
+          <TooltipContent>{entitlementTooltip('subscription', isDisabled ? 'enable' : 'disable')}</TooltipContent>
+        </Tooltip>
+      )}
+    </div>
   )
 }
 
@@ -448,6 +488,7 @@ const EntitlementRow = ({
 }: RowProps) => {
   const { value } = entitlement
   const featureName = entitlement.feature?.name ?? entitlement.feature?.id ?? ''
+  const isDisabled = isEntitlementDisabled(value)
 
   const originEntity = entitlement.origin?.entity?.EntityId
   const pinnedHere =
@@ -465,123 +506,38 @@ const EntitlementRow = ({
     />
   ) : null
 
+  let valueLabel: string
   if (value.case === 'boolean') {
-    const isDisabled = !value.value.enabled
-    return (
-      <div
-        className={cn(
-          'flex items-center justify-between px-4 py-3',
-          isDisabled && 'opacity-60'
-        )}
-      >
-        <div className="flex items-center gap-2 flex-wrap">
-          <span className="text-sm font-medium">{featureName}</span>
-          <InheritedIndicator
-            entitlement={entitlement}
-            currentSubscriptionId={currentSubscriptionId}
-          />
-          {isDisabled && (
-            <Badge variant="secondary" className="text-xs">
-              Disabled
-            </Badge>
-          )}
-        </div>
-        <div className="flex items-center gap-2">
-          <Badge variant={value.value.enabled ? 'default' : 'secondary'}>
-            {value.value.enabled ? 'Enabled' : 'Disabled'}
-          </Badge>
-          {actions}
-        </div>
-      </div>
-    )
-  }
-
-  if (value.case === 'metered') {
+    valueLabel = value.value.enabled ? 'Enabled' : 'Disabled'
+  } else if (value.case === 'metered') {
     const m = value.value
-    const isDisabled = !m.enabled
-    // Compare consumed/limit as Decimal to avoid float-precision drift on large counters.
-    // The percentage drives a 0-100 progress bar, so float math is fine after the
-    // boundary comparison — Decimal is only used where rounding could move the row
-    // across the "at limit" threshold.
-    const consumedDec = m.consumed ? new Decimal(m.consumed) : undefined
-    const limitDec = m.limit ? new Decimal(m.limit) : undefined
-    const isAtLimit =
-      consumedDec !== undefined &&
-      limitDec !== undefined &&
-      limitDec.gt(0) &&
-      consumedDec.gte(limitDec)
-    const pct =
-      consumedDec !== undefined && limitDec !== undefined && limitDec.gt(0)
-        ? Math.min(100, consumedDec.div(limitDec).times(100).toNumber())
-        : undefined
-    const isNearLimit = pct !== undefined && pct >= 80 && !isAtLimit
-    const consumed = consumedDec?.toNumber()
-    const limit = limitDec?.toNumber()
-
-    return (
-      <div className={cn('px-4 py-3 flex flex-col gap-2', isDisabled && 'opacity-60')}>
-        <div className="flex items-start justify-between gap-4">
-          <div className="flex items-center gap-2 flex-wrap">
-            <span className="text-sm font-medium">{featureName}</span>
-            <InheritedIndicator
-              entitlement={entitlement}
-              currentSubscriptionId={currentSubscriptionId}
-            />
-            {isDisabled && (
-              <Badge variant="secondary" className="text-xs">
-                Disabled
-              </Badge>
-            )}
-          </div>
-          <div className="flex items-center gap-2 shrink-0">
-            <span
-              className={cn(
-                'text-sm tabular-nums',
-                isAtLimit
-                  ? 'text-destructive'
-                  : isNearLimit
-                    ? 'text-yellow-500'
-                    : 'text-muted-foreground'
-              )}
-            >
-              {consumed !== undefined ? consumed.toLocaleString() : '—'}
-              <span className="text-muted-foreground">
-                {limit !== undefined ? ` / ${limit.toLocaleString()}` : ' / ∞'}
-              </span>
-            </span>
-            {actions}
-          </div>
-        </div>
-
-        {pct !== undefined && (
-          <div className="w-full bg-muted rounded-full h-1.5">
-            <div
-              className={cn(
-                'h-1.5 rounded-full transition-all',
-                isAtLimit ? 'bg-destructive' : isNearLimit ? 'bg-yellow-500' : 'bg-primary'
-              )}
-              style={{ width: `${pct}%` }}
-            />
-          </div>
-        )}
-
-        {(m.resetPeriod || m.overageBehavior) && (
-          <div className="flex items-center gap-1.5 flex-wrap">
-            {m.resetPeriod && (
-              <Badge variant="secondary" className="text-xs font-normal">
-                Resets {resetPeriodLabel(m.resetPeriod)}
-              </Badge>
-            )}
-            {m.overageBehavior && (
-              <Badge variant="outline" className="text-xs font-normal">
-                {overageBehaviorLabel(m.overageBehavior)}
-              </Badge>
-            )}
-          </div>
-        )}
-      </div>
-    )
+    const consumed = m.consumed ? Number(m.consumed) : undefined
+    const limit = m.limit ? Number(m.limit) : undefined
+    valueLabel = consumed !== undefined
+      ? `${consumed.toLocaleString()} / ${limit !== undefined ? limit.toLocaleString() : '∞'}`
+      : limit !== undefined ? limit.toLocaleString() : 'Unlimited'
+  } else {
+    valueLabel = '—'
   }
 
-  return null
+  return (
+    <div
+      className={cn(
+        'group flex items-center justify-between px-4 py-2.5 text-sm',
+        isDisabled && 'opacity-60'
+      )}
+    >
+      <div className="flex items-center gap-2 min-w-0">
+        <span className="font-medium truncate">{featureName}</span>
+        <InheritedIndicator
+          entitlement={entitlement}
+          currentSubscriptionId={currentSubscriptionId}
+        />
+      </div>
+      <div className="flex items-center gap-2 shrink-0 ml-4">
+        <span className="text-muted-foreground text-xs tabular-nums">{valueLabel}</span>
+        {actions}
+      </div>
+    </div>
+  )
 }

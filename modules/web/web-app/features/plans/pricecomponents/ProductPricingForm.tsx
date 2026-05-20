@@ -7,6 +7,7 @@ import {
   InputFormField,
   SelectFormField,
   SelectItem,
+  type ButtonVariants,
 } from '@md/ui'
 import { ExternalLinkIcon, PlusIcon } from 'lucide-react'
 import { useEffect, useMemo, useRef } from 'react'
@@ -258,6 +259,7 @@ interface ProductPricingFormProps {
   isOverride?: boolean
   onSubmit: (formData: Record<string, unknown>) => void
   submitLabel?: string
+  submitVariant?: ButtonVariants['variant']
   familyLocalId?: string
 }
 
@@ -270,6 +272,7 @@ export const ProductPricingForm = ({
   isOverride,
   onSubmit,
   submitLabel = 'Add to Plan',
+  submitVariant = 'brand',
   familyLocalId,
 }: ProductPricingFormProps) => {
   const structural = structuralInfo ?? {}
@@ -317,7 +320,7 @@ export const ProductPricingForm = ({
       <div className="flex justify-end pt-2">
         <Button
           type="button"
-          variant="brand"
+          variant={submitVariant}
           onClick={methods.handleSubmit(
             data => onSubmit(data as Record<string, unknown>),
             errors => {

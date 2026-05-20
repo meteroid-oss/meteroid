@@ -30,6 +30,7 @@ import {
   wrapAsNewPriceEntries,
 } from '@/features/pricing/conversions'
 import { useZodForm } from '@/hooks/useZodForm'
+import { getResolvedEntitlementsForPlanVersion } from '@/rpc/api/entitlements/v1/entitlements-EntitlementsService_connectquery'
 import {
   createPriceComponent,
   listPriceComponents,
@@ -67,6 +68,7 @@ export const AddComponentPanel = () => {
           }))
         )
       }
+      queryClient.invalidateQueries({ queryKey: [getResolvedEntitlementsForPlanVersion.service.typeName] })
       navigate('..')
     },
   })
