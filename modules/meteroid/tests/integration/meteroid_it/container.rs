@@ -49,52 +49,73 @@ extern "C" fn cleanup_postgres_container() {
 }
 
 struct SharedPostgres {
+    /// Held to keep the container alive; `None` when using an external Postgres
+    /// supplied via the `METEROID_TEST_PG_URL` env var.
     #[allow(dead_code)]
-    container: ContainerAsync<GenericImage>,
+    container: Option<ContainerAsync<GenericImage>>,
     base_connection_string: String,
 }
 
-/// Initialize the shared Postgres container and run migrations once.
+/// Replace the database name (the URL path) on a Postgres connection string.
+fn with_database(base_url: &str, db_name: &str) -> String {
+    let (prefix, _) = base_url
+        .rsplit_once('/')
+        .expect("Postgres URL must contain a database path component");
+    format!("{}/{}", prefix, db_name)
+}
+
+/// Initialize the shared Postgres (external or container-backed) and run migrations
+/// once on the `meteroid_template` database.
 async fn get_shared_postgres() -> &'static SharedPostgres {
     POSTGRES_INSTANCE
         .get_or_init(|| async {
             use diesel::sql_query;
             use diesel_async::RunQueryDsl;
 
-            let container = start_postgres_container().await;
-
-            // Register cleanup so the container is removed on process exit
-            CLEANUP_CONTAINER_ID.set(container.id().to_string()).ok();
-            unsafe { atexit(cleanup_postgres_container) };
-
-            let port = container.get_host_port_ipv4(5432).await.unwrap();
-            let base_connection_string =
-                format!("postgres://postgres:postgres@127.0.0.1:{}/postgres", port);
+            let (container, base_connection_string) =
+                if let Ok(url) = std::env::var("METEROID_TEST_PG_URL") {
+                    log::info!("Using external Postgres from METEROID_TEST_PG_URL");
+                    (None, url)
+                } else {
+                    let container = start_postgres_container().await;
+                    CLEANUP_CONTAINER_ID.set(container.id().to_string()).ok();
+                    unsafe { atexit(cleanup_postgres_container) };
+                    let port = container.get_host_port_ipv4(5432).await.unwrap();
+                    let url = format!("postgres://postgres:postgres@127.0.0.1:{}/postgres", port);
+                    (Some(container), url)
+                };
 
             let pg_config = PgConfig::new(base_connection_string.clone());
-
-            // Create template database and run migrations once
             let pool = meteroid_store::store::diesel_make_pg_pool(pg_config)
                 .expect("Failed to create pool");
 
-            // Create the template database
             let mut conn = pool.get().await.unwrap();
+
+            // Reap leftover test DBs from prior runs against the same external Postgres.
+            let leftovers: Vec<String> = diesel::dsl::sql::<diesel::sql_types::Text>(
+                "SELECT datname FROM pg_database WHERE datname LIKE 'test_db_%'",
+            )
+            .load(&mut conn)
+            .await
+            .unwrap_or_default();
+            for db in leftovers {
+                let _ = sql_query(format!("DROP DATABASE IF EXISTS {} WITH (FORCE)", db))
+                    .execute(&mut conn)
+                    .await;
+            }
+
             sql_query("CREATE DATABASE meteroid_template")
                 .execute(&mut conn)
                 .await
-                .ok(); // Ignore if already exists
+                .ok(); // ignore if it already exists (external Postgres reused across runs)
 
-            // Run migrations on template
-            let template_url = format!(
-                "postgres://postgres:postgres@127.0.0.1:{}/meteroid_template",
-                port
-            );
-            let template_pg_config = PgConfig::new(template_url.clone());
-            let template_pool = meteroid_store::store::diesel_make_pg_pool(template_pg_config)
-                .expect("Failed to create template pool");
+            let template_url = with_database(&base_connection_string, "meteroid_template");
+            let template_pool =
+                meteroid_store::store::diesel_make_pg_pool(PgConfig::new(template_url))
+                    .expect("Failed to create template pool");
             migrations::run(&template_pool).await.unwrap();
 
-            log::info!("Shared Postgres container ready with migrations on template");
+            log::info!("Shared Postgres ready with migrations on template");
 
             SharedPostgres {
                 container,
@@ -206,12 +227,10 @@ async fn start_meteroid_from_config(
         }
     });
 
-    tokio::time::sleep(Duration::from_secs(1)).await;
+    wait_for_tcp_ready(config.grpc_listen_addr, Duration::from_secs(10)).await;
 
     let meteroid_endpoint = format!("http://{}", config.grpc_listen_addr);
-
     log::info!("Creating gRPC channel {}", meteroid_endpoint);
-
     let channel = Channel::from_shared(meteroid_endpoint)
         .expect("Invalid meteroid_endpoint")
         .connect_lazy();
@@ -272,6 +291,24 @@ impl Drop for MeteroidSetup {
     }
 }
 
+async fn wait_for_tcp_ready(addr: std::net::SocketAddr, timeout: Duration) {
+    let deadline = tokio::time::Instant::now() + timeout;
+    let mut backoff = Duration::from_millis(1);
+    loop {
+        match tokio::net::TcpStream::connect(addr).await {
+            Ok(_) => return,
+            Err(_) if tokio::time::Instant::now() < deadline => {
+                tokio::time::sleep(backoff).await;
+                backoff = (backoff * 2).min(Duration::from_millis(50));
+            }
+            Err(e) => panic!(
+                "gRPC server at {} did not become ready within {:?}: {}",
+                addr, timeout, e
+            ),
+        }
+    }
+}
+
 /// Start the raw Postgres container (internal use).
 async fn start_postgres_container() -> ContainerAsync<GenericImage> {
     (|| async {
@@ -308,10 +345,9 @@ pub async fn create_test_database() -> String {
 
     let shared = get_shared_postgres().await;
     let test_id = TEST_DB_COUNTER.fetch_add(1, Ordering::SeqCst);
-    let db_name = format!("test_db_{}", test_id);
+    let db_name = format!("test_db_{}_{}", std::process::id(), test_id);
 
     let pg_config = PgConfig::new(shared.base_connection_string.clone());
-    // Create new database from template
     let pool =
         meteroid_store::store::diesel_make_pg_pool(pg_config).expect("Failed to create pool");
     let mut conn = pool.get().await.unwrap();
@@ -323,20 +359,7 @@ pub async fn create_test_database() -> String {
     .await
     .unwrap();
 
-    // Extract port from base connection string
-    let port = shared
-        .base_connection_string
-        .split(':')
-        .next_back()
-        .unwrap()
-        .split('/')
-        .next()
-        .unwrap();
-
-    format!(
-        "postgres://postgres:postgres@127.0.0.1:{}/{}",
-        port, db_name
-    )
+    with_database(&shared.base_connection_string, &db_name)
 }
 
 #[allow(dead_code)]
@@ -362,27 +385,14 @@ pub async fn start_postgres() -> (ContainerAsync<GenericImage>, String) {
 }
 
 pub async fn populate_postgres(pool: &PgPool, seed_level: SeedLevel) {
-    migrations::run(pool).await.unwrap();
-
-    // let mut conn = pool.get().await.unwrap();
-
+    // Migrations are already applied on the template DB; cloned DBs inherit them.
     for seed in seed_level.seeds() {
         match seed {
-            Seed::MINIMAL => {
-                crate::data::minimal::run_minimal_seed(pool).await;
-            }
-            Seed::CUSTOMERS => {
-                crate::data::customers::run_customers_seed(pool).await;
-            }
-            Seed::METERS => {
-                crate::data::meters::run_meters_seed(pool).await;
-            }
-            Seed::PLANS => {
-                crate::data::plans::run_plans_seed(pool).await;
-            }
-            Seed::SUBSCRIPTIONS => {
-                unimplemented!("Subscription seed level is not implemented")
-            }
+            Seed::MINIMAL => crate::data::minimal::run_minimal_seed(pool).await,
+            Seed::CUSTOMERS => crate::data::customers::run_customers_seed(pool).await,
+            Seed::METERS => crate::data::meters::run_meters_seed(pool).await,
+            Seed::PLANS => crate::data::plans::run_plans_seed(pool).await,
+            Seed::SUBSCRIPTIONS => unimplemented!("Subscription seed level is not implemented"),
         }
     }
 }

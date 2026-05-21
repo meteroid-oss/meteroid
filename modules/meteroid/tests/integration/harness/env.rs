@@ -80,7 +80,6 @@ pub async fn test_env_with_seed_and_usage(
 ) -> TestEnv {
     helpers::init::logging();
 
-    // Create a new database from the shared template (migrations already applied)
     let postgres_connection_string = meteroid_it::container::create_test_database().await;
 
     let mailer = Arc::new(MockMailerService::new());

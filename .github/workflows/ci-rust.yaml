@@ -39,6 +39,22 @@ jobs:
     name: Test
     runs-on: ubuntu-latest
     timeout-minutes: 45
+    services:
+      postgres:
+        image: ghcr.io/meteroid-oss/meteroid-postgres:18.3-standard
+        env:
+          POSTGRES_USER: postgres
+          POSTGRES_PASSWORD: postgres
+          POSTGRES_DB: postgres
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "pg_isready -U postgres"
+          --health-interval 5s
+          --health-timeout 5s
+          --health-retries 10
+    env:
+      METEROID_TEST_PG_URL: postgres://postgres:postgres@127.0.0.1:5432/postgres
     steps:
       - uses: actions/checkout@v6
       - name: Free disk space
