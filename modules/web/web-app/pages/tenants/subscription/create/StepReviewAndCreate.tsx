@@ -1,6 +1,7 @@
 import { disableQuery, useMutation } from '@connectrpc/connect-query'
 import { useQueryClient } from '@tanstack/react-query'
 import { Badge, Button, Card, CardContent, CardHeader, CardTitle } from '@ui/components'
+import Decimal from 'decimal.js'
 import { useAtom } from 'jotai'
 import { Calendar, Package, PlusIcon, Shield, Tag, User } from 'lucide-react'
 import { useNavigate } from 'react-router-dom'
@@ -20,6 +21,7 @@ import {
 import { getApiComponentBillingPeriodLabel } from '@/features/subscriptions/utils/billingPeriods'
 import { useBasePath } from '@/hooks/useBasePath'
 import { useQuery } from '@/lib/connectrpc'
+import { CURRENCIES } from '@/lib/data/currencies'
 import { env } from '@/lib/env'
 import { mapDatev2 } from '@/lib/mapping'
 import {
@@ -28,6 +30,7 @@ import {
   getPrice,
   getPriceBillingLabel,
 } from '@/lib/mapping/priceToSubscriptionFee'
+import { formatCurrency } from '@/lib/utils/numbers'
 import {
   createSubscriptionAtom,
   PaymentMethodsConfigType,
@@ -116,6 +119,17 @@ export const StepReviewAndCreate = () => {
 
   const selectedCoupons =
     couponsQuery.data?.coupons.filter(c => state.coupons.some(sc => sc.couponId === c.id)) || []
+
+  // Mirror backend discount.rs ordering: percentage first (customer-friendly),
+  // tiebreak by coupon.id. Used everywhere coupons are displayed/applied so
+  // the wizard matches the order the invoice will use.
+  const orderedCoupons = [...selectedCoupons].sort((a, b) => {
+    const typeOf = (c: Coupon) => (c.discount?.discountType?.case === 'percentage' ? 0 : 1)
+    const ta = typeOf(a)
+    const tb = typeOf(b)
+    if (ta !== tb) return ta - tb
+    return a.id.localeCompare(b.id)
+  })
 
   if (!currency) {
     return <div>Loading plan...</div>
@@ -255,12 +269,9 @@ export const StepReviewAndCreate = () => {
 
   const formatPrice = (price: string | number, currency: string) => {
     const amount = typeof price === 'string' ? parseFloat(price || '0') : price
-    return amount.toLocaleString(undefined, {
-      style: 'currency',
-      currency,
-      minimumFractionDigits: 2,
-      maximumFractionDigits: 2,
-    })
+    const precision = CURRENCIES[currency]?.precision ?? 2
+    const subunits = Math.round(amount * Math.pow(10, precision))
+    return formatCurrency(subunits, currency)
   }
 
   const getComponentPricing = (component: PriceComponent) => {
@@ -302,19 +313,28 @@ export const StepReviewAndCreate = () => {
     }
   }
 
-  // Calculate coupon discount
-  const getCouponDiscount = (coupon: Coupon, subtotal: number) => {
-    if (!coupon.discount) return 0
+  // Coupon math in subunits using Decimal, matching backend discount.rs:
+  // sequential application with i64-truncation on each step.
+  const couponPrecisionPow10 = new Decimal(10).pow(CURRENCIES[currency]?.precision ?? 2)
 
-    // Handle different discount types
-    if (coupon.discount.discountType?.case === 'percentage') {
-      const percentage = parseFloat(coupon.discount.discountType.value?.percentage || '0')
-      return (subtotal * percentage) / 100
-    } else if (coupon.discount.discountType?.case === 'fixed') {
-      return parseFloat(coupon.discount.discountType.value?.amount || '0')
+  /** Returns the discount in subunits this coupon would apply against `runningSubunits`. */
+  const computeCouponDiscountSubunits = (
+    coupon: Coupon,
+    runningSubunits: Decimal
+  ): Decimal => {
+    const dt = coupon.discount?.discountType
+    if (!dt) return new Decimal(0)
+    if (dt.case === 'percentage') {
+      const pct = new Decimal(dt.value?.percentage || '0')
+      return Decimal.min(runningSubunits.times(pct).div(100), runningSubunits)
     }
-
-    return 0
+    if (dt.case === 'fixed') {
+      // Currency mismatch (coupon vs subscription) will be enforced server-side
+      // by the upcoming preview RPC; the picker filters compatibles for now.
+      const amountSubunits = new Decimal(dt.value?.amount || '0').times(couponPrecisionPow10)
+      return Decimal.min(amountSubunits, runningSubunits)
+    }
+    return new Decimal(0)
   }
 
   return (
@@ -484,7 +504,7 @@ export const StepReviewAndCreate = () => {
                     </CardHeader>
                     <CardContent>
                       <div className="space-y-2">
-                        {selectedCoupons.map(coupon => (
+                        {orderedCoupons.map(coupon => (
                           <div key={coupon.id} className="flex items-center justify-between">
                             <span className="text-sm">{coupon.code}</span>
                             <Badge variant="secondary" size="sm">
@@ -752,12 +772,19 @@ export const StepReviewAndCreate = () => {
                     }
                   })
 
-                  // Calculate total discount from coupons
-                  let totalDiscount = 0
-                  selectedCoupons.forEach(coupon => {
-                    totalDiscount += getCouponDiscount(coupon, subtotal)
-                  })
-
+                  // Apply coupons sequentially in subunits (matches backend discount.rs).
+                  let runningSubunits = new Decimal(subtotal).times(couponPrecisionPow10)
+                  const couponItems: { coupon: Coupon; discount: number }[] = []
+                  for (const coupon of orderedCoupons) {
+                    const discountSubunits = computeCouponDiscountSubunits(coupon, runningSubunits)
+                      .toDecimalPlaces(0, Decimal.ROUND_DOWN)
+                    runningSubunits = runningSubunits.minus(discountSubunits)
+                    couponItems.push({
+                      coupon,
+                      discount: discountSubunits.div(couponPrecisionPow10).toNumber(),
+                    })
+                  }
+                  const totalDiscount = couponItems.reduce((acc, x) => acc + x.discount, 0)
                   const finalTotal = Math.max(0, subtotal - totalDiscount)
 
                   return (
@@ -767,11 +794,10 @@ export const StepReviewAndCreate = () => {
                         <span className="font-medium">{formatPrice(subtotal, currency)}</span>
                       </div>
 
-                      {/* Show discounts after subtotal */}
-                      {selectedCoupons.length > 0 && totalDiscount > 0 && (
+                      {/* Show discounts after subtotal, in apply order */}
+                      {couponItems.length > 0 && totalDiscount > 0 && (
                         <div className="space-y-1">
-                          {selectedCoupons.map(coupon => {
-                            const discount = getCouponDiscount(coupon, subtotal)
+                          {couponItems.map(({ coupon, discount }) => {
                             if (discount <= 0) return null
                             return (
                               <div

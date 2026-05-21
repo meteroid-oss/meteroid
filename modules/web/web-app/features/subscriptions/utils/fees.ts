@@ -60,10 +60,12 @@ export const formatSubscriptionFee = (
 
     case 'capacity': {
       const capacityFee = fee.fee.value
+      const hasOverage = parseFloat(capacityFee.overageRate) > 0
       return {
         type: 'Capacity',
-        details: `${capacityFee.included.toString()} included${parseFloat(capacityFee.overageRate) > 0 ? `, then ${formatCurrencyNoRounding(Number(capacityFee.overageRate), currency)} per unit` : ''}`,
+        details: 'Capacity',
         amount: formatCurrencyNoRounding(Number(capacityFee.rate), currency),
+        breakdown: `${capacityFee.included.toString()} included${hasOverage ? `, then ${formatCurrencyNoRounding(Number(capacityFee.overageRate), currency)} per unit` : ''}`,
       }
     }
 

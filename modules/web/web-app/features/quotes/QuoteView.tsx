@@ -152,13 +152,13 @@ export const QuoteView: FC<QuoteViewProps> = ({
         </div>
         {/* Invoicing Entity Logo */}
         {quote.invoicingEntity?.logoAttachmentId && (
-          <div className="w-16 h-16 rounded-lg overflow-hidden border bg-muted flex-shrink-0">
+          <div className="w-32 h-12 rounded-lg overflow-hidden border bg-muted flex-shrink-0">
             <img
               src={
                 env.meteroidRestApiUri + '/files/v1/logo/' + quote.invoicingEntity.logoAttachmentId
               }
               alt="Company logo"
-              className="w-full h-full object-cover"
+              className="w-full h-full object-contain"
             />
           </div>
         )}

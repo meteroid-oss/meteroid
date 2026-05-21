@@ -25,7 +25,6 @@ import {
   Copy,
   CopyIcon,
   Download,
-  Edit,
   ExternalLink,
   FileText,
   Send,
@@ -110,7 +109,6 @@ export const QuoteDetailView: React.FC<Props> = ({ quote }) => {
     },
   })
 
-  const canEdit = quote.quote?.status === QuoteStatus.DRAFT
   const canPublish = quote.quote?.status === QuoteStatus.DRAFT
   const canSend =
     quote.quote?.status === QuoteStatus.DRAFT || quote.quote?.status === QuoteStatus.PENDING
@@ -258,14 +256,6 @@ export const QuoteDetailView: React.FC<Props> = ({ quote }) => {
                 </Button>
               </DropdownMenuTrigger>
               <DropdownMenuContent align="end">
-                {canEdit && (
-                  <DropdownMenuItem asChild>
-                    <Link to={`${basePath}/quotes/${quote.quote?.id}/edit`}>
-                      <Edit size="16" className="mr-2" />
-                      Edit Quote
-                    </Link>
-                  </DropdownMenuItem>
-                )}
                 {canPublish && (
                   <DropdownMenuItem onClick={handlePublishQuote}>
                     <FileText size="16" className="mr-2" />

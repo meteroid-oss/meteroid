@@ -67,10 +67,19 @@ pub fn calculate_coupons_discount(
     invoice_currency: &str,
     coupons: &[AppliedCouponDetailed],
 ) -> AppliedCouponsDiscount {
+    // Customer-friendly precedence: percentages first, then fixed amounts.
+    // Tiebreak on the underlying coupon.id so preview and invoice paths agree
+    // (applied_coupon.id is regenerated per preview and would diverge).
     let applicable_coupons: Vec<&AppliedCouponDetailed> = coupons
         .iter()
         .filter(|x| x.is_invoice_applicable())
-        .sorted_by_key(|x| (x.applied_coupon.created_at, x.applied_coupon.id.as_uuid()))
+        .sorted_by_key(|x| {
+            let type_precedence = match x.coupon.discount {
+                CouponDiscount::Percentage(_) => 0u8,
+                CouponDiscount::Fixed { .. } => 1u8,
+            };
+            (type_precedence, x.coupon.id.as_uuid())
+        })
         .collect::<Vec<_>>();
 
     let mut applied_coupons_items = vec![];
@@ -128,7 +137,131 @@ pub fn calculate_coupons_discount(
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::domain::coupons::Coupon;
+    use crate::domain::subscription_coupons::AppliedCoupon;
+    use common_domain::ids::{AppliedCouponId, CouponId, CustomerId, SubscriptionId, TenantId};
     use rust_decimal::Decimal;
+
+    fn applied_coupon(code: &str, discount: CouponDiscount) -> AppliedCouponDetailed {
+        let now = chrono::Utc::now().naive_utc();
+        let coupon_id = CouponId::new();
+        AppliedCouponDetailed {
+            coupon: Coupon {
+                id: coupon_id,
+                code: code.to_string(),
+                description: String::new(),
+                tenant_id: TenantId::new(),
+                discount,
+                expires_at: None,
+                redemption_limit: None,
+                recurring_value: None,
+                reusable: true,
+                disabled: false,
+                created_at: now,
+                updated_at: now,
+                last_redemption_at: None,
+                archived_at: None,
+                redemption_count: 0,
+                plan_ids: vec![],
+            },
+            applied_coupon: AppliedCoupon {
+                id: AppliedCouponId::new(),
+                coupon_id,
+                customer_id: CustomerId::new(),
+                subscription_id: SubscriptionId::new(),
+                is_active: true,
+                applied_amount: None,
+                applied_count: Some(0),
+                last_applied_at: None,
+                created_at: now,
+            },
+        }
+    }
+
+    #[test]
+    fn two_percentages_commute() {
+        let a = applied_coupon("PCT_A", CouponDiscount::Percentage(Decimal::from(10)));
+        let b = applied_coupon("PCT_B", CouponDiscount::Percentage(Decimal::from(25)));
+
+        let r1 = calculate_coupons_discount(10_000, "USD", &[a.clone(), b.clone()]);
+        let r2 = calculate_coupons_discount(10_000, "USD", &[b, a]);
+
+        assert_eq!(r1.discount_subunit, r2.discount_subunit);
+        // sanity: 25% then 10% off 10000 = 7500 - 750 = 6750 -> discount 3250
+        assert_eq!(r1.discount_subunit, 3250);
+    }
+
+    #[test]
+    fn two_fixed_commute() {
+        let a = applied_coupon(
+            "FIX_A",
+            CouponDiscount::Fixed {
+                currency: "USD".to_string(),
+                amount: Decimal::from(15),
+            },
+        );
+        let b = applied_coupon(
+            "FIX_B",
+            CouponDiscount::Fixed {
+                currency: "USD".to_string(),
+                amount: Decimal::from(25),
+            },
+        );
+
+        let r1 = calculate_coupons_discount(10_000, "USD", &[a.clone(), b.clone()]);
+        let r2 = calculate_coupons_discount(10_000, "USD", &[b, a]);
+
+        assert_eq!(r1.discount_subunit, r2.discount_subunit);
+        // 15 + 25 = 40 USD = 4000 subunits
+        assert_eq!(r1.discount_subunit, 4000);
+    }
+
+    #[test]
+    fn two_fixed_commute_even_when_subtotal_floors() {
+        // subtotal smaller than total fixed discount -> capped at subtotal regardless of order
+        let a = applied_coupon(
+            "FIX_A",
+            CouponDiscount::Fixed {
+                currency: "USD".to_string(),
+                amount: Decimal::from(80),
+            },
+        );
+        let b = applied_coupon(
+            "FIX_B",
+            CouponDiscount::Fixed {
+                currency: "USD".to_string(),
+                amount: Decimal::from(50),
+            },
+        );
+
+        let r1 = calculate_coupons_discount(10_000, "USD", &[a.clone(), b.clone()]);
+        let r2 = calculate_coupons_discount(10_000, "USD", &[b, a]);
+
+        assert_eq!(r1.discount_subunit, r2.discount_subunit);
+        assert_eq!(r1.discount_subunit, 10_000);
+    }
+
+    #[test]
+    fn percentage_applied_before_fixed() {
+        // Customer-friendly precedence: percentage first.
+        // 10% off 10000 = 1000 discount, then 50 USD (5000 subunits) off remaining 9000 = 5000.
+        // Total discount = 6000.
+        let pct = applied_coupon("PCT", CouponDiscount::Percentage(Decimal::from(10)));
+        let fix = applied_coupon(
+            "FIX",
+            CouponDiscount::Fixed {
+                currency: "USD".to_string(),
+                amount: Decimal::from(50),
+            },
+        );
+
+        let r1 = calculate_coupons_discount(10_000, "USD", &[fix.clone(), pct.clone()]);
+        let r2 = calculate_coupons_discount(10_000, "USD", &[pct, fix]);
+
+        // Both orderings produce the same result thanks to type precedence.
+        assert_eq!(r1.discount_subunit, r2.discount_subunit);
+        assert_eq!(r1.discount_subunit, 6000);
+    }
 
     fn new_line_item(amount_subtotal: i64) -> LineItem {
         LineItem {
