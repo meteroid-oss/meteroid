@@ -24,7 +24,7 @@ COPY --from=builder /app/modules/web/out/pnpm-lock.yaml modules/web/pnpm-lock.ya
 
 
 # First install the dependencies (as they change less often)
-RUN pnpm install --filter=@md/web --ignore-scripts --prefix modules/web
+RUN pnpm install --ignore-scripts --prefix modules/web
 
 RUN apk add --no-cache libc6-compat
 RUN apk update
@@ -36,7 +36,7 @@ COPY --link --from=builder /app/modules/metering/proto/ modules/metering/proto/
 COPY --link --from=builder /app/crates/common-grpc/proto/ crates/common-grpc/proto/
 COPY --link --from=builder /app/buf.work.yaml buf.work.yaml
 # Run all the postinstall scripts
-RUN cd modules/web && pnpm install --filter=@md/web
+RUN cd modules/web && pnpm install
 # Build the project
 RUN cd modules/web/web-app && pnpm run build:js
 

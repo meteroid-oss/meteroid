@@ -15,8 +15,8 @@ Make sure to install them before proceeding and that **your docker daemon is run
 
 - Postgres >= 12
 - Rust >= 1.74
-- Node >= 20
-- pnpm >= 8
+- Node >= 22
+- pnpm >= 11
 - protoc >= 3.17
 - Docker >= 27
 
