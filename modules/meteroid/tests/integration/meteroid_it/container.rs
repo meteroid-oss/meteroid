@@ -91,29 +91,55 @@ async fn get_shared_postgres() -> &'static SharedPostgres {
 
             let mut conn = pool.get().await.unwrap();
 
-            // Reap leftover test DBs from prior runs against the same external Postgres.
-            let leftovers: Vec<String> = diesel::dsl::sql::<diesel::sql_types::Text>(
-                "SELECT datname FROM pg_database WHERE datname LIKE 'test_db_%'",
-            )
-            .load(&mut conn)
-            .await
-            .unwrap_or_default();
-            for db in leftovers {
-                let _ = sql_query(format!("DROP DATABASE IF EXISTS {} WITH (FORCE)", db))
-                    .execute(&mut conn)
-                    .await;
-            }
-
-            sql_query("CREATE DATABASE meteroid_template")
+            // Cross-process serialization: under nextest, every test is a fresh
+            // process that races to create + migrate `meteroid_template`. Hold a
+            // Postgres advisory lock so only one process performs the setup; others
+            // wait, see the template exists, and skip straight to migrations (which
+            // are idempotent via diesel's __diesel_schema_migrations).
+            const TEMPLATE_INIT_LOCK: i64 = 0x6D65_7465_726F_6964; // "meteroid"
+            sql_query(format!("SELECT pg_advisory_lock({})", TEMPLATE_INIT_LOCK))
                 .execute(&mut conn)
                 .await
-                .ok(); // ignore if it already exists (external Postgres reused across runs)
+                .unwrap();
+
+            let template_count: i64 = diesel::dsl::sql::<diesel::sql_types::BigInt>(
+                "SELECT count(*) FROM pg_database WHERE datname = 'meteroid_template'",
+            )
+            .get_result(&mut conn)
+            .await
+            .unwrap();
+
+            if template_count == 0 {
+                // First process in this run: reap orphan test DBs left by prior runs
+                // (no-FORCE drop skips any DB still in use, harmlessly).
+                let leftovers: Vec<String> = diesel::dsl::sql::<diesel::sql_types::Text>(
+                    "SELECT datname FROM pg_database WHERE datname LIKE 'test_db_%'",
+                )
+                .load(&mut conn)
+                .await
+                .unwrap_or_default();
+                for db in leftovers {
+                    let _ = sql_query(format!("DROP DATABASE {}", db))
+                        .execute(&mut conn)
+                        .await;
+                }
+
+                sql_query("CREATE DATABASE meteroid_template")
+                    .execute(&mut conn)
+                    .await
+                    .unwrap();
+            }
 
             let template_url = with_database(&base_connection_string, "meteroid_template");
             let template_pool =
                 meteroid_store::store::diesel_make_pg_pool(PgConfig::new(template_url))
                     .expect("Failed to create template pool");
             migrations::run(&template_pool).await.unwrap();
+
+            sql_query(format!("SELECT pg_advisory_unlock({})", TEMPLATE_INIT_LOCK))
+                .execute(&mut conn)
+                .await
+                .unwrap();
 
             log::info!("Shared Postgres ready with migrations on template");
 
