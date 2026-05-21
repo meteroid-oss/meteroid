@@ -9,7 +9,7 @@ publicHoistPattern:
   - '*storybook*'
 strictPeerDependencies: false
 allowBuilds:
-  '@bufbuild/buf': false
+  '@bufbuild/buf': true
   '@parcel/watcher': false
   core-js: false
   esbuild: false
