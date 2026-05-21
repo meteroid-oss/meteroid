@@ -1,3 +1,18 @@
 packages:
   - 'packages/*'
   - 'web-app'
+engineStrict: true
+nodeLinker: hoisted
+publicHoistPattern:
+  - '*prisma*'
+  - '*eslint*'
+  - '*storybook*'
+strictPeerDependencies: false
+allowBuilds:
+  '@bufbuild/buf': false
+  '@parcel/watcher': false
+  core-js: false
+  esbuild: false
+  protobufjs: false
+  sharp: false
+  unrs-resolver: false

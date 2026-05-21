@@ -13,7 +13,7 @@ RUN (cd modules/web/ && turbo prune --scope=@md/web --docker)
 
 FROM base AS installer
 WORKDIR /app
-RUN yarn global add pnpm@10 turbo
+RUN yarn global add pnpm@11 turbo
 
 COPY --from=builder /app/.gitignore .gitignore
 COPY --from=builder /app/modules/web/web-app/nginx.conf nginx.conf
