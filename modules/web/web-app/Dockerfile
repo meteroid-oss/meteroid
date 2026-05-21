@@ -37,7 +37,11 @@ COPY --link --from=builder /app/crates/common-grpc/proto/ crates/common-grpc/pro
 COPY --link --from=builder /app/buf.work.yaml buf.work.yaml
 # Run all the postinstall scripts
 RUN cd modules/web && pnpm install
-# Build the project
+# Re-run postinstall scripts skipped by --ignore-scripts above:
+#   @md/icons: svgr-generated dist/ used as the package entry
+#   @md/web:   buf-generated connect-query proto bindings under web-app/src/rpc
+RUN cd modules/web && pnpm --filter @md/icons run build
+RUN cd modules/web && pnpm --filter @md/web run generate:proto
 RUN cd modules/web/web-app && pnpm run build:js
 
 # nginx state for serving content

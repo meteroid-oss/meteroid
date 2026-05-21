@@ -10,6 +10,7 @@ publicHoistPattern:
 strictPeerDependencies: false
 allowBuilds:
   '@bufbuild/buf': true
+  '@md/icons': true
   '@parcel/watcher': false
   core-js: false
   esbuild: false
