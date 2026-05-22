@@ -28,6 +28,10 @@ pub enum VatRate {
 
 impl VatRate {
     pub fn from_decimal(rate: Decimal, country_name: &str) -> Option<Self> {
+        // Round to 5 dp (the max precision in the table) then strip trailing
+        // zeros so values produced by division (e.g. 0.2000000001) or
+        // persisted with extra scale (0.20000) still match.
+        let rate = rate.round_dp(5).normalize();
         let country = country_name.to_lowercase();
         match country.as_str() {
             "france" | "fr" => match rate {
@@ -134,5 +138,19 @@ mod tests {
         // Test unmatched rates and countries
         assert_eq!(VatRate::from_decimal(dec!(0.999), "FR"), None);
         assert_eq!(VatRate::from_decimal(dec!(0.2), "US"), None);
+    }
+
+    #[test]
+    fn test_from_decimal_normalizes_scale() {
+        // Trailing zeros (e.g. from DB Numeric with extra scale) should match.
+        assert_eq!(
+            VatRate::from_decimal(dec!(0.20000), "FR"),
+            Some(VatRate::FR_200)
+        );
+        // Computation noise beyond 5 dp should round into the table.
+        assert_eq!(
+            VatRate::from_decimal(dec!(0.2000001), "FR"),
+            Some(VatRate::FR_200)
+        );
     }
 }

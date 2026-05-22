@@ -403,141 +403,157 @@ impl PennylaneSync {
             return Ok(msg_id);
         };
 
-        if let Some(pdf_id) = invoice.invoice.pdf_document_id {
-            let currency = if let Some(currency) = rusty_money::iso::find(&invoice.invoice.currency)
-            {
-                currency
-            } else {
-                log::warn!(
-                    "Currency {} not found in rusty_money, skipping invoice {}",
-                    invoice.invoice.currency,
-                    invoice.invoice.id
-                );
-                return Ok(msg_id);
-            };
+        let Some(pdf_id) = invoice.invoice.pdf_document_id else {
+            // Sync is triggered by InvoiceAccountingPdfGenerated, so a missing
+            // PDF here is a transactional race — return Err to retry rather
+            // than silently acking and losing the sync.
+            log::warn!(
+                "Invoice {} has no PDF document yet, will retry",
+                invoice.invoice.id
+            );
+            return Err(Report::new(PgmqError::HandleMessages));
+        };
 
-            let pdf_bytes = self
-                .storage
-                .retrieve(pdf_id, Prefix::InvoicePdf)
-                .await
-                .change_context(PgmqError::HandleMessages)?;
+        let currency = if let Some(currency) = rusty_money::iso::find(&invoice.invoice.currency) {
+            currency
+        } else {
+            log::warn!(
+                "Currency {} not found in rusty_money, skipping invoice {}",
+                invoice.invoice.currency,
+                invoice.invoice.id
+            );
+            return Ok(msg_id);
+        };
 
-            let attachment = NewAttachment {
-                filename: format!("{}.pdf", invoice.invoice.id),
-                file: pdf_bytes,
-                media_type: MediaType::ApplicationPdf,
-            };
+        let pdf_bytes = self
+            .storage
+            .retrieve(pdf_id, Prefix::InvoicePdf)
+            .await
+            .change_context(PgmqError::HandleMessages)?;
 
-            let created = self
-                .client
-                .create_attachment(attachment, &conn.access_token)
-                .await
-                .change_context(PgmqError::HandleMessages)?;
+        let attachment = NewAttachment {
+            filename: format!("{}.pdf", invoice.invoice.id),
+            file: pdf_bytes,
+            media_type: MediaType::ApplicationPdf,
+        };
 
-            let tax_amount = invoice.invoice.tax_amount.to_unit(currency.exponent as u8);
-            let total_amount = invoice.invoice.total.to_unit(currency.exponent as u8);
-            let total_before_tax = total_amount - tax_amount;
+        let created = self
+            .client
+            .create_attachment(attachment, &conn.access_token)
+            .await
+            .change_context(PgmqError::HandleMessages)?;
 
-            let billing_country = invoice
-                .customer
-                .billing_address
+        let tax_amount = invoice.invoice.tax_amount.to_unit(currency.exponent as u8);
+        let total_amount = invoice.invoice.total.to_unit(currency.exponent as u8);
+        let total_before_tax = total_amount - tax_amount;
+
+        let billing_country = invoice
+            .customer
+            .billing_address
+            .as_ref()
+            .and_then(|x| x.country.as_ref());
+
+        let to_sync = NewCustomerInvoiceImport {
+            file_attachment_id: created.id,
+            customer_id: pennylane_cus_id,
+            external_reference: invoice.invoice.id.as_proto(),
+            invoice_number: Some(invoice.invoice.invoice_number),
+            date: invoice.invoice.invoice_date,
+            deadline: invoice
+                .invoice
+                .due_at
                 .as_ref()
-                .and_then(|x| x.country.as_ref());
+                .map_or(invoice.invoice.invoice_date, chrono::NaiveDateTime::date),
+            currency: invoice.invoice.currency,
+            currency_amount_before_tax: total_before_tax.to_string(),
+            currency_amount: total_amount.to_string(),
+            currency_tax: tax_amount.to_string(),
+            invoice_lines: invoice
+                .invoice
+                .line_items
+                .into_iter()
+                .map(|x| {
+                    let total_amount = x.amount_total.to_unit(currency.exponent as u8);
+                    let tax_amount = x.tax_amount.to_unit(currency.exponent as u8);
 
-            let to_sync = NewCustomerInvoiceImport {
-                file_attachment_id: created.id,
-                customer_id: pennylane_cus_id,
-                external_reference: invoice.invoice.id.as_proto(),
-                invoice_number: Some(invoice.invoice.invoice_number),
-                date: invoice.invoice.invoice_date,
-                deadline: invoice
-                    .invoice
-                    .due_at
-                    .as_ref()
-                    .map_or(invoice.invoice.invoice_date, chrono::NaiveDateTime::date),
-                currency: invoice.invoice.currency,
-                currency_amount_before_tax: total_before_tax.to_string(),
-                currency_amount: total_amount.to_string(),
-                currency_tax: tax_amount.to_string(),
-                invoice_lines: invoice
-                    .invoice
-                    .line_items
-                    .into_iter()
-                    .map(|x| {
-                        let total_amount = x.amount_total.to_unit(currency.exponent as u8);
-                        let tax_amount = x.tax_amount;
+                    let vat_rate = if let Some(country) = billing_country {
+                        VatRate::from_decimal(x.tax_rate, &country.code)
+                            .unwrap_or(VatRate::EXEMPT)
+                    } else {
+                        VatRate::EXEMPT
+                    };
 
-                        let vat_rate = if let Some(country) = billing_country {
-                            VatRate::from_decimal(x.tax_rate, &country.code)
-                                .unwrap_or(VatRate::EXEMPT)
-                        } else {
-                            VatRate::EXEMPT
-                        };
+                    // For lines without an explicit unit_price (usage/tiered/etc.),
+                    // collapse to a single unit at the full subtotal price so
+                    // Pennylane's quantity * unit_price matches the line subtotal.
+                    let (quantity, raw_unit_price) = match x.unit_price {
+                        Some(p) => (x.quantity.unwrap_or(Decimal::ONE), p),
+                        None => (
+                            Decimal::ONE,
+                            x.amount_subtotal.to_unit(currency.exponent as u8),
+                        ),
+                    };
 
-                        CustomerInvoiceLine {
-                            currency_amount: total_amount.to_string(),
-                            currency_tax: tax_amount.to_string(),
-                            label: x.name,
-                            quantity: x.quantity.unwrap_or(Decimal::ONE),
-                            raw_currency_unit_price: x
-                                .unit_price
-                                .unwrap_or(x.amount_subtotal.to_unit(currency.exponent as u8))
-                                .to_string(),
-                            unit: String::new(),
-                            vat_rate,
-                            description: None,
-                            imputation_dates: Some(CustomerInvoiceLineImputationDates {
-                                start_date: x.start_date,
-                                end_date: x.end_date,
-                            }),
-                        }
-                    })
-                    .collect_vec(),
-            };
-
-            let res = self
-                .client
-                .import_or_get_customer_invoice(&to_sync, &conn.access_token)
-                .await;
-
-            match res {
-                Ok(res) => {
-                    self.store
-                        .patch_invoice_conn_meta(
-                            invoice.invoice.id,
-                            conn.connector_id,
-                            ConnectorProviderEnum::Pennylane,
-                            res.id.to_string().as_str(),
-                            conn.external_company_id.as_str(),
-                        )
-                        .await
-                        .change_context(PgmqError::HandleMessages)?;
-
-                    if invoice.invoice.amount_due == 0 {
-                        self.mark_invoice_as_paid(conn, res.id).await?;
+                    CustomerInvoiceLine {
+                        currency_amount: total_amount.to_string(),
+                        currency_tax: tax_amount.to_string(),
+                        label: x.name,
+                        quantity,
+                        raw_currency_unit_price: raw_unit_price.to_string(),
+                        unit: String::new(),
+                        vat_rate,
+                        description: None,
+                        imputation_dates: Some(CustomerInvoiceLineImputationDates {
+                            start_date: x.start_date,
+                            end_date: x.end_date,
+                        }),
                     }
+                })
+                .collect_vec(),
+        };
 
-                    log::info!(
-                        "Invoice {} synced to pennylane [id={}]",
+        let res = self
+            .client
+            .import_or_get_customer_invoice(&to_sync, &conn.access_token)
+            .await;
+
+        match res {
+            Ok(res) => {
+                self.store
+                    .patch_invoice_conn_meta(
                         invoice.invoice.id,
-                        res.id
-                    );
+                        conn.connector_id,
+                        ConnectorProviderEnum::Pennylane,
+                        res.id.to_string().as_str(),
+                        conn.external_company_id.as_str(),
+                    )
+                    .await
+                    .change_context(PgmqError::HandleMessages)?;
+
+                if invoice.invoice.amount_due == 0 {
+                    self.mark_invoice_as_paid(conn, res.id).await?;
                 }
-                Err(e) => {
-                    log::warn!(
-                        "Failed to sync invoice {} to pennylane: {:?}",
-                        invoice.invoice.id,
-                        e
-                    );
 
-                    let status_code = e.status_code();
+                log::info!(
+                    "Invoice {} synced to pennylane [id={}]",
+                    invoice.invoice.id,
+                    res.id
+                );
+            }
+            Err(e) => {
+                log::warn!(
+                    "Failed to sync invoice {} to pennylane: {:?}",
+                    invoice.invoice.id,
+                    e
+                );
 
-                    if status_code.is_some_and(|x| x < 500 && x != 429 && x != 409) {
-                        return Ok(msg_id);
-                    }
+                let status_code = e.status_code();
 
-                    return Err(Report::new(PgmqError::HandleMessages).attach(e));
+                if status_code.is_some_and(|x| x < 500 && x != 429 && x != 409) {
+                    return Ok(msg_id);
                 }
+
+                return Err(Report::new(PgmqError::HandleMessages).attach(e));
             }
         }
 
