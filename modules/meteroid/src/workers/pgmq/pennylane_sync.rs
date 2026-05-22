@@ -477,8 +477,7 @@ impl PennylaneSync {
                     let tax_amount = x.tax_amount.to_unit(currency.exponent as u8);
 
                     let vat_rate = if let Some(country) = billing_country {
-                        VatRate::from_decimal(x.tax_rate, &country.code)
-                            .unwrap_or(VatRate::EXEMPT)
+                        VatRate::from_decimal(x.tax_rate, &country.code).unwrap_or(VatRate::EXEMPT)
                     } else {
                         VatRate::EXEMPT
                     };
