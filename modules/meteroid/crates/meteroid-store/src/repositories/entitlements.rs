@@ -122,7 +122,7 @@ pub trait EntitlementsInterface {
     /// `Feature → Plan → AddOn → PlanVersion → Subscription`. Subscription-level grants
     /// always win; PlanVersion overrides its linked AddOns because the plan version is
     /// the authoritative composition. See [`EntitlementEntityId::priority`].
-    async fn get_effective_entitlements(
+    async fn resolve_entitlements_for_customer(
         &self,
         conn: &mut PgConn,
         customer_id: CustomerId,
@@ -131,7 +131,7 @@ pub trait EntitlementsInterface {
 
     /// Single-feature variant of [`get_effective_entitlements`].
     /// Returns `None` when the feature is outside the customer's product scope or yields no grants.
-    async fn get_effective_entitlements_for_feature(
+    async fn resolve_entitlements_for_feature(
         &self,
         conn: &mut PgConn,
         customer_id: CustomerId,
@@ -142,7 +142,7 @@ pub trait EntitlementsInterface {
     /// Resolve entitlements for a single target — product, add-on, plan version, subscription,
     /// quote, or in-flight `Selection` — used for per-entity previews in the UI.
     /// Returns one `ResolvedEntitlement` per feature in the target's product scope.
-    async fn resolve_for_entity(
+    async fn resolve_entitlements_for_entity(
         &self,
         conn: &mut PgConn,
         tenant_id: TenantId,
@@ -476,7 +476,7 @@ impl EntitlementsInterface for Store {
             .map_err(Into::into)
     }
 
-    async fn get_effective_entitlements(
+    async fn resolve_entitlements_for_customer(
         &self,
         conn: &mut PgConn,
         customer_id: CustomerId,
@@ -489,7 +489,7 @@ impl EntitlementsInterface for Store {
         .await
     }
 
-    async fn resolve_for_entity(
+    async fn resolve_entitlements_for_entity(
         &self,
         conn: &mut PgConn,
         tenant_id: TenantId,
@@ -507,7 +507,7 @@ impl EntitlementsInterface for Store {
         .await
     }
 
-    async fn get_effective_entitlements_for_feature(
+    async fn resolve_entitlements_for_feature(
         &self,
         conn: &mut PgConn,
         customer_id: CustomerId,
@@ -578,14 +578,12 @@ pub(crate) struct BillingCyclePeriod {
 pub(crate) fn compute_usage_period(
     reset_period: &ResetPeriod,
     billing_cycle: Option<BillingCyclePeriod>,
-    activation_date: Option<NaiveDate>,
+    activation_date: Option<NaiveDateTime>,
     now: NaiveDateTime,
 ) -> UsagePeriodBounds {
     match reset_period {
         ResetPeriod::Never => UsagePeriodBounds {
-            start: activation_date
-                .map(|d| d.and_time(NaiveTime::MIN))
-                .unwrap_or(now),
+            start: activation_date.unwrap_or(now),
             end: None,
         },
         ResetPeriod::BillingCycle => match billing_cycle {
@@ -603,7 +601,7 @@ pub(crate) fn compute_usage_period(
         },
         ResetPeriod::Calendar { unit, interval } => calendar_period(now, unit, *interval),
         ResetPeriod::FixedWindow { unit, interval } => match activation_date {
-            Some(act) => fixed_window(act.and_time(NaiveTime::MIN), now, unit, *interval),
+            Some(act) => fixed_window(act, now, unit, *interval),
             None => UsagePeriodBounds {
                 start: now,
                 end: None,
@@ -867,7 +865,6 @@ async fn with_origin_names(
         .map(|raw| ResolvedEntitlement {
             feature: raw.feature,
             value: raw.value,
-            created_at: raw.created_at,
             origin: ResolvedOrigin {
                 name: lookup(&raw.origin_entity),
                 entity: raw.origin_entity,
@@ -1452,14 +1449,9 @@ fn resolve(
 
         let mut accumulated: Option<EntitlementValue> = None;
         let mut accumulated_priority: Option<u8> = None;
-        let mut min_created_at: Option<DateTime<chrono::Utc>> = None;
         let mut winning_origin: Option<EntitlementEntityId> = None;
 
         for ent in ents {
-            min_created_at = Some(match min_created_at {
-                None => ent.created_at,
-                Some(prev) => prev.min(ent.created_at),
-            });
             let pri = ent.entity.priority();
             let same_priority = accumulated_priority == Some(pri);
             let is_additive = matches!(
@@ -1529,7 +1521,6 @@ fn resolve(
                 product: feature.product.clone(),
             },
             value: resolved_value,
-            created_at: min_created_at.expect("min_created_at set whenever accumulated is Some"),
             origin_entity: winning_origin.expect("origin set whenever accumulated is Some"),
         });
     }
@@ -2196,7 +2187,7 @@ mod tests {
     #[test]
     fn usage_period_never_uses_activation_date() {
         let now = dt(2025, 6, 15);
-        let activation = d(2024, 1, 1);
+        let activation = dt(2024, 1, 1);
         let b = compute_usage_period(&ResetPeriod::Never, None, Some(activation), now);
         assert_eq!(b.start, dt(2024, 1, 1));
         assert_eq!(b.end, None);
@@ -2300,7 +2291,7 @@ mod tests {
     #[test]
     fn usage_period_fixed_window_day_first_bucket_starts_at_activation() {
         // Activation 2025-06-10, 7-day buckets. `now` 2025-06-13 falls in bucket 0.
-        let activation = d(2025, 6, 10);
+        let activation = dt(2025, 6, 10);
         let now = dt(2025, 6, 13);
         let b = compute_usage_period(
             &ResetPeriod::FixedWindow {
@@ -2319,7 +2310,7 @@ mod tests {
     fn usage_period_fixed_window_day_advances_to_current_bucket() {
         // Activation 2025-06-10, 7-day buckets. `now` 2025-07-02 → bucket 3
         // (start 2025-07-01, end 2025-07-08).
-        let activation = d(2025, 6, 10);
+        let activation = dt(2025, 6, 10);
         let now = dt(2025, 7, 2);
         let b = compute_usage_period(
             &ResetPeriod::FixedWindow {
@@ -2338,7 +2329,7 @@ mod tests {
     fn usage_period_fixed_window_hour_anchored_on_activation() {
         // Activation midnight 2025-06-10, 6-hour buckets. `now` 2025-06-10 14:30
         // → bucket 2 (start 12:00, end 18:00).
-        let activation = d(2025, 6, 10);
+        let activation = dt(2025, 6, 10);
         let now = dt_hms(2025, 6, 10, 14, 30, 0);
         let b = compute_usage_period(
             &ResetPeriod::FixedWindow {
@@ -2354,9 +2345,26 @@ mod tests {
     }
 
     #[test]
+    fn usage_period_fixed_window_hour_anchored_on_activation_with_time() {
+        let activation = dt_hms(2025, 5, 27, 14, 10, 0);
+        let now = dt_hms(2025, 5, 27, 14, 20, 0);
+        let b = compute_usage_period(
+            &ResetPeriod::FixedWindow {
+                unit: PeriodUnit::Hour,
+                interval: 2,
+            },
+            None,
+            Some(activation),
+            now,
+        );
+        assert_eq!(b.start, dt_hms(2025, 5, 27, 14, 10, 0));
+        assert_eq!(b.end, Some(dt_hms(2025, 5, 27, 16, 10, 0)));
+    }
+
+    #[test]
     fn usage_period_fixed_window_month_advances_to_current_bucket() {
         // Activation 2025-01-15, 1-month buckets. `now` 2025-06-20 → bucket starts 2025-06-15.
-        let activation = d(2025, 1, 15);
+        let activation = dt(2025, 1, 15);
         let now = dt(2025, 6, 20);
         let b = compute_usage_period(
             &ResetPeriod::FixedWindow {
@@ -2374,7 +2382,7 @@ mod tests {
     #[test]
     fn usage_period_fixed_window_year_advances_to_current_bucket() {
         // Activation 2020-03-10, 1-year buckets. `now` 2025-06-15 → bucket starts 2025-03-10.
-        let activation = d(2020, 3, 10);
+        let activation = dt(2020, 3, 10);
         let now = dt(2025, 6, 15);
         let b = compute_usage_period(
             &ResetPeriod::FixedWindow {

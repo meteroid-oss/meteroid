@@ -384,7 +384,11 @@ impl EntitlementsService for EntitlementsComponents {
             .map_err(EntitlementApiError::from)?;
         let resolved = self
             .store
-            .resolve_for_entity(&mut conn, tenant_id, ResolveTarget::Product(product_id))
+            .resolve_entitlements_for_entity(
+                &mut conn,
+                tenant_id,
+                ResolveTarget::Product(product_id),
+            )
             .await
             .map_err(EntitlementApiError::from)?;
 
@@ -413,7 +417,7 @@ impl EntitlementsService for EntitlementsComponents {
             .map_err(EntitlementApiError::from)?;
         let resolved = self
             .store
-            .resolve_for_entity(&mut conn, tenant_id, ResolveTarget::AddOn(add_on_id))
+            .resolve_entitlements_for_entity(&mut conn, tenant_id, ResolveTarget::AddOn(add_on_id))
             .await
             .map_err(EntitlementApiError::from)?;
 
@@ -442,7 +446,7 @@ impl EntitlementsService for EntitlementsComponents {
             .map_err(EntitlementApiError::from)?;
         let resolved = self
             .store
-            .resolve_for_entity(
+            .resolve_entitlements_for_entity(
                 &mut conn,
                 tenant_id,
                 ResolveTarget::PlanVersion(plan_version_id),
@@ -475,7 +479,7 @@ impl EntitlementsService for EntitlementsComponents {
             .map_err(EntitlementApiError::from)?;
         let resolved = self
             .store
-            .resolve_for_entity(
+            .resolve_entitlements_for_entity(
                 &mut conn,
                 tenant_id,
                 ResolveTarget::Subscription(subscription_id),
@@ -508,7 +512,7 @@ impl EntitlementsService for EntitlementsComponents {
             .map_err(EntitlementApiError::from)?;
         let resolved = self
             .store
-            .resolve_for_entity(&mut conn, tenant_id, ResolveTarget::Quote(quote_id))
+            .resolve_entitlements_for_entity(&mut conn, tenant_id, ResolveTarget::Quote(quote_id))
             .await
             .map_err(EntitlementApiError::from)?;
 
@@ -547,7 +551,7 @@ impl EntitlementsService for EntitlementsComponents {
             .map_err(EntitlementApiError::from)?;
         let resolved = self
             .store
-            .resolve_for_entity(
+            .resolve_entitlements_for_entity(
                 &mut conn,
                 tenant_id,
                 ResolveTarget::Selection {

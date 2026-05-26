@@ -3,7 +3,7 @@ use super::AppState;
 use crate::api_rest::QueryParams;
 use crate::api_rest::addons::mapping;
 use crate::api_rest::addons::model::*;
-use crate::api_rest::entitlements::mapping::entitlement_spec_from_rest;
+
 use crate::api_rest::error::RestErrorResponse;
 use crate::api_rest::model::{PaginationExt, validate_order_by};
 use crate::errors::RestApiError;
@@ -126,12 +126,6 @@ pub(crate) async fn create_addon(
     State(app_state): State<AppState>,
     Valid(Json(payload)): Valid<Json<CreateAddOnRequest>>,
 ) -> Result<impl IntoResponse, RestApiError> {
-    let entitlements = payload
-        .entitlements
-        .into_iter()
-        .map(entitlement_spec_from_rest)
-        .collect();
-
     let addon = app_state
         .store
         .create_add_on(AddOnNew {
@@ -143,7 +137,7 @@ pub(crate) async fn create_addon(
             self_serviceable: payload.self_serviceable,
             max_instances_per_subscription: payload.max_instances_per_subscription,
             created_by: authorized_state.actor_id,
-            entitlements,
+            entitlements: vec![],
         })
         .await
         .map_err(|e| {

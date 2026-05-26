@@ -84,6 +84,14 @@ pub trait UsageClient: Send + Sync {
         period: UsagePeriod,
     ) -> StoreResult<UsageData>;
 
+    async fn fetch_total_usage(
+        &self,
+        tenant_id: &TenantId,
+        customer_id: &CustomerId,
+        metric: &BillableMetric,
+        period: UsagePeriod,
+    ) -> StoreResult<Decimal>;
+
     async fn fetch_windowed_usage(
         &self,
         tenant_id: &TenantId,
@@ -148,6 +156,25 @@ impl UsageClient for MockUsageClient {
                 period: period.clone(),
             });
         Ok(usage_data)
+    }
+
+    async fn fetch_total_usage(
+        &self,
+        _tenant_id: &TenantId,
+        _customer_id: &CustomerId,
+        metric: &BillableMetric,
+        period: UsagePeriod,
+    ) -> StoreResult<Decimal> {
+        let params = MockUsageDataParams {
+            metric_id: metric.id,
+            period_start: period.start,
+            period_end: period.end,
+        };
+        Ok(self
+            .data
+            .get(&params)
+            .map(|d| d.data.iter().map(|g| g.value).sum())
+            .unwrap_or(Decimal::ZERO))
     }
 
     async fn fetch_windowed_usage(

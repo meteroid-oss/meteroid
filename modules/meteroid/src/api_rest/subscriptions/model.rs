@@ -1,5 +1,5 @@
 use crate::api_rest::currencies::model::Currency;
-use crate::api_rest::entitlements::model::{Entitlement, EntitlementSpec};
+use crate::api_rest::entitlements::model::Entitlement;
 use crate::api_rest::model::{BillingPeriodEnum, PaginatedRequest, PaginationResponse};
 use chrono::NaiveDate;
 use common_domain::ids::{
@@ -321,9 +321,6 @@ pub struct SubscriptionCreateRequest {
     /// The subscription will be set to the current billing period with correct cycle_index.
     #[schema(nullable = false)]
     pub skip_past_invoices: Option<bool>,
-    /// Inline entitlements to attach when creating this subscription.
-    #[serde(default)]
-    pub entitlements: Vec<EntitlementSpec>,
 }
 
 #[derive(o2o, Clone, ToSchema, Serialize, Deserialize, Debug)]

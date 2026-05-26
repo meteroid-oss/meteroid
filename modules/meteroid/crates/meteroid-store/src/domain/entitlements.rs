@@ -327,7 +327,6 @@ pub struct ResolvedOrigin {
 pub struct RawResolvedEntitlement {
     pub feature: FeatureRef,
     pub value: ResolvedEntitlementValue,
-    pub created_at: DateTime<Utc>,
     /// Highest-priority entity that contributed to the final value. See
     /// [`ResolvedEntitlement::origin`] for the resolution semantics.
     pub origin_entity: EntitlementEntityId,
@@ -340,8 +339,6 @@ pub struct RawResolvedEntitlement {
 pub struct ResolvedEntitlement {
     pub feature: FeatureRef,
     pub value: ResolvedEntitlementValue,
-    /// Earliest creation time across resolved entitlements. Used as default usage floor.
-    pub created_at: DateTime<Utc>,
     /// Highest-priority entity that contributed to the final value, with its display name.
     /// For Override winners this is the overriding entity; for Stack merges it is the
     /// highest-priority contributing entity. Feature-level (tenant default) returns
@@ -354,7 +351,6 @@ pub struct ResolvedEntitlement {
 pub struct EffectiveEntitlement {
     pub feature: FeatureRef,
     pub value: EffectiveEntitlementValue,
-    pub created_at: DateTime<Utc>,
     /// Highest-priority entity that contributed to the final value, with its human-readable name.
     /// For Override winners this is the overriding entity; for Stack merges it is the
     /// highest-priority contributing entity. Feature-level (tenant default) returns

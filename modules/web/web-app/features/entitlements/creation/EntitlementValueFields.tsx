@@ -61,15 +61,15 @@ function overageBehaviorHint(type: string | undefined): string {
 function resetPeriodHint(type: string | undefined): string {
   switch (type) {
     case 'never':
-      return 'Usage accumulates for the life of the subscription — no reset.'
+      return 'Never resets — counts all usage since the subscription was activated.'
     case 'billingCycle':
-      return 'Resets at the start of each subscription billing period.'
+      return 'Resets each time your subscription renews — anchored to your billing cycle.'
     case 'calendar':
-      return 'Buckets aligned to the calendar (e.g. every 1st of the month), shared across customers.'
+      return 'Resets on calendar boundaries (e.g. the 1st of every month) — not tied to subscription start date.'
     case 'fixedWindow':
-      return 'Fixed-length buckets anchored on the subscription activation date. Resets at every boundary.'
+      return 'Resets at regular intervals — anchored to your subscription\'s exact activation time.'
     case 'slidingWindow':
-      return 'Continuous rolling window — usage older than the window edge drops out, no fixed reset.'
+      return 'Always ends at now — e.g. 30 days means the last 30 days, old usage drops off automatically.'
     default:
       return ''
   }

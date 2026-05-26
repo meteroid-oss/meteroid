@@ -11,7 +11,7 @@ use utoipa::{IntoParams, ToSchema};
 use validator::Validate;
 
 fn default_reset_period() -> ResetPeriod {
-    ResetPeriod::Never
+    ResetPeriod::Never(NeverResetPeriod {})
 }
 
 fn default_metered_enabled_rest() -> bool {
@@ -30,15 +30,52 @@ pub enum FeatureStatus {
     Archived,
 }
 
+/// Deny access once usage reaches the limit. Meteroid does not enforce this — your integration must check and act.
+#[derive(Serialize, Deserialize, Debug, Clone, PartialEq, Eq, ToSchema)]
+pub struct BlockOverageBehavior {
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub grace_period_pct: Option<u32>,
+}
+
+/// Keep serving usage past the limit; overage is billed or handled out-of-band.
+#[derive(Serialize, Deserialize, Debug, Clone, PartialEq, Eq, ToSchema)]
+pub struct AllowOverageBehavior {}
+
 /// What happens past the limit.
-#[derive(o2o, Serialize, Deserialize, Debug, Clone, PartialEq, Eq, ToSchema)]
+#[derive(Serialize, Deserialize, Debug, Clone, PartialEq, Eq, ToSchema)]
 #[serde(tag = "type", rename_all = "SCREAMING_SNAKE_CASE")]
-#[map_owned(meteroid_store::domain::entitlements::OverageBehavior)]
 pub enum OverageBehavior {
-    /// Deny access once usage reaches the limit. Meteroid does not enforce this — your integration must check and act.
-    Block { grace_period_pct: Option<u32> },
+    Block(BlockOverageBehavior),
     /// Keep serving usage past the limit; overage is billed or handled out-of-band.
-    Allow,
+    Allow(AllowOverageBehavior),
+}
+
+impl From<meteroid_store::domain::entitlements::OverageBehavior> for OverageBehavior {
+    fn from(v: meteroid_store::domain::entitlements::OverageBehavior) -> Self {
+        match v {
+            meteroid_store::domain::entitlements::OverageBehavior::Block { grace_period_pct } => {
+                OverageBehavior::Block(BlockOverageBehavior { grace_period_pct })
+            }
+            meteroid_store::domain::entitlements::OverageBehavior::Allow => {
+                OverageBehavior::Allow(AllowOverageBehavior {})
+            }
+        }
+    }
+}
+
+impl From<OverageBehavior> for meteroid_store::domain::entitlements::OverageBehavior {
+    fn from(v: OverageBehavior) -> Self {
+        match v {
+            OverageBehavior::Block(b) => {
+                meteroid_store::domain::entitlements::OverageBehavior::Block {
+                    grace_period_pct: b.grace_period_pct,
+                }
+            }
+            OverageBehavior::Allow(_) => {
+                meteroid_store::domain::entitlements::OverageBehavior::Allow
+            }
+        }
+    }
 }
 
 #[derive(o2o, Serialize, Deserialize, Debug, Clone, Copy, PartialEq, Eq, ToSchema)]
@@ -52,65 +89,166 @@ pub enum CalendarUnit {
     Year,
 }
 
-#[derive(o2o, Serialize, Deserialize, Debug, Clone, ToSchema)]
-#[serde(tag = "type", rename_all = "SCREAMING_SNAKE_CASE")]
-#[map_owned(meteroid_store::domain::entitlements::ResetPeriod)]
-pub enum ResetPeriod {
-    /// Resets at the start of each subscription billing period.
-    BillingCycle,
-    /// Buckets aligned to the calendar (e.g. every 1st of the month), shared across customers.
-    Calendar {
-        #[map(~.into())]
-        unit: CalendarUnit,
-        interval: u32,
-    },
-    /// Fixed-length buckets anchored on the subscription activation date. Resets at every boundary.
-    FixedWindow {
-        #[map(~.into())]
-        unit: CalendarUnit,
-        interval: u32,
-    },
-    /// Continuous rolling window — usage older than the window edge drops out, no fixed reset.
-    SlidingWindow {
-        #[map(~.into())]
-        unit: CalendarUnit,
-        interval: u32,
-    },
-    /// Usage accumulates for the life of the subscription — no reset.
-    Never,
+/// Resets each time your subscription renews — anchored to your billing cycle.
+#[derive(Serialize, Deserialize, Debug, Clone, ToSchema)]
+pub struct BillingCycleResetPeriod {}
+
+/// Resets on calendar boundaries (e.g. the 1st of every month) — not tied to subscription start date.
+#[derive(Serialize, Deserialize, Debug, Clone, ToSchema)]
+pub struct CalendarResetPeriod {
+    pub unit: CalendarUnit,
+    pub interval: u32,
 }
 
-#[derive(o2o, Serialize, Deserialize, Debug, Clone, ToSchema)]
+/// Resets at regular intervals — anchored to your subscription's exact activation time.
+#[derive(Serialize, Deserialize, Debug, Clone, ToSchema)]
+pub struct FixedWindowResetPeriod {
+    pub unit: CalendarUnit,
+    pub interval: u32,
+}
+
+/// Always ends at now — e.g. 30 days means the last 30 days, old usage drops off automatically.
+#[derive(Serialize, Deserialize, Debug, Clone, ToSchema)]
+pub struct SlidingWindowResetPeriod {
+    pub unit: CalendarUnit,
+    pub interval: u32,
+}
+
+/// Never resets — counts all usage since the subscription was activated.
+#[derive(Serialize, Deserialize, Debug, Clone, ToSchema)]
+pub struct NeverResetPeriod {}
+
+#[derive(Serialize, Deserialize, Debug, Clone, ToSchema)]
 #[serde(tag = "type", rename_all = "SCREAMING_SNAKE_CASE")]
-#[map_owned(meteroid_store::domain::entitlements::FeatureType)]
+pub enum ResetPeriod {
+    /// Resets each time your subscription renews — anchored to your billing cycle.
+    BillingCycle(BillingCycleResetPeriod),
+    /// Resets on calendar boundaries (e.g. the 1st of every month) — not tied to subscription start date.
+    Calendar(CalendarResetPeriod),
+    /// Resets at regular intervals — anchored to your subscription's exact activation time.
+    FixedWindow(FixedWindowResetPeriod),
+    /// Always ends at now — e.g. 30 days means the last 30 days, old usage drops off automatically.
+    SlidingWindow(SlidingWindowResetPeriod),
+    /// Never resets — counts all usage since the subscription was activated.
+    Never(NeverResetPeriod),
+}
+
+impl From<meteroid_store::domain::entitlements::ResetPeriod> for ResetPeriod {
+    fn from(v: meteroid_store::domain::entitlements::ResetPeriod) -> Self {
+        match v {
+            meteroid_store::domain::entitlements::ResetPeriod::BillingCycle => {
+                ResetPeriod::BillingCycle(BillingCycleResetPeriod {})
+            }
+            meteroid_store::domain::entitlements::ResetPeriod::Calendar { unit, interval } => {
+                ResetPeriod::Calendar(CalendarResetPeriod {
+                    unit: unit.into(),
+                    interval,
+                })
+            }
+            meteroid_store::domain::entitlements::ResetPeriod::FixedWindow { unit, interval } => {
+                ResetPeriod::FixedWindow(FixedWindowResetPeriod {
+                    unit: unit.into(),
+                    interval,
+                })
+            }
+            meteroid_store::domain::entitlements::ResetPeriod::SlidingWindow { unit, interval } => {
+                ResetPeriod::SlidingWindow(SlidingWindowResetPeriod {
+                    unit: unit.into(),
+                    interval,
+                })
+            }
+            meteroid_store::domain::entitlements::ResetPeriod::Never => {
+                ResetPeriod::Never(NeverResetPeriod {})
+            }
+        }
+    }
+}
+
+impl From<ResetPeriod> for meteroid_store::domain::entitlements::ResetPeriod {
+    fn from(v: ResetPeriod) -> Self {
+        match v {
+            ResetPeriod::BillingCycle(_) => {
+                meteroid_store::domain::entitlements::ResetPeriod::BillingCycle
+            }
+            ResetPeriod::Calendar(c) => {
+                meteroid_store::domain::entitlements::ResetPeriod::Calendar {
+                    unit: c.unit.into(),
+                    interval: c.interval,
+                }
+            }
+            ResetPeriod::FixedWindow(f) => {
+                meteroid_store::domain::entitlements::ResetPeriod::FixedWindow {
+                    unit: f.unit.into(),
+                    interval: f.interval,
+                }
+            }
+            ResetPeriod::SlidingWindow(s) => {
+                meteroid_store::domain::entitlements::ResetPeriod::SlidingWindow {
+                    unit: s.unit.into(),
+                    interval: s.interval,
+                }
+            }
+            ResetPeriod::Never(_) => meteroid_store::domain::entitlements::ResetPeriod::Never,
+        }
+    }
+}
+
+#[derive(Serialize, Deserialize, Debug, Clone, ToSchema)]
+pub struct BooleanFeatureType {}
+
+#[derive(Serialize, Deserialize, Debug, Clone, ToSchema)]
+pub struct MeteredFeatureType {
+    #[serde(with = "string_serde")]
+    pub metric_id: BillableMetricId,
+}
+
+#[derive(Serialize, Deserialize, Debug, Clone, ToSchema)]
+#[serde(tag = "type", rename_all = "SCREAMING_SNAKE_CASE")]
 pub enum FeatureType {
-    Boolean,
-    Metered {
-        #[serde(with = "string_serde")]
-        metric_id: BillableMetricId,
-    },
+    Boolean(BooleanFeatureType),
+    Metered(MeteredFeatureType),
+}
+
+impl From<meteroid_store::domain::entitlements::FeatureType> for FeatureType {
+    fn from(v: meteroid_store::domain::entitlements::FeatureType) -> Self {
+        match v {
+            meteroid_store::domain::entitlements::FeatureType::Boolean => {
+                FeatureType::Boolean(BooleanFeatureType {})
+            }
+            meteroid_store::domain::entitlements::FeatureType::Metered { metric_id } => {
+                FeatureType::Metered(MeteredFeatureType { metric_id })
+            }
+        }
+    }
+}
+
+#[derive(Serialize, Deserialize, Debug, Clone, ToSchema)]
+pub struct BooleanEntitlementValue {
+    pub enabled: bool,
+}
+
+#[derive(Serialize, Deserialize, Debug, Clone, ToSchema)]
+pub struct MeteredEntitlementValue {
+    /// Cap on usage. Null means unlimited.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    #[schema(value_type = Option<String>, format = "decimal")]
+    pub limit: Option<Decimal>,
+    #[serde(default = "default_reset_period")]
+    pub reset_period: ResetPeriod,
+    pub overage_behavior: OverageBehavior,
+    /// Percentage of the Cap at which a warning triggers (0–100).
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub warning_threshold_pct: Option<u32>,
+    /// Per-entitlement kill switch. `false` means disabled.
+    #[serde(default = "default_metered_enabled_rest")]
+    pub enabled: bool,
 }
 
 #[derive(Serialize, Deserialize, Debug, Clone, ToSchema)]
 #[serde(tag = "type", rename_all = "SCREAMING_SNAKE_CASE")]
 pub enum EntitlementValue {
-    Boolean {
-        enabled: bool,
-    },
-    Metered {
-        /// Cap on usage. Null means unlimited.
-        #[serde(skip_serializing_if = "Option::is_none")]
-        limit: Option<Decimal>,
-        #[serde(default = "default_reset_period")]
-        reset_period: ResetPeriod,
-        overage_behavior: OverageBehavior,
-        /// Percentage of the Cap at which a warning triggers (0–100).
-        #[serde(skip_serializing_if = "Option::is_none")]
-        warning_threshold_pct: Option<u32>,
-        /// Per-entitlement kill switch. `false` means disabled.
-        #[serde(default = "default_metered_enabled_rest")]
-        enabled: bool,
-    },
+    Boolean(BooleanEntitlementValue),
+    Metered(MeteredEntitlementValue),
 }
 
 #[derive(Serialize, Debug, Clone, ToSchema)]
@@ -118,6 +256,56 @@ pub struct MeteredEntitlementSpec {
     #[serde(serialize_with = "string_serde::serialize")]
     pub metric_id: BillableMetricId,
     #[serde(skip_serializing_if = "Option::is_none")]
+    #[schema(value_type = Option<String>, format = "decimal")]
+    pub limit: Option<Decimal>,
+    pub reset_period: ResetPeriod,
+    pub overage_behavior: OverageBehavior,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub warning_threshold_pct: Option<u32>,
+    pub enabled: bool,
+}
+
+#[derive(Serialize, Debug, Clone, ToSchema)]
+pub struct MeteredEntitlementUsage {
+    #[serde(skip_serializing_if = "Option::is_none")]
+    #[schema(value_type = Option<String>, format = "decimal")]
+    pub consumed: Option<Decimal>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    #[schema(value_type = Option<String>, format = "decimal")]
+    pub remaining: Option<Decimal>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub reset_at: Option<DateTime<Utc>>,
+}
+
+#[derive(Serialize, Debug, Clone, ToSchema)]
+pub struct BooleanEffectiveEntitlementValue {
+    pub enabled: bool,
+}
+
+#[derive(Serialize, Debug, Clone, ToSchema)]
+pub struct MeteredEffectiveEntitlementValue {
+    pub spec: MeteredEntitlementSpec,
+    pub usage: MeteredEntitlementUsage,
+}
+
+#[derive(Serialize, Debug, Clone, ToSchema)]
+#[serde(tag = "type", rename_all = "SCREAMING_SNAKE_CASE")]
+pub enum EffectiveEntitlementValue {
+    Boolean(BooleanEffectiveEntitlementValue),
+    Metered(MeteredEffectiveEntitlementValue),
+}
+
+#[derive(Serialize, Debug, Clone, ToSchema)]
+pub struct BooleanResolvedEntitlementValue {
+    pub enabled: bool,
+}
+
+#[derive(Serialize, Debug, Clone, ToSchema)]
+pub struct MeteredResolvedEntitlementValue {
+    #[serde(serialize_with = "string_serde::serialize")]
+    pub metric_id: BillableMetricId,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    #[schema(value_type = Option<String>, format = "decimal")]
     pub limit: Option<Decimal>,
     pub reset_period: ResetPeriod,
     pub overage_behavior: OverageBehavior,
@@ -128,14 +316,56 @@ pub struct MeteredEntitlementSpec {
 
 #[derive(Serialize, Debug, Clone, ToSchema)]
 #[serde(tag = "type", rename_all = "SCREAMING_SNAKE_CASE")]
-pub enum EffectiveEntitlementValue {
-    Boolean {
-        enabled: bool,
-    },
-    Metered {
-        spec: MeteredEntitlementSpec,
-        usage: MeteredEntitlementUsage,
-    },
+pub enum ResolvedEntitlementValue {
+    Boolean(BooleanResolvedEntitlementValue),
+    Metered(MeteredResolvedEntitlementValue),
+}
+
+#[derive(Serialize, Deserialize, Debug, Clone, ToSchema)]
+pub struct FeatureEntitlementEntity {
+    #[serde(with = "common_domain::ids::string_serde")]
+    pub id: FeatureId,
+}
+
+#[derive(Serialize, Deserialize, Debug, Clone, ToSchema)]
+pub struct PlanEntitlementEntity {
+    #[serde(with = "common_domain::ids::string_serde")]
+    pub id: PlanId,
+}
+
+#[derive(Serialize, Deserialize, Debug, Clone, ToSchema)]
+pub struct PlanVersionEntitlementEntity {
+    #[serde(with = "common_domain::ids::string_serde")]
+    pub id: PlanVersionId,
+}
+
+#[derive(Serialize, Deserialize, Debug, Clone, ToSchema)]
+pub struct AddOnEntitlementEntity {
+    #[serde(with = "common_domain::ids::string_serde")]
+    pub id: AddOnId,
+}
+
+#[derive(Serialize, Deserialize, Debug, Clone, ToSchema)]
+pub struct SubscriptionEntitlementEntity {
+    #[serde(with = "common_domain::ids::string_serde")]
+    pub id: SubscriptionId,
+}
+
+#[derive(Serialize, Deserialize, Debug, Clone, ToSchema)]
+pub struct QuoteEntitlementEntity {
+    #[serde(with = "common_domain::ids::string_serde")]
+    pub id: QuoteId,
+}
+
+#[derive(Serialize, Deserialize, Debug, Clone, ToSchema)]
+#[serde(tag = "type", rename_all = "SCREAMING_SNAKE_CASE")]
+pub enum EntitlementEntity {
+    Feature(FeatureEntitlementEntity),
+    Plan(PlanEntitlementEntity),
+    PlanVersion(PlanVersionEntitlementEntity),
+    AddOn(AddOnEntitlementEntity),
+    Subscription(SubscriptionEntitlementEntity),
+    Quote(QuoteEntitlementEntity),
 }
 
 #[derive(Serialize, Debug, Clone, ToSchema)]
@@ -162,6 +392,7 @@ pub struct FeatureListResponse {
     pub pagination_meta: PaginationResponse,
 }
 
+/// A raw entitlement row attached to one entity (feature, plan version, add-on, or subscription).
 #[derive(Serialize, Deserialize, Debug, Clone, ToSchema)]
 pub struct Entitlement {
     #[serde(serialize_with = "string_serde::serialize")]
@@ -171,21 +402,6 @@ pub struct Entitlement {
     pub value: EntitlementValue,
     pub created_at: DateTime<Utc>,
     pub updated_at: DateTime<Utc>,
-}
-
-#[derive(Serialize, Debug, Clone, ToSchema)]
-pub struct EntitlementListResponse {
-    pub data: Vec<Entitlement>,
-}
-
-#[derive(Serialize, Debug, Clone, ToSchema)]
-pub struct MeteredEntitlementUsage {
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub consumed: Option<Decimal>,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub remaining: Option<Decimal>,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub reset_at: Option<DateTime<Utc>>,
 }
 
 #[derive(Serialize, Debug, Clone, ToSchema)]
@@ -204,12 +420,11 @@ pub struct FeatureRef {
     pub product: Option<ProductRef>,
 }
 
+/// Merged entitlement value for a feature for a specific customer, enriched with live usage data.
 #[derive(Serialize, Debug, Clone, ToSchema)]
 pub struct EffectiveEntitlement {
     pub feature: FeatureRef,
     pub value: EffectiveEntitlementValue,
-    /// Earliest creation timestamp across the resolved entitlements that contributed.
-    pub created_at: DateTime<Utc>,
     /// Highest-priority entity that contributed to the final value, with its human-readable name.
     pub origin: ResolvedOrigin,
 }
@@ -227,66 +442,18 @@ pub struct ResolvedOrigin {
     pub name: Option<String>,
 }
 
+/// Merged entitlement value for a feature across the priority hierarchy, without usage data.
 #[derive(Serialize, Debug, Clone, ToSchema)]
 pub struct ResolvedEntitlement {
     pub feature: FeatureRef,
     pub value: ResolvedEntitlementValue,
-    pub created_at: DateTime<Utc>,
     /// Highest-priority entity that contributed to the final value, with its human-readable name.
     pub origin: ResolvedOrigin,
 }
 
 #[derive(Serialize, Debug, Clone, ToSchema)]
-#[serde(tag = "type", rename_all = "SCREAMING_SNAKE_CASE")]
-pub enum ResolvedEntitlementValue {
-    Boolean {
-        enabled: bool,
-    },
-    Metered {
-        #[serde(serialize_with = "string_serde::serialize")]
-        metric_id: BillableMetricId,
-        #[serde(skip_serializing_if = "Option::is_none")]
-        limit: Option<Decimal>,
-        reset_period: ResetPeriod,
-        overage_behavior: OverageBehavior,
-        #[serde(skip_serializing_if = "Option::is_none")]
-        warning_threshold_pct: Option<u32>,
-        enabled: bool,
-    },
-}
-
-#[derive(Serialize, Debug, Clone, ToSchema)]
 pub struct ResolvedEntitlementListResponse {
     pub data: Vec<ResolvedEntitlement>,
-}
-
-#[derive(Serialize, Deserialize, Debug, Clone, ToSchema)]
-#[serde(tag = "type", rename_all = "SCREAMING_SNAKE_CASE")]
-pub enum EntitlementEntity {
-    Feature {
-        #[serde(with = "common_domain::ids::string_serde")]
-        id: FeatureId,
-    },
-    Plan {
-        #[serde(with = "common_domain::ids::string_serde")]
-        id: PlanId,
-    },
-    PlanVersion {
-        #[serde(with = "common_domain::ids::string_serde")]
-        id: PlanVersionId,
-    },
-    AddOn {
-        #[serde(with = "common_domain::ids::string_serde")]
-        id: AddOnId,
-    },
-    Subscription {
-        #[serde(with = "common_domain::ids::string_serde")]
-        id: SubscriptionId,
-    },
-    Quote {
-        #[serde(with = "common_domain::ids::string_serde")]
-        id: QuoteId,
-    },
 }
 
 #[derive(Deserialize, Debug, Clone, Validate, IntoParams)]
@@ -303,11 +470,4 @@ pub struct FeatureListRequest {
     pub product_id: Option<ProductId>,
     /// Search by feature name.
     pub search: Option<String>,
-}
-
-#[derive(Serialize, Deserialize, Debug, Clone, Validate, ToSchema)]
-pub struct EntitlementSpec {
-    #[serde(with = "string_serde")]
-    pub feature_id: FeatureId,
-    pub value: EntitlementValue,
 }

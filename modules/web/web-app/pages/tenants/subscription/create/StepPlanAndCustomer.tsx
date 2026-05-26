@@ -249,6 +249,7 @@ export const StepPlanAndCustomer = () => {
                   }}
                   pending={state.entitlements}
                   onChange={next => setState(prev => ({ ...prev, entitlements: next }))}
+                  entityLabel="subscription"
                 />
               </PageSection>
             )}

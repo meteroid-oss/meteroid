@@ -130,6 +130,7 @@ function buildMergedRows(
 
 type RowActionsProps = {
   row: MergedRow
+  entityLabel: string
   onOverride: (row: MergedRow) => void
   onPin: (row: MergedRow) => void
   onToggleDisable: (row: MergedRow) => void
@@ -138,6 +139,7 @@ type RowActionsProps = {
 
 const RowActions: FC<RowActionsProps> = ({
   row,
+  entityLabel,
   onOverride,
   onPin,
   onToggleDisable,
@@ -161,7 +163,7 @@ const RowActions: FC<RowActionsProps> = ({
               <Pencil size={12} />
             </button>
           </TooltipTrigger>
-          <TooltipContent>{entitlementTooltip('quote', 'override')}</TooltipContent>
+          <TooltipContent>{entitlementTooltip(entityLabel, 'override')}</TooltipContent>
         </Tooltip>
       )}
 
@@ -172,7 +174,7 @@ const RowActions: FC<RowActionsProps> = ({
               <PinOff size={12} />
             </button>
           </TooltipTrigger>
-          <TooltipContent>{entitlementTooltip('quote', 'unpin')}</TooltipContent>
+          <TooltipContent>{entitlementTooltip(entityLabel, 'unpin')}</TooltipContent>
         </Tooltip>
       ) : hasInherited ? (
         <Tooltip>
@@ -181,7 +183,7 @@ const RowActions: FC<RowActionsProps> = ({
               <Pin size={12} />
             </button>
           </TooltipTrigger>
-          <TooltipContent>{entitlementTooltip('quote', 'pin')}</TooltipContent>
+          <TooltipContent>{entitlementTooltip(entityLabel, 'pin')}</TooltipContent>
         </Tooltip>
       ) : null}
 
@@ -194,7 +196,7 @@ const RowActions: FC<RowActionsProps> = ({
                 : <CirclePower size={12} className="text-primary" />}
             </button>
           </TooltipTrigger>
-          <TooltipContent>{entitlementTooltip('quote', row.disabled ? 'enable' : 'disable')}</TooltipContent>
+          <TooltipContent>{entitlementTooltip(entityLabel, row.disabled ? 'enable' : 'disable')}</TooltipContent>
         </Tooltip>
       )}
     </div>
@@ -207,11 +209,12 @@ type Props = {
   selection: SelectionInput
   pending: PendingEntitlementSpec[]
   onChange: (next: PendingEntitlementSpec[]) => void
+  entityLabel: string
 }
 
 // ── Main panel ────────────────────────────────────────────────────────────────
 
-export const PendingEntitlementsPanel: FC<Props> = ({ selection, pending, onChange }) => {
+export const PendingEntitlementsPanel: FC<Props> = ({ selection, pending, onChange, entityLabel }) => {
   // 1. Fetch resolved entitlements for the in-flight selection (plan + add-ons) as the baseline
   const { entitlements: inherited, isLoading } = useResolvedEntitlementsForSelection(selection)
 
@@ -257,7 +260,7 @@ export const PendingEntitlementsPanel: FC<Props> = ({ selection, pending, onChan
     if (!row.inherited) return
     const spec = resolvedToPendingSpec(row.inherited)
     upsertPending(spec)
-    toast.success(`"${row.featureName}" pinned on this quote.`)
+    toast.success(`"${row.featureName}" pinned on this ${entityLabel}.`)
   }
 
   const handleToggleDisable = (row: MergedRow) => {
@@ -282,7 +285,7 @@ export const PendingEntitlementsPanel: FC<Props> = ({ selection, pending, onChan
 
   const requestPinAll = () => {
     if (unpinnedRows.length === 0) {
-      toast.info('All entitlements are already pinned on this quote.')
+      toast.info(`All entitlements are already pinned on this ${entityLabel}.`)
       return
     }
     setPinAllOpen(true)
@@ -301,7 +304,7 @@ export const PendingEntitlementsPanel: FC<Props> = ({ selection, pending, onChan
       ...newSpecs,
     ])
     setPinAllOpen(false)
-    toast.success(`${newSpecs.length} entitlement${newSpecs.length === 1 ? '' : 's'} pinned on this quote.`)
+    toast.success(`${newSpecs.length} entitlement${newSpecs.length === 1 ? '' : 's'} pinned on this ${entityLabel}.`)
   }
 
   // Build the initialSpec for the Override dialog from the current row state
@@ -337,7 +340,7 @@ export const PendingEntitlementsPanel: FC<Props> = ({ selection, pending, onChan
                   Add entitlement
                 </Button>
               </TooltipTrigger>
-              <TooltipContent>Attach a new entitlement to this quote.</TooltipContent>
+              <TooltipContent>{`Attach a new entitlement to this ${entityLabel}.`}</TooltipContent>
             </Tooltip>
 
             <Tooltip>
@@ -352,8 +355,7 @@ export const PendingEntitlementsPanel: FC<Props> = ({ selection, pending, onChan
                 </Button>
               </TooltipTrigger>
               <TooltipContent className="max-w-56">
-                Save local copies of every upstream entitlement on this quote.
-                Already-pinned entries are skipped.
+                {`Save local copies of every upstream entitlement on this ${entityLabel}. Already-pinned entries are skipped.`}
               </TooltipContent>
             </Tooltip>
         </div>
@@ -421,6 +423,7 @@ export const PendingEntitlementsPanel: FC<Props> = ({ selection, pending, onChan
                           </span>
                           <RowActions
                             row={row}
+                            entityLabel={entityLabel}
                             onOverride={handleOverride}
                             onPin={handlePin}
                             onToggleDisable={handleToggleDisable}
@@ -457,7 +460,7 @@ export const PendingEntitlementsPanel: FC<Props> = ({ selection, pending, onChan
               <AlertDialogDescription>
                 {`This will save local copies of ${unpinnedRows.length} inherited ${
                   unpinnedRows.length === 1 ? 'entitlement' : 'entitlements'
-                } on this quote. Pinned values stay fixed even if the plan version changes.`}
+                } on this ${entityLabel}. Pinned values stay fixed even if the plan version changes.`}
               </AlertDialogDescription>
             </AlertDialogHeader>
             <AlertDialogFooter>

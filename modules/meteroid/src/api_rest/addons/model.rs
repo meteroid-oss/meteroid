@@ -1,4 +1,4 @@
-use crate::api_rest::entitlements::model::{Entitlement, EntitlementSpec};
+use crate::api_rest::entitlements::model::Entitlement;
 use crate::api_rest::model::{PaginatedRequest, PaginationResponse};
 use crate::api_rest::products::model::ProductFeeTypeEnum;
 use chrono::NaiveDateTime;
@@ -50,9 +50,6 @@ pub struct CreateAddOnRequest {
     #[serde(default)]
     pub self_serviceable: bool,
     pub max_instances_per_subscription: Option<i32>,
-    /// Inline entitlements to attach when creating this add-on.
-    #[serde(default)]
-    pub entitlements: Vec<EntitlementSpec>,
 }
 
 #[derive(Clone, Debug, Deserialize, Validate, ToSchema)]

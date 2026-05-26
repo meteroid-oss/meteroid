@@ -151,7 +151,6 @@ message EffectiveEntitlement {
     BooleanEntitlement boolean = 2;
     MeteredEntitlement metered = 3;
   }
-  string created_at = 4;
   // Highest-priority entity that contributed to the final value, with its human-readable name.
   ResolvedOrigin origin = 5;
 
@@ -179,7 +178,6 @@ message ResolvedEntitlement {
     BooleanResolved boolean = 2;
     MeteredResolved metered = 3;
   }
-  string created_at = 4;
   // Highest-priority entity that contributed to the final value, with its human-readable name.
   ResolvedOrigin origin = 5;
 

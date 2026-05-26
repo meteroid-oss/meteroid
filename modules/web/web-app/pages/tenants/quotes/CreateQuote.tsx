@@ -839,6 +839,7 @@ export const CreateQuote = () => {
                       }}
                       pending={pendingEntitlements}
                       onChange={setPendingEntitlements}
+                      entityLabel="quote"
                     />
                   </CardContent>
                 </Card>

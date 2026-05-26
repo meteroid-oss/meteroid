@@ -314,7 +314,6 @@ pub fn effective_entitlement_to_proto(r: EffectiveEntitlement) -> proto::Effecti
             }),
         }),
         value: Some(value),
-        created_at: r.created_at.as_proto(),
         origin: Some(origin_to_proto(r.origin)),
     }
 }
@@ -351,7 +350,6 @@ pub fn resolved_entitlement_to_proto(r: ResolvedEntitlement) -> proto::ResolvedE
             }),
         }),
         value: Some(value),
-        created_at: r.created_at.as_proto(),
         origin: Some(origin_to_proto(r.origin)),
     }
 }

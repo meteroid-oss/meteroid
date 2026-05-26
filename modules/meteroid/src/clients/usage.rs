@@ -186,6 +186,57 @@ impl UsageClient for MeteringUsageClient {
         Ok(UsageData { data, period })
     }
 
+    async fn fetch_total_usage(
+        &self,
+        tenant_id: &TenantId,
+        customer_id: &CustomerId,
+        metric: &BillableMetric,
+        period: UsagePeriod,
+    ) -> StoreResult<Decimal> {
+        if period.start >= period.end {
+            bail!(StoreError::InvalidArgument("invalid period".to_string()));
+        }
+
+        let request = QueryMeterRequest {
+            tenant_id: tenant_id.as_proto(),
+            meter_slug: metric.id.to_string(),
+            code: metric.code.clone(),
+            meter_aggregation_type: map_aggregation_type(&metric.aggregation_type),
+            customer_ids: vec![customer_id.to_string()],
+            from: Some(datetime_to_timestamp(period.start)),
+            to: Some(datetime_to_timestamp(period.end)),
+            group_by_properties: vec![],
+            window_size: QueryWindowSize::AggregateAll.into(),
+            timezone: None,
+            segmentation_filter: build_segmentation_filter(metric.segmentation_matrix.clone()),
+            value_property: metric.aggregation_key.clone(),
+        };
+
+        let mut client = self.usage_grpc_client.clone();
+        let response: QueryMeterResponse =
+            match tokio::time::timeout(GRPC_TIMEOUT, client.query_meter(request)).await {
+                Ok(result) => result
+                    .change_context(StoreError::MeteringServiceError)
+                    .attach("Failed to query meter (total)")?
+                    .into_inner(),
+                Err(_) => {
+                    log::error!(
+                        "query_meter (total) timed out after {} seconds",
+                        GRPC_TIMEOUT.as_secs()
+                    );
+                    return Err(error_stack::Report::new(StoreError::MeteringServiceError)
+                        .attach("query_meter (total) timed out"));
+                }
+            };
+
+        Ok(response
+            .usage
+            .into_iter()
+            .filter_map(|u| u.value.and_then(|v| v.try_into().ok()))
+            .next()
+            .unwrap_or(Decimal::ZERO))
+    }
+
     async fn fetch_windowed_usage(
         &self,
         tenant_id: &TenantId,

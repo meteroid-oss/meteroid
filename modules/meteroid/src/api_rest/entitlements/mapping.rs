@@ -3,13 +3,6 @@ use meteroid_store::domain::entitlements::{self as domain, ResolvedOrigin};
 
 use super::model::*;
 
-pub fn entitlement_spec_from_rest(spec: EntitlementSpec) -> domain::EntitlementSpec {
-    domain::EntitlementSpec {
-        feature_id: spec.feature_id,
-        value: value_from_rest(spec.value),
-    }
-}
-
 pub fn feature_to_rest(f: domain::Feature) -> Feature {
     Feature {
         id: f.id,
@@ -28,39 +21,22 @@ pub fn feature_to_rest(f: domain::Feature) -> Feature {
 
 pub fn value_to_rest(v: domain::EntitlementValue) -> EntitlementValue {
     match v {
-        domain::EntitlementValue::Boolean { enabled } => EntitlementValue::Boolean { enabled },
+        domain::EntitlementValue::Boolean { enabled } => {
+            EntitlementValue::Boolean(BooleanEntitlementValue { enabled })
+        }
         domain::EntitlementValue::Metered {
             limit,
             reset_period,
             overage_behavior,
             warning_threshold_pct,
             enabled,
-        } => EntitlementValue::Metered {
+        } => EntitlementValue::Metered(MeteredEntitlementValue {
             limit,
             reset_period: reset_period.into(),
             overage_behavior: overage_behavior.into(),
             warning_threshold_pct,
             enabled,
-        },
-    }
-}
-
-pub fn value_from_rest(v: EntitlementValue) -> domain::EntitlementValue {
-    match v {
-        EntitlementValue::Boolean { enabled } => domain::EntitlementValue::Boolean { enabled },
-        EntitlementValue::Metered {
-            limit,
-            reset_period,
-            overage_behavior,
-            warning_threshold_pct,
-            enabled,
-        } => domain::EntitlementValue::Metered {
-            limit,
-            reset_period: reset_period.into(),
-            overage_behavior: overage_behavior.into(),
-            warning_threshold_pct,
-            enabled,
-        },
+        }),
     }
 }
 
@@ -85,19 +61,27 @@ pub fn resolved_origin_to_rest(o: ResolvedOrigin) -> super::model::ResolvedOrigi
 /// Convert a domain `EntitlementEntityId` to the REST `EntitlementEntity` enum.
 pub fn entity_id_to_rest(entity: EntitlementEntityId) -> EntitlementEntity {
     match entity {
-        EntitlementEntityId::Feature(id) => EntitlementEntity::Feature { id },
-        EntitlementEntityId::Plan(id) => EntitlementEntity::Plan { id },
-        EntitlementEntityId::PlanVersion(id) => EntitlementEntity::PlanVersion { id },
-        EntitlementEntityId::AddOn(id) => EntitlementEntity::AddOn { id },
-        EntitlementEntityId::Subscription(id) => EntitlementEntity::Subscription { id },
-        EntitlementEntityId::Quote(id) => EntitlementEntity::Quote { id },
+        EntitlementEntityId::Feature(id) => {
+            EntitlementEntity::Feature(FeatureEntitlementEntity { id })
+        }
+        EntitlementEntityId::Plan(id) => EntitlementEntity::Plan(PlanEntitlementEntity { id }),
+        EntitlementEntityId::PlanVersion(id) => {
+            EntitlementEntity::PlanVersion(PlanVersionEntitlementEntity { id })
+        }
+        EntitlementEntityId::AddOn(id) => EntitlementEntity::AddOn(AddOnEntitlementEntity { id }),
+        EntitlementEntityId::Subscription(id) => {
+            EntitlementEntity::Subscription(SubscriptionEntitlementEntity { id })
+        }
+        EntitlementEntityId::Quote(id) => EntitlementEntity::Quote(QuoteEntitlementEntity { id }),
     }
 }
 
 pub fn resolved_entitlement_to_rest(r: domain::ResolvedEntitlement) -> ResolvedEntitlement {
     use domain::ResolvedEntitlementValue as DomVal;
     let value = match r.value {
-        DomVal::Boolean { enabled } => ResolvedEntitlementValue::Boolean { enabled },
+        DomVal::Boolean { enabled } => {
+            ResolvedEntitlementValue::Boolean(BooleanResolvedEntitlementValue { enabled })
+        }
         DomVal::Metered {
             metric_id,
             limit,
@@ -105,14 +89,14 @@ pub fn resolved_entitlement_to_rest(r: domain::ResolvedEntitlement) -> ResolvedE
             overage_behavior,
             warning_threshold_pct,
             enabled,
-        } => ResolvedEntitlementValue::Metered {
+        } => ResolvedEntitlementValue::Metered(MeteredResolvedEntitlementValue {
             metric_id,
             limit,
             reset_period: reset_period.into(),
             overage_behavior: overage_behavior.into(),
             warning_threshold_pct,
             enabled,
-        },
+        }),
     };
     ResolvedEntitlement {
         feature: FeatureRef {
@@ -124,7 +108,6 @@ pub fn resolved_entitlement_to_rest(r: domain::ResolvedEntitlement) -> ResolvedE
             }),
         },
         value,
-        created_at: r.created_at,
         origin: resolved_origin_to_rest(r.origin),
     }
 }
@@ -132,7 +115,7 @@ pub fn resolved_entitlement_to_rest(r: domain::ResolvedEntitlement) -> ResolvedE
 pub fn effective_entitlement_to_rest(r: domain::EffectiveEntitlement) -> EffectiveEntitlement {
     let value = match r.value {
         domain::EffectiveEntitlementValue::Boolean { enabled } => {
-            EffectiveEntitlementValue::Boolean { enabled }
+            EffectiveEntitlementValue::Boolean(BooleanEffectiveEntitlementValue { enabled })
         }
         domain::EffectiveEntitlementValue::Metered {
             metric_id,
@@ -142,7 +125,7 @@ pub fn effective_entitlement_to_rest(r: domain::EffectiveEntitlement) -> Effecti
             warning_threshold_pct,
             enabled,
             usage,
-        } => EffectiveEntitlementValue::Metered {
+        } => EffectiveEntitlementValue::Metered(MeteredEffectiveEntitlementValue {
             spec: MeteredEntitlementSpec {
                 metric_id,
                 limit,
@@ -156,7 +139,7 @@ pub fn effective_entitlement_to_rest(r: domain::EffectiveEntitlement) -> Effecti
                 remaining: usage.remaining,
                 reset_at: usage.reset_at,
             },
-        },
+        }),
     };
     EffectiveEntitlement {
         feature: FeatureRef {
@@ -168,7 +151,6 @@ pub fn effective_entitlement_to_rest(r: domain::EffectiveEntitlement) -> Effecti
             }),
         },
         value,
-        created_at: r.created_at,
         origin: resolved_origin_to_rest(r.origin),
     }
 }

@@ -19,8 +19,8 @@ use meteroid_store::repositories::subscriptions::SubscriptionInterface;
 use crate::api_rest::QueryParams;
 use crate::api_rest::entitlements::mapping;
 use crate::api_rest::entitlements::model::{
-    EffectiveEntitlementListResponse, EntitlementListResponse, Feature, FeatureListRequest,
-    FeatureListResponse, ResolvedEntitlementListResponse,
+    EffectiveEntitlementListResponse, Feature, FeatureListRequest, FeatureListResponse,
+    ResolvedEntitlementListResponse,
 };
 use crate::api_rest::error::RestErrorResponse;
 use crate::api_rest::model::PaginationExt;
@@ -170,27 +170,32 @@ async fn verify_entity_ownership(
 
 // ── Entity entitlement list endpoints ─────────────────────────
 
-async fn list_entitlements_for(
+async fn resolve_entitlements_for(
     app_state: AppState,
     tenant_id: common_domain::ids::TenantId,
+    target: ResolveTarget,
     entity: EntitlementEntityId,
 ) -> Result<impl IntoResponse, RestApiError> {
     verify_entity_ownership(&app_state, tenant_id, &entity).await?;
 
-    let entitlements = app_state
+    let mut conn = app_state.store.get_conn().await.map_err(|e| {
+        log::error!("Error getting db connection: {e}");
+        RestApiError::StoreError
+    })?;
+    let resolved = app_state
         .store
-        .list_entitlements_by_entity(entity, tenant_id)
+        .resolve_entitlements_for_entity(&mut conn, tenant_id, target)
         .await
         .map_err(|e| {
-            log::error!("Error listing entitlements: {e}");
-            RestApiError::StoreError
+            log::error!("Error resolving entitlements: {e}");
+            RestApiError::from(e)
         })?;
 
-    let data = entitlements
+    let data = resolved
         .into_iter()
-        .map(mapping::entitlement_to_rest)
+        .map(mapping::resolved_entitlement_to_rest)
         .collect();
-    Ok(Json(EntitlementListResponse { data }))
+    Ok(Json(ResolvedEntitlementListResponse { data }))
 }
 
 /// List plan version entitlements
@@ -200,7 +205,7 @@ async fn list_entitlements_for(
     path = "/api/v1/plan-versions/{plan_version_id}/entitlements",
     params(("plan_version_id" = PlanVersionId, Path, description = "Plan version ID")),
     responses(
-        (status = 200, description = "Entitlements for this plan version", body = EntitlementListResponse),
+        (status = 200, description = "Resolved entitlements for this plan version", body = ResolvedEntitlementListResponse),
         (status = 401, description = "Unauthorized", body = RestErrorResponse),
         (status = 404, description = "Plan version not found", body = RestErrorResponse),
     ),
@@ -212,9 +217,10 @@ pub(crate) async fn list_plan_version_entitlements(
     State(app_state): State<AppState>,
     Path(plan_version_id): Path<PlanVersionId>,
 ) -> Result<impl IntoResponse, RestApiError> {
-    list_entitlements_for(
+    resolve_entitlements_for(
         app_state,
         authorized_state.tenant_id,
+        ResolveTarget::PlanVersion(plan_version_id),
         EntitlementEntityId::PlanVersion(plan_version_id),
     )
     .await
@@ -227,7 +233,7 @@ pub(crate) async fn list_plan_version_entitlements(
     path = "/api/v1/addons/{addon_id}/entitlements",
     params(("addon_id" = AddOnId, Path, description = "Add-on ID")),
     responses(
-        (status = 200, description = "Entitlements for this add-on", body = EntitlementListResponse),
+        (status = 200, description = "Resolved entitlements for this add-on", body = ResolvedEntitlementListResponse),
         (status = 401, description = "Unauthorized", body = RestErrorResponse),
         (status = 404, description = "Add-on not found", body = RestErrorResponse),
     ),
@@ -239,9 +245,10 @@ pub(crate) async fn list_add_on_entitlements(
     State(app_state): State<AppState>,
     Path(add_on_id): Path<AddOnId>,
 ) -> Result<impl IntoResponse, RestApiError> {
-    list_entitlements_for(
+    resolve_entitlements_for(
         app_state,
         authorized_state.tenant_id,
+        ResolveTarget::AddOn(add_on_id),
         EntitlementEntityId::AddOn(add_on_id),
     )
     .await
@@ -254,7 +261,7 @@ pub(crate) async fn list_add_on_entitlements(
     path = "/api/v1/subscriptions/{subscription_id}/entitlements",
     params(("subscription_id" = SubscriptionId, Path, description = "Subscription ID")),
     responses(
-        (status = 200, description = "Entitlements for this subscription", body = EntitlementListResponse),
+        (status = 200, description = "Effective entitlements for this subscription, with live usage", body = EffectiveEntitlementListResponse),
         (status = 401, description = "Unauthorized", body = RestErrorResponse),
         (status = 404, description = "Subscription not found", body = RestErrorResponse),
     ),
@@ -266,12 +273,20 @@ pub(crate) async fn list_subscription_entitlements(
     State(app_state): State<AppState>,
     Path(subscription_id): Path<SubscriptionId>,
 ) -> Result<impl IntoResponse, RestApiError> {
-    list_entitlements_for(
-        app_state,
-        authorized_state.tenant_id,
-        EntitlementEntityId::Subscription(subscription_id),
-    )
-    .await
+    let resolved = app_state
+        .services
+        .get_effective_entitlements_for_subscription(subscription_id, authorized_state.tenant_id)
+        .await
+        .map_err(|e| {
+            log::error!("Error resolving subscription entitlements: {e}");
+            RestApiError::from(e)
+        })?;
+
+    let data = resolved
+        .into_iter()
+        .map(mapping::effective_entitlement_to_rest)
+        .collect();
+    Ok(Json(EffectiveEntitlementListResponse { data }))
 }
 
 // ── Customer resolution ────────────────────────────────────────
@@ -279,7 +294,7 @@ pub(crate) async fn list_subscription_entitlements(
 /// List customer entitlements
 #[utoipa::path(
     get,
-    tags = ["Entitlements", "Customers"],
+    tags = ["Customers", "Entitlements"],
     path = "/api/v1/customers/{id_or_alias}/entitlements",
     params(
         ("id_or_alias" = String, Path, description = "Customer ID or alias"),
@@ -346,7 +361,7 @@ pub(crate) async fn list_product_entitlements(
     })?;
     let resolved = app_state
         .store
-        .resolve_for_entity(
+        .resolve_entitlements_for_entity(
             &mut conn,
             authorized_state.tenant_id,
             ResolveTarget::Product(product_id),

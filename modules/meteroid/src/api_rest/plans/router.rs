@@ -1,7 +1,7 @@
 use super::AppState;
 
 use crate::api_rest::QueryParams;
-use crate::api_rest::entitlements::mapping::entitlement_spec_from_rest;
+
 use crate::api_rest::error::RestErrorResponse;
 use crate::api_rest::model::{PaginationExt, validate_order_by};
 use crate::api_rest::plans::mapping;
@@ -205,11 +205,7 @@ pub(crate) async fn create_plan(
             currency: Some(payload.currency),
             billing_cycles: billing.billing_cycles,
             trial,
-            entitlements: payload
-                .entitlements
-                .into_iter()
-                .map(entitlement_spec_from_rest)
-                .collect(),
+            entitlements: vec![],
         },
         price_components: components,
     };

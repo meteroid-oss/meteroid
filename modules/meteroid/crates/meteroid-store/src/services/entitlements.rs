@@ -3,16 +3,16 @@ use crate::domain::entitlements::{
     EffectiveEntitlement, EffectiveEntitlementValue, EntitlementUsage, FeatureRef, OverageBehavior,
     ResetPeriod, ResolvedEntitlement, ResolvedEntitlementValue, ResolvedOrigin,
 };
-use crate::domain::enums::BillingMetricAggregateEnum;
 use crate::domain::{BillableMetric, UsagePeriod};
 use crate::errors::StoreError;
 use crate::repositories::EntitlementsInterface;
-use crate::repositories::entitlements::{BillingCyclePeriod, compute_usage_period};
+use crate::repositories::entitlements::{BillingCyclePeriod, ResolveTarget, compute_usage_period};
+use crate::repositories::subscriptions::SubscriptionInterface;
 use crate::services::Services;
-use crate::services::clients::usage::GroupedUsageData;
+
 use crate::store::PgConn;
-use chrono::{DateTime, NaiveDate, NaiveDateTime, Utc};
-use common_domain::ids::{BillableMetricId, CustomerId, FeatureId, TenantId};
+use chrono::{DateTime, NaiveDateTime, Utc};
+use common_domain::ids::{BillableMetricId, CustomerId, FeatureId, SubscriptionId, TenantId};
 use diesel_models::billable_metrics::BillableMetricRow;
 use diesel_models::subscriptions::SubscriptionRow;
 use error_stack::Report;
@@ -26,10 +26,8 @@ static USAGE_FETCH_CONCURRENCY: usize = 8;
 
 struct MeteredMeta {
     feature: FeatureRef,
-    created_at: DateTime<Utc>,
     origin: ResolvedOrigin,
     metric_id: BillableMetricId,
-    aggregation_type: BillingMetricAggregateEnum,
     limit: Option<Decimal>,
     reset_period: ResetPeriod,
     overage_behavior: OverageBehavior,
@@ -50,7 +48,7 @@ impl Services {
         let resolved = {
             let mut conn = self.store.get_conn().await?;
             self.store
-                .get_effective_entitlements(&mut conn, customer_id, tenant_id)
+                .resolve_entitlements_for_customer(&mut conn, customer_id, tenant_id)
                 .await?
         };
         self.enrich_with_usage(customer_id, tenant_id, resolved)
@@ -66,12 +64,7 @@ impl Services {
         let resolved = {
             let mut conn = self.store.get_conn().await?;
             self.store
-                .get_effective_entitlements_for_feature(
-                    &mut conn,
-                    customer_id,
-                    tenant_id,
-                    feature_id,
-                )
+                .resolve_entitlements_for_feature(&mut conn, customer_id, tenant_id, feature_id)
                 .await?
         };
         let target: Vec<ResolvedEntitlement> = resolved.into_iter().collect::<Vec<_>>();
@@ -81,11 +74,79 @@ impl Services {
         Ok(enriched.pop())
     }
 
+    pub(crate) async fn get_effective_entitlements_for_subscription(
+        &self,
+        subscription_id: SubscriptionId,
+        tenant_id: TenantId,
+    ) -> StoreResult<Vec<EffectiveEntitlement>> {
+        let sub = self
+            .store
+            .get_subscription(tenant_id, subscription_id)
+            .await?;
+        let resolved = {
+            let mut conn = self.store.get_conn().await?;
+            self.store
+                .resolve_entitlements_for_entity(
+                    &mut conn,
+                    tenant_id,
+                    ResolveTarget::Subscription(subscription_id),
+                )
+                .await?
+        };
+        let billing_cycle_period = Some(BillingCyclePeriod {
+            period_start: sub.current_period_start,
+            period_end: sub.current_period_end,
+        });
+        self.enrich_with_context(
+            sub.customer_id,
+            tenant_id,
+            resolved,
+            billing_cycle_period,
+            sub.activated_at,
+        )
+        .await
+    }
+
     async fn enrich_with_usage(
         &self,
         customer_id: CustomerId,
         tenant_id: TenantId,
         resolved: Vec<ResolvedEntitlement>,
+    ) -> StoreResult<Vec<EffectiveEntitlement>> {
+        let metric_ids: Vec<BillableMetricId> = resolved
+            .iter()
+            .filter_map(|e| match &e.value {
+                ResolvedEntitlementValue::Metered { metric_id, .. } => Some(*metric_id),
+                ResolvedEntitlementValue::Boolean { .. } => None,
+            })
+            .unique()
+            .collect();
+
+        let (billing_cycle_period, activation_date) = if metric_ids.is_empty() {
+            (None, None)
+        } else {
+            let mut conn = self.store.get_conn().await?;
+            self.load_billing_context(&mut conn, customer_id, tenant_id)
+                .await?
+        };
+
+        self.enrich_with_context(
+            customer_id,
+            tenant_id,
+            resolved,
+            billing_cycle_period,
+            activation_date,
+        )
+        .await
+    }
+
+    async fn enrich_with_context(
+        &self,
+        customer_id: CustomerId,
+        tenant_id: TenantId,
+        resolved: Vec<ResolvedEntitlement>,
+        billing_cycle_period: Option<BillingCyclePeriod>,
+        activation_date: Option<NaiveDateTime>,
     ) -> StoreResult<Vec<EffectiveEntitlement>> {
         if resolved.is_empty() {
             return Ok(vec![]);
@@ -102,21 +163,10 @@ impl Services {
             .unique()
             .collect();
 
-        // Acquire a connection only for the local DB lookups (billing context + metric
-        // metadata), then drop it before the HTTP fan-out so the pool isn't tied up while
-        // waiting on the metering backend.
-        let (billing_cycle_period, activation_date, metrics) = {
+        let metrics = {
             let mut conn = self.store.get_conn().await?;
-            let (bc, ad) = if metric_ids.is_empty() {
-                (None, None)
-            } else {
-                self.load_billing_context(&mut conn, customer_id, tenant_id)
-                    .await?
-            };
-            let metrics = self
-                .load_metrics(&mut conn, &metric_ids, &tenant_id)
-                .await?;
-            (bc, ad, metrics)
+            self.load_metrics(&mut conn, &metric_ids, &tenant_id)
+                .await?
         };
 
         let mut result: Vec<EffectiveEntitlement> = Vec::with_capacity(resolved.len());
@@ -128,7 +178,6 @@ impl Services {
                 ResolvedEntitlementValue::Boolean { enabled } => {
                     result.push(EffectiveEntitlement {
                         feature: ent.feature,
-                        created_at: ent.created_at,
                         origin: ent.origin,
                         value: EffectiveEntitlementValue::Boolean { enabled },
                     });
@@ -149,7 +198,6 @@ impl Services {
                         );
                         result.push(build_unavailable_metered_entitlement(
                             ent.feature,
-                            ent.created_at,
                             ent.origin,
                             metric_id,
                             limit,
@@ -172,10 +220,8 @@ impl Services {
                     let reset_at = bounds.end.map(|t| t.and_utc());
                     let meta = MeteredMeta {
                         feature: ent.feature,
-                        created_at: ent.created_at,
                         origin: ent.origin,
                         metric_id,
-                        aggregation_type: metric.aggregation_type,
                         limit,
                         reset_period,
                         overage_behavior,
@@ -192,7 +238,7 @@ impl Services {
                         continue;
                     }
 
-                    usage_futs.push(self.usage_client.fetch_usage(
+                    usage_futs.push(self.usage_client.fetch_total_usage(
                         &tenant_id,
                         &customer_id,
                         metric,
@@ -211,8 +257,7 @@ impl Services {
             .try_collect()
             .await?;
 
-        for (meta, usage_data) in metered_meta.into_iter().zip(usage_results) {
-            let consumed = reduce_usage(&usage_data.data, meta.aggregation_type);
+        for (meta, consumed) in metered_meta.into_iter().zip(usage_results) {
             result.push(build_metered_entitlement(meta, consumed));
         }
 
@@ -224,7 +269,7 @@ impl Services {
         conn: &mut PgConn,
         customer_id: CustomerId,
         tenant_id: TenantId,
-    ) -> StoreResult<(Option<BillingCyclePeriod>, Option<NaiveDate>)> {
+    ) -> StoreResult<(Option<BillingCyclePeriod>, Option<NaiveDateTime>)> {
         let sub_rows = SubscriptionRow::find_active_by_customer(conn, customer_id, tenant_id)
             .await
             .map_err(Into::<Report<StoreError>>::into)?;
@@ -242,10 +287,7 @@ impl Services {
                     period_end: r.current_period_end,
                 });
 
-        let activation_date = sub_rows
-            .iter()
-            .filter_map(|r| r.activated_at.map(|dt| dt.date()))
-            .min();
+        let activation_date = sub_rows.iter().filter_map(|r| r.activated_at).min();
 
         Ok((billing_cycle_period, activation_date))
     }
@@ -272,50 +314,12 @@ impl Services {
     }
 }
 
-/// Fold a metric's grouped usage rows into the single `consumed` number reported on the
-/// effective entitlement.
-///
-/// Each [`GroupedUsageData`] is already pre-aggregated by the metering backend for one
-/// dimension group (e.g. one region). This function combines those per-group values:
-///
-/// - `Sum` / `Count` / `CountDistinct` — sum the group values; the natural total across
-///   dimensions.
-/// - `Latest` — also summed across groups. `GroupedUsageData` has no per-group timestamp,
-///   so we cannot pick the temporally-latest single group; summing the per-group latest
-///   gives the current total (e.g. latest queue depth across regions).
-/// - `Max` / `Min` — pick across group values.
-/// - `Mean` — mean of per-group totals, **not** mean per event. For a metric with one
-///   dimension group this equals `Sum`. Callers wanting per-event mean must aggregate
-///   that way at the metering layer.
-fn reduce_usage(
-    data: &[GroupedUsageData],
-    aggregation_type: BillingMetricAggregateEnum,
-) -> Decimal {
-    let values = || data.iter().map(|g| g.value);
-    match aggregation_type {
-        BillingMetricAggregateEnum::Sum
-        | BillingMetricAggregateEnum::Count
-        | BillingMetricAggregateEnum::CountDistinct
-        | BillingMetricAggregateEnum::Latest => values().sum(),
-        BillingMetricAggregateEnum::Max => values().reduce(Decimal::max).unwrap_or(Decimal::ZERO),
-        BillingMetricAggregateEnum::Min => values().reduce(Decimal::min).unwrap_or(Decimal::ZERO),
-        BillingMetricAggregateEnum::Mean => {
-            if data.is_empty() {
-                Decimal::ZERO
-            } else {
-                values().sum::<Decimal>() / Decimal::from(data.len())
-            }
-        }
-    }
-}
-
 fn build_metered_entitlement(meta: MeteredMeta, consumed: Decimal) -> EffectiveEntitlement {
     let remaining = meta.limit.map(|l| (l - consumed).max(Decimal::ZERO));
     // Auto-disable when usage has reached or exceeded the limit.
     let enabled = meta.enabled && meta.limit.is_none_or(|l| consumed < l);
     EffectiveEntitlement {
         feature: meta.feature,
-        created_at: meta.created_at,
         origin: meta.origin,
         value: EffectiveEntitlementValue::Metered {
             metric_id: meta.metric_id,
@@ -339,7 +343,6 @@ fn build_metered_entitlement(meta: MeteredMeta, consumed: Decimal) -> EffectiveE
 #[allow(clippy::too_many_arguments)]
 fn build_unavailable_metered_entitlement(
     feature: FeatureRef,
-    created_at: DateTime<Utc>,
     origin: ResolvedOrigin,
     metric_id: BillableMetricId,
     limit: Option<Decimal>,
@@ -350,7 +353,6 @@ fn build_unavailable_metered_entitlement(
 ) -> EffectiveEntitlement {
     EffectiveEntitlement {
         feature,
-        created_at,
         origin,
         value: EffectiveEntitlementValue::Metered {
             metric_id,
@@ -374,13 +376,6 @@ mod tests {
     use super::*;
     use common_domain::ids::BaseId;
 
-    fn group(value: f64) -> GroupedUsageData {
-        GroupedUsageData {
-            value: Decimal::try_from(value).unwrap(),
-            dimensions: std::collections::HashMap::new(),
-        }
-    }
-
     fn meta(limit: Option<f64>, period_start: NaiveDateTime) -> MeteredMeta {
         MeteredMeta {
             feature: FeatureRef {
@@ -388,13 +383,11 @@ mod tests {
                 name: "test".to_string(),
                 product: None,
             },
-            created_at: Utc::now(),
             origin: ResolvedOrigin {
                 entity: common_domain::ids::EntitlementEntityId::Feature(FeatureId::new()),
                 name: None,
             },
             metric_id: BillableMetricId::new(),
-            aggregation_type: BillingMetricAggregateEnum::Sum,
             limit: limit.map(|v| Decimal::try_from(v).unwrap()),
             reset_period: ResetPeriod::Never,
             overage_behavior: OverageBehavior::Block {
@@ -404,106 +397,6 @@ mod tests {
             enabled: true,
             period_start,
             reset_at: None,
-        }
-    }
-
-    // --- reduce_usage ---
-
-    #[test]
-    fn reduce_sum_adds_groups() {
-        let data = vec![group(10.0), group(20.0), group(30.0)];
-        assert_eq!(
-            reduce_usage(&data, BillingMetricAggregateEnum::Sum),
-            Decimal::from(60)
-        );
-    }
-
-    #[test]
-    fn reduce_count_adds_groups() {
-        let data = vec![group(5.0), group(3.0)];
-        assert_eq!(
-            reduce_usage(&data, BillingMetricAggregateEnum::Count),
-            Decimal::from(8)
-        );
-    }
-
-    #[test]
-    fn reduce_count_distinct_adds_groups() {
-        let data = vec![group(100.0), group(50.0)];
-        assert_eq!(
-            reduce_usage(&data, BillingMetricAggregateEnum::CountDistinct),
-            Decimal::from(150)
-        );
-    }
-
-    #[test]
-    fn reduce_max_takes_largest() {
-        let data = vec![group(10.0), group(30.0), group(20.0)];
-        assert_eq!(
-            reduce_usage(&data, BillingMetricAggregateEnum::Max),
-            Decimal::from(30)
-        );
-    }
-
-    #[test]
-    fn reduce_latest_sums_groups() {
-        // Each GroupedUsageData already holds the per-group latest value. Across groups
-        // we sum (e.g. latest queue depth per region → total queue depth).
-        let data = vec![group(5.0), group(15.0)];
-        assert_eq!(
-            reduce_usage(&data, BillingMetricAggregateEnum::Latest),
-            Decimal::from(20)
-        );
-    }
-
-    #[test]
-    fn reduce_max_preserves_negative_values() {
-        let data = vec![group(-10.0), group(-5.0), group(-20.0)];
-        assert_eq!(
-            reduce_usage(&data, BillingMetricAggregateEnum::Max),
-            Decimal::from(-5)
-        );
-    }
-
-    #[test]
-    fn reduce_min_preserves_positive_values_only() {
-        let data = vec![group(10.0), group(20.0)];
-        assert_eq!(
-            reduce_usage(&data, BillingMetricAggregateEnum::Min),
-            Decimal::from(10)
-        );
-    }
-
-    #[test]
-    fn reduce_min_takes_smallest() {
-        let data = vec![group(10.0), group(5.0), group(20.0)];
-        assert_eq!(
-            reduce_usage(&data, BillingMetricAggregateEnum::Min),
-            Decimal::from(5)
-        );
-    }
-
-    #[test]
-    fn reduce_mean_averages_groups() {
-        let data = vec![group(10.0), group(20.0), group(30.0)];
-        assert_eq!(
-            reduce_usage(&data, BillingMetricAggregateEnum::Mean),
-            Decimal::from(20)
-        );
-    }
-
-    #[test]
-    fn reduce_empty_returns_zero_for_all_types() {
-        for agg in [
-            BillingMetricAggregateEnum::Sum,
-            BillingMetricAggregateEnum::Count,
-            BillingMetricAggregateEnum::CountDistinct,
-            BillingMetricAggregateEnum::Max,
-            BillingMetricAggregateEnum::Latest,
-            BillingMetricAggregateEnum::Min,
-            BillingMetricAggregateEnum::Mean,
-        ] {
-            assert_eq!(reduce_usage(&[], agg), Decimal::ZERO, "failed for {agg:?}");
         }
     }
 
@@ -619,13 +512,11 @@ mod tests {
             entity: common_domain::ids::EntitlementEntityId::Feature(feature.id),
             name: None,
         };
-        let created_at = Utc::now();
         let metric_id = BillableMetricId::new();
         let limit = Some(Decimal::from(500));
 
         let ent = build_unavailable_metered_entitlement(
             feature.clone(),
-            created_at,
             origin,
             metric_id,
             limit,
@@ -638,7 +529,6 @@ mod tests {
         );
 
         assert_eq!(ent.feature.id, feature.id);
-        assert_eq!(ent.created_at, created_at);
         let EffectiveEntitlementValue::Metered {
             limit: l,
             warning_threshold_pct,

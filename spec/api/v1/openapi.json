@@ -412,11 +412,11 @@
         ],
         "responses": {
           "200": {
-            "description": "Entitlements for this add-on",
+            "description": "Resolved entitlements for this add-on",
             "content": {
               "application/json": {
                 "schema": {
-                  "$ref": "#/components/schemas/EntitlementListResponse"
+                  "$ref": "#/components/schemas/ResolvedEntitlementListResponse"
                 }
               }
             }
@@ -2311,8 +2311,8 @@
     "/api/v1/customers/{id_or_alias}/entitlements": {
       "get": {
         "tags": [
-          "Entitlements",
-          "Customers"
+          "Customers",
+          "Entitlements"
         ],
         "summary": "List customer entitlements",
         "operationId": "get_effective_entitlements",
@@ -3500,11 +3500,11 @@
         ],
         "responses": {
           "200": {
-            "description": "Entitlements for this plan version",
+            "description": "Resolved entitlements for this plan version",
             "content": {
               "application/json": {
                 "schema": {
-                  "$ref": "#/components/schemas/EntitlementListResponse"
+                  "$ref": "#/components/schemas/ResolvedEntitlementListResponse"
                 }
               }
             }
@@ -5483,11 +5483,11 @@
         ],
         "responses": {
           "200": {
-            "description": "Entitlements for this subscription",
+            "description": "Effective entitlements for this subscription, with live usage",
             "content": {
               "application/json": {
                 "schema": {
-                  "$ref": "#/components/schemas/EntitlementListResponse"
+                  "$ref": "#/components/schemas/EffectiveEntitlementListResponse"
                 }
               }
             }
@@ -5894,6 +5894,17 @@
           }
         }
       },
+      "AddOnEntitlementEntity": {
+        "type": "object",
+        "required": [
+          "id"
+        ],
+        "properties": {
+          "id": {
+            "$ref": "#/components/schemas/AddOnId"
+          }
+        }
+      },
       "AddOnEvent": {
         "allOf": [
           {
@@ -6045,6 +6056,10 @@
             ]
           }
         }
+      },
+      "AllowOverageBehavior": {
+        "type": "object",
+        "description": "Keep serving usage past the limit; overage is billed or handled out-of-band."
       },
       "AppliedCoupon": {
         "type": "object",
@@ -6449,6 +6464,10 @@
           }
         }
       },
+      "BillingCycleResetPeriod": {
+        "type": "object",
+        "description": "Resets each time your subscription renews — anchored to your billing cycle."
+      },
       "BillingMetricAggregateEnum": {
         "type": "string",
         "enum": [
@@ -6483,6 +6502,74 @@
           "ADVANCE",
           "ARREARS"
         ]
+      },
+      "BlockOverageBehavior": {
+        "type": "object",
+        "description": "Deny access once usage reaches the limit. Meteroid does not enforce this — your integration must check and act.",
+        "properties": {
+          "grace_period_pct": {
+            "type": [
+              "integer",
+              "null"
+            ],
+            "format": "int32",
+            "minimum": 0
+          }
+        }
+      },
+      "BooleanEffectiveEntitlementValue": {
+        "type": "object",
+        "required": [
+          "enabled"
+        ],
+        "properties": {
+          "enabled": {
+            "type": "boolean"
+          }
+        }
+      },
+      "BooleanEntitlementValue": {
+        "type": "object",
+        "required": [
+          "enabled"
+        ],
+        "properties": {
+          "enabled": {
+            "type": "boolean"
+          }
+        }
+      },
+      "BooleanFeatureType": {
+        "type": "object"
+      },
+      "BooleanResolvedEntitlementValue": {
+        "type": "object",
+        "required": [
+          "enabled"
+        ],
+        "properties": {
+          "enabled": {
+            "type": "boolean"
+          }
+        }
+      },
+      "CalendarResetPeriod": {
+        "type": "object",
+        "description": "Resets on calendar boundaries (e.g. the 1st of every month) — not tied to subscription start date.",
+        "required": [
+          "unit",
+          "interval"
+        ],
+        "properties": {
+          "interval": {
+            "type": "integer",
+            "format": "int32",
+            "minimum": 0
+          },
+          "unit": {
+            "$ref": "#/components/schemas/CalendarUnit"
+          }
+        }
       },
       "CalendarUnit": {
         "type": "string",
@@ -7060,13 +7147,6 @@
               "null"
             ]
           },
-          "entitlements": {
-            "type": "array",
-            "items": {
-              "$ref": "#/components/schemas/EntitlementSpec"
-            },
-            "description": "Inline entitlements to attach when creating this add-on."
-          },
           "max_instances_per_subscription": {
             "type": [
               "integer",
@@ -7399,13 +7479,6 @@
               "string",
               "null"
             ]
-          },
-          "entitlements": {
-            "type": "array",
-            "items": {
-              "$ref": "#/components/schemas/EntitlementSpec"
-            },
-            "description": "Inline entitlements to attach to the plan version when creating this plan."
           },
           "name": {
             "type": "string"
@@ -8363,18 +8436,13 @@
       },
       "EffectiveEntitlement": {
         "type": "object",
+        "description": "Merged entitlement value for a feature for a specific customer, enriched with live usage data.",
         "required": [
           "feature",
           "value",
-          "created_at",
           "origin"
         ],
         "properties": {
-          "created_at": {
-            "type": "string",
-            "format": "date-time",
-            "description": "Earliest creation timestamp across the resolved entitlements that contributed."
-          },
           "feature": {
             "$ref": "#/components/schemas/FeatureRef"
           },
@@ -8404,49 +8472,23 @@
       "EffectiveEntitlementValue": {
         "oneOf": [
           {
-            "type": "object",
-            "required": [
-              "enabled",
-              "type"
-            ],
-            "properties": {
-              "enabled": {
-                "type": "boolean"
-              },
-              "type": {
-                "type": "string",
-                "enum": [
-                  "BOOLEAN"
-                ]
-              }
-            }
+            "$ref": "#/components/schemas/BooleanEffectiveEntitlementValue"
           },
           {
-            "type": "object",
-            "required": [
-              "spec",
-              "usage",
-              "type"
-            ],
-            "properties": {
-              "spec": {
-                "$ref": "#/components/schemas/MeteredEntitlementSpec"
-              },
-              "type": {
-                "type": "string",
-                "enum": [
-                  "METERED"
-                ]
-              },
-              "usage": {
-                "$ref": "#/components/schemas/MeteredEntitlementUsage"
-              }
-            }
+            "$ref": "#/components/schemas/MeteredEffectiveEntitlementValue"
           }
-        ]
+        ],
+        "discriminator": {
+          "propertyName": "type",
+          "mapping": {
+            "BOOLEAN": "#/components/schemas/BooleanEffectiveEntitlementValue",
+            "METERED": "#/components/schemas/MeteredEffectiveEntitlementValue"
+          }
+        }
       },
       "Entitlement": {
         "type": "object",
+        "description": "A raw entitlement row attached to one entity (feature, plan version, add-on, or subscription).",
         "required": [
           "id",
           "feature_id",
@@ -8477,114 +8519,35 @@
       "EntitlementEntity": {
         "oneOf": [
           {
-            "type": "object",
-            "required": [
-              "id",
-              "type"
-            ],
-            "properties": {
-              "id": {
-                "$ref": "#/components/schemas/FeatureId"
-              },
-              "type": {
-                "type": "string",
-                "enum": [
-                  "FEATURE"
-                ]
-              }
-            }
+            "$ref": "#/components/schemas/FeatureEntitlementEntity"
           },
           {
-            "type": "object",
-            "required": [
-              "id",
-              "type"
-            ],
-            "properties": {
-              "id": {
-                "$ref": "#/components/schemas/PlanId"
-              },
-              "type": {
-                "type": "string",
-                "enum": [
-                  "PLAN"
-                ]
-              }
-            }
+            "$ref": "#/components/schemas/PlanEntitlementEntity"
           },
           {
-            "type": "object",
-            "required": [
-              "id",
-              "type"
-            ],
-            "properties": {
-              "id": {
-                "$ref": "#/components/schemas/PlanVersionId"
-              },
-              "type": {
-                "type": "string",
-                "enum": [
-                  "PLAN_VERSION"
-                ]
-              }
-            }
+            "$ref": "#/components/schemas/PlanVersionEntitlementEntity"
           },
           {
-            "type": "object",
-            "required": [
-              "id",
-              "type"
-            ],
-            "properties": {
-              "id": {
-                "$ref": "#/components/schemas/AddOnId"
-              },
-              "type": {
-                "type": "string",
-                "enum": [
-                  "ADD_ON"
-                ]
-              }
-            }
+            "$ref": "#/components/schemas/AddOnEntitlementEntity"
           },
           {
-            "type": "object",
-            "required": [
-              "id",
-              "type"
-            ],
-            "properties": {
-              "id": {
-                "$ref": "#/components/schemas/SubscriptionId"
-              },
-              "type": {
-                "type": "string",
-                "enum": [
-                  "SUBSCRIPTION"
-                ]
-              }
-            }
+            "$ref": "#/components/schemas/SubscriptionEntitlementEntity"
           },
           {
-            "type": "object",
-            "required": [
-              "id",
-              "type"
-            ],
-            "properties": {
-              "id": {
-                "$ref": "#/components/schemas/QuoteId"
-              },
-              "type": {
-                "type": "string",
-                "enum": [
-                  "QUOTE"
-                ]
-              }
-            }
+            "$ref": "#/components/schemas/QuoteEntitlementEntity"
           }
-        ]
+        ],
+        "discriminator": {
+          "propertyName": "type",
+          "mapping": {
+            "ADD_ON": "#/components/schemas/AddOnEntitlementEntity",
+            "FEATURE": "#/components/schemas/FeatureEntitlementEntity",
+            "PLAN": "#/components/schemas/PlanEntitlementEntity",
+            "PLAN_VERSION": "#/components/schemas/PlanVersionEntitlementEntity",
+            "QUOTE": "#/components/schemas/QuoteEntitlementEntity",
+            "SUBSCRIPTION": "#/components/schemas/SubscriptionEntitlementEntity"
+          }
+        }
       },
       "EntitlementId": {
         "type": "string",
@@ -8593,97 +8556,22 @@
           "ent_7n42DGM5Tflk9n8mt7Fhc7"
         ]
       },
-      "EntitlementListResponse": {
-        "type": "object",
-        "required": [
-          "data"
-        ],
-        "properties": {
-          "data": {
-            "type": "array",
-            "items": {
-              "$ref": "#/components/schemas/Entitlement"
-            }
-          }
-        }
-      },
-      "EntitlementSpec": {
-        "type": "object",
-        "required": [
-          "feature_id",
-          "value"
-        ],
-        "properties": {
-          "feature_id": {
-            "$ref": "#/components/schemas/FeatureId"
-          },
-          "value": {
-            "$ref": "#/components/schemas/EntitlementValue"
-          }
-        }
-      },
       "EntitlementValue": {
         "oneOf": [
           {
-            "type": "object",
-            "required": [
-              "enabled",
-              "type"
-            ],
-            "properties": {
-              "enabled": {
-                "type": "boolean"
-              },
-              "type": {
-                "type": "string",
-                "enum": [
-                  "BOOLEAN"
-                ]
-              }
-            }
+            "$ref": "#/components/schemas/BooleanEntitlementValue"
           },
           {
-            "type": "object",
-            "required": [
-              "overage_behavior",
-              "type"
-            ],
-            "properties": {
-              "enabled": {
-                "type": "boolean",
-                "description": "Per-entitlement kill switch. `false` means disabled."
-              },
-              "limit": {
-                "type": [
-                  "string",
-                  "null"
-                ],
-                "description": "Cap on usage. Null means unlimited."
-              },
-              "overage_behavior": {
-                "$ref": "#/components/schemas/OverageBehavior"
-              },
-              "reset_period": {
-                "$ref": "#/components/schemas/ResetPeriod"
-              },
-              "type": {
-                "type": "string",
-                "enum": [
-                  "METERED"
-                ]
-              },
-              "warning_threshold_pct": {
-                "type": [
-                  "integer",
-                  "null"
-                ],
-                "format": "int32",
-                "description": "Percentage of the Cap at which a warning triggers (0–100).",
-                "minimum": 0
-              }
-            }
+            "$ref": "#/components/schemas/MeteredEntitlementValue"
           }
-        ]
+        ],
+        "discriminator": {
+          "propertyName": "type",
+          "mapping": {
+            "BOOLEAN": "#/components/schemas/BooleanEntitlementValue",
+            "METERED": "#/components/schemas/MeteredEntitlementValue"
+          }
+        }
       },
       "ErrorCode": {
         "type": "string",
@@ -8940,6 +8828,17 @@
           }
         }
       },
+      "FeatureEntitlementEntity": {
+        "type": "object",
+        "required": [
+          "id"
+        ],
+        "properties": {
+          "id": {
+            "$ref": "#/components/schemas/FeatureId"
+          }
+        }
+      },
       "FeatureId": {
         "type": "string",
         "format": "MeteroidId",
@@ -9002,38 +8901,19 @@
       "FeatureType": {
         "oneOf": [
           {
-            "type": "object",
-            "required": [
-              "type"
-            ],
-            "properties": {
-              "type": {
-                "type": "string",
-                "enum": [
-                  "BOOLEAN"
-                ]
-              }
-            }
+            "$ref": "#/components/schemas/BooleanFeatureType"
           },
           {
-            "type": "object",
-            "required": [
-              "metric_id",
-              "type"
-            ],
-            "properties": {
-              "metric_id": {
-                "$ref": "#/components/schemas/BillableMetricId"
-              },
-              "type": {
-                "type": "string",
-                "enum": [
-                  "METERED"
-                ]
-              }
-            }
+            "$ref": "#/components/schemas/MeteredFeatureType"
           }
-        ]
+        ],
+        "discriminator": {
+          "propertyName": "type",
+          "mapping": {
+            "BOOLEAN": "#/components/schemas/BooleanFeatureType",
+            "METERED": "#/components/schemas/MeteredFeatureType"
+          }
+        }
       },
       "Fee": {
         "oneOf": [
@@ -9080,6 +8960,24 @@
           },
           "currency": {
             "type": "string"
+          }
+        }
+      },
+      "FixedWindowResetPeriod": {
+        "type": "object",
+        "description": "Resets at regular intervals — anchored to your subscription's exact activation time.",
+        "required": [
+          "unit",
+          "interval"
+        ],
+        "properties": {
+          "interval": {
+            "type": "integer",
+            "format": "int32",
+            "minimum": 0
+          },
+          "unit": {
+            "$ref": "#/components/schemas/CalendarUnit"
           }
         }
       },
@@ -9642,6 +9540,21 @@
           }
         }
       },
+      "MeteredEffectiveEntitlementValue": {
+        "type": "object",
+        "required": [
+          "spec",
+          "usage"
+        ],
+        "properties": {
+          "spec": {
+            "$ref": "#/components/schemas/MeteredEntitlementSpec"
+          },
+          "usage": {
+            "$ref": "#/components/schemas/MeteredEntitlementUsage"
+          }
+        }
+      },
       "MeteredEntitlementSpec": {
         "type": "object",
         "required": [
@@ -9658,7 +9571,8 @@
             "type": [
               "string",
               "null"
-            ]
+            ],
+            "format": "decimal"
           },
           "metric_id": {
             "$ref": "#/components/schemas/BillableMetricId"
@@ -9686,13 +9600,15 @@
             "type": [
               "string",
               "null"
-            ]
+            ],
+            "format": "decimal"
           },
           "remaining": {
             "type": [
               "string",
               "null"
-            ]
+            ],
+            "format": "decimal"
           },
           "reset_at": {
             "type": [
@@ -9700,6 +9616,90 @@
               "null"
             ],
             "format": "date-time"
+          }
+        }
+      },
+      "MeteredEntitlementValue": {
+        "type": "object",
+        "required": [
+          "overage_behavior"
+        ],
+        "properties": {
+          "enabled": {
+            "type": "boolean",
+            "description": "Per-entitlement kill switch. `false` means disabled."
+          },
+          "limit": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "format": "decimal",
+            "description": "Cap on usage. Null means unlimited."
+          },
+          "overage_behavior": {
+            "$ref": "#/components/schemas/OverageBehavior"
+          },
+          "reset_period": {
+            "$ref": "#/components/schemas/ResetPeriod"
+          },
+          "warning_threshold_pct": {
+            "type": [
+              "integer",
+              "null"
+            ],
+            "format": "int32",
+            "description": "Percentage of the Cap at which a warning triggers (0–100).",
+            "minimum": 0
+          }
+        }
+      },
+      "MeteredFeatureType": {
+        "type": "object",
+        "required": [
+          "metric_id"
+        ],
+        "properties": {
+          "metric_id": {
+            "$ref": "#/components/schemas/BillableMetricId"
+          }
+        }
+      },
+      "MeteredResolvedEntitlementValue": {
+        "type": "object",
+        "required": [
+          "metric_id",
+          "reset_period",
+          "overage_behavior",
+          "enabled"
+        ],
+        "properties": {
+          "enabled": {
+            "type": "boolean"
+          },
+          "limit": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "format": "decimal"
+          },
+          "metric_id": {
+            "$ref": "#/components/schemas/BillableMetricId"
+          },
+          "overage_behavior": {
+            "$ref": "#/components/schemas/OverageBehavior"
+          },
+          "reset_period": {
+            "$ref": "#/components/schemas/ResetPeriod"
+          },
+          "warning_threshold_pct": {
+            "type": [
+              "integer",
+              "null"
+            ],
+            "format": "int32",
+            "minimum": 0
           }
         }
       },
@@ -10039,6 +10039,10 @@
           }
         }
       },
+      "NeverResetPeriod": {
+        "type": "object",
+        "description": "Never resets — counts all usage since the subscription was activated."
+      },
       "NewProductRef": {
         "type": "object",
         "required": [
@@ -10170,45 +10174,21 @@
       "OverageBehavior": {
         "oneOf": [
           {
-            "type": "object",
-            "description": "Deny access once usage reaches the limit. Meteroid does not enforce this — your integration must check and act.",
-            "required": [
-              "type"
-            ],
-            "properties": {
-              "grace_period_pct": {
-                "type": [
-                  "integer",
-                  "null"
-                ],
-                "format": "int32",
-                "minimum": 0
-              },
-              "type": {
-                "type": "string",
-                "enum": [
-                  "BLOCK"
-                ]
-              }
-            }
+            "$ref": "#/components/schemas/BlockOverageBehavior"
           },
           {
-            "type": "object",
-            "description": "Keep serving usage past the limit; overage is billed or handled out-of-band.",
-            "required": [
-              "type"
-            ],
-            "properties": {
-              "type": {
-                "type": "string",
-                "enum": [
-                  "ALLOW"
-                ]
-              }
-            }
+            "$ref": "#/components/schemas/AllowOverageBehavior",
+            "description": "Keep serving usage past the limit; overage is billed or handled out-of-band."
           }
         ],
-        "description": "What happens past the limit."
+        "description": "What happens past the limit.",
+        "discriminator": {
+          "propertyName": "type",
+          "mapping": {
+            "ALLOW": "#/components/schemas/AllowOverageBehavior",
+            "BLOCK": "#/components/schemas/BlockOverageBehavior"
+          }
+        }
       },
       "PackagePlanPricing": {
         "type": "object",
@@ -10556,6 +10536,17 @@
           }
         }
       },
+      "PlanEntitlementEntity": {
+        "type": "object",
+        "required": [
+          "id"
+        ],
+        "properties": {
+          "id": {
+            "$ref": "#/components/schemas/PlanId"
+          }
+        }
+      },
       "PlanEvent": {
         "allOf": [
           {
@@ -10696,6 +10687,17 @@
             "PER_UNIT": "#/components/schemas/PerUnitPlanPricing",
             "TIERED": "#/components/schemas/TieredPlanPricing",
             "VOLUME": "#/components/schemas/VolumePlanPricing"
+          }
+        }
+      },
+      "PlanVersionEntitlementEntity": {
+        "type": "object",
+        "required": [
+          "id"
+        ],
+        "properties": {
+          "id": {
+            "$ref": "#/components/schemas/PlanVersionId"
           }
         }
       },
@@ -11143,6 +11145,17 @@
           }
         }
       },
+      "QuoteEntitlementEntity": {
+        "type": "object",
+        "required": [
+          "id"
+        ],
+        "properties": {
+          "id": {
+            "$ref": "#/components/schemas/QuoteId"
+          }
+        }
+      },
       "QuoteEvent": {
         "allOf": [
           {
@@ -11333,125 +11346,46 @@
       "ResetPeriod": {
         "oneOf": [
           {
-            "type": "object",
-            "description": "Resets at the start of each subscription billing period.",
-            "required": [
-              "type"
-            ],
-            "properties": {
-              "type": {
-                "type": "string",
-                "enum": [
-                  "BILLING_CYCLE"
-                ]
-              }
-            }
+            "$ref": "#/components/schemas/BillingCycleResetPeriod",
+            "description": "Resets each time your subscription renews — anchored to your billing cycle."
           },
           {
-            "type": "object",
-            "description": "Buckets aligned to the calendar (e.g. every 1st of the month), shared across customers.",
-            "required": [
-              "unit",
-              "interval",
-              "type"
-            ],
-            "properties": {
-              "interval": {
-                "type": "integer",
-                "format": "int32",
-                "minimum": 0
-              },
-              "type": {
-                "type": "string",
-                "enum": [
-                  "CALENDAR"
-                ]
-              },
-              "unit": {
-                "$ref": "#/components/schemas/CalendarUnit"
-              }
-            }
+            "$ref": "#/components/schemas/CalendarResetPeriod",
+            "description": "Resets on calendar boundaries (e.g. the 1st of every month) — not tied to subscription start date."
           },
           {
-            "type": "object",
-            "description": "Fixed-length buckets anchored on the subscription activation date. Resets at every boundary.",
-            "required": [
-              "unit",
-              "interval",
-              "type"
-            ],
-            "properties": {
-              "interval": {
-                "type": "integer",
-                "format": "int32",
-                "minimum": 0
-              },
-              "type": {
-                "type": "string",
-                "enum": [
-                  "FIXED_WINDOW"
-                ]
-              },
-              "unit": {
-                "$ref": "#/components/schemas/CalendarUnit"
-              }
-            }
+            "$ref": "#/components/schemas/FixedWindowResetPeriod",
+            "description": "Resets at regular intervals — anchored to your subscription's exact activation time."
           },
           {
-            "type": "object",
-            "description": "Continuous rolling window — usage older than the window edge drops out, no fixed reset.",
-            "required": [
-              "unit",
-              "interval",
-              "type"
-            ],
-            "properties": {
-              "interval": {
-                "type": "integer",
-                "format": "int32",
-                "minimum": 0
-              },
-              "type": {
-                "type": "string",
-                "enum": [
-                  "SLIDING_WINDOW"
-                ]
-              },
-              "unit": {
-                "$ref": "#/components/schemas/CalendarUnit"
-              }
-            }
+            "$ref": "#/components/schemas/SlidingWindowResetPeriod",
+            "description": "Always ends at now — e.g. 30 days means the last 30 days, old usage drops off automatically."
           },
           {
-            "type": "object",
-            "description": "Usage accumulates for the life of the subscription — no reset.",
-            "required": [
-              "type"
-            ],
-            "properties": {
-              "type": {
-                "type": "string",
-                "enum": [
-                  "NEVER"
-                ]
-              }
-            }
+            "$ref": "#/components/schemas/NeverResetPeriod",
+            "description": "Never resets — counts all usage since the subscription was activated."
           }
-        ]
+        ],
+        "discriminator": {
+          "propertyName": "type",
+          "mapping": {
+            "BILLING_CYCLE": "#/components/schemas/BillingCycleResetPeriod",
+            "CALENDAR": "#/components/schemas/CalendarResetPeriod",
+            "FIXED_WINDOW": "#/components/schemas/FixedWindowResetPeriod",
+            "NEVER": "#/components/schemas/NeverResetPeriod",
+            "SLIDING_WINDOW": "#/components/schemas/SlidingWindowResetPeriod"
+          }
+        }
       },
       "ResolvedEntitlement": {
         "type": "object",
+        "description": "Merged entitlement value for a feature across the priority hierarchy, without usage data.",
         "required": [
           "feature",
           "value",
-          "created_at",
           "origin"
         ],
         "properties": {
-          "created_at": {
-            "type": "string",
-            "format": "date-time"
-          },
           "feature": {
             "$ref": "#/components/schemas/FeatureRef"
           },
@@ -11481,68 +11415,19 @@
       "ResolvedEntitlementValue": {
         "oneOf": [
           {
-            "type": "object",
-            "required": [
-              "enabled",
-              "type"
-            ],
-            "properties": {
-              "enabled": {
-                "type": "boolean"
-              },
-              "type": {
-                "type": "string",
-                "enum": [
-                  "BOOLEAN"
-                ]
-              }
-            }
+            "$ref": "#/components/schemas/BooleanResolvedEntitlementValue"
           },
           {
-            "type": "object",
-            "required": [
-              "metric_id",
-              "reset_period",
-              "overage_behavior",
-              "enabled",
-              "type"
-            ],
-            "properties": {
-              "enabled": {
-                "type": "boolean"
-              },
-              "limit": {
-                "type": [
-                  "string",
-                  "null"
-                ]
-              },
-              "metric_id": {
-                "$ref": "#/components/schemas/BillableMetricId"
-              },
-              "overage_behavior": {
-                "$ref": "#/components/schemas/OverageBehavior"
-              },
-              "reset_period": {
-                "$ref": "#/components/schemas/ResetPeriod"
-              },
-              "type": {
-                "type": "string",
-                "enum": [
-                  "METERED"
-                ]
-              },
-              "warning_threshold_pct": {
-                "type": [
-                  "integer",
-                  "null"
-                ],
-                "format": "int32",
-                "minimum": 0
-              }
-            }
+            "$ref": "#/components/schemas/MeteredResolvedEntitlementValue"
           }
-        ]
+        ],
+        "discriminator": {
+          "propertyName": "type",
+          "mapping": {
+            "BOOLEAN": "#/components/schemas/BooleanResolvedEntitlementValue",
+            "METERED": "#/components/schemas/MeteredResolvedEntitlementValue"
+          }
+        }
       },
       "ResolvedOrigin": {
         "type": "object",
@@ -11595,6 +11480,24 @@
           },
           "same_as_billing": {
             "type": "boolean"
+          }
+        }
+      },
+      "SlidingWindowResetPeriod": {
+        "type": "object",
+        "description": "Always ends at now — e.g. 30 days means the last 30 days, old usage drops off automatically.",
+        "required": [
+          "unit",
+          "interval"
+        ],
+        "properties": {
+          "interval": {
+            "type": "integer",
+            "format": "int32",
+            "minimum": 0
+          },
+          "unit": {
+            "$ref": "#/components/schemas/CalendarUnit"
           }
         }
       },
@@ -12134,13 +12037,6 @@
               "2025-11-01"
             ]
           },
-          "entitlements": {
-            "type": "array",
-            "items": {
-              "$ref": "#/components/schemas/EntitlementSpec"
-            },
-            "description": "Inline entitlements to attach when creating this subscription."
-          },
           "invoice_memo": {
             "type": "string"
           },
@@ -12382,6 +12278,17 @@
             "format": "int32",
             "description": "Trial duration in days",
             "minimum": 0
+          }
+        }
+      },
+      "SubscriptionEntitlementEntity": {
+        "type": "object",
+        "required": [
+          "id"
+        ],
+        "properties": {
+          "id": {
+            "$ref": "#/components/schemas/SubscriptionId"
           }
         }
       },

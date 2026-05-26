@@ -105,6 +105,16 @@ impl ServicesEdge {
             .await
     }
 
+    pub async fn get_effective_entitlements_for_subscription(
+        &self,
+        subscription_id: SubscriptionId,
+        tenant_id: TenantId,
+    ) -> StoreResult<Vec<EffectiveEntitlement>> {
+        self.services
+            .get_effective_entitlements_for_subscription(subscription_id, tenant_id)
+            .await
+    }
+
     pub async fn update_subscription_slots(
         &self,
         tenant_id: common_domain::ids::TenantId,
