@@ -17,7 +17,10 @@ pub struct WebhookInEventRow {
     pub provider_config_id: Uuid,
     /// Provider-side event id (Stripe `evt_…`, GoCardless `EV…`, …). Combined
     /// with `provider_config_id` it enforces idempotency: duplicate webhook
-    /// deliveries violate the partial unique index and are rejected at insert.
+    /// deliveries violate the unique index `(provider_config_id,
+    /// provider_event_id)` and are rejected at insert. The index is not partial;
+    /// rows with a NULL provider_event_id (events with no usable id) do not
+    /// participate in dedup under PostgreSQL's `NULLS DISTINCT`.
     pub provider_event_id: Option<String>,
 }
 

@@ -169,12 +169,18 @@ pub struct GocardlessPublicData {
 }
 
 impl GocardlessPublicData {
+    /// Fail safe: a blob missing the `environment` field (legacy / hand-edited
+    /// / partially-migrated row) must NOT silently route real bank charges to
+    /// the live GoCardless API. Default to sandbox so a misconfiguration
+    /// surfaces as "tested in sandbox" rather than as a real debit. The
+    /// frontend always sends an explicit value, so this default only ever
+    /// applies to anomalous rows.
     fn default_environment() -> String {
-        "live".to_string()
+        "sandbox".to_string()
     }
 
     pub fn is_sandbox(&self) -> bool {
-        self.environment == "sandbox"
+        self.environment != "live"
     }
 }
 

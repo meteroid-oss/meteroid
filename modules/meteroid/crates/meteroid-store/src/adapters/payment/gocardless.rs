@@ -28,10 +28,10 @@ use super::events::{
     PaymentSucceededEvent,
 };
 use super::model::{
-    ChargeAcknowledged, ChargeFailure, ChargeOutcome, ChargeReceipt, ChargeRequest,
-    CreateCustomerRequest, DeclineKind, ExternalCustomerRef, MandateSetupInstruction,
-    MandateSetupRequest, PaymentMethodSnapshot, RefundOutcome, RefundRequest, RegisteredWebhook,
-    RemoteTransactionStatus,
+    ChargeAcknowledged, ChargeCancelled, ChargeFailure, ChargeOutcome, ChargeReceipt,
+    ChargeRequest, CreateCustomerRequest, DeclineKind, ExternalCustomerRef,
+    MandateSetupInstruction, MandateSetupRequest, PaymentMethodSnapshot, RefundOutcome,
+    RefundRequest, RegisteredWebhook, RemoteTransactionStatus,
 };
 use crate::domain::connectors::{Connector, ProviderData, ProviderSensitiveData};
 use crate::domain::enums::ConnectorProviderEnum;
@@ -319,7 +319,11 @@ impl MandateOps for GoCardlessConnector {
             .get_mandate(external_payment_method_id, &token)
             .await
             .map_err(map_gc_error)?;
-        Ok(snapshot_from_mandate(mandate.id, mandate.scheme))
+        Ok(snapshot_from_mandate(
+            mandate.id,
+            mandate.scheme,
+            &mandate.metadata,
+        ))
     }
 
     /// Called by the return-URL handler when the customer comes back from
@@ -356,7 +360,19 @@ impl MandateOps for GoCardlessConnector {
             .await
             .map_err(map_gc_error)?;
 
-        Ok(snapshot_from_mandate(mandate.id, mandate.scheme))
+        // Carry the Meteroid ids so the return-URL service can verify the
+        // completed Billing Request actually belongs to the connection it is
+        // being attached to. The Billing Request's own metadata is the
+        // authoritative record of who initiated the setup; fall back to the
+        // mandate's metadata if (only) it is populated.
+        let mut metadata = mandate.metadata.clone();
+        for key in ["meteroid.connection_id", "meteroid.customer_id", "meteroid.tenant_id"] {
+            if let Some(value) = br.metadata.get(key) {
+                metadata.insert(key.to_string(), value.clone());
+            }
+        }
+
+        Ok(snapshot_from_mandate(mandate.id, mandate.scheme, &metadata))
     }
 }
 
@@ -369,6 +385,23 @@ impl PaymentOps for GoCardlessConnector {
     ) -> Result<ChargeOutcome, Report<ConnectorError>> {
         let token = extract_access_token(connector)?;
         let client = Self::client_for(connector);
+
+        // A GoCardless mandate is scheme-bound, and each direct-debit scheme is
+        // single-currency (SEPA→EUR, BACS→GBP, ACH→USD). The mandate was set up
+        // with the scheme currency and `lock_currency`. Charging it in any other
+        // currency is rejected by GoCardless; surface that as a clear,
+        // non-retryable error here rather than letting the provider bounce it
+        // with an opaque validation message (and rather than wasting an API
+        // call + leaving the transaction in a confusing state).
+        if let Some((scheme_currency, _)) = method_to_currency_scheme(&request.payment_method_type) {
+            if !request.currency.eq_ignore_ascii_case(&scheme_currency) {
+                return Err(Report::new(ConnectorError::Charge(format!(
+                    "GoCardless {:?} mandate is {}-only; cannot charge {} \
+                     (the invoice currency must match the direct-debit scheme currency)",
+                    request.payment_method_type, scheme_currency, request.currency
+                ))));
+            }
+        }
 
         let metadata = HashMap::from([
             (
@@ -499,10 +532,26 @@ impl WebhookOps for GoCardlessConnector {
 
     fn parse_event(
         &self,
+        connector: &Connector,
+        payload: &[u8],
+        headers: &HeaderMap,
+    ) -> Result<Option<NormalizedWebhookEvent>, Report<ConnectorError>> {
+        // Kept for trait completeness / single-event callers. The router uses
+        // `parse_events`, which surfaces the whole batch.
+        Ok(self.parse_events(connector, payload, headers)?.into_iter().next())
+    }
+
+    /// GoCardless routinely batches several events in one POST
+    /// (`{ "events": [ ... ] }`). We normalize and return every one; the router
+    /// dedups and processes each independently. Dropping any of them would lose
+    /// it permanently — GoCardless stops retrying once we ACK 200 and dedup is
+    /// keyed per event id.
+    fn parse_events(
+        &self,
         _connector: &Connector,
         payload: &[u8],
         _headers: &HeaderMap,
-    ) -> Result<Option<NormalizedWebhookEvent>, Report<ConnectorError>> {
+    ) -> Result<Vec<NormalizedWebhookEvent>, Report<ConnectorError>> {
         let envelope: EventEnvelope = GoCardlessWebhook::parse_envelope(payload)
             .map_err(|e| {
                 Report::new(ConnectorError::PayloadDecode(format!(
@@ -510,34 +559,11 @@ impl WebhookOps for GoCardlessConnector {
                 )))
             })?;
 
-        // GoCardless can batch multiple events per delivery; the trait
-        // currently surfaces one. We pick the first event we know how to
-        // handle and **explicitly log the count of dropped events** so an
-        // operator can detect this in production logs / metrics. Returning
-        // ACK 200 without surfacing those events is a data-loss risk — GC
-        // will not retry once we ACK, and the DB dedup is keyed on event id
-        // so the dropped ones are gone for good.
-        //
-        // The router observes this log line as a signal to widen the trait
-        // to `Vec<NormalizedWebhookEvent>`. See project memo for the planned
-        // fix.
-        let event_count = envelope.events.len();
-        if event_count > 1 {
-            let dropped_ids: Vec<_> = envelope
-                .events
-                .iter()
-                .skip(1)
-                .map(|e| e.id.clone())
-                .collect();
-            log::error!(
-                "GoCardless delivered {event_count} events in one webhook; dropping {} (ids: {:?}). \
-                 Widen WebhookOps::parse_event to Vec to fix.",
-                dropped_ids.len(),
-                dropped_ids
-            );
-        }
-        let event = envelope.events.into_iter().next();
-        Ok(event.and_then(normalize_event))
+        Ok(envelope
+            .events
+            .into_iter()
+            .filter_map(normalize_event)
+            .collect())
     }
 }
 
@@ -584,7 +610,18 @@ fn method_to_currency_scheme(method: &PaymentMethodTypeEnum) -> Option<(String, 
     }
 }
 
-fn snapshot_from_mandate(mandate_id: String, scheme: Option<String>) -> PaymentMethodSnapshot {
+/// Build a snapshot from a mandate. `metadata` is the mandate's (or its source
+/// Billing Request's) metadata map — GoCardless propagates the
+/// `mandate_request.metadata` we set at BR creation onto the resulting mandate,
+/// and returns it on `GET /mandates/:id`. We surface our `meteroid.*` ids from
+/// it so the `mandates.active` webhook handler (whose *event* payload carries an
+/// empty metadata object) can still resolve and ownership-check the owning
+/// connection.
+fn snapshot_from_mandate(
+    mandate_id: String,
+    scheme: Option<String>,
+    metadata: &HashMap<String, String>,
+) -> PaymentMethodSnapshot {
     let payment_method_type = match scheme.as_deref() {
         Some("sepa_core") => PaymentMethodTypeEnum::DirectDebitSepa,
         Some("bacs") => PaymentMethodTypeEnum::DirectDebitBacs,
@@ -601,6 +638,8 @@ fn snapshot_from_mandate(mandate_id: String, scheme: Option<String>) -> PaymentM
         card_last4: None,
         card_exp_month: None,
         card_exp_year: None,
+        meteroid_connection_id: metadata.get("meteroid.connection_id").cloned(),
+        meteroid_customer_id: metadata.get("meteroid.customer_id").cloned(),
     }
 }
 
@@ -609,7 +648,7 @@ fn snapshot_from_mandate(mandate_id: String, scheme: Option<String>) -> PaymentM
 /// webhook.
 fn payment_to_outcome(id: String, status: PaymentStatus) -> ChargeOutcome {
     match status {
-        PaymentStatus::Confirmed | PaymentStatus::PaidOut | PaymentStatus::LateFailureResolved => {
+        PaymentStatus::Confirmed | PaymentStatus::PaidOut => {
             ChargeOutcome::Succeeded(ChargeReceipt {
                 external_id: id,
                 amount_received_minor: 0, // GC payment object doesn't carry the
@@ -625,16 +664,19 @@ fn payment_to_outcome(id: String, status: PaymentStatus) -> ChargeOutcome {
             external_id: id,
             provider_request_id: None,
         }),
-        PaymentStatus::Cancelled | PaymentStatus::CustomerApprovalDenied => {
-            ChargeOutcome::Failed(ChargeFailure {
-                external_id: Some(id),
-                code: Some(format!("{:?}", status).to_lowercase()),
-                message: "Payment cancelled".to_string(),
-                retryable: false,
-                decline_kind: DeclineKind::Other,
-                provider_request_id: None,
-            })
-        }
+        PaymentStatus::Cancelled => ChargeOutcome::Cancelled(ChargeCancelled {
+            external_id: Some(id),
+            message: "Payment cancelled".to_string(),
+            provider_request_id: None,
+        }),
+        PaymentStatus::CustomerApprovalDenied => ChargeOutcome::Failed(ChargeFailure {
+            external_id: Some(id),
+            code: Some(format!("{:?}", status).to_lowercase()),
+            message: "Customer approval denied".to_string(),
+            retryable: false,
+            decline_kind: DeclineKind::Other,
+            provider_request_id: None,
+        }),
         PaymentStatus::Failed | PaymentStatus::ChargedBack => {
             ChargeOutcome::Failed(ChargeFailure {
                 external_id: Some(id),
@@ -654,12 +696,12 @@ fn payment_to_outcome(id: String, status: PaymentStatus) -> ChargeOutcome {
 
 fn remote_status_from_payment(status: PaymentStatus, amount: i64) -> RemoteTransactionStatus {
     match status {
-        PaymentStatus::Confirmed
-        | PaymentStatus::PaidOut
-        | PaymentStatus::LateFailureResolved => RemoteTransactionStatus::Succeeded {
-            amount_received_minor: amount,
-            processed_at: chrono::Utc::now().naive_utc(),
-        },
+        PaymentStatus::Confirmed | PaymentStatus::PaidOut => {
+            RemoteTransactionStatus::Succeeded {
+                amount_received_minor: amount,
+                processed_at: chrono::Utc::now().naive_utc(),
+            }
+        }
         PaymentStatus::PendingCustomerApproval
         | PaymentStatus::PendingSubmission
         | PaymentStatus::Submitted
@@ -726,7 +768,7 @@ fn normalize_payment_event(event: &gocardless_client::webhook::Event) -> Option<
     let payment_id = event.links.payment.clone()?;
     let meteroid_tx = event.metadata.get("meteroid.transaction_id").cloned();
     Some(match event.action.as_str() {
-        ev_action::CONFIRMED | ev_action::PAID_OUT | ev_action::LATE_FAILURE_RESOLVED => {
+        ev_action::CONFIRMED | ev_action::PAID_OUT => {
             NormalizedEventKind::PaymentSucceeded(PaymentSucceededEvent {
                 external_transaction_id: payment_id,
                 // The webhook does not include the amount; the local
@@ -738,6 +780,16 @@ fn normalize_payment_event(event: &gocardless_client::webhook::Event) -> Option<
                 meteroid_transaction_id: meteroid_tx,
             })
         }
+        // A previously confirmed/paid-out payment that the bank later rejected.
+        // GoCardless claws the funds back from a future payout, so this is a
+        // failure — the invoice must be reopened, not left marked paid.
+        ev_action::LATE_FAILURE_SETTLED => NormalizedEventKind::PaymentFailed(PaymentFailedEvent {
+            external_transaction_id: payment_id,
+            code: Some("late_failure_settled".into()),
+            message: "Payment failed late (funds reclaimed by the bank after settlement)".into(),
+            retryable: false,
+            meteroid_transaction_id: meteroid_tx,
+        }),
         ev_action::FAILED => NormalizedEventKind::PaymentFailed(PaymentFailedEvent {
             external_transaction_id: payment_id,
             code: event.details.as_ref().and_then(|d| d.cause.clone()),

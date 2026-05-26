@@ -66,6 +66,13 @@ pub struct PaymentTransactionRowPatch {
     pub error_type: Option<Option<String>>,
     pub processed_at: Option<Option<NaiveDateTime>>,
     pub refunded_at: Option<Option<NaiveDateTime>>,
+    /// Provider-side charge id (Stripe `pi_…`, GoCardless `PM…`). Backfilled by
+    /// the settlement pipeline once the provider call returns it, so the
+    /// reconciliation worker (which filters on `provider_transaction_id IS NOT
+    /// NULL`) can later poll the provider for a transaction whose confirming
+    /// webhook was lost. The outer `Option` is "leave column untouched"; the
+    /// inner is the nullable column value.
+    pub provider_transaction_id: Option<Option<String>>,
 }
 
 #[derive(Debug, Queryable, Selectable)]

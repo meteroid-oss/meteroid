@@ -85,7 +85,11 @@ pub mod action {
     pub const CANCELLED: &str = "cancelled";
     pub const CHARGED_BACK: &str = "charged_back";
     pub const CHARGEBACK_CANCELLED: &str = "chargeback_cancelled";
-    pub const LATE_FAILURE_RESOLVED: &str = "late_failure_resolved";
+    /// A payment that had been marked confirmed/paid_out is later reported as
+    /// failed by the bank; GoCardless debits the amount back from a future
+    /// payout. This is a FAILURE, not a success. (There is no
+    /// `late_failure_resolved` action.)
+    pub const LATE_FAILURE_SETTLED: &str = "late_failure_settled";
 
     // Mandates
     pub const ACTIVE: &str = "active";

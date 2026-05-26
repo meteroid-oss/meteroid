@@ -329,17 +329,15 @@ export const PaymentPanel: React.FC<PaymentPanelProps> = props => {
   const hasBoth =
     hasCard && hasDirectDebit && props.cardConnectionId !== props.directDebitConnectionId
 
-  // Fetch setup intent for the active connection. For GoCardless we also
-  // forward a return URL pointing at our portal return-handler, which the
-  // backend hands to the Billing Request Flow as the `redirect_uri`. Stripe
-  // ignores the return_url (its Elements flow returns to the page directly).
+  // Fetch setup intent for the active connection. For hosted-redirect
+  // providers (GoCardless) the backend builds the Billing Request Flow
+  // `redirect_uri` server-side (pointing at its own completion endpoint), so
+  // this client value is informational only; Stripe ignores it (its Elements
+  // flow returns to the page directly).
   const activeConnectionId =
     activeTab === 'card' ? props.cardConnectionId : props.directDebitConnectionId
 
-  const returnUrl =
-    typeof window !== 'undefined' && activeConnectionId
-      ? `${window.location.origin}/payment-return?connection=${encodeURIComponent(activeConnectionId)}`
-      : undefined
+  const returnUrl = typeof window !== 'undefined' ? window.location.href : undefined
 
   const setupIntentQuery = useQuery(
     setupIntent,

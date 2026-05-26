@@ -28,7 +28,7 @@ use crate::repositories::customer_payment_methods::CustomerPaymentMethodsInterfa
 use crate::services::Services;
 use common_domain::ids::{BaseId, CustomerConnectionId, CustomerPaymentMethodId};
 use diesel_models::customer_connection::CustomerConnectionDetailsRow;
-use error_stack::ResultExt;
+use error_stack::{Report, ResultExt};
 
 impl Services {
     /// Finalize a GoCardless Billing Request after the customer returns from
@@ -42,11 +42,11 @@ impl Services {
     ///
     /// The tenant id is *derived from* the connection — the return-URL
     /// handler is hit by a customer's browser after a third-party redirect,
-    /// so there's no authenticated tenant context. The connection id is a
-    /// v7 UUID (unguessable, 122 bits of entropy) and the action only
-    /// attaches a mandate that the customer just consented to on the
-    /// provider's hosted page; the security model is the same as
-    /// OAuth-style return URLs.
+    /// so there's no authenticated tenant context. Because `connection_id` is
+    /// attacker-supplied, we do not trust it: we verify that the Billing
+    /// Request's metadata (set by us at creation, returned by the provider on
+    /// completion) names exactly this connection + customer before attaching
+    /// the mandate, and fail closed otherwise.
     pub async fn complete_gocardless_setup(
         &self,
         connection_id: CustomerConnectionId,
@@ -71,6 +71,36 @@ impl Services {
             .complete_mandate_setup(&connector, &billing_request_id)
             .await
             .change_context_lazy(|| StoreError::PaymentProviderError)?;
+
+        // Authorization check (defense against mandate hijack). This endpoint is
+        // unauthenticated — it is hit by the customer's browser after a
+        // third-party redirect — and `connection_id` comes straight from the
+        // query string. Without this check, anyone who learns a victim's
+        // connection id (it appears in URLs / logs) could complete *their own*
+        // Billing Request against the victim's connection and have it attached
+        // to the victim's customer record. We verify that the metadata stamped
+        // onto the Billing Request at creation (which the provider returns on
+        // completion) names exactly this connection and customer. Fail closed if
+        // it is missing or mismatched. This mirrors the cross-tenant defense the
+        // `mandates.active` webhook handler applies.
+        let expected_connection = connection_id.as_base62();
+        let expected_customer = connection_row.customer.id.as_base62();
+        match (
+            snapshot.meteroid_connection_id.as_deref(),
+            snapshot.meteroid_customer_id.as_deref(),
+        ) {
+            (Some(conn), Some(cust))
+                if conn == expected_connection && cust == expected_customer => {}
+            other => {
+                return Err(Report::new(StoreError::InvalidArgument(
+                    "GoCardless billing request does not belong to this connection".to_string(),
+                ))
+                .attach(format!(
+                    "expected connection={expected_connection} customer={expected_customer}, \
+                     billing request carried {other:?}"
+                )));
+            }
+        }
 
         // Force the payment method type to direct-debit-* even if the
         // snapshot says Other (which happens when the mandate's scheme isn't

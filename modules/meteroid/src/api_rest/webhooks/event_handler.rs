@@ -76,28 +76,52 @@ async fn handle_payment_method_attached(
     connector_impl: &dyn PaymentConnector,
     store: &Store,
 ) -> Result<(), Report<errors::AdapterWebhookError>> {
-    let connection_id_str = e.meteroid_connection_id.as_ref().ok_or_else(|| {
-        Report::new(errors::AdapterWebhookError::MissingMetadata(
-            "meteroid.connection_id".to_string(),
-        ))
-    })?;
+    // The webhook event surfaces only the external ids; pull the canonical
+    // snapshot (brand, last4, type, expiry) from the provider in case the
+    // event payload is partial. For GoCardless this also recovers our
+    // `meteroid.*` ids: mandate webhook events carry an empty metadata object
+    // (GoCardless only populates event metadata for API-origin events), so the
+    // connection/customer ids must be read from the mandate resource itself,
+    // which the snapshot fetch surfaces.
+    let snapshot = connector_impl
+        .fetch_payment_method(
+            connector,
+            &e.external_payment_method_id,
+            &e.external_customer_id,
+        )
+        .await
+        .change_context(errors::AdapterWebhookError::ProviderError)?;
+
+    // Resolve our ids from the event metadata if present (Stripe), otherwise
+    // fall back to the ids recovered from the provider resource (GoCardless).
+    let connection_id_str = e
+        .meteroid_connection_id
+        .as_deref()
+        .or(snapshot.meteroid_connection_id.as_deref())
+        .ok_or_else(|| {
+            Report::new(errors::AdapterWebhookError::MissingMetadata(
+                "meteroid.connection_id".to_string(),
+            ))
+        })?;
     let connection_id = CustomerConnectionId::parse_base62(connection_id_str)
         .change_context(errors::AdapterWebhookError::InvalidMetadata)?;
 
-    let customer_id_str = e.meteroid_customer_id.as_ref().ok_or_else(|| {
-        Report::new(errors::AdapterWebhookError::MissingMetadata(
-            "meteroid.customer_id".to_string(),
-        ))
-    })?;
+    let customer_id_str = e
+        .meteroid_customer_id
+        .as_deref()
+        .or(snapshot.meteroid_customer_id.as_deref())
+        .ok_or_else(|| {
+            Report::new(errors::AdapterWebhookError::MissingMetadata(
+                "meteroid.customer_id".to_string(),
+            ))
+        })?;
     let customer_id = CustomerId::parse_base62(customer_id_str)
         .change_context(errors::AdapterWebhookError::InvalidMetadata)?;
 
-    // Cross-tenant defense: the metadata came back from the provider, which
-    // is trusted up to the signature we just verified — but the *content*
-    // of metadata could conceivably be set on the provider side to point at
-    // a connection owned by a different tenant (e.g. via a misconfigured
-    // shared endpoint or a compromised provider account). Verify here that
-    // the connection in the event actually belongs to the connector's tenant
+    // Cross-tenant / hijack defense: the ids ultimately derive from metadata we
+    // set, but could in principle be tampered with provider-side (misconfigured
+    // shared endpoint, compromised provider account). Verify the connection
+    // belongs to this connector's tenant and is owned by the named customer
     // before we touch the customer's payment method.
     use meteroid_store::repositories::customer_connection::CustomerConnectionInterface;
     let connection = store
@@ -109,18 +133,6 @@ async fn handle_payment_method_attached(
         return Err(Report::new(errors::AdapterWebhookError::InvalidMetadata)
             .attach("webhook connection_id / customer_id pair is inconsistent"));
     }
-
-    // The webhook event surfaces only the external ids; pull the canonical
-    // snapshot (brand, last4, type, expiry) from the provider in case the
-    // event payload is partial.
-    let snapshot = connector_impl
-        .fetch_payment_method(
-            connector,
-            &e.external_payment_method_id,
-            &e.external_customer_id,
-        )
-        .await
-        .change_context(errors::AdapterWebhookError::ProviderError)?;
 
     let payment_method = store
         .upsert_payment_method(CustomerPaymentMethodNew {

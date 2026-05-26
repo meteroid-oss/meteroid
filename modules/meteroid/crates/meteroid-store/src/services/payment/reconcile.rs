@@ -14,10 +14,10 @@
 //! through the same consolidation pipeline webhooks use, so the state
 //! machine guarantees (skip-if-terminal, etc.) apply uniformly.
 //!
-//! Scheduling. A pgmq-backed worker would call this in a loop with a query
-//! like `list_pending_with_provider_id(limit=100)` and an age threshold
-//! (e.g. 10 minutes) applied client-side. Today's iteration only ships the
-//! single-transaction entry point; scheduling lives in a follow-up.
+//! Scheduling. The `reconciliation_worker` sweeps on an interval, listing
+//! `list_pending_with_provider_id` (Pending rows older than an age threshold
+//! that already carry a provider id) and calling
+//! [`Services::reconcile_pending_transaction`] for each.
 
 use crate::StoreResult;
 use crate::adapters::payment::initialize_payment_connector;
@@ -33,6 +33,19 @@ use diesel_async::scoped_futures::ScopedFutureExt;
 use diesel_models::customer_payment_methods::CustomerPaymentMethodRow;
 use diesel_models::payments::PaymentTransactionRow;
 use error_stack::{Report, ResultExt};
+
+/// How long a transaction must have existed before a `RemoteTransactionStatus::
+/// Unknown` (provider has no record of the id) is allowed to *cancel* it.
+///
+/// Cancelling is destructive and effectively irreversible: a later settlement
+/// webhook is ignored because consolidation early-returns on a terminal row, so
+/// a wrongful cancel turns into "invoice unpaid but funds taken". A bare 404
+/// shortly after the charge can be a transient blip (read-replica lag, eventual
+/// consistency on a freshly-created resource), so we require the transaction to
+/// be old enough that "the provider genuinely never received our POST" is the
+/// only plausible explanation before acting on Unknown. Below this age we leave
+/// it Pending and let a later sweep re-check.
+const UNKNOWN_CANCEL_GRACE: chrono::Duration = chrono::Duration::hours(12);
 
 #[allow(dead_code)] // Worker not wired yet; entry point is the public surface.
 impl Services {
@@ -93,6 +106,30 @@ impl Services {
             .fetch_transaction_status(&connector, &external_id)
             .await
             .change_context(StoreError::PaymentProviderError)?;
+
+        // Guard the destructive Unknown→Cancelled transition behind a grace
+        // window: a transient 404 on a still-young transaction must not cancel a
+        // payment that may yet settle. Re-checked on the next sweep.
+        if matches!(remote_status, RemoteTransactionStatus::Unknown) {
+            let age = chrono::Utc::now().naive_utc() - row.created_at;
+            if age < UNKNOWN_CANCEL_GRACE {
+                log::warn!(
+                    "Provider has no record of transaction {} (external id {}), but it is only \
+                     {} old; deferring cancellation until it exceeds the grace window",
+                    transaction_id,
+                    external_id,
+                    age,
+                );
+                return Ok(());
+            }
+            log::warn!(
+                "Provider has no record of transaction {} (external id {}) after {} old; \
+                 cancelling so the invoice can be re-attempted",
+                transaction_id,
+                external_id,
+                age,
+            );
+        }
 
         let Some(intent) =
             payment_intent_from_remote_status(remote_status, transaction_id, tenant_id, &row)

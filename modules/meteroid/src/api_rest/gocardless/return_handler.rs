@@ -12,13 +12,14 @@
 //!
 //! ## Security
 //!
-//! Connection ids are v7 UUIDs (122 bits of entropy, unguessable). The
-//! `complete` action on GoCardless's side is idempotent — replay does no
-//! harm. The handler does not require an authenticated session because the
-//! customer has just been redirected back from a third-party site without a
-//! cookie in-flight, but every state change is keyed off ids the attacker
-//! would need to know anyway (BR id + connection id), and the resulting
-//! mandate is one the customer just consented to on the provider's hosted UI.
+//! The handler does not require an authenticated session because the customer
+//! has just been redirected back from a third-party site without a cookie
+//! in-flight, and `connection` comes from the (attacker-controllable) query
+//! string. The service layer therefore does not trust it: it verifies the
+//! completed Billing Request's metadata names exactly this connection +
+//! customer before attaching the mandate (see
+//! `Services::complete_gocardless_setup`), failing closed on any mismatch. The
+//! `complete` action on GoCardless's side is idempotent, so replay is harmless.
 //!
 //! GoCardless can also redirect here with `?error=<code>` if the customer
 //! abandoned the flow. We sanitize that code (alphanumerics + `_-`, max 64
@@ -74,8 +75,8 @@ pub async fn handle(
             "GoCardless return signalled error for connection {connection_id}: {err}"
         );
         return Redirect::to(&format!(
-            "{}/payment-method?gocardless_error={}",
-            app_state.portal_url,
+            "{}/portal/customer?gocardless_error={}",
+            app_state.portal_url.trim_end_matches('/'),
             sanitize_error_code(err)
         ))
         .into_response();
@@ -103,16 +104,16 @@ pub async fn handle(
                 connection_id
             );
             Redirect::to(&format!(
-                "{}/payment-method?gocardless_status=ok",
-                app_state.portal_url
+                "{}/portal/customer?gocardless_status=ok",
+                app_state.portal_url.trim_end_matches('/')
             ))
             .into_response()
         }
         Err(e) => {
             log::error!("GoCardless return completion failed: {e:?}");
             Redirect::to(&format!(
-                "{}/payment-method?gocardless_status=failed",
-                app_state.portal_url
+                "{}/portal/customer?gocardless_status=failed",
+                app_state.portal_url.trim_end_matches('/')
             ))
             .into_response()
         }

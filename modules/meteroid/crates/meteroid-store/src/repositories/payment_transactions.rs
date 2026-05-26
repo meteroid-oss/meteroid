@@ -87,30 +87,53 @@ impl PaymentTransactionInterface for Store {
             return Ok(transaction);
         }
 
-        // Only update if the status has changed
-        if transaction.status == payment_intent.status {
+        let status_changed = transaction.status != payment_intent.status;
+
+        // Persist the provider-side id the first time we learn it, regardless of
+        // whether the status moved. The off-session charge path inserts the row
+        // with a NULL provider_transaction_id (the id only comes back from the
+        // provider *after* the row exists), and an asynchronously-settled charge
+        // (GoCardless direct debit, Stripe ACH) comes back Pending — i.e. status
+        // unchanged. Without backfilling here, that id would never be stored and
+        // the reconciliation worker (which filters `provider_transaction_id IS
+        // NOT NULL`) could never recover the transaction if the confirming
+        // webhook were lost.
+        let backfill_external_id =
+            transaction.provider_transaction_id.is_none() && !payment_intent.external_id.is_empty();
+
+        if !status_changed && !backfill_external_id {
             log::debug!(
-                "Transaction {} status unchanged: {:?}",
+                "Transaction {} status unchanged ({:?}) and provider id already set; nothing to do",
                 transaction.id,
                 payment_intent.status
             );
             return Ok(transaction);
         }
 
-        log::info!(
-            "Updating transaction {} status from {:?} to {:?}",
-            transaction.id,
-            transaction.status,
-            payment_intent.status
-        );
+        if status_changed {
+            log::info!(
+                "Updating transaction {} status from {:?} to {:?}",
+                transaction.id,
+                transaction.status,
+                payment_intent.status
+            );
+        } else {
+            log::info!(
+                "Backfilling provider_transaction_id for transaction {} (status unchanged: {:?})",
+                transaction.id,
+                transaction.status
+            );
+        }
 
         let patch = PaymentTransactionRowPatch {
             id: transaction.id,
             invoice_id: None,
-            status: Some(payment_intent.status.clone().into()),
-            processed_at: Some(payment_intent.processed_at),
+            status: status_changed.then(|| payment_intent.status.clone().into()),
+            processed_at: status_changed.then_some(payment_intent.processed_at),
             refunded_at: None,
-            error_type: Some(payment_intent.last_payment_error),
+            error_type: status_changed.then_some(payment_intent.last_payment_error),
+            provider_transaction_id: backfill_external_id
+                .then(|| Some(payment_intent.external_id.clone())),
         };
 
         let updated_transaction = self
@@ -120,14 +143,19 @@ impl PaymentTransactionInterface for Store {
 
                     let transaction: PaymentTransaction = updated_transaction.into();
 
-                    self.internal
-                        .insert_outbox_events_tx(
-                            conn,
-                            vec![OutboxEvent::payment_transaction_saved(
-                                transaction.clone().into(),
-                            )],
-                        )
-                        .await?;
+                    // Only broadcast a state transition when the status actually
+                    // moved — a pure provider-id backfill is not a settlement
+                    // event and must not trigger downstream activation.
+                    if status_changed {
+                        self.internal
+                            .insert_outbox_events_tx(
+                                conn,
+                                vec![OutboxEvent::payment_transaction_saved(
+                                    transaction.clone().into(),
+                                )],
+                            )
+                            .await?;
+                    }
 
                     // Payment method is resolved dynamically from the customer at billing time
                     // No need to update the subscription's payment method field
