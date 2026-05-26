@@ -121,3 +121,38 @@ pub struct PaymentTransactionWithMethod {
     #[map(~.map(|m| m.into()))]
     pub method: Option<CustomerPaymentMethod>,
 }
+
+#[cfg(test)]
+mod tests {
+    use super::PaymentNextAction;
+
+    fn sdk() -> PaymentNextAction {
+        PaymentNextAction::UseSdk {
+            intent_id: "pi_1".into(),
+            publishable_key: "pk_test".into(),
+            client_secret: Some("pi_1_secret_xyz".into()),
+        }
+    }
+
+    #[test]
+    fn for_storage_drops_client_secret() {
+        match sdk().for_storage() {
+            PaymentNextAction::UseSdk { client_secret, .. } => assert!(client_secret.is_none()),
+            _ => panic!("expected UseSdk"),
+        }
+    }
+
+    #[test]
+    fn stored_json_never_contains_secret() {
+        let json = serde_json::to_string(&sdk().for_storage()).unwrap();
+        assert!(!json.contains("secret"), "stored form leaked a secret: {json}");
+        assert!(json.contains("pk_test") && json.contains("pi_1"));
+    }
+
+    #[test]
+    fn debug_redacts_secret() {
+        let dbg = format!("{:?}", sdk());
+        assert!(!dbg.contains("pi_1_secret_xyz"), "Debug leaked the secret: {dbg}");
+        assert!(dbg.contains("<redacted>"));
+    }
+}
