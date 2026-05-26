@@ -401,6 +401,19 @@ impl Services {
             });
         }
 
+        // GoCardless must redirect back to our backend completion endpoint (to
+        // finalize the BR), not a client-supplied URL. Build it server-side.
+        let return_url = if connector.provider == crate::domain::enums::ConnectorProviderEnum::Gocardless
+        {
+            Some(format!(
+                "{}/v1/portal/gocardless/return?connection={}",
+                self.store.settings.public_url.trim_end_matches('/'),
+                customer_connection.id.as_base62(),
+            ))
+        } else {
+            return_url
+        };
+
         let mandate_request = MandateSetupRequest {
             payment_methods: &payment_methods,
             idempotency_key: IdempotencyKey::new(format!(

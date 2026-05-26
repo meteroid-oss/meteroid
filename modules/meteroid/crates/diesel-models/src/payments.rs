@@ -66,6 +66,7 @@ pub struct PaymentTransactionRowPatch {
     pub error_type: Option<Option<String>>,
     pub processed_at: Option<Option<NaiveDateTime>>,
     pub refunded_at: Option<Option<NaiveDateTime>>,
+    pub provider_transaction_id: Option<Option<String>>,
 }
 
 #[derive(Debug, Queryable, Selectable)]

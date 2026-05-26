@@ -213,6 +213,21 @@ pub trait WebhookOps: Send + Sync {
         payload: &[u8],
         headers: &HeaderMap,
     ) -> Result<Option<NormalizedWebhookEvent>, Report<ConnectorError>>;
+
+    /// Parse all events in one delivery (GoCardless batches; dropping any loses
+    /// it once we ACK 200). The router uses this; the default suits one-event
+    /// providers (Stripe), batching providers override.
+    fn parse_events(
+        &self,
+        connector: &Connector,
+        payload: &[u8],
+        headers: &HeaderMap,
+    ) -> Result<Vec<NormalizedWebhookEvent>, Report<ConnectorError>> {
+        Ok(self
+            .parse_event(connector, payload, headers)?
+            .into_iter()
+            .collect())
+    }
 }
 
 /// Umbrella trait for payment connectors.

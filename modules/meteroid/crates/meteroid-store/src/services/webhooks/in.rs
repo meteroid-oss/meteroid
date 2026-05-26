@@ -38,4 +38,19 @@ impl ServicesEdge {
             .map(|opt| opt.map(Into::into))
             .map_err(Into::into)
     }
+
+    /// A recorded row means the event was already handled; the router skips it.
+    pub async fn find_webhook_in_event(
+        &self,
+        provider_config_id: uuid::Uuid,
+        provider_event_id: &str,
+    ) -> StoreResult<Option<WebhookInEvent>> {
+        use diesel_models::webhooks::WebhookInEventRow;
+        let mut conn = self.services.store.get_conn().await?;
+
+        WebhookInEventRow::find_by_provider_event(&mut conn, provider_config_id, provider_event_id)
+            .await
+            .map(|opt| opt.map(Into::into))
+            .map_err(Into::into)
+    }
 }

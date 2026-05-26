@@ -71,8 +71,6 @@ pub enum PaymentStatus {
     CustomerApprovalDenied,
     Failed,
     ChargedBack,
-    /// Newer status surfaced by some schemes; treat as terminal-success.
-    LateFailureResolved,
     #[serde(other)]
     Unknown,
 }

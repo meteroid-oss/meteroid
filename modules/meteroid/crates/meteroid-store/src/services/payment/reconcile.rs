@@ -14,10 +14,10 @@
 //! through the same consolidation pipeline webhooks use, so the state
 //! machine guarantees (skip-if-terminal, etc.) apply uniformly.
 //!
-//! Scheduling. A pgmq-backed worker would call this in a loop with a query
-//! like `list_pending_with_provider_id(limit=100)` and an age threshold
-//! (e.g. 10 minutes) applied client-side. Today's iteration only ships the
-//! single-transaction entry point; scheduling lives in a follow-up.
+//! Scheduling. The `reconciliation_worker` sweeps on an interval, listing
+//! `list_pending_with_provider_id` (Pending rows older than an age threshold
+//! that already carry a provider id) and calling
+//! [`Services::reconcile_pending_transaction`] for each.
 
 use crate::StoreResult;
 use crate::adapters::payment::initialize_payment_connector;
@@ -33,6 +33,11 @@ use diesel_async::scoped_futures::ScopedFutureExt;
 use diesel_models::customer_payment_methods::CustomerPaymentMethodRow;
 use diesel_models::payments::PaymentTransactionRow;
 use error_stack::{Report, ResultExt};
+
+/// Min age before a provider "no record" (`Unknown`) is allowed to cancel a
+/// transaction. Cancelling is irreversible (a later settlement webhook is
+/// dropped on the terminal row), so we wait out transient 404s.
+const UNKNOWN_CANCEL_GRACE: chrono::Duration = chrono::Duration::hours(12);
 
 #[allow(dead_code)] // Worker not wired yet; entry point is the public surface.
 impl Services {
@@ -93,6 +98,21 @@ impl Services {
             .fetch_transaction_status(&connector, &external_id)
             .await
             .change_context(StoreError::PaymentProviderError)?;
+
+        if matches!(remote_status, RemoteTransactionStatus::Unknown) {
+            let age = chrono::Utc::now().naive_utc() - row.created_at;
+            if age < UNKNOWN_CANCEL_GRACE {
+                log::warn!(
+                    "Provider has no record of transaction {transaction_id} ({external_id}) yet \
+                     (age {age}); deferring cancellation"
+                );
+                return Ok(());
+            }
+            log::warn!(
+                "Provider has no record of transaction {transaction_id} ({external_id}) after \
+                 {age}; cancelling"
+            );
+        }
 
         let Some(intent) =
             payment_intent_from_remote_status(remote_status, transaction_id, tenant_id, &row)

@@ -33,27 +33,12 @@ pub async fn axum_handler(
     }
 }
 
-/// Webhook router. Steps in order:
+/// Verify → archive → parse → process each event synchronously.
 ///
-/// 1. Look up the connector by `(tenant_id, connection_alias)`.
-/// 2. Read the raw payload, archive it to the object store (forensics).
-/// 3. Resolve the connector adapter via [`initialize_payment_connector`].
-/// 4. **Verify the signature** — adapter enforces signature + replay tolerance.
-///    Bad signatures NEVER touch the database.
-/// 5. **Parse** into a normalized event.
-/// 6. **Idempotency check**: insert into `webhook_in_event` with the provider
-///    event id; the partial unique index on
-///    `(provider_config_id, provider_event_id)` returns no rows when the
-///    provider redelivered an event we already stored.
-/// 7. **ACK 200 immediately** — duplicates and successes both ACK so the
-///    provider stops retrying.
-/// 8. Spawn an async task to dispatch the event onto the store. Skipped on
-///    duplicates.
-///
-/// Order rationale: verify *before* DB writes prevents an attacker from
-/// filling our `webhook_in_event` table with garbage by hammering us with
-/// unsigned payloads. Idempotency *before* ACK prevents a "ACK then crash"
-/// race from losing an event we never recorded.
+/// Two invariants: verify before any write (unsigned payloads cost nothing),
+/// and record a row only after the handler succeeds (or permanently rejects) —
+/// a transient failure leaves no row and returns 5xx so the provider redelivers
+/// and we reprocess. Handlers are idempotent.
 async fn handler(
     tenant_id: TenantId,
     connection_alias: String,
@@ -75,19 +60,6 @@ async fn handler(
         .await
         .change_context(errors::AdapterWebhookError::BodyDecodingFailed)?;
 
-    // Forensic archive happens first, before any validation, so we can
-    // inspect malformed / unsigned payloads after the fact.
-    let prefix = Prefix::WebhookArchive {
-        connection_alias: connection_alias.clone(),
-        tenant_id,
-    };
-    let uid = app_state
-        .object_store
-        .store(bytes.clone(), prefix.clone())
-        .await
-        .change_context(errors::AdapterWebhookError::ObjectStoreUnreachable)?;
-    let key = format!("{}/{}", prefix.to_path_string(), uid);
-
     let connector_impl = initialize_payment_connector(&connector).map_err(|_| {
         Report::new(errors::AdapterWebhookError::ProviderNotSupported(format!(
             "{:?}",
@@ -104,70 +76,140 @@ async fn handler(
         .verify_signature(&connector, &raw_body, &headers, &secret)
         .map_err(|_| Report::new(errors::AdapterWebhookError::SignatureVerificationFailed))?;
 
-    let parsed = connector_impl
-        .parse_event(&connector, &raw_body, &headers)
-        .map_err(|_| Report::new(errors::AdapterWebhookError::BodyDecodingFailed))?;
-
-    // Idempotency: try to record the event with its provider id. If the
-    // partial unique index rejects the insert (same connector + same event id
-    // already seen), `insert_webhook_in_event_idempotent` returns `Ok(None)`
-    // and we skip processing.
-    let provider_event_id = parsed.as_ref().map(|e| e.provider_event_id.clone());
-    let inserted = app_state
-        .services
-        .insert_webhook_in_event_idempotent(WebhookInEventNew {
-            id: uid.as_uuid(),
-            received_at,
-            attempts: 0,
-            action: parsed.as_ref().map(|e| e.provider_event_type.clone()),
-            key,
-            processed: false,
-            error: None,
-            provider_config_id: connector.id.as_uuid(),
-            provider_event_id,
-        })
+    // Forensic archive of the verified payload.
+    let prefix = Prefix::WebhookArchive {
+        connection_alias: connection_alias.clone(),
+        tenant_id,
+    };
+    let uid = app_state
+        .object_store
+        .store(bytes.clone(), prefix.clone())
         .await
-        .change_context(errors::AdapterWebhookError::DatabaseError)?;
+        .change_context(errors::AdapterWebhookError::ObjectStoreUnreachable)?;
+    let key = format!("{}/{}", prefix.to_path_string(), uid);
+
+    let events = connector_impl
+        .parse_events(&connector, &raw_body, &headers)
+        .map_err(|_| Report::new(errors::AdapterWebhookError::BodyDecodingFailed))?;
 
     let response = (StatusCode::OK, "OK").into_response();
 
-    if inserted.is_none() {
-        log::info!(
-            "Duplicate webhook delivery for connector {} (event {:?}); skipping",
-            connector.id,
-            parsed.as_ref().map(|e| &e.provider_event_id),
-        );
+    if events.is_empty() {
         return Ok(response);
     }
 
-    if let Some(event) = parsed {
-        // The Box from initialize_payment_connector isn't Sync; rebuilding it
-        // inside the spawned task is cheap because the underlying HTTP client
-        // is a process-wide singleton.
-        let store = app_state.store.clone();
-        let connector_for_task = connector.clone();
-        tokio::spawn(async move {
-            let connector_impl = match initialize_payment_connector(&connector_for_task) {
-                Ok(c) => c,
-                Err(e) => {
-                    log::error!("Failed to re-resolve connector in webhook task: {e}");
-                    return;
-                }
-            };
-            if let Err(e) = event_handler::handle_normalized_event(
-                event,
-                &connector_for_task,
-                connector_impl.as_ref(),
-                store,
-            )
+    let mut retry_needed = false;
+
+    for event in events {
+        let provider_event_id = event.provider_event_id.clone();
+
+        if app_state
+            .services
+            .find_webhook_in_event(connector.id.as_uuid(), &provider_event_id)
             .await
-            {
-                log::error!("Webhook event handling failed: {e}");
+            .change_context(errors::AdapterWebhookError::DatabaseError)?
+            .is_some()
+        {
+            continue;
+        }
+
+        let provider_event_type = event.provider_event_type.clone();
+
+        let result = event_handler::handle_normalized_event(
+            event,
+            &connector,
+            connector_impl.as_ref(),
+            app_state.store.clone(),
+        )
+        .await;
+
+        match result {
+            Ok(()) => {
+                record_event(
+                    &app_state,
+                    &connector,
+                    &key,
+                    received_at,
+                    &provider_event_type,
+                    &provider_event_id,
+                    true,
+                    None,
+                )
+                .await?;
             }
-        });
+            Err(e) if is_transient(e.current_context()) => {
+                // No row → provider redelivers → reprocess.
+                log::error!("Transient webhook failure for event {provider_event_id}: {e:?}");
+                retry_needed = true;
+            }
+            Err(e) => {
+                // Unprocessable: record it so we don't 5xx-loop (which can get
+                // our endpoint disabled). Raw payload stays archived for replay.
+                log::error!("Permanent webhook failure for event {provider_event_id}; skipping: {e:?}");
+                record_event(
+                    &app_state,
+                    &connector,
+                    &key,
+                    received_at,
+                    &provider_event_type,
+                    &provider_event_id,
+                    false,
+                    Some(format!("{e:?}")),
+                )
+                .await?;
+            }
+        }
+    }
+
+    if retry_needed {
+        // 5xx → provider redelivers the batch; recorded events skip, failed ones reprocess.
+        return Err(Report::new(errors::AdapterWebhookError::StoreError)
+            .attach("one or more webhook events failed transiently; requesting redelivery"));
     }
 
     Ok(response)
+}
+
+/// `processed=true` for a handled event, `false` for a permanently rejected one.
+#[allow(clippy::too_many_arguments)]
+async fn record_event(
+    app_state: &AppState,
+    connector: &Connector,
+    key: &str,
+    received_at: chrono::NaiveDateTime,
+    provider_event_type: &str,
+    provider_event_id: &str,
+    processed: bool,
+    error: Option<String>,
+) -> Result<(), Report<errors::AdapterWebhookError>> {
+    app_state
+        .services
+        .insert_webhook_in_event_idempotent(WebhookInEventNew {
+            id: uuid::Uuid::now_v7(),
+            received_at,
+            attempts: 1,
+            action: Some(provider_event_type.to_string()),
+            key: key.to_string(),
+            processed,
+            error,
+            provider_config_id: connector.id.as_uuid(),
+            provider_event_id: Some(provider_event_id.to_string()),
+        })
+        .await
+        .change_context(errors::AdapterWebhookError::DatabaseError)?;
+    Ok(())
+}
+
+/// Transient (infra) → retry via 5xx; permanent (bad data) → don't, to avoid a
+/// 5xx-loop that gets our endpoint disabled.
+fn is_transient(e: &errors::AdapterWebhookError) -> bool {
+    matches!(
+        e,
+        errors::AdapterWebhookError::DatabaseError
+            | errors::AdapterWebhookError::StoreError
+            | errors::AdapterWebhookError::ProviderError
+            | errors::AdapterWebhookError::ObjectStoreUnreachable
+    )
 }
 
 /// Pull the webhook signing secret out of the connector's sensitive blob.

@@ -77,6 +77,18 @@ pub fn payment_intent_from_outcome(
                 processed_at: None,
             }
         }
+        ChargeOutcome::Cancelled(c) => PaymentIntent {
+            external_id: c.external_id.unwrap_or_default(),
+            transaction_id,
+            tenant_id,
+            amount_requested: amount_minor,
+            amount_received: None,
+            currency,
+            next_action: None,
+            status: PaymentStatusEnum::Cancelled,
+            last_payment_error: Some(c.message),
+            processed_at: None,
+        },
         ChargeOutcome::Failed(f) => PaymentIntent {
             external_id: f.external_id.unwrap_or_default(),
             transaction_id,
