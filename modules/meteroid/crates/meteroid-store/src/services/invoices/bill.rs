@@ -157,6 +157,9 @@ impl Services {
                         tenant_id,
                         draft_invoice.id,
                         payment_method_id,
+                        // Auto-billing: no customer present, so 3DS can't be
+                        // completed inline — it gets flagged for follow-up.
+                        false,
                     )
                     .await?;
 

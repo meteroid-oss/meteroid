@@ -472,7 +472,13 @@ impl ServicesEdge {
             .transaction(|conn| {
                 async move {
                     self.services
-                        .process_invoice_payment_tx(conn, tenant_id, invoice_id, payment_method_id)
+                        .process_invoice_payment_tx(
+                            conn,
+                            tenant_id,
+                            invoice_id,
+                            payment_method_id,
+                            true,
+                        )
                         .await
                 }
                 .scope_boxed()

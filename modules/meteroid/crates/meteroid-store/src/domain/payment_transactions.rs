@@ -8,7 +8,71 @@ use common_domain::ids::{
 };
 use diesel_models::payments::{PaymentTransactionRow, PaymentTransactionWithMethodRow};
 use o2o::o2o;
-use serde::Deserialize;
+use serde::{Deserialize, Serialize};
+
+/// Customer action required to complete a charge (3DS / SCA). Stored in
+/// `payment_transaction.next_action` (JSONB) and surfaced to the portal.
+#[derive(Clone, Serialize, Deserialize, PartialEq, Eq)]
+#[serde(tag = "kind", rename_all = "snake_case")]
+pub enum PaymentNextAction {
+    /// Redirect the browser to this provider-hosted URL (3DS redirect, bank app).
+    RedirectToUrl { url: String },
+    /// Client SDK completes the action with the intent's client secret
+    /// (Stripe.js `handleNextAction`).
+    UseSdk {
+        intent_id: String,
+        publishable_key: String,
+        /// Sensitive: lets the holder complete this PaymentIntent. Transient
+        /// only — returned to the portal in the charge response but NEVER
+        /// persisted (stripped via [`Self::for_storage`]); resumed flows
+        /// re-fetch it from the provider.
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        client_secret: Option<String>,
+    },
+}
+
+impl PaymentNextAction {
+    /// Storage projection — drops the transient client secret so it never
+    /// lands in the database.
+    pub fn for_storage(&self) -> Self {
+        match self {
+            Self::RedirectToUrl { url } => Self::RedirectToUrl { url: url.clone() },
+            Self::UseSdk {
+                intent_id,
+                publishable_key,
+                ..
+            } => Self::UseSdk {
+                intent_id: intent_id.clone(),
+                publishable_key: publishable_key.clone(),
+                client_secret: None,
+            },
+        }
+    }
+}
+
+// Manual Debug so the client secret can never leak into logs.
+impl std::fmt::Debug for PaymentNextAction {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self {
+            Self::RedirectToUrl { url } => {
+                f.debug_struct("RedirectToUrl").field("url", url).finish()
+            }
+            Self::UseSdk {
+                intent_id,
+                publishable_key,
+                client_secret,
+            } => f
+                .debug_struct("UseSdk")
+                .field("intent_id", intent_id)
+                .field("publishable_key", publishable_key)
+                .field(
+                    "client_secret",
+                    &client_secret.as_ref().map(|_| "<redacted>"),
+                )
+                .finish(),
+        }
+    }
+}
 
 #[derive(Clone, Debug, PartialEq, o2o)]
 #[from_owned(PaymentTransactionRow)]
@@ -43,7 +107,7 @@ pub struct PaymentIntent {
     pub amount_requested: i64,
     pub amount_received: Option<i64>,
     pub currency: String,
-    pub next_action: Option<String>,
+    pub next_action: Option<PaymentNextAction>,
     pub status: PaymentStatusEnum,
     pub last_payment_error: Option<String>,
     pub processed_at: Option<NaiveDateTime>,

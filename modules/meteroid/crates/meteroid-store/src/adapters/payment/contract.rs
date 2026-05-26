@@ -87,6 +87,7 @@ pub async fn run_contract(impl_: &dyn PaymentConnector, connector: &Connector) {
                 amount_minor: 1234,
                 currency: "USD",
                 idempotency_key: IdempotencyKey::new("test_charge_1"),
+                on_session: false,
             },
         )
         .await

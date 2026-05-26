@@ -7,8 +7,9 @@
 use super::events::NormalizedEventKind;
 use super::model::ChargeOutcome;
 use crate::domain::PaymentStatusEnum;
-use crate::domain::payment_transactions::PaymentIntent;
+use crate::domain::payment_transactions::{PaymentIntent, PaymentNextAction};
 use common_domain::ids::{PaymentTransactionId, TenantId};
+use secrecy::ExposeSecret;
 
 /// Build the legacy [`PaymentIntent`] from a normalized [`ChargeOutcome`].
 ///
@@ -48,14 +49,24 @@ pub fn payment_intent_from_outcome(
             processed_at: None,
         },
         ChargeOutcome::RequiresAction(action) => {
-            // RequiresAction isn't surfaced to the portal yet; leave Pending.
+            // Stays Pending; the persisted next_action is what marks it as
+            // "awaiting customer authentication".
             let (external_id, next_action) = match action {
                 super::model::RequiresActionInstruction::HostedUrl { external_id, url, .. } => {
-                    (external_id, Some(url))
+                    (external_id, PaymentNextAction::RedirectToUrl { url })
                 }
-                super::model::RequiresActionInstruction::ClientSecret { external_id, .. } => {
-                    (external_id, Some("client-side-action".to_string()))
-                }
+                super::model::RequiresActionInstruction::ClientSecret {
+                    external_id,
+                    client_secret,
+                    publishable_key,
+                } => (
+                    external_id.clone(),
+                    PaymentNextAction::UseSdk {
+                        intent_id: external_id,
+                        publishable_key: publishable_key.expose_secret().to_string(),
+                        client_secret: Some(client_secret),
+                    },
+                ),
             };
             PaymentIntent {
                 external_id,
@@ -64,7 +75,7 @@ pub fn payment_intent_from_outcome(
                 amount_requested: amount_minor,
                 amount_received: None,
                 currency,
-                next_action,
+                next_action: Some(next_action),
                 status: PaymentStatusEnum::Pending,
                 last_payment_error: None,
                 processed_at: None,

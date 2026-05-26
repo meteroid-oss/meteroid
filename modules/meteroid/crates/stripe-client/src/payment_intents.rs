@@ -37,6 +37,9 @@ pub struct StripePaymentIntent {
     /// describing what the portal needs to surface.
     pub next_action: Option<StripeNextAction>,
     pub livemode: bool,
+    /// Returned on PaymentIntent creation. The on-session portal needs it to
+    /// complete a `requires_action` charge via Stripe.js `handleNextAction`.
+    pub client_secret: Option<String>,
     pub status: StripePaymentStatus,
     /// Stripe sends this as a nested object (code, message, decline_code,
     /// payment_method, etc.). Kept as opaque JSON because the variant set is

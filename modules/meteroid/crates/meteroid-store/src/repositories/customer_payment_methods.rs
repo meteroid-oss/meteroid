@@ -47,6 +47,18 @@ pub trait CustomerPaymentMethodsInterface {
         tenant_id: TenantId,
         id: SubscriptionId,
     ) -> StoreResult<ResolvedPaymentMethod>;
+
+    /// Refresh stored card brand/last4/expiry from a `payment_method.updated`
+    /// webhook, keyed by the provider's payment-method id.
+    async fn update_payment_method_card_details(
+        &self,
+        tenant_id: TenantId,
+        external_payment_method_id: &str,
+        card_brand: Option<String>,
+        card_last4: Option<String>,
+        card_exp_month: Option<i32>,
+        card_exp_year: Option<i32>,
+    ) -> StoreResult<()>;
 }
 
 #[async_trait::async_trait]
@@ -132,6 +144,35 @@ impl CustomerPaymentMethodsInterface for Store {
             .into();
 
         Ok(customer_payment_method)
+    }
+
+    async fn update_payment_method_card_details(
+        &self,
+        tenant_id: TenantId,
+        external_payment_method_id: &str,
+        card_brand: Option<String>,
+        card_last4: Option<String>,
+        card_exp_month: Option<i32>,
+        card_exp_year: Option<i32>,
+    ) -> StoreResult<()> {
+        let mut conn = self.get_conn().await?;
+        let updated = CustomerPaymentMethodRow::update_card_details(
+            &mut conn,
+            tenant_id,
+            external_payment_method_id,
+            card_brand,
+            card_last4,
+            card_exp_month,
+            card_exp_year,
+        )
+        .await
+        .map_err(|err| StoreError::DatabaseError(err.error))?;
+        if updated == 0 {
+            log::warn!(
+                "payment_method.updated for unknown external id {external_payment_method_id}"
+            );
+        }
+        Ok(())
     }
 
     async fn resolve_payment_method_for_subscription(

@@ -792,7 +792,13 @@ impl Services {
                         .await?;
 
                     let payment_result = self
-                        .process_invoice_payment_tx(conn, tenant_id, invoice_id, payment_method_id)
+                        .process_invoice_payment_tx(
+                            conn,
+                            tenant_id,
+                            invoice_id,
+                            payment_method_id,
+                            true,
+                        )
                         .await?;
 
                     if payment_result.status == crate::domain::PaymentStatusEnum::Settled {

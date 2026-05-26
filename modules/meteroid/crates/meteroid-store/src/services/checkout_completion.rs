@@ -71,6 +71,8 @@ impl Services {
                 "charge:{}",
                 transaction_id.as_base62()
             )),
+            // Checkout is always customer-present, so 3DS can be completed inline.
+            on_session: true,
         };
 
         let outcome = connector_impl
@@ -137,6 +139,7 @@ impl Services {
             processed_at: charge_result.payment_intent.processed_at,
             checkout_session_id: None,
             pending_plan_version_id,
+            next_action: None,
         };
 
         let inserted = transaction
@@ -171,6 +174,7 @@ impl Services {
             processed_at: charge_result.payment_intent.processed_at,
             checkout_session_id: Some(checkout_session_id),
             pending_plan_version_id: None,
+            next_action: None,
         };
 
         let inserted = transaction

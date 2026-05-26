@@ -33,6 +33,9 @@ pub struct PaymentTransactionRow {
     /// which only gets set on transition to a terminal state. Used by the
     /// reconciliation worker to filter Pending rows by age.
     pub created_at: NaiveDateTime,
+    /// Customer action required to complete the charge (3DS/SCA). Present +
+    /// status Pending = waiting on the customer. Serialized `PaymentNextAction`.
+    pub next_action: Option<serde_json::Value>,
 }
 
 #[derive(Debug, Insertable)]
@@ -52,6 +55,7 @@ pub struct PaymentTransactionRowNew {
     pub processed_at: Option<NaiveDateTime>,
     pub checkout_session_id: Option<CheckoutSessionId>,
     pub pending_plan_version_id: Option<PlanVersionId>,
+    pub next_action: Option<serde_json::Value>,
 }
 
 #[derive(AsChangeset, Default)]
@@ -67,6 +71,7 @@ pub struct PaymentTransactionRowPatch {
     pub processed_at: Option<Option<NaiveDateTime>>,
     pub refunded_at: Option<Option<NaiveDateTime>>,
     pub provider_transaction_id: Option<Option<String>>,
+    pub next_action: Option<Option<serde_json::Value>>,
 }
 
 #[derive(Debug, Queryable, Selectable)]

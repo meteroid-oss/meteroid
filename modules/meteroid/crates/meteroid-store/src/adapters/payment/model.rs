@@ -106,6 +106,10 @@ pub struct ChargeRequest<'a> {
     pub currency: &'a str,
     /// Derived from `transaction_id` — same transaction retried gets the same key.
     pub idempotency_key: IdempotencyKey,
+    /// Whether the customer is present in a browser. On-session lets the
+    /// provider return a completable `requires_action` (3DS) the portal can
+    /// finish; off-session (recurring) charges can only be flagged for later.
+    pub on_session: bool,
 }
 
 /// Outcome of a charge attempt. Normalized across providers so the core code

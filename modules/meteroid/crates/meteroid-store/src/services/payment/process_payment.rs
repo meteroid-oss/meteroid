@@ -31,6 +31,7 @@ impl Services {
         tenant_id: TenantId,
         invoice_id: InvoiceId,
         payment_method_id: CustomerPaymentMethodId,
+        on_session: bool,
     ) -> StoreResult<PaymentTransaction> {
         // Get the invoice
         let invoice = InvoiceRow::select_for_update_by_id(conn, tenant_id, invoice_id)
@@ -114,6 +115,7 @@ impl Services {
             processed_at: None,
             checkout_session_id: None,
             pending_plan_version_id: None,
+            next_action: None,
         };
 
         let inserted_transaction = transaction
@@ -130,6 +132,7 @@ impl Services {
                 &inserted_transaction.id,
                 inserted_transaction.amount as u64,
                 inserted_transaction.currency.clone(),
+                on_session,
             )
             .await?;
 
@@ -154,6 +157,7 @@ impl Services {
         transaction_id: &PaymentTransactionId,
         amount: u64,
         currency: String,
+        on_session: bool,
     ) -> StoreResult<PaymentIntent> {
         let method = CustomerPaymentMethodRow::get_by_id(conn, tenant_id, payment_method_id)
             .await
@@ -183,6 +187,7 @@ impl Services {
                 "charge:{}",
                 transaction_id.as_base62()
             )),
+            on_session,
         };
 
         let outcome = tokio::time::timeout(
