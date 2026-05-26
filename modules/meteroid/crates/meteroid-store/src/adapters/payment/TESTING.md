@@ -79,7 +79,11 @@ on-demand re-fetch.
 - Done: state machine + persistence, Stripe adapter capturing the real
   `client_secret`, webhook handling (`requires_action`, method
   `updated`/`expiring`), mock e2e support, the off/on-session distinction
-  threaded through all charge flows.
-- Remaining for full on-session UX: surface `next_action` through the confirm
-  gRPC responses and have the portal call `handleNextAction`; the off-session
-  customer email (hook only for now).
+  threaded through all charge flows. On-session surfacing: `next_action` is
+  returned on `ConfirmInvoicePaymentResponse` / `ConfirmCheckoutResponse`, and
+  the portal (`completeNextAction`) calls Stripe.js `handleNextAction`.
+- Remaining: slot-upgrade and subscription-activation checkout don't surface
+  `next_action` inline yet (activation charges via a deeper helper; slot
+  activation is settled-only — both need a small refactor; state is still
+  persisted). Off-session customer email is a hook only for now. After pulling
+  the proto change, run `pnpm generate:proto` to regenerate the TS bindings.

@@ -6,6 +6,7 @@ import { useNavigate, useSearchParams } from 'react-router-dom'
 
 import { PaymentPanel } from '@/features/checkout/PaymentPanel'
 import { ReadonlyPaymentView } from '@/features/checkout/components/ReadonlyPaymentView'
+import { completeNextAction } from '@/features/checkout/utils/completeNextAction'
 import { getCheckoutPaymentAvailability } from '@/features/checkout/utils/paymentAvailability'
 import { BillingInfo } from '@/features/customers/components/BillingInfo'
 import { BankTransferInfo } from '@/features/invoice-payment/components/BankTransferInfo'
@@ -114,12 +115,15 @@ const CheckoutFlow: React.FC<CheckoutFlowProps> = ({
         throw new Error('Currency is not defined')
       }
 
-      await confirmCheckoutMutation.mutateAsync({
+      const res = await confirmCheckoutMutation.mutateAsync({
         displayedAmount: amountDue,
         displayedCurrency: subscription.subscription.currency,
         paymentMethodId,
         couponCode: couponCode.trim() || undefined,
       })
+
+      // If the charge needs 3DS/SCA, complete it before navigating.
+      await completeNextAction(res.nextAction)
 
       // On success, redirect to success page
       const params = new URLSearchParams({

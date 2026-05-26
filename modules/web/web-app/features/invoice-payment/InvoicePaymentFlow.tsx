@@ -6,6 +6,7 @@ import { useNavigate } from 'react-router-dom'
 import { PaymentPanel } from '@/features/checkout/PaymentPanel'
 import { BillingInfo } from '@/features/checkout/components/BillingInfo'
 import { ReadonlyPaymentView } from '@/features/checkout/components/ReadonlyPaymentView'
+import { completeNextAction } from '@/features/checkout/utils/completeNextAction'
 import { getInvoicePaymentAvailability } from '@/features/checkout/utils/paymentAvailability'
 import { confirmInvoicePayment } from '@/rpc/portal/invoice/v1/invoice-PortalInvoiceService_connectquery'
 import { formatCurrency } from '@/utils/numbers'
@@ -47,12 +48,15 @@ const InvoicePaymentFlow: React.FC<InvoicePaymentData> = ({ invoicePaymentData }
         throw new Error('Currency is not defined')
       }
 
-      await confirmInvoicePaymentMutation.mutateAsync({
+      const res = await confirmInvoicePaymentMutation.mutateAsync({
         displayedAmount: invoice.amountDue,
         displayedCurrency: invoice.currency,
         paymentMethodId,
         invoiceId: invoice.id,
       })
+
+      // If the charge needs 3DS/SCA, complete it before navigating.
+      await completeNextAction(res.nextAction)
 
       // On success, redirect to success page (we can create this later)
       const params = new URLSearchParams({
