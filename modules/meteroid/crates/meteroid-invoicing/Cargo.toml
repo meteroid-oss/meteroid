@@ -18,6 +18,9 @@ rusty-money = { workspace = true }
 thiserror = { workspace = true }
 unic-langid.workspace = true
 serde_json.workspace = true
+# pinned (see root Cargo.toml): constrains the transitive ecow used by typst to a version
+# that still compiles under Rust 1.94.
+ecow = { workspace = true }
 typst = { workspace = true }
 typst-pdf = { workspace = true }
 typst-svg = { workspace = true }
