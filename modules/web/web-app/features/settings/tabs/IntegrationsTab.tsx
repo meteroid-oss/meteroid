@@ -110,6 +110,21 @@ export const IntegrationsTab = () => {
           ),
         },
         {
+          name: 'GoCardless',
+          description: 'Bank-debit collection across SEPA, BACS, ACH',
+          features: ['Direct Debit (SEPA, BACS, ACH)', 'Recurring mandates'],
+          // GoCardless brand isn't in simple-icons; fall back to a generic
+          // bank glyph (lucide's BanknoteIcon already in scope). Swap for
+          // a proper brand SVG when one is available.
+          icon: ({ className }) => (
+            <BanknoteIcon className={cn(className, 'text-[#5063F0]')} />
+          ),
+          link: `add-gocardless`,
+          data: connectorsQuery.data?.connectors.filter(
+            connector => connector.provider === ConnectorProviderEnum.GOCARDLESS
+          ),
+        },
+        {
           name: 'Adyen',
           description: 'Enterprise payment solution',
           features: ['Card', 'Direct Debit (SEPA, ACH, Bacs)'],

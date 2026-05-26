@@ -12,6 +12,12 @@ pub enum StripePaymentMethodType {
     Card,
     SepaDebit,
     UsBankAccount, // ACH
+    /// Catch-all for the 50+ Stripe payment-method types we don't configure
+    /// (link, paypal, klarna, wallets, …). We never request these, but a
+    /// customer-attached method can surface one in `payment_method.*` webhook
+    /// payloads — without this we'd hard-fail deserialization.
+    #[serde(other)]
+    Other,
 }
 
 #[derive(Clone, Debug, Deserialize)]

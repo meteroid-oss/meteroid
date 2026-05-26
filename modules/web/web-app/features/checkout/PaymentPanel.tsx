@@ -1,10 +1,11 @@
 import { useMutation } from '@connectrpc/connect-query'
 import { Elements, useElements, useStripe } from '@stripe/react-stripe-js'
 import { loadStripe } from '@stripe/stripe-js/pure' // prevents calls to stripe until used
-import { AlertCircle, Building, CreditCard } from 'lucide-react'
+import { AlertCircle, Building, CreditCard, ExternalLink } from 'lucide-react'
 import { useEffect, useState } from 'react'
 
 import { useQuery } from '@/lib/connectrpc'
+import { ConnectorProviderEnum } from '@/rpc/api/connectors/v1/models_pb'
 import {
   CustomerPaymentMethod,
   CustomerPaymentMethod_PaymentMethodTypeEnum,
@@ -328,9 +329,17 @@ export const PaymentPanel: React.FC<PaymentPanelProps> = props => {
   const hasBoth =
     hasCard && hasDirectDebit && props.cardConnectionId !== props.directDebitConnectionId
 
-  // Fetch setup intent for the active connection
+  // Fetch setup intent for the active connection. For GoCardless we also
+  // forward a return URL pointing at our portal return-handler, which the
+  // backend hands to the Billing Request Flow as the `redirect_uri`. Stripe
+  // ignores the return_url (its Elements flow returns to the page directly).
   const activeConnectionId =
     activeTab === 'card' ? props.cardConnectionId : props.directDebitConnectionId
+
+  const returnUrl =
+    typeof window !== 'undefined' && activeConnectionId
+      ? `${window.location.origin}/payment-return?connection=${encodeURIComponent(activeConnectionId)}`
+      : undefined
 
   const setupIntentQuery = useQuery(
     setupIntent,
@@ -338,26 +347,25 @@ export const PaymentPanel: React.FC<PaymentPanelProps> = props => {
       connectionId: activeConnectionId!,
       connectionType:
         activeTab === 'card' ? ConnectionTypeEnum.CARD : ConnectionTypeEnum.DIRECT_DEBIT,
+      returnUrl,
     },
     { enabled: !!activeConnectionId }
   )
 
-  // Extract clientSecret and publishableKey from the setupIntent response
-  const clientSecret = setupIntentQuery.data?.setupIntent?.intentSecret
-  const stripePublishableKey = setupIntentQuery.data?.setupIntent?.providerPublicKey
-  const connectionId = setupIntentQuery.data?.setupIntent?.connectionId
+  const intent = setupIntentQuery.data?.setupIntent
+  const intentSecret = intent?.intentSecret
+  const provider = intent?.provider
+  const connectionId = intent?.connectionId
 
   // Wait for setup intent to load
   if (setupIntentQuery.isLoading) {
     return <div className="w-full p-6 lg:p-10 text-center">Loading payment options...</div>
   }
 
-  if (setupIntentQuery.isError || !clientSecret || !stripePublishableKey || !connectionId) {
+  if (setupIntentQuery.isError || !intentSecret || !connectionId || provider === undefined) {
     console.log(
       `setupIntent error: ${
-        setupIntentQuery.isError
-          ? setupIntentQuery.error
-          : `Missing ${!clientSecret ? 'clientSecret ' : ''}${!stripePublishableKey ? 'stripePublishableKey ' : ''}${!connectionId ? 'connectionId' : ''}`
+        setupIntentQuery.isError ? setupIntentQuery.error : 'missing intent fields'
       } `
     )
 
@@ -368,8 +376,32 @@ export const PaymentPanel: React.FC<PaymentPanelProps> = props => {
     )
   }
 
-  // Initialize Stripe with the publishable key from the setupIntent
+  // GoCardless flow: no embedded SDK. The backend put the BRF
+  // `authorisation_url` in `intentSecret` (the field is reused across
+  // providers — for Stripe it carries the client_secret instead). The user
+  // clicks through to the GoCardless-hosted page; when they come back, the
+  // server's return-URL handler upserts the mandate and redirects to portal.
+  if (provider === ConnectorProviderEnum.GOCARDLESS) {
+    return (
+      <HostedRedirectPanel
+        authorisationUrl={intentSecret}
+        providerLabel="GoCardless"
+        helperText="You'll be redirected to authorise a direct-debit mandate on GoCardless's hosted page. Once you confirm, you'll be sent back here."
+      />
+    )
+  }
+
+  // Stripe flow: mount Elements. publishable_key is in providerPublicKey.
+  const stripePublishableKey = intent.providerPublicKey
+  if (!stripePublishableKey) {
+    return (
+      <div className="w-full p-6 lg:p-10 text-center text-red-600">
+        Provider configuration is incomplete. Please contact support.
+      </div>
+    )
+  }
   const stripePromise = loadStripe(stripePublishableKey)
+  const clientSecret = intentSecret
 
   return (
     <div>
@@ -429,6 +461,44 @@ export const PaymentPanel: React.FC<PaymentPanelProps> = props => {
           activeConnectionType={activeTab}
         />
       </Elements>
+    </div>
+  )
+}
+
+/**
+ * Renders the hosted-redirect branch for providers like GoCardless that
+ * collect mandate consent on their own UI rather than via an embedded SDK.
+ *
+ * Workflow:
+ *   1. User clicks "Continue".
+ *   2. Browser navigates to the provider's hosted authorisation page.
+ *   3. Provider redirects back to our server-side return URL once the
+ *      customer consents (or aborts).
+ *   4. Our return-URL handler upserts the mandate and bounces the user
+ *      back into the portal.
+ */
+const HostedRedirectPanel: React.FC<{
+  authorisationUrl: string
+  providerLabel: string
+  helperText: string
+}> = ({ authorisationUrl, providerLabel, helperText }) => {
+  return (
+    <div className="max-w-md mx-auto p-6">
+      <div className="flex items-center gap-3 mb-6">
+        <Building size={28} className="text-blue-600" />
+        <div>
+          <div className="font-medium">Continue with {providerLabel}</div>
+          <div className="text-xs text-muted-foreground">Direct-debit mandate</div>
+        </div>
+      </div>
+      <p className="text-sm text-muted-foreground mb-6">{helperText}</p>
+      <a
+        href={authorisationUrl}
+        className="w-full inline-flex items-center justify-center gap-2 py-3 rounded-lg transition-all font-medium bg-blue-600 hover:bg-blue-700 text-white"
+      >
+        <ExternalLink size={16} />
+        Continue to {providerLabel}
+      </a>
     </div>
   )
 }

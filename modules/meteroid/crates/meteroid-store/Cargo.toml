@@ -52,6 +52,7 @@ strum = { workspace = true, features = ["derive", "std"] }
 meteroid-mailer = { workspace = true }
 meteroid-oauth = { workspace = true }
 stripe-client = { workspace = true }
+gocardless-client = { workspace = true }
 common-domain = { workspace = true }
 metering-grpc = { workspace = true }
 prost-types = { workspace = true }
@@ -63,9 +64,12 @@ meteroid-tax = { workspace = true }
 ctor = { workspace = true }
 envconfig = { workspace = true }
 urlencoding = { workspace = true }
+http = { workspace = true }
 
 [dev-dependencies]
 rstest = { workspace = true }
+hmac = { workspace = true }
+sha2 = { workspace = true }
 
 [features]
 test-utils = []

@@ -33,7 +33,9 @@ impl Services {
         amount: i64,
         currency: String,
     ) -> StoreResult<DirectChargeResult> {
-        use crate::adapters::payment_service_providers::initialize_payment_provider;
+        use crate::adapters::payment::bridge::payment_intent_from_outcome;
+        use crate::adapters::payment::initialize_payment_connector;
+        use crate::adapters::payment::model::{ChargeRequest, IdempotencyKey};
         use crate::domain::connectors::Connector;
 
         if amount <= 0 {
@@ -53,23 +55,36 @@ impl Services {
 
         let connector = Connector::from_row(&self.store.settings.crypt_key, connection.connector)?;
 
-        let provider = initialize_payment_provider(&connector)
+        let connector_impl = initialize_payment_connector(&connector)
             .change_context(StoreError::PaymentProviderError)?;
 
         let transaction_id = PaymentTransactionId::new();
 
-        let payment_intent = provider
-            .create_payment_intent_in_provider(
-                &connector,
-                &transaction_id,
-                &connection.external_customer_id,
-                &method.external_payment_method_id,
-                &method.payment_method_type.into(),
-                amount,
-                &currency,
-            )
+        let request = ChargeRequest {
+            transaction_id,
+            customer_external_id: &connection.external_customer_id,
+            payment_method_external_id: &method.external_payment_method_id,
+            payment_method_type: method.payment_method_type.clone().into(),
+            amount_minor: amount,
+            currency: &currency,
+            idempotency_key: IdempotencyKey::new(format!(
+                "charge:{}",
+                transaction_id.as_base62()
+            )),
+        };
+
+        let outcome = connector_impl
+            .charge_off_session(&connector, request)
             .await
             .change_context_lazy(|| StoreError::PaymentProviderError)?;
+
+        let payment_intent = payment_intent_from_outcome(
+            outcome,
+            transaction_id,
+            tenant_id,
+            amount,
+            currency.clone(),
+        );
 
         match payment_intent.status {
             crate::domain::PaymentStatusEnum::Settled

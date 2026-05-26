@@ -1,5 +1,8 @@
 use crate::StoreResult;
-use crate::adapters::payment_service_providers::initialize_payment_provider;
+use crate::adapters::payment::initialize_payment_connector;
+use crate::adapters::payment::model::{
+    CreateCustomerRequest, IdempotencyKey, MandateSetupInstruction, MandateSetupRequest,
+};
 use crate::domain::connectors::Connector;
 use crate::domain::{CustomerConnection, PaymentMethodTypeEnum, SetupIntent};
 use crate::errors::StoreError;
@@ -12,7 +15,24 @@ use common_domain::ids::{BaseId, CustomerConnectionId, TenantId};
 use diesel_models::customer_connection::CustomerConnectionDetailsRow;
 use diesel_models::invoicing_entities::{InvoicingEntityProvidersRow, InvoicingEntityRow};
 use error_stack::{Report, ResultExt};
+use secrecy::SecretString;
 use std::time::Duration;
+
+/// Build a CreateCustomerRequest with an idempotency key derived from
+/// (customer, provider). Stable across retries; unique per (customer, provider)
+/// pair so two providers don't collide.
+fn customer_idempotency(
+    customer_id: common_domain::ids::CustomerId,
+    provider_id: common_domain::ids::ConnectorId,
+) -> CreateCustomerRequest {
+    CreateCustomerRequest {
+        idempotency_key: IdempotencyKey::new(format!(
+            "customer:{}:{}",
+            customer_id.as_base62(),
+            provider_id.as_base62()
+        )),
+    }
+}
 
 /// Maximum time to wait for payment provider API calls.
 const PAYMENT_PROVIDER_TIMEOUT: Duration = Duration::from_secs(45);
@@ -111,12 +131,16 @@ impl Services {
                 conn_row.id
             } else {
                 // Create new customer in payment provider
-                let payment_provider = initialize_payment_provider(provider)
+                let connector_impl = initialize_payment_connector(provider)
                     .change_context(StoreError::PaymentProviderError)?;
 
-                let external_id = tokio::time::timeout(
+                let external_ref = tokio::time::timeout(
                     PAYMENT_PROVIDER_TIMEOUT,
-                    payment_provider.create_customer_in_provider(&customer, provider),
+                    connector_impl.create_customer(
+                        provider,
+                        &customer,
+                        customer_idempotency(customer.id, provider.id),
+                    ),
                 )
                 .await
                 .map_err(|_| {
@@ -124,6 +148,8 @@ impl Services {
                         .attach("Payment provider request timed out")
                 })?
                 .change_context(StoreError::PaymentProviderError)?;
+
+                let external_id = external_ref.external_id;
 
                 // Combine payment types: Card + appropriate direct debit types based on country
                 let mut payment_types =
@@ -161,12 +187,16 @@ impl Services {
                 if let Some(conn_row) = existing {
                     card_connection_id = Some(conn_row.id);
                 } else {
-                    let provider = initialize_payment_provider(card_provider)
+                    let connector_impl = initialize_payment_connector(card_provider)
                         .change_context(StoreError::PaymentProviderError)?;
 
-                    let external_id = tokio::time::timeout(
+                    let external_ref = tokio::time::timeout(
                         PAYMENT_PROVIDER_TIMEOUT,
-                        provider.create_customer_in_provider(&customer, card_provider),
+                        connector_impl.create_customer(
+                            card_provider,
+                            &customer,
+                            customer_idempotency(customer.id, card_provider.id),
+                        ),
                     )
                     .await
                     .map_err(|_| {
@@ -174,6 +204,8 @@ impl Services {
                             .attach("Payment provider request timed out")
                     })?
                     .change_context(StoreError::PaymentProviderError)?;
+
+                    let external_id = external_ref.external_id;
 
                     // Create connection in our database with Card payment type
                     let new_connection = CustomerConnectionRow {
@@ -204,12 +236,16 @@ impl Services {
                 if let Some(conn_row) = existing {
                     direct_debit_connection_id = Some(conn_row.id);
                 } else {
-                    let provider = initialize_payment_provider(direct_debit_provider)
+                    let connector_impl = initialize_payment_connector(direct_debit_provider)
                         .change_context(StoreError::PaymentProviderError)?;
 
-                    let external_id = tokio::time::timeout(
+                    let external_ref = tokio::time::timeout(
                         PAYMENT_PROVIDER_TIMEOUT,
-                        provider.create_customer_in_provider(&customer, direct_debit_provider),
+                        connector_impl.create_customer(
+                            direct_debit_provider,
+                            &customer,
+                            customer_idempotency(customer.id, direct_debit_provider.id),
+                        ),
                     )
                     .await
                     .map_err(|_| {
@@ -217,6 +253,8 @@ impl Services {
                             .attach("Payment provider request timed out")
                     })?
                     .change_context(StoreError::PaymentProviderError)?;
+
+                    let external_id = external_ref.external_id;
 
                     let new_connection = CustomerConnectionRow {
                         id: CustomerConnectionId::new(),
@@ -247,12 +285,14 @@ impl Services {
         tenant_id: &TenantId,
         customer_connection_id: &CustomerConnectionId,
         connection_type: crate::domain::ConnectionTypeEnum,
+        return_url: Option<String>,
     ) -> StoreResult<SetupIntent> {
         self.create_setup_intent_internal(
             conn,
             tenant_id,
             customer_connection_id,
             Some(connection_type),
+            return_url,
         )
         .await
     }
@@ -262,8 +302,9 @@ impl Services {
         conn: &mut PgConn,
         tenant_id: &TenantId,
         customer_connection_id: &CustomerConnectionId,
+        return_url: Option<String>,
     ) -> StoreResult<SetupIntent> {
-        self.create_setup_intent_internal(conn, tenant_id, customer_connection_id, None)
+        self.create_setup_intent_internal(conn, tenant_id, customer_connection_id, None, return_url)
             .await
     }
 
@@ -273,6 +314,7 @@ impl Services {
         tenant_id: &TenantId,
         customer_connection_id: &CustomerConnectionId,
         requested_connection_type: Option<crate::domain::ConnectionTypeEnum>,
+        return_url: Option<String>,
     ) -> StoreResult<SetupIntent> {
         let connection =
             CustomerConnectionDetailsRow::get_by_id(conn, tenant_id, customer_connection_id)
@@ -292,7 +334,7 @@ impl Services {
 
         let connector = Connector::from_row(&self.store.settings.crypt_key, connection.connector)?;
 
-        let provider = initialize_payment_provider(&connector)
+        let connector_impl = initialize_payment_connector(&connector)
             .change_context(StoreError::PaymentProviderError)?;
 
         // payment methods for that connector are either retrieved from invoicing entity (default) or overridden through the connection
@@ -359,13 +401,18 @@ impl Services {
             });
         }
 
-        let setup_intent = tokio::time::timeout(
+        let mandate_request = MandateSetupRequest {
+            payment_methods: &payment_methods,
+            idempotency_key: IdempotencyKey::new(format!(
+                "setup_intent:{}",
+                customer_connection.id.as_base62()
+            )),
+            return_url,
+        };
+
+        let instruction = tokio::time::timeout(
             PAYMENT_PROVIDER_TIMEOUT,
-            provider.create_setup_intent_in_provider(
-                &customer_connection,
-                &connector,
-                payment_methods,
-            ),
+            connector_impl.initiate_mandate_setup(&connector, &customer_connection, mandate_request),
         )
         .await
         .map_err(|_| {
@@ -374,6 +421,46 @@ impl Services {
         })?
         .change_context_lazy(|| StoreError::PaymentProviderError)?;
 
+        let setup_intent = match instruction {
+            MandateSetupInstruction::EmbeddedClientSecret {
+                intent_id,
+                client_secret,
+                publishable_key,
+            } => SetupIntent {
+                intent_id,
+                client_secret,
+                public_key: publishable_key,
+                provider: connector.provider.clone(),
+                connector_id: connector.id,
+                connection_id: customer_connection.id,
+            },
+            // GoCardless / Adyen Drop-in surfaces happen here. Today's
+            // frontend only consumes the embedded-client-secret shape — the
+            // SetupIntent gRPC response is mapped accordingly. When we add
+            // GoCardless (Phase 2) we'll widen SetupIntent or split the API.
+            MandateSetupInstruction::HostedRedirect { intent_id, authorisation_url, .. } => {
+                SetupIntent {
+                    intent_id,
+                    client_secret: authorisation_url,
+                    public_key: SecretString::from(String::new()),
+                    provider: connector.provider.clone(),
+                    connector_id: connector.id,
+                    connection_id: customer_connection.id,
+                }
+            }
+            MandateSetupInstruction::EmbeddedDropIn { intent_id, session_data, .. } => {
+                SetupIntent {
+                    intent_id,
+                    client_secret: session_data,
+                    public_key: SecretString::from(String::new()),
+                    provider: connector.provider.clone(),
+                    connector_id: connector.id,
+                    connection_id: customer_connection.id,
+                }
+            }
+        };
+
         Ok(setup_intent)
     }
 }
+

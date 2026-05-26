@@ -1,0 +1,24 @@
+[package]
+name = "gocardless-client"
+version = "0.1.0"
+rust-version.workspace = true
+edition.workspace = true
+license.workspace = true
+
+[dependencies]
+tokio = { workspace = true, features = ["full"] }
+serde = { workspace = true, features = ["derive"] }
+serde_json = { workspace = true }
+serde_path_to_error = { workspace = true }
+serde_with = { workspace = true }
+secrecy = { workspace = true }
+thiserror = { workspace = true }
+hmac = { workspace = true }
+sha2 = { workspace = true }
+chrono = { workspace = true, features = ["clock", "serde"] }
+hex = { workspace = true }
+reqwest = { workspace = true, features = ["json"] }
+bytes = { workspace = true }
+async-trait = { workspace = true }
+uuid = { workspace = true, features = ["serde", "v4"] }
+log.workspace = true

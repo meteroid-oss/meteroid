@@ -842,6 +842,7 @@ diesel::table! {
         receipt_pdf_id -> Nullable<Uuid>,
         checkout_session_id -> Nullable<Uuid>,
         pending_plan_version_id -> Nullable<Uuid>,
+        created_at -> Timestamp,
     }
 }
 
@@ -1303,6 +1304,7 @@ diesel::table! {
         attempts -> Int4,
         error -> Nullable<Text>,
         provider_config_id -> Uuid,
+        provider_event_id -> Nullable<Text>,
     }
 }
 

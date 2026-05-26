@@ -37,6 +37,14 @@ pub trait ConnectorsInterface {
         stripe_account_id: String,
     ) -> StoreResult<ConnectorMeta>;
 
+    async fn connect_gocardless(
+        &self,
+        tenant_id: TenantId,
+        alias: String,
+        public: crate::domain::connectors::GocardlessPublicData,
+        sensitive: crate::domain::connectors::GocardlessSensitiveData,
+    ) -> StoreResult<ConnectorMeta>;
+
     async fn get_connector_with_data(
         &self,
         id: ConnectorId,
@@ -129,6 +137,33 @@ impl ConnectorsInterface for Store {
                 account_id: stripe_account_id,
             })),
             sensitive: Some(ProviderSensitiveData::Stripe(stripe_data)),
+        }
+        .to_row(&self.settings.crypt_key)?;
+
+        let res = row
+            .insert(&mut conn)
+            .await
+            .map_err(Into::<Report<StoreError>>::into)?;
+
+        Ok(res.into())
+    }
+
+    async fn connect_gocardless(
+        &self,
+        tenant_id: TenantId,
+        alias: String,
+        public: crate::domain::connectors::GocardlessPublicData,
+        sensitive: crate::domain::connectors::GocardlessSensitiveData,
+    ) -> StoreResult<ConnectorMeta> {
+        let mut conn = self.get_conn().await?;
+
+        let row: ConnectorRowNew = ConnectorNew {
+            tenant_id,
+            alias,
+            connector_type: ConnectorTypeEnum::PaymentProvider,
+            provider: ConnectorProviderEnum::Gocardless,
+            data: Some(ProviderData::Gocardless(public)),
+            sensitive: Some(ProviderSensitiveData::Gocardless(sensitive)),
         }
         .to_row(&self.settings.crypt_key)?;
 

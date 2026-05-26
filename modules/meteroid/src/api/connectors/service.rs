@@ -4,10 +4,11 @@ use common_domain::ids::ConnectorId;
 use common_grpc::middleware::server::auth::RequestExt;
 use meteroid_grpc::meteroid::api::connectors::v1::connectors_service_server::ConnectorsService;
 use meteroid_grpc::meteroid::api::connectors::v1::{
-    ConnectHubspotRequest, ConnectHubspotResponse, ConnectPennylaneRequest,
-    ConnectPennylaneResponse, ConnectStripeRequest, ConnectStripeResponse, ConnectorTypeEnum,
-    DisconnectConnectorRequest, DisconnectConnectorResponse, ListConnectorsRequest,
-    ListConnectorsResponse, UpdateHubspotConnectorRequest, UpdateHubspotConnectorResponse,
+    ConnectGoCardlessRequest, ConnectGoCardlessResponse, ConnectHubspotRequest,
+    ConnectHubspotResponse, ConnectPennylaneRequest, ConnectPennylaneResponse, ConnectStripeRequest,
+    ConnectStripeResponse, ConnectorTypeEnum, DisconnectConnectorRequest,
+    DisconnectConnectorResponse, ListConnectorsRequest, ListConnectorsResponse,
+    UpdateHubspotConnectorRequest, UpdateHubspotConnectorResponse,
 };
 use meteroid_oauth::model::OauthProvider;
 use meteroid_store::domain::connectors::HubspotPublicData;
@@ -83,13 +84,51 @@ impl ConnectorsService for ConnectorsServiceComponents {
             "Missing stripe data".to_string(),
         ))?;
 
-        let sensitive_data = mapping::connectors::stripe_data_to_domain(&data);
+        let mut sensitive_data = mapping::connectors::stripe_data_to_domain(&data);
 
         let account_id = self
             .services
             .get_stripe_account_id(&sensitive_data)
             .await
             .map_err(Into::<ConnectorApiError>::into)?;
+
+        // Auto-register the webhook endpoint when the user didn't paste one
+        // and provided a URL we should listen on. The Stripe API key needs
+        // the "Webhook Endpoints (write)" scope; if it doesn't, we surface
+        // the error and the user can fall back to pasting a secret manually.
+        if sensitive_data.webhook_secret.is_empty() {
+            if let Some(url) = req.auto_register_webhook_url.as_deref() {
+                let registered = auto_register_stripe_webhook(
+                    tenant_id,
+                    &data.alias,
+                    &sensitive_data,
+                    &account_id,
+                    url,
+                    &data.api_publishable_key,
+                )
+                .await
+                .map_err(|e| {
+                    log::warn!(
+                        "Auto-registering Stripe webhook for alias {} failed: {e:?}",
+                        data.alias
+                    );
+                    ConnectorApiError::InvalidArgument(format!(
+                        "Stripe webhook auto-registration failed: {}. Paste a webhook \
+                         secret manually, or grant the API key the Webhook Endpoints \
+                         (write) scope.",
+                        e.current_context()
+                    ))
+                })?;
+                sensitive_data.webhook_secret = registered.secret;
+                sensitive_data.webhook_endpoint_id = Some(registered.endpoint_id);
+            } else {
+                return Err(ConnectorApiError::MissingArgument(
+                    "webhook_secret is required when auto_register_webhook_url is not provided"
+                        .to_string(),
+                )
+                .into());
+            }
+        }
 
         let res = self
             .store
@@ -193,4 +232,107 @@ impl ConnectorsService for ConnectorsServiceComponents {
             auth_url: url.expose_secret().to_owned(),
         }))
     }
+
+    /// Register a GoCardless merchant account. Mirrors `connect_stripe` —
+    /// validates the proto payload, runs it through the mapping layer, and
+    /// asks the store to persist the (encrypted) connector. The frontend
+    /// modal asks for the merchant's access token + webhook secret directly
+    /// because GoCardless does not expose a programmatic webhook-endpoint
+    /// API (those are managed in the dashboard).
+    ///
+    /// Method name matches tonic's snake_case split of `ConnectGoCardless`.
+    async fn connect_go_cardless(
+        &self,
+        request: Request<ConnectGoCardlessRequest>,
+    ) -> Result<Response<ConnectGoCardlessResponse>, Status> {
+        let tenant_id = request.tenant()?;
+        let req = request.into_inner();
+
+        let data = req.data.ok_or(ConnectorApiError::MissingArgument(
+            "Missing gocardless data".to_string(),
+        ))?;
+
+        let (public, sensitive) = mapping::connectors::gocardless_data_to_domain(&data);
+
+        let res = self
+            .store
+            .connect_gocardless(tenant_id, data.alias, public, sensitive)
+            .await
+            .map_err(Into::<ConnectorApiError>::into)?;
+
+        Ok(Response::new(ConnectGoCardlessResponse {
+            connector: mapping::connectors::connector_meta_to_server(&res),
+        }))
+    }
+}
+
+/// Auto-register a Stripe webhook endpoint via the Stripe API.
+///
+/// Builds a transient `Connector` domain struct (just enough for the
+/// adapter to read the API key out of the sensitive blob) and calls
+/// `WebhookOps::register_webhook`. The endpoint subscribes to the full
+/// event set the adapter knows how to parse — Payments, Mandates, Refunds,
+/// Disputes. Returns `(endpoint_id, secret)` — the secret is unwrapped to a
+/// plain String because the caller stores it on `StripeSensitiveData`,
+/// which gets encrypted-at-rest before being persisted.
+async fn auto_register_stripe_webhook(
+    tenant_id: common_domain::ids::TenantId,
+    alias: &str,
+    sensitive_data: &meteroid_store::domain::connectors::StripeSensitiveData,
+    account_id: &str,
+    webhook_url: &str,
+    publishable_key: &str,
+) -> Result<
+    RegisteredWebhookFlat,
+    error_stack::Report<meteroid_store::adapters::payment::ConnectorError>,
+> {
+    use chrono::Utc;
+    use common_domain::ids::{BaseId, ConnectorId};
+    use meteroid_store::adapters::payment::events::NormalizedEventSubscription;
+    use meteroid_store::adapters::payment::{StripeConnector, WebhookOps};
+    use meteroid_store::domain::connectors::{
+        Connector, ProviderData, ProviderSensitiveData, StripePublicData,
+    };
+    use meteroid_store::domain::enums::{ConnectorProviderEnum, ConnectorTypeEnum};
+    use secrecy::ExposeSecret;
+
+    // The adapter only reads `sensitive` + `tenant_id` + `id`; the other
+    // fields are placeholders. `id` is fresh because the connector hasn't
+    // been persisted yet — used only for the idempotency-key derivation.
+    let transient = Connector {
+        id: ConnectorId::new(),
+        created_at: Utc::now().naive_utc(),
+        tenant_id,
+        alias: alias.to_string(),
+        connector_type: ConnectorTypeEnum::PaymentProvider,
+        provider: ConnectorProviderEnum::Stripe,
+        data: Some(ProviderData::Stripe(StripePublicData {
+            api_publishable_key: publishable_key.to_string(),
+            account_id: account_id.to_string(),
+        })),
+        sensitive: Some(ProviderSensitiveData::Stripe(sensitive_data.clone())),
+    };
+
+    let registered = StripeConnector::new()
+        .register_webhook(
+            &transient,
+            webhook_url,
+            &[
+                NormalizedEventSubscription::Payments,
+                NormalizedEventSubscription::Mandates,
+                NormalizedEventSubscription::Refunds,
+                NormalizedEventSubscription::Disputes,
+            ],
+        )
+        .await?;
+
+    Ok(RegisteredWebhookFlat {
+        endpoint_id: registered.endpoint_id,
+        secret: registered.secret.expose_secret().to_string(),
+    })
+}
+
+struct RegisteredWebhookFlat {
+    endpoint_id: String,
+    secret: String,
 }

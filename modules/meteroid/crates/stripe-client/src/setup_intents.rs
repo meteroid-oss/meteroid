@@ -71,6 +71,14 @@ pub struct SetupIntent {
     pub status: String,
     pub usage: String,
     pub metadata: HashMap<String, String>,
+    /// Same shape as PaymentIntent's `next_action` — populated when the
+    /// status is `requires_action` (3DS / microdeposit verification / etc).
+    #[serde(default)]
+    pub next_action: Option<crate::payment_intents::StripeNextAction>,
+    /// Stripe sends this as a nested object; opaque JSON is sufficient for
+    /// our portal display purposes.
+    #[serde(default)]
+    pub last_setup_error: Option<serde_json::Value>,
 }
 
 #[async_trait::async_trait]

@@ -29,6 +29,10 @@ pub struct PaymentTransactionRow {
     pub receipt_pdf_id: Option<StoredDocumentId>,
     pub checkout_session_id: Option<CheckoutSessionId>,
     pub pending_plan_version_id: Option<PlanVersionId>,
+    /// Wall-clock time the row was inserted. Distinct from `processed_at`,
+    /// which only gets set on transition to a terminal state. Used by the
+    /// reconciliation worker to filter Pending rows by age.
+    pub created_at: NaiveDateTime,
 }
 
 #[derive(Debug, Insertable)]

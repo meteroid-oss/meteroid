@@ -15,6 +15,9 @@ pub mod connectors {
             server::ConnectorProviderEnum::Pennylane => {
                 domain_enum::ConnectorProviderEnum::Pennylane
             }
+            server::ConnectorProviderEnum::Gocardless => {
+                domain_enum::ConnectorProviderEnum::Gocardless
+            }
         }
     }
 
@@ -32,6 +35,9 @@ pub mod connectors {
             }
             domain_enum::ConnectorProviderEnum::Pennylane => {
                 Some(server::ConnectorProviderEnum::Pennylane)
+            }
+            domain_enum::ConnectorProviderEnum::Gocardless => {
+                Some(server::ConnectorProviderEnum::Gocardless)
             }
             domain_enum::ConnectorProviderEnum::Mock => {
                 // Mock connector is for testing only - should never be returned via API
@@ -108,6 +114,10 @@ pub mod connectors {
                 }),
                 // Mock is for testing only, no data exposed in API
                 ProviderData::Mock(_) => None,
+                // GoCardless public data not yet exposed via proto. The
+                // connector still works end-to-end; the proto enumeration
+                // layer just hasn't been regenerated to know about it.
+                ProviderData::Gocardless(_) => None,
             }),
         })
     }
@@ -116,7 +126,35 @@ pub mod connectors {
         domain::StripeSensitiveData {
             api_secret_key: value.api_secret_key.clone(),
             webhook_secret: value.webhook_secret.clone(),
+            // Set when we auto-register an endpoint via WebhookOps; left None
+            // when the customer pasted the secret manually.
+            webhook_endpoint_id: None,
         }
+    }
+
+    /// Split the proto `GoCardlessConnector` payload into the (public,
+    /// sensitive) domain pair the connectors repository expects. The proto
+    /// flattens everything into one message; we partition by what should be
+    /// encrypted at rest (access_token + webhook_secret) vs. what shows up
+    /// in the dashboard (creditor_id, environment).
+    pub fn gocardless_data_to_domain(
+        value: &server::GoCardlessConnector,
+    ) -> (domain::GocardlessPublicData, domain::GocardlessSensitiveData) {
+        let env = if value.environment.is_empty() {
+            "live".to_string()
+        } else {
+            value.environment.clone()
+        };
+        (
+            domain::GocardlessPublicData {
+                creditor_id: value.creditor_id.clone(),
+                environment: env,
+            },
+            domain::GocardlessSensitiveData {
+                access_token: value.access_token.clone(),
+                webhook_secret: value.webhook_secret.clone(),
+            },
+        )
     }
 
     pub fn connection_metadata_to_server(value: &ConnectionMeta) -> server::ConnectionMetadata {

@@ -127,6 +127,45 @@ impl PaymentTransactionRow {
             .into_db_result()
     }
 
+    /// Pending transactions older than `older_than` (by `created_at`) that
+    /// have a known `provider_transaction_id`. The reconciliation worker
+    /// iterates this list, polling each provider to find out what really
+    /// happened — covers the case where the webhook for a charge never
+    /// arrived.
+    ///
+    /// The age filter excludes fresh-Pending rows whose webhook is simply
+    /// still in flight; without it the worker would burn provider API rate
+    /// limit on every newly-created transaction. The partial index
+    /// `idx_payment_transaction_pending_created_at` keeps the query fast
+    /// even with millions of historical rows. Returns oldest-first so a
+    /// stuck transaction doesn't get starved by a flood of newer ones.
+    pub async fn list_pending_with_provider_id(
+        conn: &mut PgConn,
+        older_than: chrono::NaiveDateTime,
+        limit: i64,
+    ) -> DbResult<Vec<PaymentTransactionRow>> {
+        use crate::schema::payment_transaction::dsl::{
+            created_at, payment_transaction, provider_transaction_id, status,
+        };
+        use diesel_async::RunQueryDsl;
+
+        let query = payment_transaction
+            .filter(status.eq(PaymentStatusEnum::Pending))
+            .filter(provider_transaction_id.is_not_null())
+            .filter(created_at.lt(older_than))
+            .order(created_at.asc())
+            .limit(limit)
+            .select(PaymentTransactionRow::as_select());
+
+        log::debug!("{}", debug_query::<diesel::pg::Pg, _>(&query));
+
+        query
+            .get_results(conn)
+            .await
+            .attach("Error listing pending transactions")
+            .into_db_result()
+    }
+
     pub async fn set_receipt_pdf(
         conn: &mut PgConn,
         tx_id: PaymentTransactionId,
