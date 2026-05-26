@@ -311,7 +311,7 @@ impl RefundOps for StripeConnector {
         _connector: &Connector,
         _request: RefundRequest<'_>,
     ) -> Result<RefundOutcome, Report<ConnectorError>> {
-        // Implemented in Step 6.
+        // Refunds not implemented.
         Err(Report::new(ConnectorError::Unsupported {
             provider: ConnectorProviderEnum::Stripe,
             capability: "refund",
@@ -956,8 +956,7 @@ fn normalize_kind(event_type: &str, object: EventObject) -> Option<NormalizedEve
                     reason: Some(format!("mandate.{}", "inactive")),
                 })
             }
-            // Active or Pending — informational only. Step 4c may use this to
-            // reconcile mandate state, but the core doesn't act on it now.
+            // Non-terminal mandate status; not acted on.
             _ => NormalizedEventKind::Acknowledged {
                 reason: "mandate.updated — non-terminal status",
             },

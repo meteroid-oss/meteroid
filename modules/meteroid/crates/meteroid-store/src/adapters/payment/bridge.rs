@@ -1,10 +1,6 @@
-//! **Temporary bridge** between the new normalized outcomes
-//! ([`ChargeOutcome`]) and the legacy [`PaymentIntent`] domain type used by
-//! the settlement repository ([`consolidate_intent_and_transaction_tx`]).
-//!
-//! Once Step 4 refactors the settlement layer to consume normalized events
-//! directly, this module goes away. Until then, service callers build the
-//! legacy struct here so no behavior changes downstream.
+//! Maps the normalized [`ChargeOutcome`] / [`NormalizedEventKind`] onto the
+//! legacy [`PaymentIntent`] consumed by the settlement repository
+//! ([`consolidate_intent_and_transaction_tx`]).
 //!
 //! [`consolidate_intent_and_transaction_tx`]: crate::repositories::payment_transactions::PaymentTransactionInterface::consolidate_intent_and_transaction_tx
 
@@ -52,10 +48,7 @@ pub fn payment_intent_from_outcome(
             processed_at: None,
         },
         ChargeOutcome::RequiresAction(action) => {
-            // Until Step 4 surfaces `RequiresAction` to the customer portal,
-            // keep parity with the old behaviour: leave the transaction
-            // Pending and log a hint. The customer will be prompted to
-            // re-authorize via a follow-up flow.
+            // RequiresAction isn't surfaced to the portal yet; leave Pending.
             let (external_id, next_action) = match action {
                 super::model::RequiresActionInstruction::HostedUrl { external_id, url, .. } => {
                     (external_id, Some(url))
