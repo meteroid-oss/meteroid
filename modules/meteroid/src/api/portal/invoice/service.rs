@@ -263,9 +263,9 @@ impl PortalInvoiceService for PortalInvoiceServiceComponents {
             ));
         }
 
-        let transaction = self
+        let (transaction, next_action) = self
             .services
-            .complete_invoice_payment(tenant, invoice_id, payment_method_id)
+            .complete_invoice_payment(tenant, invoice_id, payment_method_id, true)
             .await
             .map_err(Into::<PortalInvoiceApiError>::into)?;
 
@@ -273,6 +273,8 @@ impl PortalInvoiceService for PortalInvoiceServiceComponents {
             transaction: Some(
                 crate::api::invoices::mapping::transactions::domain_to_server(transaction),
             ),
+            next_action: next_action
+                .map(crate::api::invoices::mapping::payment_action::domain_to_server),
         }))
     }
 }

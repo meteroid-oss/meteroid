@@ -791,7 +791,9 @@ impl Services {
                         )
                         .await?;
 
-                    let payment_result = self
+                    // Slot activation is settled-only today; 3DS on a slot
+                    // upgrade (rare — saved card) isn't surfaced inline yet.
+                    let (payment_result, _next_action) = self
                         .process_invoice_payment_tx(
                             conn,
                             tenant_id,

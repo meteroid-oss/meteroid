@@ -151,14 +151,14 @@ impl Services {
                 }
 
                 // We trigger the payment synchronously but don't finalize the invoice yet, it will be done via the webhook
-                let res = self
+                // Auto-billing: no customer present, so 3DS can't be completed
+                // inline — any next_action is persisted for follow-up, ignored here.
+                let (res, _next_action) = self
                     .process_invoice_payment_tx(
                         conn,
                         tenant_id,
                         draft_invoice.id,
                         payment_method_id,
-                        // Auto-billing: no customer present, so 3DS can't be
-                        // completed inline — it gets flagged for follow-up.
                         false,
                     )
                     .await?;

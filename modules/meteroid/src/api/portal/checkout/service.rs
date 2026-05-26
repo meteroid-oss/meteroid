@@ -390,7 +390,7 @@ impl PortalCheckoutService for PortalCheckoutServiceComponents {
             .await
             .map_err(Into::<PortalCheckoutApiError>::into)?;
 
-        let (subscription_id, transaction, status) = match result {
+        let (subscription_id, transaction, status, next_action) = match result {
             CheckoutCompletionResult::Completed {
                 subscription_id,
                 transaction,
@@ -398,11 +398,16 @@ impl PortalCheckoutService for PortalCheckoutServiceComponents {
                 Some(subscription_id.as_proto()),
                 transaction,
                 ConfirmCheckoutStatus::Completed,
+                None,
             ),
-            CheckoutCompletionResult::AwaitingPayment { transaction } => (
+            CheckoutCompletionResult::AwaitingPayment {
+                transaction,
+                next_action,
+            } => (
                 None,
                 Some(transaction),
                 ConfirmCheckoutStatus::AwaitingPayment,
+                next_action,
             ),
         };
 
@@ -411,6 +416,8 @@ impl PortalCheckoutService for PortalCheckoutServiceComponents {
                 .map(crate::api::invoices::mapping::transactions::domain_to_server),
             subscription_id,
             status: status as i32,
+            next_action: next_action
+                .map(crate::api::invoices::mapping::payment_action::domain_to_server),
         }))
     }
 
@@ -687,6 +694,7 @@ impl PortalCheckoutService for PortalCheckoutServiceComponents {
                 crate::api::invoices::mapping::transactions::domain_to_server(transaction),
             ),
             new_slot_count: new_slot_count as u32,
+            next_action: None,
         }))
     }
 }

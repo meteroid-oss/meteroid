@@ -3,7 +3,7 @@ use crate::adapters::payment::bridge::payment_intent_from_outcome;
 use crate::adapters::payment::initialize_payment_connector;
 use crate::adapters::payment::model::{ChargeRequest, IdempotencyKey};
 use crate::domain::connectors::Connector;
-use crate::domain::payment_transactions::{PaymentIntent, PaymentTransaction};
+use crate::domain::payment_transactions::{PaymentIntent, PaymentNextAction, PaymentTransaction};
 use crate::errors::StoreError;
 use crate::repositories::payment_transactions::PaymentTransactionInterface;
 use crate::services::Services;
@@ -32,7 +32,7 @@ impl Services {
         invoice_id: InvoiceId,
         payment_method_id: CustomerPaymentMethodId,
         on_session: bool,
-    ) -> StoreResult<PaymentTransaction> {
+    ) -> StoreResult<(PaymentTransaction, Option<PaymentNextAction>)> {
         // Get the invoice
         let invoice = InvoiceRow::select_for_update_by_id(conn, tenant_id, invoice_id)
             .await
@@ -136,6 +136,10 @@ impl Services {
             )
             .await?;
 
+        // Transient next_action (carries the client secret) — surfaced to the
+        // on-session caller so the portal can complete 3DS; never persisted.
+        let next_action = payment_intent.next_action.clone();
+
         // Consolidate the transaction
         let tx = self
             .store
@@ -146,7 +150,7 @@ impl Services {
             )
             .await?;
 
-        Ok(tx)
+        Ok((tx, next_action))
     }
 
     async fn create_payment_intent(

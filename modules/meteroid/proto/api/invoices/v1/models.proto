@@ -204,6 +204,24 @@ message Transaction {
   }
 }
 
+// Customer authentication required to complete a charge (3DS / SCA). Returned
+// on a confirm response when the customer must act before the payment settles.
+message PaymentActionRequired {
+  oneof action {
+    // Open this provider-hosted URL in the browser.
+    string redirect_to_url = 1;
+    // Complete client-side with the provider SDK (Stripe.js handleNextAction).
+    SdkAction use_sdk = 2;
+  }
+}
+
+message SdkAction {
+  string intent_id = 1;
+  string publishable_key = 2;
+  // PaymentIntent client secret. Transient — never persisted server-side.
+  string client_secret = 3;
+}
+
 message PaymentMethodInfo {
   PaymentMethodTypeEnum payment_method_type = 1;
   optional string card_brand = 2;

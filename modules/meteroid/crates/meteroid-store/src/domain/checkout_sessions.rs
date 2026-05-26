@@ -323,5 +323,7 @@ pub enum CheckoutCompletionResult {
     /// No subscription or invoice created yet - will be created when payment settles
     AwaitingPayment {
         transaction: crate::domain::PaymentTransaction,
+        /// Set when the customer must complete 3DS/SCA (transient client secret).
+        next_action: Option<crate::domain::payment_transactions::PaymentNextAction>,
     },
 }
