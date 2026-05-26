@@ -10,16 +10,10 @@
 //! the service layer to complete the Billing Request and store the resulting
 //! mandate, then 302-redirects the customer back into the portal.
 //!
-//! ## Security
-//!
-//! The handler does not require an authenticated session because the customer
-//! has just been redirected back from a third-party site without a cookie
-//! in-flight, and `connection` comes from the (attacker-controllable) query
-//! string. The service layer therefore does not trust it: it verifies the
-//! completed Billing Request's metadata names exactly this connection +
-//! customer before attaching the mandate (see
-//! `Services::complete_gocardless_setup`), failing closed on any mismatch. The
-//! `complete` action on GoCardless's side is idempotent, so replay is harmless.
+//! Unauthenticated (post third-party redirect) and `connection` is
+//! attacker-controllable, so `Services::complete_gocardless_setup`
+//! ownership-checks the completed BR's metadata before attaching. GC's
+//! `complete` action is idempotent, so replay is harmless.
 //!
 //! GoCardless can also redirect here with `?error=<code>` if the customer
 //! abandoned the flow. We sanitize that code (alphanumerics + `_-`, max 64

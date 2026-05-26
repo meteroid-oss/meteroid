@@ -23,18 +23,11 @@ impl WebhookInEventRowNew {
             .into_db_result()
     }
 
-    /// Insert with idempotency on `(provider_config_id, provider_event_id)`.
-    /// Returns `Ok(None)` when a row with the same provider event id already
-    /// exists for this connector — the caller treats that as a duplicate
-    /// delivery and skips processing.
-    ///
-    /// `ON CONFLICT DO NOTHING` means PostgreSQL silently swallows the
-    /// constraint violation; we read the row count to tell success from
-    /// dedup. NOTE: the unique index is **not** partial (see the migration for
-    /// why — Diesel's `ON CONFLICT (cols)` without a predicate cannot match a
-    /// partial index). Under PostgreSQL's default `NULLS DISTINCT`, rows with a
-    /// NULL `provider_event_id` never conflict, so callers must only rely on
-    /// this dedup for events that carry a provider event id.
+    /// Insert with idempotency on `(provider_config_id, provider_event_id)`,
+    /// returning `Ok(None)` on conflict. The index is non-partial (Diesel's
+    /// `ON CONFLICT (cols)` can't match a partial one), so under `NULLS
+    /// DISTINCT` a NULL `provider_event_id` never dedups — only rely on this for
+    /// events that carry an id.
     pub async fn insert_or_skip_if_duplicate(
         &self,
         conn: &mut PgConn,
@@ -58,11 +51,8 @@ impl WebhookInEventRowNew {
 }
 
 impl WebhookInEventRow {
-    /// Look up a previously-recorded inbound event by its provider config +
-    /// provider event id. The webhook router uses this to decide whether a
-    /// (re)delivery has already been handled before doing any work — a row
-    /// existing here means "we already processed (or permanently rejected)
-    /// this event", so it must be skipped.
+    /// A returned row means the event was already processed (or permanently
+    /// rejected); the router skips it.
     pub async fn find_by_provider_event(
         conn: &mut PgConn,
         provider_config_id_param: Uuid,

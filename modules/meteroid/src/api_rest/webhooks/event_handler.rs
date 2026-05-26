@@ -76,13 +76,8 @@ async fn handle_payment_method_attached(
     connector_impl: &dyn PaymentConnector,
     store: &Store,
 ) -> Result<(), Report<errors::AdapterWebhookError>> {
-    // The webhook event surfaces only the external ids; pull the canonical
-    // snapshot (brand, last4, type, expiry) from the provider in case the
-    // event payload is partial. For GoCardless this also recovers our
-    // `meteroid.*` ids: mandate webhook events carry an empty metadata object
-    // (GoCardless only populates event metadata for API-origin events), so the
-    // connection/customer ids must be read from the mandate resource itself,
-    // which the snapshot fetch surfaces.
+    // Fetch the canonical snapshot. For GoCardless this also recovers our
+    // `meteroid.*` ids, since mandate webhook events carry empty metadata.
     let snapshot = connector_impl
         .fetch_payment_method(
             connector,
@@ -92,8 +87,7 @@ async fn handle_payment_method_attached(
         .await
         .change_context(errors::AdapterWebhookError::ProviderError)?;
 
-    // Resolve our ids from the event metadata if present (Stripe), otherwise
-    // fall back to the ids recovered from the provider resource (GoCardless).
+    // Event metadata (Stripe) if present, else the fetched resource (GoCardless).
     let connection_id_str = e
         .meteroid_connection_id
         .as_deref()
@@ -118,11 +112,8 @@ async fn handle_payment_method_attached(
     let customer_id = CustomerId::parse_base62(customer_id_str)
         .change_context(errors::AdapterWebhookError::InvalidMetadata)?;
 
-    // Cross-tenant / hijack defense: the ids ultimately derive from metadata we
-    // set, but could in principle be tampered with provider-side (misconfigured
-    // shared endpoint, compromised provider account). Verify the connection
-    // belongs to this connector's tenant and is owned by the named customer
-    // before we touch the customer's payment method.
+    // Cross-tenant / hijack defense: verify the connection belongs to this
+    // connector's tenant and is owned by the named customer.
     use meteroid_store::repositories::customer_connection::CustomerConnectionInterface;
     let connection = store
         .get_connection_by_id(&connector.tenant_id, &connection_id)

@@ -596,8 +596,7 @@ fn snapshot_from_payment_method(method: PaymentMethod) -> PaymentMethodSnapshot 
         card_last4,
         card_exp_month,
         card_exp_year,
-        // Stripe webhook events carry our metadata directly, so the handler
-        // never needs to recover the ids from the fetched snapshot.
+        // Stripe events carry our metadata directly.
         meteroid_connection_id: None,
         meteroid_customer_id: None,
     }

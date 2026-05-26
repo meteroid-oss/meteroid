@@ -33,31 +33,12 @@ pub async fn axum_handler(
     }
 }
 
-/// Webhook router. Steps in order:
+/// Verify → archive → parse → process each event synchronously.
 ///
-/// 1. Look up the connector by `(tenant_id, connection_alias)`.
-/// 2. Read the raw payload.
-/// 3. Resolve the connector adapter via [`initialize_payment_connector`].
-/// 4. **Verify the signature** — adapter enforces signature + replay tolerance.
-///    Bad signatures NEVER reach the object store or the database.
-/// 5. **Archive** the verified payload to the object store (forensics).
-/// 6. **Parse** into normalized events (a single delivery can batch several).
-/// 7. For each event: skip if we already recorded it; otherwise process it
-///    **synchronously**, recording it on success.
-/// 8. ACK 200 if every event was handled (or skipped). If any event hit a
-///    *transient* failure, return 5xx so the provider redelivers — the events
-///    that did succeed are recorded and skipped on the retry, so only the
-///    failed one is reprocessed.
-///
-/// Order rationale:
-/// - Verify *before* any write (object store or DB) so an attacker who knows a
-///   tenant + alias can't run up storage/egress or table growth with unsigned
-///   payloads.
-/// - Record a row only *after* the handler succeeds (or permanently rejects the
-///   event). This is what makes delivery resilient: a transient handler failure
-///   leaves no row, returns 5xx, and the provider's redelivery reprocesses it —
-///   rather than being silently deduped away and lost forever. Handlers are
-///   idempotent, so reprocessing is safe.
+/// Two invariants: verify before any write (unsigned payloads cost nothing),
+/// and record a row only after the handler succeeds (or permanently rejects) —
+/// a transient failure leaves no row and returns 5xx so the provider redelivers
+/// and we reprocess. Handlers are idempotent.
 async fn handler(
     tenant_id: TenantId,
     connection_alias: String,
@@ -91,8 +72,6 @@ async fn handler(
 
     let secret = webhook_secret(&connector)?;
 
-    // Verify BEFORE we touch the object store or the database: an unsigned /
-    // forged payload must cost us nothing (no storage, no rows).
     connector_impl
         .verify_signature(&connector, &raw_body, &headers, &secret)
         .map_err(|_| Report::new(errors::AdapterWebhookError::SignatureVerificationFailed))?;
@@ -109,8 +88,6 @@ async fn handler(
         .change_context(errors::AdapterWebhookError::ObjectStoreUnreachable)?;
     let key = format!("{}/{}", prefix.to_path_string(), uid);
 
-    // A single delivery can carry several events (GoCardless batches). Parse
-    // them all — dropping any would lose it permanently once we ACK.
     let events = connector_impl
         .parse_events(&connector, &raw_body, &headers)
         .map_err(|_| Report::new(errors::AdapterWebhookError::BodyDecodingFailed))?;
@@ -118,10 +95,6 @@ async fn handler(
     let response = (StatusCode::OK, "OK").into_response();
 
     if events.is_empty() {
-        log::debug!(
-            "Webhook for connector {} carried no actionable events; archived for forensics",
-            connector.id
-        );
         return Ok(response);
     }
 
@@ -130,24 +103,14 @@ async fn handler(
     for event in events {
         let provider_event_id = event.provider_event_id.clone();
 
-        // Skip events we've already recorded (processed or permanently
-        // rejected). Cheap indexed lookup; avoids redundant provider calls on a
-        // redelivery triggered by a *different* event in the same batch failing.
-        match app_state
+        if app_state
             .services
             .find_webhook_in_event(connector.id.as_uuid(), &provider_event_id)
             .await
             .change_context(errors::AdapterWebhookError::DatabaseError)?
+            .is_some()
         {
-            Some(_) => {
-                log::info!(
-                    "Webhook event {} for connector {} already recorded; skipping",
-                    provider_event_id,
-                    connector.id
-                );
-                continue;
-            }
-            None => {}
+            continue;
         }
 
         let provider_event_type = event.provider_event_type.clone();
@@ -162,7 +125,6 @@ async fn handler(
 
         match result {
             Ok(()) => {
-                // Record success so a redelivery is deduped away.
                 record_event(
                     &app_state,
                     &connector,
@@ -176,25 +138,14 @@ async fn handler(
                 .await?;
             }
             Err(e) if is_transient(e.current_context()) => {
-                // Leave no row and signal the provider to redeliver. Idempotent
-                // handlers make the eventual reprocess safe.
-                log::error!(
-                    "Transient failure handling webhook event {} (connector {}): {e:?}",
-                    provider_event_id,
-                    connector.id
-                );
+                // No row → provider redelivers → reprocess.
+                log::error!("Transient webhook failure for event {provider_event_id}: {e:?}");
                 retry_needed = true;
             }
             Err(e) => {
-                // Permanent / unprocessable: record it (so we don't hammer the
-                // provider with 5xx forever, which can get our endpoint
-                // disabled) and move on. The raw payload is archived for replay.
-                log::error!(
-                    "Permanent failure handling webhook event {} (connector {}); recording and \
-                     skipping: {e:?}",
-                    provider_event_id,
-                    connector.id
-                );
+                // Unprocessable: record it so we don't 5xx-loop (which can get
+                // our endpoint disabled). Raw payload stays archived for replay.
+                log::error!("Permanent webhook failure for event {provider_event_id}; skipping: {e:?}");
                 record_event(
                     &app_state,
                     &connector,
@@ -211,8 +162,7 @@ async fn handler(
     }
 
     if retry_needed {
-        // 5xx → the provider redelivers the whole batch; already-recorded events
-        // are skipped above, so only the transiently-failed ones reprocess.
+        // 5xx → provider redelivers the batch; recorded events skip, failed ones reprocess.
         return Err(Report::new(errors::AdapterWebhookError::StoreError)
             .attach("one or more webhook events failed transiently; requesting redelivery"));
     }
@@ -220,9 +170,7 @@ async fn handler(
     Ok(response)
 }
 
-/// Record an inbound event in `webhook_in_event` (idempotent on
-/// `(provider_config_id, provider_event_id)`). `processed=true` for a handled
-/// event, `false` for one we permanently rejected.
+/// `processed=true` for a handled event, `false` for a permanently rejected one.
 #[allow(clippy::too_many_arguments)]
 async fn record_event(
     app_state: &AppState,
@@ -252,10 +200,8 @@ async fn record_event(
     Ok(())
 }
 
-/// Whether a handler error is worth asking the provider to redeliver. Transient
-/// = infrastructure hiccup that a retry can clear. Permanent = the event is
-/// unprocessable as-is (bad / missing metadata), so retrying forever only risks
-/// the provider disabling our endpoint.
+/// Transient (infra) → retry via 5xx; permanent (bad data) → don't, to avoid a
+/// 5xx-loop that gets our endpoint disabled.
 fn is_transient(e: &errors::AdapterWebhookError) -> bool {
     matches!(
         e,

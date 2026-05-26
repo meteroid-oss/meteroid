@@ -401,14 +401,8 @@ impl Services {
             });
         }
 
-        // For hosted-redirect providers (GoCardless) the browser is sent to the
-        // provider and then redirected to `return_url`. That MUST land on our
-        // backend completion endpoint so we can finalize the Billing Request and
-        // attach the mandate — not on a client-supplied URL (a client-chosen
-        // target both broke the flow, since no such SPA route existed, and is an
-        // open-redirect / hijack surface). We build it server-side from the
-        // configured public URL and the connection id; the completion handler
-        // then bounces the customer back into the portal.
+        // GoCardless must redirect back to our backend completion endpoint (to
+        // finalize the BR), not a client-supplied URL. Build it server-side.
         let return_url = if connector.provider == crate::domain::enums::ConnectorProviderEnum::Gocardless
         {
             Some(format!(

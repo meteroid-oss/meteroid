@@ -79,11 +79,8 @@ export const authInterceptor: Interceptor = next => async req => {
     organizationSlug && req.header.append('x-md-context', `${organizationSlug}/${tenantSlug || ''}`)
     sessionToken && req.header.append('Authorization', `Bearer ${sessionToken}`)
   } else if (req.service.typeName.startsWith('meteroid.portal')) {
-    // The portal token arrives as a `?token=` query param. Persist it to
-    // sessionStorage so it survives a third-party round-trip that returns the
-    // customer to the portal without the token in the URL — e.g. the
-    // GoCardless hosted mandate flow, which redirects via our backend to
-    // `/portal/customer` (no token). The URL value always wins when present.
+    // Persist the `?token=` to sessionStorage so it survives a third-party
+    // round-trip that returns without the token (e.g. GoCardless mandate flow).
     const urlToken = new URLSearchParams(window.location.search).get('token')
     if (urlToken) {
       sessionStorage.setItem('portal-token', urlToken)

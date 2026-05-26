@@ -89,40 +89,14 @@ impl PaymentTransactionInterface for Store {
 
         let status_changed = transaction.status != payment_intent.status;
 
-        // Persist the provider-side id the first time we learn it, regardless of
-        // whether the status moved. The off-session charge path inserts the row
-        // with a NULL provider_transaction_id (the id only comes back from the
-        // provider *after* the row exists), and an asynchronously-settled charge
-        // (GoCardless direct debit, Stripe ACH) comes back Pending — i.e. status
-        // unchanged. Without backfilling here, that id would never be stored and
-        // the reconciliation worker (which filters `provider_transaction_id IS
-        // NOT NULL`) could never recover the transaction if the confirming
-        // webhook were lost.
+        // An async charge (GoCardless DD, Stripe ACH) returns Pending, so the id
+        // arrives with no status change; still persist it once, or reconciliation
+        // (filters provider_transaction_id IS NOT NULL) can never recover it.
         let backfill_external_id =
             transaction.provider_transaction_id.is_none() && !payment_intent.external_id.is_empty();
 
         if !status_changed && !backfill_external_id {
-            log::debug!(
-                "Transaction {} status unchanged ({:?}) and provider id already set; nothing to do",
-                transaction.id,
-                payment_intent.status
-            );
             return Ok(transaction);
-        }
-
-        if status_changed {
-            log::info!(
-                "Updating transaction {} status from {:?} to {:?}",
-                transaction.id,
-                transaction.status,
-                payment_intent.status
-            );
-        } else {
-            log::info!(
-                "Backfilling provider_transaction_id for transaction {} (status unchanged: {:?})",
-                transaction.id,
-                transaction.status
-            );
         }
 
         let patch = PaymentTransactionRowPatch {
@@ -143,9 +117,7 @@ impl PaymentTransactionInterface for Store {
 
                     let transaction: PaymentTransaction = updated_transaction.into();
 
-                    // Only broadcast a state transition when the status actually
-                    // moved — a pure provider-id backfill is not a settlement
-                    // event and must not trigger downstream activation.
+                    // A pure id backfill is not a settlement event; don't broadcast it.
                     if status_changed {
                         self.internal
                             .insert_outbox_events_tx(

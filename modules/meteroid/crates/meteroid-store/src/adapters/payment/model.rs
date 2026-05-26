@@ -60,16 +60,10 @@ pub struct PaymentMethodSnapshot {
     pub card_last4: Option<String>,
     pub card_exp_month: Option<i32>,
     pub card_exp_year: Option<i32>,
-    /// Meteroid connection id, recovered from the provider resource's metadata
-    /// when the provider's *webhook event* does not echo it. GoCardless mandate
-    /// events carry an empty `metadata` object (it is only populated for
-    /// API-origin events), so the `mandates.active` handler resolves the owning
-    /// connection by reading the mandate's own metadata — which GoCardless does
-    /// return on `GET /mandates/:id`. `None` for providers (Stripe) whose events
-    /// already carry our metadata.
+    /// Recovered from the provider resource's metadata when its webhook event
+    /// doesn't echo it (GoCardless mandate events carry empty metadata); `None`
+    /// for providers whose events already carry our ids (Stripe).
     pub meteroid_connection_id: Option<String>,
-    /// Meteroid customer id, recovered from the provider resource's metadata.
-    /// See [`Self::meteroid_connection_id`].
     pub meteroid_customer_id: Option<String>,
 }
 
@@ -130,10 +124,8 @@ pub enum ChargeOutcome {
     Pending(ChargeAcknowledged),
     /// Customer interaction is required (3DS, bank app SCA, etc).
     RequiresAction(RequiresActionInstruction),
-    /// The provider reports the charge as *cancelled* — distinct from a decline.
-    /// Kept separate from `Failed` so the local terminal state matches what the
-    /// reconciliation path records for the same provider status, and so dunning
-    /// / retry policy can treat an abandonment differently from a decline.
+    /// Cancelled, distinct from a decline — keeps the sync and reconcile paths
+    /// consistent and lets dunning treat abandonment differently.
     Cancelled(ChargeCancelled),
     Failed(ChargeFailure),
 }

@@ -360,11 +360,8 @@ impl MandateOps for GoCardlessConnector {
             .await
             .map_err(map_gc_error)?;
 
-        // Carry the Meteroid ids so the return-URL service can verify the
-        // completed Billing Request actually belongs to the connection it is
-        // being attached to. The Billing Request's own metadata is the
-        // authoritative record of who initiated the setup; fall back to the
-        // mandate's metadata if (only) it is populated.
+        // The BR's own metadata is the authoritative record of who initiated the
+        // setup; the return-URL service ownership-checks against it.
         let mut metadata = mandate.metadata.clone();
         for key in ["meteroid.connection_id", "meteroid.customer_id", "meteroid.tenant_id"] {
             if let Some(value) = br.metadata.get(key) {
@@ -386,18 +383,12 @@ impl PaymentOps for GoCardlessConnector {
         let token = extract_access_token(connector)?;
         let client = Self::client_for(connector);
 
-        // A GoCardless mandate is scheme-bound, and each direct-debit scheme is
-        // single-currency (SEPA→EUR, BACS→GBP, ACH→USD). The mandate was set up
-        // with the scheme currency and `lock_currency`. Charging it in any other
-        // currency is rejected by GoCardless; surface that as a clear,
-        // non-retryable error here rather than letting the provider bounce it
-        // with an opaque validation message (and rather than wasting an API
-        // call + leaving the transaction in a confusing state).
+        // DD schemes are single-currency (SEPA→EUR, BACS→GBP, ACH→USD); a
+        // mismatched currency is rejected by GoCardless. Fail clearly here.
         if let Some((scheme_currency, _)) = method_to_currency_scheme(&request.payment_method_type) {
             if !request.currency.eq_ignore_ascii_case(&scheme_currency) {
                 return Err(Report::new(ConnectorError::Charge(format!(
-                    "GoCardless {:?} mandate is {}-only; cannot charge {} \
-                     (the invoice currency must match the direct-debit scheme currency)",
+                    "GoCardless {:?} mandate is {}-only; cannot charge {}",
                     request.payment_method_type, scheme_currency, request.currency
                 ))));
             }
@@ -536,16 +527,11 @@ impl WebhookOps for GoCardlessConnector {
         payload: &[u8],
         headers: &HeaderMap,
     ) -> Result<Option<NormalizedWebhookEvent>, Report<ConnectorError>> {
-        // Kept for trait completeness / single-event callers. The router uses
-        // `parse_events`, which surfaces the whole batch.
         Ok(self.parse_events(connector, payload, headers)?.into_iter().next())
     }
 
-    /// GoCardless routinely batches several events in one POST
-    /// (`{ "events": [ ... ] }`). We normalize and return every one; the router
-    /// dedups and processes each independently. Dropping any of them would lose
-    /// it permanently — GoCardless stops retrying once we ACK 200 and dedup is
-    /// keyed per event id.
+    /// GoCardless batches several events per POST; return all (dropping any
+    /// loses it permanently once we ACK 200).
     fn parse_events(
         &self,
         _connector: &Connector,
@@ -610,13 +596,9 @@ fn method_to_currency_scheme(method: &PaymentMethodTypeEnum) -> Option<(String, 
     }
 }
 
-/// Build a snapshot from a mandate. `metadata` is the mandate's (or its source
-/// Billing Request's) metadata map — GoCardless propagates the
-/// `mandate_request.metadata` we set at BR creation onto the resulting mandate,
-/// and returns it on `GET /mandates/:id`. We surface our `meteroid.*` ids from
-/// it so the `mandates.active` webhook handler (whose *event* payload carries an
-/// empty metadata object) can still resolve and ownership-check the owning
-/// connection.
+/// `metadata` is the mandate's metadata (propagated from the BR's
+/// `mandate_request.metadata` and returned by `GET /mandates/:id`); we surface
+/// our `meteroid.*` ids from it since mandate webhook events carry none.
 fn snapshot_from_mandate(
     mandate_id: String,
     scheme: Option<String>,
@@ -780,9 +762,8 @@ fn normalize_payment_event(event: &gocardless_client::webhook::Event) -> Option<
                 meteroid_transaction_id: meteroid_tx,
             })
         }
-        // A previously confirmed/paid-out payment that the bank later rejected.
-        // GoCardless claws the funds back from a future payout, so this is a
-        // failure — the invoice must be reopened, not left marked paid.
+        // Bank rejected a payment after it looked settled; funds are clawed
+        // back, so this is a failure (despite the name).
         ev_action::LATE_FAILURE_SETTLED => NormalizedEventKind::PaymentFailed(PaymentFailedEvent {
             external_transaction_id: payment_id,
             code: Some("late_failure_settled".into()),

@@ -34,19 +34,9 @@ impl Services {
     /// Finalize a GoCardless Billing Request after the customer returns from
     /// the hosted authorisation flow.
     ///
-    /// Idempotent: the underlying GC `complete_billing_request` call can be
-    /// retried safely, and `upsert_payment_method` dedups on
-    /// `(connection_id, external_payment_method_id)`. Calling this from the
-    /// return-URL handler AND processing the mandates.active webhook on the
-    /// same mandate yields the same end state.
-    ///
-    /// The tenant id is *derived from* the connection — the return-URL
-    /// handler is hit by a customer's browser after a third-party redirect,
-    /// so there's no authenticated tenant context. Because `connection_id` is
-    /// attacker-supplied, we do not trust it: we verify that the Billing
-    /// Request's metadata (set by us at creation, returned by the provider on
-    /// completion) names exactly this connection + customer before attaching
-    /// the mandate, and fail closed otherwise.
+    /// Idempotent (shares the end state with the `mandates.active` webhook).
+    /// Unauthenticated and `connection_id` is attacker-supplied, so it
+    /// ownership-checks the BR metadata before attaching (see below).
     pub async fn complete_gocardless_setup(
         &self,
         connection_id: CustomerConnectionId,
@@ -72,17 +62,9 @@ impl Services {
             .await
             .change_context_lazy(|| StoreError::PaymentProviderError)?;
 
-        // Authorization check (defense against mandate hijack). This endpoint is
-        // unauthenticated — it is hit by the customer's browser after a
-        // third-party redirect — and `connection_id` comes straight from the
-        // query string. Without this check, anyone who learns a victim's
-        // connection id (it appears in URLs / logs) could complete *their own*
-        // Billing Request against the victim's connection and have it attached
-        // to the victim's customer record. We verify that the metadata stamped
-        // onto the Billing Request at creation (which the provider returns on
-        // completion) names exactly this connection and customer. Fail closed if
-        // it is missing or mismatched. This mirrors the cross-tenant defense the
-        // `mandates.active` webhook handler applies.
+        // Hijack defense: this endpoint is unauthenticated and `connection_id`
+        // is attacker-supplied, so verify the completed BR's metadata names this
+        // exact connection + customer. Fail closed.
         let expected_connection = connection_id.as_base62();
         let expected_customer = connection_row.customer.id.as_base62();
         match (

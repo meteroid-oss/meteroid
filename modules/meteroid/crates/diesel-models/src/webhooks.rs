@@ -15,12 +15,9 @@ pub struct WebhookInEventRow {
     pub attempts: i32,
     pub error: Option<String>,
     pub provider_config_id: Uuid,
-    /// Provider-side event id (Stripe `evt_…`, GoCardless `EV…`, …). Combined
-    /// with `provider_config_id` it enforces idempotency: duplicate webhook
-    /// deliveries violate the unique index `(provider_config_id,
-    /// provider_event_id)` and are rejected at insert. The index is not partial;
-    /// rows with a NULL provider_event_id (events with no usable id) do not
-    /// participate in dedup under PostgreSQL's `NULLS DISTINCT`.
+    /// Provider-side event id (Stripe `evt_…`, GoCardless `EV…`). With
+    /// `provider_config_id` it dedups deliveries via a (non-partial) unique
+    /// index; NULL ids don't dedup under `NULLS DISTINCT`.
     pub provider_event_id: Option<String>,
 }
 

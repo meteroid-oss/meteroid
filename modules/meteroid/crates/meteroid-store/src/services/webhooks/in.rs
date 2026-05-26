@@ -39,9 +39,7 @@ impl ServicesEdge {
             .map_err(Into::into)
     }
 
-    /// Look up whether an inbound event has already been recorded for a
-    /// connector. A recorded row means we already processed (or permanently
-    /// rejected) the event, so the webhook router skips re-handling it.
+    /// A recorded row means the event was already handled; the router skips it.
     pub async fn find_webhook_in_event(
         &self,
         provider_config_id: uuid::Uuid,
