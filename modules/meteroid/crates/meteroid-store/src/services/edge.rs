@@ -88,12 +88,14 @@ impl ServicesEdge {
         &self,
         tenant_id: &TenantId,
         customer_connection_id: &CustomerConnectionId,
+        return_url: Option<String>,
     ) -> StoreResult<SetupIntent> {
         self.services
             .create_setup_intent(
                 &mut self.get_conn().await?,
                 tenant_id,
                 customer_connection_id,
+                return_url,
             )
             .await
     }
@@ -103,6 +105,7 @@ impl ServicesEdge {
         tenant_id: &TenantId,
         customer_connection_id: &CustomerConnectionId,
         connection_type: crate::domain::ConnectionTypeEnum,
+        return_url: Option<String>,
     ) -> StoreResult<SetupIntent> {
         self.services
             .create_setup_intent_for_type(
@@ -110,9 +113,77 @@ impl ServicesEdge {
                 tenant_id,
                 customer_connection_id,
                 connection_type,
+                return_url,
             )
             .await
     }
+
+    /// Complete a GoCardless Billing Request Flow after the customer returns
+    /// from the hosted authorisation URL. See
+    /// [`crate::services::payment::gocardless_return`] for the full design.
+    pub async fn complete_gocardless_setup(
+        &self,
+        connection_id: CustomerConnectionId,
+        billing_request_id: String,
+    ) -> StoreResult<crate::domain::CustomerPaymentMethod> {
+        self.services
+            .complete_gocardless_setup(connection_id, billing_request_id)
+            .await
+    }
+
+    /// Reconcile a single pending payment transaction against the provider.
+    /// Used by the periodic reconciliation worker.
+    pub async fn reconcile_pending_transaction(
+        &self,
+        transaction_id: common_domain::ids::PaymentTransactionId,
+        tenant_id: TenantId,
+    ) -> StoreResult<()> {
+        self.services
+            .reconcile_pending_transaction(transaction_id, tenant_id)
+            .await
+    }
+
+    /// List up to `limit` payment transactions that have been Pending
+    /// (with a recorded `provider_transaction_id`) for longer than the
+    /// caller-supplied threshold. The reconciliation worker uses this to
+    /// find candidates to poll. Returns oldest-first.
+    ///
+    /// Returns lightweight projections to keep the worker decoupled from
+    /// `diesel-models`.
+    pub async fn list_pending_payment_transactions(
+        &self,
+        older_than: chrono::NaiveDateTime,
+        limit: i64,
+    ) -> StoreResult<Vec<PendingTransactionRef>> {
+        let mut conn = self.get_conn().await?;
+        let rows =
+            diesel_models::payments::PaymentTransactionRow::list_pending_with_provider_id(
+                &mut conn, older_than, limit,
+            )
+            .await
+            .map_err(|err| StoreError::DatabaseError(err.error))?;
+        Ok(rows
+            .into_iter()
+            .map(|r| PendingTransactionRef {
+                id: r.id,
+                tenant_id: r.tenant_id,
+                created_at: r.created_at,
+            })
+            .collect())
+    }
+}
+
+/// Lightweight projection of a `PaymentTransactionRow` for the reconciliation
+/// worker. Kept outside `diesel_models` so the worker (which lives in
+/// `meteroid`, not `meteroid-store`) doesn't have to depend on the DB layer.
+#[derive(Debug, Clone)]
+pub struct PendingTransactionRef {
+    pub id: common_domain::ids::PaymentTransactionId,
+    pub tenant_id: TenantId,
+    pub created_at: chrono::NaiveDateTime,
+}
+
+impl ServicesEdge {
 
     pub async fn refresh_invoice_data(
         &self,

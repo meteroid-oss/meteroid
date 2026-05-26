@@ -5,6 +5,7 @@ pub mod error;
 pub mod invoice;
 mod request;
 pub mod webhook;
+pub mod webhook_endpoints;
 
 pub mod payment_methods;
 

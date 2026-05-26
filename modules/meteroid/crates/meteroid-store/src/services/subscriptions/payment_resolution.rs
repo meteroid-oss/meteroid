@@ -205,7 +205,8 @@ impl Services {
         provider: &Connector,
         existing_connections: &[CustomerConnectionRow],
     ) -> StoreResult<Option<CustomerConnectionId>> {
-        use crate::adapters::payment_service_providers::initialize_payment_provider;
+        use crate::adapters::payment::initialize_payment_connector;
+        use crate::adapters::payment::model::{CreateCustomerRequest, IdempotencyKey};
 
         if let Some(existing) = existing_connections
             .iter()
@@ -214,12 +215,22 @@ impl Services {
             return Ok(Some(existing.id));
         }
 
-        let payment_provider = initialize_payment_provider(provider)
+        let connector_impl = initialize_payment_connector(provider)
             .change_context(StoreError::PaymentProviderError)?;
 
-        let external_id = tokio::time::timeout(
+        // Idempotency: customer × provider. Retry after a network blip
+        // returns the original external customer rather than creating a duplicate.
+        let request = CreateCustomerRequest {
+            idempotency_key: IdempotencyKey::new(format!(
+                "customer:{}:{}",
+                customer.id.as_base62(),
+                provider.id.as_base62()
+            )),
+        };
+
+        let external_ref = tokio::time::timeout(
             PAYMENT_PROVIDER_TIMEOUT,
-            payment_provider.create_customer_in_provider(customer, provider),
+            connector_impl.create_customer(provider, customer, request),
         )
         .await
         .map_err(|_| {
@@ -227,6 +238,8 @@ impl Services {
                 .attach("Payment provider request timed out")
         })?
         .change_context(StoreError::PaymentProviderError)?;
+
+        let external_id = external_ref.external_id;
 
         let new_connection = CustomerConnectionRow {
             id: CustomerConnectionId::new(),

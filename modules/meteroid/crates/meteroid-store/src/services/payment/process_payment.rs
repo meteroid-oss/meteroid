@@ -1,5 +1,7 @@
 use crate::StoreResult;
-use crate::adapters::payment_service_providers::initialize_payment_provider;
+use crate::adapters::payment::bridge::payment_intent_from_outcome;
+use crate::adapters::payment::initialize_payment_connector;
+use crate::adapters::payment::model::{ChargeRequest, IdempotencyKey};
 use crate::domain::connectors::Connector;
 use crate::domain::entity_activity::Actor;
 use crate::domain::payment_transactions::{PaymentIntent, PaymentTransaction};
@@ -172,20 +174,28 @@ impl Services {
 
         let connector = Connector::from_row(&self.store.settings.crypt_key, connection.connector)?;
 
-        let provider = initialize_payment_provider(&connector)
+        let connector_impl = initialize_payment_connector(&connector)
             .change_context(StoreError::PaymentProviderError)?;
 
-        let payment_intent = tokio::time::timeout(
+        // Idempotency key derived from the transaction id: same transaction
+        // retried after a network blip returns the original outcome from the
+        // provider instead of double-charging.
+        let request = ChargeRequest {
+            transaction_id: *transaction_id,
+            customer_external_id: &connection.external_customer_id,
+            payment_method_external_id: &method.external_payment_method_id,
+            payment_method_type: method.payment_method_type.clone().into(),
+            amount_minor: amount as i64,
+            currency: &currency,
+            idempotency_key: IdempotencyKey::new(format!(
+                "charge:{}",
+                transaction_id.as_base62()
+            )),
+        };
+
+        let outcome = tokio::time::timeout(
             PAYMENT_PROVIDER_TIMEOUT,
-            provider.create_payment_intent_in_provider(
-                &connector,
-                transaction_id,
-                &connection.external_customer_id,
-                &method.external_payment_method_id,
-                &method.payment_method_type.into(),
-                amount as i64,
-                &currency,
-            ),
+            connector_impl.charge_off_session(&connector, request),
         )
         .await
         .map_err(|_| {
@@ -194,6 +204,12 @@ impl Services {
         })?
         .change_context_lazy(|| StoreError::PaymentProviderError)?;
 
-        Ok(payment_intent)
+        Ok(payment_intent_from_outcome(
+            outcome,
+            *transaction_id,
+            *tenant_id,
+            amount as i64,
+            currency,
+        ))
     }
 }

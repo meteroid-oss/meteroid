@@ -14,6 +14,9 @@ pub struct WebhookInEventNew {
     pub attempts: i32,
     pub error: Option<String>,
     pub provider_config_id: Uuid,
+    /// Provider-side event id (extracted from the parsed webhook). Drives the
+    /// idempotency unique index on (provider_config_id, provider_event_id).
+    pub provider_event_id: Option<String>,
 }
 
 #[derive(Clone, Debug, o2o)]
@@ -27,4 +30,5 @@ pub struct WebhookInEvent {
     pub attempts: i32,
     pub error: Option<String>,
     pub provider_config_id: Uuid,
+    pub provider_event_id: Option<String>,
 }

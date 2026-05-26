@@ -10,7 +10,6 @@ use serde_with::skip_serializing_none;
 #[derive(Clone, Debug, serde::Serialize)]
 pub struct CreateCustomer {
     pub address: Option<OptionalFieldsAddress>,
-    pub coupon: Option<String>,
     pub description: Option<String>,
     pub email: Option<String>,
     pub metadata: Option<std::collections::HashMap<String, String>>,

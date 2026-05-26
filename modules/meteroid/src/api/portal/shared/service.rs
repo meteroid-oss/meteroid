@@ -11,7 +11,7 @@ use common_grpc::middleware::server::auth::{AuthorizedAsPortalUser, RequestExt};
 use error_stack::ResultExt;
 use meteroid_grpc::meteroid::portal::shared::v1::portal_shared_service_server::PortalSharedService;
 use meteroid_grpc::meteroid::portal::shared::v1::*;
-use meteroid_store::adapters::payment_service_providers::initialize_payment_provider;
+use meteroid_store::adapters::payment::initialize_payment_connector;
 use meteroid_store::domain::{CustomerPatch, CustomerPaymentMethodNew};
 use meteroid_store::errors::StoreError;
 use meteroid_store::repositories::InvoiceInterface;
@@ -153,9 +153,12 @@ impl PortalSharedService for PortalSharedServiceComponents {
             .into());
         };
 
+        // For hosted-redirect providers (GoCardless) the frontend supplies
+        // its desired post-redirect URL; embedded providers ignore it. We
+        // pass it through verbatim — the adapter decides whether to use it.
         let intent = self
             .services
-            .create_setup_intent(&tenant, &customer_connection_id) // connection_type
+            .create_setup_intent(&tenant, &customer_connection_id, inner.return_url)
             .await
             .map_err(Into::<PortalSharedApiError>::into)?;
 
@@ -213,12 +216,12 @@ impl PortalSharedService for PortalSharedServiceComponents {
             .await
             .map_err(Into::<PortalSharedApiError>::into)?;
 
-        let provider = initialize_payment_provider(&connector)
+        let connector_impl = initialize_payment_connector(&connector)
             .change_context(StoreError::PaymentProviderError)
             .map_err(Into::<PortalSharedApiError>::into)?;
 
-        let method = provider
-            .get_payment_method_from_provider(
+        let method = connector_impl
+            .fetch_payment_method(
                 &connector,
                 &external_payment_method_id,
                 &connection.external_customer_id,

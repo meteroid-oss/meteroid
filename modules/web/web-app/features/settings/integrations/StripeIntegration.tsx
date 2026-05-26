@@ -9,7 +9,7 @@ import {
   Spinner,
 } from '@md/ui'
 import { useQueryClient } from '@tanstack/react-query'
-import { Building2, CheckCircle2, CreditCard, ExternalLink, Key, WebhookIcon } from 'lucide-react'
+import { Building2, CheckCircle2, CreditCard, ExternalLink, Key } from 'lucide-react'
 import { Fragment, KeyboardEvent as ReactKeyboardEvent, createElement, useState } from 'react'
 import { useWatch } from 'react-hook-form'
 import { useNavigate } from 'react-router'
@@ -51,6 +51,10 @@ export const StripeIntegrationModal = () => {
     name: 'alias',
   })
 
+  // Collapsed from 3 steps → 2. The webhook endpoint is now auto-created by
+  // the server using the same API key (requires `Webhook Endpoints (write)`
+  // scope). Users whose key lacks that scope can paste a webhook secret via
+  // the "Advanced" disclosure inside step 2.
   const steps = [
     {
       id: 'alias',
@@ -85,61 +89,18 @@ export const StripeIntegrationModal = () => {
             </a>
           </Button>
           <br/>
+          <span className="text-xs text-muted-foreground">
+            We&apos;ll create the webhook endpoint for you. The API key needs the&nbsp;
+            <code className="text-xs">Webhook Endpoints (write)</code> scope — if yours
+            doesn&apos;t, expand <em>Advanced</em> to paste a signing secret manually.
+          </span>
         </span>
       ),
       icon: Key,
-      fields: ['apiPublishableKey', 'apiSecretKey'] as const,
-    },
-    {
-      id: 'webhook',
-      title: 'Webhooks',
-      description: (
-        <span>
-          <span>Create a webhook endpoint in your Stripe Dashboard under </span>
-          <br/>
-          <Button variant="link" hasIcon>
-            <ExternalLink size={14} strokeWidth={1.5}/>
-            <a
-              target="_blank"
-              href={`https://dashboard.stripe.com/${isProduction ? '' : 'test/'}webhooks/create?events=setup_intent.succeeded%2Cpayment_intent.succeeded%2Cpayment_intent.partially_funded%2Cpayment_intent.payment_failed&url=${restApiUrl}/v1/webhooks/${tenant?.id?.toLowerCase()}/${alias}`}
-              rel="noreferrer"
-            >
-              Developers → Webhooks
-            </a>
-          </Button>
-          <br/>
-
-          <div className="bg-card p-4 rounded-lg space-y-3 mt-4  ">
-            <ol className="space-y-2 text-sm text-card-foreground">
-              <li>
-                Endpoint URL:
-                <br/>
-                <CopyToClipboardButton
-                  text={`${restApiUrl}/webhooks/v1/${tenant?.id}/${alias}`}
-                  className="whitespace-normal"
-                />
-              </li>
-
-              <li>
-                The following events should be selected : <br/>
-                <div className="font-mono text-xs bg-background dark:bg-secondary rounded-md py-2">
-                  <code>
-                    payment_intent.succeeded, payment_intent.payment_failed,
-                    payment_intent.partially_funded
-                  </code>
-                </div>
-                <br/>
-              </li>
-              <li>
-                {`Then click on "Add an endpoint", reveal and copy the "Signing secret" to the form
-                input below`}
-              </li>
-            </ol>
-          </div>
-        </span>
-      ),
-      icon: WebhookIcon,
-      fields: ['webhookSecret'] as const,
+      // The webhook secret stays in the validated fields list so the
+      // (optional) regex check applies when the user fills the Advanced
+      // field. Empty is valid — the backend treats empty as "auto-create".
+      fields: ['apiPublishableKey', 'apiSecretKey', 'webhookSecret'] as const,
     },
   ]
 
@@ -207,14 +168,22 @@ export const StripeIntegrationModal = () => {
   }
 
   const onSubmit = async (data: z.infer<typeof stripeIntegrationSchema>) => {
+    // Always send the webhook URL — the backend uses it iff webhookSecret is
+    // empty (auto-registration path). When the user pasted a secret in the
+    // Advanced section, the backend ignores the URL.
+    const autoRegisterWebhookUrl = tenant?.id
+      ? `${restApiUrl}/webhooks/v1/${tenant.id}/${data.alias}`
+      : undefined
+
     try {
       await connectStripeMutation.mutateAsync({
         data: {
           alias: data.alias,
           apiPublishableKey: data.apiPublishableKey,
           apiSecretKey: data.apiSecretKey,
-          webhookSecret: data.webhookSecret,
+          webhookSecret: data.webhookSecret ?? '',
         },
+        autoRegisterWebhookUrl,
       })
       toast.success('Connected !')
       navigate('..')
@@ -288,22 +257,56 @@ export const StripeIntegrationModal = () => {
             </div>
 
             <div className="space-y-6">
-              {/* With react-hook-form, you'd use form.register instead of the onChange handler */}
-              {steps[currentStep].fields.map((field, idx) => (
-                <div key={field} className="space-y-2">
-                  <InputFormField
-                    control={methods.control}
-                    label={fieldInfo[field].label}
-                    name={field}
-                    layout="vertical"
-                    description={fieldInfo[field].help}
-                    placeholder={fieldInfo[field].placeholder}
-                    showPasswordToggle={['apiSecretKey', 'webhookSecret'].includes(field)}
-                    data-form-type="other"
-                    onKeyDown={ev => handleInputKeyDown(ev, idx)}
-                  />
-                </div>
-              ))}
+              {/* Render the non-webhook fields inline; webhookSecret lives
+                  inside the Advanced disclosure below so the happy path is
+                  just (alias + 2 keys) on step 2. */}
+              {steps[currentStep].fields
+                .filter(field => field !== 'webhookSecret')
+                .map((field, idx) => (
+                  <div key={field} className="space-y-2">
+                    <InputFormField
+                      control={methods.control}
+                      label={fieldInfo[field].label}
+                      name={field}
+                      layout="vertical"
+                      description={fieldInfo[field].help}
+                      placeholder={fieldInfo[field].placeholder}
+                      showPasswordToggle={field === 'apiSecretKey'}
+                      data-form-type="other"
+                      onKeyDown={ev => handleInputKeyDown(ev, idx)}
+                    />
+                  </div>
+                ))}
+
+              {/* Advanced disclosure on step 2: lets users with restricted
+                  API keys paste a manually-created webhook secret instead of
+                  relying on auto-registration. */}
+              {(steps[currentStep].fields as readonly string[]).includes('webhookSecret') && (
+                <details className="rounded-md border border-border bg-card px-3 py-2">
+                  <summary className="cursor-pointer text-xs text-muted-foreground">
+                    Advanced: my API key can&apos;t create webhook endpoints
+                  </summary>
+                  <div className="pt-3 space-y-2">
+                    <p className="text-xs text-muted-foreground">
+                      Create a webhook in your Stripe dashboard pointing at this URL, then
+                      paste its signing secret here.
+                    </p>
+                    <CopyToClipboardButton
+                      text={`${restApiUrl}/webhooks/v1/${tenant?.id}/${alias}`}
+                      className="whitespace-normal"
+                    />
+                    <InputFormField
+                      control={methods.control}
+                      label={fieldInfo.webhookSecret.label}
+                      name="webhookSecret"
+                      layout="vertical"
+                      placeholder={fieldInfo.webhookSecret.placeholder}
+                      showPasswordToggle
+                      data-form-type="other"
+                    />
+                  </div>
+                </details>
+              )}
 
               <div className="flex justify-end gap-2 py-3 px-5 border-t ">
                 <div className="flex w-full space-x-2 justify-end">

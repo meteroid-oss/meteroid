@@ -18,7 +18,7 @@ static USER_AGENT: &str = concat!(
     env!("CARGO_PKG_VERSION")
 );
 
-static API_VERSION: &str = "2022-11-15";
+static API_VERSION: &str = "2026-04-22.dahlia";
 
 #[derive(Debug, Clone)]
 pub struct StripeClient {
@@ -138,6 +138,20 @@ impl StripeClient {
             .create_init_request(Method::POST, url, secret_key, Some(idempotency_key))
             .body(body);
 
+        self.execute(request_builder, retry_strategy)
+    }
+
+    /// Make a `DELETE` http request. Stripe uses DELETE for webhook endpoint
+    /// teardown and PM detachment. Like `get`, no body — auth and idempotency
+    /// (optional) ride on headers.
+    pub(crate) fn delete<T: DeserializeOwned + Send + 'static>(
+        &self,
+        path: &str,
+        secret_key: &SecretString,
+        retry_strategy: RetryStrategy,
+    ) -> Response<T> {
+        let url = self.url(path);
+        let request_builder = self.create_init_request(Method::DELETE, url, secret_key, None);
         self.execute(request_builder, retry_strategy)
     }
 

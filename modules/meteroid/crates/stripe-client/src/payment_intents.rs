@@ -31,11 +31,36 @@ pub struct StripePaymentIntent {
     pub amount: i64,
     pub amount_received: Option<i64>,
     pub currency: String,
-    pub next_action: Option<String>, // should not happen as we're offline ?
+    /// Populated by Stripe when the customer must complete an additional step
+    /// (3DS, microdeposit verification, bank app SCA). Off-session charges that
+    /// trigger SCA come back with status `requires_action` and `next_action`
+    /// describing what the portal needs to surface.
+    pub next_action: Option<StripeNextAction>,
     pub livemode: bool,
     pub status: StripePaymentStatus,
-    pub last_payment_error: Option<String>,
+    /// Stripe sends this as a nested object (code, message, decline_code,
+    /// payment_method, etc.). Kept as opaque JSON because the variant set is
+    /// large and we only display a flattened message downstream.
+    pub last_payment_error: Option<serde_json::Value>,
     pub metadata: HashMap<String, String>,
+}
+
+/// Describes what the customer must do next to complete a payment / setup
+/// intent. Shape is shared between PaymentIntent and SetupIntent.
+#[derive(Clone, Debug, Deserialize)]
+pub struct StripeNextAction {
+    #[serde(rename = "type")]
+    pub action_type: String,
+    pub redirect_to_url: Option<StripeRedirectToUrl>,
+    /// Stripe SDK-driven flows (3DS modal, etc.) attach an opaque blob here
+    /// that the client SDK consumes; we surface it verbatim if present.
+    pub use_stripe_sdk: Option<serde_json::Value>,
+}
+
+#[derive(Clone, Debug, Deserialize)]
+pub struct StripeRedirectToUrl {
+    pub url: Option<String>,
+    pub return_url: Option<String>,
 }
 
 #[derive(Clone, Default, Debug, Eq, PartialEq, Deserialize, Serialize)]
@@ -73,6 +98,16 @@ pub trait PaymentIntentApi {
         secret_key: &SecretString,
         idempotency_key: String,
     ) -> Result<StripePaymentIntent, StripeError>;
+
+    /// Fetch a payment intent by id. Used by the reconciliation worker to
+    /// recover from outbound calls that timed out before we could record the
+    /// response — the local transaction stays `Pending` and we poll the
+    /// provider to find out what actually happened.
+    async fn get_payment_intent(
+        &self,
+        id: &str,
+        secret_key: &SecretString,
+    ) -> Result<StripePaymentIntent, StripeError>;
 }
 
 #[async_trait::async_trait]
@@ -88,6 +123,19 @@ impl PaymentIntentApi for StripeClient {
             params,
             secret_key,
             idempotency_key,
+            RetryStrategy::default(),
+        )
+        .await
+    }
+
+    async fn get_payment_intent(
+        &self,
+        id: &str,
+        secret_key: &SecretString,
+    ) -> Result<StripePaymentIntent, StripeError> {
+        self.get(
+            &format!("/payment_intents/{id}"),
+            secret_key,
             RetryStrategy::default(),
         )
         .await

@@ -1,4 +1,3 @@
-pub mod adapters;
 pub mod api;
 pub mod api_rest;
 pub mod bootstrap;

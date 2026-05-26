@@ -15,6 +15,10 @@ pub struct WebhookInEventRow {
     pub attempts: i32,
     pub error: Option<String>,
     pub provider_config_id: Uuid,
+    /// Provider-side event id (Stripe `evt_…`, GoCardless `EV…`, …). Combined
+    /// with `provider_config_id` it enforces idempotency: duplicate webhook
+    /// deliveries violate the partial unique index and are rejected at insert.
+    pub provider_event_id: Option<String>,
 }
 
 #[derive(Insertable, Debug)]
@@ -29,4 +33,5 @@ pub struct WebhookInEventRowNew {
     pub attempts: i32,
     pub error: Option<String>,
     pub provider_config_id: Uuid,
+    pub provider_event_id: Option<String>,
 }

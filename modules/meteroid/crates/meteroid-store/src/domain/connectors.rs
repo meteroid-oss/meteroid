@@ -40,6 +40,7 @@ pub enum ProviderData {
     Hubspot(HubspotPublicData),
     Pennylane(PennylanePublicData),
     Mock(MockPublicData),
+    Gocardless(GocardlessPublicData),
 }
 
 json_value_ser!(ProviderData);
@@ -71,6 +72,7 @@ pub enum ProviderSensitiveData {
     Hubspot(HubspotSensitiveData),
     Pennylane(PennylaneSensitiveData),
     Mock(MockSensitiveData),
+    Gocardless(GocardlessSensitiveData),
 }
 
 impl ProviderSensitiveData {
@@ -121,6 +123,13 @@ impl TryFrom<OAuthTokens> for PennylaneSensitiveData {
 pub struct StripeSensitiveData {
     pub api_secret_key: String,
     pub webhook_secret: String,
+    /// Stripe's `we_…` identifier returned by `POST /v1/webhook_endpoints`.
+    /// Populated when we auto-register the endpoint on connect; `None` when
+    /// the customer pasted the webhook secret manually. We need the id to
+    /// update the subscription set as Meteroid adds new event types and to
+    /// clean up the endpoint on disconnect.
+    #[serde(default)]
+    pub webhook_endpoint_id: Option<String>,
 }
 
 #[derive(Clone, Debug, Serialize, Deserialize)]
@@ -147,6 +156,37 @@ json_value_ser!(MockPublicData);
 
 #[derive(Clone, Debug, Serialize, Deserialize, Default)]
 pub struct MockSensitiveData {}
+
+/// GoCardless public data. The `creditor_id` is the merchant's GC identifier;
+/// surfaced to the frontend so we can prefill it on the BR creation form.
+/// `environment` switches between sandbox and live API base URLs.
+#[derive(Clone, Debug, Serialize, Deserialize)]
+pub struct GocardlessPublicData {
+    pub creditor_id: Option<String>,
+    /// `"sandbox"` or `"live"`. Drives the API base URL used by the client.
+    #[serde(default = "GocardlessPublicData::default_environment")]
+    pub environment: String,
+}
+
+impl GocardlessPublicData {
+    fn default_environment() -> String {
+        "live".to_string()
+    }
+
+    pub fn is_sandbox(&self) -> bool {
+        self.environment == "sandbox"
+    }
+}
+
+#[derive(Clone, Debug, Serialize, Deserialize)]
+pub struct GocardlessSensitiveData {
+    /// Bearer access token. Long-lived; rotates rarely.
+    pub access_token: String,
+    /// Endpoint signing secret. Configured by the merchant in the GoCardless
+    /// dashboard (GoCardless does not currently expose a public API to
+    /// create webhook endpoints, so this is always pasted manually).
+    pub webhook_secret: String,
+}
 
 impl Connector {
     pub fn from_row(key: &SecretString, row: ConnectorRow) -> StoreResult<Connector> {

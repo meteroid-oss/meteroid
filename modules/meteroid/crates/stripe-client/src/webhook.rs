@@ -1,5 +1,6 @@
 use crate::error::WebhookError;
 use crate::payment_intents::StripePaymentIntent;
+use crate::payment_methods::PaymentMethod;
 use crate::setup_intents::SetupIntent;
 use chrono::Utc;
 use hmac::{Hmac, KeyInit, Mac};
@@ -8,17 +9,57 @@ use sha2::Sha256;
 use std::collections::HashMap;
 
 pub mod event_type {
-    pub const SETUP_INTENT_SUCCEEDED: &str = "setup_intent.succeeded";
+    // Payment intents
     pub const PAYMENT_INTENT_SUCCEEDED: &str = "payment_intent.succeeded";
     pub const PAYMENT_INTENT_FAILED: &str = "payment_intent.payment_failed";
+    pub const PAYMENT_INTENT_REQUIRES_ACTION: &str = "payment_intent.requires_action";
+    pub const PAYMENT_INTENT_PROCESSING: &str = "payment_intent.processing";
     pub const PAYMENT_INTENT_PARTIALLY_FUNDED: &str = "payment_intent.partially_funded";
+
+    // Setup intents
+    pub const SETUP_INTENT_SUCCEEDED: &str = "setup_intent.succeeded";
+    pub const SETUP_INTENT_REQUIRES_ACTION: &str = "setup_intent.requires_action";
+    pub const SETUP_INTENT_CANCELED: &str = "setup_intent.canceled";
+
+    // Charges (refunds piggy-back on the parent charge object)
+    pub const CHARGE_REFUNDED: &str = "charge.refunded";
+
+    // Disputes
+    pub const CHARGE_DISPUTE_CREATED: &str = "charge.dispute.created";
+    pub const CHARGE_DISPUTE_CLOSED: &str = "charge.dispute.closed";
+    pub const CHARGE_DISPUTE_FUNDS_WITHDRAWN: &str = "charge.dispute.funds_withdrawn";
+    pub const CHARGE_DISPUTE_FUNDS_REINSTATED: &str = "charge.dispute.funds_reinstated";
+
+    // Payment-method lifecycle (card-expiring async flow)
+    pub const PAYMENT_METHOD_UPDATED: &str = "payment_method.updated";
+    pub const PAYMENT_METHOD_DETACHED: &str = "payment_method.detached";
+    pub const PAYMENT_METHOD_AUTO_UPDATED: &str = "payment_method.automatically_updated";
+
+    // Mandates (SEPA / BACS / ACH / SCA)
+    pub const MANDATE_UPDATED: &str = "mandate.updated";
 }
 
-pub static STRIPE_PAYMENT_WEBHOOKS: [&str; 4] = [
-    event_type::SETUP_INTENT_SUCCEEDED,
+/// Events we want Stripe to deliver. Used when self-registering the webhook
+/// endpoint via the Stripe API (Step 7); also serves as the canonical list of
+/// what `normalize_event` knows how to handle.
+pub static STRIPE_PAYMENT_WEBHOOKS: &[&str] = &[
     event_type::PAYMENT_INTENT_SUCCEEDED,
     event_type::PAYMENT_INTENT_FAILED,
+    event_type::PAYMENT_INTENT_REQUIRES_ACTION,
+    event_type::PAYMENT_INTENT_PROCESSING,
     event_type::PAYMENT_INTENT_PARTIALLY_FUNDED,
+    event_type::SETUP_INTENT_SUCCEEDED,
+    event_type::SETUP_INTENT_REQUIRES_ACTION,
+    event_type::SETUP_INTENT_CANCELED,
+    event_type::CHARGE_REFUNDED,
+    event_type::CHARGE_DISPUTE_CREATED,
+    event_type::CHARGE_DISPUTE_CLOSED,
+    event_type::CHARGE_DISPUTE_FUNDS_WITHDRAWN,
+    event_type::CHARGE_DISPUTE_FUNDS_REINSTATED,
+    event_type::PAYMENT_METHOD_UPDATED,
+    event_type::PAYMENT_METHOD_DETACHED,
+    event_type::PAYMENT_METHOD_AUTO_UPDATED,
+    event_type::MANDATE_UPDATED,
 ];
 
 #[derive(Clone, Debug, Deserialize)]
@@ -26,6 +67,69 @@ pub static STRIPE_PAYMENT_WEBHOOKS: [&str; 4] = [
 pub enum EventObject {
     PaymentIntent(StripePaymentIntent),
     SetupIntent(SetupIntent),
+    PaymentMethod(PaymentMethod),
+    Charge(StripeCharge),
+    Dispute(StripeDispute),
+    Mandate(StripeMandate),
+}
+
+/// Charge object, narrowed to the fields we use for `charge.refunded` events.
+#[derive(Clone, Debug, Deserialize)]
+pub struct StripeCharge {
+    pub id: String,
+    /// Parent PaymentIntent id (always present for PI-based charges, which is
+    /// the path we use). Older Charges API flows may have this missing.
+    pub payment_intent: Option<String>,
+    pub amount: i64,
+    pub amount_refunded: i64,
+    pub currency: String,
+    /// Stripe includes the refund list inline in `charge.refunded` event
+    /// payloads (even though it's no longer expanded by default on retrieve).
+    pub refunds: Option<StripeRefundList>,
+}
+
+#[derive(Clone, Debug, Deserialize)]
+pub struct StripeRefundList {
+    pub data: Vec<StripeRefund>,
+}
+
+#[derive(Clone, Debug, Deserialize)]
+pub struct StripeRefund {
+    pub id: String,
+    pub amount: i64,
+    pub currency: Option<String>,
+    pub status: Option<String>,
+    pub payment_intent: Option<String>,
+    pub charge: Option<String>,
+}
+
+/// Dispute object — same shape for all four dispute event types; the outer
+/// `Event::event_type` discriminates create/close/withdraw/reinstate.
+#[derive(Clone, Debug, Deserialize)]
+pub struct StripeDispute {
+    pub id: String,
+    pub charge: String,
+    pub payment_intent: Option<String>,
+    pub amount: i64,
+    pub currency: String,
+    pub reason: String,
+    pub status: String,
+}
+
+/// Mandate object — surfaced when SEPA/BACS/ACH or SCA mandates change status.
+#[derive(Clone, Debug, Deserialize)]
+pub struct StripeMandate {
+    pub id: String,
+    pub status: StripeMandateStatus,
+    pub payment_method: String,
+}
+
+#[derive(Clone, Debug, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum StripeMandateStatus {
+    Active,
+    Inactive,
+    Pending,
 }
 
 #[derive(Clone, Debug, Deserialize)]
@@ -42,6 +146,13 @@ pub struct Event {
 
     #[serde(rename = "type")]
     pub event_type: String,
+
+    /// Unix timestamp (seconds) of when the event occurred at Stripe. Use
+    /// this — not server-side "now" — for downstream timestamps. Critical
+    /// for dispute-window math (7-day deadline) and event replays from the
+    /// Stripe dashboard.
+    #[serde(default)]
+    pub created: Option<i64>,
 }
 
 pub struct StripeWebhook {

@@ -16,6 +16,11 @@ message UpdateCustomerResponse {
 message SetupIntentRequest {
   optional string connection_id = 1;
   ConnectionTypeEnum connection_type = 2;
+  // For hosted-redirect providers (GoCardless): where the provider should
+  // redirect the customer's browser after the hosted flow completes. The
+  // backend forwards this verbatim to the provider. Ignored for embedded
+  // providers (Stripe).
+  optional string return_url = 3;
 }
 message SetupIntentResponse {
   SetupIntent setup_intent = 1;

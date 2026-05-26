@@ -1,4 +1,3 @@
-use crate::adapters::stripe::Stripe;
 use crate::api_rest::addons::addon_routes;
 use crate::api_rest::batch_jobs::batch_job_routes;
 use crate::api_rest::checkoutsessions::checkout_session_routes;
@@ -44,6 +43,7 @@ mod entitlements;
 pub mod error;
 mod events;
 mod files;
+pub mod gocardless;
 mod invoices;
 pub(crate) mod metrics;
 mod model;
@@ -84,7 +84,6 @@ pub struct AppState {
     pub object_store: Arc<dyn ObjectStoreService>,
     pub store: Store,
     pub services: Services,
-    pub stripe_adapter: Arc<Stripe>,
     pub jwt_secret: SecretString,
     pub portal_url: String,
     pub ready: Arc<AtomicBool>,
