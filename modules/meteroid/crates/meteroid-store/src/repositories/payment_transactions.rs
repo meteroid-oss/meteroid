@@ -87,30 +87,27 @@ impl PaymentTransactionInterface for Store {
             return Ok(transaction);
         }
 
-        // Only update if the status has changed
-        if transaction.status == payment_intent.status {
-            log::debug!(
-                "Transaction {} status unchanged: {:?}",
-                transaction.id,
-                payment_intent.status
-            );
+        let status_changed = transaction.status != payment_intent.status;
+
+        // An async charge (GoCardless DD, Stripe ACH) returns Pending, so the id
+        // arrives with no status change; still persist it once, or reconciliation
+        // (filters provider_transaction_id IS NOT NULL) can never recover it.
+        let backfill_external_id =
+            transaction.provider_transaction_id.is_none() && !payment_intent.external_id.is_empty();
+
+        if !status_changed && !backfill_external_id {
             return Ok(transaction);
         }
-
-        log::info!(
-            "Updating transaction {} status from {:?} to {:?}",
-            transaction.id,
-            transaction.status,
-            payment_intent.status
-        );
 
         let patch = PaymentTransactionRowPatch {
             id: transaction.id,
             invoice_id: None,
-            status: Some(payment_intent.status.clone().into()),
-            processed_at: Some(payment_intent.processed_at),
+            status: status_changed.then(|| payment_intent.status.clone().into()),
+            processed_at: status_changed.then_some(payment_intent.processed_at),
             refunded_at: None,
-            error_type: Some(payment_intent.last_payment_error),
+            error_type: status_changed.then_some(payment_intent.last_payment_error),
+            provider_transaction_id: backfill_external_id
+                .then(|| Some(payment_intent.external_id.clone())),
         };
 
         let updated_transaction = self
@@ -120,14 +117,17 @@ impl PaymentTransactionInterface for Store {
 
                     let transaction: PaymentTransaction = updated_transaction.into();
 
-                    self.internal
-                        .insert_outbox_events_tx(
-                            conn,
-                            vec![OutboxEvent::payment_transaction_saved(
-                                transaction.clone().into(),
-                            )],
-                        )
-                        .await?;
+                    // A pure id backfill is not a settlement event; don't broadcast it.
+                    if status_changed {
+                        self.internal
+                            .insert_outbox_events_tx(
+                                conn,
+                                vec![OutboxEvent::payment_transaction_saved(
+                                    transaction.clone().into(),
+                                )],
+                            )
+                            .await?;
+                    }
 
                     // Payment method is resolved dynamically from the customer at billing time
                     // No need to update the subscription's payment method field

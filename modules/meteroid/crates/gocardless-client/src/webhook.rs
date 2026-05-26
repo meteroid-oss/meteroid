@@ -85,7 +85,9 @@ pub mod action {
     pub const CANCELLED: &str = "cancelled";
     pub const CHARGED_BACK: &str = "charged_back";
     pub const CHARGEBACK_CANCELLED: &str = "chargeback_cancelled";
-    pub const LATE_FAILURE_RESOLVED: &str = "late_failure_resolved";
+    /// Bank rejects a payment after it looked settled → funds clawed back. A
+    /// FAILURE despite the name (and there is no `late_failure_resolved`).
+    pub const LATE_FAILURE_SETTLED: &str = "late_failure_settled";
 
     // Mandates
     pub const ACTIVE: &str = "active";

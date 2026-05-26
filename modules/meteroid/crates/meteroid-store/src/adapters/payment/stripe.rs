@@ -16,10 +16,10 @@ use super::events::{
     PaymentRequiresActionEvent, PaymentSucceededEvent,
 };
 use super::model::{
-    ChargeAcknowledged, ChargeFailure, ChargeOutcome, ChargeReceipt, ChargeRequest,
-    CreateCustomerRequest, DeclineKind, ExternalCustomerRef, MandateSetupInstruction,
-    MandateSetupRequest, PaymentMethodSnapshot, RefundOutcome, RefundRequest, RegisteredWebhook,
-    RemoteTransactionStatus,
+    ChargeAcknowledged, ChargeCancelled, ChargeFailure, ChargeOutcome, ChargeReceipt,
+    ChargeRequest, CreateCustomerRequest, DeclineKind, ExternalCustomerRef,
+    MandateSetupInstruction, MandateSetupRequest, PaymentMethodSnapshot, RefundOutcome,
+    RefundRequest, RegisteredWebhook, RemoteTransactionStatus,
 };
 use crate::domain::connectors::{Connector, ProviderData, ProviderSensitiveData};
 use crate::domain::enums::ConnectorProviderEnum;
@@ -596,6 +596,9 @@ fn snapshot_from_payment_method(method: PaymentMethod) -> PaymentMethodSnapshot 
         card_last4,
         card_exp_month,
         card_exp_year,
+        // Stripe events carry our metadata directly.
+        meteroid_connection_id: None,
+        meteroid_customer_id: None,
     }
 }
 
@@ -608,7 +611,7 @@ fn snapshot_from_payment_method(method: PaymentMethod) -> PaymentMethodSnapshot 
 /// - `requires_payment_method` / `requires_confirmation` / `requires_capture` →
 ///   treated as `Failed` with a `retryable=true` flag; in practice the customer
 ///   has to re-authorize from the portal.
-/// - `canceled` / `failed` → `Failed` (terminal).
+/// - `canceled` → `Cancelled`; `failed` → `Failed` (both terminal).
 fn intent_to_outcome(intent: StripePaymentIntent) -> ChargeOutcome {
     match intent.status {
         StripePaymentStatus::Succeeded => ChargeOutcome::Succeeded(ChargeReceipt {
@@ -654,12 +657,9 @@ fn intent_to_outcome(intent: StripePaymentIntent) -> ChargeOutcome {
             decline_kind: decline_kind_from_error(&intent.last_payment_error),
             provider_request_id: None,
         }),
-        StripePaymentStatus::Canceled => ChargeOutcome::Failed(ChargeFailure {
+        StripePaymentStatus::Canceled => ChargeOutcome::Cancelled(ChargeCancelled {
             external_id: Some(intent.id),
-            code: Some("canceled".to_string()),
             message: "Payment canceled".to_string(),
-            retryable: false,
-            decline_kind: DeclineKind::Other,
             provider_request_id: None,
         }),
     }

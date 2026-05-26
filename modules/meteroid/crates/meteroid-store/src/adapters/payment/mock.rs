@@ -126,6 +126,8 @@ impl MandateOps for MockConnector {
             card_last4: Some("4242".to_string()),
             card_exp_month: Some(12),
             card_exp_year: Some(2030),
+            meteroid_connection_id: None,
+            meteroid_customer_id: None,
         })
     }
 
@@ -144,6 +146,8 @@ impl MandateOps for MockConnector {
             card_last4: None,
             card_exp_month: None,
             card_exp_year: None,
+            meteroid_connection_id: None,
+            meteroid_customer_id: None,
         })
     }
 }

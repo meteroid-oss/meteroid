@@ -79,8 +79,13 @@ export const authInterceptor: Interceptor = next => async req => {
     organizationSlug && req.header.append('x-md-context', `${organizationSlug}/${tenantSlug || ''}`)
     sessionToken && req.header.append('Authorization', `Bearer ${sessionToken}`)
   } else if (req.service.typeName.startsWith('meteroid.portal')) {
-    // token is in search params
-    const token = new URLSearchParams(window.location.search).get('token')
+    // Persist the `?token=` to sessionStorage so it survives a third-party
+    // round-trip that returns without the token (e.g. GoCardless mandate flow).
+    const urlToken = new URLSearchParams(window.location.search).get('token')
+    if (urlToken) {
+      sessionStorage.setItem('portal-token', urlToken)
+    }
+    const token = urlToken ?? sessionStorage.getItem('portal-token')
     token && req.header.append('x-portal-token', token)
   }
 

@@ -28,25 +28,15 @@ use crate::repositories::customer_payment_methods::CustomerPaymentMethodsInterfa
 use crate::services::Services;
 use common_domain::ids::{BaseId, CustomerConnectionId, CustomerPaymentMethodId};
 use diesel_models::customer_connection::CustomerConnectionDetailsRow;
-use error_stack::ResultExt;
+use error_stack::{Report, ResultExt};
 
 impl Services {
     /// Finalize a GoCardless Billing Request after the customer returns from
     /// the hosted authorisation flow.
     ///
-    /// Idempotent: the underlying GC `complete_billing_request` call can be
-    /// retried safely, and `upsert_payment_method` dedups on
-    /// `(connection_id, external_payment_method_id)`. Calling this from the
-    /// return-URL handler AND processing the mandates.active webhook on the
-    /// same mandate yields the same end state.
-    ///
-    /// The tenant id is *derived from* the connection — the return-URL
-    /// handler is hit by a customer's browser after a third-party redirect,
-    /// so there's no authenticated tenant context. The connection id is a
-    /// v7 UUID (unguessable, 122 bits of entropy) and the action only
-    /// attaches a mandate that the customer just consented to on the
-    /// provider's hosted page; the security model is the same as
-    /// OAuth-style return URLs.
+    /// Idempotent (shares the end state with the `mandates.active` webhook).
+    /// Unauthenticated and `connection_id` is attacker-supplied, so it
+    /// ownership-checks the BR metadata before attaching (see below).
     pub async fn complete_gocardless_setup(
         &self,
         connection_id: CustomerConnectionId,
@@ -71,6 +61,28 @@ impl Services {
             .complete_mandate_setup(&connector, &billing_request_id)
             .await
             .change_context_lazy(|| StoreError::PaymentProviderError)?;
+
+        // Hijack defense: this endpoint is unauthenticated and `connection_id`
+        // is attacker-supplied, so verify the completed BR's metadata names this
+        // exact connection + customer. Fail closed.
+        let expected_connection = connection_id.as_base62();
+        let expected_customer = connection_row.customer.id.as_base62();
+        match (
+            snapshot.meteroid_connection_id.as_deref(),
+            snapshot.meteroid_customer_id.as_deref(),
+        ) {
+            (Some(conn), Some(cust))
+                if conn == expected_connection && cust == expected_customer => {}
+            other => {
+                return Err(Report::new(StoreError::InvalidArgument(
+                    "GoCardless billing request does not belong to this connection".to_string(),
+                ))
+                .attach(format!(
+                    "expected connection={expected_connection} customer={expected_customer}, \
+                     billing request carried {other:?}"
+                )));
+            }
+        }
 
         // Force the payment method type to direct-debit-* even if the
         // snapshot says Other (which happens when the mandate's scheme isn't

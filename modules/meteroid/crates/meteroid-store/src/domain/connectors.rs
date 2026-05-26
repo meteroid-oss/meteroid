@@ -169,12 +169,13 @@ pub struct GocardlessPublicData {
 }
 
 impl GocardlessPublicData {
+    /// Fail safe: a row missing this field must not route real charges to live.
     fn default_environment() -> String {
-        "live".to_string()
+        "sandbox".to_string()
     }
 
     pub fn is_sandbox(&self) -> bool {
-        self.environment == "sandbox"
+        self.environment != "live"
     }
 }
 

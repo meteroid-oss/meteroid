@@ -160,15 +160,10 @@ export const AddPaymentMethodDialog: React.FC<AddPaymentMethodDialogProps> = ({
   const hasDirectDebit = !!directDebitConnectionId
   const hasBoth = hasCard && hasDirectDebit && cardConnectionId !== directDebitConnectionId
 
-  // Fetch setup intent for the active connection. For hosted-redirect
-  // providers (GoCardless) we provide a return URL — the backend forwards
-  // it to the Billing Request Flow.
+  // GoCardless builds its redirect_uri server-side, so this value is informational.
   const activeConnectionId = activeTab === 'card' ? cardConnectionId : directDebitConnectionId
 
-  const returnUrl =
-    typeof window !== 'undefined' && activeConnectionId
-      ? `${window.location.origin}/payment-return?connection=${encodeURIComponent(activeConnectionId)}`
-      : undefined
+  const returnUrl = typeof window !== 'undefined' ? window.location.href : undefined
 
   const setupIntentQuery = useQuery(
     setupIntent,

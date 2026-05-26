@@ -60,6 +60,11 @@ pub struct PaymentMethodSnapshot {
     pub card_last4: Option<String>,
     pub card_exp_month: Option<i32>,
     pub card_exp_year: Option<i32>,
+    /// Recovered from the provider resource's metadata when its webhook event
+    /// doesn't echo it (GoCardless mandate events carry empty metadata); `None`
+    /// for providers whose events already carry our ids (Stripe).
+    pub meteroid_connection_id: Option<String>,
+    pub meteroid_customer_id: Option<String>,
 }
 
 /// How the customer must complete mandate / payment-method setup.
@@ -119,6 +124,9 @@ pub enum ChargeOutcome {
     Pending(ChargeAcknowledged),
     /// Customer interaction is required (3DS, bank app SCA, etc).
     RequiresAction(RequiresActionInstruction),
+    /// Cancelled, distinct from a decline — keeps the sync and reconcile paths
+    /// consistent and lets dunning treat abandonment differently.
+    Cancelled(ChargeCancelled),
     Failed(ChargeFailure),
 }
 
@@ -148,6 +156,13 @@ pub enum RequiresActionInstruction {
         client_secret: String,
         publishable_key: SecretString,
     },
+}
+
+#[derive(Debug, Clone)]
+pub struct ChargeCancelled {
+    pub external_id: Option<String>,
+    pub message: String,
+    pub provider_request_id: Option<String>,
 }
 
 #[derive(Debug, Clone)]
