@@ -13,7 +13,6 @@ use common_domain::ids::{BaseId, TenantId};
 use error_stack::{Report, ResultExt, bail};
 use meteroid_store::adapters::payment::initialize_payment_connector;
 use meteroid_store::domain::connectors::{Connector, ProviderSensitiveData};
-use meteroid_store::domain::enums::ConnectorProviderEnum;
 use meteroid_store::domain::webhooks::WebhookInEventNew;
 use meteroid_store::repositories::connectors::ConnectorsInterface;
 use secrecy::SecretString;
@@ -234,9 +233,4 @@ fn webhook_secret(
         ))),
         None => bail!(errors::AdapterWebhookError::SignatureNotFound),
     }
-}
-
-#[allow(dead_code)]
-fn _silence_unused_provider_enum() {
-    let _ = ConnectorProviderEnum::Stripe;
 }

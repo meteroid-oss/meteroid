@@ -34,7 +34,7 @@ use gocardless_client::billing_requests::{
 use gocardless_client::client::GoCardlessClient;
 use gocardless_client::customers::{CreateCustomer, CustomerApi};
 use gocardless_client::error::GoCardlessError;
-use gocardless_client::mandates::{MandateApi, MandateStatus};
+use gocardless_client::mandates::MandateApi;
 use gocardless_client::payments::{CreatePayment, CreatePaymentLinks, PaymentApi, PaymentStatus};
 use gocardless_client::webhook::{
     EventEnvelope, GoCardlessWebhook, action as ev_action, resource_type as ev_resource,
@@ -788,10 +788,6 @@ fn normalize_mandate_event(
         },
     })
 }
-
-// Keeps `MandateStatus` in scope as part of the public API surface.
-#[allow(dead_code)]
-const _MANDATE_STATUS: fn(MandateStatus) -> MandateStatus = std::convert::identity;
 
 #[cfg(test)]
 mod tests {

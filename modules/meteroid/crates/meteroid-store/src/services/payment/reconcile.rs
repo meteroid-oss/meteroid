@@ -39,7 +39,6 @@ use error_stack::{Report, ResultExt};
 /// dropped on the terminal row), so we wait out transient 404s.
 const UNKNOWN_CANCEL_GRACE: chrono::Duration = chrono::Duration::hours(12);
 
-#[allow(dead_code)] // Worker not wired yet; entry point is the public surface.
 impl Services {
     /// Reconcile a single pending transaction against the provider. Idempotent:
     /// the underlying consolidation function already skips terminal-state rows.
@@ -151,7 +150,6 @@ impl Services {
 /// Translate the reconciliation result into the internal [`PaymentIntent`] shape
 /// the settlement function consumes. Returns `None` if the provider says the
 /// transaction is still in-flight (we don't change local state in that case).
-#[allow(dead_code)]
 fn payment_intent_from_remote_status(
     status: RemoteTransactionStatus,
     transaction_id: PaymentTransactionId,
