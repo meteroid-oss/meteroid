@@ -1,6 +1,5 @@
-//! Mock connector used by tests. Behavior is driven by the [`MockPublicData`]
-//! attached to the [`Connector`], so a single instance can be configured for
-//! success or failure scenarios per-test.
+//! Mock connector for tests; behavior is driven by the [`MockPublicData`] on the
+//! [`Connector`], so each test can configure success or failure scenarios.
 
 use super::connector::{
     ConnectorCapabilities, ConnectorIdentity, CustomerOps, MandateOps, MandateSetupMode,
@@ -8,8 +7,8 @@ use super::connector::{
 };
 use super::error::ConnectorError;
 use super::events::{
-    NormalizedEventKind, NormalizedEventSubscription, NormalizedWebhookEvent,
-    PaymentFailedEvent, PaymentMethodAttachedEvent, PaymentMethodUpdatedEvent, PaymentPendingEvent,
+    NormalizedEventKind, NormalizedEventSubscription, NormalizedWebhookEvent, PaymentFailedEvent,
+    PaymentMethodAttachedEvent, PaymentMethodUpdatedEvent, PaymentPendingEvent,
     PaymentRequiresActionEvent, PaymentSucceededEvent,
 };
 use super::model::{
@@ -35,9 +34,7 @@ const MOCK_CAPABILITIES: ConnectorCapabilities = ConnectorCapabilities {
     supports_partial_refunds: true,
     supports_3ds: true,
     supports_disputes: true,
-    // Mock has no real provider so it can synthesize everything, including
-    // pretending to register webhook endpoints. Keeping this `true` makes the
-    // capability flag honest about the behaviour returned by `register_webhook`.
+    // Mock synthesizes webhook registration, so the flag stays honest.
     supports_self_webhook_registration: true,
     asynchronous_settlement: true,
     supported_payment_methods: &[
@@ -140,8 +137,6 @@ impl MandateOps for MockConnector {
         _connector: &Connector,
         intent_id: &str,
     ) -> Result<PaymentMethodSnapshot, Report<ConnectorError>> {
-        // Mock supports both embedded and hosted flows — pretend a redirect
-        // returned and synthesise a snapshot.
         Ok(PaymentMethodSnapshot {
             external_payment_method_id: format!("mock_md_{intent_id}"),
             payment_method_type: PaymentMethodTypeEnum::DirectDebitSepa,
@@ -168,7 +163,10 @@ impl PaymentOps for MockConnector {
         let behavior = if self.config.fail_payment_intent {
             "failed"
         } else {
-            self.config.charge_behavior.as_deref().unwrap_or("succeeded")
+            self.config
+                .charge_behavior
+                .as_deref()
+                .unwrap_or("succeeded")
         };
 
         let outcome = match behavior {
@@ -432,8 +430,14 @@ mod tests {
     #[tokio::test]
     async fn charge_behaviors() {
         assert!(matches!(charge(None).await, ChargeOutcome::Succeeded(_)));
-        assert!(matches!(charge(Some("pending")).await, ChargeOutcome::Pending(_)));
-        assert!(matches!(charge(Some("failed")).await, ChargeOutcome::Failed(_)));
+        assert!(matches!(
+            charge(Some("pending")).await,
+            ChargeOutcome::Pending(_)
+        ));
+        assert!(matches!(
+            charge(Some("failed")).await,
+            ChargeOutcome::Failed(_)
+        ));
         assert!(matches!(
             charge(Some("requires_action")).await,
             ChargeOutcome::RequiresAction(_)
@@ -458,7 +462,10 @@ mod tests {
         }
 
         let ra = br#"{"id":"ev2","kind":"payment_requires_action","external_id":"pi_2","transaction_id":"tx_2","client_secret":"pi_2_secret"}"#;
-        let ev = mock.parse_event(&c, ra, &HeaderMap::new()).unwrap().unwrap();
+        let ev = mock
+            .parse_event(&c, ra, &HeaderMap::new())
+            .unwrap()
+            .unwrap();
         assert!(matches!(
             ev.kind,
             NormalizedEventKind::PaymentRequiresAction(_)

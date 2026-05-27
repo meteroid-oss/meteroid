@@ -7,11 +7,8 @@ use crate::domain::connectors::Connector;
 use crate::domain::enums::ConnectorProviderEnum;
 use error_stack::Report;
 
-/// Build the [`PaymentConnector`] instance for the given configured connector.
-///
-/// Each call returns a freshly-boxed adapter, but the underlying HTTP client
-/// is a process-wide singleton (see e.g. [`super::stripe::StripeConnector::client`])
-/// so connection pooling is preserved across calls.
+/// Each call returns a freshly-boxed adapter, but the underlying HTTP client is
+/// a process-wide singleton, so connection pooling is preserved.
 pub fn initialize_payment_connector(
     config: &Connector,
 ) -> Result<Box<dyn PaymentConnector>, Report<ConnectorError>> {

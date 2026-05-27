@@ -39,8 +39,7 @@ pub mod event_type {
     pub const MANDATE_UPDATED: &str = "mandate.updated";
 }
 
-/// Events we want Stripe to deliver. Used when self-registering the webhook
-/// endpoint via the Stripe API (Step 7); also serves as the canonical list of
+/// Events we self-register the webhook endpoint for; also the canonical list of
 /// what `normalize_event` knows how to handle.
 pub static STRIPE_PAYMENT_WEBHOOKS: &[&str] = &[
     event_type::PAYMENT_INTENT_SUCCEEDED,
@@ -77,14 +76,12 @@ pub enum EventObject {
 #[derive(Clone, Debug, Deserialize)]
 pub struct StripeCharge {
     pub id: String,
-    /// Parent PaymentIntent id (always present for PI-based charges, which is
-    /// the path we use). Older Charges API flows may have this missing.
+    /// Parent PaymentIntent id; present for PI-based charges, absent on legacy Charges API flows.
     pub payment_intent: Option<String>,
     pub amount: i64,
     pub amount_refunded: i64,
     pub currency: String,
-    /// Stripe includes the refund list inline in `charge.refunded` event
-    /// payloads (even though it's no longer expanded by default on retrieve).
+    /// Inlined in `charge.refunded` payloads even though it's not expanded by default on retrieve.
     pub refunds: Option<StripeRefundList>,
 }
 
@@ -103,8 +100,7 @@ pub struct StripeRefund {
     pub charge: Option<String>,
 }
 
-/// Dispute object — same shape for all four dispute event types; the outer
-/// `Event::event_type` discriminates create/close/withdraw/reinstate.
+/// Same shape for all four dispute event types; `Event::event_type` discriminates.
 #[derive(Clone, Debug, Deserialize)]
 pub struct StripeDispute {
     pub id: String,
@@ -139,7 +135,6 @@ pub struct NotificationEventData {
 
 #[derive(Clone, Debug, Deserialize)]
 pub struct Event {
-    /// Unique identifier for the object.
     pub id: String,
 
     pub data: NotificationEventData,
@@ -147,10 +142,8 @@ pub struct Event {
     #[serde(rename = "type")]
     pub event_type: String,
 
-    /// Unix timestamp (seconds) of when the event occurred at Stripe. Use
-    /// this — not server-side "now" — for downstream timestamps. Critical
-    /// for dispute-window math (7-day deadline) and event replays from the
-    /// Stripe dashboard.
+    /// Unix seconds the event occurred at Stripe; use this (not server-side now)
+    /// downstream — matters for dispute-window math and dashboard replays.
     #[serde(default)]
     pub created: Option<i64>,
 }
@@ -177,12 +170,9 @@ impl StripeWebhook {
         sig: &str,
         secret: &str,
     ) -> Result<(), WebhookError> {
-        // Get Stripe signature from header
         let signature = Signature::parse(sig)?;
         let signed_payload = format!("{}.{}", signature.t, payload);
 
-        // Compute HMAC with the SHA256 hash function, using endpoint secret as key
-        // and signed_payload string as the message.
         let mut mac =
             Hmac::<Sha256>::new_from_slice(secret.as_bytes()).map_err(|_| WebhookError::BadKey)?;
         mac.update(signed_payload.as_bytes());
@@ -192,7 +182,7 @@ impl StripeWebhook {
         mac.verify_slice(sig.as_slice())
             .map_err(|_| WebhookError::BadSignature)?;
 
-        // Get current timestamp to compare to signature timestamp
+        // Reject signatures outside a 5-minute tolerance to limit replay.
         if (self.current_timestamp - signature.t).abs() > 300 {
             return Err(WebhookError::BadTimestamp(signature.t));
         }

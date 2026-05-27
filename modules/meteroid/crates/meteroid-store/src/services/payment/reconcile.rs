@@ -82,13 +82,14 @@ impl Services {
         let method = CustomerPaymentMethodRow::get_by_id(&mut conn, &tenant_id, &method_id)
             .await
             .map_err(|err| StoreError::DatabaseError(err.error))?;
-        let connection = diesel_models::customer_connection::CustomerConnectionDetailsRow::get_by_id(
-            &mut conn,
-            &tenant_id,
-            &method.connection_id,
-        )
-        .await
-        .map_err(|err| StoreError::DatabaseError(err.error))?;
+        let connection =
+            diesel_models::customer_connection::CustomerConnectionDetailsRow::get_by_id(
+                &mut conn,
+                &tenant_id,
+                &method.connection_id,
+            )
+            .await
+            .map_err(|err| StoreError::DatabaseError(err.error))?;
 
         let connector = Connector::from_row(&self.store.settings.crypt_key, connection.connector)?;
         let connector_impl = initialize_payment_connector(&connector)

@@ -1,7 +1,5 @@
-//! Error taxonomy matching `stripe-client::error` — same `Timeout` /
-//! `ClientError` / `Api` partitioning so the connector adapter can route
-//! `Timeout`/`ClientError` to `Transport` (retryable) and `Api` to a logical
-//! failure.
+//! `Timeout` / `ClientError` / `Api` partitioning lets the connector adapter route
+//! transport failures (retryable) separately from logical API failures.
 
 use serde::Deserialize;
 use thiserror::Error;
@@ -54,8 +52,7 @@ pub struct RequestError {
 
     pub message: Option<String>,
 
-    /// Echoed in `Idempotent-Replayed`-style headers; the value support
-    /// staff use to trace requests in GoCardless dashboards.
+    /// Used to trace requests in GoCardless dashboards / with support.
     pub request_id: Option<String>,
 
     #[serde(default)]

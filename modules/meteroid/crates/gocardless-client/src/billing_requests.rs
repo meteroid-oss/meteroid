@@ -1,16 +1,8 @@
 //! Billing Requests + Billing Request Flows.
 //!
-//! Two-step setup:
-//!   1. `POST /billing_requests` to declare what we want (a mandate in a
-//!      currency, optionally tied to an existing customer).
-//!   2. `POST /billing_request_flows` to mint an `authorisation_url` we can
-//!      redirect the customer's browser to.
-//!
-//! After the customer completes the hosted flow, our return-URL handler calls
-//! `POST /billing_requests/:id/actions/complete` to finalise; the response
-//! carries `links.mandate` (and `links.customer` / `links.customer_bank_account`
-//! when we let GC create them).
-//!
+//! Create a billing request, mint an authorisation_url via a flow to redirect the
+//! customer, then call the complete action on return; the completed request carries
+//! `links.mandate` (and customer / bank-account links when GC creates them).
 //! See <https://developer.gocardless.com/billing-requests>.
 
 use crate::client::GoCardlessClient;
@@ -129,10 +121,9 @@ struct CreateBillingRequestFlowEnvelope<'a> {
 pub struct BillingRequestFlow {
     /// `BRF...` prefix.
     pub id: String,
-    /// The URL we redirect the customer's browser to. Customer completes the
-    /// mandate consent on GoCardless-hosted UI.
+    /// Redirect target where the customer gives mandate consent on GC-hosted UI.
     pub authorisation_url: String,
-    /// ISO 8601 timestamp. Typically 24h after creation.
+    /// ISO 8601; typically 24h after creation.
     pub expires_at: Option<String>,
     #[serde(default)]
     pub links: BillingRequestFlowResponseLinks,
@@ -150,13 +141,11 @@ struct BillingRequestFlowEnvelope {
 
 // ── Complete action ────────────────────────────────────────────────
 
-/// Called by our return-URL handler. The customer is redirected back from
-/// the GoCardless-hosted page; we must call this endpoint to finalise the
-/// billing request before the resulting mandate / customer / bank account
-/// can be used.
+/// Finalises the billing request on return; the mandate / customer / bank
+/// account can't be used until this succeeds.
 #[derive(Debug, Clone, Default, Serialize)]
 pub struct CompleteBillingRequest {
-    // Empty body in current API — the action is implicit in the path.
+    // Empty body — the action is implicit in the path.
 }
 
 #[derive(Debug, Serialize)]
@@ -236,12 +225,8 @@ impl BillingRequestApi for GoCardlessClient {
         billing_request_id: &str,
         access_token: &SecretString,
     ) -> Result<BillingRequest, GoCardlessError> {
-        // Idempotency key derived from the BR id. The same return-URL hit
-        // twice (browser reload, slow customer, our outer retry middleware)
-        // must dedup on the provider. GC's BR state machine is idempotent
-        // server-side once fulfilled, but during the fulfilling window a
-        // retry without a key can race and produce a 409 that the error
-        // mapper treats as non-retryable.
+        // Key derived from the BR id so duplicate return-URL hits dedup on GC:
+        // during the fulfilling window a keyless retry can race into a 409.
         let idempotency_key = format!("brf-complete:{billing_request_id}");
         let resp: BillingRequestEnvelope = self
             .post(

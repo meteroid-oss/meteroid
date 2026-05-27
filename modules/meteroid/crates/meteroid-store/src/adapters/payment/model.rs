@@ -3,24 +3,10 @@ use chrono::{DateTime, NaiveDateTime, Utc};
 use common_domain::ids::PaymentTransactionId;
 use secrecy::SecretString;
 
-/// Caller-supplied idempotency key for any mutating provider call.
-///
-/// **Why it matters.** If the customer's request to Meteroid times out partway
-/// through a provider call, our worker may retry the same operation. Without
-/// an idempotency key, the provider would create a second customer / charge
-/// twice / issue two refunds. Every adapter MUST forward this key to the
-/// provider in whatever idiom the provider expects (Stripe: `Idempotency-Key`
-/// header; GoCardless: `Idempotency-Key` header; Adyen: `Idempotency-Key`
-/// header — they happen to agree).
-///
-/// The same key submitted twice for the same logical operation must return
-/// the original response. The same key submitted for a *different* operation
-/// must be rejected by the provider — adapters surface that as
-/// `ConnectorError::Configuration` (programming bug, not retryable).
-///
-/// Construction: callers derive the key from a stable internal identifier
-/// (transaction id, refund id, connection id). Random uuids defeat the
-/// purpose — every retry would get a new key.
+/// Caller-supplied idempotency key for any mutating provider call; adapters MUST
+/// forward it to the provider. Derive it from a stable internal id (random uuids
+/// defeat the purpose — every retry would get a new key). Reuse for a *different*
+/// operation is rejected by the provider, surfaced as `Configuration`.
 #[derive(Debug, Clone)]
 pub struct IdempotencyKey(String);
 
@@ -40,13 +26,10 @@ impl std::fmt::Display for IdempotencyKey {
     }
 }
 
-/// Identifier returned by the provider for our customer.
-/// Opaque string; provider decides the format.
 #[derive(Debug, Clone)]
 pub struct ExternalCustomerRef {
     pub external_id: String,
-    /// The provider's request id for the call that created this customer.
-    /// Echoed in support tickets so the provider can correlate.
+    /// Provider request id, echoed in support tickets for correlation.
     pub provider_request_id: Option<String>,
 }
 
@@ -60,23 +43,15 @@ pub struct PaymentMethodSnapshot {
     pub card_last4: Option<String>,
     pub card_exp_month: Option<i32>,
     pub card_exp_year: Option<i32>,
-    /// Recovered from the provider resource's metadata when its webhook event
-    /// doesn't echo it (GoCardless mandate events carry empty metadata); `None`
-    /// for providers whose events already carry our ids (Stripe).
+    /// Recovered from provider metadata when the webhook event doesn't echo it
+    /// (GoCardless); `None` when events already carry our ids (Stripe).
     pub meteroid_connection_id: Option<String>,
     pub meteroid_customer_id: Option<String>,
 }
 
-/// How the customer must complete mandate / payment-method setup.
-///
-/// Providers fall into one of three presentation modes:
-/// - `EmbeddedClientSecret` — frontend mounts a provider SDK (Stripe Elements,
-///   Adyen Components) using `client_secret` + `publishable_key`.
-/// - `HostedRedirect` — frontend redirects the browser to `authorisation_url`;
-///   provider hosts the bank-selection / consent UI (GoCardless Billing
-///   Request Flow).
-/// - `EmbeddedDropIn` — frontend mounts a Drop-in widget initialized with
-///   `session_data` (Adyen Drop-in).
+/// How the customer must complete setup: mount a provider SDK with
+/// `client_secret` (Stripe), redirect to `authorisation_url` (GoCardless), or
+/// mount a drop-in with `session_data` (Adyen).
 #[derive(Debug, Clone)]
 pub enum MandateSetupInstruction {
     EmbeddedClientSecret {
@@ -104,7 +79,7 @@ pub struct ChargeRequest<'a> {
     pub payment_method_type: PaymentMethodTypeEnum,
     pub amount_minor: i64,
     pub currency: &'a str,
-    /// Derived from `transaction_id` — same transaction retried gets the same key.
+    /// Derived from `transaction_id` so retries reuse the same key.
     pub idempotency_key: IdempotencyKey,
     /// Whether the customer is present in a browser. On-session lets the
     /// provider return a completable `requires_action` (3DS) the portal can
@@ -112,24 +87,18 @@ pub struct ChargeRequest<'a> {
     pub on_session: bool,
 }
 
-/// Outcome of a charge attempt. Normalized across providers so the core code
-/// never reasons in terms of Stripe / GoCardless / Adyen statuses.
-///
-/// Note that an HTTP-level failure (timeout, 5xx) is *not* a `Failed` outcome —
-/// it is a `Report<ConnectorError>`. `Failed` means the provider acknowledged
-/// the request and refused it (declined). The distinction matters: HTTP errors
-/// are retryable with the same idempotency key; `Failed` is terminal.
+/// Normalized charge outcome across providers. A `Failed` here is a provider
+/// decline (terminal); an HTTP-level failure is a `Report<ConnectorError>`
+/// instead (retryable with the same idempotency key).
 #[derive(Debug, Clone)]
 pub enum ChargeOutcome {
     Succeeded(ChargeReceipt),
-    /// The charge was accepted by the provider but settlement is asynchronous
-    /// (GoCardless: ~5 business days; Stripe ACH: T+4). Final state arrives via
-    /// webhook. The core should mark the transaction `Pending` and wait.
+    /// Accepted but settlement is asynchronous; final state arrives via webhook,
+    /// so mark the transaction `Pending` and wait.
     Pending(ChargeAcknowledged),
-    /// Customer interaction is required (3DS, bank app SCA, etc).
+    /// Customer interaction required (3DS, bank app SCA).
     RequiresAction(RequiresActionInstruction),
-    /// Cancelled, distinct from a decline — keeps the sync and reconcile paths
-    /// consistent and lets dunning treat abandonment differently.
+    /// Distinct from a decline so dunning can treat abandonment differently.
     Cancelled(ChargeCancelled),
     Failed(ChargeFailure),
 }
@@ -174,17 +143,15 @@ pub struct ChargeFailure {
     pub external_id: Option<String>,
     pub code: Option<String>,
     pub message: String,
-    /// Whether retrying the same charge *with the same payment method* is
-    /// expected to succeed. False for terminal declines (fraud, expired
-    /// card, mandate cancelled); true for transient (issuer timeout,
-    /// processor error).
+    /// Whether retrying with the same payment method may succeed: false for
+    /// terminal declines (fraud, expired card), true for transient ones.
     pub retryable: bool,
     pub decline_kind: DeclineKind,
     pub provider_request_id: Option<String>,
 }
 
-/// Coarse categorization of why a charge failed. Used to decide retry policy
-/// and customer messaging without leaking provider-specific decline codes.
+/// Coarse failure category for retry policy and messaging, without leaking
+/// provider-specific decline codes.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum DeclineKind {
     InsufficientFunds,
@@ -242,37 +209,29 @@ pub struct RefundFailure {
     pub provider_request_id: Option<String>,
 }
 
-/// Result of `WebhookOps::register_webhook`. The returned `secret` is the one
-/// the provider will sign future events with — we persist it on the connector.
+/// `secret` is the signing secret for future events; we persist it on the connector.
 #[derive(Debug, Clone)]
 pub struct RegisteredWebhook {
     pub endpoint_id: String,
     pub secret: SecretString,
 }
 
-/// Caller-side request to start mandate setup.
 #[derive(Debug, Clone)]
 pub struct MandateSetupRequest<'a> {
     pub payment_methods: &'a [PaymentMethodTypeEnum],
-    /// Derived from the customer connection id, so a retry after a network
-    /// blip returns the same intent rather than creating a duplicate.
+    /// Derived from the connection id so a retry returns the same intent.
     pub idempotency_key: IdempotencyKey,
-    /// Where the provider should redirect the browser after the customer
-    /// completes (or abandons) the hosted flow. Required for `HostedRedirect`
-    /// providers, ignored otherwise.
+    /// Post-flow redirect target; required for `HostedRedirect`, ignored otherwise.
     pub return_url: Option<String>,
 }
 
-/// Caller-side request to create a customer in the provider.
 #[derive(Debug, Clone)]
 pub struct CreateCustomerRequest {
-    /// Derived from our internal customer id. Retries are safe.
     pub idempotency_key: IdempotencyKey,
 }
 
-/// Authoritative status of a transaction as known by the provider. Returned by
-/// [`super::connector::ReconcileOps::fetch_transaction_status`] when the
-/// reconciliation worker checks on a stuck `Pending` transaction.
+/// Authoritative transaction status from the provider, used by reconciliation
+/// when checking a stuck `Pending` transaction.
 #[derive(Debug, Clone)]
 pub enum RemoteTransactionStatus {
     Succeeded {
@@ -286,8 +245,7 @@ pub enum RemoteTransactionStatus {
         decline_kind: DeclineKind,
     },
     Cancelled,
-    /// The provider has no record of this transaction id. Happens when our
-    /// outbound call failed before the provider received it — safe to mark
-    /// the local transaction as cancelled and retry from scratch.
+    /// Provider has no record (our outbound call never reached it); safe to
+    /// cancel the local transaction and retry from scratch.
     Unknown,
 }

@@ -31,32 +31,27 @@ pub struct StripePaymentIntent {
     pub amount: i64,
     pub amount_received: Option<i64>,
     pub currency: String,
-    /// Populated by Stripe when the customer must complete an additional step
-    /// (3DS, microdeposit verification, bank app SCA). Off-session charges that
-    /// trigger SCA come back with status `requires_action` and `next_action`
-    /// describing what the portal needs to surface.
+    /// Populated when the customer must complete an extra step (3DS, microdeposit,
+    /// bank-app SCA); off-session charges hitting SCA return status `requires_action`.
     pub next_action: Option<StripeNextAction>,
     pub livemode: bool,
     /// Returned on PaymentIntent creation. The on-session portal needs it to
     /// complete a `requires_action` charge via Stripe.js `handleNextAction`.
     pub client_secret: Option<String>,
     pub status: StripePaymentStatus,
-    /// Stripe sends this as a nested object (code, message, decline_code,
-    /// payment_method, etc.). Kept as opaque JSON because the variant set is
-    /// large and we only display a flattened message downstream.
+    /// Opaque JSON: Stripe's nested error object has a large variant set and we
+    /// only display a flattened message downstream.
     pub last_payment_error: Option<serde_json::Value>,
     pub metadata: HashMap<String, String>,
 }
 
-/// Describes what the customer must do next to complete a payment / setup
-/// intent. Shape is shared between PaymentIntent and SetupIntent.
+/// Shape shared between PaymentIntent and SetupIntent.
 #[derive(Clone, Debug, Deserialize)]
 pub struct StripeNextAction {
     #[serde(rename = "type")]
     pub action_type: String,
     pub redirect_to_url: Option<StripeRedirectToUrl>,
-    /// Stripe SDK-driven flows (3DS modal, etc.) attach an opaque blob here
-    /// that the client SDK consumes; we surface it verbatim if present.
+    /// Opaque blob consumed by Stripe's client SDK (3DS modal, etc.); surfaced verbatim.
     pub use_stripe_sdk: Option<serde_json::Value>,
 }
 
@@ -102,10 +97,8 @@ pub trait PaymentIntentApi {
         idempotency_key: String,
     ) -> Result<StripePaymentIntent, StripeError>;
 
-    /// Fetch a payment intent by id. Used by the reconciliation worker to
-    /// recover from outbound calls that timed out before we could record the
-    /// response — the local transaction stays `Pending` and we poll the
-    /// provider to find out what actually happened.
+    /// Used by reconciliation to recover from outbound calls that timed out before
+    /// the response was recorded: the local transaction stays `Pending` and we poll.
     async fn get_payment_intent(
         &self,
         id: &str,

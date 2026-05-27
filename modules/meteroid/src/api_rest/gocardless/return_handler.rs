@@ -55,19 +55,14 @@ fn sanitize_error_code(raw: &str) -> &str {
 }
 
 #[axum::debug_handler]
-pub async fn handle(
-    Query(q): Query<ReturnQuery>,
-    State(app_state): State<AppState>,
-) -> Response {
+pub async fn handle(Query(q): Query<ReturnQuery>, State(app_state): State<AppState>) -> Response {
     let connection_id = match CustomerConnectionId::parse_base62(&q.connection) {
         Ok(c) => c,
         Err(_) => return error_response(StatusCode::BAD_REQUEST, "invalid connection id"),
     };
 
     if let Some(err) = q.error.as_deref() {
-        log::info!(
-            "GoCardless return signalled error for connection {connection_id}: {err}"
-        );
+        log::info!("GoCardless return signalled error for connection {connection_id}: {err}");
         return Redirect::to(&format!(
             "{}/portal/customer?gocardless_error={}",
             app_state.portal_url.trim_end_matches('/'),
@@ -79,10 +74,7 @@ pub async fn handle(
     let billing_request_id = match q.billing_request {
         Some(id) => id,
         None => {
-            return error_response(
-                StatusCode::BAD_REQUEST,
-                "missing billing_request parameter",
-            );
+            return error_response(StatusCode::BAD_REQUEST, "missing billing_request parameter");
         }
     };
 

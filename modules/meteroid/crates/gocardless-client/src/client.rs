@@ -89,8 +89,7 @@ impl GoCardlessClient {
         self.execute(req, retry)
     }
 
-    /// DELETE — used for un-registering webhook endpoints (not exercised by
-    /// the connector today; GoCardless webhooks are dashboard-managed).
+    /// DELETE — for un-registering webhook endpoints.
     #[allow(dead_code)]
     pub(crate) fn delete<T: DeserializeOwned + Send + 'static>(
         &self,

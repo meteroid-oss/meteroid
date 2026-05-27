@@ -5,8 +5,8 @@ use common_grpc::middleware::server::auth::RequestExt;
 use meteroid_grpc::meteroid::api::connectors::v1::connectors_service_server::ConnectorsService;
 use meteroid_grpc::meteroid::api::connectors::v1::{
     ConnectGoCardlessRequest, ConnectGoCardlessResponse, ConnectHubspotRequest,
-    ConnectHubspotResponse, ConnectPennylaneRequest, ConnectPennylaneResponse, ConnectStripeRequest,
-    ConnectStripeResponse, ConnectorTypeEnum, DisconnectConnectorRequest,
+    ConnectHubspotResponse, ConnectPennylaneRequest, ConnectPennylaneResponse,
+    ConnectStripeRequest, ConnectStripeResponse, ConnectorTypeEnum, DisconnectConnectorRequest,
     DisconnectConnectorResponse, ListConnectorsRequest, ListConnectorsResponse,
     UpdateHubspotConnectorRequest, UpdateHubspotConnectorResponse,
 };

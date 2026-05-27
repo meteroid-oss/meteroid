@@ -1,8 +1,7 @@
 //! Customers resource.
 //!
-//! GoCardless wraps every body in a top-level resource key
-//! (`{ "customers": { ... } }`); we model that with `CreateCustomerEnvelope`.
-//! Responses are similarly wrapped (`{ "customers": { ... } }`).
+//! GoCardless wraps both request and response bodies in a top-level resource key
+//! (`{ "customers": { ... } }`); the `*Envelope` structs model that.
 
 use crate::client::GoCardlessClient;
 use crate::error::GoCardlessError;

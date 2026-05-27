@@ -195,10 +195,7 @@ impl Services {
             payment_method_type: method.payment_method_type.clone().into(),
             amount_minor: amount as i64,
             currency: &currency,
-            idempotency_key: IdempotencyKey::new(format!(
-                "charge:{}",
-                transaction_id.as_base62()
-            )),
+            idempotency_key: IdempotencyKey::new(format!("charge:{}", transaction_id.as_base62())),
             on_session,
         };
 

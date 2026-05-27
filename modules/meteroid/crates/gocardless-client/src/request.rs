@@ -1,10 +1,7 @@
 use std::time::Duration;
 
-/// Retry policy for outbound calls.
-///
-/// Like in `stripe-client` the connector adapter wraps each call once; this
-/// strategy controls the *inner* retries the HTTP client does on transient
-/// network errors before surfacing failure to the adapter.
+/// Inner retries the HTTP client performs on transient network errors before
+/// surfacing failure to the adapter (which wraps each call once).
 #[derive(Clone, Debug)]
 pub enum RetryStrategy {
     NoRetry,

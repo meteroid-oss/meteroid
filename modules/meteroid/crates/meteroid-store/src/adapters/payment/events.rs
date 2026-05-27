@@ -1,11 +1,8 @@
 use crate::domain::PaymentMethodTypeEnum;
 use chrono::{DateTime, Utc};
 
-/// Provider-agnostic webhook event the core code reacts to.
-///
-/// Each adapter parses its provider's wire format and emits one of these (or
-/// `None` for events the core ignores). The core never sees a Stripe /
-/// GoCardless / Adyen type.
+/// Provider-agnostic webhook event the core reacts to. Adapters parse their
+/// wire format and emit one of these (or `None` for ignored events).
 #[derive(Debug, Clone)]
 pub struct NormalizedWebhookEvent {
     pub provider_event_id: String,
@@ -24,14 +21,11 @@ pub enum NormalizedEventKind {
     PaymentRefunded(PaymentRefundedEvent),
 
     // ── mandate / payment-method lifecycle ────────────────────────────
-    /// A new payment method became available for off-session use.
     /// Stripe: `setup_intent.succeeded`. GoCardless: `mandates.active`.
     PaymentMethodAttached(PaymentMethodAttachedEvent),
-    /// Provider auto-updated card details (network update / card expiring replacement).
+    /// Provider auto-updated card details (network update / replacement).
     PaymentMethodUpdated(PaymentMethodUpdatedEvent),
-    /// Mandate / payment method is no longer usable.
     PaymentMethodDetached(PaymentMethodDetachedEvent),
-    /// Card / mandate is approaching expiry — surface a renewal prompt.
     PaymentMethodExpiring(PaymentMethodExpiringEvent),
 
     // ── disputes / chargebacks ────────────────────────────────────────
@@ -41,14 +35,14 @@ pub enum NormalizedEventKind {
     DisputeLost(DisputeEvent),
     DisputeFundsReinstated(DisputeEvent),
 
-    /// Event the adapter recognized but the core does not need to act on.
-    /// Kept so we can log / store it for forensics without ignoring silently.
-    Acknowledged { reason: &'static str },
+    /// Recognized but not acted on; kept so we can log it for forensics.
+    Acknowledged {
+        reason: &'static str,
+    },
 }
 
-/// Coarse-grained kind identifiers used when configuring webhook subscriptions
-/// (e.g. when self-registering an endpoint with the provider). The adapter
-/// maps each of these to the concrete provider event names it needs.
+/// Coarse kinds for configuring webhook subscriptions; the adapter maps each to
+/// the concrete provider event names it needs.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum NormalizedEventSubscription {
     Payments,

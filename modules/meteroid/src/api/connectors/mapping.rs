@@ -139,7 +139,10 @@ pub mod connectors {
     /// in the dashboard (creditor_id, environment).
     pub fn gocardless_data_to_domain(
         value: &server::GoCardlessConnector,
-    ) -> (domain::GocardlessPublicData, domain::GocardlessSensitiveData) {
+    ) -> (
+        domain::GocardlessPublicData,
+        domain::GocardlessSensitiveData,
+    ) {
         let env = if value.environment.is_empty() {
             "live".to_string()
         } else {

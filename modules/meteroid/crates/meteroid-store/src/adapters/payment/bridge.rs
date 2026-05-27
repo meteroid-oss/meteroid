@@ -11,11 +11,8 @@ use crate::domain::payment_transactions::{PaymentIntent, PaymentNextAction};
 use common_domain::ids::{PaymentTransactionId, TenantId};
 use secrecy::{ExposeSecret, SecretString};
 
-/// Build the legacy [`PaymentIntent`] from a normalized [`ChargeOutcome`].
-///
-/// `transaction_id`, `tenant_id`, `amount_minor`, and `currency` are caller-
-/// supplied because [`ChargeOutcome`] does not carry them (they belong to the
-/// charge *request*, not the outcome).
+/// Extra params are caller-supplied — [`ChargeOutcome`] carries the outcome,
+/// not the originating request (amount, currency, ids).
 pub fn payment_intent_from_outcome(
     outcome: ChargeOutcome,
     transaction_id: PaymentTransactionId,
@@ -52,9 +49,9 @@ pub fn payment_intent_from_outcome(
             // Stays Pending; the persisted next_action is what marks it as
             // "awaiting customer authentication".
             let (external_id, next_action) = match action {
-                super::model::RequiresActionInstruction::HostedUrl { external_id, url, .. } => {
-                    (external_id, PaymentNextAction::RedirectToUrl { url })
-                }
+                super::model::RequiresActionInstruction::HostedUrl {
+                    external_id, url, ..
+                } => (external_id, PaymentNextAction::RedirectToUrl { url }),
                 super::model::RequiresActionInstruction::ClientSecret {
                     external_id,
                     client_secret,
@@ -108,25 +105,9 @@ pub fn payment_intent_from_outcome(
     }
 }
 
-/// Build a legacy [`PaymentIntent`] from a [`NormalizedEventKind`] (used by
-/// the webhook router to feed [`consolidate_intent_and_transaction_tx`]).
-///
-/// The local `transaction_id` and `tenant_id` are looked up by the caller
-/// using `meteroid_transaction_id` metadata; this helper just maps the event
-/// payload to the legacy struct shape.
-///
-/// **Important**: the settlement function only reads `status`, `processed_at`,
-/// and `last_payment_error` from the intent — it does NOT write `amount`,
-/// `amount_received`, or `currency` back to the DB. So the placeholder values
-/// (zero amount, empty currency) below for non-success kinds are
-/// intentionally "don't care" — they never reach storage. The `amount_received`
-/// from a real `PaymentSucceeded` event would otherwise be the right field
-/// to surface once consolidation is widened.
-///
-/// Returns `None` for kinds that don't map to a transaction settlement
-/// (`PaymentMethodAttached`, disputes, …). The router handles those out of band.
-///
-/// [`consolidate_intent_and_transaction_tx`]: crate::repositories::payment_transactions::PaymentTransactionInterface::consolidate_intent_and_transaction_tx
+/// `None` for kinds that don't settle a transaction (mandate/dispute events,
+/// handled elsewhere). The zero amount / empty currency on failed/pending are
+/// unused — consolidation reads only status, processed_at, last_payment_error.
 pub fn payment_intent_from_event(
     kind: &NormalizedEventKind,
     transaction_id: PaymentTransactionId,

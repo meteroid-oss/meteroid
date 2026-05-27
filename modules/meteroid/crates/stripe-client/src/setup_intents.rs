@@ -39,15 +39,12 @@ pub enum StripePaymentMethodType {
     Card,
 }
 
-// setup intents are used to create a payment method that can be used to create a payment intent
 #[skip_serializing_none]
 #[derive(Clone, Debug, Serialize)]
 pub struct CreateSetupIntent {
     pub customer: Option<String>,
     #[serde(flatten)]
     pub setup_mandate_details: Option<StripeMandateRequest>,
-    // payment_method_options : should we allow more customization here ?
-    // livemode
     pub payment_method_types: Option<Vec<StripePaymentMethodType>>,
     pub usage: Option<CreateSetupIntentUsage>,
     pub metadata: HashMap<String, String>,

@@ -8,7 +8,7 @@ pub struct MeteroidMetadata {
     #[serde(with = "string_serde")]
     pub meteroid_invoice_id: InvoiceId,
     #[serde(with = "string_serde")]
-    pub meteroid_tenant_id: TenantId, // todo: remove this field?
+    pub meteroid_tenant_id: TenantId,
     #[serde(with = "string_serde")]
     pub meteroid_customer_id: CustomerId,
 }
@@ -135,6 +135,5 @@ pub struct CreateInvoiceItem<'a> {
 /// For more details see <https://stripe.com/docs/api/invoiceitems/object>
 #[derive(Clone, Debug, Default, Deserialize, Serialize)]
 pub struct InvoiceItem {
-    /// Unique identifier for the object.
     pub id: String,
 }

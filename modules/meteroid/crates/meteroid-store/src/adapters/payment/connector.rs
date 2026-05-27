@@ -13,10 +13,8 @@ use error_stack::Report;
 use http::HeaderMap;
 use secrecy::SecretString;
 
-/// Static description of what a connector can do. Used by:
-/// - the core code to decide which operations to attempt
-/// - the connector-config UI to render the right onboarding flow
-/// - the contract test harness to skip tests irrelevant for this connector
+/// Static description of what a connector can do. Drives operation selection,
+/// onboarding UI, and which contract tests apply.
 #[derive(Debug, Clone)]
 pub struct ConnectorCapabilities {
     pub supports_cards: bool,
@@ -26,14 +24,12 @@ pub struct ConnectorCapabilities {
     pub supports_3ds: bool,
     pub supports_disputes: bool,
     pub supports_self_webhook_registration: bool,
-    /// True if the provider asynchronously confirms charges via webhook
-    /// (GoCardless, Stripe ACH, BACS). When true, `PaymentOps::charge_off_session`
-    /// will frequently return `ChargeOutcome::Pending`.
+    /// Provider confirms charges asynchronously via webhook; `charge_off_session`
+    /// then frequently returns `ChargeOutcome::Pending`.
     pub asynchronous_settlement: bool,
     pub supported_payment_methods: &'static [PaymentMethodTypeEnum],
     pub mandate_setup_mode: MandateSetupMode,
-    /// Maximum age of a webhook signature we will accept, in seconds. Older
-    /// payloads are rejected as replay attempts. Stripe recommends 300s.
+    /// Max webhook signature age accepted, in seconds; older payloads are rejected as replays.
     pub webhook_replay_tolerance_secs: u32,
 }
 
@@ -47,19 +43,15 @@ pub enum MandateSetupMode {
     EmbeddedDropIn,
 }
 
-/// Identifies a connector. The trait stays object-safe, so dynamic dispatch
-/// (`Box<dyn PaymentConnector>`) is the intended use.
+/// Object-safe; intended for dynamic dispatch (`Box<dyn PaymentConnector>`).
 pub trait ConnectorIdentity: Send + Sync {
     fn provider(&self) -> ConnectorProviderEnum;
     fn capabilities(&self) -> &ConnectorCapabilities;
 }
 
-/// Customer-side operations.
-///
-/// **Retry semantics.** All methods carry an idempotency key derived from a
-/// stable internal id; callers may retry on `ConnectorError::Transport` with
-/// the exact same request and receive either the original response or a
-/// provider-side dedup hit.
+/// All methods carry an idempotency key from a stable internal id; callers may
+/// retry on `ConnectorError::Transport` with the same request and get the
+/// original response or a provider-side dedup hit.
 #[async_trait]
 pub trait CustomerOps: Send + Sync {
     async fn create_customer(
@@ -70,12 +62,10 @@ pub trait CustomerOps: Send + Sync {
     ) -> Result<ExternalCustomerRef, Report<ConnectorError>>;
 }
 
-/// Mandate / payment-method-setup operations.
 #[async_trait]
 pub trait MandateOps: Send + Sync {
-    /// Starts the mandate / payment-method setup. The returned
-    /// [`MandateSetupInstruction`] tells the frontend how to present the next
-    /// step (embedded SDK, hosted redirect, drop-in).
+    /// The returned [`MandateSetupInstruction`] tells the frontend how to present
+    /// the next step (embedded SDK, hosted redirect, drop-in).
     async fn initiate_mandate_setup(
         &self,
         connector: &Connector,
@@ -83,9 +73,8 @@ pub trait MandateOps: Send + Sync {
         request: MandateSetupRequest<'_>,
     ) -> Result<MandateSetupInstruction, Report<ConnectorError>>;
 
-    /// Fetches the canonical snapshot of a payment method from the provider.
-    /// Called after a `PaymentMethodAttached` webhook fires (or eagerly if the
-    /// provider doesn't include enough detail in its webhook).
+    /// Called after a `PaymentMethodAttached` webhook fires (or eagerly when the
+    /// webhook lacks enough detail).
     async fn fetch_payment_method(
         &self,
         connector: &Connector,
@@ -93,21 +82,9 @@ pub trait MandateOps: Send + Sync {
         external_customer_id: &str,
     ) -> Result<PaymentMethodSnapshot, Report<ConnectorError>>;
 
-    /// Finalize a mandate / payment-method setup that requires a server-side
-    /// completion step. Used by:
-    ///
-    /// - **HostedRedirect** providers (GoCardless): the customer returns from
-    ///   the authorisation URL; we call this to complete the Billing Request
-    ///   and extract the resulting mandate.
-    /// - **EmbeddedDropIn** providers (Adyen): the client sends back the
-    ///   drop-in payload; we call this to finalize.
-    ///
-    /// **EmbeddedClientSecret** providers (Stripe) don't need this — the SDK
-    /// completes client-side and the provider's webhook is the authoritative
-    /// signal. They return [`ConnectorError::Unsupported`].
-    ///
-    /// `intent_id` is the value returned by `initiate_mandate_setup` —
-    /// `BillingRequest.id` for GoCardless, `SetupIntent.id` for Stripe.
+    /// Server-side completion step for HostedRedirect/EmbeddedDropIn providers.
+    /// EmbeddedClientSecret providers (Stripe) complete client-side and return
+    /// `Unsupported`. `intent_id` is the value from `initiate_mandate_setup`.
     async fn complete_mandate_setup(
         &self,
         connector: &Connector,
@@ -115,12 +92,8 @@ pub trait MandateOps: Send + Sync {
     ) -> Result<PaymentMethodSnapshot, Report<ConnectorError>>;
 }
 
-/// Off-session payment operations.
-///
-/// `Ok(ChargeOutcome::Failed(_))` means "the provider acknowledged the request
-/// and refused it" — terminal, do not retry.
-/// `Err(_)` means "we don't know what happened" (timeout, 5xx) — caller may
-/// retry with the same `idempotency_key`; provider will dedup or complete.
+/// `Ok(ChargeOutcome::Failed)` is terminal (provider refused). `Err` is unknown
+/// (timeout, 5xx) and retryable with the same `idempotency_key`.
 #[async_trait]
 pub trait PaymentOps: Send + Sync {
     async fn charge_off_session(
@@ -130,18 +103,13 @@ pub trait PaymentOps: Send + Sync {
     ) -> Result<ChargeOutcome, Report<ConnectorError>>;
 }
 
-/// Reconciliation operations.
-///
-/// Used by the background worker that checks on transactions stuck in
-/// `Pending` past a threshold. Required because webhook delivery is best-effort:
-/// providers retry but the guarantee is not absolute, and our outbound call may
-/// have timed out before we recorded the external id. Polling the provider
-/// directly is the safety net.
+/// Safety net for the worker polling transactions stuck in `Pending`: webhook
+/// delivery is best-effort and our outbound call may time out before we record
+/// the external id.
 #[async_trait]
 pub trait ReconcileOps: Send + Sync {
-    /// Fetch the current status of a charge by its provider-side external id.
-    /// Returns [`RemoteTransactionStatus::Unknown`] if the provider has no
-    /// record of the id (typical when our outbound POST never reached them).
+    /// Returns [`RemoteTransactionStatus::Unknown`] when the provider has no
+    /// record of the id (our outbound POST never reached them).
     async fn fetch_transaction_status(
         &self,
         connector: &Connector,
@@ -158,24 +126,14 @@ pub trait RefundOps: Send + Sync {
     ) -> Result<RefundOutcome, Report<ConnectorError>>;
 }
 
-/// Webhook-side operations: lifecycle management of the provider endpoint,
-/// plus signature verification and event parsing.
-///
-/// **Verification contract.** `verify_signature` must reject:
-/// 1. Payloads with a missing or malformed signature header.
-/// 2. Payloads whose signature does not validate against `secret`.
-/// 3. Payloads whose timestamp (when the provider's scheme includes one) is
-///    outside `capabilities().webhook_replay_tolerance_secs` from now.
-///
-/// **Parsing contract.** `parse_event` runs *after* successful verification.
-/// It must return `Ok(None)` for events the adapter recognizes but the core
-/// doesn't act on (so they can still be logged for forensics).
+/// `verify_signature` must reject missing/malformed signatures, signatures that
+/// don't validate against `secret`, and timestamps outside
+/// `webhook_replay_tolerance_secs`. `parse_event` runs after verification and
+/// returns `Ok(None)` for recognized-but-unhandled events (still logged).
 #[async_trait]
 pub trait WebhookOps: Send + Sync {
-    /// Programmatically create a webhook endpoint on the provider side.
-    /// Only callable when `capabilities().supports_self_webhook_registration`.
-    /// Returns [`ConnectorError::Unsupported`] for providers without API
-    /// support (GoCardless: dashboard-only).
+    /// Only callable when `supports_self_webhook_registration`; otherwise
+    /// returns `Unsupported` (GoCardless: dashboard-only).
     async fn register_webhook(
         &self,
         connector: &Connector,
@@ -189,9 +147,8 @@ pub trait WebhookOps: Send + Sync {
         endpoint_id: &str,
     ) -> Result<(), Report<ConnectorError>>;
 
-    /// Update the event subscription set on an existing endpoint. Called when
-    /// Meteroid adds new event handlers and existing endpoints must start
-    /// receiving them too.
+    /// Update the subscription set on an existing endpoint when new event
+    /// handlers are added.
     async fn sync_webhook_events(
         &self,
         connector: &Connector,
@@ -214,9 +171,8 @@ pub trait WebhookOps: Send + Sync {
         headers: &HeaderMap,
     ) -> Result<Option<NormalizedWebhookEvent>, Report<ConnectorError>>;
 
-    /// Parse all events in one delivery (GoCardless batches; dropping any loses
-    /// it once we ACK 200). The router uses this; the default suits one-event
-    /// providers (Stripe), batching providers override.
+    /// Parse all events in one delivery; dropping any loses it once we ACK 200.
+    /// Default suits one-event providers (Stripe); batching providers (GoCardless) override.
     fn parse_events(
         &self,
         connector: &Connector,
@@ -230,33 +186,15 @@ pub trait WebhookOps: Send + Sync {
     }
 }
 
-/// Umbrella trait for payment connectors.
+/// A connector implements every sub-trait; unsupported methods return
+/// `Unsupported` rather than panic.
 ///
-/// A concrete connector (e.g. `StripeConnector`, `GoCardlessConnector`)
-/// implements every sub-trait. Methods on sub-traits the connector doesn't
-/// support return [`ConnectorError::Unsupported`] rather than panic.
-///
-/// ## Retry contract
-///
-/// Connector implementations are "dumb": each method makes **one attempt**
-/// against the provider and either returns the result or a
-/// `ConnectorError::Transport`. They do not retry internally.
-///
-/// Retry policy (exponential backoff with jitter, capped at N attempts) is
-/// applied by the caller via shared middleware. This keeps the policy uniform
-/// across providers and avoids hidden retry storms.
-///
-/// Errors that are *not* `Transport` are not retryable — they indicate a
-/// programming bug (`Configuration`, `InvalidMetadata`), a permanent
-/// rejection (`Unsupported`), or a logical failure surfaced as an `Outcome`.
+/// Retry contract: each method makes one attempt and returns either the result
+/// or `Transport`; the caller applies backoff via shared middleware. Only
+/// `Transport` is retryable — other errors are bugs, permanent rejections, or
+/// logical failures surfaced as an `Outcome`.
 pub trait PaymentConnector:
-    ConnectorIdentity
-    + CustomerOps
-    + MandateOps
-    + PaymentOps
-    + RefundOps
-    + ReconcileOps
-    + WebhookOps
+    ConnectorIdentity + CustomerOps + MandateOps + PaymentOps + RefundOps + ReconcileOps + WebhookOps
 {
 }
 

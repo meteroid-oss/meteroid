@@ -141,9 +141,6 @@ impl StripeClient {
         self.execute(request_builder, retry_strategy)
     }
 
-    /// Make a `DELETE` http request. Stripe uses DELETE for webhook endpoint
-    /// teardown and PM detachment. Like `get`, no body — auth and idempotency
-    /// (optional) ride on headers.
     pub(crate) fn delete<T: DeserializeOwned + Send + 'static>(
         &self,
         path: &str,

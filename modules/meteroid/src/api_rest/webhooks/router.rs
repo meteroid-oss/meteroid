@@ -145,7 +145,9 @@ async fn handler(
             Err(e) => {
                 // Unprocessable: record it so we don't 5xx-loop (which can get
                 // our endpoint disabled). Raw payload stays archived for replay.
-                log::error!("Permanent webhook failure for event {provider_event_id}; skipping: {e:?}");
+                log::error!(
+                    "Permanent webhook failure for event {provider_event_id}; skipping: {e:?}"
+                );
                 record_event(
                     &app_state,
                     &connector,

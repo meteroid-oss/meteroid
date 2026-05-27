@@ -156,12 +156,11 @@ impl ServicesEdge {
         limit: i64,
     ) -> StoreResult<Vec<PendingTransactionRef>> {
         let mut conn = self.get_conn().await?;
-        let rows =
-            diesel_models::payments::PaymentTransactionRow::list_pending_with_provider_id(
-                &mut conn, older_than, limit,
-            )
-            .await
-            .map_err(|err| StoreError::DatabaseError(err.error))?;
+        let rows = diesel_models::payments::PaymentTransactionRow::list_pending_with_provider_id(
+            &mut conn, older_than, limit,
+        )
+        .await
+        .map_err(|err| StoreError::DatabaseError(err.error))?;
         Ok(rows
             .into_iter()
             .map(|r| PendingTransactionRef {
@@ -184,7 +183,6 @@ pub struct PendingTransactionRef {
 }
 
 impl ServicesEdge {
-
     pub async fn refresh_invoice_data(
         &self,
         invoice_id: InvoiceId,
@@ -2451,9 +2449,9 @@ impl ServicesEdge {
                         .map_err(Into::<Report<StoreError>>::into)?;
 
                         Ok(CheckoutCompletionResult::AwaitingPayment {
-                    transaction,
-                    next_action: charge_result.payment_intent.next_action.clone(),
-                })
+                            transaction,
+                            next_action: charge_result.payment_intent.next_action.clone(),
+                        })
                     }
                 } else {
                     // Credits cover the full upgrade cost — no payment needed

@@ -1,13 +1,9 @@
 //! Contract-test harness for [`PaymentConnector`] implementations.
 //!
-//! Every connector — Stripe today, GoCardless and Adyen next — must satisfy
-//! the same observable behavior at the trait level. Provider-specific tests
-//! (real HTTP, payload shapes, signature schemes) live in each adapter's own
-//! test module; this harness validates the *contract* the trait promises to
-//! the core: idempotency keys are threaded, capabilities are self-consistent,
-//! unsupported operations return errors instead of panicking, etc.
+//! Validates the trait-level contract every connector must satisfy: idempotency
+//! keys threaded, capabilities self-consistent, unsupported ops error rather
+//! than panic. Provider-specific tests live in each adapter's own module.
 //!
-//! Usage:
 //! ```ignore
 //! #[tokio::test]
 //! async fn mock_satisfies_contract() {
@@ -65,7 +61,6 @@ pub async fn run_contract(impl_: &dyn PaymentConnector, connector: &Connector) {
             )
             .await
             .expect("initiate_mandate_setup must succeed when supports_mandates");
-        // Each variant carries an intent_id we can correlate later.
         match &setup {
             super::model::MandateSetupInstruction::EmbeddedClientSecret { intent_id, .. }
             | super::model::MandateSetupInstruction::HostedRedirect { intent_id, .. }
@@ -92,13 +87,11 @@ pub async fn run_contract(impl_: &dyn PaymentConnector, connector: &Connector) {
         )
         .await
         .expect("charge_off_session must return an outcome, not error, on a happy-path test");
-    // The outcome variant tells us what happened — every variant is fine here
-    // (a failure outcome is still a contract-conforming response).
+    // Any outcome variant is contract-conforming, including a failure.
     let _ = charge;
 
     // ── WebhookOps ──────────────────────────────────────────────────
-    // verify_signature with empty headers + empty payload should NOT panic —
-    // it must surface a typed error.
+    // Empty headers + payload must surface a typed error, not panic.
     let result = impl_.verify_signature(
         connector,
         b"",
@@ -106,21 +99,18 @@ pub async fn run_contract(impl_: &dyn PaymentConnector, connector: &Connector) {
         &secrecy::SecretString::from("any-secret".to_string()),
     );
     if let Err(report) = result {
-        // Acceptable error kinds for an empty payload; anything else is a contract bug.
+        // Acceptable kinds for an empty payload; anything else is a contract bug.
         assert!(
             matches!(
                 report.current_context(),
                 ConnectorError::SignatureMissing
                     | ConnectorError::SignatureVerification
                     | ConnectorError::PayloadDecode(_)
-            ) || matches!(
-                report.current_context(),
-                ConnectorError::Unsupported { .. }
-            ),
+            ) || matches!(report.current_context(), ConnectorError::Unsupported { .. }),
             "verify_signature(empty) returned an unexpected error kind: {report:?}"
         );
     }
-    // Some implementations (mock) accept the empty payload; that's also fine.
+    // Implementations that accept the empty payload (mock) are also fine.
 
     // ── Capability honesty: self-registration ───────────────────────
     if !impl_.capabilities().supports_self_webhook_registration {
@@ -210,9 +200,7 @@ fn make_test_connection(connector: &Connector) -> crate::domain::CustomerConnect
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::adapters::payment::connector::{
-        ConnectorIdentity, MandateSetupMode, WebhookOps,
-    };
+    use crate::adapters::payment::connector::{ConnectorIdentity, MandateSetupMode, WebhookOps};
     use crate::adapters::payment::{GoCardlessConnector, MockConnector};
     use crate::domain::connectors::{
         Connector, GocardlessPublicData, GocardlessSensitiveData, MockPublicData, ProviderData,
@@ -222,7 +210,6 @@ mod tests {
     use chrono::NaiveDateTime;
     use common_domain::ids::{ConnectorId, TenantId};
 
-    /// MockConnector must satisfy the trait contract.
     #[tokio::test]
     async fn mock_satisfies_contract() {
         let connector = Connector {
@@ -239,13 +226,8 @@ mod tests {
         run_contract(&impl_, &connector).await;
     }
 
-    /// GoCardless capability assertions — confirms the cap matrix is
-    /// internally consistent (no cards but mandates yes, async settlement,
-    /// hosted redirect mode, !self_webhook_registration).
-    ///
-    /// We don't exercise the runtime ops here because they'd hit
-    /// `api-sandbox.gocardless.com` (which our test env can't reach);
-    /// Phase 2 wires a wiremock-backed run.
+    /// Confirms the GoCardless cap matrix is internally consistent. Runtime ops
+    /// aren't exercised here since they'd hit the unreachable sandbox API.
     #[test]
     fn gocardless_capabilities_consistent() {
         let connector = GoCardlessConnector::new();
@@ -253,7 +235,10 @@ mod tests {
         assert_capabilities_consistent(caps);
         assert!(!caps.supports_cards, "GC has no card support");
         assert!(caps.supports_mandates);
-        assert!(caps.asynchronous_settlement, "GC settlement is multi-day async");
+        assert!(
+            caps.asynchronous_settlement,
+            "GC settlement is multi-day async"
+        );
         assert!(
             !caps.supports_self_webhook_registration,
             "GC webhook endpoints are dashboard-managed"
@@ -261,10 +246,8 @@ mod tests {
         assert_eq!(caps.mandate_setup_mode, MandateSetupMode::HostedRedirect);
     }
 
-    /// Honesty check: with the cap turned off, register_webhook must return
-    /// Unsupported (not Ok with synthesised data). Contract harness asserts
-    /// this for any connector but we pin GoCardless explicitly because it's
-    /// the only one that exercises this branch in production.
+    /// With the cap off, register_webhook must return Unsupported, not synthesise
+    /// data. Pinned for GoCardless, the only connector hitting this branch in prod.
     #[tokio::test]
     async fn gocardless_register_webhook_is_unsupported() {
         let connector = Connector {

@@ -1,13 +1,8 @@
 //! Webhook verification and event parsing.
 //!
-//! GoCardless signature scheme differs from Stripe:
-//! - Header: `Webhook-Signature` (single value, hex-encoded HMAC-SHA-256 of
-//!   the *raw* request body with the endpoint secret).
-//! - **No** timestamp in the header — replay protection is by event-id
-//!   dedup at our DB layer.
-//!
-//! Payload envelope: `{ "events": [ ... ] }`. A single delivery can batch
-//! multiple events; the adapter normalises each one independently.
+//! `Webhook-Signature` header is a hex HMAC-SHA-256 of the raw body. There is no
+//! timestamp, so replay protection relies on event-id dedup at the DB layer. A
+//! single `{ "events": [...] }` delivery can batch multiple events.
 
 use crate::error::WebhookError;
 use hmac::{Hmac, KeyInit, Mac};
@@ -104,19 +99,18 @@ pub mod action {
 pub struct GoCardlessWebhook;
 
 impl GoCardlessWebhook {
-    /// Hex-encoded HMAC-SHA-256 of the raw body, **constant-time** compared.
-    ///
-    /// Delegates to `Mac::verify_slice` from the `hmac` crate, which uses
-    /// `subtle::ConstantTimeEq` internally. Critical: a naive byte-by-byte
-    /// `==` would leak the digest via timing and allow signature forgery
-    /// from an attacker with enough requests.
-    pub fn validate_signature(payload: &[u8], header_sig: &str, secret: &str) -> Result<(), WebhookError> {
+    /// Verifies the hex HMAC-SHA-256 of the raw body. Uses `Mac::verify_slice`
+    /// for constant-time comparison; a naive `==` would leak the digest via timing.
+    pub fn validate_signature(
+        payload: &[u8],
+        header_sig: &str,
+        secret: &str,
+    ) -> Result<(), WebhookError> {
         let mut mac =
             Hmac::<Sha256>::new_from_slice(secret.as_bytes()).map_err(|_| WebhookError::BadKey)?;
         mac.update(payload);
 
-        let provided =
-            hex::decode(header_sig.trim()).map_err(|_| WebhookError::BadSignature)?;
+        let provided = hex::decode(header_sig.trim()).map_err(|_| WebhookError::BadSignature)?;
 
         mac.verify_slice(provided.as_slice())
             .map_err(|_| WebhookError::BadSignature)
@@ -184,7 +178,9 @@ mod tests {
         assert_eq!(e.action, "confirmed");
         assert_eq!(e.links.payment.as_deref(), Some("PM123"));
         assert_eq!(
-            e.metadata.get("meteroid.transaction_id").map(|s| s.as_str()),
+            e.metadata
+                .get("meteroid.transaction_id")
+                .map(|s| s.as_str()),
             Some("tx_xyz")
         );
     }

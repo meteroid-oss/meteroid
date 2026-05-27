@@ -3,6 +3,7 @@
 use crate::StoreResult;
 use crate::constants::Currencies;
 use crate::domain::entity_activity::Actor;
+use crate::domain::payment_transactions::PaymentNextAction;
 use crate::domain::slot_transactions::{
     SlotUpdatePreview, SlotUpgradeBillingMode, UpdateSlotsResult,
 };
@@ -10,7 +11,6 @@ use crate::domain::{
     LineItem, PaymentTransaction, Period, SlotForTransaction, SubscriptionFee,
     SubscriptionFeeInterface,
 };
-use crate::domain::payment_transactions::PaymentNextAction;
 use crate::errors::StoreError;
 use crate::repositories::SubscriptionInterface;
 use crate::repositories::customers::CustomersInterface;

@@ -1,17 +1,9 @@
 //! Provider-agnostic payment connector layer.
 //!
-//! The core code interacts with payment providers (Stripe, GoCardless, Adyen, …)
-//! exclusively through the [`PaymentConnector`] trait. No provider-specific
-//! type ever crosses into the rest of the codebase: adapters translate at the
-//! boundary.
-//!
-//! The trait is split into ops sub-traits so a single provider impl reads as a
-//! collection of focused responsibilities, and so a test double can implement
-//! only the surface it needs. Methods a provider doesn't support return
-//! [`ConnectorError::Unsupported`] rather than panicking.
-//!
-//! See [`connector`] for the trait family, [`model`] for request/outcome
-//! types, [`events`] for the normalized webhook event vocabulary.
+//! The core interacts with payment providers exclusively through the
+//! [`PaymentConnector`] trait; adapters translate at the boundary so no
+//! provider-specific type leaks. The trait splits into ops sub-traits;
+//! unsupported methods return [`ConnectorError::Unsupported`] rather than panic.
 
 pub mod bridge;
 pub mod connector;

@@ -67,10 +67,7 @@ impl Services {
             payment_method_type: method.payment_method_type.clone().into(),
             amount_minor: amount,
             currency: &currency,
-            idempotency_key: IdempotencyKey::new(format!(
-                "charge:{}",
-                transaction_id.as_base62()
-            )),
+            idempotency_key: IdempotencyKey::new(format!("charge:{}", transaction_id.as_base62())),
             // Checkout is always customer-present, so 3DS can be completed inline.
             on_session: true,
         };

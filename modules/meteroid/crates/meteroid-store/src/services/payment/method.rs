@@ -403,16 +403,16 @@ impl Services {
 
         // GoCardless must redirect back to our backend completion endpoint (to
         // finalize the BR), not a client-supplied URL. Build it server-side.
-        let return_url = if connector.provider == crate::domain::enums::ConnectorProviderEnum::Gocardless
-        {
-            Some(format!(
-                "{}/v1/portal/gocardless/return?connection={}",
-                self.store.settings.public_url.trim_end_matches('/'),
-                customer_connection.id.as_base62(),
-            ))
-        } else {
-            return_url
-        };
+        let return_url =
+            if connector.provider == crate::domain::enums::ConnectorProviderEnum::Gocardless {
+                Some(format!(
+                    "{}/v1/portal/gocardless/return?connection={}",
+                    self.store.settings.public_url.trim_end_matches('/'),
+                    customer_connection.id.as_base62(),
+                ))
+            } else {
+                return_url
+            };
 
         let mandate_request = MandateSetupRequest {
             payment_methods: &payment_methods,
@@ -425,7 +425,11 @@ impl Services {
 
         let instruction = tokio::time::timeout(
             PAYMENT_PROVIDER_TIMEOUT,
-            connector_impl.initiate_mandate_setup(&connector, &customer_connection, mandate_request),
+            connector_impl.initiate_mandate_setup(
+                &connector,
+                &customer_connection,
+                mandate_request,
+            ),
         )
         .await
         .map_err(|_| {
@@ -451,29 +455,32 @@ impl Services {
             // frontend only consumes the embedded-client-secret shape — the
             // SetupIntent gRPC response is mapped accordingly. When we add
             // GoCardless (Phase 2) we'll widen SetupIntent or split the API.
-            MandateSetupInstruction::HostedRedirect { intent_id, authorisation_url, .. } => {
-                SetupIntent {
-                    intent_id,
-                    client_secret: authorisation_url,
-                    public_key: SecretString::from(String::new()),
-                    provider: connector.provider.clone(),
-                    connector_id: connector.id,
-                    connection_id: customer_connection.id,
-                }
-            }
-            MandateSetupInstruction::EmbeddedDropIn { intent_id, session_data, .. } => {
-                SetupIntent {
-                    intent_id,
-                    client_secret: session_data,
-                    public_key: SecretString::from(String::new()),
-                    provider: connector.provider.clone(),
-                    connector_id: connector.id,
-                    connection_id: customer_connection.id,
-                }
-            }
+            MandateSetupInstruction::HostedRedirect {
+                intent_id,
+                authorisation_url,
+                ..
+            } => SetupIntent {
+                intent_id,
+                client_secret: authorisation_url,
+                public_key: SecretString::from(String::new()),
+                provider: connector.provider.clone(),
+                connector_id: connector.id,
+                connection_id: customer_connection.id,
+            },
+            MandateSetupInstruction::EmbeddedDropIn {
+                intent_id,
+                session_data,
+                ..
+            } => SetupIntent {
+                intent_id,
+                client_secret: session_data,
+                public_key: SecretString::from(String::new()),
+                provider: connector.provider.clone(),
+                connector_id: connector.id,
+                connection_id: customer_connection.id,
+            },
         };
 
         Ok(setup_intent)
     }
 }
-

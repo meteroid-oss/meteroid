@@ -1,8 +1,6 @@
 //! Stripe implementation of the [`super::PaymentConnector`] trait family.
-//!
-//! All Stripe-specific type mapping lives in this file. The rest of the
-//! codebase only ever sees the normalized types from [`super::model`] and
-//! [`super::events`].
+//! All Stripe-specific type mapping lives here; the rest of the codebase only
+//! sees the normalized types from [`super::model`] and [`super::events`].
 
 use super::connector::{
     ConnectorCapabilities, ConnectorIdentity, CustomerOps, MandateOps, MandateSetupMode,
@@ -53,12 +51,8 @@ use stripe_client::webhook_endpoints::{
     CreateWebhookEndpointRequest, UpdateWebhookEndpointRequest, WebhookEndpointApi,
 };
 
-/// Capabilities advertised by Stripe today.
-///
-/// Refunds, disputes, and self-webhook-registration are listed as `true`
-/// even when the impl below currently returns `Unsupported` — the bits
-/// describe the provider's *protocol* capability; the impl-side gaps are
-/// filled in by later steps without changing this value.
+/// The bits describe Stripe's *protocol* capability, not the impl state, so
+/// some are `true` even where the impl below returns `Unsupported`.
 const STRIPE_CAPABILITIES: ConnectorCapabilities = ConnectorCapabilities {
     supports_cards: true,
     supports_mandates: true,
@@ -78,9 +72,8 @@ const STRIPE_CAPABILITIES: ConnectorCapabilities = ConnectorCapabilities {
     webhook_replay_tolerance_secs: 300,
 };
 
-/// Stripe connector. Wraps a process-wide [`StripeClient`] (connection pool)
-/// — every tenant shares the same pool because they all hit `api.stripe.com`.
-/// Per-tenant data lives on [`Connector`], passed into each call.
+/// Wraps a process-wide [`StripeClient`]: every tenant shares one pool since
+/// they all hit `api.stripe.com`. Per-tenant data lives on [`Connector`].
 #[derive(Debug, Clone, Copy)]
 pub struct StripeConnector;
 
@@ -89,9 +82,8 @@ impl StripeConnector {
         StripeConnector
     }
 
-    /// Lazily-initialized process-wide pooled client. `reqwest::Client` already
-    /// pools connections internally, but the wrapper holds tuning (timeouts,
-    /// retry strategy) we want fixed at process startup.
+    /// Process-wide pooled client; the wrapper holds tuning (timeouts, retry
+    /// strategy) we want fixed at process startup.
     fn client() -> &'static StripeClient {
         static CLIENT: OnceLock<StripeClient> = OnceLock::new();
         CLIENT.get_or_init(StripeClient::new)
@@ -233,7 +225,11 @@ impl MandateOps for StripeConnector {
         let secret_key = extract_secret_key(connector)?;
 
         let method = Self::client()
-            .get_payment_method(external_payment_method_id, external_customer_id, &secret_key)
+            .get_payment_method(
+                external_payment_method_id,
+                external_customer_id,
+                &secret_key,
+            )
             .await
             .map_err(map_stripe_error)?;
 
@@ -245,9 +241,8 @@ impl MandateOps for StripeConnector {
         _connector: &Connector,
         _intent_id: &str,
     ) -> Result<PaymentMethodSnapshot, Report<ConnectorError>> {
-        // Stripe SetupIntents are finalized client-side via the SDK and
-        // confirmed via the `setup_intent.succeeded` webhook — there is no
-        // server-side complete step.
+        // Stripe SetupIntents finalize client-side and confirm via the
+        // `setup_intent.succeeded` webhook; no server-side complete step.
         Err(Report::new(ConnectorError::Unsupported {
             provider: ConnectorProviderEnum::Stripe,
             capability: "mandate.complete (Stripe finalizes client-side via webhook)",
@@ -340,9 +335,8 @@ impl ReconcileOps for StripeConnector {
 
         match result {
             Ok(intent) => Ok(remote_status_from_intent(intent)),
-            // Stripe returns 404 when the id doesn't exist; the reconciliation
-            // worker treats this as "the provider has no record of our charge"
-            // and the local transaction can be safely cancelled.
+            // 404 = Stripe has no record of the charge; reconciliation worker
+            // treats Unknown as safe-to-cancel locally.
             Err(StripeError::Stripe(req_err)) if req_err.http_status == 404 => {
                 Ok(RemoteTransactionStatus::Unknown)
             }
@@ -393,19 +387,12 @@ impl WebhookOps for StripeConnector {
                 CreateWebhookEndpointRequest {
                     url: url.to_string(),
                     enabled_events,
-                    description: Some(format!(
-                        "Meteroid (tenant {})",
-                        connector.tenant_id
-                    )),
+                    description: Some(format!("Meteroid (tenant {})", connector.tenant_id)),
                 },
                 &secret_key,
-                // Idempotency key MUST be stable across retries from the same
-                // logical "connect" attempt. We derive it from (tenant_id,
-                // alias, url) — never `connector.id`, which is freshly
-                // generated for the transient Connector that the connect-API
-                // layer passes during auto-registration. Using a non-stable
-                // key here would create a fresh Stripe webhook endpoint on
-                // every retry, orphaning the previous ones forever.
+                // Idempotency key must be stable across retries: keyed on
+                // (tenant_id, alias, url), never `connector.id` (freshly
+                // generated per call) — an unstable key orphans an endpoint per retry.
                 format!(
                     "webhook_register:{}:{}:{}",
                     connector.tenant_id, connector.alias, url
@@ -454,9 +441,7 @@ impl WebhookOps for StripeConnector {
                 endpoint_id,
                 UpdateWebhookEndpointRequest { enabled_events },
                 &secret_key,
-                // Stable across retries — see the `register_webhook` note
-                // above. `endpoint_id` is provider-side and persistent so
-                // it's the right grain here.
+                // Stable across retries; `endpoint_id` is provider-side and persistent.
                 format!("webhook_sync:{}:{}", connector.tenant_id, endpoint_id),
             )
             .await
@@ -524,11 +509,11 @@ fn extract_secret_key(connector: &Connector) -> Result<SecretString, Report<Conn
     }
 }
 
-fn extract_publishable_key(
-    connector: &Connector,
-) -> Result<SecretString, Report<ConnectorError>> {
+fn extract_publishable_key(connector: &Connector) -> Result<SecretString, Report<ConnectorError>> {
     match &connector.data {
-        Some(ProviderData::Stripe(data)) => Ok(SecretString::from(data.api_publishable_key.clone())),
+        Some(ProviderData::Stripe(data)) => {
+            Ok(SecretString::from(data.api_publishable_key.clone()))
+        }
         Some(_) => Err(Report::new(ConnectorError::Configuration(
             "connector is not a stripe connector".to_string(),
         ))),
@@ -576,21 +561,23 @@ fn snapshot_from_payment_method(method: PaymentMethod) -> PaymentMethodSnapshot 
         StripePmType::Card => None,
         StripePmType::BacsDebit => method.bacs_debit.as_ref().and_then(|a| a.last4.clone()),
         StripePmType::SepaDebit => method.sepa_debit.as_ref().and_then(|a| a.last4.clone()),
-        StripePmType::UsBankAccount => {
-            method.us_bank_account.as_ref().and_then(|a| a.last4.clone())
-        }
+        StripePmType::UsBankAccount => method
+            .us_bank_account
+            .as_ref()
+            .and_then(|a| a.last4.clone()),
         StripePmType::Other => None,
     };
 
-    let (card_brand, card_last4, card_exp_month, card_exp_year) = match (&method._type, &method.card) {
-        (StripePmType::Card, Some(card)) => (
-            Some(card.brand.clone()),
-            card.last4.clone(),
-            Some(card.exp_month),
-            Some(card.exp_year),
-        ),
-        _ => (None, None, None, None),
-    };
+    let (card_brand, card_last4, card_exp_month, card_exp_year) =
+        match (&method._type, &method.card) {
+            (StripePmType::Card, Some(card)) => (
+                Some(card.brand.clone()),
+                card.last4.clone(),
+                Some(card.exp_month),
+                Some(card.exp_year),
+            ),
+            _ => (None, None, None, None),
+        };
 
     PaymentMethodSnapshot {
         external_payment_method_id: method.id,
@@ -630,11 +617,7 @@ fn intent_to_outcome(intent: StripePaymentIntent, publishable_key: &str) -> Char
                 provider_request_id: None,
             })
         }
-        // 3DS / SCA path. Stripe returns `next_action` describing what the
-        // client must do. If it's a hosted redirect (`redirect_to_url`) we
-        // surface the URL so the portal can open it; if it's SDK-driven
-        // (`use_stripe_sdk`) the client_secret is needed by Stripe.js, and we
-        // signal that with the ClientSecret variant.
+        // 3DS/SCA: `next_action` says what the client must do. See requires_action_outcome.
         StripePaymentStatus::RequiresCustomerAction => requires_action_outcome(
             intent.id,
             intent.next_action,
@@ -671,9 +654,8 @@ fn intent_to_outcome(intent: StripePaymentIntent, publishable_key: &str) -> Char
     }
 }
 
-/// Build a `RequiresAction` outcome from the Stripe `next_action` object. We
-/// prefer the hosted-redirect URL because it works in any browser; fall back
-/// to the ClientSecret form for SDK-driven flows (Stripe.js, mobile SDK).
+/// Prefer the hosted-redirect URL (works in any browser); fall back to the
+/// ClientSecret form for SDK-driven flows (Stripe.js, mobile SDK).
 fn requires_action_outcome(
     intent_id: String,
     next_action: Option<StripeNextAction>,
@@ -704,9 +686,8 @@ fn requires_action_outcome(
     ChargeOutcome::RequiresAction(instruction)
 }
 
-/// Stripe's `last_payment_error` is a nested object: `{ code, message,
-/// decline_code, ... }`. We surface the human message for support and
-/// customer messaging.
+/// `last_payment_error` is a nested `{ code, message, decline_code, ... }`;
+/// surface the human-readable message.
 fn flatten_payment_error(err: &Option<serde_json::Value>) -> Option<String> {
     err.as_ref()
         .and_then(|v| v.get("message"))
@@ -714,7 +695,6 @@ fn flatten_payment_error(err: &Option<serde_json::Value>) -> Option<String> {
         .map(|s| s.to_string())
 }
 
-/// Pull the machine-readable error code (`card_declined`, `expired_card`, …).
 fn stripe_error_code(err: &Option<serde_json::Value>) -> Option<String> {
     err.as_ref()
         .and_then(|v| v.get("code"))
@@ -722,9 +702,8 @@ fn stripe_error_code(err: &Option<serde_json::Value>) -> Option<String> {
         .map(|s| s.to_string())
 }
 
-/// Map Stripe's decline-code taxonomy onto our [`DeclineKind`]. Only covers
-/// the high-frequency cases; everything else falls back to `Other`. Used by
-/// the retry-policy layer to decide whether to attempt the same card again.
+/// Covers the high-frequency decline codes (rest fall back to `Other`); the
+/// retry-policy layer uses the result to decide whether to retry the same card.
 fn decline_kind_from_error(err: &Option<serde_json::Value>) -> DeclineKind {
     let Some(decline_code) = err
         .as_ref()
@@ -746,23 +725,15 @@ fn decline_kind_from_error(err: &Option<serde_json::Value>) -> DeclineKind {
     }
 }
 
-/// Partition a [`StripeError`] across the connector error taxonomy.
-///
-/// - Network-level failures (`Timeout`, `ClientError`) → `Transport` — caller
-///   may retry with the same idempotency key.
-/// - 5xx from Stripe → `Transport` (Stripe is sick; retry is safe).
-/// - 4xx from Stripe → `Charge`/`Configuration` depending on the kind — these
-///   are programmer / data errors, not retryable.
+/// Network failures and Stripe 5xx map to `Transport` (safe to retry with the
+/// same idempotency key); 4xx map to `Charge`/`Configuration` (not retryable).
 fn map_stripe_error(e: StripeError) -> Report<ConnectorError> {
     match e {
         StripeError::Timeout => Report::new(ConnectorError::Transport("stripe timeout".into())),
         StripeError::ClientError(msg) => Report::new(ConnectorError::Transport(msg)),
-        StripeError::Stripe(req_err) if req_err.http_status >= 500 => {
-            Report::new(ConnectorError::Transport(format!(
-                "stripe 5xx: {}",
-                req_err
-            )))
-        }
+        StripeError::Stripe(req_err) if req_err.http_status >= 500 => Report::new(
+            ConnectorError::Transport(format!("stripe 5xx: {}", req_err)),
+        ),
         StripeError::Stripe(req_err) => Report::new(ConnectorError::Charge(format!(
             "stripe rejected: {} (code={:?})",
             req_err.message.unwrap_or_default(),
@@ -776,13 +747,10 @@ fn map_stripe_error(e: StripeError) -> Report<ConnectorError> {
     }
 }
 
-/// Translate a verified Stripe webhook event into a normalized event. Returns
-/// `None` for events we recognize at the parse layer but don't surface to the
-/// core (yet).
+/// Returns `None` for events recognized at the parse layer but not surfaced.
 fn normalize_event(parsed: Event) -> Option<NormalizedWebhookEvent> {
-    // Prefer Stripe's `created` timestamp; fall back to "now" only when the
-    // field is unexpectedly missing (older API versions). Using server-side
-    // wall-clock time silently breaks dispute-window math and event replays.
+    // Prefer Stripe's `created` ts; wall-clock fallback would break
+    // dispute-window math and replays, so only use it if the field is missing.
     let occurred_at = parsed
         .created
         .and_then(|ts| DateTime::from_timestamp(ts, 0))
@@ -811,16 +779,14 @@ fn normalize_kind(event_type: &str, object: EventObject) -> Option<NormalizedEve
             NormalizedEventKind::PaymentMethodAttached(PaymentMethodAttachedEvent {
                 external_customer_id,
                 external_payment_method_id: payment_method,
-                // We don't know the PM type without an extra fetch — surface
-                // `Other` and let the handler call MandateOps::fetch_payment_method.
+                // PM type unknown without an extra fetch; handler calls fetch_payment_method.
                 payment_method_type: PaymentMethodTypeEnum::Other,
                 meteroid_connection_id: si.metadata.get("meteroid.connection_id").cloned(),
                 meteroid_customer_id: si.metadata.get("meteroid.customer_id").cloned(),
             })
         }
         (event_type::SETUP_INTENT_REQUIRES_ACTION, EventObject::SetupIntent(si)) => {
-            // The portal needs the URL or client_secret to walk the user
-            // through 3DS / microdeposit verification on a fresh SDK mount.
+            // Portal needs URL or client_secret for 3DS/microdeposit verification.
             let action_url = si
                 .next_action
                 .as_ref()
@@ -830,10 +796,7 @@ fn normalize_kind(event_type: &str, object: EventObject) -> Option<NormalizedEve
                 external_transaction_id: si.id,
                 action_url,
                 client_secret: Some(si.client_secret),
-                meteroid_transaction_id: si
-                    .metadata
-                    .get("meteroid.transaction_id")
-                    .cloned(),
+                meteroid_transaction_id: si.metadata.get("meteroid.transaction_id").cloned(),
             })
         }
         (event_type::SETUP_INTENT_CANCELED, EventObject::SetupIntent(si)) => {
@@ -885,8 +848,7 @@ fn normalize_kind(event_type: &str, object: EventObject) -> Option<NormalizedEve
             })
         }
         (event_type::PAYMENT_INTENT_PARTIALLY_FUNDED, EventObject::PaymentIntent(_pi)) => {
-            // Partial funding (US ACH partial settlements) — keep the
-            // transaction pending; the next event will resolve it fully.
+            // US ACH partial settlement: stay pending, the next event resolves it.
             NormalizedEventKind::Acknowledged {
                 reason: "payment_intent.partially_funded — partial settlement",
             }
@@ -894,9 +856,7 @@ fn normalize_kind(event_type: &str, object: EventObject) -> Option<NormalizedEve
 
         // ── Charge (refunds) ─────────────────────────────────────────
         (event_type::CHARGE_REFUNDED, EventObject::Charge(charge)) => {
-            // A `charge.refunded` event may carry one or many refunds in
-            // `refunds.data`. Surface the most recent one — Stripe pushes a
-            // separate event per refund, so we usually see them one at a time.
+            // Stripe pushes one event per refund; surface the most recent in `refunds.data`.
             let parent_pi = charge.payment_intent.clone().unwrap_or_default();
             let (refund_id, refund_amount) = charge
                 .refunds
@@ -965,10 +925,8 @@ fn normalize_kind(event_type: &str, object: EventObject) -> Option<NormalizedEve
     })
 }
 
-/// Translate the abstract subscription kinds into the concrete Stripe
-/// event-type strings we register on the endpoint. Mirrors the dispatch
-/// table in [`normalize_kind`]: anything we know how to parse here must be
-/// requested from Stripe, or we'd never receive it.
+/// Must stay in sync with the [`normalize_kind`] dispatch table: anything we
+/// parse must be registered here, or Stripe never sends it.
 fn subscriptions_to_stripe_events(subs: &[NormalizedEventSubscription]) -> Vec<String> {
     use stripe_client::webhook::event_type as et;
     let mut events: Vec<&'static str> = Vec::new();
@@ -1043,19 +1001,15 @@ fn payment_method_update(
     }
 }
 
-// ── tests ──────────────────────────────────────────────────────────────────
-//
-// Webhook ingestion is the one production-critical path not exercised by the
-// existing integration test suite (those test the charge side). These tests
-// pin the signature-verification + event-normalization behaviour against
-// known-good Stripe payloads so a future regression won't slip through.
+// Webhook ingestion is the one production-critical path the integration suite
+// doesn't cover; these pin signature verification + event normalization.
 
 #[cfg(test)]
 mod tests {
     use super::*;
     use crate::adapters::payment::events::NormalizedEventKind;
     use crate::domain::connectors::{Connector, StripeSensitiveData};
-    use crate::domain::enums::{ConnectorTypeEnum, ConnectorProviderEnum};
+    use crate::domain::enums::{ConnectorProviderEnum, ConnectorTypeEnum};
     use chrono::NaiveDateTime;
     use common_domain::ids::{ConnectorId, TenantId};
     use hmac::{Hmac, KeyInit, Mac};
@@ -1085,8 +1039,7 @@ mod tests {
 
     fn sign_payload(payload: &str, secret: &str, timestamp: i64) -> String {
         let signed = format!("{}.{}", timestamp, payload);
-        let mut mac =
-            Hmac::<Sha256>::new_from_slice(secret.as_bytes()).expect("valid hmac key");
+        let mut mac = Hmac::<Sha256>::new_from_slice(secret.as_bytes()).expect("valid hmac key");
         mac.update(signed.as_bytes());
         let sig = mac.finalize().into_bytes();
         format!("t={},v1={}", timestamp, hex::encode(sig))
@@ -1111,12 +1064,8 @@ mod tests {
         let headers = header_with_signature(&sig);
         let secret = SecretString::from(TEST_WEBHOOK_SECRET.to_string());
 
-        let result = StripeConnector::new().verify_signature(
-            &connector,
-            payload,
-            &headers,
-            &secret,
-        );
+        let result =
+            StripeConnector::new().verify_signature(&connector, payload, &headers, &secret);
         assert!(result.is_ok(), "valid signature must verify: {result:?}");
     }
 
@@ -1134,12 +1083,8 @@ mod tests {
         let headers = header_with_signature(&sig);
         let secret = SecretString::from(TEST_WEBHOOK_SECRET.to_string());
 
-        let result = StripeConnector::new().verify_signature(
-            &connector,
-            payload,
-            &headers,
-            &secret,
-        );
+        let result =
+            StripeConnector::new().verify_signature(&connector, payload, &headers, &secret);
         assert!(result.is_err(), "wrong-secret signature must be rejected");
     }
 
@@ -1158,12 +1103,8 @@ mod tests {
         let headers = header_with_signature(&sig);
         let secret = SecretString::from(TEST_WEBHOOK_SECRET.to_string());
 
-        let result = StripeConnector::new().verify_signature(
-            &connector,
-            payload,
-            &headers,
-            &secret,
-        );
+        let result =
+            StripeConnector::new().verify_signature(&connector, payload, &headers, &secret);
         assert!(result.is_err(), "stale signature must be rejected");
     }
 
@@ -1175,12 +1116,8 @@ mod tests {
         let headers = HeaderMap::new();
         let secret = SecretString::from(TEST_WEBHOOK_SECRET.to_string());
 
-        let result = StripeConnector::new().verify_signature(
-            &connector,
-            payload,
-            &headers,
-            &secret,
-        );
+        let result =
+            StripeConnector::new().verify_signature(&connector, payload, &headers, &secret);
         assert!(result.is_err(), "missing signature must be rejected");
     }
 
@@ -1397,8 +1334,8 @@ mod tests {
         }
     }
 
-    /// `charge.dispute.closed` with status=lost surfaces as `DisputeLost`.
-    /// This is the event that triggers invoice locking (Lago parity).
+    /// `charge.dispute.closed` with status=lost surfaces as `DisputeLost`
+    /// (the event that triggers invoice locking).
     #[test]
     fn parse_event_normalizes_dispute_closed_lost() {
         let connector = test_connector();

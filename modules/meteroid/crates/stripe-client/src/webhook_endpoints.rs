@@ -1,16 +1,6 @@
-//! Programmatic management of Stripe webhook endpoints.
-//!
-//! Lago-style: when a customer connects their Stripe account, we
-//! [`create_webhook_endpoint`] on their behalf using the same API key. Stripe
-//! returns a freshly-generated signing `secret` (only on create!) which we
-//! persist. The customer never needs to paste a webhook secret manually —
-//! reducing the connect-Stripe modal from three fields (api key, publishable
-//! key, webhook secret) to two.
-//!
-//! Requires the `Webhook Endpoints (Write)` permission on the API key, which
-//! is the default for full-access keys. Restricted keys can fall back to
-//! manual paste (the WebhookOps trait surfaces this via Unsupported when the
-//! API call returns 403).
+//! Programmatic management of Stripe webhook endpoints: we self-register on the
+//! customer's account so they don't paste a secret. Requires the
+//! `Webhook Endpoints (Write)` permission; restricted keys get a 403 and must paste manually.
 
 use crate::client::StripeClient;
 use crate::error::StripeError;
@@ -21,18 +11,14 @@ use serde::{Deserialize, Serialize};
 #[derive(Debug, Clone, Serialize)]
 pub struct CreateWebhookEndpointRequest {
     pub url: String,
-    /// Stripe event types to subscribe to (e.g. `payment_intent.succeeded`).
     pub enabled_events: Vec<String>,
-    /// Surfaces in the Stripe dashboard so the customer can identify the
-    /// endpoint we registered for them.
+    /// Shown in the Stripe dashboard so the customer can identify this endpoint.
     pub description: Option<String>,
 }
 
 #[derive(Debug, Clone, Serialize)]
 pub struct UpdateWebhookEndpointRequest {
-    /// Replaces (not merges) the subscription set on the endpoint. Called when
-    /// Meteroid adds new event handlers and existing endpoints need to start
-    /// receiving them.
+    /// Replaces (not merges) the endpoint's subscription set.
     pub enabled_events: Vec<String>,
 }
 
@@ -41,8 +27,8 @@ pub struct WebhookEndpoint {
     pub id: String,
     pub url: String,
     pub enabled_events: Vec<String>,
-    /// The signing secret. Stripe **only returns this on create** — once we
-    /// receive it we must persist it; subsequent retrieves leave it `None`.
+    /// Signing secret; Stripe only returns it on create, so persist it then.
+    /// Subsequent retrieves leave it `None`.
     #[serde(default)]
     pub secret: Option<String>,
     pub status: String,
@@ -56,9 +42,8 @@ pub struct DeletedWebhookEndpoint {
 
 #[async_trait::async_trait]
 pub trait WebhookEndpointApi {
-    /// Create a new webhook endpoint. The returned [`WebhookEndpoint::secret`]
-    /// is the signing secret for HMAC verification — store it on the
-    /// connector immediately, you can't fetch it again.
+    /// The returned [`WebhookEndpoint::secret`] is the HMAC signing secret and
+    /// can't be fetched again — store it on the connector immediately.
     async fn create_webhook_endpoint(
         &self,
         params: CreateWebhookEndpointRequest,
@@ -66,9 +51,6 @@ pub trait WebhookEndpointApi {
         idempotency_key: String,
     ) -> Result<WebhookEndpoint, StripeError>;
 
-    /// Update the enabled_events on an existing endpoint. Used when we ship
-    /// new event handlers and need previously-registered endpoints to start
-    /// delivering them.
     async fn update_webhook_endpoint(
         &self,
         endpoint_id: &str,

@@ -1,21 +1,9 @@
-//! GoCardless implementation of [`PaymentConnector`].
-//!
-//! Two important differences from Stripe:
-//!
-//! 1. **Hosted-redirect mandate setup.** No embedded SDK. We create a Billing
-//!    Request server-side, mint a Billing Request Flow, and the frontend just
-//!    redirects the browser to `authorisation_url`. When the customer
-//!    returns, our return-URL handler completes the BRF and stores the
-//!    mandate id as the payment method.
-//!
-//! 2. **Asynchronous settlement.** A `POST /payments` returns immediately
-//!    with `pending_submission`; settlement takes 3–5 business days
-//!    depending on scheme. Webhooks (`payments.confirmed`, `paid_out`,
-//!    `failed`) deliver the final state.
-//!
-//! Webhook self-registration is unsupported by the provider — endpoints are
-//! configured manually in the GoCardless dashboard. `register_webhook`
-//! returns [`ConnectorError::Unsupported`].
+//! GoCardless connector. Mandate setup is hosted-redirect (no embedded SDK):
+//! create a Billing Request, mint a Flow, redirect to `authorisation_url`, then
+//! complete on return. Settlement is asynchronous — `POST /payments` returns
+//! `pending_submission` and final state arrives 3–5 business days later via
+//! webhook. Webhook endpoints are dashboard-managed; self-registration is
+//! unsupported.
 
 use super::connector::{
     ConnectorCapabilities, ConnectorIdentity, CustomerOps, MandateOps, MandateSetupMode,
@@ -23,9 +11,8 @@ use super::connector::{
 };
 use super::error::ConnectorError;
 use super::events::{
-    NormalizedEventKind, NormalizedEventSubscription, NormalizedWebhookEvent,
-    PaymentFailedEvent, PaymentMethodAttachedEvent, PaymentMethodDetachedEvent,
-    PaymentSucceededEvent,
+    NormalizedEventKind, NormalizedEventSubscription, NormalizedWebhookEvent, PaymentFailedEvent,
+    PaymentMethodAttachedEvent, PaymentMethodDetachedEvent, PaymentSucceededEvent,
 };
 use super::model::{
     ChargeAcknowledged, ChargeCancelled, ChargeFailure, ChargeOutcome, ChargeReceipt,
@@ -48,9 +35,7 @@ use gocardless_client::client::GoCardlessClient;
 use gocardless_client::customers::{CreateCustomer, CustomerApi};
 use gocardless_client::error::GoCardlessError;
 use gocardless_client::mandates::{MandateApi, MandateStatus};
-use gocardless_client::payments::{
-    CreatePayment, CreatePaymentLinks, PaymentApi, PaymentStatus,
-};
+use gocardless_client::payments::{CreatePayment, CreatePaymentLinks, PaymentApi, PaymentStatus};
 use gocardless_client::webhook::{
     EventEnvelope, GoCardlessWebhook, action as ev_action, resource_type as ev_resource,
 };
@@ -66,9 +51,8 @@ const GOCARDLESS_CAPABILITIES: ConnectorCapabilities = ConnectorCapabilities {
     supports_partial_refunds: true,
     supports_3ds: false,
     supports_disputes: true,
-    // GoCardless does not expose a public API to manage webhook endpoints —
-    // merchants configure them in the dashboard, then paste the signing
-    // secret into our connect form.
+    // No public API to manage webhook endpoints; merchants configure them in
+    // the dashboard and paste the signing secret into our connect form.
     supports_self_webhook_registration: false,
     asynchronous_settlement: true,
     supported_payment_methods: &[
@@ -77,10 +61,9 @@ const GOCARDLESS_CAPABILITIES: ConnectorCapabilities = ConnectorCapabilities {
         PaymentMethodTypeEnum::DirectDebitBacs,
     ],
     mandate_setup_mode: MandateSetupMode::HostedRedirect,
-    // GoCardless does not put a timestamp in its signature header, so the
-    // "replay tolerance" has no header-level enforcement; we rely on
-    // (provider_config_id, provider_event_id) DB dedup. We still surface a
-    // tolerance value for forward compatibility / capability honesty.
+    // No timestamp in the signature header, so this tolerance is not enforced
+    // at the header level; replay protection is (provider_config_id,
+    // provider_event_id) DB dedup. Value surfaced for capability honesty.
     webhook_replay_tolerance_secs: 3600,
 };
 
@@ -95,14 +78,8 @@ impl GoCardlessConnector {
     }
 
     fn client_for(connector: &Connector) -> &'static GoCardlessClient {
-        // Production-critical: never silently route a misconfigured connector
-        // to the *live* GoCardless API. If the `data` blob is missing or has
-        // the wrong shape (DB corruption, migration mismatch), the matches!
-        // below would default to live — which is exactly the kind of "tested
-        // in sandbox, then somehow charged real money" failure mode we want
-        // to prevent. Default to **sandbox** when uncertain, so a misconfig
-        // surfaces loudly via "expected production but hit sandbox" errors
-        // rather than the converse.
+        // Default to sandbox when the data blob is missing or malformed: a
+        // misconfig must never silently route to live and charge real money.
         let sandbox = match &connector.data {
             Some(ProviderData::Gocardless(d)) => d.is_sandbox(),
             _ => true,
@@ -155,23 +132,21 @@ impl CustomerOps for GoCardlessConnector {
             metadata.insert("meteroid.alias".to_string(), alias.clone());
         }
 
-        // Address fields are optional on the customer; only forward what we
-        // have. GoCardless validates a minimum set per scheme/country at the
-        // BRF step rather than at customer creation.
-        let (addr1, addr2, city, region, postal_code, country_code) =
-            customer.billing_address.as_ref().map_or(
-                (None, None, None, None, None, None),
-                |a| {
-                    (
-                        a.line1.clone(),
-                        a.line2.clone(),
-                        a.city.clone(),
-                        a.state.clone(),
-                        a.zip_code.clone(),
-                        a.country.as_ref().map(|c| c.code.clone()),
-                    )
-                },
-            );
+        // Forward only the address fields we have; GoCardless validates the
+        // per-scheme minimum at the BRF step, not at customer creation.
+        let (addr1, addr2, city, region, postal_code, country_code) = customer
+            .billing_address
+            .as_ref()
+            .map_or((None, None, None, None, None, None), |a| {
+                (
+                    a.line1.clone(),
+                    a.line2.clone(),
+                    a.city.clone(),
+                    a.state.clone(),
+                    a.zip_code.clone(),
+                    a.country.as_ref().map(|c| c.code.clone()),
+                )
+            });
 
         let result = client
             .create_customer(
@@ -215,9 +190,7 @@ impl MandateOps for GoCardlessConnector {
         let token = extract_access_token(connector)?;
         let client = Self::client_for(connector);
 
-        // Pick the first supported method that maps to a GoCardless scheme,
-        // and the corresponding currency. The currency is what GoCardless
-        // uses to infer the scheme; passing scheme explicitly is optional.
+        // GoCardless infers the scheme from currency; passing scheme is optional.
         let (currency, scheme) = request
             .payment_methods
             .iter()
@@ -248,7 +221,6 @@ impl MandateOps for GoCardlessConnector {
             _ => None,
         };
 
-        // Step 1 — create the Billing Request describing what we want.
         let br = client
             .create_billing_request(
                 CreateBillingRequest {
@@ -274,7 +246,6 @@ impl MandateOps for GoCardlessConnector {
             .await
             .map_err(map_gc_error)?;
 
-        // Step 2 — mint the Flow (hosted authorisation URL).
         let flow = client
             .create_billing_request_flow(
                 CreateBillingRequestFlow {
@@ -326,10 +297,8 @@ impl MandateOps for GoCardlessConnector {
         ))
     }
 
-    /// Called by the return-URL handler when the customer comes back from
-    /// the GC-hosted Billing Request Flow. Completes the BR (idempotent on
-    /// GC's side), pulls out `links.mandate`, then fetches the mandate to
-    /// build a `PaymentMethodSnapshot` ready for upsert.
+    /// Completes the Billing Request (idempotent on GC's side) and fetches the
+    /// resulting mandate to build a snapshot. Called from the return-URL handler.
     async fn complete_mandate_setup(
         &self,
         connector: &Connector,
@@ -338,8 +307,6 @@ impl MandateOps for GoCardlessConnector {
         let token = extract_access_token(connector)?;
         let client = Self::client_for(connector);
 
-        // Step 1 — complete the Billing Request. Safe to call multiple times;
-        // GC's BR state machine handles dedup.
         let br = client
             .complete_billing_request(intent_id, &token)
             .await
@@ -352,9 +319,8 @@ impl MandateOps for GoCardlessConnector {
             )))
         })?;
 
-        // Step 2 — fetch the mandate to learn the scheme (sepa/bacs/ach/…).
-        // Without this we can't tag the payment method correctly for
-        // downstream filtering (e.g. country-based DD type resolution).
+        // Fetch the mandate to learn the scheme (sepa/bacs/ach), needed to tag
+        // the payment method for downstream DD-type resolution.
         let mandate = client
             .get_mandate(&mandate_id, &token)
             .await
@@ -363,7 +329,11 @@ impl MandateOps for GoCardlessConnector {
         // The BR's own metadata is the authoritative record of who initiated the
         // setup; the return-URL service ownership-checks against it.
         let mut metadata = mandate.metadata.clone();
-        for key in ["meteroid.connection_id", "meteroid.customer_id", "meteroid.tenant_id"] {
+        for key in [
+            "meteroid.connection_id",
+            "meteroid.customer_id",
+            "meteroid.tenant_id",
+        ] {
             if let Some(value) = br.metadata.get(key) {
                 metadata.insert(key.to_string(), value.clone());
             }
@@ -385,7 +355,8 @@ impl PaymentOps for GoCardlessConnector {
 
         // DD schemes are single-currency (SEPA→EUR, BACS→GBP, ACH→USD); a
         // mismatched currency is rejected by GoCardless. Fail clearly here.
-        if let Some((scheme_currency, _)) = method_to_currency_scheme(&request.payment_method_type) {
+        if let Some((scheme_currency, _)) = method_to_currency_scheme(&request.payment_method_type)
+        {
             if !request.currency.eq_ignore_ascii_case(&scheme_currency) {
                 return Err(Report::new(ConnectorError::Charge(format!(
                     "GoCardless {:?} mandate is {}-only; cannot charge {}",
@@ -437,7 +408,6 @@ impl RefundOps for GoCardlessConnector {
         _connector: &Connector,
         _request: RefundRequest<'_>,
     ) -> Result<RefundOutcome, Report<ConnectorError>> {
-        // Refunds intentionally deferred (per project scope).
         Err(Report::new(ConnectorError::Unsupported {
             provider: ConnectorProviderEnum::Gocardless,
             capability: "refund",
@@ -527,7 +497,10 @@ impl WebhookOps for GoCardlessConnector {
         payload: &[u8],
         headers: &HeaderMap,
     ) -> Result<Option<NormalizedWebhookEvent>, Report<ConnectorError>> {
-        Ok(self.parse_events(connector, payload, headers)?.into_iter().next())
+        Ok(self
+            .parse_events(connector, payload, headers)?
+            .into_iter()
+            .next())
     }
 
     /// GoCardless batches several events per POST; return all (dropping any
@@ -538,12 +511,11 @@ impl WebhookOps for GoCardlessConnector {
         payload: &[u8],
         _headers: &HeaderMap,
     ) -> Result<Vec<NormalizedWebhookEvent>, Report<ConnectorError>> {
-        let envelope: EventEnvelope = GoCardlessWebhook::parse_envelope(payload)
-            .map_err(|e| {
-                Report::new(ConnectorError::PayloadDecode(format!(
-                    "failed to decode gocardless event envelope: {e}"
-                )))
-            })?;
+        let envelope: EventEnvelope = GoCardlessWebhook::parse_envelope(payload).map_err(|e| {
+            Report::new(ConnectorError::PayloadDecode(format!(
+                "failed to decode gocardless event envelope: {e}"
+            )))
+        })?;
 
         Ok(envelope
             .events
@@ -555,9 +527,7 @@ impl WebhookOps for GoCardlessConnector {
 
 // ── helpers ────────────────────────────────────────────────────────
 
-fn extract_access_token(
-    connector: &Connector,
-) -> Result<SecretString, Report<ConnectorError>> {
+fn extract_access_token(connector: &Connector) -> Result<SecretString, Report<ConnectorError>> {
     match &connector.sensitive {
         Some(ProviderSensitiveData::Gocardless(d)) => {
             Ok(SecretString::from(d.access_token.clone()))
@@ -571,9 +541,8 @@ fn extract_access_token(
     }
 }
 
-/// Best-effort split of a single name string into given/family. GoCardless
-/// requires *some* given_name + family_name on customers in many countries;
-/// callers can override later by patching the customer in the GC dashboard.
+/// Best-effort split into given/family; GoCardless requires both on customers
+/// in many countries.
 fn split_name(name: &str) -> (String, String) {
     let trimmed = name.trim();
     if let Some((first, rest)) = trimmed.split_once(' ') {
@@ -583,10 +552,8 @@ fn split_name(name: &str) -> (String, String) {
     }
 }
 
-/// Map a payment method type to (currency, scheme) for GoCardless. Returns
-/// `None` for methods GoCardless doesn't support (cards). Currency is the
-/// "primary" currency for that scheme; merchants can override per BRF if
-/// needed.
+/// Maps a payment method to (primary currency, scheme); `None` for unsupported
+/// methods (cards). Currency can be overridden per BRF.
 fn method_to_currency_scheme(method: &PaymentMethodTypeEnum) -> Option<(String, &'static str)> {
     match method {
         PaymentMethodTypeEnum::DirectDebitSepa => Some(("EUR".into(), "sepa_core")),
@@ -596,9 +563,8 @@ fn method_to_currency_scheme(method: &PaymentMethodTypeEnum) -> Option<(String, 
     }
 }
 
-/// `metadata` is the mandate's metadata (propagated from the BR's
-/// `mandate_request.metadata` and returned by `GET /mandates/:id`); we surface
-/// our `meteroid.*` ids from it since mandate webhook events carry none.
+/// Surfaces our `meteroid.*` ids from the mandate metadata (propagated from the
+/// BR's `mandate_request.metadata`), since mandate webhook events carry none.
 fn snapshot_from_mandate(
     mandate_id: String,
     scheme: Option<String>,
@@ -613,8 +579,8 @@ fn snapshot_from_mandate(
     PaymentMethodSnapshot {
         external_payment_method_id: mandate_id,
         payment_method_type,
-        // Mandates don't expose bank-account last4 by default; a follow-up
-        // can fetch the linked customer_bank_account and pull `account_number_ending`.
+        // Mandates don't expose bank-account last4; would need a separate
+        // customer_bank_account fetch.
         account_number_hint: None,
         card_brand: None,
         card_last4: None,
@@ -633,9 +599,8 @@ fn payment_to_outcome(id: String, status: PaymentStatus) -> ChargeOutcome {
         PaymentStatus::Confirmed | PaymentStatus::PaidOut => {
             ChargeOutcome::Succeeded(ChargeReceipt {
                 external_id: id,
-                amount_received_minor: 0, // GC payment object doesn't carry the
-                                          // settled amount on the initial POST;
-                                          // webhook `paid_out` reconciles.
+                // Initial POST carries no settled amount; `paid_out` reconciles.
+                amount_received_minor: 0,
                 processed_at: chrono::Utc::now().naive_utc(),
                 provider_request_id: None,
             })
@@ -678,12 +643,10 @@ fn payment_to_outcome(id: String, status: PaymentStatus) -> ChargeOutcome {
 
 fn remote_status_from_payment(status: PaymentStatus, amount: i64) -> RemoteTransactionStatus {
     match status {
-        PaymentStatus::Confirmed | PaymentStatus::PaidOut => {
-            RemoteTransactionStatus::Succeeded {
-                amount_received_minor: amount,
-                processed_at: chrono::Utc::now().naive_utc(),
-            }
-        }
+        PaymentStatus::Confirmed | PaymentStatus::PaidOut => RemoteTransactionStatus::Succeeded {
+            amount_received_minor: amount,
+            processed_at: chrono::Utc::now().naive_utc(),
+        },
         PaymentStatus::PendingCustomerApproval
         | PaymentStatus::PendingSubmission
         | PaymentStatus::Submitted
@@ -709,7 +672,7 @@ fn map_gc_error(e: GoCardlessError) -> Report<ConnectorError> {
             ConnectorError::Transport(format!("gocardless 5xx: {req_err}")),
         ),
         GoCardlessError::Api(req_err) => {
-            // 4xx — validation / state error. Not retryable.
+            // 4xx validation/state error, not retryable.
             Report::new(ConnectorError::Charge(format!(
                 "gocardless rejected: {}",
                 req_err.message.unwrap_or_default()
@@ -721,9 +684,6 @@ fn map_gc_error(e: GoCardlessError) -> Report<ConnectorError> {
     }
 }
 
-/// Translate a verified webhook event into a normalized event. Returns
-/// `None` for resource_types we don't care about (subscriptions, refunds —
-/// refund handling is deferred per project scope).
 fn normalize_event(event: gocardless_client::webhook::Event) -> Option<NormalizedWebhookEvent> {
     let kind = match event.resource_type.as_str() {
         ev_resource::PAYMENTS => normalize_payment_event(&event),
@@ -746,17 +706,17 @@ fn normalize_event(event: gocardless_client::webhook::Event) -> Option<Normalize
     })
 }
 
-fn normalize_payment_event(event: &gocardless_client::webhook::Event) -> Option<NormalizedEventKind> {
+fn normalize_payment_event(
+    event: &gocardless_client::webhook::Event,
+) -> Option<NormalizedEventKind> {
     let payment_id = event.links.payment.clone()?;
     let meteroid_tx = event.metadata.get("meteroid.transaction_id").cloned();
     Some(match event.action.as_str() {
         ev_action::CONFIRMED | ev_action::PAID_OUT => {
             NormalizedEventKind::PaymentSucceeded(PaymentSucceededEvent {
                 external_transaction_id: payment_id,
-                // The webhook does not include the amount; the local
-                // transaction holds the requested amount, and the settled
-                // amount is the same modulo fees (fees are reported via a
-                // separate `paid_out`/`payouts` event).
+                // Webhook carries no amount; the local transaction holds the
+                // requested amount (fees arrive via a separate payout event).
                 amount_received_minor: 0,
                 currency: String::new(),
                 meteroid_transaction_id: meteroid_tx,
@@ -802,14 +762,14 @@ fn normalize_payment_event(event: &gocardless_client::webhook::Event) -> Option<
     })
 }
 
-fn normalize_mandate_event(event: &gocardless_client::webhook::Event) -> Option<NormalizedEventKind> {
+fn normalize_mandate_event(
+    event: &gocardless_client::webhook::Event,
+) -> Option<NormalizedEventKind> {
     let mandate_id = event.links.mandate.clone()?;
     Some(match event.action.as_str() {
         ev_action::ACTIVE | ev_action::CUSTOMER_APPROVAL_GRANTED => {
-            // We don't have all the fields needed for a complete
-            // PaymentMethodAttached (no customer external id on the event);
-            // surface what we have so the handler can fetch via
-            // `fetch_payment_method`.
+            // Event lacks some fields (no customer external id); surface what we
+            // have so the handler can complete it via `fetch_payment_method`.
             NormalizedEventKind::PaymentMethodAttached(PaymentMethodAttachedEvent {
                 external_customer_id: event.links.customer.clone().unwrap_or_default(),
                 external_payment_method_id: mandate_id,
@@ -830,8 +790,7 @@ fn normalize_mandate_event(event: &gocardless_client::webhook::Event) -> Option<
     })
 }
 
-// `MandateStatus` is part of the public API; bring it into scope for any
-// follow-up code that reads mandate state. Unused warning silenced.
+// Keeps `MandateStatus` in scope as part of the public API surface.
 #[allow(dead_code)]
 const _MANDATE_STATUS: fn(MandateStatus) -> MandateStatus = std::convert::identity;
 
@@ -921,9 +880,8 @@ mod tests {
         assert!(result.is_err());
     }
 
-    /// `payments.confirmed` is the success signal for an off-session charge.
-    /// Must surface as `PaymentSucceeded` with the meteroid_transaction_id
-    /// preserved from metadata so the handler can look up our local row.
+    /// `payments.confirmed` must surface as `PaymentSucceeded` with the
+    /// meteroid_transaction_id preserved from metadata.
     #[test]
     fn parse_event_payments_confirmed_succeeds() {
         let payload = br#"{

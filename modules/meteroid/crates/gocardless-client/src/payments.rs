@@ -1,8 +1,6 @@
-//! Payments resource. A payment debits a mandate; the mandate id goes in
-//! `links.mandate`. Settlement is asynchronous over multiple business days;
-//! status transitions arrive via webhooks (`payments.confirmed`, `paid_out`,
-//! `failed`, …) and can also be polled via `GET /payments/:id` for
-//! reconciliation.
+//! Payments resource. A payment debits a mandate (id in `links.mandate`).
+//! Settlement is async over multiple business days; status transitions arrive
+//! via webhooks and can be polled via `GET /payments/:id` for reconciliation.
 
 use crate::client::GoCardlessClient;
 use crate::error::GoCardlessError;

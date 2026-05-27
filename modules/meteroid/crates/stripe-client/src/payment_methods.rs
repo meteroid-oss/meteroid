@@ -12,10 +12,8 @@ pub enum StripePaymentMethodType {
     Card,
     SepaDebit,
     UsBankAccount, // ACH
-    /// Catch-all for the 50+ Stripe payment-method types we don't configure
-    /// (link, paypal, klarna, wallets, …). We never request these, but a
-    /// customer-attached method can surface one in `payment_method.*` webhook
-    /// payloads — without this we'd hard-fail deserialization.
+    /// Catch-all for types we don't configure but that can still appear in
+    /// `payment_method.*` webhooks; without it deserialization would hard-fail.
     #[serde(other)]
     Other,
 }
@@ -77,7 +75,6 @@ pub trait PaymentMethodsApi {
     ) -> Result<PaymentMethod, StripeError>;
 }
 
-// TODO we could support all payment methods, with a generic json fallback
 #[async_trait::async_trait]
 impl PaymentMethodsApi for StripeClient {
     async fn get_payment_method(
