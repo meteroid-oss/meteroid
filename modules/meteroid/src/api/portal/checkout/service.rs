@@ -676,7 +676,7 @@ impl PortalCheckoutService for PortalCheckoutServiceComponents {
             )));
         }
 
-        let (transaction, new_slot_count) = self
+        let (transaction, new_slot_count, next_action) = self
             .services
             .complete_slot_upgrade_checkout(
                 tenant,
@@ -694,7 +694,8 @@ impl PortalCheckoutService for PortalCheckoutServiceComponents {
                 crate::api::invoices::mapping::transactions::domain_to_server(transaction),
             ),
             new_slot_count: new_slot_count as u32,
-            next_action: None,
+            next_action: next_action
+                .map(crate::api::invoices::mapping::payment_action::domain_to_server),
         }))
     }
 }

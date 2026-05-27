@@ -1241,15 +1241,16 @@ impl ServicesEdge {
             .await
             .map_err(Into::<Report<StoreError>>::into)?;
 
+            let transaction = payment_transaction.ok_or_else(|| {
+                Report::new(StoreError::InvalidArgument(
+                    "Pending payment must have transaction".to_string(),
+                ))
+            })?;
+            let next_action = transaction.next_action.clone();
+
             Ok(CheckoutCompletionResult::AwaitingPayment {
-                transaction: payment_transaction.ok_or_else(|| {
-                    Report::new(StoreError::InvalidArgument(
-                        "Pending payment must have transaction".to_string(),
-                    ))
-                })?,
-                // Activation charges via a deeper helper; inline 3DS surfacing
-                // for this flow is not wired yet (action is still persisted).
-                next_action: None,
+                transaction,
+                next_action,
             })
         } else {
             CheckoutSessionRow::mark_completed(

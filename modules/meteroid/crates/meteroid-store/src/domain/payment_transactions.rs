@@ -97,6 +97,10 @@ pub struct PaymentTransaction {
     pub receipt_pdf_id: Option<StoredDocumentId>,
     pub checkout_session_id: Option<CheckoutSessionId>,
     pub pending_plan_version_id: Option<PlanVersionId>,
+    /// Transient — populated only on a just-charged transaction so on-session
+    /// callers can surface 3DS without re-fetching. Never read from the DB row.
+    #[ghost({None})]
+    pub next_action: Option<PaymentNextAction>,
 }
 
 #[derive(Clone, Debug, Deserialize)]

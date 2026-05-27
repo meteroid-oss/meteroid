@@ -79,11 +79,14 @@ on-demand re-fetch.
 - Done: state machine + persistence, Stripe adapter capturing the real
   `client_secret`, webhook handling (`requires_action`, method
   `updated`/`expiring`), mock e2e support, the off/on-session distinction
-  threaded through all charge flows. On-session surfacing: `next_action` is
-  returned on `ConfirmInvoicePaymentResponse` / `ConfirmCheckoutResponse`, and
-  the portal (`completeNextAction`) calls Stripe.js `handleNextAction`.
-- Remaining: slot-upgrade and subscription-activation checkout don't surface
-  `next_action` inline yet (activation charges via a deeper helper; slot
-  activation is settled-only — both need a small refactor; state is still
-  persisted). Off-session customer email is a hook only for now. After pulling
-  the proto change, run `pnpm generate:proto` to regenerate the TS bindings.
+  threaded through all charge flows. On-session 3DS is surfaced for **every**
+  on-session flow — invoice payment, all checkout types (self-serve,
+  subscription activation, plan change, addon) and slot upgrade — via
+  `next_action` on their confirm responses; the portal (`completeNextAction`)
+  calls Stripe.js `handleNextAction`. Slot upgrade and subscription activation
+  defer their effect to settlement: a pending slot transaction activates on the
+  payment webhook (`activate_pending_slot_transactions`), and activation
+  completes via `on_checkout_payment_settled`.
+- Remaining: the off-session customer email (dunning) is a hook only for now.
+  After pulling the proto change, run `pnpm generate:proto` to regenerate the TS
+  bindings.
