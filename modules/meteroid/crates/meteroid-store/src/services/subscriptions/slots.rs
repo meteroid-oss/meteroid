@@ -801,7 +801,6 @@ impl Services {
                         )
                         .await?;
 
-                    // On-session charge, so a 3DS challenge comes back completable.
                     let (payment_result, next_action) = self
                         .process_invoice_payment_tx(
                             conn,

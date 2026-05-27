@@ -69,8 +69,8 @@ pub async fn handle_normalized_event(
             );
             Ok(())
         }
-        // Not handled yet (requires_action, refunded, disputes, method
-        // updated/expiring): log and ack so the provider stops retrying.
+        // Refunds and disputes aren't handled yet — log and ack so the
+        // provider stops retrying.
         other => {
             log::info!(
                 "Webhook event kind not yet handled ({:?}); event_id={}",

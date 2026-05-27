@@ -20,7 +20,6 @@ import { CardBrandLogo } from './components/CardBrandLogo'
 import { PaymentForm } from './components/PaymentForm'
 import { PaymentMethodSelection, PaymentPanelProps, PaymentState } from './types'
 
-// Inner payment panel component that is wrapped by Elements
 const PaymentPanelInner: React.FC<
   PaymentPanelProps & {
     activeConnectionId: string
@@ -38,7 +37,6 @@ const PaymentPanelInner: React.FC<
 
   const addPaymentMethodMutation = useMutation(addPaymentMethod)
 
-  // Initially select default payment method if available
   useEffect(() => {
     if (paymentMethods.length > 0) {
       const defaultMethodId = customer?.currentPaymentMethodId
@@ -52,7 +50,6 @@ const PaymentPanelInner: React.FC<
         setSelectedPaymentMethod({ type: 'new', methodType: activeConnectionType })
       }
     } else {
-      // No saved methods, default to active connection type
       setSelectedPaymentMethod({ type: 'new', methodType: activeConnectionType })
     }
   }, [paymentMethods, customer, activeConnectionType])
@@ -69,7 +66,6 @@ const PaymentPanelInner: React.FC<
 
     try {
       if (selectedPaymentMethod.type === 'saved') {
-        // Use saved payment method
         await onPaymentSubmit(selectedPaymentMethod.id)
         setPaymentState(PaymentState.SUCCESS)
       } else if (
@@ -77,12 +73,10 @@ const PaymentPanelInner: React.FC<
         (selectedPaymentMethod.methodType === 'card' ||
           selectedPaymentMethod.methodType === 'directDebit')
       ) {
-        // Create new payment method with Stripe (card or direct debit)
         if (!stripe || !elements) {
           throw new Error('Stripe has not been initialized')
         }
 
-        // Use confirmSetup for both card and direct debit
         const { error, setupIntent } = await stripe.confirmSetup({
           elements,
           confirmParams: {
@@ -200,9 +194,7 @@ const PaymentPanelInner: React.FC<
         {/* Saved payment methods */}
         {paymentMethods.length > 0 && (
           <div className="mb-4">
-            {paymentMethods
-              // .filter(pm => paymentMethodMatches(pm.paymentMethodType, activeConnectionType))
-              .map(method => renderSavedPaymentMethod(method))}
+            {paymentMethods.map(method => renderSavedPaymentMethod(method))}
           </div>
         )}
 
@@ -282,13 +274,6 @@ const PaymentPanelInner: React.FC<
         )}
       </button>
 
-      {/* Security info
-      <div className="flex items-center text-xs text-gray-500 mt-6">
-        <Lock size={12} className="mr-2" />
-        <span>Your payment information is encrypted and secure</span>
-      </div> */}
-
-      {/* Footer */}
       <div className="mt-8 flex items-center justify-between text-xs text-muted-foreground">
         <div>Powered by Meteroid</div>
         <div className="flex space-x-4">

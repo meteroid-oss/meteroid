@@ -161,10 +161,9 @@ impl Services {
                     ));
                 }
 
-                // Checkout activation is customer-present, so a 3DS challenge
-                // comes back completable. Carry next_action on the transaction so
-                // the on-session caller can surface it; the invoice is finalized
-                // via the webhook once payment settles.
+                // Carry next_action on the transaction so the on-session caller
+                // can surface 3DS; the invoice is finalized via the webhook once
+                // payment settles.
                 let (mut res, next_action) = self
                     .process_invoice_payment_tx(
                         conn,

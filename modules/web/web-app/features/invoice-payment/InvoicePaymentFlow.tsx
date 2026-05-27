@@ -17,9 +17,6 @@ import { InvoiceSummary } from './components/InvoiceSummary'
 import { TransactionList } from './components/TransactionList'
 import { InvoicePaymentData } from './types'
 
-/**
- * Main invoice payment flow component
- */
 const InvoicePaymentFlow: React.FC<InvoicePaymentData> = ({ invoicePaymentData }) => {
   const [isAddressEditing, setIsAddressEditing] = useState(false)
   const navigate = useNavigate()
@@ -32,16 +29,12 @@ const InvoicePaymentFlow: React.FC<InvoicePaymentData> = ({ invoicePaymentData }
     bankAccount,
   } = invoicePaymentData
 
-  // Mutation to confirm the invoice payment
   const confirmInvoicePaymentMutation = useMutation(confirmInvoicePayment, {
     onError: error => {
       console.error('Invoice payment confirmation error:', error)
     },
   })
 
-  /**
-   * Process payment with selected payment method
-   */
   const handlePaymentSubmit = async (paymentMethodId: string) => {
     try {
       if (!invoice?.currency) {
@@ -58,7 +51,6 @@ const InvoicePaymentFlow: React.FC<InvoicePaymentData> = ({ invoicePaymentData }
       // If the charge needs 3DS/SCA, complete it before navigating.
       await completeNextAction(res.nextAction)
 
-      // On success, redirect to success page (we can create this later)
       const params = new URLSearchParams({
         invoice: invoice.invoiceNumber || '',
         customer: customer?.name || '',
@@ -74,7 +66,6 @@ const InvoicePaymentFlow: React.FC<InvoicePaymentData> = ({ invoicePaymentData }
     return <div className="p-8 text-center">Loading invoice payment information...</div>
   }
 
-  // Determine what payment UI to show
   const paymentAvailability = getInvoicePaymentAvailability({
     invoiceStatus: invoice.status,
     paymentStatus: invoice.paymentStatus,

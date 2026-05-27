@@ -1209,9 +1209,7 @@ mod tests {
         }
     }
 
-    /// Production-critical: `payment_intent.requires_action` previously failed
-    /// to deserialize because `next_action` was typed as `Option<String>` — a
-    /// silent data-loss bug. This test pins the fix.
+    /// Pins `payment_intent.requires_action` normalization (redirect_to_url shape).
     #[test]
     fn parse_event_normalizes_payment_intent_requires_action() {
         let connector = test_connector();

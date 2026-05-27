@@ -148,7 +148,7 @@ impl Services {
     }
 }
 
-/// Translate the reconciliation result into the legacy [`PaymentIntent`] shape
+/// Translate the reconciliation result into the internal [`PaymentIntent`] shape
 /// the settlement function consumes. Returns `None` if the provider says the
 /// transaction is still in-flight (we don't change local state in that case).
 #[allow(dead_code)]

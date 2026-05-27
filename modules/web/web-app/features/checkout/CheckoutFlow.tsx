@@ -20,9 +20,7 @@ import { formatCurrency } from '@/utils/numbers'
 
 import { SubscriptionSummary } from './components/SubscriptionSummary'
 import { CheckoutFlowProps } from './types'
-/**
- * Main checkout flow component
- */
+
 const CheckoutFlow: React.FC<CheckoutFlowProps> = ({
   checkoutData: initialCheckoutData,
   checkoutType,
@@ -47,19 +45,14 @@ const CheckoutFlow: React.FC<CheckoutFlowProps> = ({
     bankAccount,
   } = checkoutData
 
-  // Mutation to confirm the checkout using unified endpoint
   const confirmCheckoutMutation = useMutation(confirmCheckout, {
     onError: error => {
       console.error('Checkout confirmation error:', error)
     },
   })
 
-  // Mutation to apply coupon (fetches checkout with coupon preview using unified endpoint)
   const applyCouponMutation = useMutation(getCheckout)
 
-  /**
-   * Apply coupon code and update checkout totals
-   */
   const handleApplyCoupon = async () => {
     const code = couponCode.trim()
     if (!code) return
@@ -68,7 +61,6 @@ const CheckoutFlow: React.FC<CheckoutFlowProps> = ({
     setCouponError(undefined)
 
     try {
-      // Unified endpoint - session ID is in the auth token
       const response = await applyCouponMutation.mutateAsync({
         couponCode: code,
       })
@@ -87,26 +79,20 @@ const CheckoutFlow: React.FC<CheckoutFlowProps> = ({
     }
   }
 
-  // Clear coupon and revert to original data
   const handleClearCoupon = async () => {
     setCouponCode('')
     setCouponError(undefined)
 
     try {
-      // Unified endpoint - session ID is in the auth token, no coupon = clear
       const response = await applyCouponMutation.mutateAsync({})
       if (response.checkout) {
         setCheckoutData(response.checkout)
       }
     } catch {
-      // Fallback to initial data if refetch fails
       setCheckoutData(initialCheckoutData)
     }
   }
 
-  /**
-   * Process payment with selected payment method
-   */
   const handlePaymentSubmit = async (paymentMethodId: string) => {
     try {
       setCouponError(undefined)
@@ -125,7 +111,6 @@ const CheckoutFlow: React.FC<CheckoutFlowProps> = ({
       // If the charge needs 3DS/SCA, complete it before navigating.
       await completeNextAction(res.nextAction)
 
-      // On success, redirect to success page
       const params = new URLSearchParams({
         plan: subscription.subscription.planName || '',
         customer: customer?.name || '',
@@ -137,7 +122,6 @@ const CheckoutFlow: React.FC<CheckoutFlowProps> = ({
     } catch (error) {
       console.error('Payment submission error:', error)
 
-      // Check if error is coupon-related and show it inline
       if (
         error instanceof ConnectError &&
         error.message.toLowerCase().includes('coupon') &&
@@ -155,7 +139,6 @@ const CheckoutFlow: React.FC<CheckoutFlowProps> = ({
     return <div className="p-8 text-center">Loading checkout information...</div>
   }
 
-  // Determine what payment UI to show
   const paymentAvailability = getCheckoutPaymentAvailability({
     subscriptionStatus: subscription.subscription.status,
     checkoutType,
