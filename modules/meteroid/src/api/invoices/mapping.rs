@@ -375,3 +375,32 @@ pub mod transactions {
         tx
     }
 }
+
+pub mod payment_action {
+    use meteroid_grpc::meteroid::api::invoices::v1::{
+        PaymentActionRequired, SdkAction, payment_action_required::Action,
+    };
+    use meteroid_store::domain::payment_transactions::PaymentNextAction;
+    use secrecy::ExposeSecret;
+
+    pub fn domain_to_server(value: PaymentNextAction) -> PaymentActionRequired {
+        let action = match value {
+            PaymentNextAction::RedirectToUrl { url } => Action::RedirectToUrl(url),
+            PaymentNextAction::UseSdk {
+                intent_id,
+                publishable_key,
+                client_secret,
+            } => Action::UseSdk(SdkAction {
+                intent_id,
+                publishable_key,
+                // Exposed only here, at the transient response boundary.
+                client_secret: client_secret
+                    .map(|s| s.expose_secret().to_string())
+                    .unwrap_or_default(),
+            }),
+        };
+        PaymentActionRequired {
+            action: Some(action),
+        }
+    }
+}

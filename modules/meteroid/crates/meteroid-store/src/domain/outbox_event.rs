@@ -578,6 +578,9 @@ pub struct CreditNoteEvent {
 #[skip_serializing_none]
 #[derive(Debug, Clone, Serialize, Deserialize, o2o)]
 #[map_owned(PaymentTransaction)]
+// next_action is transient on PaymentTransaction and intentionally not carried
+// on the persisted event; default it when mapping back.
+#[ghosts(next_action: {None})]
 pub struct PaymentTransactionEvent {
     #[ghost(EventId::new())]
     pub id: EventId,

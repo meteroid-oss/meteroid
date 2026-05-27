@@ -635,7 +635,7 @@ async fn test_onstart_no_trial_auto_charge_with_payment_method(#[future] test_en
     // Process outbox events to trigger payment collection.
     // TODO improve the run_outbox_and_orchestration to run the full pipeline
     env.services()
-        .complete_invoice_payment(TENANT_ID, invoices[0].id, CUST_UBER_PAYMENT_METHOD_ID)
+        .complete_invoice_payment(TENANT_ID, invoices[0].id, CUST_UBER_PAYMENT_METHOD_ID, false)
         .await
         .unwrap();
     env.run_outbox_and_orchestration().await;

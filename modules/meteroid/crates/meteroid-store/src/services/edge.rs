@@ -7,7 +7,7 @@ use crate::domain::outbox_event::{
     InvoiceEvent, InvoicePdfGeneratedEvent, OutboxEvent, PaymentTransactionEvent,
     QuoteConvertedEvent,
 };
-use crate::domain::payment_transactions::PaymentTransaction;
+use crate::domain::payment_transactions::{PaymentNextAction, PaymentTransaction};
 use crate::domain::scheduled_events::ScheduledEventNew;
 use crate::domain::subscriptions::PaymentMethodsConfig;
 use crate::domain::{
@@ -476,12 +476,19 @@ impl ServicesEdge {
         tenant_id: TenantId,
         invoice_id: InvoiceId,
         payment_method_id: CustomerPaymentMethodId,
-    ) -> StoreResult<PaymentTransaction> {
+        on_session: bool,
+    ) -> StoreResult<(PaymentTransaction, Option<PaymentNextAction>)> {
         self.store
             .transaction(|conn| {
                 async move {
                     self.services
-                        .process_invoice_payment_tx(conn, tenant_id, invoice_id, payment_method_id)
+                        .process_invoice_payment_tx(
+                            conn,
+                            tenant_id,
+                            invoice_id,
+                            payment_method_id,
+                            on_session,
+                        )
                         .await
                 }
                 .scope_boxed()
@@ -1316,12 +1323,16 @@ impl ServicesEdge {
             .await
             .map_err(Into::<Report<StoreError>>::into)?;
 
+            let transaction = payment_transaction.ok_or_else(|| {
+                Report::new(StoreError::InvalidArgument(
+                    "Pending payment must have transaction".to_string(),
+                ))
+            })?;
+            let next_action = transaction.next_action.clone();
+
             Ok(CheckoutCompletionResult::AwaitingPayment {
-                transaction: payment_transaction.ok_or_else(|| {
-                    Report::new(StoreError::InvalidArgument(
-                        "Pending payment must have transaction".to_string(),
-                    ))
-                })?,
+                transaction,
+                next_action,
             })
         } else {
             CheckoutSessionRow::mark_completed(
@@ -1467,7 +1478,10 @@ impl ServicesEdge {
                 .await
                 .map_err(Into::<Report<StoreError>>::into)?;
 
-                return Ok(CheckoutCompletionResult::AwaitingPayment { transaction });
+                return Ok(CheckoutCompletionResult::AwaitingPayment {
+                    transaction,
+                    next_action: result.payment_intent.next_action.clone(),
+                });
             }
 
             Some(result)
@@ -2067,7 +2081,10 @@ impl ServicesEdge {
             .await
             .map_err(Into::<Report<StoreError>>::into)?;
 
-            Ok(CheckoutCompletionResult::AwaitingPayment { transaction })
+            Ok(CheckoutCompletionResult::AwaitingPayment {
+                transaction,
+                next_action: charge_result.payment_intent.next_action.clone(),
+            })
         }
     }
 
@@ -2296,7 +2313,10 @@ impl ServicesEdge {
                 .await
                 .map_err(Into::<Report<StoreError>>::into)?;
 
-                Ok(CheckoutCompletionResult::AwaitingPayment { transaction })
+                Ok(CheckoutCompletionResult::AwaitingPayment {
+                    transaction,
+                    next_action: charge_result.payment_intent.next_action.clone(),
+                })
             }
         } else {
             // Normal plan change: use proration
@@ -2430,7 +2450,10 @@ impl ServicesEdge {
                         .await
                         .map_err(Into::<Report<StoreError>>::into)?;
 
-                        Ok(CheckoutCompletionResult::AwaitingPayment { transaction })
+                        Ok(CheckoutCompletionResult::AwaitingPayment {
+                    transaction,
+                    next_action: charge_result.payment_intent.next_action.clone(),
+                })
                     }
                 } else {
                     // Credits cover the full upgrade cost — no payment needed

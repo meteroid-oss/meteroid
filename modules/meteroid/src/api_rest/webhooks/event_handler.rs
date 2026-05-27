@@ -45,6 +45,22 @@ pub async fn handle_normalized_event(
         | NormalizedEventKind::PaymentPending(_) => {
             handle_payment_state_change(&event.kind, connector, &store).await
         }
+        NormalizedEventKind::PaymentRequiresAction(e) => {
+            handle_payment_requires_action(e, connector, &store).await
+        }
+        NormalizedEventKind::PaymentMethodUpdated(e) => {
+            handle_payment_method_updated(e, connector, &store).await
+        }
+        NormalizedEventKind::PaymentMethodExpiring(e) => {
+            // The card will expire; the customer must update it. Surfaced for
+            // the notification hook — no DB change.
+            log::warn!(
+                "Payment method {} is expiring (expires {}); customer should update it",
+                e.external_payment_method_id,
+                e.expires_at
+            );
+            Ok(())
+        }
         NormalizedEventKind::Acknowledged { reason } => {
             log::debug!(
                 "Acknowledged unhandled event {}: {}",
@@ -53,9 +69,8 @@ pub async fn handle_normalized_event(
             );
             Ok(())
         }
-        // Step 4 wires up: requires_action, refunded, disputes, method
-        // updated/expiring. For now: log so we know they reached us, and
-        // respond OK so the provider doesn't retry indefinitely.
+        // Not handled yet (requires_action, refunded, disputes, method
+        // updated/expiring): log and ack so the provider stops retrying.
         other => {
             log::info!(
                 "Webhook event kind not yet handled ({:?}); event_id={}",
@@ -196,6 +211,87 @@ async fn handle_payment_state_change(
     let intent = payment_intent_from_event(kind, transaction_id, connector.tenant_id)
         .expect("guarded by outer match");
 
+    run_consolidate(store, transaction_id, intent).await
+}
+
+/// `payment_intent.requires_action`: the charge needs 3DS/SCA. Persist the
+/// action on the transaction (it stays Pending) so the portal/dunning can drive
+/// the customer through it. Mainly the off-session path, where the synchronous
+/// charge couldn't capture it.
+async fn handle_payment_requires_action(
+    e: &meteroid_store::adapters::payment::events::PaymentRequiresActionEvent,
+    connector: &Connector,
+    store: &Store,
+) -> Result<(), Report<errors::AdapterWebhookError>> {
+    use meteroid_store::domain::payment_transactions::{PaymentIntent, PaymentNextAction};
+
+    let meteroid_tx_str = e.meteroid_transaction_id.as_ref().ok_or_else(|| {
+        Report::new(errors::AdapterWebhookError::MissingMetadata(
+            "meteroid.transaction_id".to_string(),
+        ))
+    })?;
+    let transaction_id = PaymentTransactionId::parse_base62(meteroid_tx_str)
+        .change_context(errors::AdapterWebhookError::InvalidMetadata)?;
+
+    let next_action = if let Some(url) = &e.action_url {
+        PaymentNextAction::RedirectToUrl { url: url.clone() }
+    } else if let Some(secret) = &e.client_secret {
+        PaymentNextAction::UseSdk {
+            intent_id: e.external_transaction_id.clone(),
+            publishable_key: stripe_publishable_key(connector).unwrap_or_default(),
+            client_secret: Some(secrecy::SecretString::from(secret.clone())),
+        }
+    } else {
+        log::warn!(
+            "requires_action event for tx {} carried no actionable next step",
+            transaction_id
+        );
+        return Ok(());
+    };
+
+    let intent = PaymentIntent {
+        external_id: e.external_transaction_id.clone(),
+        transaction_id,
+        tenant_id: connector.tenant_id,
+        amount_requested: 0,
+        amount_received: None,
+        currency: String::new(),
+        next_action: Some(next_action),
+        status: meteroid_store::domain::enums::PaymentStatusEnum::Pending,
+        last_payment_error: None,
+        processed_at: None,
+    };
+
+    run_consolidate(store, transaction_id, intent).await
+}
+
+/// `payment_method.updated` / `automatically_updated`: refresh the stored card
+/// brand/last4/expiry (e.g. Stripe's card-account-updater pushed new details).
+async fn handle_payment_method_updated(
+    e: &meteroid_store::adapters::payment::events::PaymentMethodUpdatedEvent,
+    connector: &Connector,
+    store: &Store,
+) -> Result<(), Report<errors::AdapterWebhookError>> {
+    store
+        .update_payment_method_card_details(
+            connector.tenant_id,
+            &e.external_payment_method_id,
+            e.card_brand.clone(),
+            e.card_last4.clone(),
+            e.card_exp_month,
+            e.card_exp_year,
+        )
+        .await
+        .change_context(errors::AdapterWebhookError::StoreError)?;
+    Ok(())
+}
+
+/// Run the resolved intent through the shared settlement pipeline.
+async fn run_consolidate(
+    store: &Store,
+    transaction_id: PaymentTransactionId,
+    intent: meteroid_store::domain::payment_transactions::PaymentIntent,
+) -> Result<(), Report<errors::AdapterWebhookError>> {
     let store_clone = store.clone();
     store
         .transaction(|conn| {
@@ -214,6 +310,14 @@ async fn handle_payment_state_change(
         })
         .await
         .change_context(errors::AdapterWebhookError::StoreError)?;
-
     Ok(())
+}
+
+fn stripe_publishable_key(connector: &Connector) -> Option<String> {
+    match &connector.data {
+        Some(meteroid_store::domain::connectors::ProviderData::Stripe(d)) => {
+            Some(d.api_publishable_key.clone())
+        }
+        _ => None,
+    }
 }

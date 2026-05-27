@@ -10,6 +10,7 @@ use crate::domain::{
     LineItem, PaymentTransaction, Period, SlotForTransaction, SubscriptionFee,
     SubscriptionFeeInterface,
 };
+use crate::domain::payment_transactions::PaymentNextAction;
 use crate::errors::StoreError;
 use crate::repositories::SubscriptionInterface;
 use crate::repositories::customers::CustomersInterface;
@@ -721,7 +722,7 @@ impl Services {
         delta: i32,
         payment_method_id: common_domain::ids::CustomerPaymentMethodId,
         at_ts: Option<chrono::NaiveDateTime>,
-    ) -> StoreResult<(PaymentTransaction, i32)> {
+    ) -> StoreResult<(PaymentTransaction, i32, Option<PaymentNextAction>)> {
         use scoped_futures::ScopedFutureExt;
 
         if delta <= 0 {
@@ -800,45 +801,98 @@ impl Services {
                         )
                         .await?;
 
-                    let payment_result = self
-                        .process_invoice_payment_tx(conn, tenant_id, invoice_id, payment_method_id)
-                        .await?;
-
-                    if payment_result.status == crate::domain::PaymentStatusEnum::Settled {
-                        // Payment succeeded - payment method is already saved on the customer
-                        let slot_transaction = self
-                            .store
-                            .add_slot_transaction_tx(
-                                conn,
-                                tenant_id,
-                                subscription_id,
-                                period_end,
-                                delta,
-                                &slot,
-                                at_ts,
-                            )
-                            .await?;
-
-                        let new_slot_count =
-                            slot_transaction.prev_active_slots + slot_transaction.delta;
-
-                        self.finalize_invoice_tx(
+                    // On-session charge, so a 3DS challenge comes back completable.
+                    let (payment_result, next_action) = self
+                        .process_invoice_payment_tx(
                             conn,
-                            &Actor::System,
-                            invoice_id,
                             tenant_id,
-                            false,
-                            &None,
+                            invoice_id,
+                            payment_method_id,
+                            true,
                         )
                         .await?;
 
-                        Ok((payment_result, new_slot_count))
-                    } else {
-                        Err(StoreError::PaymentError(format!(
-                            "Payment failed or pending. Status: {:?}",
-                            payment_result.status
-                        ))
-                        .into())
+                    use crate::domain::PaymentStatusEnum;
+                    match payment_result.status {
+                        PaymentStatusEnum::Settled => {
+                            // Payment succeeded - payment method is already saved on the customer
+                            let slot_transaction = self
+                                .store
+                                .add_slot_transaction_tx(
+                                    conn,
+                                    tenant_id,
+                                    subscription_id,
+                                    period_end,
+                                    delta,
+                                    &slot,
+                                    at_ts,
+                                )
+                                .await?;
+
+                            let new_slot_count =
+                                slot_transaction.prev_active_slots + slot_transaction.delta;
+
+                            self.finalize_invoice_tx(
+                                conn,
+                                &Actor::System,
+                                invoice_id,
+                                tenant_id,
+                                false,
+                                &None,
+                            )
+                            .await?;
+
+                            Ok((payment_result, new_slot_count, None))
+                        }
+                        // 3DS/SCA (or async settlement): record the slot as pending
+                        // and finalize the invoice. The slot activates when the
+                        // payment settles (payment webhook → invoice paid →
+                        // activate_pending_slot_transactions); the portal completes
+                        // the returned next_action meanwhile.
+                        PaymentStatusEnum::Pending | PaymentStatusEnum::Ready => {
+                            self.store
+                                .add_pending_slot_transaction_with_conn(
+                                    conn,
+                                    tenant_id,
+                                    subscription_id,
+                                    period_end,
+                                    delta,
+                                    &slot,
+                                    invoice_id,
+                                    at_ts,
+                                )
+                                .await?;
+
+                            self.finalize_invoice_tx(
+                                conn,
+                                &Actor::System,
+                                invoice_id,
+                                tenant_id,
+                                false,
+                                &None,
+                            )
+                            .await?;
+
+                            let current_slots = self
+                                .store
+                                .get_active_slots_value_with_conn(
+                                    conn,
+                                    tenant_id,
+                                    subscription_id,
+                                    unit_name.clone(),
+                                    None,
+                                )
+                                .await?;
+
+                            Ok((payment_result, current_slots as i32, next_action))
+                        }
+                        PaymentStatusEnum::Failed | PaymentStatusEnum::Cancelled => {
+                            Err(StoreError::PaymentError(format!(
+                                "Payment failed. Status: {:?}",
+                                payment_result.status
+                            ))
+                            .into())
+                        }
                     }
                 }
                 .scope_boxed()

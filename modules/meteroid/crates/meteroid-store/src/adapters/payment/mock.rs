@@ -7,12 +7,16 @@ use super::connector::{
     PaymentOps, ReconcileOps, RefundOps, WebhookOps,
 };
 use super::error::ConnectorError;
-use super::events::{NormalizedEventSubscription, NormalizedWebhookEvent};
+use super::events::{
+    NormalizedEventKind, NormalizedEventSubscription, NormalizedWebhookEvent,
+    PaymentFailedEvent, PaymentMethodAttachedEvent, PaymentMethodUpdatedEvent, PaymentPendingEvent,
+    PaymentRequiresActionEvent, PaymentSucceededEvent,
+};
 use super::model::{
-    ChargeFailure, ChargeOutcome, ChargeReceipt, ChargeRequest, CreateCustomerRequest,
-    DeclineKind, ExternalCustomerRef, MandateSetupInstruction, MandateSetupRequest,
-    PaymentMethodSnapshot, RefundOutcome, RefundReceipt, RefundRequest, RegisteredWebhook,
-    RemoteTransactionStatus,
+    ChargeAcknowledged, ChargeFailure, ChargeOutcome, ChargeReceipt, ChargeRequest,
+    CreateCustomerRequest, DeclineKind, ExternalCustomerRef, MandateSetupInstruction,
+    MandateSetupRequest, PaymentMethodSnapshot, RefundOutcome, RefundReceipt, RefundRequest,
+    RegisteredWebhook, RemoteTransactionStatus, RequiresActionInstruction,
 };
 use crate::domain::connectors::{Connector, MockPublicData, ProviderData};
 use crate::domain::enums::ConnectorProviderEnum;
@@ -29,13 +33,13 @@ const MOCK_CAPABILITIES: ConnectorCapabilities = ConnectorCapabilities {
     supports_mandates: true,
     supports_refunds: true,
     supports_partial_refunds: true,
-    supports_3ds: false,
+    supports_3ds: true,
     supports_disputes: true,
     // Mock has no real provider so it can synthesize everything, including
     // pretending to register webhook endpoints. Keeping this `true` makes the
     // capability flag honest about the behaviour returned by `register_webhook`.
     supports_self_webhook_registration: true,
-    asynchronous_settlement: false,
+    asynchronous_settlement: true,
     supported_payment_methods: &[
         PaymentMethodTypeEnum::Card,
         PaymentMethodTypeEnum::DirectDebitSepa,
@@ -161,23 +165,40 @@ impl PaymentOps for MockConnector {
     ) -> Result<ChargeOutcome, Report<ConnectorError>> {
         let external_id = format!("mock_pi_{}", Uuid::now_v7());
 
-        if self.config.fail_payment_intent {
-            return Ok(ChargeOutcome::Failed(ChargeFailure {
+        let behavior = if self.config.fail_payment_intent {
+            "failed"
+        } else {
+            self.config.charge_behavior.as_deref().unwrap_or("succeeded")
+        };
+
+        let outcome = match behavior {
+            "failed" => ChargeOutcome::Failed(ChargeFailure {
                 external_id: Some(external_id),
                 code: Some("mock_failure".to_string()),
                 message: "Mock payment failure (configured)".to_string(),
                 retryable: false,
                 decline_kind: DeclineKind::Other,
                 provider_request_id: None,
-            }));
-        }
-
-        Ok(ChargeOutcome::Succeeded(ChargeReceipt {
-            external_id,
-            amount_received_minor: request.amount_minor,
-            processed_at: chrono::Utc::now().naive_utc(),
-            provider_request_id: None,
-        }))
+            }),
+            "pending" => ChargeOutcome::Pending(ChargeAcknowledged {
+                external_id,
+                provider_request_id: None,
+            }),
+            "requires_action" => {
+                ChargeOutcome::RequiresAction(RequiresActionInstruction::ClientSecret {
+                    external_id,
+                    client_secret: format!("mock_secret_{}", Uuid::now_v7()),
+                    publishable_key: SecretString::from("mock_pk_test_key".to_string()),
+                })
+            }
+            _ => ChargeOutcome::Succeeded(ChargeReceipt {
+                external_id,
+                amount_received_minor: request.amount_minor,
+                processed_at: chrono::Utc::now().naive_utc(),
+                provider_request_id: None,
+            }),
+        };
+        Ok(outcome)
     }
 }
 
@@ -249,12 +270,198 @@ impl WebhookOps for MockConnector {
         Ok(())
     }
 
+    /// Tests drive webhook flows by POSTing a small JSON envelope (see
+    /// [`MockWebhookEvent`]); we map it straight to a normalized event. A real
+    /// provider would parse its own wire format here.
     fn parse_event(
         &self,
         _connector: &Connector,
-        _payload: &[u8],
+        payload: &[u8],
         _headers: &HeaderMap,
     ) -> Result<Option<NormalizedWebhookEvent>, Report<ConnectorError>> {
-        Ok(None)
+        if payload.is_empty() {
+            return Ok(None);
+        }
+        let e: MockWebhookEvent = serde_json::from_slice(payload).map_err(|err| {
+            Report::new(ConnectorError::PayloadDecode(format!(
+                "mock webhook decode: {err}"
+            )))
+        })?;
+
+        let kind = match e.kind.as_str() {
+            "payment_succeeded" => NormalizedEventKind::PaymentSucceeded(PaymentSucceededEvent {
+                external_transaction_id: e.external_id.clone().unwrap_or_default(),
+                amount_received_minor: e.amount.unwrap_or(0),
+                currency: e.currency.clone().unwrap_or_default(),
+                meteroid_transaction_id: e.transaction_id.clone(),
+            }),
+            "payment_failed" => NormalizedEventKind::PaymentFailed(PaymentFailedEvent {
+                external_transaction_id: e.external_id.clone().unwrap_or_default(),
+                code: Some("mock_failed".into()),
+                message: "mock payment failed".into(),
+                retryable: false,
+                meteroid_transaction_id: e.transaction_id.clone(),
+            }),
+            "payment_pending" => NormalizedEventKind::PaymentPending(PaymentPendingEvent {
+                external_transaction_id: e.external_id.clone().unwrap_or_default(),
+                meteroid_transaction_id: e.transaction_id.clone(),
+            }),
+            "payment_requires_action" => {
+                NormalizedEventKind::PaymentRequiresAction(PaymentRequiresActionEvent {
+                    external_transaction_id: e.external_id.clone().unwrap_or_default(),
+                    action_url: e.action_url.clone(),
+                    client_secret: e.client_secret.clone(),
+                    meteroid_transaction_id: e.transaction_id.clone(),
+                })
+            }
+            "payment_method_attached" => {
+                NormalizedEventKind::PaymentMethodAttached(PaymentMethodAttachedEvent {
+                    external_customer_id: e.external_customer_id.clone().unwrap_or_default(),
+                    external_payment_method_id: e
+                        .external_payment_method_id
+                        .clone()
+                        .unwrap_or_default(),
+                    payment_method_type: PaymentMethodTypeEnum::Card,
+                    meteroid_connection_id: e.connection_id.clone(),
+                    meteroid_customer_id: e.customer_id.clone(),
+                })
+            }
+            "payment_method_updated" => {
+                NormalizedEventKind::PaymentMethodUpdated(PaymentMethodUpdatedEvent {
+                    external_payment_method_id: e
+                        .external_payment_method_id
+                        .clone()
+                        .unwrap_or_default(),
+                    card_brand: e.card_brand.clone(),
+                    card_last4: e.card_last4.clone(),
+                    card_exp_month: e.card_exp_month,
+                    card_exp_year: e.card_exp_year,
+                })
+            }
+            _ => NormalizedEventKind::Acknowledged {
+                reason: "mock unhandled event kind",
+            },
+        };
+
+        Ok(Some(NormalizedWebhookEvent {
+            provider_event_id: e.id,
+            provider_event_type: e.kind,
+            occurred_at: chrono::Utc::now(),
+            kind,
+        }))
+    }
+}
+
+/// Minimal webhook envelope the mock understands — tests post this JSON to
+/// exercise the webhook → settlement path without a real provider.
+#[derive(serde::Deserialize)]
+struct MockWebhookEvent {
+    id: String,
+    kind: String,
+    #[serde(default)]
+    transaction_id: Option<String>,
+    #[serde(default)]
+    external_id: Option<String>,
+    #[serde(default)]
+    external_payment_method_id: Option<String>,
+    #[serde(default)]
+    external_customer_id: Option<String>,
+    #[serde(default)]
+    connection_id: Option<String>,
+    #[serde(default)]
+    customer_id: Option<String>,
+    #[serde(default)]
+    amount: Option<i64>,
+    #[serde(default)]
+    currency: Option<String>,
+    #[serde(default)]
+    action_url: Option<String>,
+    #[serde(default)]
+    client_secret: Option<String>,
+    #[serde(default)]
+    card_brand: Option<String>,
+    #[serde(default)]
+    card_last4: Option<String>,
+    #[serde(default)]
+    card_exp_month: Option<i32>,
+    #[serde(default)]
+    card_exp_year: Option<i32>,
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use common_domain::ids::{ConnectorId, TenantId};
+
+    fn connector(behavior: Option<&str>) -> Connector {
+        Connector {
+            id: ConnectorId::new(),
+            created_at: chrono::NaiveDateTime::default(),
+            tenant_id: TenantId::new(),
+            alias: "mock".into(),
+            connector_type: crate::domain::enums::ConnectorTypeEnum::PaymentProvider,
+            provider: ConnectorProviderEnum::Mock,
+            data: Some(ProviderData::Mock(MockPublicData {
+                charge_behavior: behavior.map(str::to_string),
+                ..Default::default()
+            })),
+            sensitive: None,
+        }
+    }
+
+    async fn charge(behavior: Option<&str>) -> ChargeOutcome {
+        let c = connector(behavior);
+        MockConnector::from_connector(&c)
+            .charge_off_session(
+                &c,
+                ChargeRequest {
+                    transaction_id: common_domain::ids::PaymentTransactionId::new(),
+                    customer_external_id: "cus",
+                    payment_method_external_id: "pm",
+                    payment_method_type: PaymentMethodTypeEnum::Card,
+                    amount_minor: 500,
+                    currency: "EUR",
+                    idempotency_key: super::super::model::IdempotencyKey::new("k"),
+                    on_session: true,
+                },
+            )
+            .await
+            .unwrap()
+    }
+
+    #[tokio::test]
+    async fn charge_behaviors() {
+        assert!(matches!(charge(None).await, ChargeOutcome::Succeeded(_)));
+        assert!(matches!(charge(Some("pending")).await, ChargeOutcome::Pending(_)));
+        assert!(matches!(charge(Some("failed")).await, ChargeOutcome::Failed(_)));
+        assert!(matches!(
+            charge(Some("requires_action")).await,
+            ChargeOutcome::RequiresAction(_)
+        ));
+    }
+
+    #[test]
+    fn parse_event_maps_kinds() {
+        let c = connector(None);
+        let mock = MockConnector::from_connector(&c);
+        let payload = br#"{"id":"ev1","kind":"payment_succeeded","external_id":"pi_1","transaction_id":"tx_1","amount":500,"currency":"EUR"}"#;
+        let ev = mock
+            .parse_event(&c, payload, &HeaderMap::new())
+            .unwrap()
+            .unwrap();
+        match ev.kind {
+            NormalizedEventKind::PaymentSucceeded(e) => {
+                assert_eq!(e.meteroid_transaction_id.as_deref(), Some("tx_1"));
+                assert_eq!(e.amount_received_minor, 500);
+            }
+            other => panic!("expected PaymentSucceeded, got {other:?}"),
+        }
+
+        let ra = br#"{"id":"ev2","kind":"payment_requires_action","external_id":"pi_2","transaction_id":"tx_2","client_secret":"pi_2_secret"}"#;
+        let ev = mock.parse_event(&c, ra, &HeaderMap::new()).unwrap().unwrap();
+        assert!(matches!(
+            ev.kind,
+            NormalizedEventKind::PaymentRequiresAction(_)
+        ));
     }
 }

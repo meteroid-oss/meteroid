@@ -161,15 +161,20 @@ impl Services {
                     ));
                 }
 
-                // We trigger the payment synchronously but don't finalize the invoice yet, it will be done via the webhook
-                let res = self
+                // Checkout activation is customer-present, so a 3DS challenge
+                // comes back completable. Carry next_action on the transaction so
+                // the on-session caller can surface it; the invoice is finalized
+                // via the webhook once payment settles.
+                let (mut res, next_action) = self
                     .process_invoice_payment_tx(
                         conn,
                         tenant_id,
                         draft_invoice.id,
                         payment_method_id,
+                        true,
                     )
                     .await?;
+                res.next_action = next_action;
 
                 transactions.push(res.clone());
 

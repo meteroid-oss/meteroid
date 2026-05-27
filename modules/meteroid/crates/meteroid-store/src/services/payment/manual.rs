@@ -95,6 +95,7 @@ impl Services {
                         processed_at: Some(payment_date),
                         checkout_session_id: None,
                         pending_plan_version_id: None,
+                        next_action: None,
                     };
 
                     let inserted_transaction = transaction_new
@@ -194,6 +195,7 @@ impl Services {
                         processed_at: Some(payment_date),
                         checkout_session_id: None,
                         pending_plan_version_id: None,
+                        next_action: None,
                     };
 
                     let inserted_transaction = transaction_new

@@ -150,6 +150,11 @@ pub struct MockPublicData {
     pub fail_payment_intent: bool,
     #[serde(default)]
     pub fail_setup_intent: bool,
+    /// Forces a charge outcome for e2e tests without a real provider:
+    /// `"pending"` (async settlement), `"requires_action"` (3DS), `"failed"`,
+    /// or `"succeeded"` / unset (default success).
+    #[serde(default)]
+    pub charge_behavior: Option<String>,
 }
 
 json_value_ser!(MockPublicData);

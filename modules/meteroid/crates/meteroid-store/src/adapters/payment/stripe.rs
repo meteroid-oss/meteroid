@@ -29,7 +29,7 @@ use chrono::DateTime;
 use common_domain::ids::BaseId;
 use error_stack::Report;
 use http::HeaderMap;
-use secrecy::SecretString;
+use secrecy::{ExposeSecret, SecretString};
 use std::collections::HashMap;
 use std::sync::OnceLock;
 use stripe_client::client::StripeClient;
@@ -263,6 +263,10 @@ impl PaymentOps for StripeConnector {
         request: ChargeRequest<'_>,
     ) -> Result<ChargeOutcome, Report<ConnectorError>> {
         let secret_key = extract_secret_key(connector)?;
+        // Non-secret; surfaced in next_action so the portal can init Stripe.js.
+        let publishable_key = extract_publishable_key(connector)
+            .map(|k| k.expose_secret().to_string())
+            .unwrap_or_default();
 
         let metadata = HashMap::from([
             (
@@ -287,7 +291,9 @@ impl PaymentOps for StripeConnector {
                     payment_method: request.payment_method_external_id.to_string(),
                     confirm: true,
                     metadata,
-                    off_session: Some(true),
+                    // Off-session marks this as merchant-initiated; on-session
+                    // lets Stripe return a completable `requires_action` (3DS).
+                    off_session: Some(!request.on_session),
                     return_url: None,
                     capture_method: Default::default(),
                     payment_method_types: pm_type.into_iter().collect(),
@@ -298,7 +304,7 @@ impl PaymentOps for StripeConnector {
             .await;
 
         match result {
-            Ok(intent) => Ok(intent_to_outcome(intent)),
+            Ok(intent) => Ok(intent_to_outcome(intent, &publishable_key)),
             Err(e) => Err(map_stripe_error(e)),
         }
     }
@@ -311,7 +317,7 @@ impl RefundOps for StripeConnector {
         _connector: &Connector,
         _request: RefundRequest<'_>,
     ) -> Result<RefundOutcome, Report<ConnectorError>> {
-        // Implemented in Step 6.
+        // Refunds not implemented.
         Err(Report::new(ConnectorError::Unsupported {
             provider: ConnectorProviderEnum::Stripe,
             capability: "refund",
@@ -465,8 +471,6 @@ impl WebhookOps for StripeConnector {
         headers: &HeaderMap,
         secret: &SecretString,
     ) -> Result<(), Report<ConnectorError>> {
-        use secrecy::ExposeSecret;
-
         let sig = headers
             .get("Stripe-Signature")
             .and_then(|v| v.to_str().ok())
@@ -612,7 +616,7 @@ fn snapshot_from_payment_method(method: PaymentMethod) -> PaymentMethodSnapshot 
 ///   treated as `Failed` with a `retryable=true` flag; in practice the customer
 ///   has to re-authorize from the portal.
 /// - `canceled` → `Cancelled`; `failed` → `Failed` (both terminal).
-fn intent_to_outcome(intent: StripePaymentIntent) -> ChargeOutcome {
+fn intent_to_outcome(intent: StripePaymentIntent, publishable_key: &str) -> ChargeOutcome {
     match intent.status {
         StripePaymentStatus::Succeeded => ChargeOutcome::Succeeded(ChargeReceipt {
             external_id: intent.id,
@@ -634,6 +638,8 @@ fn intent_to_outcome(intent: StripePaymentIntent) -> ChargeOutcome {
         StripePaymentStatus::RequiresCustomerAction => requires_action_outcome(
             intent.id,
             intent.next_action,
+            intent.client_secret,
+            publishable_key,
         ),
         StripePaymentStatus::RequiresPaymentMethod
         | StripePaymentStatus::RequiresConfirmation
@@ -671,37 +677,28 @@ fn intent_to_outcome(intent: StripePaymentIntent) -> ChargeOutcome {
 fn requires_action_outcome(
     intent_id: String,
     next_action: Option<StripeNextAction>,
+    client_secret: Option<String>,
+    publishable_key: &str,
 ) -> ChargeOutcome {
     use super::model::RequiresActionInstruction;
-    let instruction = match next_action {
-        Some(action) => {
-            if let Some(url) = action
-                .redirect_to_url
-                .as_ref()
-                .and_then(|r| r.url.clone())
-            {
-                RequiresActionInstruction::HostedUrl {
-                    external_id: intent_id,
-                    url,
-                    expires_at: None,
-                }
-            } else {
-                // SDK-driven flow — the client uses the PaymentIntent's
-                // client_secret to handle the action. We don't have it on the
-                // intent object returned from Stripe for off-session charges,
-                // so we leave it blank and let the portal re-fetch the intent
-                // (which Stripe authorises with a publishable key).
-                RequiresActionInstruction::ClientSecret {
-                    external_id: intent_id,
-                    client_secret: String::new(),
-                    publishable_key: SecretString::from(String::new()),
-                }
-            }
-        }
+    // A bare redirect (rare for cards) can be opened directly. Everything else
+    // is SDK-driven: the portal calls Stripe.js `handleNextAction` with the
+    // PaymentIntent client_secret (returned on create), so carry it through.
+    let redirect_url = next_action
+        .as_ref()
+        .and_then(|a| a.redirect_to_url.as_ref())
+        .and_then(|r| r.url.clone());
+
+    let instruction = match redirect_url {
+        Some(url) => RequiresActionInstruction::HostedUrl {
+            external_id: intent_id,
+            url,
+            expires_at: None,
+        },
         None => RequiresActionInstruction::ClientSecret {
             external_id: intent_id,
-            client_secret: String::new(),
-            publishable_key: SecretString::from(String::new()),
+            client_secret: client_secret.unwrap_or_default(),
+            publishable_key: SecretString::from(publishable_key.to_string()),
         },
     };
     ChargeOutcome::RequiresAction(instruction)
@@ -956,8 +953,7 @@ fn normalize_kind(event_type: &str, object: EventObject) -> Option<NormalizedEve
                     reason: Some(format!("mandate.{}", "inactive")),
                 })
             }
-            // Active or Pending — informational only. Step 4c may use this to
-            // reconcile mandate state, but the core doesn't act on it now.
+            // Non-terminal mandate status; not acted on.
             _ => NormalizedEventKind::Acknowledged {
                 reason: "mandate.updated — non-terminal status",
             },

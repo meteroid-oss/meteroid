@@ -98,7 +98,22 @@ impl PaymentTransactionInterface for Store {
         let backfill_external_id =
             transaction.provider_transaction_id.is_none() && !payment_intent.external_id.is_empty();
 
-        if !status_changed && !backfill_external_id {
+        // Set the 3DS/SCA action when the charge needs one (status stays
+        // Pending); clear it once the charge reaches a terminal state.
+        let next_action_patch: Option<Option<serde_json::Value>> = match &payment_intent.next_action
+        {
+            // The client secret is #[serde(skip)] on PaymentNextAction, so it is
+            // never written here regardless.
+            Some(action) => Some(serde_json::to_value(action).ok()),
+            None if status_changed
+                && payment_intent.status != domain::enums::PaymentStatusEnum::Pending =>
+            {
+                Some(None)
+            }
+            None => None,
+        };
+
+        if !status_changed && !backfill_external_id && next_action_patch.is_none() {
             return Ok(transaction);
         }
 
@@ -111,6 +126,7 @@ impl PaymentTransactionInterface for Store {
             error_type: status_changed.then_some(payment_intent.last_payment_error),
             provider_transaction_id: backfill_external_id
                 .then(|| Some(payment_intent.external_id.clone())),
+            next_action: next_action_patch,
         };
 
         let tenant_id = transaction.tenant_id;

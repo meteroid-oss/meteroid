@@ -60,6 +60,8 @@ message ConfirmCheckoutResponse {
   // Subscription ID - present when status is COMPLETED, absent when AWAITING_PAYMENT
   optional string subscription_id = 2;
   ConfirmCheckoutStatus status = 3;
+  // Present when the customer must complete 3DS/SCA before the payment settles.
+  optional api.invoices.v1.PaymentActionRequired next_action = 4;
 }
 
 
@@ -85,6 +87,8 @@ message ConfirmSlotUpgradeCheckoutRequest {
 message ConfirmSlotUpgradeCheckoutResponse {
   api.invoices.v1.Transaction transaction = 1;
   uint32 new_slot_count = 2;
+  // Present when the customer must complete 3DS/SCA before the payment settles.
+  optional api.invoices.v1.PaymentActionRequired next_action = 3;
 }
 
 service PortalCheckoutService {

@@ -52,10 +52,12 @@ impl PgmqHandler for PaymentRequest {
                     event.tenant_id,
                     event.invoice_id,
                     event.payment_method_id,
+                    // Queued/automated payment — no customer present.
+                    false,
                 )
                 .await
             {
-                Ok(transaction) => {
+                Ok((transaction, _next_action)) => {
                     log::info!(
                         "Payment processed successfully for invoice {}: transaction {} with status {:?}",
                         event.invoice_id,

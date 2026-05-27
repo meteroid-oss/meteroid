@@ -149,6 +149,42 @@ impl CustomerPaymentMethodRow {
             .attach("Error while finding customer payment methods by connection id")
             .into_db_result()
     }
+
+    /// Refresh card brand/last4/expiry for a stored method, keyed by the
+    /// provider's payment-method id (used by the `payment_method.updated`
+    /// webhook). Returns the number of rows updated.
+    pub async fn update_card_details(
+        conn: &mut PgConn,
+        tenant_uid: TenantId,
+        external_payment_method_id_param: &str,
+        brand: Option<String>,
+        last4: Option<String>,
+        exp_month: Option<i32>,
+        exp_year: Option<i32>,
+    ) -> DbResult<usize> {
+        use crate::schema::customer_payment_method::dsl as cpm;
+        use diesel_async::RunQueryDsl;
+
+        let query = diesel::update(
+            cpm::customer_payment_method
+                .filter(cpm::tenant_id.eq(tenant_uid))
+                .filter(cpm::external_payment_method_id.eq(external_payment_method_id_param)),
+        )
+        .set((
+            cpm::card_brand.eq(brand),
+            cpm::card_last4.eq(last4),
+            cpm::card_exp_month.eq(exp_month),
+            cpm::card_exp_year.eq(exp_year),
+            cpm::updated_at.eq(diesel::dsl::now),
+        ));
+        log::debug!("{}", debug_query::<diesel::pg::Pg, _>(&query));
+
+        query
+            .execute(conn)
+            .await
+            .attach("Error while updating payment method card details")
+            .into_db_result()
+    }
 }
 
 impl CustomerPaymentMethodRowNew {

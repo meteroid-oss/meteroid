@@ -856,6 +856,7 @@ diesel::table! {
         checkout_session_id -> Nullable<Uuid>,
         pending_plan_version_id -> Nullable<Uuid>,
         created_at -> Timestamp,
+        next_action -> Nullable<Jsonb>,
     }
 }
 
