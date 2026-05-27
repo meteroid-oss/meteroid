@@ -1,3 +1,0 @@
--- Postgres does not support removing enum values without recreating the
--- type. Rolling back requires a separate manual migration; leave a comment.
--- (no-op)
