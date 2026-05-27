@@ -1,6 +1,7 @@
 //! Maps the normalized [`ChargeOutcome`] / [`NormalizedEventKind`] onto the
-//! legacy [`PaymentIntent`] consumed by the settlement repository
-//! ([`consolidate_intent_and_transaction_tx`]).
+//! internal [`PaymentIntent`] consumed by the settlement repository
+//! ([`consolidate_intent_and_transaction_tx`]) — the single provider-agnostic
+//! shape both the charge and webhook paths converge to.
 //!
 //! [`consolidate_intent_and_transaction_tx`]: crate::repositories::payment_transactions::PaymentTransactionInterface::consolidate_intent_and_transaction_tx
 

@@ -51,8 +51,10 @@ use stripe_client::webhook_endpoints::{
     CreateWebhookEndpointRequest, UpdateWebhookEndpointRequest, WebhookEndpointApi,
 };
 
-/// The bits describe Stripe's *protocol* capability, not the impl state, so
-/// some are `true` even where the impl below returns `Unsupported`.
+/// The bits describe Stripe's *protocol* capability, not impl state: e.g.
+/// `supports_refunds` is `true` though `refund()` still returns `Unsupported`.
+/// (Webhook self-registration, by contrast, is implemented and auto-invoked on
+/// connect.)
 const STRIPE_CAPABILITIES: ConnectorCapabilities = ConnectorCapabilities {
     supports_cards: true,
     supports_mandates: true,
