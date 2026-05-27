@@ -120,10 +120,10 @@ impl GoCardlessClient {
             "User-Agent",
             HeaderValue::from_str(USER_AGENT).expect("valid user agent"),
         );
-        if let Some(key) = idempotency_key {
-            if let Ok(val) = HeaderValue::from_str(key) {
-                headers.insert("Idempotency-Key", val);
-            }
+        if let Some(key) = idempotency_key
+            && let Ok(val) = HeaderValue::from_str(key)
+        {
+            headers.insert("Idempotency-Key", val);
         }
         self.client
             .request(method, url)

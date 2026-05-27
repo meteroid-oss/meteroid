@@ -356,13 +356,12 @@ impl PaymentOps for GoCardlessConnector {
         // DD schemes are single-currency (SEPA→EUR, BACS→GBP, ACH→USD); a
         // mismatched currency is rejected by GoCardless. Fail clearly here.
         if let Some((scheme_currency, _)) = method_to_currency_scheme(&request.payment_method_type)
+            && !request.currency.eq_ignore_ascii_case(&scheme_currency)
         {
-            if !request.currency.eq_ignore_ascii_case(&scheme_currency) {
-                return Err(Report::new(ConnectorError::Charge(format!(
-                    "GoCardless {:?} mandate is {}-only; cannot charge {}",
-                    request.payment_method_type, scheme_currency, request.currency
-                ))));
-            }
+            return Err(Report::new(ConnectorError::Charge(format!(
+                "GoCardless {:?} mandate is {}-only; cannot charge {}",
+                request.payment_method_type, scheme_currency, request.currency
+            ))));
         }
 
         let metadata = HashMap::from([

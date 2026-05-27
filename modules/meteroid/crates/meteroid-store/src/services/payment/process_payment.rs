@@ -161,6 +161,7 @@ impl Services {
         Ok((tx, next_action))
     }
 
+    #[allow(clippy::too_many_arguments)]
     async fn create_payment_intent(
         &self,
         conn: &mut PgConn,
