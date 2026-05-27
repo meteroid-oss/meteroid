@@ -9,7 +9,7 @@ use super::model::ChargeOutcome;
 use crate::domain::PaymentStatusEnum;
 use crate::domain::payment_transactions::{PaymentIntent, PaymentNextAction};
 use common_domain::ids::{PaymentTransactionId, TenantId};
-use secrecy::ExposeSecret;
+use secrecy::{ExposeSecret, SecretString};
 
 /// Build the legacy [`PaymentIntent`] from a normalized [`ChargeOutcome`].
 ///
@@ -64,7 +64,7 @@ pub fn payment_intent_from_outcome(
                     PaymentNextAction::UseSdk {
                         intent_id: external_id,
                         publishable_key: publishable_key.expose_secret().to_string(),
-                        client_secret: Some(client_secret),
+                        client_secret: Some(SecretString::from(client_secret)),
                     },
                 ),
             };

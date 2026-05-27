@@ -8,11 +8,12 @@ use common_domain::ids::{
 };
 use diesel_models::payments::{PaymentTransactionRow, PaymentTransactionWithMethodRow};
 use o2o::o2o;
+use secrecy::SecretString;
 use serde::{Deserialize, Serialize};
 
 /// Customer action required to complete a charge (3DS / SCA). Stored in
 /// `payment_transaction.next_action` (JSONB) and surfaced to the portal.
-#[derive(Clone, Serialize, Deserialize, PartialEq, Eq)]
+#[derive(Clone, Debug, Serialize, Deserialize)]
 #[serde(tag = "kind", rename_all = "snake_case")]
 pub enum PaymentNextAction {
     /// Redirect the browser to this provider-hosted URL (3DS redirect, bank app).
@@ -22,54 +23,34 @@ pub enum PaymentNextAction {
     UseSdk {
         intent_id: String,
         publishable_key: String,
-        /// Sensitive: lets the holder complete this PaymentIntent. Transient
-        /// only — returned to the portal in the charge response but NEVER
-        /// persisted (stripped via [`Self::for_storage`]); resumed flows
-        /// re-fetch it from the provider.
-        #[serde(default, skip_serializing_if = "Option::is_none")]
-        client_secret: Option<String>,
+        /// Lets the holder complete this PaymentIntent. `SecretString` keeps it
+        /// out of logs; `#[serde(skip)]` keeps it out of the DB entirely (it is
+        /// transient — set on a fresh charge, re-fetched from the provider when
+        /// resuming).
+        #[serde(skip)]
+        client_secret: Option<SecretString>,
     },
 }
 
-impl PaymentNextAction {
-    /// Storage projection — drops the transient client secret so it never
-    /// lands in the database.
-    pub fn for_storage(&self) -> Self {
-        match self {
-            Self::RedirectToUrl { url } => Self::RedirectToUrl { url: url.clone() },
-            Self::UseSdk {
-                intent_id,
-                publishable_key,
-                ..
-            } => Self::UseSdk {
-                intent_id: intent_id.clone(),
-                publishable_key: publishable_key.clone(),
-                client_secret: None,
-            },
-        }
-    }
-}
-
-// Manual Debug so the client secret can never leak into logs.
-impl std::fmt::Debug for PaymentNextAction {
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        match self {
-            Self::RedirectToUrl { url } => {
-                f.debug_struct("RedirectToUrl").field("url", url).finish()
-            }
-            Self::UseSdk {
-                intent_id,
-                publishable_key,
-                client_secret,
-            } => f
-                .debug_struct("UseSdk")
-                .field("intent_id", intent_id)
-                .field("publishable_key", publishable_key)
-                .field(
-                    "client_secret",
-                    &client_secret.as_ref().map(|_| "<redacted>"),
-                )
-                .finish(),
+// SecretString opts out of PartialEq; compare the non-secret identity (the
+// transient secret is irrelevant to equality).
+impl PartialEq for PaymentNextAction {
+    fn eq(&self, other: &Self) -> bool {
+        match (self, other) {
+            (Self::RedirectToUrl { url: a }, Self::RedirectToUrl { url: b }) => a == b,
+            (
+                Self::UseSdk {
+                    intent_id: a_id,
+                    publishable_key: a_pk,
+                    ..
+                },
+                Self::UseSdk {
+                    intent_id: b_id,
+                    publishable_key: b_pk,
+                    ..
+                },
+            ) => a_id == b_id && a_pk == b_pk,
+            _ => false,
         }
     }
 }
@@ -129,34 +110,32 @@ pub struct PaymentTransactionWithMethod {
 #[cfg(test)]
 mod tests {
     use super::PaymentNextAction;
+    use secrecy::SecretString;
 
     fn sdk() -> PaymentNextAction {
         PaymentNextAction::UseSdk {
             intent_id: "pi_1".into(),
             publishable_key: "pk_test".into(),
-            client_secret: Some("pi_1_secret_xyz".into()),
+            client_secret: Some(SecretString::from("pi_1_secret_xyz".to_string())),
         }
     }
 
     #[test]
-    fn for_storage_drops_client_secret() {
-        match sdk().for_storage() {
-            PaymentNextAction::UseSdk { client_secret, .. } => assert!(client_secret.is_none()),
-            _ => panic!("expected UseSdk"),
-        }
-    }
-
-    #[test]
-    fn stored_json_never_contains_secret() {
-        let json = serde_json::to_string(&sdk().for_storage()).unwrap();
-        assert!(!json.contains("secret"), "stored form leaked a secret: {json}");
+    fn serialized_form_never_contains_secret() {
+        let json = serde_json::to_string(&sdk()).unwrap();
+        assert!(
+            !json.contains("secret"),
+            "serialized form leaked a secret: {json}"
+        );
         assert!(json.contains("pk_test") && json.contains("pi_1"));
     }
 
     #[test]
     fn debug_redacts_secret() {
         let dbg = format!("{:?}", sdk());
-        assert!(!dbg.contains("pi_1_secret_xyz"), "Debug leaked the secret: {dbg}");
-        assert!(dbg.contains("<redacted>"));
+        assert!(
+            !dbg.contains("pi_1_secret_xyz"),
+            "Debug leaked the secret: {dbg}"
+        );
     }
 }

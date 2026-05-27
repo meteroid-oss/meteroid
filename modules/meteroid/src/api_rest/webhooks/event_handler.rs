@@ -239,7 +239,7 @@ async fn handle_payment_requires_action(
         PaymentNextAction::UseSdk {
             intent_id: e.external_transaction_id.clone(),
             publishable_key: stripe_publishable_key(connector).unwrap_or_default(),
-            client_secret: Some(secret.clone()),
+            client_secret: Some(secrecy::SecretString::from(secret.clone())),
         }
     } else {
         log::warn!(

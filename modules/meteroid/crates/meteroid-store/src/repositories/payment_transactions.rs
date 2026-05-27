@@ -99,8 +99,9 @@ impl PaymentTransactionInterface for Store {
         // Pending); clear it once the charge reaches a terminal state.
         let next_action_patch: Option<Option<serde_json::Value>> = match &payment_intent.next_action
         {
-            // for_storage() strips the transient client secret — never persisted.
-            Some(action) => Some(serde_json::to_value(action.for_storage()).ok()),
+            // The client secret is #[serde(skip)] on PaymentNextAction, so it is
+            // never written here regardless.
+            Some(action) => Some(serde_json::to_value(action).ok()),
             None if status_changed
                 && payment_intent.status != domain::enums::PaymentStatusEnum::Pending =>
             {
