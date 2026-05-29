@@ -29,6 +29,7 @@ pub fn calculate_component_period_for_invoice_date(
     match billing_period {
         None => Some(ComponentPeriods {
             proration_factor: None,
+            arrear_proration_factor: None,
             advance: Some(Period {
                 start: invoice_date,
                 end: invoice_date,
@@ -77,6 +78,9 @@ pub fn calculate_component_period_for_invoice_date(
 
             Some(ComponentPeriods {
                 proration_factor,
+                // The arrear line is prorated only when a component's temporal bounds
+                // shrink its window (set later by restrict_arrear_period_by_temporal_bounds).
+                arrear_proration_factor: None,
                 advance: advance_period,
                 arrear: arrear_period,
             })

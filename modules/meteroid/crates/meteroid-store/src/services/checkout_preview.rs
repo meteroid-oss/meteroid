@@ -291,6 +291,7 @@ impl Services {
             effective_from: chrono::Utc::now().naive_utc().date(),
             effective_to: None,
             lineage_id: None,
+            added_by_amendment: false,
         })
     }
 
@@ -366,6 +367,7 @@ impl Services {
                     effective_from: chrono::Utc::now().naive_utc().date(),
                     effective_to: None,
                     lineage_id: None,
+                    added_by_amendment: false,
                 });
                 continue;
             }
@@ -405,6 +407,7 @@ impl Services {
             effective_from: chrono::Utc::now().naive_utc().date(),
             effective_to: None,
             lineage_id: None,
+            added_by_amendment: false,
         }
     }
 
@@ -597,6 +600,7 @@ impl Services {
                 effective_from: chrono::Utc::now().naive_utc().date(),
                 effective_to: None,
                 lineage_id: None,
+                added_by_amendment: false,
             });
         }
 

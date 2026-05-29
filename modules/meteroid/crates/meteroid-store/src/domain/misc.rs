@@ -115,7 +115,13 @@ impl From<Period> for UsagePeriod {
 pub struct ComponentPeriods {
     pub arrear: Option<Period>,
     pub advance: Option<Period>,
+    /// Proration factor applied to the advance-billed line (first partial period).
     pub proration_factor: Option<f64>,
+    /// Proration factor applied to the arrears-billed line when its window was
+    /// shrunk by a temporal bound (e.g. a fixed-rate arrears component added or
+    /// removed mid-period). Kept separate from `proration_factor` so it never
+    /// affects the advance line of a component billed on the same period.
+    pub arrear_proration_factor: Option<f64>,
 }
 
 #[derive(Debug, Clone)]

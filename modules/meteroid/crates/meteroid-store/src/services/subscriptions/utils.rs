@@ -121,13 +121,21 @@ pub fn calculate_mrr(
 
 /// Scale a per-unit fee by `quantity`. Add-ons store their fee per-unit with the
 /// instance count in a separate `quantity` column; this bakes that count into the
-/// monetary fields so a single computed line reflects all instances. One-time and
-/// usage fees are left unchanged. This is the canonical "apply add-on quantity"
-/// operation, shared by proration and invoice computation so they always agree.
+/// monetary fields so a single computed line reflects all instances. One-time fees
+/// scale their quantity (rate stays per-unit); usage fees are left unchanged. This
+/// is the canonical "apply add-on quantity" operation, shared by proration and
+/// invoice computation so they always agree.
 pub(crate) fn scale_fee(fee: &SubscriptionFee, quantity: i32) -> SubscriptionFee {
     let q = Decimal::from(quantity.max(0));
     match fee {
         SubscriptionFee::Rate { rate } => SubscriptionFee::Rate { rate: rate * q },
+        SubscriptionFee::OneTime {
+            rate,
+            quantity: inner_qty,
+        } => SubscriptionFee::OneTime {
+            rate: *rate,
+            quantity: inner_qty * quantity.max(0) as u32,
+        },
         SubscriptionFee::Recurring {
             rate,
             quantity: inner_qty,

@@ -558,6 +558,23 @@ export const StepReviewApply = () => {
                 the net adjustment above.
               </div>
             )}
+          {/* A net charge with no adjustment invoice means the charge is an arrears
+              item billed at period end (not immediately). Clarify so the non-zero
+              net adjustment above isn't read as an immediate charge. */}
+          {isImmediate &&
+            !preview?.adjustmentInvoice &&
+            preview?.proration &&
+            preview.proration.netAmountCents > 0n && (
+              <div className="rounded-lg border border-border p-4 text-sm text-muted-foreground">
+                This change adds an arrears charge of{' '}
+                <span className="font-medium text-foreground">
+                  {formatCurrency(preview.proration.netAmountCents, currency)}
+                </span>{' '}
+                (prorated for the remainder of the current period). Arrears are billed at
+                the end of the period, so it appears on the next renewal invoice below
+                rather than on an invoice charged now.
+              </div>
+            )}
           {preview?.nextInvoice && (
             <InvoicePreviewCard
               invoice={preview.nextInvoice}

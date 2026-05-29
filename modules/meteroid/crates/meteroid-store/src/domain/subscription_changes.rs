@@ -108,6 +108,7 @@ pub struct ProrationLineItem {
     pub amount_cents: i64,
     pub full_period_amount_cents: i64,
     pub is_credit: bool,
+    pub is_prorated: bool,
     pub product_id: Option<ProductId>,
     pub price_component_id: Option<PriceComponentId>,
     /// Correlation key for netting override credit/charge pairs in the

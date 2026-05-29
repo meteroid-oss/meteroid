@@ -1135,6 +1135,7 @@ impl PreparedPlanChange {
                     effective_from: change_date,
                     effective_to: None,
                     lineage_id: None,
+                    added_by_amendment: false,
                 }),
                 ComponentMapping::Added {
                     target_component_id,
@@ -1155,6 +1156,7 @@ impl PreparedPlanChange {
                     effective_from: change_date,
                     effective_to: None,
                     lineage_id: None,
+                    added_by_amendment: false,
                 }),
                 ComponentMapping::Removed { .. } => None,
             })

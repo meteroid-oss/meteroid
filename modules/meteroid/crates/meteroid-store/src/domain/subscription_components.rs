@@ -27,6 +27,11 @@ pub trait SubscriptionFeeInterface {
     fn effective_to(&self) -> Option<chrono::NaiveDate> {
         None
     }
+    /// True when added by a manual amendment. Drives one-time-fee billing on the
+    /// effective period (see `process_fee_records`). Defaults to false.
+    fn added_by_amendment(&self) -> bool {
+        false
+    }
 }
 
 #[derive(Serialize, Deserialize, Clone, Debug)]
@@ -44,6 +49,9 @@ pub struct SubscriptionComponent {
     /// Lineage root this component descends from across overrides. `None` means the
     /// row is its own root.
     pub lineage_id: Option<SubscriptionPriceComponentId>,
+    /// True when this component was added by a manual amendment. A one-time fee on
+    /// such a component is billed on the invoice for the period it becomes effective.
+    pub added_by_amendment: bool,
 }
 
 impl SubscriptionComponent {
@@ -105,6 +113,11 @@ impl SubscriptionFeeInterface for SubscriptionComponent {
     fn effective_to(&self) -> Option<chrono::NaiveDate> {
         self.effective_to
     }
+
+    #[inline]
+    fn added_by_amendment(&self) -> bool {
+        self.added_by_amendment
+    }
 }
 
 impl TryInto<SubscriptionComponent> for SubscriptionComponentRow {
@@ -133,6 +146,7 @@ impl TryInto<SubscriptionComponent> for SubscriptionComponentRow {
             effective_from: self.effective_from,
             effective_to: self.effective_to,
             lineage_id: self.lineage_id,
+            added_by_amendment: self.added_by_amendment,
         })
     }
 }
@@ -172,6 +186,9 @@ impl TryInto<SubscriptionComponentRowNew> for SubscriptionComponentNew {
             // Default to a root; the amendment override path sets the predecessor's
             // lineage on the row after conversion.
             lineage_id: None,
+            // Defaults to false; amendment insert paths flip it on the row after
+            // conversion so a one-time fee bills on its effective period.
+            added_by_amendment: false,
         })
     }
 }

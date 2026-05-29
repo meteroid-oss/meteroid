@@ -23,6 +23,10 @@ pub struct SubscriptionAddOnRow {
     /// Lineage root this add-on descends from across overrides. `None` means the
     /// row is its own root. See the `subscription_component_lineage` migration.
     pub lineage_id: Option<SubscriptionAddOnId>,
+    /// True when this row was added by a manual amendment (vs. coming from the plan
+    /// definition or a plan change). Drives one-time-fee billing on the effective
+    /// period; recurring fees are unaffected.
+    pub added_by_amendment: bool,
 }
 
 #[derive(Insertable, Debug, Clone)]
@@ -42,4 +46,6 @@ pub struct SubscriptionAddOnRowNew {
     /// Lineage root this add-on descends from across overrides. `None` means the
     /// row is its own root.
     pub lineage_id: Option<SubscriptionAddOnId>,
+    /// True when added by a manual amendment (see `SubscriptionAddOnRow`).
+    pub added_by_amendment: bool,
 }

@@ -1233,6 +1233,7 @@ diesel::table! {
         effective_from -> Date,
         effective_to -> Nullable<Date>,
         lineage_id -> Nullable<Uuid>,
+        added_by_amendment -> Bool,
     }
 }
 
@@ -1252,6 +1253,7 @@ diesel::table! {
         effective_from -> Date,
         effective_to -> Nullable<Date>,
         lineage_id -> Nullable<Uuid>,
+        added_by_amendment -> Bool,
     }
 }
 

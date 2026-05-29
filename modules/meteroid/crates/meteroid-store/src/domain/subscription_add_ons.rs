@@ -27,6 +27,9 @@ pub struct SubscriptionAddOn {
     /// Lineage root this add-on descends from across overrides. `None` means the
     /// row is its own root.
     pub lineage_id: Option<SubscriptionAddOnId>,
+    /// True when this add-on was added by a manual amendment. A one-time fee on such
+    /// an add-on is billed on the invoice for the period it becomes effective.
+    pub added_by_amendment: bool,
 }
 
 impl SubscriptionAddOn {
@@ -88,6 +91,11 @@ impl SubscriptionFeeInterface for SubscriptionAddOn {
     fn effective_to(&self) -> Option<NaiveDate> {
         self.effective_to
     }
+
+    #[inline]
+    fn added_by_amendment(&self) -> bool {
+        self.added_by_amendment
+    }
 }
 
 impl TryInto<SubscriptionAddOn> for SubscriptionAddOnRow {
@@ -118,6 +126,7 @@ impl TryInto<SubscriptionAddOn> for SubscriptionAddOnRow {
             effective_from: self.effective_from,
             effective_to: self.effective_to,
             lineage_id: self.lineage_id,
+            added_by_amendment: self.added_by_amendment,
         })
     }
 }
@@ -164,6 +173,9 @@ impl TryInto<SubscriptionAddOnRowNew> for SubscriptionAddOnNew {
             // Default to a root; the amendment override path sets the predecessor's
             // lineage on the row after conversion.
             lineage_id: None,
+            // Defaults to false; amendment insert paths flip it on the row after
+            // conversion so a one-time fee bills on its effective period.
+            added_by_amendment: false,
         })
     }
 }

@@ -770,6 +770,7 @@ export const StepEditChanges = () => {
           selectedIds={state.addOnChanges.added.map(a => a.addOnId)}
           onClose={() => setShowAddAddOn(false)}
           onAdd={addNewAddOn}
+          onRemove={removeNewAddOn}
         />
       )}
     </div>
@@ -1043,11 +1044,13 @@ const AddAddOnModal = ({
   selectedIds,
   onClose,
   onAdd,
+  onRemove,
 }: {
   catalog: { id: string; name: string }[]
   selectedIds: string[]
   onClose: () => void
   onAdd: (addOnId: string) => void
+  onRemove: (addOnId: string) => void
 }) => {
   const [search, setSearch] = useState('')
   const filtered = search
@@ -1085,8 +1088,7 @@ const AddAddOnModal = ({
                     ? 'bg-success/10 border border-success/30'
                     : 'hover:bg-muted/50 border border-transparent'
                 }`}
-                onClick={() => onAdd(addOn.id)}
-                disabled={isSelected}
+                onClick={() => (isSelected ? onRemove(addOn.id) : onAdd(addOn.id))}
               >
                 <div
                   className={`flex-shrink-0 w-5 h-5 rounded border flex items-center justify-center ${

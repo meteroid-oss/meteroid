@@ -125,7 +125,7 @@ impl Services {
                             rate,
                             &Decimal::from(*quantity),
                             arrears,
-                            periods.proration_factor,
+                            periods.arrear_proration_factor,
                             precision,
                             None,
                         )?);

@@ -19,7 +19,7 @@ use meteroid_store::clients::usage::{
 };
 use meteroid_store::domain::enums::FeeTypeEnum;
 use meteroid_store::domain::enums::{
-    CreditType, InvoicePaymentStatus, InvoiceStatusEnum, InvoiceType,
+    BillingType, CreditType, InvoicePaymentStatus, InvoiceStatusEnum, InvoiceType,
 };
 use meteroid_store::domain::price_components::{PriceEntry, PriceInput, ProductRef};
 use meteroid_store::domain::prices::{FeeStructure, Pricing, UsageModel};
@@ -125,6 +125,49 @@ fn extra_rate_component(name: &str, rate_cents: i64) -> AddExtraComponent {
             currency: "EUR".to_string(),
             pricing: Pricing::Rate {
                 rate: Decimal::new(rate_cents, 2),
+            },
+        }),
+    }
+}
+
+/// Build an ad-hoc extra fixed-rate arrears component (billed at period end).
+fn extra_arrears_component(name: &str, rate_cents: i64) -> AddExtraComponent {
+    AddExtraComponent {
+        name: name.to_string(),
+        product: ProductRef::New {
+            name: format!("{name} Product"),
+            fee_type: FeeTypeEnum::ExtraRecurring,
+            fee_structure: FeeStructure::ExtraRecurring {
+                billing_type: BillingType::Arrears,
+            },
+        },
+        price_entry: PriceEntry::New(PriceInput {
+            cadence: BillingPeriodEnum::Monthly,
+            currency: "EUR".to_string(),
+            pricing: Pricing::ExtraRecurring {
+                unit_price: Decimal::new(rate_cents, 2),
+                quantity: 1,
+            },
+        }),
+    }
+}
+
+/// Build an ad-hoc one-time component (billed in full, once).
+fn extra_onetime_component(name: &str, rate_cents: i64) -> AddExtraComponent {
+    AddExtraComponent {
+        name: name.to_string(),
+        product: ProductRef::New {
+            name: format!("{name} Product"),
+            fee_type: FeeTypeEnum::OneTime,
+            fee_structure: FeeStructure::OneTime {},
+        },
+        price_entry: PriceEntry::New(PriceInput {
+            // One-time fees have no cadence; Monthly is an inert placeholder.
+            cadence: BillingPeriodEnum::Monthly,
+            currency: "EUR".to_string(),
+            pricing: Pricing::OneTime {
+                unit_price: Decimal::new(rate_cents, 2),
+                quantity: 1,
             },
         }),
     }
@@ -717,6 +760,263 @@ async fn test_end_of_period_amendment_executes_at_period_end(#[future] test_env:
         .is_finalized_unpaid()
         .has_total(8900)
         .has_period(feb1, mar1);
+}
+
+/// Regression: an ARREARS component added immediately mid-period must be prorated
+/// (not billed in full) on the next invoice. Adding €30/mo arrears at Jan 16 of a
+/// [Jan 1, Feb 1] period charges nothing immediately (arrears are excluded from the
+/// adjustment invoice) and bills 16/31 of €30 = €15.48 at the Feb 1 renewal, on top
+/// of the €39 advance for the new period.
+#[rstest]
+#[tokio::test]
+async fn test_add_arrears_component_immediate_prorated_at_renewal(#[future] test_env: TestEnv) {
+    let env = test_env.await;
+    let jan1 = NaiveDate::from_ymd_opt(2024, 1, 1).unwrap();
+    let jan16 = NaiveDate::from_ymd_opt(2024, 1, 16).unwrap();
+    let feb1 = NaiveDate::from_ymd_opt(2024, 2, 1).unwrap();
+    let mar1 = NaiveDate::from_ymd_opt(2024, 3, 1).unwrap();
+
+    let sub_id = subscription()
+        .plan_version(PLAN_VERSION_STARTER_ID)
+        .start_date(jan1)
+        .on_start()
+        .no_trial()
+        .create(env.services())
+        .await;
+
+    // Add a €30/mo arrears component at Jan 16 (immediate).
+    let result = env
+        .services()
+        .apply_amendment_immediate_at(
+            common_domain::actor::Actor::System,
+            sub_id,
+            TENANT_ID,
+            amendment_add_component(
+                PlanChangeMode::Immediate,
+                extra_arrears_component("Overage Fee", 3000),
+            ),
+            jan16,
+        )
+        .await
+        .expect("add arrears component failed");
+
+    // Arrears are billed at period end, so nothing is charged immediately.
+    assert!(
+        result.adjustment_invoice_id.is_none(),
+        "an arrears add must not produce an immediate adjustment invoice"
+    );
+
+    // Cycle 1 renewal [Feb 1, Mar 1]: €39 advance + 16/31 of €30 arrears for
+    // [Jan 16, Feb 1] = 1548 cents → €54.48 total.
+    env.process_cycles().await;
+
+    let invoices = env.get_invoices(sub_id).await;
+    let renewal = invoices
+        .iter()
+        .find(|i| {
+            i.line_items
+                .iter()
+                .any(|l| l.start_date == feb1 && l.end_date == mar1)
+        })
+        .expect("cycle 1 renewal invoice");
+
+    let arrears_line = renewal
+        .line_items
+        .iter()
+        .find(|l| l.name.contains("Overage Fee"))
+        .expect("renewal must bill the arrears component");
+    assert_eq!(
+        arrears_line.amount_subtotal, 1548,
+        "arrears must be prorated to 16/31 of €30, not billed in full"
+    );
+    assert!(
+        arrears_line.is_prorated,
+        "the mid-period arrears charge is prorated"
+    );
+    assert_eq!(arrears_line.start_date, jan16);
+    assert_eq!(arrears_line.end_date, feb1);
+    assert_eq!(renewal.total, 5448, "€39 advance + €15.48 prorated arrears");
+}
+
+/// Regression: a ONE-TIME component scheduled end-of-period must appear on the next
+/// period's invoice (billed in full, once) and not be silently dropped because
+/// `applies_this_period` excludes one-time fees on cycles > 0.
+#[rstest]
+#[tokio::test]
+async fn test_end_of_period_onetime_component_billed_once(#[future] test_env: TestEnv) {
+    let env = test_env.await;
+    let jan1 = NaiveDate::from_ymd_opt(2024, 1, 1).unwrap();
+    let feb1 = NaiveDate::from_ymd_opt(2024, 2, 1).unwrap();
+    let mar1 = NaiveDate::from_ymd_opt(2024, 3, 1).unwrap();
+    let apr1 = NaiveDate::from_ymd_opt(2024, 4, 1).unwrap();
+
+    let sub_id = subscription()
+        .plan_version(PLAN_VERSION_STARTER_ID)
+        .start_date(jan1)
+        .on_start()
+        .no_trial()
+        .create(env.services())
+        .await;
+
+    // Schedule an end-of-period amendment adding a €100 one-time component.
+    env.services()
+        .schedule_amendment(
+            common_domain::actor::Actor::System,
+            sub_id,
+            TENANT_ID,
+            amendment_add_component(
+                PlanChangeMode::EndOfPeriod,
+                extra_onetime_component("Onboarding", 10000),
+            ),
+        )
+        .await
+        .expect("schedule_amendment failed");
+
+    // Cycle 1 renewal [Feb 1, Mar 1]: Starter €39 + one-time €100 = €139.
+    env.process_cycles().await;
+
+    let invoices = env.get_invoices(sub_id).await;
+    let cycle1 = invoices
+        .iter()
+        .find(|i| {
+            i.line_items
+                .iter()
+                .any(|l| l.start_date == feb1 && l.end_date == mar1)
+        })
+        .expect("cycle 1 renewal invoice");
+
+    let onetime_line = cycle1
+        .line_items
+        .iter()
+        .find(|l| l.name.contains("Onboarding"))
+        .expect("renewal must bill the one-time component");
+    assert_eq!(
+        onetime_line.amount_subtotal, 10000,
+        "one-time fee is billed in full"
+    );
+    assert!(
+        !onetime_line.is_prorated,
+        "one-time fees are never prorated"
+    );
+    assert_eq!(cycle1.total, 13900, "€39 recurring + €100 one-time");
+
+    // Cycle 2 renewal [Mar 1, Apr 1] must NOT bill the one-time fee again.
+    env.process_cycles().await;
+    let invoices = env.get_invoices(sub_id).await;
+    let cycle2 = invoices
+        .iter()
+        .find(|i| {
+            i.line_items
+                .iter()
+                .any(|l| l.start_date == mar1 && l.end_date == apr1)
+        })
+        .expect("cycle 2 renewal invoice");
+    assert!(
+        !cycle2
+            .line_items
+            .iter()
+            .any(|l| l.name.contains("Onboarding")),
+        "a one-time fee must be billed exactly once, not re-billed on later cycles"
+    );
+    assert_eq!(cycle2.total, 3900, "Starter only on the following renewal");
+}
+
+/// Regression for the preview: the next-cycle invoice preview must reflect both an
+/// arrears component added immediately (prorated) and a one-time component scheduled
+/// end-of-period (billed in full).
+#[rstest]
+#[tokio::test]
+async fn test_preview_next_invoice_includes_arrears_and_onetime(#[future] test_env: TestEnv) {
+    let env = test_env.await;
+    // Immediate preview prorates against "now", so the current period must contain today.
+    let start_date = chrono::Utc::now().naive_utc().date() - chrono::Duration::days(10);
+
+    let sub_id = subscription()
+        .plan_version(PLAN_VERSION_STARTER_ID)
+        .start_date(start_date)
+        .on_start()
+        .no_trial()
+        .create(env.services())
+        .await;
+
+    // Immediate arrears add: prorated arrears must show on the next-cycle invoice.
+    let arrears_preview = env
+        .services()
+        .preview_amendment(
+            sub_id,
+            TENANT_ID,
+            amendment_add_component(
+                PlanChangeMode::Immediate,
+                extra_arrears_component("Overage Fee", 3000),
+            ),
+        )
+        .await
+        .expect("preview arrears failed");
+
+    let next = arrears_preview
+        .next_invoice
+        .expect("preview has a next-cycle invoice");
+    let arrears_line = next
+        .invoice_lines
+        .iter()
+        .find(|l| l.name.contains("Overage Fee"))
+        .expect("next invoice preview must include the arrears component");
+    assert!(
+        arrears_line.amount_subtotal > 0 && arrears_line.amount_subtotal < 3000,
+        "arrears must be prorated (less than a full €30 month), got {}",
+        arrears_line.amount_subtotal
+    );
+
+    // The proration summary must reflect the prorated arrears charge (it is not on an
+    // immediate adjustment invoice, but it is a real prorated charge for this change).
+    let summary = arrears_preview
+        .proration
+        .expect("immediate preview has a proration summary");
+    assert_eq!(
+        summary.credits_total_cents, 0,
+        "adding an arrears component credits nothing"
+    );
+    assert!(
+        summary.charges_total_cents > 0 && summary.charges_total_cents < 3000,
+        "summary charge must be the prorated arrears, got {}",
+        summary.charges_total_cents
+    );
+    assert_eq!(
+        summary.net_amount_cents, summary.charges_total_cents,
+        "net adjustment equals the prorated arrears charge"
+    );
+    // It matches the prorated line on the next renewal invoice.
+    assert_eq!(
+        summary.charges_total_cents, arrears_line.amount_subtotal,
+        "summary charge must match the next-invoice prorated arrears line"
+    );
+
+    // End-of-period one-time add: full charge on the next-cycle invoice preview.
+    let onetime_preview = env
+        .services()
+        .preview_amendment(
+            sub_id,
+            TENANT_ID,
+            amendment_add_component(
+                PlanChangeMode::EndOfPeriod,
+                extra_onetime_component("Onboarding", 10000),
+            ),
+        )
+        .await
+        .expect("preview one-time failed");
+
+    let next = onetime_preview
+        .next_invoice
+        .expect("preview has a next-cycle invoice");
+    let onetime_line = next
+        .invoice_lines
+        .iter()
+        .find(|l| l.name.contains("Onboarding"))
+        .expect("next invoice preview must include the end-of-period one-time component");
+    assert_eq!(
+        onetime_line.amount_subtotal, 10000,
+        "one-time fee is previewed in full"
+    );
 }
 
 // =============================================================================

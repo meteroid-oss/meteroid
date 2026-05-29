@@ -445,6 +445,14 @@ impl Services {
                     0
                 };
 
+                // Prorated lines cover the remaining period (change date → period
+                // end); one-time charges are billed in full at the change date.
+                let end_date = if line.is_prorated {
+                    period_end
+                } else {
+                    invoice_date
+                };
+
                 LineItem {
                     local_id: uuid::Uuid::now_v7().to_string(),
                     name: line.name.clone(),
@@ -457,9 +465,9 @@ impl Services {
                     quantity: None,
                     unit_price: None,
                     start_date: invoice_date,
-                    end_date: period_end,
+                    end_date,
                     sub_lines: vec![],
-                    is_prorated: true,
+                    is_prorated: line.is_prorated,
                     price_component_id: line.price_component_id,
                     sub_component_id: None,
                     sub_add_on_id: None,
@@ -691,6 +699,7 @@ impl Services {
                     effective_from: now,
                     effective_to: None,
                     lineage_id: None,
+                    added_by_amendment: false,
                 });
         }
 
@@ -721,6 +730,7 @@ impl Services {
                     amount_cents: l.amount_subtotal,
                     full_period_amount_cents: l.amount_subtotal,
                     is_credit: false,
+                    is_prorated: l.is_prorated,
                     product_id: l.product_id,
                     price_component_id: l.price_component_id,
                     net_key: None,

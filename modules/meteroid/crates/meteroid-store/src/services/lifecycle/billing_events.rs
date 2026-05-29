@@ -663,6 +663,8 @@ impl Services {
                     // Preserve the overridden component's lineage so amendment credits
                     // stay matched to the originally-billed invoice line across overrides.
                     row.lineage_id = c.lineage_id;
+                    // Mark as amendment-added so a one-time fee bills on its effective period.
+                    row.added_by_amendment = true;
                     Ok::<_, error_stack::Report<StoreError>>(row)
                 })
                 .collect::<Result<Vec<_>, _>>()
@@ -698,6 +700,7 @@ impl Services {
                         }
                         .try_into()?;
                     row.lineage_id = a.lineage_id;
+                    row.added_by_amendment = true;
                     Ok::<_, error_stack::Report<StoreError>>(row)
                 })
                 .collect::<Result<Vec<_>, error_stack::Report<StoreError>>>()?;

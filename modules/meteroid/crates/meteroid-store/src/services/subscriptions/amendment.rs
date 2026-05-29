@@ -161,6 +161,26 @@ impl Services {
         let proration = proration_result.as_ref().map(|result| {
             let days_in_period = (period_end - period_start).num_days().max(0) as u32;
             let days_remaining = (period_end - effective_date).num_days().max(0) as u32;
+
+            // Fixed-rate arrears added by this amendment are not billed on the
+            // immediate adjustment invoice — they land, prorated to the remaining
+            // window, on the next invoice. `calculate_proration` therefore excludes
+            // them, but the summary must still reflect them or it would show a 0
+            // charge next to a non-zero proration factor. Genuine adds only
+            // (`net_key.is_none()`); override edits keep their existing handling.
+            let prorated_arrears_charge_cents = {
+                let full_arrears: i64 = added
+                    .iter()
+                    .filter(|a| a.net_key.is_none())
+                    .map(|a| {
+                        crate::services::subscriptions::proration::component_arrears_amount_cents(
+                            &a.fee, &a.period, precision,
+                        )
+                    })
+                    .sum();
+                (full_arrears as f64 * result.proration_factor).round() as i64
+            };
+
             ProrationSummary {
                 credits_total_cents: result
                     .lines
@@ -173,8 +193,9 @@ impl Services {
                     .iter()
                     .filter(|l| !l.is_credit)
                     .map(|l| l.amount_cents)
-                    .sum(),
-                net_amount_cents: result.net_amount_cents,
+                    .sum::<i64>()
+                    + prorated_arrears_charge_cents,
+                net_amount_cents: result.net_amount_cents + prorated_arrears_charge_cents,
                 // What would actually be credited (post-netting): an override's credit
                 // is netted into its charge, so an upgrade contributes nothing here.
                 net_credit_cents: crate::services::subscriptions::proration::net_override_lines(
@@ -879,6 +900,8 @@ impl Services {
                 // matched to the originally-billed invoice line; `None` leaves the new
                 // row as its own root.
                 row.lineage_id = c.lineage_id;
+                // Mark as amendment-added so a one-time fee bills on its effective period.
+                row.added_by_amendment = true;
                 Ok::<_, Report<StoreError>>(row)
             })
             .collect::<Result<Vec<_>, Report<StoreError>>>()?;
@@ -908,6 +931,7 @@ impl Services {
                 }
                 .try_into()?;
                 row.lineage_id = a.lineage_id;
+                row.added_by_amendment = true;
                 Ok::<_, Report<StoreError>>(row)
             })
             .collect::<Result<Vec<_>, Report<StoreError>>>()?;
@@ -1306,6 +1330,7 @@ fn pending_component_to_subscription(
         effective_from,
         effective_to: None,
         lineage_id: None,
+        added_by_amendment: true,
     }
 }
 
@@ -1329,6 +1354,7 @@ fn pending_addon_to_subscription(
         effective_from,
         effective_to: None,
         lineage_id: None,
+        added_by_amendment: true,
     }
 }
 
@@ -1373,7 +1399,7 @@ async fn resolve_amendment(
 
         let product_id = current.product_id.ok_or_else(|| {
             Report::new(StoreError::InvalidArgument(
-                "Cannot override a component without a product (legacy pricing)".to_string(),
+                "Cannot override a component without a product (legacy pricing). Create a new plan version and migrate this subscription first.".to_string(),
             ))
         })?;
         let fee_structure = load_product_fee_structure(conn, tenant_id, product_id).await?;
@@ -1962,6 +1988,7 @@ mod tests {
                 amount_cents, // negative for a credit
                 full_period_amount_cents: 0,
                 is_credit: true,
+                is_prorated: true,
                 product_id: None,
                 price_component_id: None,
                 net_key: Some(net_key.to_string()),

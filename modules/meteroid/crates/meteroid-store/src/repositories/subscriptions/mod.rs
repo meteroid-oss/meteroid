@@ -295,6 +295,7 @@ impl SubscriptionInterface for Store {
                         effective_from: row.effective_from,
                         effective_to: row.effective_to,
                         lineage_id: row.lineage_id,
+                        added_by_amendment: row.added_by_amendment,
                     }
                 } else {
                     row.try_into()?
@@ -326,6 +327,7 @@ impl SubscriptionInterface for Store {
                         effective_from: row.effective_from,
                         effective_to: row.effective_to,
                         lineage_id: row.lineage_id,
+                        added_by_amendment: row.added_by_amendment,
                     }
                 } else {
                     row.try_into()?

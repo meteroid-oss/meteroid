@@ -2229,15 +2229,17 @@ async fn test_immediate_plan_change_mixed_alpha_to_beta() {
         .has_cycle_index(2)
         .has_period_start(mar1);
 
-    // Invoice 3: Beta advance + Rec/Arrears temporal split
+    // Invoice 3: Beta advance + Rec/Arrears temporal split (each segment prorated to
+    // the fraction of the [Feb 1, Mar 1] period it was active — 14 of 28 days).
     // Capacity base €80 = 8000 + ExtraRec/Advance €50 = 5000
-    // + Old Rec/Arrears [Feb 1, Feb 15] = 3000 + New Rec/Arrears [Feb 15, Mar 1] = 5000
+    // + Old Rec/Arrears [Feb 1, Feb 15] €30 × 14/28 = 1500
+    // + New Rec/Arrears [Feb 15, Mar 1] €50 × 14/28 = 2500
     let invoices = env.get_invoices(sub_id).await;
     invoices.assert().has_count(4);
     assert_eq!(
         invoices[3].total,
-        8000 + 5000 + 3000 + 5000,
-        "cycle 2 invoice: Beta advance + temporal split Rec/Arrears"
+        8000 + 5000 + 1500 + 2500,
+        "cycle 2 invoice: Beta advance + prorated temporal-split Rec/Arrears"
     );
 }
 
@@ -2541,16 +2543,18 @@ async fn test_immediate_plan_change_mixed_beta_to_alpha_downgrade() {
         .has_cycle_index(2)
         .has_period_start(mar1);
 
-    // Invoice 3: Alpha advance + temporal split Rec/Arrears + NO OneTime
+    // Invoice 3: Alpha advance + temporal split Rec/Arrears (each segment prorated to
+    // 14 of 28 days) + NO OneTime
     // Capacity base €50 = 5000 + ExtraRec/Advance €30 = 3000
-    // + Old Rec/Arrears [Feb 1, Feb 15] = 5000 + New Rec/Arrears [Feb 15, Mar 1] = 3000
-    // OneTime NOT charged (is_first_period = false)
+    // + Old Beta Rec/Arrears [Feb 1, Feb 15] €50 × 14/28 = 2500
+    // + New Alpha Rec/Arrears [Feb 15, Mar 1] €30 × 14/28 = 1500
+    // OneTime NOT charged (plan-change component, not amendment-added)
     let invoices = env.get_invoices(sub_id).await;
     invoices.assert().has_count(4);
     assert_eq!(
         invoices[3].total,
-        5000 + 3000 + 5000 + 3000,
-        "cycle 2: Alpha advance + temporal Rec/Arrears, OneTime NOT charged"
+        5000 + 3000 + 2500 + 1500,
+        "cycle 2: Alpha advance + prorated temporal Rec/Arrears, OneTime NOT charged"
     );
 
     // Verify no OneTime line item on cycle 2 invoice
@@ -2683,15 +2687,15 @@ async fn test_immediate_plan_change_capacity_tier_upgrade() {
     // Capacity base €120 = 12000
     // Capacity overage: 600 - 500 included = 100 units × €0.02 = 200
     // ExtraRec/Advance €30 = 3000
-    // Old Rec/Arrears [Feb 1, Feb 15] = 3000
-    // New Rec/Arrears [Feb 15, Mar 1] = 3000
+    // Old Rec/Arrears [Feb 1, Feb 15] €30 × 14/28 = 1500 (prorated to its active window)
+    // New Rec/Arrears [Feb 15, Mar 1] €30 × 14/28 = 1500
     // OneTime NOT charged
-    // Total = 12000 + 200 + 3000 + 3000 + 3000 = 21200
+    // Total = 12000 + 200 + 3000 + 1500 + 1500 = 18200
     let invoices = env.get_invoices(sub_id).await;
     invoices.assert().has_count(4);
     assert_eq!(
-        invoices[3].total, 21200,
-        "cycle 2: upgraded capacity (base + overage) + advance + temporal Rec/Arrears"
+        invoices[3].total, 18200,
+        "cycle 2: upgraded capacity (base + overage) + advance + prorated temporal Rec/Arrears"
     );
 
     // Verify overage line uses new config (100 units × €0.02 = 200¢)
