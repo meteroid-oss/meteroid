@@ -867,6 +867,65 @@ impl ServicesEdge {
             .await
     }
 
+    pub async fn preview_amendment(
+        &self,
+        subscription_id: SubscriptionId,
+        tenant_id: TenantId,
+        amendment: crate::domain::subscription_amendment::SubscriptionAmendment,
+    ) -> StoreResult<crate::domain::subscription_amendment::AmendmentPreviewExtended> {
+        self.services
+            .preview_amendment(subscription_id, tenant_id, amendment)
+            .await
+    }
+
+    pub async fn apply_amendment_immediate(
+        &self,
+        actor: Actor,
+        subscription_id: SubscriptionId,
+        tenant_id: TenantId,
+        amendment: crate::domain::subscription_amendment::SubscriptionAmendment,
+    ) -> StoreResult<crate::domain::subscription_amendment::ImmediateAmendmentResult> {
+        self.services
+            .apply_amendment_immediate(actor, subscription_id, tenant_id, amendment)
+            .await
+    }
+
+    pub async fn apply_amendment_immediate_at(
+        &self,
+        actor: Actor,
+        subscription_id: SubscriptionId,
+        tenant_id: TenantId,
+        amendment: crate::domain::subscription_amendment::SubscriptionAmendment,
+        change_date: NaiveDate,
+    ) -> StoreResult<crate::domain::subscription_amendment::ImmediateAmendmentResult> {
+        self.services
+            .apply_amendment_immediate_at(actor, subscription_id, tenant_id, amendment, change_date)
+            .await
+    }
+
+    pub async fn schedule_amendment(
+        &self,
+        actor: Actor,
+        subscription_id: SubscriptionId,
+        tenant_id: TenantId,
+        amendment: crate::domain::subscription_amendment::SubscriptionAmendment,
+    ) -> StoreResult<crate::domain::scheduled_events::ScheduledEvent> {
+        self.services
+            .schedule_amendment(actor, subscription_id, tenant_id, amendment)
+            .await
+    }
+
+    pub async fn cancel_amendment(
+        &self,
+        actor: Actor,
+        subscription_id: SubscriptionId,
+        tenant_id: TenantId,
+    ) -> StoreResult<()> {
+        self.services
+            .cancel_amendment(actor, subscription_id, tenant_id)
+            .await
+    }
+
     pub async fn update_matrix_prices(
         &self,
         tenant_id: TenantId,
@@ -1762,6 +1821,10 @@ impl ServicesEdge {
         )
         .await?;
 
+        let addon_effective_from = session
+            .change_date
+            .unwrap_or_else(|| chrono::Utc::now().naive_utc().date());
+
         resolve_and_insert_checkout_addons(
             conn,
             subscription_id,
@@ -1769,6 +1832,7 @@ impl ServicesEdge {
             &create_add_ons.add_ons,
             &products_by_id,
             &prices_by_id,
+            addon_effective_from,
         )
         .await?;
 

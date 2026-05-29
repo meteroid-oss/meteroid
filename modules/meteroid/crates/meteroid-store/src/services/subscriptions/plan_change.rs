@@ -212,6 +212,7 @@ impl Services {
                                     component_mappings,
                                 },
                                 source: "api".to_string(),
+                                created_by_customer: actor.is_customer(),
                             }],
                         )
                         .await?;
@@ -309,9 +310,19 @@ impl Services {
                 ))));
             }
 
+            // Plan changes never re-charge the new plan's one-time (setup) fees:
+            // those are signup-only, billed at subscription creation. Only recurring
+            // components prorate on an immediate change.
+            let added_recurring: Vec<AddedComponent> = preview
+                .added
+                .iter()
+                .filter(|a| !matches!(a.fee, SubscriptionFee::OneTime { .. }))
+                .cloned()
+                .collect();
+
             let result = calculate_proration(
                 &preview.matched,
-                &preview.added,
+                &added_recurring,
                 &preview.removed,
                 period_start,
                 period_end,
@@ -336,6 +347,15 @@ impl Services {
                     .map(|l| l.amount_cents)
                     .sum(),
                 net_amount_cents: result.net_amount_cents,
+                // What would actually be credited (post-netting): an override's credit
+                // is netted into its charge, so an upgrade contributes nothing here.
+                net_credit_cents: crate::services::subscriptions::proration::net_override_lines(
+                    &result.lines,
+                )
+                .iter()
+                .filter(|l| l.amount_cents < 0)
+                .map(|l| l.amount_cents)
+                .sum(),
                 proration_factor: result.proration_factor,
                 days_remaining,
                 days_in_period,
@@ -441,9 +461,19 @@ impl Services {
                         diesel_models::enums::ScheduledEventTypeEnum::ApplyPlanChange
                             | diesel_models::enums::ScheduledEventTypeEnum::CancelSubscription
                             | diesel_models::enums::ScheduledEventTypeEnum::PauseSubscription
+                            | diesel_models::enums::ScheduledEventTypeEnum::ApplyAmendment
                     ) {
                         return Err(Report::new(StoreError::InvalidArgument(
                             "This event type cannot be cancelled".to_string(),
+                        )));
+                    }
+
+                    // Customers may only cancel events they themselves scheduled.
+                    // Admin/User/ApiToken/System actors may cancel anything.
+                    if actor.is_customer() && !event.created_by_customer {
+                        return Err(Report::new(StoreError::InvalidArgument(
+                            "This scheduled change can only be modified by your account manager"
+                                .to_string(),
                         )));
                     }
 
@@ -454,6 +484,9 @@ impl Services {
                         }
                         diesel_models::enums::ScheduledEventTypeEnum::CancelSubscription => {
                             Some(ActivityType::SubscriptionCancellationUndone)
+                        }
+                        diesel_models::enums::ScheduledEventTypeEnum::ApplyAmendment => {
+                            Some(ActivityType::SubscriptionAmendmentCancelled)
                         }
                         _ => None,
                     };
@@ -716,9 +749,19 @@ impl Services {
             ))));
         }
 
+        // Plan changes never re-charge the new plan's one-time (setup) fees:
+        // those are signup-only, billed at subscription creation. Only recurring
+        // components prorate on an immediate change.
+        let added_recurring: Vec<AddedComponent> = preview
+            .added
+            .iter()
+            .filter(|a| !matches!(a.fee, SubscriptionFee::OneTime { .. }))
+            .cloned()
+            .collect();
+
         let proration = calculate_proration(
             &preview.matched,
-            &preview.added,
+            &added_recurring,
             &preview.removed,
             period_start,
             period_end,
@@ -1091,6 +1134,7 @@ impl PreparedPlanChange {
                     price_id: Some(*price_id),
                     effective_from: change_date,
                     effective_to: None,
+                    lineage_id: None,
                 }),
                 ComponentMapping::Added {
                     target_component_id,
@@ -1110,6 +1154,7 @@ impl PreparedPlanChange {
                     price_id: *price_id,
                     effective_from: change_date,
                     effective_to: None,
+                    lineage_id: None,
                 }),
                 ComponentMapping::Removed { .. } => None,
             })
@@ -1539,6 +1584,7 @@ fn build_plan_change_preview(
             name: target.name.clone(),
             fee,
             period,
+            net_key: None,
         });
     }
 
@@ -1548,6 +1594,7 @@ fn build_plan_change_preview(
                 name: current.name.clone(),
                 current_fee: current.fee.clone(),
                 current_period: current.period,
+                net_key: None,
             });
         }
     }

@@ -346,7 +346,11 @@ pub mod subscriptions {
             ScheduledEventTypeEnum::CancelSubscription => proto2::ScheduledEventType::Cancel,
             ScheduledEventTypeEnum::PauseSubscription => proto2::ScheduledEventType::Pause,
             ScheduledEventTypeEnum::EndTrial => proto2::ScheduledEventType::EndTrial,
-            _ => return None,
+            ScheduledEventTypeEnum::ApplyAmendment => proto2::ScheduledEventType::Amendment,
+            // Truly internal billing events are not surfaced to API clients.
+            ScheduledEventTypeEnum::FinalizeInvoice | ScheduledEventTypeEnum::RetryPayment => {
+                return None;
+            }
         };
 
         Some(proto2::PendingScheduledEvent {
@@ -356,6 +360,13 @@ pub mod subscriptions {
             new_plan_name: event.new_plan_name,
             new_plan_version_id: event.new_plan_version_id.map(|id| id.as_proto()),
             cancel_reason: event.cancel_reason,
+            customer_initiated: event.customer_initiated,
+            amendment_summary: event.amendment_summary.map(|s| proto2::AmendmentSummary {
+                added_component_names: s.added_component_names,
+                removed_component_names: s.removed_component_names,
+                added_add_on_names: s.added_add_on_names,
+                removed_add_on_names: s.removed_add_on_names,
+            }),
         })
     }
 
@@ -847,10 +858,160 @@ pub mod plan_change {
             credits_total_cents: summary.credits_total_cents,
             charges_total_cents: summary.charges_total_cents,
             net_amount_cents: summary.net_amount_cents,
+            net_credit_cents: summary.net_credit_cents,
             proration_factor: summary.proration_factor,
             days_remaining: summary.days_remaining,
             days_in_period: summary.days_in_period,
         }
+    }
+}
+
+pub mod amendment {
+    use super::add_ons::create_subscription_add_ons_from_grpc;
+    use super::price_components::map_billing_period_from_grpc;
+    use crate::api::pricecomponents::mapping::components::{
+        price_entries_from_proto, product_ref_from_proto,
+    };
+    use common_domain::ids::{SubscriptionAddOnId, SubscriptionPriceComponentId};
+    use meteroid_grpc::meteroid::api::shared::v1 as api_shared;
+    use meteroid_grpc::meteroid::api::subscriptions::v1 as api;
+    use meteroid_store::domain;
+    use meteroid_store::domain::subscription_amendment::{
+        AddExtraComponent, AddOnChanges, ComponentChanges, EditComponent, EditSubscriptionAddOn,
+        SubscriptionAmendment,
+    };
+    use tonic::{Result, Status};
+
+    fn one_price_entry(
+        price: Option<meteroid_grpc::meteroid::api::components::v1::PriceEntry>,
+    ) -> Result<domain::PriceEntry> {
+        let price =
+            price.ok_or_else(|| Status::invalid_argument("price entry is required".to_string()))?;
+        price_entries_from_proto(vec![price])?
+            .into_iter()
+            .next()
+            .ok_or_else(|| Status::invalid_argument("price entry is required".to_string()))
+    }
+
+    fn map_edit_addon_customization(
+        e: &api::AmendmentEditAddOn,
+    ) -> Result<Option<domain::SubscriptionAddOnCustomization>> {
+        match &e.customization {
+            Some(api::amendment_edit_add_on::Customization::PriceOverride(ov)) => {
+                let entry = one_price_entry(ov.price_entry.clone())?;
+                Ok(Some(
+                    domain::SubscriptionAddOnCustomization::PriceOverride {
+                        name: ov.name.clone(),
+                        price_entry: entry,
+                    },
+                ))
+            }
+            Some(api::amendment_edit_add_on::Customization::Parameterization(param)) => {
+                let billing_period = param
+                    .billing_period
+                    .map(api_shared::BillingPeriod::try_from)
+                    .transpose()
+                    .map_err(|_| Status::invalid_argument("Invalid billing period".to_string()))?
+                    .map(map_billing_period_from_grpc);
+                Ok(Some(
+                    domain::SubscriptionAddOnCustomization::Parameterization(
+                        domain::SubscriptionAddOnParameterization {
+                            initial_slot_count: param.initial_slot_count,
+                            billing_period,
+                            committed_capacity: param.committed_capacity,
+                        },
+                    ),
+                ))
+            }
+            None => Ok(None),
+        }
+    }
+
+    pub fn map_amendment(
+        apply_mode: i32,
+        component_changes: Option<api::AmendmentComponentChanges>,
+        add_on_changes: Option<api::AmendmentAddOnChanges>,
+    ) -> Result<SubscriptionAmendment> {
+        let apply_mode = super::plan_change::map_apply_mode(apply_mode);
+
+        let component_changes = match component_changes {
+            Some(cc) => {
+                let edited = cc
+                    .edited
+                    .into_iter()
+                    .map(|e| {
+                        Ok::<_, Status>(EditComponent {
+                            subscription_component_id: SubscriptionPriceComponentId::from_proto(
+                                &e.subscription_component_id,
+                            )?,
+                            name: e.name,
+                            price_entry: one_price_entry(e.price)?,
+                        })
+                    })
+                    .collect::<Result<Vec<_>>>()?;
+                let added = cc
+                    .added
+                    .into_iter()
+                    .map(|a| {
+                        Ok::<_, Status>(AddExtraComponent {
+                            name: a.name,
+                            product: product_ref_from_proto(a.product)?,
+                            price_entry: one_price_entry(a.price)?,
+                        })
+                    })
+                    .collect::<Result<Vec<_>>>()?;
+                let removed = cc
+                    .removed_component_ids
+                    .iter()
+                    .map(SubscriptionPriceComponentId::from_proto)
+                    .collect::<Result<Vec<_>>>()?;
+                ComponentChanges {
+                    edited,
+                    added,
+                    removed,
+                }
+            }
+            None => ComponentChanges::default(),
+        };
+
+        let add_on_changes = match add_on_changes {
+            Some(ac) => {
+                let added = create_subscription_add_ons_from_grpc(api::CreateSubscriptionAddOns {
+                    add_ons: ac.added,
+                })?
+                .add_ons;
+                let edited = ac
+                    .edited
+                    .iter()
+                    .map(|e| {
+                        Ok::<_, Status>(EditSubscriptionAddOn {
+                            subscription_add_on_id: SubscriptionAddOnId::from_proto(
+                                &e.subscription_add_on_id,
+                            )?,
+                            quantity: e.quantity,
+                            customization: map_edit_addon_customization(e)?,
+                        })
+                    })
+                    .collect::<Result<Vec<_>>>()?;
+                let removed = ac
+                    .removed_add_on_ids
+                    .iter()
+                    .map(SubscriptionAddOnId::from_proto)
+                    .collect::<Result<Vec<_>>>()?;
+                AddOnChanges {
+                    added,
+                    edited,
+                    removed,
+                }
+            }
+            None => AddOnChanges::default(),
+        };
+
+        Ok(SubscriptionAmendment {
+            apply_mode,
+            component_changes,
+            add_on_changes,
+        })
     }
 }
 

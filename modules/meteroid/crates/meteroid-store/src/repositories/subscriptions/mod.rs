@@ -2,7 +2,7 @@ use crate::StoreResult;
 use crate::domain::enums::SubscriptionFeeBillingPeriod;
 use crate::domain::prices::{Price, fee_type_billing_period, resolve_subscription_fee};
 use crate::domain::products::Product;
-use crate::domain::subscriptions::{PaymentMethodsConfig, PendingScheduledEvent};
+use crate::domain::subscriptions::{AmendmentSummary, PaymentMethodsConfig, PendingScheduledEvent};
 use crate::domain::{
     BillableMetric, ConnectorProviderEnum, Customer, InvoicingEntity, PaginatedVec,
     PaginationRequest, Schedule, Subscription, SubscriptionComponent, SubscriptionComponentNew,
@@ -239,10 +239,13 @@ impl SubscriptionInterface for Store {
             .map(std::convert::TryInto::try_into)
             .collect::<Result<Vec<_>, Report<_>>>()?;
 
-        let subscription_add_on_rows =
-            SubscriptionAddOnRow::list_by_subscription_id(conn, &tenant_id, &subscription.id)
-                .await
-                .map_err(Into::<Report<StoreError>>::into)?;
+        let subscription_add_on_rows = SubscriptionAddOnRow::list_by_subscription_id_active(
+            conn,
+            &tenant_id,
+            &subscription.id,
+        )
+        .await
+        .map_err(Into::<Report<StoreError>>::into)?;
 
         let (addon_rows_with_price, addon_rows_without_price): (Vec<_>, Vec<_>) =
             subscription_add_on_rows
@@ -291,6 +294,7 @@ impl SubscriptionInterface for Store {
                         price_id: row.price_id,
                         effective_from: row.effective_from,
                         effective_to: row.effective_to,
+                        lineage_id: row.lineage_id,
                     }
                 } else {
                     row.try_into()?
@@ -319,6 +323,9 @@ impl SubscriptionInterface for Store {
                         product_id: row.product_id,
                         price_id: row.price_id,
                         quantity: row.quantity,
+                        effective_from: row.effective_from,
+                        effective_to: row.effective_to,
+                        lineage_id: row.lineage_id,
                     }
                 } else {
                     row.try_into()?
@@ -459,6 +466,8 @@ impl SubscriptionInterface for Store {
                     new_plan_name: None,
                     new_plan_version_id: None,
                     cancel_reason: None,
+                    customer_initiated: event.created_by_customer,
+                    amendment_summary: None,
                 };
 
                 match &event.event_data {
@@ -475,6 +484,45 @@ impl SubscriptionInterface for Store {
                     }
                     ScheduledEventData::CancelSubscription { reason } => {
                         pending.cancel_reason = reason.clone();
+                    }
+                    ScheduledEventData::ApplyAmendment {
+                        component_close,
+                        component_insert,
+                        addon_close,
+                        addon_insert,
+                    } => {
+                        let added_component_names =
+                            component_insert.iter().map(|c| c.name.clone()).collect();
+                        let added_add_on_names =
+                            addon_insert.iter().map(|a| a.name.clone()).collect();
+
+                        // Resolve removed names from the subscription's currently-loaded
+                        // components/add-ons (in scope here), avoiding extra DB queries.
+                        let removed_component_names = component_close
+                            .iter()
+                            .filter_map(|id| {
+                                subscription_components
+                                    .iter()
+                                    .find(|c| &c.id == id)
+                                    .map(|c| c.name.clone())
+                            })
+                            .collect();
+                        let removed_add_on_names = addon_close
+                            .iter()
+                            .filter_map(|id| {
+                                subscription_add_ons
+                                    .iter()
+                                    .find(|a| &a.id == id)
+                                    .map(|a| a.name.clone())
+                            })
+                            .collect();
+
+                        pending.amendment_summary = Some(AmendmentSummary {
+                            added_component_names,
+                            removed_component_names,
+                            added_add_on_names,
+                            removed_add_on_names,
+                        });
                     }
                     _ => {}
                 }

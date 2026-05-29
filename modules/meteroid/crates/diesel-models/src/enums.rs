@@ -356,6 +356,7 @@ pub enum ScheduledEventTypeEnum {
     CancelSubscription,
     PauseSubscription,
     EndTrial,
+    ApplyAmendment,
 }
 
 #[derive(diesel_derive_enum::DbEnum, Debug, Clone)]

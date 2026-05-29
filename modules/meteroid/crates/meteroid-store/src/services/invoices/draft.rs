@@ -429,8 +429,13 @@ impl Services {
         let invoice_date = proration.change_date;
         let period_end = proration.period_end;
 
-        let invoice_lines: Vec<LineItem> = proration
-            .lines
+        // Net override credit/charge pairs (a price override is decomposed into
+        // an old-price credit + new-price charge) so tax applies to the delta
+        // rather than to the gross charge beside an untaxed credit.
+        let netted =
+            crate::services::subscriptions::proration::net_override_lines(&proration.lines);
+
+        let invoice_lines: Vec<LineItem> = netted
             .iter()
             .map(|line| {
                 let amount_subtotal = line.amount_cents;
@@ -683,6 +688,9 @@ impl Services {
                     product_id: resolved.product_id,
                     price_id: resolved.price_id,
                     quantity: cs_ao.quantity,
+                    effective_from: now,
+                    effective_to: None,
+                    lineage_id: None,
                 });
         }
 
@@ -715,6 +723,7 @@ impl Services {
                     is_credit: false,
                     product_id: l.product_id,
                     price_component_id: l.price_component_id,
+                    net_key: None,
                 })
                 .collect(),
             net_amount_cents: invoice_content.subtotal,

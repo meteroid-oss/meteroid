@@ -70,6 +70,7 @@ impl Services {
                                 scheduled_time: billing_end_date.and_time(NaiveTime::MIN),
                                 event_data: ScheduledEventData::CancelSubscription { reason },
                                 source: "edge".to_string(),
+                                created_by_customer: false,
                             }],
                         )
                         .await?;

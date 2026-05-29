@@ -41,6 +41,18 @@ pub struct SubscriptionComponent {
     pub price_id: Option<PriceId>,
     pub effective_from: chrono::NaiveDate,
     pub effective_to: Option<chrono::NaiveDate>,
+    /// Lineage root this component descends from across overrides. `None` means the
+    /// row is its own root.
+    pub lineage_id: Option<SubscriptionPriceComponentId>,
+}
+
+impl SubscriptionComponent {
+    /// The lineage root id: the original component this one descends from across
+    /// overrides, or its own id when it is a root.
+    #[inline]
+    pub fn lineage(&self) -> SubscriptionPriceComponentId {
+        self.lineage_id.unwrap_or(self.id)
+    }
 }
 
 impl SubscriptionFeeInterface for SubscriptionComponent {
@@ -120,6 +132,7 @@ impl TryInto<SubscriptionComponent> for SubscriptionComponentRow {
             price_id: self.price_id,
             effective_from: self.effective_from,
             effective_to: self.effective_to,
+            lineage_id: self.lineage_id,
         })
     }
 }
@@ -156,6 +169,9 @@ impl TryInto<SubscriptionComponentRowNew> for SubscriptionComponentNew {
             legacy_fee: Some(legacy_fee),
             price_id: self.internal.price_id,
             effective_from: self.internal.effective_from,
+            // Default to a root; the amendment override path sets the predecessor's
+            // lineage on the row after conversion.
+            lineage_id: None,
         })
     }
 }

@@ -1145,6 +1145,7 @@ diesel::table! {
         error -> Nullable<Text>,
         processed_at -> Nullable<Timestamp>,
         source -> Text,
+        created_by_customer -> Bool,
     }
 }
 
@@ -1229,6 +1230,9 @@ diesel::table! {
         product_id -> Nullable<Uuid>,
         price_id -> Nullable<Uuid>,
         quantity -> Int4,
+        effective_from -> Date,
+        effective_to -> Nullable<Date>,
+        lineage_id -> Nullable<Uuid>,
     }
 }
 
@@ -1247,6 +1251,7 @@ diesel::table! {
         price_id -> Nullable<Uuid>,
         effective_from -> Date,
         effective_to -> Nullable<Date>,
+        lineage_id -> Nullable<Uuid>,
     }
 }
 

@@ -290,6 +290,7 @@ impl Services {
             price_id: resolved.price_id,
             effective_from: chrono::Utc::now().naive_utc().date(),
             effective_to: None,
+            lineage_id: None,
         })
     }
 
@@ -364,6 +365,7 @@ impl Services {
                     price_id: resolved.price_id,
                     effective_from: chrono::Utc::now().naive_utc().date(),
                     effective_to: None,
+                    lineage_id: None,
                 });
                 continue;
             }
@@ -402,6 +404,7 @@ impl Services {
             price_id: resolved.existing_price_id(),
             effective_from: chrono::Utc::now().naive_utc().date(),
             effective_to: None,
+            lineage_id: None,
         }
     }
 
@@ -591,6 +594,9 @@ impl Services {
                 price_id: resolved.price_id,
                 created_at: chrono::Utc::now().naive_utc(),
                 quantity: create_ao.quantity,
+                effective_from: chrono::Utc::now().naive_utc().date(),
+                effective_to: None,
+                lineage_id: None,
             });
         }
 

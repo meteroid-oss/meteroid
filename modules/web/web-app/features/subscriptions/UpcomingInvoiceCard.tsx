@@ -17,8 +17,6 @@ interface UpcomingInvoiceCardProps {
 }
 
 export const UpcomingInvoiceCard = ({ subscriptionId, currency }: UpcomingInvoiceCardProps) => {
-  const [expanded, setExpanded] = useState(false)
-
   const invoiceQuery = useQuery(
     getUpcomingInvoice,
     { subscriptionId },
@@ -46,10 +44,40 @@ export const UpcomingInvoiceCard = ({ subscriptionId, currency }: UpcomingInvoic
     return null
   }
 
-  const invoice = invoiceQuery.data.invoice
+  return (
+    <div className="mb-6">
+      <InvoicePreviewCard
+        invoice={invoiceQuery.data.invoice}
+        currency={currency}
+        subscriptionId={subscriptionId}
+        title="Upcoming Invoice"
+      />
+    </div>
+  )
+}
+
+/**
+ * Presentational, collapsible card for an already-fetched UpcomingInvoice.
+ * Used for the live upcoming invoice and for amendment previews (adjustment +
+ * next-cycle invoices), where the invoice is computed server-side and passed in.
+ */
+export const InvoicePreviewCard = ({
+  invoice,
+  currency,
+  subscriptionId,
+  title,
+  defaultExpanded = false,
+}: {
+  invoice: UpcomingInvoice
+  currency: string
+  subscriptionId: string
+  title: string
+  defaultExpanded?: boolean
+}) => {
+  const [expanded, setExpanded] = useState(defaultExpanded)
 
   return (
-    <div className="bg-card rounded-lg border border-border shadow-sm mb-6">
+    <div className="bg-card rounded-lg border border-border shadow-sm">
       <button
         className="w-full p-4 flex items-center justify-between cursor-pointer hover:bg-muted/5 transition-colors"
         onClick={() => setExpanded(!expanded)}
@@ -61,7 +89,7 @@ export const UpcomingInvoiceCard = ({ subscriptionId, currency }: UpcomingInvoic
             <ChevronRight className="h-4 w-4 text-muted-foreground" />
           )}
           <div className="text-left">
-            <h3 className="text-md font-medium text-foreground">Upcoming Invoice</h3>
+            <h3 className="text-md font-medium text-foreground">{title}</h3>
             <div className="text-xs text-muted-foreground mt-0.5">
               {parseAndFormatDate(invoice.periodStart)} &mdash;{' '}
               {parseAndFormatDate(invoice.periodEnd)}

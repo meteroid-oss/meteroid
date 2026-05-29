@@ -424,6 +424,16 @@ pub struct PendingScheduledEvent {
     pub new_plan_name: Option<String>,
     pub new_plan_version_id: Option<PlanVersionId>,
     pub cancel_reason: Option<String>,
+    pub customer_initiated: bool,
+    pub amendment_summary: Option<AmendmentSummary>,
+}
+
+#[derive(Debug, Clone, Default)]
+pub struct AmendmentSummary {
+    pub added_component_names: Vec<String>,
+    pub removed_component_names: Vec<String>,
+    pub added_add_on_names: Vec<String>,
+    pub removed_add_on_names: Vec<String>,
 }
 
 #[derive(Debug, Clone)]

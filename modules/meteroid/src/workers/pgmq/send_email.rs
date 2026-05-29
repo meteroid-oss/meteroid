@@ -67,9 +67,8 @@ impl EmailSender {
         &self,
         tenant_id: TenantId,
     ) -> Result<bool, Report<StoreError>> {
-        let _tenant = self.store.find_tenant_by_id(tenant_id).await?;
-        //Ok(tenant.tenant.disable_emails)
-        Ok(false)
+        let tenant = self.store.find_tenant_by_id(tenant_id).await?;
+        Ok(tenant.tenant.disable_emails)
     }
 
     fn convert_to_events(

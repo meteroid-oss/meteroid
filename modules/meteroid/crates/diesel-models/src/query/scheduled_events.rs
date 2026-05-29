@@ -72,6 +72,7 @@ impl ScheduledEventRow {
 
         let visible_types = vec![
             ScheduledEventTypeEnum::ApplyPlanChange,
+            ScheduledEventTypeEnum::ApplyAmendment,
             ScheduledEventTypeEnum::CancelSubscription,
             ScheduledEventTypeEnum::PauseSubscription,
             ScheduledEventTypeEnum::EndTrial,
@@ -197,7 +198,8 @@ impl ScheduledEventRow {
             )
             RETURNING id, subscription_id, tenant_id, event_type, scheduled_time,
                       priority, event_data, created_at, updated_at, status,
-                      retries, last_retry_at, error, processed_at, source
+                      retries, last_retry_at, error, processed_at, source,
+                      created_by_customer
         "#;
 
         let now = Utc::now().naive_utc();

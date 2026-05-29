@@ -165,6 +165,9 @@ impl Services {
                 self.process_pause_subscription(conn, &event).await
             }
             ScheduledEventTypeEnum::EndTrial => self.process_end_trial(conn, &event).await,
+            ScheduledEventTypeEnum::ApplyAmendment => {
+                self.process_apply_amendment(conn, &event).await
+            }
         }
     }
     /// Determine if event should be retried
@@ -567,6 +570,230 @@ impl Services {
         } else {
             log::error!(
                 "Unexpected event data for type ApplyPlanChange: {:?}, event_id={}",
+                event.event_data,
+                event.id
+            );
+        }
+        Ok(())
+    }
+
+    /// Apply a manual/sales-led amendment scheduled for end-of-period.
+    /// Mirrors `process_apply_plan_change` but keeps the plan version and period:
+    /// it only rotates the carried component/add-on deltas at the scheduled date.
+    async fn process_apply_amendment(
+        &self,
+        conn: &mut PgConn,
+        event: &ScheduledEvent,
+    ) -> StoreResult<()> {
+        use crate::domain::subscription_components::{
+            SubscriptionComponentNew, SubscriptionComponentNewInternal,
+        };
+        use crate::services::subscriptions::plan_change::calculate_components_mrr_with_slots;
+        use crate::services::subscriptions::utils::calculate_mrr;
+        use diesel_models::subscription_add_ons::{SubscriptionAddOnRow, SubscriptionAddOnRowNew};
+        use diesel_models::subscription_components::{
+            SubscriptionComponentRow, SubscriptionComponentRowNew,
+        };
+        use diesel_models::subscriptions::SubscriptionRow;
+
+        if let ScheduledEventData::ApplyAmendment {
+            component_close,
+            component_insert,
+            addon_close,
+            addon_insert,
+        } = &event.event_data
+        {
+            SubscriptionRow::lock_subscription_for_update(conn, event.subscription_id)
+                .await
+                .map_err(Into::<error_stack::Report<StoreError>>::into)?;
+
+            let sub = SubscriptionRow::get_subscription_by_id(
+                conn,
+                &event.tenant_id,
+                event.subscription_id,
+            )
+            .await
+            .map_err(Into::<error_stack::Report<StoreError>>::into)?;
+
+            match sub.subscription.status {
+                SubscriptionStatusEnum::Active | SubscriptionStatusEnum::TrialActive => {}
+                other => {
+                    log::warn!(
+                        "Skipping amendment for subscription {} — status is {:?}, event_id={}",
+                        event.subscription_id,
+                        other,
+                        event.id,
+                    );
+                    return Err(StoreError::InvalidArgument(format!(
+                        "Cannot apply amendment: subscription is in {:?} status",
+                        other
+                    ))
+                    .into());
+                }
+            }
+
+            let apply_date = event.scheduled_time.date();
+
+            // Close removed/edited components and add-ons.
+            SubscriptionComponentRow::close_components(conn, component_close, apply_date)
+                .await
+                .map_err(Into::<error_stack::Report<StoreError>>::into)?;
+            SubscriptionAddOnRow::close_addons(conn, addon_close, apply_date)
+                .await
+                .map_err(Into::<error_stack::Report<StoreError>>::into)?;
+
+            // Insert new components.
+            let component_rows: Vec<SubscriptionComponentRowNew> = component_insert
+                .iter()
+                .map(|c| {
+                    let mut row: SubscriptionComponentRowNew = SubscriptionComponentNew {
+                        subscription_id: event.subscription_id,
+                        internal: SubscriptionComponentNewInternal {
+                            price_component_id: c.price_component_id,
+                            product_id: c.product_id,
+                            name: c.name.clone(),
+                            period: c.period,
+                            fee: c.fee.clone(),
+                            is_override: c.is_override,
+                            price_id: c.price_id,
+                            effective_from: apply_date,
+                        },
+                    }
+                    .try_into()?;
+                    // Preserve the overridden component's lineage so amendment credits
+                    // stay matched to the originally-billed invoice line across overrides.
+                    row.lineage_id = c.lineage_id;
+                    Ok::<_, error_stack::Report<StoreError>>(row)
+                })
+                .collect::<Result<Vec<_>, _>>()
+                .map_err(|_: error_stack::Report<StoreError>| {
+                    StoreError::InvalidArgument("Failed to convert amended component".to_string())
+                })?;
+
+            if !component_rows.is_empty() {
+                let refs: Vec<&SubscriptionComponentRowNew> = component_rows.iter().collect();
+                SubscriptionComponentRow::insert_subscription_component_batch(conn, refs)
+                    .await
+                    .map_err(Into::<error_stack::Report<StoreError>>::into)?;
+            }
+
+            // Insert new add-ons.
+            let addon_rows: Vec<SubscriptionAddOnRowNew> = addon_insert
+                .iter()
+                .map(|a| {
+                    let mut row: SubscriptionAddOnRowNew =
+                        crate::domain::subscription_add_ons::SubscriptionAddOnNew {
+                            subscription_id: event.subscription_id,
+                            internal:
+                                crate::domain::subscription_add_ons::SubscriptionAddOnNewInternal {
+                                    add_on_id: a.add_on_id,
+                                    name: a.name.clone(),
+                                    period: a.period,
+                                    fee: a.fee.clone(),
+                                    product_id: a.product_id,
+                                    price_id: a.price_id,
+                                    quantity: a.quantity,
+                                    effective_from: apply_date,
+                                },
+                        }
+                        .try_into()?;
+                    row.lineage_id = a.lineage_id;
+                    Ok::<_, error_stack::Report<StoreError>>(row)
+                })
+                .collect::<Result<Vec<_>, error_stack::Report<StoreError>>>()?;
+
+            if !addon_rows.is_empty() {
+                let refs: Vec<&SubscriptionAddOnRowNew> = addon_rows.iter().collect();
+                SubscriptionAddOnRow::insert_batch(conn, refs)
+                    .await
+                    .map_err(Into::<error_stack::Report<StoreError>>::into)?;
+            }
+
+            // Seed slot transactions for newly added Slot components/add-ons.
+            for c in component_insert {
+                if let Some(tx) = SlotTransactionNewInternal::from_fee(&c.fee, apply_date) {
+                    tx.into_row(event.subscription_id)
+                        .insert(conn)
+                        .await
+                        .map_err(Into::<error_stack::Report<StoreError>>::into)?;
+                }
+            }
+            for a in addon_insert {
+                if let Some(tx) = SlotTransactionNewInternal::from_fee(&a.fee, apply_date) {
+                    tx.into_row(event.subscription_id)
+                        .insert(conn)
+                        .await
+                        .map_err(Into::<error_stack::Report<StoreError>>::into)?;
+                }
+            }
+
+            let sub_event = diesel_models::subscription_events::SubscriptionEventRow {
+                id: uuid::Uuid::now_v7(),
+                subscription_id: event.subscription_id,
+                event_type: SubscriptionEventType::Switch,
+                details: Some(serde_json::json!({ "kind": "amendment", "mode": "end_of_period" })),
+                created_at: chrono::Utc::now().naive_utc(),
+                mrr_delta: None,
+                bi_mrr_movement_log_id: None,
+                applies_to: apply_date,
+            };
+            sub_event
+                .insert(conn)
+                .await
+                .map_err(Into::<error_stack::Report<StoreError>>::into)?;
+
+            // Recalculate MRR.
+            let sub_details = self
+                .store
+                .get_subscription_details_with_conn(conn, event.tenant_id, event.subscription_id)
+                .await?;
+
+            let precision = crate::constants::Currencies::resolve_currency_precision(
+                &sub_details.subscription.currency,
+            )
+            .unwrap_or(2);
+
+            let component_mrr: i64 = calculate_components_mrr_with_slots(
+                conn,
+                event.tenant_id,
+                event.subscription_id,
+                &sub_details.price_components,
+                precision,
+            )
+            .await?;
+
+            let add_on_mrr: i64 = sub_details
+                .add_ons
+                .iter()
+                .map(|a| calculate_mrr(&a.fee, &a.period, precision) * a.quantity as i64)
+                .sum();
+
+            let new_mrr = component_mrr + add_on_mrr;
+            let old_mrr = sub_details.subscription.mrr_cents as i64;
+            let mrr_delta = new_mrr - old_mrr;
+
+            if mrr_delta != 0 {
+                SubscriptionRow::update_subscription_mrr_delta(
+                    conn,
+                    event.subscription_id,
+                    mrr_delta,
+                )
+                .await
+                .map_err(Into::<error_stack::Report<StoreError>>::into)?;
+            }
+
+            log::info!(
+                "Applied amendment for subscription {}: closed_components={}, added_components={}, closed_addons={}, added_addons={}, mrr_delta={}",
+                event.subscription_id,
+                component_close.len(),
+                component_insert.len(),
+                addon_close.len(),
+                addon_insert.len(),
+                mrr_delta,
+            );
+        } else {
+            log::error!(
+                "Unexpected event data for type ApplyAmendment: {:?}, event_id={}",
                 event.event_data,
                 event.id
             );

@@ -12,6 +12,7 @@ import {
 } from 'lucide-react'
 import { useState } from 'react'
 import { useNavigate, useParams, useSearchParams } from 'react-router-dom'
+import { toast } from 'sonner'
 
 import { UsageBarChartDisplay } from '@/features/subscriptions/UsageBarChart'
 import { useQuery } from '@/lib/connectrpc'
@@ -38,6 +39,7 @@ import { parseAndFormatDate } from '@/utils/date'
 import { formatCurrency, formatCurrencyNoRounding } from '@/utils/numbers'
 import { useForceTheme } from 'providers/ThemeProvider'
 
+import type { AmendmentSummary } from '@/rpc/api/subscriptions/v1/models_pb'
 import type {
   AvailableAddOn,
   AvailablePlan,
@@ -161,10 +163,17 @@ export const PortalSubscription = () => {
   }
 
   const handleCancelScheduledEvent = async () => {
-    const eventId = detailsQuery.data?.subscription?.pendingEvent?.id
+    const pendingEvent = detailsQuery.data?.subscription?.pendingEvent
+    const eventId = pendingEvent?.id
     if (!subscriptionId || !eventId) return
-    await cancelMutation.mutateAsync({ subscriptionId, eventId })
-    detailsQuery.refetch()
+    // Guard: customers may only cancel events they scheduled themselves.
+    if (!pendingEvent?.customerCancellable) return
+    try {
+      await cancelMutation.mutateAsync({ subscriptionId, eventId })
+      detailsQuery.refetch()
+    } catch (e) {
+      toast.error(e instanceof Error ? e.message : 'Unable to cancel the scheduled change')
+    }
   }
 
   const handleStartChange = () => {
@@ -287,11 +296,14 @@ function IdleView({
     currentPeriodEnd?: string
     status: string
     canChangePlan: boolean
+    onlinePaymentEnabled: boolean
     pendingEvent?: {
       eventType: PendingEventType
       scheduledDate: string
       newPlanName?: string
       cancelReason?: string
+      customerCancellable: boolean
+      amendmentSummary?: AmendmentSummary
     }
   }
   subscriptionId: string
@@ -314,20 +326,29 @@ function IdleView({
   const [purchasedAddonName, setPurchasedAddonName] = useState<string | null>(null)
 
   const handlePurchaseAddOn = async (addon: AvailableAddOn) => {
-    const res = await purchaseMutation.mutateAsync({
-      subscriptionId,
-      addOnId: addon.addOnId,
-    })
+    // Add-ons can only be self-served when the subscription is on online payment.
+    if (!sub.onlinePaymentEnabled) return
+    try {
+      const res = await purchaseMutation.mutateAsync({
+        subscriptionId,
+        addOnId: addon.addOnId,
+      })
 
-    if (res.status === AddOnPurchaseStatus.ADDON_PURCHASE_CHECKOUT_REQUIRED && res.checkoutToken) {
-      window.location.href = '/portal/checkout?token=' + res.checkoutToken
-      return
+      if (
+        res.status === AddOnPurchaseStatus.ADDON_PURCHASE_CHECKOUT_REQUIRED &&
+        res.checkoutToken
+      ) {
+        window.location.href = '/portal/checkout?token=' + res.checkoutToken
+        return
+      }
+
+      setPurchasedAddonName(res.addOnName ?? addon.name)
+      addonsQuery.refetch()
+      onRefetchDetails()
+      setTimeout(() => setPurchasedAddonName(null), 3000)
+    } catch (e) {
+      toast.error(e instanceof Error ? e.message : 'Unable to add this add-on')
     }
-
-    setPurchasedAddonName(res.addOnName ?? addon.name)
-    addonsQuery.refetch()
-    onRefetchDetails()
-    setTimeout(() => setPurchasedAddonName(null), 3000)
   }
 
   const addons = addonsQuery.data?.addOns ?? []
@@ -401,21 +422,34 @@ function IdleView({
                   <p className="text-sm font-medium text-gray-900 truncate">
                     {sub.pendingEvent.eventType === PendingEventType.PLAN_CHANGE
                       ? `Switching to ${sub.pendingEvent.newPlanName}`
-                      : 'Cancellation scheduled'}
+                      : sub.pendingEvent.eventType === PendingEventType.AMENDMENT
+                        ? `Upcoming change on ${parseAndFormatDate(sub.pendingEvent.scheduledDate)}`
+                        : 'Cancellation scheduled'}
                   </p>
                   <p className="text-xs text-gray-500 mt-0.5">
                     Effective {parseAndFormatDate(sub.pendingEvent.scheduledDate)}
                   </p>
                 </div>
               </div>
-              <button
-                onClick={onCancelChange}
-                disabled={isCancelling}
-                className="text-sm text-gray-500 hover:text-gray-900 font-medium flex-shrink-0 disabled:opacity-50 transition-colors"
-              >
-                {isCancelling ? 'Revoking...' : 'Revoke'}
-              </button>
+              {sub.pendingEvent.customerCancellable ? (
+                <button
+                  onClick={onCancelChange}
+                  disabled={isCancelling}
+                  className="text-sm text-gray-500 hover:text-gray-900 font-medium flex-shrink-0 disabled:opacity-50 transition-colors"
+                >
+                  {isCancelling ? 'Revoking...' : 'Revoke'}
+                </button>
+              ) : (
+                <span className="text-xs text-gray-400 italic flex-shrink-0">
+                  Scheduled by your account manager
+                </span>
+              )}
             </div>
+
+            {/* Amendment summary — read-only list of upcoming changes */}
+            {sub.pendingEvent.amendmentSummary && (
+              <AmendmentSummaryList summary={sub.pendingEvent.amendmentSummary} />
+            )}
           </div>
         )}
 
@@ -450,6 +484,16 @@ function IdleView({
               </div>
             )}
 
+            {!sub.onlinePaymentEnabled && (
+              <div className="flex items-start gap-2 mb-4 px-3 py-2.5 bg-amber-50/60 rounded-lg">
+                <AlertCircle size={14} className="text-amber-600 mt-0.5 flex-shrink-0" />
+                <p className="text-sm text-amber-700">
+                  Adding add-ons isn&rsquo;t available for this subscription. Please contact your
+                  account manager.
+                </p>
+              </div>
+            )}
+
             <div className="space-y-3">
               {addons.map(addon => (
                 <div
@@ -479,6 +523,7 @@ function IdleView({
                   <button
                     onClick={() => handlePurchaseAddOn(addon)}
                     disabled={
+                      !sub.onlinePaymentEnabled ||
                       purchaseMutation.isPending ||
                       (addon.maxInstances != null && addon.currentQuantity >= addon.maxInstances)
                     }
@@ -499,6 +544,36 @@ function IdleView({
       )}
       {isLoadingInvoice && <Skeleton height={80} className="rounded-xl mt-6" />}
     </div>
+  )
+}
+
+// ---------------------------------------------------------------------------
+// Amendment Summary — compact read-only list of upcoming changes
+// ---------------------------------------------------------------------------
+
+function AmendmentSummaryList({ summary }: { summary: AmendmentSummary }) {
+  const rows: { prefix: '+' | '−'; label: string }[] = [
+    ...summary.addedComponentNames.map(label => ({ prefix: '+' as const, label })),
+    ...summary.addedAddOnNames.map(label => ({ prefix: '+' as const, label })),
+    ...summary.removedComponentNames.map(label => ({ prefix: '−' as const, label })),
+    ...summary.removedAddOnNames.map(label => ({ prefix: '−' as const, label })),
+  ]
+
+  if (rows.length === 0) return null
+
+  return (
+    <ul className="mt-3 space-y-0.5 pl-11">
+      {rows.map((row, idx) => (
+        <li key={idx} className="text-xs text-gray-600 tabular-nums">
+          <span
+            className={`font-medium ${row.prefix === '+' ? 'text-green-600' : 'text-gray-400'}`}
+          >
+            {row.prefix}
+          </span>{' '}
+          {row.label}
+        </li>
+      ))}
+    </ul>
   )
 }
 

@@ -118,6 +118,7 @@ fn build_subscription_from_quote(
             product_id: a.product_id,
             price_id: a.price_id,
             quantity: a.quantity,
+            effective_from: start_date,
         })
         .collect();
 

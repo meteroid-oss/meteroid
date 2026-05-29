@@ -23,6 +23,7 @@ pub struct ScheduledEventRow {
     pub error: Option<String>,
     pub processed_at: Option<NaiveDateTime>,
     pub source: String, // API, System, etc.
+    pub created_by_customer: bool,
 }
 
 #[derive(Debug, Clone, Insertable)]
@@ -39,4 +40,5 @@ pub struct ScheduledEventRowNew {
     pub status: ScheduledEventStatus,
     pub retries: i32,
     pub source: String,
+    pub created_by_customer: bool,
 }

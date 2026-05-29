@@ -6,6 +6,7 @@ package meteroid.api.subscriptions.v1;
 import "api/subscriptions/v1/models.proto";
 import "api/invoices/v1/models.proto";
 import "api/shared/v1/shared.proto";
+import "api/pricecomponents/v1/models.proto";
 import "common/v1/pagination.proto";
 
 message CreateSubscriptionsRequest {
@@ -218,6 +219,10 @@ message ProrationSummary {
   double proration_factor = 4;
   uint32 days_remaining = 5;
   uint32 days_in_period = 6;
+  // The credit actually issuable as a credit note (sum of post-netting negative
+  // lines). An override's credit is netted into its charge, so an upgrade is 0
+  // here even though credits_total_cents (gross) is negative.
+  int64 net_credit_cents = 7;
 }
 
 message PlanChangeMatchedComponent {
@@ -254,6 +259,96 @@ message CancelScheduledEventRequest {
 }
 
 message CancelScheduledEventResponse {}
+
+// --- Manual / sales-led amendments ---
+
+// Override an existing live component's price/fee (keeps the same product).
+message AmendmentEditComponent {
+  string subscription_component_id = 1;
+  optional string name = 2;
+  meteroid.api.components.v1.PriceEntry price = 3;
+}
+
+// Add an ad-hoc extra component (no plan price-component reference).
+message AmendmentAddComponent {
+  string name = 1;
+  meteroid.api.components.v1.ProductRef product = 2;
+  meteroid.api.components.v1.PriceEntry price = 3;
+}
+
+message AmendmentComponentChanges {
+  repeated AmendmentEditComponent edited = 1;
+  repeated AmendmentAddComponent added = 2;
+  repeated string removed_component_ids = 3;
+}
+
+// Change quantity and/or customization of an existing live add-on.
+message AmendmentEditAddOn {
+  string subscription_add_on_id = 1;
+  optional uint32 quantity = 2;
+  oneof customization {
+    CreateSubscriptionAddOn.AddOnParameterization parameterization = 3;
+    CreateSubscriptionAddOn.AddOnPriceOverride price_override = 4;
+  }
+}
+
+message AmendmentAddOnChanges {
+  repeated CreateSubscriptionAddOn added = 1;
+  repeated AmendmentEditAddOn edited = 2;
+  repeated string removed_add_on_ids = 3;
+}
+
+message PreviewAmendmentRequest {
+  string subscription_id = 1;
+  PlanChangeApplyMode apply_mode = 2;
+  AmendmentComponentChanges component_changes = 3;
+  AmendmentAddOnChanges add_on_changes = 4;
+}
+
+message MrrChange {
+  int64 before_cents = 1;
+  int64 after_cents = 2;
+  int64 delta_cents = 3;
+}
+
+message PreviewAmendmentResponse {
+  // Edits are decomposed into a removed (old) + added (new) pair.
+  repeated PlanChangeAddedComponent added_components = 1;
+  repeated PlanChangeRemovedComponent removed_components = 2;
+  repeated PlanChangeAddedComponent added_add_ons = 3;
+  repeated PlanChangeRemovedComponent removed_add_ons = 4;
+  string effective_date = 5;
+  optional ProrationSummary proration = 6;
+  string change_direction = 7;
+  // The prorated adjustment invoice that would be issued now (immediate mode only).
+  optional UpcomingInvoice adjustment_invoice = 8;
+  // The next renewal invoice under the amended subscription (both modes).
+  optional UpcomingInvoice next_invoice = 9;
+  // Monthly recurring revenue before/after the amendment.
+  optional MrrChange mrr = 10;
+  // The credit note issued now for the credit side (downgrades/removals).
+  // Line amounts are negative.
+  optional UpcomingInvoice credit_note = 11;
+}
+
+message ApplyAmendmentRequest {
+  string subscription_id = 1;
+  PlanChangeApplyMode apply_mode = 2;
+  AmendmentComponentChanges component_changes = 3;
+  AmendmentAddOnChanges add_on_changes = 4;
+}
+
+message ApplyAmendmentResponse {
+  optional string event_id = 1;
+  string effective_date = 2;
+  optional string invoice_id = 3;
+}
+
+message CancelAmendmentRequest {
+  string subscription_id = 1;
+}
+
+message CancelAmendmentResponse {}
 
 
 message GetUpcomingInvoiceRequest {
@@ -322,6 +417,9 @@ service SubscriptionsService {
   rpc PreviewPlanChange(PreviewPlanChangeRequest) returns (PreviewPlanChangeResponse);
   rpc CancelPlanChange(CancelPlanChangeRequest) returns (CancelPlanChangeResponse);
   rpc CancelScheduledEvent(CancelScheduledEventRequest) returns (CancelScheduledEventResponse);
+  rpc PreviewAmendment(PreviewAmendmentRequest) returns (PreviewAmendmentResponse);
+  rpc ApplyAmendment(ApplyAmendmentRequest) returns (ApplyAmendmentResponse);
+  rpc CancelAmendment(CancelAmendmentRequest) returns (CancelAmendmentResponse);
   rpc GetUpcomingInvoice(GetUpcomingInvoiceRequest) returns (GetUpcomingInvoiceResponse);
   rpc GetSubscriptionComponentUsage(GetSubscriptionComponentUsageRequest) returns (GetSubscriptionComponentUsageResponse);
 }

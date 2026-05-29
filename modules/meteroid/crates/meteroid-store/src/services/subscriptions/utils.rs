@@ -119,6 +119,53 @@ pub fn calculate_mrr(
     mrr_monthly.to_i64().unwrap_or(0)
 }
 
+/// Scale a per-unit fee by `quantity`. Add-ons store their fee per-unit with the
+/// instance count in a separate `quantity` column; this bakes that count into the
+/// monetary fields so a single computed line reflects all instances. One-time and
+/// usage fees are left unchanged. This is the canonical "apply add-on quantity"
+/// operation, shared by proration and invoice computation so they always agree.
+pub(crate) fn scale_fee(fee: &SubscriptionFee, quantity: i32) -> SubscriptionFee {
+    let q = Decimal::from(quantity.max(0));
+    match fee {
+        SubscriptionFee::Rate { rate } => SubscriptionFee::Rate { rate: rate * q },
+        SubscriptionFee::Recurring {
+            rate,
+            quantity: inner_qty,
+            billing_type,
+        } => SubscriptionFee::Recurring {
+            rate: rate * q,
+            quantity: *inner_qty,
+            billing_type: billing_type.clone(),
+        },
+        SubscriptionFee::Capacity {
+            rate,
+            included,
+            overage_rate,
+            metric_id,
+        } => SubscriptionFee::Capacity {
+            rate: rate * q,
+            included: *included,
+            overage_rate: *overage_rate,
+            metric_id: *metric_id,
+        },
+        SubscriptionFee::Slot {
+            unit,
+            unit_rate,
+            min_slots,
+            max_slots,
+            initial_slots,
+        } => SubscriptionFee::Slot {
+            unit: unit.clone(),
+            unit_rate: *unit_rate,
+            min_slots: *min_slots,
+            max_slots: *max_slots,
+            initial_slots: initial_slots * quantity.max(0) as u32,
+        },
+        other => other.clone(),
+    }
+}
+
+#[allow(clippy::too_many_arguments)]
 pub fn process_create_subscription_add_ons(
     create: &Option<CreateSubscriptionAddOns>,
     add_ons: &[AddOn],
@@ -126,6 +173,7 @@ pub fn process_create_subscription_add_ons(
     prices: &HashMap<common_domain::ids::PriceId, crate::domain::prices::Price>,
     product_family_id: ProductFamilyId,
     currency: &str,
+    effective_from: chrono::NaiveDate,
 ) -> Result<
     (
         Vec<SubscriptionAddOnNewInternal>,
@@ -186,6 +234,7 @@ pub fn process_create_subscription_add_ons(
                 product_id: resolved.product_id,
                 price_id: resolved.price_id,
                 quantity: cs_ao.quantity,
+                effective_from,
             });
         }
     }

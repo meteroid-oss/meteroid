@@ -9,6 +9,7 @@ import "api/subscriptions/v1/models.proto";
 enum PendingEventType {
   PLAN_CHANGE = 0;
   CANCEL = 1;
+  AMENDMENT = 2;
 }
 
 enum AddOnPurchaseStatus {
@@ -43,6 +44,10 @@ message PendingEvent {
   string scheduled_date = 3;
   optional string new_plan_name = 4;
   optional string cancel_reason = 5;
+  // True only when this customer is allowed to cancel the event (i.e. the
+  // customer scheduled it). Admin-scheduled events are not customer-cancellable.
+  bool customer_cancellable = 6;
+  optional api.subscriptions.v1.AmendmentSummary amendment_summary = 7;
 }
 
 message SubscriptionDetails {
@@ -56,6 +61,10 @@ message SubscriptionDetails {
   string currency = 8;
   bool can_change_plan = 9;
   optional PendingEvent pending_event = 10;
+  // True when the subscription is configured for online payment, i.e. add-ons
+  // can be self-served via checkout. When false, the portal must direct the
+  // customer to contact their account manager instead of purchasing.
+  bool online_payment_enabled = 11;
 }
 
 message AvailablePlan {

@@ -7,8 +7,8 @@ use crate::errors::StoreErrorReport;
 use crate::json_value_serde;
 use chrono::NaiveDateTime;
 use common_domain::ids::{
-    BaseId, InvoiceId, PlanVersionId, PriceComponentId, PriceId, ProductId, ScheduledEventId,
-    SubscriptionId, SubscriptionPriceComponentId, TenantId,
+    AddOnId, BaseId, InvoiceId, PlanVersionId, PriceComponentId, PriceId, ProductId,
+    ScheduledEventId, SubscriptionAddOnId, SubscriptionId, SubscriptionPriceComponentId, TenantId,
 };
 use diesel_models::scheduled_events::ScheduledEventRow;
 use diesel_models::scheduled_events::ScheduledEventRowNew;
@@ -36,6 +36,7 @@ pub struct ScheduledEvent {
     pub error: Option<String>,
     pub processed_at: Option<NaiveDateTime>,
     pub source: String, // API, System, etc.
+    pub created_by_customer: bool,
 }
 
 #[derive(Clone, Debug, o2o)]
@@ -54,6 +55,7 @@ pub struct ScheduledEventNew {
     #[into(~.clone().try_into()?)]
     pub event_data: ScheduledEventData,
     pub source: String,
+    pub created_by_customer: bool,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -77,6 +79,47 @@ pub enum ScheduledEventData {
     /// End paid trial - transitions subscription from TrialActive to Active
     /// Billing continues normally via RenewSubscription, this just handles the status change
     EndTrial,
+    /// Apply a manual/sales-led amendment at the end of the current period.
+    /// Carries fully-resolved component and add-on deltas (no plan-version switch).
+    ApplyAmendment {
+        component_close: Vec<SubscriptionPriceComponentId>,
+        component_insert: Vec<ResolvedComponentInsert>,
+        addon_close: Vec<SubscriptionAddOnId>,
+        addon_insert: Vec<ResolvedAddOnInsert>,
+    },
+}
+
+/// A fully-resolved subscription component to insert when an amendment is applied.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct ResolvedComponentInsert {
+    pub price_component_id: Option<PriceComponentId>,
+    pub product_id: Option<ProductId>,
+    pub name: String,
+    pub period: SubscriptionFeeBillingPeriod,
+    pub fee: SubscriptionFee,
+    pub is_override: bool,
+    pub price_id: Option<PriceId>,
+    /// Lineage root of the component being overridden, carried onto the new row so
+    /// amendment credits stay matched to the originally-billed invoice line. `None`
+    /// for genuinely new (extra) components, which become their own root.
+    #[serde(default)]
+    pub lineage_id: Option<SubscriptionPriceComponentId>,
+}
+
+/// A fully-resolved subscription add-on to insert when an amendment is applied.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct ResolvedAddOnInsert {
+    pub add_on_id: AddOnId,
+    pub name: String,
+    pub period: SubscriptionFeeBillingPeriod,
+    pub fee: SubscriptionFee,
+    pub product_id: Option<ProductId>,
+    pub price_id: Option<PriceId>,
+    pub quantity: i32,
+    /// Lineage root of the add-on being overridden, carried onto the new row. `None`
+    /// for genuinely new add-ons, which become their own root.
+    #[serde(default)]
+    pub lineage_id: Option<SubscriptionAddOnId>,
 }
 
 json_value_serde!(ScheduledEventData);
@@ -90,6 +133,7 @@ impl ScheduledEventData {
             Self::RetryPayment { .. } => ScheduledEventTypeEnum::RetryPayment,
             Self::ApplyPlanChange { .. } => ScheduledEventTypeEnum::ApplyPlanChange,
             Self::EndTrial => ScheduledEventTypeEnum::EndTrial,
+            Self::ApplyAmendment { .. } => ScheduledEventTypeEnum::ApplyAmendment,
         }
     }
 }
@@ -159,6 +203,7 @@ impl ScheduledEventNew {
             scheduled_time,
             event_data: ScheduledEventData::EndTrial,
             source: source.into(),
+            created_by_customer: false,
         })
     }
 }

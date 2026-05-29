@@ -1,4 +1,4 @@
-use chrono::NaiveDateTime;
+use chrono::{NaiveDate, NaiveDateTime};
 
 use crate::enums::SubscriptionFeeBillingPeriod;
 use common_domain::ids::{AddOnId, PriceId, ProductId, SubscriptionAddOnId, SubscriptionId};
@@ -18,6 +18,11 @@ pub struct SubscriptionAddOnRow {
     pub product_id: Option<ProductId>,
     pub price_id: Option<PriceId>,
     pub quantity: i32,
+    pub effective_from: NaiveDate,
+    pub effective_to: Option<NaiveDate>,
+    /// Lineage root this add-on descends from across overrides. `None` means the
+    /// row is its own root. See the `subscription_component_lineage` migration.
+    pub lineage_id: Option<SubscriptionAddOnId>,
 }
 
 #[derive(Insertable, Debug, Clone)]
@@ -33,4 +38,8 @@ pub struct SubscriptionAddOnRowNew {
     pub product_id: Option<ProductId>,
     pub price_id: Option<PriceId>,
     pub quantity: i32,
+    pub effective_from: NaiveDate,
+    /// Lineage root this add-on descends from across overrides. `None` means the
+    /// row is its own root.
+    pub lineage_id: Option<SubscriptionAddOnId>,
 }

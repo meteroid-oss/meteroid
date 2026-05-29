@@ -375,6 +375,7 @@ impl Services {
                     scheduled_time,
                     event_data: ScheduledEventData::FinalizeInvoice { invoice_id },
                     source: String::new(),
+                    created_by_customer: false,
                 }],
             )
             .await?;

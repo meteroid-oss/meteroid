@@ -352,6 +352,7 @@ pub enum ScheduledEventTypeEnum {
     CancelSubscription,
     PauseSubscription,
     EndTrial,
+    ApplyAmendment,
 }
 
 #[derive(o2o, Serialize, Deserialize, Debug, Clone, PartialEq, Eq)]

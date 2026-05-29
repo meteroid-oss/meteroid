@@ -37,6 +37,13 @@ pub struct ProrationSummary {
     pub credits_total_cents: i64,
     pub charges_total_cents: i64,
     pub net_amount_cents: i64,
+    /// The credit that would actually be issued as a credit note: the sum of the
+    /// post-netting negative lines. For a price override the credit and charge net
+    /// into a single line, so an upgrade contributes 0 here even though
+    /// `credits_total_cents` (gross) is negative. Use this — not the gross credit —
+    /// to decide whether a credit is genuinely owed.
+    #[serde(default)]
+    pub net_credit_cents: i64,
     pub proration_factor: f64,
     pub days_remaining: u32,
     pub days_in_period: u32,
@@ -66,6 +73,12 @@ pub struct AddedComponent {
     pub name: String,
     pub fee: SubscriptionFee,
     pub period: SubscriptionFeeBillingPeriod,
+    /// Correlation key tying an override's new charge to the matching old
+    /// credit (e.g. the subscription component/add-on id being edited), so the
+    /// adjustment invoice can net them and tax only the delta. `None` for
+    /// genuinely new components, which are not netted.
+    #[serde(default)]
+    pub net_key: Option<String>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -73,6 +86,9 @@ pub struct RemovedComponent {
     pub name: String,
     pub current_fee: SubscriptionFee,
     pub current_period: SubscriptionFeeBillingPeriod,
+    /// See `AddedComponent::net_key`.
+    #[serde(default)]
+    pub net_key: Option<String>,
 }
 
 /// Proration result for a plan change — contains individual line items.
@@ -94,4 +110,7 @@ pub struct ProrationLineItem {
     pub is_credit: bool,
     pub product_id: Option<ProductId>,
     pub price_component_id: Option<PriceComponentId>,
+    /// Correlation key for netting override credit/charge pairs in the
+    /// adjustment invoice. See `AddedComponent::net_key`.
+    pub net_key: Option<String>,
 }

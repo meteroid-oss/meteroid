@@ -2,11 +2,12 @@ use crate::StoreResult;
 use crate::constants::{Currencies, Currency};
 use crate::domain::{
     ComponentPeriods, CouponLineItem, Customer, Invoice, InvoicingEntity, LineItem,
-    SubscriptionComponent, SubscriptionDetails, SubscriptionFeeInterface, TaxBreakdownItem,
-    TaxResolverEnum,
+    SubscriptionAddOn, SubscriptionComponent, SubscriptionDetails, SubscriptionFeeInterface,
+    TaxBreakdownItem, TaxResolverEnum,
 };
 use chrono::NaiveDate;
-use common_domain::ids::{PriceComponentId, SubscriptionPriceComponentId};
+use common_domain::ids::{PriceComponentId, SubscriptionAddOnId, SubscriptionPriceComponentId};
+use diesel_models::subscription_add_ons::SubscriptionAddOnRow;
 use diesel_models::subscription_components::SubscriptionComponentRow;
 use itertools::Itertools;
 use std::cmp::min;
@@ -19,6 +20,7 @@ use crate::repositories::customer_balance::convert_currency;
 use crate::services::Services;
 use crate::services::invoice_lines::component::ExistingLineKey;
 use crate::services::invoice_lines::discount::calculate_coupons_discount;
+use crate::services::subscriptions::utils::scale_fee;
 use crate::store::PgConn;
 use crate::utils::periods::calculate_component_period_for_invoice_date;
 use common_utils::integers::ToNonNegativeU64;
@@ -28,7 +30,7 @@ use meteroid_tax::{ManualTaxEngine, MeteroidTaxEngine, TaxDetails, TaxEngine};
 
 impl Services {}
 
-#[derive(Debug)]
+#[derive(Debug, Clone)]
 pub struct ComputedInvoiceContent {
     pub invoice_lines: Vec<LineItem>,
     pub subtotal: i64, // before discounts, coupons, credits, taxes
@@ -132,11 +134,24 @@ impl Services {
             )
             .await?;
 
+        // Add-ons store their fee per-unit with an instance count in `quantity`;
+        // bake that count into the fee so a multi-quantity add-on bills for all
+        // instances (matching the MRR and proration semantics, which both scale).
+        let scaled_add_ons: Vec<SubscriptionAddOn> = subscription_details
+            .add_ons
+            .iter()
+            .map(|a| {
+                let mut scaled = a.clone();
+                scaled.fee = scale_fee(&a.fee, a.quantity);
+                scaled
+            })
+            .collect();
+
         let add_ons_lines = self
             .process_fee_records(
                 conn,
                 subscription_details,
-                &subscription_details.add_ons,
+                &scaled_add_ons,
                 invoice_date,
                 billing_start_date,
                 cycle_index,
@@ -229,6 +244,91 @@ impl Services {
             }
         };
 
+        // Load and process historical (closed) add-ons for arrears temporal split.
+        // When a mid-period amendment removed an arrears/usage add-on, the closed row
+        // still needs to be billed for its temporal segment [effective_from, effective_to].
+        let historical_addon_lines = {
+            let active_addon_ids: HashSet<SubscriptionAddOnId> =
+                subscription_details.add_ons.iter().map(|a| a.id).collect();
+
+            let historical_rows = SubscriptionAddOnRow::list_add_on_history_for_period(
+                conn,
+                &subscription_details.subscription.id,
+                billing_start_date,
+                invoice_date,
+            )
+            .await
+            .map_err(Into::<Report<StoreError>>::into)?;
+
+            let historical_addons: Vec<SubscriptionAddOn> = historical_rows
+                .into_iter()
+                .filter(|row| row.effective_to.is_some())
+                .filter(|row| !active_addon_ids.contains(&row.id))
+                .filter_map(|row| {
+                    let ao: Result<SubscriptionAddOn, _> = row.try_into();
+                    ao.ok()
+                })
+                .filter(|ao| ao.fee.is_pure_arrears())
+                // Bake the instance count into the fee, as for active add-ons.
+                .map(|mut ao| {
+                    ao.fee = scale_fee(&ao.fee, ao.quantity);
+                    ao
+                })
+                .collect();
+
+            if !historical_addons.is_empty() {
+                // Historical add-ons may reference metrics not loaded in subscription_details
+                // (e.g. the metric is no longer used by any active component/add-on).
+                let known_metric_ids: HashSet<_> =
+                    subscription_details.metrics.iter().map(|m| m.id).collect();
+
+                let missing_metric_ids: Vec<_> = historical_addons
+                    .iter()
+                    .filter_map(|a| a.fee.metric_id())
+                    .filter(|id| !known_metric_ids.contains(id))
+                    .collect::<HashSet<_>>()
+                    .into_iter()
+                    .collect();
+
+                let details_for_historical = if !missing_metric_ids.is_empty() {
+                    let extra_metrics: Vec<BillableMetric> = BillableMetricRow::get_by_ids(
+                        conn,
+                        &missing_metric_ids,
+                        &subscription_details.subscription.tenant_id,
+                    )
+                    .await
+                    .map_err(Into::<Report<StoreError>>::into)?
+                    .into_iter()
+                    .map(std::convert::TryInto::try_into)
+                    .collect::<Result<Vec<_>, Report<_>>>()?;
+
+                    let mut extended = subscription_details.clone();
+                    extended.metrics.extend(extra_metrics);
+                    Some(extended)
+                } else {
+                    None
+                };
+
+                let effective_details = details_for_historical
+                    .as_ref()
+                    .unwrap_or(subscription_details);
+
+                self.process_fee_records(
+                    conn,
+                    effective_details,
+                    &historical_addons,
+                    invoice_date,
+                    billing_start_date,
+                    cycle_index,
+                    currency,
+                    &existing_lines,
+                )
+                .await?
+            } else {
+                Vec::new()
+            }
+        };
+
         // Merge non-usage-based lines from existing invoice (if refreshing)
         let mut invoice_lines = if let Some(invoice) = invoice {
             // TODO quick fix, do that part in process_component instead
@@ -236,6 +336,7 @@ impl Services {
                 .into_iter()
                 .chain(add_ons_lines)
                 .chain(historical_lines)
+                .chain(historical_addon_lines)
                 .filter(&is_usage_based_line)
                 .collect_vec();
 
@@ -255,6 +356,7 @@ impl Services {
                 .into_iter()
                 .chain(add_ons_lines)
                 .chain(historical_lines)
+                .chain(historical_addon_lines)
                 .collect_vec()
         };
 

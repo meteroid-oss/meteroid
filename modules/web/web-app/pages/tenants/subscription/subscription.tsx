@@ -24,6 +24,7 @@ import {
   ExternalLink,
   Pencil,
   RefreshCw,
+  SlidersHorizontal,
   X,
 } from 'lucide-react'
 import { ReactNode, useCallback, useState } from 'react'
@@ -237,6 +238,11 @@ const scheduledEventLabel = (event: PendingScheduledEvent): { message: string; v
         message: `Trial ending on ${parseAndFormatDate(event.scheduledDate)}`,
         variant: 'warning',
       }
+    case ScheduledEventType.AMENDMENT:
+      return {
+        message: `Subscription amendment scheduled for ${parseAndFormatDate(event.scheduledDate)}`,
+        variant: 'default',
+      }
     default:
       return {
         message: `Scheduled event on ${parseAndFormatDate(event.scheduledDate)}`,
@@ -265,13 +271,34 @@ const ScheduledEventBanner = ({
   })
 
   const { message, variant } = scheduledEventLabel(event)
+  const summary =
+    event.eventType === ScheduledEventType.AMENDMENT ? event.amendmentSummary : undefined
+  const summaryLines: string[] = summary
+    ? [
+        ...summary.addedComponentNames.map(n => `+ ${n}`),
+        ...summary.removedComponentNames.map(n => `− ${n}`),
+        ...summary.addedAddOnNames.map(n => `+ ${n}`),
+        ...summary.removedAddOnNames.map(n => `− ${n}`),
+      ]
+    : []
 
   return (
     <Alert variant={variant}>
-      <div className="flex items-center justify-between gap-2">
-        <div className="flex items-center gap-2">
-          <CalendarClock className="h-4 w-4 shrink-0" />
-          <span className="text-sm">{message}</span>
+      <div className="flex items-start justify-between gap-2">
+        <div className="flex items-start gap-2">
+          <CalendarClock className="h-4 w-4 shrink-0 mt-0.5" />
+          <div>
+            <span className="text-sm">{message}</span>
+            {summaryLines.length > 0 && (
+              <div className="mt-1 space-y-0.5">
+                {summaryLines.map((line, idx) => (
+                  <div key={idx} className="text-xs text-muted-foreground">
+                    {line}
+                  </div>
+                ))}
+              </div>
+            )}
+          </div>
         </div>
         <Button
           variant="ghost"
@@ -507,6 +534,13 @@ export const Subscription = () => {
                     <DropdownMenuItem onClick={() => navigate('change-plan')}>
                       <ArrowLeftRight size="16" className="mr-2" />
                       Change Plan
+                    </DropdownMenuItem>
+                  )}
+                  {(data.status === SubscriptionStatus.ACTIVE ||
+                    data.status === SubscriptionStatus.TRIALING) && (
+                    <DropdownMenuItem onClick={() => navigate('amend')}>
+                      <SlidersHorizontal size="16" className="mr-2" />
+                      Amend subscription
                     </DropdownMenuItem>
                   )}
                   <Tooltip>

@@ -616,6 +616,10 @@ impl Services {
                                 )
                                 .await?;
 
+                            let addon_effective_from = session
+                                .change_date
+                                .unwrap_or_else(|| Utc::now().date_naive());
+
                             crate::repositories::subscription_add_ons::resolve_and_insert_checkout_addons(
                                 conn,
                                 subscription_id,
@@ -623,6 +627,7 @@ impl Services {
                                 &create_add_ons.add_ons,
                                 &products_by_id,
                                 &prices_by_id,
+                                addon_effective_from,
                             )
                             .await?;
 

@@ -134,7 +134,7 @@ impl Services {
             let (components, pending_materializations) =
                 self.process_components(price_components, subscription, context, resolved, plan)?;
             let (subscription_add_ons, pending_addon_materializations) =
-                self.process_add_ons(add_ons, context, plan)?;
+                self.process_add_ons(add_ons, subscription, context, plan)?;
 
             let slot_transactions = process_slot_transactions(
                 &components,
@@ -657,6 +657,7 @@ impl Services {
     fn process_add_ons(
         &self,
         add_ons: &Option<CreateSubscriptionAddOns>,
+        subscription: &SubscriptionNew,
         context: &SubscriptionCreationContext,
         plan: &crate::domain::PlanForSubscription,
     ) -> Result<
@@ -666,6 +667,10 @@ impl Services {
         ),
         StoreErrorReport,
     > {
+        let effective_from = subscription
+            .billing_start_date
+            .unwrap_or(subscription.start_date);
+
         process_create_subscription_add_ons(
             add_ons,
             &context.all_add_ons,
@@ -673,6 +678,7 @@ impl Services {
             &context.addon_prices_by_id,
             plan.product_family_id,
             &plan.currency,
+            effective_from,
         )
     }
 

@@ -1,4 +1,5 @@
 pub(in crate::services) mod activate;
+pub(in crate::services) mod amendment;
 pub(in crate::services) mod cancel;
 mod effective_plan;
 

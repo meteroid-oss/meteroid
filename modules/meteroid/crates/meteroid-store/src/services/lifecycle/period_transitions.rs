@@ -235,6 +235,7 @@ impl Services {
                 vec![
                     ScheduledEventTypeEnum::CancelSubscription,
                     ScheduledEventTypeEnum::ApplyPlanChange,
+                    ScheduledEventTypeEnum::ApplyAmendment,
                     ScheduledEventTypeEnum::PauseSubscription,
                 ],
                 next_cycle.new_period_start,
@@ -247,14 +248,20 @@ impl Services {
                     subscription.id,
                     event
                 );
-                let is_plan_change = event.event_type == ScheduledEventTypeEnum::ApplyPlanChange;
+                // Non-terminal events (plan change, amendment) apply at period end and then
+                // billing continues; terminal events (cancel, pause) stop the cycle.
+                let is_non_terminal = matches!(
+                    event.event_type,
+                    ScheduledEventTypeEnum::ApplyPlanChange
+                        | ScheduledEventTypeEnum::ApplyAmendment
+                );
                 let event_id = event.id;
 
                 ScheduledEventRow::mark_as_processing(conn, &[event_id]).await?;
                 self.process_event_batch(conn, vec![event]).await?;
                 ScheduledEventRow::mark_as_completed(conn, &[event_id]).await?;
 
-                if !is_plan_change {
+                if !is_non_terminal {
                     // Terminal events (cancel, pause): clear processing claim and stop.
                     SubscriptionCycleRowPatch {
                         id: subscription.id,
@@ -274,7 +281,7 @@ impl Services {
 
                     return Ok(());
                 }
-                // Plan change: fall through to advance period and bill at new prices.
+                // Plan change / amendment: fall through to advance period and bill at new prices.
             }
         }
 

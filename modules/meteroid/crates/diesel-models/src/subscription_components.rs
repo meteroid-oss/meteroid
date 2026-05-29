@@ -19,6 +19,9 @@ pub struct SubscriptionComponentRow {
     pub price_id: Option<PriceId>,
     pub effective_from: NaiveDate,
     pub effective_to: Option<NaiveDate>,
+    /// Lineage root this component descends from across overrides. `None` means the
+    /// row is its own root. See the `subscription_component_lineage` migration.
+    pub lineage_id: Option<SubscriptionPriceComponentId>,
 }
 
 #[derive(Insertable, Debug, Clone)]
@@ -33,4 +36,7 @@ pub struct SubscriptionComponentRowNew {
     pub legacy_fee: Option<serde_json::Value>,
     pub price_id: Option<PriceId>,
     pub effective_from: NaiveDate,
+    /// Lineage root this component descends from across overrides. `None` means the
+    /// row is its own root.
+    pub lineage_id: Option<SubscriptionPriceComponentId>,
 }

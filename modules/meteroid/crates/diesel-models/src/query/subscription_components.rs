@@ -50,6 +50,38 @@ impl SubscriptionComponentRow {
             .into_db_result()
     }
 
+    /// Fetch the lineage root for a set of component ids. Returns `(id, lineage_id)`
+    /// pairs; a `None` lineage_id means the row is its own root. Used to match an
+    /// amendment credit to the originally-billed invoice line across overrides.
+    pub async fn find_lineage_by_ids(
+        conn: &mut PgConn,
+        ids: &[SubscriptionPriceComponentId],
+    ) -> DbResult<
+        Vec<(
+            SubscriptionPriceComponentId,
+            Option<SubscriptionPriceComponentId>,
+        )>,
+    > {
+        use crate::schema::subscription_component::dsl as d;
+        use diesel_async::RunQueryDsl;
+
+        if ids.is_empty() {
+            return Ok(vec![]);
+        }
+
+        let query = d::subscription_component
+            .filter(d::id.eq_any(ids))
+            .select((d::id, d::lineage_id));
+
+        log::debug!("{}", debug_query::<diesel::pg::Pg, _>(&query));
+
+        query
+            .load(conn)
+            .await
+            .attach("Error while fetching subscription component lineage")
+            .into_db_result()
+    }
+
     pub async fn list_subscription_components_by_subscription(
         conn: &mut PgConn,
         tenant_id_params: &TenantId,

@@ -44,6 +44,57 @@ pub fn component_advance_amount_cents(
     }
 }
 
+/// Total (non-prorated) amount for a one-time fee. One-time charges are billed
+/// in full when added mid-period — they are never prorated.
+pub fn component_onetime_amount_cents(fee: &SubscriptionFee, precision: u8) -> i64 {
+    match fee {
+        SubscriptionFee::OneTime { rate, quantity } => (*rate
+            * rust_decimal::Decimal::from(*quantity))
+        .to_subunit_opt(precision)
+        .unwrap_or(0),
+        _ => 0,
+    }
+}
+
+/// Nominal length, in days, of a billing period. Used to prorate components
+/// whose billing cadence differs from the subscription's current period.
+fn nominal_period_days(period: &SubscriptionFeeBillingPeriod) -> f64 {
+    match period {
+        SubscriptionFeeBillingPeriod::Monthly => 30.0,
+        SubscriptionFeeBillingPeriod::Quarterly => 91.0,
+        SubscriptionFeeBillingPeriod::Semiannual => 182.0,
+        SubscriptionFeeBillingPeriod::Annual => 365.0,
+        SubscriptionFeeBillingPeriod::OneTime => 0.0,
+    }
+}
+
+/// Proration factor for a single component.
+///
+/// When the component bills on the same cadence as the subscription's current
+/// period (the common case), we use the exact day-based factor so existing
+/// behaviour is unchanged. When the component's cadence differs (e.g. a yearly
+/// component added to a monthly subscription), we prorate against the
+/// component's own nominal period length, so a yearly fee is charged for
+/// `days_remaining / 365` rather than `days_remaining / days_in_month`.
+fn component_proration_factor(
+    period: &SubscriptionFeeBillingPeriod,
+    days_remaining: f64,
+    days_in_period: f64,
+    base_factor: f64,
+) -> f64 {
+    let nominal = nominal_period_days(period);
+    if nominal <= 0.0 {
+        return base_factor;
+    }
+    // Treat the component as aligned with the subscription period when the
+    // current period length is within 25% of the component's nominal length.
+    if (days_in_period - nominal).abs() <= nominal * 0.25 {
+        base_factor
+    } else {
+        (days_remaining / nominal).clamp(0.0, 1.0)
+    }
+}
+
 /// Detect upgrade/downgrade by comparing total advance-billed amounts.
 pub fn detect_change_direction(
     matched: &[MatchedComponent],
@@ -109,7 +160,13 @@ pub fn calculate_proration(
         let new_amount = component_advance_amount_cents(&m.new_fee, &m.new_period, precision);
 
         if old_amount > 0 {
-            let credit = -((old_amount as f64 * proration_factor).round() as i64);
+            let factor = component_proration_factor(
+                &m.current_period,
+                days_remaining,
+                days_in_period,
+                proration_factor,
+            );
+            let credit = -((old_amount as f64 * factor).round() as i64);
             if credit != 0 {
                 lines.push(ProrationLineItem {
                     name: format!("{} (credit)", m.current_name),
@@ -118,12 +175,19 @@ pub fn calculate_proration(
                     is_credit: true,
                     product_id: Some(m.product_id),
                     price_component_id: None,
+                    net_key: None,
                 });
             }
         }
 
         if new_amount > 0 {
-            let charge = (new_amount as f64 * proration_factor).round() as i64;
+            let factor = component_proration_factor(
+                &m.new_period,
+                days_remaining,
+                days_in_period,
+                proration_factor,
+            );
+            let charge = (new_amount as f64 * factor).round() as i64;
             if charge != 0 {
                 lines.push(ProrationLineItem {
                     name: format!("{} (prorated)", m.new_name),
@@ -132,6 +196,7 @@ pub fn calculate_proration(
                     is_credit: false,
                     product_id: Some(m.product_id),
                     price_component_id: None,
+                    net_key: None,
                 });
             }
         }
@@ -142,7 +207,13 @@ pub fn calculate_proration(
         let old_amount =
             component_advance_amount_cents(&r.current_fee, &r.current_period, precision);
         if old_amount > 0 {
-            let credit = -((old_amount as f64 * proration_factor).round() as i64);
+            let factor = component_proration_factor(
+                &r.current_period,
+                days_remaining,
+                days_in_period,
+                proration_factor,
+            );
+            let credit = -((old_amount as f64 * factor).round() as i64);
             if credit != 0 {
                 lines.push(ProrationLineItem {
                     name: format!("{} (credit)", r.name),
@@ -151,16 +222,40 @@ pub fn calculate_proration(
                     is_credit: true,
                     product_id: None,
                     price_component_id: None,
+                    net_key: r.net_key.clone(),
                 });
             }
         }
     }
 
-    // Added components: charge
+    // Added components: charge. One-time fees are billed in full (never prorated);
+    // recurring fees are prorated against their own billing cadence.
     for a in added {
+        if matches!(a.fee, SubscriptionFee::OneTime { .. }) {
+            let amount = component_onetime_amount_cents(&a.fee, precision);
+            if amount != 0 {
+                lines.push(ProrationLineItem {
+                    name: format!("{} (one-time)", a.name),
+                    amount_cents: amount,
+                    full_period_amount_cents: amount,
+                    is_credit: false,
+                    product_id: None,
+                    price_component_id: None,
+                    net_key: a.net_key.clone(),
+                });
+            }
+            continue;
+        }
+
         let new_amount = component_advance_amount_cents(&a.fee, &a.period, precision);
         if new_amount > 0 {
-            let charge = (new_amount as f64 * proration_factor).round() as i64;
+            let factor = component_proration_factor(
+                &a.period,
+                days_remaining,
+                days_in_period,
+                proration_factor,
+            );
+            let charge = (new_amount as f64 * factor).round() as i64;
             if charge != 0 {
                 lines.push(ProrationLineItem {
                     name: format!("{} (prorated)", a.name),
@@ -169,6 +264,7 @@ pub fn calculate_proration(
                     is_credit: false,
                     product_id: None,
                     price_component_id: None,
+                    net_key: a.net_key.clone(),
                 });
             }
         }
@@ -184,6 +280,50 @@ pub fn calculate_proration(
         period_end,
         proration_factor,
     }
+}
+
+/// Net override credit/charge pairs that share a `net_key` into a single line,
+/// so the adjustment invoice taxes the delta rather than a gross charge beside
+/// an untaxed credit. Lines without a key (genuine adds/removes) pass through.
+/// Zero-net lines are dropped.
+pub fn net_override_lines(lines: &[ProrationLineItem]) -> Vec<ProrationLineItem> {
+    let mut netted: Vec<ProrationLineItem> = Vec::new();
+    let mut index_by_key: std::collections::HashMap<String, usize> =
+        std::collections::HashMap::new();
+
+    for line in lines {
+        match &line.net_key {
+            Some(key) => {
+                if let Some(&idx) = index_by_key.get(key) {
+                    netted[idx].amount_cents += line.amount_cents;
+                    // Prefer the charge (new price) line's identity for display.
+                    if !line.is_credit {
+                        netted[idx].name = line.name.clone();
+                        netted[idx].product_id = line.product_id;
+                        netted[idx].price_component_id = line.price_component_id;
+                    }
+                } else {
+                    index_by_key.insert(key.clone(), netted.len());
+                    netted.push(line.clone());
+                }
+            }
+            None => netted.push(line.clone()),
+        }
+    }
+
+    for nl in &mut netted {
+        if nl.net_key.is_some() {
+            let base = nl
+                .name
+                .rsplit_once(" (")
+                .map(|(b, _)| b.to_string())
+                .unwrap_or_else(|| nl.name.clone());
+            nl.name = format!("{base} (adjustment)");
+            nl.is_credit = nl.amount_cents < 0;
+        }
+    }
+
+    netted.into_iter().filter(|l| l.amount_cents != 0).collect()
 }
 
 #[cfg(test)]
@@ -444,12 +584,14 @@ mod tests {
             name: "Feature X".to_string(),
             fee: rate_fee(50),
             period: monthly(),
+            net_key: None,
         }];
 
         let removed = vec![RemovedComponent {
             name: "Feature Y".to_string(),
             current_fee: rate_fee(30),
             current_period: monthly(),
+            net_key: None,
         }];
 
         let result = calculate_proration(
@@ -510,6 +652,7 @@ mod tests {
             name: "New Feature".to_string(),
             fee: rate_fee(100),
             period: monthly(),
+            net_key: None,
         }];
 
         let direction = detect_change_direction(&[], &added, &[], 2);
@@ -522,9 +665,147 @@ mod tests {
             name: "Old Feature".to_string(),
             current_fee: rate_fee(100),
             current_period: monthly(),
+            net_key: None,
         }];
 
         let direction = detect_change_direction(&[], &[], &removed, 2);
         assert_eq!(direction, ChangeDirection::Downgrade);
+    }
+
+    #[test]
+    fn test_added_one_time_charged_in_full() {
+        // A one-time fee added mid-period is billed in full, never prorated.
+        let added = vec![AddedComponent {
+            name: "Setup".to_string(),
+            fee: SubscriptionFee::OneTime {
+                rate: Decimal::new(500, 0),
+                quantity: 2,
+            },
+            period: SubscriptionFeeBillingPeriod::OneTime,
+            net_key: None,
+        }];
+
+        // Only 8 of 30 days remain — must not scale the one-time charge.
+        let result = calculate_proration(
+            &[],
+            &added,
+            &[],
+            NaiveDate::from_ymd_opt(2025, 1, 1).unwrap(),
+            NaiveDate::from_ymd_opt(2025, 1, 31).unwrap(),
+            NaiveDate::from_ymd_opt(2025, 1, 23).unwrap(),
+            2,
+        );
+
+        assert_eq!(result.lines.len(), 1);
+        assert!(!result.lines[0].is_credit);
+        // 500 * 2 = 1000 → 100000 cents, in full.
+        assert_eq!(result.lines[0].amount_cents, 100_000);
+        assert_eq!(result.net_amount_cents, 100_000);
+    }
+
+    #[test]
+    fn test_added_yearly_component_prorated_over_its_own_period() {
+        // A yearly component added to a 30-day (monthly) period must be prorated
+        // over the year (days_remaining / 365), not over the month.
+        let added = vec![AddedComponent {
+            name: "Annual".to_string(),
+            fee: rate_fee(3650),
+            period: SubscriptionFeeBillingPeriod::Annual,
+            net_key: None,
+        }];
+
+        let result = calculate_proration(
+            &[],
+            &added,
+            &[],
+            NaiveDate::from_ymd_opt(2025, 1, 1).unwrap(),
+            NaiveDate::from_ymd_opt(2025, 1, 31).unwrap(),
+            NaiveDate::from_ymd_opt(2025, 1, 1).unwrap(),
+            2,
+        );
+
+        assert_eq!(result.lines.len(), 1);
+        // 365000 cents * 30/365 = 30000, NOT 365000 * 30/30.
+        assert_eq!(result.lines[0].amount_cents, 30_000);
+    }
+
+    #[test]
+    fn test_added_aligned_monthly_uses_exact_period_factor() {
+        // A monthly component on a 30-day period keeps the exact day-based factor.
+        let added = vec![AddedComponent {
+            name: "Monthly".to_string(),
+            fee: rate_fee(100),
+            period: monthly(),
+            net_key: None,
+        }];
+
+        let result = calculate_proration(
+            &[],
+            &added,
+            &[],
+            NaiveDate::from_ymd_opt(2025, 1, 1).unwrap(),
+            NaiveDate::from_ymd_opt(2025, 1, 31).unwrap(),
+            NaiveDate::from_ymd_opt(2025, 1, 16).unwrap(),
+            2,
+        );
+
+        // 10000 * 15/30 = 5000.
+        assert_eq!(result.lines[0].amount_cents, 5000);
+    }
+
+    fn line(name: &str, amount: i64, is_credit: bool, net_key: Option<&str>) -> ProrationLineItem {
+        ProrationLineItem {
+            name: name.to_string(),
+            amount_cents: amount,
+            full_period_amount_cents: amount.abs(),
+            is_credit,
+            product_id: None,
+            price_component_id: None,
+            net_key: net_key.map(str::to_string),
+        }
+    }
+
+    #[test]
+    fn test_net_override_price_drop_nets_to_single_credit() {
+        // Override 100 -> 50: old credit -100, new charge +50, same key → net -50.
+        let netted = net_override_lines(&[
+            line("Base (credit)", -10000, true, Some("c1")),
+            line("Base (prorated)", 5000, false, Some("c1")),
+        ]);
+        assert_eq!(netted.len(), 1);
+        assert_eq!(netted[0].amount_cents, -5000);
+        assert!(netted[0].is_credit);
+        assert_eq!(netted[0].name, "Base (adjustment)");
+    }
+
+    #[test]
+    fn test_net_override_price_increase_nets_to_single_charge() {
+        // Override 50 -> 100: credit -50, charge +100 → net +50 (taxed on the delta).
+        let netted = net_override_lines(&[
+            line("Base (credit)", -5000, true, Some("c1")),
+            line("Base (prorated)", 10000, false, Some("c1")),
+        ]);
+        assert_eq!(netted.len(), 1);
+        assert_eq!(netted[0].amount_cents, 5000);
+        assert!(!netted[0].is_credit);
+    }
+
+    #[test]
+    fn test_net_override_keeps_unkeyed_lines_separate() {
+        // Genuine add + genuine remove (no key) are not netted together.
+        let netted = net_override_lines(&[
+            line("Add A (prorated)", 3000, false, None),
+            line("Remove B (credit)", -2000, true, None),
+        ]);
+        assert_eq!(netted.len(), 2);
+    }
+
+    #[test]
+    fn test_net_override_zero_net_is_dropped() {
+        let netted = net_override_lines(&[
+            line("Base (credit)", -5000, true, Some("c1")),
+            line("Base (prorated)", 5000, false, Some("c1")),
+        ]);
+        assert!(netted.is_empty());
     }
 }

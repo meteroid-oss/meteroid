@@ -74,6 +74,7 @@ pub mod schedules;
 pub mod slot_transactions;
 pub mod stats;
 pub mod subscription_add_ons;
+pub mod subscription_amendment;
 pub mod subscription_changes;
 pub mod subscription_components;
 pub mod subscription_coupons;

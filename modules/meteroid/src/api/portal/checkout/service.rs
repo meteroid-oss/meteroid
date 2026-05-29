@@ -281,6 +281,9 @@ impl PortalCheckoutService for PortalCheckoutServiceComponents {
                             product_id: resolved.product_id,
                             price_id: resolved.price_id,
                             quantity: cs_ao.quantity,
+                            effective_from: chrono::Utc::now().naive_utc().date(),
+                            effective_to: None,
+                            lineage_id: None,
                         },
                     );
                 }

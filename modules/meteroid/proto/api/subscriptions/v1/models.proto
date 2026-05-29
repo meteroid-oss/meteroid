@@ -104,6 +104,17 @@ enum ScheduledEventType {
   CANCEL = 1;
   PAUSE = 2;
   END_TRIAL = 3;
+  AMENDMENT = 4;
+}
+
+// Human-readable summary of what a scheduled amendment will change, for the
+// pending-event banner. Removed names are resolved against the subscription's
+// current components/add-ons when available, otherwise omitted.
+message AmendmentSummary {
+  repeated string added_component_names = 1;
+  repeated string removed_component_names = 2;
+  repeated string added_add_on_names = 3;
+  repeated string removed_add_on_names = 4;
 }
 
 message PendingScheduledEvent {
@@ -113,6 +124,10 @@ message PendingScheduledEvent {
   optional string new_plan_name = 4;
   optional string new_plan_version_id = 5;
   optional string cancel_reason = 6;
+  // True when the event was scheduled by the customer (e.g. via the portal),
+  // false when scheduled by an admin/API actor.
+  bool customer_initiated = 7;
+  optional AmendmentSummary amendment_summary = 8;
 }
 
 // TODO replace by subscription or even subscription details

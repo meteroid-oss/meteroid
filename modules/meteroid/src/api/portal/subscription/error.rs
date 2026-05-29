@@ -22,6 +22,9 @@ pub enum PortalSubscriptionApiError {
     #[error("Unauthorized")]
     #[code(PermissionDenied)]
     Unauthorized,
+    #[error("{0}")]
+    #[code(FailedPrecondition)]
+    FailedPrecondition(String),
 }
 
 impl From<Report<StoreError>> for PortalSubscriptionApiError {

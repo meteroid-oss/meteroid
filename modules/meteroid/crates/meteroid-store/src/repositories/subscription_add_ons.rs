@@ -71,6 +71,7 @@ impl SubscriptionAddOnInterface for Store {
 
 /// Resolves checkout add-ons against their catalog definitions and persists them.
 /// Used by both the synchronous checkout completion and the async payment settlement webhook.
+#[allow(clippy::too_many_arguments)]
 pub(crate) async fn resolve_and_insert_checkout_addons(
     conn: &mut PgConn,
     subscription_id: SubscriptionId,
@@ -78,6 +79,7 @@ pub(crate) async fn resolve_and_insert_checkout_addons(
     create_add_ons: &[CreateSubscriptionAddOn],
     products_by_id: &HashMap<ProductId, Product>,
     prices_by_id: &HashMap<PriceId, Price>,
+    effective_from: chrono::NaiveDate,
 ) -> StoreResult<()> {
     let mut addon_rows_new: Vec<SubscriptionAddOnRowNew> = Vec::new();
     for cs_ao in create_add_ons {
@@ -103,6 +105,7 @@ pub(crate) async fn resolve_and_insert_checkout_addons(
             product_id: resolved.product_id,
             price_id: resolved.price_id,
             quantity: cs_ao.quantity,
+            effective_from,
         };
 
         let new = SubscriptionAddOnNew {
