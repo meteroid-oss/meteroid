@@ -276,8 +276,6 @@ async fn test_entitlements_crud() {
                     entitlement_value::MeteredValue {
                         limit: Some("100".into()),
                         reset_period: None,
-                        overage_behavior: None,
-                        warning_threshold_pct: None,
                         enabled: true,
                     },
                 )),
@@ -336,8 +334,6 @@ async fn test_entitlements_crud() {
                     entitlement_value::MeteredValue {
                         limit: Some("500".into()),
                         reset_period: None,
-                        overage_behavior: None,
-                        warning_threshold_pct: None,
                         enabled: true,
                     },
                 )),
@@ -461,8 +457,6 @@ async fn test_get_effective_entitlements() {
                     entitlement_value::MeteredValue {
                         limit: Some("1000".into()),
                         reset_period: None,
-                        overage_behavior: None,
-                        warning_threshold_pct: None,
                         enabled: true,
                     },
                 )),
@@ -487,8 +481,6 @@ async fn test_get_effective_entitlements() {
                     entitlement_value::MeteredValue {
                         limit: Some("5000".into()),
                         reset_period: None,
-                        overage_behavior: None,
-                        warning_threshold_pct: None,
                         enabled: true,
                     },
                 )),
@@ -607,8 +599,6 @@ fn metered_value(limit: &str) -> Option<EntitlementValue> {
             entitlement_value::MeteredValue {
                 limit: Some(limit.into()),
                 reset_period: None,
-                overage_behavior: None,
-                warning_threshold_pct: None,
                 enabled: true,
             },
         )),
@@ -1479,8 +1469,6 @@ async fn test_disabled_entitlement_resolved_and_overrideable() {
                     entitlement_value::MeteredValue {
                         limit: Some("100".into()),
                         reset_period: None,
-                        overage_behavior: None,
-                        warning_threshold_pct: None,
                         enabled: false,
                     },
                 )),
@@ -1526,8 +1514,6 @@ async fn test_disabled_entitlement_resolved_and_overrideable() {
                     entitlement_value::MeteredValue {
                         limit: Some("100".into()),
                         reset_period: None,
-                        overage_behavior: None,
-                        warning_threshold_pct: None,
                         enabled: true,
                     },
                 )),

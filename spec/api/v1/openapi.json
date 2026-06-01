@@ -6057,10 +6057,6 @@
           }
         }
       },
-      "AllowOverageBehavior": {
-        "type": "object",
-        "description": "Keep serving usage past the limit; overage is billed or handled out-of-band."
-      },
       "AppliedCoupon": {
         "type": "object",
         "required": [
@@ -6502,20 +6498,6 @@
           "ADVANCE",
           "ARREARS"
         ]
-      },
-      "BlockOverageBehavior": {
-        "type": "object",
-        "description": "Deny access once usage reaches the limit. Meteroid does not enforce this — your integration must check and act.",
-        "properties": {
-          "grace_period_pct": {
-            "type": [
-              "integer",
-              "null"
-            ],
-            "format": "int32",
-            "minimum": 0
-          }
-        }
       },
       "BooleanEffectiveEntitlementValue": {
         "type": "object",
@@ -9560,7 +9542,6 @@
         "required": [
           "metric_id",
           "reset_period",
-          "overage_behavior",
           "enabled"
         ],
         "properties": {
@@ -9577,19 +9558,8 @@
           "metric_id": {
             "$ref": "#/components/schemas/BillableMetricId"
           },
-          "overage_behavior": {
-            "$ref": "#/components/schemas/OverageBehavior"
-          },
           "reset_period": {
             "$ref": "#/components/schemas/ResetPeriod"
-          },
-          "warning_threshold_pct": {
-            "type": [
-              "integer",
-              "null"
-            ],
-            "format": "int32",
-            "minimum": 0
           }
         }
       },
@@ -9621,9 +9591,6 @@
       },
       "MeteredEntitlementValue": {
         "type": "object",
-        "required": [
-          "overage_behavior"
-        ],
         "properties": {
           "enabled": {
             "type": "boolean",
@@ -9637,20 +9604,8 @@
             "format": "decimal",
             "description": "Cap on usage. Null means unlimited."
           },
-          "overage_behavior": {
-            "$ref": "#/components/schemas/OverageBehavior"
-          },
           "reset_period": {
             "$ref": "#/components/schemas/ResetPeriod"
-          },
-          "warning_threshold_pct": {
-            "type": [
-              "integer",
-              "null"
-            ],
-            "format": "int32",
-            "description": "Percentage of the Cap at which a warning triggers (0–100).",
-            "minimum": 0
           }
         }
       },
@@ -9670,7 +9625,6 @@
         "required": [
           "metric_id",
           "reset_period",
-          "overage_behavior",
           "enabled"
         ],
         "properties": {
@@ -9687,19 +9641,8 @@
           "metric_id": {
             "$ref": "#/components/schemas/BillableMetricId"
           },
-          "overage_behavior": {
-            "$ref": "#/components/schemas/OverageBehavior"
-          },
           "reset_period": {
             "$ref": "#/components/schemas/ResetPeriod"
-          },
-          "warning_threshold_pct": {
-            "type": [
-              "integer",
-              "null"
-            ],
-            "format": "int32",
-            "minimum": 0
           }
         }
       },
@@ -10168,25 +10111,6 @@
                 "description": "If None, inherits all online providers from invoicing entity."
               }
             ]
-          }
-        }
-      },
-      "OverageBehavior": {
-        "oneOf": [
-          {
-            "$ref": "#/components/schemas/BlockOverageBehavior"
-          },
-          {
-            "$ref": "#/components/schemas/AllowOverageBehavior",
-            "description": "Keep serving usage past the limit; overage is billed or handled out-of-band."
-          }
-        ],
-        "description": "What happens past the limit.",
-        "discriminator": {
-          "propertyName": "type",
-          "mapping": {
-            "ALLOW": "#/components/schemas/AllowOverageBehavior",
-            "BLOCK": "#/components/schemas/BlockOverageBehavior"
           }
         }
       },
