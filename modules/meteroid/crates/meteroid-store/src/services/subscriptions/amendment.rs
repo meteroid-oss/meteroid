@@ -71,6 +71,11 @@ struct PendingComponentInsert {
     /// Lineage root for an override insert (the closed component's lineage); `None`
     /// for a genuinely new component, which becomes its own root.
     lineage_id: Option<SubscriptionPriceComponentId>,
+    /// Pre-generated id this component will be inserted with, for a genuine
+    /// immediate add. Lets the same amendment's adjustment invoice stamp the id
+    /// onto its prorated charge line so a later removal can credit it. `None`
+    /// lets the row generate its own id.
+    subscription_component_id: Option<SubscriptionPriceComponentId>,
 }
 
 /// An add-on to insert. `price_id` is filled when the source is an existing price;
@@ -87,6 +92,9 @@ struct PendingAddOnInsert {
     /// Lineage root for an override insert (the closed add-on's lineage); `None` for
     /// a genuinely new add-on, which becomes its own root.
     lineage_id: Option<SubscriptionAddOnId>,
+    /// Pre-generated id this add-on will be inserted with, for a genuine immediate
+    /// add. The add-on analogue of `PendingComponentInsert::subscription_component_id`.
+    subscription_add_on_id: Option<SubscriptionAddOnId>,
 }
 
 /// Result of resolving an amendment against the current subscription state.
@@ -291,6 +299,7 @@ impl Services {
                         tenant_id,
                         &sub_details.subscription,
                         period_start,
+                        period_end,
                         &credit_lines,
                         precision,
                     )
@@ -464,17 +473,18 @@ impl Services {
                         None
                     };
 
-                    let credit_note_id = if !is_free_trial && !credit_lines.is_empty() {
-                        self.create_amendment_credit_note(
+                    let credit_note_ids = if !is_free_trial && !credit_lines.is_empty() {
+                        self.create_amendment_credit_notes(
                             conn,
                             tenant_id,
                             &sub_details.subscription,
                             period_start,
+                            period_end,
                             &credit_lines,
                         )
                         .await?
                     } else {
-                        None
+                        vec![]
                     };
 
                     let (component_inserts, addon_inserts) = materialize_inserts(
@@ -520,7 +530,7 @@ impl Services {
 
                     Ok(ImmediateAmendmentResult {
                         adjustment_invoice_id,
-                        credit_note_id,
+                        credit_note_ids,
                         effective_date: change_date,
                     })
                 }
@@ -529,141 +539,170 @@ impl Services {
             .await
     }
 
-    /// Issue a credit note for the credit side of an immediate amendment.
+    /// Issue credit notes for the credit side of an immediate amendment.
     ///
-    /// Locates the recurring invoice that billed the current period in advance and
-    /// credits, per closed/downgraded component, the unused portion of its original
-    /// line — reversing the billed amount and its VAT proportionally. Paid (or
-    /// partially paid) invoices use `CreditToBalance` (the credit lands on the
-    /// customer balance); otherwise `DebtCancellation` reduces what is owed. Returns
-    /// `None` when there is no finalized advance invoice to credit against (e.g.
-    /// arrears billing), since nothing was billed in advance to refund.
-    async fn create_amendment_credit_note(
+    /// Credits, per closed/downgraded component or add-on, the unused portion of
+    /// the line that originally billed it — reversing the billed amount and its
+    /// VAT proportionally. The originally-billed line lives either on the period's
+    /// recurring invoice (base/overridden components billed in advance at period
+    /// start) or on an adjustment invoice from an earlier immediate amendment in
+    /// the same period (an item that was *added* mid-period). Both are searched,
+    /// and a separate credit note is issued against each source invoice that has
+    /// matched lines. Paid / partially-paid invoices use `CreditToBalance` (the
+    /// credit lands on the customer balance); otherwise `DebtCancellation` reduces
+    /// what is owed. Returns an empty vec when there is nothing billed in advance
+    /// to refund (e.g. arrears billing).
+    async fn create_amendment_credit_notes(
         &self,
         conn: &mut PgConn,
         tenant_id: TenantId,
         subscription: &crate::domain::Subscription,
         period_start: NaiveDate,
+        period_end: NaiveDate,
         credit_lines: &[ProrationLineItem],
-    ) -> StoreResult<Option<CreditNoteId>> {
-        let Some(invoice_row) = InvoiceRow::find_existing_recurring_invoice(
+    ) -> StoreResult<Vec<CreditNoteId>> {
+        let ctx = gather_period_credit_context(
             conn,
             tenant_id,
             subscription.id,
             period_start,
-        )
-        .await
-        .map_err(Into::<Report<StoreError>>::into)?
-        else {
-            return Ok(None);
-        };
-
-        let detailed = InvoiceRow::find_detailed_by_id(conn, tenant_id, invoice_row.id)
-            .await
-            .map_err(Into::<Report<StoreError>>::into)?;
-        let invoice: Invoice = detailed.invoice.try_into()?;
-
-        // Only finalized invoices can be credited; drafts and voids have nothing to
-        // reverse (the period may be billed in arrears or not yet finalized).
-        if invoice.status != InvoiceStatusEnum::Finalized {
-            return Ok(None);
-        }
-
-        let (line_lineage, already_credited) =
-            load_credit_matching_context(conn, tenant_id, &invoice).await?;
-        let line_items = build_amendment_credit_lines(
-            credit_lines,
-            &invoice.line_items,
-            &line_lineage,
-            &already_credited,
-        );
-        if line_items.is_empty() {
-            return Ok(None);
-        }
-
-        let credit_type = match invoice.payment_status {
-            InvoicePaymentStatus::Paid | InvoicePaymentStatus::PartiallyPaid => {
-                CreditType::CreditToBalance
-            }
-            _ => CreditType::DebtCancellation,
-        };
-
-        let credit_note = create_user_credit_note_tx(
-            &self.store,
-            conn,
-            tenant_id,
-            &Actor::System,
-            CreateCreditNoteParams {
-                invoice_id: invoice.id,
-                line_items,
-                reason: Some("Subscription amendment".to_string()),
-                memo: None,
-                credit_type,
-            },
+            period_end,
         )
         .await?;
+        if ctx.invoices.is_empty() {
+            return Ok(vec![]);
+        }
 
-        let finalized =
-            finalize_credit_note_tx(&self.store, conn, tenant_id, &Actor::System, credit_note.id)
-                .await?;
+        let items = build_amendment_credit_lines(
+            credit_lines,
+            &ctx.all_lines,
+            &ctx.line_lineage,
+            &ctx.already_credited,
+        );
+        if items.is_empty() {
+            return Ok(vec![]);
+        }
 
-        Ok(Some(finalized.id))
+        // Group the matched credit lines by the source invoice that billed them, so
+        // each credit note reverses lines from a single invoice.
+        let mut by_invoice: HashMap<InvoiceId, Vec<CreditLineItem>> = HashMap::new();
+        for it in items {
+            if let Some(invoice_id) = ctx.line_to_invoice.get(it.local_id()) {
+                by_invoice.entry(*invoice_id).or_default().push(it);
+            }
+        }
+
+        let invoice_by_id: HashMap<InvoiceId, &Invoice> =
+            ctx.invoices.iter().map(|i| (i.id, i)).collect();
+
+        let mut created = Vec::new();
+        // Deterministic order: oldest billing invoice first.
+        let mut invoice_ids: Vec<InvoiceId> = by_invoice.keys().copied().collect();
+        invoice_ids.sort_by_key(|id| {
+            // `Option<NaiveDate>` orders None first; the id string is a stable
+            // tiebreaker. (`get` is always `Some` here — line ids come from these
+            // invoices — but stay total-order safe regardless.)
+            (
+                invoice_by_id.get(id).map(|i| i.invoice_date),
+                id.to_string(),
+            )
+        });
+
+        for invoice_id in invoice_ids {
+            let line_items = by_invoice.remove(&invoice_id).unwrap_or_default();
+            if line_items.is_empty() {
+                continue;
+            }
+            let invoice = invoice_by_id[&invoice_id];
+            let credit_type = match invoice.payment_status {
+                InvoicePaymentStatus::Paid | InvoicePaymentStatus::PartiallyPaid => {
+                    CreditType::CreditToBalance
+                }
+                _ => CreditType::DebtCancellation,
+            };
+
+            let credit_note = create_user_credit_note_tx(
+                &self.store,
+                conn,
+                tenant_id,
+                &Actor::System,
+                CreateCreditNoteParams {
+                    invoice_id,
+                    line_items,
+                    reason: Some("Subscription amendment".to_string()),
+                    memo: None,
+                    credit_type,
+                },
+            )
+            .await?;
+
+            let finalized = finalize_credit_note_tx(
+                &self.store,
+                conn,
+                tenant_id,
+                &Actor::System,
+                credit_note.id,
+            )
+            .await?;
+            created.push(finalized.id);
+        }
+
+        Ok(created)
     }
 
-    /// Read-only preview of the credit note that `create_amendment_credit_note`
-    /// would issue: the unused portion of each original invoice line, with its VAT
-    /// reversed proportionally. Returns negative-amount lines (a credit) as
-    /// `ComputedInvoiceContent` so it renders with the same card as the adjustment
-    /// invoice. `None` when there is no finalized advance invoice to credit.
+    /// Read-only preview of the credit note(s) that `create_amendment_credit_notes`
+    /// would issue: the unused portion of each originally-billed line (across the
+    /// recurring invoice and any in-period adjustment invoices), with its VAT
+    /// reversed proportionally. Returns the negative-amount lines (a credit) as a
+    /// single combined `ComputedInvoiceContent` so it renders with the same card as
+    /// the adjustment invoice. `None` when there is nothing to credit.
+    #[allow(clippy::too_many_arguments)]
     async fn compute_amendment_credit_note_preview(
         &self,
         conn: &mut PgConn,
         tenant_id: TenantId,
         subscription: &crate::domain::Subscription,
         period_start: NaiveDate,
+        period_end: NaiveDate,
         credit_lines: &[ProrationLineItem],
         precision: u8,
     ) -> StoreResult<Option<ComputedInvoiceContent>> {
-        let Some(invoice_row) = InvoiceRow::find_existing_recurring_invoice(
+        let ctx = gather_period_credit_context(
             conn,
             tenant_id,
             subscription.id,
             period_start,
+            period_end,
         )
-        .await
-        .map_err(Into::<Report<StoreError>>::into)?
-        else {
-            return Ok(None);
-        };
-
-        let detailed = InvoiceRow::find_detailed_by_id(conn, tenant_id, invoice_row.id)
-            .await
-            .map_err(Into::<Report<StoreError>>::into)?;
-        let invoice: Invoice = detailed.invoice.try_into()?;
-        if invoice.status != InvoiceStatusEnum::Finalized {
+        .await?;
+        if ctx.invoices.is_empty() {
             return Ok(None);
         }
 
         // Which original lines get credited, and for what quantity — the same
         // mapping (lineage match + remaining-value cap) the real credit note uses.
-        let (line_lineage, already_credited) =
-            load_credit_matching_context(conn, tenant_id, &invoice).await?;
         let credits = build_amendment_credit_lines(
             credit_lines,
-            &invoice.line_items,
-            &line_lineage,
-            &already_credited,
+            &ctx.all_lines,
+            &ctx.line_lineage,
+            &ctx.already_credited,
         );
         if credits.is_empty() {
             return Ok(None);
         }
+
+        let line_by_id: HashMap<&str, &LineItem> = ctx
+            .all_lines
+            .iter()
+            .map(|l| (l.local_id.as_str(), l))
+            .collect();
 
         let mut lines: Vec<LineItem> = Vec::new();
         for ci in &credits {
             let CreditLineItem::Line { local_id, quantity } = ci else {
                 continue;
             };
-            let Some(orig) = invoice.line_items.iter().find(|l| &l.local_id == local_id) else {
+            let Some(orig) = line_by_id.get(local_id.as_str()).copied() else {
                 continue;
             };
             let unit_price = orig.unit_price.unwrap_or(Decimal::ZERO);
@@ -900,6 +939,11 @@ impl Services {
                 // matched to the originally-billed invoice line; `None` leaves the new
                 // row as its own root.
                 row.lineage_id = c.lineage_id;
+                // Use the pre-generated id (genuine immediate adds) so it matches the
+                // id already stamped onto the adjustment invoice's charge line.
+                if let Some(id) = c.subscription_component_id {
+                    row.id = id;
+                }
                 // Mark as amendment-added so a one-time fee bills on its effective period.
                 row.added_by_amendment = true;
                 Ok::<_, Report<StoreError>>(row)
@@ -931,6 +975,9 @@ impl Services {
                 }
                 .try_into()?;
                 row.lineage_id = a.lineage_id;
+                if let Some(id) = a.subscription_add_on_id {
+                    row.id = id;
+                }
                 row.added_by_amendment = true;
                 Ok::<_, Report<StoreError>>(row)
             })
@@ -1214,6 +1261,76 @@ fn build_amendment_credit_lines(
     items
 }
 
+/// Credit-matching context spanning every invoice that advance-billed part of the
+/// current period (the recurring invoice + any in-period adjustment invoices). The
+/// per-line maps are merged across invoices — line `local_id`s are unique UUIDs, so
+/// there are no collisions — and `line_to_invoice` records which invoice each line
+/// belongs to, so matched credits can be grouped back into a credit note per source
+/// invoice.
+struct PeriodCreditContext {
+    invoices: Vec<Invoice>,
+    all_lines: Vec<LineItem>,
+    line_to_invoice: HashMap<String, InvoiceId>,
+    line_lineage: HashMap<String, String>,
+    already_credited: HashMap<String, i64>,
+}
+
+/// Gather the finalized recurring + in-period adjustment invoices for the
+/// subscription and build the combined credit-matching context across them. A
+/// component/add-on removed by an immediate amendment may have been billed either
+/// on the period's recurring invoice (billed in advance at period start) or on an
+/// adjustment invoice from an earlier same-period amendment (mid-period add) — both
+/// must be searched so the credit lands on the invoice that actually charged it.
+async fn gather_period_credit_context(
+    conn: &mut PgConn,
+    tenant_id: TenantId,
+    subscription_id: SubscriptionId,
+    period_start: NaiveDate,
+    period_end: NaiveDate,
+) -> StoreResult<PeriodCreditContext> {
+    let rows = InvoiceRow::list_creditable_period_invoices(
+        conn,
+        tenant_id,
+        subscription_id,
+        period_start,
+        period_end,
+    )
+    .await
+    .map_err(Into::<Report<StoreError>>::into)?;
+
+    let mut ctx = PeriodCreditContext {
+        invoices: Vec::new(),
+        all_lines: Vec::new(),
+        line_to_invoice: HashMap::new(),
+        line_lineage: HashMap::new(),
+        already_credited: HashMap::new(),
+    };
+
+    for row in rows {
+        let detailed = InvoiceRow::find_detailed_by_id(conn, tenant_id, row.id)
+            .await
+            .map_err(Into::<Report<StoreError>>::into)?;
+        let invoice: Invoice = detailed.invoice.try_into()?;
+        // The query already filters to Finalized; guard defensively all the same.
+        if invoice.status != InvoiceStatusEnum::Finalized {
+            continue;
+        }
+
+        let (line_lineage, already_credited) =
+            load_credit_matching_context(conn, tenant_id, &invoice).await?;
+        ctx.line_lineage.extend(line_lineage);
+        ctx.already_credited.extend(already_credited);
+        for line in &invoice.line_items {
+            ctx.line_to_invoice
+                .insert(line.local_id.clone(), invoice.id);
+            ctx.all_lines.push(line.clone());
+        }
+        ctx.invoices.push(invoice);
+    }
+
+    Ok(ctx)
+}
+
 /// Resolve, for an advance invoice, the data needed to match and size amendment
 /// credits exactly:
 ///
@@ -1427,6 +1544,10 @@ async fn resolve_amendment(
             fee: new_fee.clone(),
             period: new_period,
             net_key,
+            // Overrides are credited via the original recurring invoice line
+            // (matched by lineage), not by stamping the adjustment line.
+            billed_component_id: None,
+            billed_add_on_id: None,
         });
 
         component_close.push(current.id);
@@ -1439,6 +1560,7 @@ async fn resolve_amendment(
             fee: new_fee,
             is_override: true,
             lineage_id: Some(lineage),
+            subscription_component_id: None,
         });
     }
 
@@ -1451,11 +1573,16 @@ async fn resolve_amendment(
         let (fee, period) =
             resolve_fee_read_only(conn, &fee_structure, &extra.price_entry, tenant_id).await?;
 
+        // Pre-generate the id so the immediate adjustment invoice can stamp it onto
+        // the prorated charge line, letting a later removal credit it.
+        let billed_component_id = SubscriptionPriceComponentId::new();
         component_added.push(AddedComponent {
             name: extra.name.clone(),
             fee: fee.clone(),
             period,
             net_key: None,
+            billed_component_id: Some(billed_component_id),
+            billed_add_on_id: None,
         });
         component_inserts.push(PendingComponentInsert {
             price_component_id: None,
@@ -1467,6 +1594,7 @@ async fn resolve_amendment(
             is_override: false,
             // A genuinely new component is its own lineage root.
             lineage_id: None,
+            subscription_component_id: Some(billed_component_id),
         });
     }
 
@@ -1542,11 +1670,16 @@ async fn resolve_amendment(
             .resolve_customized(&addon_products, &addon_prices, &cs_ao.customization)
             .map_err(Report::new)?;
 
+        // Pre-generate the id so the immediate adjustment invoice can stamp it onto
+        // the prorated charge line, letting a later removal credit it.
+        let billed_add_on_id = SubscriptionAddOnId::new();
         addon_added.push(AddedComponent {
             name: resolved.name.clone(),
             fee: scale_fee(&resolved.fee, cs_ao.quantity),
             period: resolved.period,
             net_key: None,
+            billed_component_id: None,
+            billed_add_on_id: Some(billed_add_on_id),
         });
         addon_inserts.push(PendingAddOnInsert {
             add_on_id: addon.id,
@@ -1559,6 +1692,7 @@ async fn resolve_amendment(
             quantity: cs_ao.quantity,
             // A genuinely new add-on is its own lineage root.
             lineage_id: None,
+            subscription_add_on_id: Some(billed_add_on_id),
         });
     }
 
@@ -1631,6 +1765,9 @@ async fn resolve_amendment(
             fee: scale_fee(&new_fee, new_quantity),
             period: new_period,
             net_key,
+            // Edits are credited via the original line (matched by lineage).
+            billed_component_id: None,
+            billed_add_on_id: None,
         });
 
         addon_close.push(current.id);
@@ -1644,6 +1781,7 @@ async fn resolve_amendment(
             fee: new_fee,
             quantity: new_quantity,
             lineage_id: Some(lineage),
+            subscription_add_on_id: None,
         });
     }
 
@@ -1807,6 +1945,7 @@ async fn materialize_inserts(
             is_override: c.is_override,
             price_id,
             lineage_id: c.lineage_id,
+            subscription_component_id: c.subscription_component_id,
         });
     }
 
@@ -1842,6 +1981,7 @@ async fn materialize_inserts(
             price_id,
             quantity: a.quantity,
             lineage_id: a.lineage_id,
+            subscription_add_on_id: a.subscription_add_on_id,
         });
     }
 
@@ -1909,6 +2049,8 @@ mod tests {
             fee: scale_fee(&rate(100), 2),
             period: SubscriptionFeeBillingPeriod::Monthly,
             net_key: None,
+            billed_component_id: None,
+            billed_add_on_id: None,
         }];
 
         let result =
@@ -1937,6 +2079,8 @@ mod tests {
             fee: scale_fee(&rate(100), 3),
             period: SubscriptionFeeBillingPeriod::Monthly,
             net_key: None,
+            billed_component_id: None,
+            billed_add_on_id: None,
         }];
 
         let result = calculate_proration(
@@ -1992,6 +2136,8 @@ mod tests {
                 product_id: None,
                 price_component_id: None,
                 net_key: Some(net_key.to_string()),
+                sub_component_id: None,
+                sub_add_on_id: None,
             }
         }
 
@@ -2242,6 +2388,61 @@ mod tests {
             let (_, qty) = only(&items);
             // Capped at 900 of 2900 => 900/2900.
             assert_eq!(qty, Decimal::from(900) / Decimal::from(2900));
+        }
+
+        // The add-then-remove case. An add-on added mid-period is billed on a
+        // separate adjustment invoice; its line is concatenated *after* the
+        // recurring invoice's own lines (exactly how `gather_period_credit_context`
+        // assembles the flat line set). Removing the add-on must credit the
+        // adjustment line, not any recurring line.
+        #[test]
+        fn credits_addon_billed_on_adjustment_among_recurring_lines() {
+            let base = SubscriptionPriceComponentId::new();
+            let addon = SubscriptionAddOnId::new();
+            let end = NaiveDate::from_ymd_opt(2024, 2, 1).unwrap();
+
+            // Recurring invoice line (base component billed at period start).
+            let recurring = with_component(line("li-base", 3900, 1, 3900, end), base);
+            // Adjustment invoice line (add-on's prorated mid-period charge, €10.32).
+            let mut adjustment = line("li-addon", 1032, 1, 1032, end);
+            adjustment.sub_add_on_id = Some(addon);
+
+            let invoice = vec![recurring, adjustment];
+            // Remove the add-on: credit the unused €7.74 of the €10.32 billed.
+            let credits = vec![credit(&addon.to_string(), -774)];
+
+            let items =
+                build_amendment_credit_lines(&credits, &invoice, &lineage(&invoice), &no_credits());
+            let (local_id, qty) = only(&items);
+            assert_eq!(local_id, "li-addon");
+            assert_eq!(qty, Decimal::from(774) / Decimal::from(1032));
+        }
+
+        // Removing a base component *and* a mid-period-added add-on in one amendment
+        // credits each against its own (different-invoice) line. Distinct local_ids
+        // are what lets the caller group the credits into one note per source invoice.
+        #[test]
+        fn credits_base_and_added_addon_to_separate_lines() {
+            let base = SubscriptionPriceComponentId::new();
+            let addon = SubscriptionAddOnId::new();
+            let end = NaiveDate::from_ymd_opt(2024, 2, 1).unwrap();
+
+            let recurring = with_component(line("li-base", 3900, 1, 3900, end), base);
+            let mut adjustment = line("li-addon", 1032, 1, 1032, end);
+            adjustment.sub_add_on_id = Some(addon);
+
+            let invoice = vec![recurring, adjustment];
+            let credits = vec![
+                credit(&base.to_string(), -1950),
+                credit(&addon.to_string(), -774),
+            ];
+
+            let items =
+                build_amendment_credit_lines(&credits, &invoice, &lineage(&invoice), &no_credits());
+            assert_eq!(items.len(), 2);
+            let ids: Vec<&str> = items.iter().map(|i| i.local_id()).collect();
+            assert!(ids.contains(&"li-base"));
+            assert!(ids.contains(&"li-addon"));
         }
 
         // When the line is already fully credited, a further credit produces nothing.

@@ -120,6 +120,9 @@ pub struct AmendmentPreviewExtended {
 #[derive(Debug, Clone)]
 pub struct ImmediateAmendmentResult {
     pub adjustment_invoice_id: Option<InvoiceId>,
-    pub credit_note_id: Option<CreditNoteId>,
+    /// Credit notes issued for the credit side of the amendment — one per source
+    /// invoice that billed a now-removed/downgraded item (the period's recurring
+    /// invoice and/or in-period adjustment invoices). Empty when nothing is owed.
+    pub credit_note_ids: Vec<CreditNoteId>,
     pub effective_date: NaiveDate,
 }

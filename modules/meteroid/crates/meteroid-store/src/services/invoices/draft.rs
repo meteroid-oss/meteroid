@@ -435,6 +435,10 @@ impl Services {
         let netted =
             crate::services::subscriptions::proration::net_override_lines(&proration.lines);
 
+        let precision =
+            crate::constants::Currencies::resolve_currency_precision(&subscription.currency)
+                .unwrap_or(2);
+
         let invoice_lines: Vec<LineItem> = netted
             .iter()
             .map(|line| {
@@ -453,6 +457,21 @@ impl Services {
                     invoice_date
                 };
 
+                // A genuinely-added component/add-on carries the subscription-row id it
+                // bills. Stamp it (plus a unit_price/quantity representation) onto the
+                // line so a later removal can match and credit this charge via the same
+                // line-level machinery used for recurring invoices. Charges only
+                // (amount_subtotal > 0); credits never reach the adjustment invoice.
+                let billed_sub = line.sub_component_id.is_some() || line.sub_add_on_id.is_some();
+                let (quantity, unit_price) = if billed_sub && amount_subtotal > 0 {
+                    (
+                        Some(Decimal::ONE),
+                        Some(Decimal::new(amount_subtotal, u32::from(precision))),
+                    )
+                } else {
+                    (None, None)
+                };
+
                 LineItem {
                     local_id: uuid::Uuid::now_v7().to_string(),
                     name: line.name.clone(),
@@ -462,15 +481,15 @@ impl Services {
                     tax_amount: 0,
                     amount_total: amount_subtotal,
                     tax_details: vec![],
-                    quantity: None,
-                    unit_price: None,
+                    quantity,
+                    unit_price,
                     start_date: invoice_date,
                     end_date,
                     sub_lines: vec![],
                     is_prorated: line.is_prorated,
                     price_component_id: line.price_component_id,
-                    sub_component_id: None,
-                    sub_add_on_id: None,
+                    sub_component_id: line.sub_component_id,
+                    sub_add_on_id: line.sub_add_on_id,
                     product_id: line.product_id,
                     metric_id: None,
                     description: None,
@@ -734,6 +753,8 @@ impl Services {
                     product_id: l.product_id,
                     price_component_id: l.price_component_id,
                     net_key: None,
+                    sub_component_id: l.sub_component_id,
+                    sub_add_on_id: l.sub_add_on_id,
                 })
                 .collect(),
             net_amount_cents: invoice_content.subtotal,

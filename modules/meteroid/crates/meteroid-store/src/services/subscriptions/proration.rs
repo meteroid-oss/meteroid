@@ -210,6 +210,8 @@ pub fn calculate_proration(
                     product_id: Some(m.product_id),
                     price_component_id: None,
                     net_key: None,
+                    sub_component_id: None,
+                    sub_add_on_id: None,
                 });
             }
         }
@@ -232,6 +234,8 @@ pub fn calculate_proration(
                     product_id: Some(m.product_id),
                     price_component_id: None,
                     net_key: None,
+                    sub_component_id: None,
+                    sub_add_on_id: None,
                 });
             }
         }
@@ -259,6 +263,8 @@ pub fn calculate_proration(
                     product_id: None,
                     price_component_id: None,
                     net_key: r.net_key.clone(),
+                    sub_component_id: None,
+                    sub_add_on_id: None,
                 });
             }
         }
@@ -279,6 +285,8 @@ pub fn calculate_proration(
                     product_id: None,
                     price_component_id: None,
                     net_key: a.net_key.clone(),
+                    sub_component_id: a.billed_component_id,
+                    sub_add_on_id: a.billed_add_on_id,
                 });
             }
             continue;
@@ -303,6 +311,8 @@ pub fn calculate_proration(
                     product_id: None,
                     price_component_id: None,
                     net_key: a.net_key.clone(),
+                    sub_component_id: a.billed_component_id,
+                    sub_add_on_id: a.billed_add_on_id,
                 });
             }
         }
@@ -624,6 +634,8 @@ mod tests {
             fee: rate_fee(50),
             period: monthly(),
             net_key: None,
+            billed_component_id: None,
+            billed_add_on_id: None,
         }];
 
         let removed = vec![RemovedComponent {
@@ -692,6 +704,8 @@ mod tests {
             fee: rate_fee(100),
             period: monthly(),
             net_key: None,
+            billed_component_id: None,
+            billed_add_on_id: None,
         }];
 
         let direction = detect_change_direction(&[], &added, &[], 2);
@@ -722,6 +736,8 @@ mod tests {
             },
             period: SubscriptionFeeBillingPeriod::OneTime,
             net_key: None,
+            billed_component_id: None,
+            billed_add_on_id: None,
         }];
 
         // Only 8 of 30 days remain — must not scale the one-time charge.
@@ -751,6 +767,8 @@ mod tests {
             fee: rate_fee(3650),
             period: SubscriptionFeeBillingPeriod::Annual,
             net_key: None,
+            billed_component_id: None,
+            billed_add_on_id: None,
         }];
 
         let result = calculate_proration(
@@ -776,6 +794,8 @@ mod tests {
             fee: rate_fee(100),
             period: monthly(),
             net_key: None,
+            billed_component_id: None,
+            billed_add_on_id: None,
         }];
 
         let result = calculate_proration(
@@ -792,6 +812,63 @@ mod tests {
         assert_eq!(result.lines[0].amount_cents, 5000);
     }
 
+    // A genuinely-added add-on stamps its pre-generated subscription-add-on id onto
+    // the prorated charge line, and `net_override_lines` preserves it. This is what
+    // lets a later removal match and credit the add-on's adjustment-invoice line.
+    #[test]
+    fn test_genuine_add_tags_line_with_billed_id() {
+        use common_domain::ids::{BaseId, SubscriptionAddOnId, SubscriptionPriceComponentId};
+
+        let aid = SubscriptionAddOnId::new();
+        let added = vec![AddedComponent {
+            name: "Support".to_string(),
+            fee: rate_fee(2000),
+            period: monthly(),
+            net_key: None,
+            billed_component_id: None,
+            billed_add_on_id: Some(aid),
+        }];
+        let result = calculate_proration(
+            &[],
+            &added,
+            &[],
+            NaiveDate::from_ymd_opt(2025, 1, 1).unwrap(),
+            NaiveDate::from_ymd_opt(2025, 1, 31).unwrap(),
+            NaiveDate::from_ymd_opt(2025, 1, 16).unwrap(),
+            2,
+        );
+        assert_eq!(result.lines.len(), 1);
+        assert_eq!(result.lines[0].sub_add_on_id, Some(aid));
+        assert_eq!(result.lines[0].sub_component_id, None);
+
+        // Pass-through netting (no opposite-keyed line) keeps the stamp.
+        let netted = net_override_lines(&result.lines);
+        assert_eq!(netted.len(), 1);
+        assert_eq!(netted[0].sub_add_on_id, Some(aid));
+
+        // A component add tags sub_component_id instead.
+        let cid = SubscriptionPriceComponentId::new();
+        let added = vec![AddedComponent {
+            name: "Extra".to_string(),
+            fee: rate_fee(100),
+            period: monthly(),
+            net_key: None,
+            billed_component_id: Some(cid),
+            billed_add_on_id: None,
+        }];
+        let result = calculate_proration(
+            &[],
+            &added,
+            &[],
+            NaiveDate::from_ymd_opt(2025, 1, 1).unwrap(),
+            NaiveDate::from_ymd_opt(2025, 1, 31).unwrap(),
+            NaiveDate::from_ymd_opt(2025, 1, 16).unwrap(),
+            2,
+        );
+        assert_eq!(result.lines[0].sub_component_id, Some(cid));
+        assert_eq!(result.lines[0].sub_add_on_id, None);
+    }
+
     fn line(name: &str, amount: i64, is_credit: bool, net_key: Option<&str>) -> ProrationLineItem {
         ProrationLineItem {
             name: name.to_string(),
@@ -802,6 +879,8 @@ mod tests {
             product_id: None,
             price_component_id: None,
             net_key: net_key.map(str::to_string),
+            sub_component_id: None,
+            sub_add_on_id: None,
         }
     }
 

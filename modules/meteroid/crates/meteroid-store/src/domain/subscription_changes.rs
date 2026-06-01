@@ -1,7 +1,9 @@
 use crate::domain::enums::SubscriptionFeeBillingPeriod;
 use crate::domain::subscription_components::SubscriptionFee;
 use chrono::NaiveDate;
-use common_domain::ids::{InvoiceId, PriceComponentId, ProductId};
+use common_domain::ids::{
+    InvoiceId, PriceComponentId, ProductId, SubscriptionAddOnId, SubscriptionPriceComponentId,
+};
 use serde::{Deserialize, Serialize};
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
@@ -79,6 +81,18 @@ pub struct AddedComponent {
     /// genuinely new components, which are not netted.
     #[serde(default)]
     pub net_key: Option<String>,
+    /// For a genuinely-added component applied immediately, the pre-generated
+    /// subscription-component id it will be inserted with. Carried onto the
+    /// adjustment-invoice line (as `sub_component_id`) so a later removal can
+    /// credit the prorated unused portion against that line. `None` for
+    /// overrides and add-on adds.
+    #[serde(default)]
+    pub billed_component_id: Option<SubscriptionPriceComponentId>,
+    /// For a genuinely-added add-on applied immediately, the pre-generated
+    /// subscription-add-on id it will be inserted with. The add-on analogue of
+    /// `billed_component_id`.
+    #[serde(default)]
+    pub billed_add_on_id: Option<SubscriptionAddOnId>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -114,4 +128,11 @@ pub struct ProrationLineItem {
     /// Correlation key for netting override credit/charge pairs in the
     /// adjustment invoice. See `AddedComponent::net_key`.
     pub net_key: Option<String>,
+    /// Subscription-component id this line bills (genuine immediate adds only),
+    /// stamped onto the adjustment-invoice line so a later removal can match and
+    /// credit it. See `AddedComponent::billed_component_id`.
+    pub sub_component_id: Option<SubscriptionPriceComponentId>,
+    /// Subscription-add-on id this line bills (genuine immediate adds only).
+    /// See `AddedComponent::billed_add_on_id`.
+    pub sub_add_on_id: Option<SubscriptionAddOnId>,
 }

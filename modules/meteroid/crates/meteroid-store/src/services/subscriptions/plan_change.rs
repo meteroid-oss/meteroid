@@ -1587,6 +1587,8 @@ fn build_plan_change_preview(
             fee,
             period,
             net_key: None,
+            billed_component_id: None,
+            billed_add_on_id: None,
         });
     }
 

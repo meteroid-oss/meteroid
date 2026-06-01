@@ -835,6 +835,47 @@ impl InvoiceRow {
             .attach("Error while finding existing recurring invoice")
             .into_db_result()
     }
+
+    /// Finalized invoices that advance-billed any part of the current period and
+    /// could therefore be credited by a mid-period amendment: the period's
+    /// `Recurring` invoice (`invoice_date == period_start`) plus any `Adjustment`
+    /// invoices issued by earlier immediate amendments within the same period
+    /// (`period_start <= invoice_date < period_end`).
+    ///
+    /// The upper bound is exclusive so the *next* period's recurring invoice
+    /// (whose `invoice_date == period_end`) is never picked up.
+    pub async fn list_creditable_period_invoices(
+        conn: &mut PgConn,
+        param_tenant_id: TenantId,
+        param_subscription_id: SubscriptionId,
+        period_start: chrono::NaiveDate,
+        period_end: chrono::NaiveDate,
+    ) -> DbResult<Vec<InvoiceRow>> {
+        use crate::enums::InvoiceType;
+        use crate::schema::invoice::dsl as i_dsl;
+        use diesel_async::RunQueryDsl;
+
+        let query = i_dsl::invoice
+            .filter(i_dsl::tenant_id.eq(param_tenant_id))
+            .filter(i_dsl::subscription_id.eq(param_subscription_id))
+            .filter(i_dsl::invoice_date.ge(period_start))
+            .filter(i_dsl::invoice_date.lt(period_end))
+            .filter(i_dsl::status.eq(InvoiceStatusEnum::Finalized))
+            .filter(
+                i_dsl::invoice_type
+                    .eq(InvoiceType::Recurring)
+                    .or(i_dsl::invoice_type.eq(InvoiceType::Adjustment)),
+            )
+            .select(InvoiceRow::as_select());
+
+        log::debug!("{}", debug_query::<diesel::pg::Pg, _>(&query));
+
+        query
+            .load(conn)
+            .await
+            .attach("Error while listing creditable period invoices")
+            .into_db_result()
+    }
 }
 
 impl InvoiceRowLinesPatch {

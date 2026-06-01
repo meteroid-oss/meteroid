@@ -1951,6 +1951,130 @@ async fn test_amendment_removal_paid_issues_credit_to_balance(#[future] test_env
     assert_eq!(balance_after - balance_before, cn.credited_amount_cents);
 }
 
+/// Add an add-on immediately, then remove it within the *same* period. The add-on
+/// was billed (prorated) on an `Adjustment` invoice — never on the period's
+/// recurring invoice — so the credit for the unused portion must land on that
+/// adjustment invoice. Regression test: previously the credit search only looked at
+/// the recurring invoice, so no credit note was issued and the customer kept paying
+/// for an add-on they no longer had.
+#[rstest]
+#[tokio::test]
+async fn test_amendment_add_then_remove_addon_credits_adjustment_invoice(
+    #[future] test_env: TestEnv,
+) {
+    let env = test_env.await;
+    let start_date = NaiveDate::from_ymd_opt(2024, 1, 1).unwrap();
+    let add_date = NaiveDate::from_ymd_opt(2024, 1, 16).unwrap(); // 16 of 31 days remaining
+    let remove_date = NaiveDate::from_ymd_opt(2024, 1, 20).unwrap(); // 12 of 31 days remaining
+
+    let sub_id = subscription()
+        .plan_version(PLAN_VERSION_STARTER_ID)
+        .start_date(start_date)
+        .on_start()
+        .no_trial()
+        .create(env.services())
+        .await;
+
+    // Finalize the initial recurring invoice (unpaid). It bills the Starter plan
+    // only — the add-on does not exist yet.
+    env.run_outbox_and_orchestration().await;
+
+    let add_on_id = create_rate_addon(&env, "Premium Support", 2000).await;
+
+    // Add the add-on at Jan 16 → a prorated charge on a finalized adjustment invoice.
+    let add = env
+        .services()
+        .apply_amendment_immediate_at(
+            common_domain::actor::Actor::System,
+            sub_id,
+            TENANT_ID,
+            add_addon_amendment(PlanChangeMode::Immediate, add_on_id, 1),
+            add_date,
+        )
+        .await
+        .expect("add add-on failed");
+    let adjustment_id = add
+        .adjustment_invoice_id
+        .expect("adding an add-on mid-period produces an adjustment invoice");
+
+    let adjustment = env
+        .get_invoices(sub_id)
+        .await
+        .into_iter()
+        .find(|i| i.id == adjustment_id)
+        .expect("adjustment invoice");
+    assert_eq!(adjustment.invoice_type, InvoiceType::Adjustment);
+    // €20/mo * 16/31 days = €10.32 charged for the add-on, on its own line.
+    let billed = adjustment
+        .line_items
+        .iter()
+        .find(|l| l.sub_add_on_id.is_some())
+        .expect("add-on line on the adjustment invoice");
+    assert_eq!(billed.amount_subtotal, 1032);
+
+    // Remove the add-on at Jan 20 → credit the unused 12/31 of what was billed.
+    let removal = env
+        .services()
+        .apply_amendment_immediate_at(
+            common_domain::actor::Actor::System,
+            sub_id,
+            TENANT_ID,
+            SubscriptionAmendment {
+                apply_mode: PlanChangeMode::Immediate,
+                component_changes: ComponentChanges::default(),
+                add_on_changes: AddOnChanges {
+                    added: vec![],
+                    edited: vec![],
+                    removed: vec![active_addon_id(&env, sub_id).await],
+                },
+            },
+            remove_date,
+        )
+        .await
+        .expect("remove add-on failed");
+
+    // Exactly one credit note, and it targets the adjustment invoice that billed
+    // the add-on — not the recurring invoice.
+    assert_eq!(
+        removal.credit_note_ids.len(),
+        1,
+        "removing the just-added add-on must issue a credit note"
+    );
+
+    let credit_notes = env
+        .store()
+        .list_credit_notes_by_invoice_id(TENANT_ID, adjustment_id)
+        .await
+        .expect("list credit notes");
+    assert_eq!(
+        credit_notes.len(),
+        1,
+        "the credit note is issued against the adjustment invoice"
+    );
+    let cn = &credit_notes[0];
+    // Adjustment invoice is unpaid → debt cancellation reduces what is owed.
+    assert_eq!(cn.credit_type, CreditType::DebtCancellation);
+    // Unused 12 of 31 days of the €20/mo add-on: 2000 * 12/31 = 774 (rounded).
+    assert_eq!(cn.subtotal, -774);
+
+    // The recurring invoice never billed the add-on, so it is not credited.
+    let recurring = env
+        .get_invoices(sub_id)
+        .await
+        .into_iter()
+        .find(|i| i.invoice_type == InvoiceType::Recurring && i.invoice_date == start_date)
+        .expect("recurring invoice");
+    let recurring_cns = env
+        .store()
+        .list_credit_notes_by_invoice_id(TENANT_ID, recurring.id)
+        .await
+        .expect("list recurring credit notes");
+    assert!(
+        recurring_cns.is_empty(),
+        "recurring invoice must not be credited for an add-on it never billed"
+    );
+}
+
 /// Fetch the single active subscription_add_on id (test helper).
 async fn active_addon_id(
     env: &TestEnv,

@@ -104,6 +104,11 @@ pub struct ResolvedComponentInsert {
     /// for genuinely new (extra) components, which become their own root.
     #[serde(default)]
     pub lineage_id: Option<SubscriptionPriceComponentId>,
+    /// Pre-generated id to insert the row with, so the adjustment invoice issued
+    /// in the same immediate amendment can stamp this id onto its charge line and
+    /// a later removal can credit it. `None` lets the row generate its own id.
+    #[serde(default)]
+    pub subscription_component_id: Option<SubscriptionPriceComponentId>,
 }
 
 /// A fully-resolved subscription add-on to insert when an amendment is applied.
@@ -120,6 +125,10 @@ pub struct ResolvedAddOnInsert {
     /// for genuinely new add-ons, which become their own root.
     #[serde(default)]
     pub lineage_id: Option<SubscriptionAddOnId>,
+    /// Pre-generated id to insert the row with. The add-on analogue of
+    /// `ResolvedComponentInsert::subscription_component_id`.
+    #[serde(default)]
+    pub subscription_add_on_id: Option<SubscriptionAddOnId>,
 }
 
 json_value_serde!(ScheduledEventData);
