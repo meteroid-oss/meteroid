@@ -27,14 +27,12 @@ pub fn value_to_rest(v: domain::EntitlementValue) -> EntitlementValue {
         domain::EntitlementValue::Metered {
             limit,
             reset_period,
-            overage_behavior,
-            warning_threshold_pct,
+            overage_behavior: _,
+            warning_threshold_pct: _,
             enabled,
         } => EntitlementValue::Metered(MeteredEntitlementValue {
             limit,
             reset_period: reset_period.into(),
-            overage_behavior: overage_behavior.into(),
-            warning_threshold_pct,
             enabled,
         }),
     }
@@ -86,15 +84,13 @@ pub fn resolved_entitlement_to_rest(r: domain::ResolvedEntitlement) -> ResolvedE
             metric_id,
             limit,
             reset_period,
-            overage_behavior,
-            warning_threshold_pct,
+            overage_behavior: _,
+            warning_threshold_pct: _,
             enabled,
         } => ResolvedEntitlementValue::Metered(MeteredResolvedEntitlementValue {
             metric_id,
             limit,
             reset_period: reset_period.into(),
-            overage_behavior: overage_behavior.into(),
-            warning_threshold_pct,
             enabled,
         }),
     };
@@ -121,8 +117,8 @@ pub fn effective_entitlement_to_rest(r: domain::EffectiveEntitlement) -> Effecti
             metric_id,
             limit,
             reset_period,
-            overage_behavior,
-            warning_threshold_pct,
+            overage_behavior: _,
+            warning_threshold_pct: _,
             enabled,
             usage,
         } => EffectiveEntitlementValue::Metered(MeteredEffectiveEntitlementValue {
@@ -130,8 +126,6 @@ pub fn effective_entitlement_to_rest(r: domain::EffectiveEntitlement) -> Effecti
                 metric_id,
                 limit,
                 reset_period: reset_period.into(),
-                overage_behavior: overage_behavior.into(),
-                warning_threshold_pct,
                 enabled,
             },
             usage: MeteredEntitlementUsage {

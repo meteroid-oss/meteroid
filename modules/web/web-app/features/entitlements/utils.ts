@@ -3,7 +3,6 @@ import {
   EffectiveEntitlement,
   EntitlementValue,
   FeatureType,
-  OverageBehavior,
   ResetPeriod,
   ResolvedEntitlement,
   ResolvedOrigin,
@@ -85,17 +84,6 @@ export function resetPeriodLabel(rp: ResetPeriod | undefined): string {
   }
 }
 
-export function overageBehaviorLabel(ob: OverageBehavior): string {
-  const inner = ob.Inner
-  if (!inner || inner.case === undefined) return '—'
-  if (inner.case === 'allow') return 'Allow overage'
-  if (inner.case === 'block') {
-    const grace = inner.value.gracePeriodPct
-    return grace != null ? `Block at cap (+${grace}% grace)` : 'Block at cap'
-  }
-  return '—'
-}
-
 export function entitlementValueLabel(value: EntitlementValue['value'] | undefined): string {
   if (value?.case === 'booleanValue') {
     return value.value.enabled ? '✓ Enabled' : '✗ Disabled'
@@ -104,8 +92,7 @@ export function entitlementValueLabel(value: EntitlementValue['value'] | undefin
     const m = value.value
     const limitPart = m.limit ? m.limit : '∞ Unlimited'
     const periodPart = m.resetPeriod ? ` / ${resetPeriodLabel(m.resetPeriod)}` : ''
-    const warnPart = m.warningThresholdPct != null ? ` · warn ${m.warningThresholdPct}%` : ''
-    return `${limitPart}${periodPart}${warnPart}`
+    return `${limitPart}${periodPart}`
   }
   return '—'
 }
@@ -201,9 +188,7 @@ export function formatResolvedValue(value: ResolvedEntitlement['value']): string
   }
   if (value.case === 'metered') {
     const m = value.value
-    const limit = m.limit ?? '∞'
-    const warn = m.warningThresholdPct != null ? ` (warn @ ${m.warningThresholdPct}%)` : ''
-    return `${limit}${warn}`
+    return m.limit ?? '∞'
   }
   return '—'
 }
@@ -233,8 +218,6 @@ export function entitlementValueToSpec(
         value: {
           limit: m.limit,
           resetPeriod: m.resetPeriod,
-          overageBehavior: m.overageBehavior,
-          warningThresholdPct: m.warningThresholdPct,
           enabled: m.enabled,
         },
       },

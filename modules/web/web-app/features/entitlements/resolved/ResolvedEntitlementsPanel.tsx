@@ -200,8 +200,6 @@ const RowActions: FC<RowActionsProps> = ({
           value: {
             limit: m.limit,
             resetPeriod: m.resetPeriod,
-            overageBehavior: m.overageBehavior,
-            warningThresholdPct: m.warningThresholdPct,
             enabled: !m.enabled,
           },
         },

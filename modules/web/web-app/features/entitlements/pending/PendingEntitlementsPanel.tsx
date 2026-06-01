@@ -75,9 +75,7 @@ function formatPendingValue(spec: PendingEntitlementSpec): string {
     return spec.boolEnabled !== false ? 'Enabled' : 'Disabled'
   }
   // metered
-  const limit = spec.limit ?? '∞'
-  const warn = spec.warningThresholdPct != null ? ` (warn @ ${spec.warningThresholdPct}%)` : ''
-  return `${limit}${warn}`
+  return spec.limit ?? '∞'
 }
 
 function buildMergedRows(
@@ -150,7 +148,7 @@ const RowActions: FC<RowActionsProps> = ({
   const featureType =
     row.pending?.featureType ??
     (row.inherited?.value.case === 'boolean' ? 'boolean' :
-     row.inherited?.value.case === 'metered' ? 'metered' : undefined)
+      row.inherited?.value.case === 'metered' ? 'metered' : undefined)
   const isBoolean = featureType === 'boolean'
   const isMetered = featureType === 'metered'
 
@@ -160,7 +158,7 @@ const RowActions: FC<RowActionsProps> = ({
         <Tooltip>
           <TooltipTrigger asChild>
             <button type="button" className="p-1 hover:bg-muted rounded" onClick={() => onOverride(row)}>
-              <Pencil size={12} />
+              <Pencil size={12}/>
             </button>
           </TooltipTrigger>
           <TooltipContent>{entitlementTooltip(entityLabel, 'override')}</TooltipContent>
@@ -170,8 +168,9 @@ const RowActions: FC<RowActionsProps> = ({
       {hasPending ? (
         <Tooltip>
           <TooltipTrigger asChild>
-            <button type="button" className="p-1 hover:bg-muted rounded text-destructive" onClick={() => onRemovePending(row.featureId)}>
-              <PinOff size={12} />
+            <button type="button" className="p-1 hover:bg-muted rounded text-destructive"
+                    onClick={() => onRemovePending(row.featureId)}>
+              <PinOff size={12}/>
             </button>
           </TooltipTrigger>
           <TooltipContent>{entitlementTooltip(entityLabel, 'unpin')}</TooltipContent>
@@ -180,7 +179,7 @@ const RowActions: FC<RowActionsProps> = ({
         <Tooltip>
           <TooltipTrigger asChild>
             <button type="button" className="p-1 hover:bg-muted rounded" onClick={() => onPin(row)}>
-              <Pin size={12} />
+              <Pin size={12}/>
             </button>
           </TooltipTrigger>
           <TooltipContent>{entitlementTooltip(entityLabel, 'pin')}</TooltipContent>
@@ -192,8 +191,8 @@ const RowActions: FC<RowActionsProps> = ({
           <TooltipTrigger asChild>
             <button type="button" className="p-1 hover:bg-muted rounded" onClick={() => onToggleDisable(row)}>
               {row.disabled
-                ? <CirclePower size={12} className="text-destructive" />
-                : <CirclePower size={12} className="text-primary" />}
+                ? <CirclePower size={12} className="text-destructive"/>
+                : <CirclePower size={12} className="text-primary"/>}
             </button>
           </TooltipTrigger>
           <TooltipContent>{entitlementTooltip(entityLabel, row.disabled ? 'enable' : 'disable')}</TooltipContent>
@@ -329,42 +328,42 @@ export const PendingEntitlementsPanel: FC<Props> = ({ selection, pending, onChan
       <div className="flex flex-col gap-4">
         {/* Action row (no internal title — outer card provides one) */}
         <div className="flex items-center justify-end gap-2">
-            <Tooltip>
-              <TooltipTrigger asChild>
-                <Button
-                  size="sm"
-                  variant="secondary"
-                  type="button"
-                  onClick={() => setDialog({ open: true })}
-                >
-                  Add entitlement
-                </Button>
-              </TooltipTrigger>
-              <TooltipContent>{`Attach a new entitlement to this ${entityLabel}.`}</TooltipContent>
-            </Tooltip>
+          <Tooltip>
+            <TooltipTrigger asChild>
+              <Button
+                size="sm"
+                variant="secondary"
+                type="button"
+                onClick={() => setDialog({ open: true })}
+              >
+                Add entitlement
+              </Button>
+            </TooltipTrigger>
+            <TooltipContent>{`Attach a new entitlement to this ${entityLabel}.`}</TooltipContent>
+          </Tooltip>
 
-            <Tooltip>
-              <TooltipTrigger asChild>
-                <Button
-                  size="sm"
-                  variant="outline"
-                  type="button"
-                  onClick={requestPinAll}
-                >
-                  Pin all
-                </Button>
-              </TooltipTrigger>
-              <TooltipContent className="max-w-56">
-                {`Save local copies of every upstream entitlement on this ${entityLabel}. Already-pinned entries are skipped.`}
-              </TooltipContent>
-            </Tooltip>
+          <Tooltip>
+            <TooltipTrigger asChild>
+              <Button
+                size="sm"
+                variant="outline"
+                type="button"
+                onClick={requestPinAll}
+              >
+                Pin all
+              </Button>
+            </TooltipTrigger>
+            <TooltipContent className="max-w-56">
+              {`Save local copies of every upstream entitlement on this ${entityLabel}. Already-pinned entries are skipped.`}
+            </TooltipContent>
+          </Tooltip>
         </div>
 
         {/* Body */}
         {isLoading ? (
           <div className="flex flex-col gap-2">
-            <Skeleton className="h-10 w-full" />
-            <Skeleton className="h-10 w-full" />
+            <Skeleton className="h-10 w-full"/>
+            <Skeleton className="h-10 w-full"/>
           </div>
         ) : rows.length === 0 ? (
           <p className="text-sm text-muted-foreground">
@@ -378,64 +377,64 @@ export const PendingEntitlementsPanel: FC<Props> = ({ selection, pending, onChan
               return a.name.localeCompare(b.name)
             })
             .map(group => (
-            <div key={group.id ?? '__general__'}>
-              <p className="text-xs font-semibold uppercase tracking-wide text-muted-foreground mb-1 px-1">
-                {group.name}
-              </p>
-              <div className="border border-border rounded-lg divide-y divide-border overflow-hidden">
-                {[...group.items]
-                  .sort((a, b) => a.featureName.localeCompare(b.featureName))
-                  .map(row => {
-                    const hasPending = !!row.pending
-                    const hasInherited = !!row.inherited
+              <div key={group.id ?? '__general__'}>
+                <p className="text-xs font-semibold uppercase tracking-wide text-muted-foreground mb-1 px-1">
+                  {group.name}
+                </p>
+                <div className="border border-border rounded-lg divide-y divide-border overflow-hidden">
+                  {[...group.items]
+                    .sort((a, b) => a.featureName.localeCompare(b.featureName))
+                    .map(row => {
+                      const hasPending = !!row.pending
+                      const hasInherited = !!row.inherited
 
-                    // Show the inheritance icon only when the row has no local pending
-                    // override. The tooltip falls back to a quote-specific phrase when
-                    // origin info is missing.
-                    const showInheritanceIcon = !hasPending && hasInherited
-                    const inheritanceTooltip = hasInherited
-                      ? row.inherited!.origin
-                        ? buildInheritanceTooltip(
+                      // Show the inheritance icon only when the row has no local pending
+                      // override. The tooltip falls back to a quote-specific phrase when
+                      // origin info is missing.
+                      const showInheritanceIcon = !hasPending && hasInherited
+                      const inheritanceTooltip = hasInherited
+                        ? row.inherited!.origin
+                          ? buildInheritanceTooltip(
                             row.inherited!.origin,
                             row.inherited!.feature?.product
                           )
-                        : 'Inherited from the selected plan and add-ons.'
-                      : ''
+                          : 'Inherited from the selected plan and add-ons.'
+                        : ''
 
-                    return (
-                      <div
-                        key={row.featureId}
-                        className={cn(
-                          'group flex items-center justify-between px-4 py-2.5 text-sm',
-                          row.disabled && 'opacity-60'
-                        )}
-                      >
-                        {/* Left: feature name + inheritance icon */}
-                        <div className="flex items-center gap-2 min-w-0">
-                          <span className="font-medium truncate">{row.featureName}</span>
-                          {showInheritanceIcon && <InheritedIcon tooltip={inheritanceTooltip} />}
-                        </div>
+                      return (
+                        <div
+                          key={row.featureId}
+                          className={cn(
+                            'group flex items-center justify-between px-4 py-2.5 text-sm',
+                            row.disabled && 'opacity-60'
+                          )}
+                        >
+                          {/* Left: feature name + inheritance icon */}
+                          <div className="flex items-center gap-2 min-w-0">
+                            <span className="font-medium truncate">{row.featureName}</span>
+                            {showInheritanceIcon && <InheritedIcon tooltip={inheritanceTooltip}/>}
+                          </div>
 
-                        {/* Right: value + kebab menu */}
-                        <div className="flex items-center gap-2 shrink-0 ml-4">
+                          {/* Right: value + kebab menu */}
+                          <div className="flex items-center gap-2 shrink-0 ml-4">
                           <span className="text-muted-foreground text-xs tabular-nums">
                             {row.valueLabel}
                           </span>
-                          <RowActions
-                            row={row}
-                            entityLabel={entityLabel}
-                            onOverride={handleOverride}
-                            onPin={handlePin}
-                            onToggleDisable={handleToggleDisable}
-                            onRemovePending={removePending}
-                          />
+                            <RowActions
+                              row={row}
+                              entityLabel={entityLabel}
+                              onOverride={handleOverride}
+                              onPin={handlePin}
+                              onToggleDisable={handleToggleDisable}
+                              onRemovePending={removePending}
+                            />
+                          </div>
                         </div>
-                      </div>
-                    )
-                  })}
+                      )
+                    })}
+                </div>
               </div>
-            </div>
-          ))
+            ))
         )}
 
         {/* Add / Override dialog */}
@@ -447,7 +446,7 @@ export const PendingEntitlementsPanel: FC<Props> = ({ selection, pending, onChan
           existingEntitlements={
             dialog.open && dialog.row
               ? // When overriding, exclude the current feature from the "already exists" set
-                pending.filter(p => pendingSpecKey(p) !== dialog.row!.featureId)
+              pending.filter(p => pendingSpecKey(p) !== dialog.row!.featureId)
               : pending
           }
         />

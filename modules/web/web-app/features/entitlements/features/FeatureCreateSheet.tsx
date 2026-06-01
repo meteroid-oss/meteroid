@@ -47,7 +47,6 @@ import {
 import {
   CalendarUnit,
   EntitlementValue,
-  OverageBehavior,
 } from '@/rpc/api/entitlements/v1/models_pb'
 import { listProducts } from '@/rpc/api/products/v1/products-ProductsService_connectquery'
 
@@ -65,9 +64,6 @@ const schema = z
       .optional(),
     resetUnit: z.nativeEnum(CalendarUnit).optional(),
     resetInterval: z.coerce.number().int().min(1).optional(),
-    overageBehaviorType: z.enum(['allow', 'block', 'none']).optional(),
-    gracePeriodPct: z.coerce.number().int().min(0).optional(),
-    warningThresholdPct: z.coerce.number().int().min(0).max(100).optional(),
     meteredEnabled: z.boolean().optional(),
   })
   .refine(d => d.type !== 'metered' || !!d.metricId, {
@@ -95,9 +91,6 @@ function buildEntitlementValue(
     | 'resetPeriodType'
     | 'resetUnit'
     | 'resetInterval'
-    | 'overageBehaviorType'
-    | 'gracePeriodPct'
-    | 'warningThresholdPct'
     | 'meteredEnabled'
   >
 ) {
@@ -135,21 +128,12 @@ function buildEntitlementValue(
               }
             : { Inner: { case: 'never' as const, value: {} } }
 
-  const overageBehavior =
-    data.overageBehaviorType === 'allow'
-      ? new OverageBehavior({ Inner: { case: 'allow', value: {} } })
-      : data.overageBehaviorType === 'block'
-        ? new OverageBehavior({ Inner: { case: 'block', value: { gracePeriodPct: data.gracePeriodPct } } })
-        : undefined
-
   return {
     value: {
       case: 'meteredValue' as const,
       value: {
         limit: data.limit || undefined,
         resetPeriod,
-        overageBehavior,
-        warningThresholdPct: data.warningThresholdPct,
         enabled: data.meteredEnabled ?? true,
       },
     },
@@ -187,7 +171,6 @@ export const FeatureCreateSheet = ({
       resetPeriodType: 'billingCycle',
       resetUnit: CalendarUnit.MONTH,
       resetInterval: 1,
-      overageBehaviorType: 'block',
       meteredEnabled: true,
     },
   })

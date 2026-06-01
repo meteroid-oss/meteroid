@@ -47,17 +47,6 @@ function Opt() {
   return <span className="text-muted-foreground text-xs ml-1">(optional)</span>
 }
 
-function overageBehaviorHint(type: string | undefined): string {
-  switch (type) {
-    case 'block':
-      return 'Deny access once usage reaches the limit. Meteroid does not enforce this — your integration must check and act.'
-    case 'allow':
-      return 'Keep serving usage past the limit; overage is billed or handled out-of-band.'
-    default:
-      return ''
-  }
-}
-
 function resetPeriodHint(type: string | undefined): string {
   switch (type) {
     case 'never':
@@ -78,12 +67,10 @@ function resetPeriodHint(type: string | undefined): string {
 export function EntitlementValueFields({ featureType, idPrefix }: Props) {
   const { control } = useFormContext()
   const resetPeriodType = useWatch({ control, name: 'resetPeriodType' })
-  const overageBehaviorType = useWatch({ control, name: 'overageBehaviorType' })
   const showInterval =
     resetPeriodType === 'calendar' ||
     resetPeriodType === 'fixedWindow' ||
     resetPeriodType === 'slidingWindow'
-  const showGracePeriod = overageBehaviorType === 'block'
 
   if (featureType === 'boolean') {
     return (
@@ -217,84 +204,6 @@ export function EntitlementValueFields({ featureType, idPrefix }: Props) {
           />
         </div>
       )}
-      <FormField
-        control={control}
-        name="overageBehaviorType"
-        render={({ field }) => (
-          <FormItem>
-            <FormLabel className="flex items-center gap-1">
-              Overage behavior<Req />
-            </FormLabel>
-            <Select value={field.value} onValueChange={field.onChange}>
-              <FormControl>
-                <SelectTrigger>
-                  <SelectValue />
-                </SelectTrigger>
-              </FormControl>
-              <SelectContent>
-                <SelectItem value="block">Block at cap</SelectItem>
-                <SelectItem value="allow">Allow overage</SelectItem>
-              </SelectContent>
-            </Select>
-            {field.value && (
-              <p className="text-xs text-muted-foreground mt-1">
-                {overageBehaviorHint(field.value)}
-              </p>
-            )}
-          </FormItem>
-        )}
-      />
-      {showGracePeriod && (
-        <FormField
-          control={control}
-          name="gracePeriodPct"
-          render={({ field }) => (
-            <FormItem>
-              <FormLabel className="flex items-center gap-1">
-                Grace period <span className="text-muted-foreground text-xs">(%)</span>
-                <Opt />
-                <Info text="Extra usage allowed beyond the limit before hard enforcement, as a percentage of the limit. Only applies when Block is selected." />
-              </FormLabel>
-              <FormControl>
-                <Input
-                  type="number"
-                  min={0}
-                  placeholder="—"
-                  {...field}
-                  value={field.value ?? ''}
-                  onChange={e => field.onChange(e.target.value === '' ? undefined : Number(e.target.value))}
-                />
-              </FormControl>
-              <FormMessage />
-            </FormItem>
-          )}
-        />
-      )}
-      <FormField
-        control={control}
-        name="warningThresholdPct"
-        render={({ field }) => (
-          <FormItem>
-            <FormLabel className="flex items-center gap-1">
-              Warning threshold <span className="text-muted-foreground text-xs">(%)</span>
-              <Opt />
-              <Info text="Percentage of the limit at which a warning signal is emitted. Your integration can use this to notify users before they hit the cap." />
-            </FormLabel>
-            <FormControl>
-              <Input
-                type="number"
-                min={0}
-                max={100}
-                placeholder="—"
-                {...field}
-                value={field.value ?? ''}
-                onChange={e => field.onChange(e.target.value === '' ? undefined : Number(e.target.value))}
-              />
-            </FormControl>
-            <FormMessage />
-          </FormItem>
-        )}
-      />
     </Fragment>
   )
 }

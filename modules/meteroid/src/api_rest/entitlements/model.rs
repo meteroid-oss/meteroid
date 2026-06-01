@@ -30,54 +30,6 @@ pub enum FeatureStatus {
     Archived,
 }
 
-/// Deny access once usage reaches the limit. Meteroid does not enforce this — your integration must check and act.
-#[derive(Serialize, Deserialize, Debug, Clone, PartialEq, Eq, ToSchema)]
-pub struct BlockOverageBehavior {
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub grace_period_pct: Option<u32>,
-}
-
-/// Keep serving usage past the limit; overage is billed or handled out-of-band.
-#[derive(Serialize, Deserialize, Debug, Clone, PartialEq, Eq, ToSchema)]
-pub struct AllowOverageBehavior {}
-
-/// What happens past the limit.
-#[derive(Serialize, Deserialize, Debug, Clone, PartialEq, Eq, ToSchema)]
-#[serde(tag = "type", rename_all = "SCREAMING_SNAKE_CASE")]
-pub enum OverageBehavior {
-    Block(BlockOverageBehavior),
-    /// Keep serving usage past the limit; overage is billed or handled out-of-band.
-    Allow(AllowOverageBehavior),
-}
-
-impl From<meteroid_store::domain::entitlements::OverageBehavior> for OverageBehavior {
-    fn from(v: meteroid_store::domain::entitlements::OverageBehavior) -> Self {
-        match v {
-            meteroid_store::domain::entitlements::OverageBehavior::Block { grace_period_pct } => {
-                OverageBehavior::Block(BlockOverageBehavior { grace_period_pct })
-            }
-            meteroid_store::domain::entitlements::OverageBehavior::Allow => {
-                OverageBehavior::Allow(AllowOverageBehavior {})
-            }
-        }
-    }
-}
-
-impl From<OverageBehavior> for meteroid_store::domain::entitlements::OverageBehavior {
-    fn from(v: OverageBehavior) -> Self {
-        match v {
-            OverageBehavior::Block(b) => {
-                meteroid_store::domain::entitlements::OverageBehavior::Block {
-                    grace_period_pct: b.grace_period_pct,
-                }
-            }
-            OverageBehavior::Allow(_) => {
-                meteroid_store::domain::entitlements::OverageBehavior::Allow
-            }
-        }
-    }
-}
-
 #[derive(o2o, Serialize, Deserialize, Debug, Clone, Copy, PartialEq, Eq, ToSchema)]
 #[serde(rename_all = "SCREAMING_SNAKE_CASE")]
 #[map_owned(meteroid_store::domain::entitlements::PeriodUnit)]
@@ -235,10 +187,6 @@ pub struct MeteredEntitlementValue {
     pub limit: Option<Decimal>,
     #[serde(default = "default_reset_period")]
     pub reset_period: ResetPeriod,
-    pub overage_behavior: OverageBehavior,
-    /// Percentage of the Cap at which a warning triggers (0–100).
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub warning_threshold_pct: Option<u32>,
     /// Per-entitlement kill switch. `false` means disabled.
     #[serde(default = "default_metered_enabled_rest")]
     pub enabled: bool,
@@ -259,9 +207,6 @@ pub struct MeteredEntitlementSpec {
     #[schema(value_type = Option<String>, format = "decimal")]
     pub limit: Option<Decimal>,
     pub reset_period: ResetPeriod,
-    pub overage_behavior: OverageBehavior,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub warning_threshold_pct: Option<u32>,
     pub enabled: bool,
 }
 
@@ -308,9 +253,6 @@ pub struct MeteredResolvedEntitlementValue {
     #[schema(value_type = Option<String>, format = "decimal")]
     pub limit: Option<Decimal>,
     pub reset_period: ResetPeriod,
-    pub overage_behavior: OverageBehavior,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub warning_threshold_pct: Option<u32>,
     pub enabled: bool,
 }
 

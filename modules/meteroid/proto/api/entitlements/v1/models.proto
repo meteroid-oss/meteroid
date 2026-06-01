@@ -10,21 +10,6 @@ enum CalendarUnit {
   YEAR = 4;
 }
 
-// What happens when a customer exceeds their entitlement limit. Required on every metered value.
-message OverageBehavior {
-  oneof Inner {
-    Block block = 1;
-    Allow allow = 2;
-  }
-
-  // Reject requests once limit (+ optional grace) is reached.
-  message Block {
-    optional uint32 grace_period_pct = 1;
-  }
-  // Permit usage past the limit; overage billing handled separately.
-  message Allow {}
-}
-
 // Operator-facing lifecycle for a feature. DISABLED is the kill switch; ARCHIVED hides the
 // feature without deleting its rows.
 enum FeatureStatus {
@@ -128,8 +113,6 @@ message EntitlementValue {
   message MeteredValue {
     optional string limit = 1;
     optional ResetPeriod reset_period = 2;
-    OverageBehavior overage_behavior = 3;
-    optional uint32 warning_threshold_pct = 4;
     bool enabled = 5;
   }
 }
@@ -164,8 +147,6 @@ message EffectiveEntitlement {
     optional string remaining = 4;
     optional string reset_at = 6;
     optional ResetPeriod reset_period = 7;
-    OverageBehavior overage_behavior = 8;
-    optional uint32 warning_threshold_pct = 9;
     bool enabled = 10;
   }
 }
@@ -188,8 +169,6 @@ message ResolvedEntitlement {
     string metric_id = 1;
     optional string limit = 2;
     optional ResetPeriod reset_period = 3;
-    OverageBehavior overage_behavior = 4;
-    optional uint32 warning_threshold_pct = 5;
     bool enabled = 6;
   }
 }

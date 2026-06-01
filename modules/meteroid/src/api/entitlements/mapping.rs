@@ -84,32 +84,6 @@ pub fn reset_period_from_proto(v: proto::ResetPeriod) -> Result<ResetPeriod, ton
     }
 }
 
-pub fn overage_behavior_to_proto(v: OverageBehavior) -> proto::OverageBehavior {
-    use proto::overage_behavior::{Allow, Block, Inner};
-    proto::OverageBehavior {
-        inner: Some(match v {
-            OverageBehavior::Block { grace_period_pct } => Inner::Block(Block { grace_period_pct }),
-            OverageBehavior::Allow => Inner::Allow(Allow {}),
-        }),
-    }
-}
-
-pub fn overage_behavior_from_proto(
-    v: Option<proto::OverageBehavior>,
-) -> Result<OverageBehavior, tonic::Status> {
-    use proto::overage_behavior::Inner;
-    match v.and_then(|o| o.inner) {
-        Some(Inner::Block(b)) => Ok(OverageBehavior::Block {
-            grace_period_pct: b.grace_period_pct,
-        }),
-        Some(Inner::Allow(_)) => Ok(OverageBehavior::Allow),
-        // Required on the wire; default to Block-no-grace if caller omits.
-        None => Ok(OverageBehavior::Block {
-            grace_period_pct: None,
-        }),
-    }
-}
-
 pub fn feature_status_to_proto(v: FeatureStatusEnum) -> i32 {
     match v {
         FeatureStatusEnum::Active => proto::FeatureStatus::Active as i32,
@@ -217,8 +191,10 @@ pub fn entitlement_value_from_proto(
                     })
                     .transpose()?,
                 reset_period,
-                overage_behavior: overage_behavior_from_proto(m.overage_behavior)?,
-                warning_threshold_pct: m.warning_threshold_pct,
+                overage_behavior: OverageBehavior::Block {
+                    grace_period_pct: None,
+                },
+                warning_threshold_pct: None,
                 enabled: m.enabled,
             })
         }
@@ -253,14 +229,12 @@ pub fn build_value_proto(v: EntitlementValue) -> proto::EntitlementValue {
         EntitlementValue::Metered {
             limit,
             reset_period,
-            overage_behavior,
-            warning_threshold_pct,
+            overage_behavior: _,
+            warning_threshold_pct: _,
             enabled,
         } => Some(Value::MeteredValue(MeteredValue {
             limit: limit.map(|d| d.to_string()),
             reset_period: Some(reset_period_to_proto(reset_period)),
-            overage_behavior: Some(overage_behavior_to_proto(overage_behavior)),
-            warning_threshold_pct,
             enabled,
         })),
     };
@@ -288,8 +262,8 @@ pub fn effective_entitlement_to_proto(r: EffectiveEntitlement) -> proto::Effecti
             metric_id,
             limit,
             reset_period,
-            overage_behavior,
-            warning_threshold_pct,
+            overage_behavior: _,
+            warning_threshold_pct: _,
             enabled,
             usage,
         } => Value::Metered(proto::effective_entitlement::MeteredEntitlement {
@@ -299,8 +273,6 @@ pub fn effective_entitlement_to_proto(r: EffectiveEntitlement) -> proto::Effecti
             remaining: usage.remaining.map(|d| d.to_string()),
             reset_at: usage.reset_at.map(|t| t.as_proto()),
             reset_period: Some(reset_period_to_proto(reset_period)),
-            overage_behavior: Some(overage_behavior_to_proto(overage_behavior)),
-            warning_threshold_pct,
             enabled,
         }),
     };
@@ -328,15 +300,13 @@ pub fn resolved_entitlement_to_proto(r: ResolvedEntitlement) -> proto::ResolvedE
             metric_id,
             limit,
             reset_period,
-            overage_behavior,
-            warning_threshold_pct,
+            overage_behavior: _,
+            warning_threshold_pct: _,
             enabled,
         } => Value::Metered(proto::resolved_entitlement::MeteredResolved {
             metric_id: metric_id.as_proto(),
             limit: limit.map(|d| d.to_string()),
             reset_period: Some(reset_period_to_proto(reset_period)),
-            overage_behavior: Some(overage_behavior_to_proto(overage_behavior)),
-            warning_threshold_pct,
             enabled,
         }),
     };

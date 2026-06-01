@@ -58,7 +58,7 @@ const ProductFeatureRow = ({ feature }: ProductFeatureRowProps) => {
       flipped = { value: { case: 'booleanValue' as const, value: { enabled: !v.value.enabled } } }
     } else if (v.case === 'meteredValue') {
       const m = v.value
-      flipped = { value: { case: 'meteredValue' as const, value: { limit: m.limit, resetPeriod: m.resetPeriod, overageBehavior: m.overageBehavior, warningThresholdPct: m.warningThresholdPct, enabled: !m.enabled } } }
+      flipped = { value: { case: 'meteredValue' as const, value: { limit: m.limit, resetPeriod: m.resetPeriod, enabled: !m.enabled } } }
     } else {
       return
     }

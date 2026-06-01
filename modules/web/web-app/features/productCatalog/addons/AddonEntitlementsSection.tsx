@@ -115,8 +115,6 @@ export const AddonEntitlementsSection = ({ addonId }: Props) => {
           value: {
             limit: m.limit,
             resetPeriod: m.resetPeriod,
-            overageBehavior: m.overageBehavior,
-            warningThresholdPct: m.warningThresholdPct,
             enabled: currentlyDisabled
           }
         }

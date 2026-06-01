@@ -2,7 +2,6 @@ import {
   CalendarUnit,
   EntitlementSpec,
   EntitlementValue,
-  OverageBehavior,
   ResolvedEntitlement,
 } from '@/rpc/api/entitlements/v1/models_pb'
 
@@ -15,18 +14,12 @@ export const RESET_PERIOD_TYPES = [
 ] as const
 export type ResetPeriodType = (typeof RESET_PERIOD_TYPES)[number]
 
-export const OVERAGE_BEHAVIOR_TYPES = ['allow', 'block'] as const
-export type OverageBehaviorType = (typeof OVERAGE_BEHAVIOR_TYPES)[number]
-
 type EntitlementValueFields = {
   boolEnabled?: boolean
   limit?: string
   resetPeriodType: ResetPeriodType
   resetUnit?: CalendarUnit
   resetInterval?: number
-  overageBehaviorType: OverageBehaviorType
-  gracePeriodPct?: number
-  warningThresholdPct?: number
   meteredEnabled?: boolean
 }
 
@@ -79,18 +72,6 @@ export function pendingSpecToEntitlementSpec(
     }
   })()
 
-  const buildOverageBehavior = (): OverageBehavior | undefined => {
-    if (spec.overageBehaviorType === 'allow') {
-      return new OverageBehavior({ Inner: { case: 'allow', value: {} } })
-    }
-    if (spec.overageBehaviorType === 'block') {
-      return new OverageBehavior({
-        Inner: { case: 'block', value: { gracePeriodPct: spec.gracePeriodPct } },
-      })
-    }
-    return undefined
-  }
-
   const valueFields = isBoolean
     ? {
         value: {
@@ -104,8 +85,6 @@ export function pendingSpecToEntitlementSpec(
           value: {
             limit: spec.limit || undefined,
             resetPeriod,
-            overageBehavior: buildOverageBehavior(),
-            warningThresholdPct: spec.warningThresholdPct,
             enabled: spec.meteredEnabled ?? true,
           },
         },
@@ -157,18 +136,6 @@ export function resolvedToPendingSpec(
       resetInterval = rp.value.interval
     }
 
-    // Derive overage behavior. Inherited entitlements without an explicit policy
-    // default to `block` — the safer choice (matches the dialog's default value).
-    const ob = m.overageBehavior?.Inner
-    let overageBehaviorType: EntitlementValueFields['overageBehaviorType'] = 'block'
-    let gracePeriodPct: number | undefined
-    if (ob?.case === 'allow') {
-      overageBehaviorType = 'allow'
-    } else if (ob?.case === 'block') {
-      overageBehaviorType = 'block'
-      gracePeriodPct = ob.value.gracePeriodPct
-    }
-
     return {
       featureId,
       featureDisplayName,
@@ -178,10 +145,7 @@ export function resolvedToPendingSpec(
       resetPeriodType,
       resetUnit,
       resetInterval,
-      overageBehaviorType,
-      gracePeriodPct,
       limit: m.limit,
-      warningThresholdPct: m.warningThresholdPct,
       meteredEnabled: m.enabled,
       ...overrides,
     }
@@ -196,9 +160,6 @@ export function resolvedToPendingSpec(
     productId,
     productName,
     resetPeriodType: 'never',
-    // overageBehaviorType is metered-only; set the default to satisfy the type — it is
-    // never read for boolean features.
-    overageBehaviorType: 'block',
     boolEnabled: enabled,
     ...overrides,
   }

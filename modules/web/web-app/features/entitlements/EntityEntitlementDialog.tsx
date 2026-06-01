@@ -26,7 +26,6 @@ import {
   EntitlementEntity,
   EntitlementValue,
   FeatureStatus,
-  OverageBehavior,
 } from '@/rpc/api/entitlements/v1/models_pb'
 
 interface Props {
@@ -62,12 +61,6 @@ function valueToFormValues(value: EntitlementValue | undefined): Partial<Entitle
 
   const hasInterval = rp?.case === 'calendar' || rp?.case === 'fixedWindow' || rp?.case === 'slidingWindow'
 
-  const overageBehaviorInner = metered?.overageBehavior?.Inner
-  const overageBehaviorType: EntitlementFormValues['overageBehaviorType'] =
-    overageBehaviorInner?.case === 'allow' ? 'allow' : 'block'
-  const gracePeriodPct =
-    overageBehaviorInner?.case === 'block' ? overageBehaviorInner.value.gracePeriodPct : undefined
-
   return {
     featureType: isBoolean ? 'boolean' : 'metered',
     boolEnabled: boolVal ? boolVal.enabled : true,
@@ -79,24 +72,8 @@ function valueToFormValues(value: EntitlementValue | undefined): Partial<Entitle
     resetInterval: hasInterval
       ? (rp as { case: string; value: { interval: number } }).value.interval
       : 1,
-    overageBehaviorType,
-    gracePeriodPct,
-    warningThresholdPct: metered?.warningThresholdPct,
     meteredEnabled: metered?.enabled ?? true,
   }
-}
-
-function buildOverageBehavior(
-  overageBehaviorType: EntitlementFormValues['overageBehaviorType'],
-  gracePeriodPct: number | undefined
-): OverageBehavior | undefined {
-  if (overageBehaviorType === 'allow') {
-    return new OverageBehavior({ Inner: { case: 'allow', value: {} } })
-  }
-  if (overageBehaviorType === 'block') {
-    return new OverageBehavior({ Inner: { case: 'block', value: { gracePeriodPct } } })
-  }
-  return undefined
 }
 
 function buildValue(
@@ -108,9 +85,6 @@ function buildValue(
     | 'resetPeriodType'
     | 'resetUnit'
     | 'resetInterval'
-    | 'overageBehaviorType'
-    | 'gracePeriodPct'
-    | 'warningThresholdPct'
     | 'meteredEnabled'
   >
 ) {
@@ -139,8 +113,6 @@ function buildValue(
       value: {
         limit: data.limit || undefined,
         resetPeriod,
-        overageBehavior: buildOverageBehavior(data.overageBehaviorType, data.gracePeriodPct),
-        warningThresholdPct: data.warningThresholdPct,
         enabled: data.meteredEnabled ?? true,
       },
     },

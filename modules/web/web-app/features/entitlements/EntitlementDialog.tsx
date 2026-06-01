@@ -35,9 +35,7 @@ import { z } from 'zod'
 
 import { EntitlementValueFields } from '@/features/entitlements/creation/EntitlementValueFields'
 import {
-  OVERAGE_BEHAVIOR_TYPES,
   RESET_PERIOD_TYPES,
-  type OverageBehaviorType,
   type ResetPeriodType,
 } from '@/features/entitlements/creation/types'
 import { useDebounceValue } from '@/hooks/useDebounce'
@@ -60,9 +58,6 @@ export type EntitlementFormValues = {
   resetPeriodType: ResetPeriodType
   resetUnit?: CalendarUnit
   resetInterval?: number
-  overageBehaviorType: OverageBehaviorType
-  gracePeriodPct?: number
-  warningThresholdPct?: number
   meteredEnabled?: boolean
 }
 
@@ -95,9 +90,6 @@ const schema = z
     resetPeriodType: z.enum(RESET_PERIOD_TYPES),
     resetUnit: z.nativeEnum(CalendarUnit).optional(),
     resetInterval: z.coerce.number().int().min(1).optional(),
-    overageBehaviorType: z.enum(OVERAGE_BEHAVIOR_TYPES),
-    gracePeriodPct: z.coerce.number().int().min(0).optional(),
-    warningThresholdPct: z.coerce.number().int().min(0).max(100).optional(),
     meteredEnabled: z.boolean().optional(),
   })
   .refine(d => !d.featureName || d.featureType !== 'metered' || !!d.metricId, {
@@ -111,7 +103,6 @@ const defaultValues: Partial<EntitlementFormValues> = {
   resetPeriodType: 'billingCycle',
   resetUnit: CalendarUnit.MONTH,
   resetInterval: 1,
-  overageBehaviorType: 'block',
   meteredEnabled: true,
 }
 
