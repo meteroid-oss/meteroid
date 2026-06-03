@@ -277,13 +277,20 @@ pub fn calculate_proration(
             );
             let charge = (new_amount as f64 * factor).round() as i64;
             if charge != 0 {
+                // For multi-instance add-ons carry the instance count so the
+                // adjustment invoice displays qty × unit_price. unit_price is
+                // left as None so draft.rs derives it as amount / qty, keeping
+                // qty × unit_price = total consistent on the invoice.
+                let display_qty = a
+                    .instance_quantity
+                    .filter(|&n| n > rust_decimal::Decimal::ONE);
                 lines.push(ProrationLineItem {
                     name: format!("{} (prorated)", a.name),
                     amount_cents: charge,
                     full_period_amount_cents: new_amount,
                     is_credit: false,
                     is_prorated: true,
-                    quantity: None,
+                    quantity: display_qty,
                     unit_price: None,
                     product_id: None,
                     price_component_id: None,
@@ -613,6 +620,7 @@ mod tests {
             net_key: None,
             billed_component_id: None,
             billed_add_on_id: None,
+            instance_quantity: None,
         }];
 
         let removed = vec![RemovedComponent {
@@ -683,6 +691,7 @@ mod tests {
             net_key: None,
             billed_component_id: None,
             billed_add_on_id: None,
+            instance_quantity: None,
         }];
 
         let direction = detect_change_direction(&[], &added, &[], 2);
@@ -715,6 +724,7 @@ mod tests {
             net_key: None,
             billed_component_id: None,
             billed_add_on_id: None,
+            instance_quantity: None,
         }];
 
         // Only 8 of 30 days remain — must not scale the one-time charge.
@@ -746,6 +756,7 @@ mod tests {
             net_key: None,
             billed_component_id: None,
             billed_add_on_id: None,
+            instance_quantity: None,
         }];
 
         let result = calculate_proration(
@@ -773,6 +784,7 @@ mod tests {
             net_key: None,
             billed_component_id: None,
             billed_add_on_id: None,
+            instance_quantity: None,
         }];
 
         let result = calculate_proration(
@@ -804,6 +816,7 @@ mod tests {
             net_key: None,
             billed_component_id: None,
             billed_add_on_id: Some(aid),
+            instance_quantity: None,
         }];
         let result = calculate_proration(
             &[],
@@ -832,6 +845,7 @@ mod tests {
             net_key: None,
             billed_component_id: Some(cid),
             billed_add_on_id: None,
+            instance_quantity: None,
         }];
         let result = calculate_proration(
             &[],
@@ -844,6 +858,72 @@ mod tests {
         );
         assert_eq!(result.lines[0].sub_component_id, Some(cid));
         assert_eq!(result.lines[0].sub_add_on_id, None);
+    }
+
+    // Multi-instance add-on: 3 × $100/mo, half-period (15/30).
+    // Amount must be 3 × $100 × 0.5 = $150 = 15000 cents.
+    // Display: qty=3, unit_price = $100 (full-period per-unit rate, not prorated).
+    #[test]
+    fn test_multi_instance_addon_prorated_display() {
+        use rust_decimal_macros::dec;
+
+        let added = vec![AddedComponent {
+            name: "Token".to_string(),
+            fee: rate_fee(300), // scaled: 3 × $100
+            period: monthly(),
+            net_key: None,
+            billed_component_id: None,
+            billed_add_on_id: None,
+            instance_quantity: Some(dec!(3)),
+        }];
+
+        let result = calculate_proration(
+            &[],
+            &added,
+            &[],
+            NaiveDate::from_ymd_opt(2025, 1, 1).unwrap(),
+            NaiveDate::from_ymd_opt(2025, 1, 31).unwrap(),
+            NaiveDate::from_ymd_opt(2025, 1, 16).unwrap(), // 15/30 remaining
+            2,
+        );
+
+        assert_eq!(result.lines.len(), 1);
+        let line = &result.lines[0];
+        // Amount: 30000 cents × 0.5 = 15000
+        assert_eq!(line.amount_cents, 15000);
+        // Display qty = 3; unit_price left None so draft.rs derives 150/3 = $50
+        assert_eq!(line.quantity, Some(dec!(3)));
+        assert_eq!(line.unit_price, None);
+    }
+
+    // Single-instance add-on: no display decomposition (avoids showing qty=1 noise).
+    #[test]
+    fn test_single_instance_addon_no_display_qty() {
+        let added = vec![AddedComponent {
+            name: "Base".to_string(),
+            fee: rate_fee(100),
+            period: monthly(),
+            net_key: None,
+            billed_component_id: None,
+            billed_add_on_id: None,
+            instance_quantity: Some(rust_decimal::Decimal::ONE),
+        }];
+
+        let result = calculate_proration(
+            &[],
+            &added,
+            &[],
+            NaiveDate::from_ymd_opt(2025, 1, 1).unwrap(),
+            NaiveDate::from_ymd_opt(2025, 1, 31).unwrap(),
+            NaiveDate::from_ymd_opt(2025, 1, 16).unwrap(),
+            2,
+        );
+
+        assert_eq!(result.lines.len(), 1);
+        let line = &result.lines[0];
+        assert_eq!(line.amount_cents, 5000); // 10000 × 0.5
+        assert_eq!(line.quantity, None);
+        assert_eq!(line.unit_price, None);
     }
 
     fn line(name: &str, amount: i64, is_credit: bool, net_key: Option<&str>) -> ProrationLineItem {

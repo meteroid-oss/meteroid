@@ -106,8 +106,8 @@ export const UsageBarChartDisplay = ({
 
     const allDays: string[] = []
     if (data.periodStart && data.periodEnd) {
-      const start = new Date(data.periodStart + 'T00:00:00')
-      const end = new Date(data.periodEnd + 'T00:00:00')
+      const start = new Date(data.periodStart)
+      const end = new Date(data.periodEnd)
       for (const d = new Date(start); d <= end; d.setDate(d.getDate() + 1)) {
         allDays.push(d.toISOString().slice(0, 10))
       }

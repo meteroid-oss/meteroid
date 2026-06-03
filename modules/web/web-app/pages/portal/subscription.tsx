@@ -776,16 +776,24 @@ function PortalLineItemRow({
             />
             {showUsage ? 'Hide usage details' : 'Show usage details'}
           </button>
-          {showUsage && usageQuery.data && (
+          {showUsage && (
             <div className="mt-2">
-              <UsageBarChartDisplay
-                data={usageQuery.data}
-                groupByDimensions={
-                  Object.keys(line.groupByDimensions).length > 0
-                    ? line.groupByDimensions
-                    : undefined
-                }
-              />
+              {usageQuery.isLoading && (
+                <div className="h-10 bg-gray-100 animate-pulse rounded" />
+              )}
+              {usageQuery.isError && (
+                <p className="text-[11px] text-gray-400 py-2">Failed to load usage data</p>
+              )}
+              {usageQuery.data && (
+                <UsageBarChartDisplay
+                  data={usageQuery.data}
+                  groupByDimensions={
+                    Object.keys(line.groupByDimensions).length > 0
+                      ? line.groupByDimensions
+                      : undefined
+                  }
+                />
+              )}
             </div>
           )}
         </div>

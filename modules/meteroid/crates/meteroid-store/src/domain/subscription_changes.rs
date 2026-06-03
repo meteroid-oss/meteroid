@@ -100,6 +100,11 @@ pub struct AddedComponent {
     /// `billed_component_id`.
     #[serde(default)]
     pub billed_add_on_id: Option<SubscriptionAddOnId>,
+    /// For add-ons, the number of instances. Carried through to the proration
+    /// line so the adjustment invoice can display qty × unit_price rather than
+    /// 1 × total. `None` for price-component adds (which have no instance count).
+    #[serde(default)]
+    pub instance_quantity: Option<rust_decimal::Decimal>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]

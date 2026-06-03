@@ -969,8 +969,8 @@ impl PortalSubscriptionService for PortalSubscriptionServiceComponents {
                     dimensions: point.dimensions,
                 })
                 .collect(),
-            period_start: usage.period.start.to_string(),
-            period_end: usage.period.end.to_string(),
+            period_start: usage.period.start.as_proto(),
+            period_end: usage.period.end.as_proto(),
         }))
     }
 }

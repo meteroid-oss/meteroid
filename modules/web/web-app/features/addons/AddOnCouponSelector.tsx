@@ -144,6 +144,7 @@ export const AddOnCouponSelector = ({
                       {showQtyControls && (
                         <div className="flex items-center gap-1 flex-shrink-0">
                           <Button
+                            type="button"
                             variant="ghost"
                             size="sm"
                             className="h-6 w-6 p-0"
@@ -157,6 +158,7 @@ export const AddOnCouponSelector = ({
                           </Button>
                           <span className="text-sm w-5 text-center tabular-nums">{currentQty}</span>
                           <Button
+                            type="button"
                             variant="ghost"
                             size="sm"
                             className="h-6 w-6 p-0"

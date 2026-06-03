@@ -1555,6 +1555,7 @@ async fn resolve_amendment(
             // (matched by lineage), not by stamping the adjustment line.
             billed_component_id: None,
             billed_add_on_id: None,
+            instance_quantity: None,
         });
 
         component_close.push(current.id);
@@ -1590,6 +1591,7 @@ async fn resolve_amendment(
             net_key: None,
             billed_component_id: Some(billed_component_id),
             billed_add_on_id: None,
+            instance_quantity: None,
         });
         component_inserts.push(PendingComponentInsert {
             price_component_id: None,
@@ -1635,10 +1637,8 @@ async fn resolve_amendment(
         .iter()
         .map(|a| a.add_on_id)
         .collect();
-    let addon_by_sub_id: HashMap<
-        SubscriptionAddOnId,
-        &crate::domain::subscription_add_ons::SubscriptionAddOn,
-    > = sub_details.add_ons.iter().map(|a| (a.id, a)).collect();
+    let addon_by_sub_id: HashMap<SubscriptionAddOnId, &SubscriptionAddOn> =
+        sub_details.add_ons.iter().map(|a| (a.id, a)).collect();
     for e in &amendment.add_on_changes.edited {
         if let Some(a) = addon_by_sub_id.get(&e.subscription_add_on_id) {
             catalog_addon_ids.push(a.add_on_id);
@@ -1687,6 +1687,7 @@ async fn resolve_amendment(
             net_key: None,
             billed_component_id: None,
             billed_add_on_id: Some(billed_add_on_id),
+            instance_quantity: Some(Decimal::from(cs_ao.quantity)),
         });
         addon_inserts.push(PendingAddOnInsert {
             add_on_id: addon.id,
@@ -1775,6 +1776,7 @@ async fn resolve_amendment(
             // Edits are credited via the original line (matched by lineage).
             billed_component_id: None,
             billed_add_on_id: None,
+            instance_quantity: None,
         });
 
         addon_close.push(current.id);
@@ -2058,6 +2060,7 @@ mod tests {
             net_key: None,
             billed_component_id: None,
             billed_add_on_id: None,
+            instance_quantity: Some(Decimal::from(2u32)),
         }];
 
         let result =
@@ -2088,6 +2091,7 @@ mod tests {
             net_key: None,
             billed_component_id: None,
             billed_add_on_id: None,
+            instance_quantity: Some(Decimal::from(3u32)),
         }];
 
         let result = calculate_proration(

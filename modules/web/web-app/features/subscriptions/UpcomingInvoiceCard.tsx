@@ -67,14 +67,12 @@ export const InvoicePreviewCard = ({
   subscriptionId,
   title,
   defaultExpanded = false,
-  showUsageChart = true,
 }: {
   invoice: UpcomingInvoice
   currency: string
   subscriptionId: string
   title: string
   defaultExpanded?: boolean
-  showUsageChart?: boolean
 }) => {
   const [expanded, setExpanded] = useState(defaultExpanded)
 
@@ -121,7 +119,6 @@ export const InvoicePreviewCard = ({
           invoice={invoice}
           currency={currency}
           subscriptionId={subscriptionId}
-          showUsageChart={showUsageChart}
         />
       )}
     </div>
@@ -132,12 +129,10 @@ const InvoiceDetails = ({
   invoice,
   currency,
   subscriptionId,
-  showUsageChart = true,
 }: {
   invoice: UpcomingInvoice
   currency: string
   subscriptionId: string
-  showUsageChart?: boolean
 }) => {
   return (
     <div className="border-t border-border">
@@ -175,7 +170,6 @@ const InvoiceDetails = ({
                 currency={currency}
                 subscriptionId={subscriptionId}
                 isLast={idx === invoice.lineItems.length - 1}
-                showUsageChart={showUsageChart}
               />
             ))}
           </tbody>
@@ -245,10 +239,9 @@ interface LineItemRowProps {
   currency: string
   subscriptionId: string
   isLast: boolean
-  showUsageChart?: boolean
 }
 
-const LineItemRow = ({ line, currency, subscriptionId, isLast, showUsageChart = true }: LineItemRowProps) => {
+const LineItemRow = ({ line, currency, subscriptionId, isLast }: LineItemRowProps) => {
   const [showUsage, setShowUsage] = useState(false)
   const [showSubLines, setShowSubLines] = useState(false)
   const hasMetric = Boolean(line.metricId)
@@ -329,9 +322,8 @@ const LineItemRow = ({ line, currency, subscriptionId, isLast, showUsageChart = 
         </>
       )}
 
-      {/* Usage details toggle + chart (hidden in amendment preview contexts where
-          data belongs to the current period, not the previewed future period) */}
-      {hasMetric && showUsageChart && (
+      {/* Usage details toggle + chart */}
+      {hasMetric && (
         <tr className={!isLast ? 'border-b border-border/50' : ''}>
           <td colSpan={4} className="px-4 pt-0.5 pb-2">
             <button

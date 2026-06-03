@@ -528,7 +528,6 @@ export const StepReviewApply = () => {
               currency={currency}
               subscriptionId={state.subscriptionId}
               title="Adjustment invoice (charged now)"
-              showUsageChart={false}
             />
           )}
           {isImmediate && preview?.creditNote && (
@@ -537,7 +536,6 @@ export const StepReviewApply = () => {
               currency={currency}
               subscriptionId={state.subscriptionId}
               title="Credit note (issued now)"
-              showUsageChart={false}
             />
           )}
           {/* A credit is genuinely owed but there is no finalized current-period
@@ -583,7 +581,6 @@ export const StepReviewApply = () => {
               currency={currency}
               subscriptionId={state.subscriptionId}
               title="Next renewal invoice"
-              showUsageChart={false}
             />
           )}
 
