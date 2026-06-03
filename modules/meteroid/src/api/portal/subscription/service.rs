@@ -109,6 +109,7 @@ fn map_proration_summary(
         credits_total_cents: summary.credits_total_cents,
         charges_total_cents: summary.charges_total_cents,
         net_amount_cents: summary.net_amount_cents,
+        arrears_charge_cents: summary.arrears_charge_cents,
         proration_factor: summary.proration_factor,
         days_remaining: summary.days_remaining,
         days_in_period: summary.days_in_period,

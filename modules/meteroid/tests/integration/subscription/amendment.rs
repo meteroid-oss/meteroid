@@ -967,8 +967,9 @@ async fn test_preview_next_invoice_includes_arrears_and_onetime(#[future] test_e
         arrears_line.amount_subtotal
     );
 
-    // The proration summary must reflect the prorated arrears charge (it is not on an
-    // immediate adjustment invoice, but it is a real prorated charge for this change).
+    // The proration summary must surface the deferred arrears charge in
+    // arrears_charge_cents (not charges_total_cents, which tracks only the
+    // immediate adjustment invoice).
     let summary = arrears_preview
         .proration
         .expect("immediate preview has a proration summary");
@@ -976,19 +977,23 @@ async fn test_preview_next_invoice_includes_arrears_and_onetime(#[future] test_e
         summary.credits_total_cents, 0,
         "adding an arrears component credits nothing"
     );
-    assert!(
-        summary.charges_total_cents > 0 && summary.charges_total_cents < 3000,
-        "summary charge must be the prorated arrears, got {}",
-        summary.charges_total_cents
+    assert_eq!(
+        summary.charges_total_cents, 0,
+        "no immediate adjustment invoice for a pure-arrears add"
     );
     assert_eq!(
-        summary.net_amount_cents, summary.charges_total_cents,
-        "net adjustment equals the prorated arrears charge"
+        summary.net_amount_cents, 0,
+        "net immediate adjustment is zero for a pure-arrears add"
+    );
+    assert!(
+        summary.arrears_charge_cents > 0 && summary.arrears_charge_cents < 3000,
+        "deferred arrears charge must be prorated (less than €30), got {}",
+        summary.arrears_charge_cents
     );
     // It matches the prorated line on the next renewal invoice.
     assert_eq!(
-        summary.charges_total_cents, arrears_line.amount_subtotal,
-        "summary charge must match the next-invoice prorated arrears line"
+        summary.arrears_charge_cents, arrears_line.amount_subtotal,
+        "deferred arrears charge must match the next-invoice prorated arrears line"
     );
 
     // End-of-period one-time add: full charge on the next-cycle invoice preview.

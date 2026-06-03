@@ -36,6 +36,8 @@ message ProrationSummary {
   double proration_factor = 4;
   uint32 days_remaining = 5;
   uint32 days_in_period = 6;
+  // Prorated charge for newly-added arrears components (deferred to next invoice).
+  int64 arrears_charge_cents = 7;
 }
 
 message PendingEvent {

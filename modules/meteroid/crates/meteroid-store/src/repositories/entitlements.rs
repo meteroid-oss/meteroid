@@ -1021,7 +1021,7 @@ async fn build_chain_for_subscription(
     let sub = SubscriptionRow::get_subscription_by_id(conn, &tenant_id, sub_id)
         .await
         .map_err(Into::<Report<StoreError>>::into)?;
-    let addon_ids = SubscriptionAddOnRow::list_add_on_ids(conn, &[sub_id], &tenant_id)
+    let addon_ids = SubscriptionAddOnRow::list_active_add_on_ids(conn, &[sub_id], &tenant_id)
         .await
         .map_err(Into::<Report<StoreError>>::into)?;
     let mut chain = plan_version_chain(sub.plan_id, sub.subscription.plan_version_id, &addon_ids);
@@ -1128,9 +1128,10 @@ async fn build_chain_and_products(
             let comp_prod = SubscriptionComponentRow::list_product_ids(conn, &[sid], &tenant_id)
                 .await
                 .map_err(Into::<Report<StoreError>>::into)?;
-            let addon_prod = SubscriptionAddOnRow::list_product_ids(conn, &[sid], &tenant_id)
-                .await
-                .map_err(Into::<Report<StoreError>>::into)?;
+            let addon_prod =
+                SubscriptionAddOnRow::list_active_product_ids(conn, &[sid], &tenant_id)
+                    .await
+                    .map_err(Into::<Report<StoreError>>::into)?;
             Ok(ResolutionScope {
                 chain: build_chain_for_subscription(conn, tenant_id, sid).await?,
                 product_ids: itertools::chain!(comp_prod, addon_prod).unique().collect(),
@@ -1335,12 +1336,13 @@ async fn resolve_entitlements_tx(
         .await
         .map_err(Into::<Report<StoreError>>::into)?;
 
-    let add_on_ids = SubscriptionAddOnRow::list_add_on_ids(conn, &subscription_ids, &tenant_id)
-        .await
-        .map_err(Into::<Report<StoreError>>::into)?;
+    let add_on_ids =
+        SubscriptionAddOnRow::list_active_add_on_ids(conn, &subscription_ids, &tenant_id)
+            .await
+            .map_err(Into::<Report<StoreError>>::into)?;
 
     let add_on_product_ids =
-        SubscriptionAddOnRow::list_product_ids(conn, &subscription_ids, &tenant_id)
+        SubscriptionAddOnRow::list_active_product_ids(conn, &subscription_ids, &tenant_id)
             .await
             .map_err(Into::<Report<StoreError>>::into)?;
 

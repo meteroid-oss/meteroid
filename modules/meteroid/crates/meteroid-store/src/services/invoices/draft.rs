@@ -463,11 +463,23 @@ impl Services {
                 // line-level machinery used for recurring invoices. Charges only
                 // (amount_subtotal > 0); credits never reach the adjustment invoice.
                 let billed_sub = line.sub_component_id.is_some() || line.sub_add_on_id.is_some();
-                let (quantity, unit_price) = if billed_sub && amount_subtotal > 0 {
-                    (
-                        Some(Decimal::ONE),
-                        Some(Decimal::new(amount_subtotal, u32::from(precision))),
-                    )
+                let (quantity, unit_price) = if amount_subtotal > 0 {
+                    match line.quantity.filter(|q| !q.is_zero()) {
+                        // Real billed quantity (e.g. a one-time charge of N units):
+                        // show quantity × unit price rather than 1 × total.
+                        Some(q) => {
+                            let unit = line.unit_price.unwrap_or_else(|| {
+                                Decimal::new(amount_subtotal, u32::from(precision)) / q
+                            });
+                            (Some(q), Some(unit))
+                        }
+                        // Fall back to 1 × total when tracking a specific billed row.
+                        None if billed_sub => (
+                            Some(Decimal::ONE),
+                            Some(Decimal::new(amount_subtotal, u32::from(precision))),
+                        ),
+                        None => (None, None),
+                    }
                 } else {
                     (None, None)
                 };
@@ -750,6 +762,8 @@ impl Services {
                     full_period_amount_cents: l.amount_subtotal,
                     is_credit: false,
                     is_prorated: l.is_prorated,
+                    quantity: l.quantity,
+                    unit_price: l.unit_price,
                     product_id: l.product_id,
                     price_component_id: l.price_component_id,
                     net_key: None,

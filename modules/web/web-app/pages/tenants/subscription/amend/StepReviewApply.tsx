@@ -528,6 +528,7 @@ export const StepReviewApply = () => {
               currency={currency}
               subscriptionId={state.subscriptionId}
               title="Adjustment invoice (charged now)"
+              showUsageChart={false}
             />
           )}
           {isImmediate && preview?.creditNote && (
@@ -536,6 +537,7 @@ export const StepReviewApply = () => {
               currency={currency}
               subscriptionId={state.subscriptionId}
               title="Credit note (issued now)"
+              showUsageChart={false}
             />
           )}
           {/* A credit is genuinely owed but there is no finalized current-period
@@ -558,21 +560,21 @@ export const StepReviewApply = () => {
                 the net adjustment above.
               </div>
             )}
-          {/* A net charge with no adjustment invoice means the charge is an arrears
-              item billed at period end (not immediately). Clarify so the non-zero
-              net adjustment above isn't read as an immediate charge. */}
+          {/* A deferred arrears charge means one or more newly-added components bill
+              in arrears: the prorated amount lands on the next renewal invoice, not
+              now. Show a note whether or not there is also an immediate invoice. */}
           {isImmediate &&
-            !preview?.adjustmentInvoice &&
             preview?.proration &&
-            preview.proration.netAmountCents > 0n && (
+            preview.proration.arrearsChargeCents > 0n && (
               <div className="rounded-lg border border-border p-4 text-sm text-muted-foreground">
-                This change adds an arrears charge of{' '}
+                {preview.adjustmentInvoice
+                  ? 'Additionally, a'
+                  : 'This change adds a'}{' '}
+                prorated arrears charge of{' '}
                 <span className="font-medium text-foreground">
-                  {formatCurrency(preview.proration.netAmountCents, currency)}
+                  {formatCurrency(Number(preview.proration.arrearsChargeCents), currency)}
                 </span>{' '}
-                (prorated for the remainder of the current period). Arrears are billed at
-                the end of the period, so it appears on the next renewal invoice below
-                rather than on an invoice charged now.
+                that will be included in the next renewal invoice rather than charged now.
               </div>
             )}
           {preview?.nextInvoice && (
@@ -581,6 +583,7 @@ export const StepReviewApply = () => {
               currency={currency}
               subscriptionId={state.subscriptionId}
               title="Next renewal invoice"
+              showUsageChart={false}
             />
           )}
 

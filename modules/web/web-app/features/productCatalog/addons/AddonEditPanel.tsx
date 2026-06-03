@@ -84,8 +84,9 @@ export const AddonEditPanel = () => {
     }
   }, [addOn, initialized])
 
+  // -1 is the backend sentinel for "unlimited" (removes the cap).
   const maxInstancesPerSubscription =
-    instanceMode === 'single' ? 1 : instanceMode === 'multiple' ? multipleMax : undefined
+    instanceMode === 'single' ? 1 : instanceMode === 'multiple' ? multipleMax : -1
 
   const editAddOnMutation = useMutation(editAddOn, {
     onSuccess: () => {

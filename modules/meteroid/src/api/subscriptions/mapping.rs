@@ -859,6 +859,7 @@ pub mod plan_change {
             charges_total_cents: summary.charges_total_cents,
             net_amount_cents: summary.net_amount_cents,
             net_credit_cents: summary.net_credit_cents,
+            arrears_charge_cents: summary.arrears_charge_cents,
             proration_factor: summary.proration_factor,
             days_remaining: summary.days_remaining,
             days_in_period: summary.days_in_period,

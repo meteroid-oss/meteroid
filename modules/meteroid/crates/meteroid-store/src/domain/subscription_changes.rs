@@ -46,6 +46,13 @@ pub struct ProrationSummary {
     /// to decide whether a credit is genuinely owed.
     #[serde(default)]
     pub net_credit_cents: i64,
+    /// Prorated arrears charge for newly-added arrears-billing components. These
+    /// are NOT billed on the immediate adjustment invoice — they land on the next
+    /// renewal invoice. Kept separate so the summary's charges/net match the
+    /// adjustment invoice exactly, while the UI can still communicate the
+    /// deferred amount to the user.
+    #[serde(default)]
+    pub arrears_charge_cents: i64,
     pub proration_factor: f64,
     pub days_remaining: u32,
     pub days_in_period: u32,
@@ -123,6 +130,15 @@ pub struct ProrationLineItem {
     pub full_period_amount_cents: i64,
     pub is_credit: bool,
     pub is_prorated: bool,
+    /// Billed quantity for display, when meaningful (e.g. a one-time charge of
+    /// N units, or an add-on with N instances). The amount stays the line total.
+    /// `None` leaves the invoice line to fall back to a single unit.
+    pub quantity: Option<rust_decimal::Decimal>,
+    /// Per-unit price for display, when known (the original fee rate). Preferred
+    /// over deriving `amount / quantity`, which can yield a long repeating decimal
+    /// when the amount isn't evenly divisible by the quantity. `None` falls back to
+    /// the derived value. The line total is always `amount_cents`, not this × quantity.
+    pub unit_price: Option<rust_decimal::Decimal>,
     pub product_id: Option<ProductId>,
     pub price_component_id: Option<PriceComponentId>,
     /// Correlation key for netting override credit/charge pairs in the

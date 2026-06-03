@@ -20,7 +20,6 @@ use crate::repositories::customer_balance::convert_currency;
 use crate::services::Services;
 use crate::services::invoice_lines::component::ExistingLineKey;
 use crate::services::invoice_lines::discount::calculate_coupons_discount;
-use crate::services::subscriptions::utils::scale_fee;
 use crate::store::PgConn;
 use crate::utils::periods::calculate_component_period_for_invoice_date;
 use common_utils::integers::ToNonNegativeU64;
@@ -134,24 +133,14 @@ impl Services {
             )
             .await?;
 
-        // Add-ons store their fee per-unit with an instance count in `quantity`;
-        // bake that count into the fee so a multi-quantity add-on bills for all
-        // instances (matching the MRR and proration semantics, which both scale).
-        let scaled_add_ons: Vec<SubscriptionAddOn> = subscription_details
-            .add_ons
-            .iter()
-            .map(|a| {
-                let mut scaled = a.clone();
-                scaled.fee = scale_fee(&a.fee, a.quantity);
-                scaled
-            })
-            .collect();
-
+        // Add-ons store their fee per-unit with an instance count in `quantity`.
+        // compute_component reads instance_count() from the trait and multiplies
+        // the fee's own quantity, so no pre-scaling is needed here.
         let add_ons_lines = self
             .process_fee_records(
                 conn,
                 subscription_details,
-                &scaled_add_ons,
+                &subscription_details.add_ons,
                 invoice_date,
                 billing_start_date,
                 cycle_index,
@@ -269,11 +258,6 @@ impl Services {
                     ao.ok()
                 })
                 .filter(|ao| ao.fee.is_pure_arrears())
-                // Bake the instance count into the fee, as for active add-ons.
-                .map(|mut ao| {
-                    ao.fee = scale_fee(&ao.fee, ao.quantity);
-                    ao
-                })
                 .collect();
 
             if !historical_addons.is_empty() {

@@ -27,6 +27,13 @@ pub trait SubscriptionFeeInterface {
     fn effective_to(&self) -> Option<chrono::NaiveDate> {
         None
     }
+    /// Number of instances this record bills. Add-ons store a per-unit fee with
+    /// the instance count separately; fixed fees bill for all instances by
+    /// carrying this count on the line's quantity (so the line reads N × unit
+    /// price, not 1 × N·price). Defaults to 1 for plan components.
+    fn instance_quantity(&self) -> rust_decimal::Decimal {
+        rust_decimal::Decimal::ONE
+    }
     /// True when added by a manual amendment. Drives one-time-fee billing on the
     /// effective period (see `process_fee_records`). Defaults to false.
     fn added_by_amendment(&self) -> bool {

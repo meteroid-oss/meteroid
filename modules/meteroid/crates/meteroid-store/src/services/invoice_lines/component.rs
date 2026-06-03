@@ -76,12 +76,13 @@ impl Services {
 
         let mut lines: Vec<InvoiceLineInner> = vec![];
 
+        let instances = component.instance_quantity();
         match component.fee_ref() {
             SubscriptionFee::Rate { rate } => {
                 if let Some(advance_period) = periods.advance {
                     lines.push(InvoiceLineInner::simple_prorated(
                         rate,
-                        &dec!(1),
+                        &instances,
                         advance_period,
                         periods.proration_factor,
                         precision,
@@ -94,7 +95,7 @@ impl Services {
                 if is_first_period && let Some(advance_period) = periods.advance {
                     lines.push(InvoiceLineInner::simple_prorated(
                         rate,
-                        &Decimal::from(*quantity),
+                        &(Decimal::from(*quantity) * instances),
                         advance_period,
                         periods.proration_factor,
                         precision,
@@ -111,7 +112,7 @@ impl Services {
                     if let Some(advance_period) = periods.advance {
                         lines.push(InvoiceLineInner::simple_prorated(
                             rate,
-                            &Decimal::from(*quantity),
+                            &(Decimal::from(*quantity) * instances),
                             advance_period,
                             periods.proration_factor,
                             precision,
@@ -123,7 +124,7 @@ impl Services {
                     if let Some(arrears) = periods.arrear {
                         lines.push(InvoiceLineInner::simple_prorated(
                             rate,
-                            &Decimal::from(*quantity),
+                            &(Decimal::from(*quantity) * instances),
                             arrears,
                             periods.arrear_proration_factor,
                             precision,
@@ -165,7 +166,7 @@ impl Services {
                 if let Some(advance_period) = periods.advance {
                     lines.push(InvoiceLineInner::simple_prorated(
                         rate,
-                        &dec!(1),
+                        &instances,
                         advance_period,
                         None, // no proration on capacity, as it provides a fixed amount
                         precision,

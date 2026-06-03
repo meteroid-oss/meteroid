@@ -223,6 +223,10 @@ message ProrationSummary {
   // lines). An override's credit is netted into its charge, so an upgrade is 0
   // here even though credits_total_cents (gross) is negative.
   int64 net_credit_cents = 7;
+  // Prorated charge for newly-added arrears components. Not billed now (it lands
+  // on the next renewal invoice); excluded from charges_total_cents and
+  // net_amount_cents so those match the immediate adjustment invoice exactly.
+  int64 arrears_charge_cents = 8;
 }
 
 message PlanChangeMatchedComponent {

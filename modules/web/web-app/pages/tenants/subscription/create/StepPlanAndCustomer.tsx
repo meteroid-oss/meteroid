@@ -204,12 +204,18 @@ export const StepPlanAndCustomer = () => {
               <AddOnCouponSelector
                 selectedAddOns={state.addOns}
                 onAddOnAdd={id =>
-                  setState(prev => ({ ...prev, addOns: [...prev.addOns, { addOnId: id }] }))
+                  setState(prev => ({ ...prev, addOns: [...prev.addOns, { addOnId: id, quantity: 1 }] }))
                 }
                 onAddOnRemove={id =>
                   setState(prev => ({
                     ...prev,
                     addOns: prev.addOns.filter(a => a.addOnId !== id),
+                  }))
+                }
+                onAddOnQuantityChange={(id, qty) =>
+                  setState(prev => ({
+                    ...prev,
+                    addOns: prev.addOns.map(a => a.addOnId === id ? { ...a, quantity: qty } : a),
                   }))
                 }
                 availableAddOns={availableAddOns}

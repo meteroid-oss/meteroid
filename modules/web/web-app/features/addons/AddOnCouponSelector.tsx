@@ -1,5 +1,5 @@
-import { Badge, Input } from '@md/ui'
-import { Check, ChevronDownIcon, ChevronRightIcon, Gift, Plus, Search, Tag } from 'lucide-react'
+import { Badge, Button, Input } from '@md/ui'
+import { Check, ChevronDownIcon, ChevronRightIcon, Gift, Minus, Plus, Search, Tag } from 'lucide-react'
 import { useState } from 'react'
 
 import { feeTypeEnumToComponentFeeType } from '@/features/plans/addons/AddOnCard'
@@ -10,9 +10,10 @@ import type { AddOn } from '@/rpc/api/addons/v1/models_pb'
 import type { Coupon } from '@/rpc/api/coupons/v1/models_pb'
 
 interface AddOnCouponSelectorProps {
-  selectedAddOns: { addOnId: string }[]
+  selectedAddOns: { addOnId: string; quantity?: number }[]
   onAddOnAdd: (addOnId: string) => void
   onAddOnRemove: (addOnId: string) => void
+  onAddOnQuantityChange?: (addOnId: string, quantity: number) => void
   availableAddOns: AddOn[]
   selectedCoupons: { couponId: string }[]
   onCouponAdd: (couponId: string) => void
@@ -26,6 +27,7 @@ export const AddOnCouponSelector = ({
   selectedAddOns,
   onAddOnAdd,
   onAddOnRemove,
+  onAddOnQuantityChange,
   availableAddOns,
   selectedCoupons,
   onCouponAdd,
@@ -80,12 +82,19 @@ export const AddOnCouponSelector = ({
             )}
             <div className="space-y-1 max-h-64 overflow-y-auto">
               {filteredAddOns.map(addOn => {
-                const isSelected = selectedAddOns.some(a => a.addOnId === addOn.id)
+                const selectedEntry = selectedAddOns.find(a => a.addOnId === addOn.id)
+                const isSelected = Boolean(selectedEntry)
                 const isExpanded = expandedAddOnId === addOn.id
                 const feeType = feeTypeEnumToComponentFeeType(addOn.feeType)
                 const feeLabel = feeTypeToHuman(feeType)
                 const priceBadge = priceSummaryBadges(feeType, addOn.price, currency).join(' / ')
                 const addOnCurrency = currency ?? addOn.price?.currency ?? 'USD'
+                // Show quantity controls when the add-on allows multiple instances
+                // (unlimited = null, or max > 1) and quantity changes are supported.
+                const maxInstances = addOn.maxInstancesPerSubscription ?? null
+                const supportsMultiple = maxInstances === null || maxInstances > 1
+                const showQtyControls = isSelected && supportsMultiple && Boolean(onAddOnQuantityChange)
+                const currentQty = selectedEntry?.quantity ?? 1
 
                 return (
                   <div
@@ -132,6 +141,37 @@ export const AddOnCouponSelector = ({
                           {priceBadge}
                         </span>
                       </button>
+                      {showQtyControls && (
+                        <div className="flex items-center gap-1 flex-shrink-0">
+                          <Button
+                            variant="ghost"
+                            size="sm"
+                            className="h-6 w-6 p-0"
+                            onClick={e => {
+                              e.stopPropagation()
+                              if (currentQty > 1) onAddOnQuantityChange!(addOn.id, currentQty - 1)
+                            }}
+                            disabled={currentQty <= 1}
+                          >
+                            <Minus className="h-3 w-3" />
+                          </Button>
+                          <span className="text-sm w-5 text-center tabular-nums">{currentQty}</span>
+                          <Button
+                            variant="ghost"
+                            size="sm"
+                            className="h-6 w-6 p-0"
+                            onClick={e => {
+                              e.stopPropagation()
+                              if (maxInstances === null || currentQty < maxInstances) {
+                                onAddOnQuantityChange!(addOn.id, currentQty + 1)
+                              }
+                            }}
+                            disabled={maxInstances !== null && currentQty >= maxInstances}
+                          >
+                            <Plus className="h-3 w-3" />
+                          </Button>
+                        </div>
+                      )}
                     </div>
                     {isExpanded && addOn.price && (
                       <div className="px-3 pb-3 pt-0 border-t border-border mx-3 mt-0">

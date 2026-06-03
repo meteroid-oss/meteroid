@@ -44,39 +44,6 @@ pub fn component_advance_amount_cents(
     }
 }
 
-/// Per-period fixed arrears amount (cents). Returns 0 for advance, usage, one-time,
-/// capacity (whose arrears portion is usage-driven), and slot fees. The mirror of
-/// `component_advance_amount_cents` for the arrears side: it lets the amendment
-/// preview reflect, in its proration summary, a fixed-rate arrears charge that is
-/// not billed immediately but lands prorated on the next invoice.
-pub fn component_arrears_amount_cents(
-    fee: &SubscriptionFee,
-    period: &SubscriptionFeeBillingPeriod,
-    precision: u8,
-) -> i64 {
-    if matches!(period, SubscriptionFeeBillingPeriod::OneTime) {
-        return 0;
-    }
-
-    match fee {
-        SubscriptionFee::Recurring {
-            rate,
-            quantity,
-            billing_type,
-        } => {
-            use crate::domain::enums::BillingType;
-            match billing_type {
-                BillingType::Arrears => {
-                    let total = *rate * rust_decimal::Decimal::from(*quantity);
-                    total.to_subunit_opt(precision).unwrap_or(0)
-                }
-                BillingType::Advance => 0,
-            }
-        }
-        _ => 0,
-    }
-}
-
 /// Total (non-prorated) amount for a one-time fee. One-time charges are billed
 /// in full when added mid-period — they are never prorated.
 pub fn component_onetime_amount_cents(fee: &SubscriptionFee, precision: u8) -> i64 {
@@ -207,6 +174,8 @@ pub fn calculate_proration(
                     full_period_amount_cents: old_amount,
                     is_credit: true,
                     is_prorated: true,
+                    quantity: None,
+                    unit_price: None,
                     product_id: Some(m.product_id),
                     price_component_id: None,
                     net_key: None,
@@ -231,6 +200,8 @@ pub fn calculate_proration(
                     full_period_amount_cents: new_amount,
                     is_credit: false,
                     is_prorated: true,
+                    quantity: None,
+                    unit_price: None,
                     product_id: Some(m.product_id),
                     price_component_id: None,
                     net_key: None,
@@ -260,6 +231,8 @@ pub fn calculate_proration(
                     full_period_amount_cents: old_amount,
                     is_credit: true,
                     is_prorated: true,
+                    quantity: None,
+                    unit_price: None,
                     product_id: None,
                     price_component_id: None,
                     net_key: r.net_key.clone(),
@@ -273,7 +246,7 @@ pub fn calculate_proration(
     // Added components: charge. One-time fees are billed in full (never prorated);
     // recurring fees are prorated against their own billing cadence.
     for a in added {
-        if matches!(a.fee, SubscriptionFee::OneTime { .. }) {
+        if let SubscriptionFee::OneTime { rate, quantity } = &a.fee {
             let amount = component_onetime_amount_cents(&a.fee, precision);
             if amount != 0 {
                 lines.push(ProrationLineItem {
@@ -282,6 +255,8 @@ pub fn calculate_proration(
                     full_period_amount_cents: amount,
                     is_credit: false,
                     is_prorated: false,
+                    quantity: Some(rust_decimal::Decimal::from(*quantity)),
+                    unit_price: Some(*rate),
                     product_id: None,
                     price_component_id: None,
                     net_key: a.net_key.clone(),
@@ -308,6 +283,8 @@ pub fn calculate_proration(
                     full_period_amount_cents: new_amount,
                     is_credit: false,
                     is_prorated: true,
+                    quantity: None,
+                    unit_price: None,
                     product_id: None,
                     price_component_id: None,
                     net_key: a.net_key.clone(),
@@ -876,6 +853,8 @@ mod tests {
             full_period_amount_cents: amount.abs(),
             is_credit,
             is_prorated: true,
+            quantity: None,
+            unit_price: None,
             product_id: None,
             price_component_id: None,
             net_key: net_key.map(str::to_string),

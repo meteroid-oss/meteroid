@@ -196,7 +196,11 @@ impl AddOnsService for AddOnsServiceComponents {
             name,
             description: req.description.map(Some),
             self_serviceable: req.self_serviceable,
-            max_instances_per_subscription: req.max_instances_per_subscription.map(Some),
+            // -1 is the sentinel for "unlimited" (removes the cap).
+            // None (absent field) means "don't change".
+            max_instances_per_subscription: req
+                .max_instances_per_subscription
+                .map(|v| if v == -1 { None } else { Some(v) }),
         };
 
         let edited = self

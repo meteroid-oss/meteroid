@@ -227,7 +227,7 @@ impl SubscriptionAddOnRow {
         Ok(())
     }
 
-    pub async fn list_add_on_ids(
+    pub async fn list_active_add_on_ids(
         conn: &mut PgConn,
         subscription_ids: &[SubscriptionId],
         tenant_id: &TenantId,
@@ -244,6 +244,7 @@ impl SubscriptionAddOnRow {
             .inner_join(s_dsl::subscription)
             .filter(sao_dsl::subscription_id.eq_any(subscription_ids))
             .filter(s_dsl::tenant_id.eq(tenant_id))
+            .filter(sao_dsl::effective_to.is_null())
             .select(sao_dsl::add_on_id);
 
         log::debug!("{}", debug_query::<diesel::pg::Pg, _>(&query));
@@ -255,8 +256,8 @@ impl SubscriptionAddOnRow {
             .into_db_result()
     }
 
-    /// Fetch distinct product IDs from subscription add-ons for the given subscriptions.
-    pub async fn list_product_ids(
+    /// Fetch distinct product IDs from active subscription add-ons for the given subscriptions.
+    pub async fn list_active_product_ids(
         conn: &mut PgConn,
         subscription_ids: &[SubscriptionId],
         tenant_id: &TenantId,
@@ -274,6 +275,7 @@ impl SubscriptionAddOnRow {
             .inner_join(s_dsl::subscription)
             .filter(sao_dsl::subscription_id.eq_any(subscription_ids))
             .filter(s_dsl::tenant_id.eq(tenant_id))
+            .filter(sao_dsl::effective_to.is_null())
             .filter(not(sao_dsl::product_id.is_null()))
             .select(sao_dsl::product_id);
 

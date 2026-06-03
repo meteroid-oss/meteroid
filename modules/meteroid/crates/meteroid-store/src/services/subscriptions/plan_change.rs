@@ -356,6 +356,8 @@ impl Services {
                 .filter(|l| l.amount_cents < 0)
                 .map(|l| l.amount_cents)
                 .sum(),
+                // Plan changes don't introduce new arrears components, so no deferred amount.
+                arrears_charge_cents: 0,
                 proration_factor: result.proration_factor,
                 days_remaining,
                 days_in_period,

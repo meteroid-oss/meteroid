@@ -83,6 +83,11 @@ impl SubscriptionFeeInterface for SubscriptionAddOn {
     }
 
     #[inline]
+    fn instance_quantity(&self) -> rust_decimal::Decimal {
+        rust_decimal::Decimal::from(self.quantity.max(0))
+    }
+
+    #[inline]
     fn effective_from(&self) -> Option<NaiveDate> {
         Some(self.effective_from)
     }

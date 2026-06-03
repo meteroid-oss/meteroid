@@ -170,20 +170,27 @@ impl Services {
             let days_in_period = (period_end - period_start).num_days().max(0) as u32;
             let days_remaining = (period_end - effective_date).num_days().max(0) as u32;
 
-            // Fixed-rate arrears added by this amendment are not billed on the
-            // immediate adjustment invoice — they land, prorated to the remaining
-            // window, on the next invoice. `calculate_proration` therefore excludes
-            // them, but the summary must still reflect them or it would show a 0
-            // charge next to a non-zero proration factor. Genuine adds only
-            // (`net_key.is_none()`); override edits keep their existing handling.
-            let prorated_arrears_charge_cents = {
+            // Arrears components added by this amendment are NOT billed on the
+            // immediate adjustment invoice — they land prorated on the next
+            // renewal invoice. Track them separately so charges/net match the
+            // adjustment invoice, while the UI can still surface the deferred
+            // amount. Genuine adds only (`net_key.is_none()`); overrides keep
+            // their existing handling via the credit/charge netting path.
+            let arrears_charge_cents = {
+                use crate::domain::enums::BillingType;
                 let full_arrears: i64 = added
                     .iter()
                     .filter(|a| a.net_key.is_none())
-                    .map(|a| {
-                        crate::services::subscriptions::proration::component_arrears_amount_cents(
-                            &a.fee, &a.period, precision,
-                        )
+                    .map(|a| match &a.fee {
+                        crate::domain::subscription_components::SubscriptionFee::Recurring {
+                            rate,
+                            quantity,
+                            billing_type: BillingType::Arrears,
+                        } => {
+                            let total = *rate * rust_decimal::Decimal::from(*quantity);
+                            total.to_subunit_opt(precision).unwrap_or(0)
+                        }
+                        _ => 0,
                     })
                     .sum();
                 (full_arrears as f64 * result.proration_factor).round() as i64
@@ -201,9 +208,8 @@ impl Services {
                     .iter()
                     .filter(|l| !l.is_credit)
                     .map(|l| l.amount_cents)
-                    .sum::<i64>()
-                    + prorated_arrears_charge_cents,
-                net_amount_cents: result.net_amount_cents + prorated_arrears_charge_cents,
+                    .sum::<i64>(),
+                net_amount_cents: result.net_amount_cents,
                 // What would actually be credited (post-netting): an override's credit
                 // is netted into its charge, so an upgrade contributes nothing here.
                 net_credit_cents: crate::services::subscriptions::proration::net_override_lines(
@@ -213,6 +219,7 @@ impl Services {
                 .filter(|l| l.amount_cents < 0)
                 .map(|l| l.amount_cents)
                 .sum(),
+                arrears_charge_cents,
                 proration_factor: result.proration_factor,
                 days_remaining,
                 days_in_period,
@@ -2133,6 +2140,8 @@ mod tests {
                 full_period_amount_cents: 0,
                 is_credit: true,
                 is_prorated: true,
+                quantity: None,
+                unit_price: None,
                 product_id: None,
                 price_component_id: None,
                 net_key: Some(net_key.to_string()),
@@ -2386,7 +2395,7 @@ mod tests {
             let items =
                 build_amendment_credit_lines(&credits, &invoice, &lineage(&invoice), &already);
             let (_, qty) = only(&items);
-            // Capped at 900 of 2900 => 900/2900.
+            // Capped at 900 of 2900 => 900/2900 exact.
             assert_eq!(qty, Decimal::from(900) / Decimal::from(2900));
         }
 
