@@ -5894,17 +5894,6 @@
           }
         }
       },
-      "AddOnEntitlementEntity": {
-        "type": "object",
-        "required": [
-          "id"
-        ],
-        "properties": {
-          "id": {
-            "$ref": "#/components/schemas/AddOnId"
-          }
-        }
-      },
       "AddOnEvent": {
         "allOf": [
           {
@@ -8421,16 +8410,11 @@
         "description": "Merged entitlement value for a feature for a specific customer, enriched with live usage data.",
         "required": [
           "feature",
-          "value",
-          "origin"
+          "value"
         ],
         "properties": {
           "feature": {
             "$ref": "#/components/schemas/FeatureRef"
-          },
-          "origin": {
-            "$ref": "#/components/schemas/ResolvedOrigin",
-            "description": "Highest-priority entity that contributed to the final value, with its human-readable name."
           },
           "value": {
             "$ref": "#/components/schemas/EffectiveEntitlementValue"
@@ -8495,39 +8479,6 @@
           },
           "value": {
             "$ref": "#/components/schemas/EntitlementValue"
-          }
-        }
-      },
-      "EntitlementEntity": {
-        "oneOf": [
-          {
-            "$ref": "#/components/schemas/FeatureEntitlementEntity"
-          },
-          {
-            "$ref": "#/components/schemas/PlanEntitlementEntity"
-          },
-          {
-            "$ref": "#/components/schemas/PlanVersionEntitlementEntity"
-          },
-          {
-            "$ref": "#/components/schemas/AddOnEntitlementEntity"
-          },
-          {
-            "$ref": "#/components/schemas/SubscriptionEntitlementEntity"
-          },
-          {
-            "$ref": "#/components/schemas/QuoteEntitlementEntity"
-          }
-        ],
-        "discriminator": {
-          "propertyName": "type",
-          "mapping": {
-            "ADD_ON": "#/components/schemas/AddOnEntitlementEntity",
-            "FEATURE": "#/components/schemas/FeatureEntitlementEntity",
-            "PLAN": "#/components/schemas/PlanEntitlementEntity",
-            "PLAN_VERSION": "#/components/schemas/PlanVersionEntitlementEntity",
-            "QUOTE": "#/components/schemas/QuoteEntitlementEntity",
-            "SUBSCRIPTION": "#/components/schemas/SubscriptionEntitlementEntity"
           }
         }
       },
@@ -8807,17 +8758,6 @@
           },
           "status": {
             "$ref": "#/components/schemas/FeatureStatus"
-          }
-        }
-      },
-      "FeatureEntitlementEntity": {
-        "type": "object",
-        "required": [
-          "id"
-        ],
-        "properties": {
-          "id": {
-            "$ref": "#/components/schemas/FeatureId"
           }
         }
       },
@@ -10460,17 +10400,6 @@
           }
         }
       },
-      "PlanEntitlementEntity": {
-        "type": "object",
-        "required": [
-          "id"
-        ],
-        "properties": {
-          "id": {
-            "$ref": "#/components/schemas/PlanId"
-          }
-        }
-      },
       "PlanEvent": {
         "allOf": [
           {
@@ -10611,17 +10540,6 @@
             "PER_UNIT": "#/components/schemas/PerUnitPlanPricing",
             "TIERED": "#/components/schemas/TieredPlanPricing",
             "VOLUME": "#/components/schemas/VolumePlanPricing"
-          }
-        }
-      },
-      "PlanVersionEntitlementEntity": {
-        "type": "object",
-        "required": [
-          "id"
-        ],
-        "properties": {
-          "id": {
-            "$ref": "#/components/schemas/PlanVersionId"
           }
         }
       },
@@ -11069,17 +10987,6 @@
           }
         }
       },
-      "QuoteEntitlementEntity": {
-        "type": "object",
-        "required": [
-          "id"
-        ],
-        "properties": {
-          "id": {
-            "$ref": "#/components/schemas/QuoteId"
-          }
-        }
-      },
       "QuoteEvent": {
         "allOf": [
           {
@@ -11306,16 +11213,11 @@
         "description": "Merged entitlement value for a feature across the priority hierarchy, without usage data.",
         "required": [
           "feature",
-          "value",
-          "origin"
+          "value"
         ],
         "properties": {
           "feature": {
             "$ref": "#/components/schemas/FeatureRef"
-          },
-          "origin": {
-            "$ref": "#/components/schemas/ResolvedOrigin",
-            "description": "Highest-priority entity that contributed to the final value, with its human-readable name."
           },
           "value": {
             "$ref": "#/components/schemas/ResolvedEntitlementValue"
@@ -11350,24 +11252,6 @@
           "mapping": {
             "BOOLEAN": "#/components/schemas/BooleanResolvedEntitlementValue",
             "METERED": "#/components/schemas/MeteredResolvedEntitlementValue"
-          }
-        }
-      },
-      "ResolvedOrigin": {
-        "type": "object",
-        "description": "Resolved entity that contributed the winning entitlement value, with a human-readable label.",
-        "required": [
-          "entity"
-        ],
-        "properties": {
-          "entity": {
-            "$ref": "#/components/schemas/EntitlementEntity"
-          },
-          "name": {
-            "type": [
-              "string",
-              "null"
-            ]
           }
         }
       },
@@ -12202,17 +12086,6 @@
             "format": "int32",
             "description": "Trial duration in days",
             "minimum": 0
-          }
-        }
-      },
-      "SubscriptionEntitlementEntity": {
-        "type": "object",
-        "required": [
-          "id"
-        ],
-        "properties": {
-          "id": {
-            "$ref": "#/components/schemas/SubscriptionId"
           }
         }
       },

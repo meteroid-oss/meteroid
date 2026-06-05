@@ -1,9 +1,6 @@
 use crate::api_rest::model::{PaginatedRequest, PaginationResponse};
 use chrono::{DateTime, Utc};
-use common_domain::ids::{
-    AddOnId, BillableMetricId, EntitlementId, FeatureId, PlanId, PlanVersionId, ProductId, QuoteId,
-    SubscriptionId, string_serde,
-};
+use common_domain::ids::{BillableMetricId, EntitlementId, FeatureId, ProductId, string_serde};
 use o2o::o2o;
 use rust_decimal::Decimal;
 use serde::{Deserialize, Serialize};
@@ -263,53 +260,6 @@ pub enum ResolvedEntitlementValue {
     Metered(MeteredResolvedEntitlementValue),
 }
 
-#[derive(Serialize, Deserialize, Debug, Clone, ToSchema)]
-pub struct FeatureEntitlementEntity {
-    #[serde(with = "common_domain::ids::string_serde")]
-    pub id: FeatureId,
-}
-
-#[derive(Serialize, Deserialize, Debug, Clone, ToSchema)]
-pub struct PlanEntitlementEntity {
-    #[serde(with = "common_domain::ids::string_serde")]
-    pub id: PlanId,
-}
-
-#[derive(Serialize, Deserialize, Debug, Clone, ToSchema)]
-pub struct PlanVersionEntitlementEntity {
-    #[serde(with = "common_domain::ids::string_serde")]
-    pub id: PlanVersionId,
-}
-
-#[derive(Serialize, Deserialize, Debug, Clone, ToSchema)]
-pub struct AddOnEntitlementEntity {
-    #[serde(with = "common_domain::ids::string_serde")]
-    pub id: AddOnId,
-}
-
-#[derive(Serialize, Deserialize, Debug, Clone, ToSchema)]
-pub struct SubscriptionEntitlementEntity {
-    #[serde(with = "common_domain::ids::string_serde")]
-    pub id: SubscriptionId,
-}
-
-#[derive(Serialize, Deserialize, Debug, Clone, ToSchema)]
-pub struct QuoteEntitlementEntity {
-    #[serde(with = "common_domain::ids::string_serde")]
-    pub id: QuoteId,
-}
-
-#[derive(Serialize, Deserialize, Debug, Clone, ToSchema)]
-#[serde(tag = "type", rename_all = "SCREAMING_SNAKE_CASE")]
-pub enum EntitlementEntity {
-    Feature(FeatureEntitlementEntity),
-    Plan(PlanEntitlementEntity),
-    PlanVersion(PlanVersionEntitlementEntity),
-    AddOn(AddOnEntitlementEntity),
-    Subscription(SubscriptionEntitlementEntity),
-    Quote(QuoteEntitlementEntity),
-}
-
 #[derive(Serialize, Debug, Clone, ToSchema)]
 pub struct Feature {
     #[serde(serialize_with = "string_serde::serialize")]
@@ -367,8 +317,6 @@ pub struct FeatureRef {
 pub struct EffectiveEntitlement {
     pub feature: FeatureRef,
     pub value: EffectiveEntitlementValue,
-    /// Highest-priority entity that contributed to the final value, with its human-readable name.
-    pub origin: ResolvedOrigin,
 }
 
 #[derive(Serialize, Debug, Clone, ToSchema)]
@@ -376,21 +324,11 @@ pub struct EffectiveEntitlementListResponse {
     pub data: Vec<EffectiveEntitlement>,
 }
 
-/// Resolved entity that contributed the winning entitlement value, with a human-readable label.
-#[derive(Serialize, Debug, Clone, ToSchema)]
-pub struct ResolvedOrigin {
-    pub entity: EntitlementEntity,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub name: Option<String>,
-}
-
 /// Merged entitlement value for a feature across the priority hierarchy, without usage data.
 #[derive(Serialize, Debug, Clone, ToSchema)]
 pub struct ResolvedEntitlement {
     pub feature: FeatureRef,
     pub value: ResolvedEntitlementValue,
-    /// Highest-priority entity that contributed to the final value, with its human-readable name.
-    pub origin: ResolvedOrigin,
 }
 
 #[derive(Serialize, Debug, Clone, ToSchema)]

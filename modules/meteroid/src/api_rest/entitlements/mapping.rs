@@ -1,5 +1,4 @@
-use common_domain::ids::EntitlementEntityId;
-use meteroid_store::domain::entitlements::{self as domain, ResolvedOrigin};
+use meteroid_store::domain::entitlements::{self as domain};
 
 use super::model::*;
 
@@ -48,32 +47,6 @@ pub fn entitlement_to_rest(e: domain::Entitlement) -> Entitlement {
     }
 }
 
-/// Convert a domain `ResolvedOrigin` to the REST `ResolvedOrigin` model.
-pub fn resolved_origin_to_rest(o: ResolvedOrigin) -> super::model::ResolvedOrigin {
-    super::model::ResolvedOrigin {
-        entity: entity_id_to_rest(o.entity),
-        name: o.name,
-    }
-}
-
-/// Convert a domain `EntitlementEntityId` to the REST `EntitlementEntity` enum.
-pub fn entity_id_to_rest(entity: EntitlementEntityId) -> EntitlementEntity {
-    match entity {
-        EntitlementEntityId::Feature(id) => {
-            EntitlementEntity::Feature(FeatureEntitlementEntity { id })
-        }
-        EntitlementEntityId::Plan(id) => EntitlementEntity::Plan(PlanEntitlementEntity { id }),
-        EntitlementEntityId::PlanVersion(id) => {
-            EntitlementEntity::PlanVersion(PlanVersionEntitlementEntity { id })
-        }
-        EntitlementEntityId::AddOn(id) => EntitlementEntity::AddOn(AddOnEntitlementEntity { id }),
-        EntitlementEntityId::Subscription(id) => {
-            EntitlementEntity::Subscription(SubscriptionEntitlementEntity { id })
-        }
-        EntitlementEntityId::Quote(id) => EntitlementEntity::Quote(QuoteEntitlementEntity { id }),
-    }
-}
-
 pub fn resolved_entitlement_to_rest(r: domain::ResolvedEntitlement) -> ResolvedEntitlement {
     use domain::ResolvedEntitlementValue as DomVal;
     let value = match r.value {
@@ -104,7 +77,6 @@ pub fn resolved_entitlement_to_rest(r: domain::ResolvedEntitlement) -> ResolvedE
             }),
         },
         value,
-        origin: resolved_origin_to_rest(r.origin),
     }
 }
 
@@ -145,6 +117,5 @@ pub fn effective_entitlement_to_rest(r: domain::EffectiveEntitlement) -> Effecti
             }),
         },
         value,
-        origin: resolved_origin_to_rest(r.origin),
     }
 }
