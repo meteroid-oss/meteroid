@@ -17,6 +17,8 @@ pub enum StoreError {
     },
     #[error("Invalid Argument: {0}")]
     InvalidArgument(String),
+    #[error("Forbidden: {0}")]
+    Forbidden(String),
     #[error("Timed out while trying to connect to the database")]
     DatabaseConnectionError,
     #[error("Invalid decimal value")]

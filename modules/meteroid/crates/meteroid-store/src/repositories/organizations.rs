@@ -34,6 +34,15 @@ pub trait OrganizationsInterface {
 
     async fn accept_invite(&self, user_id: Uuid, invite_key: String) -> StoreResult<Organization>;
 
+    async fn leave_organization(&self, actor: Uuid, org_id: OrganizationId) -> StoreResult<()>;
+
+    async fn remove_member(
+        &self,
+        actor: Uuid,
+        target_user_id: Uuid,
+        org_id: OrganizationId,
+    ) -> StoreResult<()>;
+
     async fn get_organization_by_invite_link(
         &self,
         invite_key: String,
@@ -238,6 +247,78 @@ impl OrganizationsInterface for Store {
                     .map_err(Into::<Report<StoreError>>::into)?;
 
                 Ok(org.into())
+            }
+            .scope_boxed()
+        })
+        .await
+    }
+
+    async fn leave_organization(&self, actor: Uuid, org_id: OrganizationId) -> StoreResult<()> {
+        let mut conn = self.get_conn().await?;
+
+        self.transaction_with(&mut conn, |conn| {
+            async move {
+                let member = OrganizationMemberRow::find_by_user_and_org(conn, actor, org_id)
+                    .await
+                    .map_err(Into::<Report<StoreError>>::into)?;
+
+                if matches!(member.role, OrganizationUserRole::Admin) {
+                    let admin_count = OrganizationMemberRow::count_admins(conn, org_id)
+                        .await
+                        .map_err(Into::<Report<StoreError>>::into)?;
+
+                    if admin_count <= 1 {
+                        return Err(StoreError::InvalidArgument(
+                            "Last admin cannot leave the organization. Transfer the admin role first.".to_string(),
+                        )
+                        .into());
+                    }
+                }
+
+                OrganizationMemberRow::delete_member(conn, actor, org_id)
+                    .await
+                    .map_err(Into::<Report<StoreError>>::into)?;
+
+                Ok(())
+            }
+            .scope_boxed()
+        })
+        .await
+    }
+
+    async fn remove_member(
+        &self,
+        actor: Uuid,
+        target_user_id: Uuid,
+        org_id: OrganizationId,
+    ) -> StoreResult<()> {
+        let mut conn = self.get_conn().await?;
+
+        self.transaction_with(&mut conn, |conn| {
+            async move {
+                let actor_member = OrganizationMemberRow::find_by_user_and_org(conn, actor, org_id)
+                    .await
+                    .map_err(Into::<Report<StoreError>>::into)?;
+
+                if !matches!(actor_member.role, OrganizationUserRole::Admin) {
+                    return Err(StoreError::Forbidden(
+                        "Only admins can remove members".to_string(),
+                    )
+                    .into());
+                }
+
+                if actor == target_user_id {
+                    return Err(StoreError::InvalidArgument(
+                        "Cannot remove yourself. Use LeaveOrganization instead.".to_string(),
+                    )
+                    .into());
+                }
+
+                OrganizationMemberRow::delete_member(conn, target_user_id, org_id)
+                    .await
+                    .map_err(Into::<Report<StoreError>>::into)?;
+
+                Ok(())
             }
             .scope_boxed()
         })

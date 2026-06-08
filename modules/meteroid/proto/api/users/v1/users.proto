@@ -95,6 +95,14 @@ message AcceptInviteResponse {
   meteroid.api.organizations.v1.Organization organization = 1;
 }
 
+message LeaveOrganizationRequest {}
+message LeaveOrganizationResponse {}
+
+message RemoveMemberRequest {
+  string user_id = 1;
+}
+message RemoveMemberResponse {}
+
 service UsersService {
   rpc Me(MeRequest) returns (MeResponse) {}
   rpc OnboardMe(OnboardMeRequest) returns (OnboardMeResponse) {}
@@ -110,4 +118,7 @@ service UsersService {
   rpc ResetPassword(ResetPasswordRequest) returns (ResetPasswordResponse) {}
 
   rpc AcceptInvite(AcceptInviteRequest) returns (AcceptInviteResponse) {}
+
+  rpc LeaveOrganization(LeaveOrganizationRequest) returns (LeaveOrganizationResponse) {}
+  rpc RemoveMember(RemoveMemberRequest) returns (RemoveMemberResponse) {}
 }

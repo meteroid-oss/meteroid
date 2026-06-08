@@ -48,4 +48,51 @@ impl OrganizationMemberRow {
             .attach("Error while finding organization member")
             .into_db_result()
     }
+
+    pub async fn delete_member(
+        conn: &mut PgConn,
+        user_id_param: Uuid,
+        org_id_param: OrganizationId,
+    ) -> DbResult<()> {
+        use crate::schema::organization_member::dsl::{
+            organization_id, organization_member, user_id,
+        };
+        use diesel_async::RunQueryDsl;
+
+        let query = diesel::delete(
+            organization_member
+                .filter(user_id.eq(user_id_param))
+                .filter(organization_id.eq(org_id_param)),
+        );
+
+        log::debug!("{}", debug_query::<diesel::pg::Pg, _>(&query));
+
+        query
+            .execute(conn)
+            .await
+            .attach("Error while deleting organization member")
+            .into_db_result()?;
+
+        Ok(())
+    }
+
+    pub async fn count_admins(conn: &mut PgConn, org_id_param: OrganizationId) -> DbResult<i64> {
+        use crate::enums::OrganizationUserRole;
+        use crate::schema::organization_member::dsl::{organization_id, organization_member, role};
+        use diesel::dsl::count_star;
+        use diesel_async::RunQueryDsl;
+
+        let query = organization_member
+            .filter(organization_id.eq(org_id_param))
+            .filter(role.eq(OrganizationUserRole::Admin))
+            .select(count_star());
+
+        log::debug!("{}", debug_query::<diesel::pg::Pg, _>(&query));
+
+        query
+            .first(conn)
+            .await
+            .attach("Error while counting admins in organization")
+            .into_db_result()
+    }
 }

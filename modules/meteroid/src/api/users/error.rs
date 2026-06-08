@@ -28,6 +28,10 @@ pub enum UserApiError {
     #[code(PermissionDenied)]
     RegistrationClosed(String),
 
+    #[error("Forbidden: {0}")]
+    #[code(PermissionDenied)]
+    Forbidden(String),
+
     #[error("Store error: {0}")]
     #[code(Internal)]
     StoreError(String, #[source] Box<dyn Error>),
@@ -40,6 +44,7 @@ impl From<Report<StoreError>> for UserApiError {
         match err {
             StoreError::LoginError(str) => Self::AuthenticationError(str.clone()),
             StoreError::InvalidArgument(str) => Self::InvalidArgument(str.clone()),
+            StoreError::Forbidden(str) => Self::Forbidden(str.clone()),
             StoreError::DuplicateValue { entity: _, key: _ } => Self::UserAlreadyExistsError,
             StoreError::UserRegistrationClosed(value) => Self::RegistrationClosed(value.clone()),
             _e => Self::StoreError(

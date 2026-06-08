@@ -4,8 +4,9 @@ use meteroid_grpc::meteroid::api::users::v1::{
     AcceptInviteRequest, AcceptInviteResponse, CompleteRegistrationRequest,
     CompleteRegistrationResponse, GetUserByIdRequest, GetUserByIdResponse, InitRegistrationRequest,
     InitRegistrationResponse, InitResetPasswordRequest, InitResetPasswordResponse,
-    ListUsersRequest, ListUsersResponse, LoginRequest, LoginResponse, MeRequest, MeResponse,
-    OnboardMeRequest, OnboardMeResponse, ResetPasswordRequest, ResetPasswordResponse,
+    LeaveOrganizationRequest, LeaveOrganizationResponse, ListUsersRequest, ListUsersResponse,
+    LoginRequest, LoginResponse, MeRequest, MeResponse, OnboardMeRequest, OnboardMeResponse,
+    RemoveMemberRequest, RemoveMemberResponse, ResetPasswordRequest, ResetPasswordResponse,
     users_service_server::UsersService,
 };
 use meteroid_store::domain::users::{LoginUserRequest, RegisterUserRequest, UpdateUser};
@@ -261,5 +262,40 @@ impl UsersService for UsersServiceComponents {
                 super::super::organizations::mapping::organization::domain_to_proto(organization),
             ),
         }))
+    }
+
+    #[tracing::instrument(skip_all)]
+    async fn leave_organization(
+        &self,
+        request: Request<LeaveOrganizationRequest>,
+    ) -> Result<Response<LeaveOrganizationResponse>, Status> {
+        let actor = request.actor()?;
+        let org_id = request.organization()?;
+
+        self.store
+            .leave_organization(actor, org_id)
+            .await
+            .map_err(Into::<UserApiError>::into)?;
+
+        Ok(Response::new(LeaveOrganizationResponse {}))
+    }
+
+    #[tracing::instrument(skip_all)]
+    async fn remove_member(
+        &self,
+        request: Request<RemoveMemberRequest>,
+    ) -> Result<Response<RemoveMemberResponse>, Status> {
+        let actor = request.actor()?;
+        let org_id = request.organization()?;
+        let req = request.into_inner();
+
+        let target_user_id = parse_uuid!(&req.user_id)?;
+
+        self.store
+            .remove_member(actor, target_user_id, org_id)
+            .await
+            .map_err(Into::<UserApiError>::into)?;
+
+        Ok(Response::new(RemoveMemberResponse {}))
     }
 }
