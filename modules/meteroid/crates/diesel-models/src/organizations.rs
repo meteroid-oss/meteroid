@@ -13,7 +13,6 @@ pub struct OrganizationRow {
     pub slug: String,
     pub created_at: NaiveDateTime,
     pub archived_at: Option<NaiveDateTime>,
-    pub invite_link_hash: Option<String>,
     pub default_country: CountryCode,
     pub is_express: bool,
 }

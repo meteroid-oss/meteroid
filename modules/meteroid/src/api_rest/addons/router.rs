@@ -136,7 +136,7 @@ pub(crate) async fn create_addon(
             description: payload.description,
             self_serviceable: payload.self_serviceable,
             max_instances_per_subscription: payload.max_instances_per_subscription,
-            created_by: authorized_state.actor_id,
+            created_by: authorized_state.actor.id(),
             entitlements: vec![],
         })
         .await
@@ -186,7 +186,7 @@ pub(crate) async fn update_addon(
                 max_instances_per_subscription: payload.max_instances_per_subscription,
             },
             price_entry,
-            authorized_state.actor_id,
+            authorized_state.actor.id(),
         )
         .await
         .map_err(|e| {

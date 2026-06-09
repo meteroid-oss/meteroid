@@ -1,18 +1,21 @@
 use crate::StoreResult;
 use crate::domain::enums::TenantEnvironmentEnum;
+use crate::domain::organizations::{InviteDetails, OrganizationInvite};
 use crate::domain::{
     InstanceFlags, Organization, OrganizationNew, OrganizationWithTenants, TenantNew,
 };
 use crate::errors::StoreError;
 use crate::store::Store;
-use common_domain::ids::{BaseId, OrganizationId, TenantId};
+use chrono::Utc;
+use common_domain::ids::{BaseId, OrganizationId, OrganizationInviteId, TenantId};
 use common_eventbus::Event;
-use common_utils::rng::BASE62_ALPHABET;
 use diesel_async::scoped_futures::ScopedFutureExt;
 use diesel_models::enums::OrganizationUserRole;
+use diesel_models::organization_invites::{OrganizationInviteRow, OrganizationInviteRowNew};
 use diesel_models::organization_members::OrganizationMemberRow;
 use diesel_models::organizations::{OrganizationRow, OrganizationRowNew};
 use diesel_models::tenants::TenantRow;
+use diesel_models::users::UserRow;
 use error_stack::Report;
 use meteroid_oauth::model::OauthProvider;
 use tracing_log::log;
@@ -27,12 +30,43 @@ pub trait OrganizationsInterface {
     ) -> StoreResult<OrganizationWithTenants>;
 
     async fn get_instance(&self) -> StoreResult<InstanceFlags>;
-    async fn organization_get_or_create_invite_link(
-        &self,
-        organization_id: OrganizationId,
-    ) -> StoreResult<String>;
 
-    async fn accept_invite(&self, user_id: Uuid, invite_key: String) -> StoreResult<Organization>;
+    async fn invite_member(
+        &self,
+        org_id: OrganizationId,
+        actor_id: Uuid,
+        invited_email: String,
+        role: OrganizationUserRole,
+    ) -> StoreResult<OrganizationInvite>;
+
+    async fn resend_invite(
+        &self,
+        invite_id: OrganizationInviteId,
+        actor_id: Uuid,
+        org_id: OrganizationId,
+    ) -> StoreResult<()>;
+
+    async fn revoke_invite(
+        &self,
+        invite_id: OrganizationInviteId,
+        org_id: OrganizationId,
+    ) -> StoreResult<()>;
+
+    async fn list_pending_invites(
+        &self,
+        org_id: OrganizationId,
+    ) -> StoreResult<Vec<OrganizationInvite>>;
+
+    async fn get_invite_details(
+        &self,
+        invite_id: OrganizationInviteId,
+    ) -> StoreResult<InviteDetails>;
+
+    async fn accept_invite(
+        &self,
+        user_id: Uuid,
+        invite_id: OrganizationInviteId,
+    ) -> StoreResult<Organization>;
 
     async fn leave_organization(&self, actor: Uuid, org_id: OrganizationId) -> StoreResult<()>;
 
@@ -42,11 +76,6 @@ pub trait OrganizationsInterface {
         target_user_id: Uuid,
         org_id: OrganizationId,
     ) -> StoreResult<()>;
-
-    async fn get_organization_by_invite_link(
-        &self,
-        invite_key: String,
-    ) -> StoreResult<Organization>;
 
     async fn list_organizations_for_user(&self, user_id: Uuid) -> StoreResult<Vec<Organization>>;
     async fn get_organization_by_id(&self, id: OrganizationId) -> StoreResult<Organization>;
@@ -190,59 +219,313 @@ impl OrganizationsInterface for Store {
         })
     }
 
-    async fn organization_get_or_create_invite_link(
+    async fn invite_member(
         &self,
-        organization_id: OrganizationId,
-    ) -> StoreResult<String> {
+        org_id: OrganizationId,
+        actor_id: Uuid,
+        invited_email: String,
+        role: OrganizationUserRole,
+    ) -> StoreResult<OrganizationInvite> {
         let mut conn = self.get_conn().await?;
 
-        let org = OrganizationRow::get_by_id(&mut conn, organization_id)
+        let actor_user = UserRow::find_by_id(&mut conn, actor_id)
+            .await
+            .map_err(Into::<Report<StoreError>>::into)?;
+        if actor_user.email.to_lowercase() == invited_email.to_lowercase() {
+            return Err(
+                StoreError::InvalidArgument("You cannot invite yourself".to_string()).into(),
+            );
+        }
+
+        let invited_email = invited_email.to_lowercase();
+
+        let already_member = match UserRow::find_by_email(&mut conn, invited_email.clone()).await {
+            Ok(Some(existing_user)) => {
+                match OrganizationMemberRow::find_by_user_and_org(
+                    &mut conn,
+                    existing_user.id,
+                    org_id,
+                )
+                .await
+                .map_err(Into::<Report<StoreError>>::into)
+                {
+                    Ok(_) => true,
+                    Err(e) if matches!(e.current_context(), StoreError::ValueNotFound(_)) => false,
+                    Err(e) => return Err(e),
+                }
+            }
+            Ok(None) => false,
+            Err(e) => return Err(e.into()),
+        };
+        if already_member {
+            return Err(StoreError::InvalidArgument("User is already a member".to_string()).into());
+        }
+
+        if OrganizationInviteRow::find_pending_by_email_and_org(&mut conn, org_id, &invited_email)
+            .await
+            .map_err(Into::<Report<StoreError>>::into)?
+            .is_some()
+        {
+            return Err(StoreError::InvalidArgument(
+                "An active invite already exists for this email".to_string(),
+            )
+            .into());
+        }
+
+        OrganizationInviteRow::revoke_expired_for_email_and_org(&mut conn, org_id, &invited_email)
             .await
             .map_err(Into::<Report<StoreError>>::into)?;
 
-        if let Some(hash) = org.invite_link_hash {
-            Ok(hash)
-        } else {
-            log::warn!("Organization invite link is not set - creating new one");
+        let ttl_days = self.settings.invite_ttl_days;
+        let expires_at = Utc::now() + chrono::Duration::days(ttl_days as i64);
 
-            let invite_hash = nanoid::nanoid!(32, &BASE62_ALPHABET);
+        let row_new = OrganizationInviteRowNew {
+            id: OrganizationInviteId::new(),
+            organization_id: org_id,
+            invited_email: invited_email.clone(),
+            invited_by: actor_id,
+            role,
+            expires_at,
+        };
 
-            let _ = OrganizationRow::update_invite_link(&mut conn, org.id, &invite_hash)
-                .await
-                .map_err(Into::<Report<StoreError>>::into)?;
+        let row = row_new.insert(&mut conn).await.map_err(|e| {
+            let store_err = Into::<Report<StoreError>>::into(e);
+            if matches!(
+                store_err.current_context(),
+                StoreError::DuplicateValue { .. }
+            ) {
+                Report::new(StoreError::InvalidArgument(
+                    "An active invite already exists for this email".to_string(),
+                ))
+            } else {
+                store_err
+            }
+        })?;
 
-            Ok(invite_hash)
-        }
+        let org = OrganizationRow::get_by_id(&mut conn, org_id)
+            .await
+            .map_err(Into::<Report<StoreError>>::into)?;
+
+        self.send_invite_email(
+            row.id,
+            &org.trade_name,
+            &actor_user.email,
+            &role,
+            invited_email,
+        )
+        .await;
+
+        Ok(OrganizationInvite::from_row_and_inviter(
+            row,
+            actor_user.email,
+        ))
     }
 
-    async fn accept_invite(&self, user_id: Uuid, invite_key: String) -> StoreResult<Organization> {
+    async fn resend_invite(
+        &self,
+        invite_id: OrganizationInviteId,
+        actor_id: Uuid,
+        org_id: OrganizationId,
+    ) -> StoreResult<()> {
+        let mut conn = self.get_conn().await?;
+
+        let invite = OrganizationInviteRow::find_by_id(&mut conn, invite_id)
+            .await
+            .map_err(Into::<Report<StoreError>>::into)?;
+
+        if invite.organization_id != org_id {
+            return Err(StoreError::Forbidden(
+                "Invite does not belong to this organization".to_string(),
+            )
+            .into());
+        }
+        if invite.accepted_at.is_some() {
+            return Err(StoreError::InvalidArgument("Invite already accepted".to_string()).into());
+        }
+        if invite.revoked_at.is_some() {
+            return Err(StoreError::InvalidArgument("Invite is revoked".to_string()).into());
+        }
+        if invite.expires_at < Utc::now() {
+            return Err(StoreError::InvalidArgument(
+                "Invite is expired. Revoke it and create a new one.".to_string(),
+            )
+            .into());
+        }
+
+        let ttl_days = self.settings.invite_ttl_days;
+        let new_expires_at = Utc::now() + chrono::Duration::days(ttl_days as i64);
+
+        OrganizationInviteRow::update_expires_at(&mut conn, invite_id, new_expires_at)
+            .await
+            .map_err(Into::<Report<StoreError>>::into)?;
+
+        let org = OrganizationRow::get_by_id(&mut conn, org_id)
+            .await
+            .map_err(Into::<Report<StoreError>>::into)?;
+        let actor_user = UserRow::find_by_id(&mut conn, actor_id)
+            .await
+            .map_err(Into::<Report<StoreError>>::into)?;
+
+        self.send_invite_email(
+            invite.id,
+            &org.trade_name,
+            &actor_user.email,
+            &invite.role,
+            invite.invited_email,
+        )
+        .await;
+
+        Ok(())
+    }
+
+    async fn revoke_invite(
+        &self,
+        invite_id: OrganizationInviteId,
+        org_id: OrganizationId,
+    ) -> StoreResult<()> {
+        let mut conn = self.get_conn().await?;
+
+        let invite = OrganizationInviteRow::find_by_id(&mut conn, invite_id)
+            .await
+            .map_err(Into::<Report<StoreError>>::into)?;
+
+        if invite.organization_id != org_id {
+            return Err(StoreError::Forbidden(
+                "Invite does not belong to this organization".to_string(),
+            )
+            .into());
+        }
+        if invite.accepted_at.is_some() {
+            return Err(StoreError::InvalidArgument("Invite already accepted".to_string()).into());
+        }
+        if invite.revoked_at.is_some() {
+            return Err(StoreError::InvalidArgument("Invite already revoked".to_string()).into());
+        }
+
+        OrganizationInviteRow::set_revoked_at(&mut conn, invite_id, Utc::now())
+            .await
+            .map_err(Into::<Report<StoreError>>::into)?;
+
+        Ok(())
+    }
+
+    async fn list_pending_invites(
+        &self,
+        org_id: OrganizationId,
+    ) -> StoreResult<Vec<OrganizationInvite>> {
+        let mut conn = self.get_conn().await?;
+
+        let rows = OrganizationInviteRow::list_pending_with_inviter_email(&mut conn, org_id)
+            .await
+            .map_err(Into::<Report<StoreError>>::into)?;
+
+        Ok(rows
+            .into_iter()
+            .map(|(row, inviter_email)| {
+                OrganizationInvite::from_row_and_inviter(row, inviter_email)
+            })
+            .collect())
+    }
+
+    async fn get_invite_details(
+        &self,
+        invite_id: OrganizationInviteId,
+    ) -> StoreResult<InviteDetails> {
+        let mut conn = self.get_conn().await?;
+
+        let invite = OrganizationInviteRow::find_by_id(&mut conn, invite_id)
+            .await
+            .map_err(Into::<Report<StoreError>>::into)?;
+
+        if invite.revoked_at.is_some()
+            || invite.accepted_at.is_some()
+            || invite.expires_at < Utc::now()
+        {
+            return Err(
+                StoreError::InvalidArgument("Invalid or expired invite link".to_string()).into(),
+            );
+        }
+
+        let org = OrganizationRow::get_by_id(&mut conn, invite.organization_id)
+            .await
+            .map_err(Into::<Report<StoreError>>::into)?;
+
+        Ok(InviteDetails {
+            organization_name: org.trade_name,
+            role: invite.role,
+            invited_email: invite.invited_email,
+        })
+    }
+
+    async fn accept_invite(
+        &self,
+        user_id: Uuid,
+        invite_id: OrganizationInviteId,
+    ) -> StoreResult<Organization> {
         let mut conn = self.get_conn().await?;
 
         self.transaction_with(&mut conn, |conn| {
             async move {
-                let org = OrganizationRow::find_by_invite_link(conn, invite_key)
+                let invite = OrganizationInviteRow::find_by_id(conn, invite_id)
                     .await
                     .map_err(Into::<Report<StoreError>>::into)?;
 
-                let existing_member =
-                    OrganizationMemberRow::find_by_user_and_org(conn, user_id, org.id)
-                        .await
-                        .ok();
-
-                if existing_member.is_some() {
+                if invite.accepted_at.is_some() {
                     return Err(StoreError::InvalidArgument(
-                        "User is already a member of this organization".to_string(),
+                        "This invite has already been used".to_string(),
+                    )
+                    .into());
+                }
+                if invite.revoked_at.is_some() || invite.expires_at < Utc::now() {
+                    return Err(StoreError::InvalidArgument(
+                        "Invalid or expired invite link".to_string(),
                     )
                     .into());
                 }
 
+                let user = UserRow::find_by_id(conn, user_id)
+                    .await
+                    .map_err(Into::<Report<StoreError>>::into)?;
+
+                if invite.invited_email.to_lowercase() != user.email.to_lowercase() {
+                    return Err(StoreError::Forbidden(
+                        "This invite is not valid for your account".to_string(),
+                    )
+                    .into());
+                }
+
+                match OrganizationMemberRow::find_by_user_and_org(
+                    conn,
+                    user_id,
+                    invite.organization_id,
+                )
+                .await
+                .map_err(Into::<Report<StoreError>>::into)
+                {
+                    Ok(_) => {
+                        return Err(StoreError::InvalidArgument(
+                            "You are already a member of this organization".to_string(),
+                        )
+                        .into());
+                    }
+                    Err(e) if matches!(e.current_context(), StoreError::ValueNotFound(_)) => {}
+                    Err(e) => return Err(e),
+                }
+
                 let org_member = OrganizationMemberRow {
                     user_id,
-                    organization_id: org.id,
-                    role: OrganizationUserRole::Member,
+                    organization_id: invite.organization_id,
+                    role: invite.role,
                 };
-
                 OrganizationMemberRow::insert(&org_member, conn)
+                    .await
+                    .map_err(Into::<Report<StoreError>>::into)?;
+
+                OrganizationInviteRow::set_accepted_at(conn, invite_id, Utc::now())
+                    .await
+                    .map_err(Into::<Report<StoreError>>::into)?;
+
+                let org = OrganizationRow::get_by_id(conn, invite.organization_id)
                     .await
                     .map_err(Into::<Report<StoreError>>::into)?;
 
@@ -323,19 +606,6 @@ impl OrganizationsInterface for Store {
             .scope_boxed()
         })
         .await
-    }
-
-    async fn get_organization_by_invite_link(
-        &self,
-        invite_key: String,
-    ) -> StoreResult<Organization> {
-        let mut conn = self.get_conn().await?;
-
-        let org = OrganizationRow::find_by_invite_link(&mut conn, invite_key)
-            .await
-            .map_err(Into::<Report<StoreError>>::into)?;
-
-        Ok(org.into())
     }
 
     async fn list_organizations_for_user(&self, user_id: Uuid) -> StoreResult<Vec<Organization>> {
@@ -490,5 +760,39 @@ impl OrganizationsInterface for Store {
             organization: org_created.into(),
             tenants: vec![tenant_created],
         })
+    }
+}
+
+impl Store {
+    async fn send_invite_email(
+        &self,
+        invite_id: OrganizationInviteId,
+        org_name: &str,
+        inviter_email: &str,
+        role: &OrganizationUserRole,
+        recipient_email: String,
+    ) {
+        let ttl_days = self.settings.invite_ttl_days;
+        let invite_url = format!(
+            "{}/invite?token={}",
+            self.settings.public_url.trim_end_matches('/'),
+            invite_id
+        );
+        let _ = self
+            .mailer
+            .send_org_invite(meteroid_mailer::model::OrgInvite {
+                org_name: org_name.to_string(),
+                inviter_name: inviter_email.to_string(),
+                role: format!("{}", role),
+                invite_url,
+                expires_in: format!("{} days", ttl_days),
+                recipient: meteroid_mailer::model::EmailRecipient {
+                    email: recipient_email,
+                    first_name: None,
+                    last_name: None,
+                },
+            })
+            .await
+            .map_err(|e| log::error!("Failed to send invite email: {e:?}"));
     }
 }

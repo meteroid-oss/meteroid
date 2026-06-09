@@ -88,7 +88,40 @@ message ResetPasswordRequest {
 message ResetPasswordResponse {}
 
 message AcceptInviteRequest {
-  string invite_key = 1;
+  string invite_id = 1;
+}
+
+message InviteMemberRequest {
+  string email = 1;
+  OrganizationUserRole role = 2;
+}
+message InviteMemberResponse {
+  string invite_id = 1;
+}
+
+message ResendInviteRequest {
+  string invite_id = 1;
+}
+message ResendInviteResponse {}
+
+message RevokeInviteRequest {
+  string invite_id = 1;
+}
+message RevokeInviteResponse {}
+
+message OrganizationInvite {
+  string id = 1;
+  string invited_email = 2;
+  OrganizationUserRole role = 3;
+  string invited_by_email = 4;
+  string created_at = 5;
+  string expires_at = 6;
+  bool is_expired = 7;
+}
+
+message ListPendingInvitesRequest {}
+message ListPendingInvitesResponse {
+  repeated OrganizationInvite invites = 1;
 }
 
 message AcceptInviteResponse {
@@ -118,6 +151,11 @@ service UsersService {
   rpc ResetPassword(ResetPasswordRequest) returns (ResetPasswordResponse) {}
 
   rpc AcceptInvite(AcceptInviteRequest) returns (AcceptInviteResponse) {}
+
+  rpc InviteMember(InviteMemberRequest) returns (InviteMemberResponse) {}
+  rpc ResendInvite(ResendInviteRequest) returns (ResendInviteResponse) {}
+  rpc RevokeInvite(RevokeInviteRequest) returns (RevokeInviteResponse) {}
+  rpc ListPendingInvites(ListPendingInvitesRequest) returns (ListPendingInvitesResponse) {}
 
   rpc LeaveOrganization(LeaveOrganizationRequest) returns (LeaveOrganizationResponse) {}
   rpc RemoveMember(RemoveMemberRequest) returns (RemoveMemberResponse) {}

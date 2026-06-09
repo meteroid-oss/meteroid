@@ -8,6 +8,13 @@ pub mod role {
             OrganizationUserRole::Member => server::OrganizationUserRole::Member,
         }
     }
+
+    pub fn server_to_domain(role: server::OrganizationUserRole) -> OrganizationUserRole {
+        match role {
+            server::OrganizationUserRole::Admin => OrganizationUserRole::Admin,
+            server::OrganizationUserRole::Member => OrganizationUserRole::Member,
+        }
+    }
 }
 
 pub mod user {

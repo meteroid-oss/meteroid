@@ -61,6 +61,7 @@ pub fn mocked_config(
         oauth: OauthConfig::dummy(),
         domains_whitelist: None,
         admin_organization_id: None,
+        invite_ttl_days: 7,
         redis: Default::default(),
     }
 }

@@ -149,6 +149,7 @@ impl UserRow {
         let query = u_dsl::user
             .inner_join(om_dsl::organization_member.on(u_dsl::id.eq(om_dsl::user_id)))
             .filter(om_dsl::organization_id.eq(organization_id))
+            .order_by((om_dsl::role.asc(), u_dsl::email.asc()))
             .select(UserWithRoleRow::as_select());
 
         log::debug!("{}", debug_query::<diesel::pg::Pg, _>(&query));

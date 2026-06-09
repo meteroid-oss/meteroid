@@ -11,7 +11,7 @@ use common_grpc::middleware::common::auth::{
 };
 use common_grpc::middleware::common::filters::Filter;
 use common_grpc::middleware::server::AuthorizedState;
-use common_grpc::middleware::server::auth::{AuthenticatedState, AuthorizedAsTenant};
+use common_grpc::middleware::server::auth::{AuthenticatedState, AuthorizedAsTenant, TenantActor};
 use futures_util::TryFutureExt;
 use futures_util::future::BoxFuture;
 use http::StatusCode;
@@ -71,7 +71,7 @@ impl<S> Layer<S> for ApiAuthLayer {
 // services that don't require authentication
 const ANONYMOUS_SERVICES: [&str; 8] = [
     "/meteroid.api.instance.v1.InstanceService/GetInstance",
-    "/meteroid.api.instance.v1.InstanceService/GetOrganizationByInviteLink",
+    "/meteroid.api.instance.v1.InstanceService/GetInviteDetails",
     "/meteroid.api.instance.v1.InstanceService/GetCountries",
     "/meteroid.api.users.v1.UsersService/InitRegistration",
     "/meteroid.api.users.v1.UsersService/CompleteRegistration",
@@ -150,7 +150,7 @@ where
                 } => Ok(AuthorizedState::Tenant(AuthorizedAsTenant {
                     tenant_id,
                     organization_id,
-                    actor_id: id,
+                    actor: TenantActor::ApiKey(id),
                     tenant_env,
                 })),
                 AuthenticatedState::User { id } => {

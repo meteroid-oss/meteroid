@@ -209,6 +209,7 @@ async fn start_meteroid_from_config(
         billing_default_plan_id: None,
         admin_organization_id: None,
         usage_client: usage_client.clone(),
+        invite_ttl_days: 7,
     })
     .expect("Could not create store");
 

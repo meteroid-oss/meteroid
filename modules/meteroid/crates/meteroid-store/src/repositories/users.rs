@@ -1,5 +1,4 @@
 use crate::domain::Organization;
-use crate::domain::enums::OrganizationUserRole;
 use crate::domain::oauth::{OauthConnection, OauthVerifierData};
 use crate::domain::users::{
     InitRegistrationResponse, LoginUserRequest, LoginUserResponse, Me, RegisterUserRequest,
@@ -14,9 +13,10 @@ use argon2::password_hash::rand_core::OsRng;
 use argon2::{Argon2, PasswordHash, PasswordHasher, PasswordVerifier};
 use chrono::{DateTime, Utc};
 use common_domain::auth::{Audience, JwtClaims, JwtPayload};
-use common_domain::ids::{OrganizationId, TenantId};
+use common_domain::ids::{OrganizationId, OrganizationInviteId, TenantId};
 use common_eventbus::Event;
 use diesel_async::scoped_futures::ScopedFutureExt;
+use diesel_models::organization_invites::OrganizationInviteRow;
 use diesel_models::organization_members::OrganizationMemberRow;
 use diesel_models::organizations::OrganizationRow;
 use diesel_models::users::{UserRow, UserRowNew, UserRowPatch};
@@ -199,7 +199,7 @@ impl UserInterface for Store {
                     .map_err(Into::<Report<StoreError>>::into)
                     .map(Into::into)?;
 
-            let role = user.role.clone();
+            let role = user.role;
             (user.into(), Some(role))
         } else {
             let user: User = UserRow::find_by_id(&mut conn, auth_user_id)
@@ -641,27 +641,51 @@ async fn register_user_internal(
             // we don't initiate an organization yet. User will be prompted to onboard.
             create_user(&mut conn, &req).await?
         }
-        Some(ref invite_link) => {
+        Some(ref invite_key) => {
+            let invite_id =
+                <OrganizationInviteId as std::str::FromStr>::from_str(invite_key.expose_secret())
+                    .map_err(|_| {
+                    Report::new(StoreError::InvalidArgument(
+                        "Invalid invite key".to_string(),
+                    ))
+                })?;
+
             let cloned_req = req.clone();
             store
                 .transaction(|conn| {
                     async move {
-                        let org_id = OrganizationRow::find_by_invite_link(
-                            conn,
-                            invite_link.expose_secret().to_string(),
-                        )
-                        .await
-                        .map_err(Into::<Report<StoreError>>::into)?
-                        .id;
+                        let invite = OrganizationInviteRow::find_by_id(conn, invite_id)
+                            .await
+                            .map_err(Into::<Report<StoreError>>::into)?;
+
+                        if invite.accepted_at.is_some()
+                            || invite.revoked_at.is_some()
+                            || invite.expires_at < Utc::now()
+                        {
+                            return Err(StoreError::InvalidArgument(
+                                "Invalid or expired invite link".to_string(),
+                            )
+                            .into());
+                        }
+                        if invite.invited_email.to_lowercase() != cloned_req.email.to_lowercase() {
+                            return Err(StoreError::Forbidden(
+                                "This invite is not valid for your account".to_string(),
+                            )
+                            .into());
+                        }
 
                         let created = create_user(conn, &cloned_req).await?;
 
                         let om = OrganizationMemberRow {
                             user_id: created,
-                            organization_id: org_id,
-                            role: OrganizationUserRole::Member.into(),
+                            organization_id: invite.organization_id,
+                            role: invite.role,
                         };
                         om.insert(conn)
+                            .await
+                            .map_err(Into::<Report<StoreError>>::into)?;
+
+                        OrganizationInviteRow::set_accepted_at(conn, invite_id, Utc::now())
                             .await
                             .map_err(Into::<Report<StoreError>>::into)?;
 

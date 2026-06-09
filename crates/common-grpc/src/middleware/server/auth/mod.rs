@@ -4,6 +4,7 @@ use uuid::Uuid;
 pub use admin_layer::AdminAuthLayer;
 pub use admin_layer::AdminAuthService;
 use common_config::auth::InternalAuthConfig;
+use common_domain::auth::OrgMemberRole;
 use common_domain::ids::{
     CheckoutSessionId, CustomerId, InvoiceId, OrganizationId, QuoteId, TenantId,
 };
@@ -19,6 +20,8 @@ pub trait RequestExt {
     fn actor(&self) -> Result<Uuid, Status>;
     fn tenant(&self) -> Result<TenantId, Status>;
     fn organization(&self) -> Result<OrganizationId, Status>;
+    fn actor_role(&self) -> Result<OrgMemberRole, Status>;
+    fn require_admin(&self) -> Result<(), Status>;
     fn portal_resource(&self) -> Result<AuthorizedAsPortalUser, Status>;
 }
 
@@ -33,6 +36,14 @@ impl<T> RequestExt for tonic::Request<T> {
 
     fn organization(&self) -> Result<OrganizationId, Status> {
         extract_organization(self.extensions().get::<AuthorizedState>())
+    }
+
+    fn actor_role(&self) -> Result<OrgMemberRole, Status> {
+        extract_actor_role(self.extensions().get::<AuthorizedState>())
+    }
+
+    fn require_admin(&self) -> Result<(), Status> {
+        require_admin_role(self.extensions().get::<AuthorizedState>())
     }
 
     fn portal_resource(&self) -> Result<AuthorizedAsPortalUser, Status> {
@@ -53,9 +64,43 @@ impl<T> RequestExt for http::Request<T> {
         extract_organization(self.extensions().get::<AuthorizedState>())
     }
 
+    fn actor_role(&self) -> Result<OrgMemberRole, Status> {
+        extract_actor_role(self.extensions().get::<AuthorizedState>())
+    }
+
+    fn require_admin(&self) -> Result<(), Status> {
+        require_admin_role(self.extensions().get::<AuthorizedState>())
+    }
+
     fn portal_resource(&self) -> Result<AuthorizedAsPortalUser, Status> {
         extract_portal(self.extensions().get::<AuthorizedState>())
     }
+}
+
+pub fn extract_actor_role(maybe_auth: Option<&AuthorizedState>) -> Result<OrgMemberRole, Status> {
+    let authorized = maybe_auth.ok_or(Status::unauthenticated(
+        "Missing authorized state in request extensions",
+    ))?;
+
+    match authorized {
+        AuthorizedState::Organization { role, .. } => Ok(*role),
+        AuthorizedState::Tenant(t) => t
+            .actor
+            .role()
+            .ok_or_else(|| Status::permission_denied("Role is not available in this context.")),
+        _ => Err(Status::permission_denied(
+            "Role is not available in this context.",
+        )),
+    }
+}
+
+pub fn require_admin_role(maybe_auth: Option<&AuthorizedState>) -> Result<(), Status> {
+    if extract_actor_role(maybe_auth)? != OrgMemberRole::Admin {
+        return Err(Status::permission_denied(
+            "Only organization admins can perform this action.",
+        ));
+    }
+    Ok(())
 }
 
 pub fn extract_actor(maybe_auth: Option<&AuthorizedState>) -> Result<Uuid, Status> {
@@ -64,7 +109,7 @@ pub fn extract_actor(maybe_auth: Option<&AuthorizedState>) -> Result<Uuid, Statu
     ))?;
 
     let res = match authorized {
-        AuthorizedState::Tenant(tenant) => tenant.actor_id,
+        AuthorizedState::Tenant(tenant) => tenant.actor.id(),
         AuthorizedState::Organization { actor_id, .. } => *actor_id,
         AuthorizedState::User { user_id } => *user_id,
         AuthorizedState::Shared { .. } => {
@@ -160,9 +205,31 @@ pub enum AuthenticatedState {
     },
 }
 
+#[derive(Clone, Copy)]
+pub enum TenantActor {
+    ApiKey(Uuid),
+    User { id: Uuid, role: OrgMemberRole },
+}
+
+impl TenantActor {
+    pub fn id(&self) -> Uuid {
+        match self {
+            TenantActor::ApiKey(id) => *id,
+            TenantActor::User { id, .. } => *id,
+        }
+    }
+
+    pub fn role(&self) -> Option<OrgMemberRole> {
+        match self {
+            TenantActor::ApiKey(_) => None,
+            TenantActor::User { role, .. } => Some(*role),
+        }
+    }
+}
+
 #[derive(Clone)]
 pub struct AuthorizedAsTenant {
-    pub actor_id: Uuid,
+    pub actor: TenantActor,
     pub tenant_id: TenantId,
     pub organization_id: OrganizationId,
     pub tenant_env: TenantEnv,
@@ -225,6 +292,7 @@ pub enum AuthorizedState {
     Organization {
         actor_id: Uuid,
         organization_id: OrganizationId,
+        role: OrgMemberRole,
     },
     User {
         user_id: Uuid,

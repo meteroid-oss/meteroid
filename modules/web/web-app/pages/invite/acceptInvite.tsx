@@ -6,7 +6,8 @@ import { Link, useNavigate, useSearchParams } from 'react-router-dom'
 import { Loader } from '@/features/auth/components/Loader'
 import { useSession } from '@/features/auth/session'
 import { useQuery } from '@/lib/connectrpc'
-import { getOrganizationByInviteLink } from '@/rpc/api/instance/v1/instance-InstanceService_connectquery'
+import { getInviteDetails } from '@/rpc/api/instance/v1/instance-InstanceService_connectquery'
+import { OrganizationUserRole } from '@/rpc/api/users/v1/models_pb'
 
 export const INVITE_TOKEN_KEY = 'pending_invite_token'
 
@@ -17,50 +18,59 @@ export const AcceptInvite = () => {
   const [showChoice, setShowChoice] = useState(false)
   const [inviteToken, setInviteToken] = useState<string | null>(null)
 
-  const { data: orgData, isLoading: isLoadingOrg } = useQuery(
-    getOrganizationByInviteLink,
-    inviteToken ? { inviteKey: inviteToken } : disableQuery,
-    { enabled: !!inviteToken }
+  const { data: inviteData, isLoading, isError } = useQuery(
+    getInviteDetails,
+    inviteToken ? { inviteId: inviteToken } : disableQuery,
   )
 
   useEffect(() => {
     const token = searchParams.get('token') || searchParams.get('invite')
 
     if (!token) {
-      // No invite token, redirect to home
       navigate('/')
       return
     }
 
-    // Store the invite token in sessionStorage for later use (scoped to this tab)
     sessionStorage.setItem(INVITE_TOKEN_KEY, token)
     setInviteToken(token)
 
-    // If user is already authenticated, accept the invite immediately
     if (session) {
       navigate('/invite-authenticated')
       return
     }
 
-    // User is not authenticated - show choice between login and registration
     setShowChoice(true)
   }, [searchParams, session, navigate])
 
-  if (!showChoice || isLoadingOrg) {
+  if (!showChoice || isLoading) {
     return <Loader />
   }
+
+  if (isError || !inviteData) {
+    return (
+      <div className="flex flex-col items-center justify-center min-h-screen p-8">
+        <div className="max-w-md w-full space-y-4 text-center">
+          <h1 className="text-2xl font-semibold">Invalid or expired invite link</h1>
+          <p className="text-muted-foreground">
+            This invite link is no longer valid. Please contact the organization admin for a new
+            invite.
+          </p>
+        </div>
+      </div>
+    )
+  }
+
+  const roleName = inviteData.role === OrganizationUserRole.ADMIN ? 'Owner' : 'Member'
 
   return (
     <div className="flex flex-col items-center justify-center min-h-screen p-8">
       <div className="max-w-md w-full space-y-6">
         <div className="text-center">
           <h1 className="text-2xl font-semibold mb-2">
-            {orgData?.organizationName
-              ? `You've been invited to join ${orgData.organizationName}!`
-              : "You've been invited!"}
+            You&apos;ve been invited to join {inviteData.organizationName}!
           </h1>
           <p className="text-muted-foreground mb-6">
-            To accept this invite, please sign in or create a new account.
+            You&apos;ll join as <strong>{roleName}</strong>. Sign in or create an account to accept.
           </p>
         </div>
 
@@ -70,7 +80,6 @@ export const AcceptInvite = () => {
               Sign in to existing account
             </Button>
           </Link>
-
           <Link to="/registration" className="block">
             <Button variant="secondary" className="w-full">
               Create new account

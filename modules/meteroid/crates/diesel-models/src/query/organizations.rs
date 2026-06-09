@@ -41,24 +41,6 @@ impl OrganizationRow {
             .into_db_result()
     }
 
-    pub async fn find_by_invite_link(
-        conn: &mut PgConn,
-        invite_link_hash: String,
-    ) -> DbResult<OrganizationRow> {
-        use crate::schema::organization::dsl as o_dsl;
-        use diesel_async::RunQueryDsl;
-
-        let query = o_dsl::organization.filter(o_dsl::invite_link_hash.eq(invite_link_hash));
-
-        log::debug!("{}", debug_query::<diesel::pg::Pg, _>(&query));
-
-        query
-            .first(conn)
-            .await
-            .attach("Error while finding organization by invite_link_hash")
-            .into_db_result()
-    }
-
     pub async fn get_by_id(conn: &mut PgConn, id: OrganizationId) -> DbResult<OrganizationRow> {
         use crate::schema::organization::dsl as o_dsl;
         use diesel_async::RunQueryDsl;
@@ -105,28 +87,6 @@ impl OrganizationRow {
             .first(conn)
             .await
             .attach("Error while finding organization by slug")
-            .into_db_result()
-    }
-
-    pub async fn update_invite_link(
-        conn: &mut PgConn,
-        param_id: OrganizationId,
-        new_invite_hash_link: &String,
-    ) -> DbResult<usize> {
-        use crate::schema::organization::dsl as o_dsl;
-        use diesel_async::RunQueryDsl;
-
-        let query = diesel::update(o_dsl::organization)
-            .filter(o_dsl::id.eq(param_id))
-            .set(o_dsl::invite_link_hash.eq(new_invite_hash_link));
-
-        log::debug!("{}", debug_query::<diesel::pg::Pg, _>(&query));
-
-        query
-            .execute(conn)
-            .await
-            .tap_err(|e| log::error!("Error while updating organization: {e:?}"))
-            .attach("Error while updating organization")
             .into_db_result()
     }
 

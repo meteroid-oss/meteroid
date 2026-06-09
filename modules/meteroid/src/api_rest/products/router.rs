@@ -147,7 +147,7 @@ pub(crate) async fn create_product(
         .create_product(ProductNew {
             name: payload.name,
             description: payload.description,
-            created_by: authorized_state.actor_id,
+            created_by: authorized_state.actor.id(),
             tenant_id: authorized_state.tenant_id,
             family_id: payload.product_family_id,
             fee_type,

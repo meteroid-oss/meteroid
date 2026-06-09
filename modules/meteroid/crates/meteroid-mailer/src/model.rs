@@ -168,6 +168,16 @@ pub struct QuoteReady {
     pub account: String,
 }
 
+#[derive(Clone)]
+pub struct OrgInvite {
+    pub org_name: String,
+    pub inviter_name: String,
+    pub role: String,
+    pub invite_url: String,
+    pub expires_in: String,
+    pub recipient: EmailRecipient,
+}
+
 impl TryInto<Mailbox> for EmailRecipient {
     type Error = Report<MailerServiceError>;
 

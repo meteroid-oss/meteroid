@@ -12,7 +12,9 @@ use tracing::{error, log};
 
 use crate::api_rest::error::{ErrorCode, RestErrorResponse};
 use common_domain::ids::{OrganizationId, TenantId};
-use common_grpc::middleware::server::auth::{AuthenticatedState, AuthorizedAsTenant, TenantEnv};
+use common_grpc::middleware::server::auth::{
+    AuthenticatedState, AuthorizedAsTenant, TenantActor, TenantEnv,
+};
 use meteroid_store::Store;
 use meteroid_store::errors::StoreError;
 use meteroid_store::repositories::api_tokens::ApiTokensInterface;
@@ -49,7 +51,7 @@ pub async fn auth_middleware(
         let state = AuthorizedAsTenant {
             tenant_id,
             organization_id,
-            actor_id: id,
+            actor: TenantActor::ApiKey(id),
             tenant_env,
         };
         req.extensions_mut().insert(state);

@@ -85,6 +85,9 @@ pub struct Config {
     #[envconfig(from = "ADMIN_ORGANIZATION_ID")]
     pub admin_organization_id: Option<OrganizationId>,
 
+    #[envconfig(from = "ORGANIZATION_INVITE_TTL_DAYS", default = "7")]
+    pub invite_ttl_days: u32,
+
     #[envconfig(nested)]
     pub redis: RedisConfig,
 }

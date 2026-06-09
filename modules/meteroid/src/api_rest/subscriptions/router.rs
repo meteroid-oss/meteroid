@@ -234,7 +234,7 @@ pub(crate) async fn create_subscription(
                 resolved_plan_version,
                 resolved_customer_id,
                 resolved_coupon_ids,
-                authorized_state.actor_id,
+                authorized_state.actor.id(),
                 payload,
             )?,
             authorized_state.tenant_id,
@@ -296,7 +296,7 @@ pub(crate) async fn cancel_subscription(
                 .effective_date
                 .map(CancellationEffectiveAt::Date)
                 .unwrap_or(CancellationEffectiveAt::EndOfBillingPeriod),
-            authorized_state.actor_id,
+            authorized_state.actor.id(),
         )
         .await
         .map_err(|e| {

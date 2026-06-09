@@ -1,11 +1,11 @@
 use crate::config::MailerConfig;
 use crate::errors::MailerServiceError;
 use crate::model::{
-    Email, EmailValidationLink, InvoicePaid, InvoiceReady, QuoteReady, ResetPasswordLink,
+    Email, EmailValidationLink, InvoicePaid, InvoiceReady, OrgInvite, QuoteReady, ResetPasswordLink,
 };
 use crate::template::{
-    EmailValidationLinkTemplate, InvoicePaidTemplate, InvoiceReadyTemplate, QuoteReadyTemplate,
-    ResetPasswordLinkTemplate,
+    EmailValidationLinkTemplate, InvoicePaidTemplate, InvoiceReadyTemplate, OrgInviteTemplate,
+    QuoteReadyTemplate, ResetPasswordLinkTemplate,
 };
 use async_trait::async_trait;
 use error_stack::Report;
@@ -41,6 +41,8 @@ pub trait MailerService: Send + Sync {
     async fn send_invoice_paid(&self, link: InvoicePaid) -> Result<(), Report<MailerServiceError>>;
 
     async fn send_quote_ready(&self, data: QuoteReady) -> Result<(), Report<MailerServiceError>>;
+
+    async fn send_org_invite(&self, data: OrgInvite) -> Result<(), Report<MailerServiceError>>;
 }
 
 pub struct LettreMailerService<T: AsyncTransport> {
@@ -173,6 +175,20 @@ where
             subject: title,
             body_html,
             attachments: vec![], // No PDF attachment for quote email, they access via portal
+        };
+        self.send(email).await
+    }
+
+    async fn send_org_invite(&self, data: OrgInvite) -> Result<(), Report<MailerServiceError>> {
+        let tpl = OrgInviteTemplate::from(data.clone()).tpl;
+        let body_html = tpl.render_once().map_err(|e| Report::new(e.into()))?;
+        let email = Email {
+            from: self.config.from.clone(),
+            reply_to: Some("No Reply <no-reply@meteroid.com>".into()),
+            to: vec![data.recipient],
+            subject: format!("You've been invited to join {} on Meteroid", data.org_name),
+            body_html,
+            attachments: vec![],
         };
         self.send(email).await
     }

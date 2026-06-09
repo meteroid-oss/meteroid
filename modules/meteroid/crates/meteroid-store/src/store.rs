@@ -36,6 +36,7 @@ pub struct Settings {
     pub domains_whitelist: Vec<String>,
     pub billing_default_plan_id: Option<PlanId>,
     pub admin_organization: Option<OrganizationId>,
+    pub invite_ttl_days: u32,
 }
 
 #[allow(clippy::upper_case_acronyms)]
@@ -68,6 +69,7 @@ pub struct StoreConfig {
     pub billing: Option<Arc<PLACEHOLDER>>,
     pub billing_default_plan_id: Option<PlanId>,
     pub usage_client: Arc<dyn UsageClient>,
+    pub invite_ttl_days: u32,
 }
 
 /**
@@ -157,6 +159,7 @@ impl Store {
                 domains_whitelist: config.domains_whitelist,
                 billing_default_plan_id: config.billing_default_plan_id,
                 admin_organization: config.admin_organization_id,
+                invite_ttl_days: config.invite_ttl_days,
             },
             internal: StoreInternal {},
             mailer: config.mailer,

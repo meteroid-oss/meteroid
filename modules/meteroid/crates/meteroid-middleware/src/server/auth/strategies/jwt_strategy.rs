@@ -1,10 +1,12 @@
 use cached::proc_macro::cached;
-use common_domain::auth::{Audience, JwtClaims};
+use common_domain::auth::{Audience, JwtClaims, OrgMemberRole};
 use common_domain::ids::{OrganizationId, TenantId};
 use common_grpc::GrpcServiceMethod;
 use common_grpc::middleware::common::auth::{BEARER_AUTH_HEADER, INTERNAL_API_CONTEXT_HEADER};
 use common_grpc::middleware::server::AuthorizedState;
-use common_grpc::middleware::server::auth::{AuthenticatedState, AuthorizedAsTenant, TenantEnv};
+use common_grpc::middleware::server::auth::{
+    AuthenticatedState, AuthorizedAsTenant, TenantActor, TenantEnv,
+};
 use http::HeaderMap;
 use jsonwebtoken::DecodingKey;
 use meteroid_store::Store;
@@ -171,7 +173,13 @@ pub async fn authorize_user(
             AuthorizedState::Tenant(AuthorizedAsTenant {
                 tenant_id,
                 organization_id,
-                actor_id: user_id,
+                actor: TenantActor::User {
+                    id: user_id,
+                    role: match role {
+                        OrganizationUserRole::Admin => OrgMemberRole::Admin,
+                        OrganizationUserRole::Member => OrgMemberRole::Member,
+                    },
+                },
                 tenant_env,
             }),
         )
@@ -181,6 +189,10 @@ pub async fn authorize_user(
             AuthorizedState::Organization {
                 organization_id,
                 actor_id: user_id,
+                role: match role {
+                    OrganizationUserRole::Admin => OrgMemberRole::Admin,
+                    OrganizationUserRole::Member => OrgMemberRole::Member,
+                },
             },
         )
     };

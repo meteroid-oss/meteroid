@@ -792,9 +792,25 @@ diesel::table! {
         slug -> Text,
         created_at -> Timestamp,
         archived_at -> Nullable<Timestamp>,
-        invite_link_hash -> Nullable<Text>,
         default_country -> Text,
         is_express -> Bool,
+    }
+}
+
+diesel::table! {
+    use diesel::sql_types::*;
+    use super::sql_types::OrganizationUserRole;
+
+    organization_invite (id) {
+        id -> Uuid,
+        organization_id -> Uuid,
+        invited_email -> Text,
+        invited_by -> Uuid,
+        role -> OrganizationUserRole,
+        created_at -> Timestamptz,
+        expires_at -> Timestamptz,
+        accepted_at -> Nullable<Timestamptz>,
+        revoked_at -> Nullable<Timestamptz>,
     }
 }
 
@@ -1372,6 +1388,8 @@ diesel::joinable!(invoice -> plan_version (plan_version_id));
 diesel::joinable!(invoice -> tenant (tenant_id));
 diesel::joinable!(invoicing_entity -> bank_account (bank_account_id));
 diesel::joinable!(invoicing_entity -> tenant (tenant_id));
+diesel::joinable!(organization_invite -> organization (organization_id));
+diesel::joinable!(organization_invite -> user (invited_by));
 diesel::joinable!(organization_member -> organization (organization_id));
 diesel::joinable!(organization_member -> user (user_id));
 diesel::joinable!(payment_transaction -> checkout_session (checkout_session_id));
@@ -1469,6 +1487,7 @@ diesel::allow_tables_to_appear_in_same_query!(
     invoicing_entity,
     oauth_verifier,
     organization,
+    organization_invite,
     organization_member,
     outbox_event,
     payment_transaction,

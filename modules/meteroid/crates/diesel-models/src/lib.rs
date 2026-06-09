@@ -10,6 +10,7 @@ pub mod entitlements;
 pub mod enums;
 pub mod errors;
 pub mod invoices;
+pub mod organization_invites;
 pub mod organization_members;
 pub mod organizations;
 pub mod plan_component_prices;

@@ -1,4 +1,6 @@
-use crate::model::{EmailValidationLink, InvoicePaid, InvoiceReady, QuoteReady, ResetPasswordLink};
+use crate::model::{
+    EmailValidationLink, InvoicePaid, InvoiceReady, OrgInvite, QuoteReady, ResetPasswordLink,
+};
 use sailfish::TemplateSimple;
 use secrecy::ExposeSecret;
 
@@ -220,6 +222,46 @@ impl From<QuoteReady> for QuoteReadyTemplate {
             tpl: LayoutTemplate {
                 lang: "en".to_string(),
                 title: format!("Quote {} from {}", content.quote_number, data.company_name),
+                header,
+                footer,
+                content,
+            },
+        }
+    }
+}
+
+#[derive(TemplateSimple)]
+#[template(path = "org_invite.stpl")]
+pub struct OrgInviteContent {
+    pub org_name: String,
+    pub inviter_name: String,
+    pub role: String,
+    pub invite_url: String,
+    pub expires_in: String,
+}
+
+pub struct OrgInviteTemplate {
+    pub tpl: LayoutTemplate<OrgInviteContent>,
+}
+
+impl From<OrgInvite> for OrgInviteTemplate {
+    fn from(data: OrgInvite) -> Self {
+        let header = HeaderTemplate {
+            company_name: data.org_name.clone(),
+            logo_url: Some(METEROID_WORDMARK_URL.to_string()),
+        };
+        let footer = FooterTemplate {};
+        let content = OrgInviteContent {
+            org_name: data.org_name.clone(),
+            inviter_name: data.inviter_name,
+            role: data.role,
+            invite_url: data.invite_url,
+            expires_in: data.expires_in,
+        };
+        OrgInviteTemplate {
+            tpl: LayoutTemplate {
+                lang: "en".to_string(),
+                title: format!("You've been invited to join {}", content.org_name),
                 header,
                 footer,
                 content,

@@ -51,7 +51,7 @@ export const InviteAuthenticated = () => {
       return
     }
 
-    acceptInviteMut.mutate({ inviteKey: inviteToken })
+    acceptInviteMut.mutate({ inviteId: inviteToken })
   }, [])
 
   return <Loader />

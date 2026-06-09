@@ -1,15 +1,14 @@
 use tonic::{Request, Response, Status};
 
 use common_domain::country::CountryCode;
-use common_grpc::middleware::server::auth::RequestExt;
+use common_domain::ids::OrganizationInviteId;
 use meteroid_grpc::meteroid::api::instance::v1::get_countries_response::Country as GrpcCountry;
 use meteroid_grpc::meteroid::api::instance::v1::get_currencies_response::Currency as GrpcCurrency;
 use meteroid_grpc::meteroid::api::instance::v1::get_subdivisions_response::Subdivision as GrpcSubdivision;
 use meteroid_grpc::meteroid::api::instance::v1::instance_service_server::InstanceService;
 use meteroid_grpc::meteroid::api::instance::v1::{
     GetCountriesRequest, GetCountriesResponse, GetCurrenciesRequest, GetCurrenciesResponse,
-    GetInstanceRequest, GetInstanceResponse, GetInviteRequest, GetInviteResponse,
-    GetOrganizationByInviteLinkRequest, GetOrganizationByInviteLinkResponse,
+    GetInstanceRequest, GetInstanceResponse, GetInviteDetailsRequest, GetInviteDetailsResponse,
     GetSubdivisionsRequest, GetSubdivisionsResponse,
 };
 use meteroid_store::constants::{COUNTRIES, CURRENCIES};
@@ -42,35 +41,25 @@ impl InstanceService for InstanceServiceComponents {
         }))
     }
 
-    async fn get_invite(
+    async fn get_invite_details(
         &self,
-        request: Request<GetInviteRequest>,
-    ) -> Result<Response<GetInviteResponse>, Status> {
-        let organization_id = request.organization()?;
-
-        let invite_hash = self
-            .store
-            .organization_get_or_create_invite_link(organization_id)
-            .await
-            .map_err(Into::<InstanceApiError>::into)?;
-
-        Ok(Response::new(GetInviteResponse { invite_hash }))
-    }
-
-    async fn get_organization_by_invite_link(
-        &self,
-        request: Request<GetOrganizationByInviteLinkRequest>,
-    ) -> Result<Response<GetOrganizationByInviteLinkResponse>, Status> {
+        request: Request<GetInviteDetailsRequest>,
+    ) -> Result<Response<GetInviteDetailsResponse>, Status> {
         let req = request.into_inner();
 
-        let organization = self
+        let invite_id = OrganizationInviteId::from_proto(&req.invite_id)
+            .map_err(|_| Status::invalid_argument("Invalid invite_id"))?;
+
+        let details = self
             .store
-            .get_organization_by_invite_link(req.invite_key)
+            .get_invite_details(invite_id)
             .await
             .map_err(Into::<InstanceApiError>::into)?;
 
-        Ok(Response::new(GetOrganizationByInviteLinkResponse {
-            organization_name: organization.trade_name,
+        Ok(Response::new(GetInviteDetailsResponse {
+            organization_name: details.organization_name,
+            role: crate::api::users::mapping::role::domain_to_server(details.role.into()).into(),
+            invited_email: details.invited_email,
         }))
     }
 

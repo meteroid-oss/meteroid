@@ -145,12 +145,21 @@ pub enum MrrMovementType {
     Reactivation,
 }
 
-#[derive(diesel_derive_enum::DbEnum, Debug, Clone)]
+#[derive(diesel_derive_enum::DbEnum, Debug, Clone, Copy, PartialEq, Eq)]
 #[ExistingTypePath = "crate::schema::sql_types::OrganizationUserRole"]
 #[DbValueStyle = "SCREAMING_SNAKE_CASE"]
 pub enum OrganizationUserRole {
     Admin,
     Member,
+}
+
+impl std::fmt::Display for OrganizationUserRole {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self {
+            OrganizationUserRole::Admin => write!(f, "Owner"),
+            OrganizationUserRole::Member => write!(f, "Member"),
+        }
+    }
 }
 
 #[derive(diesel_derive_enum::DbEnum, Debug, Clone, Eq, PartialEq)]

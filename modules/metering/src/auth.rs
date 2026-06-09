@@ -19,7 +19,7 @@ use common_grpc::middleware::common::filters::Filter;
 
 use common_domain::ids::{OrganizationId, TenantId};
 use common_grpc::middleware::server::auth::{
-    AuthenticatedState, AuthorizedAsTenant, AuthorizedState, TenantEnv,
+    AuthenticatedState, AuthorizedAsTenant, AuthorizedState, TenantActor, TenantEnv,
 };
 use meteroid_grpc::meteroid::internal::v1::ResolveApiKeyRequest;
 use meteroid_grpc::meteroid::internal::v1::internal_service_client::InternalServiceClient;
@@ -116,7 +116,7 @@ where
                 } => Ok(AuthorizedState::Tenant(AuthorizedAsTenant {
                     tenant_id,
                     organization_id,
-                    actor_id: id,
+                    actor: TenantActor::ApiKey(id),
                     tenant_env,
                 })),
                 _ => Err(Box::new(Status::permission_denied(

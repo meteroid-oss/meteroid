@@ -35,6 +35,7 @@ pub async fn get_store() -> &'static Store {
                 billing_default_plan_id: None,
                 admin_organization_id: config.admin_organization_id,
                 usage_client: Arc::new(MeteringUsageClient::get().clone()),
+                invite_ttl_days: config.invite_ttl_days,
             })
             .expect("Failed to initialize store");
 

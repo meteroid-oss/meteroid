@@ -1,0 +1,15 @@
+<div class="content-section">
+  <h1>You've been invited to join <%= org_name %></h1>
+</div>
+
+<div class="content-section">
+  <p><%= inviter_name %> has invited you to join <strong><%= org_name %></strong> as <strong><%= role %></strong>.</p>
+
+  <div class="button-container">
+    <a href="<%= invite_url %>" class="button">ACCEPT INVITATION</a>
+  </div>
+
+  <p class="expiry">This invite expires in <%= expires_in %>.</p>
+
+  <p class="small">Or copy and paste this link: <a href="<%= invite_url %>" class="small"><%= invite_url %></a></p>
+</div>

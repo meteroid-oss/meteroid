@@ -9,7 +9,7 @@ use diesel_models::errors::DatabaseErrorContainer;
 use diesel_models::historical_rates_from_usd::HistoricalRatesFromUsdRowNew;
 use diesel_models::invoicing_entities::InvoicingEntityRow;
 use diesel_models::organization_members::OrganizationMemberRow;
-use diesel_models::organizations::{OrganizationRow, OrganizationRowNew};
+use diesel_models::organizations::OrganizationRowNew;
 use diesel_models::product_families::ProductFamilyRowNew;
 use diesel_models::tenants::TenantRowNew;
 use diesel_models::users::UserRowNew;
@@ -32,12 +32,6 @@ pub async fn run_minimal_seed(pool: &PgPool) {
             default_country: CountryCode::from_str("FR").expect("failed to parse country code"),
             is_express: false,
         }.insert(tx).await?;
-
-        OrganizationRow::update_invite_link(
-            tx,
-            ids::ORGANIZATION_ID,
-            &"fake-invite-link".to_string(),
-        ).await?;
 
         // create user
         UserRowNew {

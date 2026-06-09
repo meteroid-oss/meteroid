@@ -2,6 +2,8 @@ syntax = "proto3";
 
 package meteroid.api.instance.v1;
 
+import "api/users/v1/models.proto";
+
 message GetInstanceRequest {}
 message GetInstanceResponse {
   bool multi_organization_enabled = 1;
@@ -13,18 +15,13 @@ message GetInstanceResponse {
   bool svix_enabled = 9;
 }
 
-message GetInviteRequest {}
-
-message GetInviteResponse {
-  string invite_hash = 1;
+message GetInviteDetailsRequest {
+  string invite_id = 1;
 }
-
-message GetOrganizationByInviteLinkRequest {
-  string invite_key = 1;
-}
-
-message GetOrganizationByInviteLinkResponse {
+message GetInviteDetailsResponse {
   string organization_name = 1;
+  meteroid.api.users.v1.OrganizationUserRole role = 2;
+  string invited_email = 3;
 }
 
 message GetCountriesRequest {}
@@ -67,8 +64,7 @@ message GetSubdivisionsResponse {
 
 service InstanceService {
   rpc GetInstance(GetInstanceRequest) returns (GetInstanceResponse) {}
-  rpc GetInvite(GetInviteRequest) returns (GetInviteResponse) {}
-  rpc GetOrganizationByInviteLink(GetOrganizationByInviteLinkRequest) returns (GetOrganizationByInviteLinkResponse) {}
+  rpc GetInviteDetails(GetInviteDetailsRequest) returns (GetInviteDetailsResponse) {}
   rpc GetCountries(GetCountriesRequest) returns (GetCountriesResponse) {}
   rpc GetCurrencies(GetCurrenciesRequest) returns (GetCurrenciesResponse) {}
   rpc GetSubdivisions(GetSubdivisionsRequest) returns (GetSubdivisionsResponse) {}

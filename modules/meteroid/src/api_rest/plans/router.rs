@@ -188,7 +188,7 @@ pub(crate) async fn create_plan(
         plan: PlanNew {
             name: payload.name,
             description: payload.description,
-            created_by: authorized_state.actor_id,
+            created_by: authorized_state.actor.id(),
             tenant_id: authorized_state.tenant_id,
             product_family_id: payload.product_family_id,
             plan_type: payload.plan_type.into(),
@@ -352,7 +352,7 @@ pub(crate) async fn replace_plan(
         .replace_plan_version(
             plan_id,
             authorized_state.tenant_id,
-            authorized_state.actor_id,
+            authorized_state.actor.id(),
             payload.name,
             payload.description,
             PlanVersionNewInternal {
@@ -514,7 +514,7 @@ pub(crate) async fn publish_plan(
         .publish_plan_version(
             draft_version.id,
             authorized_state.tenant_id,
-            authorized_state.actor_id,
+            authorized_state.actor.id(),
         )
         .await
         .map_err(|e| {
