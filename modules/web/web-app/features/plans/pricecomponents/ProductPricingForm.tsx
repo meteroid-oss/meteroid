@@ -254,6 +254,9 @@ interface ProductPricingFormProps {
   feeType: ComponentFeeType
   currency: string
   existingPrice?: Price
+  // Pre-validated form state to restore directly (e.g. re-editing a custom fee),
+  // bypassing the lossy Price round-trip which drops the metric.
+  initialFormData?: Record<string, unknown>
   structuralInfo?: StructuralInfo
   editableStructure?: boolean
   isOverride?: boolean
@@ -267,6 +270,7 @@ export const ProductPricingForm = ({
   feeType,
   currency,
   existingPrice,
+  initialFormData,
   structuralInfo,
   editableStructure,
   isOverride,
@@ -278,8 +282,8 @@ export const ProductPricingForm = ({
   const structural = structuralInfo ?? {}
 
   const defaults = useMemo(
-    () => buildDefaults(feeType, existingPrice, isOverride),
-    [feeType, existingPrice, isOverride]
+    () => initialFormData ?? buildDefaults(feeType, existingPrice, isOverride),
+    [initialFormData, feeType, existingPrice, isOverride]
   )
 
   const schema = useMemo(

@@ -1,7 +1,26 @@
 import { PlainMessage } from "@bufbuild/protobuf"
 
-import { SubscriptionFee } from "@/rpc/api/subscriptions/v1/models_pb"
+import { SubscriptionFee, SubscriptionFeeBillingPeriod } from "@/rpc/api/subscriptions/v1/models_pb"
 import { formatCurrencyNoRounding } from "@/utils/numbers"
+
+export const formatSubscriptionFeeBillingPeriod = (
+  period: SubscriptionFeeBillingPeriod
+): string => {
+  switch (period) {
+    case SubscriptionFeeBillingPeriod.ONE_TIME:
+      return 'One Time'
+    case SubscriptionFeeBillingPeriod.MONTHLY:
+      return 'Monthly'
+    case SubscriptionFeeBillingPeriod.QUARTERLY:
+      return 'Quarterly'
+    case SubscriptionFeeBillingPeriod.SEMIANNUAL:
+      return 'Semiannual'
+    case SubscriptionFeeBillingPeriod.YEARLY:
+      return 'Yearly'
+    default:
+      return 'Unknown'
+  }
+}
 
 export const formatSubscriptionFee = (
   fee: PlainMessage<SubscriptionFee> | undefined,
