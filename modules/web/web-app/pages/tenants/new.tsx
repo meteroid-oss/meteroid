@@ -136,6 +136,9 @@ export const TenantNew: FunctionComponent = () => {
                     </SelectItem>
                     <SelectItem value={`${TenantEnvironmentEnum.STAGING}`}>Staging</SelectItem>
                     <SelectItem value={`${TenantEnvironmentEnum.QA}`}>QA</SelectItem>
+                    <SelectItem value={`${TenantEnvironmentEnum.PRODUCTION}`}>
+                      Production
+                    </SelectItem>
                   </SelectFormField>
 
                   <div className="pt-4 text-sm">Advanced</div>
