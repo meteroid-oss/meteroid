@@ -219,22 +219,35 @@ impl CreditNotesService for CreditNoteServiceComponents {
                             local_id
                         )));
                     }
-                    let sub_lines =
-                        li.sub_lines
-                            .iter()
-                            .map(|sl| {
-                                Ok::<_, CreditNoteApiError>(CreditSubLineItem {
-                                    local_id: sl.sub_line_local_id.clone(),
-                                    quantity: rust_decimal::Decimal::from_str(&sl.quantity)
-                                        .map_err(|e| {
-                                            CreditNoteApiError::InvalidArgument(format!(
-                                                "Invalid sub-line quantity: {}",
-                                                e
-                                            ))
-                                        })?,
-                                })
+                    let sub_lines = li
+                        .sub_lines
+                        .iter()
+                        .map(|sl| {
+                            let quantity =
+                                rust_decimal::Decimal::from_str(&sl.quantity).map_err(|e| {
+                                    CreditNoteApiError::InvalidArgument(format!(
+                                        "Invalid sub-line quantity: {}",
+                                        e
+                                    ))
+                                })?;
+                            let unit_price = sl
+                                .unit_price
+                                .as_ref()
+                                .map(|s| rust_decimal::Decimal::from_str(s))
+                                .transpose()
+                                .map_err(|e| {
+                                    CreditNoteApiError::InvalidArgument(format!(
+                                        "Invalid sub-line unit_price: {}",
+                                        e
+                                    ))
+                                })?;
+                            Ok::<_, CreditNoteApiError>(CreditSubLineItem {
+                                local_id: sl.sub_line_local_id.clone(),
+                                quantity,
+                                unit_price,
                             })
-                            .collect::<Result<Vec<_>, _>>()?;
+                        })
+                        .collect::<Result<Vec<_>, _>>()?;
                     Ok(CreditLineItem::SubLines {
                         local_id,
                         sub_lines,
@@ -249,7 +262,22 @@ impl CreditNotesService for CreditNoteServiceComponents {
                     let quantity = rust_decimal::Decimal::from_str(qty_str).map_err(|e| {
                         CreditNoteApiError::InvalidArgument(format!("Invalid quantity: {}", e))
                     })?;
-                    Ok(CreditLineItem::Line { local_id, quantity })
+                    let unit_price = li
+                        .unit_price
+                        .as_ref()
+                        .map(|s| rust_decimal::Decimal::from_str(s))
+                        .transpose()
+                        .map_err(|e| {
+                            CreditNoteApiError::InvalidArgument(format!(
+                                "Invalid unit_price: {}",
+                                e
+                            ))
+                        })?;
+                    Ok(CreditLineItem::Line {
+                        local_id,
+                        quantity,
+                        unit_price,
+                    })
                 }
             })
             .collect::<Result<Vec<_>, _>>()?;
