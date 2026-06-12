@@ -359,11 +359,7 @@ impl CustomersInterface for Store {
 
         let _ = self
             .eventbus
-            .publish(Event::customer_created(
-                actor,
-                res.id.as_uuid(),
-                res.tenant_id.as_uuid(),
-            ))
+            .publish(Event::customer_created(actor, res.id, res.tenant_id))
             .await;
 
         Ok(res)
@@ -541,11 +537,7 @@ impl CustomersInterface for Store {
             Some(updated) => {
                 let _ = self
                     .eventbus
-                    .publish(Event::customer_patched(
-                        actor,
-                        updated.id.as_uuid(),
-                        tenant_id.as_uuid(),
-                    ))
+                    .publish(Event::customer_patched(actor, updated.id, tenant_id))
                     .await;
 
                 Ok(Some(updated))
@@ -653,11 +645,7 @@ impl CustomersInterface for Store {
 
         let _ = self
             .eventbus
-            .publish(Event::customer_updated(
-                actor,
-                updated.id.as_uuid(),
-                tenant_id.as_uuid(),
-            ))
+            .publish(Event::customer_updated(actor, updated.id, tenant_id))
             .await;
 
         Ok(updated)
@@ -999,8 +987,8 @@ impl Store {
         let _ = futures::future::join_all(customers.iter().map(|customer| {
             self.eventbus.publish(Event::customer_created(
                 actor.clone(),
-                customer.id.as_uuid(),
-                customer.tenant_id.as_uuid(),
+                customer.id,
+                customer.tenant_id,
             ))
         }))
         .await

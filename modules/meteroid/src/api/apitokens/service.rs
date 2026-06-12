@@ -85,7 +85,7 @@ impl ApiTokensService for ApiTokensServiceComponents {
         let token_id = common_domain::ids::ApiTokenId::from_proto(&req.id)?;
         let result = self
             .store
-            .get_api_token_by_id(&common_domain::ids::BaseId::as_uuid(&token_id))
+            .get_api_token_by_id(&token_id)
             .await
             .map_err(|e| {
                 ApiTokenApiError::StoreError(
@@ -112,11 +112,7 @@ impl ApiTokensService for ApiTokensServiceComponents {
         let token_id = common_domain::ids::ApiTokenId::from_proto(&req.id)?;
 
         self.store
-            .delete_api_token(
-                actor,
-                &common_domain::ids::BaseId::as_uuid(&token_id),
-                tenant_id,
-            )
+            .delete_api_token(actor, &token_id, tenant_id)
             .await
             .map_err(|e| {
                 ApiTokenApiError::StoreError(

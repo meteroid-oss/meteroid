@@ -3,7 +3,7 @@ use crate::errors::StoreError;
 use crate::store::{PgConn, Store, StoreInternal};
 use crate::{StoreResult, domain};
 use common_domain::actor::Actor;
-use common_domain::ids::{BaseId, ProductFamilyId, TenantId};
+use common_domain::ids::{ProductFamilyId, TenantId};
 use common_eventbus::Event;
 use diesel_models::product_families::{ProductFamilyRow, ProductFamilyRowNew};
 use error_stack::{IntoReport, Report};
@@ -68,11 +68,7 @@ impl ProductFamilyInterface for Store {
 
         let _ = self
             .eventbus
-            .publish(Event::product_family_created(
-                actor,
-                res.id.as_uuid(),
-                res.tenant_id.as_uuid(),
-            ))
+            .publish(Event::product_family_created(actor, res.id, res.tenant_id))
             .await;
 
         Ok(res)

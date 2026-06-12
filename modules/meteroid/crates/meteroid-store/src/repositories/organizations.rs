@@ -20,14 +20,13 @@ use diesel_models::users::UserRow;
 use error_stack::Report;
 use meteroid_oauth::model::OauthProvider;
 use tracing_log::log;
-use uuid::Uuid;
 
 #[async_trait::async_trait]
 pub trait OrganizationsInterface {
     async fn insert_organization(
         &self,
         organization: OrganizationNew,
-        actor: Uuid,
+        actor: UserId,
     ) -> StoreResult<OrganizationWithTenants>;
 
     async fn get_instance(&self) -> StoreResult<InstanceFlags>;
@@ -35,7 +34,7 @@ pub trait OrganizationsInterface {
     async fn invite_member(
         &self,
         org_id: OrganizationId,
-        actor_id: Uuid,
+        actor_id: UserId,
         invited_email: String,
         role: OrganizationUserRole,
     ) -> StoreResult<OrganizationInvite>;
@@ -43,7 +42,7 @@ pub trait OrganizationsInterface {
     async fn resend_invite(
         &self,
         invite_id: OrganizationInviteId,
-        actor_id: Uuid,
+        actor_id: UserId,
         org_id: OrganizationId,
     ) -> StoreResult<()>;
 
@@ -65,20 +64,20 @@ pub trait OrganizationsInterface {
 
     async fn accept_invite(
         &self,
-        user_id: Uuid,
+        user_id: UserId,
         invite_id: OrganizationInviteId,
     ) -> StoreResult<Organization>;
 
-    async fn leave_organization(&self, actor: Uuid, org_id: OrganizationId) -> StoreResult<()>;
+    async fn leave_organization(&self, actor: UserId, org_id: OrganizationId) -> StoreResult<()>;
 
     async fn remove_member(
         &self,
-        actor: Uuid,
-        target_user_id: Uuid,
+        actor: UserId,
+        target_user_id: UserId,
         org_id: OrganizationId,
     ) -> StoreResult<()>;
 
-    async fn list_organizations_for_user(&self, user_id: Uuid) -> StoreResult<Vec<Organization>>;
+    async fn list_organizations_for_user(&self, user_id: UserId) -> StoreResult<Vec<Organization>>;
     async fn get_organization_by_id(&self, id: OrganizationId) -> StoreResult<Organization>;
     async fn get_organization_by_tenant_id(&self, id: &TenantId) -> StoreResult<Organization>;
     async fn get_organizations_with_tenants_by_id(
@@ -95,7 +94,7 @@ pub trait OrganizationsInterface {
     async fn insert_express_organization(
         &self,
         organization: OrganizationNew,
-        actor: Uuid,
+        actor: UserId,
         tenant_environment: TenantEnvironmentEnum,
     ) -> StoreResult<OrganizationWithTenants>;
 }
@@ -105,7 +104,7 @@ impl OrganizationsInterface for Store {
     async fn insert_organization(
         &self,
         organization: OrganizationNew,
-        user_id: Uuid,
+        user_id: UserId,
     ) -> StoreResult<OrganizationWithTenants> {
         let mut conn = self.get_conn().await?;
 
@@ -184,10 +183,8 @@ impl OrganizationsInterface for Store {
         let _ = self
             .eventbus
             .publish(Event::organization_created(
-                Actor::User {
-                    id: UserId::from(user_id),
-                },
-                org_created.id.as_uuid(),
+                Actor::User { id: user_id },
+                org_created.id,
             ))
             .await;
 
@@ -215,7 +212,7 @@ impl OrganizationsInterface for Store {
         Ok(InstanceFlags {
             multi_organization_enabled,
             instance_initiated,
-            skip_email_validation: self.settings.skip_email_validation,
+            mailer_enabled: self.settings.mailer_enabled,
             google_oauth_client_id: self.oauth.client_id(OauthProvider::Google),
             hubspot_oauth_client_id: self.oauth.client_id(OauthProvider::Hubspot),
             pennylane_oauth_client_id: self.oauth.client_id(OauthProvider::Pennylane),
@@ -225,13 +222,13 @@ impl OrganizationsInterface for Store {
     async fn invite_member(
         &self,
         org_id: OrganizationId,
-        actor_id: Uuid,
+        actor_id: UserId,
         invited_email: String,
         role: OrganizationUserRole,
     ) -> StoreResult<OrganizationInvite> {
         let mut conn = self.get_conn().await?;
 
-        let actor_user = UserRow::find_by_id(&mut conn, actor_id)
+        let actor_user = UserRow::find_by_id(&mut conn, *actor_id)
             .await
             .map_err(Into::<Report<StoreError>>::into)?;
         if actor_user.email.to_lowercase() == invited_email.to_lowercase() {
@@ -246,7 +243,7 @@ impl OrganizationsInterface for Store {
             Ok(Some(existing_user)) => {
                 match OrganizationMemberRow::find_by_user_and_org(
                     &mut conn,
-                    existing_user.id,
+                    *existing_user.id,
                     org_id,
                 )
                 .await
@@ -286,7 +283,7 @@ impl OrganizationsInterface for Store {
             id: OrganizationInviteId::new(),
             organization_id: org_id,
             invited_email: invited_email.clone(),
-            invited_by: actor_id,
+            invited_by: *actor_id,
             role,
             expires_at,
         };
@@ -309,14 +306,16 @@ impl OrganizationsInterface for Store {
             .await
             .map_err(Into::<Report<StoreError>>::into)?;
 
-        self.send_invite_email(
-            row.id,
-            &org.trade_name,
-            &actor_user.email,
-            &role,
-            invited_email,
-        )
-        .await;
+        if self.settings.mailer_enabled {
+            self.send_invite_email(
+                row.id,
+                &org.trade_name,
+                &actor_user.email,
+                &role,
+                invited_email,
+            )
+            .await;
+        }
 
         Ok(OrganizationInvite::from_row_and_inviter(
             row,
@@ -327,7 +326,7 @@ impl OrganizationsInterface for Store {
     async fn resend_invite(
         &self,
         invite_id: OrganizationInviteId,
-        actor_id: Uuid,
+        actor_id: UserId,
         org_id: OrganizationId,
     ) -> StoreResult<()> {
         let mut conn = self.get_conn().await?;
@@ -365,18 +364,20 @@ impl OrganizationsInterface for Store {
         let org = OrganizationRow::get_by_id(&mut conn, org_id)
             .await
             .map_err(Into::<Report<StoreError>>::into)?;
-        let actor_user = UserRow::find_by_id(&mut conn, actor_id)
+        let actor_user = UserRow::find_by_id(&mut conn, *actor_id)
             .await
             .map_err(Into::<Report<StoreError>>::into)?;
 
-        self.send_invite_email(
-            invite.id,
-            &org.trade_name,
-            &actor_user.email,
-            &invite.role,
-            invite.invited_email,
-        )
-        .await;
+        if self.settings.mailer_enabled {
+            self.send_invite_email(
+                invite.id,
+                &org.trade_name,
+                &actor_user.email,
+                &invite.role,
+                invite.invited_email,
+            )
+            .await;
+        }
 
         Ok(())
     }
@@ -462,7 +463,7 @@ impl OrganizationsInterface for Store {
 
     async fn accept_invite(
         &self,
-        user_id: Uuid,
+        user_id: UserId,
         invite_id: OrganizationInviteId,
     ) -> StoreResult<Organization> {
         let mut conn = self.get_conn().await?;
@@ -486,7 +487,7 @@ impl OrganizationsInterface for Store {
                     .into());
                 }
 
-                let user = UserRow::find_by_id(conn, user_id)
+                let user = UserRow::find_by_id(conn, *user_id)
                     .await
                     .map_err(Into::<Report<StoreError>>::into)?;
 
@@ -499,7 +500,7 @@ impl OrganizationsInterface for Store {
 
                 match OrganizationMemberRow::find_by_user_and_org(
                     conn,
-                    user_id,
+                    *user_id,
                     invite.organization_id,
                 )
                 .await
@@ -539,12 +540,12 @@ impl OrganizationsInterface for Store {
         .await
     }
 
-    async fn leave_organization(&self, actor: Uuid, org_id: OrganizationId) -> StoreResult<()> {
+    async fn leave_organization(&self, actor: UserId, org_id: OrganizationId) -> StoreResult<()> {
         let mut conn = self.get_conn().await?;
 
         self.transaction_with(&mut conn, |conn| {
             async move {
-                let member = OrganizationMemberRow::find_by_user_and_org(conn, actor, org_id)
+                let member = OrganizationMemberRow::find_by_user_and_org(conn, *actor, org_id)
                     .await
                     .map_err(Into::<Report<StoreError>>::into)?;
 
@@ -561,7 +562,7 @@ impl OrganizationsInterface for Store {
                     }
                 }
 
-                OrganizationMemberRow::delete_member(conn, actor, org_id)
+                OrganizationMemberRow::delete_member(conn, *actor, org_id)
                     .await
                     .map_err(Into::<Report<StoreError>>::into)?;
 
@@ -574,17 +575,18 @@ impl OrganizationsInterface for Store {
 
     async fn remove_member(
         &self,
-        actor: Uuid,
-        target_user_id: Uuid,
+        actor: UserId,
+        target_user_id: UserId,
         org_id: OrganizationId,
     ) -> StoreResult<()> {
         let mut conn = self.get_conn().await?;
 
         self.transaction_with(&mut conn, |conn| {
             async move {
-                let actor_member = OrganizationMemberRow::find_by_user_and_org(conn, actor, org_id)
-                    .await
-                    .map_err(Into::<Report<StoreError>>::into)?;
+                let actor_member =
+                    OrganizationMemberRow::find_by_user_and_org(conn, *actor, org_id)
+                        .await
+                        .map_err(Into::<Report<StoreError>>::into)?;
 
                 if !matches!(actor_member.role, OrganizationUserRole::Admin) {
                     return Err(StoreError::Forbidden(
@@ -600,7 +602,7 @@ impl OrganizationsInterface for Store {
                     .into());
                 }
 
-                OrganizationMemberRow::delete_member(conn, target_user_id, org_id)
+                OrganizationMemberRow::delete_member(conn, *target_user_id, org_id)
                     .await
                     .map_err(Into::<Report<StoreError>>::into)?;
 
@@ -611,10 +613,10 @@ impl OrganizationsInterface for Store {
         .await
     }
 
-    async fn list_organizations_for_user(&self, user_id: Uuid) -> StoreResult<Vec<Organization>> {
+    async fn list_organizations_for_user(&self, user_id: UserId) -> StoreResult<Vec<Organization>> {
         let mut conn = self.get_conn().await?;
 
-        let orgs = OrganizationRow::list_by_user_id(&mut conn, user_id)
+        let orgs = OrganizationRow::list_by_user_id(&mut conn, *user_id)
             .await
             .map_err(Into::<Report<StoreError>>::into)?;
 
@@ -685,7 +687,7 @@ impl OrganizationsInterface for Store {
     async fn insert_express_organization(
         &self,
         organization: OrganizationNew,
-        user_id: Uuid,
+        user_id: UserId,
         tenant_environment: TenantEnvironmentEnum,
     ) -> StoreResult<OrganizationWithTenants> {
         let mut conn = self.get_conn().await?;
@@ -754,10 +756,8 @@ impl OrganizationsInterface for Store {
         let _ = self
             .eventbus
             .publish(Event::organization_created(
-                Actor::User {
-                    id: UserId::from(user_id),
-                },
-                org_created.id.as_uuid(),
+                Actor::User { id: user_id },
+                org_created.id,
             ))
             .await;
 

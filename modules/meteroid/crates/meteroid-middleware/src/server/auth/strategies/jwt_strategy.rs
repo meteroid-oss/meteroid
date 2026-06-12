@@ -1,6 +1,6 @@
 use cached::proc_macro::cached;
 use common_domain::auth::{Audience, JwtClaims, OrgMemberRole};
-use common_domain::ids::{OrganizationId, TenantId};
+use common_domain::ids::{OrganizationId, TenantId, UserId};
 use common_grpc::GrpcServiceMethod;
 use common_grpc::middleware::common::auth::{BEARER_AUTH_HEADER, INTERNAL_API_CONTEXT_HEADER};
 use common_grpc::middleware::server::AuthorizedState;
@@ -40,8 +40,9 @@ pub fn validate_jwt(
     let decoded = jsonwebtoken::decode::<JwtClaims>(token, &decoding_key, &validation)
         .map_err(|_| Status::unauthenticated("Invalid JWT"))?;
 
-    let user_id =
-        Uuid::parse_str(&decoded.claims.sub).map_err(|_| Status::unauthenticated("Invalid JWT"))?;
+    let user_id = UserId::from_const(
+        Uuid::parse_str(&decoded.claims.sub).map_err(|_| Status::unauthenticated("Invalid JWT"))?,
+    );
 
     // check expiry
     if decoded.claims.exp < chrono::Utc::now().timestamp() as usize {
@@ -97,7 +98,7 @@ async fn resolve_slugs_cached(
 pub async fn invalidate_resolve_slugs_cache(organization_slug: &str, tenant_slug: &str) {
     {
         use cached::Cached;
-        let mut cache = self::RESOLVE_SLUGS_CACHED.lock().await;
+        let mut cache = RESOLVE_SLUGS_CACHED.lock().await;
         cache.cache_remove(&(organization_slug.to_string(), Some(tenant_slug.to_string())));
     }
 }
@@ -106,12 +107,12 @@ pub async fn invalidate_resolve_slugs_cache(organization_slug: &str, tenant_slug
     result = true,
     size = 150,
     time = 300, // 5 min. With RBAC, use redis backend instead & invalidate on change
-    key = "(Uuid, OrganizationId)",
+    key = "(UserId, OrganizationId)",
     convert = r#"{ (*user_id, org_id) }"#
 )]
 async fn get_user_role_oss_cached(
     store: &Store,
-    user_id: &Uuid,
+    user_id: &UserId,
     org_id: OrganizationId,
 ) -> Result<OrganizationUserRole, Status> {
     let res = store
@@ -156,7 +157,7 @@ fn extract_context(header_map: &HeaderMap) -> Result<(String, Option<String>), S
 
 pub async fn authorize_user(
     header_map: &HeaderMap,
-    user_id: Uuid,
+    user_id: UserId,
     store: &Store,
     gm: GrpcServiceMethod,
 ) -> Result<AuthorizedState, Status> {
@@ -188,7 +189,7 @@ pub async fn authorize_user(
             role,
             AuthorizedState::Organization {
                 organization_id,
-                actor_id: user_id,
+                user_id,
                 role: match role {
                     OrganizationUserRole::Admin => OrgMemberRole::Admin,
                     OrganizationUserRole::Member => OrgMemberRole::Member,

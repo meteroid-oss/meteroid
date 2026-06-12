@@ -7,7 +7,8 @@ use common_config::auth::InternalAuthConfig;
 use common_domain::actor::Actor;
 use common_domain::auth::OrgMemberRole;
 use common_domain::ids::{
-    ApiTokenId, CheckoutSessionId, CustomerId, InvoiceId, OrganizationId, QuoteId, TenantId, UserId,
+    ApiTokenId, BaseId, CheckoutSessionId, CustomerId, InvoiceId, OrganizationId, QuoteId,
+    TenantId, UserId,
 };
 
 mod admin_layer;
@@ -18,7 +19,19 @@ pub fn create_admin(config: &InternalAuthConfig) -> AdminAuthLayer {
 }
 
 pub trait RequestExt {
-    fn actor(&self) -> Result<Uuid, Status>;
+    fn actor(&self) -> Result<Uuid, Status> {
+        self.actor_typed()?
+            .as_uuid()
+            .ok_or_else(|| Status::unauthenticated("Invalid actor type"))
+    }
+    fn actor_user(&self) -> Result<UserId, Status> {
+        match self.actor_typed()? {
+            Actor::User { id } => Ok(id),
+            _ => Err(Status::unauthenticated(
+                "User actor is not available in this context.",
+            )),
+        }
+    }
     fn actor_typed(&self) -> Result<Actor, Status>;
     fn tenant(&self) -> Result<TenantId, Status>;
     fn organization(&self) -> Result<OrganizationId, Status>;
@@ -28,10 +41,6 @@ pub trait RequestExt {
 }
 
 impl<T> RequestExt for tonic::Request<T> {
-    fn actor(&self) -> Result<Uuid, Status> {
-        extract_actor(self.extensions().get::<AuthorizedState>())
-    }
-
     fn actor_typed(&self) -> Result<Actor, Status> {
         extract_actor_typed(self.extensions().get::<AuthorizedState>())
     }
@@ -58,10 +67,6 @@ impl<T> RequestExt for tonic::Request<T> {
 }
 
 impl<T> RequestExt for http::Request<T> {
-    fn actor(&self) -> Result<Uuid, Status> {
-        extract_actor(self.extensions().get::<AuthorizedState>())
-    }
-
     fn actor_typed(&self) -> Result<Actor, Status> {
         extract_actor_typed(self.extensions().get::<AuthorizedState>())
     }
@@ -95,12 +100,10 @@ pub fn extract_actor_typed(maybe_auth: Option<&AuthorizedState>) -> Result<Actor
     match authorized {
         AuthorizedState::Tenant(t) => Ok(t.as_actor()),
         // API tokens are tenant-scoped, so org-/user-level auth is always a user.
-        AuthorizedState::Organization { actor_id, .. } => Ok(Actor::User {
-            id: UserId::from(*actor_id),
-        }),
-        AuthorizedState::User { user_id } => Ok(Actor::User {
-            id: UserId::from(*user_id),
-        }),
+        AuthorizedState::Organization {
+            user_id: actor_id, ..
+        } => Ok(Actor::User { id: *actor_id }),
+        AuthorizedState::User { user_id } => Ok(Actor::User { id: *user_id }),
         AuthorizedState::Shared(state) => match &state.resource_access {
             ResourceAccess::CustomerPortal(id) => Ok(Actor::Customer { id: *id }),
             ResourceAccess::QuotePortal {
@@ -139,25 +142,6 @@ pub fn require_admin_role(maybe_auth: Option<&AuthorizedState>) -> Result<(), St
         ));
     }
     Ok(())
-}
-
-pub fn extract_actor(maybe_auth: Option<&AuthorizedState>) -> Result<Uuid, Status> {
-    let authorized = maybe_auth.ok_or(Status::unauthenticated(
-        "Missing authorized state in request extensions",
-    ))?;
-
-    let res = match authorized {
-        AuthorizedState::Tenant(tenant) => tenant.actor.id(),
-        AuthorizedState::Organization { actor_id, .. } => *actor_id,
-        AuthorizedState::User { user_id } => *user_id,
-        AuthorizedState::Shared { .. } => {
-            return Err(Status::invalid_argument(
-                "Actor is not available for portal events.",
-            ));
-        }
-    };
-
-    Ok(res)
 }
 
 pub fn extract_portal(
@@ -229,13 +213,13 @@ pub enum ResourceAccess {
 #[derive(Clone)]
 pub enum AuthenticatedState {
     ApiKey {
-        id: Uuid,
+        id: ApiTokenId,
         tenant_id: TenantId,
         organization_id: OrganizationId,
         tenant_env: TenantEnv,
     },
     User {
-        id: Uuid,
+        id: UserId,
     },
     Shared {
         tenant_id: TenantId,
@@ -245,15 +229,15 @@ pub enum AuthenticatedState {
 
 #[derive(Clone, Copy)]
 pub enum TenantActor {
-    ApiKey(Uuid),
-    User { id: Uuid, role: OrgMemberRole },
+    ApiKey(ApiTokenId),
+    User { id: UserId, role: OrgMemberRole },
 }
 
 impl TenantActor {
     pub fn id(&self) -> Uuid {
         match self {
-            TenantActor::ApiKey(id) => *id,
-            TenantActor::User { id, .. } => *id,
+            TenantActor::ApiKey(id) => id.as_uuid(),
+            TenantActor::User { id, .. } => id.as_uuid(),
         }
     }
 
@@ -276,12 +260,8 @@ pub struct AuthorizedAsTenant {
 impl AuthorizedAsTenant {
     pub fn as_actor(&self) -> Actor {
         match self.actor {
-            TenantActor::User { id, .. } => Actor::User {
-                id: UserId::from(id),
-            },
-            TenantActor::ApiKey(id) => Actor::ApiToken {
-                id: ApiTokenId::from(id),
-            },
+            TenantActor::User { id, .. } => Actor::User { id },
+            TenantActor::ApiKey(id) => Actor::ApiToken { id },
         }
     }
 }
@@ -341,12 +321,12 @@ impl AuthorizedAsPortalUser {
 pub enum AuthorizedState {
     Tenant(AuthorizedAsTenant),
     Organization {
-        actor_id: Uuid,
+        user_id: UserId,
         organization_id: OrganizationId,
         role: OrgMemberRole,
     },
     User {
-        user_id: Uuid,
+        user_id: UserId,
     },
     Shared(AuthorizedAsPortalUser),
 }

@@ -6,8 +6,9 @@ use uuid::{Uuid, uuid};
 // Basic information
 pub const ORGANIZATION_ID: OrganizationId =
     OrganizationId::from_const(uuid!("018c2c82-3def-7fa0-bf6f-a5f8fe341549"));
-pub const USER_ID: Uuid = uuid!("ae35bbb9-65da-477d-b856-7dbd87546441");
-pub const API_TOKEN_ID: Uuid = uuid!("018ce957-b628-7355-a460-f0d71e01335e");
+pub const USER_ID: UserId = UserId::from_const(uuid!("ae35bbb9-65da-477d-b856-7dbd87546441"));
+pub const API_TOKEN_ID: ApiTokenId =
+    ApiTokenId::from_const(uuid!("018ce957-b628-7355-a460-f0d71e01335e"));
 
 pub const TENANT_ID: TenantId = TenantId::from_const(uuid!("018c2c82-3df1-7e84-9e05-6e141d0e751a"));
 pub const INVOICING_ENTITY_ID: InvoicingEntityId =

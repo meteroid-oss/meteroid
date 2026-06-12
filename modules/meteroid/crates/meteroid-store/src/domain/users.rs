@@ -1,7 +1,7 @@
 use crate::domain::enums::OrganizationUserRole;
+use common_domain::ids::UserId;
 use o2o::o2o;
 use secrecy::SecretString;
-use uuid::Uuid;
 
 use crate::domain::Organization;
 use diesel_models::users::{UserRow, UserWithRoleRow};
@@ -9,7 +9,7 @@ use diesel_models::users::{UserRow, UserWithRoleRow};
 #[derive(Clone, Debug, o2o)]
 #[from_owned(UserRow)]
 pub struct User {
-    pub id: Uuid,
+    pub id: UserId,
     pub email: String,
     pub onboarded: bool,
     pub first_name: Option<String>,
@@ -20,7 +20,7 @@ pub struct User {
 #[derive(Clone, Debug, o2o)]
 #[from_owned(UserWithRoleRow)]
 pub struct UserWithRole {
-    pub id: Uuid,
+    pub id: UserId,
     pub email: String,
     #[map(~.into())]
     pub role: OrganizationUserRole,
@@ -98,5 +98,5 @@ pub struct UpdateUser {
 #[derive(Debug)]
 pub struct UpdateUserRole {
     pub role: OrganizationUserRole,
-    pub user_id: Uuid,
+    pub user_id: UserId,
 }

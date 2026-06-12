@@ -31,7 +31,7 @@ use super::{UsersServiceComponents, mapping};
 impl UsersService for UsersServiceComponents {
     #[tracing::instrument(skip_all)]
     async fn me(&self, request: Request<MeRequest>) -> Result<Response<MeResponse>, Status> {
-        let actor = request.actor()?;
+        let actor = request.actor_user()?;
         let organization = request.organization().ok();
 
         let me = self
@@ -49,7 +49,7 @@ impl UsersService for UsersServiceComponents {
         &self,
         request: Request<OnboardMeRequest>,
     ) -> Result<Response<OnboardMeResponse>, Status> {
-        let actor = request.actor()?;
+        let actor = request.actor_user()?;
 
         let request = request.into_inner();
 
@@ -82,7 +82,7 @@ impl UsersService for UsersServiceComponents {
         let user_id = common_domain::ids::UserId::from_proto(&req.id)?;
         let user = self
             .store
-            .find_user_by_id_and_tenant(common_domain::ids::BaseId::as_uuid(&user_id), tenant)
+            .find_user_by_id_and_tenant(user_id, tenant)
             .await
             .map(mapping::user::domain_with_role_to_proto)
             .map_err(Into::<UserApiError>::into)?;
@@ -253,7 +253,7 @@ impl UsersService for UsersServiceComponents {
         &self,
         request: Request<AcceptInviteRequest>,
     ) -> Result<Response<AcceptInviteResponse>, Status> {
-        let actor = request.actor()?;
+        let actor = request.actor_user()?;
         let req = request.into_inner();
 
         let invite_id = OrganizationInviteId::from_proto(&req.invite_id)?;
@@ -276,7 +276,7 @@ impl UsersService for UsersServiceComponents {
         &self,
         request: Request<InviteMemberRequest>,
     ) -> Result<Response<InviteMemberResponse>, Status> {
-        let actor = request.actor()?;
+        let actor = request.actor_user()?;
         let org_id = request.organization()?;
         request.require_admin()?;
         let req = request.into_inner();
@@ -301,7 +301,7 @@ impl UsersService for UsersServiceComponents {
         &self,
         request: Request<ResendInviteRequest>,
     ) -> Result<Response<ResendInviteResponse>, Status> {
-        let actor = request.actor()?;
+        let actor = request.actor_user()?;
         let org_id = request.organization()?;
         request.require_admin()?;
         let req = request.into_inner();
@@ -372,7 +372,7 @@ impl UsersService for UsersServiceComponents {
         &self,
         request: Request<LeaveOrganizationRequest>,
     ) -> Result<Response<LeaveOrganizationResponse>, Status> {
-        let actor = request.actor()?;
+        let actor = request.actor_user()?;
         let org_id = request.organization()?;
 
         self.store
@@ -388,11 +388,11 @@ impl UsersService for UsersServiceComponents {
         &self,
         request: Request<RemoveMemberRequest>,
     ) -> Result<Response<RemoveMemberResponse>, Status> {
-        let actor = request.actor()?;
+        let actor = request.actor_user()?;
         let org_id = request.organization()?;
         let req = request.into_inner();
 
-        let target_user_id = *common_domain::ids::UserId::from_proto(&req.user_id)?;
+        let target_user_id = common_domain::ids::UserId::from_proto(&req.user_id)?;
 
         self.store
             .remove_member(actor, target_user_id, org_id)

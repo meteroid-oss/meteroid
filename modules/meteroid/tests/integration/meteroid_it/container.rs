@@ -199,7 +199,7 @@ async fn start_meteroid_from_config(
         crypt_key: config.secrets_crypt_key.0.clone(),
         jwt_secret: config.jwt_secret.clone(),
         multi_organization_enabled: config.multi_organization_enabled,
-        skip_email_validation: !config.mailer_enabled(),
+        mailer_enabled: config.mailer_enabled(),
         public_url: config.public_url.clone(),
         eventbus: create_eventbus_noop(),
         mailer: mailer.clone(),

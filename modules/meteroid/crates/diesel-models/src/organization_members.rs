@@ -1,7 +1,5 @@
-use uuid::Uuid;
-
 use crate::enums::OrganizationUserRole;
-use common_domain::ids::OrganizationId;
+use common_domain::ids::{OrganizationId, UserId};
 use diesel::{Identifiable, Insertable, Queryable};
 
 #[derive(Queryable, Debug, Identifiable, Insertable)]
@@ -9,7 +7,7 @@ use diesel::{Identifiable, Insertable, Queryable};
 #[diesel(table_name = crate::schema::organization_member)]
 #[diesel(check_for_backend(diesel::pg::Pg))]
 pub struct OrganizationMemberRow {
-    pub user_id: Uuid,
+    pub user_id: UserId,
     pub organization_id: OrganizationId,
     pub role: OrganizationUserRole,
 }

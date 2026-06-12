@@ -33,13 +33,13 @@ export const ValidateEmail: FunctionComponent = () => {
     return <Loader />
   }
 
-  if (data && !data.skipEmailValidation && !token) {
+  if (data && data.mailerEnabled && !token) {
     return <div>A validation token is required. Please check your emails.</div>
   }
 
   return (
     <>
-      <div className="font-medium text-xl -mb-0.5">{data?.skipEmailValidation ? "Signup" : "Email address verified!"}</div>
+      <div className="font-medium text-xl -mb-0.5">{data?.mailerEnabled ? "Email address verified!" : "Signup"}</div>
       <div className="text-muted-foreground text-[13px] mb-1 leading-[18px]">
         Set your password for Meteroid to continue.
       </div>

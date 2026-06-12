@@ -30,10 +30,12 @@ import { useState } from 'react'
 import { toast } from 'sonner'
 import { z } from 'zod'
 
+import { CopyToClipboardButton } from '@/components/CopyToClipboard'
 import { SimpleTable } from '@/components/table/SimpleTable'
 import { useZodForm } from '@/hooks/useZodForm'
 import { useQuery } from '@/lib/connectrpc'
 import { copyToClipboard } from '@/lib/helpers'
+import { getInstance } from '@/rpc/api/instance/v1/instance-InstanceService_connectquery'
 import { OrganizationUserRole, UserWithRole } from '@/rpc/api/users/v1/models_pb'
 import {
   inviteMember,
@@ -47,6 +49,8 @@ import {
 } from '@/rpc/api/users/v1/users-UsersService_connectquery'
 import { OrganizationInvite } from '@/rpc/api/users/v1/users_pb'
 
+const buildInviteUrl = (id: string) => `${window.location.origin}/invite?token=${id}`
+
 const inviteSchema = z.object({
   email: z.string().email('Please enter a valid email address'),
 })
@@ -59,11 +63,14 @@ const userRoleMapping: Record<OrganizationUserRole, string> = {
 export const UsersTab = () => {
   const [inviteVisible, setInviteVisible] = useState(false)
   const [inviteRole, setInviteRole] = useState<OrganizationUserRole>(OrganizationUserRole.MEMBER)
+  const [inviteUrl, setInviteUrl] = useState<string | null>(null)
   const inviteForm = useZodForm({ schema: inviteSchema })
   const [leaveVisible, setLeaveVisible] = useState(false)
   const [memberToRemove, setMemberToRemove] = useState<UserWithRole | null>(null)
   const [inviteToRevoke, setInviteToRevoke] = useState<OrganizationInvite | null>(null)
   const queryClient = useQueryClient()
+
+  const mailerEnabled = useQuery(getInstance).data?.mailerEnabled ?? true
 
   const meData = useQuery(me).data
   const currentUserId = meData?.user?.id
@@ -78,13 +85,17 @@ export const UsersTab = () => {
   const disableLeaveOrg = isAdmin && adminCount <= 1
 
   const inviteMemberMut = useMutation(inviteMember, {
-    onSuccess: () => {
+    onSuccess: data => {
       void queryClient.invalidateQueries({ queryKey: createConnectQueryKey(listPendingInvites) })
       void queryClient.invalidateQueries({ queryKey: createConnectQueryKey(listUsers) })
-      setInviteVisible(false)
       inviteForm.reset()
       setInviteRole(OrganizationUserRole.MEMBER)
-      toast.success('Invite sent')
+      if (!mailerEnabled) {
+        setInviteUrl(buildInviteUrl(data.inviteId))
+      } else {
+        setInviteVisible(false)
+        toast.success('Invite sent')
+      }
     },
     onError: (err: Error) => {
       toast.error(err.message ?? 'Failed to send invite')
@@ -187,12 +198,12 @@ export const UsersTab = () => {
               </DropdownMenuTrigger>
               <DropdownMenuContent align="end">
                 <DropdownMenuItem onClick={() => copyToClipboard(
-                  `${window.location.origin}/invite?token=${row.original.id}`,
+                  buildInviteUrl(row.original.id),
                   () => toast.success('Invite link copied')
                 )}>
                   <CopyIcon size={16} className="mr-2"/>Copy invite link
                 </DropdownMenuItem>
-                {!row.original.isExpired && (
+                {!row.original.isExpired && mailerEnabled && (
                   <DropdownMenuItem onClick={() => resendInviteMut.mutate({ inviteId: row.original.id })}>
                     <RefreshCwIcon size={16} className="mr-2"/>Resend invite
                   </DropdownMenuItem>
@@ -264,41 +275,56 @@ export const UsersTab = () => {
         visible={inviteVisible}
         onCancel={() => {
           setInviteVisible(false)
+          setInviteUrl(null)
           inviteForm.reset()
           setInviteRole(OrganizationUserRole.MEMBER)
         }}
         header={<>Invite member</>}
-        onConfirm={() =>
-          inviteForm.handleSubmit(({ email }) =>
-            inviteMemberMut.mutate({ email, role: inviteRole })
-          )()
-        }
-        confirmText="Send invite"
+        onConfirm={() => {
+          if (inviteUrl) {
+            setInviteVisible(false)
+            setInviteUrl(null)
+          } else {
+            inviteForm.handleSubmit(({ email }) =>
+              inviteMemberMut.mutate({ email, role: inviteRole })
+            )()
+          }
+        }}
+        confirmText={inviteUrl ? 'Done' : mailerEnabled ? 'Send invite' : 'Create invite'}
       >
-        <Form {...inviteForm}>
-          <div className="p-6 space-y-4">
-            <InputFormField
-              control={inviteForm.control}
-              name="email"
-              label="Email address"
-              placeholder="colleague@company.com"
-              type="email"
-            />
-            <div className="space-y-1">
-              <Label>Role</Label>
-              <Select
-                value={String(inviteRole)}
-                onValueChange={v => setInviteRole(Number(v) as OrganizationUserRole)}
-              >
-                <SelectTrigger><SelectValue/></SelectTrigger>
-                <SelectContent>
-                  <SelectItem value={String(OrganizationUserRole.MEMBER)}>Member</SelectItem>
-                  <SelectItem value={String(OrganizationUserRole.ADMIN)}>Owner</SelectItem>
-                </SelectContent>
-              </Select>
-            </div>
+        {inviteUrl ? (
+          <div className="p-6 space-y-3">
+            <p className="text-sm text-muted-foreground">
+              Share this invite link with your teammate:
+            </p>
+            <CopyToClipboardButton text={inviteUrl} />
           </div>
-        </Form>
+        ) : (
+          <Form {...inviteForm}>
+            <div className="p-6 space-y-4">
+              <InputFormField
+                control={inviteForm.control}
+                name="email"
+                label="Email address"
+                placeholder="colleague@company.com"
+                type="email"
+              />
+              <div className="space-y-1">
+                <Label>Role</Label>
+                <Select
+                  value={String(inviteRole)}
+                  onValueChange={v => setInviteRole(Number(v) as OrganizationUserRole)}
+                >
+                  <SelectTrigger><SelectValue/></SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value={String(OrganizationUserRole.MEMBER)}>Member</SelectItem>
+                    <SelectItem value={String(OrganizationUserRole.ADMIN)}>Owner</SelectItem>
+                  </SelectContent>
+                </Select>
+              </div>
+            </div>
+          </Form>
+        )}
       </Modal>
 
       {/* Revoke invite modal */}

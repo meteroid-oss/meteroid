@@ -1,8 +1,7 @@
 use chrono::NaiveDateTime;
-use common_domain::ids::{OrganizationId, TenantId};
+use common_domain::ids::{ApiTokenId, OrganizationId, TenantId};
 use diesel_models::api_tokens::{ApiTokenRow, ApiTokenRowNew, ApiTokenValidationRow};
 use o2o::o2o;
-use uuid::Uuid;
 
 use crate::domain::enums::TenantEnvironmentEnum;
 
@@ -17,7 +16,7 @@ pub struct ApiTokenNew {
 #[from_owned(ApiTokenRow)]
 #[owned_into(ApiTokenRow)]
 pub struct ApiToken {
-    pub id: Uuid,
+    pub id: ApiTokenId,
     pub name: String,
     pub created_at: NaiveDateTime,
     pub tenant_id: TenantId,
@@ -28,7 +27,7 @@ pub struct ApiToken {
 #[derive(Debug, o2o)]
 #[from_owned(ApiTokenValidationRow)]
 pub struct ApiTokenValidation {
-    pub id: Uuid,
+    pub id: ApiTokenId,
     pub tenant_id: TenantId,
     pub organization_id: OrganizationId,
     pub hash: String,

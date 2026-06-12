@@ -1,5 +1,5 @@
 use cached::proc_macro::cached;
-use common_domain::ids::{OrganizationId, TenantId};
+use common_domain::ids::{ApiTokenId, OrganizationId, TenantId};
 use common_grpc::GrpcServiceMethod;
 use common_grpc::middleware::common::auth::API_KEY_HEADER;
 use common_grpc::middleware::server::auth::api_token_validator::ApiTokenValidator;
@@ -9,7 +9,6 @@ use meteroid_store::Store;
 use meteroid_store::domain::TenantEnvironmentEnum;
 use meteroid_store::repositories::api_tokens::ApiTokensInterface;
 use tonic::Status;
-use uuid::Uuid;
 
 const FORBIDDEN_SERVICES: [&str; 5] = [
     "meteroid.api.organizations.v1.OrganizationsService",
@@ -23,13 +22,13 @@ const FORBIDDEN_SERVICES: [&str; 5] = [
     result = true,
     size = 100,
     time = 120, // 2 min
-    key = "Uuid",
+    key = "ApiTokenId",
     convert = r#"{ *api_key_id }"#
 )]
 async fn validate_api_token_by_id_cached(
     store: &Store,
     validator: &ApiTokenValidator,
-    api_key_id: &Uuid,
+    api_key_id: &ApiTokenId,
 ) -> Result<(OrganizationId, TenantId, TenantEnv), Status> {
     let res = store
         .get_api_token_by_id_for_validation(api_key_id)
@@ -67,9 +66,9 @@ pub async fn validate_api_key(
     let validator = ApiTokenValidator::parse_api_key(api_key)
         .map_err(|_| Status::unauthenticated("Invalid API key format."))?;
 
-    let id = validator.extract_identifier().map_err(|_| {
+    let id = ApiTokenId::from_const(validator.extract_identifier().map_err(|_| {
         Status::unauthenticated("Invalid API key format. Failed to extract identifier")
-    })?;
+    })?);
 
     let (organization_id, tenant_id, tenant_env) =
         validate_api_token_by_id_cached(store, &validator, &id).await?;

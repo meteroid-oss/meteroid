@@ -21,7 +21,7 @@ impl OrganizationsService for OrganizationsServiceComponents {
         &self,
         request: Request<ListOrganizationsRequest>,
     ) -> Result<Response<ListOrganizationsResponse>, Status> {
-        let user = request.actor()?;
+        let user = request.actor_user()?;
 
         let organizations: Vec<Organization> = self
             .store
@@ -71,7 +71,7 @@ impl OrganizationsService for OrganizationsServiceComponents {
         &self,
         request: Request<CreateOrganizationRequest>,
     ) -> Result<Response<CreateOrganizationResponse>, Status> {
-        let user = request.actor()?;
+        let user = request.actor_user()?;
         let request = request.into_inner();
 
         let organization_new = OrganizationNew {

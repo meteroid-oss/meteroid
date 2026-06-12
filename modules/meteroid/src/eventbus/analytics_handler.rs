@@ -129,7 +129,7 @@ impl AnalyticsHandler {
             .store
             .find_billable_metric_by_id(
                 event_data_details.entity_id.into(),
-                event_data_details.tenant_id.into(),
+                event_data_details.tenant_id,
             )
             .await
             .map_err(|e| EventBusError::EventHandlerFailed(e.to_string()))?;
@@ -158,7 +158,7 @@ impl AnalyticsHandler {
             .store
             .find_customer_by_id(
                 event_data_details.entity_id.into(),
-                event_data_details.tenant_id.into(),
+                event_data_details.tenant_id,
             )
             .await
             .map_err(|e| EventBusError::EventHandlerFailed(e.to_string()))?;
@@ -185,7 +185,7 @@ impl AnalyticsHandler {
             .store
             .find_customer_by_id(
                 event_data_details.entity_id.into(),
-                event_data_details.tenant_id.into(),
+                event_data_details.tenant_id,
             )
             .await
             .map_err(|e| EventBusError::EventHandlerFailed(e.to_string()))?;
@@ -213,7 +213,7 @@ impl AnalyticsHandler {
             .store
             .find_customer_by_id(
                 event_data_details.entity_id.into(),
-                event_data_details.tenant_id.into(),
+                event_data_details.tenant_id,
             )
             .await
             .map_err(|e| EventBusError::EventHandlerFailed(e.to_string()))?;
@@ -260,7 +260,7 @@ impl AnalyticsHandler {
         } = self
             .store
             .get_detailed_invoice_by_id(
-                event_data_details.tenant_id.into(),
+                event_data_details.tenant_id,
                 event_data_details.entity_id.into(),
             )
             .await
@@ -292,7 +292,7 @@ impl AnalyticsHandler {
         } = self
             .store
             .get_detailed_invoice_by_id(
-                event_data_details.tenant_id.into(),
+                event_data_details.tenant_id,
                 event_data_details.entity_id.into(),
             )
             .await
@@ -323,7 +323,7 @@ impl AnalyticsHandler {
             .store
             .get_plan_version_by_id(
                 event_data_details.entity_id.into(),
-                event_data_details.tenant_id.into(),
+                event_data_details.tenant_id,
             )
             .await
             .map_err(|e| EventBusError::EventHandlerFailed(e.to_string()))?;
@@ -353,7 +353,7 @@ impl AnalyticsHandler {
             .store
             .get_plan_version_by_id(
                 event_data_details.entity_id.into(),
-                event_data_details.tenant_id.into(),
+                event_data_details.tenant_id,
             )
             .await
             .map_err(|e| EventBusError::EventHandlerFailed(e.to_string()))?;
@@ -401,7 +401,7 @@ impl AnalyticsHandler {
         let price_component = self
             .store
             .get_price_component_by_id(
-                event_data_details.tenant_id.into(),
+                event_data_details.tenant_id,
                 event_data_details.entity_id.into(),
             )
             .await
@@ -429,7 +429,7 @@ impl AnalyticsHandler {
         let price_component = self
             .store
             .get_price_component_by_id(
-                event_data_details.tenant_id.into(),
+                event_data_details.tenant_id,
                 event_data_details.entity_id.into(),
             )
             .await
@@ -495,7 +495,7 @@ impl AnalyticsHandler {
         let subscription = self
             .store
             .get_subscription_details(
-                event_data_details.tenant_id.into(),
+                event_data_details.tenant_id,
                 event_data_details.entity_id.into(),
             )
             .await
@@ -527,7 +527,7 @@ impl AnalyticsHandler {
         let subscription = self
             .store
             .get_subscription_details(
-                event_data_details.tenant_id.into(),
+                event_data_details.tenant_id,
                 event_data_details.entity_id.into(),
             )
             .await

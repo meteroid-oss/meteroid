@@ -33,7 +33,7 @@ impl InstanceService for InstanceServiceComponents {
         Ok(Response::new(GetInstanceResponse {
             multi_organization_enabled: maybe_instance.multi_organization_enabled,
             instance_initiated: maybe_instance.instance_initiated,
-            skip_email_validation: maybe_instance.skip_email_validation,
+            mailer_enabled: maybe_instance.mailer_enabled,
             google_oauth_client_id: maybe_instance.google_oauth_client_id,
             hubspot_oauth_client_id: maybe_instance.hubspot_oauth_client_id,
             pennylane_oauth_client_id: maybe_instance.pennylane_oauth_client_id,

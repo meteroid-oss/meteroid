@@ -7,7 +7,7 @@ use crate::repositories::customer_balance::{CustomerBalance, convert_currency};
 use crate::services::Services;
 use crate::services::utils::format_invoice_number;
 use chrono::NaiveTime;
-use common_domain::ids::{AppliedCouponId, BaseId, InvoiceId, TenantId};
+use common_domain::ids::{AppliedCouponId, InvoiceId, TenantId};
 use common_eventbus::Event;
 use common_utils::decimals::ToUnit;
 use diesel_async::scoped_futures::ScopedFutureExt;
@@ -223,10 +223,7 @@ impl Services {
         let _ = self
             .store
             .eventbus
-            .publish(Event::invoice_finalized(
-                invoice.id.as_uuid(),
-                invoice.tenant_id.as_uuid(),
-            ))
+            .publish(Event::invoice_finalized(invoice.id, invoice.tenant_id))
             .await;
 
         Ok(final_invoice)

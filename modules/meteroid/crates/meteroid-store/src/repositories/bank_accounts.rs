@@ -3,7 +3,7 @@ use crate::domain::{BankAccount, BankAccountPatch};
 use crate::errors::StoreError;
 use crate::store::Store;
 use crate::{StoreResult, domain};
-use common_domain::ids::{BankAccountId, BaseId, TenantId};
+use common_domain::ids::{BankAccountId, TenantId};
 use common_eventbus::Event;
 use diesel_models::bank_accounts::{BankAccountRow, BankAccountRowNew, BankAccountRowPatch};
 use error_stack::Report;
@@ -89,8 +89,8 @@ impl BankAccountsInterface for Store {
                 .eventbus
                 .publish(Event::bank_account_created(
                     actor,
-                    insertable.id.as_uuid(),
-                    insertable.tenant_id.as_uuid(),
+                    insertable.id,
+                    insertable.tenant_id,
                 ))
                 .await;
         }
@@ -118,8 +118,8 @@ impl BankAccountsInterface for Store {
                 .eventbus
                 .publish(Event::bank_account_edited(
                     actor,
-                    patch_row.id.as_uuid(),
-                    patch_row.tenant_id.as_uuid(),
+                    patch_row.id,
+                    patch_row.tenant_id,
                 ))
                 .await;
         }

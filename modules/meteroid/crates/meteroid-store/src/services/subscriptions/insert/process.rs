@@ -1131,8 +1131,8 @@ impl Services {
         let results = futures::future::join_all(subscriptions.iter().map(|sub| {
             event_bus.publish(Event::subscription_created(
                 actor.clone(),
-                sub.id.as_uuid(),
-                sub.tenant_id.as_uuid(),
+                sub.id,
+                sub.tenant_id,
             ))
         }))
         .await;

@@ -111,7 +111,7 @@ impl TestEnv {
     pub async fn top_up_balance(&self, customer_id: CustomerId, cents: i64) {
         self.store()
             .top_up_customer_balance(CustomerTopUpBalance {
-                created_by: USER_ID,
+                created_by: *USER_ID,
                 tenant_id: TENANT_ID,
                 customer_id,
                 cents,

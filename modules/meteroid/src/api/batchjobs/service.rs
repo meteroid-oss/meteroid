@@ -148,7 +148,7 @@ impl BatchJobsService for BatchJobsServiceComponents {
 
         let display_name = self
             .store
-            .find_user_by_id_and_tenant(detail.job.created_by, tenant_id)
+            .find_user_by_id_and_tenant(detail.job.created_by.into(), tenant_id)
             .await
             .ok()
             .map(

@@ -17,7 +17,7 @@ use tracing::{error, log};
 
 use common_grpc::middleware::common::filters::Filter;
 
-use common_domain::ids::{OrganizationId, TenantId};
+use common_domain::ids::{ApiTokenId, OrganizationId, TenantId};
 use common_grpc::middleware::server::auth::{
     AuthenticatedState, AuthorizedAsTenant, AuthorizedState, TenantActor, TenantEnv,
 };
@@ -195,9 +195,9 @@ pub async fn validate_api_key(
     let validator = ApiTokenValidator::parse_api_key(api_key)
         .map_err(|_| Status::permission_denied("Invalid API key format."))?;
 
-    let id = validator.extract_identifier().map_err(|_| {
+    let id = ApiTokenId::from_const(validator.extract_identifier().map_err(|_| {
         Status::permission_denied("Invalid API key format. Failed to extract identifier")
-    })?;
+    })?);
 
     let (organization_id, tenant_id, tenant_env) =
         validate_api_token_by_id_cached(internal_client, &validator, &id).await?;

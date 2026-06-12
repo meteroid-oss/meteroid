@@ -14,7 +14,7 @@ use argon2::{Argon2, PasswordHash, PasswordHasher, PasswordVerifier};
 use chrono::{DateTime, Utc};
 use common_domain::actor::Actor;
 use common_domain::auth::{Audience, JwtClaims, JwtPayload};
-use common_domain::ids::{OrganizationId, OrganizationInviteId, TenantId, UserId};
+use common_domain::ids::{BaseId, OrganizationId, OrganizationInviteId, TenantId, UserId};
 use common_eventbus::Event;
 use diesel_async::scoped_futures::ScopedFutureExt;
 use diesel_models::organization_invites::OrganizationInviteRow;
@@ -45,21 +45,25 @@ pub trait UserInterface {
     async fn login_user(&self, req: LoginUserRequest) -> StoreResult<LoginUserResponse>;
     async fn me(
         &self,
-        auth_user_id: Uuid,
+        auth_user_id: UserId,
         organization_id: Option<OrganizationId>,
     ) -> StoreResult<Me>;
-    async fn update_user_details(&self, auth_user_id: Uuid, data: UpdateUser) -> StoreResult<User>;
-    async fn mark_user_onboarded(&self, user_id: Uuid) -> StoreResult<()>;
-    // async fn update_user_role(&self, auth_user_id: Uuid, organization_id: Uuid, data: UpdateUserRole) -> StoreResult<User>;
+    async fn update_user_details(
+        &self,
+        auth_user_id: UserId,
+        data: UpdateUser,
+    ) -> StoreResult<User>;
+    async fn mark_user_onboarded(&self, user_id: UserId) -> StoreResult<()>;
+    // async fn update_user_role(&self, auth_user_id: UserId, organization_id: OrganizationId, data: UpdateUserRole) -> StoreResult<User>;
 
     async fn find_user_by_id_and_organization(
         &self,
-        id: Uuid,
+        id: UserId,
         org_id: OrganizationId,
     ) -> StoreResult<UserWithRole>;
     async fn find_user_by_id_and_tenant(
         &self,
-        id: Uuid,
+        id: UserId,
         tenant_id: TenantId,
     ) -> StoreResult<UserWithRole>;
 
@@ -74,7 +78,7 @@ pub trait UserInterface {
     ) -> StoreResult<Vec<UserWithRole>>;
 
     /** Internal use only. For API/external, use `me()` or `find_user_by_id_and_organization()` */
-    async fn _find_user_by_id(&self, id: Uuid) -> StoreResult<User>;
+    async fn _find_user_by_id(&self, id: UserId) -> StoreResult<User>;
 
     async fn init_reset_password(&self, email: String) -> StoreResult<()>;
 
@@ -98,7 +102,7 @@ impl UserInterface for Store {
         &self,
         req: RegisterUserRequest,
     ) -> StoreResult<RegisterUserResponse> {
-        if self.settings.skip_email_validation {
+        if !self.settings.mailer_enabled {
             validate_domain(&req.email, &self.settings.domains_whitelist)?;
 
             return register_user_internal(
@@ -175,27 +179,27 @@ impl UserInterface for Store {
             .map_err(|_| StoreError::LoginError("invalid email or password".to_string()))?;
 
         Ok(LoginUserResponse {
-            token: generate_auth_jwt_token(&user.id.to_string(), &self.settings.jwt_secret)?,
+            token: generate_auth_jwt_token(&user.id, &self.settings.jwt_secret)?,
             user: user.into(),
         })
     }
 
     async fn me(
         &self,
-        auth_user_id: Uuid,
+        auth_user_id: UserId,
         organization_id: Option<OrganizationId>,
     ) -> StoreResult<Me> {
         let mut conn = self.get_conn().await?;
 
         let organizations: Vec<Organization> =
-            OrganizationRow::list_by_user_id(&mut conn, auth_user_id)
+            OrganizationRow::list_by_user_id(&mut conn, *auth_user_id)
                 .await
                 .map_err(Into::<Report<StoreError>>::into)
                 .map(|x| x.into_iter().map(Into::into).collect())?;
 
         let (user, current_organization_role) = if let Some(org_id) = organization_id {
             let user: UserWithRole =
-                UserRow::find_by_id_and_org_id(&mut conn, auth_user_id, org_id)
+                UserRow::find_by_id_and_org_id(&mut conn, *auth_user_id, org_id)
                     .await
                     .map_err(Into::<Report<StoreError>>::into)
                     .map(Into::into)?;
@@ -203,7 +207,7 @@ impl UserInterface for Store {
             let role = user.role;
             (user.into(), Some(role))
         } else {
-            let user: User = UserRow::find_by_id(&mut conn, auth_user_id)
+            let user: User = UserRow::find_by_id(&mut conn, *auth_user_id)
                 .await
                 .map_err(Into::<Report<StoreError>>::into)
                 .map(Into::into)?;
@@ -218,7 +222,11 @@ impl UserInterface for Store {
         })
     }
 
-    async fn update_user_details(&self, auth_user_id: Uuid, data: UpdateUser) -> StoreResult<User> {
+    async fn update_user_details(
+        &self,
+        auth_user_id: UserId,
+        data: UpdateUser,
+    ) -> StoreResult<User> {
         let mut conn = self.get_conn().await?;
 
         let patch = UserRowPatch {
@@ -240,9 +248,7 @@ impl UserInterface for Store {
         let _ = self
             .eventbus
             .publish(Event::user_updated(
-                Actor::User {
-                    id: UserId::from(auth_user_id),
-                },
+                Actor::User { id: auth_user_id },
                 auth_user_id,
                 data.department,
                 data.know_us_from,
@@ -252,7 +258,7 @@ impl UserInterface for Store {
         Ok(res)
     }
 
-    async fn mark_user_onboarded(&self, user_id: Uuid) -> StoreResult<()> {
+    async fn mark_user_onboarded(&self, user_id: UserId) -> StoreResult<()> {
         let mut conn = self.get_conn().await?;
 
         let patch = UserRowPatch {
@@ -273,12 +279,12 @@ impl UserInterface for Store {
 
     async fn find_user_by_id_and_organization(
         &self,
-        id: Uuid,
+        id: UserId,
         org_id: OrganizationId,
     ) -> StoreResult<UserWithRole> {
         let mut conn = self.get_conn().await?;
 
-        UserRow::find_by_id_and_org_id(&mut conn, id, org_id)
+        UserRow::find_by_id_and_org_id(&mut conn, *id, org_id)
             .await
             .map_err(Into::into)
             .map(Into::into)
@@ -286,12 +292,12 @@ impl UserInterface for Store {
 
     async fn find_user_by_id_and_tenant(
         &self,
-        id: Uuid,
+        id: UserId,
         tenant_id: TenantId,
     ) -> StoreResult<UserWithRole> {
         let mut conn = self.get_conn().await?;
 
-        UserRow::find_by_id_and_tenant_id(&mut conn, id, tenant_id)
+        UserRow::find_by_id_and_tenant_id(&mut conn, *id, tenant_id)
             .await
             .map_err(Into::into)
             .map(Into::into)
@@ -322,10 +328,10 @@ impl UserInterface for Store {
             .map(|x| x.into_iter().map(Into::into).collect())
     }
 
-    async fn _find_user_by_id(&self, id: Uuid) -> StoreResult<User> {
+    async fn _find_user_by_id(&self, id: UserId) -> StoreResult<User> {
         let mut conn = self.get_conn().await?;
 
-        UserRow::find_by_id(&mut conn, id)
+        UserRow::find_by_id(&mut conn, *id)
             .await
             .map_err(Into::into)
             .map(Into::into)
@@ -343,7 +349,7 @@ impl UserInterface for Store {
             let url_expires_in = chrono::Duration::minutes(10);
 
             let token = generate_jwt_token(
-                &user.id.to_string(),
+                &user.id.as_uuid().to_string(),
                 &self.settings.jwt_secret,
                 Utc::now() + url_expires_in,
                 Audience::ResetPassword,
@@ -399,7 +405,7 @@ impl UserInterface for Store {
             .into());
         }
 
-        if self.settings.skip_email_validation {
+        if !self.settings.mailer_enabled {
             return Ok(InitRegistrationResponse {
                 validation_required: false,
             });
@@ -535,10 +541,7 @@ impl UserInterface for Store {
                 }
 
                 Ok(LoginUserResponse {
-                    token: generate_auth_jwt_token(
-                        &user.id.to_string(),
-                        &self.settings.jwt_secret,
-                    )?,
+                    token: generate_auth_jwt_token(&user.id, &self.settings.jwt_secret)?,
                     user: user.into(),
                 })
             }
@@ -571,9 +574,9 @@ fn generate_jwt_token(
     Ok(SecretString::from(token))
 }
 
-fn generate_auth_jwt_token(user_id: &str, secret: &SecretString) -> StoreResult<SecretString> {
+fn generate_auth_jwt_token(user_id: &UserId, secret: &SecretString) -> StoreResult<SecretString> {
     generate_jwt_token(
-        user_id,
+        user_id.as_uuid().to_string().as_str(),
         secret,
         Utc::now() + chrono::Duration::weeks(1),
         Audience::WebApi,
@@ -609,7 +612,7 @@ async fn register_user_internal(
     async fn create_user(
         conn: &mut PgConn,
         req: &RegisterUserRequestInternal,
-    ) -> StoreResult<Uuid> {
+    ) -> StoreResult<UserId> {
         // Hash password
         let hashed_password = req
             .password
@@ -618,7 +621,7 @@ async fn register_user_internal(
             .transpose()?;
 
         let user_new = UserRowNew {
-            id: Uuid::now_v7(),
+            id: Uuid::now_v7().into(),
             email: req.email.clone(),
             password_hash: hashed_password,
         };
@@ -705,13 +708,13 @@ async fn register_user_internal(
         .publish(Event::user_created(None, user_id))
         .await;
 
-    let user: User = UserRow::find_by_id(&mut conn, user_id)
+    let user: User = UserRow::find_by_id(&mut conn, *user_id)
         .await
         .map_err(Into::<Report<StoreError>>::into)
         .map(Into::into)?;
 
     Ok(RegisterUserResponse {
-        token: generate_auth_jwt_token(&user_id.to_string(), &store.settings.jwt_secret)?,
+        token: generate_auth_jwt_token(&user_id, &store.settings.jwt_secret)?,
         user,
     })
 }

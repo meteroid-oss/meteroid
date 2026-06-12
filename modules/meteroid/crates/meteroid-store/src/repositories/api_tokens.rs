@@ -9,7 +9,7 @@ use argon2::{
     Argon2,
     password_hash::{PasswordHasher, SaltString, rand_core::OsRng},
 };
-use common_domain::ids::{BaseId, TenantId};
+use common_domain::ids::{ApiTokenId, BaseId, TenantId};
 use common_eventbus::Event;
 use diesel_async::scoped_futures::ScopedFutureExt;
 use diesel_models::api_tokens::{ApiTokenRow, ApiTokenRowNew, ApiTokenValidationRow};
@@ -17,18 +17,17 @@ use diesel_models::tenants::TenantRow;
 use error_stack::Report;
 use nanoid::nanoid;
 use tracing_log::log;
-use uuid::Uuid;
 
 #[async_trait::async_trait]
 pub trait ApiTokensInterface {
     async fn find_api_tokens_by_tenant_id(&self, tenant_id: TenantId)
     -> StoreResult<Vec<ApiToken>>;
 
-    async fn get_api_token_by_id(&self, id: &uuid::Uuid) -> StoreResult<ApiToken>;
+    async fn get_api_token_by_id(&self, id: &ApiTokenId) -> StoreResult<ApiToken>;
 
     async fn get_api_token_by_id_for_validation(
         &self,
-        id: &Uuid,
+        id: &ApiTokenId,
     ) -> StoreResult<ApiTokenValidation>;
 
     async fn insert_api_token(
@@ -40,7 +39,7 @@ pub trait ApiTokensInterface {
     async fn delete_api_token(
         &self,
         actor: Actor,
-        id: &Uuid,
+        id: &ApiTokenId,
         tenant_id: TenantId,
     ) -> StoreResult<()>;
 }
@@ -60,7 +59,7 @@ impl ApiTokensInterface for Store {
         Ok(api_tokens.into_iter().map(Into::into).collect())
     }
 
-    async fn get_api_token_by_id(&self, id: &Uuid) -> StoreResult<ApiToken> {
+    async fn get_api_token_by_id(&self, id: &ApiTokenId) -> StoreResult<ApiToken> {
         let mut conn = self.get_conn().await?;
 
         let api_token = ApiTokenRow::find_by_id(&mut conn, id)
@@ -72,7 +71,7 @@ impl ApiTokensInterface for Store {
 
     async fn get_api_token_by_id_for_validation(
         &self,
-        id: &Uuid,
+        id: &ApiTokenId,
     ) -> StoreResult<ApiTokenValidation> {
         let mut conn = self.get_conn().await?;
 
@@ -90,7 +89,7 @@ impl ApiTokensInterface for Store {
     ) -> StoreResult<(String, ApiToken)> {
         let mut conn = self.get_conn().await?;
 
-        let id = Uuid::now_v7();
+        let id = ApiTokenId::new();
 
         let tenant = TenantRow::find_by_id(&mut conn, entity.tenant_id)
             .await
@@ -154,7 +153,7 @@ impl ApiTokensInterface for Store {
                     let activity = Activity::new(
                         ActivityType::ApiTokenCreated,
                         EntityType::ApiToken,
-                        entity.id,
+                        entity.id.as_uuid(),
                     )
                     .with_metadata(serde_json::json!({
                         "name": entity.name,
@@ -179,7 +178,7 @@ impl ApiTokensInterface for Store {
             .publish(Event::api_token_created(
                 actor.clone(),
                 insertable_entity.id,
-                insertable_entity.tenant_id.as_uuid(),
+                insertable_entity.tenant_id,
             ))
             .await;
 
@@ -189,7 +188,7 @@ impl ApiTokensInterface for Store {
     async fn delete_api_token(
         &self,
         actor: Actor,
-        id: &Uuid,
+        id: &ApiTokenId,
         tenant_id: TenantId,
     ) -> StoreResult<()> {
         self.transaction(|conn| {
@@ -199,8 +198,11 @@ impl ApiTokensInterface for Store {
                     .await
                     .map_err(|err| StoreError::DatabaseError(err.error))?;
 
-                let activity =
-                    Activity::new(ActivityType::ApiTokenRevoked, EntityType::ApiToken, *id);
+                let activity = Activity::new(
+                    ActivityType::ApiTokenRevoked,
+                    EntityType::ApiToken,
+                    id.as_uuid(),
+                );
                 self.internal
                     .record_audit_tx(conn, tenant_id, actor, AuditInput::Activity(activity))
                     .await
@@ -211,11 +213,7 @@ impl ApiTokensInterface for Store {
 
         let _ = self
             .eventbus
-            .publish(Event::api_token_revoked(
-                actor.clone(),
-                *id,
-                tenant_id.as_uuid(),
-            ))
+            .publish(Event::api_token_revoked(actor.clone(), *id, tenant_id))
             .await;
 
         Ok(())

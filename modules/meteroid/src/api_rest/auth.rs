@@ -11,14 +11,13 @@ use http::{HeaderMap, Request};
 use tracing::{error, log};
 
 use crate::api_rest::error::{ErrorCode, RestErrorResponse};
-use common_domain::ids::{OrganizationId, TenantId};
+use common_domain::ids::{ApiTokenId, OrganizationId, TenantId};
 use common_grpc::middleware::server::auth::{
     AuthenticatedState, AuthorizedAsTenant, TenantActor, TenantEnv,
 };
 use meteroid_store::Store;
 use meteroid_store::errors::StoreError;
 use meteroid_store::repositories::api_tokens::ApiTokensInterface;
-use uuid::Uuid;
 
 pub async fn auth_middleware(
     State(store): State<Store>,
@@ -76,13 +75,13 @@ struct AuthStatus {
     result = true,
     size = 100,
     time = 120, // 2 min
-    key = "Uuid",
+    key = "ApiTokenId",
     convert = r#"{ *api_key_id }"#
 )]
 async fn validate_api_token_by_id_cached(
     store: &Store,
     validator: &ApiTokenValidator,
-    api_key_id: &Uuid,
+    api_key_id: &ApiTokenId,
 ) -> Result<(OrganizationId, TenantId, TenantEnv), AuthStatus> {
     let res = store
         .get_api_token_by_id_for_validation(api_key_id)
@@ -131,7 +130,10 @@ async fn validate_api_key(
         })?;
 
     let (validator, id) = ApiTokenValidator::parse_api_key(api_key)
-        .and_then(|v| v.extract_identifier().map(|id| (v, id)))
+        .and_then(|v| {
+            v.extract_identifier()
+                .map(|id| (v, ApiTokenId::from_const(id)))
+        })
         .map_err(|_| AuthStatus {
             status: StatusCode::UNAUTHORIZED,
             msg: Some("Invalid API key format".to_string()),

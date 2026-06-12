@@ -196,11 +196,7 @@ impl BillableMetricInterface for Store {
 
         let _ = self
             .eventbus
-            .publish(Event::billable_metric_created(
-                actor,
-                res.id.as_uuid(),
-                res.tenant_id.as_uuid(),
-            ))
+            .publish(Event::billable_metric_created(actor, res.id, res.tenant_id))
             .await;
 
         Ok(res)

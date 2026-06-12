@@ -1,14 +1,14 @@
 use chrono::NaiveDateTime;
-use uuid::Uuid;
 
 use crate::enums::OrganizationUserRole;
+use common_domain::ids::UserId;
 use diesel::{AsChangeset, Insertable, Queryable, Selectable};
 
 #[derive(Queryable, Debug, Selectable)]
 #[diesel(table_name = crate::schema::user)]
 #[diesel(check_for_backend(diesel::pg::Pg))]
 pub struct UserRow {
-    pub id: Uuid,
+    pub id: UserId,
     pub email: String,
     pub created_at: NaiveDateTime,
     pub archived_at: Option<NaiveDateTime>,
@@ -23,7 +23,7 @@ pub struct UserRow {
 #[diesel(table_name = crate::schema::user)]
 #[diesel(check_for_backend(diesel::pg::Pg))]
 pub struct UserWithRoleRow {
-    pub id: Uuid,
+    pub id: UserId,
     pub email: String,
     pub created_at: NaiveDateTime,
     pub archived_at: Option<NaiveDateTime>,
@@ -41,7 +41,7 @@ pub struct UserWithRoleRow {
 #[diesel(table_name = crate::schema::user)]
 #[diesel(check_for_backend(diesel::pg::Pg))]
 pub struct UserRowNew {
-    pub id: Uuid,
+    pub id: UserId,
     pub email: String,
     pub password_hash: Option<String>,
 }
@@ -50,7 +50,7 @@ pub struct UserRowNew {
 #[diesel(table_name = crate::schema::user)]
 #[diesel(check_for_backend(diesel::pg::Pg))]
 pub struct UserRowPatch {
-    pub id: Uuid,
+    pub id: UserId,
     pub first_name: Option<String>,
     pub last_name: Option<String>,
     pub department: Option<String>,

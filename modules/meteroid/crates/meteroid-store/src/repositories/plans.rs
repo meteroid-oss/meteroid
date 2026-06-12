@@ -481,8 +481,8 @@ impl PlansInterface for Store {
             .eventbus
             .publish(Event::plan_created_draft(
                 actor,
-                res.version.id.as_uuid(),
-                res.plan.tenant_id.as_uuid(),
+                res.version.id,
+                res.plan.tenant_id,
             ))
             .await;
 
@@ -984,8 +984,8 @@ impl PlansInterface for Store {
             .eventbus
             .publish(Event::plan_published_version(
                 actor,
-                plan_version_id.as_uuid(),
-                auth_tenant_id.as_uuid(),
+                plan_version_id,
+                auth_tenant_id,
             ))
             .await;
 
@@ -1050,8 +1050,8 @@ impl PlansInterface for Store {
             .eventbus
             .publish(Event::plan_discarded_version(
                 actor,
-                plan_version_id.as_uuid(),
-                auth_tenant_id.as_uuid(),
+                plan_version_id,
+                auth_tenant_id,
             ))
             .await;
 
@@ -1612,18 +1612,14 @@ impl PlansInterface for Store {
                 .eventbus
                 .publish(Event::plan_published_version(
                     typed_actor.clone(),
-                    res.id.as_uuid(),
-                    tenant_id.as_uuid(),
+                    res.id,
+                    tenant_id,
                 ))
                 .await;
         } else {
             let _ = self
                 .eventbus
-                .publish(Event::plan_created_draft(
-                    typed_actor,
-                    res.id.as_uuid(),
-                    tenant_id.as_uuid(),
-                ))
+                .publish(Event::plan_created_draft(typed_actor, res.id, tenant_id))
                 .await;
         }
 

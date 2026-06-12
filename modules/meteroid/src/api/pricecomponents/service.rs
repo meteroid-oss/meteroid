@@ -1,4 +1,4 @@
-use common_domain::ids::{BaseId, PlanVersionId, PriceComponentId, ProductId};
+use common_domain::ids::{PlanVersionId, PriceComponentId, ProductId};
 use common_grpc::middleware::server::auth::RequestExt;
 use meteroid_grpc::meteroid::api::components::v1::{
     CreatePriceComponentRequest, CreatePriceComponentResponse, EditPriceComponentRequest,
@@ -90,8 +90,8 @@ impl PriceComponentsService for PriceComponentServiceComponents {
             .eventbus
             .publish(Event::price_component_created(
                 actor,
-                component.id.as_uuid(),
-                tenant_id.as_uuid(),
+                component.id,
+                tenant_id,
             ))
             .await;
 
@@ -164,8 +164,8 @@ impl PriceComponentsService for PriceComponentServiceComponents {
             .eventbus
             .publish(Event::price_component_edited(
                 actor,
-                component.id.as_uuid(),
-                tenant_id.as_uuid(),
+                component.id,
+                tenant_id,
             ))
             .await;
 
@@ -200,8 +200,8 @@ impl PriceComponentsService for PriceComponentServiceComponents {
             .eventbus
             .publish(Event::price_component_removed(
                 actor,
-                price_component_id.as_uuid(),
-                tenant_id.as_uuid(),
+                price_component_id,
+                tenant_id,
             ))
             .await;
 

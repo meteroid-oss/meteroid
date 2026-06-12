@@ -1,7 +1,7 @@
 use crate::api_tokens::{ApiTokenRow, ApiTokenRowNew, ApiTokenValidationRow};
 use crate::errors::IntoDbResult;
 use crate::{DbResult, PgConn};
-use common_domain::ids::TenantId;
+use common_domain::ids::{ApiTokenId, TenantId};
 use diesel::{ExpressionMethods, JoinOnDsl, QueryDsl, SelectableHelper, debug_query};
 use error_stack::ResultExt;
 
@@ -23,7 +23,7 @@ impl ApiTokenRowNew {
 }
 
 impl ApiTokenRow {
-    pub async fn find_by_id(conn: &mut PgConn, param_id: &uuid::Uuid) -> DbResult<ApiTokenRow> {
+    pub async fn find_by_id(conn: &mut PgConn, param_id: &ApiTokenId) -> DbResult<ApiTokenRow> {
         use crate::schema::api_token::dsl::{api_token, id};
         use diesel_async::RunQueryDsl;
 
@@ -41,7 +41,7 @@ impl ApiTokenRow {
     pub async fn find_by_ids(
         conn: &mut PgConn,
         param_tenant_id: TenantId,
-        ids: &[uuid::Uuid],
+        ids: &[ApiTokenId],
     ) -> DbResult<Vec<ApiTokenRow>> {
         use crate::schema::api_token::dsl::{api_token, id, tenant_id};
         use diesel_async::RunQueryDsl;
@@ -78,7 +78,7 @@ impl ApiTokenRow {
 
     pub async fn delete_by_id(
         conn: &mut PgConn,
-        param_id: &uuid::Uuid,
+        param_id: &ApiTokenId,
         param_tenant_id: TenantId,
     ) -> DbResult<usize> {
         use crate::schema::api_token::dsl::{api_token, id, tenant_id};
@@ -103,7 +103,7 @@ impl ApiTokenRow {
 impl ApiTokenValidationRow {
     pub async fn find_by_id(
         conn: &mut PgConn,
-        api_token_id: &uuid::Uuid,
+        api_token_id: &ApiTokenId,
     ) -> DbResult<ApiTokenValidationRow> {
         use crate::schema::api_token::dsl as at_dsl;
         use crate::schema::tenant::dsl as t_dsl;

@@ -6,7 +6,8 @@ use crate::store::{PgConn, Store, StoreInternal};
 
 use common_domain::actor::ActorType;
 use common_domain::ids::{
-    AliasOr, BaseId, CustomerId, EntityActivityId, StoredDocumentId, SubscriptionId, TenantId,
+    AliasOr, ApiTokenId, BaseId, CustomerId, EntityActivityId, StoredDocumentId, SubscriptionId,
+    TenantId,
 };
 use diesel_async::scoped_futures::ScopedFutureExt;
 use diesel_models::api_tokens::ApiTokenRow;
@@ -260,16 +261,16 @@ impl EntityActivityInterface for Store {
                 .await
                 .map_err(Into::<error_stack::Report<StoreError>>::into)?;
             for u in &rows {
-                out.insert((ActorType::User, u.id), user_display(u));
+                out.insert((ActorType::User, *u.id), user_display(u));
             }
         }
         if !token_ids.is_empty() {
-            let ids: Vec<Uuid> = token_ids.into_iter().collect();
+            let ids: Vec<ApiTokenId> = token_ids.into_iter().map(Into::into).collect();
             let rows = ApiTokenRow::find_by_ids(&mut conn, tenant_id, &ids)
                 .await
                 .map_err(Into::<error_stack::Report<StoreError>>::into)?;
             for t in &rows {
-                out.insert((ActorType::ApiToken, t.id), t.name.clone());
+                out.insert((ActorType::ApiToken, *t.id), t.name.clone());
             }
         }
         if !customer_ids.is_empty() {
