@@ -167,7 +167,9 @@ strum = { version = "0.28", default-features = false }
 tap = "1.0.1"
 testcontainers = { version = "0.27.1", features = ["watchdog"] }
 thiserror = "2.0.3"
-time = "0.3.36"
+# 0.3.47 fixes RUSTSEC-2026-0009; 0.3.48 reintroduces an E0119 coherence break
+# with typst-library 0.14.2 under Rust 1.94, so cap below it until typst is upgraded.
+time = ">=0.3.47, <0.3.48"
 tokio = { version = "1.33.0", default-features = false }
 tokio-postgres = { version = "0.7.7", default-features = false }
 tokio-postgres-rustls = "0.13.0"
