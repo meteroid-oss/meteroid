@@ -36,6 +36,7 @@ pub struct InvoicingEntityRow {
     pub direct_debit_provider_id: Option<ConnectorId>,
     pub bank_account_id: Option<BankAccountId>,
     pub tax_resolver: TaxResolverEnum,
+    pub consolidate_recurring_invoices: bool,
 }
 
 #[derive(Debug, AsChangeset)]
@@ -60,6 +61,7 @@ pub struct InvoicingEntityRowPatch {
     pub country: Option<CountryCode>,
     pub accounting_currency: Option<String>,
     pub tax_resolver: Option<TaxResolverEnum>,
+    pub consolidate_recurring_invoices: Option<bool>,
 }
 
 #[derive(Debug, AsChangeset)]

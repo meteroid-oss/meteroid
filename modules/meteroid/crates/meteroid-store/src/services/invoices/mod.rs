@@ -1,4 +1,5 @@
 mod bill;
+mod consolidate;
 mod draft;
 mod finalize;
 mod issue;

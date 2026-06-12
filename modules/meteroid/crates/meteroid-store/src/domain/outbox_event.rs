@@ -36,6 +36,9 @@ pub enum OutboxEvent {
     InvoiceFinalized(Box<InvoiceEvent>),
     InvoicePaid(Box<InvoiceEvent>),
     InvoiceVoided(Box<InvoiceEvent>),
+    /// A per-subscription draft was merged into a consolidated invoice (the child's
+    /// standalone lifecycle ends here; the parent is finalized/charged/paid).
+    InvoiceConsolidated(Box<InvoiceEvent>),
     // only triggered at finalization. Other pdfs (other lang etc) do not trigger this.
     InvoiceAccountingPdfGenerated(Box<InvoicePdfGeneratedEvent>),
     CreditNoteCreated(Box<CreditNoteEvent>),
@@ -70,6 +73,7 @@ pub enum EventType {
     InvoiceFinalized,
     InvoicePaid,
     InvoiceVoided,
+    InvoiceConsolidated,
     InvoiceAccountingPdfGenerated,
     CreditNoteCreated,
     CreditNoteFinalized,
@@ -106,6 +110,7 @@ impl OutboxEvent {
             OutboxEvent::InvoiceFinalized(event) => event.id,
             OutboxEvent::InvoicePaid(event) => event.id,
             OutboxEvent::InvoiceVoided(event) => event.id,
+            OutboxEvent::InvoiceConsolidated(event) => event.id,
             OutboxEvent::InvoiceAccountingPdfGenerated(event) => event.id,
             OutboxEvent::CreditNoteCreated(event) => event.id,
             OutboxEvent::CreditNoteFinalized(event) => event.id,
@@ -140,6 +145,7 @@ impl OutboxEvent {
             OutboxEvent::InvoiceFinalized(event) => event.tenant_id,
             OutboxEvent::InvoicePaid(event) => event.tenant_id,
             OutboxEvent::InvoiceVoided(event) => event.tenant_id,
+            OutboxEvent::InvoiceConsolidated(event) => event.tenant_id,
             OutboxEvent::InvoiceAccountingPdfGenerated(event) => event.tenant_id,
             OutboxEvent::CreditNoteCreated(event) => event.tenant_id,
             OutboxEvent::CreditNoteFinalized(event) => event.tenant_id,
@@ -174,6 +180,7 @@ impl OutboxEvent {
             OutboxEvent::InvoiceFinalized(event) => event.invoice_id.as_uuid(),
             OutboxEvent::InvoicePaid(event) => event.invoice_id.as_uuid(),
             OutboxEvent::InvoiceVoided(event) => event.invoice_id.as_uuid(),
+            OutboxEvent::InvoiceConsolidated(event) => event.invoice_id.as_uuid(),
             OutboxEvent::InvoiceAccountingPdfGenerated(event) => event.invoice_id.as_uuid(),
             OutboxEvent::CreditNoteCreated(event) => event.credit_note_id.as_uuid(),
             OutboxEvent::CreditNoteFinalized(event) => event.credit_note_id.as_uuid(),
@@ -208,6 +215,7 @@ impl OutboxEvent {
             OutboxEvent::InvoiceFinalized(_) => "Invoice".to_string(),
             OutboxEvent::InvoicePaid(_) => "Invoice".to_string(),
             OutboxEvent::InvoiceVoided(_) => "Invoice".to_string(),
+            OutboxEvent::InvoiceConsolidated(_) => "Invoice".to_string(),
             OutboxEvent::InvoiceAccountingPdfGenerated(_) => "Invoice".to_string(),
             OutboxEvent::CreditNoteCreated(_) => "CreditNote".to_string(),
             OutboxEvent::CreditNoteFinalized(_) => "CreditNote".to_string(),
@@ -242,6 +250,7 @@ impl OutboxEvent {
             OutboxEvent::InvoiceFinalized(_) => EventType::InvoiceFinalized,
             OutboxEvent::InvoicePaid(_) => EventType::InvoicePaid,
             OutboxEvent::InvoiceVoided(_) => EventType::InvoiceVoided,
+            OutboxEvent::InvoiceConsolidated(_) => EventType::InvoiceConsolidated,
             OutboxEvent::InvoiceAccountingPdfGenerated(_) => {
                 EventType::InvoiceAccountingPdfGenerated
             }
@@ -291,6 +300,10 @@ impl OutboxEvent {
 
     pub fn invoice_paid(event: InvoiceEvent) -> OutboxEvent {
         OutboxEvent::InvoicePaid(Box::new(event))
+    }
+
+    pub fn invoice_consolidated(event: InvoiceEvent) -> OutboxEvent {
+        OutboxEvent::InvoiceConsolidated(Box::new(event))
     }
 
     pub fn invoice_voided(event: InvoiceEvent) -> OutboxEvent {
@@ -521,6 +534,8 @@ pub struct InvoiceEvent {
     pub amount_due: i64,
     pub finalized_at: Option<NaiveDateTime>,
     pub parent_invoice_id: Option<InvoiceId>,
+    /// Set on a child draft merged into a consolidated invoice; references that parent.
+    pub consolidated_into_invoice_id: Option<InvoiceId>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]

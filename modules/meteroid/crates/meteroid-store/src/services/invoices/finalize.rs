@@ -48,6 +48,9 @@ impl Services {
 
         let invoice: Invoice = invoice_lock.invoice.try_into()?;
 
+        // A consolidated child is billed via its parent; finalizing it too would double-bill.
+        invoice.ensure_not_consolidated_child("finalize")?;
+
         let patch = self
             .build_invoice_lines_patch(
                 conn,

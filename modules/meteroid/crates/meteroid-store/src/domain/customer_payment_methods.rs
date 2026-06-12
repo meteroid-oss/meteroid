@@ -66,6 +66,7 @@ pub struct SetupIntent {
 //     customer_payment_method_id: Option<CustomerPaymentMethodId>,
 // }
 
+#[derive(Debug, Clone, PartialEq, Eq)]
 pub enum ResolvedPaymentMethod {
     CustomerPaymentMethod(CustomerPaymentMethodId),
     BankTransfer(BankAccountId),

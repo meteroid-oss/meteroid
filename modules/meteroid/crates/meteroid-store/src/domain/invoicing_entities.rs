@@ -50,6 +50,9 @@ pub struct InvoicingEntity {
     pub bank_account_id: Option<BankAccountId>,
     #[map(~.into())]
     pub tax_resolver: TaxResolverEnum,
+    /// Opt-in: when true, this entity merges same-day eligible recurring drafts for a
+    /// customer into one consolidated invoice. Off by default.
+    pub consolidate_recurring_invoices: bool,
 }
 
 impl InvoicingEntity {
@@ -85,6 +88,7 @@ pub struct InvoicingEntityNew {
     pub city: Option<String>,
     pub vat_number: Option<String>,
     pub tax_resolver: TaxResolverEnum,
+    pub consolidate_recurring_invoices: Option<bool>,
 }
 
 #[derive(Clone, Debug, o2o, Default)]
@@ -109,6 +113,7 @@ pub struct InvoicingEntityPatch {
     pub country: Option<CountryCode>,
     #[map(~.map(|x| x.into()))]
     pub tax_resolver: Option<TaxResolverEnum>,
+    pub consolidate_recurring_invoices: Option<bool>,
 }
 
 #[derive(Clone, Debug, o2o, Default)]

@@ -8578,6 +8578,7 @@
           "invoice.finalized",
           "invoice.paid",
           "invoice.voided",
+          "invoice.consolidated",
           "quote.accepted",
           "quote.converted",
           "credit_note.created",
@@ -9213,6 +9214,17 @@
           "created_at"
         ],
         "properties": {
+          "consolidated_into_invoice_id": {
+            "oneOf": [
+              {
+                "type": "null"
+              },
+              {
+                "$ref": "#/components/schemas/InvoiceId",
+                "description": "Set on `invoice.consolidated`: the parent invoice this one was merged into."
+              }
+            ]
+          },
           "created_at": {
             "type": "string",
             "format": "date-time"
@@ -13391,6 +13403,43 @@
                 ],
                 "phone": "+1-555-0123",
                 "currency": "USD",
+                "timestamp": "1970-01-01T00:00:00.000Z"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Webhook received successfully"
+          }
+        }
+      }
+    },
+    "invoice.consolidated": {
+      "post": {
+        "summary": "invoice.consolidated webhook",
+        "description": "An invoice was merged into a consolidated invoice and is superseded by its parent",
+        "operationId": "webhook_invoice_consolidated",
+        "tags": [
+          "webhooks"
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/InvoiceEvent"
+              },
+              "example": {
+                "id": "evt_7n42DGM5Tflk9n8mt7Fhc7",
+                "type": "invoice.consolidated",
+                "invoice_id": "inv_7n42DGM5Tflk9n8mt7Fhc7",
+                "customer_id": "cus_7n42DGM5Tflk9n8mt7Fhc7",
+                "status": "DRAFT",
+                "currency": "EUR",
+                "total": 10000,
+                "tax_amount": 2000,
+                "created_at": "1970-01-01T00:00:00.000Z",
                 "timestamp": "1970-01-01T00:00:00.000Z"
               }
             }

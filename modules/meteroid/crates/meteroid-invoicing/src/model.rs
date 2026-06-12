@@ -121,6 +121,9 @@ pub struct InvoiceLine {
     pub start_date: chrono::NaiveDate,
     pub end_date: chrono::NaiveDate,
     pub sub_lines: Vec<InvoiceSubLine>,
+    /// Optional grouping heading (e.g. plan name) used to group lines on the rendered invoice,
+    /// typically set for consolidated invoices that merge several subscriptions.
+    pub group_label: Option<String>,
 }
 
 pub struct InvoiceSubLine {

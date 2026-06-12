@@ -290,6 +290,7 @@ impl Modify for WebhooksAddon {
                             total: 10000,
                             tax_amount: 2000,
                             created_at: Default::default(),
+                            consolidated_into_invoice_id: None,
                         },
                         timestamp: Default::default(),
                     };

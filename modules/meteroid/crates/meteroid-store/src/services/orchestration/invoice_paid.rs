@@ -107,8 +107,8 @@ impl Services {
             .await
     }
 
-    /// Activate subscription when invoice is paid.
-    /// Handles TrialExpired → Active transition for OnCheckout subscriptions.
+    /// Activate subscription(s) when invoice is paid. A consolidated parent has no
+    /// subscription_id of its own, so we activate each merged member.
     async fn activate_subscription_on_invoice_paid(
         &self,
         tenant_id: TenantId,
@@ -116,11 +116,31 @@ impl Services {
     ) -> StoreResult<()> {
         let invoice = self.store.get_invoice_by_id(tenant_id, invoice_id).await?;
 
-        let subscription_id = match invoice.subscription_id {
-            Some(id) => id,
-            None => return Ok(()), // No subscription, nothing to activate
+        let subscription_ids: Vec<_> = match invoice.subscription_id {
+            Some(id) => vec![id],
+            None => self
+                .store
+                .list_consolidated_children(tenant_id, invoice_id)
+                .await?
+                .into_iter()
+                .filter_map(|child| child.subscription_id)
+                .collect(),
         };
 
+        for subscription_id in subscription_ids {
+            self.activate_trial_expired_subscription(tenant_id, subscription_id)
+                .await?;
+        }
+
+        Ok(())
+    }
+
+    /// Transition a single subscription from TrialExpired → Active (no-op for other states).
+    async fn activate_trial_expired_subscription(
+        &self,
+        tenant_id: TenantId,
+        subscription_id: common_domain::ids::SubscriptionId,
+    ) -> StoreResult<()> {
         self.store
             .transaction(|conn| {
                 async move {
@@ -128,16 +148,13 @@ impl Services {
                         SubscriptionRow::get_subscription_by_id(conn, &tenant_id, subscription_id)
                             .await?;
 
-                    // Only activate if TrialExpired (waiting for payment to activate)
                     if subscription.subscription.status
                         != diesel_models::enums::SubscriptionStatusEnum::TrialExpired
                     {
                         return Ok(());
                     }
 
-                    // Trial expired subscription paid - transition to Active
                     let period_start = subscription.subscription.current_period_start;
-
                     let range = calculate_advance_period_range(
                         period_start,
                         subscription.subscription.billing_day_anchor as u32,

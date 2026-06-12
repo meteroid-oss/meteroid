@@ -165,6 +165,7 @@ fn create_minimal_invoice() -> Invoice {
             start_date,
             end_date,
             sub_lines: vec![],
+            group_label: None,
         }],
         coupons: vec![],
         payment_status: Some(PaymentStatus::Unpaid),
@@ -279,6 +280,7 @@ fn create_full_invoice() -> Invoice {
                         unit_price: Money::from_major(20, eur),
                     },
                 ],
+                group_label: None,
             },
             InvoiceLine {
                 name: "Support Package".to_string(),
@@ -290,6 +292,7 @@ fn create_full_invoice() -> Invoice {
                 start_date,
                 end_date,
                 sub_lines: vec![],
+                group_label: None,
             },
         ],
         coupons: vec![Coupon {

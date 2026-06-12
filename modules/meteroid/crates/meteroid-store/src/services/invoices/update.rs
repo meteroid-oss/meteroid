@@ -55,6 +55,7 @@ impl Services {
                 "Can only preview edits for draft invoices".into(),
             ));
         }
+        invoice.ensure_not_consolidated_child("edit")?;
 
         let updated_invoice = self
             .prepare_invoice_update(invoice, tenant_id, params)
@@ -78,6 +79,7 @@ impl Services {
                 "Can only edit draft invoices".into(),
             ));
         }
+        invoice.ensure_not_consolidated_child("edit")?;
 
         let invoice = self
             .prepare_invoice_update(invoice, tenant_id, params)

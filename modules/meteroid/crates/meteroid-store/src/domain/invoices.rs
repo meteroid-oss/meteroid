@@ -87,11 +87,31 @@ pub struct Invoice {
     pub marked_as_uncollectible_at: Option<NaiveDateTime>,
     pub invoicing_entity_id: InvoicingEntityId,
     pub parent_invoice_id: Option<InvoiceId>,
+    /// Set on a per-subscription draft that has been merged into a consolidated invoice.
+    /// Such a draft is superseded: it is never finalized or charged on its own.
+    pub consolidated_into_invoice_id: Option<InvoiceId>,
 }
 
 impl Invoice {
     pub fn can_edit(&self) -> bool {
         self.status == InvoiceStatusEnum::Draft
+    }
+
+    /// True when this draft has been merged into a consolidated invoice and must not be
+    /// finalized or charged independently.
+    pub fn is_consolidated_child(&self) -> bool {
+        self.consolidated_into_invoice_id.is_some()
+    }
+
+    /// Rejects operating on a consolidated child independently of its parent. `operation` names the
+    /// attempted action (e.g. "void"), used in the error message.
+    pub fn ensure_not_consolidated_child(&self, operation: &str) -> Result<(), StoreError> {
+        if self.is_consolidated_child() {
+            return Err(StoreError::InvalidArgument(format!(
+                "Cannot {operation} an invoice merged into a consolidated parent"
+            )));
+        }
+        Ok(())
     }
 }
 
@@ -168,6 +188,7 @@ pub struct InvoiceNew {
     pub manual: bool,
     pub invoicing_entity_id: InvoicingEntityId,
     pub parent_invoice_id: Option<InvoiceId>,
+    pub consolidated_into_invoice_id: Option<InvoiceId>,
 }
 
 #[derive(Debug, o2o)]
@@ -337,6 +358,7 @@ impl From<InvoiceNew> for Invoice {
             marked_as_uncollectible_at: None,
             invoicing_entity_id: value.invoicing_entity_id,
             parent_invoice_id: value.parent_invoice_id,
+            consolidated_into_invoice_id: value.consolidated_into_invoice_id,
         }
     }
 }

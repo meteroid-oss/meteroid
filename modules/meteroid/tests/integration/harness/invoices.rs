@@ -1,11 +1,15 @@
 //! Invoice test helpers.
 
-use common_domain::ids::{InvoiceId, SubscriptionId};
-use meteroid_store::domain::{DetailedInvoice, Invoice, PaginationRequest};
-use meteroid_store::repositories::InvoiceInterface;
+use common_domain::ids::{CustomerId, InvoiceId, SubscriptionId, UserId};
+use meteroid_store::StoreResult;
+use meteroid_store::domain::customers::CustomerTopUpBalance;
+use meteroid_store::domain::entity_activity::Actor;
+use meteroid_store::domain::{DetailedInvoice, Invoice, InvoicingEntityPatch, PaginationRequest};
+use meteroid_store::repositories::invoicing_entities::InvoicingEntityInterface;
 use meteroid_store::repositories::payment_transactions::PaymentTransactionInterface;
+use meteroid_store::repositories::{CustomersInterface, InvoiceInterface};
 
-use crate::data::ids::TENANT_ID;
+use crate::data::ids::{INVOICING_ENTITY_ID, TENANT_ID, USER_ID};
 
 use super::TestEnv;
 
@@ -31,6 +35,102 @@ impl TestEnv {
             .into_iter()
             .map(|i| i.invoice)
             .collect()
+    }
+
+    /// Get all (listed) invoices for a customer. Like the product UI, this excludes
+    /// consolidated child drafts that have been merged into a parent invoice.
+    pub async fn get_customer_invoices(&self, customer_id: CustomerId) -> Vec<Invoice> {
+        self.store()
+            .list_invoices(
+                TENANT_ID,
+                Some(customer_id),
+                None,
+                None,
+                None,
+                Some("created_at.asc".to_string()),
+                PaginationRequest {
+                    page: 0,
+                    per_page: None,
+                },
+            )
+            .await
+            .expect("Failed to list invoices")
+            .items
+            .into_iter()
+            .map(|i| i.invoice)
+            .collect()
+    }
+
+    /// Enable (or disable) invoice consolidation on the test tenant's invoicing entity.
+    pub async fn set_consolidate_recurring_invoices(&self, enabled: bool) {
+        self.store()
+            .patch_invoicing_entity(
+                Actor::User {
+                    id: UserId::from(USER_ID),
+                },
+                InvoicingEntityPatch {
+                    id: INVOICING_ENTITY_ID,
+                    consolidate_recurring_invoices: Some(enabled),
+                    ..Default::default()
+                },
+                TENANT_ID,
+            )
+            .await
+            .expect("Failed to toggle consolidation flag");
+    }
+
+    /// Set the consolidation flag together with a grace period on the test invoicing entity.
+    pub async fn set_consolidate_and_grace(&self, enabled: bool, grace_period_hours: i32) {
+        self.store()
+            .patch_invoicing_entity(
+                Actor::User {
+                    id: UserId::from(USER_ID),
+                },
+                InvoicingEntityPatch {
+                    id: INVOICING_ENTITY_ID,
+                    consolidate_recurring_invoices: Some(enabled),
+                    grace_period_hours: Some(grace_period_hours),
+                    ..Default::default()
+                },
+                TENANT_ID,
+            )
+            .await
+            .expect("Failed to set consolidation + grace");
+    }
+
+    /// Get the per-subscription child invoices merged into a consolidated parent invoice.
+    pub async fn get_consolidated_children(&self, parent_invoice_id: InvoiceId) -> Vec<Invoice> {
+        self.store()
+            .list_consolidated_children(TENANT_ID, parent_invoice_id)
+            .await
+            .expect("Failed to list consolidated children")
+    }
+
+    /// Add prepaid credit (in the customer's currency) to a customer's balance.
+    pub async fn top_up_balance(&self, customer_id: CustomerId, cents: i64) {
+        self.store()
+            .top_up_customer_balance(CustomerTopUpBalance {
+                created_by: USER_ID,
+                tenant_id: TENANT_ID,
+                customer_id,
+                cents,
+                notes: None,
+            })
+            .await
+            .expect("Failed to top up customer balance");
+    }
+
+    /// Attempt to void an invoice, returning the raw result so callers can assert success/failure.
+    pub async fn try_void_invoice(&self, invoice_id: InvoiceId) -> StoreResult<DetailedInvoice> {
+        self.store()
+            .void_invoice(
+                Actor::User {
+                    id: UserId::from(USER_ID),
+                },
+                invoice_id,
+                TENANT_ID,
+            )
+            .await
     }
 
     /// Get detailed invoice including transactions.

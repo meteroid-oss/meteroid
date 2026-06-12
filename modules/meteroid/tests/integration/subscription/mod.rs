@@ -2,6 +2,7 @@ mod activation;
 mod amendment;
 mod checkout;
 mod checkout_session;
+mod consolidation;
 mod coupons;
 mod lifecycle;
 mod migration;

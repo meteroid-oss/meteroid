@@ -43,6 +43,14 @@ impl Services {
                         )));
                     }
 
+                    // A consolidated child is billed via its parent; payments belong on the parent.
+                    if invoice.invoice.consolidated_into_invoice_id.is_some() {
+                        return Err(Report::new(StoreError::InvalidArgument(
+                            "Cannot add a payment to an invoice merged into a consolidated parent"
+                                .to_string(),
+                        )));
+                    }
+
                     if amount <= Decimal::ZERO {
                         return Err(Report::new(StoreError::InvalidArgument(
                             "Payment amount must be positive".to_string(),
@@ -139,6 +147,14 @@ impl Services {
                     if invoice.invoice.status != InvoiceStatusEnum::Finalized {
                         return Err(Report::new(StoreError::InvalidArgument(
                             "Invoice must be in Finalized status to mark as paid".to_string(),
+                        )));
+                    }
+
+                    // A consolidated child is billed via its parent; mark the parent paid instead.
+                    if invoice.invoice.consolidated_into_invoice_id.is_some() {
+                        return Err(Report::new(StoreError::InvalidArgument(
+                            "Cannot mark an invoice merged into a consolidated parent as paid"
+                                .to_string(),
                         )));
                     }
 

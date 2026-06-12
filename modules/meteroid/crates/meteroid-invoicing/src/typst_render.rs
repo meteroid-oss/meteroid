@@ -155,6 +155,7 @@ pub struct TypstInvoiceLine {
     pub start_date: String,
     pub end_date: String,
     pub sub_lines: Vec<TypstInvoiceSubLine>,
+    pub group_label: Option<String>,
 }
 
 impl From<&InvoiceLine> for TypstInvoiceLine {
@@ -171,6 +172,7 @@ impl From<&InvoiceLine> for TypstInvoiceLine {
             subtotal: line.subtotal.amount().to_f64().unwrap_or(0.0),
             start_date,
             end_date,
+            group_label: line.group_label.clone(),
             sub_lines: {
                 let mut sub_lines = Vec::with_capacity(line.sub_lines.len());
                 for sub_line in &line.sub_lines {

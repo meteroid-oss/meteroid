@@ -58,6 +58,7 @@ pub struct InvoiceRow {
     pub marked_as_uncollectible_at: Option<NaiveDateTime>,
     pub invoicing_entity_id: InvoicingEntityId,
     pub parent_invoice_id: Option<InvoiceId>,
+    pub consolidated_into_invoice_id: Option<InvoiceId>,
 }
 
 #[derive(Debug, AsChangeset)]
@@ -133,6 +134,7 @@ pub struct InvoiceRowNew {
     pub manual: bool,
     pub invoicing_entity_id: InvoicingEntityId,
     pub parent_invoice_id: Option<InvoiceId>,
+    pub consolidated_into_invoice_id: Option<InvoiceId>,
 }
 
 #[derive(Debug, Queryable, Selectable)]

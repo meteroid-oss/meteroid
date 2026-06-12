@@ -732,6 +732,7 @@ diesel::table! {
         marked_as_uncollectible_at -> Nullable<Timestamp>,
         invoicing_entity_id -> Uuid,
         parent_invoice_id -> Nullable<Uuid>,
+        consolidated_into_invoice_id -> Nullable<Uuid>,
     }
 }
 
@@ -767,6 +768,7 @@ diesel::table! {
         bank_account_id -> Nullable<Uuid>,
         direct_debit_provider_id -> Nullable<Uuid>,
         tax_resolver -> TaxResolverEnum,
+        consolidate_recurring_invoices -> Bool,
     }
 }
 

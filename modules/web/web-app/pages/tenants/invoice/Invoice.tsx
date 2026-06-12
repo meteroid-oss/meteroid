@@ -456,8 +456,21 @@ export const InvoiceView: React.FC<Props & { invoiceId: string }> = ({ invoice, 
         <Flex direction="column" className="gap-2 p-6 border-b border-border">
           <div className="flex justify-between items-center">
             <div className="flex items-center gap-3">
-              <InvoiceStatusBadge status={invoice.status} />
-              <div className="text-lg font-medium">Invoice {invoice.invoiceNumber}</div>
+              <InvoiceStatusBadge
+                status={invoice.status}
+                consolidatedInto={invoice.consolidatedIntoInvoiceId}
+              />
+              {invoice.consolidatedIntoInvoiceId ? (
+                <Link
+                  to={`${basePath}/invoices/${invoice.consolidatedIntoInvoiceId}`}
+                  className="flex items-center gap-1 text-lg font-medium hover:underline"
+                >
+                  Merged into {invoice.consolidatedIntoInvoiceNumber ?? 'consolidated invoice'}
+                  <ExternalLink size={15} />
+                </Link>
+              ) : (
+                <div className="text-lg font-medium">Invoice {invoice.invoiceNumber}</div>
+              )}
               {invoice.parentInvoiceId && (
                 <Link
                   to={`${basePath}/invoices/${invoice.parentInvoiceId}`}
@@ -475,6 +488,7 @@ export const InvoiceView: React.FC<Props & { invoiceId: string }> = ({ invoice, 
                 </Link>
               )}
             </div>
+            {!invoice.consolidatedIntoInvoiceId && (
             <DropdownMenu>
               <DropdownMenuTrigger asChild>
                 <Button variant="secondary" size="sm" hasIcon>
@@ -695,7 +709,25 @@ export const InvoiceView: React.FC<Props & { invoiceId: string }> = ({ invoice, 
                 )}
               </DropdownMenuContent>
             </DropdownMenu>
+            )}
           </div>
+
+          {invoice.consolidatedIntoInvoiceId && (
+            <Link
+              to={`${basePath}/invoices/${invoice.consolidatedIntoInvoiceId}`}
+              className="flex items-center gap-2 rounded-md border border-border bg-muted/40 px-3 py-2 text-[13px] text-muted-foreground hover:text-foreground"
+            >
+              <ExternalLink size={14} />
+              <span>
+                This invoice was consolidated into{' '}
+                <span className="font-medium">
+                  {invoice.consolidatedIntoInvoiceNumber ?? 'a single invoice'}
+                </span>
+                . It is not charged or sent on its own — open the consolidated invoice to view or
+                pay.
+              </span>
+            </Link>
+          )}
 
           <div className="text-3xl font-bold">
             {formatCurrency(Number(invoice.total) || 0, invoice.currency)}
@@ -718,6 +750,19 @@ export const InvoiceView: React.FC<Props & { invoiceId: string }> = ({ invoice, 
                 </Link>
               }
             />
+            {invoice.subscriptionId && (
+              <FlexDetails
+                title="Subscription"
+                value={
+                  <Link
+                    to={`${basePath}/subscriptions/${invoice.subscriptionId}`}
+                    className="text-[13px] text-brand hover:underline"
+                  >
+                    View subscription
+                  </Link>
+                }
+              />
+            )}
             <FlexDetails title="Invoice date" value={parseAndFormatDate(invoice.invoiceDate)} />
             <FlexDetails title="Due date" value={parseAndFormatDateOptional(invoice.dueAt)} />
             {invoice.purchaseOrder && (
@@ -873,6 +918,57 @@ export const InvoiceView: React.FC<Props & { invoiceId: string }> = ({ invoice, 
             </>
           )}
 
+          {invoice.consolidatedChildren.length > 0 && (
+            <>
+              <Separator className="-my-3" />
+              <Flex direction="column" className="gap-2 p-6">
+                <div className="text-[15px] font-medium">
+                  Consolidated from {invoice.consolidatedChildren.length} subscriptions
+                </div>
+                <div className="text-[12px] text-muted-foreground">
+                  This invoice merges the same-day subscription renewals below into a single charge.
+                </div>
+                <div className="space-y-2">
+                  {invoice.consolidatedChildren.map(child => (
+                    <div
+                      key={child.id}
+                      className="flex items-center justify-between gap-3 p-2 rounded-md hover:bg-muted/50 transition-colors"
+                    >
+                      <div className="flex min-w-0 items-center gap-3">
+                        <FileText size={14} className="shrink-0 text-muted-foreground" />
+                        {child.subscriptionId ? (
+                          <Link
+                            to={`${basePath}/subscriptions/${child.subscriptionId}`}
+                            className="truncate text-[13px] font-medium text-brand hover:underline"
+                          >
+                            {child.planName ?? 'Subscription'}
+                          </Link>
+                        ) : (
+                          <div className="truncate text-[13px] font-medium">
+                            {child.planName ?? 'Subscription'}
+                          </div>
+                        )}
+                      </div>
+                      <div className="flex shrink-0 items-center gap-3">
+                        <span className="text-[13px] font-medium">
+                          {formatCurrency(Number(child.total), invoice.currency)}
+                        </span>
+                        <Link
+                          to={`${basePath}/invoices/${child.id}`}
+                          className="flex items-center gap-1 text-[12px] text-muted-foreground hover:text-foreground"
+                          title="Open the per-subscription document"
+                        >
+                          Document
+                          <ExternalLink size={12} />
+                        </Link>
+                      </div>
+                    </div>
+                  ))}
+                </div>
+              </Flex>
+            </>
+          )}
+
           <Separator className="-my-3" />
           <Flex direction="column" className="gap-2 p-6">
             <div className="text-[15px] font-medium">Activity</div>
@@ -899,10 +995,31 @@ export const InvoiceView: React.FC<Props & { invoiceId: string }> = ({ invoice, 
         </div>
       </Flex>
 
-      {/* Right Panel - Invoice Preview */}
+      {/* Right Panel - Invoice Preview (a merged child has no standalone document) */}
       <div className="w-2/3 flex flex-col">
         <div className="flex-1 overflow-auto p-6">
-          <InvoicePreviewFrame invoiceId={invoiceId} invoice={invoice} />
+          {invoice.consolidatedIntoInvoiceId ? (
+            <div className="flex h-full flex-col items-center justify-center gap-3 text-center text-muted-foreground">
+              <FileText size={32} className="opacity-50" />
+              <div className="text-sm font-medium text-foreground">
+                No standalone document
+              </div>
+              <div className="max-w-sm text-[13px]">
+                This is an internal per-subscription record that was merged into{' '}
+                {invoice.consolidatedIntoInvoiceNumber ?? 'a consolidated invoice'}. The customer
+                only ever receives the consolidated invoice.
+              </div>
+              <Link
+                to={`${basePath}/invoices/${invoice.consolidatedIntoInvoiceId}`}
+                className="flex items-center gap-1 text-[13px] font-medium text-foreground hover:underline"
+              >
+                Open the consolidated invoice
+                <ExternalLink size={14} />
+              </Link>
+            </div>
+          ) : (
+            <InvoicePreviewFrame invoiceId={invoiceId} invoice={invoice} />
+          )}
         </div>
       </div>
     </Flex>

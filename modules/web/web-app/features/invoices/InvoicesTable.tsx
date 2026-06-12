@@ -69,27 +69,33 @@ const InvoiceRowActions = ({ invoiceId }: { invoiceId: string }) => {
     onError: error => toast.error(`Failed to finalize invoice: ${error.message}`),
   })
 
-  const canFinalize = invoice?.status === InvoiceStatus.DRAFT
+  const isConsolidatedChild = !!invoice?.consolidatedIntoInvoiceId
+  const canFinalize = invoice?.status === InvoiceStatus.DRAFT && !isConsolidatedChild
   const canMarkAsPaid =
     invoice?.status === InvoiceStatus.FINALIZED &&
     invoice?.paymentStatus !== InvoicePaymentStatus.PAID &&
-    Number(invoice?.amountDue) > 0
+    Number(invoice?.amountDue) > 0 &&
+    !isConsolidatedChild
 
   const markAsPaidDisabledReason = !invoice
     ? undefined
-    : invoice.status !== InvoiceStatus.FINALIZED
-      ? 'Invoice must be finalized first'
-      : invoice.paymentStatus === InvoicePaymentStatus.PAID
-        ? 'Invoice is already paid'
-        : Number(invoice.amountDue) <= 0
-          ? 'No amount due'
-          : undefined
+    : isConsolidatedChild
+      ? 'Merged into a consolidated invoice'
+      : invoice.status !== InvoiceStatus.FINALIZED
+        ? 'Invoice must be finalized first'
+        : invoice.paymentStatus === InvoicePaymentStatus.PAID
+          ? 'Invoice is already paid'
+          : Number(invoice.amountDue) <= 0
+            ? 'No amount due'
+            : undefined
 
   const finalizeDisabledReason = !invoice
     ? undefined
-    : invoice.status !== InvoiceStatus.DRAFT
-      ? 'Only draft invoices can be finalized'
-      : undefined
+    : isConsolidatedChild
+      ? 'Merged into a consolidated invoice'
+      : invoice.status !== InvoiceStatus.DRAFT
+        ? 'Only draft invoices can be finalized'
+        : undefined
 
   return (
     <div onClick={e => e.stopPropagation()}>
@@ -181,7 +187,10 @@ export const InvoicesTable = ({
       {
         id: 'invoice_number',
         header: 'Invoice Number',
-        accessorKey: 'invoiceNumber',
+        cell: ({ row }) =>
+          row.original.consolidatedIntoInvoiceId
+            ? `Merged into ${row.original.consolidatedIntoInvoiceNumber ?? 'consolidated invoice'}`
+            : row.original.invoiceNumber,
       },
       {
         id: 'customer_name',
@@ -207,13 +216,24 @@ export const InvoicesTable = ({
         id: 'status',
         header: 'Status',
         enableSorting: true,
-        cell: ({ row }) => <InvoiceStatusBadge status={row.original.status} />,
+        cell: ({ row }) => (
+          <InvoiceStatusBadge
+            status={row.original.status}
+            consolidatedInto={row.original.consolidatedIntoInvoiceId}
+          />
+        ),
       },
       {
         id: 'payment_status',
         header: 'Payment Status',
         enableSorting: true,
-        cell: ({ row }) => <PaymentStatusBadge status={row.original.paymentStatus} />,
+        // A merged child isn't charged on its own; its payment happens on the consolidated parent.
+        cell: ({ row }) =>
+          row.original.consolidatedIntoInvoiceId ? (
+            <span className="text-muted-foreground">N/A</span>
+          ) : (
+            <PaymentStatusBadge status={row.original.paymentStatus} />
+          ),
       },
       ...(!isExpress
         ? [

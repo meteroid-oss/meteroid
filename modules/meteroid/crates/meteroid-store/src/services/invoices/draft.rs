@@ -114,6 +114,7 @@ impl Services {
             manual: false,
             invoicing_entity_id: subscription.invoicing_entity_id,
             parent_invoice_id: None,
+            consolidated_into_invoice_id: None,
         };
 
         let inserted_invoice = insert_invoice_tx(&self.store, conn, invoice_new).await?;
@@ -212,6 +213,7 @@ impl Services {
             manual: false,
             invoicing_entity_id: invoicing_entity.id,
             parent_invoice_id,
+            consolidated_into_invoice_id: None,
         };
 
         let inserted_invoice = insert_invoice_tx(&self.store, conn, invoice_new).await?;
@@ -345,6 +347,7 @@ impl Services {
             manual: true,
             invoicing_entity_id: parent.invoicing_entity_id,
             parent_invoice_id: Some(parent.id),
+            consolidated_into_invoice_id: None,
         };
 
         insert_invoice_tx(&self.store, conn, invoice_new).await
@@ -650,6 +653,7 @@ impl Services {
             manual: false,
             invoicing_entity_id: subscription.invoicing_entity_id,
             parent_invoice_id: None,
+            consolidated_into_invoice_id: None,
         };
 
         let inserted_invoice = insert_invoice_tx(&self.store, conn, invoice_new).await?;

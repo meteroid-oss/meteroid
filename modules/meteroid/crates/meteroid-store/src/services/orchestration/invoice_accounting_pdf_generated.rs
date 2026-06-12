@@ -38,7 +38,20 @@ impl Services {
             .get_invoicing_entity(tenant_id, Some(customer.invoicing_entity_id))
             .await?;
 
-        if let Some(subscription_id) = invoice.subscription_id {
+        // A consolidated (merged) invoice has no subscription_id of its own. Resolve the
+        // payment method and auto-charge settings from one of its member subscriptions (all
+        // members share the same resolved payment method by construction).
+        let payment_subscription_id = match invoice.subscription_id {
+            Some(id) => Some(id),
+            None => self
+                .store
+                .list_consolidated_children(tenant_id, invoice.id)
+                .await?
+                .into_iter()
+                .find_map(|child| child.subscription_id),
+        };
+
+        if let Some(subscription_id) = payment_subscription_id {
             // 3 cases here :
             // - Already paid (checkout flow). We send the initial email with receipt and invoice
             // - collection_method == SendInvoice . We send the invoice, with a payment link if applicable

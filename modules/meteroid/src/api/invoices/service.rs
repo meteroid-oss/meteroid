@@ -65,15 +65,40 @@ impl InvoicesService for InvoiceServiceComponents {
             .await
             .map_err(Into::<InvoiceApiError>::into)?;
 
+        let mut invoices: Vec<Invoice> = res
+            .items
+            .into_iter()
+            .map(mapping::invoices::domain_to_server)
+            .collect();
+
+        // For merged children in this page (subscription-scoped listings), resolve the consolidated
+        // parent's invoice number for display ("Merged into INV-…").
+        let parent_ids: Vec<InvoiceId> = invoices
+            .iter()
+            .filter_map(|i| i.consolidated_into_invoice_id.as_deref())
+            .filter_map(|s| InvoiceId::from_proto(s).ok())
+            .collect();
+        if !parent_ids.is_empty() {
+            let numbers: std::collections::HashMap<String, String> = self
+                .store
+                .list_invoices_by_ids(parent_ids)
+                .await
+                .map_err(Into::<InvoiceApiError>::into)?
+                .into_iter()
+                .map(|p| (p.id.to_string(), p.invoice_number))
+                .collect();
+            for inv in invoices.iter_mut() {
+                if let Some(pid) = &inv.consolidated_into_invoice_id {
+                    inv.consolidated_into_invoice_number = numbers.get(pid).cloned();
+                }
+            }
+        }
+
         let response = ListInvoicesResponse {
             pagination_meta: inner
                 .pagination
                 .into_response(res.total_pages, res.total_results),
-            invoices: res
-                .items
-                .into_iter()
-                .map(mapping::invoices::domain_to_server)
-                .collect::<Vec<Invoice>>(),
+            invoices,
         };
 
         Ok(Response::new(response))
@@ -120,6 +145,26 @@ impl InvoicesService for InvoiceServiceComponents {
             .await
             .map_err(Into::<InvoiceApiError>::into)?
             .map(|id| id.as_proto());
+
+        // For a consolidated parent, surface the per-subscription children so the UI can show
+        // which subscription/plan contributed which amount. Empty for ordinary invoices.
+        invoice.consolidated_children = self
+            .store
+            .list_consolidated_children(tenant_id, invoice_id)
+            .await
+            .map_err(Into::<InvoiceApiError>::into)?
+            .iter()
+            .map(mapping::invoices::domain_consolidated_child_to_server)
+            .collect();
+
+        // For a child, resolve the consolidated parent's invoice number for display
+        // ("Merged into INV-…"). The parent is finalized by the time the child is viewed.
+        if let Some(parent_id) = &invoice.consolidated_into_invoice_id
+            && let Ok(parent_id) = InvoiceId::from_proto(parent_id)
+            && let Ok(parent) = self.store.get_invoice_by_id(tenant_id, parent_id).await
+        {
+            invoice.consolidated_into_invoice_number = Some(parent.invoice_number);
+        }
 
         let response = GetInvoiceResponse {
             invoice: Some(invoice),
@@ -511,6 +556,18 @@ impl InvoicesService for InvoiceServiceComponents {
         let req = request.into_inner();
         let invoice_id = InvoiceId::from_proto(req.invoice_id)?;
 
+        // A consolidated child is billed via its parent; don't mint a portal payment link for it.
+        let invoice = self
+            .store
+            .get_invoice_by_id(tenant_id, invoice_id)
+            .await
+            .map_err(Into::<InvoiceApiError>::into)?;
+        if invoice.consolidated_into_invoice_id.is_some() {
+            return Err(Status::failed_precondition(
+                "Cannot generate a payment link for an invoice merged into a consolidated parent",
+            ));
+        }
+
         // Generate the JWT token for invoice portal access
         let token = meteroid_store::jwt_claims::generate_portal_token(
             &self.jwt_secret,
@@ -896,6 +953,7 @@ async fn to_domain_invoice_new(
         manual: true,
         invoicing_entity_id: invoicing_entity.id,
         parent_invoice_id: None,
+        consolidated_into_invoice_id: None,
     };
     Ok((invoice_new, invoicing_entity))
 }

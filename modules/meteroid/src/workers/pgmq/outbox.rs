@@ -2,6 +2,7 @@ use crate::workers::pgmq::PgmqResult;
 use crate::workers::pgmq::error::PgmqError;
 use crate::workers::pgmq::processor::{HandleResult, PgmqHandler};
 use async_trait::async_trait;
+use common_domain::ids::PlanVersionId;
 use common_domain::pgmq::{Headers, MessageId};
 use error_stack::{Report, ResultExt};
 use futures::FutureExt;
@@ -11,6 +12,8 @@ use meteroid_store::domain::pgmq::{
     HubspotSyncRequestEvent, PennylaneSyncInvoice, PennylaneSyncRequestEvent, PgmqMessage,
     PgmqMessageNew, PgmqQueue, QuoteConversionRequestEvent,
 };
+use meteroid_store::domain::Invoice;
+use meteroid_store::repositories::InvoiceInterface;
 use meteroid_store::repositories::pgmq::PgmqInterface;
 use meteroid_store::{Store, StoreResult};
 use serde::{Deserialize, Serialize};
@@ -234,19 +237,36 @@ impl PgmqOutboxDispatch {
                         if let Ok(OutboxEvent::InvoiceFinalized(evt)) = msg.try_into() {
                             // Only process if finalized_at exists (should always be set on finalization)
                             if let Some(finalized_at) = evt.finalized_at {
-                                BiAggregationEvent::InvoiceFinalized(Box::new(
-                                    BiInvoiceFinalizedEvent {
-                                        tenant_id: evt.tenant_id,
-                                        customer_id: evt.customer_id,
-                                        plan_version_id: evt.plan_version_id,
-                                        currency: evt.currency.clone(),
-                                        amount_due: evt.amount_due,
-                                        finalized_at,
-                                    },
-                                ))
-                                .try_into()
-                                .map(|msg_new| new_messages.push(msg_new))
-                                .change_context(PgmqError::HandleMessages)?;
+                                // A consolidated parent has no plan_version_id; split its revenue
+                                // across members to keep per-plan attribution.
+                                let members = if evt.plan_version_id.is_none() {
+                                    self.store
+                                        .list_consolidated_children(evt.tenant_id, evt.invoice_id)
+                                        .await
+                                        .change_context(PgmqError::HandleMessages)?
+                                } else {
+                                    vec![]
+                                };
+
+                                for (plan_version_id, amount_due) in allocate_revenue_across_members(
+                                    &members,
+                                    evt.plan_version_id,
+                                    evt.amount_due,
+                                ) {
+                                    BiAggregationEvent::InvoiceFinalized(Box::new(
+                                        BiInvoiceFinalizedEvent {
+                                            tenant_id: evt.tenant_id,
+                                            customer_id: evt.customer_id,
+                                            plan_version_id,
+                                            currency: evt.currency.clone(),
+                                            amount_due,
+                                            finalized_at,
+                                        },
+                                    ))
+                                    .try_into()
+                                    .map(|msg_new| new_messages.push(msg_new))
+                                    .change_context(PgmqError::HandleMessages)?;
+                                }
                             }
                         }
                     }
@@ -254,19 +274,41 @@ impl PgmqOutboxDispatch {
                         if let Ok(OutboxEvent::CreditNoteFinalized(evt)) = msg.try_into() {
                             // Only process if finalized_at exists
                             if let Some(finalized_at) = evt.finalized_at {
-                                BiAggregationEvent::CreditNoteFinalized(Box::new(
-                                    BiCreditNoteFinalizedEvent {
-                                        tenant_id: evt.tenant_id,
-                                        customer_id: evt.customer_id,
-                                        plan_version_id: evt.plan_version_id,
-                                        currency: evt.currency.clone(),
-                                        refunded_amount_cents: evt.refunded_amount_cents,
-                                        finalized_at,
-                                    },
-                                ))
-                                .try_into()
-                                .map(|msg_new| new_messages.push(msg_new))
-                                .change_context(PgmqError::HandleMessages)?;
+                                // A credit note against a consolidated parent inherits the
+                                // parent's null plan_version_id. Split the refund across the
+                                // parent's members (pro-rata by member total) so per-plan revenue
+                                // stays symmetric with the finalize-time split — otherwise the
+                                // negative revenue would be booked entirely against "no plan".
+                                let members = if evt.plan_version_id.is_none() {
+                                    self.store
+                                        .list_consolidated_children(evt.tenant_id, evt.invoice_id)
+                                        .await
+                                        .change_context(PgmqError::HandleMessages)?
+                                } else {
+                                    vec![]
+                                };
+
+                                for (plan_version_id, refunded_amount_cents) in
+                                    allocate_revenue_across_members(
+                                        &members,
+                                        evt.plan_version_id,
+                                        evt.refunded_amount_cents,
+                                    )
+                                {
+                                    BiAggregationEvent::CreditNoteFinalized(Box::new(
+                                        BiCreditNoteFinalizedEvent {
+                                            tenant_id: evt.tenant_id,
+                                            customer_id: evt.customer_id,
+                                            plan_version_id,
+                                            currency: evt.currency.clone(),
+                                            refunded_amount_cents,
+                                            finalized_at,
+                                        },
+                                    ))
+                                    .try_into()
+                                    .map(|msg_new| new_messages.push(msg_new))
+                                    .change_context(PgmqError::HandleMessages)?;
+                                }
                             }
                         }
                     }
@@ -398,6 +440,48 @@ impl PgmqHandler for PgmqOutboxProxy {
 
         Ok(HandleResult { succeeded, failed })
     }
+}
+
+/// Allocates a consolidated parent invoice's net amount (finalized revenue or refunded credit)
+/// across its member subscriptions as `(plan_version_id, amount)` pairs, for per-plan BI
+/// attribution. Allocation is pro-rata by member gross total; the largest-total member absorbs the
+/// rounding remainder so the parts sum exactly to `net_amount`.
+///
+/// Returns a single `(fallback_plan_version_id, net_amount)` entry when there is nothing to split —
+/// no members, or a non-positive group gross (e.g. a member's negative total nets the group to
+/// zero) — keeping the aggregate exact even if per-plan attribution is lost for that degenerate case.
+fn allocate_revenue_across_members(
+    members: &[Invoice],
+    fallback_plan_version_id: Option<PlanVersionId>,
+    net_amount: i64,
+) -> Vec<(Option<PlanVersionId>, i64)> {
+    let parent_gross: i64 = members.iter().map(|m| m.total).sum();
+    if members.is_empty() || parent_gross <= 0 {
+        return vec![(fallback_plan_version_id, net_amount)];
+    }
+
+    // Absorb the rounding remainder into the largest-total member, so a zero/low-weight plan isn't
+    // attributed leftover cents.
+    let remainder_idx = members
+        .iter()
+        .enumerate()
+        .max_by_key(|(_, m)| m.total)
+        .map(|(idx, _)| idx)
+        .unwrap_or(0);
+
+    let mut allocations: Vec<(Option<PlanVersionId>, i64)> = Vec::with_capacity(members.len());
+    let mut allocated: i64 = 0;
+    for (idx, member) in members.iter().enumerate() {
+        if idx == remainder_idx {
+            allocations.push((member.plan_version_id, 0)); // fixed up below
+            continue;
+        }
+        let share = (net_amount as i128 * member.total as i128 / parent_gross as i128) as i64;
+        allocated += share;
+        allocations.push((member.plan_version_id, share));
+    }
+    allocations[remainder_idx].1 = net_amount - allocated;
+    allocations
 }
 
 pub(crate) async fn to_outbox_events(

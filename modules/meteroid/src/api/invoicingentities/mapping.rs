@@ -29,6 +29,7 @@ pub mod invoicing_entities {
             country: CountryCode::from_proto_opt(proto.country)?,
             tax_resolver: tax_resolver_server_to_domain(proto.tax_resolver)
                 .unwrap_or(meteroid_store::domain::enums::TaxResolverEnum::None),
+            consolidate_recurring_invoices: proto.consolidate_recurring_invoices,
         })
     }
 
@@ -82,6 +83,7 @@ pub mod invoicing_entities {
             vat_number: proto.vat_number,
             country: None, // country is not editable, TODO remove from proto
             tax_resolver: tax_resolver_server_to_domain(proto.tax_resolver),
+            consolidate_recurring_invoices: proto.consolidate_recurring_invoices,
         }
     }
 
@@ -109,6 +111,7 @@ pub mod invoicing_entities {
             country: domain.country.as_proto(),
             accounting_currency: domain.accounting_currency,
             tax_resolver: tax_resolver_domain_to_server(domain.tax_resolver).into(),
+            consolidate_recurring_invoices: domain.consolidate_recurring_invoices,
         }
     }
 

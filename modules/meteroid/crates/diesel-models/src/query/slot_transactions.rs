@@ -4,12 +4,48 @@ use crate::slot_transactions::SlotTransactionRow;
 use crate::{DbResult, PgConn};
 use chrono::NaiveDateTime;
 
-use common_domain::ids::SubscriptionId;
+use common_domain::ids::{InvoiceId, SubscriptionId};
 use diesel::{OptionalExtension, sql_types};
 use diesel::{QueryableByName, debug_query};
 use error_stack::ResultExt;
 
 impl SlotTransactionRow {
+    /// Re-points pending slot transactions from a set of (consolidated) invoices to the
+    /// merged parent. Tenant-scoped via an EXISTS guard on the source invoice.
+    pub async fn repoint_invoice(
+        conn: &mut PgConn,
+        tenant_id: common_domain::ids::TenantId,
+        from_invoice_ids: &[InvoiceId],
+        to_invoice_id: InvoiceId,
+    ) -> DbResult<usize> {
+        use crate::schema::{invoice, slot_transaction};
+        use diesel::prelude::*;
+        use diesel_async::RunQueryDsl;
+
+        if from_invoice_ids.is_empty() {
+            return Ok(0);
+        }
+
+        let query = diesel::update(
+            slot_transaction::table
+                .filter(slot_transaction::invoice_id.eq_any(from_invoice_ids))
+                .filter(diesel::dsl::exists(
+                    invoice::table
+                        .filter(invoice::id.nullable().eq(slot_transaction::invoice_id))
+                        .filter(invoice::tenant_id.eq(tenant_id)),
+                )),
+        )
+        .set(slot_transaction::invoice_id.eq(Some(to_invoice_id)));
+
+        log::debug!("{}", debug_query::<diesel::pg::Pg, _>(&query));
+
+        query
+            .execute(conn)
+            .await
+            .attach("Error while re-pointing slot transactions")
+            .into_db_result()
+    }
+
     pub async fn insert(&self, conn: &mut PgConn) -> DbResult<SlotTransactionRow> {
         use crate::schema::slot_transaction::dsl::slot_transaction;
         use diesel_async::RunQueryDsl;

@@ -566,6 +566,7 @@ impl Services {
             manual: false,
             invoicing_entity_id: subscription.invoicing_entity_id,
             parent_invoice_id: None,
+            consolidated_into_invoice_id: None,
         };
 
         let draft_invoice = insert_invoice_tx(&self.store, conn, invoice_new).await?;

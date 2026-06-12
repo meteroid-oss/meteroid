@@ -253,7 +253,24 @@ pub mod invoices {
             marked_as_uncollectible_at: invoice.marked_as_uncollectible_at.as_proto(),
             parent_invoice_id: invoice.parent_invoice_id.map(|id| id.as_proto()),
             child_invoice_id: None,
+            consolidated_into_invoice_id: invoice
+                .consolidated_into_invoice_id
+                .map(|id| id.as_proto()),
+            // Both populated by the GetInvoice handler (need DB reads of the children / parent).
+            consolidated_children: vec![],
+            consolidated_into_invoice_number: None,
         })
+    }
+
+    pub fn domain_consolidated_child_to_server(
+        invoice: &domain::Invoice,
+    ) -> meteroid_grpc::meteroid::api::invoices::v1::ConsolidatedChild {
+        meteroid_grpc::meteroid::api::invoices::v1::ConsolidatedChild {
+            id: invoice.id.as_proto(),
+            subscription_id: invoice.subscription_id.map(|x| x.as_proto()),
+            plan_name: invoice.plan_name.clone(),
+            total: invoice.total,
+        }
     }
 
     pub fn domain_to_server(value: domain::InvoiceWithCustomer) -> Invoice {
@@ -270,6 +287,12 @@ pub mod invoices {
             total: value.invoice.total,
             payment_status: payment_status_domain_to_server(value.invoice.payment_status).into(),
             manual: value.invoice.manual,
+            consolidated_into_invoice_id: value
+                .invoice
+                .consolidated_into_invoice_id
+                .map(|x| x.to_string()),
+            // Resolved (batched) by the list_invoices handler.
+            consolidated_into_invoice_number: None,
         }
     }
 }

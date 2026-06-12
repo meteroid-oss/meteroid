@@ -118,6 +118,15 @@ impl ServicesEdge {
         invoice_id: InvoiceId,
         tenant_id: TenantId,
     ) -> StoreResult<DetailedInvoice> {
+        // A consolidated child must not be refreshed standalone (the parent is the canonical doc).
+        let invoice = self.store.get_invoice_by_id(tenant_id, invoice_id).await?;
+        if invoice.is_consolidated_child() {
+            return Err(crate::errors::StoreError::InvalidArgument(
+                "Cannot refresh an invoice merged into a consolidated parent".to_string(),
+            )
+            .into());
+        }
+
         self.services
             .refresh_invoice_data(
                 &mut self.get_conn().await?,

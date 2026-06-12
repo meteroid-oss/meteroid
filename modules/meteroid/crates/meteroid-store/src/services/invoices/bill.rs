@@ -37,6 +37,16 @@ pub enum InvoiceBillingMode {
     },
 }
 
+/// When consolidation is enabled, the recurring renewal finalization is floored to at least this
+/// many hours after the period boundary, so an aggressive (near-zero or negative) grace period
+/// can't push the shared finalize deadline into the past before a customer's same-day sibling
+/// drafts have been created (each is created lazily as its subscription's cycle is processed).
+///
+/// Best-effort, not a guarantee: same-day merging is reliable as long as the billing worker creates
+/// all of a customer's due drafts within this window; a sibling drafted later still finalizes
+/// standalone. The durable fix is a single per-(customer, date) finalization trigger.
+const CONSOLIDATION_MIN_GRACE_HOURS: i32 = 1;
+
 impl Services {
     pub(in crate::services) async fn bill_subscription_tx(
         &self,
@@ -196,8 +206,12 @@ impl Services {
                 )
                 .await?;
 
-                if invoicing_entity.grace_period_hours >= 0 {
-                    // Schedule finalization after a grace period
+                // Schedule finalization after the grace period. Consolidation also requires the
+                // scheduled path (the inline finalize below bypasses merging), so take it whenever
+                // the entity consolidates, even with a negative grace.
+                if invoicing_entity.grace_period_hours >= 0
+                    || invoicing_entity.consolidate_recurring_invoices
+                {
                     self.schedule_invoice_finalization(
                         conn,
                         tenant_id,
@@ -205,6 +219,7 @@ impl Services {
                         draft_invoice.id,
                         draft_invoice.invoice_date,
                         invoicing_entity.grace_period_hours,
+                        invoicing_entity.consolidate_recurring_invoices,
                     )
                     .await?;
 
@@ -353,7 +368,15 @@ impl Services {
         })
     }
 
-    /// Schedule invoice finalization after a grace period
+    /// Schedule invoice finalization after a grace period.
+    ///
+    /// When `consolidate` is set, the effective grace is floored to `CONSOLIDATION_MIN_GRACE_HOURS`
+    /// so an aggressive (near-zero or negative) grace can't push the shared `invoice_date + grace`
+    /// deadline into the past before all of a customer's same-day sibling drafts have been created —
+    /// which would let one finalize alone and skip the merge. The deadline stays anchored to
+    /// `invoice_date` (like grace), and usage is bounded by the closed billing period, so this never
+    /// changes what is billed.
+    #[allow(clippy::too_many_arguments)]
     async fn schedule_invoice_finalization(
         &self,
         conn: &mut PgConn,
@@ -362,9 +385,15 @@ impl Services {
         invoice_id: InvoiceId,
         invoice_date: chrono::NaiveDate,
         grace_period_hours: i32,
+        consolidate: bool,
     ) -> StoreResult<()> {
+        let effective_hours = if consolidate {
+            std::cmp::max(grace_period_hours, CONSOLIDATION_MIN_GRACE_HOURS)
+        } else {
+            grace_period_hours
+        };
         let scheduled_time = invoice_date.and_time(NaiveTime::MIN)
-            + chrono::Duration::hours(i64::from(grace_period_hours));
+            + chrono::Duration::hours(i64::from(effective_hours));
 
         self.store
             .schedule_events(

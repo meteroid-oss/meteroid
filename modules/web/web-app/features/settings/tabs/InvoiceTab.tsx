@@ -3,7 +3,7 @@ import {
   createProtobufSafeUpdater,
   useMutation,
 } from '@connectrpc/connect-query'
-import { Button, Card, Form, InputFormField, TextareaFormField } from '@md/ui'
+import { Button, Card, Form, InputFormField, SwitchFormField, TextareaFormField } from '@md/ui'
 import { useQueryClient } from '@tanstack/react-query'
 import { useEffect } from 'react'
 import { toast } from 'sonner'
@@ -26,6 +26,7 @@ const invoiceDetailsSchema = z.object({
   invoiceFooterLegal: z.string().optional(),
   logoAttachmentId: z.string().optional(),
   brandColor: z.string().optional(),
+  consolidateRecurringInvoices: z.boolean().optional(),
 })
 
 export const InvoiceTab = () => {
@@ -68,6 +69,7 @@ export const InvoiceTab = () => {
         invoiceFooterLegal: currentEntity.invoiceFooterLegal || '',
         logoAttachmentId: currentEntity.logoAttachmentId || '',
         brandColor: currentEntity.brandColor || '',
+        consolidateRecurringInvoices: currentEntity.consolidateRecurringInvoices ?? false,
       })
     } else {
       methods.reset()
@@ -90,6 +92,7 @@ export const InvoiceTab = () => {
         invoiceNumberPattern: values.invoiceNumberPattern,
         logoAttachmentId: values.logoAttachmentId,
         netTerms: values.netTerms,
+        consolidateRecurringInvoices: values.consolidateRecurringInvoices,
       },
     })
   }
@@ -133,6 +136,15 @@ export const InvoiceTab = () => {
                 type="number"
                 placeholder="30"
                 containerClassName="col-span-3"
+              />
+
+              <SwitchFormField
+                name="consolidateRecurringInvoices"
+                control={methods.control}
+                label="Consolidate recurring invoices"
+                description="Merge a customer's subscriptions that renew on the same day (same currency, payment method and net terms) into a single invoice"
+                variant="default"
+                containerClassName="col-span-6"
               />
             </div>
             <div className="pt-4">

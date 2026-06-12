@@ -25,6 +25,7 @@ pub struct SubscriptionBuilder {
     payment_methods_config: Option<PaymentMethodsConfig>,
     skip_past_invoices: bool,
     end_date: Option<NaiveDate>,
+    net_terms: Option<u32>,
 }
 
 impl Default for SubscriptionBuilder {
@@ -40,6 +41,7 @@ impl Default for SubscriptionBuilder {
             payment_methods_config: None,
             skip_past_invoices: false,
             end_date: None,
+            net_terms: None,
         }
     }
 }
@@ -150,6 +152,13 @@ impl SubscriptionBuilder {
         self
     }
 
+    /// Set the subscription net terms (days until due). Drives the invoice due date and is part
+    /// of the consolidation merge key.
+    pub fn net_terms(mut self, days: u32) -> Self {
+        self.net_terms = Some(days);
+        self
+    }
+
     /// Create the subscription using the provided services.
     pub async fn create(self, services: &Services) -> SubscriptionId {
         let coupons = if self.coupon_ids.is_empty() {
@@ -173,7 +182,7 @@ impl SubscriptionBuilder {
                     subscription: SubscriptionNew {
                         customer_id: self.customer_id,
                         plan_version_id: self.plan_version_id,
-                        net_terms: None,
+                        net_terms: self.net_terms,
                         invoice_memo: None,
                         invoice_threshold: None,
                         start_date: self.start_date,

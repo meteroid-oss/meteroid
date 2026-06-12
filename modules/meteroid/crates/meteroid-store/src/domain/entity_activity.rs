@@ -582,6 +582,24 @@ impl From<&OutboxEvent> for Option<Activity> {
                 EntityType::AddOn,
                 e.add_on_id.as_uuid(),
             ),
+            OutboxEvent::InvoiceConsolidated(e) => {
+                let mut a = Activity::new(
+                    ActivityType::InvoiceConsolidated,
+                    EntityType::Invoice,
+                    e.invoice_id.as_uuid(),
+                )
+                .agg_customer(e.customer_id);
+                if let Some(sub) = e.subscription_id {
+                    a = a.agg_subscription(sub);
+                }
+                // Reference the consolidated parent so the timeline can render/link "Merged into …".
+                if let Some(parent) = e.consolidated_into_invoice_id {
+                    a = a.with_metadata(serde_json::json!({
+                        "consolidated_into_invoice_id": parent.as_uuid().to_string(),
+                    }));
+                }
+                a
+            }
             OutboxEvent::InvoiceAccountingPdfGenerated(_)
             | OutboxEvent::PaymentTransactionSaved(_) => return None,
         };

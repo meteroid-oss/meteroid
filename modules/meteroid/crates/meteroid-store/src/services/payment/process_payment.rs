@@ -36,6 +36,12 @@ impl Services {
             .await
             .map_err(Into::<Report<StoreError>>::into)?;
 
+        // A consolidated child is billed via its parent; paying it directly would double-charge.
+        if invoice.invoice.consolidated_into_invoice_id.is_some() {
+            return Err(Report::new(StoreError::BillingError)
+                .attach("Cannot pay an invoice merged into a consolidated parent"));
+        }
+
         // Allow both draft and finalized invoices
         if invoice.invoice.status != diesel_models::enums::InvoiceStatusEnum::Draft
             && invoice.invoice.status != diesel_models::enums::InvoiceStatusEnum::Finalized

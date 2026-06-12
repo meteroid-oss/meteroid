@@ -272,6 +272,15 @@
 
   // Line items with compact styling and improved sublines
   for (index, item) in lines.enumerate() {
+    // Plan grouping header: shown for consolidated invoices when the plan group changes.
+    if item.group_label != none and (index == 0 or lines.at(index - 1).group_label != item.group_label) {
+      if index > 0 {
+        v(6pt)
+      }
+      block(width: 100%, text(weight: "bold", fill: color.heading, size: 9.5pt, item.group_label))
+      v(3pt)
+    }
+
     block(breakable: false, width: 100%, [
       #grid(
         columns: (4fr, 1fr, 1fr, 0.8fr, 1.2fr),

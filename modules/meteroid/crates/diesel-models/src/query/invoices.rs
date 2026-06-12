@@ -16,7 +16,8 @@ use crate::extend::pagination::{Paginate, PaginatedVec, PaginationRequest};
 use crate::payments::PaymentTransactionRow;
 use chrono::NaiveDateTime;
 use common_domain::ids::{
-    AliasOr, BaseId, ConnectorId, CustomerId, InvoiceId, StoredDocumentId, SubscriptionId, TenantId,
+    AliasOr, BaseId, ConnectorId, CustomerId, InvoiceId, InvoicingEntityId, StoredDocumentId,
+    SubscriptionId, TenantId,
 };
 use diesel::dsl::IntervalDsl;
 use diesel::{
@@ -207,6 +208,13 @@ impl InvoiceRow {
             .select(InvoiceWithCustomerRow::as_select())
             .into_boxed();
 
+        // Hide consolidated children from customer/global listings (the parent represents them).
+        // A subscription-scoped listing keeps them, so a subscription still shows its own
+        // contribution (linked to the consolidated parent it was merged into).
+        if param_subscription_id.is_none() {
+            query = query.filter(i_dsl::consolidated_into_invoice_id.is_null());
+        }
+
         if let Some(param_customer_id) = param_customer_id {
             query = query.filter(i_dsl::customer_id.eq(param_customer_id));
         }
@@ -309,6 +317,12 @@ impl InvoiceRow {
             .filter(i_dsl::tenant_id.eq(param_tenant_id))
             .select(InvoiceWithCustomerRow::as_select())
             .into_boxed();
+
+        // Hide consolidated children from customer/global listings (the parent represents them);
+        // keep them in a subscription-scoped listing so the subscription shows its contribution.
+        if param_subscription_id.is_none() {
+            query = query.filter(i_dsl::consolidated_into_invoice_id.is_null());
+        }
 
         if let Some(param_customer_id) = param_customer_id {
             match param_customer_id {
@@ -517,6 +531,8 @@ impl InvoiceRow {
             .filter(
                 i_dsl::status.ne_all(vec![InvoiceStatusEnum::Void, InvoiceStatusEnum::Finalized]),
             )
+            // A consolidated child must never be finalized on its own (the parent is).
+            .filter(i_dsl::consolidated_into_invoice_id.is_null())
             .filter(diesel::dsl::now.gt(i_dsl::invoice_date
                 + diesel::dsl::sql::<diesel::sql_types::Interval>(
                     "\"invoicing_entity\".\"grace_period_hours\" * INTERVAL '1 hour'",
@@ -670,6 +686,8 @@ impl InvoiceRow {
             .filter(
                 i_dsl::status.ne_all(vec![InvoiceStatusEnum::Void, InvoiceStatusEnum::Finalized]),
             )
+            // A consolidated child must not be refreshed standalone (the parent is).
+            .filter(i_dsl::consolidated_into_invoice_id.is_null())
             .filter(
                 i_dsl::data_updated_at
                     .is_null()
@@ -803,6 +821,127 @@ impl InvoiceRow {
             .optional()
             .attach("Error while finding last invoice by subscription id")
             .into_db_result()
+    }
+
+    /// Locks (FOR UPDATE, ordered by id to avoid deadlocks) the draft recurring invoices that
+    /// can merge into one invoice for a customer, matching the static merge key. The
+    /// payment-method part of the key is applied by the caller.
+    #[allow(clippy::too_many_arguments)]
+    pub async fn find_consolidation_candidates(
+        conn: &mut PgConn,
+        param_tenant_id: TenantId,
+        param_customer_id: CustomerId,
+        param_invoice_date: chrono::NaiveDate,
+        param_currency: &str,
+        param_auto_advance: bool,
+        param_invoicing_entity_id: InvoicingEntityId,
+        param_net_terms: i32,
+    ) -> DbResult<Vec<InvoiceRow>> {
+        use crate::enums::InvoiceType;
+        use crate::schema::invoice::dsl as i_dsl;
+        use diesel_async::RunQueryDsl;
+
+        let query = i_dsl::invoice
+            .select(InvoiceRow::as_select())
+            .filter(i_dsl::tenant_id.eq(param_tenant_id))
+            .filter(i_dsl::customer_id.eq(param_customer_id))
+            .filter(i_dsl::invoice_date.eq(param_invoice_date))
+            .filter(i_dsl::currency.eq(param_currency.to_string()))
+            .filter(i_dsl::auto_advance.eq(param_auto_advance))
+            .filter(i_dsl::invoicing_entity_id.eq(param_invoicing_entity_id))
+            // net_terms drives the due date, which the parent inherits from the trigger; only
+            // merge subscriptions that share it so the consolidated due date is well-defined.
+            .filter(i_dsl::net_terms.eq(param_net_terms))
+            .filter(i_dsl::invoice_type.eq(InvoiceType::Recurring))
+            .filter(i_dsl::status.eq(InvoiceStatusEnum::Draft))
+            .filter(i_dsl::manual.eq(false))
+            .filter(i_dsl::subscription_id.is_not_null())
+            .filter(i_dsl::parent_invoice_id.is_null())
+            .filter(i_dsl::consolidated_into_invoice_id.is_null())
+            .order_by(i_dsl::id.asc())
+            .for_update();
+
+        log::debug!("{}", debug_query::<diesel::pg::Pg, _>(&query));
+
+        query
+            .get_results(conn)
+            .await
+            .attach("Error while finding consolidation candidates")
+            .into_db_result()
+    }
+
+    /// Marks a set of draft invoices as consolidated into a parent invoice. They keep their
+    /// Draft status (for MRR/idempotency) but are no longer finalized or charged on their own.
+    pub async fn mark_consolidated_into(
+        conn: &mut PgConn,
+        param_tenant_id: TenantId,
+        child_ids: &[InvoiceId],
+        param_parent_invoice_id: InvoiceId,
+    ) -> DbResult<usize> {
+        use crate::schema::invoice::dsl as i_dsl;
+        use diesel_async::RunQueryDsl;
+
+        let now = chrono::Utc::now().naive_utc();
+
+        // Credits are recomputed once on the consolidated parent and deducted there; the child
+        // never finalizes, so clear its draft-time applied_credits (and re-derive amount_due) to
+        // avoid leaving stale financials that any aggregate over child rows would double-count.
+        let query = diesel::update(i_dsl::invoice)
+            .filter(i_dsl::tenant_id.eq(param_tenant_id))
+            .filter(i_dsl::id.eq_any(child_ids))
+            .set((
+                i_dsl::consolidated_into_invoice_id.eq(Some(param_parent_invoice_id)),
+                i_dsl::applied_credits.eq(0i64),
+                i_dsl::amount_due.eq(i_dsl::total),
+                i_dsl::updated_at.eq(now),
+            ));
+
+        log::debug!("{}", debug_query::<diesel::pg::Pg, _>(&query));
+
+        query
+            .execute(conn)
+            .await
+            .attach("Error while marking invoices as consolidated")
+            .into_db_result()
+    }
+
+    /// Lists the per-subscription child invoices that were consolidated into the given parent.
+    pub async fn list_consolidated_children(
+        conn: &mut PgConn,
+        param_tenant_id: TenantId,
+        param_parent_invoice_id: InvoiceId,
+    ) -> DbResult<Vec<InvoiceRow>> {
+        use crate::schema::invoice::dsl as i_dsl;
+        use diesel_async::RunQueryDsl;
+
+        let query = i_dsl::invoice
+            .filter(i_dsl::tenant_id.eq(param_tenant_id))
+            .filter(i_dsl::consolidated_into_invoice_id.eq(param_parent_invoice_id))
+            .order_by(i_dsl::id.asc())
+            .select(InvoiceRow::as_select());
+
+        log::debug!("{}", debug_query::<diesel::pg::Pg, _>(&query));
+
+        query
+            .get_results(conn)
+            .await
+            .attach("Error while listing consolidated children")
+            .into_db_result()
+    }
+
+    /// Transaction-scoped advisory lock, used to serialize consolidation per
+    /// (tenant, customer, invoice_date) so concurrent FinalizeInvoice events elect one leader.
+    pub async fn advisory_xact_lock(conn: &mut PgConn, key: i64) -> DbResult<()> {
+        use diesel::sql_types::BigInt;
+        use diesel_async::RunQueryDsl;
+
+        diesel::sql_query("SELECT pg_advisory_xact_lock($1)")
+            .bind::<BigInt, _>(key)
+            .execute(conn)
+            .await
+            .attach("Error acquiring consolidation advisory lock")
+            .into_db_result()?;
+        Ok(())
     }
 
     /// Check if a recurring invoice already exists for a subscription and date.

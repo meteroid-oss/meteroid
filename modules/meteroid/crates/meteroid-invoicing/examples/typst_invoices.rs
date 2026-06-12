@@ -183,6 +183,7 @@ fn create_test_invoice() -> Invoice {
                         unit_price: Money::from_major(50, eur),
                     },
                 ],
+                group_label: None,
             },
             InvoiceLine {
                 name: "Software License".to_string(),
@@ -194,6 +195,7 @@ fn create_test_invoice() -> Invoice {
                 start_date,
                 end_date,
                 sub_lines: vec![],
+                group_label: None,
             },
         ],
         coupons: vec![

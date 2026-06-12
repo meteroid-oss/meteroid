@@ -33,6 +33,10 @@ message Invoice {
   int64 total = 10;
   InvoicePaymentStatus payment_status = 11;
   bool manual = 12;
+  // Set when this invoice was merged into a consolidated parent; it is a superseded child.
+  optional string consolidated_into_invoice_id = 13;
+  // The consolidated parent's invoice number, resolved for display (e.g. "Merged into INV-42").
+  optional string consolidated_into_invoice_number = 14;
 }
 
 //message Account {
@@ -97,6 +101,21 @@ message DetailedInvoice {
   int64 discount = 48;
   optional string parent_invoice_id = 49;
   optional string child_invoice_id = 50;
+  // Set on a child draft that was merged into a consolidated parent; points to that parent.
+  optional string consolidated_into_invoice_id = 51;
+  // Set on a consolidated parent: the per-subscription children whose drafts were merged into it.
+  repeated ConsolidatedChild consolidated_children = 52;
+  // The consolidated parent's invoice number, resolved for display (e.g. "Merged into INV-42").
+  optional string consolidated_into_invoice_number = 53;
+}
+
+// A per-subscription draft that was merged into a consolidated parent invoice, shown on the
+// parent so it is clear which subscription/plan contributed which amount.
+message ConsolidatedChild {
+  string id = 1;
+  optional string subscription_id = 2;
+  optional string plan_name = 3;
+  int64 total = 4;
 }
 
 message TaxBreakdownItem {

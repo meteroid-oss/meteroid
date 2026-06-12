@@ -21,6 +21,48 @@ use std::collections::HashMap;
 use std::io::Cursor;
 use std::sync::Arc;
 
+/// Builds a map of line `local_id` -> plan grouping label for a consolidated invoice. Returns
+/// an empty map for non-consolidated invoices (or when all members share a single plan), in
+/// which case the renderer falls back to a flat, ungrouped line list.
+async fn build_line_groups(
+    store: &Arc<Store>,
+    invoice: &Invoice,
+) -> Result<HashMap<String, String>, Report<InvoicingRenderError>> {
+    // Only consolidated parents (which have no subscription of their own) can have members.
+    if invoice.subscription_id.is_some() {
+        return Ok(HashMap::new());
+    }
+
+    let children = store
+        .list_consolidated_children(invoice.tenant_id, invoice.id)
+        .await
+        .change_context(InvoicingRenderError::StoreError)?;
+
+    if children.is_empty() {
+        return Ok(HashMap::new());
+    }
+
+    let mut map: HashMap<String, String> = HashMap::new();
+    let mut distinct: std::collections::HashSet<String> = std::collections::HashSet::new();
+    for child in &children {
+        let label = child
+            .plan_name
+            .clone()
+            .unwrap_or_else(|| "Subscription".to_string());
+        distinct.insert(label.clone());
+        for line in &child.line_items {
+            map.insert(line.local_id.clone(), label.clone());
+        }
+    }
+
+    // Only group when there is more than one plan to distinguish.
+    if distinct.len() < 2 {
+        return Ok(HashMap::new());
+    }
+
+    Ok(map)
+}
+
 async fn resolve_payment_info(
     store: &Arc<Store>,
     invoice: &Invoice,
@@ -33,7 +75,25 @@ async fn resolve_payment_info(
         .await
         .change_context(InvoicingRenderError::StoreError)?;
 
-    if let Some(subscription_id) = invoice.subscription_id {
+    // A consolidated child is superseded by its parent and must never be presented as payable.
+    if invoice.is_consolidated_child() {
+        return Ok((None, None));
+    }
+
+    // A consolidated parent has no subscription_id of its own; resolve payment via one of its
+    // member subscriptions (they all share the same resolved method by construction), so the
+    // parent — the document actually charged and emailed — carries the correct payment info.
+    let effective_subscription_id = match invoice.subscription_id {
+        Some(id) => Some(id),
+        None => store
+            .list_consolidated_children(invoice.tenant_id, invoice.id)
+            .await
+            .change_context(InvoicingRenderError::StoreError)?
+            .into_iter()
+            .find_map(|child| child.subscription_id),
+    };
+
+    if let Some(subscription_id) = effective_subscription_id {
         let subscription = store
             .get_subscription(invoice.tenant_id, subscription_id)
             .await
@@ -218,6 +278,8 @@ impl InvoicePreviewRenderingService {
             None => None,
         };
 
+        let line_groups = build_line_groups(&self.store, &invoice).await?;
+
         let mapped = mapper::map_invoice_to_invoicing(
             invoice,
             &invoicing_entity,
@@ -226,6 +288,7 @@ impl InvoicePreviewRenderingService {
             bank_details,
             payment_url,
             parent_invoice.as_ref(),
+            &line_groups,
         )?;
 
         let svgs = self
@@ -413,6 +476,10 @@ impl PdfRenderingService {
             None => None,
         };
 
+        // For consolidated (merged) invoices, map each line to its source plan so the PDF can
+        // group line items under per-plan headings.
+        let line_groups = build_line_groups(&self.store, &invoice).await?;
+
         let mapped_invoice = mapper::map_invoice_to_invoicing(
             invoice,
             invoicing_entity,
@@ -421,6 +488,7 @@ impl PdfRenderingService {
             bank_details,
             payment_url,
             parent_invoice.as_ref(),
+            &line_groups,
         )?;
 
         let pdf = self
@@ -457,6 +525,7 @@ mod mapper {
     use rust_decimal::prelude::FromPrimitive;
     use std::collections::HashMap;
 
+    #[allow(clippy::too_many_arguments)]
     pub fn map_invoice_to_invoicing(
         invoice: store_model::Invoice,
         invoicing_entity: &store_model::InvoicingEntity,
@@ -465,6 +534,7 @@ mod mapper {
         bank_details: Option<HashMap<String, String>>,
         payment_url: Option<String>,
         parent_invoice: Option<&store_model::Invoice>,
+        line_groups: &HashMap<String, String>,
     ) -> Result<invoicing_model::Invoice, Report<InvoicingRenderError>> {
         let finalized_date = invoice
             .finalized_at
@@ -572,6 +642,7 @@ mod mapper {
                         unit_price: rusty_money::Money::from_decimal(sub_line.unit_price, currency),
                     })
                     .collect(),
+                group_label: line_groups.get(&line.local_id).cloned(),
             })
             .collect();
 

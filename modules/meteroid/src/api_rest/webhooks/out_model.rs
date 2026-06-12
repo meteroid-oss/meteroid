@@ -56,6 +56,9 @@ pub struct WebhookOutInvoiceEventData {
     pub tax_amount: i64,
     #[serde(serialize_with = "ser_naive_dt")]
     pub created_at: NaiveDateTime,
+    /// Set on `invoice.consolidated`: the parent invoice this one was merged into.
+    #[serde(serialize_with = "string_serde_opt::serialize")]
+    pub consolidated_into_invoice_id: Option<InvoiceId>,
 }
 
 #[skip_serializing_none]
@@ -594,6 +597,9 @@ pub enum WebhookOutEventTypeEnum {
     #[strum(serialize = "invoice.voided")]
     #[serde(rename = "invoice.voided")]
     InvoiceVoided,
+    #[strum(serialize = "invoice.consolidated")]
+    #[serde(rename = "invoice.consolidated")]
+    InvoiceConsolidated,
     #[strum(serialize = "quote.accepted")]
     #[serde(rename = "quote.accepted")]
     QuoteAccepted,
@@ -703,6 +709,7 @@ impl WebhookOutEventTypeEnum {
             WebhookOutEventTypeEnum::InvoiceFinalized => WebhookOutEventGroupEnum::Invoice,
             WebhookOutEventTypeEnum::InvoicePaid => WebhookOutEventGroupEnum::Invoice,
             WebhookOutEventTypeEnum::InvoiceVoided => WebhookOutEventGroupEnum::Invoice,
+            WebhookOutEventTypeEnum::InvoiceConsolidated => WebhookOutEventGroupEnum::Invoice,
             WebhookOutEventTypeEnum::BillableMetricCreated => {
                 WebhookOutEventGroupEnum::BillableMetric
             }
@@ -742,6 +749,14 @@ impl WebhookOutEventTypeEnum {
             WebhookOutEventTypeEnum::InvoiceFinalized => "An invoice was finalized".to_string(),
             WebhookOutEventTypeEnum::InvoicePaid => "An invoice was paid".to_string(),
             WebhookOutEventTypeEnum::InvoiceVoided => "An invoice was voided".to_string(),
+            WebhookOutEventTypeEnum::InvoiceConsolidated => {
+                // Compensating event: the referenced (child) draft invoice was already announced
+                // via `invoice.created` and is now superseded by the consolidated parent
+                // (`consolidated_into_invoice_id`). Integrators should treat the child as merged and
+                // follow the parent for finalization, payment and PDF.
+                "An invoice was merged into a consolidated invoice and is superseded by its parent"
+                    .to_string()
+            }
             WebhookOutEventTypeEnum::BillableMetricCreated => {
                 "A new billable metric was created".to_string()
             }

@@ -198,6 +198,16 @@ impl WebhookOut {
                 };
                 Some(event.try_into())
             }
+            OutboxEvent::InvoiceConsolidated(event) => {
+                let data = WebhookOutInvoiceEventData::from(*event);
+                let event = WebhookOutInvoiceEvent {
+                    id: event_id,
+                    event_type: WebhookOutEventTypeEnum::InvoiceConsolidated,
+                    data,
+                    timestamp,
+                };
+                Some(event.try_into())
+            }
             OutboxEvent::SubscriptionCreated(event) => {
                 let data = WebhookOutSubscriptionEventData::from(*event);
                 let event = WebhookOutSubscriptionEvent {
