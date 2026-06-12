@@ -89,7 +89,7 @@ jobs:
         with:
           tool: cargo-nextest
       - name: Test
-        run: cargo nextest run
+        run: cargo nextest run --locked
       - name: Final disk space
         run: df -h
 
@@ -116,4 +116,4 @@ jobs:
         with:
           components: clippy
       - name: Linting
-        run: cargo clippy -- -D warnings
+        run: cargo clippy --locked -- -D warnings

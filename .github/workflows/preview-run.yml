@@ -167,7 +167,7 @@ jobs:
           } > /tmp/frpc.toml
 
       - name: Build backend
-        run: cargo build --bin standalone
+        run: cargo build --locked --bin standalone
 
       - name: Start services
         run: |
@@ -261,7 +261,7 @@ jobs:
 
             if echo "$CHANGED" | grep -qE '\.rs$|Cargo\.(toml|lock)'; then
               echo "Rust changes — building (old backend stays live)…"
-              if cargo build --bin standalone 2>&1; then
+              if cargo build --locked --bin standalone 2>&1; then
                 echo "Build succeeded — restarting backend…"
                 kill "$(cat /tmp/preview-pids/backend.pid 2>/dev/null)" 2>/dev/null || true
                 sleep 1
