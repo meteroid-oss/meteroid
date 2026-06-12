@@ -386,6 +386,7 @@ mod mapper {
             .map(|line| invoicing_model::CreditNoteLine {
                 description: line.description.clone(),
                 quantity: line.quantity,
+                is_prorated: line.is_prorated,
                 tax_rate: line.tax_rate,
                 unit_price: line
                     .unit_price

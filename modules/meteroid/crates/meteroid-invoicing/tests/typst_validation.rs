@@ -164,6 +164,7 @@ fn create_minimal_invoice() -> Invoice {
             tax_rate: Decimal::from_str("20.0").unwrap(),
             start_date,
             end_date,
+            is_prorated: false,
             sub_lines: vec![],
             group_label: None,
         }],
@@ -266,6 +267,7 @@ fn create_full_invoice() -> Invoice {
                 tax_rate: Decimal::from_str("20.0").unwrap(),
                 start_date,
                 end_date,
+                is_prorated: false,
                 sub_lines: vec![
                     InvoiceSubLine {
                         name: "Architecture Design".to_string(),
@@ -291,6 +293,7 @@ fn create_full_invoice() -> Invoice {
                 tax_rate: Decimal::from_str("20.0").unwrap(),
                 start_date,
                 end_date,
+                is_prorated: false,
                 sub_lines: vec![],
                 group_label: None,
             },
@@ -536,6 +539,7 @@ fn create_minimal_credit_note() -> CreditNote {
             tax_rate: Decimal::from_str("20.0").unwrap(),
             start_date,
             end_date,
+            is_prorated: false,
             sub_lines: vec![],
         }],
         tax_breakdown: vec![cn::TaxBreakdownItem {
@@ -620,6 +624,7 @@ fn create_full_credit_note() -> CreditNote {
                 tax_rate: Decimal::from_str("20.0").unwrap(),
                 start_date,
                 end_date,
+                is_prorated: false,
                 sub_lines: vec![
                     cn::CreditNoteSubLine {
                         name: "Architecture Design".to_string(),
@@ -644,6 +649,7 @@ fn create_full_credit_note() -> CreditNote {
                 tax_rate: Decimal::from_str("20.0").unwrap(),
                 start_date,
                 end_date,
+                is_prorated: false,
                 sub_lines: vec![],
             },
         ],

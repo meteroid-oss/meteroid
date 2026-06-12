@@ -11,6 +11,7 @@ invoice-lines = Détails
 description = Produit
 quantity = Quantité
 unit-price = Prix unitaire HT
+prorated = au prorata
 tax-rate = Taux de taxe
 tax = Taxe
 amount = Total HT

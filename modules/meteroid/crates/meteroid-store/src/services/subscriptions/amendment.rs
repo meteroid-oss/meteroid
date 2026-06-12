@@ -42,7 +42,7 @@ use common_domain::ids::{
     AddOnId, BaseId, CreditNoteId, InvoiceId, PriceComponentId, PriceId, ProductId,
     SubscriptionAddOnId, SubscriptionId, SubscriptionPriceComponentId, TenantId,
 };
-use common_utils::decimals::ToSubunit;
+use common_utils::decimals::{ToSubunit, ToUnit};
 use diesel_async::scoped_futures::ScopedFutureExt;
 use diesel_models::credit_notes::CreditNoteRow;
 use diesel_models::enums::CreditNoteStatus;
@@ -640,6 +640,9 @@ impl Services {
                     memo: None,
                     credit_type,
                 },
+                // Amendment credits come from proration; `negate_line_items` flags each
+                // line prorated only where proration actually reduced it (factor < 1).
+                true,
             )
             .await?;
 
@@ -725,6 +728,13 @@ impl Services {
             } else {
                 0
             };
+            // Effective-rate display (matches `negate_line_items`): real unit count with
+            // unit_price = amount ÷ quantity, so qty × unit_price reconciles to the credit.
+            let credited_qty = orig
+                .quantity
+                .filter(|q| *q > Decimal::ZERO)
+                .unwrap_or(Decimal::ONE);
+            let credited_unit = credited.to_unit(precision) / credited_qty;
             lines.push(LineItem {
                 local_id: uuid::Uuid::now_v7().to_string(),
                 name: orig.name.clone(),
@@ -734,12 +744,15 @@ impl Services {
                 tax_amount: -reversed_tax,
                 amount_total: -(credited + reversed_tax),
                 tax_details: vec![],
-                quantity: Some(*quantity),
-                unit_price: orig.unit_price,
+                quantity: Some(credited_qty),
+                unit_price: Some(credited_unit),
                 start_date: orig.start_date,
                 end_date: orig.end_date,
                 sub_lines: vec![],
-                is_prorated: true,
+                // Per line: prorated when proration reduced this credit below the full
+                // billed line, or the billed line was itself prorated. Matches the
+                // per-line rule in `negate_line_items` (factor 1.0 → full credit → false).
+                is_prorated: credited < orig.amount_subtotal || orig.is_prorated,
                 price_component_id: orig.price_component_id,
                 sub_component_id: orig.sub_component_id,
                 sub_add_on_id: orig.sub_add_on_id,
@@ -1591,7 +1604,11 @@ async fn resolve_amendment(
             net_key: None,
             billed_component_id: Some(billed_component_id),
             billed_add_on_id: None,
-            instance_quantity: None,
+            // Unscaled catalog fee, so the instance count is recoverable from it —
+            // lets the prorated adjustment line show "N × rate" instead of "1 × total".
+            instance_quantity: Some(
+                crate::services::subscriptions::proration::fee_instance_count(&fee),
+            ),
         });
         component_inserts.push(PendingComponentInsert {
             price_component_id: None,

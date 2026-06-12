@@ -263,6 +263,9 @@
 
       [
         #text(weight: "medium", fill: color.heading, item.name)
+        #if item.at("is_prorated", default: false) [
+          #text(size: 8pt, style: "italic", fill: color.accent, " (" + translations.prorated + ")")
+        ]
         #if item.description != none [
           #text(size: 9pt, fill: color.accent, item.description)
         ]

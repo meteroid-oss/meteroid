@@ -28,6 +28,84 @@ use rust_decimal::Decimal;
 use rust_decimal::prelude::Zero;
 use std::collections::HashMap;
 
+/// Map (already netted) proration lines to adjustment-invoice line items.
+///
+/// Effective-rate display: a tracked charge (`sub_component_id`/`sub_add_on_id` set,
+/// amount > 0) shows its real unit count with `unit_price = amount / quantity`, so
+/// `quantity × unit_price` reconciles to the line total; a single-unit tracked charge
+/// falls back to `1 × total`. Credits (amount ≤ 0) carry no quantity/unit_price.
+/// Prorated lines run to `period_end`; non-prorated (one-time) charges end at
+/// `invoice_date`. Pure (no I/O) so it can be unit-tested directly.
+fn proration_lines_to_invoice_lines(
+    lines: &[ProrationLineItem],
+    invoice_date: NaiveDate,
+    period_end: NaiveDate,
+    precision: u8,
+) -> Vec<LineItem> {
+    lines
+        .iter()
+        .map(|line| {
+            let amount_subtotal = line.amount_cents;
+            let taxable_amount = if amount_subtotal > 0 {
+                amount_subtotal
+            } else {
+                0
+            };
+
+            let end_date = if line.is_prorated {
+                period_end
+            } else {
+                invoice_date
+            };
+
+            let billed_sub = line.sub_component_id.is_some() || line.sub_add_on_id.is_some();
+            let (quantity, unit_price) = if amount_subtotal > 0 {
+                match line.quantity.filter(|q| !q.is_zero()) {
+                    // Real billed quantity: show N × (amount / N) so qty × unit reconciles.
+                    Some(q) => {
+                        let unit = line.unit_price.unwrap_or_else(|| {
+                            Decimal::new(amount_subtotal, u32::from(precision)) / q
+                        });
+                        (Some(q), Some(unit))
+                    }
+                    // Single-unit tracked charge: 1 × total.
+                    None if billed_sub => (
+                        Some(Decimal::ONE),
+                        Some(Decimal::new(amount_subtotal, u32::from(precision))),
+                    ),
+                    None => (None, None),
+                }
+            } else {
+                (None, None)
+            };
+
+            LineItem {
+                local_id: uuid::Uuid::now_v7().to_string(),
+                name: line.name.clone(),
+                amount_subtotal,
+                tax_rate: Decimal::zero(),
+                taxable_amount,
+                tax_amount: 0,
+                amount_total: amount_subtotal,
+                tax_details: vec![],
+                quantity,
+                unit_price,
+                start_date: invoice_date,
+                end_date,
+                sub_lines: vec![],
+                is_prorated: line.is_prorated,
+                price_component_id: line.price_component_id,
+                sub_component_id: line.sub_component_id,
+                sub_add_on_id: line.sub_add_on_id,
+                product_id: line.product_id,
+                metric_id: None,
+                description: None,
+                group_by_dimensions: None,
+            }
+        })
+        .collect()
+}
+
 impl Services {
     pub(in crate::services) async fn create_subscription_draft_invoice(
         &self,
@@ -371,9 +449,15 @@ impl Services {
             .transaction(|conn| {
                 let actor = &actor;
                 async move {
-                    let draft =
-                        create_user_credit_note_tx(&self.store, conn, tenant_id, actor, params)
-                            .await?;
+                    let draft = create_user_credit_note_tx(
+                        &self.store,
+                        conn,
+                        tenant_id,
+                        actor,
+                        params,
+                        false,
+                    )
+                    .await?;
                     let invoice_id = draft.invoice_id;
                     let finalized =
                         finalize_credit_note_tx(&self.store, conn, tenant_id, actor, draft.id)
@@ -442,76 +526,8 @@ impl Services {
             crate::constants::Currencies::resolve_currency_precision(&subscription.currency)
                 .unwrap_or(2);
 
-        let invoice_lines: Vec<LineItem> = netted
-            .iter()
-            .map(|line| {
-                let amount_subtotal = line.amount_cents;
-                let taxable_amount = if amount_subtotal > 0 {
-                    amount_subtotal
-                } else {
-                    0
-                };
-
-                // Prorated lines cover the remaining period (change date → period
-                // end); one-time charges are billed in full at the change date.
-                let end_date = if line.is_prorated {
-                    period_end
-                } else {
-                    invoice_date
-                };
-
-                // A genuinely-added component/add-on carries the subscription-row id it
-                // bills. Stamp it (plus a unit_price/quantity representation) onto the
-                // line so a later removal can match and credit this charge via the same
-                // line-level machinery used for recurring invoices. Charges only
-                // (amount_subtotal > 0); credits never reach the adjustment invoice.
-                let billed_sub = line.sub_component_id.is_some() || line.sub_add_on_id.is_some();
-                let (quantity, unit_price) = if amount_subtotal > 0 {
-                    match line.quantity.filter(|q| !q.is_zero()) {
-                        // Real billed quantity (e.g. a one-time charge of N units):
-                        // show quantity × unit price rather than 1 × total.
-                        Some(q) => {
-                            let unit = line.unit_price.unwrap_or_else(|| {
-                                Decimal::new(amount_subtotal, u32::from(precision)) / q
-                            });
-                            (Some(q), Some(unit))
-                        }
-                        // Fall back to 1 × total when tracking a specific billed row.
-                        None if billed_sub => (
-                            Some(Decimal::ONE),
-                            Some(Decimal::new(amount_subtotal, u32::from(precision))),
-                        ),
-                        None => (None, None),
-                    }
-                } else {
-                    (None, None)
-                };
-
-                LineItem {
-                    local_id: uuid::Uuid::now_v7().to_string(),
-                    name: line.name.clone(),
-                    amount_subtotal,
-                    tax_rate: Decimal::zero(),
-                    taxable_amount,
-                    tax_amount: 0,
-                    amount_total: amount_subtotal,
-                    tax_details: vec![],
-                    quantity,
-                    unit_price,
-                    start_date: invoice_date,
-                    end_date,
-                    sub_lines: vec![],
-                    is_prorated: line.is_prorated,
-                    price_component_id: line.price_component_id,
-                    sub_component_id: line.sub_component_id,
-                    sub_add_on_id: line.sub_add_on_id,
-                    product_id: line.product_id,
-                    metric_id: None,
-                    description: None,
-                    group_by_dimensions: None,
-                }
-            })
-            .collect();
+        let invoice_lines =
+            proration_lines_to_invoice_lines(&netted, invoice_date, period_end, precision);
 
         let invoicing_entity = self
             .store
@@ -794,4 +810,99 @@ impl Services {
 pub(crate) struct AdjustmentInvoiceContent {
     pub computed: ComputedInvoiceContent,
     pub invoicing_entity: Option<crate::domain::InvoicingEntity>,
+}
+
+#[cfg(test)]
+mod proration_invoice_lines_tests {
+    use super::*;
+    use rust_decimal_macros::dec;
+
+    fn proration_line(
+        amount_cents: i64,
+        quantity: Option<Decimal>,
+        billed: bool,
+    ) -> ProrationLineItem {
+        ProrationLineItem {
+            name: "Component".to_string(),
+            amount_cents,
+            full_period_amount_cents: amount_cents,
+            is_credit: amount_cents < 0,
+            is_prorated: true,
+            quantity,
+            unit_price: None,
+            product_id: None,
+            price_component_id: None,
+            net_key: None,
+            sub_component_id: billed.then(common_domain::ids::SubscriptionPriceComponentId::new),
+            sub_add_on_id: None,
+        }
+    }
+
+    fn day(d: u32) -> NaiveDate {
+        NaiveDate::from_ymd_opt(2025, 1, d).unwrap()
+    }
+
+    #[test]
+    fn multi_instance_charge_shows_count_and_effective_rate() {
+        // 3 instances, prorated charge of 9600 cents → "3 × 32.00" (reconciles).
+        let lines = [proration_line(9_600, Some(dec!(3)), true)];
+        let out = proration_lines_to_invoice_lines(&lines, day(16), day(31), 2);
+        let l = &out[0];
+        assert_eq!(l.amount_subtotal, 9_600);
+        assert_eq!(
+            l.quantity,
+            Some(dec!(3)),
+            "shows the real instance count, not 1"
+        );
+        assert_eq!(
+            (l.quantity.unwrap() * l.unit_price.unwrap()).round_dp(2),
+            dec!(96.00),
+            "qty × unit_price reconciles to the line total"
+        );
+        assert_eq!(l.end_date, day(31), "prorated line runs to period end");
+    }
+
+    #[test]
+    fn multi_instance_charge_with_repeating_rate_reconciles() {
+        // 6400 / 3 = 21.333…; quantity stays the integer 3, amount is authoritative.
+        let lines = [proration_line(6_400, Some(dec!(3)), true)];
+        let out = proration_lines_to_invoice_lines(&lines, day(16), day(31), 2);
+        let l = &out[0];
+        assert_eq!(l.amount_subtotal, 6_400);
+        assert_eq!(l.quantity, Some(dec!(3)));
+        assert_eq!(
+            (l.quantity.unwrap() * l.unit_price.unwrap()).round_dp(2),
+            dec!(64.00)
+        );
+    }
+
+    #[test]
+    fn single_unit_tracked_charge_is_one_times_total() {
+        // Flat component (no count) but tracked → 1 × total.
+        let lines = [proration_line(3_780, None, true)];
+        let out = proration_lines_to_invoice_lines(&lines, day(16), day(31), 2);
+        let l = &out[0];
+        assert_eq!(l.quantity, Some(dec!(1)));
+        assert_eq!(l.unit_price, Some(dec!(37.80)));
+    }
+
+    #[test]
+    fn credit_line_carries_no_quantity_or_unit_price() {
+        let lines = [proration_line(-2_500, Some(dec!(5)), true)];
+        let out = proration_lines_to_invoice_lines(&lines, day(16), day(31), 2);
+        let l = &out[0];
+        assert_eq!(l.amount_subtotal, -2_500);
+        assert_eq!(l.quantity, None);
+        assert_eq!(l.unit_price, None);
+    }
+
+    #[test]
+    fn untracked_charge_without_quantity_is_blank() {
+        // Not billed and no quantity (e.g. a matched-component charge) → blank qty/unit.
+        let lines = [proration_line(5_000, None, false)];
+        let out = proration_lines_to_invoice_lines(&lines, day(16), day(31), 2);
+        let l = &out[0];
+        assert_eq!(l.quantity, None);
+        assert_eq!(l.unit_price, None);
+    }
 }

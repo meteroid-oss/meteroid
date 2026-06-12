@@ -154,6 +154,7 @@ pub struct TypstInvoiceLine {
     pub subtotal: f64,
     pub start_date: String,
     pub end_date: String,
+    pub is_prorated: bool,
     pub sub_lines: Vec<TypstInvoiceSubLine>,
     pub group_label: Option<String>,
 }
@@ -172,6 +173,7 @@ impl From<&InvoiceLine> for TypstInvoiceLine {
             subtotal: line.subtotal.amount().to_f64().unwrap_or(0.0),
             start_date,
             end_date,
+            is_prorated: line.is_prorated,
             group_label: line.group_label.clone(),
             sub_lines: {
                 let mut sub_lines = Vec::with_capacity(line.sub_lines.len());
@@ -322,6 +324,7 @@ impl From<&Invoice> for TypstInvoiceContent {
             "description" => invoice_l10n.description().into_value(),
             "quantity" => invoice_l10n.quantity().into_value(),
             "unit_price" => invoice_l10n.unit_price().into_value(),
+            "prorated" => invoice_l10n.prorated().into_value(),
             "tax_rate" => invoice_l10n.tax_rate().into_value(),
             "tax" => invoice_l10n.tax().into_value(),
             "amount" => invoice_l10n.amount().into_value(),

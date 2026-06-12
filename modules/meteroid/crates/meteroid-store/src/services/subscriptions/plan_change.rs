@@ -1584,6 +1584,7 @@ fn build_plan_change_preview(
 
         let (period, fee, _) = resolve_target_fee(target, products, explicit_params, None)?;
 
+        let instance_quantity = crate::services::subscriptions::proration::fee_instance_count(&fee);
         added.push(AddedComponent {
             name: target.name.clone(),
             fee,
@@ -1591,7 +1592,7 @@ fn build_plan_change_preview(
             net_key: None,
             billed_component_id: None,
             billed_add_on_id: None,
-            instance_quantity: None,
+            instance_quantity: Some(instance_quantity),
         });
     }
 

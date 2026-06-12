@@ -144,6 +144,7 @@ pub struct TypstCreditNoteLine {
     pub subtotal: f64,
     pub start_date: String,
     pub end_date: String,
+    pub is_prorated: bool,
     pub sub_lines: Vec<TypstCreditNoteSubLine>,
 }
 
@@ -161,6 +162,7 @@ impl From<&CreditNoteLine> for TypstCreditNoteLine {
             subtotal: line.subtotal.amount().to_f64().unwrap_or(0.0),
             start_date,
             end_date,
+            is_prorated: line.is_prorated,
             sub_lines: {
                 let mut sub_lines = Vec::with_capacity(line.sub_lines.len());
                 for sub_line in &line.sub_lines {
@@ -279,6 +281,7 @@ impl From<&CreditNote> for TypstCreditNoteContent {
             "description" => credit_note_l10n.description().into_value(),
             "quantity" => credit_note_l10n.quantity().into_value(),
             "unit_price" => credit_note_l10n.unit_price().into_value(),
+            "prorated" => credit_note_l10n.prorated().into_value(),
             "tax_rate" => credit_note_l10n.tax_rate().into_value(),
             "amount" => credit_note_l10n.amount().into_value(),
             "subtotal" => credit_note_l10n.subtotal().into_value(),

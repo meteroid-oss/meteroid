@@ -11,6 +11,7 @@ invoice-lines = Invoice Lines
 description = Description
 quantity = Quantity
 unit-price = Unit Price
+prorated = prorated
 tax-rate = Tax Rate
 tax = Tax
 amount = Total (excl. tax)

@@ -120,6 +120,7 @@ pub struct InvoiceLine {
     pub tax_rate: Decimal,
     pub start_date: chrono::NaiveDate,
     pub end_date: chrono::NaiveDate,
+    pub is_prorated: bool,
     pub sub_lines: Vec<InvoiceSubLine>,
     /// Optional grouping heading (e.g. plan name) used to group lines on the rendered invoice,
     /// typically set for consolidated invoices that merge several subscriptions.

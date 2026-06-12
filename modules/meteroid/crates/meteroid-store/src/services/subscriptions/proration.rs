@@ -56,6 +56,23 @@ pub fn component_onetime_amount_cents(fee: &SubscriptionFee, precision: u8) -> i
     }
 }
 
+/// Display instance count encoded in a fee: slot count, or recurring/one-time
+/// quantity. Flat fees (Rate, Capacity) and usage are a single unit. Used so a
+/// prorated adjustment-invoice line shows "N × effective_rate" instead of
+/// "1 × total" for a multi-instance component. Only valid for an unscaled fee
+/// (scale_fee folds the multiplier into Rate/Capacity rates, losing the count).
+pub(crate) fn fee_instance_count(fee: &SubscriptionFee) -> rust_decimal::Decimal {
+    use rust_decimal::Decimal;
+    match fee {
+        SubscriptionFee::Slot { initial_slots, .. } => Decimal::from(*initial_slots),
+        SubscriptionFee::Recurring { quantity, .. } => Decimal::from(*quantity),
+        SubscriptionFee::OneTime { quantity, .. } => Decimal::from(*quantity),
+        SubscriptionFee::Rate { .. }
+        | SubscriptionFee::Capacity { .. }
+        | SubscriptionFee::Usage { .. } => Decimal::ONE,
+    }
+}
+
 /// Nominal length, in days, of a billing period. Used to prorate components
 /// whose billing cadence differs from the subscription's current period.
 fn nominal_period_days(period: &SubscriptionFeeBillingPeriod) -> f64 {
@@ -985,5 +1002,33 @@ mod tests {
             line("Base (prorated)", 5000, false, Some("c1")),
         ]);
         assert!(netted.is_empty());
+    }
+
+    #[test]
+    fn fee_instance_count_reads_count_from_fee() {
+        use crate::domain::enums::BillingType;
+        use rust_decimal_macros::dec;
+
+        // Count encoded in the fee.
+        assert_eq!(fee_instance_count(&slot_fee(3, 10)), dec!(3));
+        assert_eq!(
+            fee_instance_count(&SubscriptionFee::Recurring {
+                rate: dec!(10),
+                quantity: 5,
+                billing_type: BillingType::Advance,
+            }),
+            dec!(5)
+        );
+        assert_eq!(
+            fee_instance_count(&SubscriptionFee::OneTime {
+                rate: dec!(10),
+                quantity: 2,
+            }),
+            dec!(2)
+        );
+
+        // Flat / countless fees are a single unit (shared match arm: Rate | Capacity | Usage).
+        assert_eq!(fee_instance_count(&rate_fee(100)), dec!(1));
+        assert_eq!(fee_instance_count(&usage_fee()), dec!(1));
     }
 }

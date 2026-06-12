@@ -98,6 +98,7 @@ pub struct CreditNoteLine {
     pub tax_rate: Decimal,
     pub start_date: NaiveDate,
     pub end_date: NaiveDate,
+    pub is_prorated: bool,
     pub sub_lines: Vec<CreditNoteSubLine>,
 }
 

@@ -82,6 +82,10 @@ pub(crate) struct CreateCreditNoteTxParams {
     pub memo: Option<String>,
     /// How to apply the credit
     pub credit_type: CreditType,
+    /// Whether these credits come from a proration calculation (e.g. amendments crediting
+    /// unused time). A category, not a per-line value: each line is then flagged prorated
+    /// only when proration actually reduced it below the billed amount (see `negate_line_items`).
+    pub from_proration: bool,
 }
 
 #[async_trait::async_trait]
@@ -266,6 +270,7 @@ fn negate_line_items(
     line_items: &[LineItem],
     resolved: &HashMap<String, ResolvedCredit>,
     precision: u8,
+    from_proration: bool,
 ) -> Vec<LineItem> {
     line_items
         .iter()
@@ -277,7 +282,6 @@ fn negate_line_items(
             let partial_subtotal = r.credit_subtotal;
             let sub_override = r.sub_lines_override.as_deref();
             let negated_sub_lines = negate_sub_lines(&item.sub_lines, sub_override);
-            let has_override = sub_override.is_some();
 
             if let Some(credit_subtotal) = partial_subtotal {
                 // Partial credit: amount is the subtotal (excl. tax)
@@ -333,17 +337,30 @@ fn negate_line_items(
                 // Total = taxable + tax (uses taxable to account for discounts)
                 let credit_total = prorated_taxable + prorated_tax;
 
-                // For sub_lines override the parent line has no meaningful unit_price/quantity
-                // (the credited amount is the sum of negated sublines). Otherwise we collapse
-                // to "1 × credited_subtotal" so the PDF stays consistent.
-                let (credited_quantity, credited_unit_price) = if has_override {
+                // Effective-rate display so qty × unit_price always reconciles to the credited
+                // amount: quantity = the line's real unit count, unit_price = amount ÷ quantity
+                // (the effective, possibly-prorated, per-unit rate). Never divide to fabricate a
+                // fractional quantity (that produced the repeating decimal). Sub-line overrides
+                // keep the parent blank — the negated sub-lines carry the detail.
+                let (credited_quantity, credited_unit_price) = if sub_override.is_some() {
                     (None, None)
                 } else {
-                    (
-                        Some(Decimal::ONE),
-                        Some(-(credit_subtotal.to_unit(precision))),
-                    )
+                    let qty = item
+                        .quantity
+                        .filter(|q| *q > Decimal::ZERO)
+                        .unwrap_or(Decimal::ONE);
+                    let unit = credit_subtotal.to_unit(precision) / qty;
+                    (Some(qty), Some(unit))
                 };
+                // Per line: flagged prorated when the line was itself billed prorated, or —
+                // for a proration-driven batch (`from_proration`, i.e. amendments) — when
+                // proration actually reduced THIS line below what was billed. Within such a
+                // batch the credit IS `billed × time_factor`, so `credit_subtotal < amount`
+                // is exactly `factor < 1` (covers less than the full period). The
+                // `from_proration` gate keeps manual partial credits (also a smaller amount,
+                // but not a time-proration) from being mislabelled.
+                let credited_is_prorated =
+                    item.is_prorated || (from_proration && credit_subtotal < item.amount_subtotal);
 
                 LineItem {
                     local_id: item.local_id.clone(),
@@ -359,7 +376,7 @@ fn negate_line_items(
                     start_date: item.start_date,
                     end_date: item.end_date,
                     sub_lines: negated_sub_lines,
-                    is_prorated: item.is_prorated,
+                    is_prorated: credited_is_prorated,
                     price_component_id: item.price_component_id,
                     sub_component_id: item.sub_component_id,
                     sub_add_on_id: item.sub_add_on_id,
@@ -369,7 +386,8 @@ fn negate_line_items(
                     group_by_dimensions: item.group_by_dimensions.clone(),
                 }
             } else {
-                // Full credit: negate the full amounts and unit_price, keep original quantity
+                // Full credit: negate the amounts, keep original quantity and positive
+                // unit_price (the sign lives in the amounts).
                 // Note: amount_total is recalculated as taxable_amount + tax_amount to properly
                 // account for discounts (which reduce taxable_amount but not amount_subtotal)
                 LineItem {
@@ -390,7 +408,7 @@ fn negate_line_items(
                         })
                         .collect(),
                     quantity: item.quantity,
-                    unit_price: item.unit_price.map(|p| -p),
+                    unit_price: item.unit_price,
                     start_date: item.start_date,
                     end_date: item.end_date,
                     sub_lines: negated_sub_lines,
@@ -574,6 +592,7 @@ pub(crate) async fn create_user_credit_note_tx(
     tenant_id: TenantId,
     actor: &Actor,
     params: CreateCreditNoteParams,
+    from_proration: bool,
 ) -> StoreResult<CreditNote> {
     let detailed_invoice = InvoiceRow::find_detailed_by_id(conn, tenant_id, params.invoice_id)
         .await
@@ -636,6 +655,7 @@ pub(crate) async fn create_user_credit_note_tx(
             reason: params.reason,
             memo: params.memo,
             credit_type: params.credit_type,
+            from_proration,
         },
     )
     .await
@@ -963,7 +983,12 @@ pub(crate) async fn create_credit_note_tx(
     }
 
     // 3. Create negated line items for the credit note
-    let negated_line_items = negate_line_items(&line_items_to_credit, &resolved, precision);
+    let negated_line_items = negate_line_items(
+        &line_items_to_credit,
+        &resolved,
+        precision,
+        params.from_proration,
+    );
 
     // 6. Calculate totals from negated line items (will be negative)
     let subtotal: i64 = negated_line_items
@@ -1165,8 +1190,10 @@ impl CreditNoteInterface for Store {
     ) -> StoreResult<CreditNote> {
         self.transaction(|conn| {
             let actor = &actor;
-            async move { create_user_credit_note_tx(self, conn, tenant_id, actor, params).await }
-                .scope_boxed()
+            async move {
+                create_user_credit_note_tx(self, conn, tenant_id, actor, params, false).await
+            }
+            .scope_boxed()
         })
         .await
     }
@@ -1181,7 +1208,7 @@ impl CreditNoteInterface for Store {
             let actor = &actor;
             async move {
                 let draft =
-                    create_user_credit_note_tx(self, conn, tenant_id, actor, params).await?;
+                    create_user_credit_note_tx(self, conn, tenant_id, actor, params, false).await?;
                 finalize_credit_note_tx(self, conn, tenant_id, actor, draft.id).await
             }
             .scope_boxed()
@@ -1511,7 +1538,7 @@ mod tests {
             ],
         );
         let amounts = resolved_map(&[("l1", None)]);
-        let negated = negate_line_items(&[line], &amounts, 2);
+        let negated = negate_line_items(&[line], &amounts, 2, false);
         let tax: i64 = negated.iter().map(|i| i.tax_amount).sum();
         assert_eq!(tax, -2_000);
         assert_breakdown_matches(&negated, tax, "full");
@@ -1542,7 +1569,7 @@ mod tests {
             ],
         );
         let amounts = resolved_map(&[("l1", Some(3_333))]);
-        let negated = negate_line_items(&[line], &amounts, 2);
+        let negated = negate_line_items(&[line], &amounts, 2, false);
         let tax: i64 = negated.iter().map(|i| i.tax_amount).sum();
         assert_eq!(tax, -667, "prorated tax_amount on negated line");
         assert_breakdown_matches(&negated, tax, "partial");
@@ -1591,8 +1618,8 @@ mod tests {
         );
         let a1 = resolved_map(&[("l1", Some(4_000))]);
         let a2 = resolved_map(&[("l1", Some(6_000))]);
-        let n1 = negate_line_items(std::slice::from_ref(&line), &a1, 2);
-        let n2 = negate_line_items(&[line], &a2, 2);
+        let n1 = negate_line_items(std::slice::from_ref(&line), &a1, 2, false);
+        let n2 = negate_line_items(&[line], &a2, 2, false);
 
         let tax1: i64 = n1.iter().map(|i| i.tax_amount).sum();
         let tax2: i64 = n2.iter().map(|i| i.tax_amount).sum();
@@ -1612,7 +1639,7 @@ mod tests {
         // path and still produce a correct breakdown.
         let line = make_line("l1", 10_000, 10_000, 2_000, vec![]);
         let amounts = resolved_map(&[("l1", Some(3_333))]);
-        let negated = negate_line_items(&[line], &amounts, 2);
+        let negated = negate_line_items(&[line], &amounts, 2, false);
         let tax: i64 = negated.iter().map(|i| i.tax_amount).sum();
         assert_eq!(tax, -667);
         assert!(
@@ -1625,5 +1652,75 @@ mod tests {
         assert_eq!(breakdown[0].name, "Tax");
         assert_eq!(breakdown[0].tax_rate, dec!(0.2));
         assert_eq!(breakdown[0].tax_amount, 667);
+    }
+
+    #[test]
+    fn partial_credit_uses_effective_rate_and_reconciles() {
+        // The classic repeating-decimal case: credit 900 of a 2900 line. The old code
+        // showed quantity = 900/2900 = 0.31034482…; the effective-rate model shows the
+        // integer unit count with unit_price = amount / qty, which reconciles cleanly.
+        let line = make_line("l1", 2_900, 2_900, 0, vec![]);
+        let resolved = resolved_map(&[("l1", Some(900))]);
+        let negated = negate_line_items(&[line], &resolved, 2, false);
+        let cn = &negated[0];
+        assert_eq!(cn.amount_subtotal, -900, "amount is authoritative");
+        assert_eq!(
+            cn.quantity,
+            Some(dec!(1)),
+            "quantity stays the integer unit count, never the 900/2900 fraction"
+        );
+        let q = cn.quantity.unwrap();
+        let p = cn.unit_price.unwrap();
+        assert_eq!(
+            (q * p).round_dp(2),
+            dec!(9.00),
+            "qty × unit_price reconciles to the credited amount"
+        );
+    }
+
+    #[test]
+    fn partial_credit_multi_instance_keeps_integer_quantity() {
+        // 2/3 of a 3-unit line: the effective rate (6400/3) repeats, but the displayed
+        // quantity stays the integer 3 and the amount stays authoritative.
+        let mut line = make_line("l1", 9_600, 9_600, 0, vec![]);
+        line.quantity = Some(dec!(3));
+        line.unit_price = Some(dec!(32));
+        let resolved = resolved_map(&[("l1", Some(6_400))]);
+        let negated = negate_line_items(&[line], &resolved, 2, false);
+        let cn = &negated[0];
+        assert_eq!(cn.amount_subtotal, -6_400);
+        assert_eq!(
+            cn.quantity,
+            Some(dec!(3)),
+            "multi-instance credit shows the integer count, not a fraction"
+        );
+        assert_eq!(
+            (cn.quantity.unwrap() * cn.unit_price.unwrap()).round_dp(2),
+            dec!(64.00),
+            "qty × unit_price reconciles to the credited amount"
+        );
+    }
+
+    #[test]
+    fn prorated_is_decided_per_line_within_a_proration_batch() {
+        let line = make_line("l1", 1_000, 1_000, 0, vec![]); // is_prorated: false
+        let partial = resolved_map(&[("l1", Some(420))]);
+        let full = resolved_map(&[("l1", Some(1_000))]);
+
+        // Proration batch (prorated = true): a reduced credit IS flagged…
+        assert!(
+            negate_line_items(std::slice::from_ref(&line), &partial, 2, true)[0].is_prorated,
+            "a reduced credit in a proration batch is prorated"
+        );
+        // …but a 100% credit (factor 1.0) of the same line is NOT — proration didn't reduce it.
+        assert!(
+            !negate_line_items(std::slice::from_ref(&line), &full, 2, true)[0].is_prorated,
+            "a full (100%) credit is not prorated even in a proration batch"
+        );
+        // Manual partial credit (prorated = false) is never inferred from the amount alone.
+        assert!(
+            !negate_line_items(&[line], &partial, 2, false)[0].is_prorated,
+            "a manual partial credit is not mislabelled prorated"
+        );
     }
 }

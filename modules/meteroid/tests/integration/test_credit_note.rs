@@ -1114,16 +1114,22 @@ async fn test_credit_note_partial_amounts() {
         cn_line0.amount_total, -550,
         "CN line 0 total should be -550 (partial)"
     );
-    // For partial credits, quantity=1 and unit_price=credited_subtotal
+    // Effective-rate display: qty × unit_price reconciles to the credited amount, with no
+    // synthesized fractional quantity (and so no repeating decimal).
+    let orig_line0 = &invoice.line_items[0];
+    let q = cn_line0.quantity.expect("CN line 0 should have a quantity");
+    let p = cn_line0
+        .unit_price
+        .expect("CN line 0 should have a unit price");
     assert_eq!(
-        cn_line0.quantity,
-        Some(dec!(1)),
-        "CN line 0 quantity should be 1"
+        (q * p).round_dp(2),
+        dec!(5.00),
+        "CN line 0 qty × unit_price should reconcile to the €5.00 credited"
     );
+    // Manual credit inherits the line's prorated flag (not forced true).
     assert_eq!(
-        cn_line0.unit_price,
-        Some(dec!(-5.00)),
-        "CN line 0 unit_price should be -5.00 (-500 cents)"
+        cn_line0.is_prorated, orig_line0.is_prorated,
+        "manual credit should inherit the original line's prorated flag"
     );
 
     // Line 1: full credit (keeps original quantity/unit_price)

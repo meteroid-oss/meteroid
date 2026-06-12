@@ -577,6 +577,7 @@ impl InvoiceInterface for Store {
                         reason: Some("Invoice voided".to_string()),
                         memo: None,
                         credit_type: CreditType::CreditToBalance,
+                        from_proration: false,
                     },
                 )
                 .await?;

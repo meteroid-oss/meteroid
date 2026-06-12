@@ -690,6 +690,102 @@ async fn test_apply_amendment_add_addon_immediate(#[future] test_env: TestEnv) {
     assert_eq!(mrr_after, mrr_before + 2000);
 }
 
+/// Adding a multi-instance add-on (quantity 3) immediately mid-period must show the
+/// real instance count on the prorated adjustment-invoice line, with the effective
+/// unit price reconciling to the line total (no `1 × total`, no repeating decimal).
+#[rstest]
+#[tokio::test]
+async fn test_apply_amendment_add_multi_instance_addon_shows_count(#[future] test_env: TestEnv) {
+    let env = test_env.await;
+    let start_date = NaiveDate::from_ymd_opt(2024, 1, 1).unwrap();
+    let change_date = NaiveDate::from_ymd_opt(2024, 1, 16).unwrap();
+
+    let sub_id = subscription()
+        .plan_version(PLAN_VERSION_STARTER_ID)
+        .start_date(start_date)
+        .on_start()
+        .no_trial()
+        .create(env.services())
+        .await;
+
+    // €20/mo add-on, up to 5 instances.
+    let add_on = env
+        .store()
+        .create_add_on_from_ref(
+            "Premium Support".to_string(),
+            ProductRef::New {
+                name: "Premium Support Product".to_string(),
+                fee_type: FeeTypeEnum::Rate,
+                fee_structure: FeeStructure::Rate {},
+            },
+            PriceEntry::New(PriceInput {
+                cadence: BillingPeriodEnum::Monthly,
+                currency: "EUR".to_string(),
+                pricing: Pricing::Rate {
+                    rate: Decimal::new(2000, 2),
+                },
+            }),
+            None,
+            true,
+            Some(5),
+            TENANT_ID,
+            PRODUCT_FAMILY_ID,
+            vec![],
+        )
+        .await
+        .expect("create_add_on_from_ref failed");
+
+    let amendment = SubscriptionAmendment {
+        apply_mode: PlanChangeMode::Immediate,
+        component_changes: ComponentChanges::default(),
+        add_on_changes: AddOnChanges {
+            added: vec![CreateSubscriptionAddOn {
+                add_on_id: add_on.id,
+                customization: SubscriptionAddOnCustomization::None,
+                quantity: 3,
+            }],
+            edited: vec![],
+            removed: vec![],
+        },
+    };
+
+    let result = env
+        .services()
+        .apply_amendment_immediate_at(
+            common_domain::actor::Actor::System,
+            sub_id,
+            TENANT_ID,
+            amendment,
+            change_date,
+        )
+        .await
+        .expect("apply_amendment_immediate_at failed");
+    assert!(result.adjustment_invoice_id.is_some());
+
+    // The prorated charge line for the add-on.
+    let invoices = env.get_invoices(sub_id).await;
+    let line = invoices
+        .iter()
+        .flat_map(|i| &i.line_items)
+        .find(|l| l.name.contains("Premium Support"))
+        .expect("add-on charge line on the adjustment invoice");
+
+    assert!(line.amount_subtotal > 0, "charge line should be positive");
+    assert!(line.is_prorated, "mid-period add-on charge is prorated");
+    assert_eq!(
+        line.quantity,
+        Some(Decimal::from(3)),
+        "shows the real instance count (3), not 1"
+    );
+    let q = line.quantity.unwrap();
+    let p = line.unit_price.expect("effective unit price");
+    assert_eq!(
+        (q * p).round_dp(2),
+        Decimal::new(line.amount_subtotal, 2),
+        "qty × unit_price reconciles to the line subtotal"
+    );
+}
+
 // =============================================================================
 // END-OF-PERIOD EXECUTION (#1)
 // =============================================================================
@@ -1873,6 +1969,90 @@ async fn test_amendment_removal_unpaid_issues_debt_cancellation(#[future] test_e
     assert_eq!(cn.subtotal, -expected_credit); // credit notes store negative subtotals
     // DebtCancellation reduces invoice debt, not the customer balance.
     assert_eq!(cn.credited_amount_cents, 0);
+    // Genuine mid-period proration (factor 0.5) → the credit line is flagged prorated.
+    assert!(
+        cn.line_items.iter().any(|l| l.is_prorated),
+        "a partial-period credit should be flagged prorated"
+    );
+}
+
+/// Removing a component at the exact period start credits 100% (proration factor 1.0).
+/// That is a full credit, not a prorated one, so the credit-note line must NOT be
+/// flagged prorated — the marker only appears when proration actually reduces an amount.
+#[rstest]
+#[tokio::test]
+async fn test_amendment_removal_at_period_start_is_not_prorated(#[future] test_env: TestEnv) {
+    let env = test_env.await;
+    let start_date = NaiveDate::from_ymd_opt(2024, 4, 1).unwrap();
+
+    let sub_id = subscription()
+        .plan_version(PLAN_VERSION_STARTER_ID)
+        .start_date(start_date)
+        .on_start()
+        .no_trial()
+        .create(env.services())
+        .await;
+
+    env.run_outbox_and_orchestration().await;
+
+    let recurring = env
+        .get_invoices(sub_id)
+        .await
+        .into_iter()
+        .find(|i| i.invoice_type == InvoiceType::Recurring && i.invoice_date == start_date)
+        .expect("recurring invoice for the first period");
+
+    let platform = env
+        .get_subscription_components(sub_id)
+        .await
+        .into_iter()
+        .find(|c| c.name == "Platform Fee")
+        .expect("Platform Fee component");
+    let full = recurring
+        .line_items
+        .iter()
+        .find(|l| l.sub_component_id == Some(platform.id))
+        .expect("Platform Fee line on the original invoice")
+        .amount_subtotal;
+
+    // Remove at the exact period start → 100% unused → full credit (factor 1.0).
+    env.services()
+        .apply_amendment_immediate_at(
+            common_domain::actor::Actor::System,
+            sub_id,
+            TENANT_ID,
+            SubscriptionAmendment {
+                apply_mode: PlanChangeMode::Immediate,
+                component_changes: ComponentChanges {
+                    edited: vec![],
+                    added: vec![],
+                    removed: vec![platform.id],
+                },
+                add_on_changes: AddOnChanges::default(),
+            },
+            start_date,
+        )
+        .await
+        .expect("apply amendment failed");
+
+    let credit_notes = env
+        .store()
+        .list_credit_notes_by_invoice_id(TENANT_ID, recurring.id)
+        .await
+        .expect("list credit notes");
+    assert_eq!(credit_notes.len(), 1, "exactly one credit note expected");
+    let cn = &credit_notes[0];
+
+    assert_eq!(cn.subtotal, -full, "credits the full period amount (100%)");
+    let line = cn
+        .line_items
+        .iter()
+        .find(|l| l.name.contains("Platform Fee"))
+        .expect("Platform Fee credit line");
+    assert!(
+        !line.is_prorated,
+        "a 100% credit (factor 1.0) must not be flagged prorated"
+    );
 }
 
 /// Removing an advance-billed component mid-period on a *paid* invoice issues a
