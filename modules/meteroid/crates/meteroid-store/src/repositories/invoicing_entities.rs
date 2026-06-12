@@ -266,9 +266,6 @@ impl StoreInternal {
             next_invoice_number: 1,
             next_credit_note_number: 1,
             grace_period_hours: invoicing_entity.grace_period_hours.unwrap_or(24),
-            consolidate_recurring_invoices: invoicing_entity
-                .consolidate_recurring_invoices
-                .unwrap_or(false),
             net_terms: invoicing_entity.net_terms.unwrap_or(30),
             invoice_footer_info: invoicing_entity.invoice_footer_info.clone(),
             invoice_footer_legal: invoicing_entity.invoice_footer_legal.clone(),

@@ -3,7 +3,7 @@ import {
   createProtobufSafeUpdater,
   useMutation,
 } from '@connectrpc/connect-query'
-import { Button, Card, Form, InputFormField, SwitchFormField, TextareaFormField } from '@md/ui'
+import { Badge, Button, Card, Form, InputFormField, Switch, TextareaFormField } from '@md/ui'
 import { useQueryClient } from '@tanstack/react-query'
 import { useEffect } from 'react'
 import { toast } from 'sonner'
@@ -26,7 +26,6 @@ const invoiceDetailsSchema = z.object({
   invoiceFooterLegal: z.string().optional(),
   logoAttachmentId: z.string().optional(),
   brandColor: z.string().optional(),
-  consolidateRecurringInvoices: z.boolean().optional(),
 })
 
 export const InvoiceTab = () => {
@@ -69,7 +68,6 @@ export const InvoiceTab = () => {
         invoiceFooterLegal: currentEntity.invoiceFooterLegal || '',
         logoAttachmentId: currentEntity.logoAttachmentId || '',
         brandColor: currentEntity.brandColor || '',
-        consolidateRecurringInvoices: currentEntity.consolidateRecurringInvoices ?? false,
       })
     } else {
       methods.reset()
@@ -92,7 +90,6 @@ export const InvoiceTab = () => {
         invoiceNumberPattern: values.invoiceNumberPattern,
         logoAttachmentId: values.logoAttachmentId,
         netTerms: values.netTerms,
-        consolidateRecurringInvoices: values.consolidateRecurringInvoices,
       },
     })
   }
@@ -138,14 +135,23 @@ export const InvoiceTab = () => {
                 containerClassName="col-span-3"
               />
 
-              <SwitchFormField
-                name="consolidateRecurringInvoices"
-                control={methods.control}
-                label="Consolidate recurring invoices"
-                description="Merge a customer's subscriptions that renew on the same day (same currency, payment method and net terms) into a single invoice"
-                variant="default"
-                containerClassName="col-span-6"
-              />
+              {/* enterprise-only */}
+              <div className="col-span-6 flex flex-row items-start space-x-3 space-y-0 py-4">
+                <Switch checked={false} disabled />
+                <div className="space-y-1 leading-none">
+                  <div className="flex items-center gap-2">
+                    <span className="text-sm font-medium">Consolidate recurring invoices</span>
+                    <Badge variant="ghost" size="sm">
+                      Enterprise
+                    </Badge>
+                  </div>
+                  <p className="text-sm text-muted-foreground">
+                    Merge a customer&apos;s subscriptions that renew on the same day (same currency,
+                    payment method and net terms) into a single invoice. Available in Meteroid Cloud
+                    and Enterprise edition.
+                  </p>
+                </div>
+              </div>
             </div>
             <div className="pt-4">
               <h3 className="font-medium text-lg">Invoice footer</h3>

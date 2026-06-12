@@ -62,25 +62,26 @@ impl TestEnv {
     }
 
     /// Enable (or disable) invoice consolidation on the test tenant's invoicing entity.
+    ///
+    /// consolidate_recurring_invoices is enterprise-only and not settable through the OSS
+    /// domain API, so the test flips the database column directly.
     pub async fn set_consolidate_recurring_invoices(&self, enabled: bool) {
-        self.store()
-            .patch_invoicing_entity(
-                Actor::User {
-                    id: UserId::from(USER_ID),
-                },
-                InvoicingEntityPatch {
-                    id: INVOICING_ENTITY_ID,
-                    consolidate_recurring_invoices: Some(enabled),
-                    ..Default::default()
-                },
-                TENANT_ID,
-            )
+        use diesel::{ExpressionMethods, QueryDsl};
+        use diesel_async::RunQueryDsl;
+        use diesel_models::schema::invoicing_entity::dsl as ie;
+
+        let mut conn = self.conn().await;
+        diesel::update(ie::invoicing_entity.filter(ie::id.eq(INVOICING_ENTITY_ID)))
+            .set(ie::consolidate_recurring_invoices.eq(enabled))
+            .execute(&mut conn)
             .await
             .expect("Failed to toggle consolidation flag");
     }
 
     /// Set the consolidation flag together with a grace period on the test invoicing entity.
     pub async fn set_consolidate_and_grace(&self, enabled: bool, grace_period_hours: i32) {
+        // Grace period via the domain API; the consolidation flag is enterprise-only and set
+        // directly on the database column.
         self.store()
             .patch_invoicing_entity(
                 Actor::User {
@@ -88,14 +89,14 @@ impl TestEnv {
                 },
                 InvoicingEntityPatch {
                     id: INVOICING_ENTITY_ID,
-                    consolidate_recurring_invoices: Some(enabled),
                     grace_period_hours: Some(grace_period_hours),
                     ..Default::default()
                 },
                 TENANT_ID,
             )
             .await
-            .expect("Failed to set consolidation + grace");
+            .expect("Failed to set grace period");
+        self.set_consolidate_recurring_invoices(enabled).await;
     }
 
     /// Get the per-subscription child invoices merged into a consolidated parent invoice.

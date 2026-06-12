@@ -16,6 +16,8 @@ use serde::{Deserialize, Serialize};
 
 #[derive(Clone, Debug, Serialize, Deserialize, o2o)]
 #[map_owned(InvoicingEntityRow)]
+// enterprise-only
+#[ghosts(consolidate_recurring_invoices: {false})]
 pub struct InvoicingEntity {
     pub id: InvoicingEntityId,
     pub is_default: bool,
@@ -50,9 +52,6 @@ pub struct InvoicingEntity {
     pub bank_account_id: Option<BankAccountId>,
     #[map(~.into())]
     pub tax_resolver: TaxResolverEnum,
-    /// Opt-in: when true, this entity merges same-day eligible recurring drafts for a
-    /// customer into one consolidated invoice. Off by default.
-    pub consolidate_recurring_invoices: bool,
 }
 
 impl InvoicingEntity {
@@ -88,12 +87,12 @@ pub struct InvoicingEntityNew {
     pub city: Option<String>,
     pub vat_number: Option<String>,
     pub tax_resolver: TaxResolverEnum,
-    pub consolidate_recurring_invoices: Option<bool>,
 }
 
 #[derive(Clone, Debug, o2o, Default)]
 #[owned_into(InvoicingEntityRowPatch)]
-#[ghosts(accounting_currency: {None})]
+// consolidate_recurring_invoices is enterprise-only
+#[ghosts(accounting_currency: {None}, consolidate_recurring_invoices: {None})]
 pub struct InvoicingEntityPatch {
     pub id: InvoicingEntityId,
     pub legal_name: Option<String>,
@@ -113,7 +112,6 @@ pub struct InvoicingEntityPatch {
     pub country: Option<CountryCode>,
     #[map(~.map(|x| x.into()))]
     pub tax_resolver: Option<TaxResolverEnum>,
-    pub consolidate_recurring_invoices: Option<bool>,
 }
 
 #[derive(Clone, Debug, o2o, Default)]

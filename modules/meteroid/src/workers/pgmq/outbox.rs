@@ -6,13 +6,13 @@ use common_domain::ids::PlanVersionId;
 use common_domain::pgmq::{Headers, MessageId};
 use error_stack::{Report, ResultExt};
 use futures::FutureExt;
+use meteroid_store::domain::Invoice;
 use meteroid_store::domain::outbox_event::{EventType, OutboxEvent, OutboxPgmqHeaders};
 use meteroid_store::domain::pgmq::{
     BiAggregationEvent, BiCreditNoteFinalizedEvent, BiInvoiceFinalizedEvent,
     HubspotSyncRequestEvent, PennylaneSyncInvoice, PennylaneSyncRequestEvent, PgmqMessage,
     PgmqMessageNew, PgmqQueue, QuoteConversionRequestEvent,
 };
-use meteroid_store::domain::Invoice;
 use meteroid_store::repositories::InvoiceInterface;
 use meteroid_store::repositories::pgmq::PgmqInterface;
 use meteroid_store::{Store, StoreResult};

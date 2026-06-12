@@ -25,7 +25,7 @@ message InvoicingEntity {
   string country = 20;
   string accounting_currency = 21;
   TaxResolver tax_resolver = 22;
-  bool consolidate_recurring_invoices = 23;
+  reserved 23; // consolidate_recurring_invoices, enterprise-only
 }
 
 message InvoicingEntityPublic {
@@ -61,7 +61,7 @@ message InvoicingEntityData {
   optional string vat_number = 19;
   optional string country = 20;
   optional TaxResolver tax_resolver = 21;
-  optional bool consolidate_recurring_invoices = 22;
+  reserved 22; // consolidate_recurring_invoices, enterprise-only
 }
 
 enum TaxResolver {
