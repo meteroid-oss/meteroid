@@ -1,3 +1,8 @@
+-- Audit logging & activity timeline system.
+--
+-- Consolidated migration: creates the entity_activity + sent_email tables in
+-- their final shape (actor stored as actor_uuid / actor_alias) and drops the
+-- per-row created_by attribution columns now subsumed by entity_activity.
 
 DROP TABLE IF EXISTS quote_activity CASCADE;
 
@@ -19,7 +24,10 @@ CREATE TABLE entity_activity (
     activity_type TEXT NOT NULL,
 
     actor_type "ActorTypeEnum" NOT NULL,
-    actor_id TEXT,
+    -- actor_uuid for USER / API_TOKEN / CUSTOMER actors, actor_alias for
+    -- QUOTE_RECIPIENT (e.g. an email address), both NULL for SYSTEM.
+    actor_uuid UUID,
+    actor_alias TEXT,
 
     metadata JSONB,
 
@@ -32,7 +40,16 @@ CREATE TABLE entity_activity (
     CONSTRAINT entity_activity_agg_customer_not_self
         CHECK (entity_type != 'customer' OR agg_customer_id IS NULL),
     CONSTRAINT entity_activity_agg_subscription_not_self
-        CHECK (entity_type != 'subscription' OR agg_subscription_id IS NULL)
+        CHECK (entity_type != 'subscription' OR agg_subscription_id IS NULL),
+
+    -- Shape constraint: keeps UUID/alias/null aligned with actor_type.
+    CONSTRAINT entity_activity_actor_shape CHECK (
+        CASE actor_type
+            WHEN 'SYSTEM'          THEN actor_uuid IS NULL     AND actor_alias IS NULL
+            WHEN 'QUOTE_RECIPIENT' THEN actor_uuid IS NULL     AND actor_alias IS NOT NULL
+            ELSE                        actor_uuid IS NOT NULL AND actor_alias IS NULL
+        END
+    )
 );
 
 -- Entity timeline ("everything that happened to this invoice/customer/...")
@@ -43,10 +60,10 @@ CREATE INDEX idx_entity_activity_entity
 CREATE INDEX idx_entity_activity_tenant_time
     ON entity_activity (tenant_id, occurred_at DESC);
 
--- "Everything actor X did" — partial to keep it cheap (actor_id is null for SYSTEM)
+-- "Everything actor X did" — partial (SYSTEM and QUOTE_RECIPIENT have no uuid)
 CREATE INDEX idx_entity_activity_actor
-    ON entity_activity (tenant_id, actor_type, actor_id, occurred_at DESC)
-    WHERE actor_id IS NOT NULL;
+    ON entity_activity (tenant_id, actor_type, actor_uuid, occurred_at DESC)
+    WHERE actor_uuid IS NOT NULL;
 
 -- Partial indexes for agg rollups — most rows have NULL agg refs (plan/product/etc
 -- events don't roll up), so a partial index keeps the index small and the
@@ -77,3 +94,22 @@ CREATE TABLE sent_email (
 
 CREATE INDEX idx_sent_email_tenant_time
     ON sent_email (tenant_id, sent_at DESC);
+
+-- Drop attribution columns now subsumed by entity_activity.
+-- Kept: batch_job.created_by (still surfaced in BatchJobDetail UI),
+--       customer_balance_tx.created_by + customer_balance_pending_tx.created_by
+--       (ledger provenance must outlive a possible audit-table reset).
+ALTER TABLE api_token         DROP COLUMN created_by;
+ALTER TABLE bank_account      DROP COLUMN created_by;
+ALTER TABLE billable_metric   DROP COLUMN created_by;
+ALTER TABLE checkout_session  DROP COLUMN created_by;
+ALTER TABLE customer          DROP COLUMN created_by,
+                              DROP COLUMN updated_by,
+                              DROP COLUMN archived_by;
+ALTER TABLE entitlement       DROP COLUMN created_by;
+ALTER TABLE feature           DROP COLUMN created_by;
+ALTER TABLE plan              DROP COLUMN created_by;
+ALTER TABLE plan_version      DROP COLUMN created_by;
+ALTER TABLE price             DROP COLUMN created_by;
+ALTER TABLE product           DROP COLUMN created_by;
+ALTER TABLE subscription      DROP COLUMN created_by;
