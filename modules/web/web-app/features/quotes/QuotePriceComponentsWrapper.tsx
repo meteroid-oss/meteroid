@@ -12,6 +12,7 @@ interface QuotePriceComponentsWrapperProps {
   onValidationChange?: (isValid: boolean, errors: string[]) => void
   onStateChange?: (state: PriceComponentsState) => void
   initialState?: PriceComponentsState
+  exampleAmountByKey?: Map<string, string | undefined>
 }
 
 export const QuotePriceComponentsWrapper = ({
@@ -20,6 +21,7 @@ export const QuotePriceComponentsWrapper = ({
   onValidationChange,
   onStateChange,
   initialState,
+  exampleAmountByKey,
 }: QuotePriceComponentsWrapperProps) => {
   const [state, setState] = useState<PriceComponentsState>(
     initialState || {
@@ -28,6 +30,7 @@ export const QuotePriceComponentsWrapper = ({
         parameterized: [],
         overridden: [],
         extra: [],
+        usageExamples: [],
       },
     }
   )
@@ -44,6 +47,8 @@ export const QuotePriceComponentsWrapper = ({
       state={state}
       onStateChange={handleStateChange}
       onValidationChange={onValidationChange}
+      showUsageExamples
+      exampleAmountByKey={exampleAmountByKey}
     />
   )
 }

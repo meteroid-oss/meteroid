@@ -112,7 +112,12 @@ impl PortalQuoteService for PortalQuoteServiceComponents {
         let proto_components = detailed_quote
             .components
             .iter()
-            .map(crate::api::quotes::mapping::quotes::quote_component_to_proto)
+            .map(|c| {
+                crate::api::quotes::mapping::quotes::quote_component_to_proto(
+                    c,
+                    &detailed_quote.quote.currency,
+                )
+            })
             .collect::<Vec<_>>();
 
         let proto_add_ons = detailed_quote

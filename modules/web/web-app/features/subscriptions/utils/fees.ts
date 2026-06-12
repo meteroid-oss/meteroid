@@ -236,6 +236,7 @@ export const formatSubscriptionFee = (
   }
 }
 
+
 /**
  * Formats a subscription fee directly for table display
  *
@@ -246,9 +247,6 @@ export const formatSubscriptionFeeCompact = (
   fee: SubscriptionFee | undefined,
   currency: string
 ): string => {
-
-  console.log('fee', fee)
-
   if (!fee || !fee.fee.case) {
     return 'N/A'
   }

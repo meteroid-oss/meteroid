@@ -166,6 +166,7 @@ pub struct QuotePriceComponent {
     pub fee: SubscriptionFee,
     pub is_override: bool,
     pub price_id: Option<PriceId>,
+    pub example_usage_quantity: Option<Decimal>,
 }
 
 impl TryFrom<QuoteComponentRow> for QuotePriceComponent {
@@ -189,6 +190,7 @@ impl TryFrom<QuoteComponentRow> for QuotePriceComponent {
             fee,
             is_override: row.is_override,
             price_id: row.price_id,
+            example_usage_quantity: row.example_usage_quantity,
         })
     }
 }
@@ -203,6 +205,7 @@ pub struct QuotePriceComponentNew {
     pub fee: SubscriptionFee,
     pub is_override: bool,
     pub price_id: Option<PriceId>,
+    pub example_usage_quantity: Option<Decimal>,
 }
 
 impl TryInto<QuoteComponentRowNew> for QuotePriceComponentNew {
@@ -225,6 +228,7 @@ impl TryInto<QuoteComponentRowNew> for QuotePriceComponentNew {
             legacy_fee,
             is_override: self.is_override,
             price_id: self.price_id,
+            example_usage_quantity: self.example_usage_quantity,
         })
     }
 }

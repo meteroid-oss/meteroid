@@ -39,7 +39,10 @@ import { ResolvedEntitlementsPanel } from '@/features/entitlements/resolved/Reso
 import { QuoteStatusBadge } from '@/features/quotes/QuoteStatusBadge'
 import { QuoteView } from '@/features/quotes/QuoteView'
 import { SendQuoteDialog } from '@/features/quotes/SendQuoteDialog'
-import { formatSubscriptionFee } from '@/features/subscriptions/utils/fees'
+import {
+  formatSubscriptionFee,
+  formatSubscriptionFeeBillingPeriod,
+} from '@/features/subscriptions/utils/fees'
 import { useBasePath } from '@/hooks/useBasePath'
 import { useQuery } from '@/lib/connectrpc'
 import { env } from '@/lib/env'
@@ -619,11 +622,7 @@ const QuoteComponentCard: React.FC<{
 }> = ({ component, quote }) => {
   if (!quote.quote?.currency) return null
 
-  console.log('component', component)
-
   const formatted = formatSubscriptionFee(component.fee, quote.quote.currency)
-
-  console.log('formatted', formatted, component)
 
   return (
     <div className="py-2">
@@ -631,16 +630,16 @@ const QuoteComponentCard: React.FC<{
         <div className="flex-1">
           <div className="text-[13px] font-medium">{component.name}</div>
           <div className="text-[11px] text-muted-foreground mt-1">
-            {component.period}
+            {formatSubscriptionFeeBillingPeriod(component.period)}
             {component.isOverride && ' • Custom pricing'}
           </div>
         </div>
         <div className="text-right">
-          <div className="text-[13px] font-medium">
-            <div className="flex justify-between">
+          <div className="text-[13px] font-medium ">
+            <div className="flex justify-end">
               <span>{formatted.details}</span>
             </div>
-            <div className="flex justify-between">
+            <div className="flex justify-end">
               <span className="font-medium text-foreground">{formatted.amount}</span>
             </div>
           </div>

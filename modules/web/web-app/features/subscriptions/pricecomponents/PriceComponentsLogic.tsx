@@ -6,6 +6,7 @@ import {
   CardContent,
   CardHeader,
   CardTitle,
+  Checkbox,
   Dialog,
   DialogContent,
   DialogHeader,
@@ -71,12 +72,22 @@ import { getProduct } from '@/rpc/api/products/v1/products-ProductsService_conne
 
 // --- State types ---
 
+// Informative usage example for a usage-based component. Matched to the
+// persisted quote component by `componentId` (plan price component) when
+// available, otherwise by `name` (for extra components). Display-only.
+export interface UsageExampleEntry {
+  componentId?: string
+  name?: string
+  quantity: string
+}
+
 export interface PriceComponentsState {
   components: {
     removed: string[]
     parameterized: ComponentParameterization[]
     overridden: ComponentOverride[]
     extra: ExtraComponent[]
+    usageExamples?: UsageExampleEntry[]
   }
 }
 
@@ -176,6 +187,8 @@ interface PriceComponentsLogicProps {
   state: PriceComponentsState
   onStateChange: (state: PriceComponentsState) => void
   onValidationChange?: (isValid: boolean, errors: string[]) => void
+  showUsageExamples?: boolean
+  exampleAmountByKey?: Map<string, string | undefined>
 }
 
 export const PriceComponentsLogic = ({
@@ -184,6 +197,8 @@ export const PriceComponentsLogic = ({
   state,
   onStateChange,
   onValidationChange,
+  showUsageExamples = false,
+  exampleAmountByKey,
 }: PriceComponentsLogicProps) => {
   const [editingComponentId, setEditingComponentId] = useState<string | null>(null)
   const [showAddFeeModal, setShowAddFeeModal] = useState(false)
@@ -324,6 +339,39 @@ export const PriceComponentsLogic = ({
     }))
   }
 
+  // --- Usage example helpers (display-only, quote mode) ---
+
+  const getExampleQuantity = (key: { componentId?: string; name?: string }): string => {
+    const examples = state.components.usageExamples ?? []
+    const match = examples.find(e =>
+      key.componentId ? e.componentId === key.componentId : e.name === key.name
+    )
+    return match?.quantity ?? ''
+  }
+
+  const getExampleAmount = (key: { componentId?: string; name?: string }): string | undefined =>
+    exampleAmountByKey?.get(key.componentId ?? key.name ?? '')
+
+  const setExampleQuantity = (
+    key: { componentId?: string; name?: string },
+    quantity: string
+  ) => {
+    setState(prev => {
+      const examples = prev.components.usageExamples ?? []
+      const matches = (e: UsageExampleEntry) =>
+        key.componentId ? e.componentId === key.componentId : e.name === key.name
+      const without = examples.filter(e => !matches(e))
+      const next =
+        quantity.trim() === ''
+          ? without
+          : [...without, { componentId: key.componentId, name: key.name, quantity }]
+      return {
+        ...prev,
+        components: { ...prev.components, usageExamples: next },
+      }
+    })
+  }
+
   // --- Render ---
 
   return (
@@ -358,6 +406,10 @@ export const PriceComponentsLogic = ({
             onUpdateConfiguration={config => updateConfiguration(component.id, config)}
             onStartOverride={() => setOverrideComponentId(component.id)}
             onRemoveOverride={() => removeOverride(component.id)}
+            showUsageExample={showUsageExamples}
+            exampleQuantity={getExampleQuantity({ componentId: component.id })}
+            exampleAmount={getExampleAmount({ componentId: component.id })}
+            onExampleQuantityChange={v => setExampleQuantity({ componentId: component.id }, v)}
           />
         )
       })}
@@ -369,6 +421,10 @@ export const PriceComponentsLogic = ({
           currency={currency}
           onEdit={() => setEditExtraIndex(index)}
           onRemove={() => removeExtra(index)}
+          showUsageExample={showUsageExamples}
+          exampleQuantity={getExampleQuantity({ name: extra.name })}
+          exampleAmount={getExampleAmount({ name: extra.name })}
+          onExampleQuantityChange={v => setExampleQuantity({ name: extra.name }, v)}
         />
       ))}
 
@@ -445,6 +501,10 @@ interface CompactPriceComponentCardProps {
   onUpdateConfiguration: (config: Partial<ComponentParameterization>) => void
   onStartOverride: () => void
   onRemoveOverride: () => void
+  showUsageExample?: boolean
+  exampleQuantity?: string
+  exampleAmount?: string
+  onExampleQuantityChange?: (value: string) => void
 }
 
 const CompactPriceComponentCard = ({
@@ -463,10 +523,24 @@ const CompactPriceComponentCard = ({
   onUpdateConfiguration,
   onStartOverride,
   onRemoveOverride,
+  showUsageExample = false,
+  exampleQuantity,
+  exampleAmount,
+  onExampleQuantityChange,
 }: CompactPriceComponentCardProps) => {
   const feeType = deriveFeeType(component)
   const unitPrice = getDisplayUnitPrice(component, configuration, override, currency)
   const billingLabel = getComponentBillingLabel(component, configuration)
+
+  // Matrix usage can't be estimated from a single quantity, so no example input.
+  const isMatrixUsage =
+    feeType === 'usage' &&
+    (() => {
+      const price = override
+        ? formDataToPrice(override.feeType, override.formData, currency)
+        : getPrice(component)
+      return price?.pricing.case === 'usagePricing' && price.pricing.value.model.case === 'matrix'
+    })()
 
   const canConfigure = () => {
     if (isOverridden) return false
@@ -716,7 +790,63 @@ const CompactPriceComponentCard = ({
           </div>
         </CardContent>
       )}
+      {showUsageExample && feeType === 'usage' && !isMatrixUsage && !isExcluded && (
+        <UsageExampleSection
+          quantity={exampleQuantity}
+          amount={exampleAmount}
+          currency={currency}
+          onChange={onExampleQuantityChange}
+        />
+      )}
     </Card>
+  )
+}
+
+const UsageExampleSection = ({
+  quantity,
+  amount,
+  currency,
+  onChange,
+}: {
+  quantity?: string
+  amount?: string
+  currency: string
+  onChange?: (value: string) => void
+}) => {
+  const [enabled, setEnabled] = useState(Boolean(quantity))
+
+  const toggle = (checked: boolean) => {
+    setEnabled(checked)
+    if (!checked) onChange?.('')
+  }
+
+  const qty = Number(quantity)
+  const showAmount = quantity?.trim() && Number.isFinite(qty) && amount
+
+  return (
+    <CardContent className="px-3 pb-3 pt-0 space-y-2">
+      <label className="flex items-center gap-2 text-xs text-muted-foreground cursor-pointer w-fit">
+        <Checkbox checked={enabled} onCheckedChange={v => toggle(v === true)} />
+        Add example pricing
+      </label>
+      {enabled && (
+        <div className="flex items-center gap-2">
+          <Input
+            type="number"
+            min="0"
+            className="h-7 text-xs max-w-[140px]"
+            placeholder="e.g. 10000"
+            value={quantity ?? ''}
+            onChange={e => onChange?.(e.target.value)}
+          />
+          {showAmount && (
+            <span className="text-xs text-muted-foreground whitespace-nowrap">
+              {qty.toLocaleString()} units = {formatCurrency(amount, currency || 'USD')}
+            </span>
+          )}
+        </div>
+      )}
+    </CardContent>
   )
 }
 
@@ -727,16 +857,27 @@ const ExtraComponentCard = ({
   currency,
   onEdit,
   onRemove,
+  showUsageExample = false,
+  exampleQuantity,
+  exampleAmount,
+  onExampleQuantityChange,
 }: {
   component: ExtraComponent
   currency: string
   onEdit: () => void
   onRemove: () => void
+  showUsageExample?: boolean
+  exampleQuantity?: string
+  exampleAmount?: string
+  onExampleQuantityChange?: (value: string) => void
 }) => {
   const displayPrice = formDataToPrice(component.feeType, component.formData, currency)
   const unitPrice = getPriceUnitPrice(displayPrice)
   const billingLabel = getPriceBillingLabel(displayPrice)
   const isUsage = displayPrice.pricing.case === 'usagePricing'
+  const isMatrixUsage =
+    displayPrice.pricing.case === 'usagePricing' &&
+    displayPrice.pricing.value.model.case === 'matrix'
 
   return (
     <Card className="transition-all duration-200 hover:shadow-sm">
@@ -789,6 +930,14 @@ const ExtraComponentCard = ({
           </div>
         </div>
       </CardHeader>
+      {showUsageExample && isUsage && !isMatrixUsage && (
+        <UsageExampleSection
+          quantity={exampleQuantity}
+          amount={exampleAmount}
+          currency={currency}
+          onChange={onExampleQuantityChange}
+        />
+      )}
     </Card>
   )
 }
@@ -861,6 +1010,7 @@ const AddFeeModal = ({
                 feeType={feeType}
                 currency={currency}
                 editableStructure
+                initialFormData={initialValues?.formData}
                 onSubmit={handleCustomSubmit}
                 submitLabel="Save Changes"
               />

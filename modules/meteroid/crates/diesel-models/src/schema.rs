@@ -1086,6 +1086,7 @@ diesel::table! {
         legacy_fee -> Nullable<Jsonb>,
         is_override -> Bool,
         price_id -> Nullable<Uuid>,
+        example_usage_quantity -> Nullable<Numeric>,
     }
 }
 

@@ -2,16 +2,17 @@ use common_domain::ids::ProductId;
 use common_grpc::middleware::server::auth::RequestExt;
 use meteroid_grpc::meteroid::api::prices::v1::{
     ListPricesByProductRequest, ListPricesByProductResponse, PreviewMatrixUpdateRequest,
-    PreviewMatrixUpdateResponse, UpdateMatrixPricesRequest, UpdateMatrixPricesResponse,
-    prices_service_server::PricesService,
+    PreviewMatrixUpdateResponse, PreviewPriceRequest, PreviewPriceResponse, PreviewPriceResult,
+    UpdateMatrixPricesRequest, UpdateMatrixPricesResponse, prices_service_server::PricesService,
 };
 use meteroid_store::repositories::prices::PriceInterface;
+use meteroid_store::services::invoice_lines::fees::compute_usage_price;
 use tonic::{Request, Response, Status};
 
 use crate::api::prices::error::PriceApiError;
 use crate::api::prices::mapping::prices::{
     PriceWrapper, matrix_preview_from_proto, matrix_price_update_from_proto,
-    matrix_update_preview_to_proto,
+    matrix_update_preview_to_proto, usage_model_from_proto,
 };
 
 use super::PricesServiceComponents;
@@ -82,5 +83,41 @@ impl PricesService for PricesServiceComponents {
             .map_err(Into::<PriceApiError>::into)?;
 
         Ok(Response::new(matrix_update_preview_to_proto(preview)))
+    }
+
+    #[tracing::instrument(skip_all)]
+    async fn preview_price(
+        &self,
+        request: Request<PreviewPriceRequest>,
+    ) -> Result<Response<PreviewPriceResponse>, Status> {
+        let req = request.into_inner();
+
+        let results = req
+            .items
+            .into_iter()
+            .map(|item| {
+                let Some(usage_pricing) = item.usage_pricing.as_ref() else {
+                    return Ok(PreviewPriceResult {
+                        key: item.key,
+                        amount: None,
+                    });
+                };
+                let model = usage_model_from_proto(usage_pricing)?;
+                let quantity = item
+                    .quantity
+                    .parse::<rust_decimal::Decimal>()
+                    .map_err(|_| {
+                        Status::invalid_argument(format!("Invalid quantity '{}'", item.quantity))
+                    })?;
+                let amount = compute_usage_price(&model, quantity, &item.currency)
+                    .map_err(Into::<PriceApiError>::into)?;
+                Ok(PreviewPriceResult {
+                    key: item.key,
+                    amount: amount.map(|a| a.normalize().to_string()),
+                })
+            })
+            .collect::<Result<Vec<_>, Status>>()?;
+
+        Ok(Response::new(PreviewPriceResponse { results }))
     }
 }

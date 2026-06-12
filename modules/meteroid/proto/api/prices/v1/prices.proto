@@ -61,8 +61,37 @@ message AffectedPlan {
   repeated int32 versions = 2;
 }
 
+// Stateless pricing of usage models at given quantities. Reuses the exact
+// invoicing math so results match what would actually be billed. Display-only.
+message PreviewPriceRequest {
+  repeated PreviewPriceItem items = 1;
+}
+
+message PreviewPriceItem {
+  // Client-supplied correlation key, echoed back in the matching result.
+  string key = 1;
+  // Resolved usage pricing model to evaluate.
+  UsagePricing usage_pricing = 2;
+  // Usage quantity to price, as a decimal string.
+  string quantity = 3;
+  // Currency code, used to determine rounding precision.
+  string currency = 4;
+}
+
+message PreviewPriceResponse {
+  repeated PreviewPriceResult results = 1;
+}
+
+message PreviewPriceResult {
+  string key = 1;
+  // Computed amount as a decimal string in major units. Absent when the model
+  // cannot be priced from a single quantity (e.g. matrix pricing).
+  optional string amount = 2;
+}
+
 service PricesService {
   rpc ListPricesByProduct(ListPricesByProductRequest) returns (ListPricesByProductResponse) {}
   rpc UpdateMatrixPrices(UpdateMatrixPricesRequest) returns (UpdateMatrixPricesResponse) {}
   rpc PreviewMatrixUpdate(PreviewMatrixUpdateRequest) returns (PreviewMatrixUpdateResponse) {}
+  rpc PreviewPrice(PreviewPriceRequest) returns (PreviewPriceResponse) {}
 }

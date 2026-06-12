@@ -67,6 +67,7 @@ async fn create_test_quote(clients: &AllClients) -> api::quotes::v1::DetailedQuo
                 terms_and_services: None,
                 net_terms: Some(30),
                 attachments: vec![],
+                usage_examples: vec![],
                 recipients: vec![RecipientDetails {
                     name: "Test User".to_string(),
                     email: "test@example.test".to_string(),
@@ -420,6 +421,7 @@ async fn test_quote_with_inline_entitlements() {
                 terms_and_services: None,
                 net_terms: Some(30),
                 attachments: vec![],
+                usage_examples: vec![],
                 recipients: vec![RecipientDetails {
                     name: "Test User".to_string(),
                     email: "test@example.test".to_string(),
@@ -553,6 +555,7 @@ async fn test_quote_conversion_carries_entitlements() {
                 terms_and_services: None,
                 net_terms: Some(30),
                 attachments: vec![],
+                usage_examples: vec![],
                 recipients: vec![RecipientDetails {
                     name: "Test User".to_string(),
                     email: "test@example.test".to_string(),

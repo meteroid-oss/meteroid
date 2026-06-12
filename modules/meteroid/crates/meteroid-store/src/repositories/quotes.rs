@@ -328,6 +328,7 @@ impl QuotesInterface for Store {
                         fee,
                         is_override: row.is_override,
                         price_id: row.price_id,
+                        example_usage_quantity: row.example_usage_quantity,
                     }
                 } else {
                     row.try_into()?
@@ -793,6 +794,7 @@ impl QuotesInterface for Store {
                             legacy_fee: Some(serde_json::to_value(&c.fee).unwrap_or_default()),
                             is_override: c.is_override,
                             price_id: c.price_id,
+                            example_usage_quantity: c.example_usage_quantity,
                         })
                         .collect();
 

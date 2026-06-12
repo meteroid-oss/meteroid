@@ -1,4 +1,3 @@
-import { PartialMessage } from '@bufbuild/protobuf'
 import { disableQuery, useMutation } from '@connectrpc/connect-query'
 import {
   Alert,
@@ -47,6 +46,7 @@ import {
 import { QuotePriceComponentsWrapper } from '@/features/quotes/QuotePriceComponentsWrapper'
 import { QuoteView } from '@/features/quotes/QuoteView'
 import { PriceComponentsState } from '@/features/subscriptions/pricecomponents/PriceComponentsLogic'
+import { PricingComponent } from '@/features/subscriptions/pricecomponents/SubscriptionPricingTable'
 import { useBasePath } from '@/hooks/useBasePath'
 import { useZodForm } from '@/hooks/useZodForm'
 import { useQuery } from '@/lib/connectrpc'
@@ -72,13 +72,16 @@ import {
   listPlans,
 } from '@/rpc/api/plans/v1/plans-PlansService_connectquery'
 import { listPriceComponents } from '@/rpc/api/pricecomponents/v1/pricecomponents-PriceComponentsService_connectquery'
+import { Price } from '@/rpc/api/prices/v1/models_pb'
+import { previewPrice } from '@/rpc/api/prices/v1/prices-PricesService_connectquery'
+import { PreviewPriceItem } from '@/rpc/api/prices/v1/prices_pb'
 import {
   CreateQuoteCoupon,
   CreateQuoteCoupons,
   CreateQuote as CreateQuoteData,
   DetailedQuote,
   Quote,
-  QuoteComponent,
+  QuoteUsageExample,
 } from '@/rpc/api/quotes/v1/models_pb'
 import { createQuote } from '@/rpc/api/quotes/v1/quotes-QuotesService_connectquery'
 import { CreateQuoteRequest } from '@/rpc/api/quotes/v1/quotes_pb'
@@ -174,6 +177,7 @@ export const CreateQuote = () => {
       parameterized: [],
       overridden: [],
       extra: [],
+      usageExamples: [],
     },
   })
 
@@ -459,6 +463,16 @@ export const CreateQuote = () => {
         addOns: addOns,
         coupons: coupons,
         entitlements: resolvedEntitlements,
+        usageExamples: (priceComponentsState.components.usageExamples ?? [])
+          .filter(e => e.quantity.trim() !== '')
+          .map(
+            e =>
+              new QuoteUsageExample({
+                priceComponentId: e.componentId,
+                componentName: e.componentId ? undefined : e.name,
+                exampleQuantity: e.quantity,
+              })
+          ),
       })
 
       const request = new CreateQuoteRequest({
@@ -482,7 +496,10 @@ export const CreateQuote = () => {
     }
   }
 
-  const createPreviewQuote = (data: CreateQuoteFormData): DetailedQuote => {
+  const createPreviewQuote = (
+    data: CreateQuoteFormData,
+    components: PricingComponent[]
+  ): DetailedQuote => {
     const quote = new Quote({
       id: 'preview-quote',
       quoteNumber: data.quote_number,
@@ -503,8 +520,6 @@ export const CreateQuote = () => {
       recipients: data.recipients.map(r => ({ name: r.name, email: r.email })),
       createdAt: new Date().toISOString(),
     })
-
-    const components: PartialMessage<QuoteComponent>[] = getPreviewPricingComponents()
 
     const addOnItems = selectedAddOns.flatMap(sel => {
       const addOn = availableAddOns.find(a => a.id === sel.addOnId)
@@ -527,13 +542,55 @@ export const CreateQuote = () => {
     })
   }
 
-  const getPreviewPricingComponents = () => {
+  const buildPreviewPricing = (): {
+    components: PricingComponent[]
+    items: PreviewPriceItem[]
+  } => {
     const priceComponentsData = priceComponentsQuery.data?.components || []
-    if (!planCurrency) return []
+    if (!planCurrency) return { components: [], items: [] }
 
-    const { parameterized, overridden, extra, removed } = priceComponentsState.components
+    const { parameterized, overridden, extra, removed, usageExamples } =
+      priceComponentsState.components
 
-    // Default plan components (not removed, not parameterized, not overridden)
+    const exampleFor = (key: { componentId?: string; name?: string }): string | undefined =>
+      (usageExamples ?? []).find(e =>
+        key.componentId ? e.componentId === key.componentId : e.name === key.name
+      )?.quantity
+
+    const items: PreviewPriceItem[] = []
+
+    const makeComponent = (
+      id: string,
+      name: string,
+      price: Price,
+      quantity: string | undefined,
+      feeOptions?: { initialSlotCount?: number }
+    ): PricingComponent => {
+      if (
+        price.pricing.case === 'usagePricing' &&
+        price.pricing.value.model.case &&
+        price.pricing.value.model.case !== 'matrix' &&
+        quantity &&
+        quantity.trim() !== ''
+      ) {
+        items.push(
+          new PreviewPriceItem({
+            key: id,
+            usagePricing: price.pricing.value,
+            quantity,
+            currency: planCurrency,
+          })
+        )
+      }
+      return {
+        id,
+        name,
+        period: priceToSubscriptionPeriod(price),
+        fee: priceToSubscriptionFee(price, feeOptions),
+        exampleUsageQuantity: quantity,
+      }
+    }
+
     const defaultPlanComponents = priceComponentsData
       .filter(
         pc =>
@@ -544,66 +601,73 @@ export const CreateQuote = () => {
       .flatMap(pc => {
         const price = getPrice(pc)
         if (!price) return []
-        return [
-          {
-            id: pc.id,
-            name: pc.name,
-            period: priceToSubscriptionPeriod(price),
-            fee: priceToSubscriptionFee(price),
-          },
-        ]
+        return [makeComponent(pc.id, pc.name, price, exampleFor({ componentId: pc.id }))]
       })
 
-    // Parameterized plan components
     const parameterizedComponents = parameterized.flatMap(c => {
       const pc = priceComponentsData.find(pc => pc.id === c.componentId)
       if (!pc) return []
       const price = getPrice(pc)
       if (!price) return []
       return [
-        {
-          id: pc.id,
-          name: pc.name,
-          period: priceToSubscriptionPeriod(price),
-          fee: priceToSubscriptionFee(price, { initialSlotCount: c.initialSlotCount }),
-        },
+        makeComponent(pc.id, pc.name, price, exampleFor({ componentId: pc.id }), {
+          initialSlotCount: c.initialSlotCount,
+        }),
       ]
     })
 
-    // Override components — derive display Price from formData
     const overriddenComponents = overridden.map(c => {
       const price = formDataToPrice(c.feeType, c.formData as Record<string, unknown>, planCurrency)
-      return {
-        id: c.componentId,
-        name: c.name,
-        period: priceToSubscriptionPeriod(price),
-        fee: priceToSubscriptionFee(price),
-      }
+      return makeComponent(c.componentId, c.name, price, exampleFor({ componentId: c.componentId }))
     })
 
-    // Extra components — derive display Price from formData
     const extraComponents = extra.map(c => {
       const price = formDataToPrice(c.feeType, c.formData as Record<string, unknown>, planCurrency)
-      return {
-        id: c.name,
-        name: c.name,
-        period: priceToSubscriptionPeriod(price),
-        fee: priceToSubscriptionFee(price),
-      }
+      return makeComponent(c.name, c.name, price, exampleFor({ name: c.name }))
     })
 
-    return [
-      ...defaultPlanComponents,
-      ...parameterizedComponents,
-      ...overriddenComponents,
-      ...extraComponents,
-    ]
+    return {
+      components: [
+        ...defaultPlanComponents,
+        ...parameterizedComponents,
+        ...overriddenComponents,
+        ...extraComponents,
+      ],
+      items,
+    }
   }
+
+  const { components: rawPreviewComponents, items: previewPriceItems } = buildPreviewPricing()
+
+  // uint64 fields in the request are BigInt, which react-query's default key
+  // hashing can't serialize — provide a BigInt-safe key.
+  const previewPriceQuery = useQuery(
+    previewPrice,
+    { items: previewPriceItems },
+    {
+      enabled: previewPriceItems.length > 0,
+      queryKeyHashFn: () =>
+        'previewPrice-' +
+        JSON.stringify(previewPriceItems, (_, v) => (typeof v === 'bigint' ? v.toString() : v)),
+    }
+  )
+
+  const exampleAmountByKey = useMemo(
+    () => new Map((previewPriceQuery.data?.results ?? []).map(r => [r.key, r.amount])),
+    [previewPriceQuery.data]
+  )
+
+  const previewComponents: PricingComponent[] = useMemo(
+    () =>
+      rawPreviewComponents.map(c =>
+        exampleAmountByKey.has(c.id) ? { ...c, exampleUsageAmount: exampleAmountByKey.get(c.id) } : c
+      ),
+    [rawPreviewComponents, exampleAmountByKey]
+  )
 
   if (previewMode) {
     const formData = methods.getValues()
-    const previewQuote = createPreviewQuote(formData)
-    const previewComponents = getPreviewPricingComponents()
+    const previewQuote = createPreviewQuote(formData, previewComponents)
 
     return (
       <div className="space-y-6">
@@ -778,6 +842,7 @@ export const CreateQuote = () => {
                       }
                       onStateChange={setPriceComponentsState}
                       initialState={priceComponentsState}
+                      exampleAmountByKey={exampleAmountByKey}
                     />
                     {!pricingValidation.isValid && pricingValidation.errors.length > 0 && (
                       <div className="bg-warning/10 border border-warning/20 p-3 rounded-lg">

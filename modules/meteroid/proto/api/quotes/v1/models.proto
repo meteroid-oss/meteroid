@@ -92,6 +92,17 @@ message QuoteComponent {
   meteroid.api.subscriptions.v1.SubscriptionFeeBillingPeriod period = 5;
   meteroid.api.subscriptions.v1.SubscriptionFee fee = 6;
   bool is_override = 7;
+  optional string example_usage_quantity = 8;
+  // Computed informative amount for example_usage_quantity, decimal string in
+  // major units. Absent for non-usage components or models that can't be priced
+  // from a single quantity (e.g. matrix). Display-only, never billed.
+  optional string example_usage_amount = 9;
+}
+
+message QuoteUsageExample {
+  optional string price_component_id = 1;
+  optional string component_name = 2;
+  string example_quantity = 3;
 }
 
 message QuoteAddOn {
@@ -168,6 +179,9 @@ message CreateQuote {
 
   // Inline entitlement specs to attach to the quote
   repeated meteroid.api.entitlements.v1.EntitlementSpec entitlements = 30;
+
+  // Informative example usage quantities to display for usage-based components.
+  repeated QuoteUsageExample usage_examples = 31;
 }
 
 message CreateQuoteCoupon {

@@ -2,15 +2,20 @@ import { PlainMessage } from '@bufbuild/protobuf'
 import { cn } from '@ui/lib'
 import { FC } from 'react'
 
-import { formatSubscriptionFee } from '@/features/subscriptions/utils/fees'
+import {
+  formatSubscriptionFee,
+  formatSubscriptionFeeBillingPeriod,
+} from '@/features/subscriptions/utils/fees'
 import { SubscriptionFee, SubscriptionFeeBillingPeriod } from '@/rpc/api/subscriptions/v1/models_pb'
-import { formatCurrency } from '@/utils/numbers'
+import { formatCurrency, formatCurrencyNoRounding } from '@/utils/numbers'
 
 export interface PricingComponent {
   id: string
   name: string
   period: SubscriptionFeeBillingPeriod
   fee?: PlainMessage<SubscriptionFee>
+  exampleUsageQuantity?: string
+  exampleUsageAmount?: string
 }
 
 interface Props {
@@ -22,17 +27,6 @@ interface Props {
 }
 
 // Map billing period to display format
-const formatBillingPeriod = (period: SubscriptionFeeBillingPeriod) => {
-  const periodMap = {
-    [SubscriptionFeeBillingPeriod.ONE_TIME]: 'One Time',
-    [SubscriptionFeeBillingPeriod.MONTHLY]: 'Monthly',
-    [SubscriptionFeeBillingPeriod.QUARTERLY]: 'Quarterly',
-    [SubscriptionFeeBillingPeriod.SEMIANNUAL]: 'Semiannual',
-    [SubscriptionFeeBillingPeriod.YEARLY]: 'Yearly',
-  }
-  return periodMap[period] || 'Unknown'
-}
-
 // Map subscription fee type to display format
 const formatFeeType = (fee: PlainMessage<SubscriptionFee> | undefined) => {
   if (!fee) return 'N/A'
@@ -74,6 +68,28 @@ const SubscriptionFeeDetail = ({
           {formatted.breakdown}
         </div>
       )}
+    </div>
+  )
+}
+
+// Informative example line for usage-based components, e.g.
+// "e.g. 10,000 units = €22.83". Amount computed by the backend — not billed.
+const UsageExampleLine = ({
+  exampleUsageQuantity,
+  exampleUsageAmount,
+  currency,
+}: {
+  exampleUsageQuantity: string
+  exampleUsageAmount: string | undefined
+  currency: string
+}) => {
+  const quantity = Number(exampleUsageQuantity)
+  if (!Number.isFinite(quantity) || !exampleUsageAmount) return null
+
+  return (
+    <div className="text-xs text-muted-foreground mt-1 italic">
+      e.g. {quantity.toLocaleString()} units ={' '}
+      {formatCurrencyNoRounding(exampleUsageAmount, currency || 'USD')}
     </div>
   )
 }
@@ -134,13 +150,20 @@ export const SubscriptionPricingTable: FC<Props> = ({
                   {component.name}
                 </td>
                 <td className="px-4 py-3 text-sm text-muted-foreground align-top">
-                  {formatBillingPeriod(component.period)}
+                  {formatSubscriptionFeeBillingPeriod(component.period)}
                 </td>
                 <td className="px-4 py-3 text-sm text-muted-foreground align-top">
                   {formatFeeType(component.fee)}
                 </td>
                 <td className="px-4 py-3 text-sm text-muted-foreground align-top">
                   <SubscriptionFeeDetail fee={component.fee} currency={currency} />
+                  {component.exampleUsageQuantity && (
+                    <UsageExampleLine
+                      exampleUsageQuantity={component.exampleUsageQuantity}
+                      exampleUsageAmount={component.exampleUsageAmount}
+                      currency={currency}
+                    />
+                  )}
                 </td>
               </tr>
             ))}

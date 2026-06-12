@@ -186,6 +186,7 @@ pub struct QuoteComponentRow {
     pub legacy_fee: Option<serde_json::Value>,
     pub is_override: bool,
     pub price_id: Option<PriceId>,
+    pub example_usage_quantity: Option<rust_decimal::Decimal>,
 }
 
 #[derive(Insertable, Debug)]
@@ -200,4 +201,5 @@ pub struct QuoteComponentRowNew {
     pub legacy_fee: Option<serde_json::Value>,
     pub is_override: bool,
     pub price_id: Option<PriceId>,
+    pub example_usage_quantity: Option<rust_decimal::Decimal>,
 }

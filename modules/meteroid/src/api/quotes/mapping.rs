@@ -12,6 +12,7 @@ pub mod quotes {
     use meteroid_grpc::meteroid::api::subscriptions::v1::ActivationCondition;
     use meteroid_store::domain;
     use meteroid_store::domain::subscriptions::PaymentMethodsConfig;
+    use meteroid_store::services::invoice_lines::fees::compute_usage_price;
 
     fn status_domain_to_server(value: domain::enums::QuoteStatusEnum) -> QuoteStatus {
         match value {
@@ -83,7 +84,18 @@ pub mod quotes {
 
     pub(crate) fn quote_component_to_proto(
         component: &domain::quotes::QuotePriceComponent,
+        currency: &str,
     ) -> QuoteComponent {
+        let example_usage_amount = match (&component.fee, component.example_usage_quantity) {
+            (domain::SubscriptionFee::Usage { model, .. }, Some(qty)) => {
+                compute_usage_price(model, qty, currency)
+                    .ok()
+                    .flatten()
+                    .map(|a| a.normalize().to_string())
+            }
+            _ => None,
+        };
+
         QuoteComponent {
             id: component.id.as_proto(),
             name: component.name.clone(),
@@ -95,6 +107,8 @@ pub mod quotes {
                 component.period.as_billing_period_opt().unwrap_or_default(),
             )),
             is_override: component.is_override,
+            example_usage_quantity: component.example_usage_quantity.map(|q| q.to_string()),
+            example_usage_amount,
         }
     }
 
@@ -204,7 +218,10 @@ pub mod quotes {
                 ),
             ),
             customer: Some(customer_server.0),
-            components: components.iter().map(quote_component_to_proto).collect(),
+            components: components
+                .iter()
+                .map(|c| quote_component_to_proto(c, &quote.currency))
+                .collect(),
             add_ons: add_ons.iter().map(quote_add_on_to_proto).collect(),
             coupons: coupons.iter().map(quote_coupon_to_proto).collect(),
             signatures: signatures.iter().map(quote_signature_to_proto).collect(),
