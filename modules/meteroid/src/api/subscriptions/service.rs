@@ -39,7 +39,7 @@ impl SubscriptionsService for SubscriptionServiceComponents {
         request: Request<CreateSubscriptionRequest>,
     ) -> Result<Response<CreateSubscriptionResponse>, Status> {
         let tenant_id = request.tenant()?;
-        let actor = request.actor()?;
+        let actor = request.actor_typed()?;
 
         let inner = request.into_inner();
 
@@ -49,11 +49,11 @@ impl SubscriptionsService for SubscriptionServiceComponents {
                 "No subscription provided".to_string(),
             ))?;
 
-        let subscription = mapping::subscriptions::create_proto_to_domain(subscription, &actor)?;
+        let subscription = mapping::subscriptions::create_proto_to_domain(subscription)?;
 
         let created = self
             .services
-            .insert_subscription(subscription, tenant_id)
+            .insert_subscription(actor, subscription, tenant_id)
             .await
             .map_err(Into::<SubscriptionApiError>::into)?;
 
@@ -70,19 +70,19 @@ impl SubscriptionsService for SubscriptionServiceComponents {
         request: Request<CreateSubscriptionsRequest>,
     ) -> Result<Response<CreateSubscriptionsResponse>, Status> {
         let tenant_id = request.tenant()?;
-        let actor = request.actor()?;
+        let actor = request.actor_typed()?;
 
         let inner = request.into_inner();
 
         let subscriptions = inner
             .subscriptions
             .into_iter()
-            .map(|s| mapping::subscriptions::create_proto_to_domain(s, &actor))
+            .map(mapping::subscriptions::create_proto_to_domain)
             .collect::<Result<Vec<_>, _>>()?;
 
         let inserted = self
             .services
-            .insert_subscription_batch(subscriptions, tenant_id)
+            .insert_subscription_batch(actor, subscriptions, tenant_id)
             .await
             .map_err(Into::<SubscriptionApiError>::into)?;
 
@@ -241,14 +241,13 @@ impl SubscriptionsService for SubscriptionServiceComponents {
         request: Request<CancelSubscriptionRequest>,
     ) -> Result<Response<CancelSubscriptionResponse>, Status> {
         let tenant_id = request.tenant()?;
-        let actor = request.actor()?;
+        let actor_typed = request.actor_typed()?;
         let inner = request.into_inner();
 
         use meteroid_grpc::meteroid::api::subscriptions::v1::cancel_subscription_request::EffectiveAt;
 
         let effective_at = match inner.effective_at {
             Some(EffectiveAt::Immediate(_)) => {
-                // For now, immediate cancellation maps to cancelling today, we could do sync
                 CancellationEffectiveAt::Date(chrono::Utc::now().date_naive())
             }
             Some(EffectiveAt::Date(date)) => {
@@ -263,11 +262,11 @@ impl SubscriptionsService for SubscriptionServiceComponents {
         let subscription = self
             .services
             .cancel_subscription(
+                actor_typed,
                 SubscriptionId::from_proto(inner.subscription_id)?,
                 tenant_id,
                 inner.reason,
                 effective_at,
-                actor,
             )
             .await
             .map_err(|err| {
@@ -478,6 +477,7 @@ impl SubscriptionsService for SubscriptionServiceComponents {
         request: Request<SchedulePlanChangeRequest>,
     ) -> Result<Response<SchedulePlanChangeResponse>, Status> {
         let tenant_id = request.tenant()?;
+        let actor_typed = request.actor_typed()?;
         let inner = request.into_inner();
 
         let subscription_id = SubscriptionId::from_proto(inner.subscription_id)?;
@@ -491,6 +491,7 @@ impl SubscriptionsService for SubscriptionServiceComponents {
                 let result = self
                     .services
                     .apply_plan_change_immediate(
+                        actor_typed.clone(),
                         subscription_id,
                         tenant_id,
                         new_plan_version_id,
@@ -509,6 +510,7 @@ impl SubscriptionsService for SubscriptionServiceComponents {
                 let event = self
                     .services
                     .schedule_plan_change(
+                        actor_typed,
                         subscription_id,
                         tenant_id,
                         new_plan_version_id,
@@ -636,12 +638,13 @@ impl SubscriptionsService for SubscriptionServiceComponents {
         request: Request<CancelPlanChangeRequest>,
     ) -> Result<Response<CancelPlanChangeResponse>, Status> {
         let tenant_id = request.tenant()?;
+        let actor = request.actor_typed()?;
         let inner = request.into_inner();
 
         let subscription_id = SubscriptionId::from_proto(inner.subscription_id)?;
 
         self.services
-            .cancel_plan_change(subscription_id, tenant_id)
+            .cancel_plan_change(actor, subscription_id, tenant_id)
             .await
             .map_err(Into::<SubscriptionApiError>::into)?;
 
@@ -654,6 +657,7 @@ impl SubscriptionsService for SubscriptionServiceComponents {
         request: Request<CancelScheduledEventRequest>,
     ) -> Result<Response<CancelScheduledEventResponse>, Status> {
         let tenant_id = request.tenant()?;
+        let actor = request.actor_typed()?;
         let inner = request.into_inner();
 
         let event_id = common_domain::ids::ScheduledEventId::from_proto(inner.event_id)?;
@@ -661,7 +665,7 @@ impl SubscriptionsService for SubscriptionServiceComponents {
             common_domain::ids::SubscriptionId::from_proto(inner.subscription_id)?;
 
         self.services
-            .cancel_scheduled_event(event_id, subscription_id, tenant_id)
+            .cancel_scheduled_event(actor, event_id, subscription_id, tenant_id)
             .await
             .map_err(Into::<SubscriptionApiError>::into)?;
 

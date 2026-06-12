@@ -49,7 +49,6 @@ async fn test_checkout_session_paid_trial_invoice_dates(#[future] test_env: Test
             tenant_id: TENANT_ID,
             customer_id: CUST_UBER_ID,
             plan_version_id: PLAN_VERSION_PAID_TRIAL_ID, // $99/month, paid trial
-            created_by: USER_ID,
             billing_start_date: Some(start_date),
             billing_day_anchor: Some(15), // Bill on the 15th
             net_terms: None,
@@ -223,7 +222,6 @@ async fn test_checkout_session_free_trial_invoice_dates(#[future] test_env: Test
             tenant_id: TENANT_ID,
             customer_id: CUST_UBER_ID,
             plan_version_id: PLAN_VERSION_PAID_FREE_TRIAL_ID, // $49/month, free trial
-            created_by: USER_ID,
             billing_start_date: Some(start_date),
             billing_day_anchor: Some(1), // Bill on the 1st
             net_terms: None,
@@ -403,7 +401,6 @@ async fn test_checkout_session_free_trial_no_anchor(#[future] test_env: TestEnv)
             tenant_id: TENANT_ID,
             customer_id: CUST_UBER_ID,
             plan_version_id: PLAN_VERSION_PAID_FREE_TRIAL_ID, // $49/month, free trial
-            created_by: USER_ID,
             billing_start_date: Some(start_date),
             billing_day_anchor: None, // NO anchor - billing follows trial end naturally
             net_terms: None,
@@ -568,7 +565,6 @@ async fn test_checkout_session_no_trial_invoice_dates(#[future] test_env: TestEn
             tenant_id: TENANT_ID,
             customer_id: CUST_UBER_ID,
             plan_version_id: PLAN_VERSION_1_LEETCODE_ID, // $35/month, no trial
-            created_by: USER_ID,
             billing_start_date: Some(start_date),
             billing_day_anchor: Some(1), // Bill on the 1st
             net_terms: None,
@@ -705,7 +701,6 @@ async fn test_checkout_session_100_percent_coupon(#[future] test_env: TestEnv) {
             tenant_id: TENANT_ID,
             customer_id: CUST_UBER_ID,
             plan_version_id: PLAN_VERSION_1_LEETCODE_ID, // $35/month, no trial
-            created_by: USER_ID,
             billing_start_date: Some(start_date),
             billing_day_anchor: Some(15),
             net_terms: None,

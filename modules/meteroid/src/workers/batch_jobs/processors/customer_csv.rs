@@ -8,7 +8,8 @@ use crate::workers::batch_jobs::engine::{
 };
 use async_trait::async_trait;
 use bytes::Bytes;
-use common_domain::ids::BaseId;
+use common_domain::actor::Actor;
+use common_domain::ids::{BaseId, UserId};
 use csv::ReaderBuilder;
 use meteroid_store::Store;
 use meteroid_store::domain::batch_jobs::{BatchJob, BatchJobChunk};
@@ -31,7 +32,7 @@ impl CustomerCsvProcessor {
     }
 }
 
-fn map_to_domain(actor: uuid::Uuid, csv: NewCustomerCsv) -> Result<CustomerNew, String> {
+fn map_to_domain(csv: NewCustomerCsv) -> Result<CustomerNew, String> {
     let billing_address = if csv.billing_address.country.is_some() {
         Some(csv.billing_address.into())
     } else {
@@ -48,7 +49,6 @@ fn map_to_domain(actor: uuid::Uuid, csv: NewCustomerCsv) -> Result<CustomerNew, 
 
     Ok(CustomerNew {
         name: csv.name.0,
-        created_by: actor,
         alias: csv.alias.map(|a| a.0),
         billing_email: csv.billing_email.map(|e| e.0),
         invoicing_emails: csv.invoicing_emails.map(|x| x.0).unwrap_or_default(),
@@ -197,7 +197,7 @@ impl BatchJobProcessor for CustomerCsvProcessor {
             match result {
                 Ok(csv_row) => {
                     let alias = csv_row.alias.as_ref().map(|a| a.0.clone());
-                    match map_to_domain(job.created_by, csv_row) {
+                    match map_to_domain(csv_row) {
                         Ok(customer) => {
                             customers.push(customer);
                             customer_indices.push(global_idx);
@@ -265,7 +265,13 @@ impl BatchJobProcessor for CustomerCsvProcessor {
 
         match self
             .store
-            .upsert_customer_batch_lenient(deduped_customers.clone(), job.tenant_id)
+            .upsert_customer_batch_lenient(
+                Actor::User {
+                    id: UserId::from(job.created_by),
+                },
+                deduped_customers.clone(),
+                job.tenant_id,
+            )
             .await
         {
             Ok(result) => {

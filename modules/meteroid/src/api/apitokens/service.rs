@@ -10,7 +10,6 @@ use meteroid_store::domain;
 use meteroid_store::repositories::api_tokens::ApiTokensInterface;
 
 use crate::api::apitokens::error::ApiTokenApiError;
-use crate::parse_uuid;
 
 use super::{ApiTokensServiceComponents, mapping};
 
@@ -47,17 +46,19 @@ impl ApiTokensService for ApiTokensServiceComponents {
         &self,
         request: Request<CreateApiTokenRequest>,
     ) -> Result<Response<CreateApiTokenResponse>, Status> {
-        let actor = request.actor()?;
+        let actor_typed = request.actor_typed()?;
         let tenant_id = request.tenant()?;
         let req = request.into_inner();
 
         let (api_key, res) = self
             .store
-            .insert_api_token(domain::ApiTokenNew {
-                name: req.name,
-                created_by: actor,
-                tenant_id,
-            })
+            .insert_api_token(
+                actor_typed,
+                domain::ApiTokenNew {
+                    name: req.name,
+                    tenant_id,
+                },
+            )
             .await
             .map_err(|e| {
                 ApiTokenApiError::StoreError(
@@ -81,9 +82,10 @@ impl ApiTokensService for ApiTokensServiceComponents {
     ) -> Result<Response<GetApiTokenByIdResponse>, Status> {
         let req = request.into_inner();
 
+        let token_id = common_domain::ids::ApiTokenId::from_proto(&req.id)?;
         let result = self
             .store
-            .get_api_token_by_id(&parse_uuid!(&req.id)?)
+            .get_api_token_by_id(&common_domain::ids::BaseId::as_uuid(&token_id))
             .await
             .map_err(|e| {
                 ApiTokenApiError::StoreError(
@@ -104,11 +106,17 @@ impl ApiTokensService for ApiTokensServiceComponents {
         request: Request<RevokeApiTokenRequest>,
     ) -> Result<Response<RevokeApiTokenResponse>, Status> {
         let tenant_id = request.tenant()?;
-        let actor = request.actor()?;
+        let actor = request.actor_typed()?;
         let req = request.into_inner();
 
+        let token_id = common_domain::ids::ApiTokenId::from_proto(&req.id)?;
+
         self.store
-            .delete_api_token(&parse_uuid!(&req.id)?, tenant_id, actor)
+            .delete_api_token(
+                actor,
+                &common_domain::ids::BaseId::as_uuid(&token_id),
+                tenant_id,
+            )
             .await
             .map_err(|e| {
                 ApiTokenApiError::StoreError(

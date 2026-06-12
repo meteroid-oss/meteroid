@@ -91,7 +91,6 @@ impl OrganizationsService for OrganizationsServiceComponents {
             &self.services,
             presets::simple::basic_scenario_1(),
             organization.organization.id,
-            user,
             Some("Sandbox".to_string()),
             Some(true),
         )

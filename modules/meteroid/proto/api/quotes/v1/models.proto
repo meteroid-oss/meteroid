@@ -81,7 +81,6 @@ message DetailedQuote {
   repeated QuoteAddOn add_ons = 8;
   repeated QuoteCoupon coupons = 9;
   repeated QuoteSignature signatures = 6;
-  repeated QuoteActivity activities = 7;
 }
 
 
@@ -124,19 +123,6 @@ message QuoteSignature {
   optional string user_agent = 10;
   optional string verification_token = 11;
   optional string verified_at = 12;
-}
-
-message QuoteActivity {
-  string id = 1;
-  string quote_id = 2;
-  string activity_type = 3;
-  string description = 4;
-  string actor_type = 5;
-  optional string actor_id = 6;
-  optional string actor_name = 7;
-  string created_at = 9;
-  optional string ip_address = 10;
-  optional string user_agent = 11;
 }
 
 message CreateQuote {

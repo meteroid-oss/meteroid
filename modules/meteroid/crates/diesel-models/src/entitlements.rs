@@ -38,7 +38,6 @@ pub struct FeatureRow {
     pub status: FeatureStatusEnum,
     pub metric_id: Option<BillableMetricId>,
     pub created_at: DateTime<Utc>,
-    pub created_by: Uuid,
     pub updated_at: DateTime<Utc>,
 }
 
@@ -54,7 +53,6 @@ pub struct FeatureRowNew {
     pub feature_type: FeatureTypeEnum,
     pub status: FeatureStatusEnum,
     pub metric_id: Option<BillableMetricId>,
-    pub created_by: Uuid,
 }
 
 #[derive(Debug, Clone, AsChangeset)]
@@ -80,7 +78,6 @@ pub struct EntitlementRow {
     pub mode: EntitlementModeEnum,
     pub value: serde_json::Value,
     pub created_at: DateTime<Utc>,
-    pub created_by: Uuid,
     pub updated_at: DateTime<Utc>,
 }
 
@@ -95,7 +92,6 @@ pub struct EntitlementRowNew {
     pub entity_type: EntitlementEntityTypeEnum,
     pub mode: EntitlementModeEnum,
     pub value: serde_json::Value,
-    pub created_by: Uuid,
 }
 
 #[derive(Debug, Clone, AsChangeset)]

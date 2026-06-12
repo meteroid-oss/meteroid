@@ -10,7 +10,6 @@ use crate::errors::RestApiError;
 use common_domain::ids::{CouponId, CustomerId, PlanVersionId, SubscriptionId};
 use meteroid_store::domain;
 use meteroid_store::domain::{CreateSubscription, SubscriptionNew, SubscriptionPatch};
-use uuid::Uuid;
 
 pub fn domain_to_rest(s: domain::Subscription) -> Result<Subscription, RestApiError> {
     Ok(Subscription {
@@ -150,7 +149,6 @@ pub fn rest_to_domain_create_request(
     resolved_plan_version_id: PlanVersionId,
     resolved_customer_id: CustomerId,
     resolved_coupon_ids: Option<Vec<CouponId>>,
-    created_by: Uuid,
     sub: SubscriptionCreateRequest,
 ) -> Result<CreateSubscription, RestApiError> {
     let converted = CreateSubscription {
@@ -163,7 +161,6 @@ pub fn rest_to_domain_create_request(
             billing_day_anchor: sub.billing_day_anchor,
             net_terms: sub.net_terms,
             invoice_memo: sub.invoice_memo,
-            created_by,
             activation_condition: sub.activation_condition.into(),
             purchase_order: sub.purchase_order,
             auto_advance_invoices: sub.auto_advance_invoices.unwrap_or(true),

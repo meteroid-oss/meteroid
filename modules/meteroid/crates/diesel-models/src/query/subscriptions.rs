@@ -82,6 +82,23 @@ impl SubscriptionRow {
             .into_db_result()
     }
 
+    pub async fn get_customer_id(
+        conn: &mut PgConn,
+        tenant_id_param: &TenantId,
+        subscription_id_param: SubscriptionId,
+    ) -> DbResult<common_domain::ids::CustomerId> {
+        use crate::schema::subscription::dsl::{customer_id, id, subscription, tenant_id};
+
+        subscription
+            .filter(id.eq(subscription_id_param))
+            .filter(tenant_id.eq(tenant_id_param))
+            .select(customer_id)
+            .get_result(conn)
+            .await
+            .attach("Error while fetching subscription customer_id")
+            .into_db_result()
+    }
+
     pub async fn get_subscription_period_by_id(
         conn: &mut PgConn,
         tenant_id_param: &TenantId,

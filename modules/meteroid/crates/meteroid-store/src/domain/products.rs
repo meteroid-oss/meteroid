@@ -2,7 +2,6 @@ use chrono::NaiveDateTime;
 use common_domain::ids::{BaseId, ProductFamilyId, ProductId, TenantId};
 use diesel_models::products::{ProductRow, ProductRowNew};
 use error_stack::Report;
-use uuid::Uuid;
 
 use super::enums::FeeTypeEnum;
 use super::prices::Price;
@@ -15,7 +14,6 @@ pub struct Product {
     pub name: String,
     pub description: Option<String>,
     pub created_at: NaiveDateTime,
-    pub created_by: Uuid,
     pub updated_at: Option<NaiveDateTime>,
     pub archived_at: Option<NaiveDateTime>,
     pub tenant_id: TenantId,
@@ -42,7 +40,6 @@ impl TryFrom<ProductRow> for Product {
             name: row.name,
             description: row.description,
             created_at: row.created_at,
-            created_by: row.created_by,
             updated_at: row.updated_at,
             archived_at: row.archived_at,
             tenant_id: row.tenant_id,
@@ -58,7 +55,6 @@ impl TryFrom<ProductRow> for Product {
 pub struct ProductNew {
     pub name: String,
     pub description: Option<String>,
-    pub created_by: Uuid,
     pub tenant_id: TenantId,
     pub family_id: ProductFamilyId,
     pub fee_type: FeeTypeEnum,
@@ -87,7 +83,6 @@ impl TryFrom<ProductNew> for ProductRowNew {
             id: ProductId::new(),
             name: new.name,
             description: new.description,
-            created_by: new.created_by,
             tenant_id: new.tenant_id,
             product_family_id: new.family_id,
             fee_type: new.fee_type.into(),

@@ -81,6 +81,7 @@ async fn test_issuing(
     // we insert a customer with an invoicing email
     let _inserted = store
         .insert_customer(
+            common_domain::actor::Actor::System,
             CustomerNew {
                 name: "".to_string(),
                 alias: None,
@@ -91,7 +92,6 @@ async fn test_issuing(
                 currency: "EUR".to_string(),
                 billing_address: None,
                 shipping_address: None,
-                created_by: Default::default(),
                 invoicing_entity_id: None,
                 force_created_date: None,
                 is_tax_exempt: false,
@@ -397,11 +397,11 @@ async fn test_subscription_cancellation(services: &Services, store: &Store, conn
     // Schedule cancellation. Events are not processed until it is in current or previous cycle(s)
     services
         .cancel_subscription(
+            common_domain::actor::Actor::System,
             subscription_id,
             TENANT_ID,
             Some("no reason".to_string()),
             CancellationEffectiveAt::Date(cancel_date),
-            USER_ID,
         )
         .await
         .unwrap();
@@ -504,11 +504,11 @@ async fn test_subscription_cancellation_race_condition(
     // Schedule cancellation
     services
         .cancel_subscription(
+            common_domain::actor::Actor::System,
             subscription_id,
             TENANT_ID,
             Some("no reason".to_string()),
             CancellationEffectiveAt::Date(cancel_date),
-            USER_ID,
         )
         .await
         .unwrap();
@@ -621,11 +621,11 @@ async fn test_mrr_cancellation_after_multiple_cycles(
     let cancel_date = NaiveDate::from_ymd_opt(2024, 8, 15).unwrap();
     services
         .cancel_subscription(
+            common_domain::actor::Actor::System,
             subscription_id,
             TENANT_ID,
             Some("MRR overflow test".to_string()),
             CancellationEffectiveAt::Date(cancel_date),
-            USER_ID,
         )
         .await
         .unwrap();
@@ -727,11 +727,11 @@ async fn test_mrr_cancellation_at_period_boundary(
     // our synthetic 2024 test dates.
     services
         .cancel_subscription(
+            common_domain::actor::Actor::System,
             subscription_id,
             TENANT_ID,
             Some("period boundary test".to_string()),
             CancellationEffectiveAt::Date(period_end),
-            USER_ID,
         )
         .await
         .unwrap();
@@ -873,11 +873,11 @@ async fn get_invoices(store: &Store, subscription_id: SubscriptionId) -> Vec<Inv
 async fn create_subscription(services: &Services, params: SubscriptionParams) -> SubscriptionId {
     services
         .insert_subscription(
+            common_domain::actor::Actor::System,
             CreateSubscription {
                 subscription: SubscriptionNew {
                     customer_id: CUST_UBER_ID,
                     plan_version_id: params.plan_version_id.unwrap_or(PLAN_VERSION_1_LEETCODE_ID),
-                    created_by: USER_ID,
                     net_terms: None,
                     invoice_memo: None,
                     invoice_threshold: None,

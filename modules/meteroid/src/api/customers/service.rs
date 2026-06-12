@@ -43,7 +43,7 @@ impl CustomersService for CustomerServiceComponents {
         request: Request<CreateCustomerRequest>,
     ) -> Result<Response<CreateCustomerResponse>, Status> {
         let tenant_id = request.tenant()?;
-        let actor = request.actor()?;
+        let actor_typed = request.actor_typed()?;
 
         let inner = request
             .into_inner()
@@ -52,7 +52,6 @@ impl CustomersService for CustomerServiceComponents {
 
         let customer_new = CustomerNew {
             name: inner.name,
-            created_by: actor,
             invoicing_entity_id: InvoicingEntityId::from_proto_opt(inner.invoicing_entity_id)?,
             alias: inner.alias,
             billing_email: inner.billing_email,
@@ -93,7 +92,7 @@ impl CustomersService for CustomerServiceComponents {
 
         let customer = self
             .store
-            .insert_customer(customer_new, tenant_id)
+            .insert_customer(actor_typed, customer_new, tenant_id)
             .await
             .and_then(ServerCustomerBriefWrapper::try_from)
             .map(|v| v.0)
@@ -109,7 +108,7 @@ impl CustomersService for CustomerServiceComponents {
         &self,
         request: Request<UpdateCustomerRequest>,
     ) -> Result<Response<UpdateCustomerResponse>, Status> {
-        let actor = request.actor()?;
+        let actor = request.actor_typed()?;
         let tenant_id = request.tenant()?;
 
         let customer = request
@@ -373,14 +372,14 @@ impl CustomersService for CustomerServiceComponents {
         &self,
         request: Request<ArchiveCustomerRequest>,
     ) -> Result<Response<ArchiveCustomerResponse>, Status> {
-        let actor = request.actor()?;
+        let actor_typed = request.actor_typed()?;
         let tenant_id = request.tenant()?;
 
         let req = request.into_inner();
         let customer_id = CustomerId::from_proto(&req.id)?;
 
         self.store
-            .archive_customer(actor, tenant_id, AliasOr::Id(customer_id))
+            .archive_customer(actor_typed, tenant_id, AliasOr::Id(customer_id))
             .await
             .map_err(Into::<CustomerApiError>::into)?;
 
@@ -393,12 +392,13 @@ impl CustomersService for CustomerServiceComponents {
         request: Request<UnarchiveCustomerRequest>,
     ) -> Result<Response<UnarchiveCustomerResponse>, Status> {
         let tenant_id = request.tenant()?;
+        let actor = request.actor_typed()?;
 
         let req = request.into_inner();
         let customer_id = CustomerId::from_proto(&req.id)?;
 
         self.store
-            .unarchive_customer(tenant_id, AliasOr::Id(customer_id))
+            .unarchive_customer(actor, tenant_id, AliasOr::Id(customer_id))
             .await
             .map_err(Into::<CustomerApiError>::into)?;
 

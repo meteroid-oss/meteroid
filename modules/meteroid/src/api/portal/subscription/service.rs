@@ -542,6 +542,7 @@ impl PortalSubscriptionService for PortalSubscriptionServiceComponents {
                     let result = self
                         .services
                         .apply_plan_change_immediate(
+                            common_domain::actor::Actor::Customer { id: customer_id },
                             subscription_id,
                             tenant_id,
                             new_plan_version_id,
@@ -565,7 +566,13 @@ impl PortalSubscriptionService for PortalSubscriptionServiceComponents {
             DomainChangeDirection::Downgrade | DomainChangeDirection::Lateral => {
                 let event = self
                     .services
-                    .schedule_plan_change(subscription_id, tenant_id, new_plan_version_id, vec![])
+                    .schedule_plan_change(
+                        common_domain::actor::Actor::Customer { id: customer_id },
+                        subscription_id,
+                        tenant_id,
+                        new_plan_version_id,
+                        vec![],
+                    )
                     .await
                     .map_err(Into::<PortalSubscriptionApiError>::into)?;
 
@@ -605,7 +612,12 @@ impl PortalSubscriptionService for PortalSubscriptionServiceComponents {
         }
 
         self.services
-            .cancel_scheduled_event(event_id, subscription_id, tenant_id)
+            .cancel_scheduled_event(
+                common_domain::actor::Actor::Customer { id: customer_id },
+                event_id,
+                subscription_id,
+                tenant_id,
+            )
             .await
             .map_err(Into::<PortalSubscriptionApiError>::into)?;
 
@@ -734,7 +746,6 @@ impl PortalSubscriptionService for PortalSubscriptionServiceComponents {
                         name: addon.name.clone(),
                         description: None,
                         created_at: addon.created_at,
-                        created_by: uuid::Uuid::nil(),
                         updated_at: None,
                         archived_at: None,
                         tenant_id: addon.tenant_id,
@@ -982,7 +993,6 @@ impl PortalSubscriptionServiceComponents {
             tenant_id,
             customer_id: details.subscription.customer_id,
             plan_version_id: details.subscription.plan_version_id,
-            created_by: details.subscription.created_by,
             billing_start_date: None,
             billing_day_anchor: None,
             net_terms: None,
@@ -1058,7 +1068,6 @@ impl PortalSubscriptionServiceComponents {
                     name: addon.name.clone(),
                     description: None,
                     created_at: addon.created_at,
-                    created_by: uuid::Uuid::nil(),
                     updated_at: None,
                     archived_at: None,
                     tenant_id: addon.tenant_id,
@@ -1117,7 +1126,6 @@ impl PortalSubscriptionServiceComponents {
                 subscription_id,
                 new_plan_version_id,
                 details.subscription.customer_id,
-                details.subscription.created_by,
                 details.subscription.payment_methods_config.clone(),
                 chrono::Utc::now().date_naive(),
             )

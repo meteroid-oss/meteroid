@@ -1,7 +1,8 @@
 use crate::config::MailerConfig;
 use crate::errors::MailerServiceError;
 use crate::model::{
-    Email, EmailValidationLink, InvoicePaid, InvoiceReady, OrgInvite, QuoteReady, ResetPasswordLink,
+    Email, EmailValidationLink, InvoicePaid, InvoiceReady, OrgInvite, QuoteReady, RenderedEmail,
+    ResetPasswordLink,
 };
 use crate::template::{
     EmailValidationLinkTemplate, InvoicePaidTemplate, InvoiceReadyTemplate, OrgInviteTemplate,
@@ -22,7 +23,7 @@ use mockall::automock;
 #[cfg_attr(feature = "test-utils", automock)]
 #[async_trait]
 pub trait MailerService: Send + Sync {
-    async fn send(&self, email: Email) -> Result<(), Report<MailerServiceError>>;
+    async fn send(&self, email: Email) -> Result<bool, Report<MailerServiceError>>;
     async fn send_reset_password_link(
         &self,
         link: ResetPasswordLink,
@@ -36,11 +37,17 @@ pub trait MailerService: Send + Sync {
     async fn send_invoice_ready_for_payment(
         &self,
         link: InvoiceReady,
-    ) -> Result<(), Report<MailerServiceError>>;
+    ) -> Result<RenderedEmail, Report<MailerServiceError>>;
 
-    async fn send_invoice_paid(&self, link: InvoicePaid) -> Result<(), Report<MailerServiceError>>;
+    async fn send_invoice_paid(
+        &self,
+        link: InvoicePaid,
+    ) -> Result<RenderedEmail, Report<MailerServiceError>>;
 
-    async fn send_quote_ready(&self, data: QuoteReady) -> Result<(), Report<MailerServiceError>>;
+    async fn send_quote_ready(
+        &self,
+        data: QuoteReady,
+    ) -> Result<RenderedEmail, Report<MailerServiceError>>;
 
     async fn send_org_invite(&self, data: OrgInvite) -> Result<(), Report<MailerServiceError>>;
 }
@@ -55,8 +62,7 @@ impl<T: AsyncTransport + Send + Sync> MailerService for LettreMailerService<T>
 where
     T::Error: Into<MailerServiceError>,
 {
-    async fn send(&self, email: Email) -> Result<(), Report<MailerServiceError>> {
-        // if the email is fake, we just skip sending it
+    async fn send(&self, email: Email) -> Result<bool, Report<MailerServiceError>> {
         if email
             .to
             .iter()
@@ -71,7 +77,7 @@ where
                     .collect::<Vec<_>>()
                     .join(", ")
             );
-            return Ok(());
+            return Ok(false);
         }
 
         let message: Message = email.try_into()?;
@@ -81,7 +87,7 @@ where
             .await
             .map_err(|e| Report::new(e.into()))?;
 
-        Ok(())
+        Ok(true)
     }
 
     async fn send_reset_password_link(
@@ -100,7 +106,7 @@ where
             body_html,
             attachments: vec![],
         };
-        self.send(email).await
+        self.send(email).await.map(|_| ())
     }
 
     async fn send_email_validation_link(
@@ -119,64 +125,106 @@ where
             body_html,
             attachments: vec![],
         };
-        self.send(email).await
+        self.send(email).await.map(|_| ())
     }
 
     async fn send_invoice_ready_for_payment(
         &self,
         data: InvoiceReady,
-    ) -> Result<(), Report<MailerServiceError>> {
+    ) -> Result<RenderedEmail, Report<MailerServiceError>> {
         let tpl = InvoiceReadyTemplate::from(data.clone()).tpl;
-
-        let title = tpl.title.clone();
+        let subject = tpl.title.clone();
         let from = format!("{} <billing@meteroid.com>", data.company_name);
+        let reply_to = Some("Meteroid <support@meteroid.com>".to_string());
         let body_html = tpl.render_once().map_err(|e| Report::new(e.into()))?;
+        let recipients = data.recipients.clone();
+        let attachment_filenames = vec![data.attachment.filename.clone()];
 
         let email = Email {
-            from,
-            reply_to: Some("Meteroid <support@meteroid.com>".into()), // TODO allow custom reply email
-            to: data.recipients.clone(),
-            subject: title,
-            body_html,
+            from: from.clone(),
+            reply_to: reply_to.clone(),
+            to: recipients.clone(),
+            subject: subject.clone(),
+            body_html: body_html.clone(),
             attachments: vec![data.attachment],
         };
-        self.send(email).await
+        let delivered = self.send(email).await?;
+        Ok(RenderedEmail {
+            subject,
+            from,
+            reply_to,
+            recipients,
+            body_html,
+            attachment_filenames,
+            delivered,
+        })
     }
 
-    async fn send_invoice_paid(&self, data: InvoicePaid) -> Result<(), Report<MailerServiceError>> {
+    async fn send_invoice_paid(
+        &self,
+        data: InvoicePaid,
+    ) -> Result<RenderedEmail, Report<MailerServiceError>> {
         let tpl = InvoicePaidTemplate::from(data.clone()).tpl;
-
-        let title = tpl.title.clone();
+        let subject = tpl.title.clone();
         let from = format!("{} <billing@meteroid.com>", data.company_name);
+        let reply_to = Some("Meteroid <support@meteroid.com>".to_string());
         let body_html = tpl.render_once().map_err(|e| Report::new(e.into()))?;
+        let recipients = data.recipients.clone();
+        let attachment_filenames = data
+            .attachments
+            .iter()
+            .map(|a| a.filename.clone())
+            .collect();
 
         let email = Email {
-            from,
-            reply_to: Some("Meteroid <support@meteroid.com>".into()), // TODO allow custom reply email
-            to: data.recipients.clone(),
-            subject: title,
-            body_html,
+            from: from.clone(),
+            reply_to: reply_to.clone(),
+            to: recipients.clone(),
+            subject: subject.clone(),
+            body_html: body_html.clone(),
             attachments: data.attachments,
         };
-        self.send(email).await
+        let delivered = self.send(email).await?;
+        Ok(RenderedEmail {
+            subject,
+            from,
+            reply_to,
+            recipients,
+            body_html,
+            attachment_filenames,
+            delivered,
+        })
     }
 
-    async fn send_quote_ready(&self, data: QuoteReady) -> Result<(), Report<MailerServiceError>> {
+    async fn send_quote_ready(
+        &self,
+        data: QuoteReady,
+    ) -> Result<RenderedEmail, Report<MailerServiceError>> {
         let tpl = QuoteReadyTemplate::from(data.clone()).tpl;
-
-        let title = tpl.title.clone();
+        let subject = tpl.title.clone();
         let from = format!("{} <noreply@meteroid.com>", data.company_name);
+        let reply_to = Some("Meteroid <support@meteroid.com>".to_string());
         let body_html = tpl.render_once().map_err(|e| Report::new(e.into()))?;
+        let recipients = data.recipients.clone();
 
         let email = Email {
-            from,
-            reply_to: Some("Meteroid <support@meteroid.com>".into()), // TODO allow custom reply email
-            to: data.recipients.clone(),
-            subject: title,
-            body_html,
-            attachments: vec![], // No PDF attachment for quote email, they access via portal
+            from: from.clone(),
+            reply_to: reply_to.clone(),
+            to: recipients.clone(),
+            subject: subject.clone(),
+            body_html: body_html.clone(),
+            attachments: vec![],
         };
-        self.send(email).await
+        let delivered = self.send(email).await?;
+        Ok(RenderedEmail {
+            subject,
+            from,
+            reply_to,
+            recipients,
+            body_html,
+            attachment_filenames: vec![],
+            delivered,
+        })
     }
 
     async fn send_org_invite(&self, data: OrgInvite) -> Result<(), Report<MailerServiceError>> {
@@ -190,7 +238,7 @@ where
             body_html,
             attachments: vec![],
         };
-        self.send(email).await
+        self.send(email).await.map(|_| ())
     }
 }
 

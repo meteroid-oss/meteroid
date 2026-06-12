@@ -1,5 +1,6 @@
 use crate::StoreResult;
 use crate::constants::Currencies;
+use crate::domain::entity_activity::Actor;
 use crate::domain::invoice_lines::{LineItem, TaxDetail};
 use crate::domain::invoices::TaxBreakdownItem;
 use crate::domain::{
@@ -89,6 +90,7 @@ pub trait CreditNoteInterface {
 
     async fn create_credit_note(
         &self,
+        actor: Actor,
         tenant_id: TenantId,
         params: CreateCreditNoteParams,
     ) -> StoreResult<CreditNote>;
@@ -98,6 +100,7 @@ pub trait CreditNoteInterface {
     /// like settling the parent invoice and offering reissue only fire on finalize).
     async fn create_and_finalize_credit_note(
         &self,
+        actor: Actor,
         tenant_id: TenantId,
         params: CreateCreditNoteParams,
     ) -> StoreResult<CreditNote>;
@@ -134,12 +137,14 @@ pub trait CreditNoteInterface {
 
     async fn finalize_credit_note(
         &self,
+        actor: Actor,
         tenant_id: TenantId,
         credit_note_id: CreditNoteId,
     ) -> StoreResult<CreditNote>;
 
     async fn void_credit_note(
         &self,
+        actor: Actor,
         tenant_id: TenantId,
         credit_note_id: CreditNoteId,
     ) -> StoreResult<CreditNote>;
@@ -460,6 +465,7 @@ async fn apply_credit_note_to_invoice_tx(
     store: &Store,
     conn: &mut PgConn,
     tenant_id: TenantId,
+    actor: &Actor,
     credit_note: &CreditNote,
 ) -> StoreResult<()> {
     if credit_note.credit_type != CreditType::DebtCancellation {
@@ -491,7 +497,12 @@ async fn apply_credit_note_to_invoice_tx(
         let invoice: Invoice = updated_row.try_into()?;
         store
             .internal
-            .insert_outbox_events_tx(conn, vec![OutboxEvent::invoice_paid((&invoice).into())])
+            .record_outbox_batch_tx(
+                conn,
+                tenant_id,
+                actor,
+                vec![OutboxEvent::invoice_paid((&invoice).into())],
+            )
             .await?;
     }
 
@@ -561,6 +572,7 @@ pub(crate) async fn create_user_credit_note_tx(
     store: &Store,
     conn: &mut PgConn,
     tenant_id: TenantId,
+    actor: &Actor,
     params: CreateCreditNoteParams,
 ) -> StoreResult<CreditNote> {
     let detailed_invoice = InvoiceRow::find_detailed_by_id(conn, tenant_id, params.invoice_id)
@@ -615,6 +627,7 @@ pub(crate) async fn create_user_credit_note_tx(
         store,
         conn,
         tenant_id,
+        actor,
         CreateCreditNoteTxParams {
             invoice,
             line_items,
@@ -632,6 +645,7 @@ pub(crate) async fn finalize_credit_note_tx(
     store: &Store,
     conn: &mut PgConn,
     tenant_id: TenantId,
+    actor: &Actor,
     credit_note_id: CreditNoteId,
 ) -> StoreResult<CreditNote> {
     let credit_note_row = CreditNoteRow::find_by_id(conn, tenant_id, credit_note_id).await?;
@@ -694,12 +708,14 @@ pub(crate) async fn finalize_credit_note_tx(
         .map_err(Into::<Report<StoreError>>::into)?
         .try_into()?;
 
-    apply_credit_note_to_invoice_tx(store, conn, tenant_id, &credit_note).await?;
+    apply_credit_note_to_invoice_tx(store, conn, tenant_id, actor, &credit_note).await?;
 
     store
         .internal
-        .insert_outbox_events_tx(
+        .record_outbox_batch_tx(
             conn,
+            tenant_id,
+            actor,
             vec![OutboxEvent::credit_note_finalized((&credit_note).into())],
         )
         .await?;
@@ -712,6 +728,7 @@ pub(crate) async fn create_credit_note_tx(
     store: &Store,
     conn: &mut PgConn,
     tenant_id: TenantId,
+    actor: &Actor,
     params: CreateCreditNoteTxParams,
 ) -> StoreResult<CreditNote> {
     let invoice = params.invoice;
@@ -1070,7 +1087,7 @@ pub(crate) async fn create_credit_note_tx(
     // 13a. If credit note is created as Finalized and is a DebtCancellation,
     // apply it to the invoice's amount_due (settle if reaching zero).
     if params.status == crate::domain::enums::CreditNoteStatus::Finalized {
-        apply_credit_note_to_invoice_tx(store, conn, tenant_id, &credit_note).await?;
+        apply_credit_note_to_invoice_tx(store, conn, tenant_id, actor, &credit_note).await?;
     }
 
     // 13b. If credit note is created as Finalized, update customer balance immediately
@@ -1106,7 +1123,10 @@ pub(crate) async fn create_credit_note_tx(
     if params.status == crate::domain::enums::CreditNoteStatus::Finalized {
         events.push(OutboxEvent::credit_note_finalized((&credit_note).into()));
     }
-    store.internal.insert_outbox_events_tx(conn, events).await?;
+    store
+        .internal
+        .record_outbox_batch_tx(conn, tenant_id, actor, events)
+        .await?;
 
     // 15. Update the credit note number in the invoicing entity (only when finalizing)
     if let Some(number_value) = credit_note_number_value {
@@ -1139,11 +1159,13 @@ impl CreditNoteInterface for Store {
 
     async fn create_credit_note(
         &self,
+        actor: Actor,
         tenant_id: TenantId,
         params: CreateCreditNoteParams,
     ) -> StoreResult<CreditNote> {
         self.transaction(|conn| {
-            async move { create_user_credit_note_tx(self, conn, tenant_id, params).await }
+            let actor = &actor;
+            async move { create_user_credit_note_tx(self, conn, tenant_id, actor, params).await }
                 .scope_boxed()
         })
         .await
@@ -1151,13 +1173,16 @@ impl CreditNoteInterface for Store {
 
     async fn create_and_finalize_credit_note(
         &self,
+        actor: Actor,
         tenant_id: TenantId,
         params: CreateCreditNoteParams,
     ) -> StoreResult<CreditNote> {
         self.transaction(|conn| {
+            let actor = &actor;
             async move {
-                let draft = create_user_credit_note_tx(self, conn, tenant_id, params).await?;
-                finalize_credit_note_tx(self, conn, tenant_id, draft.id).await
+                let draft =
+                    create_user_credit_note_tx(self, conn, tenant_id, actor, params).await?;
+                finalize_credit_note_tx(self, conn, tenant_id, actor, draft.id).await
             }
             .scope_boxed()
         })
@@ -1249,22 +1274,28 @@ impl CreditNoteInterface for Store {
 
     async fn finalize_credit_note(
         &self,
+        actor: Actor,
         tenant_id: TenantId,
         credit_note_id: CreditNoteId,
     ) -> StoreResult<CreditNote> {
         self.transaction(|conn| {
-            async move { finalize_credit_note_tx(self, conn, tenant_id, credit_note_id).await }
-                .scope_boxed()
+            let actor = &actor;
+            async move {
+                finalize_credit_note_tx(self, conn, tenant_id, actor, credit_note_id).await
+            }
+            .scope_boxed()
         })
         .await
     }
 
     async fn void_credit_note(
         &self,
+        actor: Actor,
         tenant_id: TenantId,
         credit_note_id: CreditNoteId,
     ) -> StoreResult<CreditNote> {
         self.transaction(|conn| {
+            let actor = &actor;
             async move {
                 // 1. Get the credit note to check if balance needs to be reversed
                 let credit_note_row =
@@ -1321,8 +1352,10 @@ impl CreditNoteInterface for Store {
 
                 // 6. Emit outbox event for voided credit note
                 self.internal
-                    .insert_outbox_events_tx(
+                    .record_outbox_batch_tx(
                         conn,
+                        tenant_id,
+                        actor,
                         vec![OutboxEvent::credit_note_voided((&credit_note).into())],
                     )
                     .await?;

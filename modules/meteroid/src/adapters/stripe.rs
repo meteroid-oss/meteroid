@@ -11,6 +11,7 @@ use crate::errors;
 use super::types::{AdapterCommon, WebhookAdapter};
 use crate::adapters::types::ParsedRequest;
 use axum::response::IntoResponse;
+use common_domain::actor::Actor;
 use common_domain::ids::{BaseId, CustomerConnectionId, CustomerId, CustomerPaymentMethodId};
 use diesel_async::scoped_futures::ScopedFutureExt;
 use error_stack::ResultExt;
@@ -205,7 +206,7 @@ impl Stripe {
         };
 
         store
-            .patch_customer(customer_id.as_uuid(), connector.tenant_id, customer_patch)
+            .patch_customer(Actor::System, connector.tenant_id, customer_patch)
             .await
             .change_context(errors::AdapterWebhookError::StoreError)?;
 
@@ -242,7 +243,12 @@ impl Stripe {
                         .await?;
 
                     store
-                        .consolidate_intent_and_transaction_tx(conn, inserted_transaction, data)
+                        .consolidate_intent_and_transaction_tx(
+                            conn,
+                            &Actor::System,
+                            inserted_transaction,
+                            data,
+                        )
                         .await?;
 
                     Ok(())

@@ -1,6 +1,7 @@
 version: v1
 types:
   include:
+    - meteroid.api.activity.v1.ActivityService
     - meteroid.api.addons.v1.AddOnsService
     - meteroid.api.apitokens.v1.ApiTokensService
     - meteroid.api.bankaccounts.v1.BankAccountsService

@@ -59,7 +59,6 @@ async fn test_plan_change_checkout_from_free_trial_to_no_trial(#[future] test_en
             sub_id,
             PLAN_VERSION_STARTER_ID, // $39/mo, no trial
             sub.customer_id,
-            USER_ID,
             None,
             change_date,
         )
@@ -164,7 +163,6 @@ async fn test_plan_change_checkout_from_free_trial_payment_fails(#[future] test_
             sub_id,
             PLAN_VERSION_STARTER_ID,
             sub.customer_id,
-            USER_ID,
             None,
             change_date,
         )
@@ -261,7 +259,6 @@ async fn test_plan_change_checkout_from_paid_trial_downgrade(#[future] test_env:
             sub_id,
             PLAN_VERSION_STARTER_ID,
             sub.customer_id,
-            USER_ID,
             None,
             change_date,
         )
@@ -376,7 +373,6 @@ async fn test_plan_change_checkout_from_paid_trial_upgrade(#[future] test_env: T
             sub_id,
             PLAN_VERSION_PRO_ID, // $124/mo
             sub.customer_id,
-            USER_ID,
             None,
             change_date,
         )
@@ -502,7 +498,6 @@ async fn test_plan_change_checkout_to_trial_plan_no_trial_applied(#[future] test
             sub_id,
             PLAN_VERSION_PAID_FREE_TRIAL_ID, // $49/mo with trial config
             sub.customer_id,
-            USER_ID,
             None,
             change_date,
         )
@@ -611,7 +606,6 @@ async fn test_plan_change_checkout_to_trial_plan_payment_fails(#[future] test_en
             sub_id,
             PLAN_VERSION_PAID_FREE_TRIAL_ID,
             sub.customer_id,
-            USER_ID,
             None,
             change_date,
         )
@@ -674,7 +668,6 @@ async fn test_plan_change_checkout_amount_mismatch_rejected(#[future] test_env: 
             sub_id,
             PLAN_VERSION_STARTER_ID,
             sub.customer_id,
-            USER_ID,
             None,
             change_date,
         )
@@ -728,7 +721,6 @@ async fn test_plan_change_checkout_currency_mismatch_rejected(#[future] test_env
             sub_id,
             PLAN_VERSION_STARTER_ID,
             sub.customer_id,
-            USER_ID,
             None,
             change_date,
         )
@@ -805,7 +797,6 @@ async fn test_plan_change_checkout_roundtrip_free_trial(#[future] test_env: Test
             sub_id,
             PLAN_VERSION_STARTER_ID,
             sub.customer_id,
-            USER_ID,
             None,
             change_date,
         )
@@ -894,7 +885,6 @@ async fn test_plan_change_checkout_roundtrip_paid_trial_upgrade(#[future] test_e
             sub_id,
             PLAN_VERSION_PRO_ID,
             sub.customer_id,
-            USER_ID,
             None,
             change_date,
         )
@@ -988,7 +978,6 @@ async fn test_plan_change_checkout_roundtrip_downgrade(#[future] test_env: TestE
             sub_id,
             PLAN_VERSION_STARTER_ID,
             sub.customer_id,
-            USER_ID,
             None,
             change_date,
         )
@@ -1095,7 +1084,6 @@ async fn test_plan_change_checkout_downgrade_then_upgrade_credits_applied(
             sub_id,
             PLAN_VERSION_STARTER_ID,
             sub.customer_id,
-            USER_ID,
             None,
             change_date,
         )
@@ -1176,7 +1164,6 @@ async fn test_plan_change_checkout_downgrade_then_upgrade_credits_applied(
             sub_id,
             PLAN_VERSION_PRO_ID,
             sub.customer_id,
-            USER_ID,
             None,
             change_date,
         )
@@ -1335,7 +1322,6 @@ async fn test_plan_change_checkout_partial_credits_on_upgrade(#[future] test_env
             sub_id,
             PLAN_VERSION_STARTER_ID,
             sub.customer_id,
-            USER_ID,
             None,
             change_date,
         )
@@ -1398,7 +1384,6 @@ async fn test_plan_change_checkout_partial_credits_on_upgrade(#[future] test_env
             sub_id,
             PLAN_VERSION_PAID_FREE_TRIAL_ID,
             sub.customer_id,
-            USER_ID,
             None,
             change_date,
         )

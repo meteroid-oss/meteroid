@@ -30,7 +30,7 @@ impl BillableMetricsService for BillableMetricsComponents {
         request: Request<CreateBillableMetricRequest>,
     ) -> Result<Response<CreateBillableMetricResponse>, Status> {
         let tenant_id = request.tenant()?;
-        let actor = request.actor()?;
+        let actor_typed = request.actor_typed()?;
         let inner = request.into_inner();
 
         validate_code(&inner.code).map_err(|e| Status::invalid_argument(e.to_string()))?;
@@ -49,26 +49,30 @@ impl BillableMetricsService for BillableMetricsComponents {
 
         let domain_billable_metric: BillableMetric = self
             .store
-            .insert_billable_metric(domain::BillableMetricNew {
-                name: inner.name,
-                description: inner.description,
-                code: inner.code,
-                aggregation_type: aggregation_type.unwrap(),
-                aggregation_key,
-                unit_conversion_factor: unit_conversion.as_ref().map(|u| u.factor as i32), // TODO allow float
-                unit_conversion_rounding: unit_conversion.map(|u| match u.rounding.try_into() {
-                    Ok(a) => mapping::unit_conversion_rounding::server_to_domain(a),
-                    Err(_) => domain::enums::UnitConversionRoundingEnum::None,
-                }),
-                segmentation_matrix: mapping::metric::map_segmentation_matrix_from_server(
-                    inner.segmentation_matrix,
-                ),
-                usage_group_key: inner.usage_group_key,
-                created_by: actor,
-                tenant_id,
-                product_family_id: ProductFamilyId::from_proto(inner.family_local_id)?,
-                product_id: ProductId::from_proto_opt(inner.product_id)?,
-            })
+            .insert_billable_metric(
+                actor_typed,
+                domain::BillableMetricNew {
+                    name: inner.name,
+                    description: inner.description,
+                    code: inner.code,
+                    aggregation_type: aggregation_type.unwrap(),
+                    aggregation_key,
+                    unit_conversion_factor: unit_conversion.as_ref().map(|u| u.factor as i32), // TODO allow float
+                    unit_conversion_rounding: unit_conversion.map(|u| {
+                        match u.rounding.try_into() {
+                            Ok(a) => mapping::unit_conversion_rounding::server_to_domain(a),
+                            Err(_) => domain::enums::UnitConversionRoundingEnum::None,
+                        }
+                    }),
+                    segmentation_matrix: mapping::metric::map_segmentation_matrix_from_server(
+                        inner.segmentation_matrix,
+                    ),
+                    usage_group_key: inner.usage_group_key,
+                    tenant_id,
+                    product_family_id: ProductFamilyId::from_proto(inner.family_local_id)?,
+                    product_id: ProductId::from_proto_opt(inner.product_id)?,
+                },
+            )
             .await
             .map_err(Into::<BillableMetricApiError>::into)?;
 
@@ -151,12 +155,13 @@ impl BillableMetricsService for BillableMetricsComponents {
         request: Request<ArchiveBillableMetricRequest>,
     ) -> Result<Response<ArchiveBillableMetricResponse>, Status> {
         let tenant_id = request.tenant()?;
+        let actor = request.actor_typed()?;
         let req = request.into_inner();
 
         let billable_metric_id = BillableMetricId::from_proto(&req.id)?;
 
         self.store
-            .archive_billable_metric(billable_metric_id, tenant_id)
+            .archive_billable_metric(actor, billable_metric_id, tenant_id)
             .await
             .map_err(Into::<BillableMetricApiError>::into)?;
 
@@ -187,6 +192,7 @@ impl BillableMetricsService for BillableMetricsComponents {
         request: Request<UpdateBillableMetricRequest>,
     ) -> Result<Response<UpdateBillableMetricResponse>, Status> {
         let tenant_id = request.tenant()?;
+        let actor = request.actor_typed()?;
         let inner = request.into_inner();
 
         let billable_metric_id = BillableMetricId::from_proto(&inner.id)?;
@@ -224,7 +230,7 @@ impl BillableMetricsService for BillableMetricsComponents {
 
         let domain_billable_metric = self
             .store
-            .update_billable_metric(billable_metric_id, tenant_id, update)
+            .update_billable_metric(actor, billable_metric_id, tenant_id, update)
             .await
             .map_err(Into::<BillableMetricApiError>::into)?;
 

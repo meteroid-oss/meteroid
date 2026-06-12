@@ -198,6 +198,7 @@ impl CreditNotesService for CreditNoteServiceComponents {
         request: Request<CreateCreditNoteRequest>,
     ) -> Result<Response<CreateCreditNoteResponse>, Status> {
         let tenant_id = request.tenant()?;
+        let actor = request.actor_typed()?;
         let req = request.into_inner();
 
         let credit_note_req = req
@@ -280,21 +281,26 @@ impl CreditNotesService for CreditNoteServiceComponents {
         let (created, corrected_invoice_id) = if req.finalize && req.reissue_as_draft {
             let (cn, inv) = self
                 .services
-                .create_and_finalize_credit_note_with_reissue(tenant_id, params, true)
+                .create_and_finalize_credit_note_with_reissue(
+                    actor.clone(),
+                    tenant_id,
+                    params,
+                    true,
+                )
                 .await
                 .map_err(Into::<CreditNoteApiError>::into)?;
             (cn, inv.map(|i| i.id.as_proto()))
         } else if req.finalize {
             let cn = self
                 .store
-                .create_and_finalize_credit_note(tenant_id, params)
+                .create_and_finalize_credit_note(actor.clone(), tenant_id, params)
                 .await
                 .map_err(Into::<CreditNoteApiError>::into)?;
             (cn, None)
         } else {
             let cn = self
                 .store
-                .create_credit_note(tenant_id, params)
+                .create_credit_note(actor.clone(), tenant_id, params)
                 .await
                 .map_err(Into::<CreditNoteApiError>::into)?;
             (cn, None)
@@ -328,13 +334,14 @@ impl CreditNotesService for CreditNoteServiceComponents {
         request: Request<FinalizeCreditNoteRequest>,
     ) -> Result<Response<FinalizeCreditNoteResponse>, Status> {
         let tenant_id = request.tenant()?;
+        let actor = request.actor_typed()?;
         let req = request.into_inner();
 
         let credit_note_id = CreditNoteId::from_proto(&req.id)?;
 
         let finalized = self
             .store
-            .finalize_credit_note(tenant_id, credit_note_id)
+            .finalize_credit_note(actor, tenant_id, credit_note_id)
             .await
             .map_err(Into::<CreditNoteApiError>::into)?;
 
@@ -365,13 +372,14 @@ impl CreditNotesService for CreditNoteServiceComponents {
         request: Request<VoidCreditNoteRequest>,
     ) -> Result<Response<VoidCreditNoteResponse>, Status> {
         let tenant_id = request.tenant()?;
+        let actor = request.actor_typed()?;
         let req = request.into_inner();
 
         let credit_note_id = CreditNoteId::from_proto(&req.id)?;
 
         let voided = self
             .store
-            .void_credit_note(tenant_id, credit_note_id)
+            .void_credit_note(actor, tenant_id, credit_note_id)
             .await
             .map_err(Into::<CreditNoteApiError>::into)?;
 

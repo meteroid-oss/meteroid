@@ -1,4 +1,5 @@
 use crate::StoreResult;
+use crate::domain::entity_activity::Actor;
 use crate::domain::outbox_event::OutboxEvent;
 use crate::domain::{CouponLineItem, DetailedInvoice, Invoice, SubscriptionDetails};
 use crate::errors::StoreError;
@@ -20,12 +21,14 @@ use error_stack::Report;
 impl Services {
     pub async fn finalize_invoice(
         &self,
+        actor: Actor,
         id: InvoiceId,
         tenant_id: TenantId,
     ) -> StoreResult<DetailedInvoice> {
         self.store
             .transaction(|conn| {
-                self.finalize_invoice_tx(conn, id, tenant_id, false, &None)
+                let actor = &actor;
+                self.finalize_invoice_tx(conn, actor, id, tenant_id, false, &None)
                     .scope_boxed()
             })
             .await
@@ -35,6 +38,7 @@ impl Services {
     pub async fn finalize_invoice_tx(
         &self,
         conn: &mut PgConn,
+        actor: &Actor,
         id: InvoiceId,
         tenant_id: TenantId,
         refresh_invoice_lines: bool,
@@ -120,7 +124,13 @@ impl Services {
         };
 
         let invoice_details = self
-            .increment_and_finalize(conn, invoice, applied_coupons_amounts, backdate_invoices)
+            .increment_and_finalize(
+                conn,
+                actor,
+                invoice,
+                applied_coupons_amounts,
+                backdate_invoices,
+            )
             .await?;
 
         Ok(invoice_details)
@@ -129,10 +139,12 @@ impl Services {
     async fn increment_and_finalize(
         &self,
         tx: &mut PgConn,
+        actor: &Actor,
         invoice: Invoice,
         applied_coupons_amounts: Vec<CouponLineItem>,
         backdate_invoices: bool,
     ) -> StoreResult<DetailedInvoice> {
+        let tenant_id = invoice.tenant_id;
         let invoicing_entity = InvoicingEntityRow::select_for_update_by_id_and_tenant(
             tx,
             invoice.invoicing_entity_id,
@@ -197,7 +209,12 @@ impl Services {
         let invoice_event = (&final_invoice.invoice).into();
         self.store
             .internal
-            .insert_outbox_events_tx(tx, vec![OutboxEvent::invoice_finalized(invoice_event)])
+            .record_outbox_batch_tx(
+                tx,
+                tenant_id,
+                actor,
+                vec![OutboxEvent::invoice_finalized(invoice_event)],
+            )
             .await?;
 
         let _ = self

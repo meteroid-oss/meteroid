@@ -1,5 +1,4 @@
 use chrono::NaiveDateTime;
-use uuid::Uuid;
 
 use common_domain::ids::{PlanId, PlanVersionId, ProductFamilyId, TenantId};
 use diesel::{AsChangeset, Identifiable, Insertable, Queryable, Selectable};
@@ -19,7 +18,6 @@ pub struct PlanVersionRow {
     pub currency: String,
     pub billing_cycles: Option<i32>,
     pub created_at: NaiveDateTime,
-    pub created_by: Uuid,
     pub trialing_plan_id: Option<PlanId>,
     pub trial_is_free: bool,
     pub uses_product_pricing: bool,
@@ -39,7 +37,6 @@ pub struct PlanVersionRowNew {
     pub net_terms: i32,
     pub currency: String,
     pub billing_cycles: Option<i32>,
-    pub created_by: Uuid,
     pub trialing_plan_id: Option<PlanId>,
     pub trial_is_free: bool,
     pub uses_product_pricing: bool,
@@ -55,7 +52,6 @@ pub struct PlanVersionRowOverview {
     #[diesel(select_expression_type = crate::schema::plan::name)]
     pub plan_name: String,
     pub version: i32,
-    pub created_by: Uuid,
     pub trial_duration_days: Option<i32>,
     pub trialing_plan_id: Option<PlanId>,
     pub trial_is_free: bool,

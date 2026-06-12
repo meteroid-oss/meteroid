@@ -544,7 +544,6 @@ impl EntitlementRow {
         src_plan_version_id: PlanVersionId,
         dst_plan_version_id: PlanVersionId,
         param_tenant_id: TenantId,
-        new_created_by: Uuid,
     ) -> DbResult<usize> {
         use crate::enums::EntitlementEntityTypeEnum;
         use crate::schema::entitlement::dsl as e_dsl;
@@ -570,7 +569,6 @@ impl EntitlementRow {
                     .into_sql::<crate::schema::sql_types::EntitlementEntityTypeEnum>(),
                 e_dsl::mode,
                 e_dsl::value,
-                new_created_by.into_sql::<diesel::sql_types::Uuid>(),
             ))
             .insert_into(e_dsl::entitlement)
             .into_columns((
@@ -581,7 +579,6 @@ impl EntitlementRow {
                 e_dsl::entity_type,
                 e_dsl::mode,
                 e_dsl::value,
-                e_dsl::created_by,
             ));
 
         log::debug!("{}", debug_query::<diesel::pg::Pg, _>(&query));

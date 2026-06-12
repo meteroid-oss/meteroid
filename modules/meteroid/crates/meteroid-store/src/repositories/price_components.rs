@@ -17,7 +17,6 @@ use diesel_models::prices::{PriceRow, PriceRowNew};
 use diesel_models::products::ProductRowNew;
 use error_stack::Report;
 use std::collections::HashMap;
-use uuid::Uuid;
 
 pub use crate::domain::price_components::PriceInput;
 
@@ -29,7 +28,6 @@ pub async fn resolve_component_internal(
     conn: &mut PgConn,
     internal: &PriceComponentNewInternal,
     tenant_id: TenantId,
-    created_by: Uuid,
     product_family_id: ProductFamilyId,
     expected_currency: &str,
     catalog: bool,
@@ -45,7 +43,6 @@ pub async fn resolve_component_internal(
                 id: ProductId::new(),
                 name: name.clone(),
                 description: None,
-                created_by,
                 tenant_id,
                 product_family_id,
                 fee_type: (*fee_type).into(),
@@ -117,7 +114,6 @@ pub async fn resolve_component_internal(
                     currency: input.currency.clone(),
                     pricing: pricing_json,
                     tenant_id,
-                    created_by,
                     catalog,
                 }
                 .insert(conn)
@@ -157,7 +153,6 @@ pub trait PriceComponentInterface {
         price_component: PriceComponentNew,
         prices: Vec<PriceInput>,
         tenant_id: TenantId,
-        created_by: Uuid,
     ) -> StoreResult<PriceComponent>;
 
     async fn create_price_component_batch(
@@ -186,7 +181,6 @@ pub trait PriceComponentInterface {
         prices: Vec<PriceInput>,
         tenant_id: TenantId,
         plan_version_id: PlanVersionId,
-        created_by: Uuid,
     ) -> StoreResult<PriceComponent>;
 
     /// Create a price component from high-level ProductRef + PriceEntry.
@@ -199,7 +193,6 @@ pub trait PriceComponentInterface {
         price_entries: Vec<PriceEntry>,
         plan_version_id: PlanVersionId,
         tenant_id: TenantId,
-        created_by: Uuid,
     ) -> StoreResult<PriceComponent>;
 }
 
@@ -322,7 +315,6 @@ impl PriceComponentInterface for Store {
         price_component: PriceComponentNew,
         prices: Vec<PriceInput>,
         tenant_id: TenantId,
-        created_by: Uuid,
     ) -> StoreResult<PriceComponent> {
         use diesel_models::products::ProductRow;
 
@@ -350,7 +342,6 @@ impl PriceComponentInterface for Store {
                     currency: pi.currency.clone(),
                     pricing: pricing_json,
                     tenant_id,
-                    created_by,
                     catalog: true,
                 })
             })
@@ -482,7 +473,6 @@ impl PriceComponentInterface for Store {
         prices: Vec<PriceInput>,
         tenant_id: TenantId,
         plan_version_id: PlanVersionId,
-        created_by: Uuid,
     ) -> StoreResult<PriceComponent> {
         use diesel_models::products::ProductRow;
 
@@ -518,7 +508,6 @@ impl PriceComponentInterface for Store {
                     currency: pi.currency.clone(),
                     pricing: pricing_json,
                     tenant_id,
-                    created_by,
                     catalog: true,
                 })
             })
@@ -597,7 +586,6 @@ impl PriceComponentInterface for Store {
         price_entries: Vec<PriceEntry>,
         plan_version_id: PlanVersionId,
         tenant_id: TenantId,
-        created_by: Uuid,
     ) -> StoreResult<PriceComponent> {
         let internal = PriceComponentNewInternal {
             name,
@@ -620,7 +608,6 @@ impl PriceComponentInterface for Store {
                     conn,
                     &internal,
                     tenant_id,
-                    created_by,
                     product_family_id,
                     &plan_version.currency,
                     true,

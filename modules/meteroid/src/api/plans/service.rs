@@ -36,7 +36,7 @@ impl PlansService for PlanServiceComponents {
         request: Request<CreateDraftPlanRequest>,
     ) -> Result<Response<CreateDraftPlanResponse>, Status> {
         let tenant_id = request.tenant()?;
-        let created_by = request.actor()?;
+        let actor = request.actor_typed()?;
 
         let req = request.into_inner();
 
@@ -63,7 +63,6 @@ impl PlansService for PlanServiceComponents {
             plan: domain::PlanNew {
                 name: req.name,
                 description: req.description,
-                created_by,
                 tenant_id,
                 product_family_id: pf_id,
                 status: domain::enums::PlanStatusEnum::Draft,
@@ -83,7 +82,7 @@ impl PlansService for PlanServiceComponents {
 
         let plan_details = self
             .store
-            .insert_plan(plan_new)
+            .insert_plan(actor, plan_new)
             .await
             .map(|x| PlanWithVersionWrapper::from(x).0)
             .map_err(Into::<PlanApiError>::into)?;
@@ -188,7 +187,6 @@ impl PlansService for PlanServiceComponents {
         &self,
         request: Request<CopyVersionToDraftRequest>,
     ) -> Result<Response<CopyVersionToDraftResponse>, Status> {
-        let actor = request.actor()?;
         let tenant_id = request.tenant()?;
         let req = request.into_inner();
 
@@ -196,7 +194,7 @@ impl PlansService for PlanServiceComponents {
 
         let res = self
             .store
-            .copy_plan_version_to_draft(plan_version_id, tenant_id, actor)
+            .copy_plan_version_to_draft(plan_version_id, tenant_id)
             .await
             .map_err(Into::<PlanApiError>::into)
             .map(|x| PlanVersionWrapper::from(x).0)?;
@@ -211,7 +209,7 @@ impl PlansService for PlanServiceComponents {
         &self,
         request: Request<PublishPlanVersionRequest>,
     ) -> Result<Response<PublishPlanVersionResponse>, Status> {
-        let actor = request.actor()?;
+        let actor_typed = request.actor_typed()?;
         let tenant_id = request.tenant()?;
         let req = request.into_inner();
 
@@ -219,7 +217,7 @@ impl PlansService for PlanServiceComponents {
 
         let res = self
             .store
-            .publish_plan_version(plan_version_id, tenant_id, actor)
+            .publish_plan_version(actor_typed, plan_version_id, tenant_id)
             .await
             .map_err(Into::<PlanApiError>::into)
             .map(|x| PlanVersionWrapper::from(x).0)?;
@@ -234,14 +232,14 @@ impl PlansService for PlanServiceComponents {
         &self,
         request: Request<DiscardDraftVersionRequest>,
     ) -> Result<Response<DiscardDraftVersionResponse>, Status> {
-        let actor = request.actor()?;
+        let actor_typed = request.actor_typed()?;
         let tenant_id = request.tenant()?;
         let req = request.into_inner();
 
         let plan_version_id = PlanVersionId::from_proto(&req.plan_version_id)?;
 
         self.store
-            .discard_draft_plan_version(plan_version_id, tenant_id, actor)
+            .discard_draft_plan_version(actor_typed, plan_version_id, tenant_id)
             .await
             .map_err(Into::<PlanApiError>::into)?;
 
@@ -254,22 +252,26 @@ impl PlansService for PlanServiceComponents {
         request: Request<UpdateDraftPlanOverviewRequest>,
     ) -> Result<Response<UpdateDraftPlanOverviewResponse>, Status> {
         let tenant_id = request.tenant()?;
+        let actor = request.actor_typed()?;
         let req = request.into_inner();
 
         let plan_version_id = PlanVersionId::from_proto(&req.plan_version_id)?;
 
         let res = self
             .store
-            .patch_draft_plan(PlanAndVersionPatch {
-                version: PlanVersionPatch {
-                    id: plan_version_id,
-                    tenant_id,
-                    currency: Some(req.currency),
-                    net_terms: Some(req.net_terms as i32),
+            .patch_draft_plan(
+                actor,
+                PlanAndVersionPatch {
+                    version: PlanVersionPatch {
+                        id: plan_version_id,
+                        tenant_id,
+                        currency: Some(req.currency),
+                        net_terms: Some(req.net_terms as i32),
+                    },
+                    name: Some(req.name),
+                    description: Some(req.description),
                 },
-                name: Some(req.name),
-                description: Some(req.description),
-            })
+            )
             .await
             .map(|x| PlanWithVersionWrapper::from(x).0)
             .map_err(Into::<PlanApiError>::into)?;
@@ -285,21 +287,25 @@ impl PlansService for PlanServiceComponents {
         request: Request<UpdatePublishedPlanOverviewRequest>,
     ) -> Result<Response<UpdatePublishedPlanOverviewResponse>, Status> {
         let tenant_id = request.tenant()?;
+        let actor = request.actor_typed()?;
         let req = request.into_inner();
         let plan_id = PlanId::from_proto(&req.plan_id)?;
 
         let res = self
             .store
-            .patch_published_plan(PlanPatch {
-                id: plan_id,
-                tenant_id,
-                name: Some(req.name),
-                description: Some(req.description),
-                active_version_id: None,
-                self_service_rank: req
-                    .self_service_rank
-                    .map(|v| if v > 0 { Some(v) } else { None }),
-            })
+            .patch_published_plan(
+                actor,
+                PlanPatch {
+                    id: plan_id,
+                    tenant_id,
+                    name: Some(req.name),
+                    description: Some(req.description),
+                    active_version_id: None,
+                    self_service_rank: req
+                        .self_service_rank
+                        .map(|v| if v > 0 { Some(v) } else { None }),
+                },
+            )
             .await
             .map(|x| PlanOverviewWrapper::from(x).0)
             .map_err(Into::<PlanApiError>::into)?;
@@ -323,26 +329,30 @@ impl PlansService for PlanServiceComponents {
         request: Request<UpdatePlanTrialRequest>,
     ) -> Result<Response<UpdatePlanTrialResponse>, Status> {
         let tenant_id = request.tenant()?;
+        let actor = request.actor_typed()?;
         let req = request.into_inner();
 
         let plan_version_id = PlanVersionId::from_proto(&req.plan_version_id)?;
 
         let res = self
             .store
-            .patch_trial(TrialPatch {
-                tenant_id,
-                plan_version_id,
-                trial: req
-                    .trial
-                    .map(|t| {
-                        Ok::<domain::PlanTrial, Status>(domain::PlanTrial {
-                            duration_days: t.duration_days,
-                            trialing_plan_id: PlanId::from_proto_opt(t.trialing_plan_id)?,
-                            trial_is_free: t.trial_is_free,
+            .patch_trial(
+                actor,
+                TrialPatch {
+                    tenant_id,
+                    plan_version_id,
+                    trial: req
+                        .trial
+                        .map(|t| {
+                            Ok::<domain::PlanTrial, Status>(domain::PlanTrial {
+                                duration_days: t.duration_days,
+                                trialing_plan_id: PlanId::from_proto_opt(t.trialing_plan_id)?,
+                                trial_is_free: t.trial_is_free,
+                            })
                         })
-                    })
-                    .transpose()?,
-            })
+                        .transpose()?,
+                },
+            )
             .await
             .map(|x| PlanWithVersionWrapper::from(x).0)
             .map_err(Into::<PlanApiError>::into)?;
@@ -451,12 +461,13 @@ impl PlansService for PlanServiceComponents {
         request: Request<ArchivePlanRequest>,
     ) -> Result<Response<ArchivePlanResponse>, Status> {
         let tenant_id = request.tenant()?;
+        let actor = request.actor_typed()?;
         let req = request.into_inner();
 
         let plan_id = PlanId::from_proto(&req.id)?;
 
         self.store
-            .archive_plan(plan_id, tenant_id)
+            .archive_plan(actor, plan_id, tenant_id)
             .await
             .map_err(Into::<PlanApiError>::into)?;
 

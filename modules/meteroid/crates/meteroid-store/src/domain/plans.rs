@@ -17,7 +17,6 @@ use super::enums::{PlanStatusEnum, PlanTypeEnum};
 use common_domain::ids::{BaseId, PlanId, PlanVersionId, ProductFamilyId, ProductId, TenantId};
 use o2o::o2o;
 use std::collections::HashMap;
-use uuid::Uuid;
 
 use crate::domain::ProductFamilyOverview;
 use crate::domain::price_components::{PriceComponent, PriceComponentNewInternal};
@@ -45,7 +44,6 @@ impl From<PlanVersionFilter> for diesel_models::plan_versions::PlanVersionFilter
 pub struct PlanNew {
     pub name: String,
     pub description: Option<String>,
-    pub created_by: Uuid,
     pub tenant_id: TenantId,
     pub product_family_id: ProductFamilyId,
     pub plan_type: PlanTypeEnum,
@@ -58,7 +56,6 @@ impl PlanNew {
             id: PlanId::new(),
             name: self.name,
             description: self.description,
-            created_by: self.created_by,
             tenant_id: self.tenant_id,
             product_family_id,
             plan_type: self.plan_type.into(),
@@ -96,7 +93,6 @@ pub struct PlanTrial {
 #[derive(Debug, Clone)]
 pub struct PlanVersionNew {
     pub plan_id: PlanId,
-    pub created_by: Uuid,
     pub version: i32,
     pub tenant_id: TenantId,
     pub internal: PlanVersionNewInternal,
@@ -107,7 +103,6 @@ impl PlanVersionNew {
         PlanVersionRowNew {
             id: PlanVersionId::new(),
             plan_id: self.plan_id,
-            created_by: self.created_by,
             version: self.version,
             tenant_id: self.tenant_id,
             is_draft_version: self.internal.is_draft_version,
@@ -137,7 +132,6 @@ pub struct Plan {
     pub id: PlanId,
     pub name: String,
     pub description: Option<String>,
-    pub created_by: Uuid,
     pub created_at: NaiveDateTime,
     pub tenant_id: TenantId,
     pub product_family_id: ProductFamilyId,
@@ -163,7 +157,6 @@ pub struct PlanVersion {
     pub currency: String,
     pub billing_cycles: Option<i32>,
     pub created_at: NaiveDateTime,
-    pub created_by: Uuid,
     pub trialing_plan_id: Option<PlanId>,
     pub trial_is_free: bool,
     pub trial_duration_days: Option<i32>,
@@ -201,7 +194,6 @@ pub struct PlanVersionOverview {
     pub plan_id: PlanId,
     pub plan_name: String,
     pub version: i32,
-    pub created_by: Uuid,
     pub period_start_day: Option<i16>,
     pub net_terms: i32,
     pub currency: String,

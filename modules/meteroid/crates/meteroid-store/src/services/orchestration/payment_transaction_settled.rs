@@ -1,9 +1,9 @@
 use crate::StoreResult;
+use crate::domain::entity_activity::Actor;
 use crate::domain::outbox_event::{OutboxEvent, PaymentTransactionEvent};
 use crate::domain::{Invoice, InvoicePaymentStatus, SubscriptionStatusEnum};
 use crate::errors::StoreError;
 use crate::repositories::SubscriptionInterface;
-use crate::repositories::outbox::OutboxInterface;
 use crate::services::Services;
 use crate::services::subscriptions::PaymentActivationParams;
 use crate::services::subscriptions::utils::is_paid_trial;
@@ -61,10 +61,7 @@ impl Services {
 
                     // if the invoice is not finalized nor void, finalize it (no line data refresh)
                     if should_finalize {
-                        self.finalize_invoice_tx(
-                            conn,
-                            invoice.invoice.id,
-                            invoice.invoice.tenant_id,
+                        self.finalize_invoice_tx(conn, &Actor::System, invoice.invoice.id, invoice.invoice.tenant_id,
                             false,
                             &None,
                         )
@@ -96,9 +93,12 @@ impl Services {
                             .await?;
 
                             self.store
-                                .insert_outbox_event_tx(
+                                .internal
+                                .record_outbox_batch_tx(
                                     conn,
-                                    OutboxEvent::invoice_paid((&invoice).into()),
+                                    event.tenant_id,
+                                    &Actor::System,
+                                    vec![OutboxEvent::invoice_paid((&invoice).into())],
                                 )
                                 .await?;
                         }
@@ -552,8 +552,7 @@ impl Services {
                                         .await?;
 
                                     if let Some(inv) = &invoice {
-                                        self.finalize_invoice_tx(
-                                            conn, inv.id, event.tenant_id, false, &None,
+                                        self.finalize_invoice_tx(conn, &Actor::System, inv.id, event.tenant_id, false, &None,
                                         )
                                         .await?;
 
@@ -657,10 +656,7 @@ impl Services {
                                 .await?;
 
                             if let Some(invoice) = draft {
-                                self.finalize_invoice_tx(
-                                    conn,
-                                    invoice.id,
-                                    event.tenant_id,
+                                self.finalize_invoice_tx(conn, &Actor::System, invoice.id, event.tenant_id,
                                     false,
                                     &None,
                                 )

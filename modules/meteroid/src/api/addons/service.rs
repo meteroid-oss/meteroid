@@ -76,7 +76,6 @@ impl AddOnsService for AddOnsServiceComponents {
         &self,
         request: Request<CreateAddOnRequest>,
     ) -> Result<Response<CreateAddOnResponse>, Status> {
-        let actor = request.actor()?;
         let tenant_id = request.tenant()?;
         let req = request.into_inner();
 
@@ -114,7 +113,6 @@ impl AddOnsService for AddOnsServiceComponents {
                 req.self_serviceable,
                 req.max_instances_per_subscription,
                 tenant_id,
-                actor,
                 pf_id,
                 entitlements,
             )
@@ -155,12 +153,13 @@ impl AddOnsService for AddOnsServiceComponents {
         request: Request<RemoveAddOnRequest>,
     ) -> Result<Response<RemoveAddOnResponse>, Status> {
         let tenant_id = request.tenant()?;
+        let actor = request.actor_typed()?;
         let req = request.into_inner();
 
         let add_on_id = AddOnId::from_proto(&req.add_on_id)?;
 
         self.store
-            .archive_add_on(add_on_id, tenant_id)
+            .archive_add_on(actor, add_on_id, tenant_id)
             .await
             .map_err(Into::<AddOnApiError>::into)?;
 
@@ -172,7 +171,7 @@ impl AddOnsService for AddOnsServiceComponents {
         &self,
         request: Request<EditAddOnRequest>,
     ) -> Result<Response<EditAddOnResponse>, Status> {
-        let actor = request.actor()?;
+        let actor_typed = request.actor_typed()?;
         let tenant_id = request.tenant()?;
         let req = request.into_inner();
 
@@ -202,7 +201,7 @@ impl AddOnsService for AddOnsServiceComponents {
 
         let edited = self
             .store
-            .update_add_on(patch, price_entry, actor)
+            .update_add_on(actor_typed, patch, price_entry)
             .await
             .map(|x| AddOnWrapper::from(x).0)
             .map_err(Into::<AddOnApiError>::into)?;

@@ -30,7 +30,7 @@ impl ProductsService for ProductServiceComponents {
         request: Request<CreateProductRequest>,
     ) -> Result<Response<CreateProductResponse>, Status> {
         let tenant_id = request.tenant()?;
-        let actor = request.actor()?;
+        let actor_typed = request.actor_typed()?;
 
         let req = request.into_inner();
 
@@ -43,16 +43,18 @@ impl ProductsService for ProductServiceComponents {
 
         let res = self
             .store
-            .create_product(domain::ProductNew {
-                name: req.name,
-                description: req.description,
-                created_by: actor,
-                tenant_id,
-                family_id: ProductFamilyId::from_proto(req.family_local_id)?,
-                fee_type,
-                fee_structure,
-                catalog: req.catalog.unwrap_or(true),
-            })
+            .create_product(
+                actor_typed,
+                domain::ProductNew {
+                    name: req.name,
+                    description: req.description,
+                    tenant_id,
+                    family_id: ProductFamilyId::from_proto(req.family_local_id)?,
+                    fee_type,
+                    fee_structure,
+                    catalog: req.catalog.unwrap_or(true),
+                },
+            )
             .await
             .map_err(Into::<ProductApiError>::into)
             .map(|x| ProductWrapper::from(x).0)?;
@@ -66,6 +68,7 @@ impl ProductsService for ProductServiceComponents {
         request: Request<UpdateProductRequest>,
     ) -> Result<Response<UpdateProductResponse>, Status> {
         let tenant_id = request.tenant()?;
+        let actor = request.actor_typed()?;
         let req = request.into_inner();
 
         let product_id = ProductId::from_proto(req.product_id.as_str())?;
@@ -77,14 +80,17 @@ impl ProductsService for ProductServiceComponents {
 
         let res = self
             .store
-            .update_product(ProductUpdate {
-                id: product_id,
-                tenant_id,
-                name: Some(req.name),
-                description: req.description.map(Some),
-                fee_type,
-                fee_structure,
-            })
+            .update_product(
+                actor,
+                ProductUpdate {
+                    id: product_id,
+                    tenant_id,
+                    name: Some(req.name),
+                    description: req.description.map(Some),
+                    fee_type,
+                    fee_structure,
+                },
+            )
             .await
             .map_err(Into::<ProductApiError>::into)
             .map(|x| ProductWrapper::from(x).0)?;

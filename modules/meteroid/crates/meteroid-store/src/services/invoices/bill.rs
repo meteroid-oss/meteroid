@@ -1,9 +1,9 @@
 use crate::StoreResult;
+use crate::domain::entity_activity::Actor;
 use crate::domain::scheduled_events::{ScheduledEventData, ScheduledEventNew};
 use crate::domain::{Customer, DetailedInvoice, Invoice, PaymentStatusEnum, SubscriptionDetails};
 use crate::errors::StoreError;
 use crate::repositories::SubscriptionInterface;
-use crate::repositories::outbox::OutboxInterface;
 use crate::services::Services;
 use crate::services::checkout_completion::DirectChargeResult;
 use crate::store::PgConn;
@@ -124,6 +124,7 @@ impl Services {
                     // Finalize the invoice
                     self.finalize_invoice_tx(
                         conn,
+                        &Actor::System,
                         draft_invoice.id,
                         tenant_id,
                         false,
@@ -167,6 +168,7 @@ impl Services {
                     // Finalize the invoice directly
                     self.finalize_invoice_tx(
                         conn,
+                        &Actor::System,
                         draft_invoice.id,
                         tenant_id,
                         false, // no need to refresh lines, we just paid
@@ -212,6 +214,7 @@ impl Services {
                 // else we finalize immediately and trigger payment
                 self.finalize_invoice_tx(
                     conn,
+                    &Actor::System,
                     draft_invoice.id,
                     tenant_id,
                     false,
@@ -228,6 +231,7 @@ impl Services {
                 // Finalize and process payment immediately
                 self.finalize_invoice_tx(
                     conn,
+                    &Actor::System,
                     draft_invoice.id,
                     tenant_id,
                     false,
@@ -284,6 +288,7 @@ impl Services {
                 // Payment succeeded - payment method is already saved on the customer
                 self.finalize_invoice_tx(
                     conn,
+                    &Actor::System,
                     draft_invoice.id,
                     tenant_id,
                     false,
@@ -312,11 +317,14 @@ impl Services {
 
                     let invoice: Invoice = updated_invoice_row.try_into()?;
                     self.store
-                        .insert_outbox_event_tx(
+                        .internal
+                        .record_outbox_batch_tx(
                             conn,
-                            crate::domain::outbox_event::OutboxEvent::invoice_paid(
+                            tenant_id,
+                            &Actor::System,
+                            vec![crate::domain::outbox_event::OutboxEvent::invoice_paid(
                                 (&invoice).into(),
-                            ),
+                            )],
                         )
                         .await?;
                 }

@@ -1,4 +1,5 @@
 use crate::StoreResult;
+use crate::domain::entity_activity::{Activity, ActivityType, Actor, AuditInput, EntityType};
 use crate::domain::enums::SubscriptionEventType;
 use crate::domain::{Subscription, SubscriptionDetails};
 use crate::errors::StoreError;
@@ -8,6 +9,7 @@ use error_stack::Report;
 use uuid::Uuid;
 
 use crate::repositories::SubscriptionInterface;
+use crate::repositories::entity_activity::EntityActivityInterface;
 use crate::repositories::subscriptions::CancellationEffectiveAt;
 use diesel_models::subscription_events::SubscriptionEventRow;
 use diesel_models::subscriptions::SubscriptionRow;
@@ -15,26 +17,30 @@ use diesel_models::subscriptions::SubscriptionRow;
 // and even within it's probably still unsafe no ? Ex: creating components against a wrong subscription within a different tenant
 use crate::domain::scheduled_events::{ScheduledEventData, ScheduledEventNew};
 use crate::services::Services;
-use common_domain::ids::{SubscriptionId, TenantId};
+use common_domain::ids::{BaseId, SubscriptionId, TenantId};
 use diesel_models::scheduled_events::ScheduledEventRow;
 
 impl Services {
     pub(in crate::services) async fn cancel_subscription(
         &self,
+        actor: Actor,
         subscription_id: SubscriptionId,
         tenant_id: TenantId,
         reason: Option<String>,
         effective_at: CancellationEffectiveAt,
-        _actor: Uuid,
     ) -> StoreResult<Subscription> {
         let db_subscription = self
             .store
             .transaction(|conn| {
+                let actor = &actor;
+                let reason = reason.clone();
                 async move {
                     let subscription: SubscriptionDetails = self
                         .store
                         .get_subscription_details_with_conn(conn, tenant_id, subscription_id)
                         .await?;
+                    let customer_id = subscription.subscription.customer_id;
+                    let reason_for_audit = reason.clone();
 
                     // Cancel all pending lifecycle events before scheduling the new cancellation
                     ScheduledEventRow::cancel_pending_lifecycle_events(
@@ -63,7 +69,7 @@ impl Services {
                                 tenant_id,
                                 scheduled_time: billing_end_date.and_time(NaiveTime::MIN),
                                 event_data: ScheduledEventData::CancelSubscription { reason },
-                                source: "edge".to_string(), // TODO drop
+                                source: "edge".to_string(),
                             }],
                         )
                         .await?;
@@ -79,7 +85,7 @@ impl Services {
                         id: Uuid::now_v7(),
                         subscription_id,
                         event_type: SubscriptionEventType::Cancelled.into(),
-                        details: None, // TODO reason etc
+                        details: None,
                         created_at: chrono::Utc::now().naive_utc(),
                         mrr_delta: Some(-(mrr as i64)),
                         bi_mrr_movement_log_id: None,
@@ -91,24 +97,28 @@ impl Services {
                         .await
                         .map_err(Into::<Report<StoreError>>::into)?;
 
+                    let activity = {
+                        let mut a = Activity::new(
+                            ActivityType::SubscriptionCancellationScheduled,
+                            EntityType::Subscription,
+                            subscription_id.as_uuid(),
+                        )
+                        .agg_customer(customer_id);
+                        if let Some(reason) = reason_for_audit {
+                            a = a.with_metadata(serde_json::json!({ "reason": reason }));
+                        }
+                        a
+                    };
+                    self.store
+                        .record_tx(conn, tenant_id, actor, AuditInput::Activity(activity))
+                        .await?;
+
                     Ok(res)
                 }
                 .scope_boxed()
             })
             .await?;
 
-        let subscription: Subscription = db_subscription.try_into()?;
-
-        // let _ = self
-        //     .store
-        //     .eventbus
-        //     .publish(Event::subscription_canceled(
-        //         actor,
-        //         subscription.id.as_uuid(),
-        //         subscription.tenant_id.as_uuid(),
-        //     ))
-        //     .await;
-
-        Ok(subscription)
+        db_subscription.try_into()
     }
 }

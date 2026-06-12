@@ -26,7 +26,6 @@ use diesel_models::enums::CycleActionEnum;
 use diesel_models::subscriptions::SubscriptionRowNew;
 use diesel_models::subscriptions::{SubscriptionForDisplayRow, SubscriptionRow};
 use o2o::o2o;
-use uuid::Uuid;
 
 /// Three mutually exclusive payment strategies:
 /// - `Online`: Card and/or direct debit
@@ -142,7 +141,6 @@ pub struct CreatedSubscription {
     pub billing_start_date: Option<NaiveDate>,
     pub plan_version_id: PlanVersionId,
     pub created_at: NaiveDateTime,
-    pub created_by: Uuid,
     pub net_terms: i32,
     pub invoice_memo: Option<String>,
     pub invoice_threshold: Option<rust_decimal::Decimal>,
@@ -177,8 +175,6 @@ pub struct Subscription {
     pub plan_version_id: PlanVersionId,
     pub version: u32,
     pub created_at: NaiveDateTime,
-    pub created_by: Uuid,
-    // pub created_by_name: String,
     pub net_terms: u32,
     pub invoice_memo: Option<String>,
     pub invoice_threshold: Option<rust_decimal::Decimal>,
@@ -233,7 +229,6 @@ impl TryFrom<SubscriptionForDisplayRow> for Subscription {
             plan_version_id: val.subscription.plan_version_id,
             version: val.version as u32,
             created_at: val.subscription.created_at,
-            created_by: val.subscription.created_by,
             net_terms: val.subscription.net_terms as u32,
             invoice_memo: val.subscription.invoice_memo,
             invoice_threshold: val.subscription.invoice_threshold,
@@ -279,7 +274,6 @@ impl TryFrom<SubscriptionForDisplayRow> for Subscription {
 pub struct SubscriptionNew {
     pub customer_id: CustomerId,
     pub plan_version_id: PlanVersionId,
-    pub created_by: Uuid,
 
     pub net_terms: Option<u32>, // 0 = due on issue, null = default to plan.net_terms TODO overrides
     pub invoice_memo: Option<String>,
@@ -368,7 +362,6 @@ impl SubscriptionNewEnriched<'_> {
             end_date: sub.end_date,
             plan_version_id: sub.plan_version_id,
             created_at: chrono::Utc::now().naive_utc(),
-            created_by: sub.created_by,
             net_terms: self.net_terms as i32,
             invoice_memo: sub.invoice_memo.clone(),
             invoice_threshold: sub.invoice_threshold,

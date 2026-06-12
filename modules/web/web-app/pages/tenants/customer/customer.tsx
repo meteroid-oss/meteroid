@@ -6,6 +6,7 @@ import { useNavigate } from 'react-router-dom'
 
 import { TenantPageLayout } from '@/components/layouts'
 import { CustomerHeader, CustomersCreatePanel } from '@/features/customers'
+import { ActivityCard } from '@/features/customers/cards/ActivityCard'
 import { InvoicesCard } from '@/features/customers/cards/InvoicesCard'
 import { PaymentMethodsCard } from '@/features/customers/cards/PaymentMethodsCard'
 import { SubscriptionsCard } from '@/features/customers/cards/SubscriptionsCard'
@@ -287,6 +288,11 @@ export const Customer = () => {
                     paymentMethods={data.paymentMethods ?? []}
                     currentPaymentMethodId={data.currentPaymentMethodId}
                   />
+                </Flex>
+                <Separator className="-my-3" />
+                <Flex direction="column" className="gap-2 p-6">
+                  <div className="text-[15px] font-medium">Activity</div>
+                  <ActivityCard customer={data} />
                 </Flex>
               </Flex>
             </Flex>

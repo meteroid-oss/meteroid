@@ -28,6 +28,7 @@ impl TenantsService for TenantServiceComponents {
     ) -> Result<Response<UpdateTenantResponse>, Status> {
         let tenant_id = request.tenant()?;
         let organization_id = request.organization()?;
+        let actor = request.actor_typed()?;
 
         let inner = request
             .into_inner()
@@ -46,7 +47,7 @@ impl TenantsService for TenantServiceComponents {
 
         let res = self
             .store
-            .update_tenant(req, organization_id, tenant_id)
+            .update_tenant(actor, req, organization_id, tenant_id)
             .await
             .map(mapping::tenants::domain_to_server)
             .map_err(Into::<TenantApiError>::into)?;
@@ -132,7 +133,6 @@ impl TenantsService for TenantServiceComponents {
         request: Request<CreateTenantRequest>,
     ) -> Result<Response<CreateTenantResponse>, Status> {
         let organization_id = request.organization()?;
-        let actor = request.actor()?;
 
         let req = mapping::tenants::create_req_to_domain(request.into_inner());
 
@@ -142,7 +142,6 @@ impl TenantsService for TenantServiceComponents {
                 &self.services,
                 presets::simple::basic_scenario_1(),
                 organization_id,
-                actor,
                 Some(req.name),
                 req.disable_emails,
             )

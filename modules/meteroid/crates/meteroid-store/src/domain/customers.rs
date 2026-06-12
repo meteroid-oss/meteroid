@@ -33,11 +33,8 @@ pub struct Customer {
     pub id: CustomerId,
     pub name: String,
     pub created_at: NaiveDateTime,
-    pub created_by: Uuid,
     pub updated_at: Option<NaiveDateTime>,
-    pub updated_by: Option<Uuid>,
     pub archived_at: Option<NaiveDateTime>,
-    pub archived_by: Option<Uuid>,
     pub tenant_id: TenantId,
     pub invoicing_entity_id: InvoicingEntityId,
     pub alias: Option<String>,
@@ -82,7 +79,6 @@ pub struct CustomerNew {
     pub currency: String,
     pub billing_address: Option<Address>,
     pub shipping_address: Option<ShippingAddress>,
-    pub created_by: Uuid,
     pub invoicing_entity_id: Option<InvoicingEntityId>,
     // for seeding
     pub force_created_date: Option<NaiveDateTime>,
@@ -126,7 +122,6 @@ impl TryInto<CustomerRowNew> for CustomerNewWrapper {
         Ok(CustomerRowNew {
             id: CustomerId::new(),
             name: self.inner.name,
-            created_by: self.inner.created_by,
             tenant_id: self.tenant_id,
             invoicing_entity_id: self.invoicing_entity_id,
             alias: self.inner.alias,

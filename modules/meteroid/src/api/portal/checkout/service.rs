@@ -242,7 +242,6 @@ impl PortalCheckoutService for PortalCheckoutServiceComponents {
                                 name: addon.name.clone(),
                                 description: None,
                                 created_at: addon.created_at,
-                                created_by: uuid::Uuid::nil(),
                                 updated_at: None,
                                 archived_at: None,
                                 tenant_id: addon.tenant_id,

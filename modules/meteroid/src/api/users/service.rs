@@ -80,9 +80,10 @@ impl UsersService for UsersServiceComponents {
 
         let req = request.into_inner();
 
+        let user_id = common_domain::ids::UserId::from_proto(&req.id)?;
         let user = self
             .store
-            .find_user_by_id_and_tenant(parse_uuid!(&req.id)?, tenant)
+            .find_user_by_id_and_tenant(common_domain::ids::BaseId::as_uuid(&user_id), tenant)
             .await
             .map(mapping::user::domain_with_role_to_proto)
             .map_err(Into::<UserApiError>::into)?;

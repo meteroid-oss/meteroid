@@ -251,6 +251,14 @@ pub enum SendEmailRequest {
         logo_attachment_id: Option<StoredDocumentId>,
         invoicing_emails: Vec<String>,
         invoice_pdf_id: StoredDocumentId,
+        // Audit rollup hints — the worker uses these to record an `email_sent`
+        // activity on the invoice that also surfaces on the owning
+        // customer/subscription timelines. `#[serde(default)]` so messages
+        // enqueued before these fields existed still deserialize.
+        #[serde(default)]
+        agg_customer_id: Option<CustomerId>,
+        #[serde(default)]
+        agg_subscription_id: Option<SubscriptionId>,
     },
 
     InvoicePaid {
@@ -268,6 +276,10 @@ pub enum SendEmailRequest {
         invoicing_emails: Vec<String>,
         invoice_pdf_id: StoredDocumentId,
         receipt_pdf_id: Option<StoredDocumentId>,
+        #[serde(default)]
+        agg_customer_id: Option<CustomerId>,
+        #[serde(default)]
+        agg_subscription_id: Option<SubscriptionId>,
         // lines : Vec<InvoiceLine>, TODO
     },
 

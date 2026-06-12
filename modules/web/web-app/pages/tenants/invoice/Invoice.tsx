@@ -33,6 +33,7 @@ import { Fragment, useEffect, useState } from 'react'
 import { Link, useNavigate } from 'react-router-dom'
 import { toast } from 'sonner'
 
+import { EntityActivityTimeline } from '@/features/activity/EntityActivityTimeline'
 import { CreditNoteStatusBadge } from '@/features/creditNotes'
 import { AddressLinesCompact } from '@/features/customers/cards/address/AddressCard'
 import { AddManualPaymentDialog } from '@/features/invoices/AddManualPaymentDialog'
@@ -838,56 +839,6 @@ export const InvoiceView: React.FC<Props & { invoiceId: string }> = ({ invoice, 
             </>
           )}
 
-          <Separator className="-my-3" />
-
-          <Flex direction="column" className="gap-2 p-6">
-            <div className="text-[15px] font-medium">Timeline</div>
-            <div className="space-y-2">
-              <div className="flex items-start gap-2">
-                <div className="w-1.5 h-1.5 rounded-full bg-muted-foreground mt-1.5 flex-shrink-0"></div>
-                <div>
-                  <div className="text-[13px] font-medium">Invoice Created</div>
-                  <div className="text-[11px] text-muted-foreground">
-                    {parseAndFormatDate(invoice.createdAt)}
-                  </div>
-                </div>
-              </div>
-              {invoice.finalizedAt && (
-                <div className="flex items-start gap-2">
-                  <div className="w-1.5 h-1.5 rounded-full bg-success mt-1.5 flex-shrink-0"></div>
-                  <div>
-                    <div className="text-[13px] font-medium">Invoice Finalized</div>
-                    <div className="text-[11px] text-muted-foreground">
-                      {parseAndFormatDate(invoice.finalizedAt)}
-                    </div>
-                  </div>
-                </div>
-              )}
-              {invoice.voidedAt && (
-                <div className="flex items-start gap-2">
-                  <div className="w-1.5 h-1.5 rounded-full bg-red-500 mt-1.5 flex-shrink-0"></div>
-                  <div>
-                    <div className="text-[13px] font-medium">Invoice Voided</div>
-                    <div className="text-[11px] text-muted-foreground">
-                      {parseAndFormatDate(invoice.voidedAt)}
-                    </div>
-                  </div>
-                </div>
-              )}
-              {invoice.markedAsUncollectibleAt && (
-                <div className="flex items-start gap-2">
-                  <div className="w-1.5 h-1.5 rounded-full bg-warning mt-1.5 flex-shrink-0"></div>
-                  <div>
-                    <div className="text-[13px] font-medium">Invoice marked as Uncollectible</div>
-                    <div className="text-[11px] text-muted-foreground">
-                      {parseAndFormatDate(invoice.markedAsUncollectibleAt)}
-                    </div>
-                  </div>
-                </div>
-              )}
-            </div>
-          </Flex>
-
           {creditNotes.length > 0 && (
             <>
               <Separator className="-my-3" />
@@ -921,6 +872,16 @@ export const InvoiceView: React.FC<Props & { invoiceId: string }> = ({ invoice, 
               </Flex>
             </>
           )}
+
+          <Separator className="-my-3" />
+          <Flex direction="column" className="gap-2 p-6">
+            <div className="text-[15px] font-medium">Activity</div>
+            <EntityActivityTimeline
+              entityType="invoice"
+              entityId={invoiceId}
+              emptyLabel="No activity yet for this invoice"
+            />
+          </Flex>
 
           {getLatestConnMeta(invoice.connectionMetadata?.pennylane)?.externalId && (
             <>

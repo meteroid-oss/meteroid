@@ -1,9 +1,9 @@
 use crate::StoreResult;
+use crate::domain::entity_activity::Actor;
 use crate::domain::outbox_event::OutboxEvent;
 use crate::domain::payment_transactions::PaymentTransaction;
 use crate::errors::StoreError;
 use crate::repositories::InvoiceInterface;
-use crate::repositories::outbox::OutboxInterface;
 use crate::services::Services;
 use chrono::NaiveDateTime;
 use common_domain::ids::{BaseId, InvoiceId, PaymentTransactionId, TenantId};
@@ -20,6 +20,7 @@ impl Services {
     /// This is used for recording payments received outside the system (e.g., bank transfers, cash, checks).
     pub async fn add_manual_payment_transaction(
         &self,
+        actor: Actor,
         tenant_id: TenantId,
         invoice_id: InvoiceId,
         amount: Decimal,
@@ -29,6 +30,7 @@ impl Services {
         let transaction = self
             .store
             .transaction(|conn| {
+                let actor = &actor;
                 async move {
                     let invoice = InvoiceRow::select_for_update_by_id(conn, tenant_id, invoice_id)
                         .await
@@ -94,9 +96,14 @@ impl Services {
 
                     let transaction: PaymentTransaction = inserted_transaction.clone().into();
                     self.store
-                        .insert_outbox_event_tx(
+                        .internal
+                        .record_outbox_batch_tx(
                             conn,
-                            OutboxEvent::payment_transaction_saved(transaction.clone().into()),
+                            tenant_id,
+                            actor,
+                            vec![OutboxEvent::payment_transaction_saved(
+                                transaction.clone().into(),
+                            )],
                         )
                         .await?;
 
@@ -113,6 +120,7 @@ impl Services {
     /// This validates that the provided amount matches the invoice's amount_due and updates the invoice status.
     pub async fn mark_invoice_as_paid(
         &self,
+        actor: Actor,
         tenant_id: TenantId,
         invoice_id: InvoiceId,
         total_amount: Decimal,
@@ -122,6 +130,7 @@ impl Services {
         let invoice = self
             .store
             .transaction(|conn| {
+                let actor = &actor;
                 async move {
                     let invoice = InvoiceRow::select_for_update_by_id(conn, tenant_id, invoice_id)
                         .await
@@ -178,9 +187,12 @@ impl Services {
 
                     let transaction: PaymentTransaction = inserted_transaction.into();
                     self.store
-                        .insert_outbox_event_tx(
+                        .internal
+                        .record_outbox_batch_tx(
                             conn,
-                            OutboxEvent::payment_transaction_saved(transaction.into()),
+                            tenant_id,
+                            actor,
+                            vec![OutboxEvent::payment_transaction_saved(transaction.into())],
                         )
                         .await?;
 

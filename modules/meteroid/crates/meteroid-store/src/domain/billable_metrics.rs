@@ -8,7 +8,6 @@ use common_domain::ids::{BillableMetricId, ProductFamilyId, ProductId, TenantId}
 use diesel_models::billable_metrics::{BillableMetricMetaRow, BillableMetricRow};
 use o2o::o2o;
 use serde::{Deserialize, Serialize};
-use uuid::Uuid;
 
 #[derive(Clone, Debug, o2o)]
 #[try_map_owned(BillableMetricRow, StoreErrorReport)]
@@ -27,7 +26,6 @@ pub struct BillableMetric {
     pub segmentation_matrix: Option<SegmentationMatrix>,
     pub usage_group_key: Option<String>,
     pub created_at: NaiveDateTime,
-    pub created_by: Uuid,
     pub updated_at: Option<NaiveDateTime>,
     pub archived_at: Option<NaiveDateTime>,
     pub tenant_id: TenantId,
@@ -68,7 +66,6 @@ pub struct BillableMetricNew {
     pub unit_conversion_rounding: Option<UnitConversionRoundingEnum>,
     pub segmentation_matrix: Option<SegmentationMatrix>,
     pub usage_group_key: Option<String>,
-    pub created_by: Uuid,
     pub tenant_id: TenantId,
     pub product_family_id: ProductFamilyId,
     pub product_id: Option<ProductId>,

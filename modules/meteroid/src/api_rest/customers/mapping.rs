@@ -8,7 +8,6 @@ use common_domain::ids::{AliasOr, ConnectedAccountId, CustomerId};
 use meteroid_store::domain;
 use meteroid_store::domain::CustomerNew;
 use std::str::FromStr;
-use uuid::Uuid;
 
 pub fn domain_to_rest(d: domain::Customer) -> Result<Customer, RestApiError> {
     Ok(Customer {
@@ -40,13 +39,9 @@ pub fn domain_to_rest(d: domain::Customer) -> Result<Customer, RestApiError> {
     })
 }
 
-pub fn create_req_to_domain(
-    created_by: Uuid,
-    req: CustomerCreateRequest,
-) -> Result<CustomerNew, RestApiError> {
+pub fn create_req_to_domain(req: CustomerCreateRequest) -> Result<CustomerNew, RestApiError> {
     Ok(CustomerNew {
         name: req.name,
-        created_by,
         invoicing_entity_id: req.invoicing_entity_id,
         alias: req.alias,
         billing_email: req.billing_email,

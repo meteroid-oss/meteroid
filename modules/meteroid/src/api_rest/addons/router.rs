@@ -128,17 +128,19 @@ pub(crate) async fn create_addon(
 ) -> Result<impl IntoResponse, RestApiError> {
     let addon = app_state
         .store
-        .create_add_on(AddOnNew {
-            name: payload.name,
-            tenant_id: authorized_state.tenant_id,
-            product_id: payload.product_id,
-            price_id: payload.price_id,
-            description: payload.description,
-            self_serviceable: payload.self_serviceable,
-            max_instances_per_subscription: payload.max_instances_per_subscription,
-            created_by: authorized_state.actor.id(),
-            entitlements: vec![],
-        })
+        .create_add_on(
+            authorized_state.as_actor(),
+            AddOnNew {
+                name: payload.name,
+                tenant_id: authorized_state.tenant_id,
+                product_id: payload.product_id,
+                price_id: payload.price_id,
+                description: payload.description,
+                self_serviceable: payload.self_serviceable,
+                max_instances_per_subscription: payload.max_instances_per_subscription,
+                entitlements: vec![],
+            },
+        )
         .await
         .map_err(|e| {
             log::error!("Error creating add-on: {e}");
@@ -177,6 +179,7 @@ pub(crate) async fn update_addon(
     let addon = app_state
         .store
         .update_add_on(
+            authorized_state.as_actor(),
             AddOnPatch {
                 id: addon_id,
                 tenant_id: authorized_state.tenant_id,
@@ -186,7 +189,6 @@ pub(crate) async fn update_addon(
                 max_instances_per_subscription: payload.max_instances_per_subscription,
             },
             price_entry,
-            authorized_state.actor.id(),
         )
         .await
         .map_err(|e| {
@@ -220,7 +222,11 @@ pub(crate) async fn archive_addon(
 ) -> Result<impl IntoResponse, RestApiError> {
     app_state
         .store
-        .archive_add_on(addon_id, authorized_state.tenant_id)
+        .archive_add_on(
+            authorized_state.as_actor(),
+            addon_id,
+            authorized_state.tenant_id,
+        )
         .await
         .map_err(|e| {
             log::error!("Error archiving add-on: {e}");

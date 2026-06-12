@@ -15,6 +15,12 @@ macro_rules! include_proto_serde {
 
 pub mod meteroid {
     pub mod api {
+        pub mod activity {
+            pub mod v1 {
+                tonic::include_proto!("meteroid.api.activity.v1");
+            }
+        }
+
         pub mod addons {
             pub mod v1 {
                 tonic::include_proto!("meteroid.api.addons.v1");

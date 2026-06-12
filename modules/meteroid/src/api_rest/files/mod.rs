@@ -13,6 +13,10 @@ pub fn file_routes() -> Router<AppState> {
             get(router::get_credit_note_pdf),
         )
         .route(
+            "/v1/email/attachment/{activity_id}/{doc_id}",
+            get(router::get_email_attachment),
+        )
+        .route(
             "/v1/batch-job/errors/{batch_job_id}",
             get(router::get_batch_job_error_csv),
         )

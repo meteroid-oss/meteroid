@@ -60,12 +60,13 @@ impl ConnectorsService for ConnectorsServiceComponents {
         request: Request<DisconnectConnectorRequest>,
     ) -> Result<Response<DisconnectConnectorResponse>, Status> {
         let tenant_id = request.tenant()?;
+        let actor = request.actor_typed()?;
         let req = request.into_inner();
 
         let connector_id: ConnectorId = ConnectorId::from_proto(&req.id)?;
 
         self.store
-            .delete_connector(connector_id, tenant_id)
+            .delete_connector(actor, connector_id, tenant_id)
             .await
             .map_err(Into::<ConnectorApiError>::into)?;
 
@@ -77,6 +78,7 @@ impl ConnectorsService for ConnectorsServiceComponents {
         request: Request<ConnectStripeRequest>,
     ) -> Result<Response<ConnectStripeResponse>, Status> {
         let tenant_id = request.tenant()?;
+        let actor = request.actor_typed()?;
         let req = request.into_inner();
 
         let data = req.data.ok_or(ConnectorApiError::MissingArgument(
@@ -94,6 +96,7 @@ impl ConnectorsService for ConnectorsServiceComponents {
         let res = self
             .store
             .connect_stripe(
+                actor,
                 tenant_id,
                 data.alias,
                 data.api_publishable_key,
@@ -113,6 +116,7 @@ impl ConnectorsService for ConnectorsServiceComponents {
         request: Request<ConnectHubspotRequest>,
     ) -> Result<Response<ConnectHubspotResponse>, Status> {
         let tenant_id = request.tenant()?;
+        let initiated_by = request.actor().ok();
 
         let auto_sync = request.into_inner().auto_sync;
 
@@ -123,6 +127,7 @@ impl ConnectorsService for ConnectorsServiceComponents {
                 OauthVerifierData::ConnectHubspot(ConnectHubspotData {
                     tenant_id,
                     auto_sync,
+                    initiated_by,
                 }),
             )
             .await
@@ -179,12 +184,16 @@ impl ConnectorsService for ConnectorsServiceComponents {
         request: Request<ConnectPennylaneRequest>,
     ) -> Result<Response<ConnectPennylaneResponse>, Status> {
         let tenant_id = request.tenant()?;
+        let initiated_by = request.actor().ok();
 
         let url = self
             .store
             .oauth_auth_url(
                 OauthProvider::Pennylane,
-                OauthVerifierData::ConnectPennylane(ConnectPennylaneData { tenant_id }),
+                OauthVerifierData::ConnectPennylane(ConnectPennylaneData {
+                    tenant_id,
+                    initiated_by,
+                }),
             )
             .await
             .map_err(Into::<ConnectorApiError>::into)?;

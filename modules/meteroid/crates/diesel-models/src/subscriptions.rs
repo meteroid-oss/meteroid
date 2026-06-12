@@ -3,7 +3,6 @@ use crate::schema::plan;
 use crate::schema::plan_version;
 use chrono::NaiveDate;
 use chrono::NaiveDateTime;
-use uuid::Uuid;
 
 use crate::enums::{
     BillingPeriodEnum, CycleActionEnum, SubscriptionActivationConditionEnum, SubscriptionStatusEnum,
@@ -25,7 +24,6 @@ pub struct SubscriptionRow {
     pub start_date: NaiveDate,
     pub plan_version_id: PlanVersionId,
     pub created_at: NaiveDateTime,
-    pub created_by: Uuid,
     pub net_terms: i32,
     pub invoice_memo: Option<String>,
     pub invoice_threshold: Option<Decimal>,
@@ -67,7 +65,6 @@ pub struct SubscriptionRowNew {
     pub start_date: NaiveDate,
     pub plan_version_id: PlanVersionId,
     pub created_at: NaiveDateTime,
-    pub created_by: Uuid,
     pub net_terms: i32,
     pub invoice_memo: Option<String>,
     pub invoice_threshold: Option<Decimal>,

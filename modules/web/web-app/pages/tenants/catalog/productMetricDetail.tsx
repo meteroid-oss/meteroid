@@ -28,6 +28,7 @@ import { ReactNode, useState } from 'react'
 import { Link, useNavigate } from 'react-router-dom'
 import { toast } from 'sonner'
 
+import { EntityActivityTimeline } from '@/features/activity/EntityActivityTimeline'
 import { BillableMetricStatusBadge } from '@/features/productCatalog/metrics/BillableMetricStatusBadge'
 import { useBasePath } from '@/hooks/useBasePath'
 import { useQuery } from '@/lib/connectrpc'
@@ -275,6 +276,20 @@ export const ProductMetricDetail = () => {
                 <div className="text-xs mt-1">View how customers are using this metric</div>
               </div>
             </div>
+          </div>
+        </div>
+
+        {/* Activity */}
+        <div className="bg-card rounded-lg shadow-sm mb-6">
+          <div className="p-4 border-b border-border">
+            <h3 className="text-md font-medium text-foreground">Activity</h3>
+          </div>
+          <div className="p-6">
+            <EntityActivityTimeline
+              entityType="billable_metric"
+              entityId={data.id}
+              emptyLabel="No activity yet for this metric"
+            />
           </div>
         </div>
       </div>

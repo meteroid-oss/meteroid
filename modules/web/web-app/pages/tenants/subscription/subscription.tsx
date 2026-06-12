@@ -31,6 +31,7 @@ import { Link, useNavigate } from 'react-router-dom'
 import { toast } from 'sonner'
 
 import { CopyToClipboardButton } from '@/components/CopyToClipboard'
+import { EntityActivityTimeline } from '@/features/activity/EntityActivityTimeline'
 import { EffectiveEntitlementsCard } from '@/features/entitlements/customer/EffectiveEntitlementsCard'
 import {
   IntegrationType,
@@ -909,20 +910,6 @@ export const Subscription = () => {
           <DetailRow label="Period End" value={parseAndFormatDateOptional(data.currentPeriodEnd)} />
         </DetailSection>
 
-        <DetailSection title="Timeline">
-          <DetailRow label="Created At" value={parseAndFormatDateTime(data.createdAt)} />
-          <DetailRow label="Start Date" value={parseAndFormatDate(data.startDate)} />
-          {data.billingStartDate && (
-            <DetailRow label="Billing Start" value={parseAndFormatDate(data.billingStartDate)} />
-          )}
-          {data.activatedAt && (
-            <DetailRow label="Activated At" value={parseAndFormatDateTime(data.activatedAt)} />
-          )}
-          {data.endDate && <DetailRow label="End Date" value={parseAndFormatDate(data.endDate)} />}
-          {/* {data.canceledAt && <DetailRow label="Canceled At" value={formatDate(data.canceledAt)} />}
-          {data.cancellationReason && <DetailRow label="Reason" value={data.cancellationReason} />} */}
-        </DetailSection>
-
         {data.trialDuration && (
           <DetailSection title="Trial Information">
             <DetailRow label="Trial Duration" value={`${data.trialDuration} days`} />
@@ -953,6 +940,13 @@ export const Subscription = () => {
           </DetailSection>
         )}
 
+        <DetailSection title="Activity">
+          <EntityActivityTimeline
+            entityType="subscription"
+            entityId={data.id}
+            emptyLabel="No activity yet for this subscription"
+          />
+        </DetailSection>
       </div>
     </div>
   )

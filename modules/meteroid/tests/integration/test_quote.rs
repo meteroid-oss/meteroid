@@ -176,7 +176,11 @@ async fn test_quote_conversion_happy_path() {
 
     setup
         .store
-        .accept_quote(quote_id, ids::TENANT_ID)
+        .accept_quote(
+            common_domain::actor::Actor::System,
+            quote_id,
+            ids::TENANT_ID,
+        )
         .await
         .expect("Failed to accept quote");
 
@@ -230,7 +234,11 @@ async fn test_quote_conversion_already_converted_fails() {
     let quote_id = QuoteId::from_proto(&quote_id_proto).expect("Invalid quote ID");
     setup
         .store
-        .accept_quote(quote_id, ids::TENANT_ID)
+        .accept_quote(
+            common_domain::actor::Actor::System,
+            quote_id,
+            ids::TENANT_ID,
+        )
         .await
         .expect("Failed to accept quote");
 
@@ -301,7 +309,11 @@ async fn test_quote_conversion_falls_back_charge_automatically_without_payment_p
     let quote_id = QuoteId::from_proto(&quote_id_proto).expect("Invalid quote ID");
     setup
         .store
-        .accept_quote(quote_id, ids::TENANT_ID)
+        .accept_quote(
+            common_domain::actor::Actor::System,
+            quote_id,
+            ids::TENANT_ID,
+        )
         .await
         .expect("Failed to accept quote");
 
@@ -598,7 +610,11 @@ async fn test_quote_conversion_carries_entitlements() {
     // Accept the quote (PENDING -> ACCEPTED) via the store shortcut used by other tests.
     setup
         .store
-        .accept_quote(quote_id, ids::TENANT_ID)
+        .accept_quote(
+            common_domain::actor::Actor::System,
+            quote_id,
+            ids::TENANT_ID,
+        )
         .await
         .expect("Failed to accept quote");
 

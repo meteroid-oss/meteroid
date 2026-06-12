@@ -15,6 +15,7 @@ use chrono::Utc;
 
 use crate::presets::scenarios;
 use crate::utils::slugify;
+use common_domain::actor::Actor;
 use common_domain::ids::{CustomerId, OrganizationId};
 use meteroid_store::StoreResult;
 use meteroid_store::domain::{FullPlan, Tenant};
@@ -23,14 +24,11 @@ use meteroid_store::repositories::billable_metrics::BillableMetricInterface;
 use meteroid_store::repositories::invoicing_entities::{
     InvoicingEntityInterface, InvoicingEntityInterfaceAuto,
 };
-use uuid::Uuid;
-
 pub async fn run_preset(
     store: &Store,
     services: &Services,
     scenario: scenarios::domain::Scenario,
     organization_id: OrganizationId,
-    user_id: Uuid,
     tenant_name: Option<String>,
     disable_emails: Option<bool>,
 ) -> StoreResult<Tenant> {
@@ -95,7 +93,9 @@ pub async fn run_preset(
             ..Default::default()
         };
 
-        invoicing_entity = store.patch_invoicing_entity(patch, tenant.id).await?;
+        invoicing_entity = store
+            .patch_invoicing_entity(Actor::System, patch, tenant.id)
+            .await?;
         log::info!("Updated invoicing entity with organization details");
     }
 
@@ -105,21 +105,23 @@ pub async fn run_preset(
 
     for metric in scenario.metrics {
         let created = store
-            .insert_billable_metric(store_domain::BillableMetricNew {
-                tenant_id: tenant.id,
-                name: metric.name,
-                code: metric.code,
-                aggregation_type: metric.aggregation_type,
-                aggregation_key: metric.aggregation_key,
-                unit_conversion_factor: metric.unit_conversion_factor,
-                unit_conversion_rounding: metric.unit_conversion_rounding,
-                segmentation_matrix: metric.segmentation_matrix,
-                usage_group_key: metric.usage_group_key,
-                description: None,
-                created_by: user_id,
-                product_family_id: product_family.id,
-                product_id: None,
-            })
+            .insert_billable_metric(
+                Actor::System,
+                store_domain::BillableMetricNew {
+                    tenant_id: tenant.id,
+                    name: metric.name,
+                    code: metric.code,
+                    aggregation_type: metric.aggregation_type,
+                    aggregation_key: metric.aggregation_key,
+                    unit_conversion_factor: metric.unit_conversion_factor,
+                    unit_conversion_rounding: metric.unit_conversion_rounding,
+                    segmentation_matrix: metric.segmentation_matrix,
+                    usage_group_key: metric.usage_group_key,
+                    description: None,
+                    product_family_id: product_family.id,
+                    product_id: None,
+                },
+            )
             .await?;
 
         log::info!("Created metric '{}'", &created.name);
@@ -148,27 +150,29 @@ pub async fn run_preset(
         }
 
         let created = store
-            .insert_plan(store_domain::FullPlanNew {
-                plan: store_domain::PlanNew {
-                    name: plan.name,
-                    plan_type: plan.plan_type,
-                    status: PlanStatusEnum::Active,
-                    tenant_id: tenant.id,
-                    product_family_id: product_family.id,
-                    description: None,
-                    created_by: user_id,
+            .insert_plan(
+                Actor::System,
+                store_domain::FullPlanNew {
+                    plan: store_domain::PlanNew {
+                        name: plan.name,
+                        plan_type: plan.plan_type,
+                        status: PlanStatusEnum::Active,
+                        tenant_id: tenant.id,
+                        product_family_id: product_family.id,
+                        description: None,
+                    },
+                    version: store_domain::PlanVersionNewInternal {
+                        is_draft_version: false,
+                        trial: None, // TODO
+                        period_start_day: None,
+                        net_terms: 30,
+                        currency: Some(plan.currency),
+                        billing_cycles: None, // TODO drop
+                        entitlements: vec![],
+                    },
+                    price_components: components,
                 },
-                version: store_domain::PlanVersionNewInternal {
-                    is_draft_version: false,
-                    trial: None, // TODO
-                    period_start_day: None,
-                    net_terms: 30,
-                    currency: Some(plan.currency),
-                    billing_cycles: None, // TODO drop
-                    entitlements: vec![],
-                },
-                price_components: components,
-            })
+            )
             .await?;
 
         // Track products by name for reuse in subsequent plans
@@ -200,7 +204,6 @@ pub async fn run_preset(
             balance_value_cents: 0,
             currency: customer.currency,
             billing_address: customer.billing_address.clone(),
-            created_by: user_id,
             force_created_date: created_at.and_hms_opt(0, 0, 0),
             vat_number: customer.vat_number.clone(),
             alias: customer
@@ -216,7 +219,7 @@ pub async fn run_preset(
     }
 
     let created_customers = store
-        .insert_customer_batch(customers_to_create, tenant.id)
+        .insert_customer_batch(Actor::System, customers_to_create, tenant.id)
         .await?;
 
     let customer_map: HashMap<String, CustomerId> = HashMap::from_iter(
@@ -249,7 +252,6 @@ pub async fn run_preset(
             trial_duration: None,
             billing_day_anchor: None,
             plan_version_id: plan.version.id,
-            created_by: user_id,
             net_terms: None,
             invoice_memo: None,
             invoice_threshold: None,
@@ -275,7 +277,7 @@ pub async fn run_preset(
     }
 
     services
-        .insert_subscription_batch(subscriptions_to_create, tenant.id)
+        .insert_subscription_batch(Actor::System, subscriptions_to_create, tenant.id)
         .await?;
 
     // in random seeder we did generate invocies manually.

@@ -3,6 +3,7 @@ use crate::domain::connectors::{
     HubspotSensitiveData, PennylanePublicData, PennylaneSensitiveData, ProviderData,
     ProviderSensitiveData, StripePublicData, StripeSensitiveData,
 };
+use crate::domain::entity_activity::{Activity, ActivityType, Actor, AuditInput, EntityType};
 use crate::domain::enums::{ConnectorProviderEnum, ConnectorTypeEnum};
 use crate::domain::oauth::{OauthConnected, OauthConnection, OauthVerifierData};
 use crate::domain::pgmq::{HubspotSyncRequestEvent, PgmqMessageNew, PgmqQueue};
@@ -10,7 +11,7 @@ use crate::errors::StoreError;
 use crate::repositories::oauth::OauthInterface;
 use crate::{Store, StoreResult};
 use chrono::Utc;
-use common_domain::ids::{ConnectorId, TenantId};
+use common_domain::ids::{BaseId, ConnectorId, TenantId};
 use diesel_async::scoped_futures::ScopedFutureExt;
 use diesel_models::connectors::{ConnectorRow, ConnectorRowNew, ConnectorRowPatch};
 use diesel_models::query::pgmq;
@@ -26,10 +27,16 @@ pub trait ConnectorsInterface {
         tenant_id: TenantId,
     ) -> StoreResult<Vec<Connector>>;
 
-    async fn delete_connector(&self, id: ConnectorId, tenant_id: TenantId) -> StoreResult<()>;
+    async fn delete_connector(
+        &self,
+        actor: Actor,
+        id: ConnectorId,
+        tenant_id: TenantId,
+    ) -> StoreResult<()>;
 
     async fn connect_stripe(
         &self,
+        actor: Actor,
         tenant_id: TenantId,
         alias: String,
         publishable_key: String,
@@ -98,44 +105,93 @@ impl ConnectorsInterface for Store {
         Ok(connectors)
     }
 
-    async fn delete_connector(&self, id: ConnectorId, tenant_id: TenantId) -> StoreResult<()> {
-        let mut conn = self.get_conn().await?;
+    async fn delete_connector(
+        &self,
+        actor: Actor,
+        id: ConnectorId,
+        tenant_id: TenantId,
+    ) -> StoreResult<()> {
+        self.transaction(|conn| {
+            let actor = &actor;
+            async move {
+                let existing = ConnectorRow::get_connector_by_id(conn, id, tenant_id)
+                    .await
+                    .map_err(Into::<Report<StoreError>>::into)?;
 
-        ConnectorRow::delete_by_id(&mut conn, id, tenant_id)
-            .await
-            .map_err(Into::<Report<StoreError>>::into)?;
+                ConnectorRow::delete_by_id(conn, id, tenant_id)
+                    .await
+                    .map_err(Into::<Report<StoreError>>::into)?;
 
-        Ok(())
+                let activity = Activity::new(
+                    ActivityType::ConnectorDisconnected,
+                    EntityType::Connector,
+                    id.as_uuid(),
+                )
+                .with_metadata(serde_json::json!({
+                    "provider": existing.provider.as_meta_key(),
+                    "alias": existing.alias,
+                }));
+                self.internal
+                    .record_audit_tx(conn, tenant_id, actor, AuditInput::Activity(activity))
+                    .await
+            }
+            .scope_boxed()
+        })
+        .await
     }
 
     async fn connect_stripe(
         &self,
+        actor: Actor,
         tenant_id: TenantId,
         alias: String,
         publishable_key: String,
         stripe_data: StripeSensitiveData,
         stripe_account_id: String,
     ) -> StoreResult<ConnectorMeta> {
-        // then insert
-        let mut conn = self.get_conn().await?;
-
         let row: ConnectorRowNew = ConnectorNew {
             tenant_id,
-            alias,
+            alias: alias.clone(),
             connector_type: ConnectorTypeEnum::PaymentProvider,
             provider: ConnectorProviderEnum::Stripe,
             data: Some(ProviderData::Stripe(StripePublicData {
                 api_publishable_key: publishable_key,
-                account_id: stripe_account_id,
+                account_id: stripe_account_id.clone(),
             })),
             sensitive: Some(ProviderSensitiveData::Stripe(stripe_data)),
         }
         .to_row(&self.settings.crypt_key)?;
 
-        let res = row
-            .insert(&mut conn)
-            .await
-            .map_err(Into::<Report<StoreError>>::into)?;
+        let res = self
+            .transaction(|conn| {
+                let actor = &actor;
+                let row = &row;
+                let alias = &alias;
+                let stripe_account_id = &stripe_account_id;
+                async move {
+                    let res = row
+                        .insert(conn)
+                        .await
+                        .map_err(Into::<Report<StoreError>>::into)?;
+
+                    let activity = Activity::new(
+                        ActivityType::ConnectorConnected,
+                        EntityType::Connector,
+                        res.id.as_uuid(),
+                    )
+                    .with_metadata(serde_json::json!({
+                        "provider": "stripe",
+                        "alias": alias,
+                        "stripe_account_id": stripe_account_id,
+                    }));
+                    self.internal
+                        .record_audit_tx(conn, tenant_id, actor, AuditInput::Activity(activity))
+                        .await?;
+                    Ok(res)
+                }
+                .scope_boxed()
+            })
+            .await?;
 
         Ok(res.into())
     }
@@ -333,6 +389,7 @@ async fn connect_hubspot(
     }
     .to_row(&store.settings.crypt_key)?;
 
+    let initiated_by = crm_data.initiated_by;
     let res = store
         .transaction(|tx| {
             async move {
@@ -356,6 +413,7 @@ async fn connect_hubspot(
 
     Ok(OauthConnected {
         connector: res.into(),
+        initiated_by,
     })
 }
 
@@ -408,6 +466,7 @@ async fn connect_pennylane(
 
     Ok(OauthConnected {
         connector: inserted.into(),
+        initiated_by: crm_data.initiated_by,
     })
 }
 

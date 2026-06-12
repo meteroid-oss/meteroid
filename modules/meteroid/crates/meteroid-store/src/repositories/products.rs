@@ -1,6 +1,7 @@
 use std::collections::HashMap;
 
 use crate::StoreResult;
+use crate::domain::entity_activity::Actor;
 use crate::domain::enums::FeeTypeEnum;
 use crate::domain::outbox_event::{OutboxEvent, ProductEvent};
 use crate::domain::prices::FeeStructure;
@@ -28,8 +29,8 @@ pub struct ProductUpdate {
 
 #[async_trait::async_trait]
 pub trait ProductInterface {
-    async fn create_product(&self, product: ProductNew) -> StoreResult<Product>;
-    async fn update_product(&self, update: ProductUpdate) -> StoreResult<Product>;
+    async fn create_product(&self, actor: Actor, product: ProductNew) -> StoreResult<Product>;
+    async fn update_product(&self, actor: Actor, update: ProductUpdate) -> StoreResult<Product>;
     async fn find_product_by_id(
         &self,
         id: ProductId,
@@ -58,7 +59,12 @@ pub trait ProductInterface {
         order_by: Option<String>,
     ) -> StoreResult<PaginatedVec<Product>>;
 
-    async fn archive_product(&self, id: ProductId, tenant_id: TenantId) -> StoreResult<Product>;
+    async fn archive_product(
+        &self,
+        actor: Actor,
+        id: ProductId,
+        tenant_id: TenantId,
+    ) -> StoreResult<Product>;
 
     async fn unarchive_product(&self, id: ProductId, tenant_id: TenantId) -> StoreResult<Product>;
 
@@ -77,8 +83,9 @@ pub trait ProductInterface {
 
 #[async_trait::async_trait]
 impl ProductInterface for Store {
-    async fn create_product(&self, product: ProductNew) -> StoreResult<Product> {
+    async fn create_product(&self, actor: Actor, product: ProductNew) -> StoreResult<Product> {
         let mut conn = self.get_conn().await?;
+        let tenant_id = product.tenant_id;
 
         let family = ProductFamilyRow::find_by_id(&mut conn, product.family_id, product.tenant_id)
             .await
@@ -88,7 +95,6 @@ impl ProductInterface for Store {
             id: ProductId::new(),
             name: product.name,
             description: product.description,
-            created_by: product.created_by,
             tenant_id: product.tenant_id,
             product_family_id: family.id,
             fee_type: product.fee_type.into(),
@@ -102,6 +108,7 @@ impl ProductInterface for Store {
         };
 
         self.transaction_with(&mut conn, |conn| {
+            let actor = &actor;
             async move {
                 let product: Product = insertable
                     .insert(conn)
@@ -119,7 +126,12 @@ impl ProductInterface for Store {
                     product.created_at,
                 );
                 self.internal
-                    .insert_outbox_events_tx(conn, vec![OutboxEvent::product_created(event)])
+                    .record_outbox_batch_tx(
+                        conn,
+                        tenant_id,
+                        actor,
+                        vec![OutboxEvent::product_created(event)],
+                    )
                     .await?;
 
                 Ok(product)
@@ -129,10 +141,12 @@ impl ProductInterface for Store {
         .await
     }
 
-    async fn update_product(&self, update: ProductUpdate) -> StoreResult<Product> {
+    async fn update_product(&self, actor: Actor, update: ProductUpdate) -> StoreResult<Product> {
         let mut conn = self.get_conn().await?;
+        let tenant_id = update.tenant_id;
 
         self.transaction_with(&mut conn, |conn| {
+            let actor = &actor;
             async move {
                 let existing =
                     ProductRow::find_by_id_and_tenant_id(conn, update.id, update.tenant_id)
@@ -188,7 +202,12 @@ impl ProductInterface for Store {
                     product.created_at,
                 );
                 self.internal
-                    .insert_outbox_events_tx(conn, vec![OutboxEvent::product_updated(event)])
+                    .record_outbox_batch_tx(
+                        conn,
+                        tenant_id,
+                        actor,
+                        vec![OutboxEvent::product_updated(event)],
+                    )
                     .await?;
 
                 Ok(product)
@@ -257,10 +276,16 @@ impl ProductInterface for Store {
         })
     }
 
-    async fn archive_product(&self, id: ProductId, tenant_id: TenantId) -> StoreResult<Product> {
+    async fn archive_product(
+        &self,
+        actor: Actor,
+        id: ProductId,
+        tenant_id: TenantId,
+    ) -> StoreResult<Product> {
         let mut conn = self.get_conn().await?;
 
         self.transaction_with(&mut conn, |conn| {
+            let actor = &actor;
             async move {
                 let product: Product = ProductRow::archive(conn, id, tenant_id)
                     .await
@@ -277,7 +302,12 @@ impl ProductInterface for Store {
                     product.created_at,
                 );
                 self.internal
-                    .insert_outbox_events_tx(conn, vec![OutboxEvent::product_archived(event)])
+                    .record_outbox_batch_tx(
+                        conn,
+                        tenant_id,
+                        actor,
+                        vec![OutboxEvent::product_archived(event)],
+                    )
                     .await?;
 
                 Ok(product)

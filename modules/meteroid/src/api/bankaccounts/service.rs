@@ -1,4 +1,4 @@
-use common_domain::ids::{BankAccountId, BaseId};
+use common_domain::ids::BankAccountId;
 use common_grpc::middleware::server::auth::RequestExt;
 use meteroid_grpc::meteroid::api::bankaccounts::v1::{
     CreateBankAccountRequest, CreateBankAccountResponse, DeleteBankAccountRequest,
@@ -45,7 +45,7 @@ impl BankAccountsService for BankAccountsServiceComponents {
         request: Request<CreateBankAccountRequest>,
     ) -> Result<Response<CreateBankAccountResponse>, Status> {
         let tenant = request.tenant()?;
-        let actor = request.actor()?;
+        let actor = request.actor_typed()?;
 
         let data = request
             .into_inner()
@@ -55,7 +55,8 @@ impl BankAccountsService for BankAccountsServiceComponents {
         let res = self
             .store
             .insert_bank_account(
-                mapping::bank_accounts::proto_to_domain(data, tenant, actor)
+                actor,
+                mapping::bank_accounts::proto_to_domain(data, tenant)
                     .map_err(Into::<Status>::into)?,
             )
             .await
@@ -72,6 +73,7 @@ impl BankAccountsService for BankAccountsServiceComponents {
         request: Request<UpdateBankAccountRequest>,
     ) -> Result<Response<UpdateBankAccountResponse>, Status> {
         let tenant = request.tenant()?;
+        let actor = request.actor_typed()?;
         let req = request.into_inner();
 
         let res = self
@@ -79,7 +81,7 @@ impl BankAccountsService for BankAccountsServiceComponents {
             .patch_bank_account(
                 mapping::bank_accounts::proto_to_patch_domain(req, tenant)
                     .map_err(Into::<Status>::into)?,
-                tenant.as_uuid(),
+                actor,
             )
             .await
             .map_err(Into::<BankAccountsApiError>::into)?;

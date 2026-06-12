@@ -38,6 +38,26 @@ impl ApiTokenRow {
             .into_db_result()
     }
 
+    pub async fn find_by_ids(
+        conn: &mut PgConn,
+        param_tenant_id: TenantId,
+        ids: &[uuid::Uuid],
+    ) -> DbResult<Vec<ApiTokenRow>> {
+        use crate::schema::api_token::dsl::{api_token, id, tenant_id};
+        use diesel_async::RunQueryDsl;
+
+        if ids.is_empty() {
+            return Ok(vec![]);
+        }
+        api_token
+            .filter(tenant_id.eq(param_tenant_id))
+            .filter(id.eq_any(ids))
+            .get_results(conn)
+            .await
+            .attach("Error while fetching api tokens by ids")
+            .into_db_result()
+    }
+
     pub async fn find_by_tenant_id(
         conn: &mut PgConn,
         param_tenant_id: TenantId,

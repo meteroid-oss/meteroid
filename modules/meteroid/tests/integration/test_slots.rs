@@ -951,11 +951,11 @@ async fn create_subscription_with_slots(
 ) -> (SubscriptionId, PriceComponentId) {
     let subscription_id = services
         .insert_subscription(
+            common_domain::actor::Actor::System,
             CreateSubscription {
                 subscription: SubscriptionNew {
                     customer_id: CUST_UBER_ID,
                     plan_version_id: PLAN_VERSION_NOTION_ID,
-                    created_by: USER_ID,
                     net_terms: None,
                     invoice_memo: None,
                     invoice_threshold: None,

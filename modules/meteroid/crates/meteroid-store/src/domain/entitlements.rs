@@ -9,7 +9,6 @@ use diesel_models::enums::{
     FeatureStatusEnum as DbFeatureStatusEnum, FeatureTypeEnum as DbFeatureTypeEnum,
 };
 use rust_decimal::Decimal;
-use uuid::Uuid;
 
 #[derive(Clone, Debug, PartialEq, serde::Serialize, serde::Deserialize)]
 #[serde(rename_all = "snake_case")]
@@ -86,7 +85,6 @@ pub struct Feature {
     pub feature_type: FeatureType,
     pub status: FeatureStatusEnum,
     pub created_at: DateTime<Utc>,
-    pub created_by: Uuid,
     pub updated_at: DateTime<Utc>,
     pub entitlement: Option<Entitlement>,
 }
@@ -118,7 +116,6 @@ impl TryFrom<FeatureWithProductRow> for Feature {
             feature_type,
             status: feature.status.into(),
             created_at: feature.created_at,
-            created_by: feature.created_by,
             updated_at: feature.updated_at,
             entitlement: None,
         })
@@ -132,7 +129,6 @@ pub struct FeatureNew {
     pub name: String,
     pub description: Option<String>,
     pub feature_type: FeatureType,
-    pub created_by: Uuid,
     pub entitlement: Option<EntitlementValue>,
 }
 
@@ -144,7 +140,6 @@ impl From<FeatureNew> for FeatureRowNew {
             name,
             description,
             feature_type,
-            created_by,
             entitlement: _,
         } = f;
         let (feature_type_enum, metric_id) = match feature_type {
@@ -160,7 +155,6 @@ impl From<FeatureNew> for FeatureRowNew {
             feature_type: feature_type_enum,
             status: DbFeatureStatusEnum::Active,
             metric_id,
-            created_by,
         }
     }
 }
@@ -184,7 +178,6 @@ pub struct Entitlement {
     pub mode: EntitlementModeEnum,
     pub value: EntitlementValue,
     pub created_at: DateTime<Utc>,
-    pub created_by: Uuid,
     pub updated_at: DateTime<Utc>,
 }
 
@@ -207,7 +200,6 @@ impl TryFrom<EntitlementRow> for Entitlement {
             mode,
             value,
             created_at: row.created_at,
-            created_by: row.created_by,
             updated_at: row.updated_at,
         })
     }
@@ -227,7 +219,6 @@ pub struct EntitlementNew {
     pub feature_id: FeatureId,
     pub entity: EntitlementEntityId,
     pub value: EntitlementValue,
-    pub created_by: Uuid,
 }
 
 #[derive(Clone, Debug)]

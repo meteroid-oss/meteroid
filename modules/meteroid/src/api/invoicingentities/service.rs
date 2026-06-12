@@ -103,6 +103,7 @@ impl InvoicingEntitiesService for InvoicingEntitiesServiceComponents {
         request: Request<UpdateInvoicingEntityRequest>,
     ) -> Result<Response<UpdateInvoicingEntityResponse>, Status> {
         let tenant = request.tenant()?;
+        let actor = request.actor_typed()?;
         let req = request.into_inner();
 
         let data = req
@@ -112,6 +113,7 @@ impl InvoicingEntitiesService for InvoicingEntitiesServiceComponents {
         let res = self
             .store
             .patch_invoicing_entity(
+                actor,
                 mapping::invoicing_entities::proto_to_patch_domain(
                     data,
                     InvoicingEntityId::from_proto(req.id)?,
@@ -132,6 +134,7 @@ impl InvoicingEntitiesService for InvoicingEntitiesServiceComponents {
         request: Request<UploadInvoicingEntityLogoRequest>,
     ) -> Result<Response<UploadInvoicingEntityLogoResponse>, Status> {
         let tenant = request.tenant()?;
+        let actor = request.actor_typed()?;
         let req = request.into_inner();
 
         let logo_attachment_id = match req.file {
@@ -158,6 +161,7 @@ impl InvoicingEntitiesService for InvoicingEntitiesServiceComponents {
 
         self.store
             .patch_invoicing_entity(
+                actor,
                 InvoicingEntityPatch {
                     id: InvoicingEntityId::from_proto(req.id)?,
                     logo_attachment_id: Some(StoredDocumentId::from_proto_opt(

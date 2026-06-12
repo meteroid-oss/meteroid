@@ -89,6 +89,45 @@ async fn oauth_connect_callback(
                 .await
                 .map_err(RestApiError::from)?;
 
+            // Initiator threaded through the verifier row (server-side keyed
+            // by an opaque id) so the callback can attribute the audit to
+            // the user who clicked "Connect". Pre-upgrade verifier rows
+            // didn't carry this — fall back to System.
+            use common_domain::actor::Actor;
+            use common_domain::ids::{BaseId, UserId};
+            use meteroid_store::domain::entity_activity::{
+                Activity, ActivityType, AuditInput, EntityType,
+            };
+            use meteroid_store::repositories::entity_activity::EntityActivityInterface;
+            let provider_str = match oauth_provider {
+                OauthProvider::Hubspot => "hubspot",
+                OauthProvider::Pennylane => "pennylane",
+                OauthProvider::Google => "google",
+            };
+            let actor = match conn.initiated_by {
+                Some(id) => Actor::User {
+                    id: UserId::from(id),
+                },
+                None => Actor::System,
+            };
+            let activity = Activity::new(
+                ActivityType::ConnectorConnected,
+                EntityType::Connector,
+                conn.connector.id.as_uuid(),
+            )
+            .with_metadata(serde_json::json!({
+                "provider": provider_str,
+                "alias": conn.connector.alias,
+            }));
+            let _ = app_state
+                .store
+                .record(
+                    conn.connector.tenant_id,
+                    actor,
+                    AuditInput::Activity(activity),
+                )
+                .await;
+
             let section = match oauth_provider {
                 OauthProvider::Hubspot => "#crm",
                 OauthProvider::Pennylane => "#accounting",

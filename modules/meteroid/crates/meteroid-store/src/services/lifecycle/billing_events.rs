@@ -1,5 +1,6 @@
 use crate::StoreResult;
 use crate::domain::ScheduledEventTypeEnum;
+use crate::domain::entity_activity::Actor;
 use crate::domain::scheduled_events::{ScheduledEvent, ScheduledEventData};
 use crate::domain::slot_transactions::SlotTransactionNewInternal;
 use crate::errors::StoreError;
@@ -178,8 +179,15 @@ impl Services {
         event: &ScheduledEvent,
     ) -> StoreResult<()> {
         if let ScheduledEventData::FinalizeInvoice { invoice_id } = event.event_data {
-            self.finalize_invoice_tx(conn, invoice_id, event.tenant_id, true, &None)
-                .await?;
+            self.finalize_invoice_tx(
+                conn,
+                &Actor::System,
+                invoice_id,
+                event.tenant_id,
+                true,
+                &None,
+            )
+            .await?;
         } else {
             log::error!(
                 "Unexpected event data for type FinalizeInvoice: {:?}, event_id={}",

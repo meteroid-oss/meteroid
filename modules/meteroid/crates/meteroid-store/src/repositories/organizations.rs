@@ -7,7 +7,8 @@ use crate::domain::{
 use crate::errors::StoreError;
 use crate::store::Store;
 use chrono::Utc;
-use common_domain::ids::{BaseId, OrganizationId, OrganizationInviteId, TenantId};
+use common_domain::actor::Actor;
+use common_domain::ids::{BaseId, OrganizationId, OrganizationInviteId, TenantId, UserId};
 use common_eventbus::Event;
 use diesel_async::scoped_futures::ScopedFutureExt;
 use diesel_models::enums::OrganizationUserRole;
@@ -183,7 +184,9 @@ impl OrganizationsInterface for Store {
         let _ = self
             .eventbus
             .publish(Event::organization_created(
-                user_id,
+                Actor::User {
+                    id: UserId::from(user_id),
+                },
                 org_created.id.as_uuid(),
             ))
             .await;
@@ -751,7 +754,9 @@ impl OrganizationsInterface for Store {
         let _ = self
             .eventbus
             .publish(Event::organization_created(
-                user_id,
+                Actor::User {
+                    id: UserId::from(user_id),
+                },
                 org_created.id.as_uuid(),
             ))
             .await;

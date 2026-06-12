@@ -447,7 +447,6 @@ pub async fn run_bank_account_seed(pool: &PgPool) {
             BankAccountRowNew {
                 id: ids::TEST_BANK_ACCOUNT_ID,
                 tenant_id: ids::TENANT_ID,
-                created_by: ids::USER_ID,
                 currency: "EUR".to_string(),
                 country: CountryCode::default(), // FR
                 bank_name: "Test Bank".to_string(),

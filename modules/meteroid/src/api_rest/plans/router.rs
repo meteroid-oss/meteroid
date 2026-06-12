@@ -188,7 +188,6 @@ pub(crate) async fn create_plan(
         plan: PlanNew {
             name: payload.name,
             description: payload.description,
-            created_by: authorized_state.actor.id(),
             tenant_id: authorized_state.tenant_id,
             product_family_id: payload.product_family_id,
             plan_type: payload.plan_type.into(),
@@ -212,7 +211,7 @@ pub(crate) async fn create_plan(
 
     let mut full_plan = app_state
         .store
-        .insert_plan(full_plan_new)
+        .insert_plan(authorized_state.as_actor(), full_plan_new)
         .await
         .map_err(|e| {
             log::error!("Error creating plan: {e}");
@@ -223,14 +222,17 @@ pub(crate) async fn create_plan(
     if let Some(rank) = payload.self_service_rank {
         app_state
             .store
-            .patch_published_plan(PlanPatch {
-                id: full_plan.plan.id,
-                tenant_id: authorized_state.tenant_id,
-                name: None,
-                description: None,
-                active_version_id: None,
-                self_service_rank: Some(Some(rank)),
-            })
+            .patch_published_plan(
+                authorized_state.as_actor(),
+                PlanPatch {
+                    id: full_plan.plan.id,
+                    tenant_id: authorized_state.tenant_id,
+                    name: None,
+                    description: None,
+                    active_version_id: None,
+                    self_service_rank: Some(Some(rank)),
+                },
+            )
             .await
             .map_err(|e| {
                 log::error!("Error setting self_service_rank: {e}");
@@ -350,9 +352,9 @@ pub(crate) async fn replace_plan(
     let fp = app_state
         .store
         .replace_plan_version(
+            authorized_state.as_actor(),
             plan_id,
             authorized_state.tenant_id,
-            authorized_state.actor.id(),
             payload.name,
             payload.description,
             PlanVersionNewInternal {
@@ -412,14 +414,17 @@ pub(crate) async fn patch_plan(
 ) -> Result<impl IntoResponse, RestApiError> {
     app_state
         .store
-        .patch_published_plan(PlanPatch {
-            id: plan_id,
-            tenant_id: authorized_state.tenant_id,
-            name: payload.name,
-            description: payload.description,
-            active_version_id: None,
-            self_service_rank: payload.self_service_rank,
-        })
+        .patch_published_plan(
+            authorized_state.as_actor(),
+            PlanPatch {
+                id: plan_id,
+                tenant_id: authorized_state.tenant_id,
+                name: payload.name,
+                description: payload.description,
+                active_version_id: None,
+                self_service_rank: payload.self_service_rank,
+            },
+        )
         .await
         .map_err(|e| {
             log::error!("Error patching plan: {e}");
@@ -512,9 +517,9 @@ pub(crate) async fn publish_plan(
     app_state
         .store
         .publish_plan_version(
+            authorized_state.as_actor(),
             draft_version.id,
             authorized_state.tenant_id,
-            authorized_state.actor.id(),
         )
         .await
         .map_err(|e| {
@@ -567,7 +572,11 @@ pub(crate) async fn archive_plan(
 ) -> Result<impl IntoResponse, RestApiError> {
     app_state
         .store
-        .archive_plan(plan_id, authorized_state.tenant_id)
+        .archive_plan(
+            authorized_state.as_actor(),
+            plan_id,
+            authorized_state.tenant_id,
+        )
         .await
         .map_err(|e| {
             log::error!("Error archiving plan: {e}");

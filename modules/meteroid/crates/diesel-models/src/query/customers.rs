@@ -16,7 +16,6 @@ use error_stack::ResultExt;
 use itertools::Itertools;
 use std::ops::Add;
 use tap::TapFallible;
-use uuid::Uuid;
 
 impl CustomerRowNew {
     pub async fn insert(self, conn: &mut PgConn) -> DbResult<CustomerRow> {
@@ -423,7 +422,6 @@ impl CustomerRow {
         conn: &mut PgConn,
         id: CustomerId,
         tenant_id: TenantId,
-        archived_by: Uuid,
     ) -> DbResult<usize> {
         use crate::schema::customer::dsl as c_dsl;
         use diesel_async::RunQueryDsl;
@@ -431,10 +429,7 @@ impl CustomerRow {
         let query = diesel::update(c_dsl::customer)
             .filter(c_dsl::id.eq(id))
             .filter(c_dsl::tenant_id.eq(tenant_id))
-            .set((
-                c_dsl::archived_at.eq(diesel::dsl::now),
-                c_dsl::archived_by.eq(archived_by),
-            ));
+            .set(c_dsl::archived_at.eq(diesel::dsl::now));
 
         log::debug!("{}", debug_query::<diesel::pg::Pg, _>(&query));
 
@@ -456,10 +451,7 @@ impl CustomerRow {
         let query = diesel::update(c_dsl::customer)
             .filter(c_dsl::id.eq(id))
             .filter(c_dsl::tenant_id.eq(tenant_id))
-            .set((
-                c_dsl::archived_at.eq(None::<chrono::NaiveDateTime>),
-                c_dsl::archived_by.eq(None::<Uuid>),
-            ));
+            .set(c_dsl::archived_at.eq(None::<chrono::NaiveDateTime>));
 
         log::debug!("{}", debug_query::<diesel::pg::Pg, _>(&query));
 

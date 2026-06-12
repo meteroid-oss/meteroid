@@ -113,6 +113,7 @@ impl CouponsService for CouponsServiceComponents {
         request: Request<CreateCouponRequest>,
     ) -> Result<Response<CreateCouponResponse>, Status> {
         let tenant_id = request.tenant()?;
+        let actor = request.actor_typed()?;
 
         let req = request.into_inner();
 
@@ -138,7 +139,7 @@ impl CouponsService for CouponsServiceComponents {
 
         let added = self
             .store
-            .create_coupon(new)
+            .create_coupon(actor, new)
             .await
             .map(|x| CouponWrapper::from(x).0)
             .map_err(Into::<CouponApiError>::into)?;
@@ -173,6 +174,7 @@ impl CouponsService for CouponsServiceComponents {
         request: Request<EditCouponRequest>,
     ) -> Result<Response<EditCouponResponse>, Status> {
         let tenant_id = request.tenant()?;
+        let actor = request.actor_typed()?;
 
         let req = request.into_inner();
 
@@ -194,7 +196,7 @@ impl CouponsService for CouponsServiceComponents {
 
         let updated = self
             .store
-            .update_coupon(patch)
+            .update_coupon(actor, patch)
             .await
             .map(|x| CouponWrapper::from(x).0)
             .map_err(Into::<CouponApiError>::into)?;
@@ -209,6 +211,7 @@ impl CouponsService for CouponsServiceComponents {
         request: Request<UpdateCouponStatusRequest>,
     ) -> Result<Response<UpdateCouponStatusResponse>, Status> {
         let tenant_id = request.tenant()?;
+        let actor = request.actor_typed()?;
 
         let req = request.into_inner();
 
@@ -232,7 +235,7 @@ impl CouponsService for CouponsServiceComponents {
 
         let updated = self
             .store
-            .update_coupon_status(patch)
+            .update_coupon_status(actor, patch)
             .await
             .map(|x| CouponWrapper::from(x).0)
             .map_err(Into::<CouponApiError>::into)?;

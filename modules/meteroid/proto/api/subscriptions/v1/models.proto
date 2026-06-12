@@ -51,7 +51,6 @@ message Subscription {
   string plan_version_id = 13;
   uint32 version = 14;
   string created_at = 15;
-  string created_by = 16;
   uint32 net_terms = 17;
   optional string invoice_memo = 18;
   optional string invoice_threshold = 19;
@@ -128,7 +127,6 @@ message CreatedSubscription {
   optional string end_date = 8;
   string plan_version_id = 9;
   string created_at = 10;
-  string created_by = 11;
   uint32 net_terms = 12;
   optional string invoice_memo = 13;
   optional string invoice_threshold = 14;

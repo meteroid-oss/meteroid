@@ -5,6 +5,7 @@ use crate::api::customers::mapping::customer::{
 };
 use crate::api::portal::shared::PortalSharedServiceComponents;
 use crate::api::portal::shared::error::PortalSharedApiError;
+use common_domain::actor::Actor;
 use common_domain::ids::{BaseId, CustomerConnectionId, CustomerId, CustomerPaymentMethodId};
 use common_grpc::middleware::server::auth::{AuthorizedAsPortalUser, RequestExt};
 use error_stack::ResultExt;
@@ -88,7 +89,7 @@ impl PortalSharedService for PortalSharedServiceComponents {
         let customer = self
             .store
             .patch_customer(
-                customer_id.as_uuid(), // TODO Customer as actor, we need to change the actor system
+                Actor::Customer { id: customer_id },
                 tenant_id,
                 CustomerPatch {
                     id: customer_id,
@@ -266,7 +267,7 @@ impl PortalSharedService for PortalSharedServiceComponents {
         };
 
         self.store
-            .patch_customer(customer_id.as_uuid(), tenant, customer_patch)
+            .patch_customer(Actor::Customer { id: customer_id }, tenant, customer_patch)
             .await
             .map_err(Into::<PortalSharedApiError>::into)?;
 

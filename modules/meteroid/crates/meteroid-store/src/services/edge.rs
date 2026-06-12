@@ -1,6 +1,7 @@
 #![allow(clippy::too_many_arguments)]
 use crate::StoreResult;
 use crate::domain::checkout_sessions::{CheckoutCompletionResult, CheckoutType};
+use crate::domain::entity_activity::Actor;
 use crate::domain::enums::{BillingPeriodEnum, PaymentStatusEnum};
 use crate::domain::outbox_event::{
     InvoiceEvent, InvoicePdfGeneratedEvent, OutboxEvent, PaymentTransactionEvent,
@@ -12,10 +13,9 @@ use crate::domain::subscriptions::PaymentMethodsConfig;
 use crate::domain::{
     CheckoutSession, CreateSubscription, CreateSubscriptionFromQuote, CreatedSubscription,
     Customer, CustomerBuyCredits, DetailedInvoice, Invoice, InvoicingEntityProviderSensitive,
-    QuoteActivityNew, SetupIntent, Subscription, SubscriptionDetails, UpdateInvoiceParams,
+    SetupIntent, Subscription, SubscriptionDetails, UpdateInvoiceParams,
 };
 use crate::errors::{StoreError, StoreErrorReport};
-use crate::repositories::outbox::OutboxInterface;
 use crate::repositories::subscriptions::CancellationEffectiveAt;
 use crate::repositories::{InvoiceInterface, SubscriptionInterface};
 use crate::services::CycleTransitionResult;
@@ -37,11 +37,10 @@ use diesel_models::checkout_sessions::CheckoutSessionRow;
 use diesel_models::coupons::CouponRow;
 use diesel_models::enums::{CycleActionEnum, SubscriptionStatusEnum as DbSubscriptionStatusEnum};
 use diesel_models::plans::PlanRow;
-use diesel_models::quotes::{QuoteActivityRowNew, QuoteRow};
+use diesel_models::quotes::QuoteRow;
 use diesel_models::scheduled_events::ScheduledEventRowNew;
 use diesel_models::subscriptions::SubscriptionRow;
 use error_stack::{Report, ResultExt};
-use uuid::Uuid;
 
 impl ServicesEdge {
     async fn get_conn(&self) -> StoreResult<PgConn> {
@@ -462,10 +461,11 @@ impl ServicesEdge {
 
     pub async fn insert_subscription(
         &self,
+        actor: Actor,
         params: CreateSubscription,
         tenant_id: TenantId,
     ) -> StoreResult<CreatedSubscription> {
-        self.insert_subscription_batch(vec![params], tenant_id)
+        self.insert_subscription_batch(actor, vec![params], tenant_id)
             .await?
             .pop()
             .ok_or(Report::new(StoreError::InsertError))
@@ -474,11 +474,12 @@ impl ServicesEdge {
 
     pub async fn insert_subscription_tx(
         &self,
+        actor: Actor,
         conn: &mut PgConn,
         params: CreateSubscription,
         tenant_id: TenantId,
     ) -> StoreResult<CreatedSubscription> {
-        self.insert_subscription_batch_tx(conn, vec![params], tenant_id)
+        self.insert_subscription_batch_tx(actor, conn, vec![params], tenant_id)
             .await?
             .pop()
             .ok_or(Report::new(StoreError::InsertError))
@@ -488,6 +489,7 @@ impl ServicesEdge {
     /// Components and add-ons are already processed, so we skip plan-based processing.
     pub async fn insert_subscription_from_quote(
         &self,
+        actor: Actor,
         params: CreateSubscriptionFromQuote,
         tenant_id: TenantId,
     ) -> StoreResult<CreatedSubscription> {
@@ -577,6 +579,7 @@ impl ServicesEdge {
         let inserted = self
             .store
             .transaction_with(&mut conn, |conn| {
+                let actor = &actor;
                 async move {
                     let mut inserted = self
                         .services
@@ -609,25 +612,6 @@ impl ServicesEdge {
                         )));
                     }
 
-                    let activity = QuoteActivityNew {
-                        quote_id,
-                        activity_type: "converted".to_string(),
-                        description: format!(
-                            "Quote converted to subscription {}",
-                            inserted.id.as_base62()
-                        ),
-                        actor_type: "user".to_string(),
-                        actor_id: Some(inserted.created_by.to_string()),
-                        actor_name: None,
-                        ip_address: None,
-                        user_agent: None,
-                    };
-                    let activity_row: QuoteActivityRowNew = activity.into();
-                    activity_row
-                        .insert(conn)
-                        .await
-                        .map_err(Into::<Report<StoreError>>::into)?;
-
                     let quote_converted_event = QuoteConvertedEvent::new(
                         quote_id,
                         tenant_id,
@@ -635,9 +619,12 @@ impl ServicesEdge {
                         inserted.id,
                     );
                     self.store
-                        .insert_outbox_event_tx(
+                        .internal
+                        .record_outbox_batch_tx(
                             conn,
-                            OutboxEvent::quote_converted(quote_converted_event),
+                            tenant_id,
+                            actor,
+                            vec![OutboxEvent::quote_converted(quote_converted_event)],
                         )
                         .await?;
 
@@ -648,7 +635,11 @@ impl ServicesEdge {
             .await?;
 
         self.services
-            .handle_post_insertion(self.store.eventbus.clone(), std::slice::from_ref(&inserted))
+            .handle_post_insertion(
+                &actor,
+                self.store.eventbus.clone(),
+                std::slice::from_ref(&inserted),
+            )
             .await?;
 
         Ok(inserted)
@@ -656,17 +647,19 @@ impl ServicesEdge {
 
     pub async fn insert_subscription_batch(
         &self,
+        actor: Actor,
         batch: Vec<CreateSubscription>,
         tenant_id: TenantId,
     ) -> StoreResult<Vec<CreatedSubscription>> {
         let mut conn = self.get_conn().await?;
 
-        self.insert_subscription_batch_tx(&mut conn, batch, tenant_id)
+        self.insert_subscription_batch_tx(actor, &mut conn, batch, tenant_id)
             .await
     }
 
     pub async fn insert_subscription_batch_tx(
         &self,
+        actor: Actor,
         conn: &mut PgConn,
         batch: Vec<CreateSubscription>,
         tenant_id: TenantId,
@@ -703,7 +696,7 @@ impl ServicesEdge {
             .await?;
 
         self.services
-            .handle_post_insertion(self.store.eventbus.clone(), &inserted)
+            .handle_post_insertion(&actor, self.store.eventbus.clone(), &inserted)
             .await?;
 
         Ok(inserted)
@@ -711,19 +704,20 @@ impl ServicesEdge {
 
     pub async fn cancel_subscription(
         &self,
+        actor: Actor,
         subscription_id: SubscriptionId,
         tenant_id: TenantId,
         reason: Option<String>,
         effective_at: CancellationEffectiveAt,
-        actor: Uuid,
     ) -> StoreResult<Subscription> {
         self.services
-            .cancel_subscription(subscription_id, tenant_id, reason, effective_at, actor)
+            .cancel_subscription(actor, subscription_id, tenant_id, reason, effective_at)
             .await
     }
 
     pub async fn schedule_plan_change(
         &self,
+        typed_actor: Actor,
         subscription_id: SubscriptionId,
         tenant_id: TenantId,
         new_plan_version_id: PlanVersionId,
@@ -731,6 +725,7 @@ impl ServicesEdge {
     ) -> StoreResult<crate::domain::scheduled_events::ScheduledEvent> {
         self.services
             .schedule_plan_change(
+                typed_actor,
                 subscription_id,
                 tenant_id,
                 new_plan_version_id,
@@ -811,6 +806,7 @@ impl ServicesEdge {
 
     pub async fn apply_plan_change_immediate(
         &self,
+        typed_actor: Actor,
         subscription_id: SubscriptionId,
         tenant_id: TenantId,
         new_plan_version_id: PlanVersionId,
@@ -818,6 +814,7 @@ impl ServicesEdge {
     ) -> StoreResult<crate::domain::subscription_changes::ImmediatePlanChangeResult> {
         self.services
             .apply_plan_change_immediate(
+                typed_actor,
                 subscription_id,
                 tenant_id,
                 new_plan_version_id,
@@ -828,6 +825,7 @@ impl ServicesEdge {
 
     pub async fn apply_plan_change_immediate_at(
         &self,
+        typed_actor: Actor,
         subscription_id: SubscriptionId,
         tenant_id: TenantId,
         new_plan_version_id: PlanVersionId,
@@ -836,6 +834,7 @@ impl ServicesEdge {
     ) -> StoreResult<crate::domain::subscription_changes::ImmediatePlanChangeResult> {
         self.services
             .apply_plan_change_immediate_at(
+                typed_actor,
                 subscription_id,
                 tenant_id,
                 new_plan_version_id,
@@ -847,22 +846,24 @@ impl ServicesEdge {
 
     pub async fn cancel_plan_change(
         &self,
+        typed_actor: Actor,
         subscription_id: SubscriptionId,
         tenant_id: TenantId,
     ) -> StoreResult<()> {
         self.services
-            .cancel_plan_change(subscription_id, tenant_id)
+            .cancel_plan_change(typed_actor, subscription_id, tenant_id)
             .await
     }
 
     pub async fn cancel_scheduled_event(
         &self,
+        typed_actor: Actor,
         event_id: common_domain::ids::ScheduledEventId,
         subscription_id: SubscriptionId,
         tenant_id: TenantId,
     ) -> StoreResult<()> {
         self.services
-            .cancel_scheduled_event(event_id, subscription_id, tenant_id)
+            .cancel_scheduled_event(typed_actor, event_id, subscription_id, tenant_id)
             .await
     }
 
@@ -916,10 +917,13 @@ impl ServicesEdge {
 
     pub async fn finalize_invoice(
         &self,
+        actor: Actor,
         invoice_id: InvoiceId,
         tenant_id: TenantId,
     ) -> StoreResult<DetailedInvoice> {
-        self.services.finalize_invoice(invoice_id, tenant_id).await
+        self.services
+            .finalize_invoice(actor, invoice_id, tenant_id)
+            .await
     }
 
     pub async fn create_corrected_invoice_from(
@@ -934,12 +938,18 @@ impl ServicesEdge {
 
     pub async fn create_and_finalize_credit_note_with_reissue(
         &self,
+        actor: Actor,
         tenant_id: TenantId,
         params: crate::repositories::credit_notes::CreateCreditNoteParams,
         reissue_as_draft: bool,
     ) -> StoreResult<(crate::domain::CreditNote, Option<Invoice>)> {
         self.services
-            .create_and_finalize_credit_note_with_reissue(tenant_id, params, reissue_as_draft)
+            .create_and_finalize_credit_note_with_reissue(
+                actor,
+                tenant_id,
+                params,
+                reissue_as_draft,
+            )
             .await
     }
 
@@ -973,7 +983,6 @@ impl ServicesEdge {
         subscription_id: SubscriptionId,
         new_plan_version_id: PlanVersionId,
         customer_id: common_domain::ids::CustomerId,
-        created_by: uuid::Uuid,
         payment_methods_config: Option<PaymentMethodsConfig>,
         change_date: NaiveDate,
     ) -> StoreResult<CheckoutSession> {
@@ -986,7 +995,6 @@ impl ServicesEdge {
             tenant_id,
             customer_id,
             plan_version_id: new_plan_version_id,
-            created_by,
             billing_start_date: None,
             billing_day_anchor: None,
             net_terms: None,
@@ -1075,7 +1083,12 @@ impl ServicesEdge {
                             .await
                         }
                         CheckoutType::SelfServe => {
+                            // Self-serve checkouts are completed by the customer themselves.
+                            let actor = Actor::Customer {
+                                id: session.customer_id,
+                            };
                             self.complete_checkout_self_serve_tx(
+                                actor,
                                 conn,
                                 tenant_id,
                                 checkout_session_id,
@@ -1196,6 +1209,7 @@ impl ServicesEdge {
     /// 5. Mark session completed (sync) or awaiting payment (async)
     async fn complete_checkout_self_serve_tx(
         &self,
+        actor: Actor,
         conn: &mut PgConn,
         tenant_id: TenantId,
         checkout_session_id: CheckoutSessionId,
@@ -1328,7 +1342,7 @@ impl ServicesEdge {
         let trial_config = preview_details.trial_config.clone();
 
         let created_subscription = self
-            .insert_subscription_tx(conn, create_subscription, tenant_id)
+            .insert_subscription_tx(actor, conn, create_subscription, tenant_id)
             .await?;
 
         let payment_transaction = if let Some(charge_result) = charge_result {
@@ -1656,7 +1670,6 @@ impl ServicesEdge {
         add_on_id: common_domain::ids::AddOnId,
         plan_version_id: PlanVersionId,
         customer_id: common_domain::ids::CustomerId,
-        created_by: uuid::Uuid,
         payment_methods_config: Option<PaymentMethodsConfig>,
     ) -> StoreResult<CheckoutSession> {
         use crate::domain::checkout_sessions::{
@@ -1673,7 +1686,6 @@ impl ServicesEdge {
             tenant_id,
             customer_id,
             plan_version_id,
-            created_by,
             billing_start_date: None,
             billing_day_anchor: None,
             net_terms: None,
@@ -1845,7 +1857,7 @@ impl ServicesEdge {
 
             if let Some(invoice) = draft {
                 self.services
-                    .finalize_invoice_tx(conn, invoice.id, tenant_id, false, &None)
+                    .finalize_invoice_tx(conn, &Actor::System, invoice.id, tenant_id, false, &None)
                     .await?;
 
                 let _transaction = self
@@ -2065,7 +2077,14 @@ impl ServicesEdge {
 
                 if let Some(invoice) = draft {
                     self.services
-                        .finalize_invoice_tx(conn, invoice.id, tenant_id, false, &None)
+                        .finalize_invoice_tx(
+                            conn,
+                            &Actor::System,
+                            invoice.id,
+                            tenant_id,
+                            false,
+                            &None,
+                        )
                         .await?;
 
                     let _transaction = self
@@ -2178,7 +2197,7 @@ impl ServicesEdge {
                     })?;
 
                 self.services
-                    .finalize_invoice_tx(conn, invoice.id, tenant_id, false, &None)
+                    .finalize_invoice_tx(conn, &Actor::System, invoice.id, tenant_id, false, &None)
                     .await?;
 
                 if amount_due > 0 {
@@ -2311,7 +2330,14 @@ impl ServicesEdge {
                         .await?;
                     if let Some(inv) = &invoice {
                         self.services
-                            .finalize_invoice_tx(conn, inv.id, tenant_id, false, &None)
+                            .finalize_invoice_tx(
+                                conn,
+                                &Actor::System,
+                                inv.id,
+                                tenant_id,
+                                false,
+                                &None,
+                            )
                             .await?;
                     }
                 }

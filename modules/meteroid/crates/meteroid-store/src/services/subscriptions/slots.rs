@@ -2,6 +2,7 @@
 
 use crate::StoreResult;
 use crate::constants::Currencies;
+use crate::domain::entity_activity::Actor;
 use crate::domain::slot_transactions::{
     SlotUpdatePreview, SlotUpgradeBillingMode, UpdateSlotsResult,
 };
@@ -570,8 +571,15 @@ impl Services {
         let draft_invoice = insert_invoice_tx(&self.store, conn, invoice_new).await?;
 
         if respect_auto_advance && subscription.auto_advance_invoices {
-            self.finalize_invoice_tx(conn, draft_invoice.id, tenant_id, false, &None)
-                .await?;
+            self.finalize_invoice_tx(
+                conn,
+                &Actor::System,
+                draft_invoice.id,
+                tenant_id,
+                false,
+                &None,
+            )
+            .await?;
         }
 
         Ok(draft_invoice.id)
@@ -813,8 +821,15 @@ impl Services {
                         let new_slot_count =
                             slot_transaction.prev_active_slots + slot_transaction.delta;
 
-                        self.finalize_invoice_tx(conn, invoice_id, tenant_id, false, &None)
-                            .await?;
+                        self.finalize_invoice_tx(
+                            conn,
+                            &Actor::System,
+                            invoice_id,
+                            tenant_id,
+                            false,
+                            &None,
+                        )
+                        .await?;
 
                         Ok((payment_result, new_slot_count))
                     } else {

@@ -1,0 +1,102 @@
+syntax = "proto3";
+
+package meteroid.api.activity.v1;
+
+enum ActorType {
+  ACTOR_TYPE_UNSPECIFIED = 0;
+  SYSTEM = 1;
+  USER = 2;
+  API_TOKEN = 3;
+  CUSTOMER = 4;
+  QUOTE_RECIPIENT = 5;
+}
+
+// `activity_type` is a free-form string so adding events doesn't roll the proto.
+message ActivityEntry {
+  string id = 1;
+  string entity_type = 2;
+  string entity_id = 3;
+  string activity_type = 4;
+  ActorType actor_type = 5;
+  optional string actor_id = 6;
+  optional string actor_name = 13;
+  optional string metadata_json = 7;
+  string occurred_at = 10;
+  optional string agg_customer_id = 11;
+  optional string agg_subscription_id = 12;
+  optional string entity_name = 14;
+  optional string agg_customer_name = 15;
+  optional string agg_subscription_name = 16;
+}
+
+// For customer/subscription entities, the response also includes events
+// rolled up via `agg_customer_id` / `agg_subscription_id`.
+message ListEntityActivityRequest {
+  string entity_type = 1;
+  string entity_id = 2;
+  optional string cursor = 3;
+  optional uint32 limit = 4;
+}
+
+message ListEntityActivityResponse {
+  repeated ActivityEntry entries = 1;
+  optional string next_cursor = 2;
+}
+
+message ListActivityRequest {
+  repeated string entity_types = 1;
+  repeated string activity_types = 2;
+  optional ActorType actor_type = 3;
+  optional string actor_id = 4;
+  // entity_type + entity_id must be set together.
+  optional string entity_id = 5;
+  optional string entity_type = 6;
+  optional string occurred_after = 7;
+  optional string occurred_before = 8;
+  optional string cursor = 9;
+  optional uint32 limit = 10;
+}
+
+message ListActivityResponse {
+  repeated ActivityEntry entries = 1;
+  optional string next_cursor = 2;
+}
+
+message SentEmailAttachment {
+  // Stored object id; empty for emails recorded before attachment ids were
+  // tracked (those are not downloadable).
+  string id = 1;
+  string filename = 2;
+}
+
+// Shares its id with the corresponding `entity.email_sent` activity row.
+message SentEmail {
+  string activity_id = 1;
+  string subject = 2;
+  string from_addr = 3;
+  optional string reply_to = 4;
+  repeated string recipients = 5;
+  string body_html = 6;
+  repeated SentEmailAttachment attachments = 7;
+  string sent_at = 8;
+  // Tenant-scoped token to download attachments via the REST file endpoint.
+  // Absent when no attachment is downloadable.
+  optional string attachments_share_key = 9;
+}
+
+message GetSentEmailRequest {
+  string activity_id = 1;
+}
+
+message GetSentEmailResponse {
+  SentEmail email = 1;
+}
+
+service ActivityService {
+  rpc ListEntityActivity(ListEntityActivityRequest)
+    returns (ListEntityActivityResponse) {}
+
+  rpc ListActivity(ListActivityRequest) returns (ListActivityResponse) {}
+
+  rpc GetSentEmail(GetSentEmailRequest) returns (GetSentEmailResponse) {}
+}

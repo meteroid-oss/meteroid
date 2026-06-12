@@ -460,7 +460,6 @@ pub struct BillableMetricEvent {
     pub segmentation_matrix: Option<SegmentationMatrix>,
     pub usage_group_key: Option<String>,
     pub created_at: NaiveDateTime,
-    pub created_by: Uuid,
     pub product_family_id: ProductFamilyId,
     pub product_id: Option<ProductId>,
 }
@@ -488,7 +487,6 @@ pub struct SubscriptionEvent {
     pub plan_version_id: PlanVersionId,
     pub version: u32,
     pub created_at: NaiveDateTime,
-    pub created_by: Uuid,
     pub net_terms: u32,
     pub invoice_memo: Option<String>,
     pub invoice_threshold: Option<rust_decimal::Decimal>,

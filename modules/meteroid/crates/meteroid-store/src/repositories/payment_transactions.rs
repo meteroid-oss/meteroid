@@ -2,6 +2,7 @@ use crate::store::{PgConn, Store};
 use crate::{StoreResult, domain};
 use diesel_async::scoped_futures::ScopedFutureExt;
 
+use crate::domain::entity_activity::Actor;
 use crate::domain::outbox_event::OutboxEvent;
 use crate::domain::payment_transactions::PaymentTransaction;
 use crate::domain::{PaymentIntent, PaymentTransactionWithMethod};
@@ -27,6 +28,7 @@ pub trait PaymentTransactionInterface {
     async fn consolidate_intent_and_transaction_tx(
         &self,
         conn: &mut PgConn,
+        actor: &Actor,
         transaction: PaymentTransaction,
         payment_intent: PaymentIntent,
     ) -> Result<PaymentTransaction, Report<StoreError>>;
@@ -72,6 +74,7 @@ impl PaymentTransactionInterface for Store {
     async fn consolidate_intent_and_transaction_tx(
         &self,
         conn: &mut PgConn,
+        actor: &Actor,
         transaction: PaymentTransaction,
         payment_intent: PaymentIntent,
     ) -> Result<PaymentTransaction, Report<StoreError>> {
@@ -113,6 +116,7 @@ impl PaymentTransactionInterface for Store {
             error_type: Some(payment_intent.last_payment_error),
         };
 
+        let tenant_id = transaction.tenant_id;
         let updated_transaction = self
             .transaction_with(conn, |conn| {
                 async move {
@@ -121,8 +125,10 @@ impl PaymentTransactionInterface for Store {
                     let transaction: PaymentTransaction = updated_transaction.into();
 
                     self.internal
-                        .insert_outbox_events_tx(
+                        .record_outbox_batch_tx(
                             conn,
+                            tenant_id,
+                            actor,
                             vec![OutboxEvent::payment_transaction_saved(
                                 transaction.clone().into(),
                             )],

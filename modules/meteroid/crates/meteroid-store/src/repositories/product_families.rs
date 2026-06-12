@@ -2,18 +2,18 @@ use crate::domain::{PaginatedVec, PaginationRequest, ProductFamily};
 use crate::errors::StoreError;
 use crate::store::{PgConn, Store, StoreInternal};
 use crate::{StoreResult, domain};
+use common_domain::actor::Actor;
 use common_domain::ids::{BaseId, ProductFamilyId, TenantId};
 use common_eventbus::Event;
 use diesel_models::product_families::{ProductFamilyRow, ProductFamilyRowNew};
 use error_stack::{IntoReport, Report};
-use uuid::Uuid;
 
 #[async_trait::async_trait]
 pub trait ProductFamilyInterface {
     async fn insert_product_family(
         &self,
         product_family: domain::ProductFamilyNew,
-        actor: Option<Uuid>,
+        actor: Option<Actor>,
     ) -> StoreResult<domain::ProductFamily>;
 
     async fn list_product_families(
@@ -57,7 +57,7 @@ impl ProductFamilyInterface for Store {
     async fn insert_product_family(
         &self,
         product_family: domain::ProductFamilyNew,
-        actor: Option<Uuid>,
+        actor: Option<Actor>,
     ) -> StoreResult<domain::ProductFamily> {
         let mut conn = self.get_conn().await?;
 

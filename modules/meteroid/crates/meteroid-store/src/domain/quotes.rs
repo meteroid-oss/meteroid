@@ -11,14 +11,14 @@ use crate::json_value_serde;
 use common_domain::ids::BaseId;
 use common_domain::ids::{
     AddOnId, CouponId, CustomerId, InvoiceId, PlanVersionId, PriceComponentId, PriceId, ProductId,
-    QuoteActivityId, QuoteAddOnId, QuoteCouponId, QuoteId, QuotePriceComponentId, QuoteSignatureId,
+    QuoteAddOnId, QuoteCouponId, QuoteId, QuotePriceComponentId, QuoteSignatureId,
     StoredDocumentId, SubscriptionId, TenantId,
 };
 use diesel_models::quote_add_ons::{QuoteAddOnRow, QuoteAddOnRowNew};
 use diesel_models::quote_coupons::{QuoteCouponRow, QuoteCouponRowNew};
 use diesel_models::quotes::{
-    QuoteActivityRow, QuoteActivityRowNew, QuoteComponentRow, QuoteComponentRowNew, QuoteRow,
-    QuoteRowNew, QuoteSignatureRow, QuoteSignatureRowNew, QuoteWithCustomerRow,
+    QuoteComponentRow, QuoteComponentRowNew, QuoteRow, QuoteRowNew, QuoteSignatureRow,
+    QuoteSignatureRowNew, QuoteWithCustomerRow,
 };
 use o2o::o2o;
 
@@ -152,7 +152,6 @@ pub struct DetailedQuote {
     pub add_ons: Vec<QuoteAddOn>,
     pub coupons: Vec<QuoteCoupon>,
     pub signatures: Vec<QuoteSignature>,
-    pub activities: Vec<QuoteActivity>,
     pub entitlements: Vec<crate::domain::entitlements::Entitlement>,
 }
 
@@ -245,35 +244,6 @@ pub struct QuoteSignature {
     pub user_agent: Option<String>,
     pub verification_token: Option<String>,
     pub verified_at: Option<NaiveDateTime>,
-}
-
-#[derive(o2o, Debug, Clone)]
-#[from_owned(QuoteActivityRow)]
-pub struct QuoteActivity {
-    pub id: QuoteActivityId,
-    pub quote_id: QuoteId,
-    pub activity_type: String,
-    pub description: String,
-    pub actor_type: String,
-    pub actor_id: Option<String>,
-    pub actor_name: Option<String>,
-    pub created_at: NaiveDateTime,
-    pub ip_address: Option<String>,
-    pub user_agent: Option<String>,
-}
-
-#[derive(Debug, Clone, o2o)]
-#[owned_into(QuoteActivityRowNew)]
-#[ghosts(id: {QuoteActivityId::new()})]
-pub struct QuoteActivityNew {
-    pub quote_id: QuoteId,
-    pub activity_type: String,
-    pub description: String,
-    pub actor_type: String,
-    pub actor_id: Option<String>,
-    pub actor_name: Option<String>,
-    pub ip_address: Option<String>,
-    pub user_agent: Option<String>,
 }
 
 #[derive(Debug, Clone, o2o)]

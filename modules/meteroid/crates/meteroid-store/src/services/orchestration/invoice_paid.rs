@@ -82,7 +82,7 @@ impl Services {
             .map(|plan| format!("Your {} invoice was paid successfully.", plan))
             .unwrap_or_else(|| "Invoice for services was paid successfully.".to_string());
 
-        let event: StoreResult<PgmqMessageNew> = SendEmailRequest::InvoicePaid {
+        let email_msg: PgmqMessageNew = SendEmailRequest::InvoicePaid {
             tenant_id,
             invoice_id: invoice.id,
             invoice_number: invoice.invoice_number,
@@ -97,14 +97,14 @@ impl Services {
             invoicing_emails: customer.invoicing_emails,
             invoice_pdf_id,
             receipt_pdf_id: receipt.receipt_pdf_id,
+            agg_customer_id: Some(invoice.customer_id),
+            agg_subscription_id: invoice.subscription_id,
         }
-        .try_into();
+        .try_into()?;
 
         self.store
-            .pgmq_send_batch(PgmqQueue::SendEmailRequest, vec![event?])
-            .await?;
-
-        Ok(())
+            .pgmq_send_batch(PgmqQueue::SendEmailRequest, vec![email_msg])
+            .await
     }
 
     /// Activate subscription when invoice is paid.

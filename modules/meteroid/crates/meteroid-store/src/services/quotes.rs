@@ -1,5 +1,6 @@
 use crate::StoreResult;
 use crate::domain::entitlements::EntitlementSpec;
+use crate::domain::entity_activity::Actor;
 use crate::domain::enums::QuoteStatusEnum;
 use crate::domain::quotes::DetailedQuote;
 use crate::domain::subscription_add_ons::SubscriptionAddOnNewInternal;
@@ -9,7 +10,6 @@ use crate::errors::StoreError;
 use crate::services::ServicesEdge;
 use common_domain::ids::{QuoteId, TenantId};
 use error_stack::Report;
-use uuid::Uuid;
 
 /// Struct containing the result of a quote to subscription conversion
 #[derive(Debug)]
@@ -20,9 +20,9 @@ pub struct QuoteConversionResult {
 impl ServicesEdge {
     pub async fn convert_quote_to_subscription(
         &self,
+        actor: Actor,
         tenant_id: TenantId,
         quote_id: QuoteId,
-        created_by: Uuid,
     ) -> StoreResult<QuoteConversionResult> {
         use crate::repositories::QuotesInterface;
 
@@ -47,12 +47,12 @@ impl ServicesEdge {
             )));
         }
 
-        let create_subscription = build_subscription_from_quote(&detailed_quote, created_by)?;
+        let create_subscription = build_subscription_from_quote(&detailed_quote)?;
 
         // Create the subscription using the quote-specific method
         // This bypasses plan-based component/add-on processing since they're already processed
         let created = self
-            .insert_subscription_from_quote(create_subscription, tenant_id)
+            .insert_subscription_from_quote(actor, create_subscription, tenant_id)
             .await?;
 
         Ok(QuoteConversionResult {
@@ -63,7 +63,6 @@ impl ServicesEdge {
 
 fn build_subscription_from_quote(
     detailed_quote: &DetailedQuote,
-    created_by: Uuid,
 ) -> StoreResult<CreateSubscriptionFromQuote> {
     let quote = &detailed_quote.quote;
     let now = chrono::Utc::now().naive_utc().date();
@@ -74,7 +73,6 @@ fn build_subscription_from_quote(
     let subscription_new = SubscriptionNew {
         customer_id: quote.customer_id,
         plan_version_id: quote.plan_version_id,
-        created_by,
         net_terms: Some(quote.net_terms as u32),
         invoice_memo: quote.invoice_memo.clone(),
         invoice_threshold: quote.invoice_threshold,

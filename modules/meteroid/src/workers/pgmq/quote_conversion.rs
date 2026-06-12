@@ -1,6 +1,7 @@
 use crate::workers::pgmq::PgmqResult;
 use crate::workers::pgmq::error::PgmqError;
 use crate::workers::pgmq::processor::{HandleResult, PgmqHandler};
+use common_domain::actor::Actor;
 use common_domain::ids::BaseId;
 use common_domain::pgmq::MessageId;
 use error_stack::ResultExt;
@@ -8,7 +9,6 @@ use meteroid_store::Services;
 use meteroid_store::StoreResult;
 use meteroid_store::domain::pgmq::{PgmqMessage, QuoteConversionRequestEvent};
 use std::sync::Arc;
-use uuid::Uuid;
 
 pub(crate) struct QuoteConversion {
     services: Arc<Services>,
@@ -49,11 +49,8 @@ impl PgmqHandler for QuoteConversion {
                     let tenant_id = quote_accepted.tenant_id;
                     let quote_id = quote_accepted.quote_id;
 
-                    // Use system user for automated conversion
-                    let created_by = Uuid::nil();
-
                     match services
-                        .convert_quote_to_subscription(tenant_id, quote_id, created_by)
+                        .convert_quote_to_subscription(Actor::System, tenant_id, quote_id)
                         .await
                     {
                         Ok(result) => {

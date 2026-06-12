@@ -1,8 +1,7 @@
 use crate::api::billablemetrics::mapping::metric::ServerBillableMetricWrapper;
 use crate::api::internal::InternalServiceComponents;
 use crate::api::internal::error::InternalApiError;
-use crate::parse_uuid;
-use common_domain::ids::TenantId;
+use common_domain::ids::{ApiTokenId, TenantId};
 use error_stack::Report;
 use meteroid_grpc::meteroid::api::billablemetrics::v1::BillableMetric;
 use meteroid_grpc::meteroid::internal::v1::internal_service_server::InternalService;
@@ -65,9 +64,11 @@ impl InternalService for InternalServiceComponents {
     ) -> Result<Response<ResolveApiKeyResponse>, Status> {
         let inner = request.into_inner();
 
+        let api_token_id = ApiTokenId::from_proto(inner.api_key_id)?;
+
         let res = self
             .store
-            .get_api_token_by_id_for_validation(&parse_uuid!(inner.api_key_id)?)
+            .get_api_token_by_id_for_validation(&api_token_id)
             .await
             .map_err(Into::<InternalApiError>::into)?;
 

@@ -1,5 +1,4 @@
 use chrono::NaiveDateTime;
-use uuid::Uuid;
 
 use crate::enums::{PlanStatusEnum, PlanTypeEnum};
 use crate::plan_versions::PlanVersionRow;
@@ -16,7 +15,6 @@ pub struct PlanRow {
     pub name: String,
     pub description: Option<String>,
     pub created_at: NaiveDateTime,
-    pub created_by: Uuid,
     pub updated_at: Option<NaiveDateTime>,
     pub archived_at: Option<NaiveDateTime>,
     pub tenant_id: TenantId,
@@ -35,7 +33,6 @@ pub struct PlanRowNew {
     pub id: PlanId,
     pub name: String,
     pub description: Option<String>,
-    pub created_by: Uuid,
     pub tenant_id: TenantId,
     pub product_family_id: ProductFamilyId,
     pub plan_type: PlanTypeEnum,

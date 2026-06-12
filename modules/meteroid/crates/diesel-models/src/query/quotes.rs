@@ -3,8 +3,8 @@ use crate::errors::IntoDbResult;
 use crate::extend::order::{OrderByParam, OrderDirection};
 use crate::extend::pagination::{Paginate, PaginatedVec, PaginationRequest};
 use crate::quotes::{
-    QuoteActivityRow, QuoteActivityRowNew, QuoteComponentRow, QuoteComponentRowNew, QuoteRow,
-    QuoteRowNew, QuoteRowUpdate, QuoteSignatureRow, QuoteSignatureRowNew, QuoteWithCustomerRow,
+    QuoteComponentRow, QuoteComponentRowNew, QuoteRow, QuoteRowNew, QuoteRowUpdate,
+    QuoteSignatureRow, QuoteSignatureRowNew, QuoteWithCustomerRow,
 };
 use crate::{DbResult, PgConn};
 use common_domain::ids::{CustomerId, ProductId, QuoteId, StoredDocumentId, TenantId};
@@ -370,51 +370,6 @@ impl QuoteSignatureRow {
             .load(conn)
             .await
             .attach("Error while listing quote signatures")
-            .into_db_result()
-    }
-}
-
-impl QuoteActivityRowNew {
-    pub async fn insert(&self, conn: &mut PgConn) -> DbResult<QuoteActivityRow> {
-        use crate::schema::quote_activity::dsl::quote_activity;
-        use diesel_async::RunQueryDsl;
-
-        let query = diesel::insert_into(quote_activity).values(self);
-
-        log::debug!("{}", debug_query::<diesel::pg::Pg, _>(&query));
-
-        query
-            .get_result(conn)
-            .await
-            .attach("Error while inserting quote activity")
-            .into_db_result()
-    }
-}
-
-impl QuoteActivityRow {
-    pub async fn list_by_quote_id(
-        conn: &mut PgConn,
-        param_quote_id: QuoteId,
-        limit: Option<i64>,
-    ) -> DbResult<Vec<QuoteActivityRow>> {
-        use crate::schema::quote_activity::dsl::{created_at, quote_activity, quote_id};
-        use diesel_async::RunQueryDsl;
-
-        let mut query = quote_activity
-            .filter(quote_id.eq(param_quote_id))
-            .order(created_at.desc())
-            .into_boxed();
-
-        if let Some(limit_val) = limit {
-            query = query.limit(limit_val);
-        }
-
-        log::debug!("{}", debug_query::<diesel::pg::Pg, _>(&query));
-
-        query
-            .load(conn)
-            .await
-            .attach("Error while listing quote activities")
             .into_db_result()
     }
 }

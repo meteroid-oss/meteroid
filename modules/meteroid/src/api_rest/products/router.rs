@@ -144,16 +144,18 @@ pub(crate) async fn create_product(
 
     let product = app_state
         .store
-        .create_product(ProductNew {
-            name: payload.name,
-            description: payload.description,
-            created_by: authorized_state.actor.id(),
-            tenant_id: authorized_state.tenant_id,
-            family_id: payload.product_family_id,
-            fee_type,
-            fee_structure,
-            catalog: payload.catalog,
-        })
+        .create_product(
+            authorized_state.as_actor(),
+            ProductNew {
+                name: payload.name,
+                description: payload.description,
+                tenant_id: authorized_state.tenant_id,
+                family_id: payload.product_family_id,
+                fee_type,
+                fee_structure,
+                catalog: payload.catalog,
+            },
+        )
         .await
         .map_err(|e| {
             log::error!("Error creating product: {e}");
@@ -199,14 +201,17 @@ pub(crate) async fn update_product(
 
     let product = app_state
         .store
-        .update_product(ProductUpdate {
-            id: product_id,
-            tenant_id: authorized_state.tenant_id,
-            name: payload.name,
-            description: payload.description,
-            fee_type,
-            fee_structure,
-        })
+        .update_product(
+            authorized_state.as_actor(),
+            ProductUpdate {
+                id: product_id,
+                tenant_id: authorized_state.tenant_id,
+                name: payload.name,
+                description: payload.description,
+                fee_type,
+                fee_structure,
+            },
+        )
         .await
         .map_err(|e| {
             log::error!("Error updating product: {e}");
@@ -239,7 +244,11 @@ pub(crate) async fn archive_product(
 ) -> Result<impl IntoResponse, RestApiError> {
     app_state
         .store
-        .archive_product(product_id, authorized_state.tenant_id)
+        .archive_product(
+            authorized_state.as_actor(),
+            product_id,
+            authorized_state.tenant_id,
+        )
         .await
         .map_err(|e| {
             log::error!("Error archiving product: {e}");

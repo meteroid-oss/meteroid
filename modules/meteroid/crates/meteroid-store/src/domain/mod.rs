@@ -52,6 +52,7 @@ pub mod credit_notes;
 pub mod customer_payment_methods;
 pub mod dead_letter;
 pub mod entitlements;
+pub mod entity_activity;
 pub mod enums;
 
 pub mod historical_rates;

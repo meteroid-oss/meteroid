@@ -33,7 +33,6 @@ use diesel_models::subscription_components::SubscriptionComponentRow;
 use diesel_models::subscriptions::SubscriptionRow;
 use error_stack::Report;
 use itertools::Itertools;
-use uuid::Uuid;
 
 /// Dispatcher target for `resolve_for_entity`.
 /// `Product` is a dispatcher-level concept only — features are product-scoped via
@@ -156,7 +155,6 @@ pub trait EntitlementsInterface {
         tenant_id: TenantId,
         target: EntitlementEntityId,
         specs: Vec<EntitlementSpec>,
-        created_by: Uuid,
     ) -> StoreResult<Vec<Entitlement>>;
 }
 
@@ -182,7 +180,6 @@ impl EntitlementsInterface for Store {
         let mut conn = self.get_conn().await?;
         let entitlement_value = feature.entitlement.clone();
         let tenant_id = feature.tenant_id;
-        let created_by = feature.created_by;
         if let Some(value) = &entitlement_value {
             validate_value_matches_feature_type(value, &feature.feature_type)?;
         }
@@ -209,7 +206,6 @@ impl EntitlementsInterface for Store {
                         entity_type: EntitlementEntityTypeEnum::from(&entity),
                         mode: EntitlementModeEnum::Override.into(),
                         value: json_value,
-                        created_by,
                     }
                     .insert(conn)
                     .await
@@ -380,7 +376,6 @@ impl EntitlementsInterface for Store {
             entity_type: EntitlementEntityTypeEnum::from(&entitlement.entity),
             mode: mode.into(),
             value: json_value,
-            created_by: entitlement.created_by,
         };
 
         row.insert(&mut conn)
@@ -530,13 +525,12 @@ impl EntitlementsInterface for Store {
         tenant_id: TenantId,
         target: EntitlementEntityId,
         specs: Vec<EntitlementSpec>,
-        created_by: Uuid,
     ) -> StoreResult<Vec<Entitlement>> {
         if specs.is_empty() {
             return Ok(vec![]);
         }
         let mut conn = self.get_conn().await?;
-        let rows = build_entitlement_rows(&mut conn, specs, &target, tenant_id, created_by).await?;
+        let rows = build_entitlement_rows(&mut conn, specs, &target, tenant_id).await?;
         EntitlementRowNew::insert_batch_skip_conflicts(&rows, &mut conn)
             .await
             .map_err(Into::<Report<StoreError>>::into)
@@ -934,7 +928,6 @@ async fn build_entitlement_rows(
     specs: Vec<EntitlementSpec>,
     entity: &EntitlementEntityId,
     tenant_id: TenantId,
-    created_by: Uuid,
 ) -> StoreResult<Vec<EntitlementRowNew>> {
     let feature_ids: Vec<FeatureId> = specs.iter().map(|s| s.feature_id).collect();
     let features: Vec<FeatureWithProductRow> =
@@ -972,7 +965,6 @@ async fn build_entitlement_rows(
                 entity_type,
                 mode: mode.clone().into(),
                 value: json_value,
-                created_by,
             })
         })
         .collect()
@@ -985,13 +977,12 @@ pub(crate) async fn insert_entitlement_specs(
     specs: Vec<EntitlementSpec>,
     entity: EntitlementEntityId,
     tenant_id: TenantId,
-    created_by: Uuid,
 ) -> StoreResult<Vec<Entitlement>> {
     if specs.is_empty() {
         return Ok(vec![]);
     }
 
-    let rows = build_entitlement_rows(conn, specs, &entity, tenant_id, created_by).await?;
+    let rows = build_entitlement_rows(conn, specs, &entity, tenant_id).await?;
     EntitlementRowNew::insert_batch(&rows, conn)
         .await
         .map_err(Into::<Report<StoreError>>::into)
@@ -1669,7 +1660,6 @@ mod tests {
     use common_domain::ids::{
         AddOnId, BaseId, BillableMetricId, PlanId, PlanVersionId, QuoteId, SubscriptionId,
     };
-    use uuid::Uuid;
 
     #[test]
     fn chain_for_product_is_empty() {
@@ -1745,7 +1735,6 @@ mod tests {
             feature_type,
             status: FeatureStatusEnum::Active,
             created_at: Utc::now(),
-            created_by: Uuid::new_v4(),
             updated_at: Utc::now(),
             entitlement: None,
         }
@@ -1765,7 +1754,6 @@ mod tests {
             mode,
             value,
             created_at: Utc::now(),
-            created_by: Uuid::new_v4(),
             updated_at: Utc::now(),
         }
     }

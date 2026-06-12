@@ -134,17 +134,20 @@ pub(crate) async fn create_coupon(
 
     let coupon = app_state
         .store
-        .create_coupon(CouponNew {
-            code: payload.code,
-            description: payload.description.unwrap_or_default(),
-            tenant_id: authorized_state.tenant_id,
-            discount,
-            expires_at: payload.expires_at,
-            redemption_limit: payload.redemption_limit,
-            recurring_value: payload.recurring_value,
-            reusable: payload.reusable,
-            plan_ids: payload.plan_ids,
-        })
+        .create_coupon(
+            authorized_state.as_actor(),
+            CouponNew {
+                code: payload.code,
+                description: payload.description.unwrap_or_default(),
+                tenant_id: authorized_state.tenant_id,
+                discount,
+                expires_at: payload.expires_at,
+                redemption_limit: payload.redemption_limit,
+                recurring_value: payload.recurring_value,
+                reusable: payload.reusable,
+                plan_ids: payload.plan_ids,
+            },
+        )
         .await
         .map_err(|e| {
             log::error!("Error creating coupon: {e}");
@@ -186,13 +189,16 @@ pub(crate) async fn update_coupon(
 
     let coupon = app_state
         .store
-        .update_coupon(CouponPatch {
-            id: coupon_id,
-            tenant_id: authorized_state.tenant_id,
-            description: payload.description,
-            discount,
-            plan_ids: payload.plan_ids,
-        })
+        .update_coupon(
+            authorized_state.as_actor(),
+            CouponPatch {
+                id: coupon_id,
+                tenant_id: authorized_state.tenant_id,
+                description: payload.description,
+                discount,
+                plan_ids: payload.plan_ids,
+            },
+        )
         .await
         .map_err(|e| {
             log::error!("Error updating coupon: {e}");
@@ -225,12 +231,15 @@ pub(crate) async fn archive_coupon(
 ) -> Result<impl IntoResponse, RestApiError> {
     app_state
         .store
-        .update_coupon_status(CouponStatusPatch {
-            id: coupon_id,
-            tenant_id: authorized_state.tenant_id,
-            archived_at: Some(Some(chrono::Utc::now().naive_utc())),
-            disabled: None,
-        })
+        .update_coupon_status(
+            authorized_state.as_actor(),
+            CouponStatusPatch {
+                id: coupon_id,
+                tenant_id: authorized_state.tenant_id,
+                archived_at: Some(Some(chrono::Utc::now().naive_utc())),
+                disabled: None,
+            },
+        )
         .await
         .map_err(|e| {
             log::error!("Error archiving coupon: {e}");
@@ -260,12 +269,15 @@ pub(crate) async fn unarchive_coupon(
 ) -> Result<impl IntoResponse, RestApiError> {
     app_state
         .store
-        .update_coupon_status(CouponStatusPatch {
-            id: coupon_id,
-            tenant_id: authorized_state.tenant_id,
-            archived_at: Some(None),
-            disabled: None,
-        })
+        .update_coupon_status(
+            authorized_state.as_actor(),
+            CouponStatusPatch {
+                id: coupon_id,
+                tenant_id: authorized_state.tenant_id,
+                archived_at: Some(None),
+                disabled: None,
+            },
+        )
         .await
         .map_err(|e| {
             log::error!("Error unarchiving coupon: {e}");
@@ -297,12 +309,15 @@ pub(crate) async fn disable_coupon(
 ) -> Result<impl IntoResponse, RestApiError> {
     app_state
         .store
-        .update_coupon_status(CouponStatusPatch {
-            id: coupon_id,
-            tenant_id: authorized_state.tenant_id,
-            archived_at: None,
-            disabled: Some(true),
-        })
+        .update_coupon_status(
+            authorized_state.as_actor(),
+            CouponStatusPatch {
+                id: coupon_id,
+                tenant_id: authorized_state.tenant_id,
+                archived_at: None,
+                disabled: Some(true),
+            },
+        )
         .await
         .map_err(|e| {
             log::error!("Error disabling coupon: {e}");
@@ -334,12 +349,15 @@ pub(crate) async fn enable_coupon(
 ) -> Result<impl IntoResponse, RestApiError> {
     app_state
         .store
-        .update_coupon_status(CouponStatusPatch {
-            id: coupon_id,
-            tenant_id: authorized_state.tenant_id,
-            archived_at: None,
-            disabled: Some(false),
-        })
+        .update_coupon_status(
+            authorized_state.as_actor(),
+            CouponStatusPatch {
+                id: coupon_id,
+                tenant_id: authorized_state.tenant_id,
+                archived_at: None,
+                disabled: Some(false),
+            },
+        )
         .await
         .map_err(|e| {
             log::error!("Error enabling coupon: {e}");

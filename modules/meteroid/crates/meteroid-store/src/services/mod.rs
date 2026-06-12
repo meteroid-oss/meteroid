@@ -1,4 +1,5 @@
 use crate::domain::entitlements::EffectiveEntitlement;
+use crate::domain::entity_activity::Actor;
 use crate::domain::{CheckoutSession, Coupon};
 use crate::errors::StoreError;
 use crate::repositories::coupons::CouponInterface;
@@ -181,6 +182,7 @@ impl ServicesEdge {
 
     pub async fn mark_invoice_as_paid(
         &self,
+        actor: Actor,
         tenant_id: TenantId,
         invoice_id: InvoiceId,
         total_amount: Decimal,
@@ -188,12 +190,20 @@ impl ServicesEdge {
         reference: Option<String>,
     ) -> StoreResult<crate::domain::DetailedInvoice> {
         self.services
-            .mark_invoice_as_paid(tenant_id, invoice_id, total_amount, payment_date, reference)
+            .mark_invoice_as_paid(
+                actor,
+                tenant_id,
+                invoice_id,
+                total_amount,
+                payment_date,
+                reference,
+            )
             .await
     }
 
     pub async fn add_manual_payment_transaction(
         &self,
+        actor: Actor,
         tenant_id: TenantId,
         invoice_id: InvoiceId,
         amount: Decimal,
@@ -201,7 +211,14 @@ impl ServicesEdge {
         reference: Option<String>,
     ) -> StoreResult<PaymentTransaction> {
         self.services
-            .add_manual_payment_transaction(tenant_id, invoice_id, amount, payment_date, reference)
+            .add_manual_payment_transaction(
+                actor,
+                tenant_id,
+                invoice_id,
+                amount,
+                payment_date,
+                reference,
+            )
             .await
     }
 

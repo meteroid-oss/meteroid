@@ -1,13 +1,14 @@
 use crate::StoreResult;
 use crate::domain::entitlements::Entitlement;
+use crate::domain::entity_activity::{Activity, ActivityType, Actor, AuditInput, EntityType};
 use crate::domain::{
     PaginatedVec, PaginationRequest, Quote, QuoteNew, QuoteWithCustomer,
     enums::QuoteStatusEnum,
     outbox_event::OutboxEvent,
     pgmq::{PgmqQueue, SendEmailRequest},
     quotes::{
-        DetailedQuote, QuoteActivity, QuoteActivityNew, QuoteAddOn, QuoteAddOnNew, QuoteCouponNew,
-        QuotePriceComponent, QuotePriceComponentNew, QuoteSignature, QuoteSignatureNew,
+        DetailedQuote, QuoteAddOn, QuoteAddOnNew, QuoteCouponNew, QuotePriceComponent,
+        QuotePriceComponentNew, QuoteSignature, QuoteSignatureNew,
     },
 };
 use crate::errors::{StoreError, StoreErrorReport};
@@ -16,7 +17,7 @@ use crate::repositories::pgmq::PgmqInterface;
 use crate::store::Store;
 use common_domain::ids::{
     BaseId, CustomerId, EntitlementEntityId, QuoteId, QuotePriceComponentId, StoredDocumentId,
-    TenantId,
+    TenantId, UserId,
 };
 use diesel_async::scoped_futures::ScopedFutureExt;
 use diesel_models::entitlements::EntitlementRow;
@@ -24,8 +25,8 @@ use diesel_models::invoicing_entities::InvoicingEntityRow;
 use diesel_models::quote_add_ons::{QuoteAddOnRow, QuoteAddOnRowNew};
 use diesel_models::quote_coupons::{QuoteCouponRow, QuoteCouponRowNew};
 use diesel_models::quotes::{
-    QuoteActivityRow, QuoteActivityRowNew, QuoteComponentRow, QuoteComponentRowNew, QuoteRow,
-    QuoteRowNew, QuoteRowUpdate, QuoteSignatureRow, QuoteSignatureRowNew,
+    QuoteComponentRow, QuoteComponentRowNew, QuoteRow, QuoteRowNew, QuoteRowUpdate,
+    QuoteSignatureRow, QuoteSignatureRowNew,
 };
 use error_stack::Report;
 
@@ -76,32 +77,36 @@ pub trait QuotesInterface {
         sharing_key: String,
     ) -> StoreResult<()>;
 
-    async fn accept_quote(&self, quote_id: QuoteId, tenant_id: TenantId) -> StoreResult<Quote>;
+    async fn accept_quote(
+        &self,
+        actor: Actor,
+        quote_id: QuoteId,
+        tenant_id: TenantId,
+    ) -> StoreResult<Quote>;
 
     async fn decline_quote(
         &self,
+        actor: Actor,
         quote_id: QuoteId,
         tenant_id: TenantId,
         reason: Option<String>,
     ) -> StoreResult<Quote>;
 
-    async fn publish_quote(&self, quote_id: QuoteId, tenant_id: TenantId) -> StoreResult<Quote>;
+    async fn publish_quote(
+        &self,
+        actor: Actor,
+        quote_id: QuoteId,
+        tenant_id: TenantId,
+    ) -> StoreResult<Quote>;
 
     async fn insert_quote_signature(
         &self,
+        actor: Actor,
         signature: QuoteSignatureNew,
+        tenant_id: TenantId,
     ) -> StoreResult<QuoteSignature>;
 
     async fn list_quote_signatures(&self, quote_id: QuoteId) -> StoreResult<Vec<QuoteSignature>>;
-
-    async fn insert_quote_activity(&self, activity: QuoteActivityNew)
-    -> StoreResult<QuoteActivity>;
-
-    async fn list_quote_activities(
-        &self,
-        quote_id: QuoteId,
-        limit: Option<i64>,
-    ) -> StoreResult<Vec<QuoteActivity>>;
 
     async fn insert_quote_components(
         &self,
@@ -131,6 +136,7 @@ pub trait QuotesInterface {
     /// Only quotes in Draft or Pending status can be cancelled.
     async fn cancel_quote(
         &self,
+        actor: Actor,
         quote_id: QuoteId,
         tenant_id: TenantId,
         reason: Option<String>,
@@ -140,6 +146,7 @@ pub trait QuotesInterface {
     /// This publishes the quote (sets status to Pending if in Draft) and queues the email.
     async fn send_quote(
         &self,
+        actor: Actor,
         quote_id: QuoteId,
         tenant_id: TenantId,
         custom_message: Option<String>,
@@ -362,11 +369,6 @@ impl QuotesInterface for Store {
             .map_err(Into::<Report<StoreError>>::into)
             .map(|l| l.into_iter().map(std::convert::Into::into).collect())?;
 
-        let activities = QuoteActivityRow::list_by_quote_id(&mut conn, quote_id, None)
-            .await
-            .map_err(Into::<Report<StoreError>>::into)
-            .map(|l| l.into_iter().map(std::convert::Into::into).collect())?;
-
         let invoicing_entity = InvoicingEntityRow::get_invoicing_entity_by_id_and_tenant(
             &mut conn,
             quote_with_customer.customer.invoicing_entity_id,
@@ -402,7 +404,6 @@ impl QuotesInterface for Store {
             add_ons,
             coupons,
             signatures,
-            activities,
             entitlements,
         })
     }
@@ -483,8 +484,14 @@ impl QuotesInterface for Store {
             .map_err(Into::<Report<StoreError>>::into)
     }
 
-    async fn accept_quote(&self, quote_id: QuoteId, tenant_id: TenantId) -> StoreResult<Quote> {
+    async fn accept_quote(
+        &self,
+        actor: Actor,
+        quote_id: QuoteId,
+        tenant_id: TenantId,
+    ) -> StoreResult<Quote> {
         self.transaction(|conn| {
+            let actor = &actor;
             async move {
                 let now = chrono::Utc::now().naive_utc();
 
@@ -525,33 +532,31 @@ impl QuotesInterface for Store {
                     .await
                     .map_err(Into::<Report<StoreError>>::into)?;
 
-                // Log activity
-                let activity = QuoteActivityNew {
-                    quote_id,
-                    activity_type: "status_changed".to_string(),
-                    description: "Quote accepted after all recipients signed".to_string(),
-                    actor_type: "system".to_string(),
-                    actor_id: None,
-                    actor_name: None,
-                    ip_address: None,
-                    user_agent: None,
-                };
-
-                let activity_row: QuoteActivityRowNew = activity.into();
-                activity_row
-                    .insert(conn)
-                    .await
-                    .map_err(Into::<Report<StoreError>>::into)?;
-
-                // Emit QuoteAccepted event if create_subscription_on_acceptance is true
                 let should_create_subscription = updated_row.create_subscription_on_acceptance;
                 let quote: Quote = updated_row.try_into()?;
 
                 if should_create_subscription {
+                    // Outbox path also records the audit row (quote.accepted).
                     self.internal
-                        .insert_outbox_events_tx(
+                        .record_outbox_batch_tx(
                             conn,
+                            tenant_id,
+                            actor,
                             vec![OutboxEvent::quote_accepted(quote.clone().into())],
+                        )
+                        .await?;
+                } else {
+                    // No outbox event in this branch; write the audit row directly.
+                    self.internal
+                        .record_audit_tx(
+                            conn,
+                            tenant_id,
+                            actor,
+                            AuditInput::Activity(Activity::new(
+                                ActivityType::QuoteAccepted,
+                                EntityType::Quote,
+                                quote_id.as_uuid(),
+                            )),
                         )
                         .await?;
                 }
@@ -565,11 +570,13 @@ impl QuotesInterface for Store {
 
     async fn decline_quote(
         &self,
+        actor: Actor,
         quote_id: QuoteId,
         tenant_id: TenantId,
-        reason: Option<String>, // TODO save it in quote ?
+        reason: Option<String>,
     ) -> StoreResult<Quote> {
         self.transaction(|conn| {
+            let actor = &actor;
             async move {
                 let now = chrono::Utc::now().naive_utc();
 
@@ -585,26 +592,18 @@ impl QuotesInterface for Store {
                     .await
                     .map_err(Into::<Report<StoreError>>::into)?;
 
-                // Log activity
-                let description = reason.map_or("Quote declined".to_string(), |r| {
-                    format!("Quote declined: {r}")
-                });
-                let activity = QuoteActivityNew {
-                    quote_id,
-                    activity_type: "declined".to_string(),
-                    description,
-                    actor_type: "customer".to_string(),
-                    actor_id: None,
-                    actor_name: None,
-                    ip_address: None,
-                    user_agent: None,
-                };
-
-                let activity_row: QuoteActivityRowNew = activity.into();
-                activity_row
-                    .insert(conn)
-                    .await
-                    .map_err(Into::<Report<StoreError>>::into)?;
+                let metadata = reason.map(|r| serde_json::json!({ "reason": r }));
+                let mut activity = Activity::new(
+                    ActivityType::QuoteDeclined,
+                    EntityType::Quote,
+                    quote_id.as_uuid(),
+                );
+                if let Some(m) = metadata {
+                    activity = activity.with_metadata(m);
+                }
+                self.internal
+                    .record_audit_tx(conn, tenant_id, actor, AuditInput::Activity(activity))
+                    .await?;
 
                 updated_row.try_into()
             }
@@ -613,12 +612,17 @@ impl QuotesInterface for Store {
         .await
     }
 
-    async fn publish_quote(&self, quote_id: QuoteId, tenant_id: TenantId) -> StoreResult<Quote> {
+    async fn publish_quote(
+        &self,
+        actor: Actor,
+        quote_id: QuoteId,
+        tenant_id: TenantId,
+    ) -> StoreResult<Quote> {
         self.transaction(|conn| {
+            let actor = &actor;
             async move {
                 let now = chrono::Utc::now().naive_utc();
 
-                // Update quote status to Pending
                 let update = QuoteRowUpdate {
                     status: Some(diesel_models::enums::QuoteStatusEnum::Pending),
                     updated_at: Some(now),
@@ -629,23 +633,18 @@ impl QuotesInterface for Store {
                     .await
                     .map_err(Into::<Report<StoreError>>::into)?;
 
-                // Log activity
-                let activity = QuoteActivityNew {
-                    quote_id,
-                    activity_type: "published".to_string(),
-                    description: "Quote published and made available to recipients".to_string(),
-                    actor_type: "user".to_string(),
-                    actor_id: None,
-                    actor_name: None,
-                    ip_address: None,
-                    user_agent: None,
-                };
-
-                let activity_row: QuoteActivityRowNew = activity.into();
-                activity_row
-                    .insert(conn)
-                    .await
-                    .map_err(Into::<Report<StoreError>>::into)?;
+                self.internal
+                    .record_audit_tx(
+                        conn,
+                        tenant_id,
+                        actor,
+                        AuditInput::Activity(Activity::new(
+                            ActivityType::QuotePublished,
+                            EntityType::Quote,
+                            quote_id.as_uuid(),
+                        )),
+                    )
+                    .await?;
 
                 updated_row.try_into()
             }
@@ -656,25 +655,32 @@ impl QuotesInterface for Store {
 
     async fn insert_quote_signature(
         &self,
+        actor: Actor,
         signature: QuoteSignatureNew,
+        tenant_id: TenantId,
     ) -> StoreResult<QuoteSignature> {
         self.transaction(|conn| {
+            let actor = &actor;
             async move {
-                let activity = QuoteActivityNew {
-                    quote_id: signature.quote_id,
-                    activity_type: "signature_added".to_string(),
-                    description: format!("Quote signed by {}", signature.signed_by_name.clone()),
-                    actor_type: "recipient".to_string(),
-                    actor_id: Some(signature.signed_by_email.clone()),
-                    actor_name: Some(signature.signed_by_name.clone()),
-                    ip_address: signature.ip_address.clone(),
-                    user_agent: signature.user_agent.clone(),
-                };
-                let activity_row: QuoteActivityRowNew = activity.into();
-                activity_row
-                    .insert(conn)
-                    .await
-                    .map_err(Into::<Report<StoreError>>::into)?;
+                // Signature is forensically binding (electronic signature on a quote)
+                // — fold the IP / UA into the activity metadata so the audit row
+                // still captures the signing context. Pure auth events live in
+                // the dedicated auth audit log; entity_activity has no ip/ua cols.
+                let metadata = serde_json::json!({
+                    "signed_by_name": signature.signed_by_name,
+                    "signed_by_email": signature.signed_by_email,
+                    "signed_from_ip": signature.ip_address,
+                    "signed_with_ua": signature.user_agent,
+                });
+                let activity = Activity::new(
+                    ActivityType::QuoteSignatureAdded,
+                    EntityType::Quote,
+                    signature.quote_id.as_uuid(),
+                )
+                .with_metadata(metadata);
+                self.internal
+                    .record_audit_tx(conn, tenant_id, actor, AuditInput::Activity(activity))
+                    .await?;
 
                 let signature_row: QuoteSignatureRowNew = signature.into();
                 signature_row
@@ -692,33 +698,6 @@ impl QuotesInterface for Store {
         let mut conn = self.get_conn().await?;
 
         QuoteSignatureRow::list_by_quote_id(&mut conn, quote_id)
-            .await
-            .map_err(Into::<Report<StoreError>>::into)
-            .map(|rows| rows.into_iter().map(std::convert::Into::into).collect())
-    }
-
-    async fn insert_quote_activity(
-        &self,
-        activity: QuoteActivityNew,
-    ) -> StoreResult<QuoteActivity> {
-        let mut conn = self.get_conn().await?;
-
-        let activity_row: QuoteActivityRowNew = activity.into();
-        activity_row
-            .insert(&mut conn)
-            .await
-            .map_err(Into::<Report<StoreError>>::into)
-            .map(std::convert::Into::into)
-    }
-
-    async fn list_quote_activities(
-        &self,
-        quote_id: QuoteId,
-        limit: Option<i64>,
-    ) -> StoreResult<Vec<QuoteActivity>> {
-        let mut conn = self.get_conn().await?;
-
-        QuoteActivityRow::list_by_quote_id(&mut conn, quote_id, limit)
             .await
             .map_err(Into::<Report<StoreError>>::into)
             .map(|rows| rows.into_iter().map(std::convert::Into::into).collect())
@@ -840,7 +819,6 @@ impl QuotesInterface for Store {
                         conn,
                         &internal,
                         tenant_id,
-                        created_by,
                         mat.product_family_id,
                         &mat.currency,
                         false,
@@ -888,10 +866,27 @@ impl QuotesInterface for Store {
                         entitlement_specs,
                         EntitlementEntityId::Quote(quote_id),
                         tenant_id,
-                        created_by,
                     )
                     .await?;
                 }
+
+                let customer_id_for_audit = created_quote.customer_id;
+                let activity = Activity::new(
+                    ActivityType::QuoteCreated,
+                    EntityType::Quote,
+                    quote_id.as_uuid(),
+                )
+                .agg_customer(customer_id_for_audit);
+                self.internal
+                    .record_audit_tx(
+                        conn,
+                        tenant_id,
+                        &Actor::User {
+                            id: UserId::from(created_by),
+                        },
+                        AuditInput::Activity(activity),
+                    )
+                    .await?;
 
                 created_quote.try_into()
             }
@@ -902,11 +897,13 @@ impl QuotesInterface for Store {
 
     async fn cancel_quote(
         &self,
+        actor: Actor,
         quote_id: QuoteId,
         tenant_id: TenantId,
         reason: Option<String>,
     ) -> StoreResult<Quote> {
         self.transaction(|conn| {
+            let actor = &actor;
             async move {
                 // First, get the quote to validate its status
                 let quote = QuoteRow::find_by_id(conn, tenant_id, quote_id)
@@ -955,26 +952,18 @@ impl QuotesInterface for Store {
                     .await
                     .map_err(Into::<Report<StoreError>>::into)?;
 
-                // Log activity
-                let description = reason.map_or("Quote cancelled".to_string(), |r| {
-                    format!("Quote cancelled: {r}")
-                });
-                let activity = QuoteActivityNew {
-                    quote_id,
-                    activity_type: "cancelled".to_string(),
-                    description,
-                    actor_type: "user".to_string(),
-                    actor_id: None,
-                    actor_name: None,
-                    ip_address: None,
-                    user_agent: None,
-                };
-
-                let activity_row: QuoteActivityRowNew = activity.into();
-                activity_row
-                    .insert(conn)
-                    .await
-                    .map_err(Into::<Report<StoreError>>::into)?;
+                let metadata = reason.map(|r| serde_json::json!({ "reason": r }));
+                let mut activity = Activity::new(
+                    ActivityType::QuoteCancelled,
+                    EntityType::Quote,
+                    quote_id.as_uuid(),
+                );
+                if let Some(m) = metadata {
+                    activity = activity.with_metadata(m);
+                }
+                self.internal
+                    .record_audit_tx(conn, tenant_id, actor, AuditInput::Activity(activity))
+                    .await?;
 
                 updated_row.try_into()
             }
@@ -986,11 +975,13 @@ impl QuotesInterface for Store {
     async fn send_quote(
         // TODO rename publish_and_send ?
         &self,
+        actor: Actor,
         quote_id: QuoteId,
         tenant_id: TenantId,
         custom_message: Option<String>,
     ) -> StoreResult<Quote> {
         self.transaction(|conn| {
+            let actor = &actor;
             async move {
                 // Get the quote with its details
                 let quote = QuoteRow::find_by_id(conn, tenant_id, quote_id)
@@ -1110,22 +1101,20 @@ impl QuotesInterface for Store {
                 self.pgmq_send_batch_tx(conn, PgmqQueue::SendEmailRequest, email_messages)
                     .await?;
 
-                // Log activity
-                let activity = QuoteActivityNew {
-                    quote_id,
-                    activity_type: "sent".to_string(),
-                    description: "Quote sent to recipients via email".to_string(),
-                    actor_type: "user".to_string(),
-                    actor_id: None,
-                    actor_name: None,
-                    ip_address: None,
-                    user_agent: None,
-                };
-                let activity_row: QuoteActivityRowNew = activity.into();
-                activity_row
-                    .insert(conn)
-                    .await
-                    .map_err(Into::<Report<StoreError>>::into)?;
+                let metadata = custom_message
+                    .as_ref()
+                    .map(|m| serde_json::json!({ "custom_message": m }));
+                let mut activity = Activity::new(
+                    ActivityType::QuoteSent,
+                    EntityType::Quote,
+                    quote_id.as_uuid(),
+                );
+                if let Some(m) = metadata {
+                    activity = activity.with_metadata(m);
+                }
+                self.internal
+                    .record_audit_tx(conn, tenant_id, actor, AuditInput::Activity(activity))
+                    .await?;
 
                 // Return the updated quote
                 let updated_quote = QuoteRow::find_by_id(conn, tenant_id, quote_id)

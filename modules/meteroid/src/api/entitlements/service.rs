@@ -35,7 +35,6 @@ impl EntitlementsService for EntitlementsComponents {
         request: Request<CreateFeatureRequest>,
     ) -> Result<Response<CreateFeatureResponse>, Status> {
         let tenant_id = request.tenant()?;
-        let actor = request.actor()?;
         let inner = request.into_inner();
 
         let feature_type = mapping::feature_type_from_proto(inner.feature_type)?;
@@ -54,7 +53,6 @@ impl EntitlementsService for EntitlementsComponents {
                 name: inner.name,
                 description: inner.description,
                 feature_type,
-                created_by: actor,
                 entitlement,
             })
             .await
@@ -206,7 +204,6 @@ impl EntitlementsService for EntitlementsComponents {
         request: Request<CreateEntitlementRequest>,
     ) -> Result<Response<CreateEntitlementResponse>, Status> {
         let tenant_id = request.tenant()?;
-        let actor = request.actor()?;
         let inner = request.into_inner();
 
         let feature_id = FeatureId::from_proto(&inner.feature_id)?;
@@ -220,7 +217,6 @@ impl EntitlementsService for EntitlementsComponents {
                 feature_id,
                 entity,
                 value,
-                created_by: actor,
             })
             .await
             .map_err(EntitlementApiError::from)?;
@@ -577,7 +573,6 @@ impl EntitlementsService for EntitlementsComponents {
         request: Request<BatchCreateEntitlementsRequest>,
     ) -> Result<Response<BatchCreateEntitlementsResponse>, Status> {
         let tenant_id = request.tenant()?;
-        let actor = request.actor()?;
         let inner = request.into_inner();
 
         let entity = mapping::entity_from_proto(inner.entity.as_ref())?;
@@ -589,7 +584,7 @@ impl EntitlementsService for EntitlementsComponents {
 
         let created = self
             .store
-            .batch_create_entitlements(tenant_id, entity, specs, actor)
+            .batch_create_entitlements(tenant_id, entity, specs)
             .await
             .map_err(EntitlementApiError::from)?;
 

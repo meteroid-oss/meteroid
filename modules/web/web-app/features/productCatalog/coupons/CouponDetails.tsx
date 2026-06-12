@@ -28,6 +28,7 @@ import { CopyToClipboardButton } from '@/components/CopyToClipboard'
 import { CurrencySelect } from '@/components/CurrencySelect'
 import { LocalId } from '@/components/LocalId'
 import { Property } from '@/components/Property'
+import { EntityActivityTimeline } from '@/features/activity/EntityActivityTimeline'
 import { useQueryState } from '@/hooks/useQueryState'
 import { useZodForm } from '@/hooks/useZodForm'
 import { useQuery } from '@/lib/connectrpc'
@@ -397,6 +398,19 @@ export const CouponDetails: FunctionComponent = () => {
               </div>
             </form>
           </Form>
+        </CardContent>
+      </Card>
+
+      <Card>
+        <CardHeader>
+          <CardTitle>Activity</CardTitle>
+        </CardHeader>
+        <CardContent>
+          <EntityActivityTimeline
+            entityType="coupon"
+            entityId={coupon.id}
+            emptyLabel="No activity yet for this coupon"
+          />
         </CardContent>
       </Card>
     </div>

@@ -1,6 +1,7 @@
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@md/ui'
 import { FunctionComponent } from 'react'
 
+import { ActivityPage } from '@/features/activity/ActivityPage'
 import { CompanyTab } from '@/features/settings/tabs/CompanyTab'
 import { GeneralTab } from '@/features/settings/tabs/GeneralTab'
 import { IntegrationsTab } from '@/features/settings/tabs/IntegrationsTab'
@@ -27,6 +28,7 @@ export const TenantSettings: FunctionComponent = () => {
             <TabsTrigger value="payments">Payment methods</TabsTrigger>
             <TabsTrigger value="taxes">Taxes</TabsTrigger>
             {!isExpress && <TabsTrigger value="users">Members</TabsTrigger>}
+            {!isExpress && <TabsTrigger value="activity">Audit log</TabsTrigger>}
           </TabsList>
           {!isExpress && (
             <TabsContent value="general">
@@ -51,6 +53,11 @@ export const TenantSettings: FunctionComponent = () => {
           {!isExpress && (
             <TabsContent value="users">
               <UsersTab />
+            </TabsContent>
+          )}
+          {!isExpress && (
+            <TabsContent value="activity">
+              <ActivityPage />
             </TabsContent>
           )}
         </Tabs>

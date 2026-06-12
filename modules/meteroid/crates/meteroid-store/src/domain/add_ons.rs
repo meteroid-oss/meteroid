@@ -211,7 +211,6 @@ pub struct AddOnNew {
     pub description: Option<String>,
     pub self_serviceable: bool,
     pub max_instances_per_subscription: Option<i32>,
-    pub created_by: uuid::Uuid,
     pub entitlements: Vec<crate::domain::entitlements::EntitlementSpec>,
 }
 

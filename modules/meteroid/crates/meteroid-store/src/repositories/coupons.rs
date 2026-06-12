@@ -1,4 +1,5 @@
 use crate::domain::coupons::{Coupon, CouponFilter, CouponNew, CouponPatch, CouponStatusPatch};
+use crate::domain::entity_activity::Actor;
 use crate::domain::outbox_event::OutboxEvent;
 use crate::domain::{AppliedCouponForDisplay, PaginatedVec, PaginationRequest};
 use crate::errors::StoreError;
@@ -22,10 +23,14 @@ pub trait CouponInterface {
     ) -> StoreResult<PaginatedVec<Coupon>>;
     async fn get_coupon_by_id(&self, tenant_id: TenantId, id: CouponId) -> StoreResult<Coupon>;
 
-    async fn create_coupon(&self, coupon: CouponNew) -> StoreResult<Coupon>;
+    async fn create_coupon(&self, actor: Actor, coupon: CouponNew) -> StoreResult<Coupon>;
     async fn delete_coupon(&self, tenant_id: TenantId, id: CouponId) -> StoreResult<()>;
-    async fn update_coupon(&self, coupon: CouponPatch) -> StoreResult<Coupon>;
-    async fn update_coupon_status(&self, coupon: CouponStatusPatch) -> StoreResult<Coupon>;
+    async fn update_coupon(&self, actor: Actor, coupon: CouponPatch) -> StoreResult<Coupon>;
+    async fn update_coupon_status(
+        &self,
+        actor: Actor,
+        coupon: CouponStatusPatch,
+    ) -> StoreResult<Coupon>;
 
     async fn list_applied_coupons_by_coupon_id(
         &self,
@@ -111,15 +116,17 @@ impl CouponInterface for Store {
         Ok(coupon)
     }
 
-    async fn create_coupon(&self, coupon: CouponNew) -> StoreResult<Coupon> {
+    async fn create_coupon(&self, actor: Actor, coupon: CouponNew) -> StoreResult<Coupon> {
         let mut conn = self.get_conn().await?;
 
+        let tenant_id = coupon.tenant_id;
         let plan_ids = coupon.plan_ids.clone();
         let coupon_row: CouponRowNew = coupon.try_into()?;
         let coupon_id = coupon_row.id;
 
         let coupon = self
             .transaction_with(&mut conn, |conn| {
+                let actor = &actor;
                 async move {
                     let row = coupon_row
                         .insert(conn)
@@ -143,8 +150,10 @@ impl CouponInterface for Store {
                     coupon.plan_ids = plan_ids;
 
                     self.internal
-                        .insert_outbox_events_tx(
+                        .record_outbox_batch_tx(
                             conn,
+                            tenant_id,
+                            actor,
                             vec![OutboxEvent::coupon_created(coupon.clone().into())],
                         )
                         .await?;
@@ -167,14 +176,16 @@ impl CouponInterface for Store {
             .map(|_| ())
     }
 
-    async fn update_coupon(&self, coupon: CouponPatch) -> StoreResult<Coupon> {
+    async fn update_coupon(&self, actor: Actor, coupon: CouponPatch) -> StoreResult<Coupon> {
         let mut conn = self.get_conn().await?;
 
+        let tenant_id = coupon.tenant_id;
         let coupon_id = coupon.id;
         let plan_ids = coupon.plan_ids.clone();
         let coupon_row: CouponRowPatch = coupon.try_into()?;
 
         self.transaction_with(&mut conn, |conn| {
+            let actor = &actor;
             async move {
                 let row = coupon_row
                     .patch(conn)
@@ -209,8 +220,10 @@ impl CouponInterface for Store {
                 coupon.plan_ids = final_plan_ids;
 
                 self.internal
-                    .insert_outbox_events_tx(
+                    .record_outbox_batch_tx(
                         conn,
+                        tenant_id,
+                        actor,
                         vec![OutboxEvent::coupon_updated(coupon.clone().into())],
                     )
                     .await?;
@@ -222,14 +235,20 @@ impl CouponInterface for Store {
         .await
     }
 
-    async fn update_coupon_status(&self, coupon: CouponStatusPatch) -> StoreResult<Coupon> {
+    async fn update_coupon_status(
+        &self,
+        actor: Actor,
+        coupon: CouponStatusPatch,
+    ) -> StoreResult<Coupon> {
         let mut conn = self.get_conn().await?;
 
+        let tenant_id = coupon.tenant_id;
         let coupon_id = coupon.id;
         let is_archiving = coupon.archived_at.as_ref().is_some_and(|v| v.is_some());
         let coupon_row: CouponStatusRowPatch = coupon.into();
 
         self.transaction_with(&mut conn, |conn| {
+            let actor = &actor;
             async move {
                 let row = coupon_row
                     .patch(conn)
@@ -245,8 +264,10 @@ impl CouponInterface for Store {
 
                 if is_archiving {
                     self.internal
-                        .insert_outbox_events_tx(
+                        .record_outbox_batch_tx(
                             conn,
+                            tenant_id,
+                            actor,
                             vec![OutboxEvent::coupon_archived(coupon.clone().into())],
                         )
                         .await?;

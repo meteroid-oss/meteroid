@@ -65,17 +65,24 @@ pub struct SignInData {
 pub struct ConnectHubspotData {
     pub tenant_id: TenantId,
     pub auto_sync: bool,
+    // `serde(default)` so verifier rows persisted before this field existed
+    // still deserialize; the callback falls back to System actor in that case.
+    #[serde(default)]
+    pub initiated_by: Option<Uuid>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct ConnectPennylaneData {
     pub tenant_id: TenantId,
+    #[serde(default)]
+    pub initiated_by: Option<Uuid>,
 }
 
 json_value_serde!(OauthVerifierData);
 
 pub struct OauthConnected {
     pub connector: ConnectorMeta,
+    pub initiated_by: Option<Uuid>,
 }
 
 pub struct OauthConnection {

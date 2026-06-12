@@ -4,13 +4,13 @@ use std::time::Duration;
 
 use async_trait::async_trait;
 use bytes::Bytes;
+use common_domain::actor::Actor;
 use common_domain::ids::{AliasOr, BaseId, CustomerId, PlanId, PlanVersionId, TenantId};
 use csv::ReaderBuilder;
 use meteroid_store::Services;
 use meteroid_store::domain::CreateSubscription;
 use meteroid_store::domain::batch_jobs::{BatchJob, BatchJobChunk};
 use meteroid_store::repositories::{CustomersInterface, PlansInterface};
-use uuid::Uuid;
 
 use crate::services::csv_ingest::normalize_csv_encoding;
 use crate::services::idempotency::IdempotencyService;
@@ -236,7 +236,6 @@ async fn validate_plan_versions(
 }
 
 fn map_to_domain(
-    actor: Uuid,
     csv: NewSubscriptionCsv,
     customer_id: CustomerId,
     plan_version_id: PlanVersionId,
@@ -247,7 +246,6 @@ fn map_to_domain(
         subscription: SubscriptionNew {
             customer_id,
             plan_version_id,
-            created_by: actor,
             net_terms: csv.net_terms,
             invoice_memo: None,
             invoice_threshold: None,
@@ -431,12 +429,7 @@ impl BatchJobProcessor for SubscriptionCsvProcessor {
 
             insert_row_indices.push(row.row_index);
             insert_idempotency_keys.push(idempotency_key);
-            to_insert.push(map_to_domain(
-                job.created_by,
-                row.csv,
-                row.customer_id,
-                row.plan_version_id,
-            ));
+            to_insert.push(map_to_domain(row.csv, row.customer_id, row.plan_version_id));
         }
 
         // Stage 5: Insert subscriptions
@@ -453,7 +446,12 @@ impl BatchJobProcessor for SubscriptionCsvProcessor {
 
             match self
                 .services
-                .insert_subscription_batch_tx(&mut conn, to_insert.clone(), job.tenant_id)
+                .insert_subscription_batch_tx(
+                    Actor::System,
+                    &mut conn,
+                    to_insert.clone(),
+                    job.tenant_id,
+                )
                 .await
             {
                 Ok(results) => {
@@ -489,7 +487,12 @@ impl BatchJobProcessor for SubscriptionCsvProcessor {
                     for (i, sub) in to_insert.into_iter().enumerate() {
                         match self
                             .services
-                            .insert_subscription_batch_tx(&mut retry_conn, vec![sub], job.tenant_id)
+                            .insert_subscription_batch_tx(
+                                Actor::System,
+                                &mut retry_conn,
+                                vec![sub],
+                                job.tenant_id,
+                            )
                             .await
                         {
                             Ok(results) => {

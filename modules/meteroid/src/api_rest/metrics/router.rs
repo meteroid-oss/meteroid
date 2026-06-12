@@ -135,21 +135,23 @@ pub(crate) async fn create_metric(
 
     let metric = app_state
         .store
-        .insert_billable_metric(domain::BillableMetricNew {
-            name: payload.name,
-            description: payload.description,
-            code: payload.code,
-            aggregation_type: payload.aggregation_type.into(),
-            aggregation_key: payload.aggregation_key,
-            unit_conversion_factor,
-            unit_conversion_rounding,
-            segmentation_matrix: payload.segmentation_matrix.map(Into::into),
-            usage_group_key: payload.usage_group_key,
-            created_by: authorized_state.actor.id(),
-            tenant_id: authorized_state.tenant_id,
-            product_family_id: payload.product_family_id,
-            product_id: payload.product_id,
-        })
+        .insert_billable_metric(
+            authorized_state.as_actor(),
+            domain::BillableMetricNew {
+                name: payload.name,
+                description: payload.description,
+                code: payload.code,
+                aggregation_type: payload.aggregation_type.into(),
+                aggregation_key: payload.aggregation_key,
+                unit_conversion_factor,
+                unit_conversion_rounding,
+                segmentation_matrix: payload.segmentation_matrix.map(Into::into),
+                usage_group_key: payload.usage_group_key,
+                tenant_id: authorized_state.tenant_id,
+                product_family_id: payload.product_family_id,
+                product_id: payload.product_id,
+            },
+        )
         .await
         .map_err(|e| {
             log::error!("Error creating metric: {e}");
@@ -196,6 +198,7 @@ pub(crate) async fn update_metric(
     let metric = app_state
         .store
         .update_billable_metric(
+            authorized_state.as_actor(),
             metric_id,
             authorized_state.tenant_id,
             domain::BillableMetricUpdate {
@@ -238,7 +241,11 @@ pub(crate) async fn archive_metric(
 ) -> Result<impl IntoResponse, RestApiError> {
     app_state
         .store
-        .archive_billable_metric(metric_id, authorized_state.tenant_id)
+        .archive_billable_metric(
+            authorized_state.as_actor(),
+            metric_id,
+            authorized_state.tenant_id,
+        )
         .await
         .map_err(|e| {
             log::error!("Error archiving metric: {e}");

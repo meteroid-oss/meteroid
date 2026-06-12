@@ -1,3 +1,4 @@
+use crate::domain::entity_activity::Actor;
 use crate::domain::enums::InvoiceType;
 use crate::domain::outbox_event::{InvoicePdfGeneratedEvent, OutboxEvent};
 use crate::domain::pgmq::{
@@ -134,6 +135,7 @@ pub trait InvoiceInterface {
 
     async fn void_invoice(
         &self,
+        actor: Actor,
         id: InvoiceId,
         tenant_id: TenantId,
     ) -> StoreResult<DetailedInvoice>;
@@ -465,10 +467,12 @@ impl InvoiceInterface for Store {
 
     async fn void_invoice(
         &self,
+        actor: Actor,
         id: InvoiceId,
         tenant_id: TenantId,
     ) -> StoreResult<DetailedInvoice> {
         self.transaction(|conn| {
+            let actor = &actor;
             async move {
                 // 1. Get and validate the invoice
                 let detailed_invoice = InvoiceRow::find_detailed_by_id(conn, tenant_id, id)
@@ -499,6 +503,7 @@ impl InvoiceInterface for Store {
                     self,
                     conn,
                     tenant_id,
+                    actor,
                     CreateCreditNoteTxParams {
                         invoice,
                         line_items: None, // Credit all line items
@@ -525,8 +530,10 @@ impl InvoiceInterface for Store {
 
                 // 6. Emit outbox event for voided invoice
                 self.internal
-                    .insert_outbox_events_tx(
+                    .record_outbox_batch_tx(
                         conn,
+                        tenant_id,
+                        actor,
                         vec![domain::outbox_event::OutboxEvent::invoice_voided(
                             (&voided_invoice.invoice).into(),
                         )],
@@ -759,10 +766,15 @@ async fn insert_invoice_batch_tx(
             .map_err(Into::into)
             .and_then(std::convert::TryInto::try_into)?;
 
+        // Invoice creation here is always system-triggered (billing pipeline,
+        // subscription activation, slot transactions). User-initiated invoice
+        // creation goes through a different path with a typed Actor.
         store
             .internal
-            .insert_outbox_events_tx(
+            .record_outbox_batch_tx(
                 tx,
+                final_invoice.tenant_id,
+                &Actor::System,
                 vec![OutboxEvent::invoice_created((&final_invoice).into())],
             )
             .await?;

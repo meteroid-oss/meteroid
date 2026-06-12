@@ -197,7 +197,6 @@ impl Services {
             plan_version_id: session.plan_version_id,
             version,
             created_at: Utc::now().naive_utc(),
-            created_by: session.created_by,
             net_terms,
             invoice_memo: session.invoice_memo.clone(),
             invoice_threshold: session.invoice_threshold,

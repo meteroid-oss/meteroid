@@ -1,5 +1,4 @@
 use chrono::NaiveDateTime;
-use uuid::Uuid;
 
 use common_domain::ids::{
     ConnectedAccountId, CustomerId, CustomerPaymentMethodId, InvoicingEntityId, TenantId,
@@ -13,9 +12,7 @@ pub struct CustomerRow {
     pub id: CustomerId,
     pub name: String,
     pub created_at: NaiveDateTime,
-    pub created_by: Uuid,
     pub updated_at: Option<NaiveDateTime>,
-    pub updated_by: Option<Uuid>,
     pub archived_at: Option<NaiveDateTime>,
     pub tenant_id: TenantId,
     pub alias: Option<String>,
@@ -26,7 +23,6 @@ pub struct CustomerRow {
     pub billing_address: Option<serde_json::Value>,
     pub shipping_address: Option<serde_json::Value>,
     pub invoicing_entity_id: InvoicingEntityId,
-    pub archived_by: Option<Uuid>,
     pub current_payment_method_id: Option<CustomerPaymentMethodId>,
     pub vat_number: Option<String>,
     pub invoicing_emails: Vec<Option<String>>,
@@ -54,7 +50,6 @@ pub struct CustomerBriefRow {
 pub struct CustomerRowNew {
     pub id: CustomerId,
     pub name: String,
-    pub created_by: Uuid,
     pub tenant_id: TenantId,
     pub alias: Option<String>,
     pub phone: Option<String>,
@@ -110,7 +105,6 @@ pub struct CustomerRowUpdate {
     pub invoicing_emails: Vec<Option<String>>,
     pub phone: Option<String>,
     pub currency: String,
-    pub updated_by: Uuid,
     pub billing_address: Option<serde_json::Value>,
     pub shipping_address: Option<serde_json::Value>,
     pub invoicing_entity_id: InvoicingEntityId,

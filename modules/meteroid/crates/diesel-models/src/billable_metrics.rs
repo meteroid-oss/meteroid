@@ -1,5 +1,4 @@
 use chrono::NaiveDateTime;
-use uuid::Uuid;
 
 use crate::enums::{BillingMetricAggregateEnum, UnitConversionRoundingEnum};
 
@@ -21,7 +20,6 @@ pub struct BillableMetricRow {
     pub segmentation_matrix: Option<serde_json::Value>,
     pub usage_group_key: Option<String>,
     pub created_at: NaiveDateTime,
-    pub created_by: Uuid,
     pub updated_at: Option<NaiveDateTime>,
     pub archived_at: Option<NaiveDateTime>,
     pub tenant_id: TenantId,
@@ -43,7 +41,6 @@ pub struct BillableMetricRowNew {
     pub unit_conversion_rounding: Option<UnitConversionRoundingEnum>,
     pub segmentation_matrix: Option<serde_json::Value>,
     pub usage_group_key: Option<String>,
-    pub created_by: Uuid,
     pub tenant_id: TenantId,
     pub product_family_id: ProductFamilyId,
     pub product_id: Option<ProductId>,

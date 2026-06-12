@@ -14,7 +14,6 @@ pub mod subscriptions {
         OnlineMethodConfig, OnlineMethodsConfig, PaymentMethodsConfig, PendingScheduledEvent,
     };
     use tonic::Status;
-    use uuid::Uuid;
 
     fn map_activation_condition_proto(
         e: proto2::ActivationCondition,
@@ -150,7 +149,6 @@ pub mod subscriptions {
             customer_alias: s.customer_alias,
             billing_day_anchor: u32::from(s.billing_day_anchor),
             trial_duration: s.trial_duration,
-            created_by: s.created_by.as_proto(),
             activated_at: s.activated_at.as_proto(),
             mrr_cents: s.mrr_cents,
             status,
@@ -174,7 +172,6 @@ pub mod subscriptions {
 
     pub(crate) fn create_proto_to_domain(
         param: proto2::CreateSubscription,
-        actor: &Uuid,
     ) -> Result<domain::CreateSubscription, Status> {
         let subscription_new = domain::SubscriptionNew {
             customer_id: CustomerId::from_proto(&param.customer_id)?,
@@ -186,7 +183,6 @@ pub mod subscriptions {
                 )?,
             ),
             plan_version_id: PlanVersionId::from_proto(param.plan_version_id)?,
-            created_by: *actor,
             net_terms: param.net_terms,
             invoice_memo: param.invoice_memo,
             invoice_threshold: rust_decimal::Decimal::from_proto_opt(param.invoice_threshold)?,
@@ -247,7 +243,6 @@ pub mod subscriptions {
             end_date: sub.end_date.as_proto(),
             plan_version_id: sub.plan_version_id.as_proto(),
             created_at: sub.created_at.as_proto(),
-            created_by: sub.created_by.as_proto(),
             net_terms: sub.net_terms as u32,
             invoice_memo: sub.invoice_memo,
             invoice_threshold: sub.invoice_threshold.as_proto(),
@@ -285,7 +280,6 @@ pub mod subscriptions {
                 customer_alias: sub.customer_alias,
                 billing_day_anchor: u32::from(sub.billing_day_anchor),
                 trial_duration: sub.trial_duration,
-                created_by: sub.created_by.as_proto(),
                 activated_at: sub.activated_at.as_proto(),
                 mrr_cents: sub.mrr_cents,
                 status,

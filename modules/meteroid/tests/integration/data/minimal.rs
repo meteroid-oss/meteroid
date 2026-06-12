@@ -70,7 +70,6 @@ pub async fn run_minimal_seed(pool: &PgPool) {
             id: ids::API_TOKEN_ID,
             name: "token-pD_".to_string(),
             created_at: NaiveDateTime::from_str("2024-01-03T00:00:00").expect("failed to parse api token date"),
-            created_by: ids::USER_ID,
             tenant_id: ids::TENANT_ID,
             hash: "$argon2id$v=19$m=19456,t=2,p=1$98CkbdqB8KNdlqryCBIx+g$nhTanF/4QsVnpPFvPHzshLPOGd7btYxXfq2UWB0xkiU".to_string(),
             hint: "pv_sand_9XzH...AbBG".to_string(),

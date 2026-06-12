@@ -8,5 +8,4 @@ message ApiToken {
   string name = 3;
   string hint = 4;
   string created_at = 5;
-  string created_by = 6;
 }

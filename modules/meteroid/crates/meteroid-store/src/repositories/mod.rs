@@ -31,6 +31,7 @@ pub mod customer_balance;
 pub mod customer_connection;
 pub mod dead_letter;
 pub mod entitlements;
+pub mod entity_activity;
 pub mod historical_rates;
 pub mod invoicing_entities;
 pub mod organizations;

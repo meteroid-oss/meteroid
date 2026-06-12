@@ -144,7 +144,8 @@ pub(crate) async fn create_customer(
     let created = app_state
         .store
         .insert_customer(
-            create_req_to_domain(authorized_state.actor.id(), payload)?,
+            authorized_state.as_actor(),
+            create_req_to_domain(payload)?,
             authorized_state.tenant_id,
         )
         .await
@@ -195,7 +196,7 @@ pub(crate) async fn update_customer(
     app_state
         .store
         .update_customer(
-            authorized_state.actor.id(),
+            authorized_state.as_actor(),
             authorized_state.tenant_id,
             update_req_to_domain(id_or_alias, payload),
         )
@@ -250,7 +251,7 @@ pub(crate) async fn patch_customer(
     let updated = app_state
         .store
         .patch_customer(
-            authorized_state.actor.id(),
+            authorized_state.as_actor(),
             authorized_state.tenant_id,
             patch_req_to_domain(customer.id, payload),
         )
@@ -295,7 +296,7 @@ pub(crate) async fn archive_customer(
     app_state
         .store
         .archive_customer(
-            authorized_state.actor.id(),
+            authorized_state.as_actor(),
             authorized_state.tenant_id,
             id_or_alias,
         )
@@ -333,7 +334,11 @@ pub(crate) async fn unarchive_customer(
 ) -> Result<impl IntoResponse, RestApiError> {
     app_state
         .store
-        .unarchive_customer(authorized_state.tenant_id, id_or_alias)
+        .unarchive_customer(
+            authorized_state.as_actor(),
+            authorized_state.tenant_id,
+            id_or_alias,
+        )
         .await
         .map_err(|e| {
             log::error!("Error handling unarchive_customer: {e}");

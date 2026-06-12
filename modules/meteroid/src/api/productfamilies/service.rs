@@ -52,7 +52,7 @@ impl ProductFamiliesService for ProductFamilyServiceComponents {
         &self,
         request: Request<CreateProductFamilyRequest>,
     ) -> Result<Response<CreateProductFamilyResponse>, Status> {
-        let actor = request.actor()?;
+        let actor = request.actor_typed()?;
         let tenant_id = request.tenant()?;
         let req = request.into_inner();
 

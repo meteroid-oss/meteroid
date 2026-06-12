@@ -14,6 +14,7 @@ import { PencilIcon, Trash2Icon } from 'lucide-react'
 import { useNavigate, useParams } from 'react-router-dom'
 
 import { LocalId } from '@/components/LocalId'
+import { EntityActivityTimeline } from '@/features/activity/EntityActivityTimeline'
 import { feeTypeEnumToComponentFeeType } from '@/features/plans/addons/AddOnCard'
 import { PricingDetailsView } from '@/features/plans/pricecomponents/components/PricingDetailsView'
 import {
@@ -165,6 +166,17 @@ export const AddonDetailPanel = () => {
                   </span>
                 </DetailRow>
               </div>
+            </section>
+
+            <Separator />
+
+            <section className="flex flex-col gap-3">
+              <h3 className="text-sm font-medium text-muted-foreground">Activity</h3>
+              <EntityActivityTimeline
+                entityType="add_on"
+                entityId={addOn.id}
+                emptyLabel="No activity yet for this add-on"
+              />
             </section>
           </div>
         )}

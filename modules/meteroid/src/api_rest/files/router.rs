@@ -14,13 +14,16 @@ use crate::errors;
 use crate::api::sharable::ShareableEntityClaims;
 use crate::api_rest::error::{ErrorCode, RestErrorResponse};
 use crate::services::storage::Prefix;
-use common_domain::ids::{BatchJobId, CreditNoteId, InvoiceId, StoredDocumentId};
+use common_domain::ids::{
+    BaseId, BatchJobId, CreditNoteId, EntityActivityId, InvoiceId, StoredDocumentId,
+};
 use error_stack::{Report, ResultExt};
 use image::ImageFormat::Png;
 use jsonwebtoken::{DecodingKey, Validation, decode};
 use meteroid_store::repositories::CreditNoteInterface;
 use meteroid_store::repositories::InvoiceInterface;
 use meteroid_store::repositories::batch_jobs::BatchJobsInterface;
+use meteroid_store::repositories::entity_activity::EntityActivityInterfaceEmail;
 use secrecy::ExposeSecret;
 use serde::Deserialize;
 
@@ -196,6 +199,102 @@ async fn get_credit_note_pdf_handler(
         )
             .into_response()),
     }
+}
+
+/// Audit attachment shape stored in `sent_email.attachments`. `id`/`kind` are
+/// absent on rows written before attachment object ids were tracked.
+#[derive(Deserialize)]
+struct StoredEmailAttachment {
+    filename: String,
+    id: Option<String>,
+    kind: Option<String>,
+}
+
+fn prefix_for_attachment_kind(kind: &str) -> Option<Prefix> {
+    match kind {
+        "invoice_pdf" => Some(Prefix::InvoicePdf),
+        "receipt_pdf" => Some(Prefix::ReceiptPdf),
+        "credit_note_pdf" => Some(Prefix::CreditNotePdf),
+        _ => None,
+    }
+}
+
+#[axum::debug_handler]
+pub async fn get_email_attachment(
+    Path((activity_id, doc_id)): Path<(EntityActivityId, StoredDocumentId)>,
+    Query(params): Query<TokenParams>,
+    State(app_state): State<AppState>,
+) -> impl IntoResponse {
+    match get_email_attachment_handler(activity_id, doc_id, params, app_state).await {
+        Ok(r) => r.into_response(),
+        Err(e) => {
+            log::error!("Error handling email attachment: {e:?}");
+            e.current_context().clone().into_response()
+        }
+    }
+}
+
+async fn get_email_attachment_handler(
+    activity_id: EntityActivityId,
+    doc_id: StoredDocumentId,
+    token: TokenParams,
+    app_state: AppState,
+) -> Result<Response, Report<errors::RestApiError>> {
+    let claims = decode::<ShareableEntityClaims>(
+        &token.token,
+        &DecodingKey::from_secret(app_state.jwt_secret.expose_secret().as_bytes()),
+        &Validation::default(),
+    )
+    .map_err(|_| Report::new(errors::RestApiError::Unauthorized))?
+    .claims;
+
+    if claims.entity_id != activity_id.as_uuid() {
+        return Err(Report::new(errors::RestApiError::Forbidden));
+    }
+
+    let email = app_state
+        .store
+        .get_sent_email(claims.tenant_id, activity_id)
+        .await
+        .change_context(errors::RestApiError::StoreError)?;
+
+    // The recorded attachment list is the authority on what is downloadable:
+    // only objects this email actually carried are reachable.
+    let stored: Vec<StoredEmailAttachment> = email
+        .attachments
+        .map(|v| serde_json::from_value(v).unwrap_or_default())
+        .unwrap_or_default();
+
+    let target_id = doc_id.as_base62();
+    let attachment = stored
+        .into_iter()
+        .find(|a| a.id.as_deref() == Some(target_id.as_str()))
+        .ok_or_else(|| Report::new(errors::RestApiError::NotFound))?;
+
+    let prefix = attachment
+        .kind
+        .as_deref()
+        .and_then(prefix_for_attachment_kind)
+        .ok_or_else(|| Report::new(errors::RestApiError::NotFound))?;
+
+    let data = app_state
+        .object_store
+        .retrieve(doc_id, prefix)
+        .await
+        .change_context(errors::RestApiError::ObjectStoreError)?;
+
+    Ok((
+        StatusCode::OK,
+        [
+            ("Content-Type", "application/pdf".to_string()),
+            (
+                "Content-Disposition",
+                format!("attachment; filename=\"{}\"", attachment.filename),
+            ),
+        ],
+        data,
+    )
+        .into_response())
 }
 
 #[axum::debug_handler]

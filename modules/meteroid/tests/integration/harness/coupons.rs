@@ -150,7 +150,7 @@ impl TestEnv {
     /// Create a coupon with full control over all fields.
     pub async fn create_coupon(&self, coupon: CouponNew) -> CouponId {
         self.store()
-            .create_coupon(coupon)
+            .create_coupon(common_domain::actor::Actor::System, coupon)
             .await
             .expect("Failed to create coupon")
             .id
@@ -159,12 +159,15 @@ impl TestEnv {
     /// Disable a coupon.
     pub async fn disable_coupon(&self, coupon_id: CouponId) {
         self.store()
-            .update_coupon_status(CouponStatusPatch {
-                id: coupon_id,
-                tenant_id: TENANT_ID,
-                archived_at: None,
-                disabled: Some(true),
-            })
+            .update_coupon_status(
+                common_domain::actor::Actor::System,
+                CouponStatusPatch {
+                    id: coupon_id,
+                    tenant_id: TENANT_ID,
+                    archived_at: None,
+                    disabled: Some(true),
+                },
+            )
             .await
             .expect("Failed to disable coupon");
     }
@@ -172,12 +175,15 @@ impl TestEnv {
     /// Archive a coupon.
     pub async fn archive_coupon(&self, coupon_id: CouponId) {
         self.store()
-            .update_coupon_status(CouponStatusPatch {
-                id: coupon_id,
-                tenant_id: TENANT_ID,
-                archived_at: Some(Some(chrono::Utc::now().naive_utc())),
-                disabled: None,
-            })
+            .update_coupon_status(
+                common_domain::actor::Actor::System,
+                CouponStatusPatch {
+                    id: coupon_id,
+                    tenant_id: TENANT_ID,
+                    archived_at: Some(Some(chrono::Utc::now().naive_utc())),
+                    disabled: None,
+                },
+            )
             .await
             .expect("Failed to archive coupon");
     }

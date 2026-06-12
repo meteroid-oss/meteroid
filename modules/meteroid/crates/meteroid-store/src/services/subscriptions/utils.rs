@@ -1,4 +1,5 @@
 use crate::StoreResult;
+use crate::domain::entity_activity::Actor;
 use crate::domain::enums::{BillingPeriodEnum, SubscriptionFeeBillingPeriod};
 use crate::domain::price_components::{PriceEntry, ProductRef};
 use crate::domain::subscriptions::PaymentMethodsConfig;
@@ -701,6 +702,7 @@ impl Services {
     pub(super) async fn insert_created_outbox_events_tx(
         &self,
         conn: &mut PgConn,
+        actor: &Actor,
         created: &[CreatedSubscription],
         tenant_id: TenantId,
     ) -> StoreResult<()> {
@@ -721,7 +723,7 @@ impl Services {
             .collect();
         self.store
             .internal
-            .insert_outbox_events_tx(conn, outbox_events)
+            .record_outbox_batch_tx(conn, tenant_id, actor, outbox_events)
             .await
     }
 }

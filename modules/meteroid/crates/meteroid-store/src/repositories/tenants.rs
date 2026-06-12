@@ -8,6 +8,7 @@ use diesel_async::scoped_futures::ScopedFutureExt;
 use error_stack::Report;
 
 use crate::constants::{Currencies, Currency};
+use crate::domain::entity_activity::{Activity, ActivityType, Actor, AuditInput, EntityType};
 use crate::errors::StoreError;
 use crate::repositories::OrganizationsInterface;
 use crate::store::{PgConn, Store, StoreInternal};
@@ -26,6 +27,7 @@ pub trait TenantInterface {
     ) -> StoreResult<Tenant>;
     async fn update_tenant(
         &self,
+        actor: Actor,
         tenant: TenantUpdate,
         organization_id: OrganizationId,
         tenant_id: TenantId,
@@ -111,15 +113,39 @@ impl TenantInterface for Store {
 
     async fn update_tenant(
         &self,
+        actor: Actor,
         tenant: TenantUpdate,
         organization_id: OrganizationId,
         tenant_id: TenantId,
     ) -> StoreResult<Tenant> {
+        // Track which fields the caller actually intended to mutate, so the
+        // entity.updated audit row records the touched-field set even though
+        // we don't compute a value-level diff.
+        let mut changed_fields: Vec<&'static str> = Vec::new();
+        if tenant.trade_name.is_some() {
+            changed_fields.push("trade_name");
+        }
+        if tenant.name.is_some() {
+            changed_fields.push("name");
+        }
+        if tenant.slug.is_some() {
+            changed_fields.push("slug");
+        }
+        if tenant.environment.is_some() {
+            changed_fields.push("environment");
+        }
+        if tenant.reporting_currency.is_some() {
+            changed_fields.push("reporting_currency");
+        }
+        if tenant.disable_emails.is_some() {
+            changed_fields.push("disable_emails");
+        }
+
         let res = self
             .transaction(|conn| {
+                let actor = &actor;
+                let changed_fields = &changed_fields;
                 async move {
-                    // we update org trade name
-
                     if let Some(trade_name) = &tenant.trade_name {
                         OrganizationRow::update_trade_name(conn, organization_id, trade_name)
                             .await
@@ -132,6 +158,23 @@ impl TenantInterface for Store {
                         .update(conn, tenant_id)
                         .await
                         .map_err(Into::<Report<StoreError>>::into)?;
+
+                    if !changed_fields.is_empty() {
+                        let activity = Activity::new(
+                            ActivityType::EntityUpdated,
+                            EntityType::Tenant,
+                            tenant_id.as_uuid(),
+                        )
+                        .with_metadata(serde_json::json!({
+                            "changes": changed_fields
+                                .iter()
+                                .map(|f| serde_json::json!({ "field": f }))
+                                .collect::<Vec<_>>(),
+                        }));
+                        self.internal
+                            .record_audit_tx(conn, tenant_id, actor, AuditInput::Activity(activity))
+                            .await?;
+                    }
 
                     Ok(updated_tenant.into())
                 }

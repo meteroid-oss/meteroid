@@ -4,7 +4,6 @@ use common_domain::ids::{
 };
 use diesel::{Identifiable, Insertable, Queryable, Selectable};
 use rust_decimal::Decimal;
-use uuid::Uuid;
 
 use crate::enums::{CheckoutSessionStatusEnum, CheckoutTypeEnum};
 
@@ -16,7 +15,6 @@ pub struct CheckoutSessionRow {
     pub tenant_id: TenantId,
     pub customer_id: CustomerId,
     pub plan_version_id: PlanVersionId,
-    pub created_by: Uuid,
 
     // Basic subscription parameters
     pub billing_start_date: Option<NaiveDate>,
@@ -60,7 +58,6 @@ pub struct CheckoutSessionRowNew {
     pub tenant_id: TenantId,
     pub customer_id: CustomerId,
     pub plan_version_id: PlanVersionId,
-    pub created_by: Uuid,
 
     // Basic subscription parameters
     pub billing_start_date: Option<NaiveDate>,

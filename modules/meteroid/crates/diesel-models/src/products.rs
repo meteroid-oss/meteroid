@@ -1,5 +1,4 @@
 use chrono::NaiveDateTime;
-use uuid::Uuid;
 
 use crate::enums::FeeTypeEnum;
 use common_domain::ids::{ProductFamilyId, ProductId, TenantId};
@@ -13,7 +12,6 @@ pub struct ProductRow {
     pub name: String,
     pub description: Option<String>,
     pub created_at: NaiveDateTime,
-    pub created_by: Uuid,
     pub updated_at: Option<NaiveDateTime>,
     pub archived_at: Option<NaiveDateTime>,
     pub tenant_id: TenantId,
@@ -30,7 +28,6 @@ pub struct ProductRowNew {
     pub id: ProductId,
     pub name: String,
     pub description: Option<String>,
-    pub created_by: Uuid,
     pub tenant_id: TenantId,
     pub product_family_id: ProductFamilyId,
     pub fee_type: FeeTypeEnum,

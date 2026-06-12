@@ -1,5 +1,7 @@
 use crate::StoreResult;
+use crate::domain::entity_activity::{Activity, ActivityType, Actor, AuditInput, EntityType};
 use crate::errors::StoreError;
+use crate::repositories::entity_activity::EntityActivityInterface;
 use crate::repositories::historical_rates::get_historical_rate_from_usd_by_date_cached;
 use crate::services::{InvoiceBillingMode, Services};
 use crate::store::PgConn;
@@ -88,6 +90,32 @@ impl Services {
                 subscription_id,
                 e
             );
+        }
+
+        // System actor — user attribution lives on the earlier `cancellation_scheduled` row.
+        let activity_type = match terminate_with_state {
+            SubscriptionStatusEnum::Cancelled => Some(ActivityType::SubscriptionCancelled),
+            SubscriptionStatusEnum::Paused => Some(ActivityType::SubscriptionPaused),
+            _ => None,
+        };
+        if let Some(activity_type) = activity_type {
+            let customer_id = SubscriptionRow::get_customer_id(conn, &tenant_id, subscription_id)
+                .await
+                .map_err(Into::<Report<StoreError>>::into)?;
+            let activity = Activity::new(
+                activity_type,
+                EntityType::Subscription,
+                subscription_id.as_uuid(),
+            )
+            .agg_customer(customer_id);
+            self.store
+                .record_tx(
+                    conn,
+                    tenant_id,
+                    &Actor::System,
+                    AuditInput::Activity(activity),
+                )
+                .await?;
         }
 
         Ok(())

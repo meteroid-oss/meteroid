@@ -230,11 +230,11 @@ pub(crate) async fn create_subscription(
     let created = app_state
         .services
         .insert_subscription(
+            authorized_state.as_actor(),
             rest_to_domain_create_request(
                 resolved_plan_version,
                 resolved_customer_id,
                 resolved_coupon_ids,
-                authorized_state.actor.id(),
                 payload,
             )?,
             authorized_state.tenant_id,
@@ -289,6 +289,7 @@ pub(crate) async fn cancel_subscription(
     let subscription = app_state
         .services
         .cancel_subscription(
+            authorized_state.as_actor(),
             subscription_id,
             authorized_state.tenant_id,
             request.reason.clone(),
@@ -296,7 +297,6 @@ pub(crate) async fn cancel_subscription(
                 .effective_date
                 .map(CancellationEffectiveAt::Date)
                 .unwrap_or(CancellationEffectiveAt::EndOfBillingPeriod),
-            authorized_state.actor.id(),
         )
         .await
         .map_err(|e| {

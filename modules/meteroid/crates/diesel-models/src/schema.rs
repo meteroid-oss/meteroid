@@ -2,6 +2,10 @@
 
 pub mod sql_types {
     #[derive(diesel::query_builder::QueryId, diesel::sql_types::SqlType)]
+    #[diesel(postgres_type(name = "ActorTypeEnum"))]
+    pub struct ActorTypeEnum;
+
+    #[derive(diesel::query_builder::QueryId, diesel::sql_types::SqlType)]
     #[diesel(postgres_type(name = "BankAccountFormat"))]
     pub struct BankAccountFormat;
 
@@ -183,7 +187,6 @@ diesel::table! {
         id -> Uuid,
         name -> Text,
         created_at -> Timestamp,
-        created_by -> Uuid,
         tenant_id -> Uuid,
         hash -> Text,
         hint -> Text,
@@ -216,7 +219,6 @@ diesel::table! {
         bank_name -> Text,
         format -> BankAccountFormat,
         account_numbers -> Text,
-        created_by -> Uuid,
         created_at -> Timestamp,
     }
 }
@@ -383,7 +385,6 @@ diesel::table! {
         segmentation_matrix -> Nullable<Jsonb>,
         usage_group_key -> Nullable<Text>,
         created_at -> Timestamp,
-        created_by -> Uuid,
         updated_at -> Nullable<Timestamp>,
         archived_at -> Nullable<Timestamp>,
         tenant_id -> Uuid,
@@ -402,7 +403,6 @@ diesel::table! {
         tenant_id -> Uuid,
         customer_id -> Uuid,
         plan_version_id -> Uuid,
-        created_by -> Uuid,
         billing_start_date -> Nullable<Date>,
         billing_day_anchor -> Nullable<Int2>,
         net_terms -> Nullable<Int4>,
@@ -526,9 +526,7 @@ diesel::table! {
         id -> Uuid,
         name -> Text,
         created_at -> Timestamp,
-        created_by -> Uuid,
         updated_at -> Nullable<Timestamp>,
-        updated_by -> Nullable<Uuid>,
         archived_at -> Nullable<Timestamp>,
         tenant_id -> Uuid,
         alias -> Nullable<Text>,
@@ -539,7 +537,6 @@ diesel::table! {
         billing_address -> Nullable<Jsonb>,
         shipping_address -> Nullable<Jsonb>,
         invoicing_entity_id -> Uuid,
-        archived_by -> Nullable<Uuid>,
         current_payment_method_id -> Nullable<Uuid>,
         vat_number -> Nullable<Text>,
         invoicing_emails -> Array<Nullable<Text>>,
@@ -652,7 +649,6 @@ diesel::table! {
         mode -> EntitlementModeEnum,
         value -> Jsonb,
         created_at -> Timestamptz,
-        created_by -> Uuid,
         updated_at -> Timestamptz,
     }
 }
@@ -672,7 +668,6 @@ diesel::table! {
         status -> FeatureStatusEnum,
         metric_id -> Nullable<Uuid>,
         created_at -> Timestamptz,
-        created_by -> Uuid,
         updated_at -> Timestamptz,
     }
 }
@@ -871,7 +866,6 @@ diesel::table! {
         name -> Text,
         description -> Nullable<Text>,
         created_at -> Timestamp,
-        created_by -> Uuid,
         updated_at -> Nullable<Timestamp>,
         archived_at -> Nullable<Timestamp>,
         tenant_id -> Uuid,
@@ -904,7 +898,6 @@ diesel::table! {
         currency -> Text,
         billing_cycles -> Nullable<Int4>,
         created_at -> Timestamp,
-        created_by -> Uuid,
         trialing_plan_id -> Nullable<Uuid>,
         trial_is_free -> Bool,
         uses_product_pricing -> Bool,
@@ -936,7 +929,6 @@ diesel::table! {
         pricing -> Jsonb,
         tenant_id -> Uuid,
         created_at -> Timestamp,
-        created_by -> Uuid,
         archived_at -> Nullable<Timestamp>,
         catalog -> Bool,
     }
@@ -962,7 +954,6 @@ diesel::table! {
         name -> Text,
         description -> Nullable<Text>,
         created_at -> Timestamp,
-        created_by -> Uuid,
         updated_at -> Nullable<Timestamp>,
         archived_at -> Nullable<Timestamp>,
         tenant_id -> Uuid,
@@ -1190,7 +1181,6 @@ diesel::table! {
         start_date -> Date,
         plan_version_id -> Uuid,
         created_at -> Timestamp,
-        created_by -> Uuid,
         net_terms -> Int4,
         invoice_memo -> Nullable<Text>,
         invoice_threshold -> Nullable<Numeric>,
@@ -1319,6 +1309,40 @@ diesel::table! {
         attempts -> Int4,
         error -> Nullable<Text>,
         provider_config_id -> Uuid,
+    }
+}
+
+diesel::table! {
+    use diesel::sql_types::*;
+    use super::sql_types::ActorTypeEnum;
+
+    entity_activity (id) {
+        id -> Uuid,
+        tenant_id -> Uuid,
+        entity_type -> Text,
+        entity_id -> Uuid,
+        activity_type -> Text,
+        actor_type -> ActorTypeEnum,
+        actor_uuid -> Nullable<Uuid>,
+        actor_alias -> Nullable<Text>,
+        metadata -> Nullable<Jsonb>,
+        occurred_at -> Timestamptz,
+        agg_customer_id -> Nullable<Uuid>,
+        agg_subscription_id -> Nullable<Uuid>,
+    }
+}
+
+diesel::table! {
+    sent_email (id) {
+        id -> Uuid,
+        tenant_id -> Uuid,
+        sent_at -> Timestamptz,
+        subject -> Text,
+        from_addr -> Text,
+        reply_to -> Nullable<Text>,
+        recipients -> Array<Nullable<Text>>,
+        body_html -> Text,
+        attachments -> Nullable<Jsonb>,
     }
 }
 
@@ -1454,7 +1478,12 @@ diesel::joinable!(subscription_event -> subscription (subscription_id));
 diesel::joinable!(tenant -> organization (organization_id));
 diesel::joinable!(webhook_in_event -> connector (provider_config_id));
 
+diesel::joinable!(entity_activity -> tenant (tenant_id));
+diesel::joinable!(sent_email -> entity_activity (id));
+diesel::joinable!(sent_email -> tenant (tenant_id));
 diesel::allow_tables_to_appear_in_same_query!(
+    entity_activity,
+    sent_email,
     add_on,
     api_token,
     applied_coupon,

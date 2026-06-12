@@ -53,11 +53,11 @@ async fn test_compute_invoice_basic(
 ) {
     let subscription_id = services
         .insert_subscription(
+            common_domain::actor::Actor::System,
             CreateSubscription {
                 subscription: SubscriptionNew {
                     customer_id: CUST_UBER_ID,
                     plan_version_id: PLAN_VERSION_1_LEETCODE_ID,
-                    created_by: USER_ID,
                     net_terms: None,
                     invoice_memo: None,
                     invoice_threshold: None,
@@ -171,6 +171,7 @@ async fn test_compute_invoice_with_eu_vat(
 ) {
     store
         .patch_invoicing_entity(
+            common_domain::actor::Actor::System,
             InvoicingEntityPatch {
                 id: INVOICING_ENTITY_ID,
                 tax_resolver: Some(meteroid_store::domain::enums::TaxResolverEnum::MeteroidEuVat),
@@ -185,11 +186,11 @@ async fn test_compute_invoice_with_eu_vat(
 
     let subscription_id = services
         .insert_subscription(
+            common_domain::actor::Actor::System,
             CreateSubscription {
                 subscription: SubscriptionNew {
                     customer_id: french_customer_id,
                     plan_version_id: PLAN_VERSION_1_LEETCODE_ID,
-                    created_by: USER_ID,
                     net_terms: None,
                     invoice_memo: None,
                     invoice_threshold: None,
@@ -279,7 +280,6 @@ async fn create_french_b2b_customer(
         id: customer_id,
         name: "French Business Customer SAS".to_string(),
         created_at: Some(chrono::Utc::now().naive_utc()),
-        created_by: USER_ID,
         tenant_id: TENANT_ID,
         alias: None,
         balance_value_cents: 0,
@@ -311,6 +311,7 @@ async fn test_compute_invoice_with_reverse_charge(
 ) {
     store
         .patch_invoicing_entity(
+            common_domain::actor::Actor::System,
             InvoicingEntityPatch {
                 id: INVOICING_ENTITY_ID,
                 tax_resolver: Some(meteroid_store::domain::enums::TaxResolverEnum::MeteroidEuVat),
@@ -325,11 +326,11 @@ async fn test_compute_invoice_with_reverse_charge(
 
     let subscription_id = services
         .insert_subscription(
+            common_domain::actor::Actor::System,
             CreateSubscription {
                 subscription: SubscriptionNew {
                     customer_id: german_customer_id,
                     plan_version_id: PLAN_VERSION_1_LEETCODE_ID,
-                    created_by: USER_ID,
                     net_terms: None,
                     invoice_memo: None,
                     invoice_threshold: None,
@@ -407,6 +408,7 @@ async fn test_compute_invoice_with_manual_tax_and_coupon(
 ) {
     store
         .patch_invoicing_entity(
+            common_domain::actor::Actor::System,
             InvoicingEntityPatch {
                 id: INVOICING_ENTITY_ID,
                 tax_resolver: Some(meteroid_store::domain::enums::TaxResolverEnum::Manual),
@@ -423,11 +425,11 @@ async fn test_compute_invoice_with_manual_tax_and_coupon(
 
     let subscription_id = services
         .insert_subscription(
+            common_domain::actor::Actor::System,
             CreateSubscription {
                 subscription: SubscriptionNew {
                     customer_id: custom_tax_customer_id,
                     plan_version_id: PLAN_VERSION_1_LEETCODE_ID,
-                    created_by: USER_ID,
                     net_terms: None,
                     invoice_memo: None,
                     invoice_threshold: None,
@@ -528,7 +530,6 @@ async fn create_german_b2b_customer(
         id: customer_id,
         name: "German Business Customer GmbH".to_string(),
         created_at: Some(chrono::Utc::now().naive_utc()),
-        created_by: USER_ID,
         tenant_id: TENANT_ID,
         alias: None,
         balance_value_cents: 0,
@@ -575,7 +576,6 @@ async fn create_customer_with_custom_tax_rate(
         id: customer_id,
         name: "US Customer with Custom Tax".to_string(),
         created_at: Some(chrono::Utc::now().naive_utc()),
-        created_by: USER_ID,
         tenant_id: TENANT_ID,
         alias: None,
         balance_value_cents: 0,
@@ -620,5 +620,9 @@ async fn create_test_coupon(
         plan_ids: vec![],
     };
 
-    store.create_coupon(coupon_new).await.unwrap().id
+    store
+        .create_coupon(common_domain::actor::Actor::System, coupon_new)
+        .await
+        .unwrap()
+        .id
 }

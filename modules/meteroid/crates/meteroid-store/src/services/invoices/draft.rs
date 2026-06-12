@@ -1,4 +1,5 @@
 use crate::domain::add_ons::AddOn;
+use crate::domain::entity_activity::Actor;
 use crate::domain::subscription_add_ons::CreateSubscriptionAddOn;
 use crate::domain::subscription_changes::{ProrationLineItem, ProrationResult};
 use crate::domain::{
@@ -354,6 +355,7 @@ impl Services {
     /// must fully credit the parent — enforced by `create_corrected_invoice_from_tx`.
     pub async fn create_and_finalize_credit_note_with_reissue(
         &self,
+        actor: Actor,
         tenant_id: TenantId,
         params: crate::repositories::credit_notes::CreateCreditNoteParams,
         reissue_as_draft: bool,
@@ -364,12 +366,15 @@ impl Services {
 
         self.store
             .transaction(|conn| {
+                let actor = &actor;
                 async move {
                     let draft =
-                        create_user_credit_note_tx(&self.store, conn, tenant_id, params).await?;
+                        create_user_credit_note_tx(&self.store, conn, tenant_id, actor, params)
+                            .await?;
                     let invoice_id = draft.invoice_id;
                     let finalized =
-                        finalize_credit_note_tx(&self.store, conn, tenant_id, draft.id).await?;
+                        finalize_credit_note_tx(&self.store, conn, tenant_id, actor, draft.id)
+                            .await?;
                     let corrected = if reissue_as_draft {
                         Some(
                             self.create_corrected_invoice_from_tx(conn, tenant_id, invoice_id)

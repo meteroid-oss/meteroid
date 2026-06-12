@@ -12,8 +12,9 @@ use argon2::password_hash::SaltString;
 use argon2::password_hash::rand_core::OsRng;
 use argon2::{Argon2, PasswordHash, PasswordHasher, PasswordVerifier};
 use chrono::{DateTime, Utc};
+use common_domain::actor::Actor;
 use common_domain::auth::{Audience, JwtClaims, JwtPayload};
-use common_domain::ids::{OrganizationId, OrganizationInviteId, TenantId};
+use common_domain::ids::{OrganizationId, OrganizationInviteId, TenantId, UserId};
 use common_eventbus::Event;
 use diesel_async::scoped_futures::ScopedFutureExt;
 use diesel_models::organization_invites::OrganizationInviteRow;
@@ -239,7 +240,9 @@ impl UserInterface for Store {
         let _ = self
             .eventbus
             .publish(Event::user_updated(
-                auth_user_id,
+                Actor::User {
+                    id: UserId::from(auth_user_id),
+                },
                 auth_user_id,
                 data.department,
                 data.know_us_from,

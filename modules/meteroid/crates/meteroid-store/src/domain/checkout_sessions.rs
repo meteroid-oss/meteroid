@@ -6,7 +6,6 @@ use diesel_models::checkout_sessions::{CheckoutSessionRow, CheckoutSessionRowNew
 use diesel_models::enums::{CheckoutSessionStatusEnum, CheckoutTypeEnum};
 use o2o::o2o;
 use rust_decimal::Decimal;
-use uuid::Uuid;
 
 use crate::domain::subscription_add_ons::CreateSubscriptionAddOns;
 use crate::domain::subscription_components::CreateSubscriptionComponents;
@@ -41,7 +40,6 @@ pub struct CheckoutSession {
     pub tenant_id: TenantId,
     pub customer_id: CustomerId,
     pub plan_version_id: PlanVersionId,
-    pub created_by: Uuid,
 
     // Basic subscription parameters
     pub billing_start_date: Option<NaiveDate>,
@@ -100,7 +98,6 @@ impl CheckoutSession {
         SubscriptionNew {
             customer_id: self.customer_id,
             plan_version_id: self.plan_version_id,
-            created_by: self.created_by,
             net_terms: self.net_terms.map(|n| n as u32),
             invoice_memo: self.invoice_memo.clone(),
             invoice_threshold: self.invoice_threshold,
@@ -190,7 +187,6 @@ impl From<CheckoutSessionRow> for CheckoutSession {
             tenant_id: row.tenant_id,
             customer_id: row.customer_id,
             plan_version_id: row.plan_version_id,
-            created_by: row.created_by,
             billing_start_date: row.billing_start_date,
             billing_day_anchor: row.billing_day_anchor,
             net_terms: row.net_terms,
@@ -223,7 +219,6 @@ pub struct CreateCheckoutSession {
     pub tenant_id: TenantId,
     pub customer_id: CustomerId,
     pub plan_version_id: PlanVersionId,
-    pub created_by: Uuid,
 
     // Basic subscription parameters
     pub billing_start_date: Option<NaiveDate>,
@@ -287,7 +282,6 @@ impl CreateCheckoutSession {
             tenant_id: self.tenant_id,
             customer_id: self.customer_id,
             plan_version_id: self.plan_version_id,
-            created_by: self.created_by,
             billing_start_date: self.billing_start_date,
             billing_day_anchor: self.billing_day_anchor,
             net_terms: self.net_terms,

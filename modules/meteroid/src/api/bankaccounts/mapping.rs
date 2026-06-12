@@ -6,7 +6,6 @@ pub mod bank_accounts {
 
     use common_domain::country::CountryCode;
     use common_domain::ids::{BankAccountId, BaseId, TenantId};
-    use uuid::Uuid;
 
     mod format {
         use meteroid_grpc::meteroid::api::bankaccounts::v1 as server;
@@ -144,7 +143,6 @@ pub mod bank_accounts {
     pub fn proto_to_domain(
         proto: server::BankAccountData,
         tenant_id: TenantId,
-        actor: Uuid,
     ) -> Result<domain::BankAccountNew, BankAccountsApiError> {
         // clean the account numbers from any additional characters
 
@@ -156,7 +154,6 @@ pub mod bank_accounts {
 
         Ok(domain::BankAccountNew {
             id: BankAccountId::new(),
-            created_by: actor,
             tenant_id,
             country: CountryCode::from_proto(proto.country).map_err(|e| {
                 BankAccountsApiError::InvalidArgument(format!("Invalid country code: {e}"))

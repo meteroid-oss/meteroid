@@ -82,7 +82,6 @@ pub async fn create_checkout_session(
         tenant_id,
         customer_id,
         plan_version_id: request.plan_version_id,
-        created_by: authorized_state.actor.id(),
         billing_start_date: request.billing_start_date,
         billing_day_anchor: request.billing_day_anchor.map(|a| a as i16),
         net_terms: request.net_terms,

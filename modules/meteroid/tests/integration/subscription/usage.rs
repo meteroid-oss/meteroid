@@ -161,11 +161,11 @@ async fn test_cancel_with_usage_produces_final_arrear_invoice() {
     // Cancel at end of period 1
     env.services()
         .cancel_subscription(
+            common_domain::actor::Actor::System,
             sub_id,
             TENANT_ID,
             Some("testing final arrear invoice".to_string()),
             CancellationEffectiveAt::Date(period2_end),
-            USER_ID,
         )
         .await
         .expect("cancel_subscription failed");

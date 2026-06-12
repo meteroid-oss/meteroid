@@ -1,6 +1,7 @@
 use crate::StoreResult;
 use crate::adapters::payment_service_providers::initialize_payment_provider;
 use crate::domain::connectors::Connector;
+use crate::domain::entity_activity::Actor;
 use crate::domain::payment_transactions::{PaymentIntent, PaymentTransaction};
 use crate::errors::StoreError;
 use crate::repositories::payment_transactions::PaymentTransactionInterface;
@@ -136,6 +137,7 @@ impl Services {
             .store
             .consolidate_intent_and_transaction_tx(
                 conn,
+                &Actor::System,
                 inserted_transaction.into(),
                 payment_intent,
             )

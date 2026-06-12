@@ -20,6 +20,7 @@ pub mod role {
 pub mod user {
     use crate::api::organizations::mapping::organization;
     use crate::api::users::mapping::role;
+    use common_domain::ids::UserId;
     use meteroid_grpc::meteroid::api::users::v1 as server;
     use meteroid_store::domain::users::{Me, User, UserWithRole};
 
@@ -39,7 +40,7 @@ pub mod user {
 
     pub fn domain_to_proto(domain: User) -> server::User {
         server::User {
-            id: domain.id.to_string(),
+            id: UserId::from(domain.id).as_proto(),
             email: domain.email,
             department: domain.department,
             first_name: domain.first_name,
@@ -50,7 +51,7 @@ pub mod user {
 
     pub fn domain_with_role_to_proto(domain: UserWithRole) -> server::UserWithRole {
         server::UserWithRole {
-            id: domain.id.to_string(),
+            id: UserId::from(domain.id).as_proto(),
             email: domain.email,
             department: domain.department,
             first_name: domain.first_name,

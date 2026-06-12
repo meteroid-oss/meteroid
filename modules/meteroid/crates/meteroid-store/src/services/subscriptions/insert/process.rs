@@ -3,6 +3,7 @@ use super::payment_method::PaymentSetupResult;
 use crate::constants::{Currencies, Currency};
 use crate::domain::checkout_sessions::{CheckoutType, CreateCheckoutSession};
 use crate::domain::coupons::Coupon;
+use crate::domain::entity_activity::Actor;
 use crate::domain::enums::SubscriptionEventType;
 use crate::domain::scheduled_events::ScheduledEventNew;
 use crate::domain::slot_transactions::{SlotTransaction, SlotTransactionNewInternal};
@@ -820,7 +821,6 @@ impl Services {
                                 conn,
                                 &internal,
                                 tenant_id,
-                                proc.subscription.created_by,
                                 mat.product_family_id,
                                 &mat.currency,
                                 false,
@@ -856,7 +856,6 @@ impl Services {
                                 conn,
                                 &internal,
                                 tenant_id,
-                                proc.subscription.created_by,
                                 mat.product_family_id,
                                 &mat.currency,
                                 false,
@@ -927,7 +926,6 @@ impl Services {
                                 proc.entitlements.clone(),
                                 common_domain::ids::EntitlementEntityId::Subscription(created.id),
                                 tenant_id,
-                                proc.subscription.created_by,
                             )
                             .await?;
                         }
@@ -972,8 +970,13 @@ impl Services {
                             .await?;
                     }
 
-                    self.insert_created_outbox_events_tx(conn, &inserted, tenant_id)
-                        .await?;
+                    self.insert_created_outbox_events_tx(
+                        conn,
+                        &Actor::System,
+                        &inserted,
+                        tenant_id,
+                    )
+                    .await?;
 
                     // For pending_checkout subscriptions, create checkout sessions inside the transaction
                     // so the FK constraint on subscription_id is satisfied.
@@ -995,7 +998,6 @@ impl Services {
                                 tenant_id,
                                 customer_id: sub.customer_id,
                                 plan_version_id: sub.plan_version_id,
-                                created_by: sub.created_by,
                                 billing_start_date: sub.billing_start_date,
                                 billing_day_anchor: Some(sub.billing_day_anchor),
                                 net_terms: Some(sub.net_terms),
@@ -1103,11 +1105,12 @@ impl Services {
 
     pub async fn handle_post_insertion(
         &self,
+        actor: &Actor,
         event_bus: Arc<dyn EventBus<Event>>,
         inserted: &[CreatedSubscription],
     ) -> StoreResult<()> {
         // Publish events
-        self.publish_subscription_events(event_bus, inserted)
+        self.publish_subscription_events(actor, event_bus, inserted)
             .await?;
 
         Ok(())
@@ -1115,12 +1118,13 @@ impl Services {
 
     async fn publish_subscription_events(
         &self,
+        actor: &Actor,
         event_bus: Arc<dyn EventBus<Event>>,
         subscriptions: &[CreatedSubscription],
     ) -> StoreResult<()> {
         let results = futures::future::join_all(subscriptions.iter().map(|sub| {
             event_bus.publish(Event::subscription_created(
-                sub.created_by,
+                actor.clone(),
                 sub.id.as_uuid(),
                 sub.tenant_id.as_uuid(),
             ))

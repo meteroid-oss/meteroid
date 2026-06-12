@@ -1,3 +1,38 @@
+#[derive(diesel_derive_enum::DbEnum, Debug, Clone, Copy, Eq, PartialEq)]
+#[ExistingTypePath = "crate::schema::sql_types::ActorTypeEnum"]
+#[DbValueStyle = "SCREAMING_SNAKE_CASE"]
+pub enum ActorTypeEnum {
+    System,
+    User,
+    ApiToken,
+    Customer,
+    QuoteRecipient,
+}
+
+impl From<common_domain::actor::ActorType> for ActorTypeEnum {
+    fn from(a: common_domain::actor::ActorType) -> Self {
+        match a {
+            common_domain::actor::ActorType::System => Self::System,
+            common_domain::actor::ActorType::User => Self::User,
+            common_domain::actor::ActorType::ApiToken => Self::ApiToken,
+            common_domain::actor::ActorType::Customer => Self::Customer,
+            common_domain::actor::ActorType::QuoteRecipient => Self::QuoteRecipient,
+        }
+    }
+}
+
+impl From<ActorTypeEnum> for common_domain::actor::ActorType {
+    fn from(a: ActorTypeEnum) -> Self {
+        match a {
+            ActorTypeEnum::System => Self::System,
+            ActorTypeEnum::User => Self::User,
+            ActorTypeEnum::ApiToken => Self::ApiToken,
+            ActorTypeEnum::Customer => Self::Customer,
+            ActorTypeEnum::QuoteRecipient => Self::QuoteRecipient,
+        }
+    }
+}
+
 #[derive(diesel_derive_enum::DbEnum, Debug, Clone)]
 #[ExistingTypePath = "crate::schema::sql_types::BankAccountFormat"]
 #[DbValueStyle = "SCREAMING_SNAKE_CASE"]

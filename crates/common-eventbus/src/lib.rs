@@ -1,6 +1,7 @@
 use std::collections::HashMap;
 use std::sync::Arc;
 
+use common_domain::actor::Actor;
 use uuid::Uuid;
 
 #[async_trait::async_trait]
@@ -27,11 +28,11 @@ pub struct Event {
     pub event_id: Uuid,
     pub event_timestamp: chrono::DateTime<chrono::Utc>,
     pub event_data: EventData,
-    pub actor: Option<Uuid>,
+    pub actor: Option<Actor>,
 }
 
 impl Event {
-    pub fn new(event_data: EventData, actor: Option<Uuid>) -> Self {
+    pub fn new(event_data: EventData, actor: Option<Actor>) -> Self {
         Self {
             event_id: Uuid::now_v7(),
             event_timestamp: chrono::Utc::now(),
@@ -40,7 +41,7 @@ impl Event {
         }
     }
 
-    pub fn api_token_created(actor: Uuid, api_token_id: Uuid, tenant_id: Uuid) -> Self {
+    pub fn api_token_created(actor: Actor, api_token_id: Uuid, tenant_id: Uuid) -> Self {
         Self::new(
             EventData::ApiTokenCreated(TenantEventDataDetails {
                 entity_id: api_token_id,
@@ -50,7 +51,7 @@ impl Event {
         )
     }
 
-    pub fn api_token_revoked(actor: Uuid, api_token_id: Uuid, tenant_id: Uuid) -> Self {
+    pub fn api_token_revoked(actor: Actor, api_token_id: Uuid, tenant_id: Uuid) -> Self {
         Self::new(
             EventData::ApiTokenRevoked(TenantEventDataDetails {
                 entity_id: api_token_id,
@@ -60,7 +61,7 @@ impl Event {
         )
     }
 
-    pub fn bank_account_created(actor: Uuid, bank_account_id: Uuid, tenant_id: Uuid) -> Self {
+    pub fn bank_account_created(actor: Actor, bank_account_id: Uuid, tenant_id: Uuid) -> Self {
         Self::new(
             EventData::BankAccountCreated(TenantEventDataDetails {
                 tenant_id,
@@ -70,7 +71,7 @@ impl Event {
         )
     }
 
-    pub fn bank_account_edited(actor: Uuid, bank_account_id: Uuid, tenant_id: Uuid) -> Self {
+    pub fn bank_account_edited(actor: Actor, bank_account_id: Uuid, tenant_id: Uuid) -> Self {
         Self::new(
             EventData::BankAccountEdited(TenantEventDataDetails {
                 tenant_id,
@@ -80,7 +81,11 @@ impl Event {
         )
     }
 
-    pub fn billable_metric_created(actor: Uuid, billable_metric_id: Uuid, tenant_id: Uuid) -> Self {
+    pub fn billable_metric_created(
+        actor: Actor,
+        billable_metric_id: Uuid,
+        tenant_id: Uuid,
+    ) -> Self {
         Self::new(
             EventData::BillableMetricCreated(TenantEventDataDetails {
                 tenant_id,
@@ -90,7 +95,7 @@ impl Event {
         )
     }
 
-    pub fn customer_created(actor: Uuid, customer_id: Uuid, tenant_id: Uuid) -> Self {
+    pub fn customer_created(actor: Actor, customer_id: Uuid, tenant_id: Uuid) -> Self {
         Self::new(
             EventData::CustomerCreated(TenantEventDataDetails {
                 tenant_id,
@@ -100,7 +105,7 @@ impl Event {
         )
     }
 
-    pub fn customer_patched(actor: Uuid, customer_id: Uuid, tenant_id: Uuid) -> Self {
+    pub fn customer_patched(actor: Actor, customer_id: Uuid, tenant_id: Uuid) -> Self {
         Self::new(
             EventData::CustomerPatched(TenantEventDataDetails {
                 tenant_id,
@@ -110,7 +115,7 @@ impl Event {
         )
     }
 
-    pub fn customer_updated(actor: Uuid, customer_id: Uuid, tenant_id: Uuid) -> Self {
+    pub fn customer_updated(actor: Actor, customer_id: Uuid, tenant_id: Uuid) -> Self {
         Self::new(
             EventData::CustomerUpdated(TenantEventDataDetails {
                 tenant_id,
@@ -120,7 +125,7 @@ impl Event {
         )
     }
 
-    pub fn organization_created(actor: Uuid, organization_id: Uuid) -> Self {
+    pub fn organization_created(actor: Actor, organization_id: Uuid) -> Self {
         Self::new(
             EventData::OrganizationCreated(EventDataDetails {
                 entity_id: organization_id,
@@ -149,7 +154,7 @@ impl Event {
         )
     }
 
-    pub fn plan_created_draft(actor: Uuid, plan_version_id: Uuid, tenant_id: Uuid) -> Self {
+    pub fn plan_created_draft(actor: Actor, plan_version_id: Uuid, tenant_id: Uuid) -> Self {
         Self::new(
             EventData::PlanCreatedDraft(TenantEventDataDetails {
                 tenant_id,
@@ -159,7 +164,7 @@ impl Event {
         )
     }
 
-    pub fn plan_published_version(actor: Uuid, plan_version_id: Uuid, tenant_id: Uuid) -> Self {
+    pub fn plan_published_version(actor: Actor, plan_version_id: Uuid, tenant_id: Uuid) -> Self {
         Self::new(
             EventData::PlanPublishedVersion(TenantEventDataDetails {
                 tenant_id,
@@ -169,7 +174,7 @@ impl Event {
         )
     }
 
-    pub fn plan_discarded_version(actor: Uuid, plan_version_id: Uuid, tenant_id: Uuid) -> Self {
+    pub fn plan_discarded_version(actor: Actor, plan_version_id: Uuid, tenant_id: Uuid) -> Self {
         Self::new(
             EventData::PlanDiscardedVersion(TenantEventDataDetails {
                 tenant_id,
@@ -179,7 +184,11 @@ impl Event {
         )
     }
 
-    pub fn price_component_created(actor: Uuid, price_component_id: Uuid, tenant_id: Uuid) -> Self {
+    pub fn price_component_created(
+        actor: Actor,
+        price_component_id: Uuid,
+        tenant_id: Uuid,
+    ) -> Self {
         Self::new(
             EventData::PriceComponentCreated(TenantEventDataDetails {
                 tenant_id,
@@ -189,7 +198,7 @@ impl Event {
         )
     }
 
-    pub fn price_component_edited(actor: Uuid, price_component_id: Uuid, tenant_id: Uuid) -> Self {
+    pub fn price_component_edited(actor: Actor, price_component_id: Uuid, tenant_id: Uuid) -> Self {
         Self::new(
             EventData::PriceComponentEdited(TenantEventDataDetails {
                 tenant_id,
@@ -199,7 +208,11 @@ impl Event {
         )
     }
 
-    pub fn price_component_removed(actor: Uuid, price_component_id: Uuid, tenant_id: Uuid) -> Self {
+    pub fn price_component_removed(
+        actor: Actor,
+        price_component_id: Uuid,
+        tenant_id: Uuid,
+    ) -> Self {
         Self::new(
             EventData::PriceComponentRemoved(TenantEventDataDetails {
                 tenant_id,
@@ -210,7 +223,7 @@ impl Event {
     }
 
     pub fn product_family_created(
-        actor: Option<Uuid>,
+        actor: Option<Actor>,
         product_family_id: Uuid,
         tenant_id: Uuid,
     ) -> Self {
@@ -223,7 +236,7 @@ impl Event {
         )
     }
 
-    pub fn subscription_created(actor: Uuid, subscription_id: Uuid, tenant_id: Uuid) -> Self {
+    pub fn subscription_created(actor: Actor, subscription_id: Uuid, tenant_id: Uuid) -> Self {
         Self::new(
             EventData::SubscriptionCreated(TenantEventDataDetails {
                 tenant_id,
@@ -233,7 +246,7 @@ impl Event {
         )
     }
 
-    pub fn subscription_canceled(actor: Uuid, subscription_id: Uuid, tenant_id: Uuid) -> Self {
+    pub fn subscription_canceled(actor: Actor, subscription_id: Uuid, tenant_id: Uuid) -> Self {
         Self::new(
             EventData::SubscriptionCanceled(TenantEventDataDetails {
                 tenant_id,
@@ -243,7 +256,7 @@ impl Event {
         )
     }
 
-    pub fn user_created(actor: Option<Uuid>, user_id: Uuid) -> Self {
+    pub fn user_created(actor: Option<Actor>, user_id: Uuid) -> Self {
         Self::new(
             EventData::UserCreated(EventDataDetails { entity_id: user_id }),
             actor,
@@ -251,7 +264,7 @@ impl Event {
     }
 
     pub fn user_updated(
-        actor: Uuid,
+        actor: Actor,
         user_id: Uuid,
         department: Option<String>,
         know_us_from: Option<String>,

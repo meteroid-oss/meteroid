@@ -6,8 +6,7 @@ pub mod quotes {
         subscription_fee_billing_period_to_grpc, subscription_fee_to_grpc,
     };
     use meteroid_grpc::meteroid::api::quotes::v1::{
-        DetailedQuote, Quote, QuoteActivity, QuoteComponent, QuoteSignature, QuoteStatus,
-        RecipientDetails,
+        DetailedQuote, Quote, QuoteComponent, QuoteSignature, QuoteStatus, RecipientDetails,
     };
     use meteroid_grpc::meteroid::api::subscriptions::v1 as sub_proto;
     use meteroid_grpc::meteroid::api::subscriptions::v1::ActivationCondition;
@@ -116,21 +115,6 @@ pub mod quotes {
         }
     }
 
-    fn quote_activity_to_proto(activity: &domain::quotes::QuoteActivity) -> QuoteActivity {
-        QuoteActivity {
-            id: activity.id.as_proto(),
-            quote_id: activity.quote_id.as_proto(),
-            activity_type: activity.activity_type.clone(),
-            description: activity.description.clone(),
-            actor_type: activity.actor_type.clone(),
-            actor_id: activity.actor_id.clone(),
-            actor_name: activity.actor_name.clone(),
-            created_at: activity.created_at.as_proto(),
-            ip_address: activity.ip_address.clone(),
-            user_agent: activity.user_agent.clone(),
-        }
-    }
-
     pub fn quote_to_proto(
         quote: &domain::quotes::Quote,
         customer_name: Option<String>,
@@ -204,7 +188,6 @@ pub mod quotes {
         let add_ons = &detailed_quote.add_ons;
         let coupons = &detailed_quote.coupons;
         let signatures = &detailed_quote.signatures;
-        let activities = &detailed_quote.activities;
 
         let customer_server: ServerCustomerWrapper =
             detailed_quote.customer.clone().try_into().unwrap();
@@ -225,7 +208,6 @@ pub mod quotes {
             add_ons: add_ons.iter().map(quote_add_on_to_proto).collect(),
             coupons: coupons.iter().map(quote_coupon_to_proto).collect(),
             signatures: signatures.iter().map(quote_signature_to_proto).collect(),
-            activities: activities.iter().map(quote_activity_to_proto).collect(),
         }
     }
 

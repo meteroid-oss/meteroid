@@ -34,6 +34,7 @@ import { Fragment, useState } from 'react'
 import { Link } from 'react-router-dom'
 import { toast } from 'sonner'
 
+import { EntityActivityTimeline } from '@/features/activity/EntityActivityTimeline'
 import { ResolvedEntitlementsPanel } from '@/features/entitlements/resolved/ResolvedEntitlementsPanel'
 import { QuoteStatusBadge } from '@/features/quotes/QuoteStatusBadge'
 import { QuoteView } from '@/features/quotes/QuoteView'
@@ -486,24 +487,19 @@ export const QuoteDetailView: React.FC<Props> = ({ quote }) => {
             </>
           )}
 
-          <Separator className="-my-3" />
-
-          <Flex direction="column" className="gap-2 p-6">
-            <div className="text-[15px] font-medium">Timeline</div>
-            <div className="space-y-2">
-              {quote.activities?.map((activity, index) => (
-                <div key={activity.id || index} className="flex items-start gap-2">
-                  <div className="w-1.5 h-1.5 rounded-full bg-muted-foreground mt-1.5 flex-shrink-0"></div>
-                  <div>
-                    <div className="text-[13px] font-medium">{activity.description}</div>
-                    <div className="text-[11px] text-muted-foreground">
-                      {parseAndFormatDate(activity.createdAt)}
-                    </div>
-                  </div>
-                </div>
-              )) || <div className="text-[13px] text-muted-foreground">No activity recorded</div>}
-            </div>
-          </Flex>
+          {quote.quote?.id && (
+            <>
+              <Separator className="-my-3" />
+              <Flex direction="column" className="gap-2 p-6">
+                <div className="text-[15px] font-medium">Activity</div>
+                <EntityActivityTimeline
+                  entityType="quote"
+                  entityId={quote.quote.id}
+                  emptyLabel="No activity recorded"
+                />
+              </Flex>
+            </>
+          )}
 
           {env.entitlementsEnabled && quote.quote?.id && (
             <>

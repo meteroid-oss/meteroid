@@ -337,6 +337,7 @@ impl InvoicesService for InvoiceServiceComponents {
         request: Request<FinalizeInvoiceRequest>,
     ) -> Result<Response<FinalizeInvoiceResponse>, Status> {
         let tenant_id = request.tenant()?;
+        let actor = request.actor_typed()?;
 
         let req = request.into_inner();
 
@@ -344,7 +345,7 @@ impl InvoicesService for InvoiceServiceComponents {
 
         let finalized = self
             .services
-            .finalize_invoice(invoice_id, tenant_id)
+            .finalize_invoice(actor, invoice_id, tenant_id)
             .await
             .and_then(|inv| {
                 mapping::invoices::domain_invoice_with_transactions_to_server(
@@ -449,13 +450,14 @@ impl InvoicesService for InvoiceServiceComponents {
         request: Request<VoidInvoiceRequest>,
     ) -> Result<Response<VoidInvoiceResponse>, Status> {
         let tenant_id = request.tenant()?;
+        let actor = request.actor_typed()?;
         let req = request.into_inner();
 
         let invoice_id = InvoiceId::from_proto(&req.id)?;
 
         let invoice = self
             .store
-            .void_invoice(invoice_id, tenant_id)
+            .void_invoice(actor, invoice_id, tenant_id)
             .await
             .and_then(|inv| {
                 mapping::invoices::domain_invoice_with_transactions_to_server(
@@ -531,6 +533,7 @@ impl InvoicesService for InvoiceServiceComponents {
         Status,
     > {
         let tenant_id = request.tenant()?;
+        let actor = request.actor_typed()?;
         let req = request.into_inner();
 
         let invoice_id = InvoiceId::from_proto(req.invoice_id)?;
@@ -541,6 +544,7 @@ impl InvoicesService for InvoiceServiceComponents {
         let transaction = self
             .services
             .add_manual_payment_transaction(
+                actor,
                 tenant_id,
                 invoice_id,
                 amount,
@@ -579,6 +583,7 @@ impl InvoicesService for InvoiceServiceComponents {
         Status,
     > {
         let tenant_id = request.tenant()?;
+        let actor = request.actor_typed()?;
         let req = request.into_inner();
 
         let invoice_id = InvoiceId::from_proto(req.invoice_id)?;
@@ -589,6 +594,7 @@ impl InvoicesService for InvoiceServiceComponents {
         let invoice = self
             .services
             .mark_invoice_as_paid(
+                actor,
                 tenant_id,
                 invoice_id,
                 total_amount,

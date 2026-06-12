@@ -5,7 +5,6 @@ use error_stack::Report;
 use rust_decimal::Decimal;
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
-use uuid::Uuid;
 
 use super::enums::{BillingPeriodEnum, BillingType, FeeTypeEnum, SubscriptionFeeBillingPeriod};
 use super::price_components::{DowngradePolicy, FeeType, UpgradePolicy, UsagePricingModel};
@@ -96,7 +95,6 @@ pub struct Price {
     pub pricing: Pricing,
     pub tenant_id: TenantId,
     pub created_at: NaiveDateTime,
-    pub created_by: Uuid,
     pub archived_at: Option<NaiveDateTime>,
     pub catalog: bool,
 }
@@ -120,7 +118,6 @@ impl TryFrom<PriceRow> for Price {
             pricing,
             tenant_id: row.tenant_id,
             created_at: row.created_at,
-            created_by: row.created_by,
             archived_at: row.archived_at,
             catalog: row.catalog,
         })

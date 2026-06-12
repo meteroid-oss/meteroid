@@ -3,7 +3,6 @@ use chrono::NaiveDateTime;
 use common_domain::country::CountryCode;
 use common_domain::ids::{BankAccountId, TenantId};
 use diesel::{AsChangeset, Identifiable, Insertable, Queryable, Selectable};
-use uuid::Uuid;
 
 #[derive(Queryable, Debug, Identifiable, Selectable)]
 #[diesel(table_name = crate::schema::bank_account)]
@@ -16,7 +15,6 @@ pub struct BankAccountRow {
     pub bank_name: String,
     pub format: BankAccountFormat,
     pub account_numbers: String,
-    pub created_by: Uuid,
     pub created_at: NaiveDateTime,
 }
 
@@ -26,7 +24,6 @@ pub struct BankAccountRow {
 pub struct BankAccountRowNew {
     pub id: BankAccountId,
     pub tenant_id: TenantId,
-    pub created_by: Uuid,
     pub currency: String,
     pub country: CountryCode,
     pub bank_name: String,

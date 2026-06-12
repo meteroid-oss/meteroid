@@ -394,6 +394,7 @@ impl QuotesService for QuoteServiceComponents {
         request: Request<SendQuoteRequest>,
     ) -> Result<Response<SendQuoteResponse>, Status> {
         let tenant_id = request.tenant()?;
+        let actor = request.actor_typed()?;
         let inner = request.into_inner();
 
         let quote_id = QuoteId::from_proto(&inner.id)?;
@@ -401,7 +402,7 @@ impl QuotesService for QuoteServiceComponents {
         // Send the quote (publishes if draft, queues email)
         let _updated_quote = self
             .store
-            .send_quote(quote_id, tenant_id, inner.message)
+            .send_quote(actor, quote_id, tenant_id, inner.message)
             .await
             .map_err(Into::<QuoteApiError>::into)?;
 
@@ -433,6 +434,7 @@ impl QuotesService for QuoteServiceComponents {
         request: Request<CancelQuoteRequest>,
     ) -> Result<Response<CancelQuoteResponse>, Status> {
         let tenant_id = request.tenant()?;
+        let actor = request.actor_typed()?;
         let inner = request.into_inner();
 
         let quote_id = QuoteId::from_proto(&inner.id)?;
@@ -440,7 +442,7 @@ impl QuotesService for QuoteServiceComponents {
         // Cancel the quote
         let updated_quote = self
             .store
-            .cancel_quote(quote_id, tenant_id, inner.reason)
+            .cancel_quote(actor, quote_id, tenant_id, inner.reason)
             .await
             .map_err(Into::<QuoteApiError>::into)?;
 
@@ -521,13 +523,14 @@ impl QuotesService for QuoteServiceComponents {
         request: Request<PublishQuoteRequest>,
     ) -> Result<Response<PublishQuoteResponse>, Status> {
         let tenant_id = request.tenant()?;
+        let actor = request.actor_typed()?;
         let inner = request.into_inner();
 
         let quote_id = QuoteId::from_proto(&inner.id)?;
 
         let updated_quote = self
             .store
-            .publish_quote(quote_id, tenant_id)
+            .publish_quote(actor, quote_id, tenant_id)
             .await
             .map_err(Into::<QuoteApiError>::into)?;
 
@@ -549,7 +552,7 @@ impl QuotesService for QuoteServiceComponents {
         request: Request<ConvertQuoteToSubscriptionRequest>,
     ) -> Result<Response<ConvertQuoteToSubscriptionResponse>, Status> {
         let tenant_id = request.tenant()?;
-        let actor = request.actor()?;
+        let actor_typed = request.actor_typed()?;
         let inner = request.into_inner();
 
         let quote_id = QuoteId::from_proto(&inner.quote_id)?;
@@ -557,7 +560,7 @@ impl QuotesService for QuoteServiceComponents {
         // Convert the quote to a subscription
         let result = self
             .services
-            .convert_quote_to_subscription(tenant_id, quote_id, actor)
+            .convert_quote_to_subscription(actor_typed, tenant_id, quote_id)
             .await
             .map_err(Into::<QuoteApiError>::into)?;
 

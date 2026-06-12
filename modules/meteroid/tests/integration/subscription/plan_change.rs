@@ -94,7 +94,13 @@ async fn test_schedule_plan_change(#[future] test_env: TestEnv) {
 
     let event = env
         .services()
-        .schedule_plan_change(sub_id, TENANT_ID, PLAN_VERSION_PRO_ID, vec![])
+        .schedule_plan_change(
+            common_domain::actor::Actor::System,
+            sub_id,
+            TENANT_ID,
+            PLAN_VERSION_PRO_ID,
+            vec![],
+        )
         .await
         .expect("schedule_plan_change failed");
 
@@ -124,18 +130,30 @@ async fn test_cancel_plan_change(#[future] test_env: TestEnv) {
 
     // Schedule then cancel
     env.services()
-        .schedule_plan_change(sub_id, TENANT_ID, PLAN_VERSION_PRO_ID, vec![])
+        .schedule_plan_change(
+            common_domain::actor::Actor::System,
+            sub_id,
+            TENANT_ID,
+            PLAN_VERSION_PRO_ID,
+            vec![],
+        )
         .await
         .expect("schedule_plan_change failed");
 
     env.services()
-        .cancel_plan_change(sub_id, TENANT_ID)
+        .cancel_plan_change(common_domain::actor::Actor::System, sub_id, TENANT_ID)
         .await
         .expect("cancel_plan_change failed");
 
     // Scheduling again should succeed (no duplicate)
     env.services()
-        .schedule_plan_change(sub_id, TENANT_ID, PLAN_VERSION_PRO_ID, vec![])
+        .schedule_plan_change(
+            common_domain::actor::Actor::System,
+            sub_id,
+            TENANT_ID,
+            PLAN_VERSION_PRO_ID,
+            vec![],
+        )
         .await
         .expect("re-scheduling after cancel should succeed");
 }
@@ -191,7 +209,13 @@ async fn test_plan_change_executes_at_period_end(#[future] test_env: TestEnv) {
     // --- Schedule plan change to Pro ---
 
     env.services()
-        .schedule_plan_change(sub_id, TENANT_ID, PLAN_VERSION_PRO_ID, vec![])
+        .schedule_plan_change(
+            common_domain::actor::Actor::System,
+            sub_id,
+            TENANT_ID,
+            PLAN_VERSION_PRO_ID,
+            vec![],
+        )
         .await
         .expect("schedule_plan_change failed");
 
@@ -286,7 +310,13 @@ async fn test_plan_change_rejects_draft_target(#[future] test_env: TestEnv) {
 
     let result = env
         .services()
-        .schedule_plan_change(sub_id, TENANT_ID, PLAN_VERSION_PRO_DRAFT_ID, vec![])
+        .schedule_plan_change(
+            common_domain::actor::Actor::System,
+            sub_id,
+            TENANT_ID,
+            PLAN_VERSION_PRO_DRAFT_ID,
+            vec![],
+        )
         .await;
 
     assert!(result.is_err(), "should reject draft plan version");
@@ -309,7 +339,13 @@ async fn test_plan_change_rejects_currency_mismatch(#[future] test_env: TestEnv)
     // Try to change to USD plan
     let result = env
         .services()
-        .schedule_plan_change(sub_id, TENANT_ID, PLAN_VERSION_USD_ID, vec![])
+        .schedule_plan_change(
+            common_domain::actor::Actor::System,
+            sub_id,
+            TENANT_ID,
+            PLAN_VERSION_USD_ID,
+            vec![],
+        )
         .await;
 
     assert!(result.is_err(), "should reject currency mismatch");
@@ -336,14 +372,26 @@ async fn test_plan_change_replaces_existing(#[future] test_env: TestEnv) {
     // First schedule: LeetCode → Starter
     let first_event = env
         .services()
-        .schedule_plan_change(sub_id, TENANT_ID, PLAN_VERSION_STARTER_ID, vec![])
+        .schedule_plan_change(
+            common_domain::actor::Actor::System,
+            sub_id,
+            TENANT_ID,
+            PLAN_VERSION_STARTER_ID,
+            vec![],
+        )
         .await
         .expect("first schedule should succeed");
 
     // Second schedule: LeetCode → Pro (replaces Starter change)
     let second_event = env
         .services()
-        .schedule_plan_change(sub_id, TENANT_ID, PLAN_VERSION_PRO_ID, vec![])
+        .schedule_plan_change(
+            common_domain::actor::Actor::System,
+            sub_id,
+            TENANT_ID,
+            PLAN_VERSION_PRO_ID,
+            vec![],
+        )
         .await
         .expect("second schedule should succeed (replaces first)");
 
@@ -430,7 +478,13 @@ async fn test_plan_change_rejects_inactive_subscription(#[future] test_env: Test
 
     let result = env
         .services()
-        .schedule_plan_change(sub_id, TENANT_ID, PLAN_VERSION_PRO_ID, vec![])
+        .schedule_plan_change(
+            common_domain::actor::Actor::System,
+            sub_id,
+            TENANT_ID,
+            PLAN_VERSION_PRO_ID,
+            vec![],
+        )
         .await;
 
     assert!(
@@ -455,7 +509,13 @@ async fn test_plan_change_rejects_same_plan_version(#[future] test_env: TestEnv)
     // Schedule change to the same plan version
     let result = env
         .services()
-        .schedule_plan_change(sub_id, TENANT_ID, PLAN_VERSION_STARTER_ID, vec![])
+        .schedule_plan_change(
+            common_domain::actor::Actor::System,
+            sub_id,
+            TENANT_ID,
+            PLAN_VERSION_STARTER_ID,
+            vec![],
+        )
         .await;
 
     assert!(
@@ -466,7 +526,13 @@ async fn test_plan_change_rejects_same_plan_version(#[future] test_env: TestEnv)
     // Also test immediate path
     let result = env
         .services()
-        .apply_plan_change_immediate(sub_id, TENANT_ID, PLAN_VERSION_STARTER_ID, vec![])
+        .apply_plan_change_immediate(
+            common_domain::actor::Actor::System,
+            sub_id,
+            TENANT_ID,
+            PLAN_VERSION_STARTER_ID,
+            vec![],
+        )
         .await;
 
     assert!(
@@ -519,7 +585,14 @@ async fn test_immediate_plan_change_upgrade(#[future] test_env: TestEnv) {
     // Apply immediate upgrade at Jan 16
     let result = env
         .services()
-        .apply_plan_change_immediate_at(sub_id, TENANT_ID, PLAN_VERSION_PRO_ID, vec![], change_date)
+        .apply_plan_change_immediate_at(
+            common_domain::actor::Actor::System,
+            sub_id,
+            TENANT_ID,
+            PLAN_VERSION_PRO_ID,
+            vec![],
+            change_date,
+        )
         .await
         .expect("apply_plan_change_immediate_at failed");
 
@@ -663,6 +736,7 @@ async fn test_immediate_plan_change_downgrade(#[future] test_env: TestEnv) {
     let result = env
         .services()
         .apply_plan_change_immediate_at(
+            common_domain::actor::Actor::System,
             sub_id,
             TENANT_ID,
             PLAN_VERSION_STARTER_ID,
@@ -722,13 +796,26 @@ async fn test_immediate_plan_change_cancels_pending_scheduled(#[future] test_env
 
     // Schedule an end-of-period change first
     env.services()
-        .schedule_plan_change(sub_id, TENANT_ID, PLAN_VERSION_PRO_ID, vec![])
+        .schedule_plan_change(
+            common_domain::actor::Actor::System,
+            sub_id,
+            TENANT_ID,
+            PLAN_VERSION_PRO_ID,
+            vec![],
+        )
         .await
         .expect("schedule should succeed");
 
     // Now apply immediate change (same target)
     env.services()
-        .apply_plan_change_immediate_at(sub_id, TENANT_ID, PLAN_VERSION_PRO_ID, vec![], change_date)
+        .apply_plan_change_immediate_at(
+            common_domain::actor::Actor::System,
+            sub_id,
+            TENANT_ID,
+            PLAN_VERSION_PRO_ID,
+            vec![],
+            change_date,
+        )
         .await
         .expect("immediate should succeed even with pending scheduled");
 
@@ -829,7 +916,13 @@ async fn test_end_of_period_change_with_temporal_rotation(#[future] test_env: Te
 
     // Schedule end-of-period change
     env.services()
-        .schedule_plan_change(sub_id, TENANT_ID, PLAN_VERSION_PRO_ID, vec![])
+        .schedule_plan_change(
+            common_domain::actor::Actor::System,
+            sub_id,
+            TENANT_ID,
+            PLAN_VERSION_PRO_ID,
+            vec![],
+        )
         .await
         .expect("schedule_plan_change failed");
 
@@ -964,7 +1057,13 @@ async fn test_plan_change_preserves_slot_count(#[future] test_env: TestEnv) {
 
     // --- Schedule plan change to Pro ---
     env.services()
-        .schedule_plan_change(sub_id, TENANT_ID, PLAN_VERSION_PRO_ID, vec![])
+        .schedule_plan_change(
+            common_domain::actor::Actor::System,
+            sub_id,
+            TENANT_ID,
+            PLAN_VERSION_PRO_ID,
+            vec![],
+        )
         .await
         .expect("schedule_plan_change failed");
 
@@ -1067,7 +1166,14 @@ async fn test_immediate_plan_change_preserves_slot_count(#[future] test_env: Tes
     // --- Immediate upgrade to Pro at Jan 16 ---
     let result = env
         .services()
-        .apply_plan_change_immediate_at(sub_id, TENANT_ID, PLAN_VERSION_PRO_ID, vec![], change_date)
+        .apply_plan_change_immediate_at(
+            common_domain::actor::Actor::System,
+            sub_id,
+            TENANT_ID,
+            PLAN_VERSION_PRO_ID,
+            vec![],
+            change_date,
+        )
         .await
         .expect("immediate plan change failed");
 
@@ -1158,6 +1264,7 @@ async fn test_plan_change_rate_only_to_plan_with_slots(#[future] test_env: TestE
     //    - Added: Starter Seats (PRODUCT_SEATS_ID) with 5 initial slots
     env.services()
         .schedule_plan_change(
+            common_domain::actor::Actor::System,
             sub_id,
             TENANT_ID,
             PLAN_VERSION_STARTER_ID,
@@ -1259,6 +1366,7 @@ async fn test_immediate_plan_change_rate_only_to_plan_with_slots(#[future] test_
     let result = env
         .services()
         .apply_plan_change_immediate_at(
+            common_domain::actor::Actor::System,
             sub_id,
             TENANT_ID,
             PLAN_VERSION_STARTER_ID,
@@ -1449,6 +1557,7 @@ async fn test_immediate_plan_change_usage_temporal_split() {
     let result = env
         .services()
         .apply_plan_change_immediate_at(
+            common_domain::actor::Actor::System,
             sub_id,
             TENANT_ID,
             PLAN_VERSION_USAGE_BETA_ID,
@@ -1684,6 +1793,7 @@ async fn test_immediate_plan_change_usage_upcoming_invoice() {
     // --- Feb 15: Immediate plan change Usage Alpha → Usage Beta ---
     env.services()
         .apply_plan_change_immediate_at(
+            common_domain::actor::Actor::System,
             sub_id,
             TENANT_ID,
             PLAN_VERSION_USAGE_BETA_ID,
@@ -2036,6 +2146,7 @@ async fn test_immediate_plan_change_mixed_alpha_to_beta() {
     let result = env
         .services()
         .apply_plan_change_immediate_at(
+            common_domain::actor::Actor::System,
             sub_id,
             TENANT_ID,
             PLAN_VERSION_MIXED_BETA_ID,
@@ -2182,7 +2293,13 @@ async fn test_scheduled_plan_change_mixed_beta_to_alpha() {
 
     // --- Schedule downgrade to Alpha (end-of-period) ---
     env.services()
-        .schedule_plan_change(sub_id, TENANT_ID, PLAN_VERSION_MIXED_ALPHA_ID, vec![])
+        .schedule_plan_change(
+            common_domain::actor::Actor::System,
+            sub_id,
+            TENANT_ID,
+            PLAN_VERSION_MIXED_ALPHA_ID,
+            vec![],
+        )
         .await
         .expect("schedule_plan_change failed");
 
@@ -2365,6 +2482,7 @@ async fn test_immediate_plan_change_mixed_beta_to_alpha_downgrade() {
     let result = env
         .services()
         .apply_plan_change_immediate_at(
+            common_domain::actor::Actor::System,
             sub_id,
             TENANT_ID,
             PLAN_VERSION_MIXED_ALPHA_ID,
@@ -2507,6 +2625,7 @@ async fn test_immediate_plan_change_capacity_tier_upgrade() {
     let result = env
         .services()
         .apply_plan_change_immediate_at(
+            common_domain::actor::Actor::System,
             sub_id,
             TENANT_ID,
             PLAN_VERSION_MIXED_CAP_UPG_ID,
@@ -2742,6 +2861,7 @@ async fn test_immediate_plan_change_usage_price_only() {
     let result = env
         .services()
         .apply_plan_change_immediate_at(
+            common_domain::actor::Actor::System,
             sub_id,
             TENANT_ID,
             PLAN_VERSION_USAGE_ALPHA_V2_ID,
@@ -2871,6 +2991,7 @@ async fn test_plan_change_during_free_trial(#[future] test_env: TestEnv) {
     let result = env
         .services()
         .apply_plan_change_immediate_at(
+            common_domain::actor::Actor::System,
             sub_id,
             TENANT_ID,
             PLAN_VERSION_STARTER_ID,
@@ -2930,7 +3051,13 @@ async fn test_schedule_plan_change_during_trial(#[future] test_env: TestEnv) {
     // Schedule plan change to Starter at period end
     let event = env
         .services()
-        .schedule_plan_change(sub_id, TENANT_ID, PLAN_VERSION_STARTER_ID, vec![])
+        .schedule_plan_change(
+            common_domain::actor::Actor::System,
+            sub_id,
+            TENANT_ID,
+            PLAN_VERSION_STARTER_ID,
+            vec![],
+        )
         .await
         .expect("schedule during trial should succeed");
 
@@ -2964,11 +3091,11 @@ async fn test_plan_change_replaces_pending_cancellation(#[future] test_env: Test
     // Schedule cancellation at end of period
     env.services()
         .cancel_subscription(
+            common_domain::actor::Actor::System,
             sub_id,
             TENANT_ID,
             Some("want to cancel".to_string()),
             CancellationEffectiveAt::EndOfBillingPeriod,
-            USER_ID,
         )
         .await
         .expect("cancel_subscription failed");
@@ -2979,7 +3106,13 @@ async fn test_plan_change_replaces_pending_cancellation(#[future] test_env: Test
 
     // Now customer changes mind: schedule plan change to Pro (should replace cancellation)
     env.services()
-        .schedule_plan_change(sub_id, TENANT_ID, PLAN_VERSION_PRO_ID, vec![])
+        .schedule_plan_change(
+            common_domain::actor::Actor::System,
+            sub_id,
+            TENANT_ID,
+            PLAN_VERSION_PRO_ID,
+            vec![],
+        )
         .await
         .expect("plan change should replace pending cancellation");
 
@@ -3043,11 +3176,11 @@ async fn test_immediate_plan_change_cancels_pending_cancellation(#[future] test_
     // Schedule cancellation
     env.services()
         .cancel_subscription(
+            common_domain::actor::Actor::System,
             sub_id,
             TENANT_ID,
             None,
             CancellationEffectiveAt::EndOfBillingPeriod,
-            USER_ID,
         )
         .await
         .expect("cancel_subscription failed");
@@ -3055,7 +3188,14 @@ async fn test_immediate_plan_change_cancels_pending_cancellation(#[future] test_
     // Immediate plan change should override cancellation
     let result = env
         .services()
-        .apply_plan_change_immediate_at(sub_id, TENANT_ID, PLAN_VERSION_PRO_ID, vec![], change_date)
+        .apply_plan_change_immediate_at(
+            common_domain::actor::Actor::System,
+            sub_id,
+            TENANT_ID,
+            PLAN_VERSION_PRO_ID,
+            vec![],
+            change_date,
+        )
         .await
         .expect("immediate plan change should succeed despite pending cancellation");
 
@@ -3120,7 +3260,14 @@ async fn test_sequential_immediate_plan_changes(#[future] test_env: TestEnv) {
     // --- Jan 10: Starter → Pro (upgrade) ---
     let result1 = env
         .services()
-        .apply_plan_change_immediate_at(sub_id, TENANT_ID, PLAN_VERSION_PRO_ID, vec![], jan10)
+        .apply_plan_change_immediate_at(
+            common_domain::actor::Actor::System,
+            sub_id,
+            TENANT_ID,
+            PLAN_VERSION_PRO_ID,
+            vec![],
+            jan10,
+        )
         .await
         .expect("first plan change (Starter→Pro) failed");
 
@@ -3146,7 +3293,14 @@ async fn test_sequential_immediate_plan_changes(#[future] test_env: TestEnv) {
     // --- Jan 20: Pro → Starter (downgrade) ---
     let _result2 = env
         .services()
-        .apply_plan_change_immediate_at(sub_id, TENANT_ID, PLAN_VERSION_STARTER_ID, vec![], jan20)
+        .apply_plan_change_immediate_at(
+            common_domain::actor::Actor::System,
+            sub_id,
+            TENANT_ID,
+            PLAN_VERSION_STARTER_ID,
+            vec![],
+            jan20,
+        )
         .await
         .expect("second plan change (Pro→Starter) failed");
 
@@ -3201,19 +3355,37 @@ async fn test_sequential_scheduled_plan_changes(#[future] test_env: TestEnv) {
 
     // Schedule 1: LeetCode → Starter
     env.services()
-        .schedule_plan_change(sub_id, TENANT_ID, PLAN_VERSION_STARTER_ID, vec![])
+        .schedule_plan_change(
+            common_domain::actor::Actor::System,
+            sub_id,
+            TENANT_ID,
+            PLAN_VERSION_STARTER_ID,
+            vec![],
+        )
         .await
         .expect("schedule 1 failed");
 
     // Schedule 2: replaces with → Pro
     env.services()
-        .schedule_plan_change(sub_id, TENANT_ID, PLAN_VERSION_PRO_ID, vec![])
+        .schedule_plan_change(
+            common_domain::actor::Actor::System,
+            sub_id,
+            TENANT_ID,
+            PLAN_VERSION_PRO_ID,
+            vec![],
+        )
         .await
         .expect("schedule 2 failed");
 
     // Schedule 3: replaces with → Starter
     env.services()
-        .schedule_plan_change(sub_id, TENANT_ID, PLAN_VERSION_STARTER_ID, vec![])
+        .schedule_plan_change(
+            common_domain::actor::Actor::System,
+            sub_id,
+            TENANT_ID,
+            PLAN_VERSION_STARTER_ID,
+            vec![],
+        )
         .await
         .expect("schedule 3 failed");
 
@@ -3282,7 +3454,6 @@ async fn test_plan_change_monthly_to_annual(#[future] test_env: TestEnv) {
                     id: annual_plan_id,
                     name: "Annual Rate".to_string(),
                     description: None,
-                    created_by: USER_ID,
                     tenant_id: TENANT_ID,
                     product_family_id: PRODUCT_FAMILY_ID,
                     plan_type: diesel_models::enums::PlanTypeEnum::Standard,
@@ -3302,7 +3473,6 @@ async fn test_plan_change_monthly_to_annual(#[future] test_env: TestEnv) {
                     net_terms: 0,
                     currency: "EUR".to_string(),
                     billing_cycles: None,
-                    created_by: USER_ID,
                     trialing_plan_id: None,
                     trial_is_free: true,
                     uses_product_pricing: true,
@@ -3364,6 +3534,7 @@ async fn test_plan_change_monthly_to_annual(#[future] test_env: TestEnv) {
     let _result = env
         .services()
         .apply_plan_change_immediate_at(
+            common_domain::actor::Actor::System,
             sub_id,
             TENANT_ID,
             annual_plan_version_id,
@@ -3455,6 +3626,7 @@ async fn test_plan_change_during_free_trial_immediate(#[future] test_env: TestEn
     let result = env
         .services()
         .apply_plan_change_immediate_at(
+            common_domain::actor::Actor::System,
             sub_id,
             TENANT_ID,
             PLAN_VERSION_STARTER_ID,
@@ -3565,6 +3737,7 @@ async fn test_plan_change_to_trial_plan_no_trial_applied(#[future] test_env: Tes
     let result = env
         .services()
         .apply_plan_change_immediate_at(
+            common_domain::actor::Actor::System,
             sub_id,
             TENANT_ID,
             PLAN_VERSION_PAID_FREE_TRIAL_ID,

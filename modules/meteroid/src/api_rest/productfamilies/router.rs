@@ -97,7 +97,7 @@ pub(crate) async fn create_product_family(
         .store
         .insert_product_family(
             create_req_to_domain(payload, authorized_state.tenant_id),
-            Some(authorized_state.actor.id()),
+            Some(authorized_state.as_actor()),
         )
         .await
         .map(|x| (StatusCode::CREATED, Json(domain_to_rest(x))))

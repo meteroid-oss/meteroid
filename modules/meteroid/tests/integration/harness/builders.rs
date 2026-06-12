@@ -1,7 +1,8 @@
 //! Test data builders for creating subscriptions and other entities.
 
 use chrono::NaiveDate;
-use common_domain::ids::{CouponId, CustomerId, PlanVersionId, SubscriptionId};
+use common_domain::actor::Actor;
+use common_domain::ids::{CouponId, CustomerId, PlanVersionId, SubscriptionId, UserId};
 use meteroid_store::Services;
 use meteroid_store::domain::subscriptions::PaymentMethodsConfig;
 use meteroid_store::domain::{
@@ -165,11 +166,13 @@ impl SubscriptionBuilder {
 
         services
             .insert_subscription(
+                Actor::User {
+                    id: UserId::from(USER_ID),
+                },
                 CreateSubscription {
                     subscription: SubscriptionNew {
                         customer_id: self.customer_id,
                         plan_version_id: self.plan_version_id,
-                        created_by: USER_ID,
                         net_terms: None,
                         invoice_memo: None,
                         invoice_threshold: None,

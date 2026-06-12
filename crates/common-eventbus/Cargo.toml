@@ -11,4 +11,5 @@ async-trait.workspace = true
 thiserror.workspace = true
 uuid = { workspace = true, features = ["v4", "v7"] }
 chrono = { workspace = true, features = ["clock"] }
+common-domain.workspace = true
 

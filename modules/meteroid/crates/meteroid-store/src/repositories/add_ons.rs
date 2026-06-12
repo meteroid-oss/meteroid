@@ -1,5 +1,6 @@
 use crate::domain::add_ons::{AddOn, AddOnNew, AddOnPatch};
 use crate::domain::entitlements::{Entitlement, EntitlementSpec};
+use crate::domain::entity_activity::Actor;
 use crate::domain::enums::FeeTypeEnum;
 use crate::domain::outbox_event::OutboxEvent;
 use crate::domain::price_components::{PriceComponentNewInternal, PriceEntry, ProductRef};
@@ -17,7 +18,6 @@ use diesel_models::entitlements::EntitlementRow;
 use diesel_models::prices::PriceRow;
 use diesel_models::products::ProductRow;
 use error_stack::Report;
-use uuid::Uuid;
 
 #[async_trait::async_trait]
 pub trait AddOnInterface {
@@ -41,7 +41,7 @@ pub trait AddOnInterface {
 
     async fn get_add_on_by_id(&self, tenant_id: TenantId, id: AddOnId) -> StoreResult<AddOn>;
 
-    async fn create_add_on(&self, add_on: AddOnNew) -> StoreResult<AddOn>;
+    async fn create_add_on(&self, actor: Actor, add_on: AddOnNew) -> StoreResult<AddOn>;
 
     #[allow(clippy::too_many_arguments)]
     async fn create_add_on_from_ref(
@@ -53,19 +53,23 @@ pub trait AddOnInterface {
         self_serviceable: bool,
         max_instances_per_subscription: Option<i32>,
         tenant_id: TenantId,
-        created_by: Uuid,
         product_family_id: ProductFamilyId,
         entitlements: Vec<EntitlementSpec>,
     ) -> StoreResult<AddOn>;
 
     async fn update_add_on(
         &self,
+        actor: Actor,
         patch: AddOnPatch,
         price_entry: Option<PriceEntry>,
-        created_by: Uuid,
     ) -> StoreResult<AddOn>;
 
-    async fn archive_add_on(&self, id: AddOnId, tenant_id: TenantId) -> StoreResult<()>;
+    async fn archive_add_on(
+        &self,
+        actor: Actor,
+        id: AddOnId,
+        tenant_id: TenantId,
+    ) -> StoreResult<()>;
     async fn unarchive_add_on(&self, id: AddOnId, tenant_id: TenantId) -> StoreResult<()>;
 }
 
@@ -199,7 +203,7 @@ impl AddOnInterface for Store {
             .ok_or_else(|| Report::new(StoreError::InvalidArgument("Add-on not found".into())))
     }
 
-    async fn create_add_on(&self, add_on: AddOnNew) -> StoreResult<AddOn> {
+    async fn create_add_on(&self, actor: Actor, add_on: AddOnNew) -> StoreResult<AddOn> {
         let mut conn = self.get_conn().await?;
 
         let price_row =
@@ -214,11 +218,11 @@ impl AddOnInterface for Store {
         }
 
         let tenant_id = add_on.tenant_id;
-        let created_by = add_on.created_by;
         let entitlements = add_on.entitlements.clone();
         let row_new: AddOnRowNew = add_on.into();
 
         self.transaction_with(&mut conn, |conn| {
+            let actor = &actor;
             async move {
                 let row = row_new
                     .insert(conn)
@@ -236,14 +240,15 @@ impl AddOnInterface for Store {
                         entitlements,
                         EntitlementEntityId::AddOn(addon.id),
                         tenant_id,
-                        created_by,
                     )
                     .await?;
                 }
 
                 self.internal
-                    .insert_outbox_events_tx(
+                    .record_outbox_batch_tx(
                         conn,
+                        tenant_id,
+                        actor,
                         vec![OutboxEvent::add_on_created(addon.clone().into())],
                     )
                     .await?;
@@ -265,7 +270,6 @@ impl AddOnInterface for Store {
         self_serviceable: bool,
         max_instances_per_subscription: Option<i32>,
         tenant_id: TenantId,
-        created_by: Uuid,
         product_family_id: ProductFamilyId,
         entitlements: Vec<EntitlementSpec>,
     ) -> StoreResult<AddOn> {
@@ -296,7 +300,6 @@ impl AddOnInterface for Store {
                     conn,
                     &internal,
                     tenant_id,
-                    created_by,
                     product_family_id,
                     &currency,
                     true,
@@ -336,7 +339,6 @@ impl AddOnInterface for Store {
                         entitlements,
                         EntitlementEntityId::AddOn(addon.id),
                         tenant_id,
-                        created_by,
                     )
                     .await?;
                 }
@@ -350,14 +352,15 @@ impl AddOnInterface for Store {
 
     async fn update_add_on(
         &self,
+        actor: Actor,
         patch: AddOnPatch,
         price_entry: Option<PriceEntry>,
-        created_by: Uuid,
     ) -> StoreResult<AddOn> {
         let tenant_id = patch.tenant_id;
         let add_on_id = patch.id;
 
         self.transaction(|conn| {
+            let actor = &actor;
             async move {
                 let existing = AddOnRow::get_by_id(conn, tenant_id, add_on_id)
                     .await
@@ -412,7 +415,6 @@ impl AddOnInterface for Store {
                                 currency: input.currency,
                                 pricing: pricing_json,
                                 tenant_id,
-                                created_by,
                                 catalog: true,
                             }
                             .insert(conn)
@@ -439,8 +441,10 @@ impl AddOnInterface for Store {
                 })?;
 
                 self.internal
-                    .insert_outbox_events_tx(
+                    .record_outbox_batch_tx(
                         conn,
+                        tenant_id,
+                        actor,
                         vec![OutboxEvent::add_on_updated(addon.clone().into())],
                     )
                     .await?;
@@ -452,10 +456,16 @@ impl AddOnInterface for Store {
         .await
     }
 
-    async fn archive_add_on(&self, id: AddOnId, tenant_id: TenantId) -> StoreResult<()> {
+    async fn archive_add_on(
+        &self,
+        actor: Actor,
+        id: AddOnId,
+        tenant_id: TenantId,
+    ) -> StoreResult<()> {
         let mut conn = self.get_conn().await?;
 
         self.transaction_with(&mut conn, |conn| {
+            let actor = &actor;
             async move {
                 AddOnRow::archive(conn, id, tenant_id)
                     .await
@@ -467,7 +477,12 @@ impl AddOnInterface for Store {
 
                 let addon: AddOn = row.into();
                 self.internal
-                    .insert_outbox_events_tx(conn, vec![OutboxEvent::add_on_archived(addon.into())])
+                    .record_outbox_batch_tx(
+                        conn,
+                        tenant_id,
+                        actor,
+                        vec![OutboxEvent::add_on_archived(addon.into())],
+                    )
                     .await?;
 
                 Ok(())

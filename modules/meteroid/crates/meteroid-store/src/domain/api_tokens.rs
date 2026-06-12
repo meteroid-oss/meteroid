@@ -10,7 +10,6 @@ use crate::domain::enums::TenantEnvironmentEnum;
 #[from_owned(ApiTokenRowNew)]
 pub struct ApiTokenNew {
     pub name: String,
-    pub created_by: Uuid,
     pub tenant_id: TenantId,
 }
 
@@ -21,7 +20,6 @@ pub struct ApiToken {
     pub id: Uuid,
     pub name: String,
     pub created_at: NaiveDateTime,
-    pub created_by: Uuid,
     pub tenant_id: TenantId,
     pub hash: String,
     pub hint: String,

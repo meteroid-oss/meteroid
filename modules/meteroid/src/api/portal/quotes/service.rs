@@ -3,6 +3,7 @@ use crate::api::portal::quotes::error::PortalQuoteApiError;
 use crate::api::shared::conversions::ProtoConv;
 use crate::services::storage::Prefix;
 use chrono::Utc;
+use common_domain::actor::Actor;
 use common_grpc::middleware::server::auth::RequestExt;
 use meteroid_grpc::meteroid::portal::quotes::v1::portal_quote_service_server::PortalQuoteService;
 use meteroid_grpc::meteroid::portal::quotes::v1::{
@@ -235,7 +236,13 @@ impl PortalQuoteService for PortalQuoteServiceComponents {
         // Save signature
         let inserted_signature = self
             .store
-            .insert_quote_signature(signature)
+            .insert_quote_signature(
+                Actor::QuoteRecipient {
+                    email: token_recipient_email.clone(),
+                },
+                signature,
+                tenant,
+            )
             .await
             .map_err(Into::<PortalQuoteApiError>::into)?;
 
@@ -255,7 +262,13 @@ impl PortalQuoteService for PortalQuoteServiceComponents {
         // If all recipients have signed, update quote status to Accepted
         if all_signed {
             self.store
-                .accept_quote(quote_id, tenant)
+                .accept_quote(
+                    Actor::QuoteRecipient {
+                        email: token_recipient_email.clone(),
+                    },
+                    quote_id,
+                    tenant,
+                )
                 .await
                 .map_err(Into::<PortalQuoteApiError>::into)?;
         }

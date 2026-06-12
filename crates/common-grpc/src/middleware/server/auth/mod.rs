@@ -4,9 +4,10 @@ use uuid::Uuid;
 pub use admin_layer::AdminAuthLayer;
 pub use admin_layer::AdminAuthService;
 use common_config::auth::InternalAuthConfig;
+use common_domain::actor::Actor;
 use common_domain::auth::OrgMemberRole;
 use common_domain::ids::{
-    CheckoutSessionId, CustomerId, InvoiceId, OrganizationId, QuoteId, TenantId,
+    ApiTokenId, CheckoutSessionId, CustomerId, InvoiceId, OrganizationId, QuoteId, TenantId, UserId,
 };
 
 mod admin_layer;
@@ -18,6 +19,7 @@ pub fn create_admin(config: &InternalAuthConfig) -> AdminAuthLayer {
 
 pub trait RequestExt {
     fn actor(&self) -> Result<Uuid, Status>;
+    fn actor_typed(&self) -> Result<Actor, Status>;
     fn tenant(&self) -> Result<TenantId, Status>;
     fn organization(&self) -> Result<OrganizationId, Status>;
     fn actor_role(&self) -> Result<OrgMemberRole, Status>;
@@ -28,6 +30,10 @@ pub trait RequestExt {
 impl<T> RequestExt for tonic::Request<T> {
     fn actor(&self) -> Result<Uuid, Status> {
         extract_actor(self.extensions().get::<AuthorizedState>())
+    }
+
+    fn actor_typed(&self) -> Result<Actor, Status> {
+        extract_actor_typed(self.extensions().get::<AuthorizedState>())
     }
 
     fn tenant(&self) -> Result<TenantId, Status> {
@@ -56,6 +62,10 @@ impl<T> RequestExt for http::Request<T> {
         extract_actor(self.extensions().get::<AuthorizedState>())
     }
 
+    fn actor_typed(&self) -> Result<Actor, Status> {
+        extract_actor_typed(self.extensions().get::<AuthorizedState>())
+    }
+
     fn tenant(&self) -> Result<TenantId, Status> {
         extract_tenant(self.extensions().get::<AuthorizedState>())
     }
@@ -74,6 +84,34 @@ impl<T> RequestExt for http::Request<T> {
 
     fn portal_resource(&self) -> Result<AuthorizedAsPortalUser, Status> {
         extract_portal(self.extensions().get::<AuthorizedState>())
+    }
+}
+
+pub fn extract_actor_typed(maybe_auth: Option<&AuthorizedState>) -> Result<Actor, Status> {
+    let authorized = maybe_auth.ok_or(Status::unauthenticated(
+        "Missing authorized state in request extensions",
+    ))?;
+
+    match authorized {
+        AuthorizedState::Tenant(t) => Ok(t.as_actor()),
+        // API tokens are tenant-scoped, so org-/user-level auth is always a user.
+        AuthorizedState::Organization { actor_id, .. } => Ok(Actor::User {
+            id: UserId::from(*actor_id),
+        }),
+        AuthorizedState::User { user_id } => Ok(Actor::User {
+            id: UserId::from(*user_id),
+        }),
+        AuthorizedState::Shared(state) => match &state.resource_access {
+            ResourceAccess::CustomerPortal(id) => Ok(Actor::Customer { id: *id }),
+            ResourceAccess::QuotePortal {
+                recipient_email, ..
+            } => Ok(Actor::QuoteRecipient {
+                email: recipient_email.clone(),
+            }),
+            ResourceAccess::CheckoutSession(_) | ResourceAccess::InvoicePortal(_) => Err(
+                Status::invalid_argument("Actor is not available for this portal session."),
+            ),
+        },
     }
 }
 
@@ -233,6 +271,19 @@ pub struct AuthorizedAsTenant {
     pub tenant_id: TenantId,
     pub organization_id: OrganizationId,
     pub tenant_env: TenantEnv,
+}
+
+impl AuthorizedAsTenant {
+    pub fn as_actor(&self) -> Actor {
+        match self.actor {
+            TenantActor::User { id, .. } => Actor::User {
+                id: UserId::from(id),
+            },
+            TenantActor::ApiKey(id) => Actor::ApiToken {
+                id: ApiTokenId::from(id),
+            },
+        }
+    }
 }
 
 #[derive(Clone)]

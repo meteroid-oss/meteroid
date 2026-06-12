@@ -54,7 +54,7 @@ impl PriceComponentsService for PriceComponentServiceComponents {
         &self,
         request: Request<CreatePriceComponentRequest>,
     ) -> Result<Response<CreatePriceComponentResponse>, Status> {
-        let actor = request.actor()?;
+        let actor = request.actor_typed()?;
         let tenant_id = request.tenant()?;
         let req = request.into_inner();
 
@@ -74,7 +74,6 @@ impl PriceComponentsService for PriceComponentServiceComponents {
                 price_entries,
                 plan_version_id,
                 tenant_id,
-                actor,
             )
             .await
             .map_err(|err| {
@@ -106,7 +105,7 @@ impl PriceComponentsService for PriceComponentServiceComponents {
         &self,
         request: Request<EditPriceComponentRequest>,
     ) -> Result<Response<EditPriceComponentResponse>, Status> {
-        let actor = request.actor()?;
+        let actor = request.actor_typed()?;
         let tenant_id = request.tenant()?;
         let req = request.into_inner();
 
@@ -149,13 +148,7 @@ impl PriceComponentsService for PriceComponentServiceComponents {
 
         let component = self
             .store
-            .update_price_component_with_prices(
-                component,
-                price_inputs,
-                tenant_id,
-                plan_version_id,
-                actor,
-            )
+            .update_price_component_with_prices(component, price_inputs, tenant_id, plan_version_id)
             .await
             .map_err(|err| {
                 PriceComponentApiError::StoreError(
@@ -186,7 +179,7 @@ impl PriceComponentsService for PriceComponentServiceComponents {
         &self,
         request: Request<RemovePriceComponentRequest>,
     ) -> Result<Response<EmptyResponse>, Status> {
-        let actor = request.actor()?;
+        let actor = request.actor_typed()?;
         let tenant_id = request.tenant()?;
         let req = request.into_inner();
 
