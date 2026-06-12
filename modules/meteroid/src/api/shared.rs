@@ -187,3 +187,27 @@ pub mod conversions {
         }
     }
 }
+
+pub mod usage {
+    use crate::api::shared::conversions::ProtoConv;
+    use meteroid_store::domain::{Period, Subscription};
+
+    pub fn resolve_usage_period(
+        start_date: Option<&String>,
+        end_date: Option<&String>,
+        subscription: &Subscription,
+    ) -> Result<Period, tonic::Status> {
+        match (start_date, end_date) {
+            (Some(s), Some(e)) => Ok(Period {
+                start: chrono::NaiveDate::from_proto_ref(s)?,
+                end: chrono::NaiveDate::from_proto_ref(e)?,
+            }),
+            _ => Ok(Period {
+                start: subscription.current_period_start,
+                end: subscription
+                    .current_period_end
+                    .unwrap_or_else(|| chrono::Utc::now().date_naive() + chrono::Duration::days(1)),
+            }),
+        }
+    }
+}

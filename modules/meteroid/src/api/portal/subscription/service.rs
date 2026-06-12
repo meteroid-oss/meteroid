@@ -952,9 +952,15 @@ impl PortalSubscriptionService for PortalSubscriptionServiceComponents {
             return Err(PortalSubscriptionApiError::Unauthorized.into());
         }
 
+        let period = crate::api::shared::usage::resolve_usage_period(
+            inner.start_date.as_ref(),
+            inner.end_date.as_ref(),
+            &details.subscription,
+        )?;
+
         let usage = self
             .services
-            .get_subscription_component_usage(&details, metric_id)
+            .get_subscription_component_usage(&details, metric_id, period)
             .await
             .map_err(Into::<PortalSubscriptionApiError>::into)?;
 

@@ -1,6 +1,7 @@
 use crate::StoreResult;
 use crate::domain::{Period, SubscriptionDetails};
 use crate::errors::StoreError;
+use crate::repositories::billable_metrics::BillableMetricInterface;
 use crate::services::Services;
 use crate::services::clients::usage::WindowedUsageData;
 use crate::services::invoice_lines::invoice_lines::ComputedInvoiceContent;
@@ -39,24 +40,24 @@ impl Services {
         &self,
         subscription_details: &SubscriptionDetails,
         metric_id: BillableMetricId,
+        period: Period,
     ) -> StoreResult<WindowedUsageData> {
-        let metric = subscription_details
+        let metric = if let Some(m) = subscription_details
             .metrics
             .iter()
             .find(|m| m.id == metric_id)
-            .ok_or_else(|| {
-                Report::new(StoreError::ValueNotFound(format!(
-                    "Metric {} not found on subscription",
-                    metric_id
-                )))
-            })?;
-
-        let period = Period {
-            start: subscription_details.subscription.current_period_start,
-            end: subscription_details
-                .subscription
-                .current_period_end
-                .unwrap_or_else(|| chrono::Utc::now().date_naive() + chrono::Duration::days(1)),
+        {
+            m.clone()
+        } else {
+            self.store
+                .find_billable_metric_by_id(metric_id, subscription_details.subscription.tenant_id)
+                .await
+                .map_err(|_| {
+                    Report::new(StoreError::ValueNotFound(format!(
+                        "Metric {} not found on subscription",
+                        metric_id
+                    )))
+                })?
         };
 
         if period.start >= period.end {
@@ -70,7 +71,7 @@ impl Services {
             .fetch_windowed_usage(
                 &subscription_details.subscription.tenant_id,
                 &subscription_details.subscription.customer_id,
-                metric,
+                &metric,
                 period.into(),
             )
             .await

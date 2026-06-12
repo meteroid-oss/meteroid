@@ -705,7 +705,12 @@ function PortalLineItemRow({
 
   const usageQuery = useQuery(
     getSubscriptionComponentUsage,
-    { subscriptionId, metricId: line.metricId ?? '' },
+    {
+      subscriptionId,
+      metricId: line.metricId ?? '',
+      startDate: line.startDate || undefined,
+      endDate: line.endDate || undefined,
+    },
     { enabled: showUsage && hasMetric }
   )
 

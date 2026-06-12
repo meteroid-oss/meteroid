@@ -77,9 +77,10 @@ impl ServicesEdge {
         &self,
         subscription_details: &SubscriptionDetails,
         metric_id: common_domain::ids::BillableMetricId,
+        period: crate::domain::Period,
     ) -> StoreResult<WindowedUsageData> {
         self.services
-            .get_subscription_component_usage(subscription_details, metric_id)
+            .get_subscription_component_usage(subscription_details, metric_id, period)
             .await
     }
 

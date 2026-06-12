@@ -201,6 +201,8 @@ message PurchaseAddOnResponse {
 message GetSubscriptionComponentUsageRequest {
   string subscription_id = 1;
   string metric_id = 2;
+  optional string start_date = 3;
+  optional string end_date = 4;
 }
 
 message GetSubscriptionComponentUsageResponse {

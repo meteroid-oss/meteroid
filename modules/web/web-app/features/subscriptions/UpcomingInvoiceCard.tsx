@@ -340,6 +340,8 @@ const LineItemRow = ({ line, currency, subscriptionId, isLast }: LineItemRowProp
                 <UsageBarChart
                   subscriptionId={subscriptionId}
                   metricId={line.metricId}
+                  startDate={line.startDate || undefined}
+                  endDate={line.endDate || undefined}
                   groupByDimensions={
                     Object.keys(line.groupByDimensions).length > 0
                       ? line.groupByDimensions
