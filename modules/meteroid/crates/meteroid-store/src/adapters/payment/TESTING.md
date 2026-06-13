@@ -19,12 +19,41 @@ Three tiers, increasing cost/coverage:
      `payment_pending`, `payment_requires_action`, `payment_method_attached`,
      `payment_method_updated`}.
 
-   Use this to assert end-to-end state transitions (charge Pending →
-   webhook succeeded → Settled; charge requires_action → next_action persisted →
-   webhook succeeded → Settled + next_action cleared) against the test DB,
-   without any Stripe/GoCardless credentials.
+   This drives end-to-end state transitions against a real Postgres test DB
+   (testcontainers), through the *production* webhook dispatcher
+   (`api_rest::webhooks::event_handler::handle_normalized_event`) — the same
+   path the HTTP route uses, minus signature verification. Shipped in
+   `tests/integration/subscription/payment_webhook_settlement.rs`:
+   - charge `pending` → webhook `payment_succeeded` → transaction `Settled`,
+     invoice paid;
+   - charge `requires_action` → `next_action` persisted on the pending
+     transaction → webhook `payment_succeeded` → `Settled` + `next_action`
+     cleared;
+   - charge `pending` → webhook `payment_failed` → transaction `Failed`,
+     invoice stays unpaid.
 
-3. **Gated provider sandbox tests (creds, nightly/manual).** Mirror hyperswitch:
+   `TestEnv::set_mock_charge_behavior(..)` configures the mock; assertions read
+   transaction status via the store and the raw `next_action` JSONB column
+   (the domain `PaymentTransaction.next_action` is intentionally ghosted — it's
+   transient on the charge response and never re-hydrated from the row).
+
+3. **Stripe schema-conformance tests against `stripe-mock` (no credentials).**
+   `stripe-mock` serves Stripe's real OpenAPI surface: it validates each request
+   against the published schema and answers with schema-valid fixtures. The
+   suite in `stripe-client/tests/stripe_mock.rs` proves our request
+   serialization (`serde_qs` form/bracket encoding, the flattened
+   `mandate_data[...]` keys, repeated `payment_method_types[]`) and response
+   deserialization match Stripe's contract. Gated on `STRIPE_MOCK_URL`:
+
+   ```bash
+   stripe-mock -http-port 12111 &
+   STRIPE_MOCK_URL=http://127.0.0.1:12111/ cargo test -p stripe-client --test stripe_mock
+   ```
+
+   (This is what caught the missing `Content-Type: application/x-www-form-urlencoded`
+   header on form POSTs — real Stripe is lenient, the spec is not.)
+
+4. **Gated provider sandbox tests (creds, nightly/manual).** Mirror hyperswitch:
    read credentials from an env var, `#[ignore]` by default, run only when
    present. Stripe test-mode is deterministic and worth 1–2 e2e cases (card,
    3DS via `pm_card_authenticationRequired`, a DD scheme). GoCardless sandbox is
@@ -32,8 +61,8 @@ Three tiers, increasing cost/coverage:
    consent), so keep mandate `active` as a fixture test and use the payment
    scenario simulator only for payment status transitions.
 
-We currently ship tiers 1 and 2. Tier 3 is documented but not wired (needs a
-secrets channel in CI).
+We ship tiers 1–3 (tier 3 runs when `STRIPE_MOCK_URL` is set). Tier 4 (real
+provider sandbox) is documented but not wired (needs a secrets channel in CI).
 
 ## 3DS / `requires_action` (SCA) flow
 

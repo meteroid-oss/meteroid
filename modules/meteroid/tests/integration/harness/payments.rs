@@ -27,6 +27,12 @@ impl TestEnv {
         crate::data::payment::update_mock_payment_provider_fail(self.pool(), fail).await;
     }
 
+    /// Set the mock provider's charge behavior: "succeeded", "pending"
+    /// (async settlement), "requires_action" (3DS), or "failed".
+    pub async fn set_mock_charge_behavior(&self, charge_behavior: &str) {
+        crate::data::payment::set_mock_charge_behavior(self.pool(), charge_behavior).await;
+    }
+
     /// Seed the second mock payment provider.
     pub async fn seed_mock_payment_provider_2(&self) {
         crate::data::payment::run_mock_payment_provider_2_seed(self.pool()).await;
