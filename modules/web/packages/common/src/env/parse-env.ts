@@ -1,4 +1,4 @@
-import * as z from 'zod'
+import * as z from 'zod/v3'
 
 import { getSchemaWithPreprocessor } from './preprocessors'
 import { ErrorWithContext, errorMap, reportErrors } from './reporter'

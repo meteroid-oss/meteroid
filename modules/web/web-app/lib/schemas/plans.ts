@@ -71,7 +71,7 @@ export const SlotFeeSchema = z.object({
 })
 export type SlotFee = z.infer<typeof SlotFeeSchema>
 
-const BillableMetricSchema = z.object({
+export const BillableMetricSchema = z.object({
   id: z.string(),
   name: z.string().optional(),
 })

@@ -1,4 +1,9 @@
-import { z } from 'zod'
+// This is a vendored copy of `znv`, which introspects Zod's internal schema
+// representation (`ZodFirstPartyTypeKind`, `_def`). That representation was
+// rewritten in Zod v4, so the env subsystem stays on the `zod/v3` compatibility
+// export. It is fully isolated: the only consumer (`web-app/lib/env.ts`) also
+// builds its env schemas with `zod/v3`, and `parseEnv` returns plain values.
+import { z } from 'zod/v3'
 
 import { assertNever } from './utils'
 

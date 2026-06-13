@@ -12,7 +12,7 @@
     "@connectrpc/connect-query": "^1.4.2",
     "@connectrpc/connect-web": "^1.7.0",
     "@formkit/auto-animate": "^0.8.4",
-    "@hookform/resolvers": "^3.10.0",
+    "@hookform/resolvers": "^5.2.2",
     "@md/common": "workspace:*",
     "@md/icons": "workspace:*",
     "@md/ui": "workspace:*",
@@ -60,7 +60,7 @@
     "superjson": "2.2.1",
     "svix-react": "^1.13.9",
     "ts-pattern": "^5.9.0",
-    "zod": "^3.25.76",
+    "zod": "^4.4.3",
     "zustand": "^4.5.7"
   },
   "devDependencies": {
@@ -82,7 +82,7 @@
     "@vitejs/plugin-react": "^4.7.0",
     "autoprefixer": "10.4.17",
     "babel-loader": "^9.2.1",
-    "eslint": "^8.57.1",
+    "eslint": "^9.39.0",
     "postcss": "^8.5.15",
     "tailwind-merge": "^2.6.1",
     "tailwindcss": "^3.4.19",
@@ -100,7 +100,7 @@
     "dev": "vite",
     "typecheck": "tsc --noEmit",
     "lint": "tsc --noEmit && eslint \"./**/*.ts*\"",
-    "lint:fix": "eslint . --ext .ts,.js,.tsx,.jsx --fix",
+    "lint:fix": "eslint . --fix",
     "preview": "vite preview",
     "generate:proto": "buf generate --template=buf.gen.yaml ../../..",
     "postinstall": "pnpm run generate:proto"

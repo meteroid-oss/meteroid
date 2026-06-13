@@ -36,7 +36,7 @@ function Tree({
   const [isOpen, setIsOpen] = useState(
     item.url
       ? pathname.includes((item.url as string) ?? '')
-      : false || item.items?.some(subItem => pathname.includes((subItem.url as string) ?? ''))
+      : item.items?.some(subItem => pathname.includes((subItem.url as string) ?? ''))
   )
 
   const isHome = item.title === 'Home'

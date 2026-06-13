@@ -113,7 +113,7 @@ export const UsageFormSchema = z
       case 'per_unit': {
         const result = PerUnitPricingSchema.safeParse({ unitPrice: data.unitPrice })
         if (!result.success) {
-          for (const issue of result.error.issues) ctx.addIssue(issue)
+          for (const issue of result.error.issues) ctx.addIssue(issue as never)
         }
         break
       }
@@ -122,7 +122,7 @@ export const UsageFormSchema = z
         const schema = data.usageModel === 'tiered' ? TieredPricingSchema : VolumePricingSchema
         const result = schema.safeParse({ rows: data.rows ?? [] })
         if (!result.success) {
-          for (const issue of result.error.issues) ctx.addIssue(issue)
+          for (const issue of result.error.issues) ctx.addIssue(issue as never)
         }
         break
       }
@@ -132,14 +132,14 @@ export const UsageFormSchema = z
           blockSize: data.blockSize,
         })
         if (!result.success) {
-          for (const issue of result.error.issues) ctx.addIssue(issue)
+          for (const issue of result.error.issues) ctx.addIssue(issue as never)
         }
         break
       }
       case 'matrix': {
         const result = MatrixPricingSchema.safeParse({ rows: data.rows ?? [] })
         if (!result.success) {
-          for (const issue of result.error.issues) ctx.addIssue(issue)
+          for (const issue of result.error.issues) ctx.addIssue(issue as never)
         }
         break
       }

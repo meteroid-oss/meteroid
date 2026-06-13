@@ -81,7 +81,7 @@ const QuotePortalView: FC<QuotePortalViewProps> = ({ quoteData }) => {
   const currentUserName = quoteData.currentRecipientName || customer?.name || ''
   const hasCurrentUserSigned = signatures.some(s => s.signedByEmail === currentUserEmail)
 
-  const signForm = useForm<SignQuoteFormData>({
+  const signForm = useForm<z.input<typeof signQuoteSchema>, unknown, SignQuoteFormData>({
     resolver: zodResolver(signQuoteSchema),
     defaultValues: {
       recipientEmail: currentUserEmail,

@@ -1,4 +1,4 @@
-import { ZodError, ZodErrorMap, ZodIssueCode } from 'zod'
+import { ZodError, ZodErrorMap, ZodIssueCode } from 'zod/v3'
 
 import { Schemas } from './parse-env'
 

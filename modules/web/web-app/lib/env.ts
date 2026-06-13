@@ -1,5 +1,5 @@
 import { parseEnv } from '@md/common'
-import { z } from 'zod'
+import { z } from 'zod/v3'
 
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
 const window = globalThis as any
