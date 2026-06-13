@@ -392,7 +392,9 @@ mod mapper {
                     .unit_price
                     .map(|p| rusty_money::Money::from_decimal(p, currency)),
                 name: line.name.clone(),
-                end_date: line.end_date,
+                // Present the billing window with an inclusive end (e.g. "01/01 → 31/01")
+                // rather than the internal exclusive upper bound. No-op for one-time lines.
+                end_date: line.display_end_date(),
                 start_date: line.start_date,
                 subtotal: rusty_money::Money::from_minor(line.amount_subtotal, currency),
                 sub_lines: line

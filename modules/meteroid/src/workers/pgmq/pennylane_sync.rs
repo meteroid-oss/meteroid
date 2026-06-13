@@ -502,6 +502,13 @@ impl PennylaneSync {
                         unit: String::new(),
                         vat_rate,
                         description: None,
+                        // Accounting imputation (revenue-recognition) period. We forward the
+                        // raw stored window, whose `end_date` is the *exclusive* upper bound
+                        // (the next period's start) — unlike the customer-facing PDF, which
+                        // renders an inclusive end via `LineItem::display_end_date()`.
+                        // Pennylane treats these dates as the deferral span; the one-day
+                        // exclusive offset is intentionally left as-is here so revenue is not
+                        // truncated, but revisit if Pennylane is found to expect inclusive ends.
                         imputation_dates: Some(CustomerInvoiceLineImputationDates {
                             start_date: x.start_date,
                             end_date: x.end_date,
