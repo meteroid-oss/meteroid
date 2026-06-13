@@ -29,7 +29,7 @@ use crate::errors::StoreError;
 use crate::repositories::payment_transactions::PaymentTransactionInterface;
 use crate::services::Services;
 use common_domain::ids::{PaymentTransactionId, TenantId};
-use diesel_async::scoped_futures::ScopedFutureExt;
+use scoped_futures::ScopedFutureExt;
 use diesel_models::customer_payment_methods::CustomerPaymentMethodRow;
 use diesel_models::payments::PaymentTransactionRow;
 use error_stack::{Report, ResultExt};
@@ -135,7 +135,12 @@ impl Services {
                         .get_payment_tx_by_id_for_update(conn, transaction_id, tenant_id)
                         .await?;
                     store
-                        .consolidate_intent_and_transaction_tx(conn, existing, intent)
+                        .consolidate_intent_and_transaction_tx(
+                            conn,
+                            &crate::domain::entity_activity::Actor::System,
+                            existing,
+                            intent,
+                        )
                         .await?;
                     Ok(())
                 }

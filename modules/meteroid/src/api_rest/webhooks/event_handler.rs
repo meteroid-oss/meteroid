@@ -9,7 +9,7 @@ use crate::errors;
 use common_domain::ids::{
     BaseId, CustomerConnectionId, CustomerId, CustomerPaymentMethodId, PaymentTransactionId,
 };
-use diesel_async::scoped_futures::ScopedFutureExt;
+use scoped_futures::ScopedFutureExt;
 use error_stack::{Report, ResultExt};
 use meteroid_store::Store;
 use meteroid_store::adapters::payment::PaymentConnector;
@@ -176,7 +176,11 @@ async fn handle_payment_method_attached(
         connected_account_id: None,
     };
     store
-        .patch_customer(customer_id.as_uuid(), connector.tenant_id, patch)
+        .patch_customer(
+            meteroid_store::domain::entity_activity::Actor::System,
+            connector.tenant_id,
+            patch,
+        )
         .await
         .change_context(errors::AdapterWebhookError::StoreError)?;
 
@@ -302,7 +306,12 @@ async fn run_consolidate(
                     .get_payment_tx_by_id_for_update(conn, transaction_id, intent.tenant_id)
                     .await?;
                 store
-                    .consolidate_intent_and_transaction_tx(conn, existing, intent)
+                    .consolidate_intent_and_transaction_tx(
+                        conn,
+                        &meteroid_store::domain::entity_activity::Actor::System,
+                        existing,
+                        intent,
+                    )
                     .await?;
                 Ok(())
             }

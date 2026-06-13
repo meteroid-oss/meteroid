@@ -129,7 +129,11 @@ impl Services {
             connected_account_id: None,
         };
         self.store
-            .patch_customer(connection_row.customer.id.as_uuid(), tenant_id, patch)
+            .patch_customer(
+                crate::domain::entity_activity::Actor::System,
+                tenant_id,
+                patch,
+            )
             .await?;
 
         Ok(payment_method)

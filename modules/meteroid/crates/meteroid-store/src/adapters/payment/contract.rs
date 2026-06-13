@@ -20,7 +20,6 @@ use super::model::{ChargeRequest, CreateCustomerRequest, IdempotencyKey, Mandate
 use crate::domain::PaymentMethodTypeEnum;
 use crate::domain::connectors::Connector;
 use common_domain::ids::{BaseId, PaymentTransactionId};
-use error_stack::Report;
 use http::HeaderMap;
 
 /// Run the full contract suite against a connector implementation. Panics on
@@ -170,11 +169,8 @@ fn make_test_customer(connector: &Connector) -> crate::domain::Customer {
         billing_address: None,
         shipping_address: None,
         created_at: chrono::Utc::now().naive_utc(),
-        created_by: uuid::Uuid::nil(),
         updated_at: None,
-        updated_by: None,
         archived_at: None,
-        archived_by: None,
         invoicing_entity_id: InvoicingEntityId::new(),
         vat_number: None,
         current_payment_method_id: None,
