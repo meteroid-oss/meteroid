@@ -8,7 +8,13 @@ import tsconfigPaths from 'vite-tsconfig-paths'
 export default defineConfig(({ mode }) => {
   const localSsl = mode === 'dev-ssl'
 
+  // Vite's default 'modules' target includes safari14, whose destructuring bug
+  // esbuild >=0.28 refuses to lower. safari15 is the first version without it.
+  const target = ['es2020', 'edge88', 'firefox78', 'chrome87', 'safari15']
+
   const standard: UserConfigExport = {
+    build: { target },
+    optimizeDeps: { esbuildOptions: { target } },
     server: {
       host: '0.0.0.0',
       port: 5173,
