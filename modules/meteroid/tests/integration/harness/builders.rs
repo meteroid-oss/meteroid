@@ -2,7 +2,7 @@
 
 use chrono::NaiveDate;
 use common_domain::actor::Actor;
-use common_domain::ids::{CouponId, CustomerId, PlanVersionId, SubscriptionId, UserId};
+use common_domain::ids::{CouponId, CustomerId, PlanVersionId, SubscriptionId};
 use meteroid_store::Services;
 use meteroid_store::domain::subscriptions::PaymentMethodsConfig;
 use meteroid_store::domain::{
@@ -175,9 +175,7 @@ impl SubscriptionBuilder {
 
         services
             .insert_subscription(
-                Actor::User {
-                    id: UserId::from(USER_ID),
-                },
+                Actor::User { id: USER_ID },
                 CreateSubscription {
                     subscription: SubscriptionNew {
                         customer_id: self.customer_id,

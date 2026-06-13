@@ -9,7 +9,6 @@ use crate::errors::StoreError;
 use crate::store::{PgConn, Store, StoreInternal};
 use common_domain::country::CountryCode;
 use common_domain::ids::{BaseId, InvoicingEntityId, OrganizationId, TenantId};
-use diesel_async::scoped_futures::ScopedFutureExt;
 use diesel_models::invoicing_entities::{
     InvoicingEntityProvidersRow, InvoicingEntityRow, InvoicingEntityRowPatch,
     InvoicingEntityRowProvidersPatch,
@@ -18,6 +17,7 @@ use diesel_models::organizations::OrganizationRow;
 use diesel_models::tenants::TenantRow;
 use error_stack::Report;
 use meteroid_store_macros::with_conn_delegate;
+use scoped_futures::ScopedFutureExt;
 
 #[with_conn_delegate]
 #[async_trait::async_trait]

@@ -20,12 +20,12 @@ use chrono::{NaiveDate, NaiveTime, Utc};
 use common_domain::ids::{
     BaseId, InvoiceId, PriceId, ProductId, SubscriptionAddOnId, SubscriptionId, TenantId,
 };
-use diesel_async::scoped_futures::ScopedFutureExt;
 use diesel_models::credit_notes::CreditNoteRow;
 use diesel_models::invoices::InvoiceRow;
 use error_stack::{Report, ResultExt, bail};
 use rust_decimal::Decimal;
 use rust_decimal::prelude::Zero;
+use scoped_futures::ScopedFutureExt;
 use std::collections::HashMap;
 
 /// Map (already netted) proration lines to adjustment-invoice line items.

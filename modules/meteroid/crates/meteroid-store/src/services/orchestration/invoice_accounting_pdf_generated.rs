@@ -14,8 +14,8 @@ use crate::repositories::{InvoiceInterface, SubscriptionInterface};
 use crate::services::Services;
 use chrono::Utc;
 use common_domain::ids::TenantId;
-use diesel_async::scoped_futures::ScopedFutureExt;
 use diesel_models::invoices::InvoiceRow;
+use scoped_futures::ScopedFutureExt;
 
 impl Services {
     pub async fn on_invoice_accounting_pdf_generated(

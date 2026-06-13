@@ -4,8 +4,8 @@ use crate::domain::enums::SubscriptionEventType;
 use crate::domain::{Subscription, SubscriptionDetails};
 use crate::errors::StoreError;
 use chrono::{NaiveDate, NaiveTime};
-use diesel_async::scoped_futures::ScopedFutureExt;
 use error_stack::Report;
+use scoped_futures::ScopedFutureExt;
 use uuid::Uuid;
 
 use crate::repositories::SubscriptionInterface;

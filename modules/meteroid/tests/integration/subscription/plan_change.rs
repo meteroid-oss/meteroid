@@ -3447,73 +3447,69 @@ async fn test_plan_change_monthly_to_annual(#[future] test_env: TestEnv) {
     {
         let mut conn = env.conn().await;
         use diesel_async::AsyncConnection;
-        use diesel_async::scoped_futures::ScopedFutureExt;
-        conn.transaction(|tx| {
-            async move {
-                use diesel_models::errors::DatabaseErrorContainer;
-                use diesel_models::plan_versions::PlanVersionRowNew;
-                use diesel_models::plans::{PlanRowNew, PlanRowPatch};
+        conn.transaction(async |tx| {
+            use diesel_models::errors::DatabaseErrorContainer;
+            use diesel_models::plan_versions::PlanVersionRowNew;
+            use diesel_models::plans::{PlanRowNew, PlanRowPatch};
 
-                PlanRowNew {
-                    id: annual_plan_id,
-                    name: "Annual Rate".to_string(),
-                    description: None,
-                    tenant_id: TENANT_ID,
-                    product_family_id: PRODUCT_FAMILY_ID,
-                    plan_type: diesel_models::enums::PlanTypeEnum::Standard,
-                    status: diesel_models::enums::PlanStatusEnum::Active,
-                }
-                .insert(tx)
-                .await?;
-
-                PlanVersionRowNew {
-                    id: annual_plan_version_id,
-                    is_draft_version: false,
-                    plan_id: annual_plan_id,
-                    version: 1,
-                    trial_duration_days: None,
-                    tenant_id: TENANT_ID,
-                    period_start_day: None,
-                    net_terms: 0,
-                    currency: "EUR".to_string(),
-                    billing_cycles: None,
-                    trialing_plan_id: None,
-                    trial_is_free: true,
-                    uses_product_pricing: true,
-                }
-                .insert(tx)
-                .await?;
-
-                PlanRowPatch {
-                    id: annual_plan_id,
-                    tenant_id: TENANT_ID,
-                    name: None,
-                    description: None,
-                    active_version_id: Some(Some(annual_plan_version_id)),
-                    draft_version_id: None,
-                    self_service_rank: None,
-                }
-                .update(tx)
-                .await?;
-
-                PlanSeed::seed_components(
-                    tx,
-                    annual_plan_version_id,
-                    &[SeedComp::rate(
-                        annual_comp_rate_id,
-                        "Platform Fee",
-                        PRODUCT_PLATFORM_FEE_ID,
-                        annual_price_rate_id,
-                        DieselBillingPeriodEnum::Annual,
-                        Decimal::new(29000, 2), // €290/year
-                    )],
-                    "EUR",
-                )
-                .await?;
-
-                Ok::<(), DatabaseErrorContainer>(())
+            PlanRowNew {
+                id: annual_plan_id,
+                name: "Annual Rate".to_string(),
+                description: None,
+                tenant_id: TENANT_ID,
+                product_family_id: PRODUCT_FAMILY_ID,
+                plan_type: diesel_models::enums::PlanTypeEnum::Standard,
+                status: diesel_models::enums::PlanStatusEnum::Active,
             }
-            .scope_boxed()
+            .insert(tx)
+            .await?;
+
+            PlanVersionRowNew {
+                id: annual_plan_version_id,
+                is_draft_version: false,
+                plan_id: annual_plan_id,
+                version: 1,
+                trial_duration_days: None,
+                tenant_id: TENANT_ID,
+                period_start_day: None,
+                net_terms: 0,
+                currency: "EUR".to_string(),
+                billing_cycles: None,
+                trialing_plan_id: None,
+                trial_is_free: true,
+                uses_product_pricing: true,
+            }
+            .insert(tx)
+            .await?;
+
+            PlanRowPatch {
+                id: annual_plan_id,
+                tenant_id: TENANT_ID,
+                name: None,
+                description: None,
+                active_version_id: Some(Some(annual_plan_version_id)),
+                draft_version_id: None,
+                self_service_rank: None,
+            }
+            .update(tx)
+            .await?;
+
+            PlanSeed::seed_components(
+                tx,
+                annual_plan_version_id,
+                &[SeedComp::rate(
+                    annual_comp_rate_id,
+                    "Platform Fee",
+                    PRODUCT_PLATFORM_FEE_ID,
+                    annual_price_rate_id,
+                    DieselBillingPeriodEnum::Annual,
+                    Decimal::new(29000, 2), // €290/year
+                )],
+                "EUR",
+            )
+            .await?;
+
+            Ok::<(), DatabaseErrorContainer>(())
         })
         .await
         .expect("seed annual plan");

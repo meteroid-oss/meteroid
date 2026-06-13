@@ -7,7 +7,6 @@ use crate::utils::periods::calculate_advance_period_range;
 use chrono::{Days, Duration, NaiveDate, NaiveDateTime, Utc};
 use common_domain::ids::SubscriptionId;
 use diesel_async::AsyncConnection;
-use diesel_async::scoped_futures::ScopedFutureExt;
 use diesel_models::customer_payment_methods::CustomerPaymentMethodRow;
 use diesel_models::enums::{
     CycleActionEnum, PlanTypeEnum, ScheduledEventTypeEnum, SubscriptionActivationConditionEnum,
@@ -20,6 +19,7 @@ use diesel_models::subscriptions::{
 };
 use error_stack::Report;
 use futures::stream::StreamExt;
+use scoped_futures::ScopedFutureExt;
 
 const BATCH_SIZE: i64 = 8;
 const MAX_CYCLE_RETRIES: i32 = 10;
@@ -112,13 +112,10 @@ impl Services {
 
                     // Try processing in a savepoint (nested transaction)
                     let process_result = conn
-                        .transaction(|inner_conn| {
-                            async move {
-                                self.process_cycle_transition(inner_conn, &subscription)
-                                    .await
-                                    .map_err(Into::<StoreErrorContainer>::into)
-                            }
-                            .scope_boxed()
+                        .transaction(async |inner_conn| {
+                            self.process_cycle_transition(inner_conn, &subscription)
+                                .await
+                                .map_err(Into::<StoreErrorContainer>::into)
                         })
                         .await;
 

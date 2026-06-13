@@ -21,7 +21,6 @@ use common_domain::ids::{
     AliasOr, BaseId, ConnectorId, CustomerId, EventId, InvoiceId, StoredDocumentId, SubscriptionId,
     TenantId,
 };
-use diesel_async::scoped_futures::ScopedFutureExt;
 use diesel_models::PgConn;
 use diesel_models::customer_balance_txs::CustomerBalancePendingTxRow;
 use diesel_models::enums::{MrrMovementType, SubscriptionEventType, SubscriptionStatusEnum};
@@ -30,6 +29,7 @@ use diesel_models::subscriptions::SubscriptionRow;
 use error_stack::{Report, bail};
 use rust_decimal::Decimal;
 use rust_decimal::prelude::FromPrimitive;
+use scoped_futures::ScopedFutureExt;
 use std::collections::HashMap;
 use tracing_log::log;
 use uuid::Uuid;

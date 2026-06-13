@@ -1,7 +1,6 @@
 use super::ids;
 use common_domain::ids::*;
 use diesel_async::AsyncConnection;
-use diesel_async::scoped_futures::ScopedFutureExt;
 use diesel_models::PgConn;
 use diesel_models::enums::{
     BillingPeriodEnum as DieselBillingPeriodEnum, FeeTypeEnum as DieselFeeTypeEnum, PlanStatusEnum,
@@ -29,225 +28,194 @@ pub async fn run_plans_seed(pool: &PgPool) {
         .await
         .expect("couldn't get db connection from pool");
 
-    conn.transaction(|tx| {
-        async move {
-            // === Shared Product Catalog ===
-            seed_product_catalog(tx).await?;
+    conn.transaction(async |tx| {
+        // === Shared Product Catalog ===
+        seed_product_catalog(tx).await?;
 
-            // === Plans ===
+        // === Plans ===
 
-            PlanSeed::new(
-                ids::PLAN_LEETCODE_ID,
-                "LeetCode",
-                ids::PLAN_VERSION_1_LEETCODE_ID,
-            )
-            .draft(ids::PLAN_VERSION_2_LEETCODE_ID, 2)
-            .components(vec![SeedComp::rate(
-                ids::COMP_LEETCODE_RATE_ID,
-                "Subscription Rate",
-                ids::PRODUCT_PLATFORM_FEE_ID,
-                ids::PRICE_LEETCODE_RATE_ID,
-                DieselBillingPeriodEnum::Monthly,
-                Decimal::new(3500, 2),
+        PlanSeed::new(
+            ids::PLAN_LEETCODE_ID,
+            "LeetCode",
+            ids::PLAN_VERSION_1_LEETCODE_ID,
+        )
+        .draft(ids::PLAN_VERSION_2_LEETCODE_ID, 2)
+        .components(vec![SeedComp::rate(
+            ids::COMP_LEETCODE_RATE_ID,
+            "Subscription Rate",
+            ids::PRODUCT_PLATFORM_FEE_ID,
+            ids::PRICE_LEETCODE_RATE_ID,
+            DieselBillingPeriodEnum::Monthly,
+            Decimal::new(3500, 2),
+        )])
+        .seed(tx)
+        .await?;
+
+        // Quarterly-billed Rate plan
+        PlanSeed::new(
+            ids::PLAN_LEETCODE_QUARTERLY_ID,
+            "LeetCode Quarterly",
+            ids::PLAN_VERSION_LEETCODE_QUARTERLY_ID,
+        )
+        .components(vec![SeedComp::rate(
+            ids::COMP_LEETCODE_QUARTERLY_RATE_ID,
+            "Subscription Rate",
+            ids::PRODUCT_PLATFORM_FEE_ID,
+            ids::PRICE_LEETCODE_QUARTERLY_RATE_ID,
+            DieselBillingPeriodEnum::Quarterly,
+            Decimal::new(9000, 2),
+        )])
+        .seed(tx)
+        .await?;
+
+        PlanSeed::new(ids::PLAN_NOTION_ID, "Notion", ids::PLAN_VERSION_NOTION_ID)
+            .components(vec![SeedComp::slot_multi(
+                ids::COMP_NOTION_SEATS_ID,
+                "Seats",
+                ids::PRODUCT_SEATS_ID,
+                vec![
+                    (
+                        ids::PRICE_NOTION_SEATS_MONTHLY_ID,
+                        DieselBillingPeriodEnum::Monthly,
+                        Decimal::new(1000, 2),
+                    ),
+                    (
+                        ids::PRICE_NOTION_SEATS_ANNUAL_ID,
+                        DieselBillingPeriodEnum::Annual,
+                        Decimal::new(9600, 2),
+                    ),
+                ],
             )])
             .seed(tx)
             .await?;
 
-            // Quarterly-billed Rate plan
-            PlanSeed::new(
-                ids::PLAN_LEETCODE_QUARTERLY_ID,
-                "LeetCode Quarterly",
-                ids::PLAN_VERSION_LEETCODE_QUARTERLY_ID,
-            )
-            .components(vec![SeedComp::rate(
-                ids::COMP_LEETCODE_QUARTERLY_RATE_ID,
-                "Subscription Rate",
-                ids::PRODUCT_PLATFORM_FEE_ID,
-                ids::PRICE_LEETCODE_QUARTERLY_RATE_ID,
-                DieselBillingPeriodEnum::Quarterly,
-                Decimal::new(9000, 2),
-            )])
-            .seed(tx)
-            .await?;
-
-            PlanSeed::new(ids::PLAN_NOTION_ID, "Notion", ids::PLAN_VERSION_NOTION_ID)
-                .components(vec![SeedComp::slot_multi(
-                    ids::COMP_NOTION_SEATS_ID,
-                    "Seats",
-                    ids::PRODUCT_SEATS_ID,
-                    vec![
-                        (
-                            ids::PRICE_NOTION_SEATS_MONTHLY_ID,
-                            DieselBillingPeriodEnum::Monthly,
-                            Decimal::new(1000, 2),
-                        ),
-                        (
-                            ids::PRICE_NOTION_SEATS_ANNUAL_ID,
-                            DieselBillingPeriodEnum::Annual,
-                            Decimal::new(9600, 2),
-                        ),
-                    ],
-                )])
-                .seed(tx)
-                .await?;
-
-            PlanSeed::new(ids::PLAN_FREE_ID, "Free", ids::PLAN_VERSION_FREE_ID)
-                .free()
-                .seed(tx)
-                .await?;
-
-            PlanSeed::new(
-                ids::PLAN_ENTERPRISE_ID,
-                "Enterprise",
-                ids::PLAN_VERSION_ENTERPRISE_ID,
-            )
-            .seed(tx)
-            .await?;
-
-            PlanSeed::new(
-                ids::PLAN_PRO_WITH_TRIAL_ID,
-                "Free with Trial",
-                ids::PLAN_VERSION_PRO_WITH_TRIAL_ID,
-            )
+        PlanSeed::new(ids::PLAN_FREE_ID, "Free", ids::PLAN_VERSION_FREE_ID)
             .free()
-            .trial(7, ids::PLAN_ENTERPRISE_ID, true)
             .seed(tx)
             .await?;
 
-            PlanSeed::new(
-                ids::PLAN_PAID_FREE_TRIAL_ID,
-                "Paid with Free Trial",
-                ids::PLAN_VERSION_PAID_FREE_TRIAL_ID,
-            )
-            .trial(14, ids::PLAN_ENTERPRISE_ID, true)
-            .components(vec![SeedComp::rate(
-                ids::COMP_PAID_FREE_TRIAL_RATE_ID,
-                "Monthly Rate",
+        PlanSeed::new(
+            ids::PLAN_ENTERPRISE_ID,
+            "Enterprise",
+            ids::PLAN_VERSION_ENTERPRISE_ID,
+        )
+        .seed(tx)
+        .await?;
+
+        PlanSeed::new(
+            ids::PLAN_PRO_WITH_TRIAL_ID,
+            "Free with Trial",
+            ids::PLAN_VERSION_PRO_WITH_TRIAL_ID,
+        )
+        .free()
+        .trial(7, ids::PLAN_ENTERPRISE_ID, true)
+        .seed(tx)
+        .await?;
+
+        PlanSeed::new(
+            ids::PLAN_PAID_FREE_TRIAL_ID,
+            "Paid with Free Trial",
+            ids::PLAN_VERSION_PAID_FREE_TRIAL_ID,
+        )
+        .trial(14, ids::PLAN_ENTERPRISE_ID, true)
+        .components(vec![SeedComp::rate(
+            ids::COMP_PAID_FREE_TRIAL_RATE_ID,
+            "Monthly Rate",
+            ids::PRODUCT_PLATFORM_FEE_ID,
+            ids::PRICE_PAID_FREE_TRIAL_RATE_ID,
+            DieselBillingPeriodEnum::Monthly,
+            Decimal::new(4900, 2),
+        )])
+        .seed(tx)
+        .await?;
+
+        PlanSeed::new(
+            ids::PLAN_PAID_TRIAL_ID,
+            "Paid with Paid Trial",
+            ids::PLAN_VERSION_PAID_TRIAL_ID,
+        )
+        .trial(7, ids::PLAN_ENTERPRISE_ID, false)
+        .components(vec![SeedComp::rate(
+            ids::COMP_PAID_TRIAL_RATE_ID,
+            "Monthly Rate",
+            ids::PRODUCT_PLATFORM_FEE_ID,
+            ids::PRICE_PAID_TRIAL_RATE_ID,
+            DieselBillingPeriodEnum::Monthly,
+            Decimal::new(9900, 2),
+        )])
+        .seed(tx)
+        .await?;
+
+        PlanSeed::new(
+            ids::PLAN_STARTER_ID,
+            "Starter",
+            ids::PLAN_VERSION_STARTER_ID,
+        )
+        .components(vec![
+            SeedComp::rate(
+                ids::COMP_STARTER_PLATFORM_FEE_ID,
+                "Platform Fee",
                 ids::PRODUCT_PLATFORM_FEE_ID,
-                ids::PRICE_PAID_FREE_TRIAL_RATE_ID,
+                ids::PRICE_STARTER_PLATFORM_FEE_ID,
                 DieselBillingPeriodEnum::Monthly,
-                Decimal::new(4900, 2),
-            )])
-            .seed(tx)
-            .await?;
-
-            PlanSeed::new(
-                ids::PLAN_PAID_TRIAL_ID,
-                "Paid with Paid Trial",
-                ids::PLAN_VERSION_PAID_TRIAL_ID,
-            )
-            .trial(7, ids::PLAN_ENTERPRISE_ID, false)
-            .components(vec![SeedComp::rate(
-                ids::COMP_PAID_TRIAL_RATE_ID,
-                "Monthly Rate",
-                ids::PRODUCT_PLATFORM_FEE_ID,
-                ids::PRICE_PAID_TRIAL_RATE_ID,
+                Decimal::new(2900, 2),
+            ),
+            SeedComp::slot(
+                ids::COMP_STARTER_SEATS_ID,
+                "Seats",
+                ids::PRODUCT_SEATS_ID,
+                ids::PRICE_STARTER_SEATS_ID,
                 DieselBillingPeriodEnum::Monthly,
-                Decimal::new(9900, 2),
-            )])
-            .seed(tx)
-            .await?;
+                Decimal::new(1000, 2),
+            ),
+        ])
+        .seed(tx)
+        .await?;
 
-            PlanSeed::new(
-                ids::PLAN_STARTER_ID,
-                "Starter",
-                ids::PLAN_VERSION_STARTER_ID,
-            )
+        PlanSeed::new(ids::PLAN_PRO_ID, "Pro", ids::PLAN_VERSION_PRO_ID)
+            .draft(ids::PLAN_VERSION_PRO_DRAFT_ID, 2)
             .components(vec![
                 SeedComp::rate(
-                    ids::COMP_STARTER_PLATFORM_FEE_ID,
+                    ids::COMP_PRO_PLATFORM_FEE_ID,
                     "Platform Fee",
                     ids::PRODUCT_PLATFORM_FEE_ID,
-                    ids::PRICE_STARTER_PLATFORM_FEE_ID,
+                    ids::PRICE_PRO_PLATFORM_FEE_ID,
                     DieselBillingPeriodEnum::Monthly,
-                    Decimal::new(2900, 2),
+                    Decimal::new(9900, 2),
                 ),
                 SeedComp::slot(
-                    ids::COMP_STARTER_SEATS_ID,
+                    ids::COMP_PRO_SEATS_ID,
                     "Seats",
                     ids::PRODUCT_SEATS_ID,
-                    ids::PRICE_STARTER_SEATS_ID,
+                    ids::PRICE_PRO_SEATS_ID,
                     DieselBillingPeriodEnum::Monthly,
-                    Decimal::new(1000, 2),
+                    Decimal::new(2500, 2),
                 ),
             ])
             .seed(tx)
             .await?;
 
-            PlanSeed::new(ids::PLAN_PRO_ID, "Pro", ids::PLAN_VERSION_PRO_ID)
-                .draft(ids::PLAN_VERSION_PRO_DRAFT_ID, 2)
-                .components(vec![
-                    SeedComp::rate(
-                        ids::COMP_PRO_PLATFORM_FEE_ID,
-                        "Platform Fee",
-                        ids::PRODUCT_PLATFORM_FEE_ID,
-                        ids::PRICE_PRO_PLATFORM_FEE_ID,
-                        DieselBillingPeriodEnum::Monthly,
-                        Decimal::new(9900, 2),
-                    ),
-                    SeedComp::slot(
-                        ids::COMP_PRO_SEATS_ID,
-                        "Seats",
-                        ids::PRODUCT_SEATS_ID,
-                        ids::PRICE_PRO_SEATS_ID,
-                        DieselBillingPeriodEnum::Monthly,
-                        Decimal::new(2500, 2),
-                    ),
-                ])
-                .seed(tx)
-                .await?;
+        PlanSeed::new(ids::PLAN_USD_ID, "USD Plan", ids::PLAN_VERSION_USD_ID)
+            .currency("USD")
+            .seed(tx)
+            .await?;
 
-            PlanSeed::new(ids::PLAN_USD_ID, "USD Plan", ids::PLAN_VERSION_USD_ID)
-                .currency("USD")
-                .seed(tx)
-                .await?;
-
-            PlanSeed::new(ids::PLAN_USAGE_ID, "Usage Plan", ids::PLAN_VERSION_USAGE_ID)
-                .components(vec![
-                    SeedComp::rate(
-                        ids::COMP_USAGE_RATE_ID,
-                        "Platform Fee",
-                        ids::PRODUCT_PLATFORM_FEE_ID,
-                        ids::PRICE_USAGE_RATE_ID,
-                        DieselBillingPeriodEnum::Monthly,
-                        Decimal::new(2000, 2),
-                    ),
-                    SeedComp::usage(
-                        ids::COMP_USAGE_BANDWIDTH_ID,
-                        "Bandwidth",
-                        ids::PRODUCT_BANDWIDTH_ID,
-                        ids::METRIC_BANDWIDTH,
-                        ids::PRICE_USAGE_BANDWIDTH_ID,
-                        DieselBillingPeriodEnum::Monthly,
-                        UsagePricingModel::PerUnit {
-                            rate: Decimal::new(10, 2),
-                        },
-                    ),
-                ])
-                .seed(tx)
-                .await?;
-
-            // Usage Alpha: Rate €10/mo + API Calls at €0.10/unit
-            PlanSeed::new(
-                ids::PLAN_USAGE_ALPHA_ID,
-                "Usage Alpha",
-                ids::PLAN_VERSION_USAGE_ALPHA_ID,
-            )
+        PlanSeed::new(ids::PLAN_USAGE_ID, "Usage Plan", ids::PLAN_VERSION_USAGE_ID)
             .components(vec![
                 SeedComp::rate(
-                    ids::COMP_USAGE_ALPHA_RATE_ID,
+                    ids::COMP_USAGE_RATE_ID,
                     "Platform Fee",
                     ids::PRODUCT_PLATFORM_FEE_ID,
-                    ids::PRICE_USAGE_ALPHA_RATE_ID,
+                    ids::PRICE_USAGE_RATE_ID,
                     DieselBillingPeriodEnum::Monthly,
-                    Decimal::new(1000, 2),
+                    Decimal::new(2000, 2),
                 ),
                 SeedComp::usage(
-                    ids::COMP_USAGE_ALPHA_API_CALLS_ID,
-                    "API Calls",
-                    ids::PRODUCT_API_CALLS_ID,
+                    ids::COMP_USAGE_BANDWIDTH_ID,
+                    "Bandwidth",
+                    ids::PRODUCT_BANDWIDTH_ID,
                     ids::METRIC_BANDWIDTH,
-                    ids::PRICE_USAGE_ALPHA_API_CALLS_ID,
+                    ids::PRICE_USAGE_BANDWIDTH_ID,
                     DieselBillingPeriodEnum::Monthly,
                     UsagePricingModel::PerUnit {
                         rate: Decimal::new(10, 2),
@@ -257,50 +225,78 @@ pub async fn run_plans_seed(pool: &PgPool) {
             .seed(tx)
             .await?;
 
-            // Usage Beta: Rate €20/mo + API Calls at €0.20/unit + DB Storage at €0.50/unit
-            PlanSeed::new(
-                ids::PLAN_USAGE_BETA_ID,
-                "Usage Beta",
-                ids::PLAN_VERSION_USAGE_BETA_ID,
-            )
-            .components(vec![
-                SeedComp::rate(
-                    ids::COMP_USAGE_BETA_RATE_ID,
-                    "Platform Fee",
-                    ids::PRODUCT_PLATFORM_FEE_ID,
-                    ids::PRICE_USAGE_BETA_RATE_ID,
-                    DieselBillingPeriodEnum::Monthly,
-                    Decimal::new(2000, 2),
-                ),
-                SeedComp::usage(
-                    ids::COMP_USAGE_BETA_API_CALLS_ID,
-                    "API Calls",
-                    ids::PRODUCT_API_CALLS_ID,
-                    ids::METRIC_BANDWIDTH,
-                    ids::PRICE_USAGE_BETA_API_CALLS_ID,
-                    DieselBillingPeriodEnum::Monthly,
-                    UsagePricingModel::PerUnit {
-                        rate: Decimal::new(20, 2),
-                    },
-                ),
-                SeedComp::usage(
-                    ids::COMP_USAGE_BETA_DB_STORAGE_ID,
-                    "DB Storage",
-                    ids::PRODUCT_DB_STORAGE_ID,
-                    ids::METRIC_DATABASE_SIZE,
-                    ids::PRICE_USAGE_BETA_DB_STORAGE_ID,
-                    DieselBillingPeriodEnum::Monthly,
-                    UsagePricingModel::PerUnit {
-                        rate: Decimal::new(50, 2),
-                    },
-                ),
-            ])
-            .seed(tx)
-            .await?;
+        // Usage Alpha: Rate €10/mo + API Calls at €0.10/unit
+        PlanSeed::new(
+            ids::PLAN_USAGE_ALPHA_ID,
+            "Usage Alpha",
+            ids::PLAN_VERSION_USAGE_ALPHA_ID,
+        )
+        .components(vec![
+            SeedComp::rate(
+                ids::COMP_USAGE_ALPHA_RATE_ID,
+                "Platform Fee",
+                ids::PRODUCT_PLATFORM_FEE_ID,
+                ids::PRICE_USAGE_ALPHA_RATE_ID,
+                DieselBillingPeriodEnum::Monthly,
+                Decimal::new(1000, 2),
+            ),
+            SeedComp::usage(
+                ids::COMP_USAGE_ALPHA_API_CALLS_ID,
+                "API Calls",
+                ids::PRODUCT_API_CALLS_ID,
+                ids::METRIC_BANDWIDTH,
+                ids::PRICE_USAGE_ALPHA_API_CALLS_ID,
+                DieselBillingPeriodEnum::Monthly,
+                UsagePricingModel::PerUnit {
+                    rate: Decimal::new(10, 2),
+                },
+            ),
+        ])
+        .seed(tx)
+        .await?;
 
-            Ok::<(), DatabaseErrorContainer>(())
-        }
-        .scope_boxed()
+        // Usage Beta: Rate €20/mo + API Calls at €0.20/unit + DB Storage at €0.50/unit
+        PlanSeed::new(
+            ids::PLAN_USAGE_BETA_ID,
+            "Usage Beta",
+            ids::PLAN_VERSION_USAGE_BETA_ID,
+        )
+        .components(vec![
+            SeedComp::rate(
+                ids::COMP_USAGE_BETA_RATE_ID,
+                "Platform Fee",
+                ids::PRODUCT_PLATFORM_FEE_ID,
+                ids::PRICE_USAGE_BETA_RATE_ID,
+                DieselBillingPeriodEnum::Monthly,
+                Decimal::new(2000, 2),
+            ),
+            SeedComp::usage(
+                ids::COMP_USAGE_BETA_API_CALLS_ID,
+                "API Calls",
+                ids::PRODUCT_API_CALLS_ID,
+                ids::METRIC_BANDWIDTH,
+                ids::PRICE_USAGE_BETA_API_CALLS_ID,
+                DieselBillingPeriodEnum::Monthly,
+                UsagePricingModel::PerUnit {
+                    rate: Decimal::new(20, 2),
+                },
+            ),
+            SeedComp::usage(
+                ids::COMP_USAGE_BETA_DB_STORAGE_ID,
+                "DB Storage",
+                ids::PRODUCT_DB_STORAGE_ID,
+                ids::METRIC_DATABASE_SIZE,
+                ids::PRICE_USAGE_BETA_DB_STORAGE_ID,
+                DieselBillingPeriodEnum::Monthly,
+                UsagePricingModel::PerUnit {
+                    rate: Decimal::new(50, 2),
+                },
+            ),
+        ])
+        .seed(tx)
+        .await?;
+
+        Ok::<(), DatabaseErrorContainer>(())
     })
     .await
     .unwrap();

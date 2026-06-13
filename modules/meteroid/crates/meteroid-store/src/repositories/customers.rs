@@ -20,12 +20,12 @@ use crate::repositories::pgmq::PgmqInterface;
 use crate::store::{PgConn, Store};
 use common_domain::ids::{AliasOr, BaseId, ConnectorId, CustomerId, TenantId};
 use common_eventbus::Event;
-use diesel_async::scoped_futures::ScopedFutureExt;
 use diesel_models::customers::{CustomerRow, CustomerRowNew, CustomerRowPatch, CustomerRowUpdate};
 use diesel_models::subscriptions::SubscriptionRow;
 use diesel_models::tenants::TenantRow;
 use error_stack::{Report, bail};
 use meteroid_store_macros::with_conn_delegate;
+use scoped_futures::ScopedFutureExt;
 
 fn validate_customer_currency(
     currency: &str,

@@ -6,7 +6,6 @@ use common_eventbus::{Event, EventBus};
 use diesel::{ConnectionError, ConnectionResult};
 use diesel_async::pooled_connection::deadpool::{Object, Pool};
 use diesel_async::pooled_connection::{AsyncDieselConnectionManager, ManagerConfig};
-use diesel_async::scoped_futures::{ScopedBoxFuture, ScopedFutureExt};
 use diesel_async::{AsyncConnection, AsyncPgConnection};
 use envconfig::Envconfig;
 use error_stack::{Report, ResultExt};
@@ -18,6 +17,7 @@ use rustls::client::danger::{HandshakeSignatureValid, ServerCertVerified, Server
 use rustls::crypto::{verify_tls12_signature, verify_tls13_signature};
 use rustls::pki_types::{CertificateDer, ServerName, UnixTime};
 use rustls::{DigitallySignedStruct, Error, SignatureScheme};
+use scoped_futures::ScopedBoxFuture;
 use std::str::FromStr;
 use std::sync::Arc;
 use std::time::Duration;
@@ -222,12 +222,9 @@ impl StoreInternal {
         R: Send + 'a,
     {
         let result = conn
-            .transaction(|conn| {
-                async move {
-                    let res = callback(conn);
-                    res.await.map_err(crate::errors::StoreErrorContainer::from)
-                }
-                .scope_boxed()
+            .transaction(async |conn| {
+                let res = callback(conn);
+                res.await.map_err(crate::errors::StoreErrorContainer::from)
             })
             .await?;
 

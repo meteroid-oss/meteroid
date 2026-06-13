@@ -10,7 +10,6 @@ use chrono::Utc;
 use common_domain::actor::Actor;
 use common_domain::ids::{BaseId, OrganizationId, OrganizationInviteId, TenantId, UserId};
 use common_eventbus::Event;
-use diesel_async::scoped_futures::ScopedFutureExt;
 use diesel_models::enums::OrganizationUserRole;
 use diesel_models::organization_invites::{OrganizationInviteRow, OrganizationInviteRowNew};
 use diesel_models::organization_members::OrganizationMemberRow;
@@ -19,6 +18,7 @@ use diesel_models::tenants::TenantRow;
 use diesel_models::users::UserRow;
 use error_stack::Report;
 use meteroid_oauth::model::OauthProvider;
+use scoped_futures::ScopedFutureExt;
 use tracing_log::log;
 
 #[async_trait::async_trait]

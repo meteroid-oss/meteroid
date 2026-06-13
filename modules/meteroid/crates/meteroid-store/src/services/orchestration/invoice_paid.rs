@@ -10,10 +10,10 @@ use crate::repositories::pgmq::PgmqInterface;
 use crate::services::Services;
 use crate::utils::periods::calculate_advance_period_range;
 use common_domain::ids::TenantId;
-use diesel_async::scoped_futures::ScopedFutureExt;
 use diesel_models::enums::CycleActionEnum;
 use diesel_models::subscriptions::SubscriptionRow;
 use error_stack::Report;
+use scoped_futures::ScopedFutureExt;
 
 impl Services {
     pub async fn on_invoice_paid(

@@ -24,10 +24,10 @@ use crate::utils::local_id::LocalId;
 use chrono::{NaiveDateTime, NaiveTime};
 use common_domain::ids::{InvoiceId, PriceComponentId, SubscriptionId, TenantId};
 use common_utils::decimals::ToSubunit;
-use diesel_async::scoped_futures::ScopedFutureExt;
 use error_stack::{ResultExt, bail};
 use rust_decimal::Decimal;
 use rust_decimal::prelude::FromPrimitive;
+use scoped_futures::ScopedFutureExt;
 
 impl Services {
     /// Upgrades (delta > 0): Behavior depends on billing_mode (OnCheckout/OnInvoicePaid/Optimistic)
@@ -722,7 +722,7 @@ impl Services {
         payment_method_id: common_domain::ids::CustomerPaymentMethodId,
         at_ts: Option<chrono::NaiveDateTime>,
     ) -> StoreResult<(PaymentTransaction, i32)> {
-        use diesel_async::scoped_futures::ScopedFutureExt;
+        use scoped_futures::ScopedFutureExt;
 
         if delta <= 0 {
             return Err(StoreError::InvalidArgument(

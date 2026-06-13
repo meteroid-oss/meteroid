@@ -12,12 +12,12 @@ use crate::{Store, StoreResult};
 use common_domain::ids::{
     AddOnId, BaseId, EntitlementEntityId, PlanVersionId, ProductFamilyId, TenantId,
 };
-use diesel_async::scoped_futures::ScopedFutureExt;
 use diesel_models::add_ons::{AddOnRow, AddOnRowNew, AddOnRowPatch};
 use diesel_models::entitlements::EntitlementRow;
 use diesel_models::prices::PriceRow;
 use diesel_models::products::ProductRow;
 use error_stack::Report;
+use scoped_futures::ScopedFutureExt;
 
 #[async_trait::async_trait]
 pub trait AddOnInterface {

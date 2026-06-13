@@ -13,7 +13,6 @@ use crate::store::Store;
 use chrono::NaiveDateTime;
 use common_domain::ids::{CreditNoteId, CustomerId, InvoiceId, StoredDocumentId, TenantId};
 use common_utils::decimals::{ToSubunit, ToUnit};
-use diesel_async::scoped_futures::ScopedFutureExt;
 use diesel_models::PgConn;
 use diesel_models::credit_notes::CreditNoteRow;
 use diesel_models::customers::CustomerRow;
@@ -23,6 +22,7 @@ use diesel_models::payments::PaymentTransactionRow;
 use error_stack::{Report, bail};
 use rust_decimal::Decimal;
 use rust_decimal::prelude::ToPrimitive;
+use scoped_futures::ScopedFutureExt;
 use std::collections::HashMap;
 
 pub use crate::domain::enums::CreditType;

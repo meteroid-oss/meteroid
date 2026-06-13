@@ -10,13 +10,13 @@ use chrono::NaiveTime;
 use common_domain::ids::{AppliedCouponId, InvoiceId, TenantId};
 use common_eventbus::Event;
 use common_utils::decimals::ToUnit;
-use diesel_async::scoped_futures::ScopedFutureExt;
 use diesel_models::applied_coupons::{AppliedCouponDetailedRow, AppliedCouponRow};
 use diesel_models::customers::CustomerRow;
 use diesel_models::invoices::{InvoiceRow, InvoiceRowLinesPatch};
 use diesel_models::invoicing_entities::InvoicingEntityRow;
 use diesel_models::{DbResult, PgConn};
 use error_stack::Report;
+use scoped_futures::ScopedFutureExt;
 
 impl Services {
     pub async fn finalize_invoice(

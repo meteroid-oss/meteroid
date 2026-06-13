@@ -5,11 +5,11 @@ use crate::repositories::InvoiceInterface;
 use crate::services::Services;
 use crate::store::PgConn;
 use crate::utils::local_id::{IdType, LocalId};
-use diesel_async::scoped_futures::ScopedFutureExt;
 use diesel_models::customer_balance_txs::CustomerBalancePendingTxRowNew;
 use diesel_models::customers::CustomerRow;
 use error_stack::Report;
 use rust_decimal::Decimal;
+use scoped_futures::ScopedFutureExt;
 use uuid::Uuid;
 
 impl Services {

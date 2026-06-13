@@ -32,7 +32,6 @@ use common_domain::ids::{
     BaseId, PlanVersionId, PriceComponentId, ProductId, SubscriptionId, TenantId,
 };
 use common_utils::decimals::ToSubunit;
-use diesel_async::scoped_futures::ScopedFutureExt;
 use diesel_models::plan_component_prices::PlanComponentPriceRow;
 use diesel_models::plan_version_add_ons::PlanVersionAddOnRow;
 use diesel_models::plans::PlanRow;
@@ -47,6 +46,7 @@ use diesel_models::subscription_components::{
 };
 use diesel_models::subscriptions::SubscriptionRow;
 use error_stack::Report;
+use scoped_futures::ScopedFutureExt;
 use std::collections::HashMap;
 
 #[derive(Debug, Clone)]

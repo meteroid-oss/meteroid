@@ -1971,7 +1971,6 @@ async fn create_plan_with_4_components(
     conn: &mut PgConn,
 ) -> (PlanVersionId, Vec<PriceComponentId>) {
     use diesel_async::AsyncConnection;
-    use diesel_async::scoped_futures::ScopedFutureExt;
     use diesel_models::errors::DatabaseErrorContainer;
 
     let plan_id = common_domain::ids::PlanId::new();
@@ -1981,95 +1980,92 @@ async fn create_plan_with_4_components(
         .map(|_| common_domain::ids::PriceComponentId::new())
         .collect();
 
-    conn.transaction(|tx| {
+    conn.transaction(async |tx| {
         let component_ids = component_ids.clone();
-        async move {
-            PlanRowNew {
-                id: plan_id,
-                name: "CreditNoteTestPlan".to_string(),
-                description: Some("Plan for credit note testing".to_string()),
+        PlanRowNew {
+            id: plan_id,
+            name: "CreditNoteTestPlan".to_string(),
+            description: Some("Plan for credit note testing".to_string()),
+            tenant_id: TENANT_ID,
+            product_family_id: PRODUCT_FAMILY_ID,
+            plan_type: PlanTypeEnum::Standard,
+            status: PlanStatusEnum::Active,
+        }
+        .insert(tx)
+        .await?;
+
+        PlanVersionRowNew {
+            id: plan_version_id,
+            is_draft_version: false,
+            plan_id,
+            version: 1,
+            trial_duration_days: None,
+            tenant_id: TENANT_ID,
+            period_start_day: None,
+            net_terms: 0,
+            currency: "EUR".to_string(),
+            billing_cycles: None,
+            trialing_plan_id: None,
+            trial_is_free: false,
+            uses_product_pricing: true,
+        }
+        .insert(tx)
+        .await?;
+
+        PlanRowPatch {
+            id: plan_id,
+            tenant_id: TENANT_ID,
+            name: None,
+            description: None,
+            active_version_id: Some(Some(plan_version_id)),
+            draft_version_id: None,
+            self_service_rank: None,
+        }
+        .update(tx)
+        .await?;
+
+        // Create 4 components with prices: 1000, 2000, 3000, 4000 cents
+        for (i, component_id) in component_ids.iter().enumerate() {
+            let price = rust_decimal::Decimal::new(((i + 1) * 1000) as i64, 2);
+            let product_id = common_domain::ids::ProductId::new();
+            ProductRowNew {
+                id: product_id,
+                name: format!("Component {} Product", i + 1),
+                description: None,
                 tenant_id: TENANT_ID,
                 product_family_id: PRODUCT_FAMILY_ID,
-                plan_type: PlanTypeEnum::Standard,
-                status: PlanStatusEnum::Active,
+                fee_type: DieselFeeTypeEnum::Rate,
+                fee_structure: serde_json::to_value(
+                    &meteroid_store::domain::prices::FeeStructure::Rate {},
+                )
+                .unwrap(),
+                catalog: true,
             }
             .insert(tx)
             .await?;
 
-            PlanVersionRowNew {
-                id: plan_version_id,
-                is_draft_version: false,
-                plan_id,
-                version: 1,
-                trial_duration_days: None,
-                tenant_id: TENANT_ID,
-                period_start_day: None,
-                net_terms: 0,
-                currency: "EUR".to_string(),
-                billing_cycles: None,
-                trialing_plan_id: None,
-                trial_is_free: false,
-                uses_product_pricing: true,
-            }
-            .insert(tx)
-            .await?;
-
-            PlanRowPatch {
-                id: plan_id,
-                tenant_id: TENANT_ID,
-                name: None,
-                description: None,
-                active_version_id: Some(Some(plan_version_id)),
-                draft_version_id: None,
-                self_service_rank: None,
-            }
-            .update(tx)
-            .await?;
-
-            // Create 4 components with prices: 1000, 2000, 3000, 4000 cents
-            for (i, component_id) in component_ids.iter().enumerate() {
-                let price = rust_decimal::Decimal::new(((i + 1) * 1000) as i64, 2);
-                let product_id = common_domain::ids::ProductId::new();
-                ProductRowNew {
-                    id: product_id,
-                    name: format!("Component {} Product", i + 1),
-                    description: None,
-                    tenant_id: TENANT_ID,
-                    product_family_id: PRODUCT_FAMILY_ID,
-                    fee_type: DieselFeeTypeEnum::Rate,
-                    fee_structure: serde_json::to_value(
-                        &meteroid_store::domain::prices::FeeStructure::Rate {},
-                    )
+            PriceComponentRowNew {
+                id: *component_id,
+                name: format!("Component {}", i + 1),
+                legacy_fee: Some(
+                    FeeType::Rate {
+                        rates: vec![TermRate {
+                            price,
+                            term: BillingPeriodEnum::Monthly,
+                        }],
+                    }
+                    .try_into()
                     .unwrap(),
-                    catalog: true,
-                }
-                .insert(tx)
-                .await?;
-
-                PriceComponentRowNew {
-                    id: *component_id,
-                    name: format!("Component {}", i + 1),
-                    legacy_fee: Some(
-                        FeeType::Rate {
-                            rates: vec![TermRate {
-                                price,
-                                term: BillingPeriodEnum::Monthly,
-                            }],
-                        }
-                        .try_into()
-                        .unwrap(),
-                    ),
-                    plan_version_id,
-                    product_id: Some(product_id),
-                    billable_metric_id: None,
-                }
-                .insert(tx)
-                .await?;
+                ),
+                plan_version_id,
+                product_id: Some(product_id),
+                billable_metric_id: None,
             }
-
-            Ok::<(), DatabaseErrorContainer>(())
+            .insert(tx)
+            .await?;
         }
-        .scope_boxed()
+
+        Ok::<(), DatabaseErrorContainer>(())
     })
     .await
     .unwrap();

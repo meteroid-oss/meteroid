@@ -9,13 +9,13 @@ use common_domain::ids::{
     AliasOr, ApiTokenId, BaseId, CustomerId, EntityActivityId, StoredDocumentId, SubscriptionId,
     TenantId,
 };
-use diesel_async::scoped_futures::ScopedFutureExt;
 use diesel_models::api_tokens::ApiTokenRow;
 use diesel_models::customers::CustomerRow;
 use diesel_models::entity_activity::EntityActivityRow;
 pub use diesel_models::query::entity_activity::{ActivityCursor, EntityActivityFilter};
 use diesel_models::sent_email::{SentEmailRow, SentEmailRowNew};
 use diesel_models::users::UserRow;
+use scoped_futures::ScopedFutureExt;
 use std::collections::{HashMap, HashSet};
 use uuid::Uuid;
 

@@ -15,7 +15,6 @@ use common_domain::ids::{
     AddOnId, BaseId, CustomerId, EntitlementEntityId, EntitlementId, FeatureId, PlanId,
     PlanVersionId, ProductId, QuoteId, SubscriptionId, TenantId,
 };
-use diesel_async::scoped_futures::ScopedFutureExt;
 use diesel_models::add_ons::AddOnRow;
 use diesel_models::entitlements::{
     EntitlementRow, EntitlementRowNew, EntitlementRowPatch, FeatureRow, FeatureRowNew,
@@ -33,6 +32,7 @@ use diesel_models::subscription_components::SubscriptionComponentRow;
 use diesel_models::subscriptions::SubscriptionRow;
 use error_stack::Report;
 use itertools::Itertools;
+use scoped_futures::ScopedFutureExt;
 
 /// Dispatcher target for `resolve_for_entity`.
 /// `Product` is a dispatcher-level concept only — features are product-scoped via

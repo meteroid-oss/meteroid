@@ -9,11 +9,11 @@ use crate::store::PgConn;
 use crate::utils::periods::calculate_advance_period_range;
 use chrono::{Days, Duration, NaiveDate, Utc};
 use common_domain::ids::{SubscriptionId, TenantId};
-use diesel_async::scoped_futures::ScopedFutureExt;
 use diesel_models::enums::{CycleActionEnum, SubscriptionStatusEnum};
 use diesel_models::scheduled_events::ScheduledEventRowNew;
 use diesel_models::subscriptions::SubscriptionRow;
 use error_stack::Report;
+use scoped_futures::ScopedFutureExt;
 
 /// Parameters for activating a subscription after payment confirmation.
 pub struct PaymentActivationParams {

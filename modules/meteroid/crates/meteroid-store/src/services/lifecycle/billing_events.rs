@@ -8,10 +8,10 @@ use crate::services::Services;
 use crate::store::PgConn;
 use crate::utils::errors::format_error_chain;
 use chrono::{Duration, NaiveDateTime, Utc};
-use diesel_async::scoped_futures::ScopedFutureExt;
 use diesel_models::enums::{SubscriptionEventType, SubscriptionStatusEnum};
 use diesel_models::scheduled_events::ScheduledEventRow;
 use futures::stream::StreamExt;
+use scoped_futures::ScopedFutureExt;
 
 const MAX_PARALLEL_PROCESSING: usize = 4;
 const BATCH_SIZE: i64 = (MAX_PARALLEL_PROCESSING * 2) as i64; // Small buffer, small blast radius on crash

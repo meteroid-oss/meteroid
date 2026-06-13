@@ -4,8 +4,8 @@ use crate::domain::{
 };
 use cached::Cached;
 use cached::proc_macro::cached;
-use diesel_async::scoped_futures::ScopedFutureExt;
 use error_stack::Report;
+use scoped_futures::ScopedFutureExt;
 
 use crate::constants::{Currencies, Currency};
 use crate::domain::entity_activity::{Activity, ActivityType, Actor, AuditInput, EntityType};

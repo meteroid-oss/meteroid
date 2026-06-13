@@ -18,6 +18,7 @@ chrono = { workspace = true, features = ["clock", "serde"] }
 deadpool-runtime = { workspace = true, features = ["tokio_1"] }
 diesel.workspace = true
 diesel-async.workspace = true
+scoped-futures.workspace = true
 uuid = { workspace = true, features = ["serde"] }
 nanoid.workspace = true
 tracing.workspace = true

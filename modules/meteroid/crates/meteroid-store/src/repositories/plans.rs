@@ -21,7 +21,6 @@ use common_domain::ids::{
 };
 use common_domain::ids::{EntitlementEntityId, PriceId};
 use common_eventbus::Event;
-use diesel_async::scoped_futures::ScopedFutureExt;
 use diesel_models::entitlements::EntitlementRow;
 use diesel_models::plan_component_prices::{PlanComponentPriceRow, PlanComponentPriceRowNew};
 use diesel_models::plan_versions::{
@@ -36,6 +35,7 @@ use diesel_models::product_families::ProductFamilyRow;
 use diesel_models::products::{ProductRow, ProductRowNew};
 use diesel_models::tenants::TenantRow;
 use error_stack::Report;
+use scoped_futures::ScopedFutureExt;
 use std::collections::HashMap;
 
 #[async_trait::async_trait]

@@ -9,13 +9,13 @@ use crate::store::{PgConn, Store};
 use common_domain::ids::{
     BaseId, PlanVersionId, PriceComponentId, PriceId, ProductFamilyId, ProductId, TenantId,
 };
-use diesel_async::scoped_futures::ScopedFutureExt;
 use diesel_models::plan_component_prices::{PlanComponentPriceRow, PlanComponentPriceRowNew};
 use diesel_models::plan_versions::PlanVersionRow;
 use diesel_models::price_components::{PriceComponentRow, PriceComponentRowNew};
 use diesel_models::prices::{PriceRow, PriceRowNew};
 use diesel_models::products::ProductRowNew;
 use error_stack::Report;
+use scoped_futures::ScopedFutureExt;
 use std::collections::HashMap;
 
 pub use crate::domain::price_components::PriceInput;

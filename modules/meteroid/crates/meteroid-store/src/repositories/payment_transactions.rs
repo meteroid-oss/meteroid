@@ -1,6 +1,6 @@
 use crate::store::{PgConn, Store};
 use crate::{StoreResult, domain};
-use diesel_async::scoped_futures::ScopedFutureExt;
+use scoped_futures::ScopedFutureExt;
 
 use crate::domain::entity_activity::Actor;
 use crate::domain::outbox_event::OutboxEvent;

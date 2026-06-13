@@ -43,7 +43,6 @@ use common_domain::ids::{
     SubscriptionAddOnId, SubscriptionId, SubscriptionPriceComponentId, TenantId,
 };
 use common_utils::decimals::{ToSubunit, ToUnit};
-use diesel_async::scoped_futures::ScopedFutureExt;
 use diesel_models::credit_notes::CreditNoteRow;
 use diesel_models::enums::CreditNoteStatus;
 use diesel_models::invoices::InvoiceRow;
@@ -56,6 +55,7 @@ use diesel_models::subscription_components::{
 use diesel_models::subscriptions::SubscriptionRow;
 use error_stack::Report;
 use rust_decimal::Decimal;
+use scoped_futures::ScopedFutureExt;
 use std::collections::HashMap;
 
 /// A component to insert, with the source PriceEntry still needing materialization

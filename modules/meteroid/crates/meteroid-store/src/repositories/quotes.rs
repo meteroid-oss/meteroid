@@ -19,7 +19,6 @@ use common_domain::ids::{
     BaseId, CustomerId, EntitlementEntityId, QuoteId, QuotePriceComponentId, StoredDocumentId,
     TenantId, UserId,
 };
-use diesel_async::scoped_futures::ScopedFutureExt;
 use diesel_models::entitlements::EntitlementRow;
 use diesel_models::invoicing_entities::InvoicingEntityRow;
 use diesel_models::quote_add_ons::{QuoteAddOnRow, QuoteAddOnRowNew};
@@ -29,6 +28,7 @@ use diesel_models::quotes::{
     QuoteSignatureRow, QuoteSignatureRowNew,
 };
 use error_stack::Report;
+use scoped_futures::ScopedFutureExt;
 
 #[async_trait::async_trait]
 pub trait QuotesInterface {

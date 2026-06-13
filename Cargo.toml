@@ -42,7 +42,7 @@ members = [
 [workspace.package]
 license = "AGPL-3.0-only"
 edition = "2024"
-rust-version = "1.94"
+rust-version = "1.96"
 repository = "https://github.com/meteroid-oss/meteroid"
 
 [workspace.dependencies]
@@ -65,11 +65,11 @@ chrono = { version = "0.4.31", default-features = false }
 chrono-tz = { version = "0.10.3" }
 clap = "4.5.16"
 clickhouse = { version = "0.15.0", default-features = false }
-ctor = "0.9.1"
+ctor = "1.0.6"
 deadpool-postgres = "0.14.1"
 deadpool-runtime = "0.3.1"
 diesel = { version = "2.3.7", features = ["chrono", "uuid", "serde_json", "numeric"] }
-diesel-async = { version = "0.8.0", features = ["postgres", "deadpool"] }
+diesel-async = { version = "0.9.0", features = ["postgres", "deadpool"] }
 diesel-derive-enum = { version = "2.1.0", features = ["postgres"] }
 diesel_migrations = { version = "2.3.1", features = ["postgres"] }
 diesel-derive-newtype = { version = "2.1.2" }
@@ -99,8 +99,8 @@ humantime = { version = "2.3.0" }
 hyper = { version = "1.7.0", default-features = false }
 image = "0.25.2"
 ordermap = "1.0.0"
-init-tracing-opentelemetry = { version = "0.36.0", features = ["tracing_subscriber_ext"] }
-axum-tracing-opentelemetry = { version = "0.33.0" }
+init-tracing-opentelemetry = { version = "0.38.0", features = ["tracing_subscriber_ext"] }
+axum-tracing-opentelemetry = { version = "0.38.0" }
 insta = { version = "1.43.1", features = ["json"] }
 itertools = "0.14.0"
 jsonwebtoken = { version = "10.0.0", default-features = false }
@@ -110,18 +110,18 @@ lettre = { version = "0.11.21", default-features = false }
 log = "0.4.20"
 mockall = "0.14.0"
 moka = { version = "0.12.10", features = ["log", "logging", "sync"] }
-nanoid = "0.4.0"
+nanoid = "0.5.0"
 nonzero_ext = { version = "0.3.0", default-features = false }
 oauth2 = "5.0.0"
 oauth2-reqwest = "0.1.0-alpha.3"
 o2o = "0.5.3"
 object_store = { version = "0.13.2", default-features = false }
 once_cell = "1.18.0"
-opentelemetry = { version = "0.31.0", features = ["metrics", "trace", "logs"] }
-opentelemetry-otlp = { version = "0.31.0", features = ["trace", "metrics", "logs"] }
-opentelemetry_sdk = { version = "0.31.0", features = ["trace", "metrics", "rt-tokio", "rt-tokio-current-thread"] }
-opentelemetry-appender-tracing = { version = "0.31.1" }
-opentelemetry-resource-detectors = { version = "0.10.0" }
+opentelemetry = { version = "0.32.0", features = ["metrics", "trace", "logs"] }
+opentelemetry-otlp = { version = "0.32.0", features = ["trace", "metrics", "logs"] }
+opentelemetry_sdk = { version = "0.32.0", features = ["trace", "metrics", "rt-tokio", "rt-tokio-current-thread"] }
+opentelemetry-appender-tracing = { version = "0.32.0" }
+opentelemetry-resource-detectors = { version = "0.11.0" }
 paste = "1.0.15"
 pbjson-build = "0.9.0"
 pin-project = "1.1.3"
@@ -146,7 +146,8 @@ rust_decimal_macros = "1.32.0"
 rust_iso3166 = "0.1.14"
 rustls = { version = "0.23.12", default-features = false }
 rusty-money = "0.5.0"
-sailfish = "0.10.0"
+sailfish = "0.11.1"
+scoped-futures = "0.1.4"
 sealed = "0.6.0"
 secrecy = { version = "0.10.3", git = "https://github.com/iqlusioninc/crates", rev = "0e9c9fd6d313381273fa882df07300f2a01c344b", default-features = false } # waiting for release 0.10.4 for pr #1234
 segment = { version = "0.2.3" }
@@ -172,12 +173,12 @@ thiserror = "2.0.3"
 time = ">=0.3.47, <0.3.48"
 tokio = { version = "1.33.0", default-features = false }
 tokio-postgres = { version = "0.7.7", default-features = false }
-tokio-postgres-rustls = "0.13.0"
+tokio-postgres-rustls = "0.14.0"
 tokio-util = "0.7.10"
 tonic = "0.14.2"
 tonic-health = "0.14.2"
 tonic-reflection = "0.14.2"
-tonic-tracing-opentelemetry = "0.32.0"
+tonic-tracing-opentelemetry = "0.38.0"
 tonic-web = "0.14.2"
 tonic-prost = "0.14.2"
 tonic-prost-build = "0.14.2"

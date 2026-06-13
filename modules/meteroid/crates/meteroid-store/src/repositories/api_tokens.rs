@@ -11,11 +11,11 @@ use argon2::{
 };
 use common_domain::ids::{ApiTokenId, BaseId, TenantId};
 use common_eventbus::Event;
-use diesel_async::scoped_futures::ScopedFutureExt;
 use diesel_models::api_tokens::{ApiTokenRow, ApiTokenRowNew, ApiTokenValidationRow};
 use diesel_models::tenants::TenantRow;
 use error_stack::Report;
 use nanoid::nanoid;
+use scoped_futures::ScopedFutureExt;
 use tracing_log::log;
 
 #[async_trait::async_trait]

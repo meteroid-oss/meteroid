@@ -11,11 +11,11 @@ use crate::domain::{
 use crate::errors::StoreError;
 use crate::store::Store;
 use common_domain::ids::{BaseId, ProductFamilyId, ProductId, TenantId};
-use diesel_async::scoped_futures::ScopedFutureExt;
 use diesel_models::prices::PriceRow;
 use diesel_models::product_families::ProductFamilyRow;
 use diesel_models::products::{ProductRow, ProductRowNew};
 use error_stack::Report;
+use scoped_futures::ScopedFutureExt;
 
 #[derive(Clone, Debug)]
 pub struct ProductUpdate {

@@ -8,10 +8,10 @@ use crate::{Store, StoreResult, domain};
 use common_domain::identifiers::validate_code;
 use common_domain::ids::{BaseId, BillableMetricId, ProductFamilyId, TenantId};
 use common_eventbus::Event;
-use diesel_async::scoped_futures::ScopedFutureExt;
 use diesel_models::billable_metrics::{BillableMetricRow, BillableMetricRowNew};
 use diesel_models::product_families::ProductFamilyRow;
 use error_stack::Report;
+use scoped_futures::ScopedFutureExt;
 
 #[async_trait::async_trait]
 pub trait BillableMetricInterface {

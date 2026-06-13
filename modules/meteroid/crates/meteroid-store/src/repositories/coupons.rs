@@ -5,11 +5,11 @@ use crate::domain::{AppliedCouponForDisplay, PaginatedVec, PaginationRequest};
 use crate::errors::StoreError;
 use crate::{Store, StoreResult};
 use common_domain::ids::{CouponId, TenantId};
-use diesel_async::scoped_futures::ScopedFutureExt;
 use diesel_models::applied_coupons::AppliedCouponForDisplayRow;
 use diesel_models::coupon_plans::{CouponPlanRow, CouponPlanRowNew};
 use diesel_models::coupons::{CouponRow, CouponRowNew, CouponRowPatch, CouponStatusRowPatch};
 use error_stack::Report;
+use scoped_futures::ScopedFutureExt;
 
 #[async_trait::async_trait]
 pub trait CouponInterface {

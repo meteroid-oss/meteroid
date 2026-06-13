@@ -5,10 +5,10 @@ use crate::repositories::SubscriptionInterface;
 use crate::services::Services;
 use crate::services::invoice_lines::invoice_lines::ComputedInvoiceContent;
 use common_domain::ids::{InvoiceId, TenantId};
-use diesel_async::scoped_futures::ScopedFutureExt;
 use diesel_models::PgConn;
 use diesel_models::invoices::{InvoiceRow, InvoiceRowLinesPatch};
 use error_stack::{Report, ResultExt, bail};
+use scoped_futures::ScopedFutureExt;
 
 impl Services {
     pub(in crate::services) async fn refresh_invoice_data(

@@ -4,7 +4,6 @@
 //! For TestEnv helper methods, see `harness/payments.rs`.
 
 use diesel_async::AsyncConnection;
-use diesel_async::scoped_futures::ScopedFutureExt;
 use diesel_models::connectors::ConnectorRowNew;
 use diesel_models::customer_connection::CustomerConnectionRow;
 use diesel_models::customer_payment_methods::CustomerPaymentMethodRowNew;
@@ -27,39 +26,36 @@ pub async fn run_mock_payment_provider_seed(pool: &PgPool, fail_payment_intent: 
         .await
         .expect("couldn't get db connection from pool");
 
-    conn.transaction(|tx| {
-        async move {
-            let mock_data = serde_json::json!({
-                "Mock": {
-                    "fail_payment_intent": fail_payment_intent,
-                    "fail_setup_intent": false
-                }
-            });
-
-            ConnectorRowNew {
-                id: ids::MOCK_CONNECTOR_ID,
-                tenant_id: ids::TENANT_ID,
-                alias: "mock-payment-provider".to_string(),
-                connector_type: ConnectorTypeEnum::PaymentProvider,
-                provider: ConnectorProviderEnum::Mock,
-                data: Some(mock_data),
-                sensitive: None,
+    conn.transaction(async |tx| {
+        let mock_data = serde_json::json!({
+            "Mock": {
+                "fail_payment_intent": fail_payment_intent,
+                "fail_setup_intent": false
             }
-            .insert(tx)
-            .await?;
+        });
 
-            InvoicingEntityRowProvidersPatch {
-                id: ids::INVOICING_ENTITY_ID,
-                card_provider_id: Some(Some(ids::MOCK_CONNECTOR_ID)),
-                direct_debit_provider_id: None,
-                bank_account_id: None,
-            }
-            .patch_invoicing_entity_providers(tx, ids::TENANT_ID)
-            .await?;
-
-            Ok::<(), DatabaseErrorContainer>(())
+        ConnectorRowNew {
+            id: ids::MOCK_CONNECTOR_ID,
+            tenant_id: ids::TENANT_ID,
+            alias: "mock-payment-provider".to_string(),
+            connector_type: ConnectorTypeEnum::PaymentProvider,
+            provider: ConnectorProviderEnum::Mock,
+            data: Some(mock_data),
+            sensitive: None,
         }
-        .scope_boxed()
+        .insert(tx)
+        .await?;
+
+        InvoicingEntityRowProvidersPatch {
+            id: ids::INVOICING_ENTITY_ID,
+            card_provider_id: Some(Some(ids::MOCK_CONNECTOR_ID)),
+            direct_debit_provider_id: None,
+            bank_account_id: None,
+        }
+        .patch_invoicing_entity_providers(tx, ids::TENANT_ID)
+        .await?;
+
+        Ok::<(), DatabaseErrorContainer>(())
     })
     .await
     .unwrap();
@@ -98,30 +94,27 @@ pub async fn run_mock_payment_provider_2_seed(pool: &PgPool) {
         .await
         .expect("couldn't get db connection from pool");
 
-    conn.transaction(|tx| {
-        async move {
-            let mock_data = serde_json::json!({
-                "Mock": {
-                    "fail_payment_intent": false,
-                    "fail_setup_intent": false
-                }
-            });
-
-            ConnectorRowNew {
-                id: ids::MOCK_CONNECTOR_2_ID,
-                tenant_id: ids::TENANT_ID,
-                alias: "mock-payment-provider-2".to_string(),
-                connector_type: ConnectorTypeEnum::PaymentProvider,
-                provider: ConnectorProviderEnum::Mock,
-                data: Some(mock_data),
-                sensitive: None,
+    conn.transaction(async |tx| {
+        let mock_data = serde_json::json!({
+            "Mock": {
+                "fail_payment_intent": false,
+                "fail_setup_intent": false
             }
-            .insert(tx)
-            .await?;
+        });
 
-            Ok::<(), DatabaseErrorContainer>(())
+        ConnectorRowNew {
+            id: ids::MOCK_CONNECTOR_2_ID,
+            tenant_id: ids::TENANT_ID,
+            alias: "mock-payment-provider-2".to_string(),
+            connector_type: ConnectorTypeEnum::PaymentProvider,
+            provider: ConnectorProviderEnum::Mock,
+            data: Some(mock_data),
+            sensitive: None,
         }
-        .scope_boxed()
+        .insert(tx)
+        .await?;
+
+        Ok::<(), DatabaseErrorContainer>(())
     })
     .await
     .unwrap();
@@ -236,24 +229,21 @@ pub async fn get_or_create_customer_connection(
     }
 
     // Create new connection
-    conn.transaction(|tx| {
-        async move {
-            CustomerConnectionRow {
-                id: connection_id,
-                customer_id,
-                connector_id,
-                supported_payment_types: Some(vec![
-                    Some(PaymentMethodTypeEnum::Card),
-                    Some(PaymentMethodTypeEnum::DirectDebitSepa),
-                ]),
-                external_customer_id: external_customer_id.to_string(),
-            }
-            .insert(tx)
-            .await?;
-
-            Ok::<(), DatabaseErrorContainer>(())
+    conn.transaction(async |tx| {
+        CustomerConnectionRow {
+            id: connection_id,
+            customer_id,
+            connector_id,
+            supported_payment_types: Some(vec![
+                Some(PaymentMethodTypeEnum::Card),
+                Some(PaymentMethodTypeEnum::DirectDebitSepa),
+            ]),
+            external_customer_id: external_customer_id.to_string(),
         }
-        .scope_boxed()
+        .insert(tx)
+        .await?;
+
+        Ok::<(), DatabaseErrorContainer>(())
     })
     .await
     .unwrap();
@@ -274,27 +264,24 @@ pub async fn create_customer_payment_method(
         .await
         .expect("couldn't get db connection from pool");
 
-    conn.transaction(|tx| {
-        async move {
-            CustomerPaymentMethodRowNew {
-                id: payment_method_id,
-                tenant_id: ids::TENANT_ID,
-                customer_id,
-                connection_id,
-                external_payment_method_id: external_payment_method_id.to_string(),
-                payment_method_type: PaymentMethodTypeEnum::Card,
-                account_number_hint: None,
-                card_brand: Some("mock_visa".to_string()),
-                card_last4: Some("4242".to_string()),
-                card_exp_month: Some(12),
-                card_exp_year: Some(2030),
-            }
-            .upsert(tx)
-            .await?;
-
-            Ok::<(), DatabaseErrorContainer>(())
+    conn.transaction(async |tx| {
+        CustomerPaymentMethodRowNew {
+            id: payment_method_id,
+            tenant_id: ids::TENANT_ID,
+            customer_id,
+            connection_id,
+            external_payment_method_id: external_payment_method_id.to_string(),
+            payment_method_type: PaymentMethodTypeEnum::Card,
+            account_number_hint: None,
+            card_brand: Some("mock_visa".to_string()),
+            card_last4: Some("4242".to_string()),
+            card_exp_month: Some(12),
+            card_exp_year: Some(2030),
         }
-        .scope_boxed()
+        .upsert(tx)
+        .await?;
+
+        Ok::<(), DatabaseErrorContainer>(())
     })
     .await
     .unwrap();
@@ -346,40 +333,37 @@ pub async fn run_direct_debit_provider_seed(pool: &PgPool) {
         .await
         .expect("couldn't get db connection from pool");
 
-    conn.transaction(|tx| {
-        async move {
-            let mock_data = serde_json::json!({
-                "Mock": {
-                    "fail_payment_intent": false,
-                    "fail_setup_intent": false
-                }
-            });
-
-            ConnectorRowNew {
-                id: ids::MOCK_CONNECTOR_ID,
-                tenant_id: ids::TENANT_ID,
-                alias: "mock-dd-provider".to_string(),
-                connector_type: ConnectorTypeEnum::PaymentProvider,
-                provider: ConnectorProviderEnum::Mock,
-                data: Some(mock_data),
-                sensitive: None,
+    conn.transaction(async |tx| {
+        let mock_data = serde_json::json!({
+            "Mock": {
+                "fail_payment_intent": false,
+                "fail_setup_intent": false
             }
-            .insert(tx)
-            .await?;
+        });
 
-            // Set only direct_debit_provider, NOT card_provider
-            InvoicingEntityRowProvidersPatch {
-                id: ids::INVOICING_ENTITY_ID,
-                card_provider_id: None,
-                direct_debit_provider_id: Some(Some(ids::MOCK_CONNECTOR_ID)),
-                bank_account_id: None,
-            }
-            .patch_invoicing_entity_providers(tx, ids::TENANT_ID)
-            .await?;
-
-            Ok::<(), DatabaseErrorContainer>(())
+        ConnectorRowNew {
+            id: ids::MOCK_CONNECTOR_ID,
+            tenant_id: ids::TENANT_ID,
+            alias: "mock-dd-provider".to_string(),
+            connector_type: ConnectorTypeEnum::PaymentProvider,
+            provider: ConnectorProviderEnum::Mock,
+            data: Some(mock_data),
+            sensitive: None,
         }
-        .scope_boxed()
+        .insert(tx)
+        .await?;
+
+        // Set only direct_debit_provider, NOT card_provider
+        InvoicingEntityRowProvidersPatch {
+            id: ids::INVOICING_ENTITY_ID,
+            card_provider_id: None,
+            direct_debit_provider_id: Some(Some(ids::MOCK_CONNECTOR_ID)),
+            bank_account_id: None,
+        }
+        .patch_invoicing_entity_providers(tx, ids::TENANT_ID)
+        .await?;
+
+        Ok::<(), DatabaseErrorContainer>(())
     })
     .await
     .unwrap();
@@ -392,40 +376,37 @@ pub async fn run_card_and_dd_same_provider_seed(pool: &PgPool) {
         .await
         .expect("couldn't get db connection from pool");
 
-    conn.transaction(|tx| {
-        async move {
-            let mock_data = serde_json::json!({
-                "Mock": {
-                    "fail_payment_intent": false,
-                    "fail_setup_intent": false
-                }
-            });
-
-            ConnectorRowNew {
-                id: ids::MOCK_CONNECTOR_ID,
-                tenant_id: ids::TENANT_ID,
-                alias: "mock-card-and-dd-provider".to_string(),
-                connector_type: ConnectorTypeEnum::PaymentProvider,
-                provider: ConnectorProviderEnum::Mock,
-                data: Some(mock_data),
-                sensitive: None,
+    conn.transaction(async |tx| {
+        let mock_data = serde_json::json!({
+            "Mock": {
+                "fail_payment_intent": false,
+                "fail_setup_intent": false
             }
-            .insert(tx)
-            .await?;
+        });
 
-            // Same provider for both card and DD
-            InvoicingEntityRowProvidersPatch {
-                id: ids::INVOICING_ENTITY_ID,
-                card_provider_id: Some(Some(ids::MOCK_CONNECTOR_ID)),
-                direct_debit_provider_id: Some(Some(ids::MOCK_CONNECTOR_ID)),
-                bank_account_id: None,
-            }
-            .patch_invoicing_entity_providers(tx, ids::TENANT_ID)
-            .await?;
-
-            Ok::<(), DatabaseErrorContainer>(())
+        ConnectorRowNew {
+            id: ids::MOCK_CONNECTOR_ID,
+            tenant_id: ids::TENANT_ID,
+            alias: "mock-card-and-dd-provider".to_string(),
+            connector_type: ConnectorTypeEnum::PaymentProvider,
+            provider: ConnectorProviderEnum::Mock,
+            data: Some(mock_data),
+            sensitive: None,
         }
-        .scope_boxed()
+        .insert(tx)
+        .await?;
+
+        // Same provider for both card and DD
+        InvoicingEntityRowProvidersPatch {
+            id: ids::INVOICING_ENTITY_ID,
+            card_provider_id: Some(Some(ids::MOCK_CONNECTOR_ID)),
+            direct_debit_provider_id: Some(Some(ids::MOCK_CONNECTOR_ID)),
+            bank_account_id: None,
+        }
+        .patch_invoicing_entity_providers(tx, ids::TENANT_ID)
+        .await?;
+
+        Ok::<(), DatabaseErrorContainer>(())
     })
     .await
     .unwrap();
@@ -442,32 +423,29 @@ pub async fn run_bank_account_seed(pool: &PgPool) {
         .await
         .expect("couldn't get db connection from pool");
 
-    conn.transaction(|tx| {
-        async move {
-            BankAccountRowNew {
-                id: ids::TEST_BANK_ACCOUNT_ID,
-                tenant_id: ids::TENANT_ID,
-                currency: "EUR".to_string(),
-                country: CountryCode::default(), // FR
-                bank_name: "Test Bank".to_string(),
-                format: BankAccountFormat::IbanBicSwift,
-                account_numbers: "FR7630006000011234567890189".to_string(),
-            }
-            .insert(tx)
-            .await?;
-
-            InvoicingEntityRowProvidersPatch {
-                id: ids::INVOICING_ENTITY_ID,
-                card_provider_id: None,
-                direct_debit_provider_id: None,
-                bank_account_id: Some(Some(ids::TEST_BANK_ACCOUNT_ID)),
-            }
-            .patch_invoicing_entity_providers(tx, ids::TENANT_ID)
-            .await?;
-
-            Ok::<(), DatabaseErrorContainer>(())
+    conn.transaction(async |tx| {
+        BankAccountRowNew {
+            id: ids::TEST_BANK_ACCOUNT_ID,
+            tenant_id: ids::TENANT_ID,
+            currency: "EUR".to_string(),
+            country: CountryCode::default(), // FR
+            bank_name: "Test Bank".to_string(),
+            format: BankAccountFormat::IbanBicSwift,
+            account_numbers: "FR7630006000011234567890189".to_string(),
         }
-        .scope_boxed()
+        .insert(tx)
+        .await?;
+
+        InvoicingEntityRowProvidersPatch {
+            id: ids::INVOICING_ENTITY_ID,
+            card_provider_id: None,
+            direct_debit_provider_id: None,
+            bank_account_id: Some(Some(ids::TEST_BANK_ACCOUNT_ID)),
+        }
+        .patch_invoicing_entity_providers(tx, ids::TENANT_ID)
+        .await?;
+
+        Ok::<(), DatabaseErrorContainer>(())
     })
     .await
     .unwrap();

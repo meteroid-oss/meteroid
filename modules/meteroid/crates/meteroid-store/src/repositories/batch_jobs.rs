@@ -8,13 +8,13 @@ use crate::domain::misc::{PaginatedVec, PaginationRequest};
 use crate::errors::StoreError;
 use crate::store::Store;
 use common_domain::ids::{BaseId, BatchJobChunkId, BatchJobId, TenantId};
-use diesel_async::scoped_futures::ScopedFutureExt;
 use diesel_models::batch_jobs::{
     BatchJobChunkRowNew, BatchJobEntityRowNew, BatchJobItemFailureRow, BatchJobItemFailureRowNew,
     BatchJobRow, BatchJobRowNew,
 };
 use diesel_models::enums as diesel_enums;
 use error_stack::Report;
+use scoped_futures::ScopedFutureExt;
 
 #[async_trait::async_trait]
 pub trait BatchJobsInterface {

@@ -1,6 +1,6 @@
 //! Invoice test helpers.
 
-use common_domain::ids::{CustomerId, InvoiceId, SubscriptionId, UserId};
+use common_domain::ids::{CustomerId, InvoiceId, SubscriptionId};
 use meteroid_store::StoreResult;
 use meteroid_store::domain::customers::CustomerTopUpBalance;
 use meteroid_store::domain::entity_activity::Actor;
@@ -84,9 +84,7 @@ impl TestEnv {
         // directly on the database column.
         self.store()
             .patch_invoicing_entity(
-                Actor::User {
-                    id: UserId::from(USER_ID),
-                },
+                Actor::User { id: USER_ID },
                 InvoicingEntityPatch {
                     id: INVOICING_ENTITY_ID,
                     grace_period_hours: Some(grace_period_hours),
@@ -124,13 +122,7 @@ impl TestEnv {
     /// Attempt to void an invoice, returning the raw result so callers can assert success/failure.
     pub async fn try_void_invoice(&self, invoice_id: InvoiceId) -> StoreResult<DetailedInvoice> {
         self.store()
-            .void_invoice(
-                Actor::User {
-                    id: UserId::from(USER_ID),
-                },
-                invoice_id,
-                TENANT_ID,
-            )
+            .void_invoice(Actor::User { id: USER_ID }, invoice_id, TENANT_ID)
             .await
     }
 

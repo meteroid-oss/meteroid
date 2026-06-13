@@ -2,7 +2,6 @@ use super::ids;
 use chrono::{NaiveDate, NaiveDateTime};
 use common_domain::country::CountryCode;
 use diesel_async::AsyncConnection;
-use diesel_async::scoped_futures::ScopedFutureExt;
 use diesel_models::api_tokens::ApiTokenRowNew;
 use diesel_models::enums::{OrganizationUserRole, TenantEnvironmentEnum};
 use diesel_models::errors::DatabaseErrorContainer;
@@ -22,7 +21,7 @@ pub async fn run_minimal_seed(pool: &PgPool) {
         .await
         .expect("couldn't get db connection from pool");
 
-    conn.transaction(|tx| async move {
+    conn.transaction(async |tx| {
 
         // create organization
         OrganizationRowNew {
@@ -153,5 +152,5 @@ pub async fn run_minimal_seed(pool: &PgPool) {
         ]).await?;
 
         Ok::<(), DatabaseErrorContainer>(())
-    } .scope_boxed()).await.unwrap();
+    }).await.unwrap();
 }

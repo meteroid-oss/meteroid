@@ -12,11 +12,11 @@ use crate::repositories::oauth::OauthInterface;
 use crate::{Store, StoreResult};
 use chrono::Utc;
 use common_domain::ids::{BaseId, ConnectorId, TenantId};
-use diesel_async::scoped_futures::ScopedFutureExt;
 use diesel_models::connectors::{ConnectorRow, ConnectorRowNew, ConnectorRowPatch};
 use diesel_models::query::pgmq;
 use error_stack::{Report, bail};
 use meteroid_oauth::model::OauthProvider;
+use scoped_futures::ScopedFutureExt;
 use secrecy::{ExposeSecret, SecretString};
 
 #[async_trait::async_trait]

@@ -9,12 +9,12 @@ use crate::services::subscriptions::PaymentActivationParams;
 use crate::services::subscriptions::utils::is_paid_trial;
 use crate::utils::periods::calculate_advance_period_range;
 use chrono::{Datelike, Utc};
-use diesel_async::scoped_futures::ScopedFutureExt;
 use diesel_models::checkout_sessions::CheckoutSessionRow;
 use diesel_models::enums::{CycleActionEnum, SubscriptionActivationConditionEnum};
 use diesel_models::invoices::InvoiceRow;
 use diesel_models::subscriptions::SubscriptionRow;
 use error_stack::Report;
+use scoped_futures::ScopedFutureExt;
 
 impl Services {
     pub async fn on_payment_transaction_settled(

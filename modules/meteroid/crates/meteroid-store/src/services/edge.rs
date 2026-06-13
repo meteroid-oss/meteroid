@@ -31,7 +31,6 @@ use common_domain::ids::{
     AppliedCouponId, BaseId, CheckoutSessionId, CustomerConnectionId, CustomerPaymentMethodId,
     InvoiceId, PlanVersionId, SubscriptionId, TenantId,
 };
-use diesel_async::scoped_futures::ScopedFutureExt;
 use diesel_models::applied_coupons::AppliedCouponRowNew;
 use diesel_models::checkout_sessions::CheckoutSessionRow;
 use diesel_models::coupons::CouponRow;
@@ -41,6 +40,7 @@ use diesel_models::quotes::QuoteRow;
 use diesel_models::scheduled_events::ScheduledEventRowNew;
 use diesel_models::subscriptions::SubscriptionRow;
 use error_stack::{Report, ResultExt};
+use scoped_futures::ScopedFutureExt;
 
 impl ServicesEdge {
     async fn get_conn(&self) -> StoreResult<PgConn> {

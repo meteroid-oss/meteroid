@@ -1,6 +1,5 @@
 use super::ids;
 use diesel_async::AsyncConnection;
-use diesel_async::scoped_futures::ScopedFutureExt;
 use diesel_models::billable_metrics::BillableMetricRowNew;
 use diesel_models::enums::BillingMetricAggregateEnum;
 use diesel_models::errors::DatabaseErrorContainer;
@@ -12,47 +11,44 @@ pub async fn run_meters_seed(pool: &PgPool) {
         .await
         .expect("couldn't get db connection from pool");
 
-    conn.transaction(|tx| {
-        async move {
-            BillableMetricRowNew {
-                id: ids::METRIC_DATABASE_SIZE,
-                name: "Database size (GB)".to_string(),
-                description: None,
-                code: "db_size".to_string(),
-                aggregation_type: BillingMetricAggregateEnum::Latest,
-                aggregation_key: Some("size_gb".to_string()),
-                unit_conversion_factor: Some(1),
-                unit_conversion_rounding: None,
-                segmentation_matrix: None,
-                usage_group_key: None,
-                tenant_id: ids::TENANT_ID,
-                product_family_id: ids::PRODUCT_FAMILY_ID,
-                product_id: None,
-            }
-            .insert(tx)
-            .await?;
-
-            BillableMetricRowNew {
-                id: ids::METRIC_BANDWIDTH,
-                name: "Bandwidth (GB)".to_string(),
-                description: None,
-                code: "bandwidth".to_string(),
-                aggregation_type: BillingMetricAggregateEnum::Sum,
-                aggregation_key: Some("value".to_string()),
-                unit_conversion_factor: Some(1),
-                unit_conversion_rounding: None,
-                segmentation_matrix: None,
-                usage_group_key: None,
-                tenant_id: ids::TENANT_ID,
-                product_family_id: ids::PRODUCT_FAMILY_ID,
-                product_id: None,
-            }
-            .insert(tx)
-            .await?;
-
-            Ok::<(), DatabaseErrorContainer>(())
+    conn.transaction(async |tx| {
+        BillableMetricRowNew {
+            id: ids::METRIC_DATABASE_SIZE,
+            name: "Database size (GB)".to_string(),
+            description: None,
+            code: "db_size".to_string(),
+            aggregation_type: BillingMetricAggregateEnum::Latest,
+            aggregation_key: Some("size_gb".to_string()),
+            unit_conversion_factor: Some(1),
+            unit_conversion_rounding: None,
+            segmentation_matrix: None,
+            usage_group_key: None,
+            tenant_id: ids::TENANT_ID,
+            product_family_id: ids::PRODUCT_FAMILY_ID,
+            product_id: None,
         }
-        .scope_boxed()
+        .insert(tx)
+        .await?;
+
+        BillableMetricRowNew {
+            id: ids::METRIC_BANDWIDTH,
+            name: "Bandwidth (GB)".to_string(),
+            description: None,
+            code: "bandwidth".to_string(),
+            aggregation_type: BillingMetricAggregateEnum::Sum,
+            aggregation_key: Some("value".to_string()),
+            unit_conversion_factor: Some(1),
+            unit_conversion_rounding: None,
+            segmentation_matrix: None,
+            usage_group_key: None,
+            tenant_id: ids::TENANT_ID,
+            product_family_id: ids::PRODUCT_FAMILY_ID,
+            product_id: None,
+        }
+        .insert(tx)
+        .await?;
+
+        Ok::<(), DatabaseErrorContainer>(())
     })
     .await
     .unwrap();

@@ -8,12 +8,12 @@ use crate::services::Services;
 use chrono::NaiveDateTime;
 use common_domain::ids::{BaseId, InvoiceId, PaymentTransactionId, TenantId};
 use common_utils::decimals::ToSubunit;
-use diesel_async::scoped_futures::ScopedFutureExt;
 use diesel_models::enums::{InvoiceStatusEnum, PaymentStatusEnum, PaymentTypeEnum};
 use diesel_models::invoices::InvoiceRow;
 use diesel_models::payments::PaymentTransactionRowNew;
 use error_stack::Report;
 use rust_decimal::Decimal;
+use scoped_futures::ScopedFutureExt;
 
 impl Services {
     /// Adds a manual payment transaction to an invoice.

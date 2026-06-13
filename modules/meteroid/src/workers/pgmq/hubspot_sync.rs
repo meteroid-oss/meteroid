@@ -442,10 +442,7 @@ impl HubspotSync {
         for (subscription, msg_id) in &outboxes {
             let hs_ids = upsert_response
                 .get_deal_id(subscription.subscription_id)
-                .and_then(|deal_id| {
-                    get_customer_external_id(subscription.customer_id)
-                        .map(|company_id| (deal_id, company_id))
-                });
+                .zip(get_customer_external_id(subscription.customer_id));
 
             if let Some((deal_id, company_id)) = hs_ids {
                 let state_res = self
