@@ -1,36 +1,49 @@
 import { zodResolver } from '@hookform/resolvers/zod'
-import { Control, FieldPath, useForm, UseFormProps, UseFormReturn } from 'react-hook-form'
+import {
+  Control,
+  FieldPath,
+  FieldValues,
+  Resolver,
+  useForm,
+  UseFormProps,
+  UseFormReturn,
+} from 'react-hook-form'
 import { z } from 'zod'
 
 /* eslint-disable @typescript-eslint/no-explicit-any */
-export function useZodForm<TSchema extends z.Schema<any, any>>(
-  props: Omit<UseFormProps<z.infer<TSchema>>, 'resolver'> & {
+// In zod v4 `z.infer<z.ZodType>` resolves to `unknown` (it was `any` in v3),
+// which is not assignable to react-hook-form's `FieldValues`. Intersecting with
+// `FieldValues` keeps the concrete schema shape while guaranteeing assignability
+// to `FieldValues` for both untyped (`z.ZodType`) and generic-wrapped schemas.
+type Values<TSchema extends z.ZodType> = z.output<TSchema> & FieldValues
+
+export function useZodForm<TSchema extends z.ZodType<any, any, any>>(
+  props: Omit<UseFormProps<Values<TSchema>>, 'resolver'> & {
     schema: TSchema
   }
 ): Methods<TSchema> {
-  const form = useForm({
+  const form = useForm<Values<TSchema>>({
     mode: 'onBlur',
     ...props,
-    resolver: zodResolver(props.schema, undefined),
+    resolver: zodResolver(props.schema) as unknown as Resolver<Values<TSchema>>,
   })
 
-  const withControl = (name: FieldPath<z.TypeOf<TSchema>>) => ({
+  const withControl = (name: FieldPath<Values<TSchema>>) => ({
     control: form.control,
     name,
   })
-  const withError = (name: FieldPath<z.TypeOf<TSchema>>) => ({
+  const withError = (name: FieldPath<Values<TSchema>>) => ({
     error: form.formState.errors[name]?.message as string | undefined,
   })
 
   return { ...form, withControl, withError }
 }
 
-/* eslint-disable @typescript-eslint/no-explicit-any */
-export interface Methods<TSchema extends z.Schema<any, any>>
-  extends UseFormReturn<z.TypeOf<TSchema>, any, z.TypeOf<TSchema>> {
-  withControl: (name: FieldPath<z.TypeOf<TSchema>>) => {
-    control: Control<z.TypeOf<TSchema>, any>
-    name: FieldPath<z.TypeOf<TSchema>>
+export interface Methods<TSchema extends z.ZodType<any, any, any>>
+  extends UseFormReturn<Values<TSchema>, any, Values<TSchema>> {
+  withControl: (name: FieldPath<Values<TSchema>>) => {
+    control: Control<Values<TSchema>, any>
+    name: FieldPath<Values<TSchema>>
   }
-  withError: (name: FieldPath<z.TypeOf<TSchema>>) => { error: string | undefined }
+  withError: (name: FieldPath<Values<TSchema>>) => { error: string | undefined }
 }

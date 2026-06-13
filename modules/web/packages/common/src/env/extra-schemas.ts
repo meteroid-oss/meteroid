@@ -1,4 +1,4 @@
-import * as z from 'zod'
+import * as z from 'zod/v3'
 
 export const port = () => z.number().int().nonnegative().lte(65535)
 

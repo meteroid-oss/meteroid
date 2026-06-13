@@ -5,8 +5,6 @@ const unitConversion = z.object({
   factor: z.coerce.number().positive(),
   rounding: z.enum(['NONE', 'UP', 'DOWN', 'NEAREST']),
 })
-type UnitConversionSchema = typeof unitConversion
-type UnitConversionData = z.infer<typeof unitConversion>
 // caused typecript to lag
 // const _aggregationSchema = z.discriminatedUnion('aggregationType', [
 //   z.object({ aggregationType: z.literal('COUNT') }),
@@ -18,23 +16,7 @@ type UnitConversionData = z.infer<typeof unitConversion>
 //   }),
 // ])
 
-type SimpleAggregation = {
-  aggregationType: 'SUM' | 'MIN' | 'MAX' | 'MEAN' | 'LATEST' | 'COUNT' | 'COUNT_DISTINCT'
-  aggregationKey?: string | undefined
-  unitConversion?: UnitConversionData
-}
-type SimpleAggregationSchema = z.ZodObject<
-  {
-    aggregationType: z.ZodEnum<['SUM', 'MIN', 'MAX', 'MEAN', 'LATEST', 'COUNT', 'COUNT_DISTINCT']>
-    aggregationKey: z.ZodOptional<z.ZodString>
-    unitConversion: z.ZodOptional<UnitConversionSchema>
-  },
-  'strip',
-  z.ZodTypeAny,
-  SimpleAggregation,
-  SimpleAggregation
->
-const simpleAggregationSchema: z.ZodEffects<SimpleAggregationSchema> = z
+const simpleAggregationSchema = z
   .object({
     aggregationType: z.enum(['SUM', 'MIN', 'MAX', 'MEAN', 'LATEST', 'COUNT', 'COUNT_DISTINCT']),
     aggregationKey: z.string().optional(),
@@ -50,25 +32,14 @@ const simpleAggregationSchema: z.ZodEffects<SimpleAggregationSchema> = z
     }
   })
 
-type DimensionValuesSchema = z.ZodArray<z.ZodString, 'atleastone'>
-const dimensionValues: DimensionValuesSchema = z.array(z.string().nonempty()).nonempty()
+const dimensionValues = z.array(z.string().nonempty()).nonempty()
 
 // We specify some type explicitely to reduce complexity on ts compiler
 export type Dimension = {
   values: string[]
   key: string
 }
-type DimensionSchema = z.ZodObject<
-  {
-    key: z.ZodString
-    values: DimensionValuesSchema
-  },
-  'strip',
-  z.ZodTypeAny,
-  Dimension,
-  Dimension
->
-const dimensionSchema: DimensionSchema = z.object({
+const dimensionSchema = z.object({
   key: z.string().nonempty('Required'),
   values: dimensionValues,
 })

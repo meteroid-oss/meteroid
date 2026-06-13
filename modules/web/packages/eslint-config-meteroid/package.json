@@ -1,19 +1,26 @@
 {
   "name": "eslint-config-meteroid",
   "version": "0.1.0",
+  "type": "module",
+  "main": "index.mjs",
+  "exports": {
+    ".": "./index.mjs"
+  },
   "dependencies": {
-    "@typescript-eslint/eslint-plugin": "^6.21.0",
-    "@typescript-eslint/parser": "^6.21.0",
-    "eslint-config-prettier": "^8.10.2",
-    "eslint-import-resolver-typescript": "^3.10.1",
+    "@eslint/js": "^9.39.0",
+    "eslint-config-prettier": "^10.1.8",
+    "eslint-import-resolver-typescript": "^4.4.5",
     "eslint-plugin-import": "^2.32.0",
     "eslint-plugin-react": "^7.37.5",
-    "eslint-plugin-react-hooks": "^4.6.2",
-    "eslint-plugin-turbo": "^1.13.4",
-    "eslint-plugin-unused-imports": "^3.2.0"
+    "eslint-plugin-react-hooks": "^7.1.1",
+    "eslint-plugin-unused-imports": "^4.4.1",
+    "globals": "^16.0.0",
+    "typescript-eslint": "^8.61.0"
+  },
+  "peerDependencies": {
+    "eslint": ">=9"
   },
   "license": "MIT",
-  "main": "index.js",
   "publishConfig": {
     "access": "public"
   }
