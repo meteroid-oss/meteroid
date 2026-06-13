@@ -16,7 +16,7 @@
     "husky": "^9.1.7",
     "kill-port": "^2.0.1",
     "prettier": "^3.7.4",
-    "turbo": "^1.13.4",
+    "turbo": "^2.9.14",
     "typescript": "^5.9.3"
   },
   "engines": {
