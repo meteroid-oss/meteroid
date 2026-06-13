@@ -63,7 +63,7 @@
     "autoprefixer": "10.4.17",
     "eslint": "^9.39.0",
     "json": "^11.0.0",
-    "postcss": "^8.5.15",
+    "postcss": "^8.5.10",
     "postcss-loader": "^8.2.1",
     "postcss-scss": "^4.0.9",
     "postcss-selector-parser": "^6.1.4",
