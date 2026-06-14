@@ -83,7 +83,7 @@
     "autoprefixer": "10.5.0",
     "babel-loader": "^10.1.1",
     "eslint": "^9.39.0",
-    "postcss": "^8.5.15",
+    "postcss": "^8.5.10",
     "tailwind-merge": "^2.6.1",
     "tailwindcss": "^3.4.19",
     "tailwindcss-animate": "^1.0.7",
