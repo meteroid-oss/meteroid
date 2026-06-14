@@ -1,42 +1,40 @@
-@tailwind base;
-@tailwind components;
-@tailwind utilities;
- 
+@import 'tailwindcss';
 
+@config '../tailwind.config.js';
 
 @layer base {
-    :root {
-      --background: 0 0% 100%;
-      --foreground: 240 10% 3.9%;
-      --card: 0 0% 100%;
-      --card-foreground: 240 10% 3.9%;
-      --popover: 0 0% 100%;
-      --popover-foreground: 240 10% 3.9%;
-      --brand: 242 89.1% 71.2%;
-      --brand-foreground: 242 88% 97%;
-      --primary: 240 15% 5%;
-      --primary-foreground: 0 0% 90%;
-      --secondary: 240 4.8% 95.9%;
-      --secondary-foreground: 240 5.9% 10%;
-      --muted:  20 20% 97%;//240 4.8% 95.9%;
-      --muted-foreground: 240 3.8% 46.1%;
-      --accent: 240 4.8% 95.9%;
-      --accent-foreground: 240 5.9% 10%;
-      --destructive: 0 84.2% 60.2%;
-      --destructive-foreground: 0 0% 98%;
+  :root,
+  body .light {
+    --background: 0 0% 100%;
+    --foreground: 240 10% 3.9%;
+    --card: 0 0% 100%;
+    --card-foreground: 240 10% 3.9%;
+    --popover: 0 0% 100%;
+    --popover-foreground: 240 10% 3.9%;
+    --brand: 242 89.1% 71.2%;
+    --brand-foreground: 242 88% 97%;
+    --primary: 240 15% 5%;
+    --primary-foreground: 0 0% 90%;
+    --secondary: 240 4.8% 95.9%;
+    --secondary-foreground: 240 5.9% 10%;
+    --muted: 20 20% 97%; /* 240 4.8% 95.9% */
+    --muted-foreground: 240 3.8% 46.1%;
+    --accent: 240 4.8% 95.9%;
+    --accent-foreground: 240 5.9% 10%;
+    --destructive: 0 84.2% 60.2%;
+    --destructive-foreground: 0 0% 98%;
 
-      --success: 142.1 76.2% 36.3%;
-      --success-foreground: 0 0% 97%;
-      --warning: 38 92% 50%;
-      --warning-foreground: 240 10% 3.9%;
+    --success: 142.1 76.2% 36.3%;
+    --success-foreground: 0 0% 97%;
+    --warning: 38 92% 50%;
+    --warning-foreground: 240 10% 3.9%;
 
+    --border: 240 5.9% 90%;
+    --input: 0 0% 100%;
+    --ring: 142.1 76.2% 36.3%;
+    --radius: 0.5rem;
 
-      --border: 240 5.9% 90%;
-      --input: 0 0% 100%;
-      --ring: 142.1 76.2% 36.3%;
-      --radius: 0.5rem;
-
-      --sidebar-background: 0 0% 98%;
+    --sidebar-background: 0 0% 98%;
     --sidebar-foreground: 240 5.3% 26.1%;
     --sidebar-primary: 240 5.9% 10%;
     --sidebar-primary-foreground: 0 0% 98%;
@@ -44,41 +42,39 @@
     --sidebar-accent-foreground: 240 5.9% 10%;
     --sidebar-border: 220 13% 91%;
     --sidebar-ring: 217.2 91.2% 59.8%;
-    
-    }
+  }
 
+  .dark {
+    --background: 0 0% 7%;
+    --foreground: 0 0% 100%;
+    --card: 0 0% 10%;
+    --card-foreground: 0 0% 95%;
+    --popover: 240 15% 5%;
+    --popover-foreground: 0 0% 95%;
+    /* TODO rename primary into brand and alternative into primary */
+    --brand: 211 95% 63%;
+    --brand-foreground: 144 21% 9%;
+    --primary: 0 0% 90%;
+    --primary-foreground: 240 15% 5%;
+    --secondary: 233 11% 17%;
+    --secondary-foreground: 0 0% 98%;
+    --muted: 0 0% 15%;
+    --muted-foreground: 0 0% 64%;
+    --accent: 240 4% 19%;
+    --accent-foreground: 0 0% 98%;
+    --destructive: 0 84% 60%;
+    --destructive-foreground: 0 85.7% 97.3%;
 
-    .dark  {
-      --background: 0 0% 7%;
-      --foreground: 0 0% 100%;
-      --card: 0 0% 10%;
-      --card-foreground: 0 0% 95%;
-      --popover: 240 15% 5%;
-      --popover-foreground: 0 0% 95%;
-      // TODO rename primary into brand and alternative into primary
-      --brand: 211 95% 63%;
-      --brand-foreground: 144 21% 9%;
-      --primary: 0 0% 90%;
-      --primary-foreground: 240 15% 5%;
-      --secondary: 233 11% 17%;
-      --secondary-foreground: 0 0% 98%;
-      --muted: 0 0% 15%;
-      --muted-foreground: 0 0% 64%;
-      --accent: 240 4% 19%;
-      --accent-foreground: 0 0% 98%;
-      --destructive: 0 84% 60%;
-      --destructive-foreground: 0 85.7% 97.3%;
+    --success: 159 46% 53%;
+    --success-foreground: 240 10% 3.9%;
+    --warning: 38 92% 50%;
+    --warning-foreground: 240 10% 3.9%;
 
-      --success: 159 46% 53%;
-      --success-foreground: 240 10% 3.9%;
-      --warning: 38 92% 50%;
-      --warning-foreground: 240 10% 3.9%;
+    --border: 240 3.7% 15.9%;
+    --input: 240 3.7% 15.9%;
+    --ring: 211 95% 63%;
 
-      --border: 240 3.7% 15.9%;
-      --input: 240 3.7% 15.9%; 
-      --ring: 211 95% 63%;
-
-      --sidebar-background: 0 0% 7%;
+    --sidebar-background: 0 0% 7%;
     --sidebar-foreground: 240 4.8% 95.9%;
     --sidebar-primary: 224.3 76.3% 48%;
     --sidebar-primary-foreground: 0 0% 100%;
@@ -86,17 +82,13 @@
     --sidebar-accent-foreground: 240 4.8% 95.9%;
     --sidebar-border: 240 3.7% 15.9%;
     --sidebar-ring: 217.2 91.2% 59.8%;
-    }
-
-
-
-    body .light {
-      @extend :root;
-      color-scheme: light !important;
-    }
   }
-  
- 
+
+  body .light {
+    color-scheme: light !important;
+  }
+}
+
 @layer base {
   * {
     @apply border-border;
@@ -106,21 +98,19 @@
   }
 }
 
-
-@layer utilities {
-  .btn-brand {
-    @apply inline-block rounded border border-green-500 bg-green-500 py-1 px-3 text-sm;
-    color: #fff !important;
-    font-weight: 600;
-    line-height: 20px;
-    text-align: center;
-  }
-
-  .btn-brand-hover {
-    @apply bg-green-600;
-    cursor: pointer;
-  }
+@utility btn-brand {
+  @apply inline-block rounded border border-green-500 bg-green-500 py-1 px-3 text-sm;
+  color: #fff !important;
+  font-weight: 600;
+  line-height: 20px;
+  text-align: center;
 }
+
+@utility btn-brand-hover {
+  @apply bg-green-600;
+  cursor: pointer;
+}
+
 @font-face {
   font-family: InterVariable;
   font-style: normal;
@@ -149,7 +139,6 @@ html,
 body,
 #__next,
 .main {
-  
   line-height: 1.4;
   height: 100%;
   padding: 0;
@@ -157,7 +146,6 @@ body,
   -moz-osx-font-smoothing: grayscale;
   -webkit-font-smoothing: antialiased;
 }
-
 
 * {
   box-sizing: border-box;
@@ -171,7 +159,6 @@ body,
 .password {
   -webkit-text-security: disc;
 }
-
 
 .form-group .form-text,
 .Form .form-text {
@@ -242,14 +229,12 @@ input.form-control,
   box-shadow: 0 0 0 2px rgba(62, 207, 142, 0.1);
 }
 
-
-// icons in date / time inputs
+/* icons in date / time inputs */
 .dark input[type='date']::-webkit-calendar-picker-indicator,
 .dark input[type='datetime-local']::-webkit-calendar-picker-indicator,
 .dark input[type='time']::-webkit-calendar-picker-indicator {
   filter: invert(0.8);
 }
-
 
 input[type='submit'] {
   @apply btn-brand;
@@ -287,15 +272,13 @@ input[type='radio'] {
   @apply p-0;
 }
 
-// code {
-//   @apply text-code;
-// }
+/* code {
+  @apply text-code;
+} */
 
 div[data-radix-portal]:not(.portal--toast) {
   z-index: 2147483646 !important;
 }
-
-
 
 .table-container table {
   @apply w-full;
@@ -327,7 +310,6 @@ div[data-radix-portal]:not(.portal--toast) {
   @apply bg-transparent;
 }
 
-
 .table-container tbody .tr--link {
   @apply cursor-pointer transition-colors;
 }
@@ -337,11 +319,11 @@ div[data-radix-portal]:not(.portal--toast) {
 }
 
 .table-container tbody td {
-  @apply border-b  p-3 px-4 text-sm text-gray-800 border-slate-500;
+  @apply border-b p-3 px-4 text-sm text-gray-800 border-slate-500;
 }
 
 .table-container tbody td:first-child {
-  @apply pl-6 border-b border-l  border-slate-500;
+  @apply pl-6 border-b border-l border-slate-500;
 }
 
 .table-container tbody td:last-child {
@@ -376,47 +358,43 @@ div[data-radix-portal]:not(.portal--toast) {
   border-bottom: none;
 }
 
-
- 
-
 .scrollbar {
-  // scrollbar-width: thin;
-  // scrollbar-color: theme('colors.slate.400') transparent; 
+  /* scrollbar-width: thin; */
+  /* scrollbar-color: theme('colors.slate.400') transparent; */
   scrollbar-gutter: stable;
 }
-   
-.scrollbar::-webkit-scrollbar { 
-  width: 8px; 
+
+.scrollbar::-webkit-scrollbar {
+  width: 8px;
   z-index: 999999;
 }
-  
+
 .scrollbar::-webkit-scrollbar-button {
-  display:none;
+  display: none;
 }
 
 .scrollbar:hover::-webkit-scrollbar-thumb {
   @apply bg-slate-300;
-  border-radius: 10px; 
+  border-radius: 10px;
 }
 
 .scrollbar::-webkit-scrollbar-thumb:hover {
-    @apply bg-slate-400; 
+  @apply bg-slate-400;
 }
 
 ::-webkit-scrollbar {
-    @apply w-2.5 h-2.5;
-   
+  @apply w-2.5 h-2.5;
 }
 
 ::-webkit-scrollbar-track {
-    @apply bg-transparent
-}
- 
-::-webkit-scrollbar-thumb {
-    @apply rounded-full bg-border border-[1px] border-transparent border-solid bg-clip-padding;
+  @apply bg-transparent;
 }
 
-// Keyframe animations (previously from @md/foundation)
+::-webkit-scrollbar-thumb {
+  @apply rounded-full bg-border border-[1px] border-transparent border-solid bg-clip-padding;
+}
+
+/* Keyframe animations (previously from @md/foundation) */
 .fadeIn {
   animation-name: fadeIn;
   animation-duration: 200ms;
@@ -432,13 +410,22 @@ div[data-radix-portal]:not(.portal--toast) {
 }
 
 @keyframes bounce-logo {
-  0%, 10%, 20%, 30%, 50%, 70%, 80%, 90%, 100% {
+  0%,
+  10%,
+  20%,
+  30%,
+  50%,
+  70%,
+  80%,
+  90%,
+  100% {
     transform: translateY(0);
   }
   15% {
     transform: translateY(-15px);
   }
-  40%, 60% {
+  40%,
+  60% {
     transform: translateY(-7px);
   }
 }
@@ -447,7 +434,7 @@ div[data-radix-portal]:not(.portal--toast) {
   animation: bounce-logo 2s ease infinite;
 }
 
-// Navigation item active state animation
+/* Navigation item active state animation */
 @keyframes nav-active-state {
   0% {
     transform: translateX(-4px);
@@ -463,34 +450,34 @@ div[data-radix-portal]:not(.portal--toast) {
   @apply relative flex items-center justify-center mx-3 py-2 rounded-lg bg-transparent transition-colors duration-200;
 
   &.active::before,
-  &[data-exit="true"]::before {
+  &[data-exit='true']::before {
     content: '';
     @apply absolute top-0 h-full;
     right: -0.75rem;
     width: 3px;
     border-top-left-radius: 1.5px;
     border-bottom-left-radius: 1.5px;
-    background: linear-gradient(180deg, #4F46FF -37.5%, #817AFF 100%), #7B74FF;
+    background: linear-gradient(180deg, #4f46ff -37.5%, #817aff 100%), #7b74ff;
     animation: nav-active-state 0.3s ease-in;
     transition: transform 0.3s ease-out, opacity 0.3s ease-out;
   }
 
-  &[data-exit="true"]::before {
+  &[data-exit='true']::before {
     transform: translateX(-4px);
     opacity: 0;
   }
 }
 
-// Navigation item divider
+/* Navigation item divider */
 .nav-item-divider {
   width: calc(100% - 1.5rem);
   @apply h-px border-none ml-3;
-  background: linear-gradient(81deg, rgba(246,202,220,0) 0%, hsl(var(--border)) 49%, rgba(255,255,255,0) 100%);
+  background: linear-gradient(81deg, rgba(246, 202, 220, 0) 0%, hsl(var(--border)) 49%, rgba(255, 255, 255, 0) 100%);
 }
 
-// Chart dotted background
+/* Chart dotted background */
 .chart-dotted-bg {
   mask-image: radial-gradient(rgb(0, 0, 0), transparent 62%);
-  @apply absolute w-full h-full top-0 left-0 p-[70px] opacity-90 ;
+  @apply absolute w-full h-full top-0 left-0 p-[70px] opacity-90;
   background: radial-gradient(hsl(var(--border)) 1px, transparent 0px) 10px 0px / 8px 8px transparent;
 }

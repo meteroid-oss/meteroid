@@ -3,7 +3,7 @@ import { createRoot } from 'react-dom/client'
 
 import { App } from 'App'
 
-import '@/styles/main.scss'
+import '@/styles/main.css'
 import 'react-loading-skeleton/dist/skeleton.css'
 import 'sonner/dist/styles.css'
 
