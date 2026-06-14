@@ -16,7 +16,7 @@ use meteroid_grpc::meteroid::api::stats::v1::{
 
 use meteroid_store::repositories::stats::StatsInterface;
 
-use crate::api::shared;
+use crate::api::shared::conversions::ProtoConv;
 use crate::api::stats::mapping::trend_to_server;
 
 use common_grpc::middleware::server::auth::RequestExt;
@@ -86,12 +86,14 @@ impl StatsService for StatsServiceComponents {
         let now = chrono::Utc::now().naive_utc().date();
         let start_date = req
             .start_date
-            .and_then(shared::mapping::date::chrono_from_proto)
+            .map(chrono::NaiveDate::from_proto)
+            .transpose()?
             .unwrap_or(now.checked_sub_months(Months::new(12)).unwrap());
 
         let end_date = req
             .end_date
-            .and_then(shared::mapping::date::chrono_from_proto)
+            .map(chrono::NaiveDate::from_proto)
+            .transpose()?
             .unwrap_or(now);
 
         let plans_id: Option<Vec<common_domain::ids::PlanId>> = if req.plans_id.is_empty() {
@@ -151,12 +153,14 @@ impl StatsService for StatsServiceComponents {
         let now = chrono::Utc::now().naive_utc().date();
         let start_date = req
             .start_date
-            .and_then(shared::mapping::date::chrono_from_proto)
+            .map(chrono::NaiveDate::from_proto)
+            .transpose()?
             .unwrap_or(now.checked_sub_months(Months::new(12)).unwrap());
 
         let end_date = req
             .end_date
-            .and_then(shared::mapping::date::chrono_from_proto)
+            .map(chrono::NaiveDate::from_proto)
+            .transpose()?
             .unwrap_or(now);
 
         let plans_id: Option<Vec<common_domain::ids::PlanId>> = if req.plans_id.is_empty() {
@@ -213,12 +217,14 @@ impl StatsService for StatsServiceComponents {
         let now = chrono::Utc::now().naive_utc().date();
         let start_date = req
             .start_date
-            .and_then(shared::mapping::date::chrono_from_proto)
+            .map(chrono::NaiveDate::from_proto)
+            .transpose()?
             .unwrap_or(now.checked_sub_months(Months::new(1)).unwrap());
 
         let end_date = req
             .end_date
-            .and_then(shared::mapping::date::chrono_from_proto)
+            .map(chrono::NaiveDate::from_proto)
+            .transpose()?
             .unwrap_or(now);
 
         let mrr_breakdown = self
@@ -262,10 +268,8 @@ impl StatsService for StatsServiceComponents {
                     mrr_type: mapping::map_mrr_type(entry.mrr_type).into(),
                     customer_id: entry.customer_id,
                     customer_name: entry.customer_name,
-                    applies_to: Some(shared::mapping::date::chrono_to_proto(entry.applies_to)),
-                    created_at: Some(shared::mapping::datetime::chrono_to_timestamp(
-                        entry.created_at,
-                    )),
+                    applies_to: entry.applies_to.as_proto(),
+                    created_at: entry.created_at.as_proto(),
                     description: entry.description,
                     plan_name: entry.plan_name,
                     subscription_id: entry.subscription_id,

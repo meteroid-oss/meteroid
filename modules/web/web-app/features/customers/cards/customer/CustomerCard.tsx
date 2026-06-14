@@ -1,5 +1,4 @@
-import { timestampDate } from '@bufbuild/protobuf/wkt'
-import dayjs from 'dayjs'
+import { format } from 'date-fns'
 import { ComponentProps, useState } from 'react'
 
 import { Property } from '@/components/Property'
@@ -29,9 +28,11 @@ export const CustomerCard = ({ customer, className }: Props) => {
           <Property label="Alias" value={customer.alias} />
           <Property
             label="Created at"
-            value={dayjs(
-              customer.createdAt ? timestampDate(customer.createdAt) : undefined
-            ).format('DD/MM/YY HH:mm')}
+            value={
+              customer.createdAt
+                ? format(new Date(customer.createdAt), 'dd/MM/yy HH:mm')
+                : undefined
+            }
           />
         </div>
         <div className="basis-2/4 flex flex-col gap-2">

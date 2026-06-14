@@ -6,7 +6,7 @@ import { StandardTable } from '@/components/table/StandardTable'
 import { SubscriptionStatusBadge } from '@/features/subscriptions/SubscriptionStatusBadge'
 import { useBasePath } from '@/hooks/useBasePath'
 import { useCurrency } from '@/hooks/useCurrency'
-import { mapDateFromGrpcv2 } from '@/lib/mapping'
+import { mapDateFromGrpc } from '@/lib/mapping'
 import { Subscription } from '@/rpc/api/subscriptions/v1/models_pb'
 
 import type { FunctionComponent } from 'react'
@@ -67,7 +67,7 @@ export const SubscriptionsTable: FunctionComponent<SubscriptionsTableProps> = ({
           header: 'Start date',
           accessorFn: (cell: Subscription) =>
             cell.billingStartDate
-              ? format(mapDateFromGrpcv2(cell.billingStartDate), 'dd/MM/yyyy')
+              ? format(mapDateFromGrpc(cell.billingStartDate), 'dd/MM/yyyy')
               : '',
         },
         {
@@ -76,7 +76,7 @@ export const SubscriptionsTable: FunctionComponent<SubscriptionsTableProps> = ({
           enableSorting: true,
           cell: ({ row }: { row: Row<Subscription> }) =>
             row.original.endDate
-              ? format(mapDateFromGrpcv2(row.original.endDate), 'dd/MM/yyyy')
+              ? format(mapDateFromGrpc(row.original.endDate), 'dd/MM/yyyy')
               : null,
         },
 

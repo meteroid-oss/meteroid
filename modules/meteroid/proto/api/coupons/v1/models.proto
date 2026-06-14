@@ -2,8 +2,6 @@ syntax = "proto3";
 
 package meteroid.api.coupons.v1;
 
-import "google/protobuf/timestamp.proto";
-
 message Coupon {
   string id = 1;
   string code = 2;
@@ -43,8 +41,8 @@ message AppliedCoupon {
   string customer_id = 5;
   string subscription_id = 6;
   bool is_active = 7;
-  google.protobuf.Timestamp last_applied_at = 8;
-  google.protobuf.Timestamp created_at = 9;
+  optional string last_applied_at = 8;
+  string created_at = 9;
   optional string applied_amount = 10;
   optional int32 applied_count = 11;
 }

@@ -1018,7 +1018,7 @@ pub mod amendment {
 
 pub mod coupons {
     use crate::api::coupons::mapping::coupons as coupon_mapping;
-    use crate::api::shared::mapping::datetime::chrono_to_timestamp;
+    use crate::api::shared::conversions::{AsProtoOpt, ProtoConv};
     use common_domain::ids::CouponId;
     use meteroid_grpc::meteroid::api::coupons::v1 as coupon_api;
     use meteroid_grpc::meteroid::api::subscriptions::v1 as api;
@@ -1068,8 +1068,8 @@ pub mod coupons {
                 .as_ref()
                 .map(std::string::ToString::to_string),
             applied_count: applied_coupon.applied_count,
-            last_applied_at: applied_coupon.last_applied_at.map(chrono_to_timestamp),
-            created_at: Some(chrono_to_timestamp(applied_coupon.created_at)),
+            last_applied_at: applied_coupon.last_applied_at.as_proto(),
+            created_at: applied_coupon.created_at.as_proto(),
         }
     }
 }

@@ -1,5 +1,4 @@
 import { create } from "@bufbuild/protobuf";
-import { timestampDate, timestampFromDate } from "@bufbuild/protobuf/wkt";
 import { SearchIcon } from '@md/icons'
 import {
   Badge,
@@ -68,8 +67,8 @@ export const EventsPage: FunctionComponent = () => {
     to.setHours(23, 59, 59, 999)
 
     return create(SearchEventsRequestSchema, {
-      from: timestampFromDate(from),
-      to: timestampFromDate(to),
+      from: from.toISOString(),
+      to: to.toISOString(),
       limit: pagination.pageSize,
       offset: pagination.pageIndex * pagination.pageSize,
       search: search || undefined,
@@ -138,7 +137,7 @@ export const EventsPage: FunctionComponent = () => {
         cell: ({ row }) => {
           const timestamp = row.original.timestamp
           if (!timestamp) return '-'
-          const date = timestampDate(timestamp)
+          const date = new Date(timestamp)
           return (
             <div className="text-xs">
               <div>{date.toLocaleDateString()}</div>
@@ -279,7 +278,7 @@ export const EventsPage: FunctionComponent = () => {
                   <Label>Timestamp</Label>
                   <div className="text-sm">
                     {selectedEvent.timestamp &&
-                      timestampDate(selectedEvent.timestamp).toLocaleString()}
+                      new Date(selectedEvent.timestamp).toLocaleString()}
                   </div>
                 </div>
               </div>

@@ -40,7 +40,7 @@ import { DatePickerWithRange } from '@/features/dashboard/DateRangePicker'
 import { useBasePath } from '@/hooks/useBasePath'
 import { useZodForm } from '@/hooks/useZodForm'
 import { useQuery } from '@/lib/connectrpc'
-import { mapDatev2 } from '@/lib/mapping'
+import { mapDate } from '@/lib/mapping'
 import { schemas } from '@/lib/schemas'
 import { InvoiceLineSchema } from '@/lib/schemas/invoices'
 import { percentToRate } from '@/lib/utils/numbers'
@@ -497,15 +497,15 @@ const CreateInvoicePreview = ({
       const response = await previewInvoiceMutation.mutateAsync({
         invoice: {
           customerId: watchedCustomerId,
-          invoiceDate: mapDatev2(watchedInvoiceDate),
-          dueDate: watchedDueDate ? mapDatev2(watchedDueDate) : undefined,
+          invoiceDate: mapDate(watchedInvoiceDate),
+          dueDate: watchedDueDate ? mapDate(watchedDueDate) : undefined,
           currency: watchedCurrency,
           purchaseOrder: methods.getValues('purchaseOrder') || undefined,
           discount: watchedDiscount ? watchedDiscount.toString() : undefined,
           lineItems: watchedLines?.map(line => ({
             product: line.product,
-            startDate: mapDatev2(line.startDate),
-            endDate: mapDatev2(line.endDate),
+            startDate: mapDate(line.startDate),
+            endDate: mapDate(line.endDate),
             quantity: line.quantity.toString(),
             unitPrice: line.unitPrice.toString(),
             taxRate: percentToRate(line.taxRate || 0),
@@ -652,15 +652,15 @@ export const InvoiceCreate = () => {
       const res = await createInvoiceMutation.mutateAsync({
         invoice: {
           customerId: data.customerId,
-          invoiceDate: mapDatev2(data.invoiceDate),
-          dueDate: data.dueDate ? mapDatev2(data.dueDate) : undefined,
+          invoiceDate: mapDate(data.invoiceDate),
+          dueDate: data.dueDate ? mapDate(data.dueDate) : undefined,
           currency: data.currency,
           purchaseOrder: data.purchaseOrder,
           discount: data.discount ? data.discount.toString() : undefined,
           lineItems: data.lines?.map(line => ({
             product: line.product,
-            startDate: mapDatev2(line.startDate),
-            endDate: mapDatev2(line.endDate),
+            startDate: mapDate(line.startDate),
+            endDate: mapDate(line.endDate),
             quantity: line.quantity.toString(),
             unitPrice: line.unitPrice.toString(),
             taxRate: percentToRate(line.taxRate || 0),

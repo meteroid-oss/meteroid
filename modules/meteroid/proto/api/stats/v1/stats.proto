@@ -2,7 +2,6 @@ syntax = "proto3";
 
 package meteroid.api.stats.v1;
 
-import "common/v1/date.proto";
 import "api/stats/v1/models.proto";
 
 
@@ -73,8 +72,8 @@ message MrrLogResponse {
 }
 
 message MrrChartRequest {
-  common.v1.Date start_date = 1;
-  common.v1.Date end_date = 2;
+  optional string start_date = 1;
+  optional string end_date = 2;
   repeated string plans_id = 3;
 }
 
@@ -83,8 +82,8 @@ message MrrChartResponse {
 }
 
 message MRRBreakdownRequest {
-  common.v1.Date start_date = 1;
-  common.v1.Date end_date = 2;
+  optional string start_date = 1;
+  optional string end_date = 2;
 }
 
 message MRRBreakdownResponse {
@@ -92,8 +91,8 @@ message MRRBreakdownResponse {
 }
 
 message RevenueChartRequest {
-  common.v1.Date start_date = 1;
-  common.v1.Date end_date = 2;
+  optional string start_date = 1;
+  optional string end_date = 2;
   repeated string plans_id = 3;
 }
 

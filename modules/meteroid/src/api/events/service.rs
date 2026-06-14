@@ -34,8 +34,8 @@ impl EventsService for EventsServiceComponents {
         };
 
         let search_options = EventSearchOptions {
-            from: req.from,
-            to: req.to,
+            from: req.from.as_deref().map(parse_rfc3339_to_timestamp).transpose()?,
+            to: req.to.as_deref().map(parse_rfc3339_to_timestamp).transpose()?,
             limit: req.limit,
             offset: req.offset,
             search: req.search,
@@ -61,14 +61,7 @@ impl EventsService for EventsServiceComponents {
                     Some(CustomerId::ExternalCustomerAlias(alias)) => alias,
                     None => "unknown".to_string(),
                 },
-                timestamp: event
-                    .timestamp
-                    .parse::<chrono::DateTime<chrono::Utc>>()
-                    .map(|dt| prost_types::Timestamp {
-                        seconds: dt.timestamp(),
-                        nanos: dt.timestamp_subsec_nanos() as i32,
-                    })
-                    .ok(),
+                timestamp: event.timestamp,
                 ingested_at: None, // TODO: Add ingested_at to Event proto
                 properties: event.properties,
             })
@@ -76,4 +69,15 @@ impl EventsService for EventsServiceComponents {
 
         Ok(Response::new(SearchEventsResponse { events }))
     }
+}
+
+/// Parses an RFC3339 date-time string into a protobuf Timestamp used by the
+/// internal metering service.
+fn parse_rfc3339_to_timestamp(value: &str) -> Result<prost_types::Timestamp, Status> {
+    let dt = chrono::DateTime::parse_from_rfc3339(value)
+        .map_err(|e| Status::invalid_argument(format!("Invalid timestamp: {e}")))?;
+    Ok(prost_types::Timestamp {
+        seconds: dt.timestamp(),
+        nanos: dt.timestamp_subsec_nanos() as i32,
+    })
 }

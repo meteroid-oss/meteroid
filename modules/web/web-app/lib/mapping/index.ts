@@ -1,30 +1,14 @@
-import { create } from '@bufbuild/protobuf';
 import { format, parseISO } from 'date-fns'
 
-
 import { BillingPeriod as BillingPeriodMessage } from '@/rpc/api/shared/v1/shared_pb'
-import { DateSchema as DateMessageSchema } from '@/rpc/common/v1/date_pb';
 
-import type { Date as DateMessage } from '@/rpc/common/v1/date_pb';
-
-export const mapDate = (date: Date): DateMessage => {
-  return create(DateMessageSchema, {
-    year: date.getFullYear(),
-    month: date.getMonth() + 1, // JavaScript months are 0-indexed, backend expects 1-indexed
-    day: date.getDate(),
-  });
-}
-
-export const mapDatev2 = (date: Date): string => {
+// Dates are exchanged with the backend as ISO strings (yyyy-MM-dd for plain dates).
+export const mapDate = (date: Date): string => {
   // format date to yyyy-mm-dd
   return format(date, 'yyyy-MM-dd')
 }
 
-export const mapDateFromGrpc = (date: DateMessage): Date => {
-  return new Date(date.year, date.month - 1, date.day)
-}
-
-export const mapDateFromGrpcv2 = (date: string): Date => {
+export const mapDateFromGrpc = (date: string): Date => {
   return parseISO(date)
 }
 

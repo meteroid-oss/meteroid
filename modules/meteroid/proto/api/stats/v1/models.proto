@@ -2,9 +2,6 @@ syntax = "proto3";
 
 package meteroid.api.stats.v1;
 
-import "google/protobuf/timestamp.proto";
-import "common/v1/date.proto";
-
 message BreakdownStat {
   int64 count = 1;
   int64 value = 2;
@@ -57,8 +54,8 @@ message MRRBreakdown {
 }
 
 message Period {
-  google.protobuf.Timestamp start_date = 1;
-  google.protobuf.Timestamp end_date = 2;
+  string start_date = 1;
+  string end_date = 2;
 }
 
 message SignupSeries {
@@ -116,14 +113,14 @@ message RevenueByCustomer {
 }
 
 message MrrLogEntry {
-  google.protobuf.Timestamp created_at = 1;
+  string created_at = 1;
   string customer_id = 2;
   string customer_name = 3;
   string subscription_id = 4;
   string plan_name = 5;
   string description = 6;
   MRRMovementType mrr_type = 7;
-  common.v1.Date applies_to = 8;
+  string applies_to = 8;
   int64 mrr_change = 9;
   string currency = 10;
 }

@@ -1,5 +1,5 @@
 import { ComputedDatum, ComputedSerie, CustomLayerProps } from '@nivo/line'
-import dayjs from 'dayjs'
+import { format } from 'date-fns'
 import { useRef } from 'react'
 
 const DEFAULT_PADDING = 8
@@ -21,9 +21,9 @@ export type ChartInterval =
 export const getTooltipFormat = (interval: ChartInterval) => {
   switch (interval) {
     case '1D':
-      return 'MMM D, h:mm A'
+      return 'MMM d, h:mm a'
     default:
-      return 'MMM D, YYYY'
+      return 'MMM d, yyyy'
   }
 }
 
@@ -32,7 +32,7 @@ export const keepWithinRange = (value: number, range: { min: number; max: number
 }
 
 export const formatDate = (date: Date, interval: ChartInterval): string => {
-  return dayjs(date).format(getTooltipFormat(interval))
+  return format(date, getTooltipFormat(interval))
 }
 
 interface ActiveSerieLayerProps extends CustomLayerProps {

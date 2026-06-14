@@ -1,4 +1,3 @@
-import { timestampDate } from '@bufbuild/protobuf/wkt'
 import { useMutation } from '@connectrpc/connect-query'
 import { Button, Card, Flex, Separator, Skeleton } from '@md/ui'
 import { ChevronDown, ExternalLink, Plus } from 'lucide-react'
@@ -82,7 +81,7 @@ export const Customer = () => {
             setEditPanelVisible={setEditPanelVisible}
             id={data?.id}
             name={data?.name || data?.alias}
-            archivedAt={data?.archivedAt ? timestampDate(data.archivedAt) : undefined}
+            archivedAt={data?.archivedAt ? new Date(data.archivedAt) : undefined}
           />
           {isLoading || !data ? (
             <>

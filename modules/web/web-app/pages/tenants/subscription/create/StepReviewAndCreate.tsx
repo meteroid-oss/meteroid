@@ -24,7 +24,7 @@ import { useBasePath } from '@/hooks/useBasePath'
 import { useQuery } from '@/lib/connectrpc'
 import { CURRENCIES } from '@/lib/data/currencies'
 import { env } from '@/lib/env'
-import { mapDatev2 } from '@/lib/mapping'
+import { mapDate } from '@/lib/mapping'
 import {
   formatUsagePriceSummary,
   getComponentPricingFromPrice,
@@ -182,8 +182,8 @@ export const StepReviewAndCreate = () => {
         subscription: {
           planVersionId: state.planVersionId,
           customerId: state.customerId,
-          startDate: mapDatev2(state.startDate),
-          endDate: state.endDate && mapDatev2(state.endDate),
+          startDate: mapDate(state.startDate),
+          endDate: state.endDate && mapDate(state.endDate),
           billingDayAnchor,
           netTerms: state.netTerms,
           activationCondition: state.activationCondition,

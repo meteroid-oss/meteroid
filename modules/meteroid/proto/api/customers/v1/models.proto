@@ -2,7 +2,6 @@ syntax = "proto3";
 
 package meteroid.api.customers.v1;
 
-import "google/protobuf/timestamp.proto";
 import "api/connectors/v1/models.proto";
 
 
@@ -45,8 +44,8 @@ message Customer {
   optional string phone = 7;
   int64 balance_value_cents = 8;
   string currency = 9;
-  optional google.protobuf.Timestamp archived_at = 10;
-  optional google.protobuf.Timestamp created_at = 11;
+  optional string archived_at = 10;
+  string created_at = 11;
   optional Address billing_address = 12;
   optional ShippingAddress shipping_address = 13;
   string invoicing_entity_id = 14;

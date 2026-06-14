@@ -95,7 +95,7 @@ pub mod metric {
     use meteroid_grpc::meteroid::api::billablemetrics::v1 as server;
     use std::collections::HashMap;
 
-    use crate::api::shared::mapping::datetime::chrono_to_timestamp;
+    use crate::api::shared::conversions::{AsProtoOpt, ProtoConv};
     use meteroid_grpc::meteroid::api::billablemetrics::v1::segmentation_matrix::Matrix;
     use meteroid_store::domain;
     use meteroid_store::domain::billable_metrics::{Dimension, SegmentationMatrix};
@@ -129,8 +129,8 @@ pub mod metric {
                         }),
                 }),
                 segmentation_matrix: map_segmentation_matrix(value.segmentation_matrix),
-                archived_at: value.archived_at.map(chrono_to_timestamp),
-                created_at: Some(chrono_to_timestamp(value.created_at)),
+                archived_at: value.archived_at.as_proto(),
+                created_at: value.created_at.as_proto(),
                 usage_group_key: value.usage_group_key,
                 product_id: value.product_id.map(|x| x.as_proto()),
                 family_local_id: value.product_family_id.as_proto(),
@@ -155,8 +155,8 @@ pub mod metric {
                     )
                     .into(),
                     aggregation_key: value.aggregation_key,
-                    created_at: Some(chrono_to_timestamp(value.created_at)),
-                    archived_at: value.archived_at.map(chrono_to_timestamp),
+                    created_at: value.created_at.as_proto(),
+                    archived_at: value.archived_at.as_proto(),
                 },
             ))
         }
@@ -249,8 +249,8 @@ pub mod metric {
             aggregation_type: super::aggregation_type::domain_to_server(metric.aggregation_type)
                 .into(),
             aggregation_key: metric.aggregation_key,
-            archived_at: metric.archived_at.map(chrono_to_timestamp),
-            created_at: Some(chrono_to_timestamp(metric.created_at)),
+            archived_at: metric.archived_at.as_proto(),
+            created_at: metric.created_at.as_proto(),
             description: metric.description,
         }
     }

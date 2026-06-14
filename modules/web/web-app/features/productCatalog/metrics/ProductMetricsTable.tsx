@@ -1,4 +1,3 @@
-import { timestampDate } from '@bufbuild/protobuf/wkt';
 import { createConnectQueryKey, useMutation } from '@connectrpc/connect-query';
 import {
   Button,
@@ -137,7 +136,7 @@ export const BillableMetricTable: FC<BillableMetricableProps> = ({
         cell: ({ row }) => {
           const ts = row.original.createdAt
           if (!ts) return null
-          return <span className="text-sm text-muted-foreground">{parseAndFormatDate(timestampDate(ts).toISOString())}</span>
+          return <span className="text-sm text-muted-foreground">{parseAndFormatDate(ts)}</span>
         },
       },
       {

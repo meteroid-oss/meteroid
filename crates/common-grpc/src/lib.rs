@@ -1,7 +1,6 @@
 #![allow(non_snake_case)]
 
 use anyhow::{Result, anyhow};
-use chrono::{Datelike, NaiveDate};
 use http::Uri;
 use rust_decimal::Decimal;
 use std::fmt::Formatter;
@@ -54,56 +53,6 @@ impl GrpcServiceMethod {
 }
 
 use meteroid::common::v1 as common;
-
-impl From<NaiveDate> for common::Date {
-    fn from(nd: NaiveDate) -> Self {
-        common::Date {
-            year: nd.year(),
-            month: nd.month(),
-            day: nd.day(),
-        }
-    }
-}
-
-impl From<time::Date> for common::Date {
-    fn from(d: time::Date) -> Self {
-        common::Date {
-            year: d.year(),
-            month: (d.month() as u8).into(),
-            day: d.day().into(),
-        }
-    }
-}
-
-impl TryFrom<common::Date> for NaiveDate {
-    type Error = anyhow::Error;
-    fn try_from(d: common::Date) -> Result<Self> {
-        NaiveDate::from_ymd_opt(d.year, d.month, d.day).ok_or_else(|| {
-            anyhow!(
-                "Invalid date provided for year: {}, month: {}, day: {}",
-                d.year,
-                d.month,
-                d.day
-            )
-        })
-    }
-}
-
-impl TryFrom<common::Date> for time::Date {
-    type Error = anyhow::Error;
-    fn try_from(d: common::Date) -> Result<Self> {
-        let month: time::Month = (d.month as u8).try_into()?;
-
-        time::Date::from_calendar_date(d.year, month, d.day as u8).map_err(|_| {
-            anyhow!(
-                "Invalid date provided for year: {}, month: {}, day: {}",
-                d.year,
-                d.month,
-                d.day
-            )
-        })
-    }
-}
 
 impl From<Decimal> for common::Decimal {
     fn from(rd: Decimal) -> Self {

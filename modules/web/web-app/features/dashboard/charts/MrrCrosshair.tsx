@@ -1,5 +1,5 @@
 import { ComputedSerie, Datum } from '@nivo/line'
-import dayjs from 'dayjs'
+import { format } from 'date-fns'
 import { useMemo, useRef } from 'react'
 
 import { useCurrency } from '@/hooks/useCurrency'
@@ -61,7 +61,7 @@ export const MrrCrosshair: React.FC<MrrCrosshairProps> = ({
       />
       <Crosshair.Tooltip style={{ left: tooltipLeft }} ref={tooltipRef}>
         <h3 className="text-sm font-semibold mb-3">
-          {dayjs(first.data[0].data.x).format(getTooltipFormat(interval))}
+          {format(new Date(first.data[0].data.x as string | number | Date), getTooltipFormat(interval))}
         </h3>
         {serie.map(serie => {
           if (serie?.data[0].data.y === null) return null

@@ -52,7 +52,7 @@ import { useBasePath } from '@/hooks/useBasePath'
 import { useZodForm } from '@/hooks/useZodForm'
 import { useQuery } from '@/lib/connectrpc'
 import { env } from '@/lib/env'
-import { mapDatev2 } from '@/lib/mapping'
+import { mapDate } from '@/lib/mapping'
 import {
   getPrice,
   priceToSubscriptionFee,
@@ -451,13 +451,13 @@ export const CreateQuote = () => {
         planVersionId: data.plan_version_id,
         customerId: data.customer_id,
         currency: planCurrency,
-        startDate: data.start_date ? mapDatev2(data.start_date) : undefined,
-        billingStartDate: data.billing_start_date ? mapDatev2(data.billing_start_date) : undefined,
-        endDate: data.end_date ? mapDatev2(data.end_date) : undefined,
+        startDate: data.start_date ? mapDate(data.start_date) : undefined,
+        billingStartDate: data.billing_start_date ? mapDate(data.billing_start_date) : undefined,
+        endDate: data.end_date ? mapDate(data.end_date) : undefined,
         trialDuration: data.trial_duration,
         billingDayAnchor: data.billing_day_anchor,
-        expiresAt: data.expires_at ? mapDatev2(data.expires_at) : undefined,
-        validUntil: data.valid_until ? mapDatev2(data.valid_until) : undefined,
+        expiresAt: data.expires_at ? mapDate(data.expires_at) : undefined,
+        validUntil: data.valid_until ? mapDate(data.valid_until) : undefined,
         internalNotes: data.internal_notes,
         overview: data.overview,
         termsAndServices: data.terms_and_services,
@@ -517,13 +517,13 @@ export const CreateQuote = () => {
       planVersionId: data.plan_version_id,
       customerId: data.customer_id,
       currency: planCurrency,
-      startDate: data.start_date ? mapDatev2(data.start_date) : mapDatev2(new Date()),
-      billingStartDate: data.billing_start_date ? mapDatev2(data.billing_start_date) : undefined,
-      endDate: data.end_date ? mapDatev2(data.end_date) : undefined,
+      startDate: data.start_date ? mapDate(data.start_date) : mapDate(new Date()),
+      billingStartDate: data.billing_start_date ? mapDate(data.billing_start_date) : undefined,
+      endDate: data.end_date ? mapDate(data.end_date) : undefined,
       trialDuration: data.trial_duration,
       billingDayAnchor: data.billing_day_anchor,
-      expiresAt: data.expires_at ? mapDatev2(data.expires_at) : undefined,
-      validUntil: data.valid_until ? mapDatev2(data.valid_until) : undefined,
+      expiresAt: data.expires_at ? mapDate(data.expires_at) : undefined,
+      validUntil: data.valid_until ? mapDate(data.valid_until) : undefined,
       internalNotes: data.internal_notes,
       overview: data.overview,
       termsAndServices: data.terms_and_services,

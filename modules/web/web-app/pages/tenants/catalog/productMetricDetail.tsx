@@ -1,4 +1,3 @@
-import { timestampDate } from '@bufbuild/protobuf/wkt';
 import { createConnectQueryKey, useMutation } from '@connectrpc/connect-query';
 import {
   Button,
@@ -433,13 +432,13 @@ export const ProductMetricDetail = () => {
           <DetailRow
             label="Created At"
             value={
-              data.createdAt && timestampDate(data.createdAt).toLocaleString()
+              data.createdAt && new Date(data.createdAt).toLocaleString()
             }
           />
           {data.archivedAt && (
             <DetailRow
               label="Archived At"
-              value={timestampDate(data.archivedAt).toLocaleString()}
+              value={new Date(data.archivedAt).toLocaleString()}
             />
           )}
         </DetailSection>

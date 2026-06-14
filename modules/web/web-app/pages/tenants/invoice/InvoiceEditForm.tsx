@@ -28,7 +28,7 @@ import { LineItemModal } from '@/features/invoices/edit/LineItemModal'
 import { useDebouncedCallback } from '@/hooks/useDebounce'
 import { useZodForm } from '@/hooks/useZodForm'
 import { useQuery } from '@/lib/connectrpc'
-import { mapDatev2 } from '@/lib/mapping'
+import { mapDate } from '@/lib/mapping'
 import { schemas } from '@/lib/schemas'
 import {
   OriginalLineItem,
@@ -235,8 +235,8 @@ export const InvoiceEditForm: React.FC<InvoiceEditFormProps> = ({
         return {
           id: line.lineItemId,
           name: line.name,
-          startDate: mapDatev2(line.startDate),
-          endDate: mapDatev2(line.endDate),
+          startDate: mapDate(line.startDate),
+          endDate: mapDate(line.endDate),
           quantity: hasSublines ? undefined : lineWithValues.quantity?.toString(),
           unitPrice: hasSublines ? undefined : lineWithValues.unitPrice?.toString(),
           taxRate: percentToRate(line.taxRate || 0),
@@ -251,7 +251,7 @@ export const InvoiceEditForm: React.FC<InvoiceEditFormProps> = ({
         memo: formData.memo || undefined,
         reference: formData.reference || undefined,
         purchaseOrder: formData.purchaseOrder || undefined,
-        dueDate: formData.dueDate ? mapDatev2(formData.dueDate) : undefined,
+        dueDate: formData.dueDate ? mapDate(formData.dueDate) : undefined,
         discount: formData.discount ? formData.discount.toString() : undefined,
         lineItems:
           lineItems.length > 0
@@ -285,8 +285,8 @@ export const InvoiceEditForm: React.FC<InvoiceEditFormProps> = ({
       const svgResult = await svgPreviewMutation.mutateAsync({
         invoice: {
           customerId: invoice.customerId,
-          invoiceDate: mapDatev2(invoice.invoiceDate ? parseDate(invoice.invoiceDate) : new Date()),
-          dueDate: formData.dueDate ? mapDatev2(formData.dueDate) : undefined,
+          invoiceDate: mapDate(invoice.invoiceDate ? parseDate(invoice.invoiceDate) : new Date()),
+          dueDate: formData.dueDate ? mapDate(formData.dueDate) : undefined,
           currency: invoice.currency,
           purchaseOrder: formData.purchaseOrder || undefined,
           discount: formData.discount ? formData.discount.toString() : undefined,
@@ -300,8 +300,8 @@ export const InvoiceEditForm: React.FC<InvoiceEditFormProps> = ({
 
             return {
               product: line.name,
-              startDate: mapDatev2(line.startDate),
-              endDate: mapDatev2(line.endDate),
+              startDate: mapDate(line.startDate),
+              endDate: mapDate(line.endDate),
               quantity: hasSublines ? undefined : lineWithValues.quantity?.toString(),
               unitPrice: hasSublines ? undefined : lineWithValues.unitPrice?.toString(),
               taxRate: percentToRate(line.taxRate || 0),
@@ -338,7 +338,7 @@ export const InvoiceEditForm: React.FC<InvoiceEditFormProps> = ({
         memo: data.memo || undefined,
         reference: data.reference || undefined,
         purchaseOrder: data.purchaseOrder || undefined,
-        dueDate: data.dueDate ? mapDatev2(data.dueDate) : undefined,
+        dueDate: data.dueDate ? mapDate(data.dueDate) : undefined,
         discount: data.discount ? data.discount.toString() : undefined,
       })
 
@@ -351,8 +351,8 @@ export const InvoiceEditForm: React.FC<InvoiceEditFormProps> = ({
           return {
             id: line.lineItemId,
             name: line.name,
-            startDate: mapDatev2(line.startDate),
-            endDate: mapDatev2(line.endDate),
+            startDate: mapDate(line.startDate),
+            endDate: mapDate(line.endDate),
             quantity: hasSublines ? undefined : lineWithValues.quantity?.toString(),
             unitPrice: hasSublines ? undefined : lineWithValues.unitPrice?.toString(),
             taxRate: percentToRate(line.taxRate || 0),

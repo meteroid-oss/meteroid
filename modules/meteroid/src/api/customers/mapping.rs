@@ -1,8 +1,7 @@
 pub mod customer {
     use crate::api::connectors::mapping::connectors::connection_metadata_to_server;
     use crate::api::customers::error::CustomerApiError;
-    use crate::api::shared::conversions::ProtoConv;
-    use crate::api::shared::mapping::datetime::chrono_to_timestamp;
+    use crate::api::shared::conversions::{AsProtoOpt, ProtoConv};
     use common_domain::country::CountryCode;
     use error_stack::Report;
     use meteroid_grpc::meteroid::api::customers::v1 as server;
@@ -98,8 +97,8 @@ pub mod customer {
                 balance_value_cents: value.balance_value_cents,
                 current_payment_method_id: value.current_payment_method_id.map(|v| v.as_proto()),
                 currency: value.currency,
-                archived_at: value.archived_at.map(chrono_to_timestamp),
-                created_at: Some(chrono_to_timestamp(value.created_at)),
+                archived_at: value.archived_at.as_proto(),
+                created_at: value.created_at.as_proto(),
                 vat_number: value.vat_number,
                 billing_address: value
                     .billing_address

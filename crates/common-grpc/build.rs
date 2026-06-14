@@ -7,15 +7,10 @@ fn main() {
         ".meteroid.common.v1.Decimal",
         "#[derive(serde::Serialize, serde::Deserialize)]",
     );
-    config.type_attribute(
-        ".meteroid.common.v1.Date",
-        "#[derive(serde::Serialize, serde::Deserialize)]",
-    );
 
     config
         .compile_protos(
             &[
-                "proto/common/v1/date.proto",
                 "proto/common/v1/decimal.proto",
                 "proto/common/v1/pagination.proto",
             ],

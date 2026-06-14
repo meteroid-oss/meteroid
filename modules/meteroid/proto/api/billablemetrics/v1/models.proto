@@ -2,8 +2,6 @@ syntax = "proto3";
 
 package meteroid.api.billablemetrics.v1;
 
-import "google/protobuf/timestamp.proto";
-
 message Aggregation {
   enum AggregationType {
     SUM = 0;
@@ -98,8 +96,8 @@ message BillableMetric {
   Aggregation aggregation = 5;
   SegmentationMatrix segmentation_matrix = 6;
   optional string usage_group_key = 7;
-  google.protobuf.Timestamp created_at = 8;
-  google.protobuf.Timestamp archived_at = 9;
+  string created_at = 8;
+  optional string archived_at = 9;
   optional string product_id = 10;
   string local_id = 11;
   string family_local_id = 12;
@@ -112,7 +110,7 @@ message BillableMetricMeta {
   optional string description = 4;
   Aggregation.AggregationType aggregation_type = 5;
   optional string aggregation_key = 6;
-  google.protobuf.Timestamp created_at = 8;
-  google.protobuf.Timestamp archived_at = 9;
+  string created_at = 8;
+  optional string archived_at = 9;
 }
 

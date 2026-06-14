@@ -2,11 +2,9 @@ syntax = "proto3";
 
 package meteroid.api.events.v1;
 
-import "google/protobuf/timestamp.proto";
-
 message SearchEventsRequest {
-  google.protobuf.Timestamp from = 1;
-  google.protobuf.Timestamp to = 2;
+  optional string from = 1;
+  optional string to = 2;
   uint32 limit = 3;
   uint32 offset = 4;
 
@@ -34,8 +32,8 @@ message EventSummary {
   string id = 1;
   string code = 2;
   string customer_id = 3;
-  google.protobuf.Timestamp timestamp = 4;
-  google.protobuf.Timestamp ingested_at = 5;
+  string timestamp = 4;
+  optional string ingested_at = 5;
   map<string, string> properties = 6;
 }
 
