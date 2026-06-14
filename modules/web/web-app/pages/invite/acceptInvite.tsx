@@ -1,4 +1,4 @@
-import { disableQuery } from '@connectrpc/connect-query'
+import { skipToken } from '@connectrpc/connect-query'
 import { Button } from '@md/ui'
 import { useEffect, useState } from 'react'
 import { Link, useNavigate, useSearchParams } from 'react-router-dom'
@@ -20,7 +20,7 @@ export const AcceptInvite = () => {
 
   const { data: inviteData, isLoading, isError } = useQuery(
     getInviteDetails,
-    inviteToken ? { inviteId: inviteToken } : disableQuery,
+    inviteToken ? { inviteId: inviteToken } : skipToken,
   )
 
   useEffect(() => {

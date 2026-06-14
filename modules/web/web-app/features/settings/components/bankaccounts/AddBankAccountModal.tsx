@@ -1,3 +1,4 @@
+import { create } from '@bufbuild/protobuf';
 import { createConnectQueryKey, useMutation } from '@connectrpc/connect-query'
 import {
   Button,
@@ -24,12 +25,12 @@ import {
   listBankAccounts,
 } from '@/rpc/api/bankaccounts/v1/bankaccounts-BankAccountsService_connectquery'
 import {
-  AccountNumberBicSwift,
-  AccountNumberRoutingNumber,
-  BankAccountData,
-  IbanBicSwift,
-  SortCodeAccountNumber,
-} from '@/rpc/api/bankaccounts/v1/models_pb'
+  AccountNumberBicSwiftSchema,
+  AccountNumberRoutingNumberSchema,
+  BankAccountDataSchema,
+  IbanBicSwiftSchema,
+  SortCodeAccountNumberSchema,
+} from '@/rpc/api/bankaccounts/v1/models_pb';
 
 const baseSchema = z.object({
   currency: z.string().min(3, 'Currency is required'),
@@ -82,7 +83,10 @@ export const AddBankAccountModal = ({ open, onClose }: AddBankAccountModalProps)
   const createBankAccountMut = useMutation(createBankAccount, {
     onSuccess: () => {
       queryClient.invalidateQueries({
-        queryKey: createConnectQueryKey(listBankAccounts),
+        queryKey: createConnectQueryKey({
+          schema: listBankAccounts,
+          cardinality: 'finite'
+        }),
       })
       toast.success('Bank account created successfully')
       onClose()
@@ -105,7 +109,7 @@ export const AddBankAccountModal = ({ open, onClose }: AddBankAccountModalProps)
   })
 
   const onSubmit = async (data: BankAccountFormData) => {
-    const bankAccountData = new BankAccountData({
+    const bankAccountData = create(BankAccountDataSchema, {
       currency: data.currency,
       country: data.country,
       bankName: data.bankName,
@@ -115,7 +119,7 @@ export const AddBankAccountModal = ({ open, onClose }: AddBankAccountModalProps)
       case 'iban':
         bankAccountData.format = {
           case: 'ibanBicSwift',
-          value: new IbanBicSwift({
+          value: create(IbanBicSwiftSchema, {
             iban: data.iban,
             bicSwift: data.bicSwift,
           }),
@@ -124,7 +128,7 @@ export const AddBankAccountModal = ({ open, onClose }: AddBankAccountModalProps)
       case 'account_bic':
         bankAccountData.format = {
           case: 'accountNumberBicSwift',
-          value: new AccountNumberBicSwift({
+          value: create(AccountNumberBicSwiftSchema, {
             accountNumber: data.accountNumber,
             bicSwift: data.bicSwift,
           }),
@@ -133,7 +137,7 @@ export const AddBankAccountModal = ({ open, onClose }: AddBankAccountModalProps)
       case 'account_routing':
         bankAccountData.format = {
           case: 'accountNumberRoutingNumber',
-          value: new AccountNumberRoutingNumber({
+          value: create(AccountNumberRoutingNumberSchema, {
             accountNumber: data.accountNumber,
             routingNumber: data.routingNumber,
           }),
@@ -142,7 +146,7 @@ export const AddBankAccountModal = ({ open, onClose }: AddBankAccountModalProps)
       case 'sort_code':
         bankAccountData.format = {
           case: 'sortCodeAccountNumber',
-          value: new SortCodeAccountNumber({
+          value: create(SortCodeAccountNumberSchema, {
             accountNumber: data.accountNumber,
             sortCode: data.sortCode,
           }),

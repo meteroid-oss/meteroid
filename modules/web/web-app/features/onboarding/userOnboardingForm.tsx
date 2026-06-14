@@ -1,3 +1,4 @@
+import { create } from '@bufbuild/protobuf';
 import {
   createConnectQueryKey,
   createProtobufSafeUpdater,
@@ -24,12 +25,12 @@ export const UserOnboardingForm = () => {
     onSuccess: async res => {
       if (res.user) {
         queryClient.setQueryData(
-          createConnectQueryKey(me),
+          createConnectQueryKey({
+            schema: me,
+            cardinality: 'finite'
+          }),
           createProtobufSafeUpdater(me, prev => {
-            return {
-              ...prev,
-              user: res.user,
-            }
+            return create(me.output, prev ? { ...prev, user: res.user } : { user: res.user });
           })
         )
       }

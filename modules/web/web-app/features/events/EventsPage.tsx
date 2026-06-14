@@ -1,4 +1,5 @@
-import { Timestamp } from '@bufbuild/protobuf'
+import { create } from "@bufbuild/protobuf";
+import { timestampDate, timestampFromDate } from "@bufbuild/protobuf/wkt";
 import { SearchIcon } from '@md/icons'
 import {
   Badge,
@@ -26,7 +27,7 @@ import { DatePickerWithRange } from '@/features/dashboard/DateRangePicker'
 import { EventsImportModal } from '@/features/events/EventsImportModal'
 import { useQuery as useConnectQuery } from '@/lib/connectrpc'
 import { searchEvents } from '@/rpc/api/events/v1/events-EventsService_connectquery'
-import { EventSummary, SearchEventsRequest, SearchEventsRequest_SortOrder } from '@/rpc/api/events/v1/events_pb'
+import { EventSummary, SearchEventsRequestSchema, SearchEventsRequest_SortOrder } from '@/rpc/api/events/v1/events_pb';
 
 import type { FunctionComponent } from 'react'
 
@@ -66,16 +67,16 @@ export const EventsPage: FunctionComponent = () => {
     to = new Date(to)
     to.setHours(23, 59, 59, 999)
 
-    return new SearchEventsRequest({
-      from: Timestamp.fromDate(from),
-      to: Timestamp.fromDate(to),
+    return create(SearchEventsRequestSchema, {
+      from: timestampFromDate(from),
+      to: timestampFromDate(to),
       limit: pagination.pageSize,
       offset: pagination.pageIndex * pagination.pageSize,
       search: search || undefined,
       eventCodes: [],
       customerIds: customerId ? [customerId] : [],
       sortOrder,
-    })
+    });
   }, [pagination, search, customerId, sortOrder, dateRange])
 
   // Fetch events
@@ -137,7 +138,7 @@ export const EventsPage: FunctionComponent = () => {
         cell: ({ row }) => {
           const timestamp = row.original.timestamp
           if (!timestamp) return '-'
-          const date = timestamp.toDate()
+          const date = timestampDate(timestamp)
           return (
             <div className="text-xs">
               <div>{date.toLocaleDateString()}</div>
@@ -277,7 +278,8 @@ export const EventsPage: FunctionComponent = () => {
                 <div>
                   <Label>Timestamp</Label>
                   <div className="text-sm">
-                    {selectedEvent.timestamp?.toDate().toLocaleString()}
+                    {selectedEvent.timestamp &&
+                      timestampDate(selectedEvent.timestamp).toLocaleString()}
                   </div>
                 </div>
               </div>

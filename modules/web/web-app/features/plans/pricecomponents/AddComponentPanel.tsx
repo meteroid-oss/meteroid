@@ -1,3 +1,4 @@
+import { create } from '@bufbuild/protobuf';
 import {
   createConnectQueryKey,
   createProtobufSafeUpdater,
@@ -62,13 +63,20 @@ export const AddComponentPanel = () => {
       if (!version?.id) return
       if (data.component) {
         queryClient.setQueryData(
-          createConnectQueryKey(listPriceComponents, { planVersionId: version.id }),
-          createProtobufSafeUpdater(listPriceComponents, prev => ({
-            components: [...(prev?.components ?? []), data.component!],
-          }))
+          createConnectQueryKey({
+            schema: listPriceComponents,
+            input: { planVersionId: version.id },
+            cardinality: 'finite'
+          }),
+          createProtobufSafeUpdater(listPriceComponents, prev => (create(listPriceComponents.output, ({
+            components: [...(prev?.components ?? []), data.component!]
+          }))))
         )
       }
-      queryClient.invalidateQueries({ queryKey: [getResolvedEntitlementsForPlanVersion.service.typeName] })
+      queryClient.invalidateQueries({ queryKey: createConnectQueryKey({
+        schema: getResolvedEntitlementsForPlanVersion.parent,
+        cardinality: undefined
+      }) })
       navigate('..')
     },
   })

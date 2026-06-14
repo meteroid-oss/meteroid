@@ -1,4 +1,5 @@
-import { useMutation } from '@connectrpc/connect-query'
+import { create, type MessageInitShape } from '@bufbuild/protobuf';
+import { createConnectQueryKey, useMutation } from '@connectrpc/connect-query';
 import {
   Button,
   Skeleton,
@@ -24,10 +25,11 @@ import {
 import {
   Entitlement,
   EntitlementEntity,
-  EntitlementValue,
+  EntitlementValueSchema,
   Feature,
   FeatureStatus,
-} from '@/rpc/api/entitlements/v1/models_pb'
+} from '@/rpc/api/entitlements/v1/models_pb';
+
 
 interface ProductFeatureRowProps {
   feature: Feature
@@ -45,7 +47,10 @@ const ProductFeatureRow = ({ feature }: ProductFeatureRowProps) => {
   const isBoolean = feature.featureType?.Inner?.case === 'boolean'
 
   const invalidate = () =>
-    queryClient.invalidateQueries({ queryKey: [listEntitlementsByEntity.service.typeName] })
+    queryClient.invalidateQueries({ queryKey: createConnectQueryKey({
+      schema: listEntitlementsByEntity.parent,
+      cardinality: undefined
+    }) })
 
   const updateMutation = useMutation(updateEntitlement, { onSuccess: invalidate })
 
@@ -53,7 +58,7 @@ const ProductFeatureRow = ({ feature }: ProductFeatureRowProps) => {
     if (!existing) return
     const v = existing.value?.value
     if (!v) return
-    let flipped: ConstructorParameters<typeof EntitlementValue>[0]
+    let flipped: MessageInitShape<typeof EntitlementValueSchema>
     if (v.case === 'booleanValue') {
       flipped = { value: { case: 'booleanValue' as const, value: { enabled: !v.value.enabled } } }
     } else if (v.case === 'meteredValue') {
@@ -62,7 +67,7 @@ const ProductFeatureRow = ({ feature }: ProductFeatureRowProps) => {
     } else {
       return
     }
-    updateMutation.mutate({ id: existing.id, value: new EntitlementValue(flipped) })
+    updateMutation.mutate({ id: existing.id, value: create(EntitlementValueSchema, flipped) })
   }
 
   const currentValue = existing?.value?.value
@@ -143,7 +148,10 @@ export const ProductEntitlementsSection = ({ productId }: Props) => {
   const features = featuresQuery.data?.features ?? []
 
   const invalidateFeatures = () =>
-    queryClient.invalidateQueries({ queryKey: [listFeatures.service.typeName] })
+    queryClient.invalidateQueries({ queryKey: createConnectQueryKey({
+      schema: listFeatures.parent,
+      cardinality: undefined
+    }) })
 
   return (
     <div>

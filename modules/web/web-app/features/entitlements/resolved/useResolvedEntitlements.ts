@@ -1,4 +1,5 @@
-import { disableQuery, useMutation } from '@connectrpc/connect-query'
+import { create, type MessageInitShape } from '@bufbuild/protobuf';
+import { createConnectQueryKey, skipToken, useMutation } from '@connectrpc/connect-query';
 import { useQueryClient } from '@tanstack/react-query'
 
 import { useQuery } from '@/lib/connectrpc'
@@ -11,7 +12,9 @@ import {
   getResolvedEntitlementsForSelection,
   getResolvedEntitlementsForSubscription,
 } from '@/rpc/api/entitlements/v1/entitlements-EntitlementsService_connectquery'
-import { EntitlementEntity, EntitlementSpec, EntitlementValue } from '@/rpc/api/entitlements/v1/models_pb'
+import { EntitlementEntitySchema, EntitlementSpecSchema, EntitlementValueSchema } from '@/rpc/api/entitlements/v1/models_pb';
+
+import type { EntitlementEntity } from '@/rpc/api/entitlements/v1/models_pb';
 
 // ── Entity types ──────────────────────────────────────────────────────────────
 
@@ -46,7 +49,7 @@ export type SelectionInput = {
 export type MutableEntity = Exclude<PersistedEntity, { type: 'product' }>
 
 // Accept a plain-message shape for EntitlementValue (matching PartialMessage convention).
-type PartialEntitlementValue = ConstructorParameters<typeof EntitlementValue>[0]
+type PartialEntitlementValue = MessageInitShape<typeof EntitlementValueSchema>
 
 // ── Internal helper ───────────────────────────────────────────────────────────
 
@@ -57,13 +60,25 @@ type PartialEntitlementValue = ConstructorParameters<typeof EntitlementValue>[0]
 export function toEntitlementEntity(entity: MutableEntity): EntitlementEntity {
   switch (entity.type) {
     case 'add-on':
-      return new EntitlementEntity({ EntityId: { case: 'addOnId', value: entity.id } })
+      return create(
+        EntitlementEntitySchema,
+        { EntityId: { case: 'addOnId', value: entity.id } }
+      );
     case 'plan-version':
-      return new EntitlementEntity({ EntityId: { case: 'planVersionId', value: entity.id } })
+      return create(
+        EntitlementEntitySchema,
+        { EntityId: { case: 'planVersionId', value: entity.id } }
+      );
     case 'subscription':
-      return new EntitlementEntity({ EntityId: { case: 'subscriptionId', value: entity.id } })
+      return create(
+        EntitlementEntitySchema,
+        { EntityId: { case: 'subscriptionId', value: entity.id } }
+      );
     case 'quote':
-      return new EntitlementEntity({ EntityId: { case: 'quoteId', value: entity.id } })
+      return create(
+        EntitlementEntitySchema,
+        { EntityId: { case: 'quoteId', value: entity.id } }
+      );
   }
 }
 
@@ -71,29 +86,29 @@ export function toEntitlementEntity(entity: MutableEntity): EntitlementEntity {
 
 /**
  * Fetches resolved entitlements (with origin) for any persisted entity.
- * Uses `disableQuery` for the branches that don't match the active type so
+ * Uses `skipToken` for the branches that don't match the active type so
  * connect-query skips the inactive RPCs (React hook rules respected).
  */
 export const useResolvedEntitlementsForEntity = (entity: PersistedEntity) => {
   const productQuery = useQuery(
     getResolvedEntitlementsForProduct,
-    entity.type === 'product' ? { productId: entity.id } : disableQuery
+    entity.type === 'product' ? { productId: entity.id } : skipToken
   )
   const addOnQuery = useQuery(
     getResolvedEntitlementsForAddOn,
-    entity.type === 'add-on' ? { addOnId: entity.id } : disableQuery
+    entity.type === 'add-on' ? { addOnId: entity.id } : skipToken
   )
   const planVersionQuery = useQuery(
     getResolvedEntitlementsForPlanVersion,
-    entity.type === 'plan-version' ? { planVersionId: entity.id } : disableQuery
+    entity.type === 'plan-version' ? { planVersionId: entity.id } : skipToken
   )
   const subscriptionQuery = useQuery(
     getResolvedEntitlementsForSubscription,
-    entity.type === 'subscription' ? { subscriptionId: entity.id } : disableQuery
+    entity.type === 'subscription' ? { subscriptionId: entity.id } : skipToken
   )
   const quoteQuery = useQuery(
     getResolvedEntitlementsForQuote,
-    entity.type === 'quote' ? { quoteId: entity.id } : disableQuery
+    entity.type === 'quote' ? { quoteId: entity.id } : skipToken
   )
 
   switch (entity.type) {
@@ -168,16 +183,28 @@ export const useBatchCreateEntitlements = (entity: PersistedEntity) => {
     onSuccess: () => {
       switch (entity.type) {
         case 'add-on':
-          qc.invalidateQueries({ queryKey: [getResolvedEntitlementsForAddOn.service.typeName] })
+          qc.invalidateQueries({ queryKey: createConnectQueryKey({
+            schema: getResolvedEntitlementsForAddOn.parent,
+            cardinality: undefined
+          }) })
           break
         case 'plan-version':
-          qc.invalidateQueries({ queryKey: [getResolvedEntitlementsForPlanVersion.service.typeName] })
+          qc.invalidateQueries({ queryKey: createConnectQueryKey({
+            schema: getResolvedEntitlementsForPlanVersion.parent,
+            cardinality: undefined
+          }) })
           break
         case 'subscription':
-          qc.invalidateQueries({ queryKey: [getResolvedEntitlementsForSubscription.service.typeName] })
+          qc.invalidateQueries({ queryKey: createConnectQueryKey({
+            schema: getResolvedEntitlementsForSubscription.parent,
+            cardinality: undefined
+          }) })
           break
         case 'quote':
-          qc.invalidateQueries({ queryKey: [getResolvedEntitlementsForQuote.service.typeName] })
+          qc.invalidateQueries({ queryKey: createConnectQueryKey({
+            schema: getResolvedEntitlementsForQuote.parent,
+            cardinality: undefined
+          }) })
           break
         default:
           break
@@ -208,9 +235,9 @@ export const useBatchCreateEntitlements = (entity: PersistedEntity) => {
         entity: protoEntity,
         specs: specs.map(
           s =>
-            new EntitlementSpec({
+            create(EntitlementSpecSchema, {
               featureId: s.featureId,
-              value: new EntitlementValue(s.value),
+              value: create(EntitlementValueSchema, s.value),
             })
         ),
       })
@@ -220,12 +247,12 @@ export const useBatchCreateEntitlements = (entity: PersistedEntity) => {
         entity: protoEntity,
         specs: specs.map(
           s =>
-            new EntitlementSpec({
+            create(EntitlementSpecSchema, {
               featureId: s.featureId,
-              value: new EntitlementValue(s.value),
+              value: create(EntitlementValueSchema, s.value),
             })
         ),
-      })
+      });
     },
-  }
+  };
 }

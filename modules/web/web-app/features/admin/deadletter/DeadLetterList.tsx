@@ -63,10 +63,16 @@ export const DeadLetterList = () => {
 
   const invalidate = async () => {
     await queryClient.invalidateQueries({
-      queryKey: createConnectQueryKey(listDeadLetters),
+      queryKey: createConnectQueryKey({
+        schema: listDeadLetters,
+        cardinality: 'finite'
+      }),
     })
     await queryClient.invalidateQueries({
-      queryKey: createConnectQueryKey(getQueueHealth),
+      queryKey: createConnectQueryKey({
+        schema: getQueueHealth,
+        cardinality: 'finite'
+      }),
     })
     setSelectedIds(new Set())
   }

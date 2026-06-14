@@ -1,4 +1,5 @@
-import { disableQuery, useMutation } from '@connectrpc/connect-query'
+import { create } from '@bufbuild/protobuf';
+import { skipToken, useMutation } from '@connectrpc/connect-query'
 import {
   Alert,
   Button,
@@ -74,31 +75,35 @@ import {
 import { listPriceComponents } from '@/rpc/api/pricecomponents/v1/pricecomponents-PriceComponentsService_connectquery'
 import { Price } from '@/rpc/api/prices/v1/models_pb'
 import { previewPrice } from '@/rpc/api/prices/v1/prices-PricesService_connectquery'
-import { PreviewPriceItem } from '@/rpc/api/prices/v1/prices_pb'
+import { PreviewPriceItemSchema } from '@/rpc/api/prices/v1/prices_pb';
 import {
-  CreateQuoteCoupon,
-  CreateQuoteCoupons,
-  CreateQuote as CreateQuoteData,
-  DetailedQuote,
-  Quote,
-  QuoteUsageExample,
-} from '@/rpc/api/quotes/v1/models_pb'
+  CreateQuoteCouponSchema,
+  CreateQuoteCouponsSchema,
+  CreateQuoteSchema as CreateQuoteDataSchema,
+  DetailedQuoteSchema,
+  QuoteSchema,
+  QuoteUsageExampleSchema,
+} from '@/rpc/api/quotes/v1/models_pb';
 import { createQuote } from '@/rpc/api/quotes/v1/quotes-QuotesService_connectquery'
-import { CreateQuoteRequest } from '@/rpc/api/quotes/v1/quotes_pb'
+import { CreateQuoteRequestSchema } from '@/rpc/api/quotes/v1/quotes_pb';
 import {
   ActivationCondition,
-  BankTransfer,
-  CreateSubscriptionAddOn,
-  CreateSubscriptionAddOns,
-  CreateSubscriptionComponents,
-  CreateSubscriptionComponents_ComponentOverride,
-  CreateSubscriptionComponents_ExtraComponent,
-  External,
-  OnlinePayment,
-  PaymentMethodsConfig,
-} from '@/rpc/api/subscriptions/v1/models_pb'
+  BankTransferSchema,
+  CreateSubscriptionAddOnSchema,
+  CreateSubscriptionAddOnsSchema,
+  CreateSubscriptionComponentsSchema,
+  CreateSubscriptionComponents_ComponentOverrideSchema,
+  CreateSubscriptionComponents_ExtraComponentSchema,
+  ExternalSchema,
+  OnlinePaymentSchema,
+  PaymentMethodsConfigSchema,
+} from '@/rpc/api/subscriptions/v1/models_pb';
+
 
 import type { PendingEntitlementSpec } from '@/features/entitlements/creation/types'
+import type { PreviewPriceItem } from '@/rpc/api/prices/v1/prices_pb';
+import type { DetailedQuote } from '@/rpc/api/quotes/v1/models_pb';
+import type { PaymentMethodsConfig } from '@/rpc/api/subscriptions/v1/models_pb';
 
 const recipientSchema = z.object({
   name: z.string().min(1, 'Recipient name is required'),
@@ -158,13 +163,19 @@ type PaymentMethodsType = 'online' | 'bankTransfer' | 'external'
 const buildPaymentMethodsConfig = (type: PaymentMethodsType): PaymentMethodsConfig => {
   switch (type) {
     case 'online':
-      return new PaymentMethodsConfig({ config: { case: 'online', value: new OnlinePayment() } })
+      return create(
+        PaymentMethodsConfigSchema,
+        { config: { case: 'online', value: create(OnlinePaymentSchema) } }
+      );
     case 'bankTransfer':
-      return new PaymentMethodsConfig({
-        config: { case: 'bankTransfer', value: new BankTransfer() },
-      })
+      return create(PaymentMethodsConfigSchema, {
+        config: { case: 'bankTransfer', value: create(BankTransferSchema) },
+      });
     case 'external':
-      return new PaymentMethodsConfig({ config: { case: 'external', value: new External() } })
+      return create(
+        PaymentMethodsConfigSchema,
+        { config: { case: 'external', value: create(ExternalSchema) } }
+      );
   }
 }
 
@@ -319,7 +330,7 @@ export const CreateQuote = () => {
             page: 0,
           },
         }
-      : disableQuery
+      : skipToken
   )
 
   const couponsQuery = useQuery(listCoupons, {
@@ -337,7 +348,7 @@ export const CreateQuote = () => {
   const invoicingEntityId = customerQuery.data?.customer?.invoicingEntityId
   const providersQuery = useQuery(
     getInvoicingEntityProviders,
-    invoicingEntityId ? { id: invoicingEntityId } : disableQuery
+    invoicingEntityId ? { id: invoicingEntityId } : skipToken
   )
 
   const hasOnlinePaymentProvider =
@@ -392,27 +403,27 @@ export const CreateQuote = () => {
         req => createFeatureMutation.mutateAsync(req),
       )
 
-      const subscriptionComponents = new CreateSubscriptionComponents({
+      const subscriptionComponents = create(CreateSubscriptionComponentsSchema, {
         parameterizedComponents: priceComponentsState.components.parameterized,
         overriddenComponents: priceComponentsState.components.overridden.map(c => {
           const pricingType = toPricingTypeFromFeeType(
             c.feeType,
             c.formData.usageModel as string | undefined
           )
-          return new CreateSubscriptionComponents_ComponentOverride({
+          return create(CreateSubscriptionComponents_ComponentOverrideSchema, {
             componentId: c.componentId,
             name: c.name,
             price: wrapAsNewPriceEntries(
               buildPriceInputs(pricingType, c.formData as Record<string, unknown>, planCurrency)
             )[0],
-          })
+          });
         }),
         extraComponents: priceComponentsState.components.extra.map(c => {
           const pricingType = toPricingTypeFromFeeType(
             c.feeType,
             c.formData.usageModel as string | undefined
           )
-          return new CreateSubscriptionComponents_ExtraComponent({
+          return create(CreateSubscriptionComponents_ExtraComponentSchema, {
             name: c.name,
             product: c.productId
               ? buildExistingProductRef(c.productId)
@@ -420,22 +431,22 @@ export const CreateQuote = () => {
             price: wrapAsNewPriceEntries(
               buildPriceInputs(pricingType, c.formData as Record<string, unknown>, planCurrency)
             )[0],
-          })
+          });
         }),
         removeComponents: priceComponentsState.components.removed,
       })
 
       // Build add-ons
-      const addOns = new CreateSubscriptionAddOns({
-        addOns: selectedAddOns.map(a => new CreateSubscriptionAddOn({ addOnId: a.addOnId, quantity: 1 })),
+      const addOns = create(CreateSubscriptionAddOnsSchema, {
+        addOns: selectedAddOns.map(a => create(CreateSubscriptionAddOnSchema, { addOnId: a.addOnId, quantity: 1 })),
       })
 
       // Build coupons
-      const coupons = new CreateQuoteCoupons({
-        coupons: selectedCoupons.map(c => new CreateQuoteCoupon({ couponId: c.couponId })),
+      const coupons = create(CreateQuoteCouponsSchema, {
+        coupons: selectedCoupons.map(c => create(CreateQuoteCouponSchema, { couponId: c.couponId })),
       })
 
-      const createQuoteData = new CreateQuoteData({
+      const createQuoteData = create(CreateQuoteDataSchema, {
         quoteNumber: data.quote_number,
         planVersionId: data.plan_version_id,
         customerId: data.customer_id,
@@ -467,7 +478,7 @@ export const CreateQuote = () => {
           .filter(e => e.quantity.trim() !== '')
           .map(
             e =>
-              new QuoteUsageExample({
+              create(QuoteUsageExampleSchema, {
                 priceComponentId: e.componentId,
                 componentName: e.componentId ? undefined : e.name,
                 exampleQuantity: e.quantity,
@@ -475,7 +486,7 @@ export const CreateQuote = () => {
           ),
       })
 
-      const request = new CreateQuoteRequest({
+      const request = create(CreateQuoteRequestSchema, {
         quote: createQuoteData,
       })
 
@@ -500,7 +511,7 @@ export const CreateQuote = () => {
     data: CreateQuoteFormData,
     components: PricingComponent[]
   ): DetailedQuote => {
-    const quote = new Quote({
+    const quote = create(QuoteSchema, {
       id: 'preview-quote',
       quoteNumber: data.quote_number,
       planVersionId: data.plan_version_id,
@@ -533,13 +544,13 @@ export const CreateQuote = () => {
       }]
     })
 
-    return new DetailedQuote({
+    return create(DetailedQuoteSchema, {
       quote,
       components,
       addOns: addOnItems,
       customer: customerQuery.data?.customer,
       invoicingEntity: invoicingEntityQuery.data?.entity,
-    })
+    });
   }
 
   const buildPreviewPricing = (): {
@@ -574,7 +585,7 @@ export const CreateQuote = () => {
         quantity.trim() !== ''
       ) {
         items.push(
-          new PreviewPriceItem({
+          create(PreviewPriceItemSchema, {
             key: id,
             usagePricing: price.pricing.value,
             quantity,

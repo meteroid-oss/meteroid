@@ -7,7 +7,9 @@ import {
   createBatchJob,
   listBatchJobs,
 } from '@/rpc/api/batchjobs/v1/batchjobs-BatchJobsService_connectquery'
-import { CreateBatchJobRequest } from '@/rpc/api/batchjobs/v1/batchjobs_pb'
+import { CreateBatchJobRequestSchema } from '@/rpc/api/batchjobs/v1/batchjobs_pb'
+
+import type { CreateBatchJobRequest } from '@/rpc/api/batchjobs/v1/batchjobs_pb'
 
 export function useBatchJobCreate(opts?: {
   onSuccess?: (jobId: string) => void
@@ -17,7 +19,10 @@ export function useBatchJobCreate(opts?: {
 
   return useMutation(createBatchJob, {
     onSuccess: async res => {
-      await queryClient.invalidateQueries({ queryKey: createConnectQueryKey(listBatchJobs) })
+      await queryClient.invalidateQueries({ queryKey: createConnectQueryKey({
+        schema: listBatchJobs,
+        cardinality: 'finite'
+      }) })
       const jobId = res.job?.id
       if (jobId) {
         toast.success('Batch job created')
@@ -31,7 +36,8 @@ export function useBatchJobCreate(opts?: {
       }
       toast.error(`Failed to create batch job: ${error.message}`)
     },
-  })
+  });
 }
 
-export { CreateBatchJobRequest }
+export { CreateBatchJobRequestSchema }
+export type { CreateBatchJobRequest }

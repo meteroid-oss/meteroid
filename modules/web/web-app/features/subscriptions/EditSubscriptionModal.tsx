@@ -1,3 +1,4 @@
+import { create } from '@bufbuild/protobuf';
 import { createConnectQueryKey, useMutation } from '@connectrpc/connect-query'
 import {
   DialogDescription,
@@ -22,16 +23,19 @@ import { z } from 'zod'
 
 import { useZodForm } from '@/hooks/useZodForm'
 import {
-  BankTransfer,
-  External,
-  OnlinePayment,
-  PaymentMethodsConfig,
+  BankTransferSchema,
+  ExternalSchema,
+  OnlinePaymentSchema,
+  PaymentMethodsConfigSchema,
   Subscription,
-} from '@/rpc/api/subscriptions/v1/models_pb'
+} from '@/rpc/api/subscriptions/v1/models_pb';
 import {
   getSubscriptionDetails,
   updateSubscription,
 } from '@/rpc/api/subscriptions/v1/subscriptions-SubscriptionsService_connectquery'
+
+import type { PaymentMethodsConfig } from '@/rpc/api/subscriptions/v1/models_pb';
+
 
 type PaymentMethodsType = 'online' | 'bankTransfer' | 'external'
 
@@ -63,13 +67,19 @@ const getPaymentMethodsTypeFromProto = (config?: PaymentMethodsConfig): PaymentM
 const buildProtoPaymentMethodsConfig = (type: PaymentMethodsType): PaymentMethodsConfig => {
   switch (type) {
     case 'online':
-      return new PaymentMethodsConfig({ config: { case: 'online', value: new OnlinePayment() } })
+      return create(
+        PaymentMethodsConfigSchema,
+        { config: { case: 'online', value: create(OnlinePaymentSchema) } }
+      );
     case 'bankTransfer':
-      return new PaymentMethodsConfig({
-        config: { case: 'bankTransfer', value: new BankTransfer() },
-      })
+      return create(PaymentMethodsConfigSchema, {
+        config: { case: 'bankTransfer', value: create(BankTransferSchema) },
+      });
     case 'external':
-      return new PaymentMethodsConfig({ config: { case: 'external', value: new External() } })
+      return create(
+        PaymentMethodsConfigSchema,
+        { config: { case: 'external', value: create(ExternalSchema) } }
+      );
   }
 }
 
@@ -119,8 +129,14 @@ export const EditSubscriptionModal = ({
   const updateMutation = useMutation(updateSubscription, {
     onSuccess: () => {
       queryClient.invalidateQueries({
-        queryKey: createConnectQueryKey(getSubscriptionDetails, {
-          subscriptionId: subscription.id,
+        queryKey: createConnectQueryKey({
+          schema: getSubscriptionDetails,
+
+          input: {
+            subscriptionId: subscription.id,
+          },
+
+          cardinality: 'finite'
         }),
       })
       toast.success('Subscription updated')

@@ -74,7 +74,10 @@ export const DeveloperSettings: FunctionComponent = () => {
 
   const createTokenMut = useMutation(createApiTokenMutation, {
     onSuccess: async res => {
-      await queryClient.invalidateQueries({ queryKey: createConnectQueryKey(listApiTokens) })
+      await queryClient.invalidateQueries({ queryKey: createConnectQueryKey({
+        schema: listApiTokens,
+        cardinality: 'finite'
+      }) })
       setDisplayed({
         id: res.details!.id,
         name: res.details!.name,
@@ -92,7 +95,10 @@ export const DeveloperSettings: FunctionComponent = () => {
 
   const revokeTokenMut = useMutation(revokeApiTokenMutation, {
     onSuccess: async () => {
-      await queryClient.invalidateQueries({ queryKey: createConnectQueryKey(listApiTokens) })
+      await queryClient.invalidateQueries({ queryKey: createConnectQueryKey({
+        schema: listApiTokens,
+        cardinality: 'finite'
+      }) })
       toast.success('API token revoked successfully')
       setTokenToDelete(null)
     },

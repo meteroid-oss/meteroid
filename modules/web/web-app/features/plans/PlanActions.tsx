@@ -1,4 +1,4 @@
-import { useMutation } from '@connectrpc/connect-query'
+import { createConnectQueryKey, useMutation } from '@connectrpc/connect-query';
 import {
   Button,
   DropdownMenu,
@@ -67,7 +67,10 @@ export const PlanActions = () => {
 
   const discardDraftMutation = useMutation(discardDraftVersion, {
     onSuccess: async () => {
-      queryClient.invalidateQueries({ queryKey: [listPlans.service.typeName] })
+      queryClient.invalidateQueries({ queryKey: createConnectQueryKey({
+        schema: listPlans.parent,
+        cardinality: undefined
+      }) })
     },
   })
 
@@ -94,10 +97,22 @@ export const PlanActions = () => {
 
   const publishPlanMutation = useMutation(publishPlanVersion, {
     onSuccess: async res => {
-      queryClient.invalidateQueries({ queryKey: [getPlanOverview.service.typeName] })
-      queryClient.invalidateQueries({ queryKey: [getPlanWithVersion.service.typeName] })
-      queryClient.invalidateQueries({ queryKey: [listPlans.service.typeName] })
-      queryClient.invalidateQueries({ queryKey: [listAddOns.service.typeName] })
+      queryClient.invalidateQueries({ queryKey: createConnectQueryKey({
+        schema: getPlanOverview.parent,
+        cardinality: undefined
+      }) })
+      queryClient.invalidateQueries({ queryKey: createConnectQueryKey({
+        schema: getPlanWithVersion.parent,
+        cardinality: undefined
+      }) })
+      queryClient.invalidateQueries({ queryKey: createConnectQueryKey({
+        schema: listPlans.parent,
+        cardinality: undefined
+      }) })
+      queryClient.invalidateQueries({ queryKey: createConnectQueryKey({
+        schema: listAddOns.parent,
+        cardinality: undefined
+      }) })
 
       const version = res.planVersion?.version
       setIsBusy(false)
@@ -119,7 +134,10 @@ export const PlanActions = () => {
 
   const copyToDraftMutation = useMutation(copyVersionToDraft, {
     onSuccess: async () => {
-      await queryClient.invalidateQueries({ queryKey: [listPlans.service.typeName] })
+      await queryClient.invalidateQueries({ queryKey: createConnectQueryKey({
+        schema: listPlans.parent,
+        cardinality: undefined
+      }) })
     },
   })
 
@@ -135,9 +153,18 @@ export const PlanActions = () => {
 
   const archiveMutation = useMutation(archivePlan, {
     onSuccess: async () => {
-      await queryClient.invalidateQueries({ queryKey: [listPlans.service.typeName] })
-      await queryClient.invalidateQueries({ queryKey: [getPlanWithVersion.service.typeName] })
-      await queryClient.invalidateQueries({ queryKey: [getPlanOverview.service.typeName] })
+      await queryClient.invalidateQueries({ queryKey: createConnectQueryKey({
+        schema: listPlans.parent,
+        cardinality: undefined
+      }) })
+      await queryClient.invalidateQueries({ queryKey: createConnectQueryKey({
+        schema: getPlanWithVersion.parent,
+        cardinality: undefined
+      }) })
+      await queryClient.invalidateQueries({ queryKey: createConnectQueryKey({
+        schema: getPlanOverview.parent,
+        cardinality: undefined
+      }) })
       toast.success('Plan archived successfully')
     },
     onError: () => {
@@ -147,9 +174,18 @@ export const PlanActions = () => {
 
   const unarchiveMutation = useMutation(unarchivePlan, {
     onSuccess: async () => {
-      await queryClient.invalidateQueries({ queryKey: [listPlans.service.typeName] })
-      await queryClient.invalidateQueries({ queryKey: [getPlanWithVersion.service.typeName] })
-      await queryClient.invalidateQueries({ queryKey: [getPlanOverview.service.typeName] })
+      await queryClient.invalidateQueries({ queryKey: createConnectQueryKey({
+        schema: listPlans.parent,
+        cardinality: undefined
+      }) })
+      await queryClient.invalidateQueries({ queryKey: createConnectQueryKey({
+        schema: getPlanWithVersion.parent,
+        cardinality: undefined
+      }) })
+      await queryClient.invalidateQueries({ queryKey: createConnectQueryKey({
+        schema: getPlanOverview.parent,
+        cardinality: undefined
+      }) })
       toast.success('Plan unarchived successfully')
     },
     onError: () => {

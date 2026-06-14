@@ -1,4 +1,4 @@
-import { useMutation } from '@connectrpc/connect-query'
+import { createConnectQueryKey, useMutation } from '@connectrpc/connect-query';
 import { zodResolver } from '@hookform/resolvers/zod'
 import {
   Alert,
@@ -63,7 +63,10 @@ const QuotePortalView: FC<QuotePortalViewProps> = ({ quoteData }) => {
 
   const signQuoteMutation = useMutation(signQuote, {
     onSuccess: async () => {
-      queryClient.invalidateQueries({ queryKey: [getQuotePortal.service.typeName] })
+      queryClient.invalidateQueries({ queryKey: createConnectQueryKey({
+        schema: getQuotePortal.parent,
+        cardinality: undefined
+      }) })
     },
   })
 

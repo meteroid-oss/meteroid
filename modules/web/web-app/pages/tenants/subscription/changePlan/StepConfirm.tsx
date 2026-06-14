@@ -143,8 +143,14 @@ export const StepConfirm = () => {
       }
 
       await queryClient.invalidateQueries({
-        queryKey: createConnectQueryKey(getSubscriptionDetails, {
-          subscriptionId: state.subscriptionId,
+        queryKey: createConnectQueryKey({
+          schema: getSubscriptionDetails,
+
+          input: {
+            subscriptionId: state.subscriptionId,
+          },
+
+          cardinality: 'finite'
         }),
       })
       navigate(`../${state.subscriptionId}`, { replace: true })

@@ -1,4 +1,5 @@
-import { createConnectQueryKey, disableQuery, useMutation } from '@connectrpc/connect-query'
+import { create } from '@bufbuild/protobuf';
+import { createConnectQueryKey, skipToken, useMutation } from '@connectrpc/connect-query'
 import {
   Button,
   Checkbox,
@@ -20,13 +21,13 @@ import { MatrixRowStatusBadge } from '@/features/productCatalog/items/MatrixRowS
 import { useMatrixDimensions } from '@/hooks/useMatrixDimensions'
 import { useQuery } from '@/lib/connectrpc'
 import { getBillableMetric } from '@/rpc/api/billablemetrics/v1/billablemetrics-BillableMetricsService_connectquery'
-import { UsagePricing_MatrixPricing_MatrixDimension } from '@/rpc/api/prices/v1/models_pb'
+import { UsagePricing_MatrixPricing_MatrixDimensionSchema } from '@/rpc/api/prices/v1/models_pb';
 import {
   listPricesByProduct,
   previewMatrixUpdate,
   updateMatrixPrices,
 } from '@/rpc/api/prices/v1/prices-PricesService_connectquery'
-import { MatrixDimensionKey, MatrixRowAdd } from '@/rpc/api/prices/v1/prices_pb'
+import { MatrixDimensionKeySchema, MatrixRowAddSchema } from '@/rpc/api/prices/v1/prices_pb';
 
 import type { BillableMetric } from '@/rpc/api/billablemetrics/v1/models_pb'
 import type { Price } from '@/rpc/api/prices/v1/models_pb'
@@ -113,24 +114,24 @@ function buildDisplayRows(
 }
 
 function makeDimension(key: string, value: string) {
-  return new UsagePricing_MatrixPricing_MatrixDimension({ key, value })
+  return create(UsagePricing_MatrixPricing_MatrixDimensionSchema, { key, value });
 }
 
 function makeRowAdd(combo: DimensionCombo, perUnitPrices: Record<string, string>) {
-  return new MatrixRowAdd({
+  return create(MatrixRowAddSchema, {
     dimension1: makeDimension(combo.d1Key, combo.d1Value),
     dimension2:
       combo.d2Key && combo.d2Value ? makeDimension(combo.d2Key, combo.d2Value) : undefined,
     perUnitPrices,
-  })
+  });
 }
 
 function makeDimensionKey(combo: DimensionCombo) {
-  return new MatrixDimensionKey({
+  return create(MatrixDimensionKeySchema, {
     dimension1: makeDimension(combo.d1Key, combo.d1Value),
     dimension2:
       combo.d2Key && combo.d2Value ? makeDimension(combo.d2Key, combo.d2Value) : undefined,
-  })
+  });
 }
 
 function priceKey(combo: DimensionCombo, currency: string): string {
@@ -142,7 +143,7 @@ type Step = 'idle' | 'select' | 'preview'
 export const MatrixRowsSection = ({ productId, metricId, currencies }: MatrixRowsSectionProps) => {
   const queryClient = useQueryClient()
 
-  const metricQuery = useQuery(getBillableMetric, metricId ? { id: metricId } : disableQuery, {
+  const metricQuery = useQuery(getBillableMetric, metricId ? { id: metricId } : skipToken, {
     refetchOnWindowFocus: 'always',
     refetchOnMount: 'always',
   })
@@ -241,7 +242,11 @@ export const MatrixRowsSection = ({ productId, metricId, currencies }: MatrixRow
 
   const invalidate = async () => {
     await queryClient.invalidateQueries({
-      queryKey: createConnectQueryKey(listPricesByProduct, { productId }),
+      queryKey: createConnectQueryKey({
+        schema: listPricesByProduct,
+        input: { productId },
+        cardinality: 'finite'
+      }),
     })
   }
 

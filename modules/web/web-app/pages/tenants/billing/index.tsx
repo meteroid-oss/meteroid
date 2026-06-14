@@ -27,7 +27,10 @@ export const FamilyCreationModalPage = () => {
 
   const createDefaultMutation = useMutation(createProductFamily, {
     onSuccess: async () => {
-      await queryClient.invalidateQueries({ queryKey: createConnectQueryKey(listProductFamilies) })
+      await queryClient.invalidateQueries({ queryKey: createConnectQueryKey({
+        schema: listProductFamilies,
+        cardinality: 'finite'
+      }) })
     },
   })
 

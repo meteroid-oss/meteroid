@@ -1,13 +1,14 @@
-import { PartialMessage } from '@bufbuild/protobuf'
 import { Button, Card } from '@md/ui'
 import { Edit2 } from 'lucide-react'
 import { ReactNode } from 'react'
 
 import { getCountryFlagEmoji, getCountryName } from '@/features/settings/utils'
-import { Customer } from '@/rpc/api/customers/v1/models_pb'
+import { CustomerSchema } from '@/rpc/api/customers/v1/models_pb'
+
+import type { MessageInitShape } from '@bufbuild/protobuf'
 
 interface BillingInfoCardProps {
-  customer: PartialMessage<Customer>
+  customer: MessageInitShape<typeof CustomerSchema>
   onEdit: () => void
   title?: string
   actions?: ReactNode // Additional actions next to edit button

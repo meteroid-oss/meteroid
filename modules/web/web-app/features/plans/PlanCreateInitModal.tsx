@@ -1,4 +1,4 @@
-import { useMutation } from '@connectrpc/connect-query'
+import { createConnectQueryKey, useMutation } from '@connectrpc/connect-query';
 import { Modal } from '@md/ui'
 import { useQueryClient } from '@tanstack/react-query'
 import { useNavigate } from 'react-router-dom'
@@ -16,7 +16,10 @@ export const PlanCreateInitModal = () => {
   const onCancel = () => navigate('..')
 
   const createPlanMutation = useMutation(createDraftPlan, {
-    onSuccess: () => queryClient.invalidateQueries({ queryKey: [listPlans.service.typeName] }),
+    onSuccess: () => queryClient.invalidateQueries({ queryKey: createConnectQueryKey({
+      schema: listPlans.parent,
+      cardinality: undefined
+    }) }),
   })
 
   const handleSubmit = async (values: z.infer<typeof createPlanSchema>) => {

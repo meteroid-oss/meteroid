@@ -50,7 +50,10 @@ export const EditHubspotIntegrationModal = () => {
   const updateHubspotConnectorMutation = useMutation(updateHubspotConnector, {
     onSuccess: () => {
       queryClient.invalidateQueries({
-        queryKey: createConnectQueryKey(listConnectors),
+        queryKey: createConnectQueryKey({
+          schema: listConnectors,
+          cardinality: 'finite'
+        }),
       })
       toast.success('Connection updated!')
     },

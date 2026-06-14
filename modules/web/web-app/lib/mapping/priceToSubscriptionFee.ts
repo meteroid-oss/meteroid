@@ -1,19 +1,22 @@
+import { create } from '@bufbuild/protobuf';
 import Decimal from 'decimal.js'
 
 import { formatCadence } from '@/lib/mapping/prices'
 import { formatCurrencyNoRounding } from '@/lib/utils/numbers'
-import { UsageFee , PriceComponent } from '@/rpc/api/pricecomponents/v1/models_pb'
+import { UsageFeeSchema, PriceComponent } from '@/rpc/api/pricecomponents/v1/models_pb';
 import { Price , FeeStructure_BillingType } from '@/rpc/api/prices/v1/models_pb'
 import { BillingPeriod } from '@/rpc/api/shared/v1/shared_pb'
 import {
-  SubscriptionFee,
-  SubscriptionFee_CapacitySubscriptionFee,
-  SubscriptionFee_ExtraRecurringSubscriptionFee,
-  SubscriptionFee_OneTimeSubscriptionFee,
-  SubscriptionFee_RateSubscriptionFee,
-  SubscriptionFee_SlotSubscriptionFee,
+  SubscriptionFeeSchema,
+  SubscriptionFee_CapacitySubscriptionFeeSchema,
+  SubscriptionFee_ExtraRecurringSubscriptionFeeSchema,
+  SubscriptionFee_OneTimeSubscriptionFeeSchema,
+  SubscriptionFee_RateSubscriptionFeeSchema,
+  SubscriptionFee_SlotSubscriptionFeeSchema,
   SubscriptionFeeBillingPeriod,
-} from '@/rpc/api/subscriptions/v1/models_pb'
+} from '@/rpc/api/subscriptions/v1/models_pb';
+
+import type { SubscriptionFee } from '@/rpc/api/subscriptions/v1/models_pb';
 
 
 /**
@@ -87,13 +90,13 @@ export function priceToSubscriptionFee(
   price: Price,
   config?: { initialSlotCount?: number }
 ): SubscriptionFee {
-  const fee = new SubscriptionFee()
+  const fee = create(SubscriptionFeeSchema)
 
   switch (price.pricing.case) {
     case 'ratePricing':
       fee.fee = {
         case: 'rate',
-        value: new SubscriptionFee_RateSubscriptionFee({
+        value: create(SubscriptionFee_RateSubscriptionFeeSchema, {
           rate: price.pricing.value.rate,
         }),
       }
@@ -102,7 +105,7 @@ export function priceToSubscriptionFee(
     case 'slotPricing':
       fee.fee = {
         case: 'slot',
-        value: new SubscriptionFee_SlotSubscriptionFee({
+        value: create(SubscriptionFee_SlotSubscriptionFeeSchema, {
           unit: 'unit',
           unitRate: price.pricing.value.unitRate,
           minSlots: price.pricing.value.minSlots,
@@ -116,7 +119,7 @@ export function priceToSubscriptionFee(
       const cap = price.pricing.value
       fee.fee = {
         case: 'capacity',
-        value: new SubscriptionFee_CapacitySubscriptionFee({
+        value: create(SubscriptionFee_CapacitySubscriptionFeeSchema, {
           rate: cap.rate,
           included: cap.included,
           overageRate: cap.overageRate,
@@ -129,7 +132,7 @@ export function priceToSubscriptionFee(
     case 'usagePricing': {
       const usage = price.pricing.value
       // UsageFee and UsagePricing share the same model types, so pass through directly
-      const usageFee = new UsageFee({ term: price.cadence, metricId: '' })
+      const usageFee = create(UsageFeeSchema, { term: price.cadence, metricId: '' })
       usageFee.model = usage.model
       fee.fee = { case: 'usage', value: usageFee }
       break
@@ -140,7 +143,7 @@ export function priceToSubscriptionFee(
       const total = new Decimal(ot.unitPrice || '0').mul(ot.quantity || 1).toString()
       fee.fee = {
         case: 'oneTime',
-        value: new SubscriptionFee_OneTimeSubscriptionFee({
+        value: create(SubscriptionFee_OneTimeSubscriptionFeeSchema, {
           rate: ot.unitPrice,
           quantity: ot.quantity || 1,
           total,
@@ -154,7 +157,7 @@ export function priceToSubscriptionFee(
       const total = new Decimal(er.unitPrice || '0').mul(er.quantity || 1).toString()
       fee.fee = {
         case: 'recurring',
-        value: new SubscriptionFee_ExtraRecurringSubscriptionFee({
+        value: create(SubscriptionFee_ExtraRecurringSubscriptionFeeSchema, {
           rate: er.unitPrice,
           quantity: er.quantity || 1,
           total,

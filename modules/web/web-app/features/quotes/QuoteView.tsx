@@ -1,4 +1,3 @@
-import { PlainMessage } from '@bufbuild/protobuf'
 import { useMutation } from '@connectrpc/connect-query'
 import {
   Button,
@@ -23,19 +22,19 @@ import {
 } from '@/features/subscriptions/pricecomponents/SubscriptionPricingTable'
 import { env } from '@/lib/env'
 import { Customer } from '@/rpc/api/customers/v1/models_pb'
-import { InvoicingEntityPublic } from '@/rpc/api/invoicingentities/v1/models_pb'
+import { InvoicingEntity, InvoicingEntityPublic } from '@/rpc/api/invoicingentities/v1/models_pb'
 import { Quote, QuoteAddOn, QuoteComponent, QuoteSignature } from '@/rpc/api/quotes/v1/models_pb'
 import { setQuotePurchaseOrder } from '@/rpc/portal/quotes/v1/quotes-PortalQuoteService_connectquery'
 import { parseAndFormatDate, parseAndFormatDateTime } from '@/utils/date'
 
 export interface QuoteViewProps {
   quote: {
-    quote?: PlainMessage<Quote>
-    invoicingEntity?: PlainMessage<InvoicingEntityPublic>
-    customer?: PlainMessage<Customer>
-    components?: PlainMessage<QuoteComponent>[]
-    addOns?: PlainMessage<QuoteAddOn>[]
-    signatures?: PlainMessage<QuoteSignature>[]
+    quote?: Quote
+    invoicingEntity?: InvoicingEntity | InvoicingEntityPublic
+    customer?: Customer
+    components?: QuoteComponent[]
+    addOns?: QuoteAddOn[]
+    signatures?: QuoteSignature[]
   }
   mode?: 'preview' | 'detailed' | 'portal'
   className?: string

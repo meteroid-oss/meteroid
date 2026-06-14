@@ -23,7 +23,11 @@ export const EditAddressModal = ({customer, ...props}: Props) => {
   const updateCustomerMutation = useMutation(updateCustomer, {
     onSuccess: () => {
       queryClient.invalidateQueries({
-        queryKey: createConnectQueryKey(getCustomerById, {id: customer.id}),
+        queryKey: createConnectQueryKey({
+          schema: getCustomerById,
+          input: {id: customer.id},
+          cardinality: 'finite'
+        }),
       })
     },
   })

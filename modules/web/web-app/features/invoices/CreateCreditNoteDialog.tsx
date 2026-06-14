@@ -178,7 +178,11 @@ export const CreateCreditNoteDialog: React.FC<CreateCreditNoteDialogProps> = ({
     onSuccess: async data => {
       toast.success(reissue ? 'Invoice cancelled and reissued' : 'Credit note created')
       await queryClient.invalidateQueries({
-        queryKey: createConnectQueryKey(getInvoice, { id: invoice.id }),
+        queryKey: createConnectQueryKey({
+          schema: getInvoice,
+          input: { id: invoice.id },
+          cardinality: 'finite'
+        }),
       })
       onOpenChange(false)
       if (data.correctedInvoiceId) {

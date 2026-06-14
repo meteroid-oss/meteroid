@@ -1,4 +1,3 @@
-import { PartialMessage } from '@bufbuild/protobuf'
 import { Button, Form, InputFormField, Label } from '@md/ui'
 import { PlusIcon, XIcon } from 'lucide-react'
 import { useState } from 'react'
@@ -6,7 +5,9 @@ import { UseFormReturn } from 'react-hook-form'
 import { z } from 'zod'
 
 import { CountrySelect } from '@/components/CountrySelect'
-import { Customer } from '@/rpc/api/customers/v1/models_pb'
+import { CustomerSchema } from '@/rpc/api/customers/v1/models_pb'
+
+import type { MessageInitShape } from '@bufbuild/protobuf'
 
 export const billingInfoSchema = z.object({
   name: z.string().optional(),
@@ -22,7 +23,7 @@ export const billingInfoSchema = z.object({
 export type BillingInfoFormValues = z.infer<typeof billingInfoSchema>
 
 interface BillingInfoFormProps {
-  customer: PartialMessage<Customer>
+  customer: MessageInitShape<typeof CustomerSchema>
   methods: UseFormReturn<BillingInfoFormValues>
   onSubmit: (values: BillingInfoFormValues) => Promise<void>
   onBlur?: (values: BillingInfoFormValues) => Promise<void>

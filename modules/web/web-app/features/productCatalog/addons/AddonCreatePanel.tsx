@@ -1,4 +1,4 @@
-import { useMutation } from '@connectrpc/connect-query'
+import { createConnectQueryKey, useMutation } from '@connectrpc/connect-query';
 import {
   Input,
   Label,
@@ -100,7 +100,10 @@ export const AddonCreatePanel = () => {
   const createAddOnMutation = useMutation(createAddOn, {
     onSuccess: () => {
       queryClient.invalidateQueries({
-        queryKey: [listAddOns.service.typeName],
+        queryKey: createConnectQueryKey({
+          schema: listAddOns.parent,
+          cardinality: undefined
+        }),
       })
       navigate('..')
     },

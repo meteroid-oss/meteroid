@@ -1,4 +1,4 @@
-import { disableQuery, useMutation } from '@connectrpc/connect-query'
+import { createConnectQueryKey, skipToken, useMutation } from '@connectrpc/connect-query';
 import {
   Button,
   Form,
@@ -68,13 +68,16 @@ export const ProductMetricsCreatePanel = ({
   // Fetch source metric for duplicate (via create with sourceMetricId)
   const sourceMetricQuery = useQuery(
     getBillableMetric,
-    sourceMetricId ? { id: sourceMetricId } : disableQuery,
+    sourceMetricId ? { id: sourceMetricId } : skipToken,
     { enabled: !!sourceMetricId }
   )
 
   const createBillableMetricMut = useMutation(createBillableMetric, {
     onSuccess: async () => {
-      await queryClient.invalidateQueries({ queryKey: [listBillableMetrics.service.typeName] })
+      await queryClient.invalidateQueries({ queryKey: createConnectQueryKey({
+        schema: listBillableMetrics.parent,
+        cardinality: undefined
+      }) })
       toast.success('Metric created successfully')
     },
     onError: error => {

@@ -1,4 +1,4 @@
-import { useMutation } from '@connectrpc/connect-query'
+import { createConnectQueryKey, useMutation } from '@connectrpc/connect-query';
 import {
   AlertDialog,
   AlertDialogAction,
@@ -100,7 +100,10 @@ export const FeaturesPage = () => {
 
   const setStatusMutation = useMutation(setFeatureStatus, {
     onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: [listFeatures.service.typeName] })
+      queryClient.invalidateQueries({ queryKey: createConnectQueryKey({
+        schema: listFeatures.parent,
+        cardinality: undefined
+      }) })
       setPendingAction(null)
     },
   })

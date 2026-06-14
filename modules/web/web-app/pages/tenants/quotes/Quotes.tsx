@@ -1,4 +1,4 @@
-import { disableQuery, useMutation } from '@connectrpc/connect-query'
+import { createConnectQueryKey, skipToken, useMutation } from '@connectrpc/connect-query';
 import { SearchIcon } from '@md/icons'
 import {
   Button,
@@ -244,18 +244,24 @@ const QuoteRowActions: FC<{ quote: Quote; basePath: string }> = ({ quote, basePa
   const [showSendDialog, setShowSendDialog] = useState(false)
   const [customMessage, setCustomMessage] = useState('')
 
-  const quoteDetailQuery = useQuery(getQuote, showSendDialog ? { id: quote.id } : disableQuery)
+  const quoteDetailQuery = useQuery(getQuote, showSendDialog ? { id: quote.id } : skipToken)
   const recipients = quoteDetailQuery.data?.quote?.quote?.recipients
 
   const sendQuoteMutation = useMutation(sendQuote, {
     onSuccess: async () => {
-      await queryClient.invalidateQueries({ queryKey: [listQuotes.service.typeName] })
+      await queryClient.invalidateQueries({ queryKey: createConnectQueryKey({
+        schema: listQuotes.parent,
+        cardinality: undefined
+      }) })
     },
   })
 
   const cancelQuoteMutation = useMutation(cancelQuote, {
     onSuccess: async () => {
-      await queryClient.invalidateQueries({ queryKey: [listQuotes.service.typeName] })
+      await queryClient.invalidateQueries({ queryKey: createConnectQueryKey({
+        schema: listQuotes.parent,
+        cardinality: undefined
+      }) })
     },
   })
 

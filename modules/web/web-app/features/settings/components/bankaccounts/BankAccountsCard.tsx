@@ -26,7 +26,10 @@ export const BankAccountsCard = () => {
   const deleteBankAccountMut = useMutation(deleteBankAccount, {
     onSuccess: () => {
       queryClient.invalidateQueries({
-        queryKey: createConnectQueryKey(listBankAccounts),
+        queryKey: createConnectQueryKey({
+          schema: listBankAccounts,
+          cardinality: 'finite'
+        }),
       })
       toast.success('Bank account deleted')
       setAccountToDelete(null)

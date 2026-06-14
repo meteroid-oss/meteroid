@@ -1,4 +1,4 @@
-import { useMutation } from '@connectrpc/connect-query'
+import { createConnectQueryKey, useMutation } from '@connectrpc/connect-query';
 import {
   Button,
   Form,
@@ -102,7 +102,10 @@ export function PlanTrialForm({
     onSuccess: () => {
       afterSubmit()
       queryClient.invalidateQueries({
-        queryKey: [getPlanOverview.service.typeName],
+        queryKey: createConnectQueryKey({
+          schema: getPlanOverview.parent,
+          cardinality: undefined
+        }),
       })
     },
   })

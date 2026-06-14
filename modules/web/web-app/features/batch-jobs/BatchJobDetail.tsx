@@ -129,7 +129,11 @@ export const BatchJobDetail: FunctionComponent<BatchJobDetailProps> = ({ jobId, 
   const cancelMut = useMutation(cancelBatchJob, {
     onSuccess: async () => {
       await queryClient.invalidateQueries({
-        queryKey: createConnectQueryKey(getBatchJob, { jobId: jobId }),
+        queryKey: createConnectQueryKey({
+          schema: getBatchJob,
+          input: { jobId: jobId },
+          cardinality: 'finite'
+        }),
       })
       toast.success('Job cancelled')
       setShowCancelDialog(false)
@@ -143,7 +147,10 @@ export const BatchJobDetail: FunctionComponent<BatchJobDetailProps> = ({ jobId, 
     onSuccess: async res => {
       await new Promise(resolve => setTimeout(resolve, 1000))
 
-      await queryClient.invalidateQueries({ queryKey: [getBatchJob.service.typeName] })
+      await queryClient.invalidateQueries({ queryKey: createConnectQueryKey({
+        schema: getBatchJob.parent,
+        cardinality: undefined
+      }) })
       hasRetried.current = true
       toast.success(`Retrying ${res.retriedChunks} batch(es)`)
     },

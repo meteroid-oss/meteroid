@@ -1,4 +1,5 @@
-import { disableQuery, useMutation } from '@connectrpc/connect-query'
+import { create } from '@bufbuild/protobuf';
+import { createConnectQueryKey, skipToken, useMutation } from '@connectrpc/connect-query';
 import { useQueryClient } from '@tanstack/react-query'
 import { Badge, Button, Card, CardContent, CardHeader, CardTitle } from '@ui/components'
 import Decimal from 'decimal.js'
@@ -46,15 +47,18 @@ import { PriceComponent } from '@/rpc/api/pricecomponents/v1/models_pb'
 import { listPriceComponents } from '@/rpc/api/pricecomponents/v1/pricecomponents-PriceComponentsService_connectquery'
 import {
   ActivationCondition,
-  BankTransfer,
-  External,
-  OnlinePayment,
-  PaymentMethodsConfig,
-} from '@/rpc/api/subscriptions/v1/models_pb'
+  BankTransferSchema,
+  ExternalSchema,
+  OnlinePaymentSchema,
+  PaymentMethodsConfigSchema,
+} from '@/rpc/api/subscriptions/v1/models_pb';
 import {
   createSubscription,
   listSubscriptions,
 } from '@/rpc/api/subscriptions/v1/subscriptions-SubscriptionsService_connectquery'
+
+import type { PaymentMethodsConfig } from '@/rpc/api/subscriptions/v1/models_pb';
+
 
 export const StepReviewAndCreate = () => {
   const navigate = useNavigate()
@@ -92,7 +96,7 @@ export const StepReviewAndCreate = () => {
             page: 0,
           },
         }
-      : disableQuery
+      : skipToken
   )
   const couponsQuery = useQuery(listCoupons, {
     pagination: {
@@ -104,7 +108,10 @@ export const StepReviewAndCreate = () => {
 
   const createSubscriptionMutation = useMutation(createSubscription, {
     onSuccess: async () => {
-      queryClient.invalidateQueries({ queryKey: [listSubscriptions.service.typeName] })
+      queryClient.invalidateQueries({ queryKey: createConnectQueryKey({
+        schema: listSubscriptions.parent,
+        cardinality: undefined
+      }) })
     },
   })
 
@@ -142,13 +149,19 @@ export const StepReviewAndCreate = () => {
     switch (type) {
       case 'online':
         // Online without config = inherit from invoicing entity
-        return new PaymentMethodsConfig({ config: { case: 'online', value: new OnlinePayment() } })
+        return create(
+          PaymentMethodsConfigSchema,
+          { config: { case: 'online', value: create(OnlinePaymentSchema) } }
+        );
       case 'bankTransfer':
-        return new PaymentMethodsConfig({
-          config: { case: 'bankTransfer', value: new BankTransfer() },
-        })
+        return create(PaymentMethodsConfigSchema, {
+          config: { case: 'bankTransfer', value: create(BankTransferSchema) },
+        });
       case 'external':
-        return new PaymentMethodsConfig({ config: { case: 'external', value: new External() } })
+        return create(
+          PaymentMethodsConfigSchema,
+          { config: { case: 'external', value: create(ExternalSchema) } }
+        );
       default:
         return undefined
     }

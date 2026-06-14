@@ -1,18 +1,21 @@
+import { create } from '@bufbuild/protobuf';
+
 import {
-  CapacityPricing,
-  ExtraRecurringPricing,
-  OneTimePricing,
-  RatePricing,
-  SlotPricing,
-  UsagePricing,
-  UsagePricing_MatrixPricing,
-  UsagePricing_MatrixPricing_MatrixDimension,
-  UsagePricing_MatrixPricing_MatrixRow,
-  UsagePricing_PackagePricing,
-  UsagePricing_TieredAndVolumePricing,
-  UsagePricing_TieredAndVolumePricing_TierRow,
+  CapacityPricingSchema,
+  ExtraRecurringPricingSchema,
+  OneTimePricingSchema,
+  RatePricingSchema,
+  SlotPricingSchema,
+  UsagePricingSchema,
+  UsagePricing_MatrixPricingSchema,
+  UsagePricing_MatrixPricing_MatrixDimensionSchema,
+  UsagePricing_MatrixPricing_MatrixRowSchema,
+  UsagePricing_PackagePricingSchema,
+  UsagePricing_TieredAndVolumePricingSchema,
+  UsagePricing_TieredAndVolumePricing_TierRowSchema,
   type Price,
-} from '@/rpc/api/prices/v1/models_pb'
+} from '@/rpc/api/prices/v1/models_pb';
+
 
 import type {
   CapacityPricingData,
@@ -40,47 +43,50 @@ export function formDataToProtoPricing(
       const d = data as RatePricingData
       return {
         case: 'ratePricing',
-        value: new RatePricing({ rate: d.rate }),
-      }
+        value: create(RatePricingSchema, { rate: d.rate }),
+      };
     }
     case 'slot': {
       const d = data as SlotPricingData
       return {
         case: 'slotPricing',
-        value: new SlotPricing({ unitRate: d.unitRate, minSlots: d.minSlots, maxSlots: d.maxSlots }),
-      }
+        value: create(
+          SlotPricingSchema,
+          { unitRate: d.unitRate, minSlots: d.minSlots, maxSlots: d.maxSlots }
+        ),
+      };
     }
     case 'capacity': {
       const d = data as CapacityPricingData
       return {
         case: 'capacityPricing',
-        value: new CapacityPricing({
+        value: create(CapacityPricingSchema, {
           rate: d.rate,
           included: BigInt(d.included),
           overageRate: d.overageRate,
         }),
-      }
+      };
     }
     case 'perUnit': {
       const d = data as PerUnitPricingData
       return {
         case: 'usagePricing',
-        value: new UsagePricing({
+        value: create(UsagePricingSchema, {
           model: { case: 'perUnit', value: d.unitPrice },
         }),
-      }
+      };
     }
     case 'tiered': {
       const d = data as TieredPricingData
       return {
         case: 'usagePricing',
-        value: new UsagePricing({
+        value: create(UsagePricingSchema, {
           model: {
             case: 'tiered',
-            value: new UsagePricing_TieredAndVolumePricing({
+            value: create(UsagePricing_TieredAndVolumePricingSchema, {
               rows: d.rows.map(
                 r =>
-                  new UsagePricing_TieredAndVolumePricing_TierRow({
+                  create(UsagePricing_TieredAndVolumePricing_TierRowSchema, {
                     firstUnit: BigInt(r.firstUnit),
                     unitPrice: r.unitPrice,
                     flatFee: r.flatFee,
@@ -90,19 +96,19 @@ export function formDataToProtoPricing(
             }),
           },
         }),
-      }
+      };
     }
     case 'volume': {
       const d = data as TieredPricingData
       return {
         case: 'usagePricing',
-        value: new UsagePricing({
+        value: create(UsagePricingSchema, {
           model: {
             case: 'volume',
-            value: new UsagePricing_TieredAndVolumePricing({
+            value: create(UsagePricing_TieredAndVolumePricingSchema, {
               rows: d.rows.map(
                 r =>
-                  new UsagePricing_TieredAndVolumePricing_TierRow({
+                  create(UsagePricing_TieredAndVolumePricing_TierRowSchema, {
                     firstUnit: BigInt(r.firstUnit),
                     unitPrice: r.unitPrice,
                     flatFee: r.flatFee,
@@ -112,65 +118,65 @@ export function formDataToProtoPricing(
             }),
           },
         }),
-      }
+      };
     }
     case 'package': {
       const d = data as PackagePricingData
       return {
         case: 'usagePricing',
-        value: new UsagePricing({
+        value: create(UsagePricingSchema, {
           model: {
             case: 'package',
-            value: new UsagePricing_PackagePricing({
+            value: create(UsagePricing_PackagePricingSchema, {
               packagePrice: d.packagePrice,
               blockSize: BigInt(d.blockSize),
             }),
           },
         }),
-      }
+      };
     }
     case 'matrix': {
       const d = data as MatrixPricingData
       return {
         case: 'usagePricing',
-        value: new UsagePricing({
+        value: create(UsagePricingSchema, {
           model: {
             case: 'matrix',
-            value: new UsagePricing_MatrixPricing({
+            value: create(UsagePricing_MatrixPricingSchema, {
               rows: d.rows.map(
                 r =>
-                  new UsagePricing_MatrixPricing_MatrixRow({
+                  create(UsagePricing_MatrixPricing_MatrixRowSchema, {
                     perUnitPrice: r.perUnitPrice,
-                    dimension1: new UsagePricing_MatrixPricing_MatrixDimension(r.dimension1),
+                    dimension1: create(UsagePricing_MatrixPricing_MatrixDimensionSchema, r.dimension1),
                     dimension2: r.dimension2
-                      ? new UsagePricing_MatrixPricing_MatrixDimension(r.dimension2)
+                      ? create(UsagePricing_MatrixPricing_MatrixDimensionSchema, r.dimension2)
                       : undefined,
                   })
               ),
             }),
           },
         }),
-      }
+      };
     }
     case 'extraRecurring': {
       const d = data as ExtraRecurringPricingData
       return {
         case: 'extraRecurringPricing',
-        value: new ExtraRecurringPricing({
+        value: create(ExtraRecurringPricingSchema, {
           unitPrice: d.unitPrice,
           quantity: d.quantity,
         }),
-      }
+      };
     }
     case 'oneTime': {
       const d = data as OneTimePricingData
       return {
         case: 'oneTimePricing',
-        value: new OneTimePricing({
+        value: create(OneTimePricingSchema, {
           unitPrice: d.unitPrice,
           quantity: d.quantity,
         }),
-      }
+      };
     }
   }
 }

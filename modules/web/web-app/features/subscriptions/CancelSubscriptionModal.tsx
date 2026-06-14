@@ -1,3 +1,4 @@
+import { create } from '@bufbuild/protobuf';
 import { useMutation } from '@connectrpc/connect-query'
 import {
   Alert,
@@ -21,10 +22,16 @@ import {
   getSubscriptionDetails,
 } from '@/rpc/api/subscriptions/v1/subscriptions-SubscriptionsService_connectquery'
 import {
+  CancelSubscriptionRequest_BillingPeriodEndSchema,
+  CancelSubscriptionRequest_ImmediateSchema,
+} from '@/rpc/api/subscriptions/v1/subscriptions_pb';
+import { parseAndFormatDate } from '@/utils/date'
+
+import type {
   CancelSubscriptionRequest_BillingPeriodEnd,
   CancelSubscriptionRequest_Immediate,
-} from '@/rpc/api/subscriptions/v1/subscriptions_pb'
-import { parseAndFormatDate } from '@/utils/date'
+} from '@/rpc/api/subscriptions/v1/subscriptions_pb';
+
 
 interface CancelSubscriptionModalProps {
   subscriptionId: string
@@ -81,13 +88,13 @@ export const CancelSubscriptionModal = ({
         case 'immediate':
           effectiveAt = {
             case: 'immediate',
-            value: new CancelSubscriptionRequest_Immediate(),
+            value: create(CancelSubscriptionRequest_ImmediateSchema),
           }
           break
         case 'billing_period_end':
           effectiveAt = {
             case: 'billingPeriodEnd',
-            value: new CancelSubscriptionRequest_BillingPeriodEnd(),
+            value: create(CancelSubscriptionRequest_BillingPeriodEndSchema),
           }
           break
         case 'specific_date':

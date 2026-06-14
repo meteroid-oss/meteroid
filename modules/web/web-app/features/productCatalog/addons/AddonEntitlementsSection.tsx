@@ -1,4 +1,5 @@
-import { useMutation } from '@connectrpc/connect-query'
+import { create, type MessageInitShape } from '@bufbuild/protobuf';
+import { createConnectQueryKey, useMutation } from '@connectrpc/connect-query';
 import {
   Button,
   Skeleton,
@@ -29,11 +30,8 @@ import {
   listEntitlementsByEntity,
   updateEntitlement,
 } from '@/rpc/api/entitlements/v1/entitlements-EntitlementsService_connectquery'
-import {
-  Entitlement,
-  EntitlementValue,
-  ResolvedEntitlement,
-} from '@/rpc/api/entitlements/v1/models_pb'
+import { Entitlement, EntitlementValueSchema, ResolvedEntitlement } from '@/rpc/api/entitlements/v1/models_pb';
+
 
 interface Props {
   addonId: string
@@ -57,8 +55,14 @@ export const AddonEntitlementsSection = ({ addonId }: Props) => {
 
   const qc = useQueryClient()
   const invalidate = () => {
-    void qc.invalidateQueries({ queryKey: [getResolvedEntitlementsForAddOn.service.typeName] })
-    void qc.invalidateQueries({ queryKey: [listEntitlementsByEntity.service.typeName] })
+    void qc.invalidateQueries({ queryKey: createConnectQueryKey({
+      schema: getResolvedEntitlementsForAddOn.parent,
+      cardinality: undefined
+    }) })
+    void qc.invalidateQueries({ queryKey: createConnectQueryKey({
+      schema: listEntitlementsByEntity.parent,
+      cardinality: undefined
+    }) })
   }
 
   const createMutation = useMutation(createEntitlement, {
@@ -93,7 +97,7 @@ export const AddonEntitlementsSection = ({ addonId }: Props) => {
     createMutation.mutate({
       featureId: r.feature.id,
       entity: protoEntity,
-      value: new EntitlementValue(entitlementValueToSpec(r.value)),
+      value: create(EntitlementValueSchema, entitlementValueToSpec(r.value)),
     })
   }
 
@@ -106,7 +110,7 @@ export const AddonEntitlementsSection = ({ addonId }: Props) => {
     const featureId = r.feature?.id
     if (!featureId) return
     const currentlyDisabled = isEntitlementDisabled(r.value)
-    let flippedValue: ConstructorParameters<typeof EntitlementValue>[0]
+    let flippedValue: MessageInitShape<typeof EntitlementValueSchema>
     if (r.value.case === 'boolean') {
       flippedValue = { value: { case: 'booleanValue' as const, value: { enabled: currentlyDisabled } } }
     } else if (r.value.case === 'metered') {
@@ -124,9 +128,9 @@ export const AddonEntitlementsSection = ({ addonId }: Props) => {
     }
     const local = localEntitlements.find(e => e.featureId === featureId)
     if (isPinnedHere(r, addonId) && local) {
-      updateMutation.mutate({ id: local.id, value: new EntitlementValue(flippedValue) })
+      updateMutation.mutate({ id: local.id, value: create(EntitlementValueSchema, flippedValue) })
     } else {
-      createMutation.mutate({ featureId, entity: protoEntity, value: new EntitlementValue(flippedValue) })
+      createMutation.mutate({ featureId, entity: protoEntity, value: create(EntitlementValueSchema, flippedValue) })
     }
   }
 
@@ -155,7 +159,7 @@ export const AddonEntitlementsSection = ({ addonId }: Props) => {
     : undefined
   const dialogSeed =
     dialogRow && !dialogExisting
-      ? new EntitlementValue(entitlementValueToSpec(dialogRow.value))
+      ? create(EntitlementValueSchema, entitlementValueToSpec(dialogRow.value))
       : undefined
 
   return (

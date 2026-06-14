@@ -1,3 +1,4 @@
+import { create } from '@bufbuild/protobuf';
 import {
   createConnectQueryKey,
   createProtobufSafeUpdater,
@@ -49,14 +50,23 @@ export const PriceComponentCard: React.FC<{
     onSuccess: () => {
       planWithVersion.version &&
         queryClient.setQueryData(
-          createConnectQueryKey(listPriceComponents, {
-            planVersionId: planWithVersion.version.id,
+          createConnectQueryKey({
+            schema: listPriceComponents,
+
+            input: {
+              planVersionId: planWithVersion.version.id,
+            },
+
+            cardinality: 'finite'
           }),
-          createProtobufSafeUpdater(listPriceComponents, prev => ({
-            components: prev?.components.filter(c => c.id !== component.id) ?? [],
-          }))
+          createProtobufSafeUpdater(listPriceComponents, prev => (create(listPriceComponents.output, ({
+            components: prev?.components.filter(c => c.id !== component.id) ?? []
+          }))))
         )
-      queryClient.invalidateQueries({ queryKey: [getResolvedEntitlementsForPlanVersion.service.typeName] })
+      queryClient.invalidateQueries({ queryKey: createConnectQueryKey({
+        schema: getResolvedEntitlementsForPlanVersion.parent,
+        cardinality: undefined
+      }) })
     },
   })
 

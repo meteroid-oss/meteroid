@@ -1,9 +1,10 @@
+import { create } from "@bufbuild/protobuf";
 import { useEffect } from "react";
 import { useSearchParams, useNavigate } from 'react-router-dom'
 
 import { Loading } from "@/components/Loading";
 import { useSession } from "@/features/auth";
-import { LoginResponse } from "@/rpc/api/users/v1/users_pb";
+import { LoginResponseSchema } from "@/rpc/api/users/v1/users_pb";
 
 export const OauthSuccess = () => {
 
@@ -16,7 +17,7 @@ export const OauthSuccess = () => {
 
   useEffect(() => {
     if (token) {
-      setSession(new LoginResponse({ token: token }))
+      setSession(create(LoginResponseSchema, { token: token }))
       // Small delay to ensure session is persisted before navigation
       setTimeout(() => {
         navigate('/')

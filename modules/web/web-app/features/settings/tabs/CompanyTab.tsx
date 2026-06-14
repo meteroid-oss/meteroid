@@ -1,3 +1,4 @@
+import { create } from '@bufbuild/protobuf';
 import {
   createConnectQueryKey,
   createProtobufSafeUpdater,
@@ -64,9 +65,12 @@ export const CompanyTab = () => {
     onSuccess: async res => {
       if (res.entity) {
         queryClient.setQueryData(
-          createConnectQueryKey(listInvoicingEntities),
+          createConnectQueryKey({
+            schema: listInvoicingEntities,
+            cardinality: 'finite'
+          }),
           createProtobufSafeUpdater(listInvoicingEntities, prev => {
-            return {
+            return create(listInvoicingEntities.output, {
               entities: prev?.entities.map(entity => {
                 if (entity.id === res.entity?.id) {
                   return res.entity
@@ -74,11 +78,15 @@ export const CompanyTab = () => {
                   return entity
                 }
               }),
-            }
+            });
           })
         )
         queryClient.invalidateQueries({
-          queryKey: createConnectQueryKey(getInvoicingEntity, { id: res.entity?.id }),
+          queryKey: createConnectQueryKey({
+            schema: getInvoicingEntity,
+            input: { id: res.entity?.id },
+            cardinality: 'finite'
+          }),
         })
         toast.success('Invoicing entity updated')
       }
@@ -266,14 +274,17 @@ const FileUpload = ({ entity }: { entity: InvoicingEntity }) => {
   const updateInvoicingEntityMut = useMutation(uploadInvoicingEntityLogo, {
     onSuccess: async res => {
       queryClient.setQueryData(
-        createConnectQueryKey(getInvoicingEntity, { id: entity.id }),
+        createConnectQueryKey({
+          schema: getInvoicingEntity,
+          input: { id: entity.id },
+          cardinality: 'finite'
+        }),
         createProtobufSafeUpdater(getInvoicingEntity, prev => {
-          return {
-            entity: {
-              ...prev?.entity,
-              logoAttachmentId: res.logoUid,
-            },
-          }
+          return create(getInvoicingEntity.output, {
+            entity: prev?.entity
+              ? { ...prev.entity, logoAttachmentId: res.logoUid }
+              : { logoAttachmentId: res.logoUid },
+          });
         })
       )
       toast.success('Invoicing entity updated')

@@ -1,4 +1,4 @@
-import { disableQuery } from '@connectrpc/connect-query'
+import { skipToken } from '@connectrpc/connect-query'
 import {
   Button,
   ComboboxFormField,
@@ -749,7 +749,7 @@ const UsagePricingInline = ({
     }
   }, [usageModel, methods])
 
-  const metricQuery = useQuery(getBillableMetric, metricId ? { id: metricId } : disableQuery)
+  const metricQuery = useQuery(getBillableMetric, metricId ? { id: metricId } : skipToken)
   const { dimensionHeaders, validCombinations } = useMatrixDimensions(
     usageModel === 'matrix' ? metricQuery.data?.billableMetric : undefined
   )

@@ -1,4 +1,4 @@
-import { PlainMessage } from '@bufbuild/protobuf'
+import { create, type MessageInitShape } from '@bufbuild/protobuf';
 import { createConnectQueryKey, useMutation } from '@connectrpc/connect-query'
 import {
   Button,
@@ -42,7 +42,7 @@ import { parseDate } from '@/lib/utils/date'
 import { percentToRate, rateToPercent , formatCurrency, minorToMajorUnit } from '@/lib/utils/numbers'
 import { resizeSvgContent } from '@/pages/tenants/invoice/utils'
 import { getCustomerById } from '@/rpc/api/customers/v1/customers-CustomersService_connectquery'
-import { Address } from '@/rpc/api/customers/v1/models_pb'
+import { AddressSchema } from '@/rpc/api/customers/v1/models_pb';
 import {
   getInvoice,
   previewInvoiceUpdate,
@@ -51,12 +51,14 @@ import {
 } from '@/rpc/api/invoices/v1/invoices-InvoicesService_connectquery'
 import {
   DetailedInvoice,
-  SubLineItem,
-  UpdateInlineCustomer,
-  UpdateInvoiceLineItem,
-  UpdateInvoiceRequest,
-  UpdateInvoiceRequest_UpdatedLineItems,
-} from '@/rpc/api/invoices/v1/models_pb'
+  SubLineItemSchema,
+  UpdateInlineCustomerSchema,
+  UpdateInvoiceLineItemSchema,
+  UpdateInvoiceRequestSchema,
+  UpdateInvoiceRequest_UpdatedLineItemsSchema,
+} from '@/rpc/api/invoices/v1/models_pb';
+
+import type { Address } from '@/rpc/api/customers/v1/models_pb';
 
 interface InvoiceEditFormProps {
   invoice: DetailedInvoice
@@ -68,14 +70,14 @@ interface InvoiceEditFormProps {
 const mapBillingInfoToAddress = (values: BillingInfoFormValues): Address | undefined => {
   if (!values.line1 && !values.city && !values.country) return undefined
 
-  return new Address({
+  return create(AddressSchema, {
     line1: values.line1 || undefined,
     line2: values.line2 || undefined,
     city: values.city || undefined,
     country: values.country || undefined,
     state: undefined,
     zipCode: values.zipCode || undefined,
-  })
+  });
 }
 
 const mapCustomerDetailsForApi = (
@@ -89,7 +91,7 @@ const mapCustomerDetailsForApi = (
   }
 }
 
-const mapSublinesForApi = (subLines: SubLineSchema[]): PlainMessage<SubLineItem>[] =>
+const mapSublinesForApi = (subLines: SubLineSchema[]): MessageInitShape<typeof SubLineItemSchema>[] =>
   subLines.map(sl => ({
     id: sl.id ?? '',
     name: sl.name,
@@ -194,7 +196,11 @@ export const InvoiceEditForm: React.FC<InvoiceEditFormProps> = ({
     onSuccess: async () => {
       toast.success('Invoice updated successfully')
       await queryClient.invalidateQueries({
-        queryKey: createConnectQueryKey(getInvoice, { id: invoiceId }),
+        queryKey: createConnectQueryKey({
+          schema: getInvoice,
+          input: { id: invoiceId },
+          cardinality: 'finite'
+        }),
       })
       onSuccess()
     },
@@ -221,7 +227,7 @@ export const InvoiceEditForm: React.FC<InvoiceEditFormProps> = ({
       setIsPreviewLoading(true)
       setIsSvgPreviewLoading(true)
 
-      const lineItems: PlainMessage<UpdateInvoiceLineItem>[] = (formData.lines || []).map(line => {
+      const lineItems: MessageInitShape<typeof UpdateInvoiceLineItemSchema>[] = (formData.lines || []).map(line => {
         const lineWithSublines = line as UpdateInvoiceLineSchemaWithSublines
         const hasSublines = !!lineWithSublines.subLines && lineWithSublines.subLines.length > 0
         const lineWithValues = line as UpdateInvoiceLineSchemaRegular
@@ -240,7 +246,7 @@ export const InvoiceEditForm: React.FC<InvoiceEditFormProps> = ({
         }
       })
 
-      const updateRequest = new UpdateInvoiceRequest({
+      const updateRequest = create(UpdateInvoiceRequestSchema, {
         id: invoice.id,
         memo: formData.memo || undefined,
         reference: formData.reference || undefined,
@@ -249,12 +255,12 @@ export const InvoiceEditForm: React.FC<InvoiceEditFormProps> = ({
         discount: formData.discount ? formData.discount.toString() : undefined,
         lineItems:
           lineItems.length > 0
-            ? new UpdateInvoiceRequest_UpdatedLineItems({ items: lineItems })
+            ? create(UpdateInvoiceRequest_UpdatedLineItemsSchema, { items: lineItems })
             : undefined,
       })
 
       const customerDetails = mapCustomerDetailsForApi(billingMethods.getValues())
-      updateRequest.customerDetails = new UpdateInlineCustomer({
+      updateRequest.customerDetails = create(UpdateInlineCustomerSchema, {
         refreshFromCustomer: false,
         name: customerDetails.name || undefined,
         vatNumber: customerDetails.vatNumber || undefined,
@@ -327,7 +333,7 @@ export const InvoiceEditForm: React.FC<InvoiceEditFormProps> = ({
 
   const onSubmit = async (data: UpdateInvoiceSchema) => {
     try {
-      const updateRequest = new UpdateInvoiceRequest({
+      const updateRequest = create(UpdateInvoiceRequestSchema, {
         id: invoice.id,
         memo: data.memo || undefined,
         reference: data.reference || undefined,
@@ -337,7 +343,7 @@ export const InvoiceEditForm: React.FC<InvoiceEditFormProps> = ({
       })
 
       if (data.lines && data.lines.length > 0) {
-        const lineItems: PlainMessage<UpdateInvoiceLineItem>[] = data.lines.map(line => {
+        const lineItems: MessageInitShape<typeof UpdateInvoiceLineItemSchema>[] = data.lines.map(line => {
           const lineWithSublines = line as UpdateInvoiceLineSchemaWithSublines
           const hasSublines = !!lineWithSublines.subLines && lineWithSublines.subLines.length > 0
           const lineWithValues = line as UpdateInvoiceLineSchemaRegular
@@ -356,13 +362,13 @@ export const InvoiceEditForm: React.FC<InvoiceEditFormProps> = ({
           }
         })
 
-        updateRequest.lineItems = new UpdateInvoiceRequest_UpdatedLineItems({
+        updateRequest.lineItems = create(UpdateInvoiceRequest_UpdatedLineItemsSchema, {
           items: lineItems,
         })
       }
 
       const submitCustomerDetails = mapCustomerDetailsForApi(billingMethods.getValues())
-      updateRequest.customerDetails = new UpdateInlineCustomer({
+      updateRequest.customerDetails = create(UpdateInlineCustomerSchema, {
         refreshFromCustomer: false,
         name: submitCustomerDetails.name || undefined,
         vatNumber: submitCustomerDetails.vatNumber || undefined,

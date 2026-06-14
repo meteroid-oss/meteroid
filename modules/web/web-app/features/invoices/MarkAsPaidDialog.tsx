@@ -46,10 +46,17 @@ export const MarkAsPaidDialog: React.FC<MarkAsPaidDialogProps> = ({
     onSuccess: async () => {
       await Promise.all([
         queryClient.invalidateQueries({
-          queryKey: createConnectQueryKey(getInvoice, { id: invoiceId }),
+          queryKey: createConnectQueryKey({
+            schema: getInvoice,
+            input: { id: invoiceId },
+            cardinality: 'finite'
+          }),
         }),
         queryClient.invalidateQueries({
-          queryKey: [listInvoices.service.typeName],
+          queryKey: createConnectQueryKey({
+            schema: listInvoices.parent,
+            cardinality: undefined
+          }),
         }),
       ])
     },

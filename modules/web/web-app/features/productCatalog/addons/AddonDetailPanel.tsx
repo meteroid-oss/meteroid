@@ -1,4 +1,4 @@
-import { disableQuery, useMutation } from '@connectrpc/connect-query'
+import { createConnectQueryKey, skipToken, useMutation } from '@connectrpc/connect-query';
 import {
   Badge,
   Button,
@@ -41,13 +41,16 @@ export const AddonDetailPanel = () => {
 
   const addonQuery = useQuery(
     getAddOn,
-    addonId ? { addOnId: addonId } : disableQuery
+    addonId ? { addOnId: addonId } : skipToken
   )
 
   const removeMutation = useMutation(removeAddOn, {
     onSuccess: () => {
       queryClient.invalidateQueries({
-        queryKey: [listAddOns.service.typeName],
+        queryKey: createConnectQueryKey({
+          schema: listAddOns.parent,
+          cardinality: undefined
+        }),
       })
       navigate('..')
     },

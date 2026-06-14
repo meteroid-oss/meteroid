@@ -1,3 +1,4 @@
+import { create } from '@bufbuild/protobuf';
 import {
   createConnectQueryKey,
   createProtobufSafeUpdater,
@@ -45,11 +46,14 @@ export const CreateInvoicingEntityDialog = ({
     onSuccess: async res => {
       if (res.entity) {
         queryClient.setQueryData(
-          createConnectQueryKey(listInvoicingEntities),
+          createConnectQueryKey({
+            schema: listInvoicingEntities,
+            cardinality: 'finite'
+          }),
           createProtobufSafeUpdater(listInvoicingEntities, prev => {
-            return {
+            return create(listInvoicingEntities.output, {
               entities: [...(prev?.entities ?? []), res.entity!],
-            }
+            });
           })
         )
         toast.success('Invoicing entity created')

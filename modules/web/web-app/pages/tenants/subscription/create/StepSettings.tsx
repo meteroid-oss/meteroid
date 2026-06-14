@@ -1,4 +1,4 @@
-import { disableQuery } from '@connectrpc/connect-query'
+import { skipToken } from '@connectrpc/connect-query'
 import {
   Alert,
   Button,
@@ -106,7 +106,7 @@ export const StepSettings = () => {
   // Fetch invoicing entity providers to check if online payment is available
   const providersQuery = useQuery(
     getInvoicingEntityProviders,
-    invoicingEntityId ? { id: invoicingEntityId } : disableQuery
+    invoicingEntityId ? { id: invoicingEntityId } : skipToken
   )
 
   // Check if online payment providers (card or direct debit) are configured

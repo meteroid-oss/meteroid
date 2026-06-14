@@ -1,6 +1,6 @@
-import { type PartialMessage } from '@bufbuild/protobuf'
+import { type MessageInitShape } from '@bufbuild/protobuf'
 
-import { type CreateFeatureRequest, type CreateFeatureResponse } from '@/rpc/api/entitlements/v1/entitlements_pb'
+import { CreateFeatureRequestSchema, type CreateFeatureResponse } from '@/rpc/api/entitlements/v1/entitlements_pb'
 import { type EntitlementSpec } from '@/rpc/api/entitlements/v1/models_pb'
 
 import { type PendingEntitlementSpec, pendingSpecToEntitlementSpec } from './types'
@@ -12,7 +12,9 @@ import { type PendingEntitlementSpec, pendingSpecToEntitlementSpec } from './typ
 // orphaned features remain — harmless, visible in feature list, reusable on retry.
 export async function resolveEntitlementSpecs(
   pending: PendingEntitlementSpec[],
-  createFeature: (req: PartialMessage<CreateFeatureRequest>) => Promise<CreateFeatureResponse>,
+  createFeature: (
+    req: MessageInitShape<typeof CreateFeatureRequestSchema>
+  ) => Promise<CreateFeatureResponse>,
 ): Promise<EntitlementSpec[]> {
   return Promise.all(
     pending.map(async spec => {

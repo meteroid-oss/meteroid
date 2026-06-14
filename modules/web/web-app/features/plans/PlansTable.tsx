@@ -1,4 +1,4 @@
-import { useMutation } from '@connectrpc/connect-query'
+import { createConnectQueryKey, useMutation } from '@connectrpc/connect-query';
 import {
   Button,
   DropdownMenu,
@@ -47,7 +47,10 @@ export const PlansTable: FunctionComponent<PlansTableProps> = ({
 
   const archiveMutation = useMutation(archivePlan, {
     onSuccess: async () => {
-      await queryClient.invalidateQueries({ queryKey: [listPlans.service.typeName] })
+      await queryClient.invalidateQueries({ queryKey: createConnectQueryKey({
+        schema: listPlans.parent,
+        cardinality: undefined
+      }) })
       toast.success('Plan archived successfully')
     },
     onError: () => {
@@ -57,7 +60,10 @@ export const PlansTable: FunctionComponent<PlansTableProps> = ({
 
   const unarchiveMutation = useMutation(unarchivePlan, {
     onSuccess: async () => {
-      await queryClient.invalidateQueries({ queryKey: [listPlans.service.typeName] })
+      await queryClient.invalidateQueries({ queryKey: createConnectQueryKey({
+        schema: listPlans.parent,
+        cardinality: undefined
+      }) })
       toast.success('Plan unarchived successfully')
     },
     onError: () => {

@@ -1,4 +1,3 @@
-import { PlainMessage } from '@bufbuild/protobuf'
 import { cn } from '@ui/lib'
 import { FC } from 'react'
 
@@ -13,7 +12,7 @@ export interface PricingComponent {
   id: string
   name: string
   period: SubscriptionFeeBillingPeriod
-  fee?: PlainMessage<SubscriptionFee>
+  fee?: SubscriptionFee
   exampleUsageQuantity?: string
   exampleUsageAmount?: string
 }
@@ -28,7 +27,7 @@ interface Props {
 
 // Map billing period to display format
 // Map subscription fee type to display format
-const formatFeeType = (fee: PlainMessage<SubscriptionFee> | undefined) => {
+const formatFeeType = (fee: SubscriptionFee | undefined) => {
   if (!fee) return 'N/A'
 
   if (fee.fee.case === 'rate') return 'Rate'
@@ -45,7 +44,7 @@ const SubscriptionFeeDetail = ({
   fee,
   currency,
 }: {
-  fee: PlainMessage<SubscriptionFee> | undefined
+  fee: SubscriptionFee | undefined
   currency: string
 }) => {
   if (!fee || !fee.fee.case) {

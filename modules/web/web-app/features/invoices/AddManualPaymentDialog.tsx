@@ -43,7 +43,11 @@ export const AddManualPaymentDialog: React.FC<AddManualPaymentDialogProps> = ({
   const addPaymentMutation = useMutation(addManualPaymentTransaction, {
     onSuccess: async () => {
       await queryClient.invalidateQueries({
-        queryKey: createConnectQueryKey(getInvoice, { id: invoiceId }),
+        queryKey: createConnectQueryKey({
+          schema: getInvoice,
+          input: { id: invoiceId },
+          cardinality: 'finite'
+        }),
       })
     },
   })

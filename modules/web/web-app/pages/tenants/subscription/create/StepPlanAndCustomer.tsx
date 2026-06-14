@@ -1,4 +1,4 @@
-import { disableQuery } from '@connectrpc/connect-query'
+import { skipToken } from '@connectrpc/connect-query'
 import { Button, Form, GenericFormField } from '@ui/components'
 import { useAtom } from 'jotai'
 import { useEffect, useMemo, useRef, useState } from 'react'
@@ -67,7 +67,7 @@ export const StepPlanAndCustomer = () => {
           page: 0,
         },
       }
-      : disableQuery
+      : skipToken
   )
   const couponsQuery = useQuery(listCoupons, {
     pagination: {
@@ -96,7 +96,7 @@ export const StepPlanAndCustomer = () => {
 
   const planComponentsQuery = useQuery(
     listPriceComponents,
-    planVersionId ? { planVersionId } : disableQuery
+    planVersionId ? { planVersionId } : skipToken
   )
   const planComponents = useMemo(
     () => planComponentsQuery.data?.components ?? [],

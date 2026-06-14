@@ -1,4 +1,4 @@
-import { useMutation, useQuery } from '@connectrpc/connect-query'
+import { createConnectQueryKey, useMutation, useQuery } from '@connectrpc/connect-query';
 import { useQueryClient } from '@tanstack/react-query'
 import {
   Button,
@@ -51,7 +51,10 @@ export const CouponCreatePanel: FunctionComponent = () => {
 
   const createCouponMut = useMutation(createCoupon, {
     onSuccess: async () => {
-      await queryClient.invalidateQueries({ queryKey: [listCoupons.service.typeName] })
+      await queryClient.invalidateQueries({ queryKey: createConnectQueryKey({
+        schema: listCoupons.parent,
+        cardinality: undefined
+      }) })
     },
   })
 

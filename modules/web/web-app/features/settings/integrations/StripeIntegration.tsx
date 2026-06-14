@@ -172,7 +172,10 @@ export const StripeIntegrationModal = () => {
   const connectStripeMutation = useMutation(connectStripe, {
     onSuccess: () => {
       queryClient.invalidateQueries({
-        queryKey: createConnectQueryKey(listConnectors),
+        queryKey: createConnectQueryKey({
+          schema: listConnectors,
+          cardinality: 'finite'
+        }),
       })
     },
   })

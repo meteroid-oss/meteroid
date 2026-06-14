@@ -39,20 +39,14 @@ types:
     - meteroid.portal.invoice.v1.PortalInvoiceService
     - meteroid.portal.subscription.v1.PortalSubscriptionService
 plugins:
-  - plugin: buf.build/bufbuild/es:v1.7.1
+  - plugin: buf.build/bufbuild/es:v2.12.0
     opt:
       - target=ts
-      - import_extension=
+      - import_extension=none
     out: generated
 
-  - plugin: buf.build/connectrpc/es:v1.3.0
+  - plugin: buf.build/connectrpc/query-es:v2.2.0
     opt:
       - target=ts
-      - import_extension=
-    out: generated
-
-  - plugin: buf.build/connectrpc/query-es:v1.1.3
-    opt:
-      - target=ts
-      - import_extension=
+      - import_extension=none
     out: generated

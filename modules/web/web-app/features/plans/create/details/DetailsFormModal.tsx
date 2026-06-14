@@ -1,4 +1,4 @@
-import { useMutation } from '@connectrpc/connect-query'
+import { createConnectQueryKey, useMutation } from '@connectrpc/connect-query';
 import { Button, Form, InputFormField, Modal, Spinner, TextareaFormField } from '@md/ui'
 import { useQueryClient } from '@tanstack/react-query'
 import { FC } from 'react'
@@ -61,7 +61,10 @@ const BasicDetailedForm = ({ plan, version }: Props) => {
   const updatePublishedPlan = useMutation(updatePublishedPlanOverview, {
     onSuccess: async () => {
       await queryClient.invalidateQueries({
-        queryKey: [getPlanOverview.service.typeName],
+        queryKey: createConnectQueryKey({
+          schema: getPlanOverview.parent,
+          cardinality: undefined
+        }),
       })
     },
   })
@@ -69,7 +72,10 @@ const BasicDetailedForm = ({ plan, version }: Props) => {
   const updateDraftPlan = useMutation(updateDraftPlanOverview, {
     onSuccess: async () => {
       await queryClient.invalidateQueries({
-        queryKey: [getPlanOverview.service.typeName],
+        queryKey: createConnectQueryKey({
+          schema: getPlanOverview.parent,
+          cardinality: undefined
+        }),
       })
     },
   })

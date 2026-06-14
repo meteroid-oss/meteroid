@@ -1,4 +1,5 @@
-import { useMutation } from '@connectrpc/connect-query'
+import { timestampDate } from '@bufbuild/protobuf/wkt';
+import { createConnectQueryKey, useMutation } from '@connectrpc/connect-query';
 import {
   Button,
   Card,
@@ -109,8 +110,14 @@ export const ProductMetricDetail = () => {
 
   const archiveMutation = useMutation(archiveBillableMetric, {
     onSuccess: async () => {
-      await queryClient.invalidateQueries({ queryKey: [listBillableMetrics.service.typeName] })
-      await queryClient.invalidateQueries({ queryKey: [getBillableMetric.service.typeName] })
+      await queryClient.invalidateQueries({ queryKey: createConnectQueryKey({
+        schema: listBillableMetrics.parent,
+        cardinality: undefined
+      }) })
+      await queryClient.invalidateQueries({ queryKey: createConnectQueryKey({
+        schema: getBillableMetric.parent,
+        cardinality: undefined
+      }) })
       toast.success('Metric archived successfully')
     },
     onError: () => {
@@ -120,8 +127,14 @@ export const ProductMetricDetail = () => {
 
   const unarchiveMutation = useMutation(unarchiveBillableMetric, {
     onSuccess: async () => {
-      await queryClient.invalidateQueries({ queryKey: [listBillableMetrics.service.typeName] })
-      await queryClient.invalidateQueries({ queryKey: [getBillableMetric.service.typeName] })
+      await queryClient.invalidateQueries({ queryKey: createConnectQueryKey({
+        schema: listBillableMetrics.parent,
+        cardinality: undefined
+      }) })
+      await queryClient.invalidateQueries({ queryKey: createConnectQueryKey({
+        schema: getBillableMetric.parent,
+        cardinality: undefined
+      }) })
       toast.success('Metric unarchived successfully')
     },
     onError: () => {
@@ -417,9 +430,17 @@ export const ProductMetricDetail = () => {
         )}
 
         <DetailSection title="Timeline">
-          <DetailRow label="Created At" value={data.createdAt?.toDate().toLocaleString()} />
+          <DetailRow
+            label="Created At"
+            value={
+              data.createdAt && timestampDate(data.createdAt).toLocaleString()
+            }
+          />
           {data.archivedAt && (
-            <DetailRow label="Archived At" value={data.archivedAt?.toDate().toLocaleString()} />
+            <DetailRow
+              label="Archived At"
+              value={timestampDate(data.archivedAt).toLocaleString()}
+            />
           )}
         </DetailSection>
 

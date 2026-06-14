@@ -1,10 +1,5 @@
-/**
- * EntityEntitlementDialog — EntitlementDialog wrapper for existing entities (plans, subscriptions, etc.).
- * Makes live API calls: createEntitlement, updateEntitlement, or createFeature+entitlement atomically.
- * Use for adding/editing entitlements on entities that already exist in the backend.
- */
-import { PartialMessage } from '@bufbuild/protobuf'
-import { useMutation } from '@connectrpc/connect-query'
+import { create, type MessageInitShape } from '@bufbuild/protobuf';
+import { createConnectQueryKey, useMutation } from '@connectrpc/connect-query';
 import { useQueryClient } from '@tanstack/react-query'
 import { toast } from 'sonner'
 
@@ -24,12 +19,16 @@ import {
   CalendarUnit,
   Entitlement,
   EntitlementEntity,
-  EntitlementValue,
+  EntitlementEntitySchema,
+  EntitlementValueSchema,
   FeatureStatus,
-} from '@/rpc/api/entitlements/v1/models_pb'
+  ResetPeriodSchema,
+} from '@/rpc/api/entitlements/v1/models_pb';
+
+import type { EntitlementValue } from '@/rpc/api/entitlements/v1/models_pb';
 
 interface Props {
-  entity: PartialMessage<EntitlementEntity>
+  entity: MessageInitShape<typeof EntitlementEntitySchema>
   existing?: Entitlement
   onClose: () => void
   featureId?: string
@@ -87,7 +86,7 @@ function buildValue(
     | 'resetInterval'
     | 'meteredEnabled'
   >
-) {
+): MessageInitShape<typeof EntitlementValueSchema> {
   if (isBoolean) {
     return {
       value: {
@@ -96,7 +95,7 @@ function buildValue(
       },
     }
   }
-  const resetPeriod =
+  const resetPeriod: MessageInitShape<typeof ResetPeriodSchema> =
     data.resetPeriodType === 'billingCycle'
       ? { Inner: { case: 'billingCycle' as const, value: {} } }
       : data.resetPeriodType === 'calendar'
@@ -138,7 +137,10 @@ export const EntityEntitlementDialog = ({
   )
 
   const invalidate = () =>
-    queryClient.invalidateQueries({ queryKey: [listEntitlementsByEntity.service.typeName] })
+    queryClient.invalidateQueries({ queryKey: createConnectQueryKey({
+      schema: listEntitlementsByEntity.parent,
+      cardinality: undefined
+    }) })
 
   const createEntitlementMutation = useMutation(createEntitlement, {
     onSuccess: () => { invalidate(); onClose() },
@@ -176,7 +178,7 @@ export const EntityEntitlementDialog = ({
 
   const handleSubmit = async (data: EntitlementFormValues) => {
     const effectiveFeatureId = data.featureId ?? featureId
-    const value = new EntitlementValue(buildValue(data.featureType === 'boolean', data))
+    const value = create(EntitlementValueSchema, buildValue(data.featureType === 'boolean', data))
 
     if (isEdit) {
       updateMutation.mutate({

@@ -1,4 +1,4 @@
-import { disableQuery } from '@connectrpc/connect-query'
+import { skipToken } from '@connectrpc/connect-query'
 import { Badge, Input } from '@md/ui'
 import { ChevronDownIcon, ChevronUpIcon, Loader2Icon, SearchIcon } from 'lucide-react'
 import { ReactNode, createElement, useCallback, useEffect, useMemo, useRef, useState } from 'react'
@@ -222,7 +222,7 @@ const ProductCard = ({
     getResolvedEntitlementsForProduct,
     renderEntitlements && isExpanded && env.entitlementsEnabled
       ? { productId: product.id }
-      : disableQuery
+      : skipToken
   )
   const productHasEntitlements =
     (productEntitlementsQuery.data?.entitlements?.length ?? 0) > 0

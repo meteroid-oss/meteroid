@@ -1,4 +1,4 @@
-import { disableQuery } from '@connectrpc/connect-query'
+import { skipToken } from '@connectrpc/connect-query'
 import { InfoIcon } from '@md/icons'
 import { Alert, Button, Tabs, TabsContent, TabsList, TabsTrigger } from '@md/ui'
 import { PaginationState } from '@tanstack/react-table'
@@ -173,7 +173,7 @@ const SubscriptionsTab = () => {
         },
         status: [],
       }
-      : disableQuery
+      : skipToken
   )
 
   const data = subscriptionsQuery.data?.subscriptions ?? []

@@ -1,4 +1,4 @@
-import { disableQuery } from '@connectrpc/connect-query'
+import { skipToken } from '@connectrpc/connect-query'
 import { useQueryClient } from '@tanstack/react-query'
 import { useEffect } from 'react'
 
@@ -12,7 +12,7 @@ export const useTenant = () => {
 
   const { data, isLoading, error, isRefetching } = useQuery(
     activeTenant,
-    tenantSlug ? undefined : disableQuery,
+    tenantSlug ? undefined : skipToken,
     {}
   )
 

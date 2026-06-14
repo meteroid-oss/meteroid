@@ -1,4 +1,4 @@
-import { createConnectQueryKey, disableQuery, useMutation } from '@connectrpc/connect-query'
+import { createConnectQueryKey, skipToken, useMutation } from '@connectrpc/connect-query'
 import { Button, Form, InputFormField } from '@md/ui'
 import { useQueryClient } from '@tanstack/react-query'
 import { useEffect } from 'react'
@@ -24,7 +24,7 @@ export const RegistrationForm = ({ invite }: { invite?: string }) => {
 
   const { data: inviteData } = useQuery(
     getInviteDetails,
-    invite ? { inviteId: invite } : disableQuery,
+    invite ? { inviteId: invite } : skipToken,
   )
 
   const lockedEmail = inviteData?.invitedEmail
@@ -47,7 +47,10 @@ export const RegistrationForm = ({ invite }: { invite?: string }) => {
 
   const registerMut = useMutation(initRegistration, {
     onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: createConnectQueryKey(getInstance) })
+      queryClient.invalidateQueries({ queryKey: createConnectQueryKey({
+        schema: getInstance,
+        cardinality: 'finite'
+      }) })
     },
     onError: err => {
       methods.setError('email', {

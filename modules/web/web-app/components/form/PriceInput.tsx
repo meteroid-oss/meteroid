@@ -59,7 +59,7 @@ export const UncontrolledPriceInput = forwardRef<HTMLInputElement, UncontrolledP
         currency: currency,
         minimumFractionDigits: 2,
       })
-      return formatter.format(0).replace(/\d|\./g, '').trim()
+      return formatter.format(0).replace(/\d|\./g, '').trim();
     }, [currency])
 
     return (

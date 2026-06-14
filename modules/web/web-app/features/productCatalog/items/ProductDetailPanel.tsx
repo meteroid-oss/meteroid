@@ -1,4 +1,4 @@
-import { disableQuery } from '@connectrpc/connect-query'
+import { skipToken } from '@connectrpc/connect-query'
 import {
   Badge,
   Separator,
@@ -64,12 +64,12 @@ function billingTypeLabel(bt: FeeStructure_BillingType): string {
 export const ProductDetailPanel = ({ productId, onClose }: ProductDetailPanelProps) => {
   const productQuery = useQuery(
     getProduct,
-    productId ? { productId } : disableQuery
+    productId ? { productId } : skipToken
   )
 
   const pricesQuery = useQuery(
     listPricesByProduct,
-    productId ? { productId } : disableQuery
+    productId ? { productId } : skipToken
   )
 
   const product = productQuery.data?.product

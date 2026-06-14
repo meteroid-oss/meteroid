@@ -1,4 +1,4 @@
-import { disableQuery, useMutation } from '@connectrpc/connect-query'
+import { createConnectQueryKey, skipToken, useMutation } from '@connectrpc/connect-query';
 import {
   AlertDialog,
   AlertDialogAction,
@@ -63,12 +63,15 @@ export const FeatureDetailSheet = () => {
   const queryClient = useQueryClient()
   const [pendingAction, setPendingAction] = useState<PendingAction>(null)
 
-  const featureQuery = useQuery(getFeature, featureId ? { id: featureId } : disableQuery)
+  const featureQuery = useQuery(getFeature, featureId ? { id: featureId } : skipToken)
   const feature = featureQuery.data?.feature
 
   const setStatusMutation = useMutation(setFeatureStatus, {
     onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: [listFeatures.service.typeName] })
+      queryClient.invalidateQueries({ queryKey: createConnectQueryKey({
+        schema: listFeatures.parent,
+        cardinality: undefined
+      }) })
       navigate('..')
     },
   })

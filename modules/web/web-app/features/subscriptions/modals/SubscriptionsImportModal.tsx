@@ -1,9 +1,10 @@
+import { create } from '@bufbuild/protobuf'
 import { FileSpreadsheetIcon } from 'lucide-react'
 import { FunctionComponent, useState } from 'react'
 import { z } from 'zod'
 
 import { CSVImportDialog } from '@/components/CSVImportDialog'
-import { useBatchJobCreate, CreateBatchJobRequest } from '@/features/batch-jobs/useBatchJobCreate'
+import { useBatchJobCreate, CreateBatchJobRequestSchema } from '@/features/batch-jobs/useBatchJobCreate'
 import { BatchJobType } from '@/rpc/api/batchjobs/v1/models_pb'
 
 const DATE_RE = /^\d{4}-\d{2}-\d{2}$/
@@ -57,7 +58,7 @@ export const SubscriptionsImportModal: FunctionComponent<SubscriptionsImportModa
     if (!uploadFile) return null
     return uploadFile.arrayBuffer().then(
       buffer =>
-        new CreateBatchJobRequest({
+        create(CreateBatchJobRequestSchema, {
           fileData: new Uint8Array(buffer),
           jobType: BatchJobType.SUBSCRIPTION_CSV_IMPORT,
           fileName: uploadFile.name,

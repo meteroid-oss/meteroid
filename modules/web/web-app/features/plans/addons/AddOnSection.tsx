@@ -1,4 +1,4 @@
-import { disableQuery } from '@connectrpc/connect-query'
+import { skipToken } from '@connectrpc/connect-query'
 import { Button } from '@md/ui'
 import { useNavigate } from 'react-router-dom'
 
@@ -18,7 +18,7 @@ export const AddOnSection = () => {
     listAddOns,
     planWithVersion?.version
       ? { planVersionId: planWithVersion.version.id }
-      : disableQuery
+      : skipToken
   )?.data?.addOns
 
   return (

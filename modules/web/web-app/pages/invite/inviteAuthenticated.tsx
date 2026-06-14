@@ -20,7 +20,10 @@ export const InviteAuthenticated = () => {
 
       toast.success('Successfully joined organization!', { id: 'invite' })
 
-      await queryClient.invalidateQueries({ queryKey: createConnectQueryKey(me) })
+      await queryClient.invalidateQueries({ queryKey: createConnectQueryKey({
+        schema: me,
+        cardinality: 'finite'
+      }) })
 
       // Force a full page reload to refresh the session and organization list
       if (data.organization?.slug) {

@@ -1,4 +1,4 @@
-import { createConnectQueryKey, disableQuery, useMutation } from '@connectrpc/connect-query'
+import { createConnectQueryKey, skipToken, useMutation } from '@connectrpc/connect-query'
 import {
   Badge,
   Button,
@@ -77,7 +77,7 @@ export const UsersTab = () => {
   const { data: usersQueryData, refetch: refetchUsers, isFetching: isFetchingUsers } = useQuery(listUsers)
   const usersData = usersQueryData?.users
   const isAdmin = usersData?.find(u => u.id === currentUserId)?.role === OrganizationUserRole.ADMIN
-  const { data: pendingInvitesQueryData, refetch: refetchInvites, isFetching: isFetchingInvites } = useQuery(listPendingInvites, isAdmin ? undefined : disableQuery)
+  const { data: pendingInvitesQueryData, refetch: refetchInvites, isFetching: isFetchingInvites } = useQuery(listPendingInvites, isAdmin ? undefined : skipToken)
   const pendingInvitesData = pendingInvitesQueryData?.invites
   const isRefreshing = isFetchingUsers || isFetchingInvites
   const handleRefresh = () => { refetchUsers(); if (isAdmin) refetchInvites() }
@@ -86,8 +86,14 @@ export const UsersTab = () => {
 
   const inviteMemberMut = useMutation(inviteMember, {
     onSuccess: data => {
-      void queryClient.invalidateQueries({ queryKey: createConnectQueryKey(listPendingInvites) })
-      void queryClient.invalidateQueries({ queryKey: createConnectQueryKey(listUsers) })
+      void queryClient.invalidateQueries({ queryKey: createConnectQueryKey({
+        schema: listPendingInvites,
+        cardinality: 'finite'
+      }) })
+      void queryClient.invalidateQueries({ queryKey: createConnectQueryKey({
+        schema: listUsers,
+        cardinality: 'finite'
+      }) })
       inviteForm.reset()
       setInviteRole(OrganizationUserRole.MEMBER)
       if (!mailerEnabled) {
@@ -104,7 +110,10 @@ export const UsersTab = () => {
 
   const resendInviteMut = useMutation(resendInvite, {
     onSuccess: async () => {
-      await queryClient.invalidateQueries({ queryKey: createConnectQueryKey(listPendingInvites) })
+      await queryClient.invalidateQueries({ queryKey: createConnectQueryKey({
+        schema: listPendingInvites,
+        cardinality: 'finite'
+      }) })
       toast.success('Invite resent')
     },
     onError: () => toast.error('Failed to resend invite'),
@@ -112,7 +121,10 @@ export const UsersTab = () => {
 
   const revokeInviteMut = useMutation(revokeInvite, {
     onSuccess: async () => {
-      await queryClient.invalidateQueries({ queryKey: createConnectQueryKey(listPendingInvites) })
+      await queryClient.invalidateQueries({ queryKey: createConnectQueryKey({
+        schema: listPendingInvites,
+        cardinality: 'finite'
+      }) })
       setInviteToRevoke(null)
       toast.success('Invite revoked')
     },
@@ -121,7 +133,10 @@ export const UsersTab = () => {
 
   const removeMemberMut = useMutation(removeMember, {
     onSuccess: async () => {
-      await queryClient.invalidateQueries({ queryKey: createConnectQueryKey(listUsers) })
+      await queryClient.invalidateQueries({ queryKey: createConnectQueryKey({
+        schema: listUsers,
+        cardinality: 'finite'
+      }) })
       toast.success('Member removed')
     },
     onError: () => toast.error('Failed to remove member'),

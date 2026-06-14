@@ -1,4 +1,4 @@
-import { disableQuery } from '@connectrpc/connect-query'
+import { skipToken } from '@connectrpc/connect-query'
 import { ColumnDef, PaginationState, Row } from '@tanstack/react-table'
 import { useMemo, useState } from 'react'
 
@@ -26,7 +26,7 @@ export const ListPlanVersionTab = () => {
             page: pagination.pageIndex,
           },
         }
-      : disableQuery
+      : skipToken
   )
 
   const data = planVersions.data?.planVersions ?? []

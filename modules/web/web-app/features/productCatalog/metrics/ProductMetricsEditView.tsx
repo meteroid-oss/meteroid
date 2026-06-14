@@ -1,4 +1,5 @@
-import { useMutation } from '@connectrpc/connect-query'
+import { create } from '@bufbuild/protobuf';
+import { createConnectQueryKey, useMutation } from '@connectrpc/connect-query';
 import {
   Badge,
   Button,
@@ -38,13 +39,19 @@ import {
 import {
   Aggregation_AggregationType,
   Aggregation_UnitConversion_UnitConversionRounding,
-  SegmentationMatrixValuesUpdate,
-  SegmentationMatrixValuesUpdate_DoubleDimensionValues,
-  SegmentationMatrixValuesUpdate_LinkedDimensionValues,
-  SegmentationMatrixValuesUpdate_LinkedDimensionValues_DimensionValues,
-  SegmentationMatrixValuesUpdate_SingleDimensionValues,
-} from '@/rpc/api/billablemetrics/v1/models_pb'
+  SegmentationMatrixValuesUpdateSchema,
+  SegmentationMatrixValuesUpdate_DoubleDimensionValuesSchema,
+  SegmentationMatrixValuesUpdate_LinkedDimensionValuesSchema,
+  SegmentationMatrixValuesUpdate_LinkedDimensionValues_DimensionValuesSchema,
+  SegmentationMatrixValuesUpdate_SingleDimensionValuesSchema,
+} from '@/rpc/api/billablemetrics/v1/models_pb';
 import { useConfirmationModal } from 'providers/ConfirmationProvider'
+
+import type {
+  SegmentationMatrixValuesUpdate,
+  SegmentationMatrixValuesUpdate_LinkedDimensionValues_DimensionValues,
+} from '@/rpc/api/billablemetrics/v1/models_pb';
+
 
 interface ProductMetricsEditViewProps {
   metricId: string
@@ -133,7 +140,7 @@ function LinkedDimensionsEditor({
         values,
       }))
     )
-    // eslint-disable-next-line react-hooks/exhaustive-deps
+     
   }, [value])
 
   const notifyChange = (newEntries: Array<{ id: string; key: string; values: string[] }>) => {
@@ -273,8 +280,14 @@ export const ProductMetricsEditView = ({ metricId }: ProductMetricsEditViewProps
 
   const updateBillableMetricMut = useMutation(updateBillableMetric, {
     onSuccess: async () => {
-      await queryClient.invalidateQueries({ queryKey: [listBillableMetrics.service.typeName] })
-      await queryClient.invalidateQueries({ queryKey: [getBillableMetric.service.typeName] })
+      await queryClient.invalidateQueries({ queryKey: createConnectQueryKey({
+        schema: listBillableMetrics.parent,
+        cardinality: undefined
+      }) })
+      await queryClient.invalidateQueries({ queryKey: createConnectQueryKey({
+        schema: getBillableMetric.parent,
+        cardinality: undefined
+      }) })
       toast.success('Metric updated successfully')
     },
     onError: error => {
@@ -390,19 +403,19 @@ export const ProductMetricsEditView = ({ metricId }: ProductMetricsEditViewProps
       let segmentationMatrixValues: SegmentationMatrixValuesUpdate | undefined = undefined
 
       if (matrixType === 'SINGLE') {
-        segmentationMatrixValues = new SegmentationMatrixValuesUpdate({
+        segmentationMatrixValues = create(SegmentationMatrixValuesUpdateSchema, {
           values: {
             case: 'single',
-            value: new SegmentationMatrixValuesUpdate_SingleDimensionValues({
+            value: create(SegmentationMatrixValuesUpdate_SingleDimensionValuesSchema, {
               values: filterEmpty(data.singleDimensionValues),
             }),
           },
         })
       } else if (matrixType === 'DOUBLE') {
-        segmentationMatrixValues = new SegmentationMatrixValuesUpdate({
+        segmentationMatrixValues = create(SegmentationMatrixValuesUpdateSchema, {
           values: {
             case: 'double',
-            value: new SegmentationMatrixValuesUpdate_DoubleDimensionValues({
+            value: create(SegmentationMatrixValuesUpdate_DoubleDimensionValuesSchema, {
               dimension1Values: filterEmpty(data.doubleDimension1Values),
               dimension2Values: filterEmpty(data.doubleDimension2Values),
             }),
@@ -415,16 +428,19 @@ export const ProductMetricsEditView = ({ metricId }: ProductMetricsEditViewProps
         ;(data.linkedDimensionValues || []).forEach(({ key, values }) => {
           if (key.trim()) {
             linkedValues[key.trim()] =
-              new SegmentationMatrixValuesUpdate_LinkedDimensionValues_DimensionValues({
-                values: filterEmpty(values),
-              })
+              create(
+                SegmentationMatrixValuesUpdate_LinkedDimensionValues_DimensionValuesSchema,
+                {
+                  values: filterEmpty(values),
+                }
+              )
           }
         })
 
-        segmentationMatrixValues = new SegmentationMatrixValuesUpdate({
+        segmentationMatrixValues = create(SegmentationMatrixValuesUpdateSchema, {
           values: {
             case: 'linked',
-            value: new SegmentationMatrixValuesUpdate_LinkedDimensionValues({
+            value: create(SegmentationMatrixValuesUpdate_LinkedDimensionValuesSchema, {
               values: linkedValues,
             }),
           },

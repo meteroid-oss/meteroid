@@ -1,7 +1,8 @@
+import { create } from '@bufbuild/protobuf';
 import {
   createConnectQueryKey,
   createProtobufSafeUpdater,
-  disableQuery,
+  skipToken,
   useMutation,
 } from '@connectrpc/connect-query'
 import { Form } from '@md/ui'
@@ -81,7 +82,7 @@ export const EditPriceComponent = ({ component }: EditPriceComponentProps) => {
   // Fetch the product to get structural info (slot unit name, metric, billing type, etc.)
   const productQuery = useQuery(
     getProduct,
-    component.productId ? { productId: component.productId } : disableQuery
+    component.productId ? { productId: component.productId } : skipToken
   )
   const product = productQuery.data?.product
 
@@ -120,19 +121,28 @@ export const EditPriceComponent = ({ component }: EditPriceComponentProps) => {
 
       if (data.component) {
         queryClient.setQueryData(
-          createConnectQueryKey(listPriceComponentsQuery, {
-            planVersionId: version.id,
+          createConnectQueryKey({
+            schema: listPriceComponentsQuery,
+
+            input: {
+              planVersionId: version.id,
+            },
+
+            cardinality: 'finite'
           }),
           createProtobufSafeUpdater(listPriceComponentsQuery, prev => {
             const idx = prev?.components?.findIndex(comp => comp.id === component.id) ?? -1
             if (idx === -1 || !data.component) return prev
             const updated = [...(prev?.components ?? [])]
             updated[idx] = data.component
-            return { components: updated }
+            return create(listPriceComponentsQuery.output, { components: updated });
           })
         )
       }
-      queryClient.invalidateQueries({ queryKey: [getResolvedEntitlementsForPlanVersion.service.typeName] })
+      queryClient.invalidateQueries({ queryKey: createConnectQueryKey({
+        schema: getResolvedEntitlementsForPlanVersion.parent,
+        cardinality: undefined
+      }) })
     },
   })
 

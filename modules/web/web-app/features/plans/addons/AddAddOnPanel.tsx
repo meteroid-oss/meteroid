@@ -1,4 +1,4 @@
-import { disableQuery, useMutation } from '@connectrpc/connect-query'
+import { createConnectQueryKey, skipToken, useMutation } from '@connectrpc/connect-query';
 import {
   Badge,
   Button,
@@ -103,7 +103,7 @@ export const AddAddOnPanel = () => {
     listAddOns,
     version?.id
       ? { planVersionId: version.id, pagination: { perPage: 100, page: 0 } }
-      : disableQuery
+      : skipToken
   )
 
   const attachedIds = new Set(planAddOns.data?.addOns?.map(a => a.id) ?? [])
@@ -111,7 +111,10 @@ export const AddAddOnPanel = () => {
   const attachMutation = useMutation(attachAddOnToPlanVersion, {
     onSuccess: () => {
       queryClient.invalidateQueries({
-        queryKey: [listAddOns.service.typeName],
+        queryKey: createConnectQueryKey({
+          schema: listAddOns.parent,
+          cardinality: undefined
+        }),
       })
       navigate('..')
     },

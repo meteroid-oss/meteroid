@@ -1,3 +1,4 @@
+import { create } from '@bufbuild/protobuf';
 import { createConnectQueryKey, useMutation } from '@connectrpc/connect-query'
 import {
   Badge,
@@ -40,22 +41,22 @@ import { formatCurrency } from '@/lib/utils/numbers'
 import { amendSubscriptionAtom } from '@/pages/tenants/subscription/amend/state'
 import { listAddOns } from '@/rpc/api/addons/v1/addons-AddOnsService_connectquery'
 import {
-  CreateSubscriptionAddOn,
-  CreateSubscriptionAddOn_AddOnPriceOverride,
-} from '@/rpc/api/subscriptions/v1/models_pb'
+  CreateSubscriptionAddOnSchema,
+  CreateSubscriptionAddOn_AddOnPriceOverrideSchema,
+} from '@/rpc/api/subscriptions/v1/models_pb';
 import {
   applyAmendment,
   getSubscriptionDetails,
   previewAmendment,
 } from '@/rpc/api/subscriptions/v1/subscriptions-SubscriptionsService_connectquery'
 import {
-  AmendmentAddComponent,
-  AmendmentAddOnChanges,
-  AmendmentComponentChanges,
-  AmendmentEditAddOn,
-  AmendmentEditComponent,
+  AmendmentAddComponentSchema,
+  AmendmentAddOnChangesSchema,
+  AmendmentComponentChangesSchema,
+  AmendmentEditAddOnSchema,
+  AmendmentEditComponentSchema,
   PlanChangeApplyMode,
-} from '@/rpc/api/subscriptions/v1/subscriptions_pb'
+} from '@/rpc/api/subscriptions/v1/subscriptions_pb';
 import { parseAndFormatDate } from '@/utils/date'
 
 import type {
@@ -63,7 +64,9 @@ import type {
   EditComponentDraft,
   ExtraComponentDraft,
 } from '@/pages/tenants/subscription/amend/state'
-import type { PartialMessage } from '@bufbuild/protobuf'
+import type { CreateSubscriptionAddOn } from '@/rpc/api/subscriptions/v1/models_pb';
+import type { AmendmentAddComponent, AmendmentEditAddOn, AmendmentEditComponent } from '@/rpc/api/subscriptions/v1/subscriptions_pb';
+import type { MessageInitShape } from '@bufbuild/protobuf'
 
 const buildPriceEntry = (
   feeType: EditComponentDraft['feeType'],
@@ -80,10 +83,10 @@ const buildPriceEntry = (
 const buildComponentChanges = (
   state: AmendSubscriptionState,
   currency: string
-): PartialMessage<AmendmentComponentChanges> => ({
+): MessageInitShape<typeof AmendmentComponentChangesSchema> => ({
   edited: state.componentChanges.edited.map(
     (c): AmendmentEditComponent =>
-      new AmendmentEditComponent({
+      create(AmendmentEditComponentSchema, {
         subscriptionComponentId: c.subscriptionComponentId,
         name: c.name,
         price: buildPriceEntry(c.feeType, c.formData, currency),
@@ -91,7 +94,7 @@ const buildComponentChanges = (
   ),
   added: state.componentChanges.added.map(
     (c: ExtraComponentDraft): AmendmentAddComponent =>
-      new AmendmentAddComponent({
+      create(AmendmentAddComponentSchema, {
         name: c.name,
         product: c.productId
           ? buildExistingProductRef(c.productId)
@@ -105,25 +108,28 @@ const buildComponentChanges = (
 const buildAddOnChanges = (
   state: AmendSubscriptionState,
   currency: string
-): PartialMessage<AmendmentAddOnChanges> => ({
+): MessageInitShape<typeof AmendmentAddOnChangesSchema> => ({
   added: state.addOnChanges.added.map(
     (a): CreateSubscriptionAddOn =>
-      new CreateSubscriptionAddOn({ addOnId: a.addOnId, quantity: a.quantity })
+      create(
+        CreateSubscriptionAddOnSchema,
+        { addOnId: a.addOnId, quantity: a.quantity }
+      )
   ),
   edited: state.addOnChanges.edited.map((a): AmendmentEditAddOn => {
     const base = { subscriptionAddOnId: a.subscriptionAddOnId, quantity: a.quantity }
     if (a.priceOverride) {
-      return new AmendmentEditAddOn({
+      return create(AmendmentEditAddOnSchema, {
         ...base,
         customization: {
           case: 'priceOverride',
-          value: new CreateSubscriptionAddOn_AddOnPriceOverride({
+          value: create(CreateSubscriptionAddOn_AddOnPriceOverrideSchema, {
             priceEntry: buildPriceEntry(a.priceOverride.feeType, a.priceOverride.formData, currency),
           }),
         },
-      })
+      });
     }
-    return new AmendmentEditAddOn(base)
+    return create(AmendmentEditAddOnSchema, base);
   }),
   removedAddOnIds: state.addOnChanges.removedAddOnIds,
 })
@@ -160,7 +166,7 @@ type ChangeItem = {
 // so the user sees a readable reason (e.g. the max-instances validation error).
 const cleanRpcMessage = (error: unknown): string => {
   const raw = error instanceof Error ? error.message : 'Could not compute the preview'
-  return raw.replace(/^\[[a-z_]+\]\s*/i, '')
+  return raw.replace(/^\[[a-z_]+\]\s*/i, '');
 }
 
 const termToPeriodLabel = (term: unknown): string | undefined => {
@@ -366,8 +372,14 @@ export const StepReviewApply = () => {
         )
       }
       await queryClient.invalidateQueries({
-        queryKey: createConnectQueryKey(getSubscriptionDetails, {
-          subscriptionId: state.subscriptionId,
+        queryKey: createConnectQueryKey({
+          schema: getSubscriptionDetails,
+
+          input: {
+            subscriptionId: state.subscriptionId,
+          },
+
+          cardinality: 'finite'
         }),
       })
       navigate(`../${state.subscriptionId}`, { replace: true })

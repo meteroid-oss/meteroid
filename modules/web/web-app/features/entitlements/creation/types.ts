@@ -1,9 +1,14 @@
+import { create, type MessageInitShape } from '@bufbuild/protobuf';
+
 import {
   CalendarUnit,
-  EntitlementSpec,
-  EntitlementValue,
+  EntitlementSpecSchema,
+  EntitlementValueSchema,
+  ResetPeriodSchema,
   ResolvedEntitlement,
-} from '@/rpc/api/entitlements/v1/models_pb'
+} from '@/rpc/api/entitlements/v1/models_pb';
+
+import type { EntitlementSpec } from '@/rpc/api/entitlements/v1/models_pb';
 
 export const RESET_PERIOD_TYPES = [
   'billingCycle',
@@ -51,7 +56,7 @@ export function pendingSpecToEntitlementSpec(
 ): EntitlementSpec {
   const isBoolean = spec.featureType === 'boolean'
 
-  const resetPeriod = (() => {
+  const resetPeriod = ((): MessageInitShape<typeof ResetPeriodSchema> => {
     switch (spec.resetPeriodType) {
       case 'billingCycle':
         return { Inner: { case: 'billingCycle' as const, value: {} } }
@@ -72,7 +77,7 @@ export function pendingSpecToEntitlementSpec(
     }
   })()
 
-  const valueFields = isBoolean
+  const valueFields: MessageInitShape<typeof EntitlementValueSchema> = isBoolean
     ? {
         value: {
           case: 'booleanValue' as const,
@@ -90,10 +95,10 @@ export function pendingSpecToEntitlementSpec(
         },
       }
 
-  return new EntitlementSpec({
+  return create(EntitlementSpecSchema, {
     featureId: spec.featureId,
-    value: new EntitlementValue(valueFields),
-  })
+    value: create(EntitlementValueSchema, valueFields),
+  });
 }
 
 /**

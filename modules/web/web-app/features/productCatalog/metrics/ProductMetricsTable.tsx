@@ -1,4 +1,5 @@
-import { useMutation } from '@connectrpc/connect-query'
+import { timestampDate } from '@bufbuild/protobuf/wkt';
+import { createConnectQueryKey, useMutation } from '@connectrpc/connect-query';
 import {
   Button,
   DropdownMenu,
@@ -61,7 +62,10 @@ export const BillableMetricTable: FC<BillableMetricableProps> = ({
 
   const archiveMutation = useMutation(archiveBillableMetric, {
     onSuccess: async () => {
-      await queryClient.invalidateQueries({ queryKey: [listBillableMetrics.service.typeName] })
+      await queryClient.invalidateQueries({ queryKey: createConnectQueryKey({
+        schema: listBillableMetrics.parent,
+        cardinality: undefined
+      }) })
       toast.success('Metric archived successfully')
     },
     onError: () => {
@@ -71,7 +75,10 @@ export const BillableMetricTable: FC<BillableMetricableProps> = ({
 
   const unarchiveMutation = useMutation(unarchiveBillableMetric, {
     onSuccess: async () => {
-      await queryClient.invalidateQueries({ queryKey: [listBillableMetrics.service.typeName] })
+      await queryClient.invalidateQueries({ queryKey: createConnectQueryKey({
+        schema: listBillableMetrics.parent,
+        cardinality: undefined
+      }) })
       toast.success('Metric unarchived successfully')
     },
     onError: () => {
@@ -130,7 +137,7 @@ export const BillableMetricTable: FC<BillableMetricableProps> = ({
         cell: ({ row }) => {
           const ts = row.original.createdAt
           if (!ts) return null
-          return <span className="text-sm text-muted-foreground">{parseAndFormatDate(ts.toDate().toISOString())}</span>
+          return <span className="text-sm text-muted-foreground">{parseAndFormatDate(timestampDate(ts).toISOString())}</span>
         },
       },
       {

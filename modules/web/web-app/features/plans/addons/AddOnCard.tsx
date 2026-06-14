@@ -1,6 +1,4 @@
-import {
-  useMutation,
-} from '@connectrpc/connect-query'
+import { createConnectQueryKey, useMutation } from '@connectrpc/connect-query';
 import { Button } from '@md/ui'
 import { useQueryClient } from '@tanstack/react-query'
 import { ChevronDownIcon, ChevronRightIcon, Trash2Icon } from 'lucide-react'
@@ -61,7 +59,10 @@ export const AddOnCard: React.FC<Props> = ({ addOn }) => {
   const detachMutation = useMutation(detachAddOnFromPlanVersion, {
     onSuccess: () => {
       queryClient.invalidateQueries({
-        queryKey: [listAddOns.service.typeName],
+        queryKey: createConnectQueryKey({
+          schema: listAddOns.parent,
+          cardinality: undefined
+        }),
       })
     },
   })

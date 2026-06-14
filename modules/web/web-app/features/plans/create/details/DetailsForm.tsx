@@ -31,7 +31,7 @@ export const generateFromName = (name: string) => {
       .split(/_|-|(![A-Z])(?=[A-Z][a-z])|(?![^A-Z_-])(?=[A-Z])|(?![A-Za-z])(?=[^A-Za-z])/g)
       ?.filter(a => a)
       ?.map(a => a.toLowerCase())
-      .join(separator)
+      .join(separator);
   }
   const normalized = name.replaceAll(/[^A-Za-z\d_\- ]/g, '')
   const converted = normalized.includes(' ')

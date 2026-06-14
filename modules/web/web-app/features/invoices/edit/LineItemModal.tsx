@@ -364,7 +364,7 @@ export const LineItemModal = ({
                       size="sm"
                       className="h-7 px-0 text-xs"
                       onClick={() =>
-                        // eslint-disable-next-line @typescript-eslint/no-explicit-any
+                         
                         sublinesArray.append({
                           name: '',
                           quantity: 1,

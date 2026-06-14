@@ -1,4 +1,4 @@
-import { disableQuery } from '@connectrpc/connect-query'
+import { skipToken } from '@connectrpc/connect-query'
 import { Skeleton } from '@md/ui'
 import { useParams , Outlet } from 'react-router-dom'
 
@@ -22,7 +22,7 @@ export const FeatureDetail = () => <FeatureDetailSheet />
 
 export const FeatureEdit = () => {
   const { featureId } = useParams<{ featureId: string }>()
-  const featureQuery = useQuery(getFeature, featureId ? { id: featureId } : disableQuery)
+  const featureQuery = useQuery(getFeature, featureId ? { id: featureId } : skipToken)
   const feature = featureQuery.data?.feature
 
   if (featureQuery.isLoading || !feature) {

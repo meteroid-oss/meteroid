@@ -1,4 +1,4 @@
-import { createConnectQueryKey, disableQuery, useMutation } from '@connectrpc/connect-query'
+import { createConnectQueryKey, skipToken, useMutation } from '@connectrpc/connect-query'
 import {
   DropdownMenu,
   DropdownMenuContent,
@@ -50,15 +50,22 @@ const InvoiceRowActions = ({ invoiceId }: { invoiceId: string }) => {
   const [showFinalizeConfirmation, setShowFinalizeConfirmation] = useState(false)
   const [showMarkAsPaidDialog, setShowMarkAsPaidDialog] = useState(false)
 
-  const invoiceQuery = useQuery(getInvoice, shouldFetch ? { id: invoiceId } : disableQuery)
+  const invoiceQuery = useQuery(getInvoice, shouldFetch ? { id: invoiceId } : skipToken)
   const invoice = invoiceQuery.data?.invoice
 
   const invalidateList = () =>
-    queryClient.invalidateQueries({ queryKey: [listInvoices.service.typeName] })
+    queryClient.invalidateQueries({ queryKey: createConnectQueryKey({
+      schema: listInvoices.parent,
+      cardinality: undefined
+    }) })
 
   const invalidateDetail = () =>
     queryClient.invalidateQueries({
-      queryKey: createConnectQueryKey(getInvoice, { id: invoiceId }),
+      queryKey: createConnectQueryKey({
+        schema: getInvoice,
+        input: { id: invoiceId },
+        cardinality: 'finite'
+      }),
     })
 
   const finalizeMutation = useMutation(finalizeInvoice, {

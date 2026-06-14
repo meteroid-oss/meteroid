@@ -3,7 +3,8 @@
  * On create, always configures a feature-level entitlement (lowest-priority baseline).
  * Feature-level entitlements apply when no higher-priority entitlement exists for an entity.
  */
-import { useMutation } from '@connectrpc/connect-query'
+import { create, type MessageInitShape } from '@bufbuild/protobuf';
+import { createConnectQueryKey, useMutation } from '@connectrpc/connect-query';
 import {
   Button,
   Form,
@@ -44,10 +45,7 @@ import {
   listFeatures,
   updateFeature,
 } from '@/rpc/api/entitlements/v1/entitlements-EntitlementsService_connectquery'
-import {
-  CalendarUnit,
-  EntitlementValue,
-} from '@/rpc/api/entitlements/v1/models_pb'
+import { CalendarUnit, EntitlementValueSchema, ResetPeriodSchema } from '@/rpc/api/entitlements/v1/models_pb';
 import { listProducts } from '@/rpc/api/products/v1/products-ProductsService_connectquery'
 
 const schema = z
@@ -93,7 +91,7 @@ function buildEntitlementValue(
     | 'resetInterval'
     | 'meteredEnabled'
   >
-) {
+): MessageInitShape<typeof EntitlementValueSchema> {
   if (isBoolean) {
     return {
       value: {
@@ -102,7 +100,7 @@ function buildEntitlementValue(
       },
     }
   }
-  const resetPeriod =
+  const resetPeriod: MessageInitShape<typeof ResetPeriodSchema> =
     data.resetPeriodType === 'billingCycle'
       ? { Inner: { case: 'billingCycle' as const, value: {} } }
       : data.resetPeriodType === 'calendar'
@@ -180,7 +178,10 @@ export const FeatureCreateSheet = ({
   const selectedProductName = products.find(p => p.id === selectedProductId)?.name
 
   const invalidate = () =>
-    queryClient.invalidateQueries({ queryKey: [listFeatures.service.typeName] })
+    queryClient.invalidateQueries({ queryKey: createConnectQueryKey({
+      schema: listFeatures.parent,
+      cardinality: undefined
+    }) })
 
   const createMutation = useMutation(createFeature)
   const updateMutation = useMutation(updateFeature)
@@ -205,7 +206,10 @@ export const FeatureCreateSheet = ({
             data.type === 'boolean'
               ? { Inner: { case: 'boolean', value: {} } }
               : { Inner: { case: 'metered', value: { metricId: data.metricId! } } },
-          entitlement: new EntitlementValue(buildEntitlementValue(data.type === 'boolean', data)),
+          entitlement: create(
+            EntitlementValueSchema,
+            buildEntitlementValue(data.type === 'boolean', data)
+          ),
         })
       }
       invalidate()

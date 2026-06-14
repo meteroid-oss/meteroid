@@ -1,12 +1,5 @@
-/**
- * ResolvedEntitlementsPanel — read-only + action panel for resolved entitlements.
- *
- * Displays the full resolved entitlement list for any entity (product, add-on,
- * plan-version, subscription, quote), grouped by product.  Each row shows the
- * winning value and its origin layer with inline icon actions.
- */
-import { PartialMessage } from '@bufbuild/protobuf'
-import { useMutation } from '@connectrpc/connect-query'
+import { create, type MessageInitShape } from '@bufbuild/protobuf';
+import { createConnectQueryKey, useMutation } from '@connectrpc/connect-query';
 import {
   AlertDialog,
   AlertDialogAction,
@@ -49,9 +42,11 @@ import {
 import {
   Entitlement,
   EntitlementEntity,
-  EntitlementValue,
+  EntitlementEntitySchema,
+  EntitlementValueSchema,
   ResolvedEntitlement,
-} from '@/rpc/api/entitlements/v1/models_pb'
+} from '@/rpc/api/entitlements/v1/models_pb';
+
 
 import {
   toEntitlementEntity,
@@ -174,7 +169,7 @@ const RowActions: FC<RowActionsProps> = ({
     createMutation.mutate({
       featureId: row.feature!.id,
       entity: protoEntity,
-      value: new EntitlementValue(entitlementValueToSpec(row.value)),
+      value: create(EntitlementValueSchema, entitlementValueToSpec(row.value)),
     })
   }
 
@@ -184,7 +179,7 @@ const RowActions: FC<RowActionsProps> = ({
 
     const protoEntity = toEntitlementEntity(entity)
     // Build the flipped value directly from the resolved row's typed variants
-    let flippedValue: ConstructorParameters<typeof EntitlementValue>[0]
+    let flippedValue: MessageInitShape<typeof EntitlementValueSchema>
     if (row.value.case === 'boolean') {
       flippedValue = {
         value: {
@@ -214,7 +209,7 @@ const RowActions: FC<RowActionsProps> = ({
       if (local) {
         updateMutation.mutate({
           id: local.id,
-          value: new EntitlementValue(flippedValue),
+          value: create(EntitlementValueSchema, flippedValue),
         })
         return
       }
@@ -223,7 +218,7 @@ const RowActions: FC<RowActionsProps> = ({
     createMutation.mutate({
       featureId,
       entity: protoEntity,
-      value: new EntitlementValue(flippedValue),
+      value: create(EntitlementValueSchema, flippedValue),
     })
   }
 
@@ -349,7 +344,10 @@ export const ResolvedEntitlementsPanel = forwardRef<ResolvedEntitlementsPanelHan
 
   const queryClient = useQueryClient()
   const invalidate = () => {
-    queryClient.invalidateQueries({ queryKey: [listEntitlementsByEntity.service.typeName] })
+    queryClient.invalidateQueries({ queryKey: createConnectQueryKey({
+      schema: listEntitlementsByEntity.parent,
+      cardinality: undefined
+    }) })
   }
 
   // Pin all: confirmation gate + batch-create every entitlement not yet pinned here.
@@ -385,7 +383,7 @@ export const ResolvedEntitlementsPanel = forwardRef<ResolvedEntitlementsPanelHan
     : [{ id: null, name: '', items: resolved }]
 
   // Proto entity for dialog (product has no proto variant — undefined disables the dialog)
-  const protoEntity: PartialMessage<EntitlementEntity> | undefined =
+  const protoEntity: MessageInitShape<typeof EntitlementEntitySchema> | undefined =
     entity.type !== 'product'
       ? toEntitlementEntity(entity)
       : undefined
@@ -546,7 +544,7 @@ export const ResolvedEntitlementsPanel = forwardRef<ResolvedEntitlementsPanelHan
           // so the override form is pre-filled with the current value.
           const seedValue =
             dialog.row && !existing
-              ? new EntitlementValue(entitlementValueToSpec(dialog.row.value))
+              ? create(EntitlementValueSchema, entitlementValueToSpec(dialog.row.value))
               : undefined
           return (
             <EntityEntitlementDialog
@@ -580,7 +578,7 @@ export const ResolvedEntitlementsPanel = forwardRef<ResolvedEntitlementsPanelHan
         </AlertDialog>
       </div>
     </TooltipProvider>
-  )
+  );
 })
 
 ResolvedEntitlementsPanel.displayName = 'ResolvedEntitlementsPanel'

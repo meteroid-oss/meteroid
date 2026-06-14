@@ -1,3 +1,4 @@
+import { create } from '@bufbuild/protobuf';
 import {
   createConnectQueryKey,
   createProtobufSafeUpdater,
@@ -13,7 +14,7 @@ import { z } from 'zod'
 import { CountrySelect } from '@/components/CountrySelect'
 import { getCountryFlagEmoji, getCountryName } from '@/features/settings/utils'
 import { useZodForm } from '@/hooks/useZodForm'
-import { Address, Customer } from '@/rpc/api/customers/v1/models_pb'
+import { AddressSchema, Customer } from '@/rpc/api/customers/v1/models_pb';
 import { getCustomerPortalOverview } from '@/rpc/portal/customer/v1/customer-PortalCustomerService_connectquery'
 import { updateCustomer } from '@/rpc/portal/shared/v1/shared-PortalSharedService_connectquery'
 
@@ -42,13 +43,15 @@ export const BillingInfo = ({ customer, isEditing, setIsEditing }: BillingInfoPr
     onSuccess: res => {
       if (res.customer) {
         queryClient.setQueryData(
-          createConnectQueryKey(getCustomerPortalOverview),
-          createProtobufSafeUpdater(getCustomerPortalOverview, prev => ({
-            overview: {
-              ...prev?.overview,
-              customer: res.customer,
-            },
-          }))
+          createConnectQueryKey({
+            schema: getCustomerPortalOverview,
+            cardinality: 'finite'
+          }),
+          createProtobufSafeUpdater(getCustomerPortalOverview, prev => (create(getCustomerPortalOverview.output, ({
+            overview: prev?.overview
+              ? { ...prev.overview, customer: res.customer }
+              : { customer: res.customer },
+          }))))
         )
       }
 
@@ -88,7 +91,7 @@ export const BillingInfo = ({ customer, isEditing, setIsEditing }: BillingInfoPr
 
   const onSubmit = async (values: z.infer<typeof billingInfoSchema>) => {
     // Create new Address object
-    const updatedAddress = new Address({
+    const updatedAddress = create(AddressSchema, {
       line1: values.line1,
       line2: values.line2,
       city: values.city,

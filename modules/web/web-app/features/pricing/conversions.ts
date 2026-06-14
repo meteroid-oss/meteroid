@@ -1,28 +1,27 @@
-import {
-  PriceInput,
-  NewProduct,
-  ProductRef,
-  PriceEntry,
-} from '@/rpc/api/pricecomponents/v1/models_pb'
+import { create } from '@bufbuild/protobuf';
+
+import { PriceInputSchema, NewProductSchema, ProductRefSchema, PriceEntrySchema } from '@/rpc/api/pricecomponents/v1/models_pb';
 import {
   FeeType as ProtoFeeType,
-  FeeStructure,
+  FeeStructureSchema,
   FeeStructure_BillingType,
-  FeeStructure_CapacityStructure,
-  FeeStructure_ExtraRecurringStructure,
-  FeeStructure_OneTimeStructure,
-  FeeStructure_RateStructure,
-  FeeStructure_SlotStructure,
+  FeeStructure_CapacityStructureSchema,
+  FeeStructure_ExtraRecurringStructureSchema,
+  FeeStructure_OneTimeStructureSchema,
+  FeeStructure_RateStructureSchema,
+  FeeStructure_SlotStructureSchema,
   FeeStructure_UsageModel,
-  FeeStructure_UsageStructure,
-  Price,
-} from '@/rpc/api/prices/v1/models_pb'
+  FeeStructure_UsageStructureSchema,
+  PriceSchema,
+} from '@/rpc/api/prices/v1/models_pb';
 import { BillingPeriod } from '@/rpc/api/shared/v1/shared_pb'
 
 import { formDataToProtoPricing, protoPricingToFormData } from './mapping'
 import { pricingDefaults } from './schemas'
 
 import type { PricingType } from './schemas'
+import type { PriceInput, ProductRef, PriceEntry } from '@/rpc/api/pricecomponents/v1/models_pb';
+import type { FeeStructure, Price } from '@/rpc/api/prices/v1/models_pb';
 
 // --- Cadence helpers ---
 
@@ -143,12 +142,12 @@ export function buildPriceInputs(
         included: t.included,
         overageRate: t.overageRate,
       })
-      return new PriceInput({
+      return create(PriceInputSchema, {
         cadence: cadenceToProto(cadence),
         currency,
         pricing: protoPricing,
-      })
-    })
+      });
+    });
   }
 
   // Single-cadence types (rate, slot, usage variants, extraRecurring)
@@ -165,23 +164,23 @@ export function buildPriceInputs(
     const cadence = formData.term as Cadence
     const protoPricing = formDataToProtoPricing(pricingType, formData)
     return [
-      new PriceInput({
+      create(PriceInputSchema, {
         cadence: cadenceToProto(cadence),
         currency,
         pricing: protoPricing,
       }),
-    ]
+    ];
   }
 
   // One-time: no cadence concept, use MONTHLY as default
   const protoPricing = formDataToProtoPricing(pricingType, formData)
   return [
-    new PriceInput({
+    create(PriceInputSchema, {
       cadence: BillingPeriod.MONTHLY,
       currency,
       pricing: protoPricing,
     }),
-  ]
+  ];
 }
 
 /**
@@ -194,27 +193,27 @@ export function buildFeeStructure(
 ): FeeStructure {
   switch (feeType) {
     case 'rate':
-      return new FeeStructure({
-        structure: { case: 'rate', value: new FeeStructure_RateStructure() },
-      })
+      return create(FeeStructureSchema, {
+        structure: { case: 'rate', value: create(FeeStructure_RateStructureSchema) },
+      });
     case 'slot':
-      return new FeeStructure({
+      return create(FeeStructureSchema, {
         structure: {
           case: 'slot',
-          value: new FeeStructure_SlotStructure({
+          value: create(FeeStructure_SlotStructureSchema, {
             unitName: formData.slotUnitName ?? 'Seats',
           }),
         },
-      })
+      });
     case 'capacity':
-      return new FeeStructure({
+      return create(FeeStructureSchema, {
         structure: {
           case: 'capacity',
-          value: new FeeStructure_CapacityStructure({
+          value: create(FeeStructure_CapacityStructureSchema, {
             metricId: formData.metricId,
           }),
         },
-      })
+      });
     case 'usage': {
       const usageModelMap: Record<string, FeeStructure_UsageModel> = {
         per_unit: FeeStructure_UsageModel.PER_UNIT,
@@ -223,32 +222,32 @@ export function buildFeeStructure(
         package: FeeStructure_UsageModel.PACKAGE,
         matrix: FeeStructure_UsageModel.MATRIX,
       }
-      return new FeeStructure({
+      return create(FeeStructureSchema, {
         structure: {
           case: 'usage',
-          value: new FeeStructure_UsageStructure({
+          value: create(FeeStructure_UsageStructureSchema, {
             metricId: formData.metricId,
             model: usageModelMap[formData.usageModel ?? 'per_unit'] ?? FeeStructure_UsageModel.PER_UNIT,
           }),
         },
-      })
+      });
     }
     case 'extraRecurring': {
       const billingType =
         formData.billingType === 'ADVANCE'
           ? FeeStructure_BillingType.ADVANCE
           : FeeStructure_BillingType.ARREAR
-      return new FeeStructure({
+      return create(FeeStructureSchema, {
         structure: {
           case: 'extraRecurring',
-          value: new FeeStructure_ExtraRecurringStructure({ billingType }),
+          value: create(FeeStructure_ExtraRecurringStructureSchema, { billingType }),
         },
-      })
+      });
     }
     case 'oneTime':
-      return new FeeStructure({
-        structure: { case: 'oneTime', value: new FeeStructure_OneTimeStructure() },
-      })
+      return create(FeeStructureSchema, {
+        structure: { case: 'oneTime', value: create(FeeStructure_OneTimeStructureSchema) },
+      });
   }
 }
 
@@ -309,25 +308,25 @@ export function buildNewProductRef(
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
   formData: Record<string, any>
 ): ProductRef {
-  return new ProductRef({
+  return create(ProductRefSchema, {
     ref: {
       case: 'newProduct',
-      value: new NewProduct({
+      value: create(NewProductSchema, {
         name,
         feeType: feeTypeToProto(feeType),
         feeStructure: buildFeeStructure(feeType, formData),
       }),
     },
-  })
+  });
 }
 
 /**
  * Build a ProductRef referencing an existing product by ID.
  */
 export function buildExistingProductRef(productId: string): ProductRef {
-  return new ProductRef({
+  return create(ProductRefSchema, {
     ref: { case: 'existingProductId', value: productId },
-  })
+  });
 }
 
 /**
@@ -335,8 +334,8 @@ export function buildExistingProductRef(productId: string): ProductRef {
  */
 export function wrapAsNewPriceEntries(inputs: PriceInput[]): PriceEntry[] {
   return inputs.map(
-    pi => new PriceEntry({ entry: { case: 'newPrice', value: pi } })
-  )
+    pi => create(PriceEntrySchema, { entry: { case: 'newPrice', value: pi } })
+  );
 }
 
 /**
@@ -344,8 +343,8 @@ export function wrapAsNewPriceEntries(inputs: PriceInput[]): PriceEntry[] {
  */
 export function existingPriceEntries(priceIds: string[]): PriceEntry[] {
   return priceIds.map(
-    id => new PriceEntry({ entry: { case: 'existingPriceId', value: id } })
-  )
+    id => create(PriceEntrySchema, { entry: { case: 'existingPriceId', value: id } })
+  );
 }
 
 /**
@@ -376,7 +375,7 @@ export function formDataToPrice(
   }
 
   const pricing = formDataToProtoPricing(pricingType, pricingData)
-  return new Price({ cadence, currency, pricing })
+  return create(PriceSchema, { cadence, currency, pricing });
 }
 
 /**

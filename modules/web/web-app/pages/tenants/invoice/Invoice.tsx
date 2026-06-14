@@ -1,3 +1,4 @@
+import { create } from '@bufbuild/protobuf'
 import { createConnectQueryKey, useMutation } from '@connectrpc/connect-query'
 import {
   Button,
@@ -209,8 +210,12 @@ export const InvoiceView: React.FC<Props & { invoiceId: string }> = ({ invoice, 
   const refresh = useMutation(refreshInvoiceData, {
     onSuccess: async res => {
       await queryClient.setQueryData(
-        createConnectQueryKey(getInvoice, { id: invoice?.id ?? '' }),
-        res
+        createConnectQueryKey({
+          schema: getInvoice,
+          input: { id: invoice?.id ?? '' },
+          cardinality: 'finite'
+        }),
+        create(getInvoice.output, { invoice: res.invoice })
       )
     },
   })
@@ -221,7 +226,11 @@ export const InvoiceView: React.FC<Props & { invoiceId: string }> = ({ invoice, 
       toast.success(`Invoice deleted`)
       // Invalidate the list invoices query to refresh the list
       await queryClient.invalidateQueries({
-        queryKey: createConnectQueryKey(listInvoices, {}),
+        queryKey: createConnectQueryKey({
+          schema: listInvoices,
+          input: {},
+          cardinality: 'finite'
+        }),
       })
       // Navigate back to the invoices list after successful deletion
       navigate(`${basePath}/invoices`)
@@ -235,7 +244,11 @@ export const InvoiceView: React.FC<Props & { invoiceId: string }> = ({ invoice, 
     onSuccess: async () => {
       toast.success('Invoice finalized')
       await queryClient.invalidateQueries({
-        queryKey: createConnectQueryKey(getInvoice, { id: invoice?.id ?? '' }),
+        queryKey: createConnectQueryKey({
+          schema: getInvoice,
+          input: { id: invoice?.id ?? '' },
+          cardinality: 'finite'
+        }),
       })
     },
     onError: error => {
@@ -248,11 +261,21 @@ export const InvoiceView: React.FC<Props & { invoiceId: string }> = ({ invoice, 
       toast.success('Invoice voided')
       await Promise.all([
         queryClient.invalidateQueries({
-          queryKey: createConnectQueryKey(getInvoice, { id: invoice?.id ?? '' }),
+          queryKey: createConnectQueryKey({
+            schema: getInvoice,
+            input: { id: invoice?.id ?? '' },
+            cardinality: 'finite'
+          }),
         }),
         queryClient.invalidateQueries({
-          queryKey: createConnectQueryKey(listCreditNotesByInvoiceId, {
-            invoiceId: invoice?.id ?? '',
+          queryKey: createConnectQueryKey({
+            schema: listCreditNotesByInvoiceId,
+
+            input: {
+              invoiceId: invoice?.id ?? '',
+            },
+
+            cardinality: 'finite'
           }),
         }),
       ])
@@ -266,7 +289,11 @@ export const InvoiceView: React.FC<Props & { invoiceId: string }> = ({ invoice, 
     onSuccess: async () => {
       toast.success('Invoice marked as uncollectible')
       await queryClient.invalidateQueries({
-        queryKey: createConnectQueryKey(getInvoice, { id: invoice?.id ?? '' }),
+        queryKey: createConnectQueryKey({
+          schema: getInvoice,
+          input: { id: invoice?.id ?? '' },
+          cardinality: 'finite'
+        }),
       })
     },
     onError: error => {
@@ -386,12 +413,16 @@ export const InvoiceView: React.FC<Props & { invoiceId: string }> = ({ invoice, 
         onCancel={() => {
           setIsEditMode(false)
           queryClient.invalidateQueries({
-            queryKey: createConnectQueryKey(getInvoice, { id: invoiceId }),
+            queryKey: createConnectQueryKey({
+              schema: getInvoice,
+              input: { id: invoiceId },
+              cardinality: 'finite'
+            }),
           })
         }}
         onSuccess={() => setIsEditMode(false)}
       />
-    )
+    );
   }
 
   return (

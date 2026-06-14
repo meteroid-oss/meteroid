@@ -1,5 +1,5 @@
-import { PartialMessage } from '@bufbuild/protobuf'
-import { useMutation } from '@connectrpc/connect-query'
+import { create, type MessageInitShape } from '@bufbuild/protobuf';
+import { createConnectQueryKey, useMutation } from '@connectrpc/connect-query';
 import {
   AlertDialog,
   AlertDialogAction,
@@ -43,10 +43,12 @@ import {
 import {
   EffectiveEntitlement,
   Entitlement,
-  EntitlementEntity,
-  EntitlementSpec,
-  EntitlementValue,
-} from '@/rpc/api/entitlements/v1/models_pb'
+  EntitlementEntitySchema,
+  EntitlementSpecSchema,
+  EntitlementValueSchema,
+} from '@/rpc/api/entitlements/v1/models_pb';
+
+import type { EntitlementEntity } from '@/rpc/api/entitlements/v1/models_pb';
 
 interface Props {
   customerId: string
@@ -64,7 +66,7 @@ export const EffectiveEntitlementsCard = ({ customerId, currentSubscriptionId }:
   // When we have a current subscription, load its direct entitlements so we know which rows are
   // "pinned here" and can look up local row ids for delete/update.
   const subscriptionEntity: EntitlementEntity | undefined = currentSubscriptionId
-    ? new EntitlementEntity({
+    ? create(EntitlementEntitySchema, {
         EntityId: { case: 'subscriptionId', value: currentSubscriptionId },
       })
     : undefined
@@ -87,8 +89,14 @@ export const EffectiveEntitlementsCard = ({ customerId, currentSubscriptionId }:
   const queryClient = useQueryClient()
   const batchCreateMutation = useMutation(batchCreateEntitlements, {
     onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: [listEntitlementsByEntity.service.typeName] })
-      queryClient.invalidateQueries({ queryKey: [getEffectiveEntitlements.service.typeName] })
+      queryClient.invalidateQueries({ queryKey: createConnectQueryKey({
+        schema: listEntitlementsByEntity.parent,
+        cardinality: undefined
+      }) })
+      queryClient.invalidateQueries({ queryKey: createConnectQueryKey({
+        schema: getEffectiveEntitlements.parent,
+        cardinality: undefined
+      }) })
       setPinAllOpen(false)
       toast.success('Entitlements pinned on this subscription.')
     },
@@ -119,7 +127,7 @@ export const EffectiveEntitlementsCard = ({ customerId, currentSubscriptionId }:
         )}
         {dialog.open && subscriptionEntity && (
           <EntityEntitlementDialog
-            entity={subscriptionEntity as PartialMessage<EntitlementEntity>}
+            entity={subscriptionEntity as MessageInitShape<typeof EntitlementEntitySchema>}
             onClose={() => setDialog({ open: false })}
           />
         )}
@@ -161,9 +169,9 @@ export const EffectiveEntitlementsCard = ({ customerId, currentSubscriptionId }:
         .filter(r => !!r.feature?.id)
         .map(
           r =>
-            new EntitlementSpec({
+            create(EntitlementSpecSchema, {
               featureId: r.feature!.id,
-              value: new EntitlementValue(entitlementValueToSpec(r.value)),
+              value: create(EntitlementValueSchema, entitlementValueToSpec(r.value)),
             })
         ),
     })
@@ -231,11 +239,11 @@ export const EffectiveEntitlementsCard = ({ customerId, currentSubscriptionId }:
           // an "Override" form pre-filled with current values (instead of an empty "Add" form).
           const seedValue =
             dialog.row && !existing
-              ? new EntitlementValue(entitlementValueToSpec(dialog.row.value))
+              ? create(EntitlementValueSchema, entitlementValueToSpec(dialog.row.value))
               : undefined
           return (
             <EntityEntitlementDialog
-              entity={subscriptionEntity as PartialMessage<EntitlementEntity>}
+              entity={subscriptionEntity as MessageInitShape<typeof EntitlementEntitySchema>}
               existing={existing}
               seedValue={seedValue}
               featureId={dialog.row?.feature?.id}
@@ -263,7 +271,7 @@ export const EffectiveEntitlementsCard = ({ customerId, currentSubscriptionId }:
         </AlertDialog>
       </div>
     </TooltipProvider>
-  )
+  );
 }
 
 interface RowProps {
@@ -325,8 +333,14 @@ const RowActions = ({
 
   const queryClient = useQueryClient()
   const invalidate = () => {
-    queryClient.invalidateQueries({ queryKey: [listEntitlementsByEntity.service.typeName] })
-    queryClient.invalidateQueries({ queryKey: [getEffectiveEntitlements.service.typeName] })
+    queryClient.invalidateQueries({ queryKey: createConnectQueryKey({
+      schema: listEntitlementsByEntity.parent,
+      cardinality: undefined
+    }) })
+    queryClient.invalidateQueries({ queryKey: createConnectQueryKey({
+      schema: getEffectiveEntitlements.parent,
+      cardinality: undefined
+    }) })
   }
 
   const createMutation = useMutation(createEntitlement, {
@@ -356,13 +370,13 @@ const RowActions = ({
     createMutation.mutate({
       featureId,
       entity: subscriptionEntity,
-      value: new EntitlementValue(entitlementValueToSpec(value)),
+      value: create(EntitlementValueSchema, entitlementValueToSpec(value)),
     })
   }
 
   const handleToggleDisable = () => {
     if (!featureId) return
-    let flipped: ConstructorParameters<typeof EntitlementValue>[0]
+    let flipped: MessageInitShape<typeof EntitlementValueSchema>
     if (value.case === 'boolean') {
       flipped = {
         value: {
@@ -389,14 +403,14 @@ const RowActions = ({
     if (pinnedHere) {
       const local = localEntitlements.find(e => e.featureId === featureId)
       if (local) {
-        updateMutation.mutate({ id: local.id, value: new EntitlementValue(flipped) })
+        updateMutation.mutate({ id: local.id, value: create(EntitlementValueSchema, flipped) })
         return
       }
     }
     createMutation.mutate({
       featureId,
       entity: subscriptionEntity,
-      value: new EntitlementValue(flipped),
+      value: create(EntitlementValueSchema, flipped),
     })
   }
 

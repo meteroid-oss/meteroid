@@ -1,4 +1,4 @@
-import { disableQuery } from '@connectrpc/connect-query'
+import { skipToken } from '@connectrpc/connect-query'
 
 import { useQuery } from '@/lib/connectrpc'
 import { PlanWithVersion } from '@/rpc/api/plans/v1/models_pb'
@@ -53,7 +53,7 @@ export const usePlanWithVersion = () => {
 
   const planQuery = useQuery(
     getPlanWithVersion,
-    planLocalId && filter ? { localId: planLocalId!, filter } : disableQuery
+    planLocalId && filter ? { localId: planLocalId!, filter } : skipToken
   )
 
   const data = planQuery.data?.plan ?? ({} as PlanWithVersion)
@@ -76,7 +76,7 @@ export const usePlanOverview = () => {
       ? {
           localId: planLocalId,
         }
-      : disableQuery
+      : skipToken
   )
 
   return data?.planOverview

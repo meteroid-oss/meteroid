@@ -1,4 +1,4 @@
-import { useMutation } from '@connectrpc/connect-query'
+import { createConnectQueryKey, useMutation } from '@connectrpc/connect-query';
 import {
   Badge,
   Button,
@@ -101,15 +101,27 @@ export const QuoteDetailView: React.FC<Props> = ({ quote }) => {
 
   const publishQuoteMutation = useMutation(publishQuote, {
     onSuccess: async () => {
-      await queryClient.invalidateQueries({ queryKey: [listQuotes.service.typeName] })
-      await queryClient.invalidateQueries({ queryKey: [getQuote.service.typeName] })
+      await queryClient.invalidateQueries({ queryKey: createConnectQueryKey({
+        schema: listQuotes.parent,
+        cardinality: undefined
+      }) })
+      await queryClient.invalidateQueries({ queryKey: createConnectQueryKey({
+        schema: getQuote.parent,
+        cardinality: undefined
+      }) })
     },
   })
 
   const convertQuoteToSubscriptionMutation = useMutation(convertQuoteToSubscription, {
     onSuccess: async () => {
-      await queryClient.invalidateQueries({ queryKey: [listQuotes.service.typeName] })
-      await queryClient.invalidateQueries({ queryKey: [getQuote.service.typeName] })
+      await queryClient.invalidateQueries({ queryKey: createConnectQueryKey({
+        schema: listQuotes.parent,
+        cardinality: undefined
+      }) })
+      await queryClient.invalidateQueries({ queryKey: createConnectQueryKey({
+        schema: getQuote.parent,
+        cardinality: undefined
+      }) })
     },
   })
 
@@ -131,15 +143,27 @@ export const QuoteDetailView: React.FC<Props> = ({ quote }) => {
 
   const sendQuoteMutation = useMutation(sendQuote, {
     onSuccess: async () => {
-      await queryClient.invalidateQueries({ queryKey: [listQuotes.service.typeName] })
-      await queryClient.invalidateQueries({ queryKey: [getQuote.service.typeName] })
+      await queryClient.invalidateQueries({ queryKey: createConnectQueryKey({
+        schema: listQuotes.parent,
+        cardinality: undefined
+      }) })
+      await queryClient.invalidateQueries({ queryKey: createConnectQueryKey({
+        schema: getQuote.parent,
+        cardinality: undefined
+      }) })
     },
   })
 
   const cancelQuoteMutation = useMutation(cancelQuote, {
     onSuccess: async () => {
-      await queryClient.invalidateQueries({ queryKey: [listQuotes.service.typeName] })
-      await queryClient.invalidateQueries({ queryKey: [getQuote.service.typeName] })
+      await queryClient.invalidateQueries({ queryKey: createConnectQueryKey({
+        schema: listQuotes.parent,
+        cardinality: undefined
+      }) })
+      await queryClient.invalidateQueries({ queryKey: createConnectQueryKey({
+        schema: getQuote.parent,
+        cardinality: undefined
+      }) })
     },
   })
 

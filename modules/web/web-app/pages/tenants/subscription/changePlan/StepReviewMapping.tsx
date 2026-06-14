@@ -1,4 +1,3 @@
-import { PlainMessage } from '@bufbuild/protobuf'
 import { useMutation } from '@connectrpc/connect-query'
 import { Badge, Button, Skeleton } from '@md/ui'
 import { useAtom } from 'jotai'
@@ -31,7 +30,7 @@ const FeeLabel = ({
   period,
   currency,
 }: {
-  fee?: PlainMessage<SubscriptionFee>
+  fee?: SubscriptionFee
   period?: SubscriptionFeeBillingPeriod
   currency: string
 }) => (

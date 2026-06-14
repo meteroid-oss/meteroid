@@ -1,9 +1,10 @@
+import { create } from '@bufbuild/protobuf'
 import { FileSpreadsheetIcon } from 'lucide-react'
 import { useState } from 'react'
 import { z } from 'zod'
 
 import { CSVImportDialog, CSVImportConfig } from '@/components/CSVImportDialog'
-import { useBatchJobCreate, CreateBatchJobRequest } from '@/features/batch-jobs/useBatchJobCreate'
+import { useBatchJobCreate, CreateBatchJobRequestSchema } from '@/features/batch-jobs/useBatchJobCreate'
 import { BatchJobType } from '@/rpc/api/batchjobs/v1/models_pb'
 
 import type { FunctionComponent } from 'react'
@@ -44,7 +45,7 @@ export const EventsImportModal: FunctionComponent<EventsImportModalProps> = ({
     if (!uploadFile) return null
     return uploadFile.arrayBuffer().then(
       buffer =>
-        new CreateBatchJobRequest({
+        create(CreateBatchJobRequestSchema, {
           fileData: new Uint8Array(buffer),
           jobType: BatchJobType.EVENT_CSV_IMPORT,
           fileName: uploadFile.name,

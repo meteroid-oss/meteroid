@@ -41,7 +41,11 @@ export const DeadLetterDetail = () => {
   const requeueMut = useMutation(requeueDeadLetter, {
     onSuccess: async () => {
       await queryClient.invalidateQueries({
-        queryKey: createConnectQueryKey(getDeadLetter, { id: deadLetterId }),
+        queryKey: createConnectQueryKey({
+          schema: getDeadLetter,
+          input: { id: deadLetterId },
+          cardinality: 'finite'
+        }),
       })
       toast.success('Message requeued for reprocessing')
     },
@@ -53,7 +57,11 @@ export const DeadLetterDetail = () => {
   const discardMut = useMutation(discardDeadLetter, {
     onSuccess: async () => {
       await queryClient.invalidateQueries({
-        queryKey: createConnectQueryKey(getDeadLetter, { id: deadLetterId }),
+        queryKey: createConnectQueryKey({
+          schema: getDeadLetter,
+          input: { id: deadLetterId },
+          cardinality: 'finite'
+        }),
       })
       toast.success('Message discarded')
       setShowDiscardDialog(false)

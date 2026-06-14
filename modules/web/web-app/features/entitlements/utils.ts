@@ -1,7 +1,10 @@
+import { type MessageInitShape } from '@bufbuild/protobuf'
+
 import {
   CalendarUnit,
   EffectiveEntitlement,
   EntitlementValue,
+  EntitlementValueSchema,
   FeatureType,
   ResetPeriod,
   ResolvedEntitlement,
@@ -201,7 +204,7 @@ export function formatResolvedValue(value: ResolvedEntitlement['value']): string
  */
 export function entitlementValueToSpec(
   value: ResolvedEntitlement['value'] | EffectiveEntitlement['value']
-): ConstructorParameters<typeof EntitlementValue>[0] {
+): MessageInitShape<typeof EntitlementValueSchema> {
   if (value.case === 'boolean') {
     return {
       value: {

@@ -1,4 +1,4 @@
-import { disableQuery, useMutation } from '@connectrpc/connect-query'
+import { createConnectQueryKey, skipToken, useMutation } from '@connectrpc/connect-query';
 import {
   Input,
   Label,
@@ -59,7 +59,7 @@ export const AddonEditPanel = () => {
   const switchId = useId()
   const { addonId } = useParams<{ addonId: string }>()
 
-  const addonQuery = useQuery(getAddOn, addonId ? { addOnId: addonId } : disableQuery)
+  const addonQuery = useQuery(getAddOn, addonId ? { addOnId: addonId } : skipToken)
   const addOn = addonQuery.data?.addOn
   const isLoading = addonQuery.isLoading
 
@@ -91,10 +91,16 @@ export const AddonEditPanel = () => {
   const editAddOnMutation = useMutation(editAddOn, {
     onSuccess: () => {
       queryClient.invalidateQueries({
-        queryKey: [listAddOns.service.typeName],
+        queryKey: createConnectQueryKey({
+          schema: listAddOns.parent,
+          cardinality: undefined
+        }),
       })
       queryClient.invalidateQueries({
-        queryKey: [getAddOn.service.typeName],
+        queryKey: createConnectQueryKey({
+          schema: getAddOn.parent,
+          cardinality: undefined
+        }),
       })
       navigate('..')
     },

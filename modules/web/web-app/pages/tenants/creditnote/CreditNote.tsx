@@ -172,7 +172,11 @@ const CreditNoteView = ({ creditNote, creditNoteId }: Props) => {
     onSuccess: async () => {
       toast.success('Credit note finalized')
       await queryClient.invalidateQueries({
-        queryKey: createConnectQueryKey(getCreditNote, { id: creditNoteId }),
+        queryKey: createConnectQueryKey({
+          schema: getCreditNote,
+          input: { id: creditNoteId },
+          cardinality: 'finite'
+        }),
       })
     },
     onError: error => {
@@ -184,10 +188,18 @@ const CreditNoteView = ({ creditNote, creditNoteId }: Props) => {
     onSuccess: async () => {
       toast.success('Credit note voided')
       await queryClient.invalidateQueries({
-        queryKey: createConnectQueryKey(getCreditNote, { id: creditNoteId }),
+        queryKey: createConnectQueryKey({
+          schema: getCreditNote,
+          input: { id: creditNoteId },
+          cardinality: 'finite'
+        }),
       })
       await queryClient.invalidateQueries({
-        queryKey: createConnectQueryKey(listCreditNotes, {}),
+        queryKey: createConnectQueryKey({
+          schema: listCreditNotes,
+          input: {},
+          cardinality: 'finite'
+        }),
       })
     },
     onError: error => {
@@ -199,7 +211,11 @@ const CreditNoteView = ({ creditNote, creditNoteId }: Props) => {
     onSuccess: async () => {
       toast.success('Credit note deleted')
       await queryClient.invalidateQueries({
-        queryKey: createConnectQueryKey(listCreditNotes, {}),
+        queryKey: createConnectQueryKey({
+          schema: listCreditNotes,
+          input: {},
+          cardinality: 'finite'
+        }),
       })
       navigate(`${basePath}/credit-notes`)
     },

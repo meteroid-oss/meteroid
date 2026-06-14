@@ -120,7 +120,10 @@ export const CustomerHeader: FunctionComponent<CustomerHeaderProps> = ({
       toast.success('Customer archived successfully')
       // Invalidate customer list cache
       await queryClient.invalidateQueries({
-        queryKey: createConnectQueryKey(listCustomers),
+        queryKey: createConnectQueryKey({
+          schema: listCustomers,
+          cardinality: 'finite'
+        }),
       })
       navigate(`${basePath}/customers`)
     },
@@ -134,10 +137,17 @@ export const CustomerHeader: FunctionComponent<CustomerHeaderProps> = ({
       toast.success('Customer unarchived successfully')
       await Promise.all([
         queryClient.invalidateQueries({
-          queryKey: createConnectQueryKey(listCustomers),
+          queryKey: createConnectQueryKey({
+            schema: listCustomers,
+            cardinality: 'finite'
+          }),
         }),
         queryClient.invalidateQueries({
-          queryKey: createConnectQueryKey(getCustomerById, { id }),
+          queryKey: createConnectQueryKey({
+            schema: getCustomerById,
+            input: { id },
+            cardinality: 'finite'
+          }),
         }),
       ])
     },

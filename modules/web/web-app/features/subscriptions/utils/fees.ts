@@ -1,4 +1,3 @@
-import { PlainMessage } from "@bufbuild/protobuf"
 
 import { SubscriptionFee, SubscriptionFeeBillingPeriod } from "@/rpc/api/subscriptions/v1/models_pb"
 import { formatCurrencyNoRounding } from "@/utils/numbers"
@@ -23,7 +22,7 @@ export const formatSubscriptionFeeBillingPeriod = (
 }
 
 export const formatSubscriptionFee = (
-  fee: PlainMessage<SubscriptionFee> | undefined,
+  fee: SubscriptionFee | undefined,
   currency: string
 ): {
   type: string

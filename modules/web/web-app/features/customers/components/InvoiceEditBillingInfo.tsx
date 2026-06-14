@@ -1,13 +1,14 @@
-import { PartialMessage } from '@bufbuild/protobuf'
 import { Alert, Button } from '@md/ui'
 import { InfoIcon, RefreshCw } from 'lucide-react'
 import { UseFormReturn } from 'react-hook-form'
 
-import { Customer } from '@/rpc/api/customers/v1/models_pb'
+import { CustomerSchema } from '@/rpc/api/customers/v1/models_pb'
 import { InlineCustomer } from '@/rpc/api/invoices/v1/models_pb'
 
 import { BillingInfoCard } from './BillingInfoCard'
 import { BillingInfoForm, BillingInfoFormValues } from './BillingInfoForm'
+
+import type { MessageInitShape } from '@bufbuild/protobuf'
 
 interface InvoiceEditBillingInfoProps {
   customerDetails: InlineCustomer
@@ -29,7 +30,7 @@ export const InvoiceEditBillingInfo = ({
   isSubmitting,
 }: InvoiceEditBillingInfoProps) => {
   // Convert InlineCustomer to Customer format for reuse
-  const customerForCard: PartialMessage<Customer> = {
+  const customerForCard: MessageInitShape<typeof CustomerSchema> = {
     name: customerDetails.name,
     billingEmail: customerDetails.email || undefined,
     billingAddress: customerDetails.billingAddress,

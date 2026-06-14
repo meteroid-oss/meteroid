@@ -1,5 +1,4 @@
-import { PartialMessage } from '@bufbuild/protobuf'
-import { useMutation } from '@connectrpc/connect-query'
+import { createConnectQueryKey, useMutation } from '@connectrpc/connect-query';
 import {
   AlertDialog,
   AlertDialogAction,
@@ -28,10 +27,16 @@ import {
   listEntitlementsByEntity,
   listFeatures,
 } from '@/rpc/api/entitlements/v1/entitlements-EntitlementsService_connectquery'
-import { Entitlement, EntitlementEntity } from '@/rpc/api/entitlements/v1/models_pb'
+import {
+  Entitlement,
+  EntitlementEntity,
+  EntitlementEntitySchema,
+} from '@/rpc/api/entitlements/v1/models_pb'
+
+import type { MessageInitShape } from '@bufbuild/protobuf'
 
 interface Props {
-  entity: PartialMessage<EntitlementEntity>
+  entity: MessageInitShape<typeof EntitlementEntitySchema>
   hint?: string
   hideHeader?: boolean
   canEdit?: boolean
@@ -64,7 +69,10 @@ export const EntityEntitlementsSection = ({ entity, hint, hideHeader, canEdit = 
   )
 
   const invalidate = () =>
-    queryClient.invalidateQueries({ queryKey: [listEntitlementsByEntity.service.typeName] })
+    queryClient.invalidateQueries({ queryKey: createConnectQueryKey({
+      schema: listEntitlementsByEntity.parent,
+      cardinality: undefined
+    }) })
 
   const deleteMutation = useMutation(deleteEntitlement, {
     onSuccess: () => {

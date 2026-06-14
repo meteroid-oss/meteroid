@@ -1,3 +1,4 @@
+import { create } from '@bufbuild/protobuf';
 import {
   createConnectQueryKey,
   createProtobufSafeUpdater,
@@ -36,9 +37,12 @@ export const InvoiceTab = () => {
     onSuccess: async res => {
       if (res.entity) {
         queryClient.setQueryData(
-          createConnectQueryKey(listInvoicingEntities),
+          createConnectQueryKey({
+            schema: listInvoicingEntities,
+            cardinality: 'finite'
+          }),
           createProtobufSafeUpdater(listInvoicingEntities, prev => {
-            return {
+            return create(listInvoicingEntities.output, {
               entities: prev?.entities.map(entity => {
                 if (entity.id === res.entity?.id) {
                   return res.entity
@@ -46,7 +50,7 @@ export const InvoiceTab = () => {
                   return entity
                 }
               }),
-            }
+            });
           })
         )
         toast.success('Invoicing entity updated')

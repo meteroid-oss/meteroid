@@ -25,11 +25,18 @@ export const EditCustomerModal = ({ customer, visible, onCancel }: Props) => {
   const updateCustomerMutation = useMutation(updateCustomer, {
     onSuccess: () => {
       queryClient.invalidateQueries({
-        queryKey: createConnectQueryKey(getCustomerById, { id: customer.id }),
+        queryKey: createConnectQueryKey({
+          schema: getCustomerById,
+          input: { id: customer.id },
+          cardinality: 'finite'
+        }),
       })
 
       queryClient.invalidateQueries({
-        queryKey: [listCustomers.service.typeName],
+        queryKey: createConnectQueryKey({
+          schema: listCustomers.parent,
+          cardinality: undefined
+        }),
       })
     },
   })

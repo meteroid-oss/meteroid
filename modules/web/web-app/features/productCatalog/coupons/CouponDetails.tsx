@@ -1,4 +1,4 @@
-import { disableQuery, useMutation, useQuery as useConnectQuery } from '@connectrpc/connect-query'
+import { createConnectQueryKey, skipToken, useMutation, useQuery as useConnectQuery } from '@connectrpc/connect-query';
 import { useQueryClient } from '@tanstack/react-query'
 import {
   Button,
@@ -56,11 +56,14 @@ export const CouponDetails: FunctionComponent = () => {
       ? {
           couponLocalId: couponLocalId,
         }
-      : disableQuery
+      : skipToken
   )
 
   const invalidate = async () => {
-    await queryClient.invalidateQueries({ queryKey: [listCoupons.service.typeName] })
+    await queryClient.invalidateQueries({ queryKey: createConnectQueryKey({
+      schema: listCoupons.parent,
+      cardinality: undefined
+    }) })
   }
 
   const editCouponMut = useMutation(editCoupon, {
