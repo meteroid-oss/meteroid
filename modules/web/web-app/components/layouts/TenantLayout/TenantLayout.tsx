@@ -22,6 +22,7 @@ import { ChevronDown, Plus } from 'lucide-react'
 import { PropsWithChildren } from 'react'
 import { NavLink, Outlet, useLocation, useNavigate } from 'react-router-dom'
 
+import { ErrorBoundary } from '@/components/errors'
 import { NavMain } from '@/components/layouts/TenantLayout/components/NavMain'
 import { getFilteredSidebarItems } from '@/components/layouts/TenantLayout/utils'
 import { TenantDropdown } from '@/components/layouts/shared/LayoutHeader/TenantDropdown'
@@ -223,7 +224,9 @@ export const TenantLayoutOutlet = () => {
         </button>
       </Sidebar>
       <SidebarInset className="relative">
-        <Outlet />
+        <ErrorBoundary resetKey={pathname}>
+          <Outlet />
+        </ErrorBoundary>
         {isPlatformAdmin && pathname.includes('/admin') && <AdminToolbox />}
       </SidebarInset>
     </>

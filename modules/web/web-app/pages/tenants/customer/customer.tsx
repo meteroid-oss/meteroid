@@ -5,6 +5,7 @@ import { ChevronDown, ExternalLink, Plus } from 'lucide-react'
 import { Fragment, useState } from 'react'
 import { useNavigate } from 'react-router-dom'
 
+import { ErrorBoundary } from '@/components/errors'
 import { TenantPageLayout } from '@/components/layouts'
 import { CustomerHeader, CustomersCreatePanel } from '@/features/customers'
 import { ActivityCard } from '@/features/customers/cards/ActivityCard'
@@ -116,7 +117,9 @@ export const Customer = () => {
                       </Flex>
                     </Flex>
                     <div className="flex-none">
-                      <SubscriptionsCard customer={data} />
+                      <ErrorBoundary>
+                        <SubscriptionsCard customer={data} />
+                      </ErrorBoundary>
                     </div>
                   </>
                 )}
@@ -133,7 +136,9 @@ export const Customer = () => {
                   )}
                 </Flex>
                 <div className="flex-none">
-                  <InvoicesCard customer={data} />
+                  <ErrorBoundary>
+                    <InvoicesCard customer={data} />
+                  </ErrorBoundary>
                 </div>
                 {env.entitlementsEnabled && (
                   <div className="bg-card rounded-lg border border-border shadow-sm mt-4 flex-none">

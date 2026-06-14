@@ -1,5 +1,6 @@
 import { createBrowserRouter } from 'react-router-dom'
 
+import { RouteErrorBoundary } from '@/components/errors'
 import { OnboardingLayout } from '@/components/layouts/OnboardingLayout'
 import { ProtectedRoutes } from '@/features/auth/sessionRoutes'
 import { Logout } from '@/pages/auth'
@@ -17,6 +18,7 @@ const router = createBrowserRouter(
   [
     {
       element: <Providers />,
+      errorElement: <RouteErrorBoundary />,
       children: [
         {
           path: '/',
