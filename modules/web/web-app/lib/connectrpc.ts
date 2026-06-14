@@ -5,10 +5,12 @@ import {
   useMutation,
   useQuery as useQueryUnsafe
 } from '@connectrpc/connect-query'
-import { CreateQueryOptions } from '@connectrpc/connect-query/dist/cjs/create-use-query-options'
 
 import type { Message, PartialMessage, PlainMessage } from '@bufbuild/protobuf'
 import type { ConnectError, Transport } from '@connectrpc/connect'
+// CreateQueryOptions is re-exported from the package root as UseQueryOptions; under
+// moduleResolution "bundler" the previous deep import into dist/cjs is no longer resolvable.
+import type { UseQueryOptions as CreateQueryOptions } from '@connectrpc/connect-query'
 import type { UseQueryResult } from '@tanstack/react-query'
 
 type HasFields<T> = keyof T extends never ? false : true
