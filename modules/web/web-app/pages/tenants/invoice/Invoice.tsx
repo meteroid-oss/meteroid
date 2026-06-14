@@ -1,4 +1,3 @@
-import { create } from '@bufbuild/protobuf'
 import { createConnectQueryKey, useMutation } from '@connectrpc/connect-query'
 import {
   Button,
@@ -208,15 +207,13 @@ export const InvoiceView: React.FC<Props & { invoiceId: string }> = ({ invoice, 
   const [isMarkAsPaidDialogOpen, setIsMarkAsPaidDialogOpen] = useState(false)
 
   const refresh = useMutation(refreshInvoiceData, {
-    onSuccess: async res => {
-      await queryClient.setQueryData(
-        createConnectQueryKey({
+    onSuccess: async () => {
+      await queryClient.invalidateQueries({
+        queryKey: createConnectQueryKey({
           schema: getInvoice,
-          input: { id: invoice?.id ?? '' },
-          cardinality: 'finite'
-        }),
-        create(getInvoice.output, { invoice: res.invoice })
-      )
+          cardinality: undefined
+        })
+      })
     },
   })
 

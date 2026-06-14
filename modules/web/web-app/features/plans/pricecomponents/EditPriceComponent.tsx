@@ -1,10 +1,4 @@
-import { create } from '@bufbuild/protobuf';
-import {
-  createConnectQueryKey,
-  createProtobufSafeUpdater,
-  skipToken,
-  useMutation,
-} from '@connectrpc/connect-query'
+import { createConnectQueryKey, skipToken, useMutation } from '@connectrpc/connect-query';
 import { Form } from '@md/ui'
 import { useQueryClient } from '@tanstack/react-query'
 import { useSetAtom } from 'jotai'
@@ -120,24 +114,12 @@ export const EditPriceComponent = ({ component }: EditPriceComponentProps) => {
       setEditedComponents(components => components.filter(compId => compId !== component.id))
 
       if (data.component) {
-        queryClient.setQueryData(
-          createConnectQueryKey({
+        queryClient.invalidateQueries({
+          queryKey: createConnectQueryKey({
             schema: listPriceComponentsQuery,
-
-            input: {
-              planVersionId: version.id,
-            },
-
-            cardinality: 'finite'
-          }),
-          createProtobufSafeUpdater(listPriceComponentsQuery, prev => {
-            const idx = prev?.components?.findIndex(comp => comp.id === component.id) ?? -1
-            if (idx === -1 || !data.component) return prev
-            const updated = [...(prev?.components ?? [])]
-            updated[idx] = data.component
-            return create(listPriceComponentsQuery.output, { components: updated });
+            cardinality: undefined
           })
-        )
+        })
       }
       queryClient.invalidateQueries({ queryKey: createConnectQueryKey({
         schema: getResolvedEntitlementsForPlanVersion.parent,

@@ -1,9 +1,4 @@
-import { create } from '@bufbuild/protobuf';
-import {
-  createConnectQueryKey,
-  createProtobufSafeUpdater,
-  useMutation,
-} from '@connectrpc/connect-query'
+import { createConnectQueryKey, useMutation } from '@connectrpc/connect-query';
 import { Button } from '@md/ui'
 import { useQueryClient } from '@tanstack/react-query'
 import { useAtom } from 'jotai'
@@ -49,20 +44,12 @@ export const PriceComponentCard: React.FC<{
   const deleteComponentMutation = useMutation(removePriceComponent, {
     onSuccess: () => {
       planWithVersion.version &&
-        queryClient.setQueryData(
-          createConnectQueryKey({
+        queryClient.invalidateQueries({
+          queryKey: createConnectQueryKey({
             schema: listPriceComponents,
-
-            input: {
-              planVersionId: planWithVersion.version.id,
-            },
-
-            cardinality: 'finite'
-          }),
-          createProtobufSafeUpdater(listPriceComponents, prev => (create(listPriceComponents.output, ({
-            components: prev?.components.filter(c => c.id !== component.id) ?? []
-          }))))
-        )
+            cardinality: undefined
+          })
+        })
       queryClient.invalidateQueries({ queryKey: createConnectQueryKey({
         schema: getResolvedEntitlementsForPlanVersion.parent,
         cardinality: undefined

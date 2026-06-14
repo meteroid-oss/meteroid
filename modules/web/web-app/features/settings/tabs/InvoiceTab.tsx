@@ -1,9 +1,4 @@
-import { create } from '@bufbuild/protobuf';
-import {
-  createConnectQueryKey,
-  createProtobufSafeUpdater,
-  useMutation,
-} from '@connectrpc/connect-query'
+import { createConnectQueryKey, useMutation } from '@connectrpc/connect-query';
 import { Badge, Button, Card, Form, InputFormField, Switch, TextareaFormField } from '@md/ui'
 import { useQueryClient } from '@tanstack/react-query'
 import { useEffect } from 'react'
@@ -36,23 +31,12 @@ export const InvoiceTab = () => {
   const updateInvoicingEntityMut = useMutation(updateInvoicingEntity, {
     onSuccess: async res => {
       if (res.entity) {
-        queryClient.setQueryData(
-          createConnectQueryKey({
+        queryClient.invalidateQueries({
+          queryKey: createConnectQueryKey({
             schema: listInvoicingEntities,
-            cardinality: 'finite'
-          }),
-          createProtobufSafeUpdater(listInvoicingEntities, prev => {
-            return create(listInvoicingEntities.output, {
-              entities: prev?.entities.map(entity => {
-                if (entity.id === res.entity?.id) {
-                  return res.entity
-                } else {
-                  return entity
-                }
-              }),
-            });
+            cardinality: undefined
           })
-        )
+        })
         toast.success('Invoicing entity updated')
       }
     },

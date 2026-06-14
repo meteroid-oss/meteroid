@@ -1,9 +1,4 @@
-import { create } from '@bufbuild/protobuf';
-import {
-  createConnectQueryKey,
-  createProtobufSafeUpdater,
-  useMutation,
-} from '@connectrpc/connect-query'
+import { createConnectQueryKey, useMutation } from '@connectrpc/connect-query';
 import {
   ScrollArea,
   Sheet,
@@ -62,16 +57,12 @@ export const AddComponentPanel = () => {
     onSuccess: data => {
       if (!version?.id) return
       if (data.component) {
-        queryClient.setQueryData(
-          createConnectQueryKey({
+        queryClient.invalidateQueries({
+          queryKey: createConnectQueryKey({
             schema: listPriceComponents,
-            input: { planVersionId: version.id },
-            cardinality: 'finite'
-          }),
-          createProtobufSafeUpdater(listPriceComponents, prev => (create(listPriceComponents.output, ({
-            components: [...(prev?.components ?? []), data.component!]
-          }))))
-        )
+            cardinality: undefined
+          })
+        })
       }
       queryClient.invalidateQueries({ queryKey: createConnectQueryKey({
         schema: getResolvedEntitlementsForPlanVersion.parent,

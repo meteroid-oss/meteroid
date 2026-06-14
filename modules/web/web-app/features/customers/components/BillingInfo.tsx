@@ -1,9 +1,5 @@
 import { create } from '@bufbuild/protobuf';
-import {
-  createConnectQueryKey,
-  createProtobufSafeUpdater,
-  useMutation,
-} from '@connectrpc/connect-query'
+import { createConnectQueryKey, useMutation } from '@connectrpc/connect-query';
 import { useQueryClient } from '@tanstack/react-query'
 import { toast } from 'sonner'
 
@@ -28,19 +24,12 @@ export const BillingInfo = ({ customer, isEditing, setIsEditing }: BillingInfoPr
   const updateBillingInfoMut = useMutation(updateCustomer, {
     onSuccess: res => {
       if (res.customer) {
-        queryClient.setQueryData(
-          createConnectQueryKey({
+        queryClient.invalidateQueries({
+          queryKey: createConnectQueryKey({
             schema: getCheckout,
-            cardinality: 'finite'
-          }),
-          createProtobufSafeUpdater(getCheckout, prev => (create(getCheckout.output, ({
-            checkout: prev?.checkout
-              ? { ...prev.checkout, customer: res.customer }
-              : { customer: res.customer },
-
-            checkoutType: prev?.checkoutType
-          }))))
-        )
+            cardinality: undefined
+          })
+        })
       }
 
       toast.success('Billing information updated successfully')

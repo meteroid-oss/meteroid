@@ -1,9 +1,5 @@
 import { create } from '@bufbuild/protobuf';
-import {
-  createConnectQueryKey,
-  createProtobufSafeUpdater,
-  useMutation,
-} from '@connectrpc/connect-query'
+import { createConnectQueryKey, useMutation } from '@connectrpc/connect-query';
 import { Button, Form, InputFormField, Label } from '@md/ui'
 import { useQueryClient } from '@tanstack/react-query'
 import { Edit2, PlusIcon, XIcon } from 'lucide-react'
@@ -42,17 +38,12 @@ export const BillingInfo = ({ customer, isEditing, setIsEditing }: BillingInfoPr
   const updateBillingInfoMut = useMutation(updateCustomer, {
     onSuccess: res => {
       if (res.customer) {
-        queryClient.setQueryData(
-          createConnectQueryKey({
+        queryClient.invalidateQueries({
+          queryKey: createConnectQueryKey({
             schema: getCustomerPortalOverview,
-            cardinality: 'finite'
-          }),
-          createProtobufSafeUpdater(getCustomerPortalOverview, prev => (create(getCustomerPortalOverview.output, ({
-            overview: prev?.overview
-              ? { ...prev.overview, customer: res.customer }
-              : { customer: res.customer },
-          }))))
-        )
+            cardinality: undefined
+          })
+        })
       }
 
       toast.success('Billing information updated successfully')

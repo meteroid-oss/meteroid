@@ -1,9 +1,4 @@
-import { create } from '@bufbuild/protobuf';
-import {
-  createConnectQueryKey,
-  createProtobufSafeUpdater,
-  useMutation,
-} from '@connectrpc/connect-query'
+import { createConnectQueryKey, useMutation } from '@connectrpc/connect-query';
 import {
   Button,
   Dialog,
@@ -45,17 +40,12 @@ export const CreateInvoicingEntityDialog = ({
   const createInvoicingEntityMut = useMutation(createInvoicingEntity, {
     onSuccess: async res => {
       if (res.entity) {
-        queryClient.setQueryData(
-          createConnectQueryKey({
+        queryClient.invalidateQueries({
+          queryKey: createConnectQueryKey({
             schema: listInvoicingEntities,
-            cardinality: 'finite'
-          }),
-          createProtobufSafeUpdater(listInvoicingEntities, prev => {
-            return create(listInvoicingEntities.output, {
-              entities: [...(prev?.entities ?? []), res.entity!],
-            });
+            cardinality: undefined
           })
-        )
+        })
         toast.success('Invoicing entity created')
         setInvoicingEntity(res.entity.id)
         setOpen(false)

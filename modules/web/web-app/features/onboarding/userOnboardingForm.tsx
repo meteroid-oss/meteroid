@@ -1,9 +1,4 @@
-import { create } from '@bufbuild/protobuf';
-import {
-  createConnectQueryKey,
-  createProtobufSafeUpdater,
-  useMutation,
-} from '@connectrpc/connect-query'
+import { createConnectQueryKey, useMutation } from '@connectrpc/connect-query';
 import { Button, Flex, Form, InputFormField, SelectFormField, SelectItem } from '@md/ui'
 import { useQueryClient } from '@tanstack/react-query'
 import { z } from 'zod'
@@ -24,15 +19,12 @@ export const UserOnboardingForm = () => {
   const onboardMeMut = useMutation(onboardMe, {
     onSuccess: async res => {
       if (res.user) {
-        queryClient.setQueryData(
-          createConnectQueryKey({
+        queryClient.invalidateQueries({
+          queryKey: createConnectQueryKey({
             schema: me,
-            cardinality: 'finite'
-          }),
-          createProtobufSafeUpdater(me, prev => {
-            return create(me.output, prev ? { ...prev, user: res.user } : { user: res.user });
+            cardinality: undefined
           })
-        )
+        })
       }
     },
   })

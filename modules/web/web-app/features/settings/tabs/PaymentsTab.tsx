@@ -1,9 +1,4 @@
-import { create } from '@bufbuild/protobuf';
-import {
-  createConnectQueryKey,
-  createProtobufSafeUpdater,
-  useMutation,
-} from '@connectrpc/connect-query'
+import { createConnectQueryKey, useMutation } from '@connectrpc/connect-query';
 import {
   Button,
   Card,
@@ -57,21 +52,13 @@ const PaymentMethodsForm = ({
   const queryClient = useQueryClient()
 
   const updateInvoicingEntityMut = useMutation(updateInvoicingEntityProviders, {
-    onSuccess: async res => {
-      queryClient.setQueryData(
-        createConnectQueryKey({
+    onSuccess: async () => {
+      queryClient.invalidateQueries({
+        queryKey: createConnectQueryKey({
           schema: getInvoicingEntityProviders,
-          input: { id: invoiceEntityId },
-          cardinality: 'finite'
-        }),
-        createProtobufSafeUpdater(getInvoicingEntityProviders, () => {
-          return create(getInvoicingEntityProviders.output, {
-            cardProvider: res.cardProvider,
-            directDebitProvider: res.directDebitProvider,
-            bankAccount: res.bankAccount,
-          });
+          cardinality: undefined
         })
-      )
+      })
       toast.success('Payment methods updated')
     },
   })

@@ -15,12 +15,15 @@ import { useTheme } from 'providers/ThemeProvider'
 
 import router from './router/router'
 
-export const App: React.FC = () => {
-  const transport = createGrpcWebTransport({
-    baseUrl: env.meteroidApiUri,
-    interceptors: [errorInterceptor, loggingInterceptor, authInterceptor],
-  })
+// A single, stable transport for the app's lifetime. It must not be recreated
+// on render: connect-query derives the query-key's transport id from the
+// transport reference, so a new instance would orphan the entire query cache.
+const transport = createGrpcWebTransport({
+  baseUrl: env.meteroidApiUri,
+  interceptors: [errorInterceptor, loggingInterceptor, authInterceptor],
+})
 
+export const App: React.FC = () => {
   const theme = useTheme()
 
   return (
