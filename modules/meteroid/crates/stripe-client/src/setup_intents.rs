@@ -27,6 +27,12 @@ pub struct StripeMandateRequest {
     mandate_type: StripeMandateType,
 }
 
+impl StripeMandateRequest {
+    pub fn new(mandate_type: StripeMandateType) -> Self {
+        Self { mandate_type }
+    }
+}
+
 #[derive(Eq, PartialEq, Serialize, Clone, Debug, Copy)]
 #[serde(rename_all = "snake_case")]
 pub enum StripePaymentMethodType {

@@ -136,6 +136,10 @@ impl StripeClient {
 
         let request_builder = self
             .create_init_request(Method::POST, url, secret_key, Some(idempotency_key))
+            .header(
+                reqwest::header::CONTENT_TYPE,
+                "application/x-www-form-urlencoded",
+            )
             .body(body);
 
         self.execute(request_builder, retry_strategy)

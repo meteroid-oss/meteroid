@@ -7,6 +7,7 @@ mod coupons;
 mod lifecycle;
 mod migration;
 mod payment_methods_config;
+mod payment_webhook_settlement;
 mod plan_change;
 mod plan_change_checkout;
 mod trials;
