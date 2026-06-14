@@ -86,9 +86,9 @@ export const PlanOnboardingModal: FC = () => {
           </div>
         </div>
         <div className="flex flex-row lg:flex-col items-center">
-          <div className="flex-grow  bg-border h-0.5 mx-2 lg:w-0.5 lg:pt-2"></div>
+          <div className="grow  bg-border h-0.5 mx-2 lg:w-0.5 lg:pt-2"></div>
           <div>or</div>
-          <div className="flex-grow  bg-border h-0.5 mx-2 lg:w-0.5 lg:pb-2"></div>
+          <div className="grow  bg-border h-0.5 mx-2 lg:w-0.5 lg:pb-2"></div>
         </div>
         <div className="w-1/3 text-center h-3/4 mx-auto">
           <h2 className="text-lg font-semibold mb-4">Start from a template</h2>

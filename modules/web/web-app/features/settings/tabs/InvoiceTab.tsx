@@ -108,7 +108,7 @@ export const InvoiceTab = () => {
                 <h3 className="font-medium text-lg">Invoice settings</h3>
               </div>
               <div className="col-span-4 content-center  flex flex-row">
-                <div className="flex-grow"></div>
+                <div className="grow"></div>
                 <InvoicingEntitySelect/>
               </div>
             </div>

@@ -56,11 +56,11 @@ export const AuthFormLayout = () => {
 
       {
         shouldShowOauth && (<Flex align="center" justify="center" className="gap-2 w-full mt-1">
-          <div className="flex-grow">
+          <div className="grow">
             <Separator/>
           </div>
           <div className="text-muted-foreground text-xs whitespace-nowrap">or</div>
-          <div className="flex-grow">
+          <div className="grow">
             <Separator/>
           </div>
         </Flex>)

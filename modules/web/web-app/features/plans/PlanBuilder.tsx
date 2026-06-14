@@ -89,7 +89,7 @@ export const PlanBuilder: React.FC<Props> = ({ children }) => {
                   <div>
                     <InfoIcon size={16} className="flex text-brand  "/>
                   </div>
-                  <span className="text-foreground text-xs flex-grow flex gap-1">
+                  <span className="text-foreground text-xs grow flex gap-1">
                     A{' '}
                     <Link to={`../${overview.localId}/draft`} className="hover:underline">
                       draft version

@@ -39,7 +39,7 @@ const TransactionItem: React.FC<TransactionItemProps> = ({ transaction, currency
   return (
     <div className="flex items-center justify-between p-4 border border-gray-200 rounded-lg">
       <div className="flex items-center flex-1 min-w-0">
-        <div className={`flex-shrink-0 ${statusConfig.color}`}>{statusConfig.icon}</div>
+        <div className={`shrink-0 ${statusConfig.color}`}>{statusConfig.icon}</div>
         <div className="ml-4 flex-1 min-w-0">
           <div className="flex items-center gap-2">
             <span className="text-sm font-medium text-gray-900">
@@ -60,7 +60,7 @@ const TransactionItem: React.FC<TransactionItemProps> = ({ transaction, currency
           )}
         </div>
       </div>
-      <div className="ml-4 flex-shrink-0">
+      <div className="ml-4 shrink-0">
         <span className={`text-sm font-semibold ${isRefund ? 'text-orange-600' : 'text-gray-900'}`}>
           {isRefund ? '-' : ''}
           {formatCurrency(Number(transaction.amount), currency)}

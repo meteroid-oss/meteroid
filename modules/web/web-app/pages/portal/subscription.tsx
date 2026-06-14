@@ -403,7 +403,7 @@ function IdleView({
             <div className="flex items-center justify-between gap-4">
               <div className="flex items-center gap-3 min-w-0">
                 <div
-                  className={`w-8 h-8 rounded-full flex items-center justify-center flex-shrink-0 ${
+                  className={`w-8 h-8 rounded-full flex items-center justify-center shrink-0 ${
                     sub.pendingEvent.eventType === PendingEventType.CANCEL
                       ? 'bg-amber-100'
                       : 'bg-blue-100'
@@ -435,12 +435,12 @@ function IdleView({
                 <button
                   onClick={onCancelChange}
                   disabled={isCancelling}
-                  className="text-sm text-gray-500 hover:text-gray-900 font-medium flex-shrink-0 disabled:opacity-50 transition-colors"
+                  className="text-sm text-gray-500 hover:text-gray-900 font-medium shrink-0 disabled:opacity-50 transition-colors"
                 >
                   {isCancelling ? 'Revoking...' : 'Revoke'}
                 </button>
               ) : (
-                <span className="text-xs text-gray-400 italic flex-shrink-0">
+                <span className="text-xs text-gray-400 italic shrink-0">
                   Scheduled by your account manager
                 </span>
               )}
@@ -486,7 +486,7 @@ function IdleView({
 
             {!sub.onlinePaymentEnabled && (
               <div className="flex items-start gap-2 mb-4 px-3 py-2.5 bg-amber-50/60 rounded-lg">
-                <AlertCircle size={14} className="text-amber-600 mt-0.5 flex-shrink-0" />
+                <AlertCircle size={14} className="text-amber-600 mt-0.5 shrink-0" />
                 <p className="text-sm text-amber-700">
                   Adding add-ons isn&rsquo;t available for this subscription. Please contact your
                   account manager.
@@ -527,7 +527,7 @@ function IdleView({
                       purchaseMutation.isPending ||
                       (addon.maxInstances != null && addon.currentQuantity >= addon.maxInstances)
                     }
-                    className="text-sm font-semibold text-gray-900 bg-gray-50 hover:bg-gray-100 border border-gray-200 rounded-lg px-4 py-2 transition-colors disabled:opacity-50 flex-shrink-0"
+                    className="text-sm font-semibold text-gray-900 bg-gray-50 hover:bg-gray-100 border border-gray-200 rounded-lg px-4 py-2 transition-colors disabled:opacity-50 shrink-0"
                   >
                     {purchaseMutation.isPending ? 'Processing...' : 'Buy'}
                   </button>
@@ -949,7 +949,7 @@ function PlanChangeView({
 
           {!isLoadingPreview && !!previewError && (
             <div className="bg-white rounded-xl border border-gray-200 p-4 flex items-center gap-3">
-              <AlertCircle className="h-4 w-4 text-gray-400 flex-shrink-0" />
+              <AlertCircle className="h-4 w-4 text-gray-400 shrink-0" />
               <p className="text-sm text-gray-500">Unable to load preview</p>
             </div>
           )}
@@ -959,7 +959,7 @@ function PlanChangeView({
               <div className="flex gap-3">
                 {preview.preview.changeDirection === ChangeDirection.UPGRADE ? (
                   <>
-                    <Zap size={16} className="text-green-500 mt-0.5 flex-shrink-0" />
+                    <Zap size={16} className="text-green-500 mt-0.5 shrink-0" />
                     <div className="text-sm text-gray-700">
                       <p>
                         Your plan will change to{' '}
@@ -981,7 +981,7 @@ function PlanChangeView({
                   </>
                 ) : (
                   <>
-                    <Clock size={16} className="text-gray-400 mt-0.5 flex-shrink-0" />
+                    <Clock size={16} className="text-gray-400 mt-0.5 shrink-0" />
                     <p className="text-sm text-gray-700">
                       Your plan will change to{' '}
                       <span className="font-medium">{preview.newPlanName}</span> on your next

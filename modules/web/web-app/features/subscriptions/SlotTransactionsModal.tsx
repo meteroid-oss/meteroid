@@ -210,9 +210,9 @@ const TransactionRow = ({
       <td className="px-4 py-3">
         <div className="flex items-center gap-2">
           {isUpgrade ? (
-            <ArrowUp size={16} className="text-success flex-shrink-0" />
+            <ArrowUp size={16} className="text-success shrink-0" />
           ) : (
-            <ArrowDown size={16} className="text-warning flex-shrink-0" />
+            <ArrowDown size={16} className="text-warning shrink-0" />
           )}
           <div>
             <div className="text-sm font-medium">

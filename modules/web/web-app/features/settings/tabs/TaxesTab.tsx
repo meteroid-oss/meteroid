@@ -352,7 +352,7 @@ export const TaxesTab = () => {
                 </p>
               </div>
               <div className="col-span-4 content-center flex flex-row">
-                <div className="flex-grow"></div>
+                <div className="grow"></div>
                 <InvoicingEntitySelect />
               </div>
             </div>

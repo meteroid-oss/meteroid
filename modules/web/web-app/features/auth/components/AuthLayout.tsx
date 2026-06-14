@@ -90,7 +90,7 @@ export const AuthLayout = () => {
         </Flex>
       </div>
 
-      <Flex justify="center" align="center" className="flex-grow pb-20">
+      <Flex justify="center" align="center" className="grow pb-20">
         <Flex direction="column" className="p-10 w-96 gap-3 text-start relative z-10">
           <Outlet />
           <div className="text-xs">

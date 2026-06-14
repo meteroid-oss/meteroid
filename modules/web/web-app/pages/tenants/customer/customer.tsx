@@ -332,7 +332,7 @@ const OverviewCard = ({
   currency: string
   value?: number
 }) => (
-  <Card className="bg-[#1A1A1A] bg-gradient-to-t from-[rgba(243,242,241,0.00)] to-[rgba(243,242,241,0.02)] rounded-md p-5">
+  <Card className="bg-[#1A1A1A] bg-linear-to-t from-[rgba(243,242,241,0.00)] to-[rgba(243,242,241,0.02)] rounded-md p-5">
     <Flex align="center" className="gap-1 text-muted-foreground">
       <div className="text-[13px]">{title}</div>
       <ChevronDown size={10} className="mt-0.5" />

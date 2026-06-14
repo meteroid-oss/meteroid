@@ -180,7 +180,7 @@ export const StepConfirm = () => {
                   <div className="text-xs text-muted-foreground">Current Plan</div>
                   <div className="text-sm font-medium text-foreground">{state.currentPlanName}</div>
                 </div>
-                <ArrowRight className="h-5 w-5 text-muted-foreground flex-shrink-0" />
+                <ArrowRight className="h-5 w-5 text-muted-foreground shrink-0" />
                 <div className="flex-1 rounded-lg border border-brand/30 bg-brand/5 p-3">
                   <div className="text-xs text-muted-foreground">New Plan</div>
                   <div className="text-sm font-medium text-foreground">{state.targetPlanName}</div>

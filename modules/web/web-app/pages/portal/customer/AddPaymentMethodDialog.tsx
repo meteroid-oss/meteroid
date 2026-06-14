@@ -110,7 +110,7 @@ const AddPaymentMethodForm: React.FC<{
       {/* Error message */}
       {paymentError && (
         <div className="p-3 bg-red-50 text-red-700 rounded-lg text-sm flex items-start">
-          <AlertCircle size={16} className="mr-2 mt-0.5 flex-shrink-0" />
+          <AlertCircle size={16} className="mr-2 mt-0.5 shrink-0" />
           <span>{paymentError}</span>
         </div>
       )}

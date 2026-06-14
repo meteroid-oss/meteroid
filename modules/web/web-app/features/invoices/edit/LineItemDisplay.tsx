@@ -51,7 +51,7 @@ export const LineItemDisplay = ({
               <ChevronDown
                 size={12}
                 className={cn(
-                  'text-muted-foreground transition-transform cursor-pointer flex-shrink-0 mt-0.5',
+                  'text-muted-foreground transition-transform cursor-pointer shrink-0 mt-0.5',
                   isExpanded && 'rotate-180'
                 )}
                 onClick={() => setIsExpanded(!isExpanded)}
@@ -68,7 +68,7 @@ export const LineItemDisplay = ({
                 {item.name}
               </div>
               {isUsageBased && (
-                <Badge variant="outline" className="text-[10px] px-1.5 py-0 flex-shrink-0">
+                <Badge variant="outline" className="text-[10px] px-1.5 py-0 shrink-0">
                   Usage-based
                 </Badge>
               )}

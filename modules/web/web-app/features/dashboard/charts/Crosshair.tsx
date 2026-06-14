@@ -17,7 +17,7 @@ const CrosshairTooltip = forwardRef<HTMLDivElement, React.HTMLAttributes<HTMLDiv
     <div
       ref={ref}
       className={cn(
-        'z-10 absolute top-0 left-0 text-sm bg-opacity-90 bg-popover text-popover-foreground shadow-lg rounded-md py-2 px-4 pointer-events-none',
+        'z-10 absolute top-0 left-0 text-sm bg-popover/90 text-popover-foreground shadow-lg rounded-md py-2 px-4 pointer-events-none',
         className
       )}
       {...props}

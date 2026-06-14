@@ -43,7 +43,7 @@ export const OnboardingLayout = () => {
         <Flex
           justify="center"
           align="center"
-          className="px-2 xl:px-12 2xl:px-44 py-8 md:py-16 lg:py-24 w-full flex-grow max-w-[2200px] mx-auto"
+          className="px-2 xl:px-12 2xl:px-44 py-8 md:py-16 lg:py-24 w-full grow max-w-[2200px] mx-auto"
         >
           <div className="flex w-full h-full relative rounded-lg overflow-hidden  bg-[#313131] ">
             <Outlet />

@@ -27,7 +27,7 @@ export const ReadonlyPaymentView: React.FC<ReadonlyPaymentViewProps> = ({
   return (
     <div className="py-6 mt-6">
       <div className="flex items-start">
-        <div className={`flex-shrink-0 ${config.iconColor}`}>{config.icon}</div>
+        <div className={`shrink-0 ${config.iconColor}`}>{config.icon}</div>
         <div className="ml-4 flex-1">
           <h3 className="text-sm font-medium text-gray-900">{title || config.title}</h3>
           <div className="mt-2 text-sm text-gray-600">{message || config.message}</div>

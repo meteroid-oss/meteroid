@@ -41,7 +41,7 @@ export const InvoicingEntitySelect = ({
             <div className="flex flex-row w-full">
               <div className="pr-2">{getCountryFlagEmoji(entity.country)}</div>
               <div>{entity.legalName}</div>
-              <div className="flex-grow" />
+              <div className="grow" />
               {entity.isDefault && (
                 <Badge variant="default" size="sm">
                   Default

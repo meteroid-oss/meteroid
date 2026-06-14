@@ -1157,7 +1157,7 @@ const InvoiceLineItemCard: React.FC<{
               <ChevronDown
                 size={12}
                 className={cn(
-                  'text-muted-foreground transition-transform flex-shrink-0 mt-0.5',
+                  'text-muted-foreground transition-transform shrink-0 mt-0.5',
                   isExpanded && 'rotate-180'
                 )}
               />

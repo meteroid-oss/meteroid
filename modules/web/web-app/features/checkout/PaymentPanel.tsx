@@ -151,7 +151,7 @@ const PaymentPanelInner: React.FC<
 
         {isCard ? (
           <>
-            <CreditCard size={20} className="mr-3 text-gray-500 flex-shrink-0" />
+            <CreditCard size={20} className="mr-3 text-gray-500 shrink-0" />
             <div className="min-w-0">
               <div className="font-medium text-sm truncate">
                 {method.cardBrand} •••• {method.cardLast4}
@@ -161,7 +161,7 @@ const PaymentPanelInner: React.FC<
                 {method.cardExpYear?.toString().slice(-2)}
               </div>
             </div>
-            <div className="ml-auto flex items-center gap-2 flex-shrink-0">
+            <div className="ml-auto flex items-center gap-2 shrink-0">
               {isDefault && (
                 <div className="bg-gray-100 text-gray-500 text-xs font-medium rounded px-2 py-1">
                   Default
@@ -172,7 +172,7 @@ const PaymentPanelInner: React.FC<
           </>
         ) : (
           <>
-            <Building size={20} className="mr-3 text-gray-500 flex-shrink-0" />
+            <Building size={20} className="mr-3 text-gray-500 shrink-0" />
             <div className="min-w-0">
               <div className="font-medium truncate">Bank account</div>
               <div className="text-xs text-gray-500">
@@ -180,7 +180,7 @@ const PaymentPanelInner: React.FC<
               </div>
             </div>
             {isDefault && (
-              <div className="ml-auto bg-gray-100 text-gray-500 text-xs font-medium rounded px-2 py-1 flex-shrink-0">
+              <div className="ml-auto bg-gray-100 text-gray-500 text-xs font-medium rounded px-2 py-1 shrink-0">
                 Default
               </div>
             )}
@@ -256,7 +256,7 @@ const PaymentPanelInner: React.FC<
       {/* Error message */}
       {paymentError && (
         <div className="mb-4 p-3 bg-red-50 text-red-700 rounded-lg text-sm flex items-start">
-          <AlertCircle size={16} className="mr-2 mt-0.5 flex-shrink-0" />
+          <AlertCircle size={16} className="mr-2 mt-0.5 shrink-0" />
           <span>{paymentError}</span>
         </div>
       )}

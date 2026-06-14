@@ -33,7 +33,7 @@ const getColor = (key: string) => {
 export const TopCard: React.FC<TopCardProp> = ({ title, values, className, loading }) => {
   return (
     <div className={cn(' overflow-y-auto h-[180px]  grow flex flex-col relative', className)}>
-      <div className="text-sm font-semibold flex flex-row px-6 py-4 items-baseline w-full justify-between flex-grow">
+      <div className="text-sm font-semibold flex flex-row px-6 py-4 items-baseline w-full justify-between grow">
         {title}
       </div>
       <div className="px-6 pb-4 space-y-3 relative">

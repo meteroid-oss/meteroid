@@ -28,7 +28,7 @@ export const StatCard: React.FC<StatCardProp> = ({
 }) => {
   return (
     <Card className="h-[120px] grow flex flex-col">
-      <div className="text-sm font-semibold flex flex-row px-6 py-4 items-baseline w-full justify-between flex-grow">
+      <div className="text-sm font-semibold flex flex-row px-6 py-4 items-baseline w-full justify-between grow">
         <div>{title}</div>
         {detailPath && (
           <Link to={detailPath}>

@@ -1091,7 +1091,7 @@ const AddAddOnModal = ({
                 onClick={() => (isSelected ? onRemove(addOn.id) : onAdd(addOn.id))}
               >
                 <div
-                  className={`flex-shrink-0 w-5 h-5 rounded border flex items-center justify-center ${
+                  className={`shrink-0 w-5 h-5 rounded border flex items-center justify-center ${
                     isSelected ? 'bg-success border-success text-success-foreground' : 'border-border'
                   }`}
                 >

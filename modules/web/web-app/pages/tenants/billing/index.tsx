@@ -38,7 +38,7 @@ export const FamilyCreationModalPage = () => {
 
   return (
     <TenantPageLayout>
-      <div className="storage-container flex flex-grow">
+      <div className="storage-container flex grow">
         <ProductEmptyState
           title="Product Families"
           ctaButtonLabel="Create default" // TODO modal

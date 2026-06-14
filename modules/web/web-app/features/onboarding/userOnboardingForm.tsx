@@ -104,7 +104,7 @@ export const UserOnboardingForm = () => {
             <SelectItem value="other">Other</SelectItem>
           </SelectFormField>
 
-          <div className="flex-grow"></div>
+          <div className="grow"></div>
 
           <Button
             variant="primary"
