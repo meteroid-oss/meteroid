@@ -62,7 +62,7 @@
     "@types/react-dom": "^18.3.7",
     "@vitejs/plugin-react": "^6.0.2",
     "autoprefixer": "10.5.0",
-    "eslint": "^9.39.0",
+    "eslint": "^10.5.0",
     "json": "^11.0.0",
     "postcss": "^8.5.15",
     "postcss-loader": "^8.2.1",
