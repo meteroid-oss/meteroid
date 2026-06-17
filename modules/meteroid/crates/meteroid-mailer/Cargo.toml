@@ -14,7 +14,7 @@ secrecy = { workspace = true }
 thiserror = { workspace = true }
 tokio = { workspace = true, features = ["rt-multi-thread", "macros"] }
 itertools = { workspace = true }
-chrono = { workspace = true, features = ["std"] }
+chrono = { workspace = true, features = ["std", "clock"] }
 sailfish = { workspace = true }
 log = { workspace = true }
 rusty-money = { workspace = true }

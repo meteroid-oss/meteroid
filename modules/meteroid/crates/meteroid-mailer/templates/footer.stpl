@@ -23,7 +23,7 @@
 
   <div class="footer-address">
     Meteroid SAS, 165 avenue de Bretagne, 59000 LILLE<br>
-    © 2025 Meteroid. All rights reserved.<br>
+    © <%= current_year %> Meteroid. All rights reserved.<br>
     979116688 RCS Lille Métropole<br>
   </div>
 

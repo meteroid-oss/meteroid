@@ -41,7 +41,7 @@ impl From<EmailValidationLink> for EmailValidationLinkTemplate {
             company_name: String::new(),
             logo_url: Some(METEROID_WORDMARK_URL.to_string()),
         };
-        let footer = FooterTemplate {};
+        let footer = FooterTemplate::new();
 
         let user = link.recipient.first_name.unwrap_or(
             link.recipient
@@ -108,7 +108,18 @@ pub struct HeaderTemplate {
 
 #[derive(TemplateSimple)]
 #[template(path = "footer.stpl")]
-pub struct FooterTemplate {}
+pub struct FooterTemplate {
+    pub current_year: i32,
+}
+
+impl FooterTemplate {
+    pub fn new() -> Self {
+        use chrono::Datelike;
+        FooterTemplate {
+            current_year: chrono::Utc::now().year(),
+        }
+    }
+}
 
 #[derive(TemplateSimple)]
 #[template(path = "invoice_ready.stpl")]
@@ -131,7 +142,7 @@ impl From<InvoiceReady> for InvoiceReadyTemplate {
             company_name: data.company_name,
             logo_url: data.logo_url,
         };
-        let footer = FooterTemplate {};
+        let footer = FooterTemplate::new();
         let content = InvoiceReadyContent {
             invoice_number: data.invoice_number,
             invoice_date: format_date(data.invoice_date),
@@ -172,7 +183,7 @@ impl From<InvoicePaid> for InvoicePaidTemplate {
             company_name: data.company_name,
             logo_url: data.logo_url,
         };
-        let footer = FooterTemplate {};
+        let footer = FooterTemplate::new();
         let content = InvoicePaidContent {
             invoice_number: data.invoice_number,
             invoice_date: format_date(data.invoice_date),
@@ -211,7 +222,7 @@ impl From<QuoteReady> for QuoteReadyTemplate {
             company_name: data.company_name.clone(),
             logo_url: data.logo_url,
         };
-        let footer = FooterTemplate {};
+        let footer = FooterTemplate::new();
         let content = QuoteReadyContent {
             quote_number: data.quote_number,
             expires_at: data.expires_at.map(format_date),
@@ -250,7 +261,7 @@ impl From<OrgInvite> for OrgInviteTemplate {
             company_name: data.org_name.clone(),
             logo_url: Some(METEROID_WORDMARK_URL.to_string()),
         };
-        let footer = FooterTemplate {};
+        let footer = FooterTemplate::new();
         let content = OrgInviteContent {
             org_name: data.org_name.clone(),
             inviter_name: data.inviter_name,
@@ -267,5 +278,23 @@ impl From<OrgInvite> for OrgInviteTemplate {
                 content,
             },
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::FooterTemplate;
+    use chrono::Datelike;
+    use sailfish::TemplateSimple;
+
+    #[test]
+    fn test_footer_renders_current_year() {
+        let html = FooterTemplate::new().render_once().unwrap();
+        let current_year = chrono::Utc::now().year();
+        let expected = format!("© {}", current_year);
+        assert!(
+            html.contains(&expected),
+            "footer should contain '{expected}'"
+        );
     }
 }
