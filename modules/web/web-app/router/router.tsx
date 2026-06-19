@@ -1,6 +1,7 @@
 import { createBrowserRouter } from 'react-router-dom'
 
 import { OnboardingLayout } from '@/components/layouts/OnboardingLayout'
+import { OrganizationGuard } from '@/features/auth/OrganizationGuard'
 import { ProtectedRoutes } from '@/features/auth/sessionRoutes'
 import { Logout } from '@/pages/auth'
 import { AcceptInvite, InviteAuthenticated } from '@/pages/invite'
@@ -52,6 +53,7 @@ const router = createBrowserRouter(
             },
             {
               path: '/:organizationSlug',
+              element: <OrganizationGuard />,
               children: [
                 {
                   index: true,
