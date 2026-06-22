@@ -49,9 +49,9 @@
     "zod": "^4.4.3"
   },
   "devDependencies": {
-    "@babel/preset-env": "^7.29.7",
+    "@babel/preset-env": "^8.0.2",
     "@babel/preset-react": "^7.29.7",
-    "@babel/preset-typescript": "^7.29.7",
+    "@babel/preset-typescript": "^8.0.1",
     "@eslint-community/eslint-utils": "^4.9.1",
     "@md/tsconfig": "workspace:*",
     "@rollup/plugin-node-resolve": "^16.0.3",
@@ -62,7 +62,7 @@
     "@types/react-dom": "^18.3.7",
     "@vitejs/plugin-react": "^6.0.2",
     "autoprefixer": "10.5.0",
-    "eslint": "^9.39.0",
+    "eslint": "^10.5.0",
     "json": "^11.0.0",
     "postcss": "^8.5.15",
     "postcss-loader": "^8.2.1",
