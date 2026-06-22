@@ -194,9 +194,9 @@ subsetter = "=0.2.3"
 # ecow 0.2.7 adds extra AsRef<_> impls on EcoString, making `self.as_ref().repr()` in
 # typst-library 0.14.x ambiguous (E0282) under Rust 1.94. Pin to the last working release.
 ecow = "=0.2.6"
-typst = { version = "0.14.1" }
-typst-pdf = { version = "0.14.1" }
-typst-svg = { version = "0.14.1" }
+typst = { version = "0.15.0" }
+typst-pdf = { version = "0.15.0" }
+typst-svg = { version = "0.15.0" }
 typst-as-lib = { version = "0.15.0", features = [] }
 derive_typst_intoval = { version = "0.6.0", features = [] }
 unic-langid = "0.9"
