@@ -178,7 +178,8 @@ pub fn query_meter_sql(params: QueryMeterParams, events_table: &str) -> Result<S
         let path1 = col.path_sql(&mut subquery_binds);
         subquery_conditions.push(format!("{path1} != ''"));
 
-        // CountDistinct counts distinct raw values (often strings), so skip the numeric guard.
+        // Numeric aggregations require the value to parse as a number. CountDistinct
+        // counts distinct raw values (commonly strings), so it skips the numeric guard.
         if !matches!(params.aggregation, MeterAggregation::CountDistinct) {
             let path2 = col.path_sql(&mut subquery_binds);
             subquery_conditions.push(format!("isNotNull(toFloat64OrNull({path2}))"));
@@ -216,33 +217,35 @@ pub fn query_meter_sql(params: QueryMeterParams, events_table: &str) -> Result<S
         select_columns.push("max(toDateTime(timestamp)) AS window_end".to_string());
     }
 
-    // Value expression + aggregation
-    let value_expr = if let Some(ref value_prop) = params.value_property {
-        let col = PropertyColumn(value_prop);
-        let path = col.path_sql(&mut select_binds);
-        format!("toFloat64OrZero({path})")
-    } else if matches!(params.aggregation, MeterAggregation::Count) {
-        "1".to_string()
-    } else {
-        return Err("value_property is required for non-Count aggregations".to_string());
-    };
-
+    // Value expression + aggregation. The value path is bound exactly once here, per
+    // aggregation: Count needs none, CountDistinct uses the raw property (may be a
+    // string), and the rest wrap it in toFloat64OrZero.
     let aggregation_column = match &params.aggregation {
-        MeterAggregation::Sum => format!("sum({value_expr}) AS value"),
-        MeterAggregation::Avg => format!("avg({value_expr}) AS value"),
-        MeterAggregation::Min => format!("min({value_expr}) AS value"),
-        MeterAggregation::Max => format!("max({value_expr}) AS value"),
         MeterAggregation::Count => "toFloat64(count(*)) AS value".to_string(),
-        MeterAggregation::Latest => {
-            format!("argMax({value_expr}, toDateTime(timestamp)) AS value")
-        }
         MeterAggregation::CountDistinct => {
-            if let Some(ref value_prop) = params.value_property {
-                let col = PropertyColumn(value_prop);
-                let path = col.path_sql(&mut select_binds);
-                format!("toFloat64(uniq({path})) AS value")
-            } else {
+            let Some(ref value_prop) = params.value_property else {
                 return Err("value_property is required for CountDistinct aggregation".to_string());
+            };
+            let col = PropertyColumn(value_prop);
+            let path = col.path_sql(&mut select_binds);
+            format!("toFloat64(uniq({path})) AS value")
+        }
+        agg => {
+            let Some(ref value_prop) = params.value_property else {
+                return Err("value_property is required for non-Count aggregations".to_string());
+            };
+            let col = PropertyColumn(value_prop);
+            let path = col.path_sql(&mut select_binds);
+            let value_expr = format!("toFloat64OrZero({path})");
+            match agg {
+                MeterAggregation::Sum => format!("sum({value_expr}) AS value"),
+                MeterAggregation::Avg => format!("avg({value_expr}) AS value"),
+                MeterAggregation::Min => format!("min({value_expr}) AS value"),
+                MeterAggregation::Max => format!("max({value_expr}) AS value"),
+                MeterAggregation::Latest => {
+                    format!("argMax({value_expr}, toDateTime(timestamp)) AS value")
+                }
+                MeterAggregation::Count | MeterAggregation::CountDistinct => unreachable!(),
             }
         }
     };
@@ -357,6 +360,18 @@ mod tests {
         sql.split_whitespace().collect::<Vec<_>>().join(" ")
     }
 
+    fn assert_bind_parity(result: &SafeQuery) {
+        let placeholders = result.sql.matches('?').count();
+        assert_eq!(
+            placeholders,
+            result.binds.len(),
+            "placeholder/bind count mismatch ({} placeholders vs {} binds) for SQL:\n{}",
+            placeholders,
+            result.binds.len(),
+            result.sql
+        );
+    }
+
     fn bind_strings(binds: &[BindValue]) -> Vec<String> {
         binds
             .iter()
@@ -424,6 +439,7 @@ mod tests {
         "#;
 
         assert_eq!(normalize_sql(&result.sql), normalize_sql(expected));
+        assert_bind_parity(&result);
         let bs = bind_strings(&result.binds);
         assert!(bs.contains(&"S:test_event".to_string()));
         assert!(bs.contains(&"S:amount".to_string()));
@@ -472,6 +488,7 @@ mod tests {
         "#;
 
         assert_eq!(normalize_sql(&result.sql), normalize_sql(expected));
+        assert_bind_parity(&result);
         let bs = bind_strings(&result.binds);
         assert!(bs.contains(&"S:api_call".to_string()));
         assert!(bs.contains(&"I:1704067200".to_string()));
@@ -648,6 +665,7 @@ mod tests {
         "#;
 
         assert_eq!(normalize_sql(&result.sql), normalize_sql(expected));
+        assert_bind_parity(&result);
         let bs = bind_strings(&result.binds);
         assert!(bs.contains(&"S:sale".to_string()));
         assert!(bs.contains(&"S:amount".to_string()));
@@ -752,6 +770,7 @@ mod tests {
             expected1,
             expected2
         );
+        assert_bind_parity(&result);
         let bs = bind_strings(&result.binds);
         assert!(bs.contains(&"S:usage".to_string()));
         assert!(bs.contains(&"S:count".to_string()));
@@ -805,6 +824,7 @@ mod tests {
         "#;
 
         assert_eq!(normalize_sql(&result.sql), normalize_sql(expected));
+        assert_bind_parity(&result);
         let bs = bind_strings(&result.binds);
         assert!(bs.contains(&"S:login".to_string()));
         assert!(bs.contains(&"S:user_id".to_string()));
@@ -851,6 +871,7 @@ mod tests {
         "#;
 
         assert_eq!(normalize_sql(&result.sql), normalize_sql(expected));
+        assert_bind_parity(&result);
         let bs = bind_strings(&result.binds);
         assert!(bs.contains(&"S:status".to_string()));
         assert!(bs.contains(&"S:value".to_string()));

@@ -20,9 +20,7 @@ export const ActivityPage: FunctionComponent = () => {
             <ScrollText size={24} strokeWidth={1.5} />
           </div>
           <div className="space-y-3">
-            <h3 className="text-lg font-semibold">
-              Audit log is not available in this edition
-            </h3>
+            <h3 className="text-lg font-semibold">Audit log is not available in this edition</h3>
             <p className="text-sm text-muted-foreground max-w-md">
               The organization-wide audit log — a searchable trail of every system and user action
               across your tenant — is part of Meteroid Cloud and Meteroid Enterprise edition.
@@ -31,8 +29,10 @@ export const ActivityPage: FunctionComponent = () => {
           <div className="flex items-center gap-3 pt-2">
             <Button asChild variant="default">
               <a href="https://meteroid.com/pricing" target="_blank" rel="noreferrer">
-                Compare editions
-                <ExternalLink size={14} className="ml-1.5" />
+                <span className="text-brand-foreground  inline-flex items-center">
+                  Compare editions
+                  <ExternalLink size={14} className="ml-1.5" />
+                </span>
               </a>
             </Button>
             <Button asChild variant="outline">

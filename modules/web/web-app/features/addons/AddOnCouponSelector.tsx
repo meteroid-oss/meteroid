@@ -1,5 +1,5 @@
-import { Badge, Button, Input } from '@md/ui'
-import { Check, ChevronDownIcon, ChevronRightIcon, Gift, Minus, Plus, Search, Tag } from 'lucide-react'
+import { Badge, Button, Checkbox, Input } from '@md/ui'
+import { ChevronDownIcon, ChevronRightIcon, Gift, Minus, Plus, Search, Tag } from 'lucide-react'
 import { useState } from 'react'
 
 import { feeTypeEnumToComponentFeeType } from '@/features/plans/addons/AddOnCard'
@@ -117,20 +117,49 @@ export const AddOnCouponSelector = ({
                           <ChevronRightIcon className="w-4 h-4" />
                         )}
                       </button>
-                      <button
-                        type="button"
-                        className="flex items-center gap-3 flex-1 min-w-0 text-left"
-                        onClick={() => (isSelected ? onAddOnRemove(addOn.id) : onAddOnAdd(addOn.id))}
-                      >
-                        <div
-                          className={`shrink-0 w-5 h-5 rounded border flex items-center justify-center ${
-                            isSelected
-                              ? 'bg-success border-success text-success-foreground'
-                              : 'border-border'
-                          }`}
-                        >
-                          {isSelected && <Check className="h-3 w-3" />}
-                        </div>
+                      <label className="flex items-center gap-3 flex-1 min-w-0 cursor-pointer">
+                        <Checkbox
+                          checked={isSelected}
+                          onCheckedChange={checked =>
+                            checked ? onAddOnAdd(addOn.id) : onAddOnRemove(addOn.id)
+                          }
+                          className="shrink-0 data-[state=checked]:bg-success data-[state=checked]:border-success data-[state=checked]:text-success-foreground"
+                        />
+                        {showQtyControls && (
+                          <div className="flex items-center gap-1 shrink-0">
+                            <Button
+                              type="button"
+                              variant="ghost"
+                              size="sm"
+                              className="h-6 w-6 p-0"
+                              onClick={e => {
+                                e.stopPropagation()
+                                if (currentQty > 1) onAddOnQuantityChange!(addOn.id, currentQty - 1)
+                              }}
+                              disabled={currentQty <= 1}
+                            >
+                              <Minus className="h-3 w-3" />
+                            </Button>
+                            <span className="text-sm w-5 text-center tabular-nums">
+                              {currentQty}
+                            </span>
+                            <Button
+                              type="button"
+                              variant="ghost"
+                              size="sm"
+                              className="h-6 w-6 p-0"
+                              onClick={e => {
+                                e.stopPropagation()
+                                if (maxInstances === null || currentQty < maxInstances) {
+                                  onAddOnQuantityChange!(addOn.id, currentQty + 1)
+                                }
+                              }}
+                              disabled={maxInstances !== null && currentQty >= maxInstances}
+                            >
+                              <Plus className="h-3 w-3" />
+                            </Button>
+                          </div>
+                        )}
                         <div className="flex-1 min-w-0">
                           <span className="text-sm font-medium">{addOn.name}</span>
                         </div>
@@ -138,42 +167,9 @@ export const AddOnCouponSelector = ({
                           {feeLabel}
                         </Badge>
                         <span className="text-xs text-muted-foreground shrink-0">
-                          {priceBadge}
+                          {isSelected && currentQty > 1 ? `${currentQty} × ${priceBadge}` : priceBadge}
                         </span>
-                      </button>
-                      {showQtyControls && (
-                        <div className="flex items-center gap-1 shrink-0">
-                          <Button
-                            type="button"
-                            variant="ghost"
-                            size="sm"
-                            className="h-6 w-6 p-0"
-                            onClick={e => {
-                              e.stopPropagation()
-                              if (currentQty > 1) onAddOnQuantityChange!(addOn.id, currentQty - 1)
-                            }}
-                            disabled={currentQty <= 1}
-                          >
-                            <Minus className="h-3 w-3" />
-                          </Button>
-                          <span className="text-sm w-5 text-center tabular-nums">{currentQty}</span>
-                          <Button
-                            type="button"
-                            variant="ghost"
-                            size="sm"
-                            className="h-6 w-6 p-0"
-                            onClick={e => {
-                              e.stopPropagation()
-                              if (maxInstances === null || currentQty < maxInstances) {
-                                onAddOnQuantityChange!(addOn.id, currentQty + 1)
-                              }
-                            }}
-                            disabled={maxInstances !== null && currentQty >= maxInstances}
-                          >
-                            <Plus className="h-3 w-3" />
-                          </Button>
-                        </div>
-                      )}
+                      </label>
                     </div>
                     {isExpanded && addOn.price && (
                       <div className="px-3 pb-3 pt-0 border-t border-border mx-3 mt-0">
@@ -230,31 +226,27 @@ export const AddOnCouponSelector = ({
                       ? `${coupon.discount.discountType.value.amount} ${coupon.discount.discountType.value.currency} off`
                       : 'Discount'
 
+                const disabled = !isAvailable && !isSelected
+
                 return (
-                  <button
+                  <label
                     key={coupon.id}
-                    type="button"
-                    disabled={!isAvailable && !isSelected}
-                    className={`w-full flex items-center gap-3 px-3 py-2 rounded-md text-left transition-colors ${
+                    className={`w-full flex items-center gap-3 px-3 py-2 rounded-md transition-colors ${
                       isSelected
-                        ? 'bg-brand/10 border border-brand/30'
-                        : !isAvailable
+                        ? 'bg-brand/10 border border-brand/30 cursor-pointer'
+                        : disabled
                           ? 'opacity-50 cursor-not-allowed border border-transparent'
-                          : 'hover:bg-muted/50 border border-transparent'
+                          : 'hover:bg-muted/50 border border-transparent cursor-pointer'
                     }`}
-                    onClick={() =>
-                      isSelected ? onCouponRemove(coupon.id) : onCouponAdd(coupon.id)
-                    }
                   >
-                    <div
-                      className={`shrink-0 w-5 h-5 rounded border flex items-center justify-center ${
-                        isSelected
-                          ? 'bg-brand border-brand text-brand-foreground'
-                          : 'border-border'
-                      }`}
-                    >
-                      {isSelected && <Check className="h-3 w-3" />}
-                    </div>
+                    <Checkbox
+                      checked={isSelected}
+                      disabled={disabled}
+                      onCheckedChange={checked =>
+                        checked ? onCouponAdd(coupon.id) : onCouponRemove(coupon.id)
+                      }
+                      className="shrink-0 border-border data-[state=checked]:border-brand"
+                    />
                     <div className="flex-1 min-w-0 flex items-center gap-2">
                       <Gift className="h-3 w-3 text-muted-foreground shrink-0" />
                       <span className="text-sm font-medium font-mono">{coupon.code}</span>
@@ -262,12 +254,12 @@ export const AddOnCouponSelector = ({
                     <Badge variant="secondary" size="sm" className="shrink-0">
                       {discountLabel}
                     </Badge>
-                    {!isAvailable && !isSelected && (
+                    {disabled && (
                       <span className="text-xs text-muted-foreground shrink-0">
                         Not for this plan
                       </span>
                     )}
-                  </button>
+                  </label>
                 )
               })}
               {couponSearch && filteredCoupons.length === 0 && (
