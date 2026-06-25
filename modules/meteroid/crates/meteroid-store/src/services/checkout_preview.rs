@@ -3,9 +3,10 @@ use crate::domain::Product;
 use crate::domain::subscription_add_ons::SubscriptionAddOn;
 use crate::domain::subscription_coupons::AppliedCoupon;
 use crate::domain::{
-    AppliedCouponDetailed, BillingPeriodEnum, CheckoutSession, CheckoutType, InvoicingEntity,
-    PriceComponent, Subscription, SubscriptionActivationCondition, SubscriptionComponent,
-    SubscriptionDetails, SubscriptionStatusEnum, TrialConfig,
+    AppliedCouponDetailed, BillingPeriodEnum, CheckoutSession, CheckoutType, CreateSubscription,
+    CreateSubscriptionAddOns, CreateSubscriptionComponents, InvoicingEntity, PriceComponent,
+    Subscription, SubscriptionActivationCondition, SubscriptionComponent, SubscriptionDetails,
+    SubscriptionStatusEnum, TrialConfig,
 };
 use crate::errors::StoreError;
 use crate::repositories::add_ons::AddOnInterface;
@@ -13,8 +14,10 @@ use crate::repositories::customers::CustomersInterfaceAuto;
 use crate::repositories::plans::PlansInterface;
 use crate::repositories::price_components::PriceComponentInterface;
 use crate::services::Services;
+use crate::services::invoice_lines::invoice_lines::ComputedInvoiceContent;
 use crate::store::PgConn;
-use chrono::{Datelike, Utc};
+use crate::utils::periods::calculate_advance_period_range;
+use chrono::{Datelike, Duration, Utc};
 use common_domain::ids::{
     AddOnId, AppliedCouponId, BaseId, ProductId, SubscriptionAddOnId, SubscriptionId,
     SubscriptionPriceComponentId, TenantId,
@@ -97,7 +100,7 @@ impl Services {
         let resolved_custom = self
             .resolve_preview_custom_components(
                 conn,
-                session,
+                session.components.as_ref(),
                 &price_components,
                 &products_map,
                 tenant_id,
@@ -108,12 +111,14 @@ impl Services {
         // Payment method resolution is handled separately in build_checkout_response.
         let subscription_components = self.build_preview_components(
             &price_components,
-            session,
+            session.components.as_ref(),
             &products_map,
             &resolved_custom,
         )?;
 
-        let subscription_add_ons = self.build_preview_add_ons(conn, tenant_id, session).await?;
+        let subscription_add_ons = self
+            .build_preview_add_ons(conn, tenant_id, session.add_ons.as_ref())
+            .await?;
 
         let billing_period = self.extract_billing_period_from_components_and_add_ons(
             &subscription_components,
@@ -272,6 +277,205 @@ impl Services {
         })
     }
 
+    /// Computes the first invoice a `CreateSubscription` request would produce, without persisting
+    /// anything. Powers the create-subscription wizard's "Subscription Summary": it builds a virtual
+    /// `SubscriptionDetails` for the first billing period (mirroring the period derivation in
+    /// `process_subscription`) and runs the same `compute_invoice` pipeline used at billing time, so
+    /// the preview matches what creation will bill.
+    pub async fn preview_create_subscription(
+        &self,
+        conn: &mut PgConn,
+        create: &CreateSubscription,
+        tenant_id: TenantId,
+    ) -> StoreResult<(ComputedInvoiceContent, SubscriptionDetails)> {
+        let sub = &create.subscription;
+
+        let plan_with_version = self
+            .store
+            .get_plan_by_version_id(sub.plan_version_id, tenant_id)
+            .await?;
+
+        let plan_version = plan_with_version.version.as_ref().ok_or_else(|| {
+            Report::new(StoreError::ValueNotFound(
+                "Plan version not found".to_string(),
+            ))
+        })?;
+
+        let price_components = self
+            .store
+            .list_price_components(sub.plan_version_id, tenant_id)
+            .await?;
+
+        let customer = self
+            .store
+            .find_customer_by_id(sub.customer_id, tenant_id)
+            .await?;
+
+        let invoicing_entity_providers = InvoicingEntityProvidersRow::resolve_providers_by_id(
+            conn,
+            customer.invoicing_entity_id,
+            tenant_id,
+        )
+        .await
+        .map_err(Into::<Report<StoreError>>::into)?;
+
+        let invoicing_entity: InvoicingEntity = invoicing_entity_providers.entity.clone().into();
+
+        let product_ids: Vec<ProductId> = price_components
+            .iter()
+            .filter_map(|c| c.product_id)
+            .collect();
+        let products_map: HashMap<ProductId, Product> = if product_ids.is_empty() {
+            HashMap::new()
+        } else {
+            ProductRow::list_by_ids(conn, &product_ids, tenant_id)
+                .await
+                .map_err(Into::<Report<StoreError>>::into)?
+                .into_iter()
+                .map(|row| {
+                    let id = row.id;
+                    Product::try_from(row).map(|p| (id, p))
+                })
+                .collect::<Result<HashMap<_, _>, _>>()?
+        };
+
+        let resolved_custom = self
+            .resolve_preview_custom_components(
+                conn,
+                create.price_components.as_ref(),
+                &price_components,
+                &products_map,
+                tenant_id,
+            )
+            .await?;
+
+        let subscription_components = self.build_preview_components(
+            &price_components,
+            create.price_components.as_ref(),
+            &products_map,
+            &resolved_custom,
+        )?;
+
+        let subscription_add_ons = self
+            .build_preview_add_ons(conn, tenant_id, create.add_ons.as_ref())
+            .await?;
+
+        let billing_period = self.extract_billing_period_from_components_and_add_ons(
+            &subscription_components,
+            &subscription_add_ons,
+        );
+
+        // Mirror process_subscription's first-period derivation. The summary always shows the
+        // first *billable* period: for a free trial that is the post-trial period (the in-trial
+        // invoice is zero), so billing starts after the trial. Paid/no trial bill immediately.
+        let effective_trial_duration: Option<u32> = sub
+            .trial_duration
+            .or(plan_version.trial_duration_days.map(|d| d as u32))
+            .filter(|&d| d > 0);
+        let has_free_trial = effective_trial_duration.is_some() && plan_version.trial_is_free;
+
+        let contract_start = sub.start_date;
+        let billing_start_date = if has_free_trial {
+            contract_start + Duration::days(i64::from(effective_trial_duration.unwrap()))
+        } else {
+            sub.billing_start_date.unwrap_or(contract_start)
+        };
+
+        let billing_day_anchor = sub
+            .billing_day_anchor
+            .unwrap_or_else(|| billing_start_date.day() as u16);
+
+        let net_terms = sub.net_terms.unwrap_or(plan_version.net_terms as u32);
+
+        let range = calculate_advance_period_range(
+            billing_start_date,
+            u32::from(billing_day_anchor),
+            true,
+            &billing_period,
+        );
+        let current_period_start = range.start;
+        let current_period_end = Some(range.end);
+
+        let currency = plan_version.currency.clone();
+        let version = plan_version.version as u32;
+        let subscription_id = SubscriptionId::new();
+
+        let virtual_subscription = Subscription {
+            id: subscription_id,
+            customer_id: sub.customer_id,
+            customer_alias: customer.alias.clone(),
+            customer_name: customer.name.clone(),
+            billing_day_anchor,
+            tenant_id,
+            currency,
+            trial_duration: effective_trial_duration,
+            start_date: contract_start,
+            end_date: sub.end_date,
+            billing_start_date: Some(billing_start_date),
+            plan_id: plan_with_version.plan.id,
+            plan_name: plan_with_version.plan.name.clone(),
+            plan_description: plan_with_version.plan.description.clone(),
+            plan_version_id: sub.plan_version_id,
+            version,
+            created_at: Utc::now().naive_utc(),
+            net_terms,
+            invoice_memo: sub.invoice_memo.clone(),
+            invoice_threshold: sub.invoice_threshold,
+            activated_at: None,
+            activation_condition: sub.activation_condition.clone(),
+            mrr_cents: 0,
+            period: billing_period,
+            pending_checkout: false,
+            conn_meta: None,
+            invoicing_entity_id: customer.invoicing_entity_id,
+            current_period_start,
+            current_period_end,
+            cycle_index: Some(0),
+            status: SubscriptionStatusEnum::Active,
+            auto_advance_invoices: sub.auto_advance_invoices,
+            charge_automatically: sub.charge_automatically,
+            purchase_order: sub.purchase_order.clone(),
+            error_count: 0,
+            last_error: None,
+            next_retry: None,
+            quote_id: None,
+            payment_methods_config: sub.payment_methods_config.clone(),
+        };
+
+        let mut applied_coupons = Vec::new();
+        if let Some(coupons) = &create.coupons {
+            for c in &coupons.coupons {
+                if let Ok(preview_coupon) = self
+                    .build_preview_coupon_by_id(conn, tenant_id, c.coupon_id, &virtual_subscription)
+                    .await
+                {
+                    applied_coupons.push(preview_coupon);
+                }
+            }
+        }
+
+        let details = SubscriptionDetails {
+            subscription: virtual_subscription,
+            invoicing_entity,
+            customer,
+            schedules: Vec::new(),
+            price_components: subscription_components,
+            add_ons: subscription_add_ons,
+            applied_coupons,
+            metrics: Vec::new(),
+            checkout_url: None,
+            trial_config: None,
+            pending_events: Vec::new(),
+            entitlements: Vec::new(),
+        };
+
+        let content = self
+            .compute_invoice(conn, &current_period_start, &details, None, None)
+            .await?;
+
+        Ok((content, details))
+    }
+
     /// Builds a SubscriptionComponent from a PriceComponent for preview purposes.
     fn build_subscription_component_from_price_component(
         &self,
@@ -323,13 +527,13 @@ impl Services {
     fn build_preview_components(
         &self,
         price_components: &[PriceComponent],
-        session: &CheckoutSession,
+        components: Option<&CreateSubscriptionComponents>,
         products: &HashMap<ProductId, Product>,
         resolved_custom: &crate::services::subscriptions::insert::context::ResolvedCustomComponents,
     ) -> StoreResult<Vec<SubscriptionComponent>> {
         let mut processed_components = Vec::new();
 
-        let (parameterized, remove) = if let Some(ref pc) = session.components {
+        let (parameterized, remove) = if let Some(pc) = components {
             (&pc.parameterized_components, &pc.remove_components)
         } else {
             (&Vec::new(), &Vec::new())
@@ -415,7 +619,7 @@ impl Services {
     async fn resolve_preview_custom_components(
         &self,
         conn: &mut PgConn,
-        session: &CheckoutSession,
+        components: Option<&CreateSubscriptionComponents>,
         price_components: &[PriceComponent],
         products_map: &HashMap<ProductId, Product>,
         tenant_id: TenantId,
@@ -429,7 +633,7 @@ impl Services {
         let mut overrides = HashMap::new();
         let mut extras = Vec::new();
 
-        if let Some(ref components) = session.components {
+        if let Some(components) = components {
             for ov in &components.overridden_components {
                 let plan_comp = price_components
                     .iter()
@@ -519,9 +723,9 @@ impl Services {
         &self,
         conn: &mut PgConn,
         tenant_id: TenantId,
-        session: &CheckoutSession,
+        add_ons: Option<&CreateSubscriptionAddOns>,
     ) -> StoreResult<Vec<SubscriptionAddOn>> {
-        let Some(ref create_add_ons) = session.add_ons else {
+        let Some(create_add_ons) = add_ons else {
             return Ok(Vec::new());
         };
 

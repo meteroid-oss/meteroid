@@ -67,12 +67,16 @@ export const InvoicePreviewCard = ({
   subscriptionId,
   title,
   defaultExpanded = false,
+  hideUsageDetails = false,
 }: {
   invoice: UpcomingInvoice
   currency: string
   subscriptionId: string
   title: string
   defaultExpanded?: boolean
+  // Suppress the per-line usage drill-down (chart). Used for previews of a not-yet-created
+  // subscription, where there is no subscriptionId to fetch usage for.
+  hideUsageDetails?: boolean
 }) => {
   const [expanded, setExpanded] = useState(defaultExpanded)
 
@@ -119,6 +123,7 @@ export const InvoicePreviewCard = ({
           invoice={invoice}
           currency={currency}
           subscriptionId={subscriptionId}
+          hideUsageDetails={hideUsageDetails}
         />
       )}
     </div>
@@ -129,10 +134,12 @@ const InvoiceDetails = ({
   invoice,
   currency,
   subscriptionId,
+  hideUsageDetails = false,
 }: {
   invoice: UpcomingInvoice
   currency: string
   subscriptionId: string
+  hideUsageDetails?: boolean
 }) => {
   return (
     <div className="border-t border-border">
@@ -170,6 +177,7 @@ const InvoiceDetails = ({
                 currency={currency}
                 subscriptionId={subscriptionId}
                 isLast={idx === invoice.lineItems.length - 1}
+                hideUsageDetails={hideUsageDetails}
               />
             ))}
           </tbody>
@@ -239,12 +247,21 @@ interface LineItemRowProps {
   currency: string
   subscriptionId: string
   isLast: boolean
+  hideUsageDetails?: boolean
 }
 
-const LineItemRow = ({ line, currency, subscriptionId, isLast }: LineItemRowProps) => {
+const LineItemRow = ({
+  line,
+  currency,
+  subscriptionId,
+  isLast,
+  hideUsageDetails = false,
+}: LineItemRowProps) => {
   const [showUsage, setShowUsage] = useState(false)
   const [showSubLines, setShowSubLines] = useState(false)
-  const hasMetric = Boolean(line.metricId)
+  // When usage details are hidden (preview without a subscription), treat metered lines like
+  // any other line: no drill-down toggle, normal row borders.
+  const hasMetric = Boolean(line.metricId) && !hideUsageDetails
   const hasSubLines = line.subLineItems.length > 0
 
   return (

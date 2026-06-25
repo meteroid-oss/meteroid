@@ -33,6 +33,17 @@ message GetSubscriptionDetailsResponse {
   SubscriptionDetails subscription = 1;
 }
 
+// Read-only preview of the first invoice a CreateSubscription request would produce.
+// Reuses the exact CreateSubscription payload so the wizard summary matches what
+// creation will bill.
+message PreviewCreateSubscriptionRequest {
+  CreateSubscription subscription = 1;
+}
+
+message PreviewCreateSubscriptionResponse {
+  UpcomingInvoice invoice = 1;
+}
+
 
 
 message CancelSubscriptionRequest {
@@ -407,6 +418,7 @@ message UsageDataPoint {
 service SubscriptionsService {
   rpc CreateSubscription(CreateSubscriptionRequest) returns (CreateSubscriptionResponse);
   rpc CreateSubscriptions(CreateSubscriptionsRequest) returns (CreateSubscriptionsResponse);
+  rpc PreviewCreateSubscription(PreviewCreateSubscriptionRequest) returns (PreviewCreateSubscriptionResponse);
   rpc GetSubscriptionDetails(GetSubscriptionDetailsRequest) returns (SubscriptionDetails);
   rpc ListSubscriptions(ListSubscriptionsRequest) returns (ListSubscriptionsResponse);
   rpc UpdateSlots(UpdateSlotsRequest) returns (UpdateSlotsResponse);

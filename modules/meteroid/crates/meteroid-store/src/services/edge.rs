@@ -73,6 +73,16 @@ impl ServicesEdge {
             .await
     }
 
+    pub async fn preview_create_subscription(
+        &self,
+        create: &CreateSubscription,
+        tenant_id: TenantId,
+    ) -> StoreResult<(ComputedInvoiceContent, SubscriptionDetails)> {
+        self.services
+            .preview_create_subscription(&mut self.get_conn().await?, create, tenant_id)
+            .await
+    }
+
     pub async fn get_subscription_component_usage(
         &self,
         subscription_details: &SubscriptionDetails,
