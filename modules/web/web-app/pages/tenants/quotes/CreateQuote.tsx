@@ -193,7 +193,7 @@ export const CreateQuote = () => {
   })
 
   // Add-ons and coupons state
-  const [selectedAddOns, setSelectedAddOns] = useState<{ addOnId: string }[]>([])
+  const [selectedAddOns, setSelectedAddOns] = useState<{ addOnId: string; quantity?: number }[]>([])
   const [selectedCoupons, setSelectedCoupons] = useState<{ couponId: string }[]>([])
   // Entitlements state
   const [pendingEntitlements, setPendingEntitlements] = useState<PendingEntitlementSpec[]>([])
@@ -438,7 +438,9 @@ export const CreateQuote = () => {
 
       // Build add-ons
       const addOns = create(CreateSubscriptionAddOnsSchema, {
-        addOns: selectedAddOns.map(a => create(CreateSubscriptionAddOnSchema, { addOnId: a.addOnId, quantity: 1 })),
+        addOns: selectedAddOns.map(a =>
+          create(CreateSubscriptionAddOnSchema, { addOnId: a.addOnId, quantity: a.quantity ?? 1 })
+        ),
       })
 
       // Build coupons
@@ -538,7 +540,7 @@ export const CreateQuote = () => {
       return [{
         id: addOn.id,
         name: addOn.name,
-        quantity: 1,
+        quantity: sel.quantity ?? 1,
         period: priceToSubscriptionPeriod(addOn.price),
         fee: priceToSubscriptionFee(addOn.price),
       }]
@@ -881,9 +883,16 @@ export const CreateQuote = () => {
                   <CardContent>
                     <AddOnCouponSelector
                       selectedAddOns={selectedAddOns}
-                      onAddOnAdd={id => setSelectedAddOns(prev => [...prev, { addOnId: id }])}
+                      onAddOnAdd={id =>
+                        setSelectedAddOns(prev => [...prev, { addOnId: id, quantity: 1 }])
+                      }
                       onAddOnRemove={id =>
                         setSelectedAddOns(prev => prev.filter(a => a.addOnId !== id))
+                      }
+                      onAddOnQuantityChange={(id, qty) =>
+                        setSelectedAddOns(prev =>
+                          prev.map(a => (a.addOnId === id ? { ...a, quantity: qty } : a))
+                        )
                       }
                       availableAddOns={availableAddOns}
                       selectedCoupons={selectedCoupons}

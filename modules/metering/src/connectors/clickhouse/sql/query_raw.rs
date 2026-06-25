@@ -176,10 +176,13 @@ pub fn query_meter_sql(params: QueryMeterParams, events_table: &str) -> Result<S
     {
         let col = PropertyColumn(value_prop);
         let path1 = col.path_sql(&mut subquery_binds);
-        let path2 = col.path_sql(&mut subquery_binds);
-        subquery_conditions.push(format!(
-            "{path1} != '' AND isNotNull(toFloat64OrNull({path2}))"
-        ));
+        subquery_conditions.push(format!("{path1} != ''"));
+
+        // CountDistinct counts distinct raw values (often strings), so skip the numeric guard.
+        if !matches!(params.aggregation, MeterAggregation::CountDistinct) {
+            let path2 = col.path_sql(&mut subquery_binds);
+            subquery_conditions.push(format!("isNotNull(toFloat64OrNull({path2}))"));
+        }
     }
 
     // Phase 2: Build SELECT columns
@@ -792,7 +795,6 @@ mod tests {
                     AND code = ?
                     AND timestamp >= toDateTime(?)
                     AND properties[?] != ''
-                    AND isNotNull(toFloat64OrNull(properties[?]))
                 ORDER BY timestamp DESC
                 LIMIT 1 BY id, customer_id
             )

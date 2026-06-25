@@ -17,7 +17,7 @@ export const UnitConversionSection = ({ methods }: Props) => {
   })
 
   useEffect(() => {
-    if (!enabled || aggregationType in ['COUNT', 'COUNT_DISTINCT']) {
+    if (!enabled || ['COUNT', 'COUNT_DISTINCT'].includes(aggregationType)) {
       methods.resetField('aggregation.unitConversion')
     }
   }, [enabled, aggregationType, methods])

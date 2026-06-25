@@ -6,6 +6,7 @@ import { Fragment, useState } from 'react'
 import { useNavigate } from 'react-router-dom'
 
 import { TenantPageLayout } from '@/components/layouts'
+import { LocalId } from '@/components/LocalId'
 import { CustomerHeader, CustomersCreatePanel } from '@/features/customers'
 import { ActivityCard } from '@/features/customers/cards/ActivityCard'
 import { InvoicesCard } from '@/features/customers/cards/InvoicesCard'
@@ -162,6 +163,7 @@ export const Customer = () => {
                     )}
                   </div>
                   <div className="text-muted-foreground text-[13px] mb-3">{data.alias}</div>
+                  <FlexDetails title="ID" value={<LocalId localId={data.localId} />} />
                   <FlexDetails title="Legal name" value={data.name} />
                   <FlexDetails title="Email" value={data.billingEmail} />
                   <FlexDetails title="Currency" value={data.currency} />

@@ -35,9 +35,7 @@ export const AggregationSection = ({ methods }: Props) => {
             className="max-w-xs"
           >
             <SelectItem value="COUNT">Count</SelectItem>
-            <SelectItem value="COUNT_DISTINCT" disabled>
-              Count Distinct
-            </SelectItem>
+            <SelectItem value="COUNT_DISTINCT">Count Distinct</SelectItem>
             <SelectItem value="SUM">Sum</SelectItem>
             <SelectItem value="MEAN">Mean</SelectItem>
             <SelectItem value="MIN">Min</SelectItem>
