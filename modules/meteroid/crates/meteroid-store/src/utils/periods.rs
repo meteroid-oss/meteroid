@@ -329,14 +329,25 @@ pub fn calculate_arrear_period_range(
     billing_day: u32,
     billing_period: &BillingPeriodEnum,
 ) -> Period {
-    let months_per_period = billing_period.as_months();
-
-    // For arrear billing, we're billing for a period that has already ended
+    // Arrear bills the period already ended at `invoice_date`.
     let period_end = invoice_date;
 
-    let period_start = subtract_months_at_billing_day(period_end, months_per_period, billing_day)
-        .expect("Failed to calculate arrear period start")
-        .max(billing_start_or_resume_date);
+    // Resolve the start from the period containing the day before `invoice_date`: correct for both
+    // boundary dates (renewals, end-of-period cancels) and mid-period dates (immediate cancel),
+    // unlike a fixed month-subtract which overshoots a whole period back on a mid-period date.
+    let period_start = if period_end <= billing_start_or_resume_date {
+        billing_start_or_resume_date
+    } else {
+        let day_before_end = period_end.pred_opt().unwrap_or(period_end);
+        find_period_containing_date(
+            billing_start_or_resume_date,
+            day_before_end,
+            billing_period,
+            billing_day,
+        )
+        .start
+        .max(billing_start_or_resume_date)
+    };
 
     Period {
         start: period_start,
