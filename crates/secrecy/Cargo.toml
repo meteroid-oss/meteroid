@@ -1,0 +1,23 @@
+# Vendored copy of `secrecy` 0.10.3 plus the unreleased PR #1234
+[package]
+name = "secrecy"
+version = "0.10.3"
+description = """
+Wrapper types and traits for secret management which help ensure
+they aren't accidentally copied, logged, or otherwise exposed
+(as much as possible), and also ensure secrets are securely wiped
+from memory when dropped.
+"""
+authors = ["Tony Arcieri <tony@iqlusion.io>"]
+license = "MIT"
+repository = "https://github.com/iqlusioninc/crates/tree/main/secrecy"
+edition.workspace = true
+rust-version.workspace = true
+publish = false
+
+[dependencies]
+zeroize = { workspace = true }
+serde = { workspace = true, optional = true, features = ["alloc"] }
+
+[features]
+serde = ["dep:serde"]

@@ -35,6 +35,7 @@ members = [
   "crates/common-logging",
   "crates/common-utils",
   "crates/distributed-lock",
+  "crates/secrecy",
   # extra
   "extra/generator",
 ]
@@ -149,7 +150,7 @@ rusty-money = "0.5.0"
 sailfish = "0.11.1"
 scoped-futures = "0.1.4"
 sealed = "0.6.0"
-secrecy = { version = "0.10.3", git = "https://github.com/iqlusioninc/crates", rev = "0e9c9fd6d313381273fa882df07300f2a01c344b", default-features = false } # waiting for release 0.10.4 for pr #1234
+secrecy = { path = "crates/secrecy", default-features = false }
 segment = { version = "0.2.3" }
 serde = { version = "1.0.189", default-features = false }
 serde-enum-str = "0.5.0"
@@ -207,6 +208,7 @@ utoipa = { version = "5.4.0", git = "https://github.com/meteroid-oss/utoipa", re
 utoipa-axum = { version = "0.2.0", git = "https://github.com/meteroid-oss/utoipa", rev = "1010b31ae7f8d6010778382c74ec4bd7ff207265" }
 utoipa-scalar = { version = "0.3.0", git = "https://github.com/meteroid-oss/utoipa", rev = "1010b31ae7f8d6010778382c74ec4bd7ff207265", features = ["axum"] }
 validator = { version = "0.20.0" }
+zeroize = { version = "1.6", default-features = false, features = ["alloc"] }
 
 
 # TODO prefix it all

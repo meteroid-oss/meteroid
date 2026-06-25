@@ -8165,7 +8165,6 @@ dependencies = [
 [[package]]
 name = "secrecy"
 version = "0.10.3"
-source = "git+https://github.com/iqlusioninc/crates?rev=0e9c9fd6d313381273fa882df07300f2a01c344b#0e9c9fd6d313381273fa882df07300f2a01c344b"
 dependencies = [
  "serde",
  "zeroize",
