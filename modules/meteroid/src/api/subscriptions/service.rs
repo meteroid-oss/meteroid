@@ -19,11 +19,11 @@ use meteroid_grpc::meteroid::api::subscriptions::v1::{
     GetSubscriptionComponentUsageResponse, GetUpcomingInvoiceRequest, GetUpcomingInvoiceResponse,
     ListSlotTransactionsRequest, ListSlotTransactionsResponse, ListSubscriptionsRequest,
     ListSubscriptionsResponse, MrrChange, PreviewAmendmentRequest, PreviewAmendmentResponse,
-    PreviewCreateSubscriptionRequest, PreviewCreateSubscriptionResponse,
-    PreviewPlanChangeRequest, PreviewPlanChangeResponse, PreviewSlotUpdateRequest,
-    PreviewSlotUpdateResponse, SchedulePlanChangeRequest, SchedulePlanChangeResponse,
-    SubscriptionDetails, SyncToHubspotRequest, SyncToHubspotResponse, UpdateSlotsRequest,
-    UpdateSlotsResponse, UpdateSubscriptionRequest, UpdateSubscriptionResponse,
+    PreviewCreateSubscriptionRequest, PreviewCreateSubscriptionResponse, PreviewPlanChangeRequest,
+    PreviewPlanChangeResponse, PreviewSlotUpdateRequest, PreviewSlotUpdateResponse,
+    SchedulePlanChangeRequest, SchedulePlanChangeResponse, SubscriptionDetails,
+    SyncToHubspotRequest, SyncToHubspotResponse, UpdateSlotsRequest, UpdateSlotsResponse,
+    UpdateSubscriptionRequest, UpdateSubscriptionResponse,
 };
 
 use crate::api::shared::conversions::ProtoConv;
