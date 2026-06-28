@@ -16,6 +16,7 @@ mod processor;
 pub mod processors;
 mod quote_conversion;
 mod send_email;
+mod webhook_in;
 mod webhook_out;
 
 type PgmqResult<T> = Result<T, Report<error::PgmqError>>;

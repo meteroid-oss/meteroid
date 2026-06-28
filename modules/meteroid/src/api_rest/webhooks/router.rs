@@ -17,6 +17,11 @@ use meteroid_store::domain::webhooks::WebhookInEventNew;
 use meteroid_store::repositories::connectors::ConnectorsInterface;
 use secrecy::SecretString;
 
+/// Upper bound on the inbound webhook body we will buffer. Stripe does not
+/// document a hard maximum; observed payloads are well under 500 KB, so 1 MiB
+/// leaves ample headroom while rejecting abusive/oversized requests.
+const MAX_WEBHOOK_BODY_BYTES: usize = 1024 * 1024;
+
 #[axum::debug_handler]
 pub async fn axum_handler(
     Path((tenant_id, connection_alias)): Path<(TenantId, String)>,
@@ -40,54 +45,17 @@ async fn handler(
 ) -> Result<Response, Report<errors::AdapterWebhookError>> {
     let received_at = chrono::Utc::now().naive_utc();
 
-    log::trace!("Received webhook for tenant: {tenant_id}, connection: {connection_alias}");
+    log::info!("Received webhook for tenant: {tenant_id}, connection: {connection_alias}");
 
-    // - get webhook from storage (db, optional redis cache)
     let connector = app_state
         .store
         .get_connector_with_data_by_alias(connection_alias.clone(), tenant_id)
         .await
         .change_context(errors::AdapterWebhookError::UnknownEndpointId)?;
 
-    let (parts, body) = req.into_parts();
-    let bytes = axum::body::to_bytes(body, usize::MAX)
-        .await
-        .change_context(errors::AdapterWebhookError::BodyDecodingFailed)?;
-
-    let prefix = Prefix::WebhookArchive {
-        connection_alias: connection_alias.clone(),
-        tenant_id,
-    };
-
-    let uid = app_state
-        .object_store
-        .store(bytes.clone(), prefix.clone())
-        .await
-        .change_context(errors::AdapterWebhookError::ObjectStoreUnreachable)?;
-
-    let key = format!("{}/{}", prefix.to_path_string(), uid);
-
-    // index in db
-    app_state
-        .services
-        .insert_webhook_in_event(WebhookInEventNew {
-            id: uid.as_uuid(),
-            received_at,
-            attempts: 0,
-            action: None,
-            key,
-            processed: false,
-            error: None,
-            provider_config_id: connector.id.as_uuid(),
-        })
-        .await
-        .change_context(errors::AdapterWebhookError::DatabaseError)?;
-
-    // metrics TODO
-
-    // - get adapter
+    // - get adapter (reject unsupported providers before doing any work)
     let adapter = match connector.provider {
-        ConnectorProviderEnum::Stripe => app_state.stripe_adapter,
+        ConnectorProviderEnum::Stripe => app_state.stripe_adapter.clone(),
         ConnectorProviderEnum::Hubspot => bail!(errors::AdapterWebhookError::ProviderNotSupported(
             "hubspot".to_owned(),
         )),
@@ -99,44 +67,87 @@ async fn handler(
         )),
     };
 
-    // - decode body
+    // The signature is verified over the raw bytes, so the whole body is buffered
+    // before the caller is authenticated. Cap it to avoid buffering unbounded
+    // memory for an unauthenticated request.
+    let (parts, body) = req.into_parts();
+    let bytes = axum::body::to_bytes(body, MAX_WEBHOOK_BODY_BYTES)
+        .await
+        .change_context(errors::AdapterWebhookError::PayloadTooLarge)?;
 
     let headers = parts.headers.clone();
     let method = parts.method;
-    let raw_body = bytes.clone().to_vec();
     let query_params = parts.uri.query().map(String::from);
 
-    let json_body: serde_json::Value = serde_json::from_slice(&raw_body)
+    let json_body: serde_json::Value = serde_json::from_slice(&bytes)
         .change_context(errors::AdapterWebhookError::BodyDecodingFailed)?;
 
     let parsed_request = ParsedRequest {
         method,
         headers,
-        raw_body,
+        raw_body: bytes.clone(),
         json_body,
         query_params,
     };
 
-    // verify webhook source (signature, origin ip address, bearer ..)
+    // Verify the signature before persisting anything, so unauthenticated callers
+    // can never write to storage or the database.
     if let Some(ProviderSensitiveData::Stripe(sensitive_data)) = &connector.sensitive {
         adapter
             .verify_webhook(
                 &parsed_request,
-                &SecretString::from(sensitive_data.webhook_secret.clone()),
+                &SecretString::from(sensitive_data.webhook_secret.as_str()),
             )
             .await?;
     }
 
-    // TODO save errors in webhook_events db
+    // Archive the raw body; the worker re-reads it from object storage to process.
+    let prefix = Prefix::WebhookArchive {
+        connection_alias: connection_alias.clone(),
+        tenant_id,
+    };
 
-    let response = adapter.get_optimistic_webhook_response();
+    let uid = app_state
+        .object_store
+        .store(bytes, prefix.clone())
+        .await
+        .change_context(errors::AdapterWebhookError::ObjectStoreUnreachable)?;
 
-    // then process specific event
-    tokio::spawn(async move {
-        adapter
-            .process_webhook_event(&parsed_request, &connector, app_state.store.clone())
-            .await
-    });
+    let key = format!("{}/{}", prefix.to_path_string(), uid);
 
-    Ok(response)
+    // Provider event id (e.g. Stripe `evt_...`), used to dedup repeated deliveries.
+    let event_id = parsed_request
+        .json_body
+        .get("id")
+        .and_then(|v| v.as_str())
+        .map(|s| s.to_string());
+
+    // Persist the audit row and enqueue it in one transaction; a duplicate
+    // delivery (same event id) is skipped and returns false.
+    let enqueued = app_state
+        .services
+        .ingest_webhook_in_event(
+            WebhookInEventNew {
+                id: uid.as_uuid(),
+                received_at,
+                attempts: 0,
+                action: None,
+                key,
+                error: None,
+                provider_config_id: connector.id.as_uuid(),
+                event_id,
+                processed_at: None,
+            },
+            tenant_id,
+        )
+        .await
+        .change_context(errors::AdapterWebhookError::DatabaseError)?;
+
+    if !enqueued {
+        log::info!("Duplicate webhook ignored (tenant {tenant_id}, connection {connection_alias})");
+    }
+
+    // Ack only after the event is durably stored and queued; it is processed
+    // asynchronously by the webhook_in worker.
+    Ok(adapter.get_optimistic_webhook_response())
 }

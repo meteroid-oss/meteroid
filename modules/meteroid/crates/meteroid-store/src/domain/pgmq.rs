@@ -12,6 +12,7 @@ use o2o::o2o;
 use serde::{Deserialize, Serialize};
 use std::str::FromStr;
 use strum::Display;
+use uuid::Uuid;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Display)]
 pub enum PgmqQueue {
@@ -26,6 +27,7 @@ pub enum PgmqQueue {
     SendEmailRequest,
     QuoteConversion,
     BiAggregation,
+    WebhookIn,
 }
 
 impl PgmqQueue {
@@ -42,6 +44,7 @@ impl PgmqQueue {
             PgmqQueue::SendEmailRequest => "send_email_request",
             PgmqQueue::QuoteConversion => "quote_conversion",
             PgmqQueue::BiAggregation => "bi_aggregation",
+            PgmqQueue::WebhookIn => "webhook_in",
         }
     }
 }
@@ -62,6 +65,7 @@ impl std::str::FromStr for PgmqQueue {
             "send_email_request" => Ok(PgmqQueue::SendEmailRequest),
             "quote_conversion" => Ok(PgmqQueue::QuoteConversion),
             "bi_aggregation" => Ok(PgmqQueue::BiAggregation),
+            "webhook_in" => Ok(PgmqQueue::WebhookIn),
             _ => Err(format!("Unknown queue: {s}")),
         }
     }
@@ -234,6 +238,31 @@ impl PaymentRequestEvent {
 }
 json_value_serde!(PaymentRequestEvent);
 derive_pgmq_message!(PaymentRequestEvent, tenant_id);
+
+/// Inbound webhook event ready for async processing. The payload is not carried
+/// here — it lives in object storage and is re-read by the worker via the
+/// `webhook_in_event` row.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct WebhookInProcessEvent {
+    /// Primary key of the `webhook_in_event` row (also the object-store uid).
+    pub webhook_in_event_id: Uuid,
+    pub tenant_id: TenantId,
+}
+
+impl WebhookInProcessEvent {
+    pub fn new(webhook_in_event_id: Uuid, tenant_id: TenantId) -> Self {
+        Self {
+            webhook_in_event_id,
+            tenant_id,
+        }
+    }
+
+    pub fn tenant_id(&self) -> TenantId {
+        self.tenant_id
+    }
+}
+json_value_serde!(WebhookInProcessEvent);
+derive_pgmq_message!(WebhookInProcessEvent, tenant_id);
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub enum SendEmailRequest {
@@ -500,4 +529,53 @@ pub struct BiCreditNoteFinalizedEvent {
     pub currency: String,
     pub refunded_amount_cents: i64,
     pub finalized_at: NaiveDateTime,
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use common_domain::pgmq::{MessageId, ReadCt};
+
+    fn epoch() -> NaiveDateTime {
+        chrono::DateTime::from_timestamp(0, 0).unwrap().naive_utc()
+    }
+
+    #[test]
+    fn webhook_in_process_event_pgmq_roundtrip() {
+        let webhook_in_event_id = Uuid::from_u128(0x1234);
+        let tenant_id = TenantId::from(Uuid::from_u128(0x5678));
+        let event = WebhookInProcessEvent::new(webhook_in_event_id, tenant_id);
+
+        // Encode to a pgmq message. tenant_id is surfaced for header routing.
+        let msg_new: PgmqMessageNew = event.try_into().expect("encode to PgmqMessageNew");
+        assert_eq!(msg_new.tenant_id, Some(tenant_id));
+
+        // Decode back from the message the worker would read off the queue.
+        let pgmq_msg = PgmqMessage {
+            msg_id: MessageId(1),
+            message: msg_new.message,
+            headers: msg_new.headers,
+            read_ct: ReadCt(0),
+            enqueued_at: epoch(),
+        };
+
+        let decoded: WebhookInProcessEvent =
+            (&pgmq_msg).try_into().expect("decode from PgmqMessage");
+        assert_eq!(decoded.webhook_in_event_id, webhook_in_event_id);
+        assert_eq!(decoded.tenant_id, tenant_id);
+    }
+
+    #[test]
+    fn webhook_in_process_event_decode_fails_on_empty_message() {
+        let pgmq_msg = PgmqMessage {
+            msg_id: MessageId(1),
+            message: None,
+            headers: None,
+            read_ct: ReadCt(0),
+            enqueued_at: epoch(),
+        };
+
+        let decoded: Result<WebhookInProcessEvent, _> = (&pgmq_msg).try_into();
+        assert!(decoded.is_err());
+    }
 }

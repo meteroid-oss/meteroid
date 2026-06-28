@@ -17,7 +17,7 @@ pub trait AdapterCommon {
 pub struct ParsedRequest {
     pub method: axum::http::Method,
     pub headers: axum::http::header::HeaderMap,
-    pub raw_body: Vec<u8>,
+    pub raw_body: bytes::Bytes,
     pub json_body: serde_json::Value,
     pub query_params: Option<String>,
 }

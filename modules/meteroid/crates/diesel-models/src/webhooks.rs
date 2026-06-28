@@ -11,10 +11,11 @@ pub struct WebhookInEventRow {
     pub received_at: NaiveDateTime,
     pub action: Option<String>,
     pub key: String,
-    pub processed: bool,
     pub attempts: i32,
     pub error: Option<String>,
     pub provider_config_id: Uuid,
+    pub event_id: Option<String>,
+    pub processed_at: Option<NaiveDateTime>,
 }
 
 #[derive(Insertable, Debug)]
@@ -25,8 +26,9 @@ pub struct WebhookInEventRowNew {
     pub received_at: NaiveDateTime,
     pub action: Option<String>,
     pub key: String,
-    pub processed: bool,
     pub attempts: i32,
     pub error: Option<String>,
     pub provider_config_id: Uuid,
+    pub event_id: Option<String>,
+    pub processed_at: Option<NaiveDateTime>,
 }

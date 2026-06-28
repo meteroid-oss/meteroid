@@ -1,3 +1,4 @@
+use crate::adapters::stripe::Stripe;
 use crate::services::credit_note_rendering::CreditNotePdfRenderingService;
 use crate::services::invoice_rendering::PdfRenderingService;
 use crate::services::storage::ObjectStoreService;
@@ -14,6 +15,7 @@ use crate::workers::pgmq::pennylane_sync::PennylaneSync;
 use crate::workers::pgmq::processor::{Noop, PgmqHandler, ProcessorConfig, run};
 use crate::workers::pgmq::quote_conversion::QuoteConversion;
 use crate::workers::pgmq::send_email::EmailSender;
+use crate::workers::pgmq::webhook_in::WebhookIn;
 use crate::workers::pgmq::webhook_out::WebhookOut;
 use common_domain::pgmq::{MessageReadQty, MessageReadVtSec, ReadCt};
 use hubspot_client::client::HubspotClient;
@@ -275,6 +277,34 @@ pub async fn run_payment_request(store: Arc<Store>, services: Arc<Services>) {
         delete_succeeded: true,
         sleep_duration: std::time::Duration::from_millis(250),
         max_read_count: ReadCt(3), // 3 retries. TODO applicative payment retry with mails
+    })
+    .await;
+}
+
+pub async fn run_webhook_in(
+    store: Arc<Store>,
+    services: Arc<Services>,
+    object_store: Arc<dyn ObjectStoreService>,
+    stripe_adapter: Arc<Stripe>,
+) {
+    let queue = PgmqQueue::WebhookIn;
+    let processor = Arc::new(WebhookIn::new(
+        services,
+        store.clone(),
+        object_store,
+        stripe_adapter,
+    ));
+
+    run(ProcessorConfig {
+        name: processor_name("WebhookIn"),
+        queue,
+        handler: processor,
+        store,
+        qty: MessageReadQty(10),
+        vt: MessageReadVtSec(60),
+        delete_succeeded: false, // archive for audit
+        sleep_duration: std::time::Duration::from_millis(1000),
+        max_read_count: ReadCt(10),
     })
     .await;
 }

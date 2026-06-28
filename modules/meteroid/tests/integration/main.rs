@@ -30,6 +30,7 @@ mod test_stats;
 mod test_subscription;
 mod test_tenant;
 mod test_user;
+mod test_webhook;
 
 mod data;
 mod test_entitlements;

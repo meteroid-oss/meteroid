@@ -19,6 +19,8 @@ pub enum AdapterWebhookError {
     Unauthorized,
     #[error("Failed to decode body")]
     BodyDecodingFailed,
+    #[error("Webhook payload too large")]
+    PayloadTooLarge,
     #[error("Webhook event type not supported : {0}")]
     EventTypeNotSupported(String),
     #[error("Failed to verify webhook signature")]
@@ -49,6 +51,7 @@ impl IntoResponse for AdapterWebhookError {
             AdapterWebhookError::ProviderNotSupported(_) => StatusCode::NOT_IMPLEMENTED,
             AdapterWebhookError::Unauthorized => StatusCode::UNAUTHORIZED,
             AdapterWebhookError::BodyDecodingFailed => StatusCode::BAD_REQUEST,
+            AdapterWebhookError::PayloadTooLarge => StatusCode::PAYLOAD_TOO_LARGE,
             AdapterWebhookError::EventTypeNotSupported(_) => StatusCode::BAD_REQUEST,
             AdapterWebhookError::SignatureVerificationFailed => StatusCode::FORBIDDEN,
             AdapterWebhookError::SignatureNotFound => StatusCode::BAD_REQUEST,

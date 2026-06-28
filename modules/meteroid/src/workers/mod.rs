@@ -1,3 +1,4 @@
+use crate::adapters::stripe::Stripe;
 use crate::config::Config;
 use crate::services::credit_note_rendering::CreditNotePdfRenderingService;
 use crate::services::currency_rates::CurrencyRatesService;
@@ -58,6 +59,9 @@ pub async fn spawn_workers(
 ) {
     let hubspot_client = Arc::new(HubspotClient::default());
     let pennylane_client = Arc::new(PennylaneClient::default());
+    let stripe_adapter = Arc::new(Stripe {
+        client: Arc::new(stripe_client::client::StripeClient::new()),
+    });
 
     // TODO add config to only spawn some
     let mut join_set = tokio::task::JoinSet::new();
@@ -132,6 +136,15 @@ pub async fn spawn_workers(
         let services = services.clone();
         join_set.spawn(async move {
             processors::run_payment_request(store, services).await;
+        });
+    }
+    {
+        let store = store.clone();
+        let services = services.clone();
+        let object_store_service = object_store_service.clone();
+        let stripe_adapter = stripe_adapter.clone();
+        join_set.spawn(async move {
+            processors::run_webhook_in(store, services, object_store_service, stripe_adapter).await;
         });
     }
     {

@@ -1315,10 +1315,11 @@ diesel::table! {
         received_at -> Timestamptz,
         action -> Nullable<Text>,
         key -> Text,
-        processed -> Bool,
         attempts -> Int4,
         error -> Nullable<Text>,
         provider_config_id -> Uuid,
+        event_id -> Nullable<Text>,
+        processed_at -> Nullable<Timestamptz>,
     }
 }
 
