@@ -309,6 +309,32 @@ pub async fn run_webhook_in(
     .await;
 }
 
+// Used in tests
+pub async fn run_once_webhook_in(
+    store: Arc<Store>,
+    services: Arc<Services>,
+    object_store: Arc<dyn ObjectStoreService>,
+    stripe_adapter: Arc<Stripe>,
+) {
+    let queue = PgmqQueue::WebhookIn;
+    let processor = Arc::new(WebhookIn::new(
+        services,
+        store.clone(),
+        object_store,
+        stripe_adapter,
+    ));
+    let _ = crate::workers::pgmq::processor::run_once(
+        queue,
+        processor,
+        store,
+        MessageReadQty(10),
+        MessageReadVtSec(60),
+        false,
+        ReadCt(10),
+    )
+    .await;
+}
+
 pub async fn run_quote_conversion(store: Arc<Store>, services: Arc<Services>) {
     let queue = PgmqQueue::QuoteConversion;
     let processor = Arc::new(QuoteConversion::new(services));

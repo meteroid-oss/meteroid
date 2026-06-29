@@ -4,7 +4,7 @@ use meteroid::adapters::stripe::Stripe;
 use meteroid::config::Config;
 use meteroid::eventbus::{create_eventbus_noop, setup_eventbus_handlers};
 use meteroid::migrations;
-use meteroid::services::storage::in_memory_object_store;
+use meteroid::services::storage::{ObjectStoreService, in_memory_object_store};
 use meteroid_mailer::config::MailerConfig;
 use meteroid_mailer::service::MailerService;
 use meteroid_oauth::config::OauthConfig;
@@ -158,6 +158,7 @@ pub struct MeteroidSetup {
     pub config: Config,
     pub store: meteroid_store::Store,
     pub services: Services,
+    pub object_store: Arc<dyn ObjectStoreService>,
 }
 
 pub async fn start_meteroid_with_port(
@@ -232,10 +233,11 @@ async fn start_meteroid_from_config(
     let stripe = Arc::new(StripeClient::new());
     let stripe_adapter = Arc::new(Stripe { client: stripe });
 
+    let object_store = in_memory_object_store();
     let ready = std::sync::Arc::new(std::sync::atomic::AtomicBool::new(true));
     let rest_server = meteroid::api_rest::server::start_rest_server_with_listener(
         config.clone(),
-        in_memory_object_store(),
+        object_store.clone(),
         stripe_adapter,
         store.clone(),
         services.clone(),
@@ -269,6 +271,7 @@ async fn start_meteroid_from_config(
         config: config.clone(),
         store,
         services,
+        object_store,
     }
 }
 

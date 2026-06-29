@@ -559,3 +559,55 @@ impl PaymentProvider for MockPaymentProvider {
         })
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use stripe_client::webhook::{EventObject, StripeWebhook};
+
+    /// Guards the exact `payment_intent.succeeded` JSON shape the webhook worker
+    /// parses: it must deserialize to a `PaymentIntent` event object and map to a
+    /// domain `PaymentIntent` carrying the meteroid metadata and a settled status.
+    #[test]
+    fn payment_intent_succeeded_event_parses_to_domain() {
+        let tenant_id = TenantId::new();
+        let transaction_id = PaymentTransactionId::new();
+
+        let body = format!(
+            r#"{{
+                "id": "evt_x",
+                "type": "payment_intent.succeeded",
+                "data": {{ "object": {{
+                    "object": "payment_intent",
+                    "id": "pi_x",
+                    "amount": 10000,
+                    "amount_received": 10000,
+                    "currency": "usd",
+                    "livemode": false,
+                    "status": "succeeded",
+                    "metadata": {{
+                        "meteroid.tenant_id": "{}",
+                        "meteroid.transaction_id": "{}"
+                    }}
+                }}}}
+            }}"#,
+            tenant_id.as_base62(),
+            transaction_id.as_base62()
+        );
+
+        let event = StripeWebhook::parse_event(&body).expect("parse event");
+        assert_eq!(event.event_type, "payment_intent.succeeded");
+
+        let intent = match event.data.object {
+            EventObject::PaymentIntent(intent) => intent,
+            _ => panic!("expected a PaymentIntent event object"),
+        };
+        assert_eq!(intent.status, StripePaymentStatus::Succeeded);
+
+        let domain: PaymentIntent = intent.try_into().expect("map to domain PaymentIntent");
+        assert_eq!(domain.tenant_id, tenant_id);
+        assert_eq!(domain.transaction_id, transaction_id);
+        // Only the Succeeded -> Settled mapping stamps processed_at.
+        assert!(domain.processed_at.is_some());
+    }
+}

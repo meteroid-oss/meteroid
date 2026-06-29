@@ -1,49 +1,41 @@
-use crate::data::ids::TENANT_ID;
+use crate::data::ids::{CUST_SPOTIFY_ID, PLAN_VERSION_1_LEETCODE_ID, TENANT_ID};
 use crate::meteroid_it;
 use crate::meteroid_it::container::SeedLevel;
-use common_domain::ids::{BaseId, ConnectorId};
+use common_domain::ids::{BaseId, CheckoutSessionId, ConnectorId, PaymentTransactionId};
 use common_domain::pgmq::{MessageReadQty, MessageReadVtSec};
-use diesel::prelude::{ExpressionMethods, QueryDsl, SelectableHelper};
-use diesel_async::RunQueryDsl;
+use diesel_models::checkout_sessions::CheckoutSessionRowNew;
 use diesel_models::connectors::ConnectorRowNew;
-use diesel_models::enums::{ConnectorProviderEnum, ConnectorTypeEnum};
-use diesel_models::webhooks::WebhookInEventRow;
+use diesel_models::enums::{
+    CheckoutTypeEnum, ConnectorProviderEnum, ConnectorTypeEnum, PaymentStatusEnum, PaymentTypeEnum,
+};
+use diesel_models::payments::PaymentTransactionRowNew;
+use meteroid::adapters::stripe::Stripe;
+use meteroid::workers::pgmq::processors::run_once_webhook_in;
+use meteroid_store::domain::enums::PaymentStatusEnum as DomainPaymentStatus;
 use meteroid_store::domain::pgmq::{PgmqQueue, WebhookInProcessEvent};
+use meteroid_store::repositories::payment_transactions::PaymentTransactionInterface;
 use meteroid_store::repositories::pgmq::PgmqInterface;
+use std::sync::Arc;
+use stripe_client::client::StripeClient;
 
 const ALIAS: &str = "stripe-webhook-test";
 
-async fn post_event(client: &reqwest::Client, url: &str, event_id: &str) -> reqwest::StatusCode {
-    // ~10 KB of padding so the body is well over the old 4 KB route limit; a 200
-    // here also guards against the webhook body-size cap regressing.
-    let padding = "x".repeat(10 * 1024);
-    let body = serde_json::json!({
-        "id": event_id,
-        "object": "event",
-        "type": "payment_intent.succeeded",
-        "data": { "object": { "id": "pi_test", "description": padding } }
-    });
-    assert!(
-        serde_json::to_vec(&body).unwrap().len() > 4096,
-        "payload must exceed the old 4 KB limit to be a meaningful regression guard"
-    );
-
-    client.post(url).json(&body).send().await.unwrap().status()
-}
-
-/// Exercises the inbound webhook HTTP handler end to end: an unsigned Stripe
-/// webhook is accepted, archived, persisted and enqueued, and a duplicate
-/// delivery of the same event id is acked but deduped.
+/// End-to-end inbound webhook flow: the HTTP handler accepts an unsigned Stripe
+/// `payment_intent.succeeded`, dedupes a duplicate delivery, and the WebhookIn
+/// worker then dequeues it, reads the archived body from object storage,
+/// consolidates the pending transaction to Settled and marks the audit row
+/// processed.
 #[tokio::test]
-async fn test_webhook_in_http_ingest_and_dedup() {
+async fn test_webhook_in_ingest_dedup_and_worker() {
     let postgres_connection_string = meteroid_it::container::create_test_database().await;
     let setup =
-        meteroid_it::container::start_meteroid(postgres_connection_string, SeedLevel::MINIMAL)
-            .await;
+        meteroid_it::container::start_meteroid(postgres_connection_string, SeedLevel::PLANS).await;
 
-    // A Stripe connector with no sensitive data, so signature verification is
-    // skipped and the test can post an unsigned body.
+    // A Stripe connector with no sensitive data (signature verification skipped),
+    // plus a payment awaiting the provider's confirmation.
     let connector_id = ConnectorId::new();
+    let checkout_session_id = CheckoutSessionId::new();
+    let tx_id = PaymentTransactionId::new();
     {
         let mut conn = setup.store.pool.get().await.unwrap();
         ConnectorRowNew {
@@ -58,82 +50,145 @@ async fn test_webhook_in_http_ingest_and_dedup() {
         .insert(&mut conn)
         .await
         .unwrap();
+
+        // The transaction is attached to a checkout session; the table requires
+        // either an invoice or a checkout session.
+        CheckoutSessionRowNew {
+            id: checkout_session_id,
+            tenant_id: TENANT_ID,
+            customer_id: CUST_SPOTIFY_ID,
+            plan_version_id: PLAN_VERSION_1_LEETCODE_ID,
+            billing_start_date: None,
+            billing_day_anchor: None,
+            net_terms: None,
+            trial_duration_days: None,
+            end_date: None,
+            auto_advance_invoices: true,
+            charge_automatically: true,
+            invoice_memo: None,
+            invoice_threshold: None,
+            purchase_order: None,
+            payment_methods_config: None,
+            components: None,
+            add_ons: None,
+            coupon_code: None,
+            coupon_ids: vec![],
+            expires_at: None,
+            metadata: None,
+            checkout_type: CheckoutTypeEnum::SelfServe,
+            subscription_id: None,
+            change_date: None,
+        }
+        .insert(&mut conn)
+        .await
+        .unwrap();
+
+        PaymentTransactionRowNew {
+            id: tx_id,
+            tenant_id: TENANT_ID,
+            invoice_id: None,
+            provider_transaction_id: None,
+            amount: 10_000,
+            currency: "usd".to_string(),
+            payment_method_id: None,
+            status: PaymentStatusEnum::Pending,
+            payment_type: PaymentTypeEnum::Payment,
+            error_type: None,
+            processed_at: None,
+            checkout_session_id: Some(checkout_session_id),
+            pending_plan_version_id: None,
+        }
+        .insert(&mut conn)
+        .await
+        .unwrap();
     }
+
+    // A `payment_intent.succeeded` referencing the pending transaction. The ~10 KB
+    // padding keeps the body well over the old 4 KB route limit (regression guard);
+    // it lands in an unknown field that the Stripe payload parser ignores.
+    let padding = "x".repeat(10 * 1024);
+    let body = serde_json::json!({
+        "id": "evt_pay",
+        "object": "event",
+        "type": "payment_intent.succeeded",
+        "data": { "object": {
+            "object": "payment_intent",
+            "id": "pi_pay",
+            "amount": 10_000,
+            "amount_received": 10_000,
+            "currency": "usd",
+            "livemode": false,
+            "status": "succeeded",
+            "description": padding,
+            "metadata": {
+                "meteroid.tenant_id": TENANT_ID.as_base62(),
+                "meteroid.transaction_id": tx_id.as_base62(),
+            }
+        }}
+    });
+    assert!(
+        serde_json::to_vec(&body).unwrap().len() > 4096,
+        "payload must exceed the old 4 KB limit to be a meaningful regression guard"
+    );
 
     let client = reqwest::Client::new();
     let url = format!(
         "{}/webhooks/v1/{}/{}",
         setup.config.rest_api_external_url, TENANT_ID, ALIAS
     );
+    let post = || client.post(&url).json(&body).send();
 
-    // First delivery is accepted.
-    assert_eq!(
-        post_event(&client, &url, "evt_http_a").await,
-        reqwest::StatusCode::OK
-    );
-    // Duplicate delivery of the same event is also acked, but deduped.
-    assert_eq!(
-        post_event(&client, &url, "evt_http_a").await,
-        reqwest::StatusCode::OK
-    );
-    // A distinct event produces a second record.
-    assert_eq!(
-        post_event(&client, &url, "evt_http_b").await,
-        reqwest::StatusCode::OK
-    );
+    // First delivery, then a duplicate; both are acked.
+    assert_eq!(post().await.unwrap().status(), reqwest::StatusCode::OK);
+    assert_eq!(post().await.unwrap().status(), reqwest::StatusCode::OK);
 
-    // Exactly one row per distinct event id (the duplicate was deduped), none
-    // processed yet, each pointing at a non-empty object-store key.
-    let rows: Vec<WebhookInEventRow> = {
-        use diesel_models::schema::webhook_in_event::dsl as wi;
-        let mut conn = setup.store.pool.get().await.unwrap();
-        wi::webhook_in_event
-            .filter(wi::provider_config_id.eq(connector_id.as_uuid()))
-            .select(WebhookInEventRow::as_select())
-            .load(&mut conn)
-            .await
-            .unwrap()
-    };
-
-    assert_eq!(rows.len(), 2, "one row per distinct event id");
-    assert_eq!(
-        rows.iter()
-            .filter(|r| r.event_id.as_deref() == Some("evt_http_a"))
-            .count(),
-        1,
-        "duplicate delivery must be deduped"
-    );
-    assert_eq!(
-        rows.iter()
-            .filter(|r| r.event_id.as_deref() == Some("evt_http_b"))
-            .count(),
-        1
-    );
-    assert!(rows.iter().all(|r| r.processed_at.is_none()));
-    assert!(rows.iter().all(|r| !r.key.is_empty()));
-
-    // Each distinct event was enqueued exactly once for the worker; the
-    // duplicate did not enqueue a second message.
+    // Peek the queue (vt = 0 leaves the message visible for the worker): the
+    // duplicate was deduped, so exactly one message is enqueued.
     let messages = setup
         .store
         .pgmq_read(
             PgmqQueue::WebhookIn,
             MessageReadQty(10),
-            MessageReadVtSec(5),
+            MessageReadVtSec(0),
         )
         .await
         .unwrap();
-    assert_eq!(messages.len(), 2, "one queue message per distinct event");
+    assert_eq!(
+        messages.len(),
+        1,
+        "duplicate delivery must be deduped to a single queue message"
+    );
+    let event: WebhookInProcessEvent = (&messages[0]).try_into().unwrap();
+    let webhook_in_event_id = event.webhook_in_event_id;
 
-    let mut enqueued_ids: Vec<_> = messages
-        .iter()
-        .map(|m| {
-            let ev: WebhookInProcessEvent = m.try_into().unwrap();
-            ev.webhook_in_event_id
-        })
-        .collect();
-    enqueued_ids.sort();
-    let mut row_ids: Vec<_> = rows.iter().map(|r| r.id).collect();
-    row_ids.sort();
-    assert_eq!(enqueued_ids, row_ids, "queued ids match the persisted rows");
+    // Run the worker once against the same object store the handler archived to.
+    run_once_webhook_in(
+        Arc::new(setup.store.clone()),
+        Arc::new(setup.services.clone()),
+        setup.object_store.clone(),
+        Arc::new(Stripe {
+            client: Arc::new(StripeClient::new()),
+        }),
+    )
+    .await;
+
+    // The pending payment is now settled.
+    let mut conn = setup.store.pool.get().await.unwrap();
+    let tx = setup
+        .store
+        .get_payment_tx_by_id_for_update(&mut conn, tx_id, TENANT_ID)
+        .await
+        .unwrap();
+    assert_eq!(tx.status, DomainPaymentStatus::Settled);
+
+    // The webhook audit row is marked processed.
+    let processed = setup
+        .services
+        .get_webhook_in_event(webhook_in_event_id)
+        .await
+        .unwrap();
+    assert!(
+        processed.processed_at.is_some(),
+        "worker should mark the event processed"
+    );
 }
