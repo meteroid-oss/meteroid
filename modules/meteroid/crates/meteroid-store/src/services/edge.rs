@@ -73,6 +73,16 @@ impl ServicesEdge {
             .await
     }
 
+    pub async fn preview_create_subscription(
+        &self,
+        create: &CreateSubscription,
+        tenant_id: TenantId,
+    ) -> StoreResult<(ComputedInvoiceContent, SubscriptionDetails)> {
+        self.services
+            .preview_create_subscription(&mut self.get_conn().await?, create, tenant_id)
+            .await
+    }
+
     pub async fn get_subscription_component_usage(
         &self,
         subscription_details: &SubscriptionDetails,
@@ -285,7 +295,7 @@ impl ServicesEdge {
 
             Ok((None, false))
         } else {
-            let detailed_invoice = self
+            let maybe_invoice = self
                 .services
                 .bill_subscription_tx(
                     conn,
@@ -297,43 +307,59 @@ impl ServicesEdge {
                         payment_method_id,
                     },
                 )
-                .await?
-                .ok_or(StoreError::InsertError)
-                .attach("Failed to bill the subscription")?;
+                .await?;
 
-            let payment_transaction = detailed_invoice.transactions.into_iter().next();
+            // Resolve the payment transaction and the period anchor for activation. A `None`
+            // invoice means there was nothing to bill at checkout — e.g. a usage-only plan (no
+            // advance component) or a usage/arrears-scoped minimum, whose consumption (and floor
+            // true-up) only settles at period end. Treat that like the self-serve zero-amount
+            // path: no payment, just activate. The client must have confirmed a zero amount.
+            let (payment_transaction, current_period_start) = match maybe_invoice {
+                Some(detailed_invoice) => {
+                    let payment_transaction = detailed_invoice.transactions.into_iter().next();
 
-            // Handle payment status explicitly
-            // None means zero amount (e.g., 100% coupon) - invoice already finalized and marked paid
-            if let Some(ref txn) = payment_transaction {
-                match txn.status {
-                    PaymentStatusEnum::Pending => {
-                        // Payment is pending (e.g., async payment method like SEPA)
-                        // Return early, subscription activation will happen via webhook
-                        return Ok((payment_transaction, true));
+                    // Handle payment status explicitly.
+                    if let Some(ref txn) = payment_transaction {
+                        match txn.status {
+                            PaymentStatusEnum::Pending => {
+                                // Payment is pending (e.g., async payment method like SEPA).
+                                // Return early; activation happens via webhook.
+                                return Ok((payment_transaction, true));
+                            }
+                            PaymentStatusEnum::Settled => {
+                                // Payment succeeded, proceed with activation below.
+                            }
+                            PaymentStatusEnum::Failed => {
+                                return Err(Report::new(StoreError::CheckoutError)
+                                    .attach("Payment failed during checkout"));
+                            }
+                            PaymentStatusEnum::Cancelled => {
+                                return Err(Report::new(StoreError::CheckoutError)
+                                    .attach("Payment was cancelled during checkout"));
+                            }
+                            PaymentStatusEnum::Ready => {
+                                // Ready means not yet processed - shouldn't happen after charging.
+                                return Err(Report::new(StoreError::CheckoutError)
+                                    .attach("Payment was not processed correctly"));
+                            }
+                        }
                     }
-                    PaymentStatusEnum::Settled => {
-                        // Payment succeeded, proceed with activation below
-                    }
-                    PaymentStatusEnum::Failed => {
-                        return Err(Report::new(StoreError::CheckoutError)
-                            .attach("Payment failed during checkout"));
-                    }
-                    PaymentStatusEnum::Cancelled => {
-                        return Err(Report::new(StoreError::CheckoutError)
-                            .attach("Payment was cancelled during checkout"));
-                    }
-                    PaymentStatusEnum::Ready => {
-                        // Ready means not yet processed - this shouldn't happen after charging
-                        return Err(Report::new(StoreError::CheckoutError)
-                            .attach("Payment was not processed correctly"));
-                    }
+
+                    (payment_transaction, detailed_invoice.invoice.invoice_date)
                 }
-            }
+                None => {
+                    if total_amount_confirmation != 0 {
+                        return Err(Report::new(StoreError::CheckoutError).attach(format!(
+                            "Nothing to bill at checkout but a non-zero amount ({}) was confirmed",
+                            total_amount_confirmation
+                        )));
+                    }
+                    (None, subscription.current_period_start)
+                }
+            };
 
             // Payment succeeded (settled) or zero amount - activate the subscription
             // Calculate the billing period using the subscription's actual billing period
-            let current_period_start = detailed_invoice.invoice.invoice_date;
             let billing_period: BillingPeriodEnum = subscription.period.clone().into();
             let period = calculate_advance_period_range(
                 current_period_start,

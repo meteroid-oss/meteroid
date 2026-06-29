@@ -19,10 +19,11 @@ use meteroid_grpc::meteroid::api::subscriptions::v1::{
     GetSubscriptionComponentUsageResponse, GetUpcomingInvoiceRequest, GetUpcomingInvoiceResponse,
     ListSlotTransactionsRequest, ListSlotTransactionsResponse, ListSubscriptionsRequest,
     ListSubscriptionsResponse, MrrChange, PreviewAmendmentRequest, PreviewAmendmentResponse,
-    PreviewPlanChangeRequest, PreviewPlanChangeResponse, PreviewSlotUpdateRequest,
-    PreviewSlotUpdateResponse, SchedulePlanChangeRequest, SchedulePlanChangeResponse,
-    SubscriptionDetails, SyncToHubspotRequest, SyncToHubspotResponse, UpdateSlotsRequest,
-    UpdateSlotsResponse, UpdateSubscriptionRequest, UpdateSubscriptionResponse,
+    PreviewCreateSubscriptionRequest, PreviewCreateSubscriptionResponse, PreviewPlanChangeRequest,
+    PreviewPlanChangeResponse, PreviewSlotUpdateRequest, PreviewSlotUpdateResponse,
+    SchedulePlanChangeRequest, SchedulePlanChangeResponse, SubscriptionDetails,
+    SyncToHubspotRequest, SyncToHubspotResponse, UpdateSlotsRequest, UpdateSlotsResponse,
+    UpdateSubscriptionRequest, UpdateSubscriptionResponse,
 };
 
 use crate::api::shared::conversions::ProtoConv;
@@ -124,6 +125,35 @@ impl SubscriptionsService for SubscriptionServiceComponents {
 
         Ok(Response::new(CreateSubscriptionsResponse {
             subscriptions: res,
+        }))
+    }
+
+    #[tracing::instrument(skip_all)]
+    async fn preview_create_subscription(
+        &self,
+        request: Request<PreviewCreateSubscriptionRequest>,
+    ) -> Result<Response<PreviewCreateSubscriptionResponse>, Status> {
+        let tenant_id = request.tenant()?;
+        let inner = request.into_inner();
+
+        let subscription = inner
+            .subscription
+            .ok_or(SubscriptionApiError::InvalidArgument(
+                "No subscription provided".to_string(),
+            ))?;
+
+        let create = mapping::subscriptions::create_proto_to_domain(subscription)?;
+
+        let (content, details) = self
+            .services
+            .preview_create_subscription(&create, tenant_id)
+            .await
+            .map_err(Into::<SubscriptionApiError>::into)?;
+
+        let invoice = mapping::upcoming::create_preview_to_upcoming_proto(content, &details);
+
+        Ok(Response::new(PreviewCreateSubscriptionResponse {
+            invoice: Some(invoice),
         }))
     }
 

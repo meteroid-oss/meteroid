@@ -1,5 +1,5 @@
 import { useMutation } from '@connectrpc/connect-query'
-import { Button, Flex, Form, InputFormField, Label } from '@md/ui'
+import { Button, Flex, Form, InputFormField, Label, Spinner } from '@md/ui'
 import { ArrowLeft } from 'lucide-react'
 import { useNavigate } from 'react-router-dom'
 import { z } from 'zod'
@@ -97,9 +97,11 @@ export const OrganizationOnboardingForm = () => {
           <Button
             variant="primary"
             type="submit"
-            disabled={!methods.formState.isValid}
+            hasIcon={createOrganizationMut.isPending}
+            disabled={!methods.formState.isValid || createOrganizationMut.isPending}
             className="mt-auto"
           >
+            {createOrganizationMut.isPending && <Spinner />}
             Create my organization
           </Button>
         </form>

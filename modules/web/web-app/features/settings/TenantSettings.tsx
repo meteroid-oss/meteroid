@@ -7,6 +7,7 @@ import { GeneralTab } from '@/features/settings/tabs/GeneralTab'
 import { IntegrationsTab } from '@/features/settings/tabs/IntegrationsTab'
 import { InvoiceTab } from '@/features/settings/tabs/InvoiceTab'
 import { PaymentMethodsTab } from '@/features/settings/tabs/PaymentsTab'
+import { SecurityTab } from '@/features/settings/tabs/SecurityTab'
 import { TaxesTab } from '@/features/settings/tabs/TaxesTab'
 import { UsersTab } from '@/features/settings/tabs/UsersTab'
 import { useIsExpressOrganization } from '@/hooks/useIsExpressOrganization'
@@ -28,6 +29,7 @@ export const TenantSettings: FunctionComponent = () => {
             <TabsTrigger value="payments">Payment methods</TabsTrigger>
             <TabsTrigger value="taxes">Taxes</TabsTrigger>
             {!isExpress && <TabsTrigger value="users">Members</TabsTrigger>}
+            {!isExpress && <TabsTrigger value="security">Security</TabsTrigger>}
             {!isExpress && <TabsTrigger value="activity">Audit log</TabsTrigger>}
           </TabsList>
           {!isExpress && (
@@ -53,6 +55,11 @@ export const TenantSettings: FunctionComponent = () => {
           {!isExpress && (
             <TabsContent value="users">
               <UsersTab />
+            </TabsContent>
+          )}
+          {!isExpress && (
+            <TabsContent value="security">
+              <SecurityTab />
             </TabsContent>
           )}
           {!isExpress && (

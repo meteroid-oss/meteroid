@@ -1,10 +1,11 @@
 import { create } from '@bufbuild/protobuf';
 import { createConnectQueryKey, skipToken, useMutation } from '@connectrpc/connect-query';
+import { Skeleton } from '@md/ui'
 import { useQueryClient } from '@tanstack/react-query'
 import { Badge, Button, Card, CardContent, CardHeader, CardTitle } from '@ui/components'
-import Decimal from 'decimal.js'
 import { useAtom } from 'jotai'
 import { Calendar, Package, PlusIcon, Shield, Tag, User } from 'lucide-react'
+import { useMemo } from 'react'
 import { useNavigate } from 'react-router-dom'
 import { useWizard } from 'react-use-wizard'
 import { toast } from 'sonner'
@@ -15,25 +16,17 @@ import {
   buildExistingProductRef,
   buildNewProductRef,
   buildPriceInputs,
-  formDataToPrice,
   toPricingTypeFromFeeType,
   wrapAsNewPriceEntries,
 } from '@/features/pricing'
-import { getApiComponentBillingPeriodLabel } from '@/features/subscriptions/utils/billingPeriods'
+import { InvoicePreviewCard } from '@/features/subscriptions/UpcomingInvoiceCard'
 import { useBasePath } from '@/hooks/useBasePath'
 import { useQuery } from '@/lib/connectrpc'
-import { CURRENCIES } from '@/lib/data/currencies'
 import { env } from '@/lib/env'
 import { mapDatev2 } from '@/lib/mapping'
 import {
-  formatUsagePriceSummary,
-  getComponentPricingFromPrice,
-  getPrice,
-  getPriceBillingLabel,
-} from '@/lib/mapping/priceToSubscriptionFee'
-import { formatCurrency } from '@/lib/utils/numbers'
-import {
   createSubscriptionAtom,
+  CreateSubscriptionState,
   PaymentMethodsConfigType,
 } from '@/pages/tenants/subscription/create/state'
 import { listAddOns } from '@/rpc/api/addons/v1/addons-AddOnsService_connectquery'
@@ -43,8 +36,6 @@ import { Coupon } from '@/rpc/api/coupons/v1/models_pb'
 import { getCustomerById } from '@/rpc/api/customers/v1/customers-CustomersService_connectquery'
 import { createFeature } from '@/rpc/api/entitlements/v1/entitlements-EntitlementsService_connectquery'
 import { getPlanWithVersionByVersionId } from '@/rpc/api/plans/v1/plans-PlansService_connectquery'
-import { PriceComponent } from '@/rpc/api/pricecomponents/v1/models_pb'
-import { listPriceComponents } from '@/rpc/api/pricecomponents/v1/pricecomponents-PriceComponentsService_connectquery'
 import {
   ActivationCondition,
   BankTransferSchema,
@@ -55,10 +46,121 @@ import {
 import {
   createSubscription,
   listSubscriptions,
+  previewCreateSubscription,
 } from '@/rpc/api/subscriptions/v1/subscriptions-SubscriptionsService_connectquery'
 
 import type { PaymentMethodsConfig } from '@/rpc/api/subscriptions/v1/models_pb';
 
+
+// Build PaymentMethodsConfig from state (simple: just the type, no overrides)
+const buildProtoPaymentMethodsConfig = (
+  type: PaymentMethodsConfigType
+): PaymentMethodsConfig | undefined => {
+  switch (type) {
+    case 'online':
+      // Online without config = inherit from invoicing entity
+      return create(PaymentMethodsConfigSchema, {
+        config: { case: 'online', value: create(OnlinePaymentSchema) },
+      })
+    case 'bankTransfer':
+      return create(PaymentMethodsConfigSchema, {
+        config: { case: 'bankTransfer', value: create(BankTransferSchema) },
+      })
+    case 'external':
+      return create(PaymentMethodsConfigSchema, {
+        config: { case: 'external', value: create(ExternalSchema) },
+      })
+    default:
+      return undefined
+  }
+}
+
+// Builds the CreateSubscription payload shared by the create call and the server-side
+// preview (Subscription Summary), so the previewed first invoice matches what creation bills.
+// Entitlements are resolved separately at create time and don't affect totals, so omitted here.
+const buildCreateSubscriptionMessage = (state: CreateSubscriptionState, currency: string) => {
+  // Map billingDay to billingDayAnchor
+  // 'FIRST' = 1st of month (fixed day), 'SUB_START_DAY' = anniversary (undefined)
+  const billingDayAnchor = state.billingDay === 'FIRST' ? 1 : state.billingDayAnchor
+
+  return {
+    planVersionId: state.planVersionId,
+    customerId: state.customerId,
+    startDate: mapDatev2(state.startDate),
+    endDate: state.endDate && mapDatev2(state.endDate),
+    billingDayAnchor,
+    netTerms: state.netTerms,
+    activationCondition: state.activationCondition,
+    trialDuration: state.trialDuration,
+    invoiceMemo: state.invoiceMemo,
+    invoiceThreshold: state.invoiceThreshold,
+    purchaseOrder: state.purchaseOrder,
+    autoAdvanceInvoices: state.autoAdvanceInvoices,
+    chargeAutomatically: state.chargeAutomatically,
+    paymentMethodsConfig: buildProtoPaymentMethodsConfig(state.paymentMethodsType),
+    skipPastInvoices: state.skipPastInvoices,
+    components: {
+      parameterizedComponents: state.components.parameterized.map(c => ({
+        componentId: c.componentId,
+        initialSlotCount: c.initialSlotCount,
+        billingPeriod: c.billingPeriod,
+        committedCapacity: c.committedCapacity,
+      })),
+      overriddenComponents: state.components.overridden.map(c => {
+        const pricingType = toPricingTypeFromFeeType(
+          c.feeType,
+          c.feeType === 'usage' ? (c.formData.usageModel as string) : undefined
+        )
+        const priceEntries = wrapAsNewPriceEntries(
+          buildPriceInputs(pricingType, c.formData, currency)
+        )
+        return {
+          componentId: c.componentId,
+          name: c.name,
+          price: priceEntries[0],
+        }
+      }),
+      extraComponents: state.components.extra.map(c => {
+        const pricingType = toPricingTypeFromFeeType(
+          c.feeType,
+          c.feeType === 'usage' ? (c.formData.usageModel as string) : undefined
+        )
+        const priceEntries = wrapAsNewPriceEntries(
+          buildPriceInputs(pricingType, c.formData, currency)
+        )
+        return {
+          name: c.name,
+          product: c.productId
+            ? buildExistingProductRef(c.productId)
+            : buildNewProductRef(c.name, c.feeType, c.formData),
+          price: priceEntries[0],
+        }
+      }),
+      removeComponents: state.components.removed,
+    },
+    addOns: {
+      addOns: state.addOns.map(a => ({
+        addOnId: a.addOnId,
+        quantity: a.quantity ?? 1,
+        ...(a.parameterization && {
+          customization: {
+            case: 'parameterization' as const,
+            value: {
+              initialSlotCount: a.parameterization.initialSlotCount,
+              billingPeriod: a.parameterization.billingPeriod,
+              committedCapacity: a.parameterization.committedCapacity,
+            },
+          },
+        }),
+      })),
+    },
+    coupons: {
+      coupons: state.coupons.map(c => ({
+        couponId: c.couponId,
+      })),
+    },
+  }
+}
 
 export const StepReviewAndCreate = () => {
   const navigate = useNavigate()
@@ -77,12 +179,6 @@ export const StepReviewAndCreate = () => {
   const planQuery = useQuery(
     getPlanWithVersionByVersionId,
     { localId: state.planVersionId! },
-    { enabled: !!state.planVersionId }
-  )
-
-  const componentsQuery = useQuery(
-    listPriceComponents,
-    { planVersionId: state.planVersionId! },
     { enabled: !!state.planVersionId }
   )
 
@@ -117,8 +213,6 @@ export const StepReviewAndCreate = () => {
 
   const createFeatureMutation = useMutation(createFeature)
 
-  const allComponents = componentsQuery.data?.components || []
-  const includedComponents = allComponents.filter(c => !state.components.removed.includes(c.id))
   const currency = planQuery.data?.plan?.version?.currency
 
   const selectedAddOns =
@@ -138,33 +232,23 @@ export const StepReviewAndCreate = () => {
     return a.id.localeCompare(b.id)
   })
 
+  // Server-computed first-invoice preview powering the Subscription Summary. It mirrors what
+  // creation will bill, so the totals reflect coupons and taxes.
+  const previewInput = useMemo(
+    () =>
+      currency && state.customerId && state.planVersionId
+        ? buildCreateSubscriptionMessage(state, currency)
+        : undefined,
+    [state, currency]
+  )
+
+  const previewQuery = useQuery(
+    previewCreateSubscription,
+    previewInput ? { subscription: previewInput } : skipToken
+  )
+
   if (!currency) {
     return <div>Loading plan...</div>
-  }
-
-  // Build PaymentMethodsConfig from state (simple: just the type, no overrides)
-  const buildProtoPaymentMethodsConfig = (
-    type: PaymentMethodsConfigType
-  ): PaymentMethodsConfig | undefined => {
-    switch (type) {
-      case 'online':
-        // Online without config = inherit from invoicing entity
-        return create(
-          PaymentMethodsConfigSchema,
-          { config: { case: 'online', value: create(OnlinePaymentSchema) } }
-        );
-      case 'bankTransfer':
-        return create(PaymentMethodsConfigSchema, {
-          config: { case: 'bankTransfer', value: create(BankTransferSchema) },
-        });
-      case 'external':
-        return create(
-          PaymentMethodsConfigSchema,
-          { config: { case: 'external', value: create(ExternalSchema) } }
-        );
-      default:
-        return undefined
-    }
   }
 
   const handleCreate = async () => {
@@ -174,87 +258,9 @@ export const StepReviewAndCreate = () => {
         req => createFeatureMutation.mutateAsync(req)
       )
 
-      // Map billingDay to billingDayAnchor
-      // 'FIRST' = 1st of month (fixed day), 'SUB_START_DAY' = anniversary (undefined)
-      const billingDayAnchor = state.billingDay === 'FIRST' ? 1 : state.billingDayAnchor
-
       const created = await createSubscriptionMutation.mutateAsync({
         subscription: {
-          planVersionId: state.planVersionId,
-          customerId: state.customerId,
-          startDate: mapDatev2(state.startDate),
-          endDate: state.endDate && mapDatev2(state.endDate),
-          billingDayAnchor,
-          netTerms: state.netTerms,
-          activationCondition: state.activationCondition,
-          trialDuration: state.trialDuration,
-          invoiceMemo: state.invoiceMemo,
-          invoiceThreshold: state.invoiceThreshold,
-          purchaseOrder: state.purchaseOrder,
-          autoAdvanceInvoices: state.autoAdvanceInvoices,
-          chargeAutomatically: state.chargeAutomatically,
-          paymentMethodsConfig: buildProtoPaymentMethodsConfig(state.paymentMethodsType),
-          skipPastInvoices: state.skipPastInvoices,
-          components: {
-            parameterizedComponents: state.components.parameterized.map(c => ({
-              componentId: c.componentId,
-              initialSlotCount: c.initialSlotCount,
-              billingPeriod: c.billingPeriod,
-              committedCapacity: c.committedCapacity,
-            })),
-            overriddenComponents: state.components.overridden.map(c => {
-              const pricingType = toPricingTypeFromFeeType(
-                c.feeType,
-                c.feeType === 'usage' ? (c.formData.usageModel as string) : undefined
-              )
-              const priceEntries = wrapAsNewPriceEntries(
-                buildPriceInputs(pricingType, c.formData, currency)
-              )
-              return {
-                componentId: c.componentId,
-                name: c.name,
-                price: priceEntries[0],
-              }
-            }),
-            extraComponents: state.components.extra.map(c => {
-              const pricingType = toPricingTypeFromFeeType(
-                c.feeType,
-                c.feeType === 'usage' ? (c.formData.usageModel as string) : undefined
-              )
-              const priceEntries = wrapAsNewPriceEntries(
-                buildPriceInputs(pricingType, c.formData, currency)
-              )
-              return {
-                name: c.name,
-                product: c.productId
-                  ? buildExistingProductRef(c.productId)
-                  : buildNewProductRef(c.name, c.feeType, c.formData),
-                price: priceEntries[0],
-              }
-            }),
-            removeComponents: state.components.removed,
-          },
-          addOns: {
-            addOns: state.addOns.map(a => ({
-              addOnId: a.addOnId,
-              quantity: a.quantity ?? 1,
-              ...(a.parameterization && {
-                customization: {
-                  case: 'parameterization' as const,
-                  value: {
-                    initialSlotCount: a.parameterization.initialSlotCount,
-                    billingPeriod: a.parameterization.billingPeriod,
-                    committedCapacity: a.parameterization.committedCapacity,
-                  },
-                },
-              }),
-            })),
-          },
-          coupons: {
-            coupons: state.coupons.map(c => ({
-              couponId: c.couponId,
-            })),
-          },
+          ...buildCreateSubscriptionMessage(state, currency),
           entitlements: resolvedEntitlements,
         },
       })
@@ -278,76 +284,6 @@ export const StepReviewAndCreate = () => {
       default:
         return 'Unknown'
     }
-  }
-
-  const formatPrice = (price: string | number, currency: string) => {
-    const amount = typeof price === 'string' ? parseFloat(price || '0') : price
-    const precision = CURRENCIES[currency]?.precision ?? 2
-    const subunits = Math.round(amount * Math.pow(10, precision))
-    return formatCurrency(subunits, currency)
-  }
-
-  const getComponentPricing = (component: PriceComponent) => {
-    const configuration = state.components.parameterized.find(p => p.componentId === component.id)
-    const override = state.components.overridden.find(o => o.componentId === component.id)
-
-    // If overridden, derive display price from formData
-    if (override) {
-      const displayPrice = formDataToPrice(override.feeType, override.formData, currency)
-      const info = getComponentPricingFromPrice(displayPrice)
-      return {
-        ...info,
-        isOverride: true,
-        billingPeriod: undefined,
-      }
-    }
-
-    // Extract base price from the component's first price
-    const price = component.prices[0]
-    if (!price) {
-      return {
-        unitPrice: 0,
-        quantity: 1,
-        total: 0,
-        isOverride: false,
-        isMetered: false,
-        billingPeriod: configuration?.billingPeriod,
-      }
-    }
-
-    const info = getComponentPricingFromPrice(price, {
-      initialSlotCount: configuration?.initialSlotCount,
-    })
-
-    return {
-      ...info,
-      isOverride: false,
-      billingPeriod: configuration?.billingPeriod,
-    }
-  }
-
-  // Coupon math in subunits using Decimal, matching backend discount.rs:
-  // sequential application with i64-truncation on each step.
-  const couponPrecisionPow10 = new Decimal(10).pow(CURRENCIES[currency]?.precision ?? 2)
-
-  /** Returns the discount in subunits this coupon would apply against `runningSubunits`. */
-  const computeCouponDiscountSubunits = (
-    coupon: Coupon,
-    runningSubunits: Decimal
-  ): Decimal => {
-    const dt = coupon.discount?.discountType
-    if (!dt) return new Decimal(0)
-    if (dt.case === 'percentage') {
-      const pct = new Decimal(dt.value?.percentage || '0')
-      return Decimal.min(runningSubunits.times(pct).div(100), runningSubunits)
-    }
-    if (dt.case === 'fixed') {
-      // Currency mismatch (coupon vs subscription) will be enforced server-side
-      // by the upcoming preview RPC; the picker filters compatibles for now.
-      const amountSubunits = new Decimal(dt.value?.amount || '0').times(couponPrecisionPow10)
-      return Decimal.min(amountSubunits, runningSubunits)
-    }
-    return new Decimal(0)
   }
 
   return (
@@ -495,7 +431,6 @@ export const StepReviewAndCreate = () => {
                     <CardContent>
                       <div className="space-y-2">
                         {selectedAddOns.map(addOn => {
-                          // const config = state.addOns.find(a => a.addOnId === addOn.id)
                           return (
                             <div key={addOn.id} className="flex items-center justify-between">
                               <span className="text-sm">{addOn.name}</span>
@@ -563,317 +498,31 @@ export const StepReviewAndCreate = () => {
             )}
           </div>
 
-          {/* Right Column - Invoice-style Pricing */}
+          {/* Right Column - Server-computed first invoice preview */}
           <div className="lg:col-span-1">
-            <Card className="sticky top-6">
-              <CardHeader>
-                <CardTitle className="text-lg">Subscription Summary</CardTitle>
-              </CardHeader>
-              <CardContent className="space-y-6">
-                {/* Plan Components */}
-                {includedComponents.length > 0 && (
-                  <div>
-                    <h4 className="font-medium text-xs mb-3">Plan Components</h4>
-                    <div className="space-y-2">
-                      {includedComponents.map(component => {
-                        const pricing = getComponentPricing(component)
-                        const configuration = state.components.parameterized.find(
-                          p => p.componentId === component.id
-                        )
-                        const override = state.components.overridden.find(
-                          o => o.componentId === component.id
-                        )
-
-                        return (
-                          <div
-                            key={component.id}
-                            className="flex items-start justify-between text-sm"
-                          >
-                            <div className="flex-1 pr-2 min-h-9">
-                              <div className="font-medium">
-                                {override?.name || component.name}
-                              </div>
-                              {pricing.quantity > 1 && !pricing.isMetered && (
-                                <div className="text-xs text-muted-foreground">
-                                  {formatPrice(pricing.unitPrice, currency)} × {pricing.quantity}
-                                </div>
-                              )}
-                            </div>
-                            <div className="text-right font-medium">
-                              {pricing.isMetered ? (
-                                (() => {
-                                  const price = override
-                                    ? formDataToPrice(override.feeType, override.formData, currency)
-                                    : getPrice(component)
-                                  const usage = price
-                                    ? formatUsagePriceSummary(price, currency)
-                                    : undefined
-                                  return (
-                                    <div className="flex items-center justify-end gap-1">
-                                      {usage ? (
-                                        <span>
-                                          {usage.model && (
-                                            <>
-                                              <span className="text-muted-foreground">
-                                                {usage.model}
-                                              </span>{' '}
-                                            </>
-                                          )}
-                                          {usage.amount}
-                                        </span>
-                                      ) : (
-                                        <span className="text-muted-foreground">Metered</span>
-                                      )}
-                                      <Badge variant="secondary" size="sm">
-                                        {getApiComponentBillingPeriodLabel(
-                                          component,
-                                          configuration
-                                        )}
-                                      </Badge>
-                                    </div>
-                                  )
-                                })()
-                              ) : (
-                                <div className="flex items-center justify-end gap-1">
-                                  <span>
-                                    {pricing.quantity > 1
-                                      ? formatPrice(pricing.total, currency)
-                                      : formatPrice(pricing.unitPrice, currency)}
-                                  </span>
-                                  <Badge variant="secondary" size="sm">
-                                    {getApiComponentBillingPeriodLabel(component, configuration)}
-                                  </Badge>
-                                </div>
-                              )}
-                            </div>
-                          </div>
-                        )
-                      })}
-                    </div>
-                  </div>
-                )}
-
-                {/* Extra Components */}
-                {state.components.extra.length > 0 && (
-                  <div>
-                    <h4 className="font-medium text-xs mb-3">Extra Components</h4>
-                    <div className="space-y-2">
-                      {state.components.extra.map((component, index) => {
-                        const displayPrice = formDataToPrice(
-                          component.feeType,
-                          component.formData,
-                          currency
-                        )
-                        const pricing = getComponentPricingFromPrice(displayPrice)
-
-                        return (
-                          <div key={index} className="flex items-start justify-between text-sm">
-                            <div className="flex-1 pr-2 min-h-9">
-                              <div className="font-medium">{component.name}</div>
-                              {pricing.quantity > 1 && !pricing.isMetered && (
-                                <div className="text-xs text-muted-foreground">
-                                  {formatPrice(pricing.unitPrice, currency)} × {pricing.quantity}
-                                </div>
-                              )}
-                            </div>
-                            <div className="text-right font-medium">
-                              <div className="flex items-center justify-end gap-1">
-                                {pricing.isMetered ? (
-                                  (() => {
-                                    const usage = formatUsagePriceSummary(displayPrice, currency)
-                                    return (
-                                      <span>
-                                        {usage.model && (
-                                          <>
-                                            <span className="text-muted-foreground">
-                                              {usage.model}
-                                            </span>{' '}
-                                          </>
-                                        )}
-                                        {usage.amount}
-                                      </span>
-                                    )
-                                  })()
-                                ) : (
-                                  <span>
-                                    {pricing.quantity > 1
-                                      ? formatPrice(pricing.total, currency)
-                                      : formatPrice(pricing.unitPrice, currency)}
-                                  </span>
-                                )}
-                                <Badge variant="secondary" size="sm">
-                                  {getPriceBillingLabel(displayPrice)}
-                                </Badge>
-                              </div>
-                            </div>
-                          </div>
-                        )
-                      })}
-                    </div>
-                  </div>
-                )}
-
-                {/* Add-ons */}
-                {selectedAddOns.length > 0 && (
-                  <div>
-                    <h4 className="font-medium text-xs mb-3">Add-ons</h4>
-                    <div className="space-y-2">
-                      {selectedAddOns.map(addOn => {
-                        const price = addOn.price
-                        const pricing = price ? getComponentPricingFromPrice(price) : undefined
-                        return (
-                          <div key={addOn.id} className="flex items-start justify-between text-sm">
-                            <div className="flex-1 pr-2 min-h-9">
-                              <div className="font-medium">{addOn.name}</div>
-                            </div>
-                            <div className="text-right font-medium">
-                              {pricing && !pricing.isMetered ? (
-                                <span>{formatPrice(pricing.total, currency)}</span>
-                              ) : pricing?.isMetered ? (
-                                <span className="text-muted-foreground">Metered</span>
-                              ) : (
-                                <span className="text-muted-foreground text-xs">Included</span>
-                              )}
-                            </div>
-                          </div>
-                        )
-                      })}
-                    </div>
-                  </div>
-                )}
-
-                {/* Calculate totals */}
-                {(() => {
-                  let subtotal = 0
-                  let hasMetered = false
-
-                  // Add plan components
-                  includedComponents.forEach(component => {
-                    const pricing = getComponentPricing(component)
-                    if (pricing.isMetered) {
-                      hasMetered = true
-                    } else {
-                      subtotal += pricing.total
-                    }
-                  })
-
-                  // Add extra components
-                  state.components.extra.forEach(component => {
-                    const displayPrice = formDataToPrice(
-                      component.feeType,
-                      component.formData,
-                      currency
-                    )
-                    const pricing = getComponentPricingFromPrice(displayPrice)
-                    if (pricing.isMetered) {
-                      hasMetered = true
-                    } else {
-                      subtotal += pricing.total
-                    }
-                  })
-
-                  // Add add-ons
-                  selectedAddOns.forEach(addOn => {
-                    const price = addOn.price
-                    const pricing = price ? getComponentPricingFromPrice(price) : undefined
-                    if (pricing) {
-                      if (pricing.isMetered) {
-                        hasMetered = true
-                      } else {
-                        subtotal += pricing.total
-                      }
-                    }
-                  })
-
-                  // Apply coupons sequentially in subunits (matches backend discount.rs).
-                  let runningSubunits = new Decimal(subtotal).times(couponPrecisionPow10)
-                  const couponItems: { coupon: Coupon; discount: number }[] = []
-                  for (const coupon of orderedCoupons) {
-                    const discountSubunits = computeCouponDiscountSubunits(coupon, runningSubunits)
-                      .toDecimalPlaces(0, Decimal.ROUND_DOWN)
-                    runningSubunits = runningSubunits.minus(discountSubunits)
-                    couponItems.push({
-                      coupon,
-                      discount: discountSubunits.div(couponPrecisionPow10).toNumber(),
-                    })
-                  }
-                  const totalDiscount = couponItems.reduce((acc, x) => acc + x.discount, 0)
-                  const finalTotal = Math.max(0, subtotal - totalDiscount)
-
-                  return (
-                    <div className="border-t pt-4 space-y-2">
-                      <div className="flex justify-between text-sm">
-                        <span>Subtotal (Fixed)</span>
-                        <span className="font-medium">{formatPrice(subtotal, currency)}</span>
-                      </div>
-
-                      {/* Show discounts after subtotal, in apply order */}
-                      {couponItems.length > 0 && totalDiscount > 0 && (
-                        <div className="space-y-1">
-                          {couponItems.map(({ coupon, discount }) => {
-                            if (discount <= 0) return null
-                            return (
-                              <div
-                                key={coupon.id}
-                                className="flex justify-between text-sm text-success"
-                              >
-                                <span>- {coupon.code}</span>
-                                <span>-{formatPrice(discount, currency)}</span>
-                              </div>
-                            )
-                          })}
-                        </div>
-                      )}
-
-                      {hasMetered && (
-                        <div className="flex justify-between text-sm text-muted-foreground">
-                          <span>+ Usage</span>
-                          <span>Metered</span>
-                        </div>
-                      )}
-
-                      <div className="flex justify-between text-base font-semibold border-t pt-2">
-                        <span>First Invoice (excl. tax)</span>
-                        <span>
-                          {finalTotal > 0
-                            ? hasMetered
-                              ? `${formatPrice(finalTotal, currency)} + usage`
-                              : formatPrice(finalTotal, currency)
-                            : hasMetered
-                              ? 'Usage only'
-                              : formatPrice(0, currency)}
-                        </span>
-                      </div>
-                    </div>
-                  )
-                })()}
-
-                {/* Excluded Components */}
-                {state.components.removed.length > 0 && (
-                  <div className="border-t pt-4">
-                    <h4 className="font-medium text-sm mb-2 text-muted-foreground">
-                      Excluded Components
-                    </h4>
-                    <div className="space-y-1">
-                      {state.components.removed.map(componentId => {
-                        const component = allComponents.find(c => c.id === componentId)
-                        return (
-                          <div
-                            key={componentId}
-                            className="flex items-center justify-between text-xs text-muted-foreground"
-                          >
-                            <span className="line-through">{component?.name || componentId}</span>
-                            <Badge variant="destructive" size="sm">
-                              Excluded
-                            </Badge>
-                          </div>
-                        )
-                      })}
-                    </div>
-                  </div>
-                )}
-              </CardContent>
-            </Card>
+            <div className="sticky top-6 space-y-2">
+              <h3 className="text-lg font-semibold">Subscription Summary</h3>
+              {previewQuery.isLoading ? (
+                <div className="bg-card rounded-lg border border-border shadow-sm p-4">
+                  <Skeleton height={20} width={200} className="mb-2" />
+                  <Skeleton height={14} width={150} />
+                </div>
+              ) : previewQuery.isError || !previewQuery.data?.invoice ? (
+                <div className="bg-card rounded-lg border border-border shadow-sm p-4 text-sm text-muted-foreground">
+                  Unable to compute the subscription summary. Review the configuration and try
+                  again.
+                </div>
+              ) : (
+                <InvoicePreviewCard
+                  invoice={previewQuery.data.invoice}
+                  currency={currency}
+                  subscriptionId=""
+                  title="First invoice"
+                  defaultExpanded
+                  hideUsageDetails
+                />
+              )}
+            </div>
           </div>
         </div>
       </PageSection>
