@@ -130,7 +130,7 @@ proc-macro2 = { version = "1.0.78" }
 prost = "0.14.1"
 prost-build = "0.14.1"
 prost-types = "0.14.1"
-quick_cache = "0.6.2"
+quick_cache = "0.7.0"
 quote = "1.0.35"
 lazy-regex = "3"
 rand = "0.10.0"
