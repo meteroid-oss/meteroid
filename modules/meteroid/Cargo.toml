@@ -87,6 +87,7 @@ meteroid-store.workspace = true
 meteroid-invoicing.workspace = true
 meteroid-mailer.workspace = true
 rand.workspace = true
+lazy-regex.workspace = true
 rusty-money.workspace = true
 meteroid-seeder = { workspace = true }
 hubspot-client = { workspace = true }

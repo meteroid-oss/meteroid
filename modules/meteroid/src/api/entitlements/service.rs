@@ -40,6 +40,8 @@ impl EntitlementsService for EntitlementsComponents {
         let feature_type = mapping::feature_type_from_proto(inner.feature_type)?;
         let product_id = mapping::product_id_from_proto(inner.product_id)?;
 
+        let code = validate_feature_code(&inner.code)?;
+
         let entitlement = inner
             .entitlement
             .map(|v| mapping::entitlement_value_from_proto(Some(v)))
@@ -51,6 +53,7 @@ impl EntitlementsService for EntitlementsComponents {
                 tenant_id,
                 product_id,
                 name: inner.name,
+                code,
                 description: inner.description,
                 feature_type,
                 entitlement,
@@ -594,5 +597,56 @@ impl EntitlementsService for EntitlementsComponents {
                 .map(mapping::entitlement_to_proto)
                 .collect(),
         }))
+    }
+}
+
+/// Mirrors FE regex `^[a-z0-9][a-z0-9_-]*$` with an additional 128-char cap.
+fn validate_feature_code(code: &str) -> Result<String, Status> {
+    let code = code.trim();
+    if code.len() > 128 {
+        return Err(Status::invalid_argument(format!(
+            "invalid feature code: too long ({} > 128 chars)",
+            code.len()
+        )));
+    }
+    if !lazy_regex::regex_is_match!(r"^[a-z0-9][a-z0-9_-]*$", code) {
+        return Err(Status::invalid_argument(
+            "invalid feature code: must start with a lowercase letter or digit, then only lowercase letters, digits, '-', '_'",
+        ));
+    }
+    Ok(code.to_string())
+}
+
+#[cfg(test)]
+mod tests {
+    use super::validate_feature_code;
+
+    #[test]
+    fn accepts_valid_slugs() {
+        for c in ["audit_log", "mfa_policy", "sso", "a1-b2_c3"] {
+            assert!(validate_feature_code(c).is_ok(), "{c} should be valid");
+        }
+    }
+
+    #[test]
+    fn trims_then_validates() {
+        assert_eq!(validate_feature_code("  audit_log  ").unwrap(), "audit_log");
+    }
+
+    #[test]
+    fn rejects_invalid_slugs() {
+        for c in [
+            "",
+            "  ",
+            "Audit_Log",
+            "audit log",
+            "audit'log",
+            "feature.v2",
+            "-leading",
+            "_leading",
+            "über",
+        ] {
+            assert!(validate_feature_code(c).is_err(), "{c} should be invalid");
+        }
     }
 }

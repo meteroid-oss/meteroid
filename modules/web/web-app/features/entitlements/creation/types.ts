@@ -32,6 +32,7 @@ export type PendingEntitlementSpec = {
   // exactly one of featureId (existing) or featureName (new) must be set
   featureId?: string
   featureName?: string
+  featureCode?: string // stable code for a new feature; only set alongside featureName
   featureDisplayName: string // shown in the pending list; equals featureName for new features
   featureType: 'boolean' | 'metered'
   metricId?: string // only set when featureName is set and featureType === 'metered'

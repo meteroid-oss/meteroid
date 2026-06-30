@@ -12,7 +12,7 @@ use crate::store::PgConn;
 use crate::{Store, StoreResult};
 use chrono::{DateTime, Datelike, Days, Duration, Months, NaiveDate, NaiveDateTime, NaiveTime};
 use common_domain::ids::{
-    AddOnId, BaseId, CustomerId, EntitlementEntityId, EntitlementId, FeatureId, PlanId,
+    AddOnId, AliasOr, BaseId, CustomerId, EntitlementEntityId, EntitlementId, FeatureId, PlanId,
     PlanVersionId, ProductId, QuoteId, SubscriptionId, TenantId,
 };
 use diesel_models::add_ons::AddOnRow;
@@ -59,6 +59,12 @@ pub trait EntitlementsInterface {
     async fn create_feature(&self, feature: FeatureNew) -> StoreResult<Feature>;
 
     async fn get_feature(&self, id: FeatureId, tenant_id: TenantId) -> StoreResult<Feature>;
+
+    async fn get_feature_by_id_or_code(
+        &self,
+        id_or_code: AliasOr<FeatureId>,
+        tenant_id: TenantId,
+    ) -> StoreResult<Feature>;
 
     async fn list_features(
         &self,
@@ -242,6 +248,37 @@ impl EntitlementsInterface for Store {
             EntitlementRow::list_by_entity(&mut conn, tenant_id, EntitlementEntityId::Feature(id))
                 .await
                 .map_err(Into::<Report<StoreError>>::into)?;
+
+        feature.entitlement = entitlement_rows
+            .into_iter()
+            .next()
+            .map(TryInto::try_into)
+            .transpose()?;
+
+        Ok(feature)
+    }
+
+    async fn get_feature_by_id_or_code(
+        &self,
+        id_or_code: AliasOr<FeatureId>,
+        tenant_id: TenantId,
+    ) -> StoreResult<Feature> {
+        let mut conn = self.get_conn().await?;
+
+        let row = FeatureRow::find_by_id_or_code(&mut conn, id_or_code, tenant_id)
+            .await
+            .map_err(Into::<Report<StoreError>>::into)?;
+
+        let feature_id = row.feature.id;
+        let mut feature: Feature = row.try_into()?;
+
+        let entitlement_rows = EntitlementRow::list_by_entity(
+            &mut conn,
+            tenant_id,
+            EntitlementEntityId::Feature(feature_id),
+        )
+        .await
+        .map_err(Into::<Report<StoreError>>::into)?;
 
         feature.entitlement = entitlement_rows
             .into_iter()
@@ -1511,6 +1548,7 @@ fn resolve(
             feature: FeatureRef {
                 id: feature.id,
                 name: feature.name.clone(),
+                code: feature.code.clone(),
                 product: feature.product.clone(),
             },
             value: resolved_value,
@@ -1733,6 +1771,7 @@ mod tests {
             tenant_id: TenantId::new(),
             product: None,
             name: id.to_string(),
+            code: id.to_string(),
             description: None,
             feature_type,
             status: FeatureStatusEnum::Active,

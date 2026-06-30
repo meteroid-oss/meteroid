@@ -381,6 +381,7 @@ mod tests {
             feature: FeatureRef {
                 id: FeatureId::new(),
                 name: "test".to_string(),
+                code: "test".to_string(),
                 product: None,
             },
             origin: ResolvedOrigin {
@@ -506,6 +507,7 @@ mod tests {
         let feature = FeatureRef {
             id: FeatureId::new(),
             name: "deleted-metric".to_string(),
+            code: "deleted-metric".to_string(),
             product: None,
         };
         let origin = ResolvedOrigin {

@@ -38,6 +38,13 @@ import {
   RESET_PERIOD_TYPES,
   type ResetPeriodType,
 } from '@/features/entitlements/creation/types'
+import {
+  FEATURE_CODE_CHARSET_MESSAGE,
+  FEATURE_CODE_LENGTH_MESSAGE,
+  FEATURE_CODE_MAX_LENGTH,
+  FEATURE_CODE_REGEX,
+  slugifyCode,
+} from '@/features/entitlements/utils'
 import { useDebounceValue } from '@/hooks/useDebounce'
 import { useZodForm } from '@/hooks/useZodForm'
 import { useQuery } from '@/lib/connectrpc'
@@ -50,6 +57,7 @@ import { CalendarUnit, FeatureStatus } from '@/rpc/api/entitlements/v1/models_pb
 export type EntitlementFormValues = {
   featureId?: string
   featureName?: string
+  featureCode?: string
   featureDescription?: string
   featureType: 'boolean' | 'metered'
   metricId?: string
@@ -82,6 +90,7 @@ const schema = z
   .object({
     featureId: z.string().optional(),
     featureName: z.string().optional(),
+    featureCode: z.string().optional(),
     featureDescription: z.string().optional(),
     featureType: z.enum(['boolean', 'metered']),
     metricId: z.string().optional(),
@@ -95,6 +104,16 @@ const schema = z
   .refine(d => !d.featureName || d.featureType !== 'metered' || !!d.metricId, {
     message: 'Metric is required for metered features',
     path: ['metricId'],
+  })
+  // Code is only collected when creating a new feature (featureName set). Mirror the
+  // feature catalog's charset and length rules so the backend never rejects it.
+  .refine(d => !d.featureName || (d.featureCode ?? '').length <= FEATURE_CODE_MAX_LENGTH, {
+    message: FEATURE_CODE_LENGTH_MESSAGE,
+    path: ['featureCode'],
+  })
+  .refine(d => !d.featureName || FEATURE_CODE_REGEX.test(d.featureCode ?? ''), {
+    message: FEATURE_CODE_CHARSET_MESSAGE,
+    path: ['featureCode'],
   })
 
 const defaultValues: Partial<EntitlementFormValues> = {
@@ -259,7 +278,35 @@ export function EntitlementDialog({
                     <FormItem>
                       <FormLabel>Feature name <span className="text-destructive">*</span></FormLabel>
                       <FormControl>
-                        <Input placeholder="e.g. Monthly API Calls" {...field} />
+                        <Input
+                          placeholder="e.g. Monthly API Calls"
+                          {...field}
+                          onChange={e => {
+                            field.onChange(e)
+                            // Auto-fill the code from the name until the user edits it.
+                            if (!form.formState.dirtyFields.featureCode) {
+                              form.setValue('featureCode', slugifyCode(e.target.value), {
+                                shouldValidate: true,
+                              })
+                            }
+                          }}
+                        />
+                      </FormControl>
+                      <FormMessage/>
+                    </FormItem>
+                  )}
+                />
+                <FormField
+                  control={form.control}
+                  name="featureCode"
+                  render={({ field }) => (
+                    <FormItem>
+                      <FormLabel>
+                        Code <span className="text-destructive">*</span>{' '}
+                        <span className="text-muted-foreground text-xs">(stable identifier)</span>
+                      </FormLabel>
+                      <FormControl>
+                        <Input placeholder="e.g. monthly_api_calls" {...field} value={field.value ?? ''}/>
                       </FormControl>
                       <FormMessage/>
                     </FormItem>

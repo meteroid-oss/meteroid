@@ -7,6 +7,7 @@ import {
   EntitlementDialog,
   EntitlementFormValues,
 } from '@/features/entitlements/EntitlementDialog'
+import { slugifyCode } from '@/features/entitlements/utils'
 import { useQuery } from '@/lib/connectrpc'
 import {
   createEntitlement,
@@ -194,6 +195,7 @@ export const EntityEntitlementDialog = ({
     } else {
       const created = await createFeatureMutation.mutateAsync({
         name: data.featureName!,
+        code: data.featureCode || slugifyCode(data.featureName!),
         description: data.featureDescription || undefined,
         featureType:
           data.featureType === 'boolean'

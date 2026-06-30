@@ -35,6 +35,7 @@ async fn test_features_crud() {
         .clone()
         .create_feature(CreateFeatureRequest {
             name: "api-access".into(),
+            code: "api-access".into(),
             description: Some("API access feature".into()),
             product_id: None,
             feature_type: Some(FeatureType {
@@ -243,6 +244,7 @@ async fn test_entitlements_crud() {
         .clone()
         .create_feature(CreateFeatureRequest {
             name: "seats".into(),
+            code: "seats".into(),
             description: None,
             product_id: None,
             feature_type: Some(FeatureType {
@@ -426,6 +428,7 @@ async fn test_get_effective_entitlements() {
         .clone()
         .create_feature(CreateFeatureRequest {
             name: "api-calls".into(),
+            code: "api-calls".into(),
             description: None,
             product_id: None,
             feature_type: Some(FeatureType {
@@ -535,6 +538,7 @@ async fn test_create_feature_with_entitlement() {
         .clone()
         .create_feature(CreateFeatureRequest {
             name: "bulk-export".into(),
+            code: "bulk-export".into(),
             description: Some("Bulk export access".into()),
             product_id: None,
             feature_type: Some(FeatureType {
@@ -688,6 +692,7 @@ async fn test_kill_switch_suppresses_feature_resolution() {
         .clone()
         .create_feature(CreateFeatureRequest {
             name: "premium-export".into(),
+            code: "premium-export".into(),
             description: None,
             product_id: None,
             feature_type: Some(FeatureType {
@@ -806,6 +811,7 @@ async fn test_archived_feature_excluded_from_resolution() {
         .clone()
         .create_feature(CreateFeatureRequest {
             name: "dormant-feat".into(),
+            code: "dormant-feat".into(),
             description: None,
             product_id: None,
             feature_type: Some(FeatureType {
@@ -958,6 +964,7 @@ async fn test_subscription_override_beats_plan_grant() {
         .clone()
         .create_feature(CreateFeatureRequest {
             name: "api-quota".into(),
+            code: "api-quota".into(),
             description: None,
             product_id: None,
             feature_type: Some(FeatureType {
@@ -1072,6 +1079,7 @@ async fn test_feature_baseline_entitlement_lowest_priority() {
         .clone()
         .create_feature(CreateFeatureRequest {
             name: "everyone-default".into(),
+            code: "everyone-default".into(),
             description: None,
             product_id: None,
             feature_type: Some(FeatureType {
@@ -1140,6 +1148,7 @@ async fn test_unique_feature_entity_collision_rejected() {
         .clone()
         .create_feature(CreateFeatureRequest {
             name: "unique-test".into(),
+            code: "unique-test".into(),
             description: None,
             product_id: None,
             feature_type: Some(FeatureType {
@@ -1205,6 +1214,7 @@ async fn test_value_variant_must_match_feature_type() {
         .clone()
         .create_feature(CreateFeatureRequest {
             name: "bool-feat".into(),
+            code: "bool-feat".into(),
             description: None,
             product_id: None,
             feature_type: Some(FeatureType {
@@ -1238,6 +1248,7 @@ async fn test_value_variant_must_match_feature_type() {
         .clone()
         .create_feature(CreateFeatureRequest {
             name: "metered-feat".into(),
+            code: "metered-feat".into(),
             description: None,
             product_id: None,
             feature_type: Some(FeatureType {
@@ -1294,6 +1305,7 @@ async fn test_inline_subscription_entitlement_creation() {
         .clone()
         .create_feature(CreateFeatureRequest {
             name: "inline-bool-feature".into(),
+            code: "inline-bool-feature".into(),
             description: None,
             product_id: None,
             feature_type: Some(FeatureType {
@@ -1442,6 +1454,7 @@ async fn test_disabled_entitlement_resolved_and_overrideable() {
         .clone()
         .create_feature(CreateFeatureRequest {
             name: "disabled-test-feat".into(),
+            code: "disabled-test-feat".into(),
             description: None,
             product_id: None,
             feature_type: Some(FeatureType {
@@ -1576,6 +1589,7 @@ async fn test_resolved_entitlements_for_subscription_includes_chain() {
         .clone()
         .create_feature(CreateFeatureRequest {
             name: "chain-test-bool".into(),
+            code: "chain-test-bool".into(),
             description: None,
             product_id: None,
             feature_type: Some(FeatureType {
@@ -1805,6 +1819,7 @@ async fn test_resolved_entitlements_for_addon_includes_product_features() {
         .clone()
         .create_feature(CreateFeatureRequest {
             name: "addon-product-bool-f1".into(),
+            code: "addon-product-bool-f1".into(),
             description: None,
             product_id: Some(product_id.clone()),
             feature_type: Some(FeatureType {
@@ -1842,6 +1857,7 @@ async fn test_resolved_entitlements_for_addon_includes_product_features() {
         .clone()
         .create_feature(CreateFeatureRequest {
             name: "addon-product-metered-f2".into(),
+            code: "addon-product-metered-f2".into(),
             description: None,
             product_id: Some(product_id.clone()),
             feature_type: Some(FeatureType {
@@ -1974,6 +1990,7 @@ async fn test_batch_create_entitlements_skips_existing() {
             .clone()
             .create_feature(CreateFeatureRequest {
                 name: format!("batch-skip-feat-{}", i),
+                code: format!("batch-skip-feat-{}", i),
                 description: None,
                 product_id: None,
                 feature_type: Some(FeatureType {
@@ -2171,6 +2188,7 @@ async fn test_product_grouping_in_effective_entitlements() {
         .clone()
         .create_feature(CreateFeatureRequest {
             name: "product-feat-a".into(),
+            code: "product-feat-a".into(),
             description: None,
             product_id: Some(ids::PRODUCT_PLATFORM_FEE_ID.as_proto()),
             feature_type: Some(FeatureType {
@@ -2192,6 +2210,7 @@ async fn test_product_grouping_in_effective_entitlements() {
         .clone()
         .create_feature(CreateFeatureRequest {
             name: "product-feat-b".into(),
+            code: "product-feat-b".into(),
             description: None,
             product_id: Some(ids::PRODUCT_SEATS_ID.as_proto()),
             feature_type: Some(FeatureType {
@@ -2213,6 +2232,7 @@ async fn test_product_grouping_in_effective_entitlements() {
         .clone()
         .create_feature(CreateFeatureRequest {
             name: "global-feat-c".into(),
+            code: "global-feat-c".into(),
             description: None,
             product_id: None,
             feature_type: Some(FeatureType {
@@ -2392,6 +2412,7 @@ async fn test_plan_version_overrides_addon_entitlement() {
         .clone()
         .create_feature(CreateFeatureRequest {
             name: "pv-beats-addon".into(),
+            code: "pv-beats-addon".into(),
             description: None,
             product_id: None,
             feature_type: Some(FeatureType {
@@ -2540,6 +2561,7 @@ async fn test_same_priority_addons_take_permissive_max() {
         .clone()
         .create_feature(CreateFeatureRequest {
             name: "permissive-same-pri".into(),
+            code: "permissive-same-pri".into(),
             description: None,
             product_id: None,
             feature_type: Some(FeatureType {
@@ -2693,6 +2715,7 @@ async fn test_plan_version_target_excludes_linked_add_on_entitlements() {
         .clone()
         .create_feature(CreateFeatureRequest {
             name: "pv-linked-addon-feat".into(),
+            code: "pv-linked-addon-feat".into(),
             description: None,
             product_id: Some(add_on.product_id.clone()),
             feature_type: Some(FeatureType {

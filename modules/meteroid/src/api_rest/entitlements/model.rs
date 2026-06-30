@@ -265,6 +265,8 @@ pub struct Feature {
     #[serde(serialize_with = "string_serde::serialize")]
     pub id: FeatureId,
     pub name: String,
+    /// Unique key used to reference this feature in your code. Cannot be changed after creation.
+    pub code: String,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub description: Option<String>,
     pub feature_type: FeatureType,
@@ -308,6 +310,8 @@ pub struct FeatureRef {
     #[serde(serialize_with = "string_serde::serialize")]
     pub id: FeatureId,
     pub name: String,
+    /// Unique key used to reference this feature in your code. Cannot be changed after creation.
+    pub code: String,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub product: Option<ProductRef>,
 }

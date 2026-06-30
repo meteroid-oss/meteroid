@@ -377,6 +377,7 @@ async fn test_quote_with_inline_entitlements() {
         .clone()
         .create_feature(CreateFeatureRequest {
             name: "quote-bool-feature".into(),
+            code: "quote-bool-feature".into(),
             description: None,
             product_id: None,
             feature_type: Some(FeatureType {
@@ -511,6 +512,7 @@ async fn test_quote_conversion_carries_entitlements() {
         .clone()
         .create_feature(CreateFeatureRequest {
             name: "conv-bool-feature".into(),
+            code: "conv-bool-feature".into(),
             description: None,
             product_id: None,
             feature_type: Some(FeatureType {

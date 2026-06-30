@@ -68,6 +68,7 @@ message FeatureRef {
   string id = 1;
   string name = 2;
   optional ProductRef product = 3;
+  string code = 4;
 }
 
 message Feature {
@@ -79,6 +80,7 @@ message Feature {
   // Product the feature belongs to. Unset ⇒ tenant-global feature.
   optional ProductRef product = 6;
   string created_at = 7;
+  string code = 8;
 }
 
 message EntitlementEntity {

@@ -217,6 +217,7 @@ pub fn feature_to_proto(f: Feature) -> proto::Feature {
         status: feature_status_to_proto(f.status),
         product,
         created_at: f.created_at.as_proto(),
+        code: f.code,
     }
 }
 
@@ -280,6 +281,7 @@ pub fn effective_entitlement_to_proto(r: EffectiveEntitlement) -> proto::Effecti
         feature: Some(proto::FeatureRef {
             id: r.feature.id.as_proto(),
             name: r.feature.name,
+            code: r.feature.code,
             product: r.feature.product.map(|p| proto::ProductRef {
                 id: p.id.as_proto(),
                 name: p.name,
@@ -314,6 +316,7 @@ pub fn resolved_entitlement_to_proto(r: ResolvedEntitlement) -> proto::ResolvedE
         feature: Some(proto::FeatureRef {
             id: r.feature.id.as_proto(),
             name: r.feature.name,
+            code: r.feature.code,
             product: r.feature.product.map(|p| proto::ProductRef {
                 id: p.id.as_proto(),
                 name: p.name,

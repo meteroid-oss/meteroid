@@ -150,6 +150,13 @@ export const FeatureDetailSheet = () => {
                     <CopyToClipboardButton text={feature.id} className="max-w-xs" />
                   </section>
 
+                  <section>
+                    <div className="text-xs font-medium text-muted-foreground uppercase tracking-wide mb-1">
+                      Code
+                    </div>
+                    <CopyToClipboardButton text={feature.code} className="max-w-xs" />
+                  </section>
+
                   {feature.description && (
                     <section>
                       <div className="text-xs font-medium text-muted-foreground uppercase tracking-wide mb-1">

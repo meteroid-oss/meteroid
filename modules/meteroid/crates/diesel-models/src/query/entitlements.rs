@@ -7,7 +7,8 @@ use crate::errors::IntoDbResult;
 use crate::extend::pagination::{Paginate, PaginatedVec, PaginationRequest};
 use crate::{DbResult, PgConn};
 use common_domain::ids::{
-    BaseId, EntitlementEntityId, EntitlementId, FeatureId, PlanVersionId, ProductId, TenantId,
+    AliasOr, BaseId, EntitlementEntityId, EntitlementId, FeatureId, PlanVersionId, ProductId,
+    TenantId,
 };
 use diesel::{
     BoolExpressionMethods, ExpressionMethods, Insertable, IntoSql, NullableExpressionMethods,
@@ -56,6 +57,41 @@ impl FeatureRow {
             .first(conn)
             .await
             .attach("Error while finding feature by id")
+            .into_db_result()?;
+        Ok(FeatureWithProductRow {
+            feature,
+            product: product_opt.map(|(id, name)| FeatureProductMeta { id, name }),
+        })
+    }
+
+    pub async fn find_by_id_or_code(
+        conn: &mut PgConn,
+        id_or_code: AliasOr<FeatureId>,
+        param_tenant_id: TenantId,
+    ) -> DbResult<FeatureWithProductRow> {
+        use crate::schema::feature::dsl as f_dsl;
+        use crate::schema::product;
+        use diesel_async::RunQueryDsl;
+
+        let mut query = f_dsl::feature
+            .left_join(product::table)
+            .filter(f_dsl::tenant_id.eq(param_tenant_id))
+            .select((
+                FeatureRow::as_select(),
+                (product::id, product::name).nullable(),
+            ))
+            .into_boxed();
+
+        match id_or_code {
+            AliasOr::Id(id) => query = query.filter(f_dsl::id.eq(id)),
+            AliasOr::Alias(code) => query = query.filter(f_dsl::code.eq(code)),
+        }
+        log::debug!("{}", debug_query::<diesel::pg::Pg, _>(&query));
+
+        let (feature, product_opt): (FeatureRow, Option<(ProductId, String)>) = query
+            .first(conn)
+            .await
+            .attach("Error while finding feature by id or code")
             .into_db_result()?;
         Ok(FeatureWithProductRow {
             feature,

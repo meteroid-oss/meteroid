@@ -33,6 +33,7 @@ export const FeatureEdit = () => {
     <FeatureCreateSheet
       featureId={featureId}
       initialName={feature.name}
+      initialCode={feature.code}
       initialDescription={feature.description}
       initialProductId={feature.product?.id}
       initialKind={featureKindFromProto(feature.featureType)}

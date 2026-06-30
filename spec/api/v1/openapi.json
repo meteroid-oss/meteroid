@@ -2692,7 +2692,7 @@
         ]
       }
     },
-    "/api/v1/features/{feature_id}": {
+    "/api/v1/features/{id_or_code}": {
       "get": {
         "tags": [
           "Features"
@@ -2701,12 +2701,12 @@
         "operationId": "get_feature",
         "parameters": [
           {
-            "name": "feature_id",
+            "name": "id_or_code",
             "in": "path",
-            "description": "Feature ID",
+            "description": "Feature ID or code",
             "required": true,
             "schema": {
-              "$ref": "#/components/schemas/FeatureId"
+              "type": "string"
             }
           }
         ],
@@ -8711,11 +8711,16 @@
         "required": [
           "id",
           "name",
+          "code",
           "feature_type",
           "status",
           "created_at"
         ],
         "properties": {
+          "code": {
+            "type": "string",
+            "description": "Unique key used to reference this feature in your code. Cannot be changed after creation."
+          },
           "created_at": {
             "type": "string",
             "format": "date-time"
@@ -8791,9 +8796,14 @@
         "type": "object",
         "required": [
           "id",
-          "name"
+          "name",
+          "code"
         ],
         "properties": {
+          "code": {
+            "type": "string",
+            "description": "Unique key used to reference this feature in your code. Cannot be changed after creation."
+          },
           "id": {
             "$ref": "#/components/schemas/FeatureId"
           },

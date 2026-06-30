@@ -12,6 +12,7 @@ message CreateFeatureRequest {
   // Product the feature belongs to. Unset ⇒ tenant-global feature.
   optional string product_id = 4;
   optional EntitlementValue entitlement = 5;
+  string code = 6;
 }
 
 message CreateFeatureResponse {

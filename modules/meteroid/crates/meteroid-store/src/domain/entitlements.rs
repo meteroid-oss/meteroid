@@ -81,6 +81,7 @@ pub struct Feature {
     /// Product this feature belongs to. `None` for tenant-global features.
     pub product: Option<FeatureProductRef>,
     pub name: String,
+    pub code: String,
     pub description: Option<String>,
     pub feature_type: FeatureType,
     pub status: FeatureStatusEnum,
@@ -112,6 +113,7 @@ impl TryFrom<FeatureWithProductRow> for Feature {
                 name: p.name,
             }),
             name: feature.name,
+            code: feature.code,
             description: feature.description,
             feature_type,
             status: feature.status.into(),
@@ -127,6 +129,7 @@ pub struct FeatureNew {
     pub tenant_id: TenantId,
     pub product_id: Option<ProductId>,
     pub name: String,
+    pub code: String,
     pub description: Option<String>,
     pub feature_type: FeatureType,
     pub entitlement: Option<EntitlementValue>,
@@ -138,6 +141,7 @@ impl From<FeatureNew> for FeatureRowNew {
             tenant_id,
             product_id,
             name,
+            code,
             description,
             feature_type,
             entitlement: _,
@@ -151,6 +155,7 @@ impl From<FeatureNew> for FeatureRowNew {
             tenant_id,
             product_id,
             name,
+            code,
             description,
             feature_type: feature_type_enum,
             status: DbFeatureStatusEnum::Active,
@@ -299,6 +304,7 @@ pub struct FeatureProductRef {
 pub struct FeatureRef {
     pub id: FeatureId,
     pub name: String,
+    pub code: String,
     pub product: Option<FeatureProductRef>,
 }
 

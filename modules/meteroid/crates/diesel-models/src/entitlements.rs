@@ -33,6 +33,7 @@ pub struct FeatureRow {
     pub tenant_id: TenantId,
     pub product_id: Option<ProductId>,
     pub name: String,
+    pub code: String,
     pub description: Option<String>,
     pub feature_type: FeatureTypeEnum,
     pub status: FeatureStatusEnum,
@@ -49,6 +50,7 @@ pub struct FeatureRowNew {
     pub tenant_id: TenantId,
     pub product_id: Option<ProductId>,
     pub name: String,
+    pub code: String,
     pub description: Option<String>,
     pub feature_type: FeatureTypeEnum,
     pub status: FeatureStatusEnum,
@@ -59,6 +61,7 @@ pub struct FeatureRowNew {
 #[diesel(table_name = crate::schema::feature)]
 #[diesel(check_for_backend(diesel::pg::Pg))]
 pub struct FeatureRowPatch {
+    // `code` intentionally omitted — it is an immutable addressing key.
     pub name: Option<String>,
     pub description: Option<Option<String>>,
     pub product_id: Option<Option<ProductId>>,

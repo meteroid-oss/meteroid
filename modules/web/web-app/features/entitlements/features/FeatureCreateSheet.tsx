@@ -36,7 +36,14 @@ import { z } from 'zod'
 
 import { EntityEntitlementsSection } from '@/features/entitlements/EntityEntitlementsSection'
 import { EntitlementValueFields } from '@/features/entitlements/creation/EntitlementValueFields'
-import { FeatureKind } from '@/features/entitlements/utils'
+import {
+  FEATURE_CODE_CHARSET_MESSAGE,
+  FEATURE_CODE_LENGTH_MESSAGE,
+  FEATURE_CODE_MAX_LENGTH,
+  FEATURE_CODE_REGEX,
+  FeatureKind,
+  slugifyCode,
+} from '@/features/entitlements/utils'
 import { useZodForm } from '@/hooks/useZodForm'
 import { useQuery } from '@/lib/connectrpc'
 import { listBillableMetrics } from '@/rpc/api/billablemetrics/v1/billablemetrics-BillableMetricsService_connectquery'
@@ -51,6 +58,11 @@ import { listProducts } from '@/rpc/api/products/v1/products-ProductsService_con
 const schema = z
   .object({
     name: z.string().min(1, 'Required'),
+    code: z
+      .string()
+      .min(1, 'Required')
+      .max(FEATURE_CODE_MAX_LENGTH, FEATURE_CODE_LENGTH_MESSAGE)
+      .regex(FEATURE_CODE_REGEX, FEATURE_CODE_CHARSET_MESSAGE),
     description: z.string().optional(),
     productId: z.string().optional(),
     type: z.enum(['boolean', 'metered']),
@@ -74,6 +86,7 @@ type FormData = z.infer<typeof schema>
 interface Props {
   featureId?: string
   initialName?: string
+  initialCode?: string
   initialDescription?: string
   initialProductId?: string
   initialKind?: FeatureKind
@@ -141,6 +154,7 @@ function buildEntitlementValue(
 export const FeatureCreateSheet = ({
   featureId,
   initialName = '',
+  initialCode = '',
   initialDescription = '',
   initialProductId,
   initialKind = { type: 'boolean' },
@@ -161,6 +175,7 @@ export const FeatureCreateSheet = ({
     schema,
     defaultValues: {
       name: initialName,
+      code: initialCode,
       description: initialDescription,
       productId: initialProductId ?? '',
       type: initialKind.type,
@@ -200,6 +215,7 @@ export const FeatureCreateSheet = ({
       } else {
         await createMutation.mutateAsync({
           name: data.name,
+          code: data.code,
           description: data.description,
           productId: data.productId || undefined,
           featureType:
@@ -239,7 +255,38 @@ export const FeatureCreateSheet = ({
                 <FormItem>
                   <FormLabel>Name</FormLabel>
                   <FormControl>
-                    <Input placeholder="e.g. Monthly API Calls" {...field} />
+                    <Input
+                      placeholder="e.g. Monthly API Calls"
+                      {...field}
+                      onChange={e => {
+                        field.onChange(e)
+                        // Auto-fill the code from the name until the user edits it.
+                        if (!isEdit && !form.formState.dirtyFields.code) {
+                          form.setValue('code', slugifyCode(e.target.value), {
+                            shouldValidate: true,
+                          })
+                        }
+                      }}
+                    />
+                  </FormControl>
+                  <FormMessage />
+                </FormItem>
+              )}
+            />
+
+            <FormField
+              control={form.control}
+              name="code"
+              render={({ field }) => (
+                <FormItem>
+                  <FormLabel>
+                    Code{' '}
+                    <span className="text-muted-foreground text-xs">
+                      (stable identifier{isEdit ? ', immutable' : ''})
+                    </span>
+                  </FormLabel>
+                  <FormControl>
+                    <Input placeholder="e.g. monthly_api_calls" {...field} disabled={isEdit} />
                   </FormControl>
                   <FormMessage />
                 </FormItem>

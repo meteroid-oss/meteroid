@@ -3,6 +3,8 @@ import { type MessageInitShape } from '@bufbuild/protobuf'
 import { CreateFeatureRequestSchema, type CreateFeatureResponse } from '@/rpc/api/entitlements/v1/entitlements_pb'
 import { type EntitlementSpec } from '@/rpc/api/entitlements/v1/models_pb'
 
+import { slugifyCode } from '../utils'
+
 import { type PendingEntitlementSpec, pendingSpecToEntitlementSpec } from './types'
 
 // Resolves pending specs into proto EntitlementSpec[].
@@ -28,6 +30,7 @@ export async function resolveEntitlementSpecs(
 
       const res = await createFeature({
         name: spec.featureName,
+        code: spec.featureCode || slugifyCode(spec.featureName),
         featureType:
           spec.featureType === 'boolean'
             ? { Inner: { case: 'boolean', value: {} } }

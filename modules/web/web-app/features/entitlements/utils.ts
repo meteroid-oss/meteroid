@@ -37,6 +37,19 @@ export function groupByProduct<T>(
   })
 }
 
+/** Feature-code rules, mirrored by the backend's `validate_feature_code`. Shared by every code-entry form. */
+export const FEATURE_CODE_REGEX = /^[a-z0-9][a-z0-9_-]*$/
+export const FEATURE_CODE_MAX_LENGTH = 128
+export const FEATURE_CODE_CHARSET_MESSAGE = "Lowercase letters, digits, '-', '_' (e.g. audit_log)"
+export const FEATURE_CODE_LENGTH_MESSAGE = `Must be ${FEATURE_CODE_MAX_LENGTH} characters or fewer`
+
+/** Derive a slug code from a feature name, matching the backend's allowed charset `^[a-z0-9][a-z0-9_-]*$`. */
+export const slugifyCode = (name: string): string =>
+  name
+    .toLowerCase()
+    .replace(/[^a-z0-9_-]+/g, '_')
+    .replace(/^[_-]+/, '')
+
 // Local domain types — use these in UI, map from proto at the boundary
 
 export type BooleanFeatureKind = { type: 'boolean' }

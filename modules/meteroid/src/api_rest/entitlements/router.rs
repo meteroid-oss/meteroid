@@ -88,8 +88,8 @@ pub(crate) async fn list_features(
 #[utoipa::path(
     get,
     tag = "Features",
-    path = "/api/v1/features/{feature_id}",
-    params(("feature_id" = FeatureId, Path, description = "Feature ID")),
+    path = "/api/v1/features/{id_or_code}",
+    params(("id_or_code" = String, Path, description = "Feature ID or code")),
     responses(
         (status = 200, description = "Feature details", body = Feature),
         (status = 401, description = "Unauthorized", body = RestErrorResponse),
@@ -100,12 +100,12 @@ pub(crate) async fn list_features(
 #[axum::debug_handler]
 pub(crate) async fn get_feature(
     Extension(authorized_state): Extension<AuthorizedAsTenant>,
-    Path(feature_id): Path<FeatureId>,
+    Valid(Path(id_or_code)): Valid<Path<AliasOr<FeatureId>>>,
     State(app_state): State<AppState>,
 ) -> Result<impl IntoResponse, RestApiError> {
     let feature = app_state
         .store
-        .get_feature(feature_id, authorized_state.tenant_id)
+        .get_feature_by_id_or_code(id_or_code, authorized_state.tenant_id)
         .await
         .map_err(|e| {
             log::error!("Error fetching feature: {e}");

@@ -6,6 +6,7 @@ pub fn feature_to_rest(f: domain::Feature) -> Feature {
     Feature {
         id: f.id,
         name: f.name,
+        code: f.code,
         description: f.description,
         feature_type: f.feature_type.into(),
         status: f.status.into(),
@@ -71,6 +72,7 @@ pub fn resolved_entitlement_to_rest(r: domain::ResolvedEntitlement) -> ResolvedE
         feature: FeatureRef {
             id: r.feature.id,
             name: r.feature.name,
+            code: r.feature.code,
             product: r.feature.product.map(|p| ProductRef {
                 id: p.id,
                 name: p.name,
@@ -111,6 +113,7 @@ pub fn effective_entitlement_to_rest(r: domain::EffectiveEntitlement) -> Effecti
         feature: FeatureRef {
             id: r.feature.id,
             name: r.feature.name,
+            code: r.feature.code,
             product: r.feature.product.map(|p| ProductRef {
                 id: p.id,
                 name: p.name,

@@ -663,6 +663,7 @@ diesel::table! {
         tenant_id -> Uuid,
         product_id -> Nullable<Uuid>,
         name -> Text,
+        code -> Text,
         description -> Nullable<Text>,
         feature_type -> FeatureTypeEnum,
         status -> FeatureStatusEnum,
