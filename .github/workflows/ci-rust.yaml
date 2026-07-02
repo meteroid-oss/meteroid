@@ -31,8 +31,10 @@ concurrency:
   cancel-in-progress: true
 
 env:
-  SCCACHE_GHA_ENABLED: "true"
-  RUSTC_WRAPPER: "sccache"
+  # Trim debug info in CI only (local dev profiles are untouched): smaller
+  # target dir, faster codegen/linking, and a lighter cache to store/restore.
+  CARGO_PROFILE_DEV_DEBUG: line-tables-only
+  CARGO_PROFILE_TEST_DEBUG: line-tables-only
 
 jobs:
   check:
@@ -102,7 +104,6 @@ jobs:
         with:
           components: rustfmt
           install-deps: 'false'
-          sccache: 'false'
           mold: 'false'
       - name: Rustfmt Check
         uses: actions-rust-lang/rustfmt@v1

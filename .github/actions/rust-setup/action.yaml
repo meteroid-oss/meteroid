@@ -11,9 +11,6 @@ inputs:
   install-deps:
     description: 'Install system dependencies (protoc, cmake, etc.)'
     default: 'true'
-  sccache:
-    description: 'Enable sccache'
-    default: 'true'
   mold:
     description: 'Use mold linker'
     default: 'true'
@@ -45,7 +42,8 @@ runs:
 
     - name: Rust cache
       uses: Swatinem/rust-cache@v2
-
-    - name: Run sccache
-      if: inputs.sccache == 'true'
-      uses: mozilla-actions/sccache-action@v0.0.9
+      with:
+        # Only write the cache from main so PR/dependabot branches restore
+        # main's warm dependency cache instead of evicting it. This is the fix
+        # for the 10GB GHA cache thrashing that caused cold compiles every run.
+        save-if: ${{ github.ref == 'refs/heads/main' }}
