@@ -31,7 +31,12 @@ RUN wget https://github.com/rui314/mold/releases/download/v${MOLD_VERSION}/mold-
     tar xvfz mold*.tar.gz && \
     mv mold*-linux/bin/* /usr/local/bin && \
     mv mold*-linux/libexec/* /usr/libexec && \
+    ln -sf /usr/local/bin/mold /usr/local/bin/ld.mold && \
     rm -rf mold*
+
+# Link with mold. The .cargo/config.toml mold config is .dockerignored so it
+# never reaches the build; wire it here or these builds link with slow default ld.
+ENV RUSTFLAGS="-Clink-arg=-fuse-ld=mold"
 
 # Install protoc
 RUN wget https://github.com/protocolbuffers/protobuf/releases/download/v${PROTO_VERSION}/protoc-${PROTO_VERSION}-linux-${PROTO_ARCH}.zip && \
