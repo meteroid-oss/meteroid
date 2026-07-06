@@ -8,15 +8,15 @@
     "eslint-config-meteroid": "workspace:*"
   },
   "devDependencies": {
-    "@commitlint/cli": "^21.0.2",
-    "@commitlint/config-conventional": "^21.0.2",
+    "@commitlint/cli": "^21.2.0",
+    "@commitlint/config-conventional": "^21.2.0",
     "@manypkg/cli": "^0.25.1",
     "dotenv-cli": "^11.0.0",
-    "eslint": "^9.39.0",
+    "eslint": "^10.6.0",
     "husky": "^9.1.7",
     "kill-port": "^2.0.1",
-    "prettier": "^3.8.4",
-    "turbo": "^2.9.18",
+    "prettier": "^3.9.4",
+    "turbo": "^2.10.4",
     "typescript": "^6.0.3"
   },
   "engines": {
