@@ -9,6 +9,7 @@ on:
       - ".github/actions/rust-setup/**"
       - '**/Cargo.toml'
       - '**/Cargo.lock'
+      - '.cargo/audit.toml'
   pull_request:
     types: [ opened, reopened, synchronize ]
     paths:
@@ -16,6 +17,7 @@ on:
       - ".github/actions/rust-setup/**"
       - '**/Cargo.toml'
       - '**/Cargo.lock'
+      - '.cargo/audit.toml'
 
 concurrency:
   group: "${{ github.workflow }}-${{ github.ref }}"
