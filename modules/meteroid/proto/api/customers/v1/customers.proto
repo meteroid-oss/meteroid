@@ -99,6 +99,14 @@ message GenerateCustomerPortalTokenResponse {
   string token = 1;
 }
 
+message RefreshVatValidationRequest {
+  string customer_id = 1;
+}
+
+message RefreshVatValidationResponse {
+  Customer customer = 1;
+}
+
 message UpsertCustomerConnectionRequest {
   string customer_id = 1;
   string connector_id = 2;
@@ -129,6 +137,8 @@ service CustomersService {
   rpc SyncToHubspot(SyncToHubspotRequest) returns (SyncToHubspotResponse) {}
   rpc SyncToPennylane(SyncToPennylaneRequest) returns (SyncToPennylaneResponse) {}
   rpc GenerateCustomerPortalToken(GenerateCustomerPortalTokenRequest) returns (GenerateCustomerPortalTokenResponse) {}
+  // Manual re-check of the customer's VAT number against VIES.
+  rpc RefreshVatValidation(RefreshVatValidationRequest) returns (RefreshVatValidationResponse) {}
   rpc UpsertCustomerConnection(UpsertCustomerConnectionRequest) returns (UpsertCustomerConnectionResponse) {}
   rpc DeleteCustomerConnection(DeleteCustomerConnectionRequest) returns (DeleteCustomerConnectionResponse) {}
 }

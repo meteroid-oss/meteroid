@@ -316,6 +316,9 @@ pub async fn set_customer_default_payment_method(
         custom_taxes: None,
         vat_number_format_valid: None,
         connected_account_id: None,
+        vat_number_validation_status: None,
+        vat_number_checked_at: None,
+        vat_number_vies_check: None,
     }
     .update(&mut conn, ids::TENANT_ID)
     .await

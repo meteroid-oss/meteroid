@@ -133,6 +133,12 @@ pub async fn spawn_workers(
     }
     {
         let store = store.clone();
+        join_set.spawn(async move {
+            processors::run_vat_validation(store).await;
+        });
+    }
+    {
+        let store = store.clone();
         let services = services.clone();
         join_set.spawn(async move {
             processors::run_payment_request(store, services).await;
@@ -180,6 +186,13 @@ pub async fn spawn_workers(
         let store = store.clone();
         join_set.spawn(async move {
             misc::checkout_session_cleanup::run_checkout_session_cleanup_worker(store).await;
+        });
+    }
+
+    {
+        let store = store.clone();
+        join_set.spawn(async move {
+            misc::vat_revalidation_worker::run_vat_revalidation_worker(store).await;
         });
     }
 

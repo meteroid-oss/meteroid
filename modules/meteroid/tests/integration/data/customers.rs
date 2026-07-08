@@ -34,6 +34,7 @@ pub async fn run_customers_seed(pool: &PgPool) {
             is_tax_exempt: false,
             vat_number_format_valid: false,
             connected_account_id: None,
+            vat_number_validation_status: None,
         }
         .insert(tx)
         .await?;
@@ -58,6 +59,7 @@ pub async fn run_customers_seed(pool: &PgPool) {
             is_tax_exempt: false,
             vat_number_format_valid: false,
             connected_account_id: None,
+            vat_number_validation_status: None,
         }
         .insert(tx)
         .await?;
@@ -82,6 +84,7 @@ pub async fn run_customers_seed(pool: &PgPool) {
             is_tax_exempt: false,
             vat_number_format_valid: false,
             connected_account_id: None,
+            vat_number_validation_status: None,
         }
         .insert(tx)
         .await?;

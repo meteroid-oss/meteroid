@@ -36,6 +36,8 @@ members = [
   "crates/common-utils",
   "crates/distributed-lock",
   "crates/secrecy",
+  # vendored third-party (see crate LICENSE files)
+  "crates/world-tax",
   # extra
   "extra/generator",
 ]
@@ -240,6 +242,7 @@ meteroid-seeder = { path = "modules/meteroid/crates/meteroid-seeder" }
 hubspot-client = { path = "modules/meteroid/crates/hubspot-client" }
 pennylane-client = { path = "modules/meteroid/crates/pennylane-client" }
 meteroid-tax = { path = "modules/meteroid/crates/meteroid-tax" }
+world-tax = { path = "crates/world-tax" }
 
 [patch.crates-io]
 # add patches here

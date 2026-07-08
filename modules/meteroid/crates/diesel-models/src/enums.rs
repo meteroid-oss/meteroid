@@ -387,6 +387,16 @@ pub enum TaxResolverEnum {
     MeteroidEuVat,
 }
 
+#[derive(diesel_derive_enum::DbEnum, Debug, Clone, Copy, PartialEq, Eq)]
+#[ExistingTypePath = "crate::schema::sql_types::CustomerVatValidationStatusEnum"]
+#[DbValueStyle = "SCREAMING_SNAKE_CASE"]
+pub enum CustomerVatValidationStatusEnum {
+    Pending,
+    Valid,
+    Invalid,
+    Unavailable,
+}
+
 #[derive(diesel_derive_enum::DbEnum, Debug, Clone, PartialEq, Eq)]
 #[ExistingTypePath = "crate::schema::sql_types::CheckoutSessionStatusEnum"]
 #[DbValueStyle = "SCREAMING_SNAKE_CASE"]

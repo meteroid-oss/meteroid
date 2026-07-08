@@ -284,6 +284,9 @@ impl StoreInternal {
             direct_debit_provider_id: None,
             bank_account_id: None,
             tax_resolver: TaxResolverEnum::Manual,
+            require_vies_valid_for_reverse_charge: invoicing_entity
+                .require_vies_valid_for_reverse_charge
+                .unwrap_or(false),
         };
 
         let row: InvoicingEntityRow = entity.into();

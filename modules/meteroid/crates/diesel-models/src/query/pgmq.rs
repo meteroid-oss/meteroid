@@ -11,7 +11,18 @@ pub async fn send_batch(
     queue: &str,
     batch: &[PgmqMessageRowNew],
 ) -> DbResult<()> {
-    let raw_query = r"SELECT * from pgmq.send_batch($1, $2, $3) as msg_id";
+    send_batch_delayed(conn, queue, batch, 0).await
+}
+
+/// Enqueues messages that only become visible after `delay_seconds`. Used for
+/// scheduled retries (e.g. re-checking VIES after an outage).
+pub async fn send_batch_delayed(
+    conn: &mut PgConn,
+    queue: &str,
+    batch: &[PgmqMessageRowNew],
+    delay_seconds: i32,
+) -> DbResult<()> {
+    let raw_query = r"SELECT * from pgmq.send_batch($1, $2, $3, $4) as msg_id";
 
     let (messages, headers): (Vec<_>, Vec<_>) =
         batch.iter().map(|row| (&row.message, &row.headers)).unzip();
@@ -20,6 +31,7 @@ pub async fn send_batch(
         .bind::<sql_types::Text, _>(queue)
         .bind::<sql_types::Array<sql_types::Nullable<sql_types::Jsonb>>, _>(messages)
         .bind::<sql_types::Array<sql_types::Nullable<sql_types::Jsonb>>, _>(headers)
+        .bind::<sql_types::Integer, _>(delay_seconds)
         .execute(conn)
         .await
         .map(drop)

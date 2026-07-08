@@ -1,0 +1,1028 @@
+{
+  "AE": {
+    "type": "vat",
+    "currency": "AED",
+    "standard_rate": 0.05
+  },
+  "AD": {
+    "type": "vat",
+    "currency": "EUR",
+    "standard_rate": 0.045
+  },
+  "AI": {
+    "type": "gst",
+    "currency": "XCD",
+    "standard_rate": 0.13
+  },
+  "AL": {
+    "type": "vat",
+    "currency": "ALL",
+    "standard_rate": 0.2
+  },
+  "AM": {
+    "type": "vat",
+    "currency": "AMD",
+    "standard_rate": 0.2
+  },
+  "AO": {
+    "type": "vat",
+    "currency": "AOA",
+    "standard_rate": 0.14
+  },
+  "AR": {
+    "type": "vat",
+    "currency": "ARS",
+    "standard_rate": 0.21
+  },
+  "AT": {
+    "type": "vat",
+    "currency": "EUR",
+    "standard_rate": 0.2,
+    "reduced_rate": 0.1,
+    "reduced_rate_alt": 0.13,
+    "super_reduced_rate": 0.0,
+    "parking_rate": 0.12,
+    "vat_name": "Umsatzsteuer",
+    "vat_abbr": "USt"
+  },
+  "AU": {
+    "type": "gst",
+    "currency": "AUD",
+    "standard_rate": 0.1
+  },
+  "AW": {
+    "type": "vat",
+    "currency": "AWG",
+    "standard_rate": 0.125
+  },
+  "AZ": {
+    "type": "vat",
+    "currency": "AZN",
+    "standard_rate": 0.18
+  },
+  "BA": {
+    "type": "vat",
+    "currency": "BAM",
+    "standard_rate": 0.17
+  },
+  "BB": {
+    "type": "vat",
+    "currency": "BBD",
+    "standard_rate": 0.175
+  },
+  "BE": {
+    "type": "vat",
+    "currency": "EUR",
+    "standard_rate": 0.21,
+    "reduced_rate": 0.12,
+    "reduced_rate_alt": 0.06,
+    "super_reduced_rate": 0.0,
+    "parking_rate": 0.12,
+    "vat_name": "Taxe sur la valeur ajout\u00e9e",
+    "vat_abbr": "TVA/BTW"
+  },
+  "BG": {
+    "type": "vat",
+    "currency": "EUR",
+    "standard_rate": 0.2,
+    "reduced_rate": 0.09,
+    "reduced_rate_alt": 0.0,
+    "super_reduced_rate": 0.0,
+    "parking_rate": 0.0,
+    "vat_name": "Dana Dobavena Stoynost",
+    "vat_abbr": "DDS"
+  },
+  "BH": {
+    "type": "vat",
+    "currency": "BHD",
+    "standard_rate": 0.05
+  },
+  "BO": {
+    "type": "vat",
+    "currency": "BOB",
+    "standard_rate": 0.1494
+  },
+  "BR": {
+    "type": "vat",
+    "currency": "BRL",
+    "standard_rate": 0.17
+  },
+  "BS": {
+    "type": "vat",
+    "currency": "BSD",
+    "standard_rate": 0.12
+  },
+  "BW": {
+    "type": "vat",
+    "currency": "BWP",
+    "standard_rate": 0.14
+  },
+  "BY": {
+    "type": "vat",
+    "currency": "BYN",
+    "standard_rate": 0.2
+  },
+  "CA": {
+    "type": "gst",
+    "currency": "CAD",
+    "standard_rate": 0.05,
+    "states": {
+      "CA-BC": {
+        "standard_rate": 0.07,
+        "type": "pst"
+      },
+      "CA-MB": {
+        "standard_rate": 0.07,
+        "type": "pst"
+      },
+      "CA-NB": {
+        "standard_rate": 0.1,
+        "type": "hst"
+      },
+      "CA-NL": {
+        "standard_rate": 0.1,
+        "type": "hst"
+      },
+      "CA-NS": {
+        "standard_rate": 0.1,
+        "type": "hst"
+      },
+      "CA-ON": {
+        "standard_rate": 0.08,
+        "type": "hst"
+      },
+      "CA-PE": {
+        "standard_rate": 0.1,
+        "type": "hst"
+      },
+      "CA-QC": {
+        "standard_rate": 0.09975,
+        "type": "qst"
+      },
+      "CA-SK": {
+        "standard_rate": 0.06,
+        "type": "pst"
+      }
+    }
+  },
+  "CH": {
+    "type": "vat",
+    "currency": "CHF",
+    "standard_rate": 0.081
+  },
+  "CL": {
+    "type": "vat",
+    "currency": "CLP",
+    "standard_rate": 0.19
+  },
+  "CN": {
+    "type": "vat",
+    "currency": "CNY",
+    "standard_rate": 0.13
+  },
+  "CO": {
+    "type": "vat",
+    "currency": "COP",
+    "standard_rate": 0.19
+  },
+  "CR": {
+    "type": "vat",
+    "currency": "CRC",
+    "standard_rate": 0.13
+  },
+  "CW": {
+    "type": "vat",
+    "currency": "ANG",
+    "standard_rate": 0.06
+  },
+  "CY": {
+    "type": "vat",
+    "currency": "EUR",
+    "standard_rate": 0.19,
+    "reduced_rate": 0.09,
+    "reduced_rate_alt": 0.05,
+    "super_reduced_rate": 0.0,
+    "parking_rate": 0.0,
+    "vat_name": "Foros prostithemenis axias",
+    "vat_abbr": "FPA"
+  },
+  "CZ": {
+    "type": "vat",
+    "currency": "EUR",
+    "standard_rate": 0.21,
+    "reduced_rate": 0.15,
+    "reduced_rate_alt": 0.1,
+    "super_reduced_rate": 0.0,
+    "parking_rate": 0.0,
+    "vat_name": "Dani z pridane hotnoty",
+    "vat_abbr": "DPH"
+  },
+  "DE": {
+    "type": "vat",
+    "currency": "EUR",
+    "standard_rate": 0.19,
+    "reduced_rate": 0.07,
+    "reduced_rate_alt": 0.0,
+    "super_reduced_rate": 0.0,
+    "parking_rate": 0.0,
+    "vat_name": "Umsatzsteuer",
+    "vat_abbr": "USt"
+  },
+  "DK": {
+    "type": "vat",
+    "currency": "EUR",
+    "standard_rate": 0.25,
+    "reduced_rate": 0.0,
+    "reduced_rate_alt": 0.0,
+    "super_reduced_rate": 0.0,
+    "parking_rate": 0.0,
+    "vat_name": "Omsaetningsavgift",
+    "vat_abbr": "MOMS"
+  },
+  "DO": {
+    "type": "vat",
+    "currency": "DOP",
+    "standard_rate": 0.18
+  },
+  "DZ": {
+    "type": "vat",
+    "currency": "DZD",
+    "standard_rate": 0.19
+  },
+  "EC": {
+    "type": "vat",
+    "currency": "USD",
+    "standard_rate": 0.12
+  },
+  "EE": {
+    "type": "vat",
+    "currency": "EUR",
+    "standard_rate": 0.2,
+    "reduced_rate": 0.09,
+    "reduced_rate_alt": 0.0,
+    "super_reduced_rate": 0.0,
+    "parking_rate": 0.0,
+    "vat_name": "K\u00e4ibemaks",
+    "vat_abbr": "KMKR"
+  },
+  "EG": {
+    "type": "vat",
+    "currency": "EGP",
+    "standard_rate": 0.14
+  },
+  "ER": {
+    "type": "vat",
+    "currency": "ERN",
+    "standard_rate": 0.05
+  },
+  "ES": {
+    "type": "vat",
+    "currency": "EUR",
+    "standard_rate": 0.21,
+    "reduced_rate": 0.1,
+    "reduced_rate_alt": 0.0,
+    "super_reduced_rate": 0.04,
+    "parking_rate": 0.0,
+    "vat_name": "Impuesto sobre el valor a\u00f1adido",
+    "vat_abbr": "IVA"
+  },
+  "FI": {
+    "type": "vat",
+    "currency": "EUR",
+    "standard_rate": 0.24,
+    "reduced_rate": 0.14,
+    "reduced_rate_alt": 0.1,
+    "super_reduced_rate": 0.0,
+    "parking_rate": 0.0,
+    "vat_name": "Arvonlis\u00e4vero",
+    "vat_abbr": "ALV"
+  },
+  "FR": {
+    "type": "vat",
+    "currency": "EUR",
+    "standard_rate": 0.2,
+    "reduced_rate": 0.1,
+    "reduced_rate_alt": 0.055,
+    "super_reduced_rate": 0.021,
+    "parking_rate": 0.0,
+    "vat_name": "Taxe sur la valeur ajout\u00e9e",
+    "vat_abbr": "TVA"
+  },
+  "GB": {
+    "type": "vat",
+    "currency": "GBP",
+    "standard_rate": 0.2
+  },
+  "GE": {
+    "type": "vat",
+    "currency": "GEL",
+    "standard_rate": 0.18
+  },
+  "GH": {
+    "type": "vat",
+    "currency": "GHS",
+    "standard_rate": 0.15
+  },
+  "GR": {
+    "type": "vat",
+    "currency": "EUR",
+    "standard_rate": 0.24,
+    "reduced_rate": 0.13,
+    "reduced_rate_alt": 0.06,
+    "super_reduced_rate": 0.0,
+    "parking_rate": 0.0,
+    "vat_name": "Foros prostithemenis axias",
+    "vat_abbr": "FPA"
+  },
+  "GT": {
+    "type": "vat",
+    "currency": "GTQ",
+    "standard_rate": 0.12
+  },
+  "HN": {
+    "type": "vat",
+    "currency": "HNL",
+    "standard_rate": 0.15
+  },
+  "HR": {
+    "type": "vat",
+    "currency": "EUR",
+    "standard_rate": 0.25,
+    "reduced_rate": 0.13,
+    "reduced_rate_alt": 0.05,
+    "super_reduced_rate": 0.0,
+    "parking_rate": 0.0,
+    "vat_name": "Porez na dodanu vrijednost",
+    "vat_abbr": "PDV"
+  },
+  "HU": {
+    "type": "vat",
+    "currency": "EUR",
+    "standard_rate": 0.27,
+    "reduced_rate": 0.18,
+    "reduced_rate_alt": 0.05,
+    "super_reduced_rate": 0.0,
+    "parking_rate": 0.0,
+    "vat_name": "\u00c1ltal\u00e1nos forgalmi ad\u00f3",
+    "vat_abbr": "AFA"
+  },
+  "ID": {
+    "type": "vat",
+    "currency": "IDR",
+    "standard_rate": 0.11
+  },
+  "IE": {
+    "type": "vat",
+    "currency": "EUR",
+    "standard_rate": 0.23,
+    "reduced_rate": 0.135,
+    "reduced_rate_alt": 0.09,
+    "super_reduced_rate": 0.048,
+    "parking_rate": 0.135,
+    "vat_name": "Value added tax",
+    "vat_abbr": "VAT"
+  },
+  "IL": {
+    "type": "vat",
+    "currency": "ILS",
+    "standard_rate": 0.17
+  },
+  "IM": {
+    "type": "vat",
+    "currency": "GBP",
+    "standard_rate": 0.2
+  },
+  "IN": {
+    "type": "gst",
+    "currency": "INR",
+    "standard_rate": 0.18
+  },
+  "IS": {
+    "type": "vat",
+    "currency": "ISK",
+    "standard_rate": 0.24
+  },
+  "IT": {
+    "type": "vat",
+    "currency": "EUR",
+    "standard_rate": 0.22,
+    "reduced_rate": 0.1,
+    "reduced_rate_alt": 0.04,
+    "super_reduced_rate": 0.0,
+    "parking_rate": 0.0,
+    "vat_name": "Imposta sul valore aggiunto",
+    "vat_abbr": "IVA"
+  },
+  "JE": {
+    "type": "vat",
+    "currency": "GBP",
+    "standard_rate": 0.05
+  },
+  "JO": {
+    "type": "vat",
+    "currency": "JOD",
+    "standard_rate": 0.16
+  },
+  "JP": {
+    "type": "vat",
+    "currency": "JPY",
+    "standard_rate": 0.1
+  },
+  "KE": {
+    "type": "vat",
+    "currency": "KES",
+    "standard_rate": 0.16
+  },
+  "KR": {
+    "type": "vat",
+    "currency": "KRW",
+    "standard_rate": 0.1
+  },
+  "KW": {
+    "type": "vat",
+    "currency": "KWD",
+    "standard_rate": 0.05
+  },
+  "KZ": {
+    "type": "vat",
+    "currency": "KZT",
+    "standard_rate": 0.12
+  },
+  "LB": {
+    "type": "vat",
+    "currency": "LBP",
+    "standard_rate": 0.11
+  },
+  "LC": {
+    "type": "vat",
+    "currency": "XCD",
+    "standard_rate": 0.125
+  },
+  "LI": {
+    "type": "vat",
+    "currency": "CHF",
+    "standard_rate": 0.077
+  },
+  "LK": {
+    "type": "vat",
+    "currency": "LKR",
+    "standard_rate": 0.12
+  },
+  "LT": {
+    "type": "vat",
+    "currency": "EUR",
+    "standard_rate": 0.21,
+    "reduced_rate": 0.09,
+    "reduced_rate_alt": 0.05,
+    "super_reduced_rate": 0.0,
+    "parking_rate": 0.0,
+    "vat_name": "Pridetines vertes mokestis",
+    "vat_abbr": "PVM"
+  },
+  "LU": {
+    "type": "vat",
+    "currency": "EUR",
+    "standard_rate": 0.17,
+    "reduced_rate": 0.14,
+    "reduced_rate_alt": 0.08,
+    "super_reduced_rate": 0.03,
+    "parking_rate": 0.12,
+    "vat_name": "Taxe sur la valeur ajout\u00e9e",
+    "vat_abbr": "TVA"
+  },
+  "LV": {
+    "type": "vat",
+    "currency": "EUR",
+    "standard_rate": 0.21,
+    "reduced_rate": 0.12,
+    "reduced_rate_alt": 0.0,
+    "super_reduced_rate": 0.0,
+    "parking_rate": 0.0,
+    "vat_name": "Pievienotas vertibas nodoklis",
+    "vat_abbr": "PVN"
+  },
+  "MA": {
+    "type": "vat",
+    "currency": "MAD",
+    "standard_rate": 0.2
+  },
+  "MC": {
+    "type": "vat",
+    "currency": "EUR",
+    "standard_rate": 0.2
+  },
+  "MD": {
+    "type": "vat",
+    "currency": "MDL",
+    "standard_rate": 0.2
+  },
+  "MG": {
+    "type": "vat",
+    "currency": "MGA",
+    "standard_rate": 0.2
+  },
+  "MK": {
+    "type": "vat",
+    "currency": "MKD",
+    "standard_rate": 0.18
+  },
+  "MM": {
+    "type": "vat",
+    "currency": "MMK",
+    "standard_rate": 0.05
+  },
+  "MN": {
+    "type": "vat",
+    "currency": "MNT",
+    "standard_rate": 0.1
+  },
+  "MT": {
+    "type": "vat",
+    "currency": "EUR",
+    "standard_rate": 0.18,
+    "reduced_rate": 0.07,
+    "reduced_rate_alt": 0.05,
+    "super_reduced_rate": 0.0,
+    "parking_rate": 0.0,
+    "vat_name": "Value added tax",
+    "vat_abbr": "VAT"
+  },
+  "MU": {
+    "type": "vat",
+    "currency": "MUR",
+    "standard_rate": 0.15
+  },
+  "MV": {
+    "type": "gst",
+    "currency": "MVR",
+    "standard_rate": 0.08
+  },
+  "MX": {
+    "type": "vat",
+    "currency": "MXN",
+    "standard_rate": 0.16
+  },
+  "MY": {
+    "type": "vat",
+    "currency": "MYR",
+    "standard_rate": 0.1
+  },
+  "NA": {
+    "type": "vat",
+    "currency": "NAD",
+    "standard_rate": 0.15
+  },
+  "NG": {
+    "type": "vat",
+    "currency": "NGN",
+    "standard_rate": 0.075
+  },
+  "NI": {
+    "type": "vat",
+    "currency": "NIO",
+    "standard_rate": 0.15
+  },
+  "NL": {
+    "type": "vat",
+    "currency": "EUR",
+    "standard_rate": 0.21,
+    "reduced_rate": 0.09,
+    "reduced_rate_alt": 0.0,
+    "super_reduced_rate": 0.0,
+    "parking_rate": 0.0,
+    "vat_name": "Omzetbelasting",
+    "vat_abbr": "OB"
+  },
+  "NO": {
+    "type": "vat",
+    "currency": "NOK",
+    "standard_rate": 0.25
+  },
+  "NZ": {
+    "type": "gst",
+    "currency": "NZD",
+    "standard_rate": 0.15
+  },
+  "OM": {
+    "type": "vat",
+    "currency": "OMR",
+    "standard_rate": 0.05
+  },
+  "PA": {
+    "type": "vat",
+    "currency": "USD",
+    "standard_rate": 0.07
+  },
+  "PE": {
+    "type": "vat",
+    "currency": "PEN",
+    "standard_rate": 0.18
+  },
+  "PG": {
+    "type": "vat",
+    "currency": "PGK",
+    "standard_rate": 0.1
+  },
+  "PH": {
+    "type": "vat",
+    "currency": "PHP",
+    "standard_rate": 0.12
+  },
+  "PK": {
+    "type": "vat",
+    "currency": "PKR",
+    "standard_rate": 0.17
+  },
+  "PL": {
+    "type": "vat",
+    "currency": "EUR",
+    "standard_rate": 0.23,
+    "reduced_rate": 0.08,
+    "reduced_rate_alt": 0.05,
+    "super_reduced_rate": 0.0,
+    "parking_rate": 0.0,
+    "vat_name": "Podatek od towar\u00f2w i uslug",
+    "vat_abbr": "VAT"
+  },
+  "PR": {
+    "type": "vat",
+    "currency": "USD",
+    "standard_rate": 0.115
+  },
+  "PT": {
+    "type": "vat",
+    "currency": "EUR",
+    "standard_rate": 0.23,
+    "reduced_rate": 0.13,
+    "reduced_rate_alt": 0.06,
+    "super_reduced_rate": 0.0,
+    "parking_rate": 0.13,
+    "vat_name": "Imposto sobre o valor acrescentado",
+    "vat_abbr": "IVA"
+  },
+  "PY": {
+    "type": "vat",
+    "currency": "PYG",
+    "standard_rate": 0.1
+  },
+  "QA": {
+    "type": "vat",
+    "currency": "QAR",
+    "standard_rate": 0.05
+  },
+  "RO": {
+    "type": "vat",
+    "currency": "EUR",
+    "standard_rate": 0.19,
+    "reduced_rate": 0.09,
+    "reduced_rate_alt": 0.05,
+    "super_reduced_rate": 0.0,
+    "parking_rate": 0.0,
+    "vat_name": "Taxa pe valoarea ad\u00e3ugata",
+    "vat_abbr": "TVA"
+  },
+  "RS": {
+    "type": "vat",
+    "currency": "RSD",
+    "standard_rate": 0.2
+  },
+  "RU": {
+    "type": "vat",
+    "currency": "RUB",
+    "standard_rate": 0.2
+  },
+  "RW": {
+    "type": "vat",
+    "currency": "RWF",
+    "standard_rate": 0.18
+  },
+  "SA": {
+    "type": "vat",
+    "currency": "SAR",
+    "standard_rate": 0.15
+  },
+  "SC": {
+    "type": "vat",
+    "currency": "SCR",
+    "standard_rate": 0.15
+  },
+  "SE": {
+    "type": "vat",
+    "currency": "EUR",
+    "standard_rate": 0.25,
+    "reduced_rate": 0.12,
+    "reduced_rate_alt": 0.06,
+    "super_reduced_rate": 0.0,
+    "parking_rate": 0.0,
+    "vat_name": "Merv\u00e4rdeskatt",
+    "vat_abbr": "ML"
+  },
+  "SG": {
+    "type": "gst",
+    "currency": "SGD",
+    "standard_rate": 0.09
+  },
+  "SI": {
+    "type": "vat",
+    "currency": "EUR",
+    "standard_rate": 0.22,
+    "reduced_rate": 0.095,
+    "reduced_rate_alt": 0.05,
+    "super_reduced_rate": 0.0,
+    "parking_rate": 0.0,
+    "vat_name": "Davek na dodano vred nost",
+    "vat_abbr": "DDV"
+  },
+  "SK": {
+    "type": "vat",
+    "currency": "EUR",
+    "standard_rate": 0.2,
+    "reduced_rate": 0.1,
+    "reduced_rate_alt": 0.0,
+    "super_reduced_rate": 0.0,
+    "parking_rate": 0.0,
+    "vat_name": "Dan z pridanej hodnoty",
+    "vat_abbr": "DPH"
+  },
+  "SR": {
+    "type": "vat",
+    "currency": "SRD",
+    "standard_rate": 0.15
+  },
+  "SV": {
+    "type": "vat",
+    "currency": "USD",
+    "standard_rate": 0.13
+  },
+  "TH": {
+    "type": "vat",
+    "currency": "THB",
+    "standard_rate": 0.1
+  },
+  "TN": {
+    "type": "vat",
+    "currency": "TND",
+    "standard_rate": 0.19
+  },
+  "TR": {
+    "type": "vat",
+    "currency": "TRY",
+    "standard_rate": 0.2
+  },
+  "TT": {
+    "type": "vat",
+    "currency": "TTD",
+    "standard_rate": 0.125
+  },
+  "TW": {
+    "type": "vat",
+    "currency": "TWD",
+    "standard_rate": 0.05
+  },
+  "TZ": {
+    "type": "vat",
+    "currency": "TZS",
+    "standard_rate": 0.18
+  },
+  "UA": {
+    "type": "vat",
+    "currency": "UAH",
+    "standard_rate": 0.2
+  },
+  "UG": {
+    "type": "vat",
+    "currency": "UGX",
+    "standard_rate": 0.18
+  },
+  "US": {
+    "type": "none",
+    "currency": "USD",
+    "standard_rate": 0,
+    "states": {
+      "US-AL": {
+        "standard_rate": 0.04,
+        "type": "vat"
+      },
+      "US-AR": {
+        "standard_rate": 0.06,
+        "type": "vat"
+      },
+      "US-AZ": {
+        "standard_rate": 0.066,
+        "type": "vat"
+      },
+      "US-CA": {
+        "standard_rate": 0.0825,
+        "type": "vat"
+      },
+      "US-CO": {
+        "standard_rate": 0.029,
+        "type": "vat"
+      },
+      "US-CT": {
+        "standard_rate": 0.06,
+        "type": "vat"
+      },
+      "US-DC": {
+        "standard_rate": 0.06,
+        "type": "vat"
+      },
+      "US-FL": {
+        "standard_rate": 0.06,
+        "type": "vat"
+      },
+      "US-GA": {
+        "standard_rate": 0.04,
+        "type": "vat"
+      },
+      "US-HI": {
+        "standard_rate": 0.04,
+        "type": "vat"
+      },
+      "US-IA": {
+        "standard_rate": 0.06,
+        "type": "vat"
+      },
+      "US-ID": {
+        "standard_rate": 0.06,
+        "type": "vat"
+      },
+      "US-IL": {
+        "standard_rate": 0.0625,
+        "type": "vat"
+      },
+      "US-IN": {
+        "standard_rate": 0.07,
+        "type": "vat"
+      },
+      "US-KS": {
+        "standard_rate": 0.063,
+        "type": "vat"
+      },
+      "US-KY": {
+        "standard_rate": 0.06,
+        "type": "vat"
+      },
+      "US-LA": {
+        "standard_rate": 0.04,
+        "type": "vat"
+      },
+      "US-MA": {
+        "standard_rate": 0.0625,
+        "type": "vat"
+      },
+      "US-MD": {
+        "standard_rate": 0.06,
+        "type": "vat"
+      },
+      "US-ME": {
+        "standard_rate": 0.05,
+        "type": "vat"
+      },
+      "US-MI": {
+        "standard_rate": 0.06,
+        "type": "vat"
+      },
+      "US-MN": {
+        "standard_rate": 0.06875,
+        "type": "vat"
+      },
+      "US-MO": {
+        "standard_rate": 0.04225,
+        "type": "vat"
+      },
+      "US-MS": {
+        "standard_rate": 0.07,
+        "type": "vat"
+      },
+      "US-NC": {
+        "standard_rate": 0.0575,
+        "type": "vat"
+      },
+      "US-ND": {
+        "standard_rate": 0.05,
+        "type": "vat"
+      },
+      "US-NE": {
+        "standard_rate": 0.055,
+        "type": "vat"
+      },
+      "US-NJ": {
+        "standard_rate": 0.07,
+        "type": "vat"
+      },
+      "US-NM": {
+        "standard_rate": 0.05,
+        "type": "vat"
+      },
+      "US-NV": {
+        "standard_rate": 0.0685,
+        "type": "vat"
+      },
+      "US-NY": {
+        "standard_rate": 0.04,
+        "type": "vat"
+      },
+      "US-OH": {
+        "standard_rate": 0.055,
+        "type": "vat"
+      },
+      "US-OK": {
+        "standard_rate": 0.045,
+        "type": "vat"
+      },
+      "US-PA": {
+        "standard_rate": 0.06,
+        "type": "vat"
+      },
+      "US-RI": {
+        "standard_rate": 0.07,
+        "type": "vat"
+      },
+      "US-SC": {
+        "standard_rate": 0.06,
+        "type": "vat"
+      },
+      "US-SD": {
+        "standard_rate": 0.04,
+        "type": "vat"
+      },
+      "US-TN": {
+        "standard_rate": 0.07,
+        "type": "vat"
+      },
+      "US-TX": {
+        "standard_rate": 0.0625,
+        "type": "vat"
+      },
+      "US-UT": {
+        "standard_rate": 0.0595,
+        "type": "vat"
+      },
+      "US-VA": {
+        "standard_rate": 0.05,
+        "type": "vat"
+      },
+      "US-VT": {
+        "standard_rate": 0.06,
+        "type": "vat"
+      },
+      "US-WA": {
+        "standard_rate": 0.065,
+        "type": "vat"
+      },
+      "US-WI": {
+        "standard_rate": 0.05,
+        "type": "vat"
+      },
+      "US-WV": {
+        "standard_rate": 0.06,
+        "type": "vat"
+      },
+      "US-WY": {
+        "standard_rate": 0.04,
+        "type": "vat"
+      }
+    }
+  },
+  "UY": {
+    "type": "vat",
+    "currency": "UYU",
+    "standard_rate": 0.22
+  },
+  "UZ": {
+    "type": "vat",
+    "currency": "UZS",
+    "standard_rate": 0.12
+  },
+  "VE": {
+    "type": "vat",
+    "currency": "VES",
+    "standard_rate": 0.16
+  },
+  "VN": {
+    "type": "vat",
+    "currency": "VND",
+    "standard_rate": 0.1
+  },
+  "XK": {
+    "type": "vat",
+    "currency": "EUR",
+    "standard_rate": 0.18
+  },
+  "ZA": {
+    "type": "vat",
+    "currency": "ZAR",
+    "standard_rate": 0.15
+  },
+  "ZM": {
+    "type": "vat",
+    "currency": "ZMW",
+    "standard_rate": 0.16
+  },
+  "ZW": {
+    "type": "vat",
+    "currency": "USD",
+    "standard_rate": 0.15
+  }
+}

@@ -22,6 +22,14 @@ pub trait PgmqInterface {
         messages: Vec<PgmqMessageNew>,
     ) -> StoreResult<()>;
 
+    /// Sends messages that only become visible to consumers after `delay_seconds`.
+    async fn pgmq_send_batch_delayed(
+        &self,
+        queue: PgmqQueue,
+        messages: Vec<PgmqMessageNew>,
+        delay_seconds: i32,
+    ) -> StoreResult<()>;
+
     async fn pgmq_read(
         &self,
         queue: PgmqQueue,
@@ -60,6 +68,20 @@ impl PgmqInterface for Store {
         let rows = messages.into_iter().map(Into::into).collect::<Vec<_>>();
 
         pgmq::send_batch(conn, queue.as_str(), &rows)
+            .await
+            .map_err(Into::<Report<StoreError>>::into)
+    }
+
+    async fn pgmq_send_batch_delayed(
+        &self,
+        queue: PgmqQueue,
+        messages: Vec<PgmqMessageNew>,
+        delay_seconds: i32,
+    ) -> StoreResult<()> {
+        let mut conn = self.get_conn().await?;
+        let rows = messages.into_iter().map(Into::into).collect::<Vec<_>>();
+
+        pgmq::send_batch_delayed(&mut conn, queue.as_str(), &rows, delay_seconds)
             .await
             .map_err(Into::<Report<StoreError>>::into)
     }

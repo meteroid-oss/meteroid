@@ -13,6 +13,7 @@ import {
   InputFormField,
   SelectFormField,
   SelectItem,
+  SwitchFormField,
   Table,
   TableBody,
   TableCell,
@@ -52,6 +53,7 @@ import type { CustomTax } from '@/rpc/api/taxes/v1/models_pb';
 
 const taxSettingsSchema = z.object({
   taxResolver: z.enum(['NONE', 'MANUAL', 'METEROID_EU_VAT']).optional(),
+  requireViesValidForReverseCharge: z.boolean().optional(),
 })
 
 const customTaxSchema = z.object({
@@ -233,6 +235,10 @@ export const TaxesTab = () => {
           .with(TaxResolver.METEROID_EU_VAT, () => 'METEROID_EU_VAT' as const)
           .otherwise(() => 'NONE' as const)
       )
+      methods.setValue(
+        'requireViesValidForReverseCharge',
+        entity.requireViesValidForReverseCharge
+      )
     } else {
       methods.reset()
     }
@@ -251,6 +257,7 @@ export const TaxesTab = () => {
           .with('MANUAL', () => TaxResolver.MANUAL)
           .with('METEROID_EU_VAT', () => TaxResolver.METEROID_EU_VAT)
           .otherwise(() => TaxResolver.NONE),
+        requireViesValidForReverseCharge: values.requireViesValidForReverseCharge,
       },
     })
   }
@@ -354,6 +361,13 @@ export const TaxesTab = () => {
                 <SelectItem value="MANUAL">Manual</SelectItem>
                 <SelectItem value="METEROID_EU_VAT">Meteroid EU VAT</SelectItem>
               </SelectFormField>
+              <SwitchFormField
+                name="requireViesValidForReverseCharge"
+                control={methods.control}
+                label="Require valid tax ID for reverse charge"
+                description="Apply reverse charge only after the customer's VAT number is verified in VIES. Until then (or if invalid), the standard rate of their country applies."
+                containerClassName="col-span-6"
+              />
             </div>
 
             <div className="pt-10 flex justify-end items-center">

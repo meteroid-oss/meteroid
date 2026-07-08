@@ -17,7 +17,8 @@ use meteroid_grpc::meteroid::api::customers::v1::{
     DeleteCustomerConnectionRequest, DeleteCustomerConnectionResponse,
     GenerateCustomerPortalTokenRequest, GenerateCustomerPortalTokenResponse,
     GetCustomerByAliasRequest, GetCustomerByAliasResponse, GetCustomerByIdRequest,
-    GetCustomerByIdResponse, ListCustomerRequest, ListCustomerResponse, SyncToHubspotRequest,
+    GetCustomerByIdResponse, ListCustomerRequest, ListCustomerResponse,
+    RefreshVatValidationRequest, RefreshVatValidationResponse, SyncToHubspotRequest,
     SyncToHubspotResponse, SyncToPennylaneRequest, SyncToPennylaneResponse,
     TopUpCustomerBalanceRequest, TopUpCustomerBalanceResponse, UnarchiveCustomerRequest,
     UnarchiveCustomerResponse, UpdateCustomerRequest, UpdateCustomerResponse,
@@ -472,6 +473,29 @@ impl CustomersService for CustomerServiceComponents {
         .map_err(Into::<CustomerApiError>::into)?;
 
         Ok(Response::new(GenerateCustomerPortalTokenResponse { token }))
+    }
+
+    #[tracing::instrument(skip_all)]
+    async fn refresh_vat_validation(
+        &self,
+        request: Request<RefreshVatValidationRequest>,
+    ) -> Result<Response<RefreshVatValidationResponse>, Status> {
+        let tenant_id = request.tenant()?;
+
+        let req = request.into_inner();
+        let customer_id = CustomerId::from_proto(&req.customer_id)?;
+
+        let customer = self
+            .store
+            .request_vat_number_revalidation(tenant_id, customer_id)
+            .await
+            .and_then(ServerCustomerWrapper::try_from)
+            .map(|v| v.0)
+            .map_err(Into::<CustomerApiError>::into)?;
+
+        Ok(Response::new(RefreshVatValidationResponse {
+            customer: Some(customer),
+        }))
     }
 
     #[tracing::instrument(skip_all)]

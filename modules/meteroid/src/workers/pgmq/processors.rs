@@ -15,6 +15,7 @@ use crate::workers::pgmq::pennylane_sync::PennylaneSync;
 use crate::workers::pgmq::processor::{Noop, PgmqHandler, ProcessorConfig, run};
 use crate::workers::pgmq::quote_conversion::QuoteConversion;
 use crate::workers::pgmq::send_email::EmailSender;
+use crate::workers::pgmq::vat_validation::VatValidation;
 use crate::workers::pgmq::webhook_in::WebhookIn;
 use crate::workers::pgmq::webhook_out::WebhookOut;
 use common_domain::pgmq::{MessageReadQty, MessageReadVtSec, ReadCt};
@@ -367,6 +368,28 @@ pub async fn run_bi_aggregation(store: Arc<Store>) {
         delete_succeeded: true,
         sleep_duration: std::time::Duration::from_millis(1500),
         max_read_count: ReadCt(5),
+    })
+    .await;
+}
+
+pub async fn run_vat_validation(store: Arc<Store>) {
+    let queue = PgmqQueue::VatValidation;
+    let processor = Arc::new(VatValidation::new(store.clone()));
+
+    // Low throughput on purpose: VIES rate-limits hard and jobs make blocking
+    // network calls. VIES unavailability is retried via delayed re-enqueues
+    // (see RETRY_DELAYS_SECS in the handler); the visibility timeout and
+    // `max_read_count` only cover transient store errors and crashes.
+    run(ProcessorConfig {
+        name: processor_name("VatValidation"),
+        queue,
+        handler: processor,
+        store,
+        qty: MessageReadQty(5),
+        vt: MessageReadVtSec(120),
+        delete_succeeded: true,
+        sleep_duration: std::time::Duration::from_millis(2000),
+        max_read_count: ReadCt(6),
     })
     .await;
 }
