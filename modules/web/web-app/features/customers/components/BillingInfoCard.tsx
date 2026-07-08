@@ -1,11 +1,20 @@
-import { Button, Card } from '@md/ui'
-import { Edit2 } from 'lucide-react'
+import { timestampDate } from '@bufbuild/protobuf/wkt'
+import { createConnectQueryKey, useMutation } from '@connectrpc/connect-query'
+import { Badge, Button, Card } from '@md/ui'
+import { useQueryClient } from '@tanstack/react-query'
+import { Edit2, RefreshCw } from 'lucide-react'
 import { ReactNode } from 'react'
+import { toast } from 'sonner'
 
 import { getCountryFlagEmoji, getCountryName } from '@/features/settings/utils'
-import { CustomerSchema } from '@/rpc/api/customers/v1/models_pb'
+import {
+  getCustomerById,
+  refreshVatValidation,
+} from '@/rpc/api/customers/v1/customers-CustomersService_connectquery'
+import { CustomerSchema, VatNumberValidationStatus } from '@/rpc/api/customers/v1/models_pb'
 
 import type { MessageInitShape } from '@bufbuild/protobuf'
+import type { Timestamp } from '@bufbuild/protobuf/wkt'
 
 interface BillingInfoCardProps {
   customer: MessageInitShape<typeof CustomerSchema>
@@ -13,6 +22,94 @@ interface BillingInfoCardProps {
   title?: string
   actions?: ReactNode // Additional actions next to edit button
   cardVariant?: 'default' | 'accent' | 'accent2'
+}
+
+const VAT_BADGES: Partial<
+  Record<
+    VatNumberValidationStatus,
+    { label: string; variant: 'success' | 'destructive' | 'warning' | 'ghost'; title: string }
+  >
+> = {
+  [VatNumberValidationStatus.PENDING]: {
+    label: 'Verifying…',
+    variant: 'ghost',
+    title: 'Verification against VIES is in progress',
+  },
+  [VatNumberValidationStatus.VALID]: {
+    label: 'VIES verified',
+    variant: 'success',
+    title: 'VAT number is registered in VIES',
+  },
+  [VatNumberValidationStatus.INVALID]: {
+    label: 'Not in VIES',
+    variant: 'destructive',
+    title: 'VIES has no active registration for this VAT number',
+  },
+  [VatNumberValidationStatus.UNAVAILABLE]: {
+    label: 'Unverified',
+    variant: 'warning',
+    title: 'VIES was unreachable — verification is retried automatically',
+  },
+}
+
+export const VatValidationBadge = ({
+  customer,
+}: {
+  customer: BillingInfoCardProps['customer']
+}) => {
+  const queryClient = useQueryClient()
+  const customerId = customer.id
+
+  const refreshMutation = useMutation(refreshVatValidation, {
+    onSuccess: () => {
+      queryClient.invalidateQueries({
+        queryKey: createConnectQueryKey({
+          schema: getCustomerById,
+          input: { id: customerId },
+          cardinality: 'finite',
+        }),
+      })
+    },
+    onError: () => toast.error('Failed to start VAT number re-check'),
+  })
+
+  const status = customer.vatNumberValidationStatus
+  const badge = status ? VAT_BADGES[status] : undefined
+  if (!badge) return null
+
+  const checkedAt = customer.vatNumberCheckedAt
+    ? timestampDate(customer.vatNumberCheckedAt as Timestamp).toLocaleDateString()
+    : undefined
+
+  const title = [
+    badge.title,
+    customer.vatNumberRegisteredName && `Registered as: ${customer.vatNumberRegisteredName}`,
+    customer.vatNumberConsultationNumber &&
+      `VIES ref: ${customer.vatNumberConsultationNumber}`,
+    checkedAt && `Last checked ${checkedAt}`,
+  ]
+    .filter(Boolean)
+    .join(' — ')
+
+  return (
+    <span className="inline-flex items-center gap-1 ml-1.5 align-middle">
+      <Badge variant={badge.variant} size="sm" title={title}>
+        {badge.label}
+      </Badge>
+      {status !== VatNumberValidationStatus.PENDING && customerId && (
+        <Button
+          variant="ghost"
+          size="sm"
+          className="p-0 h-auto text-muted-foreground"
+          title="Re-check against VIES"
+          disabled={refreshMutation.isPending}
+          onClick={() => refreshMutation.mutate({ customerId })}
+        >
+          <RefreshCw size={12} />
+        </Button>
+      )}
+    </span>
+  )
 }
 
 export const BillingInfoCard = ({
@@ -55,6 +152,7 @@ export const BillingInfoCard = ({
               <div className="pt-1">
                 <span className="text-muted-foreground">Tax ID: </span>
                 {customer.vatNumber}
+                <VatValidationBadge customer={customer} />
               </div>
             )}
           </div>

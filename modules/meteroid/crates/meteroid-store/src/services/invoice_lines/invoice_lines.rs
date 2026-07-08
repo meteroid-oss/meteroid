@@ -3,7 +3,7 @@ use crate::constants::{Currencies, Currency};
 use crate::domain::{
     ComponentPeriods, CouponLineItem, Customer, Invoice, InvoicingEntity, LineItem, Period,
     SubscriptionAddOn, SubscriptionComponent, SubscriptionDetails, SubscriptionFee,
-    SubscriptionFeeInterface, TaxBreakdownItem, TaxResolverEnum,
+    SubscriptionFeeInterface, TaxBreakdownItem, TaxResolverEnum, VatNumberValidationStatus,
 };
 use chrono::NaiveDate;
 use common_domain::ids::{PriceComponentId, SubscriptionAddOnId, SubscriptionPriceComponentId};
@@ -521,6 +521,13 @@ impl Services {
         let customer = meteroid_tax::CustomerForTax {
             vat_number: customer.vat_number.clone(),
             vat_number_format_valid: customer.vat_number_format_valid,
+            vat_number_vies_valid: match customer.vat_number_validation_status {
+                Some(VatNumberValidationStatus::Valid) => Some(true),
+                Some(VatNumberValidationStatus::Invalid) => Some(false),
+                _ => None,
+            },
+            require_vies_valid_for_reverse_charge: invoicing_entity
+                .require_vies_valid_for_reverse_charge,
             custom_tax_rates: customer
                 .custom_taxes
                 .iter()

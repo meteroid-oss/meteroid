@@ -9,8 +9,8 @@ use crate::extend::pagination::{Paginate, PaginatedVec, PaginationRequest};
 use crate::{DbResult, PgConn};
 use common_domain::ids::{AliasOr, BaseId, ConnectorId, CustomerId, TenantId};
 use diesel::{
-    BoolExpressionMethods, ExpressionMethods, OptionalExtension, PgTextExpressionMethods, QueryDsl,
-    SelectableHelper, debug_query,
+    BoolExpressionMethods, ExpressionMethods, OptionalExtension, PgSortExpressionMethods,
+    PgTextExpressionMethods, QueryDsl, SelectableHelper, debug_query,
 };
 use error_stack::ResultExt;
 use itertools::Itertools;
@@ -60,6 +60,41 @@ impl CustomerRow {
             .get_results(conn)
             .await
             .attach("Error while finding customers by ids or aliases")
+            .into_db_result()
+    }
+
+    /// Customers whose VAT number is due for a best-effort VIES (re)check:
+    /// format-valid number, not archived, never checked or last checked before
+    /// `checked_before`. Excludes recently created rows so the event-driven
+    /// initial validation stays the owner of fresh customers. Oldest first,
+    /// never-checked rows leading, across all tenants.
+    pub async fn list_vat_revalidation_candidates(
+        conn: &mut PgConn,
+        checked_before: chrono::NaiveDateTime,
+        created_before: chrono::NaiveDateTime,
+        limit: i64,
+    ) -> DbResult<Vec<CustomerRow>> {
+        use crate::schema::customer::dsl as c_dsl;
+        use diesel_async::RunQueryDsl;
+
+        let query = c_dsl::customer
+            .filter(c_dsl::vat_number.is_not_null())
+            .filter(c_dsl::vat_number_format_valid.eq(true))
+            .filter(c_dsl::archived_at.is_null())
+            .filter(
+                c_dsl::vat_number_checked_at
+                    .is_null()
+                    .or(c_dsl::vat_number_checked_at.lt(checked_before)),
+            )
+            .filter(c_dsl::created_at.lt(created_before))
+            .order(c_dsl::vat_number_checked_at.asc().nulls_first())
+            .limit(limit)
+            .select(CustomerRow::as_select());
+
+        query
+            .get_results(conn)
+            .await
+            .attach("Error while listing vat revalidation candidates")
             .into_db_result()
     }
 
@@ -510,6 +545,85 @@ impl CustomerRowPatch {
             .optional()
             .tap_err(|e| log::error!("Error while patching customer: {e:?}"))
             .attach("Error while patching customer")
+            .into_db_result()
+    }
+
+    /// Persists the outcome of an external (VIES) VAT check for a single customer.
+    ///
+    /// The update is conditional on the row still holding the exact number we
+    /// validated, so a concurrent VAT-number change (which resets the status)
+    /// is never clobbered with a stale result. `vies_check` (audit evidence of a
+    /// definitive answer) is only written when present, so an outage never
+    /// erases the evidence of the last real answer.
+    pub async fn update_vat_validation(
+        conn: &mut PgConn,
+        param_tenant_id: TenantId,
+        customer_id: CustomerId,
+        expected_vat_number: &str,
+        status: crate::enums::CustomerVatValidationStatusEnum,
+        checked_at: chrono::NaiveDateTime,
+        vies_check: Option<serde_json::Value>,
+    ) -> DbResult<()> {
+        use crate::schema::customer::dsl as c;
+        use diesel_async::RunQueryDsl;
+
+        let query = diesel::update(c::customer)
+            .filter(c::id.eq(customer_id))
+            .filter(c::tenant_id.eq(param_tenant_id))
+            .filter(c::vat_number.eq(expected_vat_number));
+
+        let res = match vies_check {
+            Some(check) => {
+                query
+                    .set((
+                        c::vat_number_validation_status.eq(status),
+                        c::vat_number_checked_at.eq(checked_at),
+                        c::vat_number_vies_check.eq(check),
+                    ))
+                    .execute(conn)
+                    .await
+            }
+            None => {
+                query
+                    .set((
+                        c::vat_number_validation_status.eq(status),
+                        c::vat_number_checked_at.eq(checked_at),
+                    ))
+                    .execute(conn)
+                    .await
+            }
+        };
+
+        res.tap_err(|e| log::error!("Error while updating vat validation: {e:?}"))
+            .attach("Error while updating vat validation")
+            .into_db_result()
+            .map(|_| ())
+    }
+
+    /// Moves a customer's VAT validation back to `PENDING` ahead of a manual
+    /// re-check, guarded on the number so a concurrent edit is not overridden.
+    /// Returns the number of rows updated (0 = number changed under us).
+    pub async fn mark_vat_validation_pending(
+        conn: &mut PgConn,
+        param_tenant_id: TenantId,
+        customer_id: CustomerId,
+        expected_vat_number: &str,
+    ) -> DbResult<usize> {
+        use crate::enums::CustomerVatValidationStatusEnum;
+        use crate::schema::customer::dsl as c;
+        use diesel_async::RunQueryDsl;
+
+        let query = diesel::update(c::customer)
+            .filter(c::id.eq(customer_id))
+            .filter(c::tenant_id.eq(param_tenant_id))
+            .filter(c::vat_number.eq(expected_vat_number))
+            .set(c::vat_number_validation_status.eq(CustomerVatValidationStatusEnum::Pending));
+
+        query
+            .execute(conn)
+            .await
+            .tap_err(|e| log::error!("Error while marking vat validation pending: {e:?}"))
+            .attach("Error while marking vat validation pending")
             .into_db_result()
     }
 

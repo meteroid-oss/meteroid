@@ -36,6 +36,16 @@ message CustomTaxRate {
   string rate = 3;
 }
 
+// External (VIES) verification state of the customer's VAT number.
+// UNSPECIFIED = never checked (non-EU number, or predates validation).
+enum VatNumberValidationStatus {
+  VAT_NUMBER_VALIDATION_STATUS_UNSPECIFIED = 0;
+  VAT_NUMBER_VALIDATION_STATUS_PENDING = 1;
+  VAT_NUMBER_VALIDATION_STATUS_VALID = 2;
+  VAT_NUMBER_VALIDATION_STATUS_INVALID = 3;
+  VAT_NUMBER_VALIDATION_STATUS_UNAVAILABLE = 4;
+}
+
 message Customer {
   string id = 1;
   string name = 2;
@@ -60,6 +70,13 @@ message Customer {
   repeated CustomerConnection customer_connections = 23;
   repeated CustomerPaymentMethod payment_methods = 24;
   optional string connected_account_id = 25;
+  reserved 26; // lifecycle_state, enterprise-only
+  VatNumberValidationStatus vat_number_validation_status = 27;
+  optional google.protobuf.Timestamp vat_number_checked_at = 28;
+  // Registered company name returned by VIES with the last definitive answer.
+  optional string vat_number_registered_name = 29;
+  // VIES consultation number (audit proof); present only for qualified checks.
+  optional string vat_number_consultation_number = 30;
 
 }
 

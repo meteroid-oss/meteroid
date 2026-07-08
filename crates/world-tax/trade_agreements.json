@@ -1,0 +1,104 @@
+{
+    "EU": {
+        "name": "European Union",
+        "type": "customs_union",
+        "members": ["DE", "FR", "IT", "ES", "PT", "BE", "NL", "LU", "IE", "GR", "CY", "MT", "SI", "SK", "CZ", "HU", "AT", "FI", "SE", "DK", "PL", "EE", "LV", "LT", "RO", "BG", "HR"],
+        "default_applicable": true,
+        "applies_to": {
+            "physical_goods": true,
+            "digital_goods": true,
+            "services": true
+        },
+        "tax_rules": {
+            "internal_b2b": {
+                "type": "reverse_charge"
+            },
+            "internal_b2c": {
+                "type": "threshold_based",
+                "below_threshold": "origin",
+                "above_threshold": "destination",
+                "threshold": 10000,
+                "below_threshold_digital_products": "destination",
+                "above_threshold_digital_products": "destination",
+                "threshold_digital_products": 0
+            },
+            "external_export": {
+                "type": "zero_rated"
+            }
+        }
+    },
+    "GCC": {
+        "name": "Gulf Cooperation Council",
+        "type": "customs_union",
+        "members": ["SA", "AE", "QA", "OM", "BH", "KW"],
+        "default_applicable": true,
+        "applies_to": {
+            "physical_goods": true,
+            "digital_goods": true,
+            "services": true
+        },
+        "tax_rules": {
+            "internal_b2b": {
+                "type": "reverse_charge"
+            },
+            "internal_b2c": {
+                "type": "destination"
+            },
+            "external_export": {
+                "type": "zero_rated"
+            }
+        }
+    },
+    "US": {
+        "name": "United States",
+        "type": "federal_state",
+        "members": ["US-CA", "US-WA", "US-NY", "US-TX", "US-FL", "US-IL", "US-PA", "US-NJ", "US-GA", "US-NC", "US-OH", "US-MI", "US-MA", "US-TN", "US-VA", "US-IN", "US-AZ", "US-CO", "US-MO", "US-WI", "US-MD", "US-WA", "US-KY", "US-LA", "US-OK", "US-UT", "US-NV", "US-IA", "US-KS", "US-AR", "US-CT", "US-NM", "US-MS", "US-RI", "US-NE", "US-SD", "US-VT", "US-DE", "US-ID", "US-MT", "US-WY", "US-ND", "US-AK", "US-HI"],
+        "default_applicable": true,
+        "applies_to": {
+            "physical_goods": true,
+            "digital_goods": true,
+            "services": true
+        },
+        "tax_rules": {
+            "internal_b2b": {
+                "type": "exempt",
+                "requires_resale_certificate": true
+            },
+            "internal_b2c": {
+                "type": "threshold_based",
+                "threshold": 100000,
+                "below_threshold": "exempt",
+                "above_threshold": "destination"
+            },
+            "external_export": {
+                "type": "zero_rated"
+            }
+        }
+    },
+    "CA": {
+        "name": "Canada",
+        "type": "federal_state",
+        "members": ["CA-BC", "CA-ON", "CA-QC", "CA-AB", "CA-MB", "CA-SK", "CA-NS", "CA-NB", "CA-PE", "CA-NL", "CA-YT", "CA-NT", "CA-NU"],
+        "default_applicable": true,
+        "applies_to": {
+            "physical_goods": true,
+            "digital_goods": true,
+            "services": true
+        },
+        "tax_rules": {
+            "internal_b2b": {
+                "type": "destination",
+                "requires_registration": true
+            },
+            "internal_b2c": {
+                "type": "threshold_based",
+                "threshold": 30000,
+                "below_threshold": "exempt",
+                "above_threshold": "destination"
+            },
+            "external_export": {
+                "type": "zero_rated"
+            }
+        }
+    }
+}

@@ -27,6 +27,16 @@ pub struct CustomerCustomTax {
 
 json_value_serde!(CustomerCustomTax);
 
+/// External (VIES) VAT validation state. See the `customer_vat_validation` migration.
+#[derive(Debug, Clone, Copy, Serialize, Deserialize, PartialEq, Eq, o2o)]
+#[map_owned(diesel_models::enums::CustomerVatValidationStatusEnum)]
+pub enum VatNumberValidationStatus {
+    Pending,
+    Valid,
+    Invalid,
+    Unavailable,
+}
+
 #[derive(Clone, Debug, PartialEq, Eq, o2o)]
 #[try_from_owned(CustomerRow, StoreErrorReport)]
 pub struct Customer {
@@ -57,6 +67,12 @@ pub struct Customer {
     pub custom_taxes: Vec<CustomerCustomTax>,
     pub vat_number_format_valid: bool,
     pub connected_account_id: Option<ConnectedAccountId>,
+    #[map(~.map(Into::into))]
+    pub vat_number_validation_status: Option<VatNumberValidationStatus>,
+    pub vat_number_checked_at: Option<NaiveDateTime>,
+    /// Evidence returned by VIES with the last definitive answer.
+    #[from(~.and_then(|v| serde_json::from_value(v).ok()))]
+    pub vat_number_vies_check: Option<meteroid_tax::ViesCheckData>,
 }
 
 #[derive(Clone, Debug, o2o)]
@@ -115,10 +131,28 @@ pub struct CustomerNewWrapper {
     pub vat_number_format_valid: bool,
 }
 
+/// Initial external-validation status for a VAT number: `Pending` only when the
+/// number is format-valid and VIES can actually verify it, otherwise unset.
+pub(crate) fn initial_vies_status(
+    vat_number: Option<&str>,
+    format_valid: bool,
+) -> Option<diesel_models::enums::CustomerVatValidationStatusEnum> {
+    match vat_number {
+        Some(vat) if format_valid && meteroid_tax::vies::is_vies_eligible(vat) => {
+            Some(diesel_models::enums::CustomerVatValidationStatusEnum::Pending)
+        }
+        _ => None,
+    }
+}
+
 impl TryInto<CustomerRowNew> for CustomerNewWrapper {
     type Error = Report<StoreError>;
 
     fn try_into(self) -> Result<CustomerRowNew, Self::Error> {
+        let vat_number_validation_status = initial_vies_status(
+            self.inner.vat_number.as_deref(),
+            self.vat_number_format_valid,
+        );
         Ok(CustomerRowNew {
             id: CustomerId::new(),
             name: self.inner.name,
@@ -149,13 +183,14 @@ impl TryInto<CustomerRowNew> for CustomerNewWrapper {
             is_tax_exempt: self.inner.is_tax_exempt,
             vat_number_format_valid: self.vat_number_format_valid,
             connected_account_id: self.inner.connected_account_id,
+            vat_number_validation_status,
         })
     }
 }
 
 #[derive(Clone, Debug, o2o)]
 #[owned_try_into(CustomerRowPatch, StoreErrorReport)]
-#[ghosts(vat_number_format_valid: None)]
+#[ghosts(vat_number_format_valid: None, vat_number_validation_status: None, vat_number_checked_at: None, vat_number_vies_check: None)]
 pub struct CustomerPatch {
     pub id: CustomerId,
     pub name: Option<String>,

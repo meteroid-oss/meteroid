@@ -1,5 +1,6 @@
 use chrono::NaiveDateTime;
 
+use crate::enums::CustomerVatValidationStatusEnum;
 use common_domain::ids::{
     ConnectedAccountId, CustomerId, CustomerPaymentMethodId, InvoicingEntityId, TenantId,
 };
@@ -33,6 +34,9 @@ pub struct CustomerRow {
     pub vat_number_format_valid: bool,
     pub custom_taxes: serde_json::Value,
     pub connected_account_id: Option<ConnectedAccountId>,
+    pub vat_number_validation_status: Option<CustomerVatValidationStatusEnum>,
+    pub vat_number_checked_at: Option<NaiveDateTime>,
+    pub vat_number_vies_check: Option<serde_json::Value>,
 }
 
 #[derive(Clone, Debug, Queryable, Selectable)]
@@ -68,6 +72,7 @@ pub struct CustomerRowNew {
     pub custom_taxes: serde_json::Value,
     pub vat_number_format_valid: bool,
     pub connected_account_id: Option<ConnectedAccountId>,
+    pub vat_number_validation_status: Option<CustomerVatValidationStatusEnum>,
 }
 
 #[derive(Debug, AsChangeset)]
@@ -91,6 +96,10 @@ pub struct CustomerRowPatch {
     pub custom_taxes: Option<serde_json::Value>,
     pub vat_number_format_valid: Option<bool>,
     pub connected_account_id: Option<Option<ConnectedAccountId>>,
+    // outer None = leave untouched; Some(_) = reset on vat number change
+    pub vat_number_validation_status: Option<Option<CustomerVatValidationStatusEnum>>,
+    pub vat_number_checked_at: Option<Option<NaiveDateTime>>,
+    pub vat_number_vies_check: Option<Option<serde_json::Value>>,
 }
 
 #[derive(Debug, AsChangeset)]
@@ -112,4 +121,7 @@ pub struct CustomerRowUpdate {
     pub is_tax_exempt: bool,
     pub custom_taxes: serde_json::Value,
     pub vat_number_format_valid: bool,
+    pub vat_number_validation_status: Option<CustomerVatValidationStatusEnum>,
+    pub vat_number_checked_at: Option<NaiveDateTime>,
+    pub vat_number_vies_check: Option<serde_json::Value>,
 }

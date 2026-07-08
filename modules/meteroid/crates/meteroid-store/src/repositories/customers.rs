@@ -3,12 +3,12 @@ use crate::domain::entity_activity::Actor;
 use crate::domain::outbox_event::OutboxEvent;
 use crate::domain::pgmq::{
     HubspotSyncCustomerDomain, HubspotSyncRequestEvent, PennylaneSyncCustomer,
-    PennylaneSyncRequestEvent, PgmqQueue,
+    PennylaneSyncRequestEvent, PgmqMessageNew, PgmqQueue, VatValidationRequestEvent,
 };
 use crate::domain::{
     ConnectorProviderEnum, Customer, CustomerBatchResult, CustomerBrief, CustomerNew,
     CustomerNewWrapper, CustomerPatch, CustomerTopUpBalance, CustomerUpdate, PaginatedVec,
-    PaginationRequest,
+    PaginationRequest, VatNumberValidationStatus,
 };
 use crate::errors::StoreError;
 use crate::repositories::connectors::ConnectorsInterface;
@@ -180,6 +180,34 @@ pub trait CustomersInterface {
         ids_or_aliases: Vec<AliasOr<CustomerId>>,
         tenant_id: TenantId,
     ) -> StoreResult<()>;
+
+    async fn update_vat_number_validation(
+        &self,
+        tenant_id: TenantId,
+        customer_id: CustomerId,
+        expected_vat_number: &str,
+        status: VatNumberValidationStatus,
+        checked_at: chrono::NaiveDateTime,
+        vies_check: Option<meteroid_tax::ViesCheckData>,
+    ) -> StoreResult<()>;
+
+    /// Manual re-check: moves the customer's VAT validation back to `PENDING`
+    /// and enqueues an immediate VIES verification, in one transaction. Fails
+    /// if the customer has no format-valid, VIES-eligible VAT number.
+    async fn request_vat_number_revalidation(
+        &self,
+        tenant_id: TenantId,
+        customer_id: CustomerId,
+    ) -> StoreResult<Customer>;
+
+    /// Cross-tenant list of customers due for a best-effort periodic VIES
+    /// re-check (never checked, or last checked before `checked_before`).
+    async fn list_vat_revalidation_candidates(
+        &self,
+        checked_before: chrono::NaiveDateTime,
+        created_before: chrono::NaiveDateTime,
+        limit: i64,
+    ) -> StoreResult<Vec<Customer>>;
 }
 
 #[async_trait::async_trait]
@@ -503,8 +531,19 @@ impl CustomersInterface for Store {
         }
 
         let is_valid_vat_number_format = customer.is_valid_vat_number_format();
+        // A patch that touches vat_number resets external validation for the new value.
+        let vat_number_touched = customer.vat_number.clone();
         let mut patch_model: CustomerRowPatch = customer.try_into()?;
         patch_model.vat_number_format_valid = is_valid_vat_number_format;
+        if let Some(new_vat) = vat_number_touched {
+            let status = crate::domain::customers::initial_vies_status(
+                new_vat.as_deref(),
+                is_valid_vat_number_format.unwrap_or(false),
+            );
+            patch_model.vat_number_validation_status = Some(status);
+            patch_model.vat_number_checked_at = Some(None);
+            patch_model.vat_number_vies_check = Some(None);
+        }
 
         let updated = self
             .transaction(|conn| {
@@ -595,6 +634,26 @@ impl CustomersInterface for Store {
 
         let vat_number_format_valid = customer.is_valid_vat_number_format();
 
+        // Reset external validation only when the number actually changed; otherwise
+        // preserve the prior result so a definitive INVALID/VALID isn't re-checked.
+        let (vat_number_validation_status, vat_number_checked_at, vat_number_vies_check) =
+            if by_id_or_alias.vat_number != customer.vat_number {
+                (
+                    crate::domain::customers::initial_vies_status(
+                        customer.vat_number.as_deref(),
+                        vat_number_format_valid,
+                    ),
+                    None,
+                    None,
+                )
+            } else {
+                (
+                    by_id_or_alias.vat_number_validation_status,
+                    by_id_or_alias.vat_number_checked_at,
+                    by_id_or_alias.vat_number_vies_check.clone(),
+                )
+            };
+
         let update_model = CustomerRowUpdate {
             id: by_id_or_alias.id,
             name: customer.name,
@@ -618,6 +677,9 @@ impl CustomersInterface for Store {
             })?,
             vat_number_format_valid,
             is_tax_exempt: customer.is_tax_exempt,
+            vat_number_validation_status,
+            vat_number_checked_at,
+            vat_number_vies_check,
         };
 
         let updated = self
@@ -873,6 +935,101 @@ impl CustomersInterface for Store {
                 .collect::<Result<Vec<_>, _>>()?,
         )
         .await
+    }
+
+    async fn update_vat_number_validation(
+        &self,
+        tenant_id: TenantId,
+        customer_id: CustomerId,
+        expected_vat_number: &str,
+        status: VatNumberValidationStatus,
+        checked_at: chrono::NaiveDateTime,
+        vies_check: Option<meteroid_tax::ViesCheckData>,
+    ) -> StoreResult<()> {
+        let mut conn = self.get_conn().await?;
+        let vies_check = vies_check.and_then(|c| serde_json::to_value(c).ok());
+        CustomerRowPatch::update_vat_validation(
+            &mut conn,
+            tenant_id,
+            customer_id,
+            expected_vat_number,
+            status.into(),
+            checked_at,
+            vies_check,
+        )
+        .await
+        .map_err(Into::into)
+    }
+
+    async fn request_vat_number_revalidation(
+        &self,
+        tenant_id: TenantId,
+        customer_id: CustomerId,
+    ) -> StoreResult<Customer> {
+        self.transaction(|conn| {
+            async move {
+                let row = CustomerRow::find_by_id(conn, &customer_id, &tenant_id)
+                    .await
+                    .map_err(Into::<Report<StoreError>>::into)?;
+
+                let vat_number = match row.vat_number.as_deref() {
+                    Some(vat)
+                        if row.vat_number_format_valid
+                            && meteroid_tax::vies::is_vies_eligible(vat) =>
+                    {
+                        vat.to_string()
+                    }
+                    _ => bail!(StoreError::InvalidArgument(
+                        "Customer has no VIES-verifiable VAT number".to_string()
+                    )),
+                };
+
+                CustomerRowPatch::mark_vat_validation_pending(
+                    conn,
+                    tenant_id,
+                    customer_id,
+                    &vat_number,
+                )
+                .await
+                .map_err(Into::<Report<StoreError>>::into)?;
+
+                let message: PgmqMessageNew = VatValidationRequestEvent {
+                    tenant_id,
+                    customer_id,
+                    vat_number,
+                    attempt: 0,
+                    revalidate: false,
+                }
+                .try_into()?;
+                self.pgmq_send_batch_tx(conn, PgmqQueue::VatValidation, vec![message])
+                    .await?;
+
+                CustomerRow::find_by_id(conn, &customer_id, &tenant_id)
+                    .await
+                    .map_err(Into::into)
+                    .and_then(TryInto::try_into)
+            }
+            .scope_boxed()
+        })
+        .await
+    }
+
+    async fn list_vat_revalidation_candidates(
+        &self,
+        checked_before: chrono::NaiveDateTime,
+        created_before: chrono::NaiveDateTime,
+        limit: i64,
+    ) -> StoreResult<Vec<Customer>> {
+        let mut conn = self.get_conn().await?;
+        CustomerRow::list_vat_revalidation_candidates(
+            &mut conn,
+            checked_before,
+            created_before,
+            limit,
+        )
+        .await
+        .map_err(Into::into)
+        .and_then(|rows| rows.into_iter().map(TryInto::try_into).collect())
     }
 }
 
