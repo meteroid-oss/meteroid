@@ -96,13 +96,31 @@ spec:
               value: 0.0.0.0:{{ .Values.api.service.ports.http }}
             - name: ENABLE_MULTI_ORGANIZATION
               value: {{ .Values.api.config.enableMultiOrganization | quote }}
-{{/*            - name: SVIX_SERVER_URL*/}}
-{{/*              value: {{ .Values.api.config.svixServerUrl }}*/}}
+            {{- if .Values.global.adminOrganizationId }}
+            - name: ADMIN_ORGANIZATION_ID
+              value: {{ .Values.global.adminOrganizationId }}
+            {{- end }}
+            - name: TELEMETRY_TRACING_ENABLED
+              value: {{ .Values.global.telemetryTracingEnabled | default "false" | quote }}
+            - name: TELEMETRY_METRICS_ENABLED
+              value: {{ .Values.global.telemetryMetricsEnabled | default "false" | quote }}
+            - name: TELEMETRY_OTEL_ENDPOINT
+              value: {{ .Values.global.telemetryOtelEndpoint | default "" | quote }}
+            {{- if .Values.api.config.svixServerUrl }}
+            - name: SVIX_SERVER_URL
+              value: {{ .Values.api.config.svixServerUrl }}
+            {{- end }}
             - name: SVIX_JWT_TOKEN
               valueFrom:
                 secretKeyRef:
                   name: {{ include "meteroid.secretsName" . }}
                   key: svix-jwt-token
+            - name: SVIX_OPERATIONAL_WEBHOOK_SECRET
+              valueFrom:
+                secretKeyRef:
+                  name: {{ include "meteroid.secretsName" . }}
+                  key: svix-operational-webhook-secret
+                  optional: true
             - name: OAUTH_GOOGLE_CLIENT_ID
               valueFrom:
                 secretKeyRef:
@@ -185,6 +203,16 @@ spec:
                   name: {{ include "meteroid.secretsName" . }}
                   key: aws-secret-access-key
                   optional: true
+            {{- if and .Values.global.redis .Values.global.redis.url }}
+            - name: REDIS_URL
+              value: {{ .Values.global.redis.url }}
+            - name: REDIS_PASSWORD
+              valueFrom:
+                secretKeyRef:
+                  name: redis-credentials
+                  key: password
+                  optional: true
+            {{- end }}
           startupProbe:
             httpGet:
               path: {{ .Values.api.httpStartupProbe.path | default "/health" }}

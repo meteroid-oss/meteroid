@@ -1,0 +1,28 @@
+{{- if and .Values.ingress.enabled .Values.ingress.tls }}
+{{- $clusterIssuer := index (.Values.ingress.annotations | default dict) "cert-manager.io/cluster-issuer" }}
+{{- if $clusterIssuer }}
+{{- range .Values.ingress.tls }}
+---
+apiVersion: cert-manager.io/v1
+kind: Certificate
+metadata:
+  name: {{ .secretName }}
+  namespace: {{ $.Release.Namespace }}
+  labels:
+    {{- include "meteroid.labels" $ | nindent 4 }}
+spec:
+  secretName: {{ .secretName }}
+  issuerRef:
+    name: {{ $clusterIssuer }}
+    kind: ClusterIssuer
+    group: cert-manager.io
+  dnsNames:
+    {{- range .hosts }}
+    - {{ . | quote }}
+    {{- end }}
+  usages:
+    - digital signature
+    - key encipherment
+{{- end }}
+{{- end }}
+{{- end }}
