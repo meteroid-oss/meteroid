@@ -495,6 +495,14 @@ impl PortalCheckoutService for PortalCheckoutServiceComponents {
             .await
             .map_err(Into::<PortalCheckoutApiError>::into)?;
 
+        let branding = crate::api::portal::branding::resolve_portal_branding(
+            &self.store,
+            tenant,
+            &invoicing_entity,
+        )
+        .await
+        .map_err(Into::<PortalCheckoutApiError>::into)?;
+
         // Resolve payment methods based on subscription's config
         let resolved = self
             .services
@@ -535,7 +543,7 @@ impl PortalCheckoutService for PortalCheckoutServiceComponents {
             .map(|v| v.0)
             .map_err(Into::<PortalCheckoutApiError>::into)?;
 
-        let logo_url = if let Some(logo_attachment_id) = invoicing_entity.logo_attachment_id {
+        let logo_url = if let Some(logo_attachment_id) = branding.logo_attachment_id {
             self.object_store
                 .get_url(
                     logo_attachment_id,
@@ -575,6 +583,9 @@ impl PortalCheckoutService for PortalCheckoutServiceComponents {
                 currency: currency_code,
                 logo_url,
                 trade_name: organization.trade_name,
+                brand_color: branding.brand_color,
+                theme_mode: branding.theme_mode,
+                roundness: branding.roundness,
             }),
         }))
     }
@@ -706,6 +717,14 @@ impl PortalCheckoutServiceComponents {
 
         let invoicing_entity = &subscription_details.invoicing_entity;
 
+        let branding = crate::api::portal::branding::resolve_portal_branding(
+            &self.store,
+            tenant,
+            invoicing_entity,
+        )
+        .await
+        .map_err(Into::<PortalCheckoutApiError>::into)?;
+
         let organization = self
             .store
             .get_organization_by_tenant_id(&tenant)
@@ -761,7 +780,7 @@ impl PortalCheckoutServiceComponents {
             .map(|v| v.0)
             .map_err(Into::<PortalCheckoutApiError>::into)?;
 
-        let logo_url = if let Some(logo_attachment_id) = invoicing_entity.logo_attachment_id {
+        let logo_url = if let Some(logo_attachment_id) = branding.logo_attachment_id {
             self.object_store
                 .get_url(
                     logo_attachment_id,
@@ -824,6 +843,9 @@ impl PortalCheckoutServiceComponents {
             card_connection_id: card_connection_id.map(|id| id.as_proto()),
             direct_debit_connection_id: direct_debit_connection_id.map(|id| id.as_proto()),
             bank_account,
+            brand_color: branding.brand_color,
+            theme_mode: branding.theme_mode,
+            roundness: branding.roundness,
             require_billing_information: invoicing_entity.require_billing_information,
         })
     }

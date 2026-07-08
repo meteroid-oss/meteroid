@@ -55,6 +55,11 @@ pub struct InvoicingEntity {
     /// Opt-in strictness: reverse charge only for VIES-verified VAT numbers.
     pub require_vies_valid_for_reverse_charge: bool,
     pub require_billing_information: bool,
+    /// Customer-portal theme default ("light" | "dark"). When None the portal
+    /// derives it from the tenant's default invoicing entity.
+    pub portal_theme_mode: Option<String>,
+    /// Customer-portal control roundness ("Sharp" | "Modern" | "Rounded").
+    pub portal_roundness: Option<String>,
 }
 
 impl InvoicingEntity {
@@ -92,6 +97,8 @@ pub struct InvoicingEntityNew {
     pub tax_resolver: TaxResolverEnum,
     pub require_vies_valid_for_reverse_charge: Option<bool>,
     pub require_billing_information: bool,
+    pub portal_theme_mode: Option<String>,
+    pub portal_roundness: Option<String>,
 }
 
 #[derive(Clone, Debug, o2o, Default)]
@@ -119,6 +126,8 @@ pub struct InvoicingEntityPatch {
     pub tax_resolver: Option<TaxResolverEnum>,
     pub require_vies_valid_for_reverse_charge: Option<bool>,
     pub require_billing_information: Option<bool>,
+    pub portal_theme_mode: Option<Option<String>>,
+    pub portal_roundness: Option<Option<String>>,
 }
 
 #[derive(Clone, Debug, o2o, Default)]

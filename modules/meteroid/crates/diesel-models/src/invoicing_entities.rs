@@ -39,6 +39,8 @@ pub struct InvoicingEntityRow {
     pub consolidate_recurring_invoices: bool,
     pub require_vies_valid_for_reverse_charge: bool,
     pub require_billing_information: bool,
+    pub portal_theme_mode: Option<String>,
+    pub portal_roundness: Option<String>,
 }
 
 #[derive(Debug, AsChangeset)]
@@ -66,6 +68,8 @@ pub struct InvoicingEntityRowPatch {
     pub consolidate_recurring_invoices: Option<bool>,
     pub require_vies_valid_for_reverse_charge: Option<bool>,
     pub require_billing_information: Option<bool>,
+    pub portal_theme_mode: Option<Option<String>>,
+    pub portal_roundness: Option<Option<String>>,
 }
 
 #[derive(Debug, AsChangeset)]

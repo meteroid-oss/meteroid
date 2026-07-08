@@ -218,14 +218,137 @@ message PortalUsageDataPoint {
   map<string, string> dimensions = 4;
 }
 
+message CancelSubscriptionRequest {
+  string subscription_id = 1;
+  optional string reason = 2;
+  // When true, cancel immediately; otherwise cancel at the end of the current
+  // billing period (the safe default for self-service).
+  bool immediate = 3;
+}
+
+message CancelSubscriptionResponse {
+  // The date the cancellation takes (or took) effect.
+  string effective_date = 1;
+  // Set when the cancellation was scheduled for a future date (end of period).
+  // Absent when the subscription was canceled immediately.
+  optional string scheduled_event_id = 2;
+}
+
+// ---------------------------------------------------------------------------
+// Self-service quantity / seat (slot) adjustment
+// ---------------------------------------------------------------------------
+
+// A subscription component the customer can self-adjust with a stepper (seats or
+// capacity). Add-ons are surfaced separately via ListAvailableAddOns.
+message AdjustableComponent {
+  string component_id = 1; // price_component_id (slots)
+  string name = 2;
+  string kind = 3; // "seats" | "capacity"
+  int64 current = 4;
+  optional int64 min = 5;
+  optional int64 max = 6;
+  optional string unit = 7;
+  string currency = 8;
+  ComponentFee unit_fee = 9; // reuse existing ComponentFee
+}
+
+message ListAdjustableComponentsRequest {
+  string subscription_id = 1;
+}
+
+message ListAdjustableComponentsResponse {
+  repeated AdjustableComponent components = 1;
+  bool can_self_serve = 2;
+  bool allow_downgrade = 3;
+}
+
+enum AdjustmentStatus {
+  ADJUSTMENT_COMPLETED = 0;
+  ADJUSTMENT_SCHEDULED = 1;
+  ADJUSTMENT_CHECKOUT_REQUIRED = 2;
+}
+
+message UpdateAddOnQuantityRequest {
+  string subscription_id = 1;
+  string add_on_id = 2;
+  uint32 quantity = 3;
+}
+
+message UpdateAddOnQuantityResponse {
+  AdjustmentStatus status = 1;
+  optional string effective_date = 2;
+  optional string checkout_token = 3;
+  optional string scheduled_event_id = 4;
+}
+
+message UpdateSeatsRequest {
+  string subscription_id = 1;
+  string component_id = 2;
+  uint32 quantity = 3;
+}
+
+message UpdateSeatsResponse {
+  AdjustmentStatus status = 1;
+  optional string effective_date = 2;
+  optional string checkout_token = 3;
+  optional string scheduled_event_id = 4;
+}
+
+// Server-computed preview of a self-service quantity change (add-on or seat),
+// produced by the same proration/invoicing path that applies the change, so the
+// figures match what is actually billed.
+message QuantityChangePreview {
+  ChangeDirection change_direction = 1;
+  // When the change takes effect (today for an increase, period end for a decrease).
+  string effective_date = 2;
+  // True when the change is billed immediately now (increase); false when it is
+  // scheduled to the end of the current period (decrease/removal — no charge now).
+  bool immediate = 3;
+  string currency = 4;
+  // The prorated charge collected now for an immediate increase. All zero for a
+  // scheduled decrease.
+  int64 immediate_subtotal_cents = 5; // prorated, before tax
+  int64 immediate_tax_cents = 6;
+  int64 immediate_total_cents = 7; // subtotal + tax
+  int64 immediate_amount_due_cents = 8; // after any account credit / prepaid
+  // Proration detail (factor, days remaining) behind the immediate charge.
+  optional ProrationSummary proration = 9;
+}
+
+message PreviewAddOnQuantityRequest {
+  string subscription_id = 1;
+  string add_on_id = 2;
+  uint32 quantity = 3;
+}
+
+message PreviewAddOnQuantityResponse {
+  QuantityChangePreview preview = 1;
+}
+
+message PreviewSeatsRequest {
+  string subscription_id = 1;
+  string component_id = 2;
+  uint32 quantity = 3;
+}
+
+message PreviewSeatsResponse {
+  QuantityChangePreview preview = 1;
+}
+
 service PortalSubscriptionService {
   rpc GetSubscriptionDetails(GetSubscriptionDetailsRequest) returns (GetSubscriptionDetailsResponse);
   rpc ListAvailablePlans(ListAvailablePlansRequest) returns (ListAvailablePlansResponse);
   rpc PreviewPlanChange(PreviewPlanChangeRequest) returns (PreviewPlanChangeResponse);
   rpc ConfirmPlanChange(ConfirmPlanChangeRequest) returns (ConfirmPlanChangeResponse);
   rpc CancelScheduledEvent(CancelScheduledEventRequest) returns (CancelScheduledEventResponse);
+  rpc CancelSubscription(CancelSubscriptionRequest) returns (CancelSubscriptionResponse);
   rpc GetUpcomingInvoice(GetUpcomingInvoiceRequest) returns (GetUpcomingInvoiceResponse);
   rpc GetSubscriptionComponentUsage(GetSubscriptionComponentUsageRequest) returns (GetSubscriptionComponentUsageResponse);
   rpc ListAvailableAddOns(ListAvailableAddOnsRequest) returns (ListAvailableAddOnsResponse);
   rpc PurchaseAddOn(PurchaseAddOnRequest) returns (PurchaseAddOnResponse);
+  rpc ListAdjustableComponents(ListAdjustableComponentsRequest) returns (ListAdjustableComponentsResponse);
+  rpc UpdateAddOnQuantity(UpdateAddOnQuantityRequest) returns (UpdateAddOnQuantityResponse);
+  rpc UpdateSeats(UpdateSeatsRequest) returns (UpdateSeatsResponse);
+  rpc PreviewAddOnQuantity(PreviewAddOnQuantityRequest) returns (PreviewAddOnQuantityResponse);
+  rpc PreviewSeats(PreviewSeatsRequest) returns (PreviewSeatsResponse);
 }

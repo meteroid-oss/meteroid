@@ -33,6 +33,32 @@ impl ScheduledEventRow {
             .into_db_result()
     }
 
+    /// Pending cancellation (subscription_id, scheduled_time) pairs for the given
+    /// subscriptions, ordered by scheduled_time asc.
+    pub async fn list_pending_cancellations_for_subscriptions(
+        conn: &mut PgConn,
+        subscription_ids: &[SubscriptionId],
+        tenant_id_param: &TenantId,
+    ) -> DbResult<Vec<(SubscriptionId, NaiveDateTime)>> {
+        use crate::schema::scheduled_event::dsl::{
+            event_type, scheduled_event, scheduled_time, status, subscription_id, tenant_id,
+        };
+
+        let query = scheduled_event
+            .filter(subscription_id.eq_any(subscription_ids))
+            .filter(tenant_id.eq(tenant_id_param))
+            .filter(status.eq(ScheduledEventStatus::Pending))
+            .filter(event_type.eq(ScheduledEventTypeEnum::CancelSubscription))
+            .order_by(scheduled_time.asc())
+            .select((subscription_id, scheduled_time));
+
+        query
+            .get_results(conn)
+            .await
+            .attach("Error while fetching pending cancellations")
+            .into_db_result()
+    }
+
     /// Get all pending events for a subscription (internal use)
     pub async fn get_pending_events_for_subscription(
         conn: &mut PgConn,

@@ -19,6 +19,7 @@ use crate::repositories::subscriptions::{
     SubscriptionInterfaceAuto, SubscriptionSlotsInterface as RepoInterface,
 };
 use crate::services::Services;
+use crate::services::invoice_lines::invoice_lines::ComputedInvoiceContent;
 use crate::store::PgConn;
 use crate::utils::local_id::LocalId;
 use chrono::{NaiveDateTime, NaiveTime};
@@ -674,7 +675,7 @@ impl Services {
 
         let period_start = subscription.current_period_start;
 
-        let (prorated_amount, full_period_amount) = if delta > 0 {
+        let (prorated_amount, full_period_amount, adjustment_invoice) = if delta > 0 {
             let prorated = self
                 .calculate_slot_upgrade_amount(
                     period_start,
@@ -686,12 +687,29 @@ impl Services {
                 .round_dp(currency.precision as u32);
             let full_period =
                 (Decimal::from(delta) * slot.unit_rate).round_dp(currency.precision as u32);
-            (prorated, full_period)
+            // Untaxed prorated preview of the charge billed now. The enterprise
+            // portal computes a fully taxed adjustment invoice here; OSS surfaces
+            // the pre-tax prorated figure so the seat-change confirmation still
+            // shows the amount due.
+            let subtotal = prorated.to_subunit_opt(currency.precision).unwrap_or(0);
+            let adjustment = ComputedInvoiceContent {
+                invoice_lines: vec![],
+                subtotal,
+                applied_coupons: vec![],
+                discount: 0,
+                tax_breakdown: vec![],
+                applied_credits: 0,
+                total: subtotal,
+                tax_amount: 0,
+                amount_due: subtotal,
+                subtotal_recurring: subtotal,
+            };
+            (prorated, full_period, Some(adjustment))
         } else {
             // For downgrades, show what they'll save
             let full_period_reduction =
                 (Decimal::from(-delta) * slot.unit_rate).round_dp(currency.precision as u32);
-            (Decimal::ZERO, -full_period_reduction)
+            (Decimal::ZERO, -full_period_reduction, None)
         };
 
         let days_remaining = period_end.signed_duration_since(now_date).num_days() as i32;
@@ -710,6 +728,7 @@ impl Services {
             effective_at,
             current_period_end: period_end,
             next_invoice_delta: prorated_amount,
+            adjustment_invoice,
         })
     }
 

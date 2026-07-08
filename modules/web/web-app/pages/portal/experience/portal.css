@@ -1,0 +1,123 @@
+/* Scoped portal styles — hover/active/animation that inline styles can't express.
+   Everything is namespaced under .mtp so it never touches the host app. */
+
+.mtp * {
+  box-sizing: border-box;
+}
+
+.mtp-hoverable {
+  transition: background 0.12s ease;
+}
+.mtp-hoverable:hover {
+  background: var(--mtp-surface-2);
+}
+
+.mtp-btn {
+  transition:
+    opacity 0.12s ease,
+    background 0.12s ease,
+    border-color 0.12s ease,
+    color 0.12s ease;
+}
+.mtp-btn:disabled {
+  cursor: not-allowed;
+}
+.mtp-btn-primary:not(:disabled):hover {
+  opacity: 0.88;
+}
+.mtp-btn-secondary:not(:disabled):hover {
+  background: var(--mtp-surface-2);
+}
+.mtp-btn-ghost:not(:disabled):hover {
+  color: var(--mtp-text);
+}
+.mtp-btn-danger:not(:disabled):hover {
+  border-color: var(--mtp-danger) !important;
+  color: var(--mtp-danger) !important;
+}
+
+.mtp-link {
+  transition: opacity 0.12s ease;
+}
+.mtp-link:hover {
+  opacity: 0.78;
+}
+
+.mtp-tab:hover {
+  color: var(--mtp-text);
+}
+
+.mtp-dashed:hover {
+  border-color: var(--mtp-accent-ink) !important;
+  color: var(--mtp-accent-ink) !important;
+}
+
+@keyframes mtp-overlay {
+  from {
+    opacity: 0;
+  }
+  to {
+    opacity: 1;
+  }
+}
+@keyframes mtp-sheet {
+  from {
+    opacity: 0;
+    transform: translateY(12px) scale(0.985);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0) scale(1);
+  }
+}
+
+.mtp-overlay {
+  animation: mtp-overlay 0.2s ease both;
+}
+.mtp-sheet {
+  animation: mtp-sheet 0.28s cubic-bezier(0.16, 1, 0.3, 1) both;
+}
+
+.mtp-scroll::-webkit-scrollbar {
+  width: 10px;
+  height: 10px;
+}
+.mtp-scroll::-webkit-scrollbar-thumb {
+  background: var(--mtp-border-2);
+  border-radius: 20px;
+  border: 3px solid transparent;
+  background-clip: padding-box;
+}
+
+@media (max-width: 720px) {
+  .mtp-overview-grid {
+    grid-template-columns: 1fr !important;
+  }
+  .mtp-two-col {
+    grid-template-columns: 1fr !important;
+  }
+  .mtp-hide-sm {
+    display: none !important;
+  }
+  .mtp-plan-grid {
+    grid-template-columns: 1fr 1fr !important;
+  }
+}
+
+@keyframes mtp-spin {
+  to {
+    transform: rotate(360deg);
+  }
+}
+.mtp-spin {
+  animation: mtp-spin 0.7s linear infinite;
+}
+
+@keyframes mtp-pulse {
+  50% {
+    opacity: 0.45;
+  }
+}
+.mtp-pulse {
+  animation: mtp-pulse 1.4s ease-in-out infinite;
+}

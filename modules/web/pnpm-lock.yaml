@@ -73,6 +73,27 @@ importers:
         specifier: ^8.5.1
         version: 8.5.1(@microsoft/api-extractor@7.43.0(@types/node@25.9.3))(jiti@2.7.0)(postcss@8.5.10)(typescript@6.0.3)(yaml@2.9.0)
 
+  packages/embed:
+    devDependencies:
+      '@types/react':
+        specifier: ^18.3.31
+        version: 18.3.31
+      '@types/react-dom':
+        specifier: ^18.3.7
+        version: 18.3.7(@types/react@18.3.31)
+      react:
+        specifier: ^18.3.1
+        version: 18.3.1
+      react-dom:
+        specifier: ^18.3.1
+        version: 18.3.1(react@18.3.1)
+      tsup:
+        specifier: ^8.5.1
+        version: 8.5.1(@microsoft/api-extractor@7.43.0(@types/node@25.9.3))(jiti@2.7.0)(postcss@8.5.10)(typescript@6.0.3)(yaml@2.9.0)
+      typescript:
+        specifier: ^6.0.3
+        version: 6.0.3
+
   packages/eslint-config-meteroid:
     dependencies:
       '@eslint/js':
@@ -4737,6 +4758,7 @@ packages:
   git-raw-commits@5.0.1:
     resolution: {integrity: sha512-Y+csSm2GD/PCSh6Isd/WiMjNAydu0VBiG9J7EdQsNA5P9uXvLayqjmTsNlK5Gs9IhblFZqOU0yid5Il5JPoLiQ==}
     engines: {node: '>=18'}
+    deprecated: Deprecated and no longer maintained. Use @conventional-changelog/git-client instead.
     hasBin: true
 
   glob-parent@5.1.2:
@@ -6299,6 +6321,7 @@ packages:
   tsconfck@3.1.6:
     resolution: {integrity: sha512-ks6Vjr/jEw0P1gmOVwutM3B7fWxoWBL2KRDb1JfqGVawBmO5UsvmWOQFGHBPl5yxYz4eERr19E6L7NMv+Fej4w==}
     engines: {node: ^18 || >=20}
+    deprecated: unmaintained
     hasBin: true
     peerDependencies:
       typescript: ^5.0.0

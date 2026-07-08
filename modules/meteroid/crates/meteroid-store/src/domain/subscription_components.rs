@@ -318,6 +318,33 @@ impl SubscriptionFee {
         }
     }
 
+    /// Whether attaching this fee bills an amount up front (an advance or
+    /// one-time charge that must be collected now). Arrears/usage fees and
+    /// zero-rate fees do not — they can be attached without a checkout.
+    pub fn has_upfront_charge(&self) -> bool {
+        use rust_decimal::Decimal;
+        match self {
+            SubscriptionFee::Rate { rate } => *rate > Decimal::ZERO,
+            SubscriptionFee::OneTime { rate, quantity } => *rate > Decimal::ZERO && *quantity > 0,
+            SubscriptionFee::Recurring {
+                rate,
+                quantity,
+                billing_type,
+            } => {
+                matches!(billing_type, BillingType::Advance)
+                    && *rate > Decimal::ZERO
+                    && *quantity > 0
+            }
+            SubscriptionFee::Capacity { rate, .. } => *rate > Decimal::ZERO,
+            SubscriptionFee::Slot {
+                unit_rate,
+                initial_slots,
+                ..
+            } => *unit_rate > Decimal::ZERO && *initial_slots > 0,
+            SubscriptionFee::Usage { .. } => false,
+        }
+    }
+
     /// Returns true if this fee type produces ONLY arrears-billed line items.
     /// Used to filter historical (closed) components for usage temporal split.
     /// Excludes Capacity because it also produces an advance-billed base rate line.

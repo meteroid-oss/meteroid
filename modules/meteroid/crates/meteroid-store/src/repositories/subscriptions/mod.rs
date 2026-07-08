@@ -96,6 +96,14 @@ pub trait SubscriptionInterface {
         pagination: PaginationRequest,
     ) -> StoreResult<PaginatedVec<Subscription>>;
 
+    /// Map of subscription_id -> next scheduled cancellation date, for the given
+    /// subscriptions. Only subscriptions with a pending cancellation are present.
+    async fn list_pending_cancellations(
+        &self,
+        tenant_id: TenantId,
+        subscription_ids: &[SubscriptionId],
+    ) -> StoreResult<HashMap<SubscriptionId, NaiveDate>>;
+
     async fn patch_subscription_conn_meta(
         &self,
         subscription_id: SubscriptionId,
@@ -629,6 +637,34 @@ impl SubscriptionInterface for Store {
         };
 
         Ok(res)
+    }
+
+    async fn list_pending_cancellations(
+        &self,
+        tenant_id: TenantId,
+        subscription_ids: &[SubscriptionId],
+    ) -> StoreResult<HashMap<SubscriptionId, NaiveDate>> {
+        if subscription_ids.is_empty() {
+            return Ok(HashMap::new());
+        }
+
+        let mut conn = self.get_conn().await?;
+
+        let rows = ScheduledEventRow::list_pending_cancellations_for_subscriptions(
+            &mut conn,
+            subscription_ids,
+            &tenant_id,
+        )
+        .await
+        .map_err(Into::<Report<StoreError>>::into)?;
+
+        // Rows are ordered by scheduled_time asc, so the first per subscription is the earliest.
+        let mut map = HashMap::new();
+        for (sub_id, scheduled_time) in rows {
+            map.entry(sub_id).or_insert_with(|| scheduled_time.date());
+        }
+
+        Ok(map)
     }
 
     async fn patch_subscription_conn_meta(

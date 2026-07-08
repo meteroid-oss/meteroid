@@ -782,6 +782,8 @@ diesel::table! {
         consolidate_recurring_invoices -> Bool,
         require_vies_valid_for_reverse_charge -> Bool,
         require_billing_information -> Bool,
+        portal_theme_mode -> Nullable<Text>,
+        portal_roundness -> Nullable<Text>,
     }
 }
 

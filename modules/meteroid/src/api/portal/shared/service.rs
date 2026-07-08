@@ -19,7 +19,7 @@ use meteroid_store::repositories::checkout_sessions::CheckoutSessionsInterface;
 use meteroid_store::repositories::connectors::ConnectorsInterface;
 use meteroid_store::repositories::customer_connection::CustomerConnectionInterface;
 use meteroid_store::repositories::customer_payment_methods::CustomerPaymentMethodsInterface;
-use meteroid_store::repositories::customers::CustomersInterface;
+use meteroid_store::repositories::customers::{CustomersInterface, CustomersInterfaceAuto};
 use secrecy::ExposeSecret;
 use tonic::{Request, Response, Status};
 
@@ -277,6 +277,75 @@ impl PortalSharedService for PortalSharedServiceComponents {
                     payment_method,
                 ),
             ),
+        }))
+    }
+
+    #[tracing::instrument(skip_all)]
+    async fn set_default_payment_method(
+        &self,
+        request: Request<SetDefaultPaymentMethodRequest>,
+    ) -> Result<Response<SetDefaultPaymentMethodResponse>, Status> {
+        let tenant = request.tenant()?;
+        let portal_resource = request.portal_resource()?;
+        let customer_id = self.resolve_customer(portal_resource).await?;
+
+        let inner = request.into_inner();
+        let payment_method_id = CustomerPaymentMethodId::from_proto(inner.payment_method_id)?;
+
+        // The payment method must belong to the authenticated customer.
+        let pm = self
+            .store
+            .get_payment_method_by_id(&tenant, &payment_method_id)
+            .await
+            .map_err(Into::<PortalSharedApiError>::into)?;
+
+        if pm.customer_id != customer_id {
+            return Err(PortalSharedApiError::InvalidArgument(
+                "Payment method does not belong to the resolved customer".to_string(),
+            )
+            .into());
+        }
+
+        let customer_patch = CustomerPatch {
+            id: customer_id,
+            name: None,
+            alias: None,
+            billing_email: None,
+            phone: None,
+            balance_value_cents: None,
+            currency: None,
+            billing_address: None,
+            shipping_address: None,
+            invoicing_entity_id: None,
+            vat_number: None,
+            current_payment_method_id: Some(Some(payment_method_id)),
+            invoicing_emails: None,
+            is_tax_exempt: None,
+            custom_taxes: None,
+            connected_account_id: None,
+        };
+
+        let updated = self
+            .store
+            .patch_customer(Actor::Customer { id: customer_id }, tenant, customer_patch)
+            .await
+            .map_err(Into::<PortalSharedApiError>::into)?;
+
+        let customer = match updated {
+            Some(c) => c,
+            None => self
+                .store
+                .find_customer_by_id(customer_id, tenant)
+                .await
+                .map_err(Into::<PortalSharedApiError>::into)?,
+        };
+
+        let customer_proto = ServerCustomerWrapper::try_from(customer)
+            .map(|v| v.0)
+            .map_err(Into::<PortalSharedApiError>::into)?;
+
+        Ok(Response::new(SetDefaultPaymentMethodResponse {
+            customer: Some(customer_proto),
         }))
     }
 }

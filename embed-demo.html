@@ -1,0 +1,342 @@
+<!doctype html>
+<html lang="en" data-theme="dark">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>Acme Inc — Billing (Meteroid embed demo)</title>
+    <style>
+      :root, [data-theme="dark"] {
+        --bg: #0b0d12;
+        --panel: #14171f;
+        --panel-2: #1b1f29;
+        --border: #272c38;
+        --text: #e7eaf0;
+        --muted: #8a92a6;
+        --accent: #c6f94e;
+        --radius: 12px;
+      }
+      [data-theme="light"] {
+        --bg: #f6f7f9;
+        --panel: #ffffff;
+        --panel-2: #f0f2f5;
+        --border: #e2e5ea;
+        --text: #1b1f29;
+        --muted: #6b7280;
+        --accent: #c6f94e;
+        --radius: 12px;
+      }
+      * { box-sizing: border-box; }
+      body {
+        margin: 0;
+        font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
+        background: var(--bg);
+        color: var(--text);
+      }
+
+      /* ---- Mock host app chrome ---- */
+      .app { display: grid; grid-template-columns: 220px 1fr; min-height: 100vh; }
+
+      .sidebar {
+        border-right: 1px solid var(--border);
+        padding: 20px 14px;
+        background: var(--panel);
+      }
+      .brand { display: flex; align-items: center; gap: 10px; font-weight: 700; margin-bottom: 26px; padding: 0 6px; }
+      .brand .dot { width: 22px; height: 22px; border-radius: 6px; background: var(--accent); }
+      .nav a {
+        display: block; padding: 9px 12px; border-radius: 8px;
+        color: var(--muted); text-decoration: none; font-size: 14px; margin-bottom: 2px;
+      }
+      .nav a:hover { background: var(--panel-2); color: var(--text); }
+      .nav a.active { background: var(--panel-2); color: var(--text); font-weight: 600; }
+
+      .main { padding: 32px 40px; max-width: 920px; }
+      .page-head { margin-bottom: 4px; display: flex; align-items: baseline; justify-content: space-between; }
+      h1 { font-size: 22px; margin: 0; }
+      .sub { color: var(--muted); font-size: 14px; margin: 6px 0 28px; }
+
+      .card {
+        background: var(--panel);
+        border: 1px solid var(--border);
+        border-radius: var(--radius);
+        overflow: hidden;
+      }
+      .card-head {
+        display: flex; align-items: center; justify-content: space-between;
+        padding: 14px 18px; border-bottom: 1px solid var(--border);
+      }
+      .card-head h2 { font-size: 15px; margin: 0; }
+      .card-head .hint { font-size: 12px; color: var(--muted); }
+
+      /* ---- The embed itself ---- */
+      .embed-frame {
+        display: block;
+        width: 100%;
+        border: 0;
+        /* Auto-height: the embed posts its exact content height via
+           `meteroid:resize` and the JS below sets it. This is only a starting
+           height shown before the first message arrives (and while a new view
+           loads) — keep it small so compact widgets don't sit in a tall box. */
+        height: 160px;
+        background: transparent;
+        transition: height 0.15s ease;
+      }
+
+      /* ---- Placeholder shown until you paste a URL ---- */
+      .placeholder {
+        padding: 48px 24px; text-align: center; color: var(--muted); font-size: 14px;
+      }
+      .placeholder code {
+        background: var(--panel-2); padding: 2px 6px; border-radius: 5px; color: var(--text);
+      }
+
+      .toolbar {
+        display: flex; gap: 8px; margin-bottom: 18px; align-items: center;
+      }
+      .toolbar input {
+        flex: 1; padding: 9px 12px; border-radius: 8px;
+        border: 1px solid var(--border); background: var(--panel); color: var(--text); font-size: 13px;
+      }
+      .toolbar button {
+        padding: 9px 16px; border-radius: 8px; border: 0;
+        background: var(--accent); color: #0b0d12; font-weight: 600; font-size: 13px; cursor: pointer;
+      }
+      .toolbar button:hover { filter: brightness(1.05); }
+
+      .theme-switch {
+        display: inline-flex; padding: 3px; gap: 3px;
+        background: var(--panel); border: 1px solid var(--border); border-radius: 9px;
+      }
+      .theme-switch button {
+        padding: 5px 14px; border: 0; border-radius: 6px; cursor: pointer;
+        background: transparent; color: var(--muted); font-size: 13px; font-weight: 600;
+      }
+      .theme-switch button.active { background: var(--panel-2); color: var(--text); }
+      .theme-switch button:hover:not(.active) { color: var(--text); }
+
+      .view-switch {
+        display: flex; flex-wrap: wrap; gap: 6px; margin-bottom: 18px;
+      }
+      .view-switch button {
+        padding: 6px 12px; border-radius: 7px; cursor: pointer;
+        background: var(--panel); border: 1px solid var(--border);
+        color: var(--muted); font-size: 12px; font-weight: 600; font-family: monospace;
+      }
+      .view-switch button.active {
+        background: var(--accent); color: #0b0d12; border-color: var(--accent);
+      }
+      .view-switch button:hover:not(.active) { color: var(--text); }
+
+      .branding-toggle {
+        display: inline-flex; align-items: center; gap: 6px;
+        font-size: 12px; color: var(--muted); cursor: pointer; user-select: none;
+      }
+      .branding-toggle input { accent-color: var(--accent); cursor: pointer; }
+    </style>
+  </head>
+  <body>
+    <div class="app">
+      <aside class="sidebar">
+        <div class="brand"><span class="dot"></span> Acme Inc</div>
+        <nav class="nav">
+          <a href="#">Dashboard</a>
+          <a href="#">Projects</a>
+          <a href="#">Team</a>
+          <a href="#" class="active">Billing</a>
+          <a href="#">Settings</a>
+        </nav>
+      </aside>
+
+      <main class="main">
+        <div class="page-head">
+          <h1>Billing</h1>
+          <div class="theme-switch" role="group" aria-label="Theme">
+            <button id="theme-light" onclick="setTheme('light')">Light</button>
+            <button id="theme-dark" class="active" onclick="setTheme('dark')">Dark</button>
+          </div>
+        </div>
+        <p class="sub">Portal widgets, embedded directly from Meteroid.</p>
+
+        <!-- Embed view switcher — these are the real `?embed=` slugs the portal
+             accepts (see EmbedHost.tsx). Note: there is no `subscriptions` slug;
+             `plan` is the compact current-plan card, `payment-methods` the cards
+             list. `portal` renders the full self-service portal. -->
+        <div class="view-switch" role="group" aria-label="Embed view">
+          <button data-view="portal" onclick="setView('portal')">portal</button>
+          <button data-view="plan" onclick="setView('plan')">plan</button>
+          <button data-view="subscriptions" onclick="setView('subscriptions')">subscriptions</button>
+          <button data-view="subscription" onclick="setView('subscription')">subscription</button>
+          <button data-view="usage" onclick="setView('usage')">usage</button>
+          <button data-view="invoices" class="active" onclick="setView('invoices')">invoices</button>
+          <button data-view="payment-methods" onclick="setView('payment-methods')">payment-methods</button>
+        </div>
+
+        <!-- Only used by the single `subscription` view. -->
+        <div id="sub-id-row" class="toolbar" style="display: none">
+          <input id="sub-id-input" placeholder="Subscription id (for the 'subscription' view), e.g. sub_..." />
+          <button onclick="render()">Apply</button>
+        </div>
+
+        <!-- Quick way to try a URL without editing the file.
+             Or just hardcode it in the iframe src below. -->
+        <div class="toolbar">
+          <input
+            id="url-input"
+            placeholder="Paste your embed URL, e.g. https://app.meteroid.com/portal/customer?token=…&embed=invoices"
+          />
+          <button onclick="loadUrl()">Load</button>
+        </div>
+
+        <section class="card">
+          <div class="card-head">
+            <h2 id="card-title">Invoices</h2>
+            <div style="display: flex; gap: 16px; align-items: center">
+              <label class="branding-toggle">
+                <input id="match" type="checkbox" onchange="setMatch(this.checked)" />
+                Match page palette
+              </label>
+              <label class="branding-toggle">
+                <input id="branding" type="checkbox" checked onchange="setBranding(this.checked)" />
+                Embed branding
+              </label>
+            </div>
+          </div>
+
+          <!--
+            ── PASTE YOUR EMBED URL HERE ──
+            Replace the empty src below (or use the toolbar above).
+            Invoices list view URL shape:
+              https://<your-app-host>/portal/customer?token=<CUSTOMER_PORTAL_TOKEN>&embed=invoices
+            Optional params: &theme=dark  &accent=%23C6F94E  &radius=Modern  &count=10
+          -->
+          <iframe
+            id="embed"
+            class="embed-frame"
+            src=""
+            title="Meteroid invoices embed"
+          ></iframe>
+
+          <div id="placeholder" class="placeholder">
+            No embed URL set yet — paste one above, or set the iframe
+            <code>src</code> in this file.
+          </div>
+        </section>
+      </main>
+    </div>
+
+    <script>
+      const iframe = document.getElementById('embed')
+      const placeholder = document.getElementById('placeholder')
+
+      // The URL the user pasted (or hardcoded), kept clean of our overrides so we
+      // can re-apply `theme` / `embed` on every switch without compounding.
+      let baseUrl = iframe.getAttribute('src') || ''
+      let currentTheme = document.documentElement.getAttribute('data-theme')
+      let currentView = 'invoices'
+      let currentBranding = true
+      let currentMatch = false
+
+      const VIEW_TITLES = {
+        portal: 'Billing portal',
+        plan: 'Current plan',
+        subscriptions: 'Subscriptions',
+        subscription: 'Subscription',
+        usage: 'Usage',
+        invoices: 'Invoices',
+        'payment-methods': 'Payment methods',
+      }
+
+      function showFrame(show) {
+        iframe.style.display = show ? 'block' : 'none'
+        placeholder.style.display = show ? 'none' : 'block'
+      }
+
+      // Force `theme` + `embed` on the embed URL so the iframe matches the host
+      // chrome and the selected widget.
+      function applyParams(rawUrl) {
+        try {
+          const u = new URL(rawUrl, location.href)
+          u.searchParams.set('theme', currentTheme)
+          u.searchParams.set('embed', currentView)
+          // Default-on; only emit when hiding, mirroring the SDK.
+          if (currentBranding) u.searchParams.delete('branding')
+          else u.searchParams.set('branding', 'false')
+          // The single-subscription view needs an id.
+          const subId = document.getElementById('sub-id-input').value.trim()
+          if (currentView === 'subscription' && subId) u.searchParams.set('subscription', subId)
+          else u.searchParams.delete('subscription')
+          // Curated palette overrides: feed the embed THIS page's own tokens so
+          // it adopts the host palette exactly (bg/surface/text/border).
+          const css = getComputedStyle(document.documentElement)
+          const tokenMap = { bg: '--bg', surface: '--panel', text: '--text', border: '--border' }
+          for (const [param, varName] of Object.entries(tokenMap)) {
+            const v = css.getPropertyValue(varName).trim()
+            if (currentMatch && v) u.searchParams.set(param, v)
+            else u.searchParams.delete(param)
+          }
+          return u.toString()
+        } catch {
+          return rawUrl
+        }
+      }
+
+      function render() {
+        if (!baseUrl) {
+          showFrame(false)
+          return
+        }
+        iframe.src = applyParams(baseUrl)
+        showFrame(true)
+      }
+
+      function loadUrl() {
+        const url = document.getElementById('url-input').value.trim()
+        if (!url) return
+        baseUrl = url
+        render()
+      }
+
+      function setTheme(theme) {
+        currentTheme = theme
+        document.documentElement.setAttribute('data-theme', theme)
+        document.getElementById('theme-light').classList.toggle('active', theme === 'light')
+        document.getElementById('theme-dark').classList.toggle('active', theme === 'dark')
+        render()
+      }
+
+      function setView(view) {
+        currentView = view
+        document.querySelectorAll('.view-switch button').forEach(b =>
+          b.classList.toggle('active', b.dataset.view === view)
+        )
+        document.getElementById('card-title').textContent = VIEW_TITLES[view] || view
+        document.getElementById('sub-id-row').style.display =
+          view === 'subscription' ? 'flex' : 'none'
+        render()
+      }
+
+      function setBranding(on) {
+        currentBranding = on
+        render()
+      }
+
+      function setMatch(on) {
+        currentMatch = on
+        render()
+      }
+
+      // Auto-resize: the embedded portal posts its height; grow the iframe so it
+      // never scrolls or clips (mirrors what the @md/portal-embed SDK does).
+      window.addEventListener('message', e => {
+        if (e.source !== iframe.contentWindow) return
+        const data = e.data
+        if (data && data.type === 'meteroid:resize' && typeof data.height === 'number') {
+          iframe.style.height = data.height + 'px'
+        }
+      })
+
+      // Honour an initial src if you hardcoded one above.
+      render()
+    </script>
+  </body>
+</html>

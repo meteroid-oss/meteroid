@@ -6,7 +6,9 @@ import { AlertCircle, Building, CreditCard } from 'lucide-react'
 import { useState } from 'react'
 
 import { PaymentForm } from '@/features/checkout/components/PaymentForm'
+import { buildStripeAppearance } from '@/features/checkout/stripeAppearance'
 import { useQuery } from '@/lib/connectrpc'
+import { usePortalConfig } from '@/pages/portal/experience/PortalThemeProvider'
 import { ConnectionTypeEnum } from '@/rpc/portal/shared/v1/models_pb'
 import {
   addPaymentMethod,
@@ -128,7 +130,8 @@ const AddPaymentMethodForm: React.FC<{
         <Button
           type="submit"
           disabled={paymentState === PaymentState.PROCESSING || !stripe}
-          className="bg-blue-600 hover:bg-blue-700"
+          className="hover:opacity-90"
+          style={{ background: 'var(--mtp-accent)', color: 'var(--mtp-on-accent)' }}
         >
           {paymentState === PaymentState.PROCESSING ? (
             <div className="flex items-center">
@@ -154,6 +157,11 @@ export const AddPaymentMethodDialog: React.FC<AddPaymentMethodDialogProps> = ({
   const [activeTab, setActiveTab] = useState<'card' | 'directDebit'>(
     cardConnectionId ? 'card' : 'directDebit'
   )
+
+  // The dialog renders inside the PortalThemeProvider, so build the Stripe
+  // appearance from the resolved portal config.
+  const portalConfig = usePortalConfig()
+  const stripeAppearance = buildStripeAppearance(portalConfig)
 
   const hasCard = !!cardConnectionId
   const hasDirectDebit = !!directDebitConnectionId
@@ -251,14 +259,7 @@ export const AddPaymentMethodDialog: React.FC<AddPaymentMethodDialogProps> = ({
               stripe={loadStripe(stripePublishableKey)}
               options={{
                 clientSecret,
-                appearance: {
-                  variables: {
-                    fontFamily: 'Inter, sans-serif',
-                    fontSizeBase: '14px',
-                    borderRadius: '0.375rem',
-                    gridRowSpacing: '1rem',
-                  },
-                },
+                appearance: stripeAppearance,
               }}
             >
               <AddPaymentMethodForm
