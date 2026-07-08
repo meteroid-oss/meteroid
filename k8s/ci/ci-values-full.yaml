@@ -1,0 +1,44 @@
+# Full-stack profile: all bundled dependencies enabled (mirrors a default
+# `helm install`), footprint trimmed to fit a GitHub runner. Used by the
+# on-demand/weekly full smoke test and by the render/schema matrix.
+global:
+  objectStore:
+    uri: "file:///tmp/meteroid-object-store"
+  # metering reads these from global.* (not the subchart helpers), so point
+  # them at the bundled subchart services explicitly.
+  kafka:
+    bootstrapServers: "meteroid-kafka:9092"
+  clickhouse:
+    tcpAddress: "tcp://meteroid-clickhouse:9000"
+    httpAddress: "http://meteroid-clickhouse:8123"
+  secrets:
+    jwtPrivateKey: "ci"
+    internalApiSecret: "ci"
+    secretsCryptkey: "0123456789abcdef0123456789abcdef" # exactly 32 chars
+    svixJwtToken: "ci"
+    oauthGoogle: { clientId: "ci", clientSecret: "ci" }
+    oauthPennylane: { clientId: "ci", clientSecret: "ci" }
+    oauthHubspot: { clientId: "ci", clientSecret: "ci" }
+    kafka: { username: "ci", password: "ci" }
+    clickhouse: { password: "ci" }
+    smtp: { username: "ci", password: "ci" }
+    objectStore: { accessKeyId: "ci", secretAccessKey: "ci" }
+
+postgresql:
+  enabled: true
+  primary:
+    persistence:
+      enabled: false
+kafka:
+  enabled: true
+  controller:
+    persistence:
+      enabled: false
+  broker:
+    persistence:
+      enabled: false
+clickhouse:
+  enabled: true
+
+ingress:
+  enabled: false

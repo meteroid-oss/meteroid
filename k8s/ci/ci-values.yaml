@@ -1,0 +1,42 @@
+# Values used only by CI (.github/workflows/ci-helm.yaml) to lint/render and
+# smoke-test the chart on minikube. NOT for production use.
+#
+# The smoke test deploys the core services (api, web, scheduler) against a
+# plain postgres and verifies they roll out. The heavyweight metering path
+# (kafka + clickhouse) is skipped to keep the check fast and reliable on a
+# GitHub runner; the static lint/template/kubeconform job covers those manifests.
+global:
+  # A valid, non-empty object store URI is required at boot (the app parses it
+  # eagerly). file:// uses a local store and needs no external service.
+  objectStore:
+    uri: "file:///tmp/meteroid-object-store"
+  secrets:
+    # Point at the plain postgres the workflow deploys (postgresql subchart disabled below).
+    databaseUrl: "postgres://postgres:postgres@postgres:5432/meteroid?sslmode=disable"
+    jwtPrivateKey: "ci-jwt-private-key"
+    internalApiSecret: "ci-internal-api-secret"
+    secretsCryptkey: "0123456789abcdef0123456789abcdef" # must be exactly 32 chars
+    svixJwtToken: "ci-svix-jwt-token"
+    oauthGoogle: { clientId: "ci", clientSecret: "ci" }
+    oauthPennylane: { clientId: "ci", clientSecret: "ci" }
+    oauthHubspot: { clientId: "ci", clientSecret: "ci" }
+    kafka: { username: "ci", password: "ci" }
+    clickhouse: { password: "ci" }
+    smtp: { username: "ci", password: "ci" }
+    objectStore: { accessKeyId: "ci", secretAccessKey: "ci" }
+
+# Core services only need postgres; skip the bundled dependencies.
+postgresql:
+  enabled: false
+kafka:
+  enabled: false
+clickhouse:
+  enabled: false
+
+# metering needs kafka + clickhouse, so it is not exercised by the smoke test.
+metering:
+  replicas: 0
+
+# No ingress controller in the CI cluster.
+ingress:
+  enabled: false

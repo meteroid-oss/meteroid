@@ -1,0 +1,210 @@
+name: CI Helm Chart
+
+# The chart is best-effort: no per-PR runs. It runs weekly (to catch external
+# drift), on demand, and on pushes to the chart working branch so changes can be
+# validated before merge. Note: schedule/workflow_dispatch only fire once this
+# file is on the default branch.
+on:
+  workflow_dispatch:
+  schedule:
+    # Weekly (Mon 06:00 UTC): the chart pins rolling image tags and Bitnami
+    # subcharts, so this catches drift even when nothing in the repo changed.
+    - cron: "0 6 * * 1"
+  push:
+    branches:
+      - feat/oss-helm-chart-sync
+    paths:
+      - "k8s/**"
+      - ".github/workflows/ci-helm.yaml"
+
+concurrency:
+  group: "${{ github.workflow }}-${{ github.ref }}"
+  cancel-in-progress: true
+
+env:
+  CHART_DIR: k8s/meteroid
+
+jobs:
+  validate:
+    name: Lint, render & schema-validate
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v6
+
+      - name: Set up Helm
+        uses: azure/setup-helm@v4
+        with:
+          version: v3.16.4
+
+      - name: Build chart dependencies
+        run: helm dependency build "$CHART_DIR"
+
+      - name: Helm lint
+        run: |
+          helm lint "$CHART_DIR" --values k8s/ci/ci-values.yaml
+          helm lint "$CHART_DIR" --values k8s/ci/ci-values-full.yaml
+
+      - name: Render value profiles
+        run: |
+          mkdir -p rendered
+          helm template meteroid "$CHART_DIR" \
+            -f k8s/ci/ci-values.yaml > rendered/lean.yaml
+          helm template meteroid "$CHART_DIR" \
+            -f k8s/ci/ci-values-full.yaml > rendered/full.yaml
+          helm template meteroid "$CHART_DIR" \
+            -f k8s/ci/ci-values.yaml -f k8s/ci/ci-values-features.yaml > rendered/features.yaml
+
+      - name: Install kubeconform
+        run: |
+          curl -fsSL https://github.com/yannh/kubeconform/releases/download/v0.7.0/kubeconform-linux-amd64.tar.gz \
+            | sudo tar -xz -C /usr/local/bin kubeconform
+
+      - name: Validate manifests across Kubernetes versions
+        # No -ignore-missing-schemas: skipping only the cert-manager CRD means a
+        # removed/unknown core API fails the build instead of being silently skipped.
+        run: |
+          for v in 1.28.0 1.31.0 1.34.0; do
+            echo "::group::kubeconform (Kubernetes $v)"
+            kubeconform -strict -skip Certificate -kubernetes-version "$v" -summary rendered/*.yaml
+            echo "::endgroup::"
+          done
+
+  smoke:
+    name: Smoke test — core services (minikube)
+    runs-on: ubuntu-latest
+    needs: validate
+    steps:
+      - uses: actions/checkout@v6
+
+      - name: Start minikube
+        uses: medyagh/setup-minikube@latest
+
+      - name: Set up Helm
+        uses: azure/setup-helm@v4
+        with:
+          version: v3.16.4
+
+      - name: Deploy Postgres
+        run: |
+          kubectl create namespace meteroid
+          kubectl apply -n meteroid -f k8s/ci/postgres.yaml
+          kubectl -n meteroid rollout status deploy/postgres --timeout=120s
+
+      - name: Build chart dependencies
+        run: helm dependency build "$CHART_DIR"
+
+      - name: Install chart
+        run: |
+          helm install meteroid "$CHART_DIR" \
+            --namespace meteroid \
+            --values k8s/ci/ci-values.yaml \
+            --wait --timeout 8m
+
+      - name: Verify rollouts
+        run: |
+          for d in meteroid-api meteroid-web meteroid-scheduler; do
+            kubectl -n meteroid rollout status "deploy/$d" --timeout=60s
+          done
+          kubectl -n meteroid get pods
+
+      - name: Smoke-check API /health
+        run: |
+          kubectl -n meteroid port-forward svc/meteroid-api 8080:8080 &
+          pf_pid=$!
+          trap 'kill $pf_pid 2>/dev/null || true' EXIT
+          sleep 5
+          code=$(curl -s -o /dev/null -w '%{http_code}' \
+            --retry 5 --retry-delay 3 --retry-all-errors \
+            http://127.0.0.1:8080/health)
+          echo "GET /health -> $code"
+          test "$code" = "200"
+
+      - name: Diagnostics
+        if: failure()
+        run: |
+          kubectl -n meteroid get pods -o wide || true
+          kubectl -n meteroid get events --sort-by=.lastTimestamp || true
+          kubectl -n meteroid describe pods || true
+          for c in api web scheduler; do
+            echo "===== logs: $c ====="
+            kubectl -n meteroid logs -l "app.kubernetes.io/component=$c" \
+              --tail=200 --all-containers --prefix || true
+          done
+
+  smoke-full:
+    name: Smoke test — full stack (minikube)
+    runs-on: ubuntu-latest
+    needs: validate
+    # Heavier and Bitnami-dependency-bound: run on the weekly schedule and on
+    # demand only, and keep it out of the notify gate so its flakiness never
+    # spams issues. A red status here is still visible in the Actions tab.
+    if: github.event_name == 'schedule' || github.event_name == 'workflow_dispatch'
+    steps:
+      - uses: actions/checkout@v6
+
+      - name: Start minikube
+        uses: medyagh/setup-minikube@latest
+        with:
+          cpus: "2"
+          memory: 6g
+
+      - name: Set up Helm
+        uses: azure/setup-helm@v4
+        with:
+          version: v3.16.4
+
+      - name: Build chart dependencies
+        run: helm dependency build "$CHART_DIR"
+
+      - name: Install full chart (bundled postgres, kafka, clickhouse)
+        run: |
+          helm install meteroid "$CHART_DIR" \
+            --namespace meteroid --create-namespace \
+            --values k8s/ci/ci-values-full.yaml \
+            --wait --timeout 12m
+
+      - name: Show workload state
+        run: kubectl -n meteroid get pods,sts,deploy
+
+      - name: Diagnostics
+        if: failure()
+        run: |
+          kubectl -n meteroid get pods -o wide || true
+          kubectl -n meteroid get events --sort-by=.lastTimestamp || true
+          kubectl -n meteroid describe pods || true
+          for c in api web scheduler metering; do
+            echo "===== logs: $c ====="
+            kubectl -n meteroid logs -l "app.kubernetes.io/component=$c" \
+              --tail=200 --all-containers --prefix || true
+          done
+
+  notify:
+    name: Report drift on scheduled failure
+    runs-on: ubuntu-latest
+    # Only the reliable jobs gate the alert, so scheduled drift is surfaced
+    # without false alarms from the heavier full-stack job.
+    needs: [validate, smoke]
+    if: failure() && github.event_name == 'schedule'
+    permissions:
+      issues: write
+    steps:
+      - uses: actions/github-script@v7
+        with:
+          script: |
+            const title = "⚠️ Weekly Helm chart check failed";
+            const runUrl = `${context.serverUrl}/${context.repo.owner}/${context.repo.repo}/actions/runs/${context.runId}`;
+            const { owner, repo } = context.repo;
+            const body = [
+              "The scheduled Helm chart check failed on a run where nothing in the repo changed.",
+              "This usually means external drift — the `tip` images were rebuilt, or the Bitnami",
+              "subcharts / their images moved.",
+              "",
+              `Run: ${runUrl}`,
+            ].join("\n");
+            const open = await github.rest.issues.listForRepo({ owner, repo, state: "open", per_page: 100 });
+            const existing = open.data.find(i => i.title === title);
+            if (existing) {
+              await github.rest.issues.createComment({ owner, repo, issue_number: existing.number, body });
+            } else {
+              await github.rest.issues.create({ owner, repo, title, body });
+            }

@@ -1,0 +1,51 @@
+# Render-only profile (never deployed): layered on top of ci-values.yaml to
+# turn on the optional features so their template guards get schema-checked -
+# platform admin, telemetry, redis, svix, per-service autoscaling (HPAs), and
+# TLS via cert-manager (certificate.yaml). Used by the render/schema matrix.
+global:
+  adminOrganizationId: "org_ci"
+  telemetryTracingEnabled: true
+  telemetryMetricsEnabled: true
+  telemetryOtelEndpoint: "http://otel-collector:4317"
+  redis:
+    url: "redis://meteroid-redis:6379"
+  secrets:
+    svixOperationalWebhookSecret: "ci"
+
+api:
+  config:
+    svixServerUrl: "http://svix:8071"
+  autoscaling:
+    enabled: true
+    minReplicas: 1
+    maxReplicas: 3
+    targetCPUUtilizationPercentage: 80
+scheduler:
+  config:
+    svixServerUrl: "http://svix:8071"
+  autoscaling:
+    enabled: true
+    minReplicas: 1
+    maxReplicas: 3
+    targetCPUUtilizationPercentage: 80
+metering:
+  autoscaling:
+    enabled: true
+    minReplicas: 1
+    maxReplicas: 3
+    targetCPUUtilizationPercentage: 80
+web:
+  autoscaling:
+    enabled: true
+    minReplicas: 1
+    maxReplicas: 3
+    targetCPUUtilizationPercentage: 80
+
+ingress:
+  enabled: true
+  annotations:
+    cert-manager.io/cluster-issuer: "letsencrypt"
+  tls:
+    - secretName: meteroid-tls
+      hosts:
+        - meteroid.ci
